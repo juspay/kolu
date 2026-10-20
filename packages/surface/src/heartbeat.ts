@@ -149,7 +149,15 @@ export interface HeartbeatOptions {
    *  half-open. This is the "liveness is PROGRESS" rule: a multi-MB snapshot
    *  arriving over a cellular tether starves the round-trip probe's own answer,
    *  yet the link is plainly making progress. Omit it (a transport that cannot
-   *  report inbound activity) and the watchdog falls back to silence-only. */
+   *  report inbound activity) and the watchdog falls back to silence-only.
+   *
+   *  BOUNDED by the same running-time budget as the suspension void
+   *  ({@link VOID_BUDGET_FACTOR}): a peer that keeps a frame flowing (the RPC
+   *  protocol's own pong, every interval) while never answering the probe must
+   *  still be declared stale once the budget is spent — otherwise this branch
+   *  would make the watchdog inert on EVERY connected socket, since a pong is
+   *  inbound activity too. The budget converts repeated voids into a stale
+   *  verdict; it never silences one. */
   lastActivity?: () => number;
   /** Report a forced recovery (a missed probe). Optional — run guarded AFTER
    *  `onStale`, so it can never defeat the recovery. */
@@ -347,6 +355,10 @@ export function createHeartbeat(opts: HeartbeatOptions): {
     launchMono = mono();
     probeTimer = setTimeout(() => {
       if (disposed || gen !== generation || !inFlight) return;
+      // The running-time reading, taken once — both void paths below budget
+      // against it, so they cannot disagree about how long a verdict has been
+      // deferred.
+      const currentMono = mono();
       // LIVENESS IS PROGRESS, checked FIRST because it is verdict-free: a frame
       // arrived on this link during the probe's own window, so the link is
       // demonstrably ALIVE (slow, busy, mid-snapshot) — never half-open, whatever
@@ -354,7 +366,20 @@ export function createHeartbeat(opts: HeartbeatOptions): {
       // that would only restart the big frame. Read at the TIMEOUT and compared
       // against the launch's monotonic reading, so a frame that arrived before
       // the probe started does not count.
-      if (lastActivity !== undefined && lastActivity() >= launchMono) {
+      //
+      // BUDGETED, exactly like the suspension void below, and that is
+      // load-bearing rather than tidy: the RPC protocol's own PONG is inbound
+      // activity, arriving every interval on every healthy socket, so without a
+      // budget this branch would void forever and the watchdog could NEVER fire
+      // stale on a socket that pongs but does not serve — inert on exactly the
+      // links it exists for. Once the budget is spent, the void falls through to
+      // the stale verdict, so a peer that pongs while the probe goes unanswered
+      // is still recovered.
+      if (
+        lastActivity !== undefined &&
+        lastActivity() >= launchMono &&
+        currentMono - lastSettledMono <= voidBudgetMs
+      ) {
         abandon();
         tick();
         return;
@@ -366,7 +391,6 @@ export function createHeartbeat(opts: HeartbeatOptions): {
       // link half-open. UNLESS the void budget is spent (a flap that has deferred a
       // verdict for too long of ACTUAL running time): then fall through and fire
       // stale, so voiding can never silence the watchdog.
-      const currentMono = mono();
       const suspended =
         now() - launchWall - (currentMono - launchMono) > SUSPENSION_SLACK_MS;
       if (suspended && currentMono - lastSettledMono <= voidBudgetMs) {

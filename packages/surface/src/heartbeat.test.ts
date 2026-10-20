@@ -467,6 +467,34 @@ describe("createHeartbeat (lifted primitive)", () => {
       dispose();
     });
 
+    it("a socket that keeps a frame flowing but never answers the probe still goes stale — the progress-void is BUDGETED", async () => {
+      // The RPC protocol's own PONG is inbound activity, every interval, on every
+      // healthy socket. Without a budget the progress-void would fire on every
+      // probe and the watchdog could never go stale on a socket that pongs but
+      // does not serve. The budget converts repeated voids into a stale verdict.
+      const onStale = vi.fn();
+      const { dispose } = createHeartbeat({
+        isLive: () => true,
+        onStale,
+        probe: () => new Promise<never>(() => {}), // never answers
+        intervalMs: 1000,
+        timeoutMs: 500,
+        // Lockstep fake clocks: `Date.now()` advances with the fake timers.
+        deps: { now: () => Date.now(), mono: () => Date.now() },
+        // Inbound activity is ALWAYS present (a pong every interval).
+        lastActivity: () => Date.now(),
+      });
+      // Inside the void budget ((1000 + 500) × 3 = 4500ms) the probe is voided —
+      // the link is flowing, so it is not yet declared stale.
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(onStale).not.toHaveBeenCalled();
+      // Past the budget the void converts to stale: a peer that pongs while never
+      // answering the probe is still recovered.
+      await vi.advanceTimersByTimeAsync(6000);
+      expect(onStale).toHaveBeenCalledTimes(1);
+      dispose();
+    });
+
     it("a frame that arrived BEFORE the probe launched does NOT excuse the window", async () => {
       // The comparison is against the launch's monotonic reading, so activity
       // that predates the probe cannot mask a genuinely silent window.
