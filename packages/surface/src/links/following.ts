@@ -258,6 +258,13 @@ export function followingWire<T extends WireTransport>(
   return {
     dispatch,
     current: () => held.transport,
+    // "Liveness is PROGRESS" reads through to whichever generation is current:
+    // a generation that cannot report inbound activity answers `-Infinity`
+    // ("nothing observed"), which can never beat a probe launched at a real
+    // monotonic reading — so an incapable generation falls back to
+    // silence-only exactly as an absent reading would.
+    lastInboundAt: () =>
+      held.transport.lastInboundAt?.() ?? Number.NEGATIVE_INFINITY,
     establishments: () => establishments,
     onEstablished: (handler) => {
       establishmentWatchers.add(handler);

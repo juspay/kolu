@@ -321,6 +321,13 @@ export function createLiveSignal(
     timeoutMs: opts.timeoutMs,
     onStaleReport: opts.onStale ?? warnStale,
     onProbeError: warnProbeThrew,
+    // "Liveness is PROGRESS": a slow-but-flowing link (a multi-MB snapshot
+    // arriving over a cellular tether) must not be declared half-open just
+    // because its round-trip probe answer is queued behind the payload. The
+    // transport reports the monotonic time of its last INBOUND frame; the
+    // heartbeat voids a probe whose window saw activity. Absent (a transport
+    // that cannot report it), the watchdog is silence-only as before.
+    lastActivity: transport.lastInboundAt,
     // Pass-through observability (kolu#2101 J2): the app records the last probe
     // verdict for its diagnostic snapshot. Undefined when the app wants none.
     onProbeSettled: opts.onProbeSettled,

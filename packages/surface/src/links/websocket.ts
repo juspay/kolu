@@ -41,6 +41,7 @@ import { Socket } from "effect/socket";
 import { SurfaceTransportRetired } from "../errors";
 import { rpcSerializationLayer } from "../frameLimit";
 import type { WireStatus, WireTransport } from "../link";
+import { monotonicNow } from "../time";
 import { openWireLink, type WireLink } from "./wire";
 
 /** Close code the link itself uses when {@link WatchableWire.forceReconnect}
@@ -213,6 +214,15 @@ export async function websocketLink(
   let retired = false;
   let retiredCode: number | undefined;
   let currentSocket: WebSocket | undefined;
+  // When this transport last received an inbound frame, on the monotonic clock —
+  // the "liveness is PROGRESS" reading the watchdog folds a timed-out probe
+  // against (`@kolu/surface/heartbeat`'s `lastActivity`, threaded here as
+  // {@link WireTransport.lastInboundAt}). A frame on this socket is proof the
+  // peer is alive and the link is flowing, however slowly, so a probe whose answer
+  // is queued behind a big snapshot must be voided rather than read as half-open.
+  // `-Infinity` until the first frame, which is honestly "no liveness observed
+  // yet" and can never beat a probe launched at a real monotonic reading.
+  let lastInbound = Number.NEGATIVE_INFINITY;
 
   const socket = await Effect.runPromise(
     Socket.fromWebSocket(
@@ -242,6 +252,13 @@ export async function websocketLink(
             setStatus("connecting");
             const ws = connect(opts.url());
             currentSocket = ws;
+            // Stamp every inbound frame (see `lastInbound` above). Registered
+            // alongside Effect's own reader — a plain `message` listener, so it
+            // observes the same events the socket layer reads and adds nothing the
+            // protocol can contend with.
+            ws.addEventListener("message", () => {
+              lastInbound = monotonicNow();
+            });
             // The socket's own `close` is where the terminal-close CLASSIFIER runs —
             // the close CODE is only on this event, and this listener is registered
             // before Effect's, so `retired` is already decided by the time the
@@ -378,6 +395,9 @@ export async function websocketLink(
   return {
     dispatch: link.dispatch,
     dispose: link.dispose,
+    // "Liveness is PROGRESS": the watchdog voids a timed-out probe when a frame
+    // has arrived since the probe launched (see `./link.ts` / `../heartbeat.ts`).
+    lastInboundAt: () => lastInbound,
     diagnostics: {
       dialHistory: () => dialHistory.map((attempt) => ({ ...attempt })),
       epoch: () => epoch,

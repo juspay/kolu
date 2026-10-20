@@ -87,6 +87,14 @@ export interface WatchableWire {
 export interface WireTransport {
   readonly dispatch: SurfaceDispatch;
   readonly wire: WatchableWire;
+  /** A monotonic-millisecond reading of the last INBOUND frame this transport
+   *  received, or `undefined` for a transport that cannot report one. The
+   *  watchdog uses it to apply "liveness is PROGRESS": a probe that times out
+   *  while frames are still arriving is voided rather than read as half-open
+   *  (see `@kolu/surface/heartbeat`'s `lastActivity`). A wire link whose socket
+   *  is readable supplies it; a hand-assembled transport may omit it, and the
+   *  watchdog then falls back to silence-only. */
+  readonly lastInboundAt?: () => number;
 }
 
 // Every dispatch built over a real WIRE transport — by identity. A wire
