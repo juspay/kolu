@@ -157,7 +157,9 @@ const goneHealth: SurfaceHealth = Object.freeze({
  *  new-reference-every-run anti-pattern the performance atlas has banked a win
  *  against. One frozen value from the real constructor answers both. */
 const retiredReadout: SurfaceReadout = Object.freeze(
-  surfaceReadout("retired", goneHealth),
+  // `presentingDown: true` is the honest value for a TERMINAL readout: a retired
+  // wire never re-dials, so there is nothing a grace window could hold back.
+  surfaceReadout("retired", goneHealth, true),
 );
 
 export interface ConnectSurfacesOptions<

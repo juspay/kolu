@@ -41,7 +41,11 @@ export {
 
 import { Effect } from "effect";
 import type { WatchableWire } from "@kolu/surface/link";
-import { gracedDown, onWake } from "@kolu/surface/solid";
+import {
+  DISCONNECT_OVERLAY_GRACE_MS,
+  gracedDown,
+  onWake,
+} from "@kolu/surface/solid";
 import {
   createHeartbeat,
   type HeartbeatConfig,
@@ -152,17 +156,11 @@ const STATUS_OF: Record<ServerLifecycleEvent["kind"], ConnectionStatus> = {
   restarted: "restarted",
 };
 
-/** How long the transport may sit `down` before a consumer's full-screen
- *  "Disconnected" overlay should appear. A forced reconnect — the half-open
- *  watchdog recovering, the link riding out a Wi-Fi roam — closes and reopens
- *  the socket in well under a second, and flashing a full-screen alarm for that
- *  blink is noise. The model's grace-windowed `presentingDown` (derived in the
- *  provider via `gracedDown` over `status`, the SAME window for every source shape)
- *  holds the overlay back until `down` has PERSISTED this long; a genuine sustained
- *  outage still surfaces promptly. Baked, not a knob — a tunable would just be a way
- *  to make the flash reappear. `status()` itself stays INSTANTANEOUS: it gates the
- *  heartbeat probe, the client, and the header dot, none of which want a delay. */
-export const DISCONNECT_OVERLAY_GRACE_MS = 1_000;
+/** The framework's disconnect-overlay grace window, re-exported from
+ *  `@kolu/surface/solid` — it is derived ONCE there (it is what the readout's
+ *  `presentingDown` folds over), and this is the provider's historical import
+ *  path. See {@link DISCONNECT_OVERLAY_GRACE_MS} for the policy. */
+export { DISCONNECT_OVERLAY_GRACE_MS } from "@kolu/surface/solid";
 
 /**
  * THE lifecycle's probe edge — the ONE place `@kolu/surface-app` runs an effect.

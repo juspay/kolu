@@ -12,14 +12,19 @@
  *     is set for `retired` and for nothing else.
  * Plus the memo's two ergonomic properties: reads are free (the fold runs per
  * CHANGE, not per read) and a healthy fold notifies nobody.
+ *
+ * And the GRACED down-state — the fact a full-screen overlay gates on: a
+ * sub-second drop never presents, a sustained one does, and recovery hides
+ * instantly.
  */
 
 import { createComputed, createRoot, createSignal } from "solid-js";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SubHealth, SurfaceHealth } from "./health";
 import type { SurfaceConnectionStatus } from "./liveSignal";
 import {
   createSurfaceReadout,
+  DISCONNECT_OVERLAY_GRACE_MS,
   type SurfaceReadoutStatus,
   surfaceReadout,
 } from "./readout";
@@ -45,6 +50,7 @@ describe("surfaceReadout", () => {
         sub("documents.keys", { error: new Error("Internal server error") }),
         sub("activity", { error: new Error("gone") }),
       ]),
+      false,
     );
     expect(readout.status).toBe("degraded");
     // The names, in enrolment order — "something is not arriving" is the least
@@ -54,6 +60,8 @@ describe("surfaceReadout", () => {
     // A degraded surface heals on its own (the fence re-subscribes) — a reload is
     // the heaviest recovery for the lightest failure.
     expect(readout.needsReload).toBe(false);
+    // ...and there is no transport down-state to present: the socket is live.
+    expect(readout.presentingDown).toBe(false);
   });
 
   it("does NOT degrade on pending — a first frame is what every page load looks like", () => {
@@ -63,6 +71,7 @@ describe("surfaceReadout", () => {
         sub("documents[abc]", { pending: true }),
         sub("preferences"),
       ]),
+      false,
     );
     expect(readout.status).toBe("live");
     expect(readout.stopped).toBeUndefined();
@@ -75,6 +84,7 @@ describe("surfaceReadout", () => {
         sub("terminals[1]", { pending: true }),
         sub("terminals.keys", { error: new Error("boom") }),
       ]),
+      false,
     );
     expect(readout.status).toBe("degraded");
     expect(readout.stopped).toEqual(["terminals.keys"]);
@@ -92,22 +102,26 @@ describe("surfaceReadout", () => {
       const readout = surfaceReadout(
         status,
         fact(false, [sub("preferences", { error: new Error("dropped") })]),
+        true,
       );
       expect(readout.status).toBe(status);
       expect(readout.stopped).toBeUndefined();
+      expect(readout.presentingDown).toBe(true);
     }
   });
 
   it("sets needsReload for `retired` and for nothing else", () => {
     const needsReload: Record<SurfaceReadoutStatus, boolean> = {
-      connecting: surfaceReadout("connecting", fact(false)).needsReload,
-      live: surfaceReadout("live", fact(true)).needsReload,
+      connecting: surfaceReadout("connecting", fact(false), false).needsReload,
+      live: surfaceReadout("live", fact(true), false).needsReload,
       degraded: surfaceReadout(
         "live",
         fact(true, [sub("keys", { error: new Error("x") })]),
+        false,
       ).needsReload,
-      reconnecting: surfaceReadout("reconnecting", fact(false)).needsReload,
-      retired: surfaceReadout("retired", fact(false)).needsReload,
+      reconnecting: surfaceReadout("reconnecting", fact(false), false)
+        .needsReload,
+      retired: surfaceReadout("retired", fact(false), true).needsReload,
     };
     // A `Record` over the five, so a sixth state cannot join without stating its
     // recovery here — the rule lives in one place beside the reload it gates.
@@ -125,8 +139,13 @@ describe("surfaceReadout", () => {
     // surface), and a readiness cell holding a "disconnected" value is neither
     // pending nor erroring — so no sub name covers it. Nothing is arriving and
     // the mirror re-establishes on its own: that is `reconnecting`, one hop up.
-    const readout = surfaceReadout("live", fact(false, [sub("connection")]));
+    const readout = surfaceReadout(
+      "live",
+      fact(false, [sub("connection")]),
+      true,
+    );
     expect(readout.status).toBe("reconnecting");
+    expect(readout.presentingDown).toBe(true);
   });
 });
 
@@ -236,5 +255,86 @@ describe("createSurfaceReadout", () => {
       expect(readout().status).toBe("reconnecting");
       dispose();
     });
+  });
+});
+
+describe("createSurfaceReadout — the graced down-state (presentingDown)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Observe a readout's `presentingDown` as a painted list under a root. The
+   *  `await Promise.resolve()` after the mount and after each write flushes
+   *  `gracedDown`'s deferred `createEffect` (Solid runs effects at the end of a
+   *  batch), so its timer arms before the fake clock advances — the pattern
+   *  `gracedDown.test.ts` documents. */
+  async function watch(initial: SurfaceConnectionStatus) {
+    return createRoot(async (dispose) => {
+      const [status, setStatus] =
+        createSignal<SurfaceConnectionStatus>(initial);
+      const { readout } = createSurfaceReadout(status, () => fact(true));
+      const painted: boolean[] = [];
+      createComputed(() => painted.push(readout().presentingDown));
+      await Promise.resolve();
+      return { setStatus, painted, readout, dispose };
+    });
+  }
+
+  it("never presents a sub-second drop — the watchdog's own recovery window", async () => {
+    const w = await watch("live");
+    expect(w.readout().presentingDown).toBe(false);
+    w.setStatus("reconnecting");
+    await Promise.resolve();
+    // Inside the grace: still false.
+    vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS - 100);
+    expect(w.readout().presentingDown).toBe(false);
+    // Recovered before the window elapsed: never painted true once.
+    w.setStatus("live");
+    await Promise.resolve();
+    vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS * 4);
+    expect(w.readout().presentingDown).toBe(false);
+    expect(w.painted).not.toContain(true);
+    w.dispose();
+  });
+
+  it("presents a SUSTAINED down-state once the grace elapses", async () => {
+    const w = await watch("live");
+    w.setStatus("reconnecting");
+    await Promise.resolve();
+    vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS - 1);
+    expect(w.readout().presentingDown).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(w.readout().presentingDown).toBe(true);
+    // The instantaneous status never moved with the grace — the dot/probe/client
+    // read `reconnecting` from the instant it dropped.
+    expect(w.readout().status).toBe("reconnecting");
+    w.dispose();
+  });
+
+  it("hides INSTANTLY on recovery — no second window on the way down", async () => {
+    const w = await watch("live");
+    w.setStatus("reconnecting");
+    await Promise.resolve();
+    vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS);
+    expect(w.readout().presentingDown).toBe(true);
+    w.setStatus("live");
+    await Promise.resolve();
+    // No timer advance: the falling edge is instant.
+    expect(w.readout().presentingDown).toBe(false);
+    expect(w.readout().status).toBe("live");
+    w.dispose();
+  });
+
+  it("presents `retired` once graced like any other non-live state", async () => {
+    const w = await watch("live");
+    w.setStatus("retired");
+    await Promise.resolve();
+    vi.advanceTimersByTime(DISCONNECT_OVERLAY_GRACE_MS);
+    expect(w.readout().presentingDown).toBe(true);
+    expect(w.readout().needsReload).toBe(true);
+    w.dispose();
   });
 });

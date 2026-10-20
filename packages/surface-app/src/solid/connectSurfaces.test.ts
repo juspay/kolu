@@ -177,6 +177,9 @@ describe("connectSurfaces — one wire, multi-surface, heartbeat by construction
         status: "degraded",
         stopped: ["b/conn"],
         needsReload: false,
+        // A degraded surface has a LIVE socket — the news is a subscription, not
+        // the transport — so it never presents a transport down-state.
+        presentingDown: false,
       });
 
       await conn.dispose();
@@ -347,6 +350,7 @@ describe("connectSurfaces — the ROOTED bundle (an unprefixed core beside the s
         status: "degraded",
         stopped: ["floor/floor"],
         needsReload: false,
+        presentingDown: false,
       });
       await conn.dispose();
       dispose();

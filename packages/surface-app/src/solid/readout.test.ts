@@ -52,6 +52,7 @@ describe("connectSurface().readout", () => {
       expect(conn.readout()).toEqual({
         status: "connecting",
         needsReload: false,
+        presentingDown: false,
       });
 
       const ws = await d.nth(1);
@@ -81,7 +82,11 @@ describe("connectSurface().readout", () => {
       // The stream re-delivers: the sub's error() self-clears, and so does the
       // readout. Nothing latches at this altitude that does not latch beneath.
       setError(undefined);
-      expect(conn.readout()).toEqual({ status: "live", needsReload: false });
+      expect(conn.readout()).toEqual({
+        status: "live",
+        needsReload: false,
+        presentingDown: false,
+      });
 
       await conn.dispose();
       dispose();
@@ -116,6 +121,7 @@ describe("connectSurface().readout", () => {
       expect(conn.readout()).toEqual({
         status: "reconnecting",
         needsReload: false,
+        presentingDown: false,
       });
 
       // The link's own re-dial heals it (the sub's error clears with its next
@@ -131,7 +137,13 @@ describe("connectSurface().readout", () => {
       // re-derive which states are terminal.
       (await d.nth(2)).close(STALE_PROCESS_CLOSE_CODE);
       await settle();
-      expect(conn.readout()).toEqual({ status: "retired", needsReload: true });
+      expect(conn.readout()).toEqual({
+        status: "retired",
+        needsReload: true,
+        // NOT yet presented: `retired` is graced like every other not-live
+        // state, so the overlay waits out `DISCONNECT_OVERLAY_GRACE_MS` first.
+        presentingDown: false,
+      });
 
       await conn.dispose();
       dispose();

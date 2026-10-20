@@ -47,8 +47,27 @@
  */
 
 import { type Accessor, createMemo, createRoot } from "solid-js";
+import { gracedDown } from "./gracedDown";
 import type { SurfaceHealth } from "./health";
 import type { SurfaceConnectionStatus } from "./liveSignal";
+
+/** How long the wire may sit not-`live` before a consumer's full-screen
+ *  "Disconnected" overlay should appear. A forced reconnect — the half-open
+ *  watchdog recovering, the link riding out a Wi-Fi roam — closes and reopens
+ *  the socket in well under a second, and flashing a full-screen alarm for that
+ *  blink is noise; a genuine sustained outage still surfaces promptly.
+ *
+ *  It is the framework's number, not an app's, and it is BAKED rather than a
+ *  knob: a tunable would just be a way to make the flash reappear. It is the
+ *  window {@link createSurfaceReadout} folds `presentingDown` over, so every
+ *  consumer of a connect seam gates its overlay on the SAME grace instead of
+ *  re-deriving one (or forgetting to). `status` itself stays INSTANTANEOUS — the
+ *  header dot, the probe gate and the client all read it without a delay.
+ *
+ *  `@kolu/surface-app` re-exports this as `DISCONNECT_OVERLAY_GRACE_MS` (its
+ *  historical home), so an app that imported it from the provider keeps one
+ *  import path. */
+export const DISCONNECT_OVERLAY_GRACE_MS = 1_000;
 
 /** The five states an indicator may report — the transport's four, plus the one
  *  it cannot see. `degraded` is spelled the same way `gateStatus` spells it
@@ -64,6 +83,16 @@ export type SurfaceReadoutStatus = SurfaceConnectionStatus | "degraded";
 export interface TransportReadout {
   readonly status: Exclude<SurfaceReadoutStatus, "degraded">;
   readonly stopped?: undefined;
+  /** The grace-windowed "should a consumer present its down-state *now*"? fact:
+   *  `true` only once the readout has been not-`live` continuously for
+   *  {@link DISCONNECT_OVERLAY_GRACE_MS}, and back to `false` the instant it
+   *  recovers. This is the bit an OVERLAY gates on — a sub-second watchdog
+   *  forced-reconnect never presents, a sustained outage does. It is distinct
+   *  from `status`, which stays instantaneous for the dot, the probe gate and
+   *  the client. `retired` is a definitive down, so it presents once graced like
+   *  any other non-`live` state. See {@link createSurfaceReadout}, which derives
+   *  it once for every consumer. */
+  readonly presentingDown: boolean;
   /** True for `retired`, and ONLY for `retired`: the server closed this tab at
    *  the handshake because the process that served it has been replaced, so the
    *  link will never dial again and there is nothing to wait for. The rule lives
@@ -78,6 +107,10 @@ export interface TransportReadout {
  *  always name what is missing. */
 export interface DegradedReadout {
   readonly status: "degraded";
+  /** Always `false`: a degraded surface has a LIVE socket — the news is a
+   *  subscription riding it, not the transport — so it never presents a
+   *  transport down-state. The socket's own `status` is `live`. */
+  readonly presentingDown: false;
   /** The enrolled subscriptions that have STOPPED (their self-clearing `error()`
    *  is set), in enrolment order — `health().subs`'s own names, which is why
    *  they read as `preferences`, `terminals.keys` or `documents[abc]` rather
@@ -115,8 +148,10 @@ export type SurfaceReadout = TransportReadout | DegradedReadout;
 export function surfaceReadout(
   status: SurfaceConnectionStatus,
   health: SurfaceHealth,
+  presentingDown: boolean,
 ): SurfaceReadout {
-  if (status !== "live") return { status, needsReload: status === "retired" };
+  if (status !== "live")
+    return { status, needsReload: status === "retired", presentingDown };
   const stopped = health.subs
     .filter((sub) => sub.error !== undefined)
     .map((sub) => sub.name);
@@ -127,17 +162,24 @@ export function surfaceReadout(
       status: "degraded",
       stopped: stopped as [string, ...string[]],
       needsReload: false,
+      presentingDown: false,
     };
-  if (!health.live) return { status: "reconnecting", needsReload: false };
-  return { status: "live", needsReload: false };
+  if (!health.live)
+    return { status: "reconnecting", needsReload: false, presentingDown };
+  return { status: "live", needsReload: false, presentingDown: false };
 }
 
 /** Two readouts that say the same thing. The name list is compared by VALUE:
  *  the healthy case folds to the same (empty) evidence on every recompute, so
  *  this is what keeps a healthy page from handing every bound indicator a fresh
- *  object to re-render on. */
+ *  object to re-render on. `presentingDown` is compared so the graced edge —
+ *  which flips while `status` is otherwise unchanged — still notifies. */
 function sameReadout(was: SurfaceReadout, now: SurfaceReadout): boolean {
-  if (was.status !== now.status || was.needsReload !== now.needsReload)
+  if (
+    was.status !== now.status ||
+    was.needsReload !== now.needsReload ||
+    was.presentingDown !== now.presentingDown
+  )
     return false;
   const a = was.stopped ?? [];
   const b = now.stopped ?? [];
@@ -179,15 +221,49 @@ export interface SurfaceReadoutHandle {
  * It takes a `createRoot` of its own because the seams that call it run OUTSIDE
  * any reactive owner (an app's `await connectSurface(...)` at module top level),
  * where an unowned memo would leak.
+ *
+ * It also derives `presentingDown` ONCE for every consumer: the raw fold is
+ * wrapped through {@link gracedDown} over "the readout is not `live`", so a
+ * sub-second drop/reconnect never presents and a sustained one does — the same
+ * policy every app had to remember to wire, now un-forgettable. That is why the
+ * graced predicate reads the FOLDED status (so a mirror whose upstream is down
+ * presents too), while the underlying `status` the dot/probe/client read stays
+ * instantaneous.
  */
 export function createSurfaceReadout(
   status: Accessor<SurfaceConnectionStatus>,
   health: Accessor<SurfaceHealth>,
 ): SurfaceReadoutHandle {
-  return createRoot((dispose) => ({
-    readout: createMemo(() => surfaceReadout(status(), health()), undefined, {
-      equals: sameReadout,
-    }),
-    dispose,
-  }));
+  return createRoot((dispose) => {
+    // The raw fold WITHOUT the graced bit — the input to both the grace window
+    // and the final readout. Folded through the same `equals` gate as the final
+    // one, so a healthy page's churn notifies neither.
+    const raw = createMemo(
+      () => surfaceReadout(status(), health(), false),
+      undefined,
+      {
+        equals: sameReadout,
+      },
+    );
+    // The grace-windowed "should a consumer present its down-state now?" fact.
+    // Reads the FOLDED status so a mirror (live socket, upstream down → folds to
+    // `reconnecting`) is graced like any other not-live readout.
+    const down = gracedDown(
+      () => raw().status !== "live",
+      DISCONNECT_OVERLAY_GRACE_MS,
+    );
+    return {
+      readout: createMemo(
+        (): SurfaceReadout => {
+          const base = raw();
+          return base.status === "live" || base.status === "degraded"
+            ? base
+            : { ...base, presentingDown: down() };
+        },
+        undefined,
+        { equals: sameReadout },
+      ),
+      dispose,
+    };
+  });
 }

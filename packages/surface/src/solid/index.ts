@@ -88,6 +88,7 @@ export {
 export {
   createSurfaceReadout,
   type DegradedReadout,
+  DISCONNECT_OVERLAY_GRACE_MS,
   type SurfaceReadout,
   surfaceReadout,
   type SurfaceReadoutHandle,
