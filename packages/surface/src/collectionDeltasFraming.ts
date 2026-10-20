@@ -93,7 +93,17 @@ export function deltasSizes<K, T>(
   );
   const entryJson = Schema.encodeUnknownSync(Schema.Tuple([keySchema, schema]));
   const keyJson = Schema.encodeUnknownSync(keySchema);
-  const bytes = (encoded: unknown): number => JSON.stringify(encoded).length;
+  // BYTES, not UTF-16 code units. `String.length` counts code units, so a CJK or
+  // emoji value is up to 3× larger on the wire than it measures — which would turn
+  // a 2 s drain into 6 s and slip past the ping interval the budget is sized
+  // against. `Buffer.byteLength` on the server leg this runs on; `TextEncoder` as
+  // the isomorphic fallback (the module is shared with the browser bundle).
+  const bytes = (encoded: unknown): number => {
+    const text = JSON.stringify(encoded);
+    return typeof Buffer !== "undefined"
+      ? Buffer.byteLength(text)
+      : new TextEncoder().encode(text).length;
+  };
   // Measure each frame ONCE, however many subscribers read it. A collection's
   // `deltasBus` fans ONE value object out to every subscriber (`inMemoryChannel`),
   // and every subscriber's handler runs the fast-path test on that same object —

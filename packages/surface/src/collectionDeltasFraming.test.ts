@@ -212,6 +212,17 @@ describe("deltasSizes — measuring a shared frame once", () => {
       spy.mockRestore();
     }
   });
+
+  it("measures BYTES, not UTF-16 code units — a CJK value is up to 3x larger on the wire", () => {
+    const sizes = deltasSizes<number, V>(keySchema, valueSchema);
+    const ascii: Msg = { kind: "snapshot", entries: [[1, { name: "aaaa" }]] };
+    const cjk: Msg = { kind: "snapshot", entries: [[1, { name: "漢字漢字" }]] };
+    // Same JSON CODE-UNIT length (both values are 4 characters) …
+    expect(JSON.stringify(ascii).length).toBe(JSON.stringify(cjk).length);
+    // … but the CJK value is 3 bytes per character on the wire, so its frame
+    // measures strictly larger. A code-unit budget would have called them equal.
+    expect(sizes.frame(cjk)).toBeGreaterThan(sizes.frame(ascii));
+  });
 });
 
 describe("the part budget arithmetic", () => {
