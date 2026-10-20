@@ -838,6 +838,15 @@ something else — an index, a patched document set, a running total — the fra
 itself is the answer, so the whole-collection `.use()` of a `deltas` collection
 carries one more member:
 
+**Frames are BOUNDED, and you never see it.** A snapshot (or a coalesced delta)
+that scales with the set is split into `RPC_STREAM_CHUNK_BYTES` parts on the wire
+and reassembled at the client face before the store, any `fold`, `mirrorRemoteSurface`
+or a `SurfaceMap` fold sees it — so `init`/`step` receive exactly the whole frames
+described below and the frame format is unchanged for a small collection. (The
+`CollectionDeltasMsg` arms carry an optional internal `part` marker purely so the
+reassembler can join them; a consumer never meets one.) The *why* — the drain
+arithmetic behind 256 KiB — is under the wire's frame budget above.
+
 ```ts
 const view = client.collections.entries.use();
 
@@ -1803,9 +1812,10 @@ back in place of a transport-only `status`.
 | Export | Type | Meaning |
 | --- | --- | --- |
 | `SurfaceReadoutStatus` | `"connecting" \| "live" \| "degraded" \| "reconnecting" \| "retired"` | the five states. Type your wording table `Record<SurfaceReadoutStatus, …>` and a new state is a type error in your file, not a silent default |
-| `SurfaceReadout` | `TransportReadout \| DegradedReadout` | `{ status, needsReload }`, plus `stopped` on the degraded arm |
-| `surfaceReadout(status, health)` | `→ SurfaceReadout` | the pure fold — unit-test your look table against every state without a wire |
-| `createSurfaceReadout(status, health)` | `→ { readout, dispose }` | the memoized accessor over the two reactive facts, in a root of its own (the connect seams call this and fold `dispose` into theirs) |
+| `SurfaceReadout` | `TransportReadout \| DegradedReadout` | `{ status, presentingDown, needsReload }`, plus `stopped` on the degraded arm |
+| `surfaceReadout(status, health, presentingDown)` | `→ SurfaceReadout` | the pure fold — unit-test your look table against every state without a wire. The graced bit is passed IN (the pure fold owns no clock) |
+| `createSurfaceReadout(status, health)` | `→ { readout, dispose }` | the memoized accessor over the two reactive facts, in a root of its own. It also derives `presentingDown` ONCE, so no consumer has to remember the grace policy |
+| `DISCONNECT_OVERLAY_GRACE_MS` | `number` | 1 000. The one grace window `presentingDown` folds over — baked, never a knob |
 
 - **`live` is the conjunction.** The socket is live, the fact agrees, and nothing
   enrolled is erroring. A socket that is open and answering under a dead
@@ -1819,6 +1829,21 @@ back in place of a transport-only `status`.
   every page load looks like. This is a universal default and not app policy —
   unlike `gateStatus`, the *gate's* verdict, where a pending first frame
   legitimately blocks the body.
+- **`presentingDown` is the GRACED down-state** — the bit a full-screen overlay
+  gates on. It is `false` while `status` is `live` or `degraded`, and once `status`
+  has been continuously not-live for `DISCONNECT_OVERLAY_GRACE_MS` (1 s) it turns
+  `true`; a recovery flips it back INSTANTLY, with no second window. It exists
+  because every app that read `status` directly flashed a full-screen alarm for
+  every sub-second watchdog forced-reconnect (the half-open recovery, a Wi-Fi
+  roam), and every app that smoothed it by hand re-derived the same number.
+  `createSurfaceReadout` derives it once, from the same window, for `connectSurface`
+  / `connectSurfaces` and every consumer of a readout — so the policy cannot be
+  forgotten. A **retired** readout presents immediately (a retired wire never
+  re-dials; there is nothing a grace window could hold back) — the framework's one
+  frozen `retired` readout carries `presentingDown: true`.
+- **`status` itself stays INSTANTANEOUS.** The header dot, the heartbeat probe
+  gate and the client read the raw state with no delay; only the overlay gate is
+  graced. Do not debounce `status`.
 - **`needsReload`** is true for `retired` and nothing else: the one state a reload,
   and only a reload, recovers. Read it rather than keeping a list of which states
   are terminal — a list read `down` as transient once, and drew "reconnecting…"
@@ -1871,7 +1896,11 @@ Two consequences a member author owns:
 
 - **No member's payload may scale with user data.** Chunk it into bounded calls
   (`scratch.write`'s `appendTo` continuation is the worked example) or cap it
-  with a typed refusal. The cap is a backstop, not a budget.
+  with a typed refusal. The cap is a backstop, not a budget. The framework bounds
+  the one member whose size is not the author's to choose — a collection's
+  `deltas` snapshot scales with the number of entries — by splitting it into
+  `RPC_STREAM_CHUNK_BYTES` parts (next section); every other member is still the
+  author's.
 - **Refuse client-side, before send.** A frame that would bust the limit must be
   rejected with an honest message rather than handed to the transport to die on.
 - `1009` must stay OUT of any `isTerminalClose` set — it is recoverable, and
@@ -1901,6 +1930,7 @@ you build it.)
 | `base64CharsFor(rawBytes)` | `(number) → number` | `ceil(R / 3) * 4`. |
 | `base64DecodedLength(data)` | `(string) → number` | Decoded size without decoding — for a size gate that must not materialize a buffer. |
 | `frameBytesFor(base64Chars)` | `(number) → number` | What a frame carrying that payload costs, envelope included. Hand it to `exceedsFrameLimit` for a pre-send refusal. |
+| `RPC_STREAM_CHUNK_BYTES` | `number` | 256 KiB. The budget one OUTBOUND STREAM frame may carry before the framework splits it — a DRAIN bound, far under the 16 MiB cap. See below. |
 
 Three things the derivation turns on, each of which a re-derivation gets wrong:
 
@@ -1924,6 +1954,22 @@ than rotting a comment.
 size policy cap, an extension allowlist, the wording of a refusal, where the
 bytes land on disk — those are the consuming app's (kolu's own live in
 `@kolu/padi-client/upload`). Chunking is wire physics; what you'll accept is not.
+
+**The framework bounds its OWN frames too — a fancier budget.** A collection's
+batched `deltas` snapshot re-sends the whole set on every subscribe and every
+reconnect, so for a long conversation that one frame is megabytes; on a slow link
+it starves Effect's keep-alive (the ping shares the socket) and the loop never
+ends. The sender no longer lets a `deltas` frame scale with the set: a snapshot
+(or a large coalesced delta) is split into `RPC_STREAM_CHUNK_BYTES` parts at the
+server, each a separate ack-gated frame, and `buildSurfaceFace` reassembles them
+before any consumer sees a frame — `useCollection`, `fold`, `mirrorRemoteSurface`
+and a `SurfaceMap` fold are all transparent. *Why 256 KiB and not the 16 MiB cap:*
+the cap answers "will the decoder reject this?"; the drain budget answers "will
+this frame still be in flight when the next ping fires?". A subscription's frames
+are ack-gated, so at most one part is in flight; 256 KiB drains in ~2 s at a
+1 Mbit/s floor plus a ~0.5 s ack round trip — comfortably inside the 5 s ping
+interval. The split and the reassembly both live beside the wire's frame budget
+(in the package's `collectionDeltasFraming` module).
 
 ## Cross-cutting invariants
 

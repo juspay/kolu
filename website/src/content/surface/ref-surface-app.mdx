@@ -858,7 +858,7 @@ LOOK of an uncaught render throw (below).
 | Accessor | Meaning |
 | --- | --- |
 | `status()` | `"live" \| "reconnecting" \| "restarted" \| "down"` |
-| `presentingDown()` | grace-windowed down state |
+| `presentingDown()` | grace-windowed down state — `true` only once `status()` has been not-live for `DISCONNECT_OVERLAY_GRACE_MS` (1 s; re-exported from `@kolu/surface/solid`, and folded into a readout's `presentingDown`) |
 | `server()` | `{ commit, … }` server identity |
 | `reload()` | reload for an update |
 | `setAttention(n)` | OS app badge + title |
