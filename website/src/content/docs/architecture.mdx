@@ -491,9 +491,10 @@ _out_. The map, grouped:
   line — never building it. The Agents setting's **profiles** — Agent Plugins,
   each a repository's `plugin.json` — are the one thing kolu-server builds: it
   locks each reference, builds it with upstream's `lib.mkProfile` at the
-  package's revision for the host's system, and ships the result with `surface-remote`'s `deliverClosure`, the route an agent's
-  closure takes. That host's padi only records the set that landed and points
-  `current` at the package),
+  package's revision for the host's system, and ships the result with
+  `surface-remote`'s `deliverClosure`, the route an agent's closure takes. That
+  host's padi only records the set that landed and points `current` at the
+  package),
   and a set of
   zero-dependency utilities (`log`, `nonempty`, `shell-quote`, `html-escape`, `byte-units` — the one way kolu writes a byte count, in binary units, …).
 

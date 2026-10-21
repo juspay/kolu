@@ -17,12 +17,9 @@
  * will not lock or build is said under its entry in Settings and on the hosts
  * it could not reach, never dropped.
  *
- * A profile is an Agent Plugin: its tree holds a `plugin.json`, and the
- * plugins, packages, env and settings a plugin does not carry sit in that
- * file's `extensions."asia.nixos.agent-distro"`. A tree still holding an
- * `agent-distro.nix` does not build — upstream refuses that format, and its
- * migration message is what the red line under the row says, kolu adding no
- * words of its own.
+ * A profile is an Agent Plugin — its tree holds a `plugin.json`. A tree still
+ * holding an `agent-distro.nix` does not build: upstream refuses that format,
+ * and its message is what the red line under the row says, kolu adding none.
  */
 
 import { execFile } from "node:child_process";
@@ -52,10 +49,9 @@ export interface BuiltProfile {
 }
 
 /** Nix's words for a failure, on one line: its LAST `error:` and what follows,
- *  else its last line. Last, because Nix prints the trace that led to a `throw`
- *  before the thrown message — the failure's own words come last, and that is
- *  what a profile's row must say (agent-distro's migration message, say), not
- *  the evaluation frames above it. */
+ *  else its last line. Nix prints the trace that led to a `throw` above the
+ *  thrown message, and the row under a profile must say the message, not the
+ *  frames. */
 export function nixWords(stderr: string, fallback: string): string {
   const text = stderr.trim();
   const at = text.lastIndexOf("error:");

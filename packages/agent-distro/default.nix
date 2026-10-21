@@ -58,10 +58,9 @@
 let
   inherit (pkgs) lib;
 
-  # agent-distro's flake outputs, for its `lib` only (`mkProfile`, `caIndex`,
-  # `cache`, `schedule`, `stateDirectory`, …). kolu's nixpkgs stands in as the
-  # `nixpkgs` input because nothing here instantiates the flake's own package
-  # sets — this `distro` is a plain value.
+  # agent-distro's flake outputs with kolu's nixpkgs as its `nixpkgs` input.
+  # Only `lib` is read: a plain value, so this never instantiates the flake's
+  # own per-system package sets.
   distro = (import "${src}/flake.nix").outputs {
     nixpkgs = {
       outPath = pkgs.path;
@@ -69,43 +68,34 @@ let
     };
   };
 
-  # The launchers, however, are built with AGENT-DISTRO'S OWN locked nixpkgs,
-  # not kolu's: its `flake.lock` pins one, and the package upstream publishes
-  # (and kolu delivers to every host from its content-addressed index) is the
-  # one that pin produces. Any other package set — kolu's npins nixpkgs, its
-  # overlays, its config — is a different derivation hash, so the binary cache
-  # holds nothing for it and every kolu build compiles five harnesses from
-  # source (omp's Rust build alone is many minutes). The floor a user runs and
-  # the agents a host receives are then the same store path, which is the
-  # invariant worth having beyond the speed.
-  #
-  # `import`ed exactly as upstream's own flake does it — its `packageSets`:
-  # the same system, `config.allowUnfree = true` (Claude Code is unfree), no
-  # overlays — because a byte off is a cache miss.
-  upstreamNixpkgs = (builtins.fromJSON (builtins.readFile "${src}/flake.lock")).nodes.nixpkgs.locked;
-  upstreamNixpkgsPath = builtins.fetchTarball {
-    url = "https://github.com/NixOS/nixpkgs/archive/${upstreamNixpkgs.rev}.tar.gz";
-    sha256 = upstreamNixpkgs.narHash;
+  # The launchers are built with AGENT-DISTRO'S OWN locked nixpkgs, not kolu's:
+  # any other package set hashes differently, so the cache holds nothing and
+  # every kolu build compiles five harnesses — and the floor would not be the
+  # store path kolu delivers to every host. `import`ed exactly as upstream's
+  # flake does it (same system, `allowUnfree` for Claude Code, no overlays),
+  # because a byte off is a cache miss.
+  lockedNixpkgs = (builtins.fromJSON (builtins.readFile "${src}/flake.lock")).nodes.nixpkgs.locked;
+  nixpkgsSource = builtins.fetchTarball {
+    url = "https://github.com/NixOS/nixpkgs/archive/${lockedNixpkgs.rev}.tar.gz";
+    sha256 = lockedNixpkgs.narHash;
   };
-  pkgsUpstream = import upstreamNixpkgsPath {
+  pkgsUpstream = import nixpkgsSource {
     inherit (pkgs.stdenv.hostPlatform) system;
     config = { allowUnfree = true; };
   };
-  # …and `nixpkgs` as upstream's flake passes it: its own input's `rev` and
-  # `narHash`, so a launcher names nixpkgs by a locked reference (`Info.nixpkgs`,
-  # `lib/nixpkgs-reference.nix`) rather than holding its ~200 MB source. Passing
-  # the path alone changes what the launchers bake, which is a different
-  # derivation and a cache miss — so this is not cosmetic.
-  nixpkgsUpstream = {
-    outPath = upstreamNixpkgsPath;
-    inherit (upstreamNixpkgs) rev narHash;
+  # The shape upstream's flake passes as `nixpkgs`: its `rev`/`narHash` let the
+  # launchers name nixpkgs by a locked reference instead of holding its source,
+  # and baking the path alone is a different derivation.
+  nixpkgsInput = {
+    outPath = nixpkgsSource;
+    inherit (lockedNixpkgs) rev narHash;
   };
 
   # The one package, as upstream builds it — the same kind of store path kolu
   # delivers to a host as `current`.
   package = (distro.lib.mkLaunchers {
     pkgs = pkgsUpstream;
-    nixpkgs = nixpkgsUpstream;
+    nixpkgs = nixpkgsInput;
   }).package;
 
   # The manifest: the floor described by the SAME value that builds it.
