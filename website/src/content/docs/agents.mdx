@@ -142,9 +142,9 @@ A profile is an Agent Plugin: `plugin.json`, a skill in each
 `skills/<name>/SKILL.md`, optionally `mcp.json` — and, for what an Agent Plugin
 does not carry, the `extensions."asia.nixos.agent-distro"` block: more plugins,
 `packages`, `env` and `settings`
-([Profiles](https://agent-distro.nixos.asia/#profiles)). A repository that
-already installed APM has that block instead of the generated client
-directories ([From APM](https://agent-distro.nixos.asia/#from-apm)).
+([Profiles](https://agent-distro.nixos.asia/#profiles)). A repository that used
+APM moves its `apm.yml` dependencies into that block
+([From APM](https://agent-distro.nixos.asia/#from-apm)).
 
 kolu does not hand your references to the agents. The machine running kolu
 **builds** each profile — fetches it, notes the revision it found, and builds

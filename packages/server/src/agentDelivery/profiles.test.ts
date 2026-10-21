@@ -50,6 +50,28 @@ describe("nixWords", () => {
     expect(nixWords("one\ntwo\nthree\n", "exit 1")).toBe("three");
   });
 
+  it("takes the thrown message, not an `error:` frame the trace above it prints", () => {
+    // What `builtins.throw` in agent-distro's `mkProfile` prints for a
+    // repository that still carries an `agent-distro.nix`: the trace frames
+    // come first, and one of them carries `error:` too.
+    expect(
+      nixWords(
+        [
+          "error: … while evaluating the 'name' attribute of a derivation",
+          "",
+          "       … while evaluating a branch condition",
+          "",
+          "error: /home/me/repo/agent-distro.nix: agent-distro.nix is no longer read — a profile is a plugin.json.",
+          'Move its fields into `extensions."asia.nixos.agent-distro"` (see https://agent-distro.nixos.asia/#profiles)',
+        ].join("\n"),
+        "exit 1",
+      ),
+    ).toBe(
+      "error: /home/me/repo/agent-distro.nix: agent-distro.nix is no longer read — a profile is a plugin.json. " +
+        'Move its fields into `extensions."asia.nixos.agent-distro"` (see https://agent-distro.nixos.asia/#profiles)',
+    );
+  });
+
   it("is the fallback when Nix said nothing", () => {
     expect(nixWords("  \n", "exit 1")).toBe("exit 1");
   });
