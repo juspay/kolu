@@ -105,8 +105,10 @@ This page is about reaching the browser app. For shell-level remote terminals
 over ssh, use `kolu --host user@box` (`ls`, `create`, `send`, `snapshot`, …)
 instead. Once you reach kolu, [Add another machine](/remote-hosts) covers putting
 another machine's terminals on your canvas over ssh — how to add hosts, switch
-between them, and the ssh-session limitations (the macOS Keychain, `ssh-agent`,
-the clipboard).
+between them, and the ssh-session limitations (the macOS Keychain, the clipboard).
+A forwarded ssh-agent is **not** one of those limitations: with `ForwardAgent yes`
+for the host, kolu passes the agent through to remote terminals
+([details](/remote-hosts#forwarded-ssh-agent)).
 
 ## Manage the serve
 

@@ -78,12 +78,14 @@ describe("composeSpawnInput env layering", () => {
   let savedColorterm: string | undefined;
   let savedKavalSocket: string | undefined;
   let savedTerminalId: string | undefined;
+  let savedSshAuthSock: string | undefined;
 
   beforeEach(() => {
     savedShell = process.env.SHELL;
     savedColorterm = process.env.COLORTERM;
     savedKavalSocket = process.env.KAVAL_SOCKET;
     savedTerminalId = process.env.KAVAL_TERMINAL_ID;
+    savedSshAuthSock = process.env.SSH_AUTH_SOCK;
   });
 
   afterEach(() => {
@@ -96,6 +98,8 @@ describe("composeSpawnInput env layering", () => {
     // Same reason as KAVAL_SOCKET: this worker may itself run inside a kolu
     // terminal, so it legitimately carries KAVAL_TERMINAL_ID — restore, not delete.
     restore("KAVAL_TERMINAL_ID", savedTerminalId);
+    // And this worker may itself be an ssh session with a forwarded agent.
+    restore("SSH_AUTH_SOCK", savedSshAuthSock);
   });
 
   it("koluIdentityEnv overrides a same-named cleanEnv (parent) key", () => {
@@ -172,6 +176,50 @@ describe("composeSpawnInput env layering", () => {
     // (an optional field of the spec), never a bare/empty PADI_SOCKET.
     const input = composeSpawnInput({ id: "T-no-padi" }, info(), spec());
     expect(input.env.PADI_SOCKET).toBeUndefined();
+  });
+
+  it("stamps the forwarded ssh-agent LINK over cleanEnv's SSH_AUTH_SOCK", () => {
+    // A remote host's daemon outlives the ssh session, so the link's own socket
+    // (what cleanEnv inherited from the daemon's first link) is a path sshd has
+    // already deleted. The spec carries the daemon-owned stable link, and that
+    // must be what every terminal sees — otherwise `git push` fails on link #2
+    // (juspay/kolu#2313).
+    process.env.SSH_AUTH_SOCK = "/tmp/ssh-XXXX/agent.DEAD";
+    const LINK = "/run/user/1000/padi-9f2c1a4b8e0d6f37/ssh-auth.sock";
+
+    const input = composeSpawnInput(
+      { id: "T-ssh-auth-link" },
+      info(),
+      spec({ sshAuthSock: LINK }),
+    );
+
+    expect(input.env.SSH_AUTH_SOCK).toBe(LINK);
+  });
+
+  it("leaves SSH_AUTH_SOCK exactly as cleanEnv composed it when the spec has none", () => {
+    // A LOCAL host never runs the `--stdio` bridge, so no link exists and the
+    // spec field is absent. Today's behaviour must be byte-identical: the
+    // daemon's own inherited socket rides through untouched.
+    process.env.SSH_AUTH_SOCK = "/tmp/ssh-XXXX/agent.LOCAL";
+
+    const input = composeSpawnInput({ id: "T-ssh-auth-local" }, info(), spec());
+
+    expect(input.env.SSH_AUTH_SOCK).toBe("/tmp/ssh-XXXX/agent.LOCAL");
+  });
+
+  it("stamps the link even when the parent env carries no SSH_AUTH_SOCK", () => {
+    // A host whose daemon was booted from a non-ssh context still gets the link
+    // once any bridge registers one — the link is the authority, not cleanEnv.
+    delete process.env.SSH_AUTH_SOCK;
+    const LINK = "/run/user/1000/padi-9f2c1a4b8e0d6f37/ssh-auth.sock";
+
+    const input = composeSpawnInput(
+      { id: "T-ssh-auth-only" },
+      info(),
+      spec({ sshAuthSock: LINK }),
+    );
+
+    expect(input.env.SSH_AUTH_SOCK).toBe(LINK);
   });
 
   it("stamps KAVAL_TERMINAL_ID with the terminal's own id", () => {

@@ -30,6 +30,7 @@ import {
   resolvePadiStateRoot,
 } from "@kolu/padi-client/rendezvous";
 import {
+  type DaemonHomePaths,
   gatePid,
   isHolderLive,
   resolveDaemonHome,
@@ -99,6 +100,26 @@ export function padiKavalSocketPath(
   override?: string,
 ): string {
   return padiKavalHome(stateRoot, override).socketPath;
+}
+
+/** The filename of the stable ssh-agent link in padi's runtime home — beside
+ *  `padi.sock` / `padi.pid` / `state-root`. */
+export const PADI_SSH_AUTH_SOCK_FILE = "ssh-auth.sock";
+
+/** The stable ssh-agent link for a padi home — `<home dir>/ssh-auth.sock` (see
+ *  {@link PADI_SSH_AUTH_SOCK_FILE}).
+ *
+ *  Why a link and not the ssh session's own socket: a remote host's terminals are
+ *  spawned by the DAEMON, which outlives every ssh link, while `SSH_AUTH_SOCK` in
+ *  the `padi --stdio` front names `/tmp/ssh-XXXX/agent.NNN` — deleted by sshd the
+ *  moment that session closes. So each bridge repoints this one stable path at
+ *  ITS live agent socket before it converges, and the spawn path stamps the LINK
+ *  into every terminal. One path for the producer (`daemonBoot/stdioBridge.ts`)
+ *  and the consumer (`ptyHost/index.ts`) to share. */
+export function padiSshAuthSockPath(
+  home: Pick<DaemonHomePaths, "dir">,
+): string {
+  return join(home.dir, PADI_SSH_AUTH_SOCK_FILE);
 }
 
 /** A discovered padi daemon — its socket, the state-root its `state-root` manifest

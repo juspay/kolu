@@ -30,7 +30,7 @@
  *     binder builds — one declaration, two supervisors, no drift;
  *   - **OS facts** = `osfacts`, baked into the padi wrapper, so gate corroboration
  *     and gate-less-squatter recovery work here exactly as locally;
- *   - **driver** = the front's own `reExecAsDetachedDaemon` thunk, so a takeover
+ *   - **driver** = the front's own `spawnDetachedPadi` thunk, so a takeover
  *     replaces the resident with a daemon of THIS closure;
  *   - **connect** = padi's own `connectPadi` dial.
  *
@@ -61,7 +61,7 @@ import {
 } from "@kolu/padi-client/dial";
 import { padiRuntimeHome } from "@kolu/padi-client/rendezvous";
 import type { StdioReadinessVerdict } from "@kolu/surface/links/readiness";
-import { reExecAsDetachedDaemon, stderrLogger } from "@kolu/surface-daemon";
+import { stderrLogger } from "@kolu/surface-daemon";
 import {
   converge,
   createEndpoint,
@@ -79,8 +79,8 @@ import {
 } from "osfacts-client";
 import { drainResidentOnAgentToolsBakeDrift } from "../agentToolsBake.ts";
 import { padiConvergencePolicy } from "../convergencePolicy.ts";
-import { padiStderrLogPath } from "../stateRoot.ts";
 import { currentPadiBuildId } from "./buildId.ts";
+import { spawnDetachedPadi } from "./detachedDaemon.ts";
 
 /** How long the front's own drain waits for a survivor's socket to close after
  *  the drain RPC returns, before calling the drain not-taken. The same ceiling
@@ -132,15 +132,14 @@ export function convergeStdioFront(
     // thing to land on it.
     const log = stderrLogger();
     const driver: DaemonDriver = {
-      // The front's own spawn, lifted. `reExecAsDetachedDaemon` re-execs THIS
-      // binary minus `--stdio`, so a takeover's replacement is a padi of this
-      // closure serving this same state-root — the property the pre-step rests on.
+      // The front's own spawn, lifted. `spawnDetachedPadi` re-execs THIS binary
+      // minus `--stdio`, so a takeover's replacement is a padi of this closure
+      // serving this same state-root — the property the pre-step rests on. It is
+      // also the ONE re-exec path, so the takeover daemon is scrubbed of this
+      // link's `SSH_AUTH_SOCK` exactly like the relay's spawn (see
+      // `detachedDaemon.ts`).
       spawn: Effect.try({
-        try: () =>
-          reExecAsDetachedDaemon({
-            stripArgs: ["--stdio"],
-            stderrLog: padiStderrLogPath(stateRoot),
-          }),
+        try: () => spawnDetachedPadi(stateRoot),
         catch: (err) => err as Error,
       }),
     };

@@ -82,6 +82,16 @@ export const SHARED_ARTIFACTS: readonly SharedArtifact[] = [
     why: "Padi's serving socket; the binder dials it and must name a contract skew.",
   },
   {
+    id: "padi-ssh-auth-sock-link",
+    pathShape: "$XDG_RUNTIME_DIR/padi-<digest>/ssh-auth.sock",
+    role: "socket",
+    coveredByTest: "padi/sharedArtifacts.watchdog.test.ts",
+    versionField: null,
+    diskBasenames: ["ssh-auth.sock"],
+    diskBasenamePatterns: [],
+    why: "The stable forwarded-ssh-agent link the `padi --stdio` front repoints at each link's live agent socket, and the spawn path stamps into every remote terminal (#2313). Not a protocol surface: a previous build ignores it (it neither writes nor prunes it), and a dangling link is the honest no-agent state — so the only mixed-version obligation is that it matches the runtime-dir inventory rather than alarming the sweep.",
+  },
+  {
     id: "padi-agent-tools-bake",
     pathShape: "$XDG_RUNTIME_DIR/padi-<digest>/agent-tools-bake",
     role: "manifest",
