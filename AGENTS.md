@@ -118,5 +118,5 @@ Kolu's world is not a clean single quadrant; use the `/diataxis` skill, whose "K
 
 - The repository root is kolu's published **Agent Plugin**: `plugin.json`, `mcp.json`, `skills/kolu/`, and `.claude-plugin/plugin.json`. Consumers reference it as `github:juspay/kolu`.
 - Maintainer-only skills live in the **`dev/` plugin** (`dev/plugin.json`, name `kolu-dev`, `dev/skills/<name>/SKILL.md`). The root manifest lists `./dev` and the external plugins maintainers need (odu, nix-chrome-devtools-mcp, xyne-boxes) under `extensions."asia.nixos.agent-distro".plugins`.
-- That extension is read only when the repository root is used as an agent-distro **profile** (`AI_PROFILE=<repo>`); the **published plugin copy** that padi bakes (`AGENT_DISTRO_PLUGINS`) is just the four root items and does not follow extensions.
+- That extension is read only when the repository root is used as an agent-distro **profile** (`AI_PROFILE=<repo>`): a profile *is* an Agent Plugin, so the root `plugin.json` is the whole of it. The **published plugin copy** that padi bakes (`AGENT_DISTRO_PLUGINS`) is just the four root items and does not follow extensions.
 - There is **no generated runtime directory**: editing a skill under `skills/` or `dev/skills/` is the change. Task-specific conventions live in `dev/skills/<topic>/SKILL.md`; project-wide rules live in this file.

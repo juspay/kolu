@@ -622,8 +622,8 @@ layer carry it; the module is `src/agentDistro/`.
   upstream's `profile` field onto the record as `agents.effective` (`{ name,
   description, source }`, named with upstream's own `nameText` / `sourceText`:
   `juspay + my-repo`; the parse is `@kolu/agent-distro/inEffect`). Upstream
-  composes it — a repository's `agent-distro.nix` over the `AI_PROFILE` stack —
-  and reads the built profiles without fetching; padi never re-derives it. It
+  composes it — a repository's `plugin.json` over the `AI_PROFILE` stack — and
+  reads the built profiles without fetching; padi never re-derives it. It
   never blocks or fails the spawn: a failure or a timeout is logged and leaves
   `effective` absent (as does a launch with no profile at all), and an answer
   for an entry that was since killed, slept or re-spawned is dropped.

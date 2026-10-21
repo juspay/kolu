@@ -35,15 +35,15 @@ import { AgentUpdateEventSchema, AgentUpdateRunSchema } from "./receipt.ts";
 
 /** One profile reference, as the user wrote it: a flake reference
  *  (`github:juspay/skills`) or a path (absolute, or `~/`) to an
- *  `agent-distro.nix` or the directory holding one. kolu-server locks and
+ *  `plugin.json` or the directory holding one. kolu-server locks and
  *  builds it; nothing on a host reads it as a reference. */
 const ProfileReference = Schema.String.check(Schema.isMinLength(1));
 
 /** The Agents setting: the harnesses on or off, and the profiles stacked over
  *  them, bottom to top (`AI_PROFILE`'s order: later entries win where they
  *  overlap). An empty list is agent-distro's harnesses as they ship. A
- *  repository's own `agent-distro.nix` composes over the stack at launch, so
- *  what a terminal actually runs is asked of agent-distro after the spawn
+ *  repository's own `plugin.json` composes over the stack at launch, so what
+ *  a terminal actually runs is asked of agent-distro after the spawn
  *  ({@link TerminalAgentsSchema}'s `effective`). */
 export const AgentDistroSettingSchema = Schema.Struct({
   enabled: Schema.Boolean,
@@ -224,8 +224,8 @@ export const TerminalAgentsSchema = Schema.Struct({
   ...DeliveredSetSchema.fields,
   /** The profile in effect in this terminal, as agent-distro answered
    *  `--list --json` in its cwd and environment once it started (a repository's
-   *  own `agent-distro.nix` composes over the stack). Absent until that
-   *  answer, when it failed, and when no profile is in effect at all. */
+   *  own `plugin.json` composes over the stack). Absent until that answer,
+   *  when it failed, and when no profile is in effect at all. */
   effective: Schema.optionalKey(ProfileInEffectSchema),
 });
 

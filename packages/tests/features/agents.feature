@@ -5,7 +5,7 @@ Feature: Agents come with kolu
   question for later. Settings → Agents is a switch and a list: the switch puts
   agent-distro's coding agents on the PATH of NEW terminals, and the list stacks
   profiles over them, in order — empty is the agents as they ship, and a
-  repository's own agent-distro.nix always composes last. A running terminal
+  repository's own plugin.json always composes last. A running terminal
   keeps what it started with, and every tile says what it got. What each
   MACHINE has lives in that machine's host details. The suite starts every
   scenario never chosen, as a fresh install does. (kolu-server builds each

@@ -36,7 +36,7 @@ describe("parseProfileInEffect", () => {
     const profile = {
       description: "Ekala's agents",
       name: "ekala",
-      origin: "/home/me/ekala/agent-distro.nix",
+      origin: "/home/me/ekala-ai-skills/plugin.json",
       source: "repository",
       over: {
         description: "Juspay skills + Kolu",
@@ -50,7 +50,7 @@ describe("parseProfileInEffect", () => {
       // The TOP profile's description.
       description: "Ekala's agents",
       source:
-        "from /home/me/ekala/agent-distro.nix over AI_PROFILE=/nix/store/p-juspay",
+        "from /home/me/ekala-ai-skills/plugin.json over AI_PROFILE=/nix/store/p-juspay",
     });
   });
 

@@ -68,20 +68,35 @@ let
     };
   };
 
-  # Some harnesses are unfree (Claude Code), so the launchers need a package
-  # set that allows them: kolu's own nixpkgs and overlays, re-instantiated with
-  # `allowUnfree`. That is a SECOND evaluation of nixpkgs (kolu's set does not
-  # allow unfree), paid only when the floor is forced — `default` and
-  # `agent-distro-bundle`, never the dev shell or `padi-agent`.
-  pkgsUnfree = import pkgs.path {
+  # The launchers are built with AGENT-DISTRO'S OWN locked nixpkgs, not kolu's:
+  # any other package set hashes differently, so the cache holds nothing and
+  # every kolu build compiles five harnesses — and the floor would not be the
+  # store path kolu delivers to every host. `import`ed exactly as upstream's
+  # flake does it (same system, `allowUnfree` for Claude Code, no overlays),
+  # because a byte off is a cache miss.
+  lockedNixpkgs = (builtins.fromJSON (builtins.readFile "${src}/flake.lock")).nodes.nixpkgs.locked;
+  nixpkgsSource = builtins.fetchTarball {
+    url = "https://github.com/NixOS/nixpkgs/archive/${lockedNixpkgs.rev}.tar.gz";
+    sha256 = lockedNixpkgs.narHash;
+  };
+  pkgsUpstream = import nixpkgsSource {
     inherit (pkgs.stdenv.hostPlatform) system;
-    inherit (pkgs) overlays;
-    config = pkgs.config // { allowUnfree = true; };
+    config = { allowUnfree = true; };
+  };
+  # The shape upstream's flake passes as `nixpkgs`: its `rev`/`narHash` let the
+  # launchers name nixpkgs by a locked reference instead of holding its source,
+  # and baking the path alone is a different derivation.
+  nixpkgsInput = {
+    outPath = nixpkgsSource;
+    inherit (lockedNixpkgs) rev narHash;
   };
 
   # The one package, as upstream builds it — the same kind of store path kolu
   # delivers to a host as `current`.
-  package = (distro.lib.mkLaunchers { pkgs = pkgsUnfree; }).package;
+  package = (distro.lib.mkLaunchers {
+    pkgs = pkgsUpstream;
+    nixpkgs = nixpkgsInput;
+  }).package;
 
   # The manifest: the floor described by the SAME value that builds it.
   manifest = pkgs.writeText "agent-distro.json" (builtins.toJSON {

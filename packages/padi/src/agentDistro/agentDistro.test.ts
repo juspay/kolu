@@ -740,7 +740,7 @@ describe("withAgentLayer — the record stamp the chip reads", () => {
             effective: {
               name: "juspay + repo",
               description: "",
-              source: "from ./agent-distro.nix over AI_PROFILE=/nix/store/p",
+              source: "from ./plugin.json over AI_PROFILE=/nix/store/p",
             },
           },
         },

@@ -2,8 +2,8 @@
  * Asking agent-distro which profile is in effect — one run of the package's
  * `bin/agent-distro --list --json` in a terminal's cwd and spawn environment,
  * once, after it started. Upstream composes the profile (a repository's own
- * `agent-distro.nix` over the `AI_PROFILE` stack of built profiles, which it
- * reads without fetching anything); this module only runs it and reads the
+ * `plugin.json` over the `AI_PROFILE` stack of built profiles, which it reads
+ * without fetching anything); this module only runs it and reads the
  * answer (`@kolu/agent-distro/inEffect`). Its volatility is that invocation.
  * It never blocks a spawn and never fails one: every failure is logged and
  * answers `undefined`.
@@ -19,8 +19,8 @@ import {
 } from "@kolu/agent-distro/inEffect";
 import { log } from "../log.ts";
 
-/** A repository's own `agent-distro.nix` is evaluated (and its plugin
- *  references fetched) the first time a terminal opens in it. */
+/** A repository's own `plugin.json` is read (and its plugin references
+ *  fetched) the first time a terminal opens in it. */
 const PROBE_TIMEOUT_MS = 120_000;
 
 /** One run's answer: the profile in effect (`undefined` when none is), or why there is none — the run failed (with its stderr), or

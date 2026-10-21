@@ -22,9 +22,10 @@ as the fallback.
 
 Two things make up the choice, and they are separate. The **agents** are a
 switch: on, every new terminal gets them. **Profiles** are a list on top of
-them: each one brings skills, MCP servers and settings to every agent — such as
-**Juspay**'s (`github:juspay/skills`), one click away — and they stack in the
-order you list them. With no profile the agents are exactly as they ship.
+them: each one is an Agent Plugin in a repository — a `plugin.json` — that
+brings skills, MCP servers and settings to every agent, such as **Juspay**'s
+(`github:juspay/skills`), one click away; and they stack in the order you list
+them. With no profile the agents are exactly as they ship.
 
 Until you choose, nothing changes: kolu adds no agents to your terminals until
 you switch them on, on a fresh install and on one that predates this. The agents
@@ -94,14 +95,16 @@ The setting is one for all of kolu — not per host, not per terminal.
 
 ## Profiles
 
-A **profile** is an `agent-distro.nix` in any git repository: the plugins
-(skills and MCP servers), the commands those servers need, and the settings it
-gives every agent. The **profile list** in Settings → Agents names them, one row
-each, in order. Under each row kolu says whether it builds — its name and
-description and the revision it was fetched at ("juspay (a1b2c3d) · Juspay
-skills + Kolu, via Juspay's LiteLLM gateway"), or, in red, Nix's or
-agent-distro's own words for why not. Each row is removed by its **✕**; with
-two or more, each can also move up or down.
+A **profile** is an [Agent Plugin](https://agent-plugins.org/) in any git
+repository: a `plugin.json` at its root carrying its skills and MCP servers,
+the commands those servers need, and the env and settings it gives every agent
+([agent-distro's Profiles](https://agent-distro.nixos.asia/#profiles)). The
+**profile list** in Settings → Agents names them, one row each, in order. Under
+each row kolu says whether it builds — its name and description and the
+revision it was fetched at ("juspay (a1b2c3d) · Juspay skills + Kolu, via
+Juspay's LiteLLM gateway"), or, in red, Nix's or agent-distro's own words for
+why not. Each row is removed by its **✕**; with two or more, each can also move
+up or down.
 
 Add one with the field under the list. Clicking into it opens its suggestions —
 in Settings **+ Juspay** first (the welcome step offers it as its own row
@@ -114,23 +117,34 @@ draws no rows: it is the agents as they ship.
 A profile that does not build stays in the list, said in red under its row, and
 while it is there new terminals get no coding agents — a terminal never starts
 without a profile you listed. Fix it (kolu tries again at the next check, and
-when you edit the list), or remove it.
+when you edit the list), or remove it. A profile that still carries an old
+`agent-distro.nix` is one of these: agent-distro refuses it, and its own
+migration message — the file, and the `plugin.json` extension to move its
+fields into — stands under the row.
 
 ### How profiles stack
 
 Profiles are applied **in list order, each over the one above it**: where two
 of them set the same thing, the lower one wins. A **repository's own
-`agent-distro.nix`** comes last of all — opening an agent in a repository that
+`plugin.json`** comes last of all — opening an agent in a repository that
 carries one composes that profile over your whole list. The list ends with a
 row saying so — the one place it says how profiles stack — which you cannot
 edit or remove: it is where your repository's profile goes, not a setting.
 
-Opening a terminal in a repository reads that repository's `agent-distro.nix`
+Opening a terminal in a repository reads that repository's `plugin.json`
 through agent-distro, before you type anything, to tell the pill what is in
 effect. A repository's profile brings its own plugins and MCP servers, so only
 open terminals in repositories you trust, as with a `.envrc`.
 
 ### Built once, by kolu
+
+A profile is an Agent Plugin: `plugin.json`, a skill in each
+`skills/<name>/SKILL.md`, optionally `mcp.json` — and, for what an Agent Plugin
+does not carry, the `extensions."asia.nixos.agent-distro"` block: more plugins,
+`packages`, `env` and `settings`
+([Profiles](https://agent-distro.nixos.asia/#profiles)). A repository that used
+APM moves its `apm.yml` dependencies into that block
+([From APM](https://agent-distro.nixos.asia/#from-apm)).
 
 kolu does not hand your references to the agents. The machine running kolu
 **builds** each profile — fetches it, notes the revision it found, and builds

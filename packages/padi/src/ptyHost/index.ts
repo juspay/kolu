@@ -568,7 +568,7 @@ export interface TerminalEnvSpec {
    *  `kolu` / `kaval-tui` / `padi-tui` keep a name collision; `plugins` becomes
    *  `AGENT_DISTRO_PLUGINS`. Both are exact store paths: the terminal pins them.
    *  `profiles` — the built profiles' store paths, in stack order — become
-   *  `AI_PROFILE`, whitespace-joined (a repository's own `agent-distro.nix`
+   *  `AI_PROFILE`, whitespace-joined (a repository's own `plugin.json`
    *  composes over them); none, and `AI_PROFILE` is not set at all. */
   agents?: {
     readonly binDir: string;

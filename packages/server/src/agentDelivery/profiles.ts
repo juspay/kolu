@@ -16,6 +16,10 @@
  * pull. Every failure throws with Nix's own words, on one line: a profile that
  * will not lock or build is said under its entry in Settings and on the hosts
  * it could not reach, never dropped.
+ *
+ * A profile is an Agent Plugin — its tree holds a `plugin.json`. A tree still
+ * holding an `agent-distro.nix` does not build: upstream refuses that format,
+ * and its message is what the red line under the row says, kolu adding none.
  */
 
 import { execFile } from "node:child_process";
@@ -44,11 +48,13 @@ export interface BuiltProfile {
   readonly description: string;
 }
 
-/** Nix's words for a failure, on one line: its `error:` and what follows,
- *  else its last line. */
+/** Nix's words for a failure, on one line: its LAST `error:` and what follows,
+ *  else its last line. Nix prints the trace that led to a `throw` above the
+ *  thrown message, and the row under a profile must say the message, not the
+ *  frames. */
 export function nixWords(stderr: string, fallback: string): string {
   const text = stderr.trim();
-  const at = text.indexOf("error:");
+  const at = text.lastIndexOf("error:");
   const words = (at < 0 ? (text.split("\n").at(-1) ?? "") : text.slice(at))
     .split(/\s*\n\s*/)
     .join(" ")
