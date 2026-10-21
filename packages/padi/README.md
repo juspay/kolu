@@ -153,21 +153,12 @@ remote host — reusing the local arm's seam, not a parallel one:
   its kaval + PTYs outlive the ssh link (detach → reattach). `./dial.test.ts` gains
   a stdio-front block proving the control-core handshake + terminal round-trip over
   the byte relay, minus ssh.
-- **Forwarded ssh-agent** (juspay/kolu#2313). sshd hands the `--stdio` front a
-  per-link `SSH_AUTH_SOCK` (`/tmp/ssh-XXXX/agent.NNN`) that it deletes when the
-  session closes — while the daemon, its kaval and every PTY outlive the session.
-  We used to re-exec the daemon with that first link's env, freezing a dead socket
-  onto every terminal (`git push` then failed `Permission denied (publickey)` on
-  the next link). Now the front is the producer: before converging, it atomically
-  repoints `<padi runtime home>/ssh-auth.sock` at THIS link's live socket
-  (`repointSshAuthSockLink`, path from `./stateRoot.ts`'s
-  `padiSshAuthSockPath`), and the spawn path stamps that LINK into every terminal.
-  A reconnect re-points the link, so already-open shells heal too. The link is
-  never unlinked on bridge exit — another concurrent link may own it, and a
-  dangling link is the honest "no agent". The daemon itself is re-exec'd with
-  `SSH_AUTH_SOCK` **scrubbed** (`./daemonBoot/detachedDaemon.ts`, the one path both
-  re-exec sites take — the relay's spawn and the converge takeover driver), so no
-  per-session socket is ever frozen into it: one authority per fact.
+- **Forwarded ssh-agent** (juspay/kolu#2313). The front repoints
+  `<padi runtime home>/ssh-auth.sock` at its link's live agent socket before
+  converging, and the spawn path stamps that LINK into every terminal, so a
+  reconnect heals open shells too; the daemon is re-exec'd with `SSH_AUTH_SOCK`
+  **scrubbed** (`./daemonBoot/detachedDaemon.ts`, the one path both re-exec sites
+  take). See `./stdioBridge.ts`'s module header for the rationale.
 - **The binding** (`packages/server/src/padi/remotePadiBinding.ts`). The knob
   **`KOLU_PADI_HOST=<ssh host>`** — OFF by default, no UI (the picker is W3.2) —
   branches kolu-server onto a Surface Remote `makeSession` +

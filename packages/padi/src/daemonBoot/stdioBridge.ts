@@ -82,28 +82,22 @@ export interface RunPadiStdioBridgeOptions {
   socketOverride?: string;
 }
 
-/** Point padi's stable ssh-agent link at the socket THIS ssh link's
- *  `SSH_AUTH_SOCK` names — the producer half of juspay/kolu#2313 (the consumer is
- *  `ptyHost/index.ts`, which stamps the LINK into every terminal).
+/** Point padi's stable ssh-agent link at the socket `env.SSH_AUTH_SOCK` names —
+ *  the producer half of the link (this module's header, #2313).
  *
- *  The repoint is the `current`-link idiom `agentToolsBake.ts` uses: symlink to
+ *  Atomic via the `current`-link idiom (`agentToolsBake.ts`): symlink to
  *  `<link>.kolu-tmp`, then `renameSync` over the link, so a spawn concurrent with
  *  a reconnect never sees a half-written link.
  *
- *  Two sanctioned no-ops, and neither unlinks anything:
- *   - **the env names no socket** — a link with no `-A`/`ForwardAgent` forwarded no
- *     agent; another concurrent link may own the existing link, so leave it.
- *   - **the named target does not exist** — the `stat` follows symlinks, so a
- *     socket sshd already removed reads as absent, exactly like "no agent".
- *  Both mirror "a dangling link is the honest no-agent state"; the daemon never
- *  carries a per-session socket to fall back to (`detachedDaemon.ts`).
- *
- *  `env` is injectable so tests never touch `process.env`. */
+ *  Two sanctioned no-ops, and neither unlinks anything: the env names no socket
+ *  (this link forwarded no agent), or the named target is absent (`stat` follows
+ *  symlinks, so a socket sshd already removed reads as gone). Another concurrent
+ *  link may own the existing link, so `env: {}` is not evidence it should go. */
 export function repointSshAuthSockLink(opts: {
   readonly linkPath: string;
-  readonly env?: Record<string, string | undefined>;
+  readonly env: Record<string, string | undefined>;
 }): void {
-  const target = (opts.env ?? process.env).SSH_AUTH_SOCK;
+  const target = opts.env.SSH_AUTH_SOCK;
   if (target === undefined || target === "") return;
   if (statSync(target, { throwIfNoEntry: false }) === undefined) return;
   // The link lives in padi's runtime home, which the converge may not have
@@ -135,8 +129,8 @@ export async function runPadiStdioBridge(
   opts: RunPadiStdioBridgeOptions = {},
 ): Promise<void> {
   const stateRoot = resolvePadiStateRoot(opts.stateRoot);
-  // ONE home for this front: its socket AND the ssh-agent link it owns live in
-  // the same runtime dir, resolved from the same state-root/override pair.
+  // ONE home for this front: the socket it fronts anchors the ssh-agent link
+  // beside it, resolved from the same state-root/override pair.
   const home = padiRuntimeHome(stateRoot, opts.socketOverride);
   return runPadiStdioBridgeWith(opts, {
     converge: convergeStdioFront({
@@ -145,7 +139,10 @@ export async function runPadiStdioBridge(
     }),
     stdout: process.stdout,
     pointSshAuthSock: () =>
-      repointSshAuthSockLink({ linkPath: padiSshAuthSockPath(home) }),
+      repointSshAuthSockLink({
+        linkPath: padiSshAuthSockPath(home.socketPath),
+        env: process.env,
+      }),
     relay: () =>
       frontDaemonOverStdio({
         socketPath: home.socketPath,

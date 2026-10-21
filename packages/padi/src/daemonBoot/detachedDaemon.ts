@@ -6,14 +6,9 @@
  * because they must agree on two things that are easy to get subtly wrong in two
  * places:
  *
- *   - **the link's `SSH_AUTH_SOCK` is SCRUBBED.** The front is exec'd by sshd, so
- *     its env names that link's forwarded-agent socket (`/tmp/ssh-XXXX/agent.NNN`)
- *     — a path sshd deletes when the session closes. The daemon outlives every
- *     session, so it must never carry one link's socket as its own fact; the one
- *     authority for "which agent socket is live" is the stable link in its runtime
- *     home, repointed by each bridge (`padiSshAuthSockPath`, `stdioBridge.ts`).
- *     Handing the daemon the first link's socket is exactly the bug this fixes
- *     (juspay/kolu#2313): every terminal kept a path that no longer existed.
+ *   - **`SSH_AUTH_SOCK` is scrubbed.** The daemon owns no ssh session, so it
+ *     carries no link's socket; the one authority for a live agent is the stable
+ *     link (`stdioBridge.ts`, #2313).
  *   - **the crash-catcher stderr log** (`padi.stderr.log`), mandatory for a
  *     detaching spawn whose stderr nobody will hold.
  *
@@ -26,13 +21,7 @@ import { reExecAsDetachedDaemon } from "@kolu/surface-daemon";
 import { padiStderrLogPath } from "../stateRoot.ts";
 
 /** The env a detached padi daemon boots with: this process's env, minus
- *  `SSH_AUTH_SOCK`.
- *
- *  `SSH_AUTH_SOCK` is deliberately absent rather than rewritten: the daemon owns
- *  no ssh session, so it has no live agent socket of its own to name. Terminals
- *  get the runtime-home LINK (`padiSshAuthSockPath`) when a bridge has registered
- *  one; on a local host, where no bridge ever runs, there is no link and none is
- *  stamped. One authority per fact. */
+ *  `SSH_AUTH_SOCK` — one authority per fact (`stdioBridge.ts`, #2313). */
 export function detachedPadiDaemonEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {

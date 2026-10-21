@@ -17,7 +17,6 @@
  */
 
 import { lstatSync } from "node:fs";
-import { dirname } from "node:path";
 import { encodeHostLocation, LOCAL_LOCATION } from "@kolu/padi-client/surface";
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import type { DaemonHomePaths } from "@kolu/surface-daemon";
@@ -551,14 +550,9 @@ export interface TerminalEnvSpec {
   /** The padi that owns it — stamped as `PADI_SOCKET` when known. */
   padiSocket?: string;
   /** The forwarded ssh-agent socket for THIS terminal, as the stable LINK path in
-   *  the daemon's runtime home ({@link padiSshAuthSockPath}), stamped as
-   *  `SSH_AUTH_SOCK` and overriding `cleanEnv()`'s value.
-   *
-   *  Set only when a `padi --stdio` bridge has registered a link — i.e. on a
-   *  remote host reached over ssh, where the daemon outlives the ssh session whose
-   *  per-link socket sshd deletes. Absent on a local host (no bridge ever runs
-   *  there), so the terminal keeps exactly the `SSH_AUTH_SOCK` `cleanEnv()`
-   *  composed — today's behaviour, byte for byte. */
+   *  the daemon's runtime home — stamped as `SSH_AUTH_SOCK`, overriding
+   *  `cleanEnv()`'s value. Absent (a local host; no bridge) leaves layer 1
+   *  untouched. See `daemonBoot/stdioBridge.ts` (#2313). */
   sshAuthSock?: string;
   /** Tool dirs to put on `PATH`, highest priority first; `[]` when this daemon
    *  was never baked with a toolchain. Required, with `[]` as the honest empty:
@@ -608,11 +602,9 @@ export function agentSpawnEnv(
  *   1. `cleanEnv()`        — the canonical SPAWN_ENV_ALLOWLIST composed from the
  *      parent env (a clean base, NOT a wholesale passthrough — #1872).
  *   1a. `spec.sshAuthSock` — the forwarded ssh-agent LINK for this host, when a
- *      `padi --stdio` bridge registered one. Overrides `cleanEnv()`'s
- *      `SSH_AUTH_SOCK`, which names the daemon's FIRST ssh link (a socket sshd
- *      deletes at that session's close — #2313); the link follows whichever
- *      session currently holds the agent, so already-open shells heal on
- *      reconnect. Absent → layer 1 stands untouched.
+ *      `padi --stdio` bridge registered one; overrides `cleanEnv()`'s inherited
+ *      `SSH_AUTH_SOCK`. Absent → layer 1 stands untouched. See
+ *      `daemonBoot/stdioBridge.ts` (#2313).
  *   2. `koluIdentityEnv()` — kolu's identity vars (stomp parent).
  *   3. `plan.env`          — per-PTY overrides (e.g. ZDOTDIR for zsh).
  *   4. `KAVAL_TERMINAL_ID` — this terminal's own id, so a process inside can name
@@ -658,11 +650,8 @@ export function composeSpawnInput(
   spec: TerminalEnvSpec,
 ): PtyHostSpawnInput {
   const env = cleanEnv();
-  // (docblock item 1a) The one authority for "which agent socket is live" on a
-  // host bound over ssh: the stable link a `padi --stdio` bridge repoints on every
-  // link. `cleanEnv()`'s inherited `SSH_AUTH_SOCK` — when the daemon still carries
-  // one — names the first link's socket, which sshd deleted at that session's
-  // close. Absent spec → nothing stamped, exactly today's behaviour.
+  // (docblock item 1a) The link stamps over the inherited socket — see
+  // `daemonBoot/stdioBridge.ts` (#2313). Absent spec → nothing stamped.
   if (spec.sshAuthSock !== undefined) env.SSH_AUTH_SOCK = spec.sshAuthSock;
   const shell = env.SHELL ?? info.shell;
   const home = env.HOME ?? info.home;
@@ -760,19 +749,13 @@ export function buildTerminalSpawnInput(args: {
     // `getPadiServeSocketPath`) — an unset value just omits the locator and padi-tui
     // autodiscovers, so no boot-order guard here (unlike the required KAVAL socket).
     const padiSocket = getPadiServeSocketPath();
-    // The forwarded ssh-agent link a `padi --stdio` bridge owns (#2313): a stable
-    // path in this daemon's runtime home, beside the socket it serves on (both
-    // come from the ONE `padiRuntimeHome`, so the recorded serve socket names the
-    // home dir). `lstatSync`, not `statSync` — the question is "did a bridge
-    // register a link?", not "does its target answer right now": a dangling link
-    // is still the RIGHT path and fails exactly like "no agent", whereas falling
-    // back to `cleanEnv()`'s frozen first-link socket would fail misleadingly.
-    // Local hosts never run the bridge, so no link exists and SSH_AUTH_SOCK is
-    // left exactly as `cleanEnv()` composed it.
+    // The forwarded ssh-agent link beside that socket, when a `padi --stdio`
+    // bridge registered one (#2313). `lstatSync`, not `statSync`: the question is
+    // "did a bridge register a link?", not "does its target answer right now" — a
+    // dangling link is still the RIGHT path, and failing like "no agent" beats
+    // falling back to a socket sshd deleted (`daemonBoot/stdioBridge.ts`).
     const sshAuthSockLink =
-      padiSocket === undefined
-        ? undefined
-        : padiSshAuthSockPath({ dir: dirname(padiSocket) });
+      padiSocket === undefined ? undefined : padiSshAuthSockPath(padiSocket);
     const sshAuthSock =
       sshAuthSockLink !== undefined &&
       lstatSync(sshAuthSockLink, { throwIfNoEntry: false }) !== undefined

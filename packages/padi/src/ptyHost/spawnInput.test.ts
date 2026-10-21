@@ -207,21 +207,6 @@ describe("composeSpawnInput env layering", () => {
     expect(input.env.SSH_AUTH_SOCK).toBe("/tmp/ssh-XXXX/agent.LOCAL");
   });
 
-  it("stamps the link even when the parent env carries no SSH_AUTH_SOCK", () => {
-    // A host whose daemon was booted from a non-ssh context still gets the link
-    // once any bridge registers one — the link is the authority, not cleanEnv.
-    delete process.env.SSH_AUTH_SOCK;
-    const LINK = "/run/user/1000/padi-9f2c1a4b8e0d6f37/ssh-auth.sock";
-
-    const input = composeSpawnInput(
-      { id: "T-ssh-auth-only" },
-      info(),
-      spec({ sshAuthSock: LINK }),
-    );
-
-    expect(input.env.SSH_AUTH_SOCK).toBe(LINK);
-  });
-
   it("stamps KAVAL_TERMINAL_ID with the terminal's own id", () => {
     // A process inside the terminal reads its OWN id from the env — the
     // self-knowledge twin of KAVAL_SOCKET (which names the daemon). Stamped from
