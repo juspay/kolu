@@ -488,10 +488,10 @@ _out_. The map, grouped:
   its `closureRoute` picks — content-addressed to a Linux host on Nix
   2.17–2.34 (the line that can verify it), so no Nix there has to trust it;
   signed to a Mac, whose code signatures a rewrite breaks, and to a newer Nix
-  line — never building it. The Agents setting's **profiles** are the one
-  thing kolu-server builds: it locks each reference, builds it with upstream's
-  `lib.mkProfile` at the package's revision for the host's system, and ships
-  the result with `surface-remote`'s `deliverClosure`, the route an agent's
+  line — never building it. The Agents setting's **profiles** — Agent Plugins,
+  each a repository's `plugin.json` — are the one thing kolu-server builds: it
+  locks each reference, builds it with upstream's `lib.mkProfile` at the
+  package's revision for the host's system, and ships the result with `surface-remote`'s `deliverClosure`, the route an agent's
   closure takes. That host's padi only records the set that landed and points
   `current` at the package),
   and a set of

@@ -144,8 +144,9 @@ four times a day and whenever it reconnects; its tab shows each update arriving
 while the agents it has keep working ([Kept up to
 date](/agents#kept-up-to-date)). Nothing compiles agents, on either machine.
 
-Your [profiles](/agents#profiles) reach every host the same way the agents do:
-the machine running kolu fetches and builds each one — a flake reference
+Your [profiles](/agents#profiles) — Agent Plugins, each a repository's
+`plugin.json` — reach every host the same way the agents do: the machine
+running kolu fetches and builds each one — a flake reference
 (`github:you/your-profile`) or a **path** on that machine (`~/src/my-profile`)
 — and copies the result into the host's store over the same login. So a host
 needs no GitHub access for a profile either, and a path works on every host. A

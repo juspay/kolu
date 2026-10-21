@@ -5,14 +5,15 @@ kolu's contract with upstream [agent-distro](https://github.com/juspay/agent-dis
 process that touches agent-distro reads them from the same place.
 
 agent-distro is ONE package — every harness launcher and its picker,
-`bin/agent-distro` — and **profiles** are not part of it: each is an
-`agent-distro.nix` that upstream's `lib.mkProfile` builds into a store path a
-launch reads from `AI_PROFILE` (a whitespace-separated stack, bottom to top),
-with a repository's own `agent-distro.nix` composed over it. kolu models
-exactly that: the Agents setting is a switch for the harnesses and, separate
-from it, an ordered list of profile references — nothing combines the two. (The
-word `bundle` survives only as a name for the package's own store path: the
-floor's flake output `agent-distro-bundle`, its bake variable
+`bin/agent-distro` — and **profiles** are not part of it: each is an Agent
+Plugin, a `plugin.json` (its `extensions."asia.nixos.agent-distro"` holding the
+plugins, packages, env and settings) that upstream's `lib.mkProfile` builds into
+a store path a launch reads from `AI_PROFILE` (a whitespace-separated stack,
+bottom to top), with a repository's own `plugin.json` composed over it. kolu
+models exactly that: the Agents setting is a switch for the harnesses and,
+separate from it, an ordered list of profile references — nothing combines the
+two. (The word `bundle` survives only as a name for the package's own store
+path: the floor's flake output `agent-distro-bundle`, its bake variable
 `KOLU_AGENT_DISTRO_BUNDLE`, and the `bundle` field a status or record names the
 package by.)
 
@@ -61,9 +62,9 @@ The **TypeScript half**, as data and pure functions:
 - `./inEffect` — the profile in effect for a launch, upstream's `profile`
   field of `agent-distro --list --json`, read with upstream's `parseListing`
   and named with its `nameText` / `sourceText` (`juspay + my-repo`, `from
-  ./agent-distro.nix over AI_PROFILE=…`): `parseProfileInEffect`, `undefined`
-  when none is in effect, a throw for output out of format. padi asks it once
-  per terminal; kolu never re-derives it.
+  /home/me/repo/plugin.json over AI_PROFILE=…`): `parseProfileInEffect`,
+  `undefined` when none is in effect, a throw for output out of format. padi
+  asks it once per terminal; kolu never re-derives it.
 - `./profileFile` — a BUILT profile's `share/agent-distro/profile.json` (its
   name and description; the fields a launch reads are upstream's) and its
   parser. kolu-server reads it off each profile it builds.
