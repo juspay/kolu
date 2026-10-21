@@ -158,7 +158,7 @@ describe("AgentProfileChip — current", () => {
       effective: {
         name: "mine + ekala",
         description: "Ekala's agents",
-        source: "from /home/me/ekala/agent-distro.nix",
+        source: "from /home/me/ekala-ai-skills/plugin.json",
       },
     };
     const { chip } = mount({ agents: effective });
@@ -167,7 +167,7 @@ describe("AgentProfileChip — current", () => {
     );
     expect(spans.slice(1)).toEqual(["mine + ekala", "nd11nx5f"]);
     expect(chip.getAttribute("aria-label")).toContain(
-      "from /home/me/ekala/agent-distro.nix",
+      "from /home/me/ekala-ai-skills/plugin.json",
     );
   });
 

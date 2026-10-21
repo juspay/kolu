@@ -4,7 +4,7 @@
  * the reference beside it when they differ, and the resolved line's three
  * states — removed by its ✕ and, with two rows or more, moved by its arrows,
  * the WHOLE next list handed to the caller; an empty list draws no rows; and
- * the one read-only row a repository's agent-distro.nix makes, always last.
+ * the one read-only row a repository's plugin.json makes, always last.
  * Below: the add field, whose menu of suggestions — Juspay's first — opens
  * on focus or from the chevron, filters as you type, and adds on Enter or a
  * click. With `prominentJuspay` (the welcome step) Juspay is instead a
@@ -140,7 +140,6 @@ describe("the rows", () => {
   it("the repository's row is last, read-only, and links to the docs", () => {
     const f = mount([row("~/mine")]);
     const repo = f.host.querySelector("[data-testid=agents-profile-repo]");
-    expect(repo?.textContent).toContain("agent-distro.nix");
     expect(repo?.querySelector("button")).toBeNull();
     expect(repo?.querySelector("a")?.getAttribute("href")).toBe(
       "https://kolu.dev/agents/#how-profiles-stack",

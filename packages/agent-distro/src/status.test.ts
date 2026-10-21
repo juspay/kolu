@@ -369,7 +369,10 @@ describe("the profile list's rows", () => {
     const profiles: AgentProfiles = [
       {
         reference: EKALA_REF,
-        resolution: { kind: "failed", message: "no agent-distro.nix" },
+        resolution: {
+          kind: "failed",
+          message: "no plugin.json at /home/me/ekala-ai-skills",
+        },
       },
     ];
     expect(agentProfileRows(on(JUSPAY_PROFILE, EKALA_REF), profiles)).toEqual([
@@ -381,7 +384,10 @@ describe("the profile list's rows", () => {
       {
         reference: EKALA_REF,
         title: EKALA_REF,
-        line: { kind: "failed", text: "no agent-distro.nix" },
+        line: {
+          kind: "failed",
+          text: "no plugin.json at /home/me/ekala-ai-skills",
+        },
       },
     ]);
     expect(agentProfileRows(on(), profiles)).toEqual([]);
@@ -1221,7 +1227,7 @@ describe("the tile pill", () => {
     name: "juspay + ekala",
     description: "Ekala's agents",
     source:
-      "from /home/me/ekala/agent-distro.nix over AI_PROFILE=/nix/store/p-juspay",
+      "from /home/me/ekala-ai-skills/plugin.json over AI_PROFILE=/nix/store/p-juspay",
   };
 
   it("names the profile in effect, else the stack it was spawned with, else nothing", () => {
