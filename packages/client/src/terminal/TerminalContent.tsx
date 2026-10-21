@@ -51,13 +51,17 @@ const TerminalContent: Component<{
   const subPanel = useSubPanel();
   const search = useTerminalSearch();
 
-  // A sleeping terminal has no live PTY/xterm — render the dormant body instead
-  // of the `Terminal` tree. `<Show>` keeps the swap clean: on sleep the live
-  // subtree unmounts (xterm dispose, WebGL unload, stream abort via Terminal's
-  // onCleanup); on wake it mounts fresh and re-attaches. The discriminant is the
-  // single source — no parallel sleeping tile-content kind.
-  const isLive = () =>
+  // The live/dormant swap is PER PANE, not per tile: sleeping a family freezes
+  // the tile AND every split, so the tile keeps its `Resizable` + tab strip while
+  // each pane swaps its own `Terminal` for the dormant body. `<Show>` keeps each
+  // swap clean: on sleep that pane's live subtree unmounts (xterm dispose, WebGL
+  // unload, stream abort via Terminal's onCleanup); on wake it mounts fresh and
+  // re-attaches. The discriminant is the single source — no parallel
+  // sleeping-tile-content kind.
+  const mainLive = () =>
     sleepingArm(store.getMetadata(props.terminalId)) === undefined;
+  const subLive = (id: TerminalId) =>
+    sleepingArm(store.getMetadata(id)) === undefined;
 
   // Flat descendants under this root tile — nested splits paint as peers in
   // the tab strip (the canvas flattens; the Dock keeps the true tree).
@@ -97,6 +101,11 @@ const TerminalContent: Component<{
     props.focused && store.focusedTerminalId() === props.terminalId;
   const shouldFocusSub = (subId: TerminalId) =>
     props.focused && isExpanded() && store.focusedTerminalId() === subId;
+  /** Is this sub pane the one on screen? The selected open tab of a visible
+   *  tile — read by both arms (the live `Terminal` and the dormant body, which
+   *  mirrors `Terminal`'s own stacking). */
+  const subVisible = (subId: TerminalId) =>
+    props.visible && isExpanded() && activeSubTab() === subId;
 
   const sizes = controlledSizes(() =>
     isExpanded()
@@ -155,30 +164,31 @@ const TerminalContent: Component<{
   }
 
   return (
-    <Show
-      when={isLive()}
-      fallback={
-        <DormantTileBody
-          terminalId={props.terminalId}
-          onWake={() => {
-            runAction("wake terminal", crud.handleWake(props.terminalId));
-          }}
-          onFocus={props.onFocus}
-        />
-      }
+    <Resizable
+      orientation="vertical"
+      sizes={sizes()}
+      onSizesChange={handleSizesChange}
+      class="flex-1 min-h-0"
     >
-      <Resizable
-        orientation="vertical"
-        sizes={sizes()}
-        onSizesChange={handleSizesChange}
-        class="flex-1 min-h-0"
+      <Resizable.Panel
+        as="div"
+        class={`relative min-h-0 overflow-hidden ${RECEDE_INACTIVE_PANE}`}
+        minSize={0.2}
+        data-pane="main"
+        data-pane-focus={paneFocus("main")}
       >
-        <Resizable.Panel
-          as="div"
-          class={`relative min-h-0 overflow-hidden ${RECEDE_INACTIVE_PANE}`}
-          minSize={0.2}
-          data-pane="main"
-          data-pane-focus={paneFocus("main")}
+        <Show
+          when={mainLive()}
+          fallback={
+            <DormantTileBody
+              size="tile"
+              terminalId={props.terminalId}
+              onWake={() => {
+                runAction("wake terminal", crud.handleWake(props.terminalId));
+              }}
+              onFocus={props.onFocus}
+            />
+          }
         >
           <Terminal
             terminalId={props.terminalId}
@@ -192,94 +202,125 @@ const TerminalContent: Component<{
             onFocus={() => subPanel.focusMainPane(props.terminalId)}
             refocusNonce={panelState().refocusNonce}
           />
-        </Resizable.Panel>
-
-        {/* Resize handle — invisible hit zone, visible on hover.
-         *  `Z_HANDLE_INNER` mirrors CodeTab.tsx's inner-handle defense:
-         *  the ::before pseudo overlaps the previous panel (xterm tile)
-         *  by 4px and any positioned descendant inside that panel with
-         *  auto/zero z-index would otherwise paint over the hit zone.
-         *  The canvas-tile container that hosts this tree creates its
-         *  own stacking context (`Z_CANVAS_TILE_ACTIVE`), so external
-         *  z-stackers can't intrude — but the defense belongs on the
-         *  handle itself so a future xterm overlay with an explicit
-         *  z-index doesn't silently break drag-to-resize.
-         *  See `ui/stackLayers.ts` for the full layering contract. */}
-        <Show when={hasSubs()}>
-          <Resizable.Handle
-            data-testid="resize-handle"
-            class="shrink-0 transition-all"
-            classList={{
-              "h-0 relative before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors":
-                isExpanded(),
-              "h-0": !isExpanded(),
-            }}
-            style={{ "z-index": Z_HANDLE_INNER }}
-            aria-label="Resize terminal split"
-            onHandleDragStart={markResizeIntent}
-            onHandleDragEnd={clearResizeIntent}
-            onPointerCancel={clearResizeIntent}
-            onLostPointerCapture={clearResizeIntent}
-            onKeyDown={markKeyboardResizeIntent}
-            onKeyUp={clearResizeIntent}
-            onBlur={clearResizeIntent}
-          />
         </Show>
+      </Resizable.Panel>
 
-        <Resizable.Panel
-          as="div"
-          class={`min-h-0 overflow-hidden flex flex-col ${RECEDE_INACTIVE_PANE}`}
-          minSize={0}
-          collapsible
-          collapsedSize={0}
-          // Only PERSIST a collapse from pointer/keyboard intent on the handle.
-          // On a host
-          // switch-BACK the sub-terminal metadata (parentId) re-arrives a beat
-          // AFTER the tile re-renders, so `hasSubs()` — hence `isExpanded()` —
-          // flickers false and drives `sizes` to [1, 0]; Corvu then fires this
-          // onCollapse. Persisting `collapsed:true` there LATCHES the split shut:
-          // once the metadata lands, the stored `collapsed:true` keeps
-          // `isExpanded()` false so the controlled `sizes` never returns to
-          // [1-panelSize, panelSize] and the split is lost for good (srid's
-          // switch-back split-loss). The intent gate makes every programmatic
-          // transition a no-op; the controlled `sizes` re-expands the moment the
-          // sub metadata arrives.
-          onCollapse={handlePanelCollapse}
-          onExpand={handlePanelExpand}
-          data-pane="sub"
-          data-pane-focus={paneFocus("sub")}
-        >
-          <div classList={{ hidden: !isExpanded() }} inert={!isExpanded()}>
-            <SubPanelTabBar
-              subIds={subTerminalIds()}
-              activeSubTab={activeSubTab()}
-              getMetadata={store.getMetadata}
-              onSelect={(id) => subPanel.selectSubTab(props.terminalId, id)}
-              onClose={props.onCloseTerminal}
-              onCollapse={() => subPanel.collapsePanel(props.terminalId)}
-              onCreate={() =>
-                runAction(
-                  "create split",
-                  crud
-                    .handleCreateSubTerminal(
-                      props.terminalId,
-                      store.activeMeta()?.cwd,
-                    )
-                    // Already surfaced by the create's own toast, or refused
-                    // while the daemon warms — nothing here waits on the split.
-                    .pipe(Effect.ignore),
-                )
-              }
-            />
-          </div>
-          <div class="relative flex-1 min-h-0">
-            <For each={subTerminalIds()}>
-              {(subId) => (
+      {/* Resize handle — invisible hit zone, visible on hover.
+       *  `Z_HANDLE_INNER` mirrors CodeTab.tsx's inner-handle defense:
+       *  the ::before pseudo overlaps the previous panel (xterm tile)
+       *  by 4px and any positioned descendant inside that panel with
+       *  auto/zero z-index would otherwise paint over the hit zone.
+       *  The canvas-tile container that hosts this tree creates its
+       *  own stacking context (`Z_CANVAS_TILE_ACTIVE`), so external
+       *  z-stackers can't intrude — but the defense belongs on the
+       *  handle itself so a future xterm overlay with an explicit
+       *  z-index doesn't silently break drag-to-resize.
+       *  See `ui/stackLayers.ts` for the full layering contract. */}
+      <Show when={hasSubs()}>
+        <Resizable.Handle
+          data-testid="resize-handle"
+          class="shrink-0 transition-all"
+          classList={{
+            "h-0 relative before:absolute before:inset-x-0 before:-top-1 before:h-2 before:cursor-row-resize before:hover:bg-accent/30 before:transition-colors":
+              isExpanded(),
+            "h-0": !isExpanded(),
+          }}
+          style={{ "z-index": Z_HANDLE_INNER }}
+          aria-label="Resize terminal split"
+          onHandleDragStart={markResizeIntent}
+          onHandleDragEnd={clearResizeIntent}
+          onPointerCancel={clearResizeIntent}
+          onLostPointerCapture={clearResizeIntent}
+          onKeyDown={markKeyboardResizeIntent}
+          onKeyUp={clearResizeIntent}
+          onBlur={clearResizeIntent}
+        />
+      </Show>
+
+      <Resizable.Panel
+        as="div"
+        class={`min-h-0 overflow-hidden flex flex-col ${RECEDE_INACTIVE_PANE}`}
+        minSize={0}
+        collapsible
+        collapsedSize={0}
+        // Only PERSIST a collapse from pointer/keyboard intent on the handle.
+        // On a host
+        // switch-BACK the sub-terminal metadata (parentId) re-arrives a beat
+        // AFTER the tile re-renders, so `hasSubs()` — hence `isExpanded()` —
+        // flickers false and drives `sizes` to [1, 0]; Corvu then fires this
+        // onCollapse. Persisting `collapsed:true` there LATCHES the split shut:
+        // once the metadata lands, the stored `collapsed:true` keeps
+        // `isExpanded()` false so the controlled `sizes` never returns to
+        // [1-panelSize, panelSize] and the split is lost for good (srid's
+        // switch-back split-loss). The intent gate makes every programmatic
+        // transition a no-op; the controlled `sizes` re-expands the moment the
+        // sub metadata arrives.
+        onCollapse={handlePanelCollapse}
+        onExpand={handlePanelExpand}
+        data-pane="sub"
+        data-pane-focus={paneFocus("sub")}
+      >
+        <div classList={{ hidden: !isExpanded() }} inert={!isExpanded()}>
+          <SubPanelTabBar
+            subIds={subTerminalIds()}
+            activeSubTab={activeSubTab()}
+            getMetadata={store.getMetadata}
+            onSelect={(id) => subPanel.selectSubTab(props.terminalId, id)}
+            onClose={props.onCloseTerminal}
+            onCollapse={() => subPanel.collapsePanel(props.terminalId)}
+            onCreate={() =>
+              runAction(
+                "create split",
+                crud
+                  .handleCreateSubTerminal(
+                    props.terminalId,
+                    store.activeMeta()?.cwd,
+                  )
+                  // Already surfaced by the create's own toast, or refused
+                  // while the daemon warms — nothing here waits on the split.
+                  .pipe(Effect.ignore),
+              )
+            }
+          />
+        </div>
+        <div class="relative flex-1 min-h-0">
+          <For each={subTerminalIds()}>
+            {(subId) => (
+              <Show
+                when={subLive(subId)}
+                fallback={
+                  // Mirror `Terminal`'s own stacking for an inactive tab: only
+                  // the selected sub occupies the pane, the rest stay absolute
+                  // and hidden. A dormant sub reaches this arm, and its Wake
+                  // asks for the SUB (`handleWake` climbs to the topmost
+                  // dormant ancestor server-side, so the parent comes back too).
+                  <div
+                    class="w-full h-full"
+                    style={{
+                      position: subVisible(subId) ? "relative" : "absolute",
+                      inset: "0",
+                      "content-visibility": subVisible(subId)
+                        ? "visible"
+                        : "hidden",
+                    }}
+                    inert={!subVisible(subId)}
+                  >
+                    <DormantTileBody
+                      size="sub"
+                      terminalId={subId}
+                      onWake={() => {
+                        runAction("wake terminal", crud.handleWake(subId));
+                      }}
+                      onFocus={() =>
+                        subPanel.focusVisibleSubPane(props.terminalId, subId)
+                      }
+                    />
+                  </div>
+                }
+              >
                 <Terminal
                   terminalId={subId}
-                  visible={
-                    props.visible && isExpanded() && activeSubTab() === subId
-                  }
+                  visible={subVisible(subId)}
                   focused={shouldFocusSub(subId)}
                   theme={props.theme}
                   searchOpen={false}
@@ -290,12 +331,12 @@ const TerminalContent: Component<{
                   refocusNonce={panelState().refocusNonce}
                   isSub
                 />
-              )}
-            </For>
-          </div>
-        </Resizable.Panel>
-      </Resizable>
-    </Show>
+              </Show>
+            )}
+          </For>
+        </div>
+      </Resizable.Panel>
+    </Resizable>
   );
 };
 

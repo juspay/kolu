@@ -44,6 +44,25 @@ Splits move too: in the [Dock](/dock), drag a row's grip onto another row to mak
 it a split of that one, or onto its repo card's header to give it back its own
 tile.
 
+## Restarting a terminal in place
+
+The **↻** button on the title bar — or **Restart terminal** in the command
+palette — gives a terminal a fresh shell **on the same id**: the same tile, the
+same folder and canvas spot, and the split tree intact. Its splits restart with
+it, each on its own id, so a tile comes back whole rather than as a lone shell.
+
+What comes back is what a **new** terminal would get now, coding agents
+included, which is the other use for it: a terminal started before you changed
+your agents picks the change up here. The old scrollback is gone with the old
+process — this is a new shell, not a reload of the old one.
+
+If an agent is **working or waiting for you**, the first click only asks: press
+again within a few seconds to confirm, because the old process ends. A plain
+shell restarts on the first click. The same confirm guards the palette command.
+
+The agents get their full story on
+[Restarting a terminal onto the current agents](/agents#restarting-a-terminal-onto-the-current-agents).
+
 ## Font zoom
 
 Zoom the font with <kbd>Cmd/Ctrl</kbd> + <kbd>+</kbd> / <kbd>-</kbd> — it zooms

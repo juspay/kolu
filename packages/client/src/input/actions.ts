@@ -106,9 +106,12 @@ export function isDispatchable(a: AppAction): a is DispatchableAction {
 
 /** The active terminal's id ONLY when it is a LIVE (active-arm) tile, else null.
  *  The split/toggle shortcuts gate on this so a chord pressed while a SLEEPING
- *  tile is selected is a no-op rather than spawning a hidden active child under a
- *  dormant parent (F3). `activeMeta()` is the active tile's metadata; `activeArm`
- *  is the same live narrow the title bar and palette use. */
+ *  tile is selected is a no-op. The "no live child under a dormant parent" rule
+ *  is still the reason, but sleep/wake now move a terminal's whole FAMILY
+ *  together — a dormant parent's splits are dormant, and `child-of` still refuses
+ *  a dormant parent — so the chord would only be asking for what the server
+ *  refuses. `activeMeta()` is the active tile's metadata; `activeArm` is the same
+ *  live narrow the title bar and palette use. */
 function activeLiveId(ctx: ActionContext): TerminalId | null {
   return activeArm(ctx.activeMeta()) ? ctx.activeId() : null;
 }

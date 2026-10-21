@@ -50,6 +50,8 @@
  *  the window hides *stale* rows, this hides *deliberately dormant* ones.
  *  `sleepingCount` counts every fresh sleeping row (shown or hidden) so the
  *  footer knows whether the toggle earns its place and what count to show.
+ *  A slept FAMILY is N sleeping rows — the tile and every split it froze — so
+ *  the count names what is actually parked and the ☾ toggle hides all of it.
  *
  *  `flatShortcutRows` is the top-level order `App.tsx` projects to feed
  *  `ActionContext.dockOrderedIds`. Splits deliberately do not claim numeric

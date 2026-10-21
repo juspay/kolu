@@ -84,6 +84,7 @@ import {
   type ActiveTerminalProcess,
   claimActiveTerminal,
   drainTerminals,
+  familyOf,
   getActiveTerminal,
   getTerminal,
   listTerminals,
@@ -1951,10 +1952,32 @@ export function releaseSleptLocalPty(id: TerminalId): Promise<void> {
   return localEndpointImpl.releaseSleptPty(id);
 }
 
-/** Wake a sleeping terminal: flip to active + re-spawn on the same id, deriving the
- *  resume form from the persisted `restoreTarget` (the fold-decided resume value). */
+/** Wake a sleeping terminal AND ITS FAMILY. The id asked for may be a split
+ *  under a sleeping parent: the walk first climbs to the topmost DORMANT
+ *  ancestor (a parent that is already live is the boundary), then wakes that
+ *  whole subtree roots-first through {@link LocalTerminalEndpoint.wake} — the
+ *  one respawn-by-id path, which derives each member's resume form from its own
+ *  persisted `restoreTarget`. Roots-first is what keeps a child from spawning
+ *  under a parent with no PTY, and it is why waking a split also brings its
+ *  parent back rather than leaving the split under a dormant tile.
+ *
+ *  Returns the asked terminal's info, or `undefined` when it is not sleeping
+ *  (an already-live id is a no-op, exactly as before). */
 export function wakeLocalTerminal(id: TerminalId): TerminalInfo | undefined {
-  return localEndpointImpl.wake(id);
+  if (getTerminal(id)?.meta.state !== "sleeping") return undefined;
+  let top = id;
+  for (;;) {
+    const parentId = getTerminal(top)?.meta.parentId;
+    if (parentId === undefined) break;
+    if (getTerminal(parentId)?.meta.state !== "sleeping") break;
+    top = parentId;
+  }
+  let woken: TerminalInfo | undefined;
+  for (const member of familyOf(top)) {
+    const info = localEndpointImpl.wake(member);
+    if (member === id) woken = info;
+  }
+  return woken;
 }
 
 /** The kill + respawn half of a restart, for a terminal `beginSleepLocal` just
@@ -1965,9 +1988,16 @@ export function restartSleptLocal(
   return localEndpointImpl.restartSlept(id);
 }
 
-/** Discard a sleeping terminal's record (no PTY to kill). */
+/** Discard a SLEEPING terminal and its dormant subtree — children first, so the
+ *  parent's record is the last to go and nothing briefly holds a parentId that
+ *  names a removed record. There is no PTY to kill (sleep already released
+ *  every member's). Returns false when `id` is not sleeping — an ACTIVE parent is
+ *  left entirely alone, its children included, rather than half-discarded. */
 export function discardLocalSleeping(id: TerminalId): boolean {
-  return localEndpointImpl.discardSleeping(id);
+  if (getTerminal(id)?.meta.state !== "sleeping") return false;
+  for (const member of familyOf(id).reverse())
+    localEndpointImpl.discardSleeping(member);
+  return true;
 }
 
 /** Discard a parked terminal's record — the consume half of the parked→active

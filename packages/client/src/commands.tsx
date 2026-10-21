@@ -360,15 +360,30 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                   if (id) runAction("sleep terminal", crud.requestSleep(id));
                 },
               },
-          // Live-only actions (split / copy / screenshot / export / recent-agent
-          // prefill) need a running PTY, so they're gated on the ACTIVE arm — not
-          // merely `activeId() !== null`, which is also true for a SLEEPING tile
-          // (F3). A sleeping parent would otherwise sprout an active sub-terminal
-          // `TerminalContent` hides behind the dormant body, and copy/screenshot
-          // would hit a PTY-less tile. Sleep/Wake/Close/theme/intent above stay on
-          // both arms (they touch persisted fields, not a live PTY).
+          // Live-only actions (split / restart / copy / screenshot / export /
+          // recent-agent prefill) need a running PTY, so they're gated on the
+          // ACTIVE arm — not merely `activeId() !== null`, which is also true for
+          // a SLEEPING tile (F3). Sleep now freezes a terminal's whole family, so
+          // a dormant parent's splits are dormant with it; creating under one is
+          // still refused by the server (`child-of` requires a live parent).
+          // Copy/screenshot would hit a PTY-less tile. Sleep/Wake/Close/theme/
+          // intent above stay on both arms (they touch persisted fields, not a
+          // live PTY).
           ...(activeArm(deps.activeMeta())
             ? [
+                {
+                  kind: "action" as const,
+                  name: "Restart terminal",
+                  section: "active-terminal" as const,
+                  description:
+                    "A fresh shell in the same tile and folder, splits included — a live agent asks first (press again to confirm)",
+                  onSelect: () => {
+                    const id = deps.activeId();
+                    // The tile's ↻ and this command share one arm-and-confirm
+                    // guard, so either can confirm the other's first press.
+                    if (id) crud.requestRestart(id);
+                  },
+                },
                 actionPaletteCommand("toggleSubPanel", deps, {
                   section: "active-terminal",
                 }),

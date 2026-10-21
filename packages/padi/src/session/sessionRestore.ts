@@ -223,10 +223,11 @@ export async function restoreSession(
   // the active marker map 1:1. When `parentId` is given the sleeper is a SLEPT
   // SUB-TERMINAL (#1651): honor the saved state and re-parent onto the FRESH parent
   // id (NOT a fresh active split), respecting F3 (a sub hangs off a LIVE parent —
-  // the restored parent; a slept parent closes its splits on sleep, so a
-  // slept-sub-under-slept-parent never occurs). An ACTIVE record re-spawns a fresh
-  // PTY (opt-in agent-resume) and maps old→new; a skipped repeat (`respawnActive` →
-  // null) adds no mapping.
+  // the restored parent). A slept family arrives whole: sleep freezes a parent and
+  // its splits together, so a saved sub under a saved sleeping parent is the
+  // ordinary case and is seeded dormant under it, ready to wake as one family. An
+  // ACTIVE record re-spawns a fresh PTY (opt-in agent-resume) and maps old→new; a
+  // skipped repeat (`respawnActive` → null) adds no mapping.
   const restoreRecord = (t: SavedTerminal, parentId?: string): void => {
     if (t.state === "sleeping") {
       seedSleepingTerminal(parentId !== undefined ? { ...t, parentId } : t);

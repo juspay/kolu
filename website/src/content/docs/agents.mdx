@@ -194,14 +194,19 @@ has and what new terminals get. While kolu is still delivering the set to that
 machine, or the delivery failed, new terminals there get no agents — so the pill says so
 and offers no Restart yet: restarting then would leave the terminal with none.
 
-Restart gives the terminal a fresh shell in place — the same tile, folder, splits
-and theme — with the current agents. With agents still on, the agent's
+Restart gives the terminal a fresh shell in place — the same tile, folder and
+theme, with the current agents, and **its splits restart with it** (each on its
+own id, so the split tree comes back whole). With agents still on, the agent's
 conversation resumes on the new agents, and any other program in the terminal
 ends. With agents now off it comes back as a plain shell, and the agent ends too.
 If an agent is working or waiting for you, the first click only asks; a second
 click within a few seconds confirms. The old shell is stopped the way sleep stops
 it — killed outright — so it does not write its history file, and anything you
 started with `nohup` keeps running.
+
+The same restart is on the tile's **↻** button and as **Restart terminal** in the
+command palette, so a terminal whose agents are current can still be restarted on
+purpose ([Inside a Tile](/tiles#restarting-a-terminal-in-place)).
 
 ## Where they sit on the PATH
 

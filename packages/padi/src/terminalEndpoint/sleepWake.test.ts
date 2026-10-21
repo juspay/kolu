@@ -498,3 +498,64 @@ describe("seedSleepingTerminal — boot seed with per-record tolerance", () => {
     expect(getTerminal(SEED_ID)?.meta.state).toBe("sleeping");
   });
 });
+
+describe("the family — a split's sleep/wake is its parent's too", () => {
+  const FAMILY_PARENT = "77777777-7777-4777-8777-777777777777";
+  const FAMILY_CHILD = "88888888-8888-4888-8888-888888888888";
+
+  /** A parent and a split under it, both active. */
+  function seedFamily(): void {
+    const parent = activeEntry(FAMILY_PARENT);
+    registerTerminal(FAMILY_PARENT, parent);
+    installSnapshot(FAMILY_PARENT);
+    const child = activeEntry(FAMILY_CHILD);
+    registerTerminal(FAMILY_CHILD, {
+      ...child,
+      meta: { ...child.meta, parentId: FAMILY_PARENT },
+    });
+    installSnapshot(FAMILY_CHILD);
+  }
+
+  afterEach(() => {
+    unregisterTerminal(FAMILY_PARENT);
+    unregisterTerminal(FAMILY_CHILD);
+  });
+
+  it("waking a sleeping split under a dormant parent wakes the parent first", async () => {
+    seedFamily();
+    // Sleep is family-wide, so both members are dormant — the shape a split's
+    // own Wake CTA sees.
+    expect(beginSleepLocal(FAMILY_CHILD)).toBe(true);
+    expect(beginSleepLocal(FAMILY_PARENT)).toBe(true);
+
+    // The user presses Wake on the SPLIT's dormant body. The climb finds the
+    // topmost dormant ancestor and wakes the subtree roots-first.
+    expect(wakeLocalTerminal(FAMILY_CHILD)?.id).toBe(FAMILY_CHILD);
+    expect(getTerminal(FAMILY_PARENT)?.meta.state).toBe("active");
+    expect(getTerminal(FAMILY_CHILD)?.meta.state).toBe("active");
+    // The split is still the parent's — the family came back as a tree.
+    expect(getTerminal(FAMILY_CHILD)?.meta.parentId).toBe(FAMILY_PARENT);
+
+    // No kaval in the unit env: the spawn tail rejects on a later microtask and
+    // restores both sleeping records (the F2 path, covered above).
+    await new Promise((r) => setTimeout(r, 0));
+  });
+
+  it("waking an ACTIVE split is a no-op — a live parent is the climb's boundary", async () => {
+    seedFamily();
+    expect(beginSleepLocal(FAMILY_CHILD)).toBe(true);
+
+    // The parent never slept, so waking the split wakes only the split.
+    expect(wakeLocalTerminal(FAMILY_CHILD)?.id).toBe(FAMILY_CHILD);
+    expect(getTerminal(FAMILY_CHILD)?.meta.state).toBe("active");
+    expect(getTerminal(FAMILY_PARENT)?.meta.state).toBe("active");
+
+    await new Promise((r) => setTimeout(r, 0));
+  });
+
+  it("an ACTIVE id is never 'woken'", () => {
+    seedFamily();
+    expect(wakeLocalTerminal(FAMILY_PARENT)).toBeUndefined();
+    expect(getTerminal(FAMILY_PARENT)?.meta.state).toBe("active");
+  });
+});

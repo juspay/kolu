@@ -1,6 +1,6 @@
 /** Tab bar for sub-terminals within a parent's sub-panel. */
 
-import type { TerminalMetadata } from "@kolu/padi-client/surface";
+import { sleepingArm, type TerminalMetadata } from "@kolu/padi-client/surface";
 import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
@@ -46,6 +46,10 @@ const SubPanelTabBar: Component<{
             return annotationLine(m?.intent, suffixed);
           };
           const isActive = () => props.activeSubTab === id;
+          // A dormant split keeps its tab while it sleeps (sleep freezes the
+          // whole family), so the tab says so: the same ☾ the dock row and the
+          // tile wear, ahead of the label.
+          const dormant = () => sleepingArm(meta()) !== undefined;
           return (
             <div class="group relative">
               <button
@@ -55,10 +59,17 @@ const SubPanelTabBar: Component<{
                   "bg-surface-2 text-fg font-medium": isActive(),
                 }}
                 data-active={isActive() ? "" : undefined}
+                data-dormant={dormant() ? "" : undefined}
+                title={dormant() ? "Sleeping — Wake to resume" : undefined}
                 onClick={() => props.onSelect(id)}
               >
                 <Show when={facts.attentionOf(encActiveHost(), id).live}>
                   <LiveActivityDot />
+                </Show>
+                <Show when={dormant()}>
+                  <span aria-hidden="true" class="opacity-70">
+                    ☾
+                  </span>
                 </Show>
                 <span class="truncate">
                   <IntentMarkdownInline markdown={label()} />

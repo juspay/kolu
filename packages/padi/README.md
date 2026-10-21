@@ -610,6 +610,18 @@ layer carry it; the module is `src/agentDistro/`.
   (which a client's attach loop reads as "gone" and stops on). A saved record's
   `agents` from before the one-package release is dropped by the state
   migration (`1.2.0`): the spawn that brings it back stamps it afresh.
+- **The family walk** — `lifecycle.sleep`, `wake`, `restart` and
+  `discardSleeping` act on a terminal AND every split under it (the registry's
+  `parentId` tree, `familyOf`). Sleep flips the family leaves-first and persists
+  the whole tree ONCE before releasing any PTY; wake climbs to the topmost
+  DORMANT ancestor and respawns that subtree roots-first (so waking a split
+  brings its parent back, and no child ever spawns under a record with no PTY);
+  restart is the sleep walk then the wake walk, with `restartsInFlight` set for
+  every member so an attach during the dormant middle waits; discard removes the
+  dormant subtree children-first. A member's own arm is its claim — `beginSleep`
+  returns false on an already-sleeping record — so the verbs are idempotent per
+  member. `lifecycle.create` still refuses a dormant parent: the family moves
+  together, so a split is created only under a live tile.
 - **The profile in effect** — once a terminal with agents is spawned and wired,
   padi runs its package's `bin/agent-distro --list --json` ONCE, in the
   terminal's resolved cwd and with its spawn env (`inEffect.ts`), and writes

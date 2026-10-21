@@ -34,6 +34,8 @@ import { reportActiveTerminalId } from "./session/autosaveGate.ts";
 import { type SessionSnapshot, saveSession } from "./session/session.ts";
 import {
   type ActiveTerminalProcess,
+  familyOf,
+  getActiveTerminal,
   getTerminal,
   requireActiveTerminal,
   terminalEntries,
@@ -42,6 +44,7 @@ import {
   beginSleepLocal,
   releaseSleptLocalPty,
   restartSleptLocal,
+  wakeLocalTerminal,
 } from "./terminalEndpoint/local.ts";
 // Load-order is cycle-sensitive: importing `terminalEndpoint/metadata.ts`
 // before `terminalEndpoint/local.ts` is what makes the surface cycle
@@ -207,44 +210,87 @@ export async function killTerminal(
   return resolveTerminalEndpoint(entry.meta.location).killTerminal(id);
 }
 
-/** Sleep a terminal — flip it to the sleeping arm IN PLACE, persist the session
- *  DURABLY, then release its PTY (persist-before-kill). A crash in the kill
- *  window leaves a sleeping record on disk, never a zombie active one; boot
- *  reconcile reaps any briefly-surviving PTY (adopt-or-reap). A no-op if `id`
- *  is not an active terminal. */
+/** Sleep a terminal AND ITS SPLITS — one family, one dormant record per member.
+ *
+ *  The walk is {@link familyOf} in REVERSE: leaves before parents, so no live
+ *  child is ever left under a fragment that just froze (a child attaches to its
+ *  parent's tile, and a live PTY under a dormant parent is the state every
+ *  client-side gate exists to avoid). Each member is flipped in place by its own
+ *  `beginSleep` claim — the claim is also the "is this member active" test, so an
+ *  already-sleeping child is skipped rather than double-flipped.
+ *
+ *  Persist ONCE, after every flip and before every release (`saveSession` reads
+ *  the registry, so one snapshot names the whole family asleep — N saves would
+ *  be N snapshots of a half-slept tree). Then release each PTY; that tail is
+ *  per-terminal and yields, which is why it is the last thing to happen. A crash
+ *  in that window leaves the whole family sleeping on disk (persist-before-kill),
+ *  and boot reconcile reaps any surviving PTY. A no-op when no member was active. */
 export async function sleepTerminal(id: TerminalId): Promise<void> {
-  if (!beginSleepLocal(id)) return;
+  const slept: TerminalId[] = [];
+  for (const member of familyOf(id).reverse())
+    if (beginSleepLocal(member)) slept.push(member);
+  if (slept.length === 0) return;
   saveSession(snapshotSession());
-  await releaseSleptLocalPty(id);
+  for (const member of slept) await releaseSleptLocalPty(member);
 }
 
-/** Restart a terminal IN PLACE — a fresh PTY on the same id, same cwd, layout,
- *  parent, theme and title policy, with the agents a new terminal gets now.
- *  The flip to sleeping is persisted first, exactly as {@link sleepTerminal}
- *  does: a crash between the flip and the respawn then leaves a dormant record
- *  the user can wake, never an active one whose PTY is gone. `undefined` when
- *  `id` is not an active terminal. See `restartSleptLocal` for the rest. */
+/** Restart a terminal AND ITS SPLITS IN PLACE — a fresh PTY per member, each on
+ *  its own id, in its own cwd, keeping its layout, parent edge, theme and title,
+ *  with the agents a new terminal gets now.
+ *
+ *  Literally the sleep walk then the wake walk, over the whole family: every
+ *  ACTIVE member flips to sleeping (leaves first, as in {@link sleepTerminal}),
+ *  the tree is persisted asleep ONCE, then each member respawns roots-first so a
+ *  child never spawns under a parent with no PTY. `restartSlept` is the
+ *  per-member half and keeps every existing restart invariant: a kill that fails
+ *  with the PTY still alive puts that member back on it and throws; a failed
+ *  respawn leaves it asleep to wake. The first such failure ABORTS the walk — the
+ *  members already replanted stay live, the rest stay asleep, and no live child is
+ *  left under a dormant parent.
+ *
+ *  A member that was ALREADY asleep before the restart (a split slept on its own)
+ *  has no PTY to kill, so it is simply woken: the family comes back whole.
+ *
+ *  `restartsInFlight` is registered for EVERY member in the same synchronous step
+ *  as the flips, so an attach landing in any member's dormant middle waits for
+ *  its new PTY instead of being told the terminal is gone. `undefined` when `id`
+ *  is not an active terminal — the family of a live id always contains it. */
 export async function restartTerminal(
   id: TerminalId,
 ): Promise<{ info: TerminalInfo; resumed: boolean } | undefined> {
-  if (!beginSleepLocal(id)) return undefined;
-  // Registered in the SAME synchronous step as the flip, so no attach can see
+  // Refuse up front: the family walk would otherwise restart the id's active
+  // CHILDREN and answer for a parent that never moved.
+  if (!getActiveTerminal(id)) return undefined;
+  const family = familyOf(id);
+  const slept = new Set<TerminalId>();
+  for (const member of [...family].reverse())
+    if (beginSleepLocal(member)) slept.add(member);
+  // Registered in the SAME synchronous step as the flips, so no attach can see
   // the dormant middle of a restart without also seeing the restart.
   const done = (async () => {
     saveSession(snapshotSession());
-    return restartSleptLocal(id);
+    let asked: { info: TerminalInfo; resumed: boolean } | undefined;
+    // Roots-first, and each respawn is awaited (`restartSlept` waits for the new
+    // PTY to wire) — so a parent is live before any child of it spawns.
+    for (const member of family) {
+      if (!slept.has(member)) {
+        wakeLocalTerminal(member);
+        continue;
+      }
+      const result = await restartSleptLocal(member);
+      if (member === id) asked = result;
+    }
+    return asked;
   })();
-  restartsInFlight.set(
-    id,
-    done.then(
-      () => undefined,
-      () => undefined,
-    ),
+  const settled = done.then(
+    () => undefined,
+    () => undefined,
   );
+  for (const member of family) restartsInFlight.set(member, settled);
   try {
     return await done;
   } finally {
-    restartsInFlight.delete(id);
+    for (const member of family) restartsInFlight.delete(member);
   }
 }
 

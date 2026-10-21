@@ -68,12 +68,33 @@ const CloseConfirm: Component<{
     return e && !e.eligible ? e.reason : undefined;
   };
   const splitCount = () => props.target?.splitCount ?? 0;
-  // A sleeping terminal has no live PTY — closing it DISCARDS the record (the
+  // A sleeping terminal has no live PTY — closing it DISCARDS the record and,
+  // now that sleep freezes the whole family, its dormant splits with it (the
   // same dialog reworded, still driven off the persisted git/worktree info).
   const isDiscard = () =>
     props.target ? sleepingArm(props.target.meta) !== undefined : false;
   const closeLabel = () =>
-    isDiscard() ? "Discard" : splitCount() > 0 ? "Close all" : "Close terminal";
+    isDiscard()
+      ? splitCount() > 0
+        ? "Discard all"
+        : "Discard"
+      : splitCount() > 0
+        ? "Close all"
+        : "Close terminal";
+  /** What the dialog leaves behind when this target closes: `discarded` for a
+   *  dormant family (nothing is running), `closed` otherwise. */
+  const verb = () => (isDiscard() ? "discarded" : "closed");
+  const title = () => {
+    if (canRemoveWorktree()) return "Remove worktree too?";
+    if (isDiscard())
+      return splitCount() === 1
+        ? "Discard sleeping terminal and 1 split?"
+        : splitCount() > 1
+          ? `Discard sleeping terminal and ${splitCount()} splits?`
+          : "Discard sleeping terminal?";
+    if (splitCount() > 0) return "Close terminal and splits?";
+    return "Close terminal?";
+  };
   const chrome = surface({ portalled: true });
 
   return (
@@ -90,20 +111,7 @@ const CloseConfirm: Component<{
         style={chrome.style}
         data-testid="close-confirm"
       >
-        <Dialog.Label class="font-semibold text-fg">
-          <Show
-            when={canRemoveWorktree()}
-            fallback={
-              isDiscard()
-                ? "Discard sleeping terminal?"
-                : splitCount() > 0
-                  ? "Close terminal and splits?"
-                  : "Close terminal?"
-            }
-          >
-            Remove worktree too?
-          </Show>
-        </Dialog.Label>
+        <Dialog.Label class="font-semibold text-fg">{title()}</Dialog.Label>
 
         <div class="space-y-2 text-fg-2">
           <Show when={isWorktree()}>
@@ -124,8 +132,8 @@ const CloseConfirm: Component<{
           <Show when={splitCount() > 0}>
             <p>
               {splitCount() === 1
-                ? "1 split pane will also be closed."
-                : `${splitCount()} split panes will also be closed.`}
+                ? `1 split pane will also be ${verb()}.`
+                : `${splitCount()} split panes will also be ${verb()}.`}
             </p>
           </Show>
 

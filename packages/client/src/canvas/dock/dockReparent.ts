@@ -46,8 +46,11 @@ export type DockDropTarget =
 
 /** The two app facts the validity rules need. `isLive` is the same live-arm
  *  gate the split shortcuts use (`activeArm`): a sleeping terminal may not be a
- *  drop TARGET, because nesting a live row under a dormant parent would give it
- *  a panel with no live pane behind it. */
+ *  drop TARGET, because a live row must not nest under a dormant parent. That
+ *  rule still holds now that sleep freezes a terminal's whole family — sleep and
+ *  wake move the family together, so a dormant parent's splits are dormant too,
+ *  and a drag must not do what the server itself refuses (`child-of` requires a
+ *  live parent). */
 export type DockDropContext = {
   parentEdge: ParentEdge;
   isLive: (id: TerminalId) => boolean;
