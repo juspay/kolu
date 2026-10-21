@@ -51,11 +51,14 @@ export interface BuiltProfile {
   readonly description: string;
 }
 
-/** Nix's words for a failure, on one line: its `error:` and what follows,
- *  else its last line. */
+/** Nix's words for a failure, on one line: its LAST `error:` and what follows,
+ *  else its last line. Last, because Nix prints the trace that led to a `throw`
+ *  before the thrown message — the failure's own words come last, and that is
+ *  what a profile's row must say (agent-distro's migration message, say), not
+ *  the evaluation frames above it. */
 export function nixWords(stderr: string, fallback: string): string {
   const text = stderr.trim();
-  const at = text.indexOf("error:");
+  const at = text.lastIndexOf("error:");
   const words = (at < 0 ? (text.split("\n").at(-1) ?? "") : text.slice(at))
     .split(/\s*\n\s*/)
     .join(" ")
