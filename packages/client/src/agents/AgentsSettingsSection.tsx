@@ -3,7 +3,7 @@
  *
  *  It keeps the PREFERENCE and nothing else: the switch (the harnesses), the
  *  profile list stacked over them — ending in the read-only note that a
- *  repository's own agent-distro.nix composes over it — the agents the switch
+ *  repository's own plugin.json composes over it — the agents the switch
  *  brings as chips, and ONE line for the fleet whose machine names open that
  *  machine's host details. Per-machine state (the set it serves, its last
  *  run, its events) and the per-machine actions live there; the fleet-wide

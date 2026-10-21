@@ -16,6 +16,13 @@
  * pull. Every failure throws with Nix's own words, on one line: a profile that
  * will not lock or build is said under its entry in Settings and on the hosts
  * it could not reach, never dropped.
+ *
+ * A profile is an Agent Plugin: its tree holds a `plugin.json`, and the
+ * plugins, packages, env and settings a plugin does not carry sit in that
+ * file's `extensions."asia.nixos.agent-distro"`. A tree still holding an
+ * `agent-distro.nix` does not build — upstream refuses that format, and its
+ * migration message is what the red line under the row says, kolu adding no
+ * words of its own.
  */
 
 import { execFile } from "node:child_process";

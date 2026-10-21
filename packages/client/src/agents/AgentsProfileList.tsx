@@ -9,7 +9,7 @@
  *
  *  An empty list draws no rows: it is the harnesses as agent-distro ships
  *  them. The list ENDS with one read-only row — a repository's own
- *  `agent-distro.nix` composes over everything above it — the one place the
+ *  `plugin.json` composes over everything above it — the one place the
  *  stacking rule is stated. It is not an entry of the setting, so it cannot be
  *  moved or removed.
  *
@@ -500,8 +500,8 @@ const AgentsProfileList: Component<{
           <span class="mt-px w-4 shrink-0" aria-hidden="true" />
           <div class="min-w-0 flex-1 text-xs leading-relaxed text-fg-3">
             A repository's own{" "}
-            <span class="font-mono text-fg-2">agent-distro.nix</span> composes
-            over everything above it.{" "}
+            <span class="font-mono text-fg-2">plugin.json</span> composes over
+            everything above it.{" "}
             <DocLink slug="agents" anchor="how-profiles-stack">
               How profiles stack →
             </DocLink>

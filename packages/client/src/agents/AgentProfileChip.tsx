@@ -1,7 +1,7 @@
 /** The tile header's agent-distro pill: the agent-distro mark, the profile in
  *  effect in the terminal (`agentChipProfile`) — as agent-distro answered for
- *  it after the spawn (`agents.effective`: a repository's own
- *  `agent-distro.nix` composes over the stack), else the stack it was spawned
+ *  it after the spawn (`agents.effective`: a repository's own `plugin.json`
+ *  composes over the stack), else the stack it was spawned
  *  with; nothing when it has neither — and the short hash of the exact package
  *  it pinned (dimmer). ONE button in the theme pill's treatment — the caller
  *  passes the tile chrome's shared class — and no pill at all when agents were
