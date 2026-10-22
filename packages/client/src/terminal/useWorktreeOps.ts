@@ -18,7 +18,9 @@ export function useWorktreeOps(deps: {
   handleCreate: (
     cwd?: string,
   ) => Effect.Effect<TerminalId, TerminalCreateRefused>;
-  handleKill: (id: TerminalId) => UiAction;
+  /** Close a live terminal AND its splits — the one per-arm, deepest-first close
+   *  path the canvas uses (a split slept on its own is discarded, not killed). */
+  handleKillWithSubs: (id: TerminalId) => UiAction;
   /** Discard a SLEEPING terminal's record — the dormant arm has no PTY, so the
    *  worktree-removal close path routes it here instead of the live kill RPC.
    *  FAILS when the discard failed (and was toasted) so the caller aborts before
@@ -95,10 +97,9 @@ export function useWorktreeOps(deps: {
    *  non-existent PTY and log a spurious pty-host kill error before unregistering.
    *  Sleep freezes the terminal's whole family, so that discard also drops its
    *  dormant splits (server-side subtree + `handleDiscard`'s local eviction).
-   *  An active terminal takes the normal kill path, and so does each of its
-   *  splits that is still LIVE — while a split that was slept on its own is
-   *  discarded, not killed (a kill answers `TerminalNotFound` and would leave
-   *  the dormant record orphaned under a removed parent). */
+   *  An active terminal takes the same family close the canvas uses
+   *  (`handleKillWithSubs`): per-arm and deepest-first, so a split slept on its
+   *  own is discarded rather than sent a kill the server refuses. */
   function handleKillWorktree(targetId?: TerminalId): UiAction {
     return Effect.gen(function* () {
       const id = targetId ?? store.activeId();
@@ -110,11 +111,6 @@ export function useWorktreeOps(deps: {
         git?.kind === "repo" && git.info.isWorktree
           ? git.info.worktreePath
           : null;
-      /** Close a split by its own arm — the same rule `crud.closeOne` applies. */
-      const closeSplit = (subId: TerminalId) =>
-        sleepingArm(store.getMetadata(subId))
-          ? deps.handleDiscard(subId).pipe(Effect.ignore)
-          : deps.handleKill(subId);
       if (sleepingArm(meta)) {
         // No PTY to kill — discard the dormant subtree, then fall through to
         // remove the worktree. If the discard failed (toasted by handleDiscard),
@@ -129,8 +125,7 @@ export function useWorktreeOps(deps: {
         );
         if (stop) return;
       } else {
-        for (const subId of store.getSplitPaneIds(id)) yield* closeSplit(subId);
-        yield* deps.handleKill(id);
+        yield* deps.handleKillWithSubs(id);
       }
       if (!worktreePath) return;
       const tid = toast.loading("Removing worktree…");

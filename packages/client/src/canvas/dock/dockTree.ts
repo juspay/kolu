@@ -235,11 +235,13 @@ export function buildDockTree(
    *
    *  A SPLIT is a row of the same tree (it renders nested under its parent), so
    *  the ☾ toggle drops a sleeping split too — a slept family is one tile row
-   *  and N split rows, and the toggle must hide all of them. */
-  const filteredOut = (row: RankedDockRow): boolean =>
+   *  and N split rows, and the toggle must hide all of them. The predicate takes
+   *  either: a split can never be `parked` (`SubDockOrderBucket` excludes it),
+   *  so one spelling covers both. */
+  const filteredOut = (
+    row: RankedDockRow | RankedDockRow["subRows"][number],
+  ): boolean =>
     row.bucket === "parked" || (row.bucket === "sleeping" && hideSleeping);
-  const subFilteredOut = (sub: RankedDockRow["subRows"][number]): boolean =>
-    sub.bucket === "sleeping" && hideSleeping;
 
   // ---- Step 1: Bucket ------------------------------------------------
   // File each row into its repo/branch cluster, in creation order, BEFORE the
@@ -281,7 +283,7 @@ export function buildDockTree(
     // filtered top row takes its whole sub-tree with it (they render nested),
     // so its splits are hidden rows too.
     if (filteredOut(row)) hiddenCount += 1 + row.subRows.length;
-    else hiddenCount += row.subRows.filter(subFilteredOut).length;
+    else hiddenCount += row.subRows.filter(filteredOut).length;
     const list = group.byLabel.get(info.key.label);
     if (list) list.push(row);
     else group.byLabel.set(info.key.label, [row]);
@@ -342,7 +344,7 @@ export function buildDockTree(
           // rendered row set, so a hidden split cannot sit under a visible parent.
           .map((row) => ({
             ...row,
-            subRows: row.subRows.filter((sub) => !subFilteredOut(sub)),
+            subRows: row.subRows.filter((sub) => !filteredOut(sub)),
           })),
       }))
       .filter(({ rows }) => rows.length > 0);

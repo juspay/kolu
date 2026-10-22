@@ -79,10 +79,6 @@ export interface TerminalEvictionPorts {
   subPanel: EvictionSubPanelPorts;
   removeRightPanel: (id: TerminalId) => void;
   removeSearch: (id: TerminalId) => void;
-  /** Drop any per-terminal UI state keyed by id — the tile chrome's restart
-   *  guard (a reactive root per terminal). Called for EVERY removal cause, so a
-   *  closed tile can't leak its guard past the record it belonged to. */
-  forgetRestartGuard: (id: TerminalId) => void;
 }
 
 /** Pre-removal parent graph for a split eviction. The list-driven reconcile
@@ -118,10 +114,6 @@ export function evictTerminal(
   departing: ReadonlySet<TerminalId>,
   removal: RemovalGraph,
 ) {
-  // The per-terminal UI state goes with the record, whatever arm and whichever
-  // caller: the restart guard is a reactive root keyed by id, and a natural exit
-  // or a host switch never reaches the imperative close path.
-  ports.forgetRestartGuard(id);
   if (parentId !== null) {
     // A departing SPLIT owns panel state of its own — its tab, code mode,
     // per-mode selections, and a back/forward history stack — so it sheds that
@@ -296,10 +288,6 @@ export function useActiveReconcile(deps: {
    *  the list) and are undone by restore, so the reconcile SUPPRESSES its
    *  authoritative promote-on-departure writes. */
   listIsAuthoritative: () => boolean;
-  /** Drop per-terminal UI state (the restart guard) — called for the ids a
-   *  departure evicts, and for the OLD host's ids on a host switch (which
-   *  deliberately evicts nothing). */
-  forgetRestartGuard: (id: TerminalId) => void;
 }) {
   // A live snapshot of every listed terminal's parentId (ALL ids — top-level with
   // a `null` parent too, for byte-identical switch-target order), in key order — so
@@ -324,15 +312,7 @@ export function useActiveReconcile(deps: {
       // Host SWITCH — the list re-keyed to a disjoint host. Advance the baseline
       // WITHOUT evicting the departed host's tiles (they didn't close; the tab just
       // looked away). Any wrong-host promote/auto-switch write is thus unspellable.
-      //
-      // Nothing evicts the old host's records, so this is the ONE leg that must
-      // drop their per-terminal UI state explicitly: a restart guard is a reactive
-      // root keyed by id, and those ids are unreachable until a switch back.
-      if (currSnap.host !== prevSnap.host) {
-        for (const id of prevSnap.map.keys())
-          if (!currSnap.map.has(id)) deps.forgetRestartGuard(id);
-        return;
-      }
+      if (currSnap.host !== prevSnap.host) return;
       const curr = currSnap.map;
       const prev = prevSnap.map;
       const departed: TerminalId[] = [];

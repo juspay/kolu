@@ -120,9 +120,6 @@ export function useTerminals() {
     // must reset rather than evict the departed host's tiles (no wrong-host writes).
     activeHostKey,
     evictDeparted: crud.evictDeparted,
-    // A host switch evicts nothing, so the reconcile drops the old host's
-    // per-terminal UI state itself.
-    forgetRestartGuard: crud.forgetRestartGuard,
     // Only react to a departure when the terminal list is AUTHORITATIVE (a
     // complete census) — during a supervised recycle/restart the drain empties the
     // list and restore undoes it, so a departure isn't a user close and the client
@@ -170,7 +167,7 @@ export function useTerminals() {
   const worktree = useWorktreeOps({
     store,
     handleCreate: crud.handleCreate,
-    handleKill: crud.handleKill,
+    handleKillWithSubs: crud.handleKillWithSubs,
     handleDiscard: crud.handleDiscard,
   });
 

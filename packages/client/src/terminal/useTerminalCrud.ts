@@ -19,7 +19,7 @@ import type { TranscriptHtmlMode } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Data, Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
-import { createRoot } from "solid-js";
+import { createEffect, createRoot, on } from "solid-js";
 import { toast } from "solid-sonner";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import { stackTitle } from "@kolu/agent-distro/landing";
@@ -168,7 +168,6 @@ export const useTerminalCrud = createSharedRoot(() => {
     subPanel,
     removeRightPanel: rightPanel.removePanel,
     removeSearch: terminalSearch.removeTerminal,
-    forgetRestartGuard,
   };
 
   /** Intact parent graph at the moment of eviction — live for the imperative
@@ -509,18 +508,36 @@ export const useTerminalCrud = createSharedRoot(() => {
   /** The guard for `id`, created on first use inside its own reactive root: the
    *  primitive owns a signal, a tracking effect (an agent going quiet while armed
    *  disarms it) and a cleanup, so it needs an owner even when the first press
-   *  arrives long after mount. The root is dropped with the record
-   *  ({@link forgetRestartGuard}). */
+   *  arrives long after mount.
+   *
+   *  The root's LIFETIME is the record's, so it rides the store's own fact and
+   *  not the four UI events that used to drop it (imperative eviction, the list
+   *  reconcile, a host switch, Close All): `getMetadata(id)` is a keyed-store read
+   *  that answers `undefined` the moment the id leaves this host's list. The only
+   *  consequence is that an armed guard disarms when its record goes away — and a
+   *  disarm can withhold a restart, never trigger one. */
   function restartGuard(id: TerminalId) {
     const existing = restartGuards.get(id);
     if (existing !== undefined) return existing;
-    const guard = createRoot((dispose) => ({
-      ...createRestartGuard({
-        guarded: () => liveAgentOf(id),
-        restart: () => runActionPromise(handleRestart(id)),
-      }),
-      dispose,
-    }));
+    const guard = createRoot((dispose) => {
+      const created = {
+        ...createRestartGuard({
+          guarded: () => liveAgentOf(id),
+          restart: () => runActionPromise(handleRestart(id)),
+        }),
+        dispose,
+      };
+      createEffect(
+        on(
+          () => store.getMetadata(id) === undefined,
+          (gone) => {
+            if (gone) forgetRestartGuard(id);
+          },
+          { defer: true },
+        ),
+      );
+      return created;
+    });
     restartGuards.set(id, guard);
     return guard;
   }
@@ -532,8 +549,9 @@ export const useTerminalCrud = createSharedRoot(() => {
 
   /** Restart a terminal, asking first when an agent is live. The two surfaces
    *  that offer it (the tile's ↻ and the palette) call this instead of
-   *  `handleRestart` directly: no caller can skip the guard, and both share the
-   *  one armed state. */
+   *  `handleRestart` directly, so both share the one armed state — either can
+   *  confirm the other's first press. (The agents pill keeps its own guard for
+   *  its stale-restart action, since that one arms the pill itself.) */
   function requestRestart(id: TerminalId): void {
     restartGuard(id).press();
   }
@@ -680,11 +698,9 @@ export const useTerminalCrud = createSharedRoot(() => {
         Effect.sync(() => {
           store.reset();
           // killAll bypasses removeAndAutoSwitch's per-terminal eviction, so
-          // clear the find-bar map and the restart guards wholesale here too —
-          // otherwise stale keys outlive the terminals they pointed at.
+          // clear the find-bar map wholesale here too — the restart guards drop
+          // themselves as their records leave (see `restartGuard`).
           terminalSearch.reset();
-          for (const guard of restartGuards.values()) guard.dispose();
-          restartGuards.clear();
         }),
       ),
       toastFailure("Failed to close all terminals"),
@@ -717,9 +733,6 @@ export const useTerminalCrud = createSharedRoot(() => {
     /** List-driven cleanup for a naturally-departed terminal (dedup-guarded).
      *  Wired into the reconcile in useTerminals. */
     evictDeparted: eviction.evictDeparted,
-    /** Drop one terminal's restart guard — the reconcile's host-switch leg,
-     *  which evicts nothing and so cannot reach it through the eviction ports. */
-    forgetRestartGuard,
     handleCreate,
     handleCreateSubTerminal,
     /** Nest a terminal under a new parent, or hand it back its own tile
@@ -749,6 +762,9 @@ export const useTerminalCrud = createSharedRoot(() => {
     requestRestart,
     restartArmed,
     restartBusy,
+    /** Does this terminal hold a live agent (working, or blocked on you)? The one
+     *  predicate the pill's stale-restart and the ↻/palette guard both ask. */
+    liveAgentOf,
     handleDiscard,
     handleCopyTerminalText,
     handleCopyTerminalId,

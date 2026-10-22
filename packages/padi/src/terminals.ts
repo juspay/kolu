@@ -278,8 +278,6 @@ export async function restartTerminal(
   const done = (async () => {
     saveSession(snapshotSession());
     let asked: { info: TerminalInfo; resumed: boolean } | undefined;
-    /** The member whose own restart THREW — see the catch. */
-    let failing: TerminalId | undefined;
     /** Members a dormant branch's wake already covered (so the walk does not
      *  revisit them, which would wake a skipped grandchild). */
     const handled = new Set<TerminalId>();
@@ -299,24 +297,22 @@ export async function restartTerminal(
           await wakeSubtreeLocal(member);
           continue;
         }
-        failing = member;
+        // `slept` means "flipped, and this walk still owes its PTY a release".
+        // Handing the member to `restartSlept` takes that debt over, so a throw
+        // from HERE leaves nothing for the catch to release — it already killed
+        // the PTY, and releasing again would aim a kill at one the host no
+        // longer has and scrub the scratch restart promises to keep.
+        slept.delete(member);
         const result = await restartSleptLocal(member);
-        failing = undefined;
         if (member === id) asked = result;
       }
       return asked;
     } catch (err) {
       // Release every member this walk flipped but never replanted: its old PTY
-      // is still running under a sleeping record. The member whose restart threw
-      // is EXCLUDED: `restartSlept` already killed its PTY (a failed respawn
-      // leaves the sleeping record with none), and releasing it again would aim a
-      // kill at a PTY the host no longer has and scrub the scratch restart
-      // promises to keep. Members already replanted (active) are left alone too.
+      // is still running under a sleeping record. Members already replanted
+      // (active) are left alone.
       for (const member of slept)
-        if (
-          member !== failing &&
-          getTerminal(member)?.meta.state === "sleeping"
-        )
+        if (getTerminal(member)?.meta.state === "sleeping")
           await releaseSleptLocalPty(member);
       throw err;
     }

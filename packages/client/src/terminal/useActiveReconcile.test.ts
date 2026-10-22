@@ -61,7 +61,6 @@ function makePorts(over: {
     removePanel: vi.fn<(id: TerminalId) => void>(),
     removeRightPanel: vi.fn<(id: TerminalId) => void>(),
     removeSearch: vi.fn<(id: TerminalId) => void>(),
-    forgetRestartGuard: vi.fn<(id: TerminalId) => void>(),
   };
   const ports: TerminalEvictionPorts = {
     activeId: over.activeId ?? (() => null),
@@ -83,7 +82,6 @@ function makePorts(over: {
     },
     removeRightPanel: calls.removeRightPanel,
     removeSearch: calls.removeSearch,
-    forgetRestartGuard: calls.forgetRestartGuard,
   };
   return { ports, calls };
 }
@@ -461,7 +459,6 @@ function setupReconcile(init: {
       activeHostKey: host,
       evictDeparted: eviction.evictDeparted,
       listIsAuthoritative: connected,
-      forgetRestartGuard: calls.forgetRestartGuard,
     });
     handles = {
       setRawIds,
@@ -735,12 +732,6 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     expect(h.calls.promoteToTopLevel).not.toHaveBeenCalled();
     expect(h.calls.dropFromMru).not.toHaveBeenCalled();
     expect(h.calls.activate).not.toHaveBeenCalled();
-
-    // The OLD host's per-terminal UI state (the restart guards) is unreachable
-    // now — nothing evicted those records, so the switch itself must drop it.
-    expect(h.calls.forgetRestartGuard.mock.calls.map((c) => c[0])).toEqual(
-      expect.arrayContaining([T("P"), T("S"), T("Q")]),
-    );
 
     // And a REAL close on host B still reconciles normally (baseline advanced to B).
     batch(() => {

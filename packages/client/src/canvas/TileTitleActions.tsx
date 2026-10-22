@@ -27,7 +27,6 @@ import {
   agentRestartReady,
   agentStalenessOf,
 } from "@kolu/agent-distro/status";
-import { agentLive } from "@kolu/terminal-vocab/agentProjection";
 import { ACTIONS } from "../input/actions";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { runAction, runActionPromise, type UiAction } from "../runAction";
@@ -98,17 +97,13 @@ const TileTitleActions: Component<{
     const s = staleness();
     if (s.kind !== "stale" || !agentRestartReady(s)) return undefined;
     return {
-      guarded: liveAgent(),
+      // The shared root's own predicate — the pill and the ↻/palette guard must
+      // agree on what "a live agent" means, or one asks and the other does not.
+      guarded: crud.liveAgentOf(props.id),
       action: agentRestartAction(s),
       run: (e) =>
         onTilePromise(e, () => runActionPromise(crud.handleRestart(props.id))),
     };
-  };
-  // A live agent (working, or blocked on you) — Restart would end its process,
-  // so the pill asks twice. `agentLive` is the shared fold's answer.
-  const liveAgent = () => {
-    const agent = live()?.agent;
-    return agent != null && agentLive(agent.state);
   };
   const themeName = () => getTerminalThemeName(props.id);
   const subCount = () => store.getDisplayInfo(props.id)?.subCount ?? 0;

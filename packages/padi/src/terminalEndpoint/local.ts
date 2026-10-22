@@ -1584,22 +1584,13 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  (theme/layout/intent/memory/restoreTarget); the observation is reset and
    *  re-derived by the producer.
    *
-   *  Hands back the active info AND the spawn's `wired` settle: a family wake
-   *  waits for a parent's new PTY before spawning its children, and leaves a
-   *  subtree asleep when its root's spawn failed (the sleeping record was
-   *  restored, F2). `undefined` when `id` is not a sleeping terminal. */
-  wake(
-    id: TerminalId,
-  ): { info: TerminalInfo; wired: Promise<boolean> } | undefined {
-    const woken = this.wakeWith(id, { resume: true });
-    if (woken === undefined) return undefined;
-    return { info: woken.info, wired: woken.wired };
-  }
-
-  /** {@link wake}, choosing whether to replay the agent's resume form, and
-   *  handing back the spawn's `wired` settle and whether a resume form was
-   *  replayed (`resumed`). */
-  private wakeWith(
+   *  `opts.resume` chooses whether the agent's resume form is replayed (a restart
+   *  turns it off when agents are now off). Hands back the active info, the
+   *  spawn's `wired` settle (a family wake waits for a parent's PTY before
+   *  spawning its children, and leaves a subtree asleep when its root's spawn
+   *  failed — the sleeping record was restored, F2) and whether a form was
+   *  replayed (`resumed`). `undefined` when `id` is not a sleeping terminal. */
+  wakeWith(
     id: TerminalId,
     opts: { resume: boolean },
   ):
@@ -1961,16 +1952,6 @@ export function releaseSleptLocalPty(id: TerminalId): Promise<void> {
   return localEndpointImpl.releaseSleptPty(id);
 }
 
-/** Wake ONE sleeping terminal — no ancestor climb, no family walk: flip it back
- *  to active and re-spawn on the same id, handing back the spawn's `wired`
- *  settle. The atom {@link wakeSubtreeLocal} is built from. `undefined` when
- *  `id` is not sleeping. */
-function wakeOne(
-  id: TerminalId,
-): { info: TerminalInfo; wired: Promise<boolean> } | undefined {
-  return localEndpointImpl.wake(id);
-}
-
 /** Wake the dormant subtree rooted at `id` — a NON-CLIMBING walk, so a caller
  *  that is restarting (rather than waking) an ancestor can still bring a dormant
  *  branch back whole.
@@ -1980,23 +1961,23 @@ function wakeOne(
  *  restored (F2), and its whole subtree is then skipped — those children stay
  *  asleep rather than spawning under a parent with no PTY. That is what keeps
  *  "no live child under a dormant parent" true in the failure case, not only on
- *  the happy path. A member that is already active is left alone. */
+ *  the happy path. A member that is already active is left alone.
+ *
+ *  The skip rides the ROOTS-FIRST order rather than re-climbing ancestors: a
+ *  member's parent is always visited before it, so one hop answers the question
+ *  (and the member is marked too, so its children see it). */
 export async function wakeSubtreeLocal(id: TerminalId): Promise<void> {
-  /** Members whose own spawn failed — their descendants stay asleep. */
-  const failed = new Set<TerminalId>();
-  const underFailed = (member: TerminalId): boolean => {
-    let cur = getTerminal(member)?.meta.parentId;
-    while (cur !== undefined) {
-      if (failed.has(cur)) return true;
-      cur = getTerminal(cur)?.meta.parentId;
-    }
-    return false;
-  };
+  /** Members whose own spawn failed (and, by propagation, their descendants). */
+  const blocked = new Set<TerminalId>();
   for (const member of familyOf(id)) {
-    if (underFailed(member)) continue;
-    const woken = wakeOne(member);
+    const parentId = getTerminal(member)?.meta.parentId;
+    if (parentId !== undefined && blocked.has(parentId)) {
+      blocked.add(member);
+      continue;
+    }
+    const woken = localEndpointImpl.wakeWith(member, { resume: true });
     if (woken === undefined) continue;
-    if (!(await woken.wired)) failed.add(member);
+    if (!(await woken.wired)) blocked.add(member);
   }
 }
 
