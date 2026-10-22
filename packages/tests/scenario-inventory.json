@@ -9217,6 +9217,30 @@
       ],
       "executions": 2,
       "firstSeenSha": "1f08dc27d2033baf8f072e5827d3288d12235359"
+    },
+    {
+      "revisionId": "revision-5652bb0436dba36f4281",
+      "scenarioKey": "scenario-ea149a4f713ca939b75f",
+      "feature": "features/sleeping-terminals.feature",
+      "scenario": "Restart from the tile title bar gives back a fresh shell on the same tile",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "0eded993a1bc549279801515d9716606e8f62b01baed4dc87eb1efc97f7447f9",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c3eeced54cfd3bdeec58714c0fd23d49ea1de2a3"
+    },
+    {
+      "revisionId": "revision-f11c5220697f6b435af1",
+      "scenarioKey": "scenario-09ca317f503723c7530e",
+      "feature": "features/sleeping-terminals.feature",
+      "scenario": "Sleeping a terminal freezes its splits too, and Wake brings the family back",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "1a6999b0ae11817793318450aeb74b52faf3354698b44ec15da281698bca9d41",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c3eeced54cfd3bdeec58714c0fd23d49ea1de2a3"
     }
   ]
 }
