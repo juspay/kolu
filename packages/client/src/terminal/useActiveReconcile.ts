@@ -296,6 +296,10 @@ export function useActiveReconcile(deps: {
    *  the list) and are undone by restore, so the reconcile SUPPRESSES its
    *  authoritative promote-on-departure writes. */
   listIsAuthoritative: () => boolean;
+  /** Drop per-terminal UI state (the restart guard) — called for the ids a
+   *  departure evicts, and for the OLD host's ids on a host switch (which
+   *  deliberately evicts nothing). */
+  forgetRestartGuard: (id: TerminalId) => void;
 }) {
   // A live snapshot of every listed terminal's parentId (ALL ids — top-level with
   // a `null` parent too, for byte-identical switch-target order), in key order — so
@@ -320,7 +324,15 @@ export function useActiveReconcile(deps: {
       // Host SWITCH — the list re-keyed to a disjoint host. Advance the baseline
       // WITHOUT evicting the departed host's tiles (they didn't close; the tab just
       // looked away). Any wrong-host promote/auto-switch write is thus unspellable.
-      if (currSnap.host !== prevSnap.host) return;
+      //
+      // Nothing evicts the old host's records, so this is the ONE leg that must
+      // drop their per-terminal UI state explicitly: a restart guard is a reactive
+      // root keyed by id, and those ids are unreachable until a switch back.
+      if (currSnap.host !== prevSnap.host) {
+        for (const id of prevSnap.map.keys())
+          if (!currSnap.map.has(id)) deps.forgetRestartGuard(id);
+        return;
+      }
       const curr = currSnap.map;
       const prev = prevSnap.map;
       const departed: TerminalId[] = [];

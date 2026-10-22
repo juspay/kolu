@@ -380,6 +380,27 @@ export const useTerminalCrud = createSharedRoot(() => {
     );
   }
 
+  /** The splits under `id`, DEEPEST FIRST. A split's eviction re-homes the
+   *  children that survive it, so evicting a middle split before its own child
+   *  would re-home that child against a record this close already removed (a
+   *  `setParent` into the void, once for a discarded subtree and once for a
+   *  3-deep kill). Deepest-first means every child is gone before its parent's
+   *  eviction looks for survivors. */
+  function splitsDeepestFirst(id: TerminalId): TerminalId[] {
+    const depthOf = (x: TerminalId): number => {
+      let depth = 0;
+      let cur = store.getMetadata(x)?.parentId ?? null;
+      while (cur !== null) {
+        depth++;
+        cur = store.getMetadata(cur)?.parentId ?? null;
+      }
+      return depth;
+    };
+    return [...store.getSplitPaneIds(id)].sort(
+      (a, b) => depthOf(b) - depthOf(a),
+    );
+  }
+
   /** Kill a terminal and all its flat descendants — the close path, instead of
    *  promoting the splits. Each member is closed by its OWN arm
    *  ({@link closeOne}): a live parent can hold a split that was slept on its
@@ -388,9 +409,10 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  its `parentId`) behind for the next autosave to persist as an orphan. */
   function handleKillWithSubs(id: TerminalId): UiAction {
     return Effect.gen(function* () {
-      // Sequential, not concurrent: the descendants' evictions re-home the
-      // survivors, and doing that out of order reorders the canvas.
-      for (const subId of store.getSplitPaneIds(id)) yield* closeOne(subId);
+      // Deepest-first, sequential: the descendants' evictions re-home the
+      // survivors, and doing that out of order reorders the canvas (or aims a
+      // re-home at a parent this same close is removing).
+      for (const subId of splitsDeepestFirst(id)) yield* closeOne(subId);
       yield* closeOne(id);
     });
   }
@@ -556,12 +578,13 @@ export const useTerminalCrud = createSharedRoot(() => {
       Effect.tap(() =>
         Effect.sync(() => {
           // The SERVER discarded the whole dormant subtree; evict its splits
-          // locally BEFORE the parent, symmetric with `handleKillWithSubs`. The
-          // parent's eviction otherwise promotes children whose records are
-          // already gone, firing `setParent(sub, null)` into the void (and
-          // toasting "Failed to set parent" as the list push races it). A split
-          // the list push already dropped is skipped.
-          for (const subId of store.getSplitPaneIds(id))
+          // locally BEFORE the parent, deepest-first, symmetric with
+          // `handleKillWithSubs`. The parent's eviction otherwise promotes
+          // children whose records are already gone, firing `setParent(sub,
+          // null)` into the void (and toasting "Failed to set parent" as the
+          // list push races it). A split the list push already dropped is
+          // skipped.
+          for (const subId of splitsDeepestFirst(id))
             if (store.getMetadata(subId) !== undefined)
               removeAndAutoSwitch(subId);
           removeAndAutoSwitch(id);
@@ -694,6 +717,9 @@ export const useTerminalCrud = createSharedRoot(() => {
     /** List-driven cleanup for a naturally-departed terminal (dedup-guarded).
      *  Wired into the reconcile in useTerminals. */
     evictDeparted: eviction.evictDeparted,
+    /** Drop one terminal's restart guard — the reconcile's host-switch leg,
+     *  which evicts nothing and so cannot reach it through the eviction ports. */
+    forgetRestartGuard,
     handleCreate,
     handleCreateSubTerminal,
     /** Nest a terminal under a new parent, or hand it back its own tile
