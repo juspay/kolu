@@ -32,7 +32,11 @@ import {
   LOCAL_LOCATION,
   type SavedSleepingTerminal,
 } from "@kolu/padi-client/surface";
-import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
+import {
+  ACTIVE_TERMINAL,
+  readBufferText,
+  waitForBufferContains,
+} from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
 import { padiCall } from "../support/rpcWire.ts";
 import {
@@ -50,6 +54,9 @@ const CANVAS_SELECTOR = '[data-testid="canvas-container"]';
  *  a module-scoped slot keyed by `world` so it survives across steps within one
  *  scenario without widening the shared `KoluWorld` type. */
 const sleptIdByWorld = new WeakMap<KoluWorld, string>();
+/** The split we remembered before sleeping a family — asserted back under the
+ *  same parent tile after the wake. */
+const splitIdByWorld = new WeakMap<KoluWorld, string>();
 
 /** Resolve the id of the SINGLE active (live) canvas tile on screen. The slept
  *  terminal is the one the user was just interacting with; with one tile up
@@ -214,6 +221,49 @@ When(
   },
 );
 
+When("I remember the tile's split pane", async function (this: KoluWorld) {
+  // The split's own `data-terminal-id` inside the active tile's subtree — the
+  // id that must still be there (and parented to the tile) after a family
+  // wake. Read after the split has mounted.
+  const tileId = await activeTileId(this);
+  const subId = await pollFor({
+    observe: () =>
+      this.page.evaluate(
+        ({ sel, tileId }) =>
+          document
+            .querySelector(
+              `${sel}[data-terminal-id="${tileId}"] [data-sub-terminal][data-terminal-id]`,
+            )
+            ?.getAttribute("data-terminal-id") ?? null,
+        { sel: CANVAS_TILE_SELECTOR, tileId },
+      ),
+    isDone: (v) => typeof v === "string" && v.length > 0,
+    onTimeout: (_last, ms) =>
+      new Error(`No split pane appeared in the active tile within ${ms}ms`),
+    timeoutMs: POLL_TIMEOUT,
+  });
+  assert.ok(subId, "No split pane id resolved");
+  sleptIdByWorld.set(this, tileId);
+  splitIdByWorld.set(this, subId);
+});
+
+When("I click the tile restart button", async function (this: KoluWorld) {
+  const id = await activeTileId(this);
+  sleptIdByWorld.set(this, id);
+  // Same raw-DOM click the sleep step uses: the canvas hit-test must not
+  // decide whether the test reached the title bar.
+  await this.page.evaluate(
+    ({ sel, tileId }) => {
+      const btn = document.querySelector(
+        `${sel}[data-terminal-id="${tileId}"] [data-testid="tile-restart"]`,
+      ) as HTMLButtonElement | null;
+      if (!btn) throw new Error(`tile-restart button not found for ${tileId}`);
+      btn.click();
+    },
+    { sel: CANVAS_TILE_SELECTOR, tileId: id },
+  );
+});
+
 When(
   "I wake the restored sleeping tile via the dormant body wake button",
   async function (this: KoluWorld) {
@@ -267,6 +317,118 @@ Then("the slept terminal should be live", async function (this: KoluWorld) {
   assert.ok(id, "No slept terminal id captured — call the sleep step first");
   await waitForLive(this, id);
 });
+
+Then(
+  "the tile and its {int} split pane(s) should be dormant",
+  async function (this: KoluWorld, splitCount: number) {
+    // Sleeping a terminal freezes its whole FAMILY — the tile's own pane and
+    // every split's — so the tile holds one tile-sized dormant body and N
+    // compact ones, and NO live xterm anywhere inside it. An assert on the
+    // bodies alone could be satisfied by a tile that kept its xterm painting
+    // under the placeholder, hence the `.xterm-screen` clause.
+    const id = sleptIdByWorld.get(this);
+    assert.ok(id, "No slept terminal id captured — call the sleep step first");
+    await this.page.waitForFunction(
+      ({ sel, tileId, count }) => {
+        const tile = document.querySelector(
+          `${sel}[data-terminal-id="${tileId}"]`,
+        );
+        if (!tile) return false;
+        const bodies = [
+          ...tile.querySelectorAll(
+            '[data-testid="dormant-tile-body"][data-sleeping="true"]',
+          ),
+        ];
+        const sizes = bodies.map((b) => b.getAttribute("data-size"));
+        return (
+          bodies.length === count + 1 &&
+          sizes.filter((s) => s === "tile").length === 1 &&
+          sizes.filter((s) => s === "sub").length === count &&
+          tile.querySelector(".xterm-screen") === null
+        );
+      },
+      { sel: CANVAS_TILE_SELECTOR, tileId: id, count: splitCount },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the tile and its split should be live again",
+  async function (this: KoluWorld) {
+    // The same tile id, the same split id under it, nothing dormant — the
+    // family came back whole rather than the split vanishing or being promoted
+    // to its own tile.
+    const id = sleptIdByWorld.get(this);
+    const splitId = splitIdByWorld.get(this);
+    assert.ok(id, "No slept terminal id captured — call the sleep step first");
+    assert.ok(
+      splitId,
+      "No split pane id remembered — call the split step first",
+    );
+    await waitForLive(this, id);
+    await this.page.waitForFunction(
+      ({ sel, tileId, subId }) => {
+        const tile = document.querySelector(
+          `${sel}[data-terminal-id="${tileId}"]`,
+        );
+        if (!tile) return false;
+        return (
+          tile.querySelector(
+            `[data-sub-terminal][data-terminal-id="${subId}"]`,
+          ) !== null &&
+          tile.querySelector('[data-testid="dormant-tile-body"]') === null
+        );
+      },
+      { sel: CANVAS_TILE_SELECTOR, tileId: id, subId: splitId },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "no toast mentioning {string} should have been shown",
+  async function (this: KoluWorld, needle: string) {
+    // Reads the durable recorder "I start recording error toasts" installs —
+    // it captures EVERY toast's text, so a warning that was already dismissed
+    // (the old "Sleeping closes N splits" one, which slept the splits instead
+    // of freezing them) cannot slip past a point-in-time query.
+    const seen = await this.page.evaluate(
+      () =>
+        (window as unknown as { __errorToasts?: string[] }).__errorToasts ?? [],
+    );
+    const offending = seen.filter((t) => t.includes(needle));
+    assert.deepStrictEqual(
+      offending,
+      [],
+      `Expected no toast mentioning "${needle}", saw: ${JSON.stringify(offending)}`,
+    );
+  },
+);
+
+Then(
+  "the terminal buffer should no longer contain {string}",
+  async function (this: KoluWorld, text: string) {
+    // A restart unmounts the live terminal for its dormant middle, so a bare
+    // buffer read can satisfy "absent" against NOTHING at all (no element → an
+    // empty string). Wait for the tile to be live AND its buffer to have
+    // painted, then assert the marker is gone — a fresh PTY, not a blank pane.
+    const id = sleptIdByWorld.get(this);
+    assert.ok(id, "No terminal id captured — click the restart button first");
+    await waitForLive(this, id);
+    await this.page.waitForFunction(
+      (sel) => (window.__readXtermBuffer?.(sel, 0) ?? "").trim() !== "",
+      ACTIVE_TERMINAL,
+      { timeout: POLL_TIMEOUT, polling: 50 },
+    );
+    await this.page.waitForFunction(
+      ({ sel, exp }) =>
+        !(window.__readXtermBuffer?.(sel, 0) ?? "").includes(exp),
+      { sel: ACTIVE_TERMINAL, exp: text },
+      { timeout: POLL_TIMEOUT, polling: 50 },
+    );
+  },
+);
 
 Then(
   "the restore card should mark a sleeping terminal as asleep",
@@ -374,12 +536,13 @@ Then(
   "the dock should show {int} sleeping row(s)",
   async function (this: KoluWorld, expected: number) {
     // The dock classifies a dormant terminal into its own `sleeping` bucket —
-    // `dock-row[data-bucket="sleeping"]`. Asserting the count proves the
-    // sleeping terminal is a first-class presence-surface citizen, not erased.
+    // `dock-row[data-bucket="sleeping"]` for a tile, `dock-sub-row` for a split
+    // under it. Counting BOTH is what proves a slept family is a first-class
+    // presence-surface citizen, one row per frozen member, not erased.
     await this.page.waitForFunction(
       ({ count }) =>
         document.querySelectorAll(
-          '[data-testid="dock-row"][data-bucket="sleeping"]',
+          '[data-testid="dock-row"][data-bucket="sleeping"], [data-testid="dock-sub-row"][data-bucket="sleeping"]',
         ).length === count,
       { count: expected },
       { timeout: POLL_TIMEOUT },

@@ -84,6 +84,7 @@ import {
   type ActiveTerminalProcess,
   claimActiveTerminal,
   drainTerminals,
+  familyOf,
   getActiveTerminal,
   getTerminal,
   listTerminals,
@@ -1575,21 +1576,21 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     cleanupTerminalScratch(id);
   }
 
-  /** Wake a SLEEPING terminal: flip it back to the active arm and re-spawn its
-   *  PTY on the SAME id in its saved cwd, replaying the resume form derived from the
-   *  authored `restoreTarget` (via `resumeFormFor`) so the conversation comes back —
-   *  session-restore-of-one. The authored record rides through WHOLE
+  /** Wake a SLEEPING terminal — ONE terminal, no climb and no family: flip it
+   *  back to the active arm and re-spawn its PTY on the SAME id in its saved cwd,
+   *  replaying the resume form derived from the authored `restoreTarget` (via
+   *  `resumeFormFor`) so the conversation comes back — session-restore-of-one.
+   *  The authored record rides through WHOLE
    *  (theme/layout/intent/memory/restoreTarget); the observation is reset and
-   *  re-derived by the producer. Returns the active info, or undefined when `id` is
-   *  not a sleeping terminal. */
-  wake(id: TerminalId): TerminalInfo | undefined {
-    return this.wakeWith(id, { resume: true })?.info;
-  }
-
-  /** {@link wake}, choosing whether to replay the agent's resume form, and
-   *  handing back the spawn's `wired` settle and whether a resume form was
-   *  replayed (`resumed`). */
-  private wakeWith(
+   *  re-derived by the producer.
+   *
+   *  `opts.resume` chooses whether the agent's resume form is replayed (a restart
+   *  turns it off when agents are now off). Hands back the active info, the
+   *  spawn's `wired` settle (a family wake waits for a parent's PTY before
+   *  spawning its children, and leaves a subtree asleep when its root's spawn
+   *  failed — the sleeping record was restored, F2) and whether a form was
+   *  replayed (`resumed`). `undefined` when `id` is not a sleeping terminal. */
+  wakeWith(
     id: TerminalId,
     opts: { resume: boolean },
   ):
@@ -1951,10 +1952,58 @@ export function releaseSleptLocalPty(id: TerminalId): Promise<void> {
   return localEndpointImpl.releaseSleptPty(id);
 }
 
-/** Wake a sleeping terminal: flip to active + re-spawn on the same id, deriving the
- *  resume form from the persisted `restoreTarget` (the fold-decided resume value). */
-export function wakeLocalTerminal(id: TerminalId): TerminalInfo | undefined {
-  return localEndpointImpl.wake(id);
+/** Wake the dormant subtree rooted at `id` — a NON-CLIMBING walk, so a caller
+ *  that is restarting (rather than waking) an ancestor can still bring a dormant
+ *  branch back whole.
+ *
+ *  Roots-first, and it AWAITS each member's spawn before its children start. That
+ *  is not just ordering: a member whose spawn fails has its sleeping record
+ *  restored (F2), and its whole subtree is then skipped — those children stay
+ *  asleep rather than spawning under a parent with no PTY. That is what keeps
+ *  "no live child under a dormant parent" true in the failure case, not only on
+ *  the happy path. A member that is already active is left alone.
+ *
+ *  The skip rides the ROOTS-FIRST order rather than re-climbing ancestors: a
+ *  member's parent is always visited before it, so one hop answers the question
+ *  (and the member is marked too, so its children see it). */
+export async function wakeSubtreeLocal(id: TerminalId): Promise<void> {
+  /** Members whose own spawn failed (and, by propagation, their descendants). */
+  const blocked = new Set<TerminalId>();
+  for (const member of familyOf(id)) {
+    const parentId = getTerminal(member)?.meta.parentId;
+    if (parentId !== undefined && blocked.has(parentId)) {
+      blocked.add(member);
+      continue;
+    }
+    const woken = localEndpointImpl.wakeWith(member, { resume: true });
+    if (woken === undefined) continue;
+    if (!(await woken.wired)) blocked.add(member);
+  }
+}
+
+/** Wake a sleeping terminal AND ITS FAMILY. The id asked for may be a split
+ *  under a sleeping parent: the walk first climbs to the topmost DORMANT
+ *  ancestor (a parent that is already live is the boundary), then hands that
+ *  subtree to {@link wakeSubtreeLocal} (roots-first, wire-awaited, failed
+ *  subtrees skipped).
+ *
+ *  Returns the asked terminal's info as it IS once the walk has run — a failed
+ *  spawn leaves the sleeping record (`pid: 0`), so re-read rather than answering
+ *  the pre-spawn info — or `undefined` when it was not sleeping (an already-live
+ *  id is a no-op, exactly as before). */
+export async function wakeLocalTerminal(
+  id: TerminalId,
+): Promise<TerminalInfo | undefined> {
+  if (getTerminal(id)?.meta.state !== "sleeping") return undefined;
+  let top = id;
+  for (;;) {
+    const parentId = getTerminal(top)?.meta.parentId;
+    if (parentId === undefined) break;
+    if (getTerminal(parentId)?.meta.state !== "sleeping") break;
+    top = parentId;
+  }
+  await wakeSubtreeLocal(top);
+  return getTerminal(id)?.info;
 }
 
 /** The kill + respawn half of a restart, for a terminal `beginSleepLocal` just
@@ -1965,9 +2014,31 @@ export function restartSleptLocal(
   return localEndpointImpl.restartSlept(id);
 }
 
-/** Discard a sleeping terminal's record (no PTY to kill). */
-export function discardLocalSleeping(id: TerminalId): boolean {
-  return localEndpointImpl.discardSleeping(id);
+/** What {@link discardLocalSleeping} did — the wire needs the three apart. */
+export type DiscardOutcome = "discarded" | "nothing" | "refused";
+
+/** Discard a SLEEPING terminal and its dormant subtree — children first, so the
+ *  parent's record is the last to go and nothing briefly holds a parentId that
+ *  names a removed record. There is no PTY to kill (sleep already released
+ *  every member's).
+ *
+ *  `"nothing"` when `id` is not a sleeping record (absent, or already awake) —
+ *  the idempotent no-op a repeated discard relies on. `"refused"` when the family
+ *  is MIXED (a dormant parent with a live descendant): discarding would leave
+ *  that running terminal with a parentId naming a removed record — the orphan
+ *  class the session restore refuses on every boot. The close paths route per arm
+ *  instead (the live member is killed, the dormant ones discarded), so a refusal
+ *  is a fail-fast guard rather than the ordinary path — and the RPC must not
+ *  answer SUCCESS for it, or the client takes its success path and evicts a live
+ *  split the server kept (F4). */
+export function discardLocalSleeping(id: TerminalId): DiscardOutcome {
+  if (getTerminal(id)?.meta.state !== "sleeping") return "nothing";
+  const family = familyOf(id);
+  if (family.some((member) => getTerminal(member)?.meta.state !== "sleeping"))
+    return "refused";
+  for (const member of family.reverse())
+    localEndpointImpl.discardSleeping(member);
+  return "discarded";
 }
 
 /** Discard a parked terminal's record — the consume half of the parked→active

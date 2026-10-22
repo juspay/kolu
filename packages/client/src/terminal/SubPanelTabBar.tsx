@@ -1,6 +1,6 @@
 /** Tab bar for sub-terminals within a parent's sub-panel. */
 
-import type { TerminalMetadata } from "@kolu/padi-client/surface";
+import { sleepingArm, type TerminalMetadata } from "@kolu/padi-client/surface";
 import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, For, Show } from "solid-js";
@@ -19,6 +19,10 @@ const SubPanelTabBar: Component<{
   onClose: (id: TerminalId) => void;
   onCreate: () => void;
   onCollapse: () => void;
+  /** May a split be created from here? False on a DORMANT tile: the tab strip is
+   *  still mounted (it is how a slept family is shown), but `child-of` requires a
+   *  live parent, so a `+` could only produce the raw create-failure toast. */
+  canCreate: boolean;
 }> = (props) => {
   // Sub-terminals mount the same `Terminal` component, so each one already
   // records output under its own `subId` — but the top-level dock/title readers
@@ -46,6 +50,10 @@ const SubPanelTabBar: Component<{
             return annotationLine(m?.intent, suffixed);
           };
           const isActive = () => props.activeSubTab === id;
+          // A dormant split keeps its tab while it sleeps (sleep freezes the
+          // whole family), so the tab says so: the same ☾ the dock row and the
+          // tile wear, ahead of the label.
+          const dormant = () => sleepingArm(meta()) !== undefined;
           return (
             <div class="group relative">
               <button
@@ -55,10 +63,17 @@ const SubPanelTabBar: Component<{
                   "bg-surface-2 text-fg font-medium": isActive(),
                 }}
                 data-active={isActive() ? "" : undefined}
+                data-dormant={dormant() ? "" : undefined}
+                title={dormant() ? "Sleeping — Wake to resume" : undefined}
                 onClick={() => props.onSelect(id)}
               >
                 <Show when={facts.attentionOf(encActiveHost(), id).live}>
                   <LiveActivityDot />
+                </Show>
+                <Show when={dormant()}>
+                  <span aria-hidden="true" class="opacity-70">
+                    ☾
+                  </span>
                 </Show>
                 <span class="truncate">
                   <IntentMarkdownInline markdown={label()} />
@@ -80,14 +95,16 @@ const SubPanelTabBar: Component<{
           );
         }}
       </For>
-      <button
-        type="button"
-        class="px-2 py-1 text-fg-3 hover:text-fg transition-colors cursor-pointer"
-        onClick={props.onCreate}
-        title={ACTIONS.createSubTerminal.label}
-      >
-        +
-      </button>
+      <Show when={props.canCreate}>
+        <button
+          type="button"
+          class="px-2 py-1 text-fg-3 hover:text-fg transition-colors cursor-pointer"
+          onClick={props.onCreate}
+          title={ACTIONS.createSubTerminal.label}
+        >
+          +
+        </button>
+      </Show>
       <div class="flex-1" />
       <button
         type="button"

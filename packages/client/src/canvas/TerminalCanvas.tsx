@@ -358,6 +358,13 @@ const TerminalCanvas: Component<{
 
   createEffect(() => {
     const ids = props.tileIds;
+    // The centering impulse is DROPPED, not deferred, while the viewport has no
+    // measured size (`targetForTile` answers null) — and nothing re-fires it, so
+    // a slow first measurement (a loaded CI box, a busy tab) left a restored
+    // session uncentered for the rest of the session. Wait for the first
+    // measurement: reading `mounted()` also makes this effect re-run when it
+    // lands, which is the retry the drop never had.
+    if (!viewport.mounted()) return;
     if (ids.length === 0 || !isDefaultViewport()) return;
     // Wait for the active id to hydrate before deciding between "centre on
     // saved active" and "bbox fallback". Running the bbox fallback while the

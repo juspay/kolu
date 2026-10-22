@@ -56,8 +56,13 @@ export const CONTEXTUAL_TIPS = {
   },
   sleepTerminal: {
     id: "sleep-terminal",
-    text: "Sleep (☾) pauses a terminal — its agent and PTY are released; Wake resumes the conversation right where it left off",
+    text: "Sleep (☾) pauses a terminal and its splits — their agents and PTYs are released; Wake resumes each conversation right where it left off",
     doc: "sessions",
+  },
+  restartTerminal: {
+    id: "restart-terminal",
+    text: "Restart (↻) gives a terminal and its splits a fresh shell in place — same tile, folder and theme, current agents; with an agent live, the first click asks",
+    doc: "tiles",
   },
 } as const satisfies Record<string, Tip>;
 

@@ -167,7 +167,7 @@ export function useTerminals() {
   const worktree = useWorktreeOps({
     store,
     handleCreate: crud.handleCreate,
-    handleKill: crud.handleKill,
+    handleKillWithSubs: crud.handleKillWithSubs,
     handleDiscard: crud.handleDiscard,
   });
 

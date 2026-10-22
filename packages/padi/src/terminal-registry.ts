@@ -217,6 +217,42 @@ export function hasParkedTerminals(): boolean {
   return false;
 }
 
+/** A terminal and every descendant under it — ONE family walk, the tree model
+ *  the sleep / wake / restart / discard verbs share.
+ *
+ *  The edges are the registry's own `parentId` (the field `requireAcyclicParent`
+ *  defends against cycles on write), walked depth-first and returned
+ *  **roots-first**: the id itself, then each child's whole subtree in canonical
+ *  insertion order. That order is the contract, not an accident —
+ *  - a caller walking it in REVERSE flips children before parents, which is what
+ *    keeps "no live child under a dormant parent" true while a family sleeps;
+ *  - walking it FORWARD wakes a parent before any of its children spawn.
+ *
+ *  `seen` keeps a corrupt cycle (an older state file, a hand-edited record)
+ *  from spinning, the same defence `requireAcyclicParent` states on the write
+ *  side. An absent id answers with itself alone — the verbs that need to know
+ *  "nothing to do" read that from their own per-member claim. */
+export function familyOf(id: TerminalId): TerminalId[] {
+  const children = new Map<TerminalId, TerminalId[]>();
+  for (const [childId, entry] of terminals) {
+    const parentId = entry.meta.parentId;
+    if (parentId === undefined) continue;
+    const siblings = children.get(parentId);
+    if (siblings === undefined) children.set(parentId, [childId]);
+    else siblings.push(childId);
+  }
+  const family: TerminalId[] = [];
+  const seen = new Set<TerminalId>();
+  const visit = (node: TerminalId): void => {
+    if (seen.has(node)) return;
+    seen.add(node);
+    family.push(node);
+    for (const childId of children.get(node) ?? []) visit(childId);
+  };
+  visit(id);
+  return family;
+}
+
 /** Number of registry RECORDS — active + sleeping. Cheap counter; the registry
  *  size. NOT a live-process count: a sleeping record holds no PTY/sensors/xterm,
  *  so heap diagnostics that correlate a column with live-terminal memory must use

@@ -61,12 +61,21 @@ for all of them.
 
 - Click the **☾** button on the title bar, or run **Sleep terminal** from the
   palette.
-- The **PTY, agent process, and GPU/WebGL context are released** — exactly as if
-  you'd closed it — while the tile stays a full canvas citizen: drag, resize,
-  rename, and re-theme it like any other. Only typing is fenced off.
+- Sleep acts on the **whole family**: the tile and every **split** under it
+  freeze together — one dormant record per member, each keeping its parent edge.
+  Nothing is closed and nothing is lost, so a split does not have to be reopened
+  after you wake the tile.
+- The **PTY, agent process, and GPU/WebGL context are released** for every member
+  — exactly as if you'd closed them — while the tile stays a full canvas citizen:
+  drag, resize, rename, and re-theme it like any other. Only typing is fenced off.
+  A frozen split keeps its tab in the tile's strip, marked **☾**, and its pane
+  shows a compact frozen body with its own **Wake**.
 - Last-known context stays visible: the directory, git branch, and GitHub PR it
   was on, frozen at sleep.
-- **Closing** a sleeping tile discards it, because nothing is running behind it.
+- The dock gives every frozen member its own **☾** row, so a slept family reads as
+  exactly what it is, and the dock's ☾ filter hides the lot.
+- **Closing** a sleeping tile discards it **and its splits**, because nothing is
+  running behind any of them.
 
 ## Wake — on the exact conversation
 
@@ -84,6 +93,12 @@ session id, wake falls back to the agent's own most-recent resume
 (`xyne --continue` and friends). The one exception is
 deliberate: if you'd **quit** the agent to a bare shell before sleeping, waking
 lands you at that shell rather than silently relaunching something you'd closed.
+
+Wake restores the **family** the same way: every dormant member re-spawns on its
+own id, parents first, with each split back under the tile it belonged to and
+each member's agent resumed on its own conversation. Pressing **Wake** on a split
+— in its tab or its frozen pane — wakes its parent and siblings too, because a
+split cannot run under a tile that is still asleep.
 
 <Aside type="note" title="Keep the dock to what's awake">
   The dock's **Filters** row can hide sleeping terminals (and the activity window

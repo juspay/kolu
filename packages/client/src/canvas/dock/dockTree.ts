@@ -50,6 +50,8 @@
  *  the window hides *stale* rows, this hides *deliberately dormant* ones.
  *  `sleepingCount` counts every fresh sleeping row (shown or hidden) so the
  *  footer knows whether the toggle earns its place and what count to show.
+ *  A slept FAMILY is N sleeping rows — the tile and every split it froze — so
+ *  the count names what is actually parked and the ☾ toggle hides all of it.
  *
  *  `flatShortcutRows` is the top-level order `App.tsx` projects to feed
  *  `ActionContext.dockOrderedIds`. Splits deliberately do not claim numeric
@@ -229,8 +231,16 @@ export function buildDockTree(
 ): DockTree {
   /** Is this row one the two filters remove from the tree? ONE reading of the
    *  rule, used to drop rows at the end — never to decide where the survivors
-   *  sit. That distinction is the whole point: see the bucketing note. */
-  const filteredOut = (row: RankedDockRow): boolean =>
+   *  sit. That distinction is the whole point: see the bucketing note.
+   *
+   *  A SPLIT is a row of the same tree (it renders nested under its parent), so
+   *  the ☾ toggle drops a sleeping split too — a slept family is one tile row
+   *  and N split rows, and the toggle must hide all of them. The predicate takes
+   *  either: a split can never be `parked` (`SubDockOrderBucket` excludes it),
+   *  so one spelling covers both. */
+  const filteredOut = (
+    row: RankedDockRow | RankedDockRow["subRows"][number],
+  ): boolean =>
     row.bucket === "parked" || (row.bucket === "sleeping" && hideSleeping);
 
   // ---- Step 1: Bucket ------------------------------------------------
@@ -261,13 +271,19 @@ export function buildDockTree(
       byName.set(info.key.group, group);
     }
     if (row.bucket === "parked") parkedCount++;
-    // Count every fresh sleeping row so the footer toggle knows the total,
-    // whether or not the ☾ toggle is currently showing it.
-    if (row.bucket === "sleeping") sleepingCount++;
+    // Count every fresh sleeping row the dock holds — the tile AND every split
+    // a slept family froze under it — so the footer's ☾ disclosure names what
+    // the toggle actually hides, whether or not it is currently hiding it.
+    sleepingCount +=
+      (row.bucket === "sleeping" ? 1 : 0) +
+      row.subRows.filter((sub) => sub.bucket === "sleeping").length;
     // Counted THROUGH the predicate, not re-derived as arithmetic beside it.
     // `parkedCount`/`sleepingCount` are footer DISCLOSURES with their own
-    // meanings; this is the filter rule, and it has exactly one spelling.
-    if (filteredOut(row)) hiddenCount++;
+    // meanings; this is the filter rule, and it has exactly one spelling. A
+    // filtered top row takes its whole sub-tree with it (they render nested),
+    // so its splits are hidden rows too.
+    if (filteredOut(row)) hiddenCount += 1 + row.subRows.length;
+    else hiddenCount += row.subRows.filter(filteredOut).length;
     const list = group.byLabel.get(info.key.label);
     if (list) list.push(row);
     else group.byLabel.set(info.key.label, [row]);
@@ -322,7 +338,14 @@ export function buildDockTree(
     const clusters = sequenced
       .map(([label, rows]) => ({
         label,
-        rows: rows.filter((row) => !filteredOut(row)),
+        rows: rows
+          .filter((row) => !filteredOut(row))
+          // The surviving rows' splits, minus the ones the ☾ toggle hides — the
+          // rendered row set, so a hidden split cannot sit under a visible parent.
+          .map((row) => ({
+            ...row,
+            subRows: row.subRows.filter((sub) => !filteredOut(sub)),
+          })),
       }))
       .filter(({ rows }) => rows.length > 0);
     const allTopRows = sequenced.flatMap(([, rows]) => rows);

@@ -10,22 +10,29 @@
  *  Server signals propagate list/metadata changes via the live subscriptions —
  *  no optimistic cache needed. */
 
-import { TOPLEVEL_PLACEMENT } from "@kolu/padi-client/surface";
+import {
+  TOPLEVEL_PLACEMENT,
+  activeArm,
+  sleepingArm,
+} from "@kolu/padi-client/surface";
 import type { TranscriptHtmlMode } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Data, Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
+import { createEffect, createRoot, on } from "solid-js";
 import { toast } from "solid-sonner";
 import AgentDistroLogo from "@kolu/agent-distro/solid";
 import { stackTitle } from "@kolu/agent-distro/landing";
 import { restartedLabel } from "@kolu/agent-distro/status";
+import { agentLive } from "@kolu/terminal-vocab/agentProjection";
+import { createRestartGuard, type RestartGuard } from "../agents/restartGuard";
 import { usePendingLayouts } from "../canvas/usePendingLayouts";
 import { createSharedRoot } from "../createSharedRoot";
 import { exportScrollbackAsPdf } from "../exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "../exportSessionAsHtml";
 import { refuseIfWarming } from "../kaval/useDaemonStatus";
 import { useRightPanel } from "../right-panel/useRightPanel";
-import { runAction, type UiAction } from "../runAction";
+import { runAction, runActionPromise, type UiAction } from "../runAction";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { writeTextToClipboard } from "@kolu/solid-logtail";
@@ -193,7 +200,9 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  path (kill, discard). Runs synchronously with metadata still present, so it
    *  reads the live parentId + top-level order. Claims the id (when a list-drop
    *  will follow) so the later list-driven reconcile skips it — see
-   *  `createEvictionDedup`. */
+   *  `createEvictionDedup`. The restart guard is dropped by the eviction ports,
+   *  so every removal cause (this path, the list reconcile, shell exit) reaches
+   *  the same cleanup. */
   function removeAndAutoSwitch(id: TerminalId) {
     eviction.evictImperatively(
       id,
@@ -370,69 +379,95 @@ export const useTerminalCrud = createSharedRoot(() => {
     );
   }
 
-  /** Kill a terminal and all its flat descendants (instead of promoting them). */
+  /** The splits under `id`, DEEPEST FIRST. A split's eviction re-homes the
+   *  children that survive it, so evicting a middle split before its own child
+   *  would re-home that child against a record this close already removed (a
+   *  `setParent` into the void, once for a discarded subtree and once for a
+   *  3-deep kill). Deepest-first means every child is gone before its parent's
+   *  eviction looks for survivors. */
+  function splitsDeepestFirst(id: TerminalId): TerminalId[] {
+    const depthOf = (x: TerminalId): number => {
+      let depth = 0;
+      let cur = store.getMetadata(x)?.parentId ?? null;
+      while (cur !== null) {
+        depth++;
+        cur = store.getMetadata(cur)?.parentId ?? null;
+      }
+      return depth;
+    };
+    return [...store.getSplitPaneIds(id)].sort(
+      (a, b) => depthOf(b) - depthOf(a),
+    );
+  }
+
+  /** Kill a terminal and all its flat descendants — the close path, instead of
+   *  promoting the splits. Each member is closed by its OWN arm
+   *  ({@link closeOne}): a live parent can hold a split that was slept on its
+   *  own, and sending that record a kill answers `TerminalNotFound` — swallowed
+   *  by the close path while it evicts locally, leaving the dormant record (and
+   *  its `parentId`) behind for the next autosave to persist as an orphan. */
   function handleKillWithSubs(id: TerminalId): UiAction {
     return Effect.gen(function* () {
-      // Sequential, not concurrent: the descendants' evictions re-home the
-      // survivors, and doing that out of order reorders the canvas.
-      for (const subId of store.getSplitPaneIds(id)) yield* handleKill(subId);
-      yield* handleKill(id);
+      // Deepest-first, sequential: the descendants' evictions re-home the
+      // survivors, and doing that out of order reorders the canvas (or aims a
+      // re-home at a parent this same close is removing).
+      for (const subId of splitsDeepestFirst(id)) yield* closeOne(subId);
+      yield* closeOne(id);
     });
   }
 
+  /** Close ONE terminal by its arm: a LIVE one is killed, a DORMANT one is
+   *  discarded (its PTY is already released, and the server refuses a kill for a
+   *  sleeping record). The ONE routing rule every close path shares. */
+  function closeOne(id: TerminalId): UiAction {
+    return sleepingArm(store.getMetadata(id))
+      ? // `Effect.ignore`: a discard failure is already toasted by
+        // `handleDiscard`; a close has nothing that must not happen afterwards.
+        handleDiscard(id).pipe(Effect.ignore)
+      : handleKill(id);
+  }
+
   /** Request sleep — the shared entry the ☾ tile button and the palette both
-   *  call. Surfaces the one-time discoverability tip, and when the terminal has
-   *  splits, confirms via an action toast before closing them (a sleeping record
-   *  is a single terminal — splits must not vanish silently, the §2
-   *  non-negotiable). No splits → sleep straight away. */
+   *  call. Surfaces the one-time discoverability tip, then sleeps straight away:
+   *  the SERVER freezes the terminal and its splits as one family, so there is
+   *  nothing to confirm and nothing to close here. */
   function requestSleep(id: TerminalId): UiAction {
     return Effect.suspend(() => {
       showTipOnce(CONTEXTUAL_TIPS.sleepTerminal);
-      const subs = store.getSplitPaneIds(id).length;
-      if (subs > 0) {
-        toast.warning(`Sleeping closes ${subs} split${subs > 1 ? "s" : ""}`, {
-          duration: Number.POSITIVE_INFINITY,
-          action: {
-            label: "Sleep & close splits",
-            // The toast's button is its OWN edge — this program is long over by
-            // the time the user clicks it, so the confirm forks a fresh one.
-            onClick: () => runAction("sleep terminal", handleSleep(id)),
-          },
-        });
-        return Effect.void;
-      }
       return handleSleep(id);
     });
   }
 
-  /** Sleep a terminal: close its splits first (a sleeping record is a single
-   *  terminal — sub-terminals are CLOSED, not frozen), then flip it to the
-   *  dormant arm on the server. The tile STAYS (now dormant) — no
-   *  `removeAndAutoSwitch`; the metadata subscription re-renders it frozen with a
-   *  Wake call-to-action. Reached through `requestSleep` (which confirms splits). */
+  /** Sleep a terminal AND its splits: the server flips every member of the
+   *  family to the dormant arm in place (leaves first), persists once, then
+   *  releases each PTY. The tile STAYS (now dormant) — no `removeAndAutoSwitch`;
+   *  the metadata subscription re-renders the tile and each split frozen, with a
+   *  Wake call-to-action. */
   function handleSleep(id: TerminalId): UiAction {
-    return Effect.gen(function* () {
-      for (const subId of store.getSplitPaneIds(id)) yield* handleKill(subId);
-      yield* activePadiRpc.lifecycle
-        .sleep({ id })
-        .pipe(toastFailure("Failed to sleep terminal"));
-    });
+    return activePadiRpc.lifecycle
+      .sleep({ id })
+      .pipe(toastFailure("Failed to sleep terminal"));
   }
 
-  /** Wake a sleeping terminal: the server re-spawns its PTY on the same id and
-   *  resumes its agent (session-restore-of-one). The metadata subscription flips
-   *  it back to active and the tile re-renders live — so the client just asks. */
+  /** Wake a sleeping terminal AND its dormant family: the server climbs to the
+   *  topmost dormant ancestor, re-spawns every PTY on the same ids (roots first)
+   *  and resumes each agent — session-restore-of-one per member. Asking for a
+   *  split therefore brings its parent back too. The metadata subscription flips
+   *  each one back to active, so the client just asks. */
   function handleWake(id: TerminalId): UiAction {
     return activePadiRpc.lifecycle
       .wake({ id })
       .pipe(toastFailure("Failed to wake terminal"));
   }
 
-  /** Restart a terminal IN PLACE (`lifecycle.restart`): a new PTY on the same
-   *  id, in the same folder and canvas spot, so it picks up what a new terminal
-   *  gets now — the stale-agents pill's Restart. The tile flips dormant and back
-   *  through the ordinary metadata subscription. padi answers once the new PTY
-   *  is up, with the agents it actually got, and the toast says exactly that. */
+  /** Restart a terminal AND ITS SPLITS IN PLACE (`lifecycle.restart`): a fresh
+   *  PTY on each member's own id, in its own folder and canvas spot, so the
+   *  family picks up what a new terminal gets now — the stale-agents pill's
+   *  Restart, the tile's ↻, and the palette command all land here. The tiles flip
+   *  dormant and back through the ordinary metadata subscription. padi answers
+   *  once the new PTYs are up, with the agents the asked terminal got, and the
+   *  toast says exactly that. {@link requestRestart} is the guarded entry the UI
+   *  uses. */
   function handleRestart(id: TerminalId): UiAction {
     return activePadiRpc.lifecycle.restart({ id }).pipe(
       Effect.tap((restarted) =>
@@ -453,9 +488,86 @@ export const useTerminalCrud = createSharedRoot(() => {
     );
   }
 
-  /** Discard a sleeping terminal — remove its record (no PTY to kill, sleep
-   *  released it) and auto-switch away. The close-path twin of `handleKill` for
-   *  the dormant arm; reached from the reworded close-confirm dialog.
+  /** Restart guards, one per terminal. The arm-then-confirm is the agents pill's
+   *  own primitive (`createRestartGuard`, same {@link RESTART_ARM_MS}) rather
+   *  than a second confirm invented here, and it is kept at the shared root so
+   *  the tile's ↻ button and the palette command share one arm: whichever surface
+   *  presses first warns, and either can confirm it. */
+  const restartGuards = new Map<
+    TerminalId,
+    RestartGuard & { readonly dispose: () => void }
+  >();
+
+  /** A live agent — working, or blocked on you. Restart ends its process, so the
+   *  press asks first. `agentLive` is the shared fold's answer. */
+  function liveAgentOf(id: TerminalId): boolean {
+    const agent = activeArm(store.getMetadata(id))?.agent;
+    return agent != null && agentLive(agent.state);
+  }
+
+  /** The guard for `id`, created on first use inside its own reactive root: the
+   *  primitive owns a signal, a tracking effect (an agent going quiet while armed
+   *  disarms it) and a cleanup, so it needs an owner even when the first press
+   *  arrives long after mount.
+   *
+   *  The root's LIFETIME is the record's, so it rides the store's own fact and
+   *  not the four UI events that used to drop it (imperative eviction, the list
+   *  reconcile, a host switch, Close All): `getMetadata(id)` is a keyed-store read
+   *  that answers `undefined` the moment the id leaves this host's list. The only
+   *  consequence is that an armed guard disarms when its record goes away — and a
+   *  disarm can withhold a restart, never trigger one. */
+  function restartGuard(id: TerminalId) {
+    const existing = restartGuards.get(id);
+    if (existing !== undefined) return existing;
+    const guard = createRoot((dispose) => {
+      const created = {
+        ...createRestartGuard({
+          guarded: () => liveAgentOf(id),
+          restart: () => runActionPromise(handleRestart(id)),
+        }),
+        dispose,
+      };
+      createEffect(
+        on(
+          () => store.getMetadata(id) === undefined,
+          (gone) => {
+            if (gone) forgetRestartGuard(id);
+          },
+          { defer: true },
+        ),
+      );
+      return created;
+    });
+    restartGuards.set(id, guard);
+    return guard;
+  }
+
+  function forgetRestartGuard(id: TerminalId): void {
+    restartGuards.get(id)?.dispose();
+    restartGuards.delete(id);
+  }
+
+  /** Restart a terminal, asking first when an agent is live. The two surfaces
+   *  that offer it (the tile's ↻ and the palette) call this instead of
+   *  `handleRestart` directly, so both share the one armed state — either can
+   *  confirm the other's first press. (The agents pill keeps its own guard for
+   *  its stale-restart action, since that one arms the pill itself.) */
+  function requestRestart(id: TerminalId): void {
+    restartGuard(id).press();
+  }
+
+  /** Is the restart for `id` armed (a live agent, first press)? Reads through
+   *  {@link restartGuard}, so the FIRST read subscribes the calling component —
+   *  the armed styling appears on the press that arms it. */
+  const restartArmed = (id: TerminalId): boolean => restartGuard(id).armed();
+
+  /** Is the restart for `id` in flight? Also subscribes on first read. */
+  const restartBusy = (id: TerminalId): boolean => restartGuard(id).busy();
+
+  /** Discard a sleeping terminal AND its dormant splits — remove their records
+   *  (no PTY to kill, sleep released every one) and auto-switch away. The close
+   *  path's twin of `handleKill` for the dormant arm; reached from the reworded
+   *  close-confirm dialog and from a dormant split's × in the tab strip.
    *
    *  Surfaces a genuine discard failure (network / server error) in a toast and
    *  does NOT evict the tile locally (F4): swallowing every error and removing
@@ -481,7 +593,21 @@ export const useTerminalCrud = createSharedRoot(() => {
         }),
       ),
       Effect.mapError(() => new TerminalDiscardFailed({})),
-      Effect.tap(() => Effect.sync(() => removeAndAutoSwitch(id))),
+      Effect.tap(() =>
+        Effect.sync(() => {
+          // The SERVER discarded the whole dormant subtree; evict its splits
+          // locally BEFORE the parent, deepest-first, symmetric with
+          // `handleKillWithSubs`. The parent's eviction otherwise promotes
+          // children whose records are already gone, firing `setParent(sub,
+          // null)` into the void (and toasting "Failed to set parent" as the
+          // list push races it). A split the list push already dropped is
+          // skipped.
+          for (const subId of splitsDeepestFirst(id))
+            if (store.getMetadata(subId) !== undefined)
+              removeAndAutoSwitch(subId);
+          removeAndAutoSwitch(id);
+        }),
+      ),
     );
   }
 
@@ -572,8 +698,8 @@ export const useTerminalCrud = createSharedRoot(() => {
         Effect.sync(() => {
           store.reset();
           // killAll bypasses removeAndAutoSwitch's per-terminal eviction, so
-          // clear the find-bar map wholesale here too — otherwise stale keys
-          // outlive the terminals they pointed at.
+          // clear the find-bar map wholesale here too — the restart guards drop
+          // themselves as their records leave (see `restartGuard`).
           terminalSearch.reset();
         }),
       ),
@@ -626,10 +752,19 @@ export const useTerminalCrud = createSharedRoot(() => {
     promoteToTopLevel,
     handleKill,
     handleKillWithSubs,
+    /** Close a terminal by its arm — kill a live one, discard a dormant one. The
+     *  one routing rule the close paths share (shell and splits alike). */
+    closeOne,
     requestSleep,
     handleSleep,
     handleWake,
     handleRestart,
+    requestRestart,
+    restartArmed,
+    restartBusy,
+    /** Does this terminal hold a live agent (working, or blocked on you)? The one
+     *  predicate the pill's stale-restart and the ↻/palette guard both ask. */
+    liveAgentOf,
     handleDiscard,
     handleCopyTerminalText,
     handleCopyTerminalId,

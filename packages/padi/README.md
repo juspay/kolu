@@ -616,6 +616,27 @@ layer carry it; the module is `src/agentDistro/`.
   (which a client's attach loop reads as "gone" and stops on). A saved record's
   `agents` from before the one-package release is dropped by the state
   migration (`1.2.0`): the spawn that brings it back stamps it afresh.
+- **The family walk** — `lifecycle.sleep`, `wake`, `restart` and
+  `discardSleeping` act on a terminal AND every split under it (the registry's
+  `parentId` tree, `familyOf`). Sleep flips the family leaves-first and persists
+  the whole tree ONCE before releasing any PTY; restart is the sleep walk then the
+  wake walk, with `restartsInFlight` set for every member so an attach during the
+  dormant middle waits. A member's own arm is its claim — `beginSleep` returns
+  false on an already-sleeping record — so the verbs are idempotent per member.
+  The failure paths are family-shaped too. Wake climbs to the topmost DORMANT
+  ancestor, then spawns that subtree roots-first AWAITING each wire: a member
+  whose spawn failed (its sleeping record restored) has its whole subtree skipped,
+  so a live split is never left under a tile with no PTY. Restart kills and
+  respawns roots-first; if a member's restart throws, every member the walk had
+  flipped but not yet replanted has its still-running PTY released before the
+  error propagates (otherwise a later Wake would double-spawn on that id).
+  Discard removes the dormant subtree children-first, and REFUSES a mixed family
+  (a dormant parent with a live descendant) rather than orphaning a running
+  terminal under a removed `parentId` — the RPC answers not-found for that
+  refusal, and the client's close paths route per arm instead (live members
+  killed, dormant ones discarded). `lifecycle.create` still refuses a dormant
+  parent: the family moves together, so a split is created only under a live
+  tile.
 - **The profile in effect** — once a terminal with agents is spawned and wired,
   padi runs its package's `bin/agent-distro --list --json` ONCE, in the
   terminal's resolved cwd and with its spawn env (`inEffect.ts`), and writes

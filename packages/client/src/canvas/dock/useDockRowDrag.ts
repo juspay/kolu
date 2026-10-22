@@ -116,10 +116,12 @@ export function useDockRowDrag(id: TerminalId): DockRowDrag {
   );
   // A row whose terminal is SLEEPING is neither draggable nor a drop target:
   // its grip is not rendered (so no gesture can start) and the drop rules refuse
-  // it (a live row must not nest under a dormant parent that has no live pane to
-  // show it in). The droppable stays registered so the refusal can be PAINTED —
-  // a sleeping row under the pointer reads as "no", rather than letting the drop
-  // silently resolve to some other row behind it.
+  // it (a live row must not nest under a dormant parent). Sleep freezes a whole
+  // family, so a slept parent's splits are sleeping rows beside it — a tree the
+  // dock keeps intact; only a LIVE terminal can be re-homed. The droppable stays
+  // registered so the refusal can be PAINTED — a sleeping row under the pointer
+  // reads as "no", rather than letting the drop silently resolve to some other
+  // row behind it.
   const live = () => activeArm(store.getMetadata(id)) !== undefined;
   return {
     ref: (el) => {

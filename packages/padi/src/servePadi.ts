@@ -868,9 +868,11 @@ export function buildPadiSurfaceDeps(deps: {
             return sleepTerminal(input.id);
           }),
         wake: ({ input }) =>
-          handle(() => {
+          handle(async () => {
             log.info({ terminal: input.id }, "wake");
-            const info = wakeLocalTerminal(input.id);
+            // AWAITED: the family walk waits for each member's PTY before the
+            // next one spawns, so one wake answers only once the family is up.
+            const info = await wakeLocalTerminal(input.id);
             if (!info) throw terminalNotFound(input.id);
             return info;
           }),
@@ -892,7 +894,14 @@ export function buildPadiSurfaceDeps(deps: {
         discardSleeping: ({ input }) =>
           handle(() => {
             log.info({ terminal: input.id }, "discard sleeping");
-            discardLocalSleeping(input.id);
+            // A REFUSAL (a mixed family — a dormant parent with a live split) is
+            // a failure, never a silent success: the client's success path evicts
+            // the dormant parent AND that live split locally while the server
+            // keeps the split running (the F4 desync). "Nothing to do" — an
+            // already-gone or already-awake id — stays the idempotent no-op a
+            // repeated discard and a two-client race rely on.
+            if (discardLocalSleeping(input.id) === "refused")
+              throw terminalNotFound(input.id);
           }),
         // Fire-and-forget stream ops: a resize/keystroke landing just after a
         // kill is an EXPECTED race, so quiet-drop via `getActiveTerminal`

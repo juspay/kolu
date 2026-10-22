@@ -59,6 +59,7 @@ import {
 import {
   getTerminal,
   registerTerminal,
+  snapshotFor,
   unregisterTerminal,
 } from "../terminal-registry.ts";
 import { saveTerminalFile } from "../terminalScratch.ts";
@@ -67,16 +68,25 @@ import {
   restartTerminal,
   sleepTerminal,
 } from "../terminals.ts";
-import { discardLocalSleeping, wakeLocalTerminal } from "./local.ts";
+import {
+  beginSleepLocal,
+  discardLocalSleeping,
+  wakeLocalTerminal,
+} from "./local.ts";
 import { installSnapshot } from "./metadata.ts";
 import { activeEntry } from "./terminalFixtures.testlib.ts";
 
 const calls = vi.hoisted(() => ({
   /** Every recorded event, in order: `save`, `kill:<id>`, `spawn:<cwd>`. */
   log: [] as string[],
+  /** Spawned terminal ids, in order — the order assertions the cwd log cannot
+   *  carry when a family shares one cwd. */
+  spawns: [] as string[],
   writes: [] as string[],
   killFails: false,
   spawnFails: false,
+  /** Terminals whose respawn must fail — the per-member arm of `spawnFails`. */
+  spawnFailsFor: [] as string[],
   /** What `terminal.list` answers (ids of live PTYs). */
   listed: [] as string[],
   /** Runs inside the kill, after it is recorded — holds the kill open. */
@@ -101,10 +111,13 @@ vi.mock("../ptyHost/index.ts", async (importOriginal) => {
   const { emptySensorTaps } = await import("./sensorTaps.testlib.ts");
   return {
     ...actual,
-    buildTerminalSpawnInput: (args: { cwd?: string }) =>
+    buildTerminalSpawnInput: (args: { id: string; cwd?: string }) =>
       Effect.sync(() => {
         calls.log.push(`spawn:${args.cwd}`);
-        return {} as never;
+        calls.spawns.push(args.id);
+        // The id rides through: the spawn mock below fails per-terminal, and the
+        // real input always names the terminal it is spawning.
+        return { id: args.id } as never;
       }),
     ptyHostClient: {
       surface: {
@@ -132,8 +145,8 @@ vi.mock("../ptyHost/index.ts", async (importOriginal) => {
             Effect.sync(() => {
               calls.writes.push(data);
             }),
-          spawn: () =>
-            calls.spawnFails
+          spawn: (input: { id: string }) =>
+            calls.spawnFails || calls.spawnFailsFor.includes(input.id)
               ? Effect.fail(new Error("spawn refused"))
               : Effect.succeed({ pid: NEW_PID, cwd: "/work/repo" }),
         },
@@ -147,6 +160,10 @@ setDaemonProcessId(`restart-${randomUUID()}`);
 
 const ID = "44444444-4444-4444-8444-444444444444";
 const PARENT = "55555555-5555-4555-8555-555555555555";
+/** A split of `ID` — the family's second member. */
+const CHILD = "66666666-6666-4666-8666-666666666666";
+/** A grandchild under CHILD — the 3-deep family a restart must not leave half-awake. */
+const GRAND = "77777777-7777-4777-8777-777777777777";
 const LAYOUT = { x: 120, y: 80, w: 640, h: 400 };
 
 let root: string;
@@ -203,16 +220,22 @@ beforeEach(() => {
   __setAgentDistroBakeForTest(bake());
   agentDistroSettingStore.set({ enabled: true, profiles: [JUSPAY] });
   calls.log = [];
+  calls.spawns = [];
   calls.writes = [];
   calls.killFails = false;
   calls.spawnFails = false;
+  calls.spawnFailsFor = [];
   calls.listed = [];
   calls.killGate = undefined;
 });
 
 afterEach(() => {
   unregisterTerminal(ID);
+  unregisterTerminal(CHILD);
+  unregisterTerminal(GRAND);
   rmSync(join(koluScratchDir(), ID), { recursive: true, force: true });
+  rmSync(join(koluScratchDir(), CHILD), { recursive: true, force: true });
+  rmSync(join(koluScratchDir(), GRAND), { recursive: true, force: true });
   rmSync(root, { recursive: true, force: true });
   if (savedStateHome === undefined) delete process.env.XDG_STATE_HOME;
   else process.env.XDG_STATE_HOME = savedStateHome;
@@ -242,6 +265,49 @@ function activeMeta() {
   const entry = getTerminal(ID);
   if (entry?.meta.state !== "active") throw new Error("expected active");
   return entry.meta;
+}
+
+/** `ID` plus an active split under it — the family the four lifecycle verbs
+ *  move together. `PARENT` above `ID` is deliberately absent, so the family is
+ *  exactly [ID, CHILD]. */
+function seedFamily(): void {
+  seedTerminal();
+  const child = activeEntry(CHILD);
+  registerTerminal(CHILD, {
+    ...child,
+    meta: { ...child.meta, parentId: ID },
+  });
+  installSnapshot(CHILD);
+}
+
+/** The active meta of the split, or a loud failure — the type-narrowing twin of
+ *  {@link activeMeta}. */
+function activeChildMeta() {
+  const entry = getTerminal(CHILD);
+  if (entry?.meta.state !== "active") throw new Error("expected active split");
+  return entry.meta;
+}
+
+/** `ID` live with a split that was slept ON ITS OWN and a grandchild under that
+ *  split, also dormant — the mixed family a restart has to bring back as one
+ *  tree (and must not leave with a live grandchild under a sleeping split). */
+function seedDormantBranch(): void {
+  seedTerminal();
+  const child = activeEntry(CHILD);
+  registerTerminal(CHILD, {
+    ...child,
+    meta: { ...child.meta, parentId: ID },
+  });
+  installSnapshot(CHILD);
+  const grand = activeEntry(GRAND);
+  registerTerminal(GRAND, {
+    ...grand,
+    meta: { ...grand.meta, parentId: CHILD },
+  });
+  installSnapshot(GRAND);
+  // Leaves-first, as a family sleep is: the grandchild sleeps before the split.
+  expect(beginSleepLocal(GRAND)).toBe(true);
+  expect(beginSleepLocal(CHILD)).toBe(true);
 }
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -352,7 +418,7 @@ describe("restart — a new PTY in place", () => {
 
     const restart = restartTerminal(ID);
     await killStarted.promise;
-    expect(wakeLocalTerminal(ID)?.id).toBe(ID);
+    expect((await wakeLocalTerminal(ID))?.id).toBe(ID);
     hold.resolve();
 
     const answered = await restart;
@@ -373,7 +439,7 @@ describe("restart — a new PTY in place", () => {
 
     const restart = restartTerminal(ID);
     await killStarted.promise;
-    expect(discardLocalSleeping(ID)).toBe(true);
+    expect(discardLocalSleeping(ID)).toBe("discarded");
     hold.resolve();
 
     expect(await restart).toBeUndefined();
@@ -450,5 +516,192 @@ describe("an attach during a restart", () => {
     await expect(requireAttachableTerminal(ID)).rejects.toMatchObject({
       _tag: "TerminalNotFound",
     });
+  });
+});
+
+describe("the family walk — a terminal and its splits move together", () => {
+  it("sleeps every member leaves-first, saving ONCE, then releases each PTY", async () => {
+    seedFamily();
+
+    await sleepTerminal(ID);
+
+    // One snapshot names the whole family asleep — N saves would persist a
+    // half-slept tree (the parent frozen, a child still live).
+    expect(calls.log.filter((e) => e === "save")).toHaveLength(1);
+    // Leaves first: the split's PTY is released before its parent's, so no
+    // live child can sit under a fragment that already froze.
+    expect(calls.log.filter((e) => e.startsWith("kill:"))).toEqual([
+      `kill:${CHILD}`,
+      `kill:${ID}`,
+    ]);
+    expect(getTerminal(ID)?.meta.state).toBe("sleeping");
+    expect(getTerminal(CHILD)?.meta.state).toBe("sleeping");
+    // The split's parent edge rides the freeze, so restore and wake know whose
+    // sub-panel it belongs to.
+    expect(getTerminal(CHILD)?.meta.parentId).toBe(ID);
+  });
+
+  it("wakes a dormant family roots-first, and the split comes back under its parent", async () => {
+    seedFamily();
+    await sleepTerminal(ID);
+    calls.log = [];
+    calls.spawns = [];
+
+    expect((await wakeLocalTerminal(ID))?.id).toBe(ID);
+
+    expect(calls.spawns).toEqual([ID, CHILD]);
+    expect(getTerminal(ID)?.meta.state).toBe("active");
+    expect(activeChildMeta().parentId).toBe(ID);
+  });
+
+  it("waking a split under a dormant parent brings the parent back first", async () => {
+    seedFamily();
+    await sleepTerminal(ID);
+    calls.spawns = [];
+
+    expect((await wakeLocalTerminal(CHILD))?.id).toBe(CHILD);
+
+    // The climb found the sleeping parent, and the subtree woke roots-first.
+    expect(calls.spawns).toEqual([ID, CHILD]);
+    expect(getTerminal(ID)?.meta.state).toBe("active");
+    expect(activeChildMeta().parentId).toBe(ID);
+  });
+
+  it("a failed split wake leaves the parent live and the split asleep to retry", async () => {
+    seedFamily();
+    await sleepTerminal(ID);
+    calls.spawnFailsFor = [CHILD];
+
+    await wakeLocalTerminal(ID);
+
+    expect(getTerminal(CHILD)?.meta.state).toBe("sleeping");
+    expect(getTerminal(ID)?.meta.state).toBe("active");
+    // The sleeping record kept its parent edge, so the retry climbs the same way.
+    expect(getTerminal(CHILD)?.meta.parentId).toBe(ID);
+  });
+
+  it("a failed PARENT wake skips its subtree — no live split under a dormant tile", async () => {
+    seedFamily();
+    await sleepTerminal(ID);
+    calls.spawns = [];
+    calls.spawnFailsFor = [ID];
+
+    // The parent's wire fails, so its sleeping record is restored and the child
+    // is never even attempted: a child spawning now would be a live PTY under a
+    // tile with no PTY, which every client gate forbids.
+    expect((await wakeLocalTerminal(ID))?.id).toBe(ID);
+
+    expect(calls.spawns).toEqual([ID]);
+    expect(getTerminal(ID)?.meta.state).toBe("sleeping");
+    expect(getTerminal(CHILD)?.meta.state).toBe("sleeping");
+    expect(getTerminal(CHILD)?.meta.parentId).toBe(ID);
+  });
+
+  it("an aborted family restart releases every member it flipped but never replanted", async () => {
+    seedFamily();
+    const pasted = saveTerminalFile(
+      ID,
+      "pasted.png",
+      Buffer.from("the agent has not read this yet").toString("base64"),
+    );
+    calls.log = [];
+    calls.spawns = [];
+    // The PARENT is the first member the respawn walk reaches, so the child has
+    // been flipped to sleeping by the sleep walk and not yet replanted.
+    calls.spawnFailsFor = [ID];
+
+    await expect(restartTerminal(ID)).rejects.toThrow(/did not start/);
+
+    // The child's original PTY is still alive at this point (`beginSleep` leaves
+    // it so; the kill is `restartSlept`'s job), so the abort path must release it
+    // — otherwise a later Wake double-spawns on that id.
+    expect(calls.log.filter((e) => e === `kill:${CHILD}`)).toHaveLength(1);
+    // The FAILING member is NOT released: `restartSlept` already killed its PTY,
+    // so a second kill would aim at a PTY the host no longer has — and the
+    // release's tail would scrub the scratch a restart promises to keep.
+    expect(calls.log.filter((e) => e === `kill:${ID}`)).toHaveLength(1);
+    expect(existsSync(pasted)).toBe(true);
+    expect(getTerminal(ID)?.meta.state).toBe("sleeping");
+    expect(getTerminal(CHILD)?.meta.state).toBe("sleeping");
+  });
+
+  it("a dormant branch whose wake fails keeps its OWN descendants asleep", async () => {
+    seedDormantBranch();
+    calls.log = [];
+    calls.spawns = [];
+    // The split (dormant before the restart) fails to wire; its grandchild must
+    // NOT be woken after it — a live PTY under a dormant split is the invariant
+    // every client gate forbids.
+    calls.spawnFailsFor = [CHILD];
+
+    const restarted = await restartTerminal(ID);
+
+    expect(restarted?.info.id).toBe(ID);
+    // The tile restarted, the dormant branch was woken once, and the grandchild
+    // was never attempted.
+    expect(calls.spawns).toEqual([ID, CHILD]);
+    expect(getTerminal(ID)?.meta.state).toBe("active");
+    expect(getTerminal(CHILD)?.meta.state).toBe("sleeping");
+    expect(getTerminal(GRAND)?.meta.state).toBe("sleeping");
+    expect(getTerminal(GRAND)?.meta.parentId).toBe(CHILD);
+  });
+
+  it("restarts the family in place, parent first, saving ONCE", async () => {
+    seedFamily();
+    calls.log = [];
+    calls.spawns = [];
+
+    const restarted = await restartTerminal(ID);
+
+    expect(restarted?.info.id).toBe(ID);
+    expect(calls.log.filter((e) => e === "save")).toHaveLength(1);
+    expect(calls.log.filter((e) => e.startsWith("kill:"))).toEqual([
+      `kill:${ID}`,
+      `kill:${CHILD}`,
+    ]);
+    expect(calls.spawns).toEqual([ID, CHILD]);
+    expect(getTerminal(ID)?.meta.state).toBe("active");
+    expect(activeChildMeta().parentId).toBe(ID);
+  });
+
+  it("discards the whole dormant subtree — children first", async () => {
+    seedFamily();
+    await sleepTerminal(ID);
+
+    expect(discardLocalSleeping(ID)).toBe("discarded");
+
+    expect(getTerminal(ID)).toBeUndefined();
+    expect(getTerminal(CHILD)).toBeUndefined();
+    expect(snapshotFor(ID)).toBeUndefined();
+    expect(snapshotFor(CHILD)).toBeUndefined();
+  });
+
+  it("discarding an ACTIVE parent touches nothing — its dormant split included", async () => {
+    seedFamily();
+    expect(beginSleepLocal(CHILD)).toBe(true);
+
+    expect(discardLocalSleeping(ID)).toBe("nothing");
+
+    expect(getTerminal(ID)?.meta.state).toBe("active");
+    expect(getTerminal(CHILD)?.meta.state).toBe("sleeping");
+    expect(getTerminal(CHILD)?.meta.parentId).toBe(ID);
+  });
+
+  it("refuses a MIXED family — a dormant parent with a live descendant", async () => {
+    seedFamily();
+    // Parent asleep, split live: discarding the parent would leave a running
+    // terminal whose parentId names a removed record — the orphan class the
+    // session restore refuses on every boot. The close paths route per arm, so
+    // this refusal is the fail-fast guard, and it touches NOTHING.
+    expect(beginSleepLocal(ID)).toBe(true);
+    expect(getTerminal(CHILD)?.meta.state).toBe("active");
+
+    expect(discardLocalSleeping(ID)).toBe("refused");
+
+    expect(getTerminal(ID)?.meta.state).toBe("sleeping");
+    expect(getTerminal(CHILD)?.meta.state).toBe("active");
+    expect(getTerminal(CHILD)?.meta.parentId).toBe(ID);
+    expect(snapshotFor(ID)).toBeDefined();
+    expect(snapshotFor(CHILD)).toBeDefined();
   });
 });

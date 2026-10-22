@@ -36,6 +36,41 @@ Feature: Sleeping terminals
     And the woken terminal should resume in the same working directory
     And there should be no page errors
 
+  Scenario: Sleeping a terminal freezes its splits too, and Wake brings the family back
+    # Sleep acts on the whole FAMILY: the tile and every split freeze together
+    # (one dormant record each, the parent edge kept), with no warning toast and
+    # nothing closed. The dock then holds one sleeping row per member. Waking from
+    # the tile's dormant body re-spawns the family roots-first, so the split comes
+    # back in the parent's sub panel instead of vanishing or being promoted.
+    Given the terminal is ready
+    When I start recording error toasts
+    And I create a sub-terminal via command palette
+    And I remember the tile's split pane
+    When I sleep the active terminal via the tile sleep button
+    Then the slept terminal should be sleeping
+    And the tile and its 1 split pane should be dormant
+    And no toast mentioning "Sleeping closes" should have been shown
+    And the dock should show 2 sleeping rows
+    When I wake the slept terminal via the dormant body wake button
+    Then the tile and its split should be live again
+    And there should be no page errors
+
+  Scenario: Restart from the tile title bar gives back a fresh shell on the same tile
+    # The ↻ Restart button is the user-facing arm of `lifecycle.restart` (before
+    # it, only the stale-agents pill offered it). A plain shell restarts on the
+    # first click — no confirm — and the tile comes back with a NEW PTY: the
+    # marker printed before the restart is gone from the buffer, and the same
+    # tile types again afterwards.
+    Given the terminal is ready
+    When I run "echo before-restart-marker"
+    Then the terminal buffer should contain "before-restart-marker"
+    When I click the tile restart button
+    Then the terminal buffer should no longer contain "before-restart-marker"
+    When I run "echo after-restart-marker"
+    Then the terminal buffer should contain "after-restart-marker"
+    And the slept terminal should be live
+    And there should be no page errors
+
   Scenario: A dragged sleeping tile keeps its moved position across a reload
     # Sleep a terminal, drag its dormant tile to a new canvas position, then
     # refresh. The moved layout must round-trip through persistence — the

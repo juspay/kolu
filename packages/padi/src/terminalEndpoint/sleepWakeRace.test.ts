@@ -155,7 +155,7 @@ describe("a wake racing its own sleep-release", () => {
 
     // … and the user clicks the dormant tile. The SAME id is live again, on a
     // freshly spawned PTY, before the release's tail has run.
-    expect(wakeLocalTerminal(ID)?.id).toBe(ID);
+    const waking = wakeLocalTerminal(ID);
     expect(getTerminal(ID)?.meta.state).toBe("active");
 
     holdKill.resolve();
@@ -166,6 +166,7 @@ describe("a wake racing its own sleep-release", () => {
     expect(getTerminal(ID)?.meta.state).toBe("active");
 
     // And the woken PTY really is wired — the live terminal was not torn down.
+    await waking;
     await vi.waitFor(() => {
       expect(getTerminal(ID)?.info.pid).toBe(WOKEN_PID);
     });

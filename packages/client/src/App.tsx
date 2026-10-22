@@ -207,15 +207,22 @@ const App: Component = () => {
   };
 
   /** Close a terminal. Top-level terminals show a confirmation dialog;
-   *  splits (sub-terminals) are killed directly — they are ephemeral
+   *  splits (sub-terminals) are closed directly — they are ephemeral
    *  sub-panes, like browser tabs, and should never pop the worktree
-   *  removal prompt (#462). Stays in the shell: it pops the root-mounted
-   *  `<CloseConfirm>` dialog whose open-state the shell owns. */
+   *  removal prompt (#462). `crud.closeOne` routes per arm: a DORMANT split has
+   *  no PTY to kill, so it is discarded (the server drops its dormant subtree)
+   *  rather than sent a kill the server would refuse — which would evict the tab
+   *  locally and leave the record to reappear on reload. Stays in the shell: it
+   *  pops the root-mounted `<CloseConfirm>` dialog whose open-state the shell
+   *  owns. */
   function closeTerminal(id: TerminalId) {
     const meta = store.getMetadata(id);
     if (!meta) return;
     if (meta.parentId) {
-      runAction("close terminal", crud.handleKill(id));
+      runAction(
+        sleepingArm(meta) ? "discard terminal" : "close terminal",
+        crud.closeOne(id),
+      );
       return;
     }
     const splitCount = store.getDisplayInfo(id)?.subCount ?? 0;

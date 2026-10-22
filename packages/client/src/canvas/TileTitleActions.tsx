@@ -2,7 +2,10 @@
  *
  *  Order (left → right between title and close): agent indicator, agents
  *  chip (the agent-distro profile + bundle the terminal was spawned with),
- *  Restart when those agents went stale, theme pill, split toggle, search, screenshot.
+ *  Restart when those agents went stale, theme pill, split toggle, search,
+ *  screenshot, sleep, restart. The two lifecycle buttons are live-arm only: ☾
+ *  freezes the tile and its splits, ↻ gives each a fresh PTY in place (asking
+ *  twice when an agent is live, the same guard the palette command uses).
  *
  *  Reads singleton state and verbs directly — store, sub-panel, theme manager,
  *  right panel, tips, plus the command palette, terminal CRUD, and per-terminal
@@ -24,7 +27,6 @@ import {
   agentRestartReady,
   agentStalenessOf,
 } from "@kolu/agent-distro/status";
-import { agentLive } from "@kolu/terminal-vocab/agentProjection";
 import { ACTIONS } from "../input/actions";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { runAction, runActionPromise, type UiAction } from "../runAction";
@@ -39,6 +41,7 @@ import { useTerminalSearch } from "../terminal/useTerminalSearch";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import {
   MoonIcon,
+  RestartIcon,
   ScreenshotIcon,
   SearchIcon,
   SplitToggleIcon,
@@ -94,22 +97,26 @@ const TileTitleActions: Component<{
     const s = staleness();
     if (s.kind !== "stale" || !agentRestartReady(s)) return undefined;
     return {
-      guarded: liveAgent(),
+      // The shared root's own predicate — the pill and the ↻/palette guard must
+      // agree on what "a live agent" means, or one asks and the other does not.
+      guarded: crud.liveAgentOf(props.id),
       action: agentRestartAction(s),
       run: (e) =>
         onTilePromise(e, () => runActionPromise(crud.handleRestart(props.id))),
     };
   };
-  // A live agent (working, or blocked on you) — Restart would end its process,
-  // so the pill asks twice. `agentLive` is the shared fold's answer.
-  const liveAgent = () => {
-    const agent = live()?.agent;
-    return agent != null && agentLive(agent.state);
-  };
   const themeName = () => getTerminalThemeName(props.id);
   const subCount = () => store.getDisplayInfo(props.id)?.subCount ?? 0;
   const splitExpanded = () =>
     subCount() > 0 && !subPanel.peekSubPanel(props.id).collapsed;
+  // The ↻ Restart's arm, owned by the shared root so the palette's "Restart
+  // terminal" arms and confirms the very same guard (`crud.requestRestart`).
+  const restartArmed = () => crud.restartArmed(props.id);
+  const restartBusy = () => crud.restartBusy(props.id);
+  const restartLabel = () =>
+    restartArmed()
+      ? "Press again to restart — this ends the live agent"
+      : "Restart terminal";
 
   /** Chrome-action handler for SYNCHRONOUS chrome: interacting with a tile's
    *  chrome selects that tile, then runs the callback. The "select first" policy
@@ -291,6 +298,32 @@ const TileTitleActions: Component<{
             aria-label="Sleep terminal"
           >
             <MoonIcon />
+          </button>
+        </Tip>
+        <Tip label={restartLabel()}>
+          <button
+            type="button"
+            data-testid="tile-restart"
+            data-armed={restartArmed() ? "" : undefined}
+            class={`${TILE_BUTTON_CLASS} w-7`}
+            classList={{
+              "bg-warning/15": restartArmed(),
+              "opacity-50 cursor-wait": restartBusy(),
+            }}
+            style={{ color: "var(--color-fg-3, currentColor)" }}
+            disabled={restartBusy()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) =>
+              onTile(e, () => {
+                showTipOnce(CONTEXTUAL_TIPS.restartTerminal);
+                // Arms first when an agent is live; the second press (here or
+                // in the palette) restarts the terminal and its splits.
+                crud.requestRestart(props.id);
+              })
+            }
+            aria-label={restartLabel()}
+          >
+            <RestartIcon />
           </button>
         </Tip>
       </Show>
