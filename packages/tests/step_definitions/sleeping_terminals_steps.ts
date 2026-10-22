@@ -409,9 +409,18 @@ Then(
 Then(
   "the terminal buffer should no longer contain {string}",
   async function (this: KoluWorld, text: string) {
-    // A restart is a FRESH shell on the same id: the old scrollback is gone. The
-    // absence of a marker printed before the restart is what proves a new PTY,
-    // not merely a tile that flipped dormant and back.
+    // A restart unmounts the live terminal for its dormant middle, so a bare
+    // buffer read can satisfy "absent" against NOTHING at all (no element → an
+    // empty string). Wait for the tile to be live AND its buffer to have
+    // painted, then assert the marker is gone — a fresh PTY, not a blank pane.
+    const id = sleptIdByWorld.get(this);
+    assert.ok(id, "No terminal id captured — click the restart button first");
+    await waitForLive(this, id);
+    await this.page.waitForFunction(
+      (sel) => (window.__readXtermBuffer?.(sel, 0) ?? "").trim() !== "",
+      ACTIVE_TERMINAL,
+      { timeout: POLL_TIMEOUT, polling: 50 },
+    );
     await this.page.waitForFunction(
       ({ sel, exp }) =>
         !(window.__readXtermBuffer?.(sel, 0) ?? "").includes(exp),
