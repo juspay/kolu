@@ -90,10 +90,6 @@ export const SubTerminalRow: Component<{
             drop={props.drag?.drop}
             pip={pip()}
             bucket={props.row.bucket}
-            // A split's own row handle — the top-level row keeps `dock-row`, so
-            // a test can count a family's members (a slept family is one row per
-            // member) without confusing the two levels.
-            testIds={{ row: "dock-sub-row" }}
             agentState={facts().agentState}
             model={facts().model}
             // The TRUE parent, straight off the pane tree this row was built

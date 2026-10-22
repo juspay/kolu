@@ -78,6 +78,20 @@ function agentSubRow(
   };
 }
 
+/** A sleeping split row — a shell whose bucket is the dormancy one. */
+function sleepingSubRow(id: string): SubRow {
+  return {
+    id: id as TerminalId,
+    parentId: "tile" as TerminalId,
+    kind: "shell",
+    bucket: "sleeping",
+    pip: "sleeping",
+    asking: false,
+    ts: 400,
+    depth: 1,
+  } as SubRow;
+}
+
 function makeGetInfo(
   entries: Record<string, { group: string; color: string; label?: string }>,
 ): (id: TerminalId) => TerminalDisplayInfo | undefined {
@@ -584,6 +598,47 @@ describe("buildDockTree", () => {
     const tree = buildDockTree(ranked, getInfo, false);
     expect(tree.sleepingCount).toBe(1);
     expect(tree.parkedCount).toBe(1);
+  });
+
+  it("a slept FAMILY counts and hides as its members, not just the tile", () => {
+    // Sleep freezes a terminal and its splits together, so the ordinary shape
+    // is one sleeping tile row carrying sleeping split rows. The footer's ☾
+    // disclosure names what the toggle hides, and the toggle hides all of it.
+    const tile = row("tile", "sleeping", 500, "sleeping");
+    tile.subRows = [sleepingSubRow("split"), shellSubRow("awake-split")];
+    const ranked = [tile, row("other", "working", 900)];
+    const getInfo = makeGetInfo({
+      tile: { group: "kolu", color: "#aaa" },
+      other: { group: "kolu", color: "#aaa" },
+    });
+
+    const shown = buildDockTree(ranked, getInfo, false);
+    // The tile AND its sleeping split — not the tile alone.
+    expect(shown.sleepingCount).toBe(2);
+
+    const hidden = buildDockTree(ranked, getInfo, true);
+    // A filtered top row takes its whole sub-tree out with it: the tile, its
+    // sleeping split AND its awake split are all off screen (they render
+    // nested), and "show all" brings all three back.
+    expect(hidden.hiddenCount).toBe(3);
+    expect(hidden.flatShortcutRows.map((r) => r.id)).toEqual(["other"]);
+  });
+
+  it("hides a sleeping split under a LIVE tile without hiding the tile", () => {
+    // A split can be dormant on its own (slept individually, or left asleep by
+    // a restart whose respawn failed). The tile stays; only the split's row goes.
+    const tile = row("tile", "working", 500);
+    tile.subRows = [sleepingSubRow("split"), shellSubRow("awake")];
+    const ranked = [tile];
+    const getInfo = makeGetInfo({ tile: { group: "kolu", color: "#aaa" } });
+
+    const hidden = buildDockTree(ranked, getInfo, true);
+    expect(hidden.flatShortcutRows.map((r) => r.id)).toEqual(["tile"]);
+    expect(hidden.flatShortcutRows[0]?.subRows.map((s) => s.id)).toEqual([
+      "awake",
+    ]);
+    expect(hidden.sleepingCount).toBe(1);
+    expect(hidden.hiddenCount).toBe(1);
   });
 });
 
