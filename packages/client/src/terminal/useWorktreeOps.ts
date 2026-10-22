@@ -93,7 +93,12 @@ export function useWorktreeOps(deps: {
    *  A SLEEPING terminal has no PTY to kill, so it takes the DISCARD path (F8) —
    *  routing it through the live `terminal.kill` RPC would try to kill a
    *  non-existent PTY and log a spurious pty-host kill error before unregistering.
-   *  An active terminal (and any live sub-terminals) take the normal kill path. */
+   *  Sleep freezes the terminal's whole family, so that discard also drops its
+   *  dormant splits (server-side subtree + `handleDiscard`'s local eviction).
+   *  An active terminal takes the normal kill path, and so does each of its
+   *  splits that is still LIVE — while a split that was slept on its own is
+   *  discarded, not killed (a kill answers `TerminalNotFound` and would leave
+   *  the dormant record orphaned under a removed parent). */
   function handleKillWorktree(targetId?: TerminalId): UiAction {
     return Effect.gen(function* () {
       const id = targetId ?? store.activeId();
@@ -105,22 +110,26 @@ export function useWorktreeOps(deps: {
         git?.kind === "repo" && git.info.isWorktree
           ? git.info.worktreePath
           : null;
+      /** Close a split by its own arm — the same rule `crud.closeOne` applies. */
+      const closeSplit = (subId: TerminalId) =>
+        sleepingArm(store.getMetadata(subId))
+          ? deps.handleDiscard(subId).pipe(Effect.ignore)
+          : deps.handleKill(subId);
       if (sleepingArm(meta)) {
-        // No splits on a sleeping record (sleep closes them) and no PTY to kill —
-        // discard the dormant record, then fall through to remove the worktree.
-        // If the discard failed (toasted by handleDiscard), the failure SHORT-
-        // CIRCUITS this whole program (F10): removing the worktree now would
-        // strand the still-present terminal at a deleted cwd. The user can retry
-        // the close once the server is reachable again. `catchTag` recovers it to
-        // a plain early return, because the toast has already been shown.
+        // No PTY to kill — discard the dormant subtree, then fall through to
+        // remove the worktree. If the discard failed (toasted by handleDiscard),
+        // the failure SHORT-CIRCUITS this whole program (F10): removing the
+        // worktree now would strand the still-present terminal at a deleted cwd.
+        // The user can retry the close once the server is reachable again.
+        // `catchTag` recovers it to a plain early return, because the toast has
+        // already been shown.
         const stop = yield* deps.handleDiscard(id).pipe(
           Effect.as(false),
           Effect.catchTag("TerminalDiscardFailed", () => Effect.succeed(true)),
         );
         if (stop) return;
       } else {
-        for (const subId of store.getSplitPaneIds(id))
-          yield* deps.handleKill(subId);
+        for (const subId of store.getSplitPaneIds(id)) yield* closeSplit(subId);
         yield* deps.handleKill(id);
       }
       if (!worktreePath) return;

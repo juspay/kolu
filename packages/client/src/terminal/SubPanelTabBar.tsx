@@ -19,6 +19,10 @@ const SubPanelTabBar: Component<{
   onClose: (id: TerminalId) => void;
   onCreate: () => void;
   onCollapse: () => void;
+  /** May a split be created from here? False on a DORMANT tile: the tab strip is
+   *  still mounted (it is how a slept family is shown), but `child-of` requires a
+   *  live parent, so a `+` could only produce the raw create-failure toast. */
+  canCreate: boolean;
 }> = (props) => {
   // Sub-terminals mount the same `Terminal` component, so each one already
   // records output under its own `subId` — but the top-level dock/title readers
@@ -91,14 +95,16 @@ const SubPanelTabBar: Component<{
           );
         }}
       </For>
-      <button
-        type="button"
-        class="px-2 py-1 text-fg-3 hover:text-fg transition-colors cursor-pointer"
-        onClick={props.onCreate}
-        title={ACTIONS.createSubTerminal.label}
-      >
-        +
-      </button>
+      <Show when={props.canCreate}>
+        <button
+          type="button"
+          class="px-2 py-1 text-fg-3 hover:text-fg transition-colors cursor-pointer"
+          onClick={props.onCreate}
+          title={ACTIONS.createSubTerminal.label}
+        >
+          +
+        </button>
+      </Show>
       <div class="flex-1" />
       <button
         type="button"

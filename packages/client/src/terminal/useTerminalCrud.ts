@@ -10,7 +10,11 @@
  *  Server signals propagate list/metadata changes via the live subscriptions —
  *  no optimistic cache needed. */
 
-import { TOPLEVEL_PLACEMENT, activeArm } from "@kolu/padi-client/surface";
+import {
+  TOPLEVEL_PLACEMENT,
+  activeArm,
+  sleepingArm,
+} from "@kolu/padi-client/surface";
 import type { TranscriptHtmlMode } from "@kolu/padi-client/surface";
 import { toError } from "@kolu/surface/run-stream";
 import { Data, Effect } from "effect";
@@ -164,6 +168,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     subPanel,
     removeRightPanel: rightPanel.removePanel,
     removeSearch: terminalSearch.removeTerminal,
+    forgetRestartGuard,
   };
 
   /** Intact parent graph at the moment of eviction — live for the imperative
@@ -196,9 +201,10 @@ export const useTerminalCrud = createSharedRoot(() => {
    *  path (kill, discard). Runs synchronously with metadata still present, so it
    *  reads the live parentId + top-level order. Claims the id (when a list-drop
    *  will follow) so the later list-driven reconcile skips it — see
-   *  `createEvictionDedup`. */
+   *  `createEvictionDedup`. The restart guard is dropped by the eviction ports,
+   *  so every removal cause (this path, the list reconcile, shell exit) reaches
+   *  the same cleanup. */
   function removeAndAutoSwitch(id: TerminalId) {
-    forgetRestartGuard(id);
     eviction.evictImperatively(
       id,
       store.getMetadata(id)?.parentId ?? null,
@@ -374,14 +380,30 @@ export const useTerminalCrud = createSharedRoot(() => {
     );
   }
 
-  /** Kill a terminal and all its flat descendants (instead of promoting them). */
+  /** Kill a terminal and all its flat descendants — the close path, instead of
+   *  promoting the splits. Each member is closed by its OWN arm
+   *  ({@link closeOne}): a live parent can hold a split that was slept on its
+   *  own, and sending that record a kill answers `TerminalNotFound` — swallowed
+   *  by the close path while it evicts locally, leaving the dormant record (and
+   *  its `parentId`) behind for the next autosave to persist as an orphan. */
   function handleKillWithSubs(id: TerminalId): UiAction {
     return Effect.gen(function* () {
       // Sequential, not concurrent: the descendants' evictions re-home the
       // survivors, and doing that out of order reorders the canvas.
-      for (const subId of store.getSplitPaneIds(id)) yield* handleKill(subId);
-      yield* handleKill(id);
+      for (const subId of store.getSplitPaneIds(id)) yield* closeOne(subId);
+      yield* closeOne(id);
     });
+  }
+
+  /** Close ONE terminal by its arm: a LIVE one is killed, a DORMANT one is
+   *  discarded (its PTY is already released, and the server refuses a kill for a
+   *  sleeping record). The ONE routing rule every close path shares. */
+  function closeOne(id: TerminalId): UiAction {
+    return sleepingArm(store.getMetadata(id))
+      ? // `Effect.ignore`: a discard failure is already toasted by
+        // `handleDiscard`; a close has nothing that must not happen afterwards.
+        handleDiscard(id).pipe(Effect.ignore)
+      : handleKill(id);
   }
 
   /** Request sleep — the shared entry the ☾ tile button and the palette both
@@ -531,7 +553,20 @@ export const useTerminalCrud = createSharedRoot(() => {
         }),
       ),
       Effect.mapError(() => new TerminalDiscardFailed({})),
-      Effect.tap(() => Effect.sync(() => removeAndAutoSwitch(id))),
+      Effect.tap(() =>
+        Effect.sync(() => {
+          // The SERVER discarded the whole dormant subtree; evict its splits
+          // locally BEFORE the parent, symmetric with `handleKillWithSubs`. The
+          // parent's eviction otherwise promotes children whose records are
+          // already gone, firing `setParent(sub, null)` into the void (and
+          // toasting "Failed to set parent" as the list push races it). A split
+          // the list push already dropped is skipped.
+          for (const subId of store.getSplitPaneIds(id))
+            if (store.getMetadata(subId) !== undefined)
+              removeAndAutoSwitch(subId);
+          removeAndAutoSwitch(id);
+        }),
+      ),
     );
   }
 
@@ -622,9 +657,11 @@ export const useTerminalCrud = createSharedRoot(() => {
         Effect.sync(() => {
           store.reset();
           // killAll bypasses removeAndAutoSwitch's per-terminal eviction, so
-          // clear the find-bar map wholesale here too — otherwise stale keys
-          // outlive the terminals they pointed at.
+          // clear the find-bar map and the restart guards wholesale here too —
+          // otherwise stale keys outlive the terminals they pointed at.
           terminalSearch.reset();
+          for (const guard of restartGuards.values()) guard.dispose();
+          restartGuards.clear();
         }),
       ),
       toastFailure("Failed to close all terminals"),
@@ -676,6 +713,9 @@ export const useTerminalCrud = createSharedRoot(() => {
     promoteToTopLevel,
     handleKill,
     handleKillWithSubs,
+    /** Close a terminal by its arm — kill a live one, discard a dormant one. The
+     *  one routing rule the close paths share (shell and splits alike). */
+    closeOne,
     requestSleep,
     handleSleep,
     handleWake,

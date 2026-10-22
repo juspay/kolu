@@ -61,6 +61,7 @@ function makePorts(over: {
     removePanel: vi.fn<(id: TerminalId) => void>(),
     removeRightPanel: vi.fn<(id: TerminalId) => void>(),
     removeSearch: vi.fn<(id: TerminalId) => void>(),
+    forgetRestartGuard: vi.fn<(id: TerminalId) => void>(),
   };
   const ports: TerminalEvictionPorts = {
     activeId: over.activeId ?? (() => null),
@@ -82,6 +83,7 @@ function makePorts(over: {
     },
     removeRightPanel: calls.removeRightPanel,
     removeSearch: calls.removeSearch,
+    forgetRestartGuard: calls.forgetRestartGuard,
   };
   return { ports, calls };
 }

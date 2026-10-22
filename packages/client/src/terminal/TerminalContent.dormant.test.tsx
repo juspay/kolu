@@ -145,7 +145,7 @@ describe("TerminalContent — a dormant family renders pane by pane", () => {
     expect(body?.getAttribute("data-terminal-id")).toBe(SUB);
   });
 
-  it("a asleep tile keeps its tab strip: tile-sized main body, compact split bodies", () => {
+  it("an asleep tile keeps its tab strip: tile-sized main body, compact split bodies", () => {
     h.dormant = new Set([MAIN, SUB]);
     mount();
 

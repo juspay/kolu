@@ -73,7 +73,7 @@ const DormantTileBody: Component<{
 
   return (
     <div
-      class="flex min-h-0 flex-1 select-none flex-col items-center justify-center bg-[var(--moonlit-bg)] text-center text-[var(--moonlit-accent)]"
+      class="flex h-full min-h-0 flex-1 select-none flex-col items-center justify-center bg-[var(--moonlit-bg)] text-center text-[var(--moonlit-accent)]"
       classList={{
         "gap-3 px-4": !compact(),
         "gap-1.5 px-2": compact(),

@@ -79,6 +79,10 @@ export interface TerminalEvictionPorts {
   subPanel: EvictionSubPanelPorts;
   removeRightPanel: (id: TerminalId) => void;
   removeSearch: (id: TerminalId) => void;
+  /** Drop any per-terminal UI state keyed by id — the tile chrome's restart
+   *  guard (a reactive root per terminal). Called for EVERY removal cause, so a
+   *  closed tile can't leak its guard past the record it belonged to. */
+  forgetRestartGuard: (id: TerminalId) => void;
 }
 
 /** Pre-removal parent graph for a split eviction. The list-driven reconcile
@@ -114,6 +118,10 @@ export function evictTerminal(
   departing: ReadonlySet<TerminalId>,
   removal: RemovalGraph,
 ) {
+  // The per-terminal UI state goes with the record, whatever arm and whichever
+  // caller: the restart guard is a reactive root keyed by id, and a natural exit
+  // or a host switch never reaches the imperative close path.
+  ports.forgetRestartGuard(id);
   if (parentId !== null) {
     // A departing SPLIT owns panel state of its own — its tab, code mode,
     // per-mode selections, and a back/forward history stack — so it sheds that

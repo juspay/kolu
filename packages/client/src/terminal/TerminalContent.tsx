@@ -265,6 +265,7 @@ const TerminalContent: Component<{
             subIds={subTerminalIds()}
             activeSubTab={activeSubTab()}
             getMetadata={store.getMetadata}
+            canCreate={mainLive()}
             onSelect={(id) => subPanel.selectSubTab(props.terminalId, id)}
             onClose={props.onCloseTerminal}
             onCollapse={() => subPanel.collapsePanel(props.terminalId)}
