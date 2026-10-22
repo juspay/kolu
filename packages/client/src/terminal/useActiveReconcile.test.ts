@@ -61,6 +61,7 @@ function makePorts(over: {
     removePanel: vi.fn<(id: TerminalId) => void>(),
     removeRightPanel: vi.fn<(id: TerminalId) => void>(),
     removeSearch: vi.fn<(id: TerminalId) => void>(),
+    releaseComments: vi.fn<(id: TerminalId) => void>(),
   };
   const ports: TerminalEvictionPorts = {
     activeId: over.activeId ?? (() => null),
@@ -82,6 +83,7 @@ function makePorts(over: {
     },
     removeRightPanel: calls.removeRightPanel,
     removeSearch: calls.removeSearch,
+    releaseComments: calls.releaseComments,
   };
   return { ports, calls };
 }
@@ -121,6 +123,7 @@ describe("evictTerminal — top-level branch", () => {
     expect(calls.removePanel).toHaveBeenCalledWith(T("P"));
     expect(calls.removeRightPanel).toHaveBeenCalledWith(T("P"));
     expect(calls.removeSearch).toHaveBeenCalledWith(T("P"));
+    expect(calls.releaseComments).toHaveBeenCalledExactlyOnceWith(T("P"));
     expect(calls.dropFromMru).toHaveBeenCalledWith(T("P"));
     // Removed at index 0 of [P, Q] → survivor Q.
     expect(calls.activate).toHaveBeenCalledWith(T("Q"));
@@ -205,6 +208,7 @@ describe("evictTerminal — sub-terminal branch", () => {
       graph({ P: null, S: "P" }),
     );
     expect(calls.removeRightPanel).toHaveBeenCalledExactlyOnceWith(T("S"));
+    expect(calls.releaseComments).toHaveBeenCalledExactlyOnceWith(T("S"));
   });
 
   it("sheds a departing split's panel state even when NO live ancestor survives", () => {
@@ -220,6 +224,7 @@ describe("evictTerminal — sub-terminal branch", () => {
       graph({ R: null, M: "R", G: "M" }),
     );
     expect(calls.removeRightPanel).toHaveBeenCalledExactlyOnceWith(T("G"));
+    expect(calls.releaseComments).toHaveBeenCalledExactlyOnceWith(T("G"));
   });
 
   it("keeps a background tile's focus untouched when its last sub departs", () => {
@@ -503,6 +508,7 @@ describe("useActiveReconcile — FULL cleanup driven off the list", () => {
     expect(h.calls.removePanel).toHaveBeenCalledWith(T("P"));
     expect(h.calls.removeRightPanel).toHaveBeenCalledWith(T("P"));
     expect(h.calls.removeSearch).toHaveBeenCalledWith(T("P"));
+    expect(h.calls.releaseComments).toHaveBeenCalledExactlyOnceWith(T("P"));
     // P was active and at index 0 of [P, Q] → focus falls to survivor Q.
     expect(h.calls.activate).toHaveBeenCalledWith(T("Q"));
     h.dispose();

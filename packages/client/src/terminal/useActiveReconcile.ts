@@ -79,6 +79,8 @@ export interface TerminalEvictionPorts {
   subPanel: EvictionSubPanelPorts;
   removeRightPanel: (id: TerminalId) => void;
   removeSearch: (id: TerminalId) => void;
+  /** Drop the terminal's in-memory comment store (its persisted comments stay). */
+  releaseComments: (id: TerminalId) => void;
 }
 
 /** Pre-removal parent graph for a split eviction. The list-driven reconcile
@@ -121,6 +123,7 @@ export function evictTerminal(
     // body and before any branch below can return early. (Search state is
     // tile-only by construction: a split's leaf never opens the find bar.)
     ports.removeRightPanel(id);
+    ports.releaseComments(id);
     const edge = removal.parentOf;
     const census = removal.ids;
     // Surviving containing tile: walk the full pre-removal ancestor chain and
@@ -192,6 +195,7 @@ export function evictTerminal(
   ports.subPanel.removePanel(id);
   ports.removeRightPanel(id);
   ports.removeSearch(id);
+  ports.releaseComments(id);
   ports.dropFromMru(id);
   if (ports.activeId() === id) {
     // `activate` pans the canvas to the survivor — without it the viewport would
