@@ -44,7 +44,7 @@ import {
   beginSleepLocal,
   releaseSleptLocalPty,
   restartSleptLocal,
-  wakeLocalTerminal,
+  wakeSleptLocal,
 } from "./terminalEndpoint/local.ts";
 // Load-order is cycle-sensitive: importing `terminalEndpoint/metadata.ts`
 // before `terminalEndpoint/local.ts` is what makes the surface cycle
@@ -238,18 +238,24 @@ export async function sleepTerminal(id: TerminalId): Promise<void> {
  *  its own id, in its own cwd, keeping its layout, parent edge, theme and title,
  *  with the agents a new terminal gets now.
  *
- *  Literally the sleep walk then the wake walk, over the whole family: every
- *  ACTIVE member flips to sleeping (leaves first, as in {@link sleepTerminal}),
- *  the tree is persisted asleep ONCE, then each member respawns roots-first so a
- *  child never spawns under a parent with no PTY. `restartSlept` is the
- *  per-member half and keeps every existing restart invariant: a kill that fails
- *  with the PTY still alive puts that member back on it and throws; a failed
- *  respawn leaves it asleep to wake. The first such failure ABORTS the walk — the
- *  members already replanted stay live, the rest stay asleep, and no live child is
- *  left under a dormant parent.
+ *  Literally the sleep walk then the wake walk, over the whole family, and the
+ *  two walks order oppositely on purpose: the FLIPS are leaves-first (as sleep
+ *  is, so no live child sits under a fragment that just froze), while the
+ *  KILLS + respawns are roots-first (a parent's new PTY is up before any child
+ *  of it spawns). The tree is persisted asleep ONCE between them.
  *
- *  A member that was ALREADY asleep before the restart (a split slept on its own)
- *  has no PTY to kill, so it is simply woken: the family comes back whole.
+ *  `restartSlept` is the per-member half and keeps every existing restart
+ *  invariant: a kill that fails with the PTY still alive puts that member back
+ *  on it and throws; a failed respawn leaves it asleep to wake. Those are the
+ *  only two outcomes that stay put; every member the walk ALREADY flipped but
+ *  has not reached yet is a sleeping record whose old PTY is still running —
+ *  `beginSleep` leaves the PTY alive and the kill is `restartSlept`'s job — so a
+ *  throw releases those PTYs before it propagates. Without that, an aborted
+ *  restart leaves orphaned shells that a later Wake would double-spawn.
+ *
+ *  A member that was ALREADY asleep before the restart (a split slept on its
+ *  own) has no PTY to kill and is not climbed through: it is woken on its own,
+ *  awaiting its wire, so the family comes back whole.
  *
  *  `restartsInFlight` is registered for EVERY member in the same synchronous step
  *  as the flips, so an attach landing in any member's dormant middle waits for
@@ -270,17 +276,31 @@ export async function restartTerminal(
   const done = (async () => {
     saveSession(snapshotSession());
     let asked: { info: TerminalInfo; resumed: boolean } | undefined;
-    // Roots-first, and each respawn is awaited (`restartSlept` waits for the new
-    // PTY to wire) — so a parent is live before any child of it spawns.
-    for (const member of family) {
-      if (!slept.has(member)) {
-        wakeLocalTerminal(member);
-        continue;
+    try {
+      // Roots-first, and each respawn is awaited (`restartSlept` waits for the
+      // new PTY to wire) — so a parent is live before any child of it spawns.
+      for (const member of family) {
+        if (!slept.has(member)) {
+          // Dormant BEFORE the restart: no PTY to kill, and no climb — its
+          // ancestors are being restarted, not woken (the climbing family wake
+          // would wake them off `restoreTarget` and then `restartSlept` would
+          // throw on an id that is no longer sleeping).
+          await wakeSleptLocal(member)?.wired;
+          continue;
+        }
+        const result = await restartSleptLocal(member);
+        if (member === id) asked = result;
       }
-      const result = await restartSleptLocal(member);
-      if (member === id) asked = result;
+      return asked;
+    } catch (err) {
+      // Release every member this walk flipped but never replanted: its old PTY
+      // is still running under a sleeping record. Same persist-before-kill tail
+      // a plain sleep runs; members already replanted (active) are left alone.
+      for (const member of slept)
+        if (getTerminal(member)?.meta.state === "sleeping")
+          await releaseSleptLocalPty(member);
+      throw err;
     }
-    return asked;
   })();
   const settled = done.then(
     () => undefined,

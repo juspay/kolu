@@ -251,9 +251,9 @@ describe("wake — resets the snapshot, keeps the authored memory", () => {
     seedActiveTerminal(ID);
     expect(beginSleepLocal(ID)).toBe(true);
 
-    // Wake registers the active sync-shadow synchronously (the spawn tail fails on
-    // a later microtask — no kaval); assert the store at that sync point.
-    wakeLocalTerminal(ID);
+    // Wake registers the active sync-shadow synchronously (its spawn tail fails
+    // on a later microtask — no kaval); assert the store at that sync point.
+    const waking = wakeLocalTerminal(ID);
     expect(getTerminal(ID)?.meta.state).toBe("active");
 
     const aw = snapshotFor(ID);
@@ -280,7 +280,7 @@ describe("wake — resets the snapshot, keeps the authored memory", () => {
     expect(resumeCommand).not.toContain("--continue");
 
     // Let the rejected spawn RPC settle (it restores the sleeping record).
-    await new Promise((r) => setTimeout(r, 0));
+    await waking;
   });
 
   it("wakes to a BARE SHELL on a `none` restore target (quit-to-shell, by construction)", async () => {
@@ -292,10 +292,10 @@ describe("wake — resets the snapshot, keeps the authored memory", () => {
     installSnapshot(ID);
     expect(beginSleepLocal(ID)).toBe(true);
 
-    wakeLocalTerminal(ID);
+    const waking = wakeLocalTerminal(ID);
     expect(resumeFormFor(getTerminal(ID)?.meta.restoreTarget)).toBeNull();
 
-    await new Promise((r) => setTimeout(r, 0));
+    await waking;
   });
 
   it("resumes most-recent on a `legacyMostRecent` target (migrated pre-1.29 record)", async () => {
@@ -313,11 +313,11 @@ describe("wake — resets the snapshot, keeps the authored memory", () => {
     installSnapshot(ID);
     expect(beginSleepLocal(ID)).toBe(true);
 
-    wakeLocalTerminal(ID);
+    const waking = wakeLocalTerminal(ID);
     const resumeCommand = resumeFormFor(getTerminal(ID)?.meta.restoreTarget);
     expect(resumeCommand).toBe("opencode --continue --model sonnet");
 
-    await new Promise((r) => setTimeout(r, 0));
+    await waking;
   });
 });
 
@@ -345,13 +345,13 @@ describe("wake — a failed PTY spawn must NOT drop the sleeping record (F2)", (
   it("restores the sleeping entry when the wake spawn fails", async () => {
     expect(seedSleepingTerminal(sleepingRecord())).toBe(true);
 
-    // Wake returns synchronously after registering the active sync-shadow; the
-    // spawn tail fails on a later microtask. The shadow IS active right after.
-    wakeLocalTerminal(WAKE_ID);
+    // Wake registers the active sync-shadow synchronously; its spawn tail fails
+    // on a later microtask. The shadow IS active right after.
+    const waking = wakeLocalTerminal(WAKE_ID);
     expect(getTerminal(WAKE_ID)?.meta.state).toBe("active");
 
     // Let the rejected spawn RPC propagate through `spawnAndWire`'s catch.
-    await new Promise((r) => setTimeout(r, 0));
+    await waking;
 
     const entry = getTerminal(WAKE_ID);
     expect(entry).toBeDefined();
@@ -404,9 +404,11 @@ describe("wake/spawn PUSHES the authored active snapshot (issue #1529)", () => {
     // The seed itself doesn't publish the wire; start from a clean slate.
     upserts.length = 0;
 
-    wakeLocalTerminal(PUB_ID);
+    const waking = wakeLocalTerminal(PUB_ID);
     expect(getTerminal(PUB_ID)?.meta.state).toBe("active");
     expect(upserts).toContainEqual({ id: PUB_ID, state: "active" });
+    // Settle the (failing) spawn so its F2 restore can't leak into the next test.
+    return waking.then(() => undefined);
   });
 });
 
@@ -521,7 +523,7 @@ describe("the family — a split's sleep/wake is its parent's too", () => {
     unregisterTerminal(FAMILY_CHILD);
   });
 
-  it("waking a sleeping split under a dormant parent wakes the parent first", async () => {
+  it("waking a split under a dormant parent starts the PARENT first, and skips the split when it fails", async () => {
     seedFamily();
     // Sleep is family-wide, so both members are dormant — the shape a split's
     // own Wake CTA sees.
@@ -529,33 +531,42 @@ describe("the family — a split's sleep/wake is its parent's too", () => {
     expect(beginSleepLocal(FAMILY_PARENT)).toBe(true);
 
     // The user presses Wake on the SPLIT's dormant body. The climb finds the
-    // topmost dormant ancestor and wakes the subtree roots-first.
-    expect(wakeLocalTerminal(FAMILY_CHILD)?.id).toBe(FAMILY_CHILD);
+    // topmost dormant ancestor; the walk is roots-first and AWAITS each wire, so
+    // at this synchronous point the parent is awake and the child has not been
+    // touched yet.
+    const waking = wakeLocalTerminal(FAMILY_CHILD);
     expect(getTerminal(FAMILY_PARENT)?.meta.state).toBe("active");
-    expect(getTerminal(FAMILY_CHILD)?.meta.state).toBe("active");
-    // The split is still the parent's — the family came back as a tree.
-    expect(getTerminal(FAMILY_CHILD)?.meta.parentId).toBe(FAMILY_PARENT);
+    expect(getTerminal(FAMILY_CHILD)?.meta.state).toBe("sleeping");
 
-    // No kaval in the unit env: the spawn tail rejects on a later microtask and
-    // restores both sleeping records (the F2 path, covered above).
-    await new Promise((r) => setTimeout(r, 0));
+    // No kaval in the unit env: the parent's spawn fails, its sleeping record is
+    // restored (F2), and the child's subtree is SKIPPED rather than spawned
+    // under a tile with no PTY.
+    await waking;
+    expect(getTerminal(FAMILY_PARENT)?.meta.state).toBe("sleeping");
+    expect(getTerminal(FAMILY_CHILD)?.meta.state).toBe("sleeping");
+    // The split is still the parent's — the tree never broke.
+    expect(getTerminal(FAMILY_CHILD)?.meta.parentId).toBe(FAMILY_PARENT);
   });
 
-  it("waking an ACTIVE split is a no-op — a live parent is the climb's boundary", async () => {
+  it("waking an ACTIVE split is a no-op for its parent — a live parent is the climb's boundary", async () => {
     seedFamily();
     expect(beginSleepLocal(FAMILY_CHILD)).toBe(true);
 
-    // The parent never slept, so waking the split wakes only the split.
-    expect(wakeLocalTerminal(FAMILY_CHILD)?.id).toBe(FAMILY_CHILD);
+    // The parent never slept, so the climb stops at the split itself.
+    const waking = wakeLocalTerminal(FAMILY_CHILD);
     expect(getTerminal(FAMILY_CHILD)?.meta.state).toBe("active");
     expect(getTerminal(FAMILY_PARENT)?.meta.state).toBe("active");
 
-    await new Promise((r) => setTimeout(r, 0));
+    await waking;
+    // The split's own spawn failed; the parent was never in this walk, so it is
+    // still untouched-and-live.
+    expect(getTerminal(FAMILY_CHILD)?.meta.state).toBe("sleeping");
+    expect(getTerminal(FAMILY_PARENT)?.meta.state).toBe("active");
   });
 
-  it("an ACTIVE id is never 'woken'", () => {
+  it("an ACTIVE id is never 'woken'", async () => {
     seedFamily();
-    expect(wakeLocalTerminal(FAMILY_PARENT)).toBeUndefined();
+    expect(await wakeLocalTerminal(FAMILY_PARENT)).toBeUndefined();
     expect(getTerminal(FAMILY_PARENT)?.meta.state).toBe("active");
   });
 });

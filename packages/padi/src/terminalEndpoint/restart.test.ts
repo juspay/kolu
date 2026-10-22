@@ -392,7 +392,7 @@ describe("restart — a new PTY in place", () => {
 
     const restart = restartTerminal(ID);
     await killStarted.promise;
-    expect(wakeLocalTerminal(ID)?.id).toBe(ID);
+    expect((await wakeLocalTerminal(ID))?.id).toBe(ID);
     hold.resolve();
 
     const answered = await restart;
@@ -521,9 +521,9 @@ describe("the family walk — a terminal and its splits move together", () => {
     calls.log = [];
     calls.spawns = [];
 
-    expect(wakeLocalTerminal(ID)?.id).toBe(ID);
+    expect((await wakeLocalTerminal(ID))?.id).toBe(ID);
 
-    await vi.waitFor(() => expect(calls.spawns).toEqual([ID, CHILD]));
+    expect(calls.spawns).toEqual([ID, CHILD]);
     expect(getTerminal(ID)?.meta.state).toBe("active");
     expect(activeChildMeta().parentId).toBe(ID);
   });
@@ -533,10 +533,10 @@ describe("the family walk — a terminal and its splits move together", () => {
     await sleepTerminal(ID);
     calls.spawns = [];
 
-    expect(wakeLocalTerminal(CHILD)?.id).toBe(CHILD);
+    expect((await wakeLocalTerminal(CHILD))?.id).toBe(CHILD);
 
     // The climb found the sleeping parent, and the subtree woke roots-first.
-    await vi.waitFor(() => expect(calls.spawns).toEqual([ID, CHILD]));
+    expect(calls.spawns).toEqual([ID, CHILD]);
     expect(getTerminal(ID)?.meta.state).toBe("active");
     expect(activeChildMeta().parentId).toBe(ID);
   });
@@ -546,14 +546,47 @@ describe("the family walk — a terminal and its splits move together", () => {
     await sleepTerminal(ID);
     calls.spawnFailsFor = [CHILD];
 
-    wakeLocalTerminal(ID);
+    await wakeLocalTerminal(ID);
 
-    await vi.waitFor(() =>
-      expect(getTerminal(CHILD)?.meta.state).toBe("sleeping"),
-    );
+    expect(getTerminal(CHILD)?.meta.state).toBe("sleeping");
     expect(getTerminal(ID)?.meta.state).toBe("active");
     // The sleeping record kept its parent edge, so the retry climbs the same way.
     expect(getTerminal(CHILD)?.meta.parentId).toBe(ID);
+  });
+
+  it("a failed PARENT wake skips its subtree — no live split under a dormant tile", async () => {
+    seedFamily();
+    await sleepTerminal(ID);
+    calls.spawns = [];
+    calls.spawnFailsFor = [ID];
+
+    // The parent's wire fails, so its sleeping record is restored and the child
+    // is never even attempted: a child spawning now would be a live PTY under a
+    // tile with no PTY, which every client gate forbids.
+    expect((await wakeLocalTerminal(ID))?.id).toBe(ID);
+
+    expect(calls.spawns).toEqual([ID]);
+    expect(getTerminal(ID)?.meta.state).toBe("sleeping");
+    expect(getTerminal(CHILD)?.meta.state).toBe("sleeping");
+    expect(getTerminal(CHILD)?.meta.parentId).toBe(ID);
+  });
+
+  it("an aborted family restart releases every member it flipped but never replanted", async () => {
+    seedFamily();
+    calls.log = [];
+    calls.spawns = [];
+    // The PARENT is the first member the respawn walk reaches, so the child has
+    // been flipped to sleeping by the sleep walk and not yet replanted.
+    calls.spawnFailsFor = [ID];
+
+    await expect(restartTerminal(ID)).rejects.toThrow(/did not start/);
+
+    // The child's original PTY is still alive at this point (`beginSleep` leaves
+    // it so; the kill is `restartSlept`'s job), so the abort path must release it
+    // — otherwise a later Wake double-spawns on that id.
+    expect(calls.log.filter((e) => e === `kill:${CHILD}`)).toHaveLength(1);
+    expect(getTerminal(ID)?.meta.state).toBe("sleeping");
+    expect(getTerminal(CHILD)?.meta.state).toBe("sleeping");
   });
 
   it("restarts the family in place, parent first, saving ONCE", async () => {
@@ -595,5 +628,23 @@ describe("the family walk — a terminal and its splits move together", () => {
     expect(getTerminal(ID)?.meta.state).toBe("active");
     expect(getTerminal(CHILD)?.meta.state).toBe("sleeping");
     expect(getTerminal(CHILD)?.meta.parentId).toBe(ID);
+  });
+
+  it("refuses a MIXED family — a dormant parent with a live descendant", async () => {
+    seedFamily();
+    // Parent asleep, split live: discarding the parent would leave a running
+    // terminal whose parentId names a removed record — the orphan class the
+    // session restore refuses on every boot. The close paths route per arm, so
+    // this refusal is the fail-fast guard, and it touches NOTHING.
+    expect(beginSleepLocal(ID)).toBe(true);
+    expect(getTerminal(CHILD)?.meta.state).toBe("active");
+
+    expect(discardLocalSleeping(ID)).toBe(false);
+
+    expect(getTerminal(ID)?.meta.state).toBe("sleeping");
+    expect(getTerminal(CHILD)?.meta.state).toBe("active");
+    expect(getTerminal(CHILD)?.meta.parentId).toBe(ID);
+    expect(snapshotFor(ID)).toBeDefined();
+    expect(snapshotFor(CHILD)).toBeDefined();
   });
 });

@@ -868,9 +868,11 @@ export function buildPadiSurfaceDeps(deps: {
             return sleepTerminal(input.id);
           }),
         wake: ({ input }) =>
-          handle(() => {
+          handle(async () => {
             log.info({ terminal: input.id }, "wake");
-            const info = wakeLocalTerminal(input.id);
+            // AWAITED: the family walk waits for each member's PTY before the
+            // next one spawns, so one wake answers only once the family is up.
+            const info = await wakeLocalTerminal(input.id);
             if (!info) throw terminalNotFound(input.id);
             return info;
           }),
