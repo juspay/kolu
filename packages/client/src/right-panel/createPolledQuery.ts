@@ -96,8 +96,9 @@ export interface PolledQueryConfig<Input, PulseInput, Pulse, Result> {
   query: (input: Input) => Effect.Effect<Result, unknown>;
   /** Surface query (and pulse) failures — matches `.use(..., { onError })`. */
   onError?: (err: Error) => void;
-  /** Classify an error as a BENIGN TRANSIENT to swallow (no `error()`, no
-   *  `onError`, value left as-is), like the reconnect-window swallow. The old
+  /** Classify an error as a BENIGN TRANSIENT to swallow while a value for the
+   *  current input is shown (no `error()`, no `onError`, value left as-is).
+   *  Without a value to keep, the error surfaces instead. The old
    *  koluSurface value stream simply stopped yielding when the viewed file was
    *  deleted mid-poll — it never surfaced an error; `BrowseFileDispatcher` passes
    *  a file-gone predicate here so a delete-while-viewing keeps the last content
@@ -143,6 +144,13 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
   // pulse genuinely stopped.
   const [complete, setComplete] = createSignal(false);
 
+  // The input key the value currently in `store.v` corresponds to — `null` while
+  // blank. The resume decision reads it: on re-activation, an unchanged key means the
+  // held value is still the answer (keep it, refresh), a changed key means a new query
+  // (blank). One value per instance (NOT a cache/LRU) — the instance IS a single host's
+  // query, so it only ever holds that host's one current value.
+  let shownKey: string | null = null;
+
   /** The ONE error sink for BOTH channels — the requery AND the pulse stream.
    *  Routing the pulse (watcher-install) failure here, not to a separate
    *  `onError`-only path, is the fix for the disjoint-channels bug: a persistent
@@ -158,18 +166,13 @@ export function createPolledQuery<Input, PulseInput, Pulse, Result>(
     // pulse re-fires `{seq:0}`, so a genuine persistent failure re-surfaces on
     // the next LIVE read — swallow here to keep a spurious flash off reconnect.
     if (!live()) return;
-    // Caller-classified benign transient (e.g. the viewed file was deleted).
-    if (swallowError?.(err)) return;
+    // Caller-classified benign transient (e.g. the viewed file was deleted) —
+    // benign only while a value is shown to keep. Before the first value lands
+    // there is nothing to keep, and swallowing would leave `pending` stuck.
+    if (shownKey !== null && swallowError?.(err)) return;
     setError(err);
     if (pending()) setPending(false);
   }
-
-  // The input key the value currently in `store.v` corresponds to — `null` while
-  // blank. The resume decision reads it: on re-activation, an unchanged key means the
-  // held value is still the answer (keep it, refresh), a changed key means a new query
-  // (blank). One value per instance (NOT a cache/LRU) — the instance IS a single host's
-  // query, so it only ever holds that host's one current value.
-  let shownKey: string | null = null;
 
   /** Reset to the empty/loading state: no value, `pending`, no shown key. The idle
    *  input and the changed-query paths below share it. */

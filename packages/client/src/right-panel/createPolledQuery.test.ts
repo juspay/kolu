@@ -339,6 +339,97 @@ describe("createPolledQuery", () => {
     expect(res.seen).toEqual([]); // no toast
   });
 
+  it("swallowError does not hide a failure before the first value lands (no stuck Loading…)", async () => {
+    // A file deleted before its first frame: the very first read fails with the
+    // caller's "benign" error. With no value to keep, swallowing it would leave
+    // the query pending forever, so it must surface like any other error.
+    const seen: string[] = [];
+    const res = await new Promise<{
+      err: string | undefined;
+      pending: boolean;
+      v: unknown;
+      seen: string[];
+    }>((resolve) => {
+      createRoot(async (dispose) => {
+        const { live, pulseProc, pulse } = fakeStream();
+        const q = createPolledQuery({
+          input: () => ({ repoPath: "A" }),
+          live,
+          pulseProc,
+          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          query: asEffect(async (): Promise<string> => {
+            throw new Error("NOT_FOUND: file gone");
+          }),
+          onError: (err) => seen.push(err.message),
+          swallowError: (err) => /NOT_FOUND/.test(err.message),
+        });
+        await flush();
+        pulse(); // first read → throws NOT_FOUND before any value landed
+        await flush();
+        resolve({
+          err: q.error()?.message,
+          pending: q.pending(),
+          v: q(),
+          seen,
+        });
+        dispose();
+      });
+    });
+    expect(res.err).toBe("NOT_FOUND: file gone");
+    expect(res.pending).toBe(false);
+    expect(res.v).toBeUndefined();
+    expect(res.seen).toEqual(["NOT_FOUND: file gone"]);
+  });
+
+  it("swallowError does not keep another input's value when the new input's first read fails", async () => {
+    const seen: string[] = [];
+    const res = await new Promise<{
+      before: unknown;
+      blanked: { v: unknown; pending: boolean };
+      after: { v: unknown; pending: boolean; err: string | undefined };
+    }>((resolve) => {
+      createRoot(async (dispose) => {
+        const [repo, setRepo] = createSignal("A");
+        const { live, pulseProc, pulse } = fakeStream();
+        const q = createPolledQuery({
+          input: () => ({ repoPath: repo() }),
+          live,
+          pulseProc,
+          pulseInput: (i) => ({ repoPath: i.repoPath }),
+          query: asEffect(async (i) => {
+            if (i.repoPath === "A") return "A content";
+            throw new Error("NOT_FOUND: B file gone");
+          }),
+          onError: (err) => seen.push(err.message),
+          swallowError: (err) => /NOT_FOUND/.test(err.message),
+        });
+        await flush();
+        pulse();
+        await flush();
+        const before = q();
+        setRepo("B");
+        await flush();
+        const blanked = { v: q(), pending: q.pending() };
+        pulse();
+        await flush();
+        resolve({
+          before,
+          blanked,
+          after: { v: q(), pending: q.pending(), err: q.error()?.message },
+        });
+        dispose();
+      });
+    });
+    expect(res.before).toBe("A content");
+    expect(res.blanked).toEqual({ v: undefined, pending: true });
+    expect(res.after).toEqual({
+      v: undefined,
+      pending: false,
+      err: "NOT_FOUND: B file gone",
+    });
+    expect(seen).toEqual(["NOT_FOUND: B file gone"]);
+  });
+
   it("a fresh-reference-but-equal-value input does NOT blank or re-query (the #1714 contract)", async () => {
     // The regression: `getMetadata` handed consumers a fresh object per tick, so
     // `input` (keyed on `repoPath` off that object) re-evaluated to a NEW
