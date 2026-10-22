@@ -44,7 +44,7 @@ import {
   beginSleepLocal,
   releaseSleptLocalPty,
   restartSleptLocal,
-  wakeSleptLocal,
+  wakeSubtreeLocal,
 } from "./terminalEndpoint/local.ts";
 // Load-order is cycle-sensitive: importing `terminalEndpoint/metadata.ts`
 // before `terminalEndpoint/local.ts` is what makes the surface cycle
@@ -254,8 +254,10 @@ export async function sleepTerminal(id: TerminalId): Promise<void> {
  *  restart leaves orphaned shells that a later Wake would double-spawn.
  *
  *  A member that was ALREADY asleep before the restart (a split slept on its
- *  own) has no PTY to kill and is not climbed through: it is woken on its own,
- *  awaiting its wire, so the family comes back whole.
+ *  own) has no PTY to kill and is not climbed through: its whole dormant branch
+ *  comes back through the same non-climbing, wire-awaited subtree walk a family
+ *  wake uses — a member that fails to wire keeps its own descendants asleep, so
+ *  the family is never left with a live PTY under a dormant parent.
  *
  *  `restartsInFlight` is registered for EVERY member in the same synchronous step
  *  as the flips, so an attach landing in any member's dormant middle waits for
@@ -276,28 +278,45 @@ export async function restartTerminal(
   const done = (async () => {
     saveSession(snapshotSession());
     let asked: { info: TerminalInfo; resumed: boolean } | undefined;
+    /** The member whose own restart THREW — see the catch. */
+    let failing: TerminalId | undefined;
+    /** Members a dormant branch's wake already covered (so the walk does not
+     *  revisit them, which would wake a skipped grandchild). */
+    const handled = new Set<TerminalId>();
     try {
       // Roots-first, and each respawn is awaited (`restartSlept` waits for the
       // new PTY to wire) — so a parent is live before any child of it spawns.
       for (const member of family) {
+        if (handled.has(member)) continue;
         if (!slept.has(member)) {
           // Dormant BEFORE the restart: no PTY to kill, and no climb — its
-          // ancestors are being restarted, not woken (the climbing family wake
-          // would wake them off `restoreTarget` and then `restartSlept` would
-          // throw on an id that is no longer sleeping).
-          await wakeSleptLocal(member)?.wired;
+          // ancestors are being restarted, not woken. Its whole branch comes
+          // back through the same non-climbing walk the family wake uses, so a
+          // member that fails to wire keeps ITS subtree asleep (no live PTY
+          // under a dormant parent).
+          for (const covered of familyOf(member))
+            if (!slept.has(covered)) handled.add(covered);
+          await wakeSubtreeLocal(member);
           continue;
         }
+        failing = member;
         const result = await restartSleptLocal(member);
+        failing = undefined;
         if (member === id) asked = result;
       }
       return asked;
     } catch (err) {
       // Release every member this walk flipped but never replanted: its old PTY
-      // is still running under a sleeping record. Same persist-before-kill tail
-      // a plain sleep runs; members already replanted (active) are left alone.
+      // is still running under a sleeping record. The member whose restart threw
+      // is EXCLUDED: `restartSlept` already killed its PTY (a failed respawn
+      // leaves the sleeping record with none), and releasing it again would aim a
+      // kill at a PTY the host no longer has and scrub the scratch restart
+      // promises to keep. Members already replanted (active) are left alone too.
       for (const member of slept)
-        if (getTerminal(member)?.meta.state === "sleeping")
+        if (
+          member !== failing &&
+          getTerminal(member)?.meta.state === "sleeping"
+        )
           await releaseSleptLocalPty(member);
       throw err;
     }

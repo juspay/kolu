@@ -626,10 +626,11 @@ layer carry it; the module is `src/agentDistro/`.
   error propagates (otherwise a later Wake would double-spawn on that id).
   Discard removes the dormant subtree children-first, and REFUSES a mixed family
   (a dormant parent with a live descendant) rather than orphaning a running
-  terminal under a removed `parentId` — the client's close paths route per arm
-  instead (live members killed, dormant ones discarded). `lifecycle.create` still
-  refuses a dormant parent: the family moves together, so a split is created only
-  under a live tile.
+  terminal under a removed `parentId` — the RPC answers not-found for that
+  refusal, and the client's close paths route per arm instead (live members
+  killed, dormant ones discarded). `lifecycle.create` still refuses a dormant
+  parent: the family moves together, so a split is created only under a live
+  tile.
 - **The profile in effect** — once a terminal with agents is spawned and wired,
   padi runs its package's `bin/agent-distro --list --json` ONCE, in the
   terminal's resolved cwd and with its spawn env (`inEffect.ts`), and writes

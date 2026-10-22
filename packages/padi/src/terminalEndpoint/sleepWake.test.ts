@@ -416,14 +416,14 @@ describe("discardSleeping — removes only a sleeping record (both halves)", () 
   it("removes a sleeping record and its snapshot", () => {
     seedActiveTerminal(ID);
     beginSleepLocal(ID);
-    expect(discardLocalSleeping(ID)).toBe(true);
+    expect(discardLocalSleeping(ID)).toBe("discarded");
     expect(getTerminal(ID)).toBeUndefined();
     expect(snapshotFor(ID)).toBeUndefined();
   });
 
   it("is a no-op on an active id (active terminals must be killed, not discarded)", () => {
     seedActiveTerminal(ID);
-    expect(discardLocalSleeping(ID)).toBe(false);
+    expect(discardLocalSleeping(ID)).toBe("nothing");
     expect(getTerminal(ID)?.meta.state).toBe("active");
   });
 });
@@ -523,6 +523,16 @@ describe("the family — a split's sleep/wake is its parent's too", () => {
     unregisterTerminal(FAMILY_CHILD);
   });
 
+  // The suite-wide ctx is a no-op; the parent-failure test needs the WIRE, not
+  // just the registry — every lifecycle publish is recorded here.
+  let upserts: Array<{ id: string; state: AuthoredTerminal["state"] }>;
+
+  beforeEach(() => {
+    __resetPadiSurfaceCtxForTest();
+    upserts = [];
+    setPadiSurfaceCtx(recordingPadiCtx(upserts));
+  });
+
   it("waking a split under a dormant parent starts the PARENT first, and skips the split when it fails", async () => {
     seedFamily();
     // Sleep is family-wide, so both members are dormant — the shape a split's
@@ -534,14 +544,22 @@ describe("the family — a split's sleep/wake is its parent's too", () => {
     // topmost dormant ancestor; the walk is roots-first and AWAITS each wire, so
     // at this synchronous point the parent is awake and the child has not been
     // touched yet.
+    upserts.length = 0;
     const waking = wakeLocalTerminal(FAMILY_CHILD);
     expect(getTerminal(FAMILY_PARENT)?.meta.state).toBe("active");
     expect(getTerminal(FAMILY_CHILD)?.meta.state).toBe("sleeping");
 
     // No kaval in the unit env: the parent's spawn fails, its sleeping record is
     // restored (F2), and the child's subtree is SKIPPED rather than spawned
-    // under a tile with no PTY.
+    // under a tile with no PTY. The skip is asserted on the WIRE — the record's
+    // own spawn failure lands in the same final state, so the registry alone
+    // cannot tell "never attempted" from "attempted and failed".
     await waking;
+    expect(upserts).toContainEqual({ id: FAMILY_PARENT, state: "active" });
+    expect(upserts).not.toContainEqual({
+      id: FAMILY_CHILD,
+      state: "active",
+    });
     expect(getTerminal(FAMILY_PARENT)?.meta.state).toBe("sleeping");
     expect(getTerminal(FAMILY_CHILD)?.meta.state).toBe("sleeping");
     // The split is still the parent's — the tree never broke.

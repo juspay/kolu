@@ -162,6 +162,8 @@ const ID = "44444444-4444-4444-8444-444444444444";
 const PARENT = "55555555-5555-4555-8555-555555555555";
 /** A split of `ID` — the family's second member. */
 const CHILD = "66666666-6666-4666-8666-666666666666";
+/** A grandchild under CHILD — the 3-deep family a restart must not leave half-awake. */
+const GRAND = "77777777-7777-4777-8777-777777777777";
 const LAYOUT = { x: 120, y: 80, w: 640, h: 400 };
 
 let root: string;
@@ -230,8 +232,10 @@ beforeEach(() => {
 afterEach(() => {
   unregisterTerminal(ID);
   unregisterTerminal(CHILD);
+  unregisterTerminal(GRAND);
   rmSync(join(koluScratchDir(), ID), { recursive: true, force: true });
   rmSync(join(koluScratchDir(), CHILD), { recursive: true, force: true });
+  rmSync(join(koluScratchDir(), GRAND), { recursive: true, force: true });
   rmSync(root, { recursive: true, force: true });
   if (savedStateHome === undefined) delete process.env.XDG_STATE_HOME;
   else process.env.XDG_STATE_HOME = savedStateHome;
@@ -282,6 +286,28 @@ function activeChildMeta() {
   const entry = getTerminal(CHILD);
   if (entry?.meta.state !== "active") throw new Error("expected active split");
   return entry.meta;
+}
+
+/** `ID` live with a split that was slept ON ITS OWN and a grandchild under that
+ *  split, also dormant — the mixed family a restart has to bring back as one
+ *  tree (and must not leave with a live grandchild under a sleeping split). */
+function seedDormantBranch(): void {
+  seedTerminal();
+  const child = activeEntry(CHILD);
+  registerTerminal(CHILD, {
+    ...child,
+    meta: { ...child.meta, parentId: ID },
+  });
+  installSnapshot(CHILD);
+  const grand = activeEntry(GRAND);
+  registerTerminal(GRAND, {
+    ...grand,
+    meta: { ...grand.meta, parentId: CHILD },
+  });
+  installSnapshot(GRAND);
+  // Leaves-first, as a family sleep is: the grandchild sleeps before the split.
+  expect(beginSleepLocal(GRAND)).toBe(true);
+  expect(beginSleepLocal(CHILD)).toBe(true);
 }
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -413,7 +439,7 @@ describe("restart — a new PTY in place", () => {
 
     const restart = restartTerminal(ID);
     await killStarted.promise;
-    expect(discardLocalSleeping(ID)).toBe(true);
+    expect(discardLocalSleeping(ID)).toBe("discarded");
     hold.resolve();
 
     expect(await restart).toBeUndefined();
@@ -573,6 +599,11 @@ describe("the family walk — a terminal and its splits move together", () => {
 
   it("an aborted family restart releases every member it flipped but never replanted", async () => {
     seedFamily();
+    const pasted = saveTerminalFile(
+      ID,
+      "pasted.png",
+      Buffer.from("the agent has not read this yet").toString("base64"),
+    );
     calls.log = [];
     calls.spawns = [];
     // The PARENT is the first member the respawn walk reaches, so the child has
@@ -585,8 +616,34 @@ describe("the family walk — a terminal and its splits move together", () => {
     // it so; the kill is `restartSlept`'s job), so the abort path must release it
     // — otherwise a later Wake double-spawns on that id.
     expect(calls.log.filter((e) => e === `kill:${CHILD}`)).toHaveLength(1);
+    // The FAILING member is NOT released: `restartSlept` already killed its PTY,
+    // so a second kill would aim at a PTY the host no longer has — and the
+    // release's tail would scrub the scratch a restart promises to keep.
+    expect(calls.log.filter((e) => e === `kill:${ID}`)).toHaveLength(1);
+    expect(existsSync(pasted)).toBe(true);
     expect(getTerminal(ID)?.meta.state).toBe("sleeping");
     expect(getTerminal(CHILD)?.meta.state).toBe("sleeping");
+  });
+
+  it("a dormant branch whose wake fails keeps its OWN descendants asleep", async () => {
+    seedDormantBranch();
+    calls.log = [];
+    calls.spawns = [];
+    // The split (dormant before the restart) fails to wire; its grandchild must
+    // NOT be woken after it — a live PTY under a dormant split is the invariant
+    // every client gate forbids.
+    calls.spawnFailsFor = [CHILD];
+
+    const restarted = await restartTerminal(ID);
+
+    expect(restarted?.info.id).toBe(ID);
+    // The tile restarted, the dormant branch was woken once, and the grandchild
+    // was never attempted.
+    expect(calls.spawns).toEqual([ID, CHILD]);
+    expect(getTerminal(ID)?.meta.state).toBe("active");
+    expect(getTerminal(CHILD)?.meta.state).toBe("sleeping");
+    expect(getTerminal(GRAND)?.meta.state).toBe("sleeping");
+    expect(getTerminal(GRAND)?.meta.parentId).toBe(CHILD);
   });
 
   it("restarts the family in place, parent first, saving ONCE", async () => {
@@ -611,7 +668,7 @@ describe("the family walk — a terminal and its splits move together", () => {
     seedFamily();
     await sleepTerminal(ID);
 
-    expect(discardLocalSleeping(ID)).toBe(true);
+    expect(discardLocalSleeping(ID)).toBe("discarded");
 
     expect(getTerminal(ID)).toBeUndefined();
     expect(getTerminal(CHILD)).toBeUndefined();
@@ -623,7 +680,7 @@ describe("the family walk — a terminal and its splits move together", () => {
     seedFamily();
     expect(beginSleepLocal(CHILD)).toBe(true);
 
-    expect(discardLocalSleeping(ID)).toBe(false);
+    expect(discardLocalSleeping(ID)).toBe("nothing");
 
     expect(getTerminal(ID)?.meta.state).toBe("active");
     expect(getTerminal(CHILD)?.meta.state).toBe("sleeping");
@@ -639,7 +696,7 @@ describe("the family walk — a terminal and its splits move together", () => {
     expect(beginSleepLocal(ID)).toBe(true);
     expect(getTerminal(CHILD)?.meta.state).toBe("active");
 
-    expect(discardLocalSleeping(ID)).toBe(false);
+    expect(discardLocalSleeping(ID)).toBe("refused");
 
     expect(getTerminal(ID)?.meta.state).toBe("sleeping");
     expect(getTerminal(CHILD)?.meta.state).toBe("active");
