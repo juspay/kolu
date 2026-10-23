@@ -153,6 +153,12 @@ remote host — reusing the local arm's seam, not a parallel one:
   its kaval + PTYs outlive the ssh link (detach → reattach). `./dial.test.ts` gains
   a stdio-front block proving the control-core handshake + terminal round-trip over
   the byte relay, minus ssh.
+- **Forwarded ssh-agent** (juspay/kolu#2313). The front repoints
+  `<padi runtime home>/ssh-auth.sock` at its link's live agent socket before
+  converging, and the spawn path stamps that LINK into every terminal, so a
+  reconnect heals open shells too; the daemon is re-exec'd with `SSH_AUTH_SOCK`
+  **scrubbed** (`./daemonBoot/detachedDaemon.ts`, the one path both re-exec sites
+  take). See `./stdioBridge.ts`'s module header for the rationale.
 - **The binding** (`packages/server/src/padi/remotePadiBinding.ts`). The knob
   **`KOLU_PADI_HOST=<ssh host>`** — OFF by default, no UI (the picker is W3.2) —
   branches kolu-server onto a Surface Remote `makeSession` +

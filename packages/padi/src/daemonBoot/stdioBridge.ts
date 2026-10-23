@@ -24,24 +24,41 @@
  * the durable padi it fronts — and its kaval, and the PTYs — outlives the ssh
  * link, so a remote canvas survives detach → reattach exactly as `kaval-tui
  * --host` does for a bare PTY.
+ *
+ * ## The forwarded ssh-agent link (juspay/kolu#2313)
+ *
+ * sshd execs THIS process with `SSH_AUTH_SOCK` naming a per-link socket under
+ * `/tmp/ssh-XXXX/`, deleted when the session closes. The daemon and every PTY it
+ * spawns outlive the session, so that path is worthless to them — the first link's
+ * value used to be frozen onto every terminal, and `git push` over a remote host
+ * failed `Permission denied (publickey)` from the second link onwards.
+ *
+ * The bridge is the only process that knows a link's LIVE socket, so it is the
+ * producer: before converging, {@link repointSshAuthSockLink} atomically points
+ * the stable `ssh-auth.sock` link in the daemon's runtime home
+ * ({@link padiSshAuthSockPath}) at this link's socket. Every terminal then carries
+ * the LINK (the spawn path, `ptyHost/index.ts`), which follows whichever session
+ * currently holds the agent — so reconnecting heals already-open shells too. The
+ * link is never removed on exit: another concurrent link may own it, and a
+ * dangling link is the honest "no agent right now".
  */
 
+import { mkdirSync, renameSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { dirname } from "node:path";
 import type { Writable } from "node:stream";
 import {
-  padiSocketPath,
+  padiRuntimeHome,
   resolvePadiStateRoot,
 } from "@kolu/padi-client/rendezvous";
 import {
   type StdioReadinessVerdict,
   writeStdioReadiness,
 } from "@kolu/surface/links/readiness";
-import {
-  frontDaemonOverStdio,
-  reExecAsDetachedDaemon,
-} from "@kolu/surface-daemon";
+import { frontDaemonOverStdio } from "@kolu/surface-daemon";
 import { Effect } from "effect";
-import { padiStderrLogPath } from "../stateRoot.ts";
+import { padiSshAuthSockPath } from "../stateRoot.ts";
 import { convergeStdioFront } from "./convergeFront.ts";
+import { spawnDetachedPadi } from "./detachedDaemon.ts";
 
 /** Raised when the pre-step refused: the front has already written its `refused`
  *  banner and must exit non-zero WITHOUT relaying. Distinct from a converge that
@@ -65,6 +82,34 @@ export interface RunPadiStdioBridgeOptions {
   socketOverride?: string;
 }
 
+/** Point padi's stable ssh-agent link at the socket `env.SSH_AUTH_SOCK` names —
+ *  the producer half of the link (this module's header, #2313).
+ *
+ *  Atomic via the `current`-link idiom (`agentToolsBake.ts`): symlink to
+ *  `<link>.kolu-tmp`, then `renameSync` over the link, so a spawn concurrent with
+ *  a reconnect never sees a half-written link.
+ *
+ *  Two sanctioned no-ops, and neither unlinks anything: the env names no socket
+ *  (this link forwarded no agent), or the named target is absent (`stat` follows
+ *  symlinks, so a socket sshd already removed reads as gone). Another concurrent
+ *  link may own the existing link, so `env: {}` is not evidence it should go. */
+export function repointSshAuthSockLink(opts: {
+  readonly linkPath: string;
+  readonly env: Record<string, string | undefined>;
+}): void {
+  const target = opts.env.SSH_AUTH_SOCK;
+  if (target === undefined || target === "") return;
+  if (statSync(target, { throwIfNoEntry: false }) === undefined) return;
+  // The link lives in padi's runtime home, which the converge may not have
+  // materialized yet on a host's first-ever link. 0700 is the same owner-only
+  // boundary `daemonHome` verifies and `writeAgentToolsBakeRecord` writes.
+  mkdirSync(dirname(opts.linkPath), { recursive: true, mode: 0o700 });
+  const tmp = `${opts.linkPath}.kolu-tmp`;
+  rmSync(tmp, { force: true });
+  symlinkSync(target, tmp);
+  renameSync(tmp, opts.linkPath);
+}
+
 /** Run the `--stdio` bridge: front padi's durable daemon over this process's
  *  stdio for the lifetime of the link. Resolves when the link ends; the daemon
  *  it fronts (and its kaval + PTYs) keeps running.
@@ -84,39 +129,44 @@ export async function runPadiStdioBridge(
   opts: RunPadiStdioBridgeOptions = {},
 ): Promise<void> {
   const stateRoot = resolvePadiStateRoot(opts.stateRoot);
-  const socketPath = padiSocketPath(stateRoot, opts.socketOverride);
+  // ONE home for this front: the socket it fronts anchors the ssh-agent link
+  // beside it, resolved from the same state-root/override pair.
+  const home = padiRuntimeHome(stateRoot, opts.socketOverride);
   return runPadiStdioBridgeWith(opts, {
     converge: convergeStdioFront({
       stateRoot,
       socketOverride: opts.socketOverride,
     }),
     stdout: process.stdout,
+    pointSshAuthSock: () =>
+      repointSshAuthSockLink({
+        linkPath: padiSshAuthSockPath(home.socketPath),
+        env: process.env,
+      }),
     relay: () =>
       frontDaemonOverStdio({
-        socketPath,
+        socketPath: home.socketPath,
         // Start padi's own durable daemon: re-exec this binary minus `--stdio`. Any
         // `--state-root`/`--socket` ride through in `process.argv`, so the daemon
         // resolves the SAME path the front just did — load-bearing, and why this shim
-        // is CLI-only (see the docstring). P0: this call site is DETACHING (nobody will hold the
-        // child's stderr), so a crash-catcher file is mandatory here — `stderrLog` gives its raw
-        // stderr a home (`padi.stderr.log`). The daemon's own entrypoint routes its pino stream to
-        // `padi.log`; no flag to set. Without these a remote padi's whole log stream — incl. the
-        // WAL-watcher lines — went to /dev/null, undiagnosable.
-        spawnDaemon: () =>
-          reExecAsDetachedDaemon({
-            stripArgs: ["--stdio"],
-            stderrLog: padiStderrLogPath(stateRoot),
-          }),
+        // is CLI-only (see the docstring). The env scrub (`SSH_AUTH_SOCK` OUT) and the
+        // mandatory crash-catcher stderr log both live in `spawnDetachedPadi`, the one
+        // path BOTH re-exec sites take — see `detachedDaemon.ts`.
+        spawnDaemon: () => spawnDetachedPadi(stateRoot),
         log: (msg) => process.stderr.write(`padi --stdio: ${msg}\n`),
       }),
   });
 }
 
-/** The three things the bridge's ORDERING is defined over, injected so the
- *  ordering can be pinned without forking a daemon or re-execing the test
- *  runner. NOT a production API — `runPadiStdioBridge` always supplies the real
- *  converge, the real stdout, and the real relay. */
+/** The steps the bridge's ORDERING is defined over, injected so the ordering can
+ *  be pinned without forking a daemon or re-execing the test runner. NOT a
+ *  production API — `runPadiStdioBridge` always supplies the real converge, the
+ *  real stdout, the real ssh-auth link repoint, and the real relay. */
 export interface PadiStdioBridgeDeps {
+  /** Repoint the stable ssh-agent link at this link's live socket
+   *  ({@link repointSshAuthSockLink} in production). Runs BEFORE the converge,
+   *  which may spawn the daemon whose terminals will read the link. */
+  readonly pointSshAuthSock: () => void;
   /** The converge-before-relay pre-step, as the verdict it answers with. */
   readonly converge: Effect.Effect<StdioReadinessVerdict, Error>;
   /** Where the banner goes — the wire. */
@@ -126,20 +176,26 @@ export interface PadiStdioBridgeDeps {
 }
 
 /**
- * The bridge's ORDER, stated once (juspay/kolu#2101): **converge, then greet,
- * then relay — and on a refusal, greet and stop.**
+ * The bridge's ORDER, stated once (juspay/kolu#2101): **register the link's agent,
+ * then converge, then greet, then relay — and on a refusal, greet and stop.**
  *
  * That order is the entire fix, so it lives in its own function rather than
  * inline in the CLI shim: every step is load-bearing and each has a way of being
- * silently wrong. Converging after the relay engages would be useless (the client
- * has already attached). Greeting before converging would certify a daemon nobody
- * checked. Relaying after a refusal would hand the client the stale daemon the
- * refusal exists to keep it away from — a fail-fast that does not actually stop.
+ * silently wrong. Registering the ssh-agent link (juspay/kolu#2313) comes FIRST,
+ * before the converge can spawn the daemon: a daemon spawned by this converge may
+ * spawn a terminal the instant it serves, and that terminal must already read the
+ * link this bridge just pointed at its socket. Converging after the relay engages
+ * would be useless (the client has already attached). Greeting before converging
+ * would certify a daemon nobody checked. Relaying after a refusal would hand the
+ * client the stale daemon the refusal exists to keep it away from — a fail-fast
+ * that does not actually stop.
  */
 export async function runPadiStdioBridgeWith(
   _opts: RunPadiStdioBridgeOptions,
   deps: PadiStdioBridgeDeps,
 ): Promise<void> {
+  // ── This link's ssh-agent socket, before anything can spawn a terminal ─────
+  deps.pointSshAuthSock();
   // ── Converge BEFORE relaying ──────────────────────────────────────────────
   //
   // The full supervisor kit, run HERE on the box where the gate file, the pid

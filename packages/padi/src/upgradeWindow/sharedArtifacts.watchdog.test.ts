@@ -17,6 +17,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -328,6 +329,11 @@ describe("shared-artifact watchdog (upgrade-window)", () => {
     writeFileSync(join(padiDir, "padi.pid"), "2\n");
     writeFileSync(join(padiDir, "supervisor.pid"), "3\n");
     writeFileSync(join(padiDir, "padi.sock"), "");
+    // The forwarded-ssh-agent link a `padi --stdio` front repoints (#2313). The
+    // sweep `stat`s it (following the link), so a live-target link must classify
+    // as a known artifact — and a dangling one is skipped by the sweep rather
+    // than reported as an unknown file.
+    symlinkSync(join(padiDir, "padi.sock"), join(padiDir, "ssh-auth.sock"));
     writeFileSync(join(state, "config.json"), "{}");
     writeFileSync(join(state, "padi.log"), "");
     writeFileSync(join(state, "padi.log.1"), ""); // pino-roll generation

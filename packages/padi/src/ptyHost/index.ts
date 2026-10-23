@@ -16,6 +16,7 @@
  * See `docs/atlas/src/content/atlas/pty-daemon.mdx` (B2 — the door).
  */
 
+import { lstatSync } from "node:fs";
 import { encodeHostLocation, LOCAL_LOCATION } from "@kolu/padi-client/surface";
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import type { DaemonHomePaths } from "@kolu/surface-daemon";
@@ -59,6 +60,7 @@ import {
 import { readAgentToolsLinkDirs } from "../agentToolsBake.ts";
 import type { KavalObservation } from "../kavalObservation.ts";
 import { log } from "../log.ts";
+import { padiSshAuthSockPath } from "../stateRoot.ts";
 import {
   connectKaval,
   type KavalConnectionMetadata,
@@ -547,6 +549,11 @@ export interface TerminalEnvSpec {
   kavalSocket: string;
   /** The padi that owns it — stamped as `PADI_SOCKET` when known. */
   padiSocket?: string;
+  /** The forwarded ssh-agent socket for THIS terminal, as the stable LINK path in
+   *  the daemon's runtime home — stamped as `SSH_AUTH_SOCK`, overriding
+   *  `cleanEnv()`'s value. Absent (a local host; no bridge) leaves layer 1
+   *  untouched. See `daemonBoot/stdioBridge.ts` (#2313). */
+  sshAuthSock?: string;
   /** Tool dirs to put on `PATH`, highest priority first; `[]` when this daemon
    *  was never baked with a toolchain. Required, with `[]` as the honest empty:
    *  the only producer (`readAgentToolsLinkDirs`) cannot return `undefined`, so
@@ -594,6 +601,10 @@ export function agentSpawnEnv(
  * layered least → most authoritative —
  *   1. `cleanEnv()`        — the canonical SPAWN_ENV_ALLOWLIST composed from the
  *      parent env (a clean base, NOT a wholesale passthrough — #1872).
+ *   1a. `spec.sshAuthSock` — the forwarded ssh-agent LINK for this host, when a
+ *      `padi --stdio` bridge registered one; overrides `cleanEnv()`'s inherited
+ *      `SSH_AUTH_SOCK`. Absent → layer 1 stands untouched. See
+ *      `daemonBoot/stdioBridge.ts` (#2313).
  *   2. `koluIdentityEnv()` — kolu's identity vars (stomp parent).
  *   3. `plan.env`          — per-PTY overrides (e.g. ZDOTDIR for zsh).
  *   4. `KAVAL_TERMINAL_ID` — this terminal's own id, so a process inside can name
@@ -639,6 +650,9 @@ export function composeSpawnInput(
   spec: TerminalEnvSpec,
 ): PtyHostSpawnInput {
   const env = cleanEnv();
+  // (docblock item 1a) The link stamps over the inherited socket — see
+  // `daemonBoot/stdioBridge.ts` (#2313). Absent spec → nothing stamped.
+  if (spec.sshAuthSock !== undefined) env.SSH_AUTH_SOCK = spec.sshAuthSock;
   const shell = env.SHELL ?? info.shell;
   const home = env.HOME ?? info.home;
   const cwd = args.cwd || home || "/";
@@ -734,6 +748,19 @@ export function buildTerminalSpawnInput(args: {
     // (`setPadiServeSocketPath`) and stamped as `PADI_SOCKET`. Optional (see
     // `getPadiServeSocketPath`) — an unset value just omits the locator and padi-tui
     // autodiscovers, so no boot-order guard here (unlike the required KAVAL socket).
+    const padiSocket = getPadiServeSocketPath();
+    // The forwarded ssh-agent link beside that socket, when a `padi --stdio`
+    // bridge registered one (#2313). `lstatSync`, not `statSync`: the question is
+    // "did a bridge register a link?", not "does its target answer right now" — a
+    // dangling link is still the RIGHT path, and failing like "no agent" beats
+    // falling back to a socket sshd deleted (`daemonBoot/stdioBridge.ts`).
+    const sshAuthSockLink =
+      padiSocket === undefined ? undefined : padiSshAuthSockPath(padiSocket);
+    const sshAuthSock =
+      sshAuthSockLink !== undefined &&
+      lstatSync(sshAuthSockLink, { throwIfNoEntry: false }) !== undefined
+        ? sshAuthSockLink
+        : undefined;
     //
     // The toolchain is the daemon-owned LINK dirs, not the bake's store paths: store
     // paths are immutable, so a terminal stamped with them would run the old `kolu`
@@ -749,7 +776,8 @@ export function buildTerminalSpawnInput(args: {
       yield* endpointState.info,
       {
         kavalSocket,
-        padiSocket: getPadiServeSocketPath(),
+        padiSocket,
+        sshAuthSock,
         toolsPath: readAgentToolsLinkDirs(),
         ...(args.agents !== undefined
           ? { agents: agentSpawnEnv(args.agents) }

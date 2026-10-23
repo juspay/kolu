@@ -101,6 +101,20 @@ export function padiKavalSocketPath(
   return padiKavalHome(stateRoot, override).socketPath;
 }
 
+/** The filename of the stable ssh-agent link in padi's runtime home — beside
+ *  `padi.sock` / `padi.pid` / `state-root`. */
+export const PADI_SSH_AUTH_SOCK_FILE = "ssh-auth.sock";
+
+/** The stable ssh-agent link beside padi's serving socket —
+ *  `<dirname(socketPath)>/ssh-auth.sock`.
+ *
+ *  Both ends already hold that ONE socket path — the `--stdio` producer
+ *  (`home.socketPath`) and the spawn-path consumer (`PADI_SOCKET`) — so neither
+ *  hand-builds a home. The rationale lives in `daemonBoot/stdioBridge.ts` (#2313). */
+export function padiSshAuthSockPath(socketPath: string): string {
+  return join(dirname(socketPath), PADI_SSH_AUTH_SOCK_FILE);
+}
+
 /** A discovered padi daemon — its socket, the state-root its `state-root` manifest
  *  records (or `null` if unreadable), and the gate-holder pid read from `padi.pid`
  *  beside the socket (or `null`). Strictly read-only diagnostic data; produced by

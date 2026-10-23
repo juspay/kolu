@@ -436,13 +436,33 @@ that; each is ssh reality, not a kolu bug, but you'll meet them here first.
 | symptom you see | why | remedy |
 | --- | --- | --- |
 | On macOS, `gh` reports **`The token in default is invalid`** | `gh` keeps its token in the login **Keychain**, unlocked only for the GUI session | a `$SSH_CONNECTION`-guarded `GH_TOKEN` (a scoped [fine-grained PAT](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token)), or [`security unlock-keychain`](https://ss64.com/mac/security.html), or [`gh auth login --insecure-storage`](https://cli.github.com/manual/gh_auth_login) |
-| `git push` / clone fails `Permission denied (publickey)` | your keys and `ssh-agent` live in the **local** session, not the ssh one | keep a key on the host, or forward your agent with [`ssh -A`](https://man.openbsd.org/ssh#A) — confirm with `ssh-add -l` |
+| `git push` / clone fails `Permission denied (publickey)` | the ssh session forwards no agent — your keys live in the **local** session, and kolu deliberately passes no `-A` (your `~/.ssh/config` stays the authority) | put `ForwardAgent yes` for the host in `~/.ssh/config` and reconnect: kolu hands the forwarded agent to remote terminals under a stable link each reconnect re-points, so already-open shells heal; confirm with `ssh-add -l` (see [Forwarded ssh-agent](#forwarded-ssh-agent)) |
 | `pbcopy` / `pbpaste`, `launchctl`, desktop notifications do nothing | these are **GUI-session** services; an ssh session runs in a different session context | run them from the box's own terminal; for `launchctl` name the domain: `launchctl print gui/$(id -u)` |
 | a command is "not found", locale warnings, missing `$PATH` | ssh starts a leaner **login** shell; GUI-launcher `PATH` isn't inherited | put `PATH`/locale in the rc **both** shells read (`~/.zshrc`); check with `echo $PATH` and `locale` |
 
 This table **grows by incident**: every future "works in my local terminal, breaks
 over a kolu remote host" report earns a row — symptom, one-line cause, remedy. If
 you hit one that isn't here, that's the signal to add it.
+
+## Forwarded ssh-agent
+
+A kolu remote host dials ssh itself, and it deliberately does **not** pass `-A`:
+your `~/.ssh/config` stays the authority. Set the forwarding there — the config
+spelling of `-A` — and reconnect:
+
+```sh
+# ~/.ssh/config
+Host box
+  ForwardAgent yes
+```
+
+Kolu then hands your forwarded agent to every terminal it opens on that host, so
+`git push`, a further `ssh` hop, and anything else that signs with your local
+agent work inside a remote terminal. It reaches them as a **stable link** on the
+host rather than as the ssh session's own socket: each reconnect re-points that
+link, so terminals opened under an earlier connection **heal** instead of failing
+once sshd removes the old socket. `ssh-add -l` inside the terminal lists the keys
+it can reach; an empty answer means no agent was forwarded for this host.
 
 ## Related
 
