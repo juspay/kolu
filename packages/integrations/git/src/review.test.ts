@@ -382,3 +382,53 @@ describe("getDiff — a directory replaced by a file", () => {
     expect(raw).toContain("diff --git a/skills/odu/serve");
   });
 });
+
+describe("getDiff — the user's diff prefix config", () => {
+  let repo: string;
+
+  beforeEach(() => {
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-review-prefix-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(repo, { recursive: true, force: true });
+  });
+
+  // Isolate each setting locally so inherited prefix config cannot mask it.
+  it.each([
+    ["diff.mnemonicPrefix", "true"],
+    ["diff.noprefix", "true"],
+    ["diff.srcPrefix", "src/"],
+  ])("%s=%s still yields a/ b/ headers, tracked and untracked", async (key, value) => {
+    const git = simpleGit(repo);
+    await git.init();
+    await git.addConfig("user.email", "test@example.com");
+    await git.addConfig("user.name", "Test");
+    await git.addConfig("diff.mnemonicPrefix", "false");
+    await git.addConfig("diff.noprefix", "false");
+    await git.addConfig("diff.srcPrefix", "a/");
+    await git.addConfig("diff.dstPrefix", "b/");
+    await git.addConfig(key, value);
+    await git.checkoutLocalBranch("main");
+    fs.writeFileSync(path.join(repo, "tracked.txt"), "one\n");
+    await git.add(".");
+    await git.commit("base");
+    fs.writeFileSync(path.join(repo, "tracked.txt"), "two\n");
+    fs.writeFileSync(path.join(repo, "new.txt"), "new\n");
+
+    const tracked = await getDiff(repo, "tracked.txt", "local");
+    expect(tracked.ok).toBe(true);
+    if (!tracked.ok) return;
+    const trackedRaw = tracked.value.hunks.join("");
+    expect(trackedRaw).toContain("diff --git a/tracked.txt b/tracked.txt");
+    expect(trackedRaw).toContain("--- a/tracked.txt");
+    expect(trackedRaw).toContain("+++ b/tracked.txt");
+
+    const untracked = await getDiff(repo, "new.txt", "local");
+    expect(untracked.ok).toBe(true);
+    if (!untracked.ok) return;
+    const untrackedRaw = untracked.value.hunks.join("");
+    expect(untrackedRaw).toContain("--- /dev/null");
+    expect(untrackedRaw).toContain(`+++ b${path.join(repo, "new.txt")}\n`);
+  });
+});

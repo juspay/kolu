@@ -98,7 +98,12 @@ jobs:
       # `nix profile add` (hence v35 above — v31's 2.29 only had
       # `profile install`, which is why #1731 dropped the action once before).
       # No `attic use` — the nix_conf above already wires the substituter.
+      #
+      # Fork PRs get no `ATTIC_TOKEN` (header above); `secrets` isn't readable
+      # in a step `if:`, and gating on presence would silently skip a same-repo
+      # run with a missing token.
       - name: Install attic (pinned) and log in
+        if: github.event.pull_request.head.repo.fork != true
         run: |
           nix profile add "$(jq -r .pins.nixpkgs.url npins/sources.json)#attic-client"
           attic login --set-default oss https://cache.nixos.asia '${{ secrets.ATTIC_TOKEN }}'
@@ -122,16 +127,7 @@ jobs:
       # kolu. Naming the artifact directly is both smaller and correct, and
       # needs no `.drv`/`.check`/`.lock` blocklist to filter clutter that never
       # arrives.
-      #
-      # This leans on two `attic push` DEFAULTS, named here so the dependency is
-      # deliberate rather than lucky (`attic push --help`):
-      #   * it pushes CLOSURES, not bare paths — `--no-closure` is the opt-out,
-      #     so the out-paths alone are a complete instruction;
-      #   * it applies an upstream cache filter, so paths already substitutable
-      #     from cache.nixos.org are skipped — `--ignore-upstream-cache-filter`
-      #     is the opt-out. That is what keeps nixpkgs out of a project cache,
-      #     and it is a decision we can now name instead of an emergent effect.
-      - name: Build and push every flake output
+      - name: Build every flake output
         shell: bash
         run: |
           # Written out rather than inherited from `shell: bash`. Relying on the
@@ -140,13 +136,9 @@ jobs:
           # path-info, silently truncating the file the whole push set rode on.
           set -euo pipefail
 
-          # Only the BUILD is folded. `::group::` collapses by default, so
-          # wrapping the push in it too buried the one thing this job exists to
-          # report behind ~870 lines of nix build log — you had to expand and
-          # scroll to learn whether anything reached the cache. The build chatter
-          # is what deserves folding; the push is the result. Leaving `attic` to
-          # write outside the group means its own per-path output is visible by
-          # default, with no parsing of another tool's format to go wrong.
+          # Fold the build log; the push step below is the result. Each warm
+          # appends its out-paths to the list that step reads.
+          : > "$RUNNER_TEMP/outputs"
           warm() {
             local label="$*"
             echo "::group::build $label"
@@ -162,11 +154,8 @@ jobs:
               echo "::error::ci/flake-build produced no output paths for: $label"
               exit 1
             fi
-            echo "push $label → $(printf '%s\n' "$paths" | wc -l | tr -d ' ') outputs:"
-            # `--stdin` rather than `xargs`: xargs may silently split a long
-            # list across several invocations, which is a behaviour we would be
-            # relying on without saying so. One process, one list.
-            printf '%s\n' "$paths" | attic push --stdin oss
+            printf '%s\n' "$paths" >> "$RUNNER_TEMP/outputs"
+            echo "built $label → $(printf '%s\n' "$paths" | wc -l | tr -d ' ') outputs"
           }
           warm .
           # The nested flakes, with the SAME --kinds their own CI nodes use
@@ -184,6 +173,19 @@ jobs:
           # being true, add them here; do not assume they are warm.
           warm --kinds packages,checks ./website
           warm --kinds packages ./ci
+
+      # `--stdin` rather than `xargs`, which may silently split a long list
+      # across invocations: one process, one list. `attic push` pushes closures
+      # (`--no-closure` opts out) and skips paths substitutable from upstream
+      # (`--ignore-upstream-cache-filter` opts out). Same fork gate as
+      # login/verify — an empty token on a same-repo run must fail loudly here.
+      - name: Push the closures to the cache
+        if: github.event.pull_request.head.repo.fork != true
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "push → $(wc -l < "$RUNNER_TEMP/outputs" | tr -d ' ') outputs:"
+          attic push --stdin oss < "$RUNNER_TEMP/outputs"
 
       # The push above is an INSTRUCTION; this is the VERDICT. It re-asks the
       # cache — over the network, as a client — whether the remote-agent
@@ -207,6 +209,9 @@ jobs:
       # It is a HARD failure, not a warning. A soft-fail would restore the state
       # this whole job was already in during the incident: green, and cold.
       - name: Verify the agent closures are substitutable
+        # A fork PR pushed nothing, so there is nothing of its own to verify.
+        # Same fork gate as the push: same-repo runs always ask.
+        if: github.event.pull_request.head.repo.fork != true
         shell: bash
         run: |
           set -euo pipefail
