@@ -2,7 +2,11 @@
  *  from `index.ts` so the node-env unit suite can pin it without importing the
  *  iframe entry (whose module-level boot touches `document`). */
 
-import { isDeepLinkHash, isHttpUrl } from "../core/url";
+import {
+  isCrossOriginHttpUrl,
+  isDeepLinkHash,
+  parseHttpUrl,
+} from "../core/url";
 
 /** Whether a mouse event is a PLAIN primary activation — the only gesture
  *  allowed to navigate the CURRENT window (a deep link routes the surrounding
@@ -66,11 +70,10 @@ export function classifyAnchor(
   anchor: Pick<HTMLAnchorElement, "href">,
   loc: Pick<Location, "origin" | "pathname">,
 ): AnchorAction {
-  if (!isHttpUrl(anchor.href)) return { kind: "in-frame" };
-  // `isHttpUrl` already proved `anchor.href` parses, so this `new URL` can't
-  // throw — it's only here to read the origin/path/hash.
-  const url = new URL(anchor.href);
-  if (url.origin !== loc.origin) return { kind: "external", url: url.href };
+  const url = parseHttpUrl(anchor.href);
+  if (url === null) return { kind: "in-frame" };
+  if (isCrossOriginHttpUrl(url, loc.origin))
+    return { kind: "external", url: url.href };
   if (!isDeepLinkHash(url.hash)) return { kind: "in-frame" };
   const isFileNav = url.pathname !== "/" && url.pathname !== loc.pathname;
   return isFileNav
