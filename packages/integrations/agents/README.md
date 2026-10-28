@@ -16,7 +16,7 @@ the **only** package (besides `packages/tests`) allowed to depend on a
 
 | Module      | Exports                                                                                                                                                  | Purpose                                                          |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `vocab.ts`  | `AGENT_VOCABS`, `AgentKind`, `AgentInfoOf`, `AgentKindSchema`, `AgentInfoSchema`, `AgentInfo`, `agentVocab`, `requireAgentVocab`, `agentCliGrammar`, `isAgentKind`, `isAgentBinaryName`, `resumeRefFor`, `AGENT_CLI`, the registry-bound CLI functions (`resumeFormFor`, `resumableCommand`, `agentLaunchLine`) — plus `anyagent`'s `agentNameHint` / `stableFlagTokens` re-exported | Browser-safe vocabulary + the resume/launch renderer, pre-bound to the registry. |
+| `vocab.ts`  | `AGENT_VOCABS`, `AgentKind`, `AgentInfoOf`, `AgentKindSchema`, `AgentInfoSchema`, `AgentInfo`, `agentVocab`, `agentCliGrammar`, `isAgentKind`, `isAgentBinaryName`, `resumeRefFor`, `AGENT_CLI`, the registry-bound CLI functions (`resumeFormFor`, `resumableCommand`, `agentLaunchLine`) — plus `anyagent`'s `agentNameHint` / `stableFlagTokens` re-exported | Browser-safe vocabulary + the resume/launch renderer, pre-bound to the registry. |
 | `index.ts`  | `AGENT_PLUGINS`, `AGENT_DIR_ENV_KEYS`, `agentDiagnostics`                                                                                                | Node plugin record (adapters · fetchers · env keys) and its folds. |
 
 ## Adding an agent

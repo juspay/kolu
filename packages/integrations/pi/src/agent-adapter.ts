@@ -136,6 +136,12 @@ export const piAdapter: AgentAdapter<PiSession, PiInfo> = {
 
   resolveSessions(state, log) {
     if (!matchesAgent(state, "pi")) return [];
+    // `pi --no-session` writes NO store at all, so whatever session files the
+    // cwd already holds belong to EARLIER runs — binding one would resume a
+    // stranger's conversation (the #1495 class). The typed-line grammar used to
+    // refuse this flag before the mark stopped being parsed; the live process's
+    // own argv is the honest witness now (omp's adapter has the same guard).
+    if (state.readProcessSnapshot()?.argv.includes("--no-session")) return [];
     const store = sessionStoreFor(state, log);
     noteStore(store);
     return findSessionsByDirectory(state.cwd, store, log);

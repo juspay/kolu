@@ -91,8 +91,8 @@ interface EmptyStateProps {
 }
 
 const EmptyState: Component<EmptyStateProps> = (props) => {
-  // Single global toggle: should the restore re-run captured agent CLIs?
-  // Default on — users almost always want their agents back.
+  // Single global toggle: should the restore re-run the agents it detected at
+  // save time? Default on — users almost always want their agents back.
   const [resumeAgents, setResumeAgents] = createSignal(true);
 
   // Host-served resumable set — the client never constructs membership; it only

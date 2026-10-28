@@ -253,7 +253,7 @@ function startTerminal(id: TerminalId, agentPid: number): Harness {
         e.kind === "agent" &&
         typeof e.agent === "object" &&
         e.agent.value !== null
-          ? [e.agent.value]
+          ? [e.agent.value.info]
           : [],
       );
       return agents.at(-1);

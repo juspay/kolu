@@ -27,9 +27,9 @@ import type { RestoreTarget } from "./schemas.ts";
 import type { AnyAgentVocab, AgentCliGrammar } from "./vocab.ts";
 
 /** The CLI registry: every known agent, keyed by `kind`. `vocabs` are the full
- *  agents (kind · resume · schema). There is no basename index any more — a
- *  basename read off PTY text no longer decides anything; {@link agentNameHint}
- *  only names a foreground process for the adapters' shim gate. */
+ *  agents (kind · resume · schema). There is no basename-keyed PARSER any more —
+ *  a basename read off PTY text can only be compared against a known agent name
+ *  ({@link agentNameHint}), never used to interpret a command line. */
 export interface AgentCliRegistry {
   readonly vocabs: readonly AnyAgentVocab[];
   /** Resolve an agent `kind` to its vocab, or `undefined` when this build no
@@ -125,10 +125,10 @@ export function stableFlagTokens(
     const next = argv[i + 1];
     const arity = grammar.stableFlags.get(t);
     if (arity === undefined) {
-      // Unknown flag — skip it and its value (if present). A resume marker
-      // (`--resume <id>`) dies here: the conversation is named by the
-      // OS-derived identity, never by a captured token.
-      if (next !== undefined && !next.startsWith("-")) i++;
+      // Unknown flag — dropped. Its value needs no explicit skip: a token that
+      // does not start with `-` is a positional and falls out on the next
+      // iteration anyway. A resume marker (`--resume <id>`) and its id die here:
+      // the conversation is named by the OS-derived identity, never a token.
       continue;
     }
     kept.push(t);
@@ -155,7 +155,11 @@ export function agentLaunchLine(
 ): string | null {
   const vocab = reg.byKind(kind);
   if (vocab === undefined) return null;
-  return shellJoin([vocab.cli.basename, ...argv]);
+  // Re-filtered at RENDER, not only at capture: `stableFlags` revs with an agent
+  // release, so a target written by an older padi (a wider allowlist) must not
+  // bypass today's. The allowlist is the single live authority; filtering is
+  // idempotent.
+  return shellJoin([vocab.cli.basename, ...stableFlagTokens(vocab.cli, argv)]);
 }
 
 /**
@@ -194,7 +198,10 @@ export function resumeFormFor(
   // The ref is data, not shell text: `shellJoin([ref])` quotes it as ONE token
   // (a no-op for a gate-passing ref) before the policy splices it.
   const marker = policy.byId(shellJoin([ref]));
-  const flags = target.argv.length === 0 ? "" : ` ${shellJoin(target.argv)}`;
+  // Render-time re-filter — see `agentLaunchLine`'s note. The persisted list may
+  // predate a narrower allowlist.
+  const argv = stableFlagTokens(vocab.cli, target.argv);
+  const flags = argv.length === 0 ? "" : ` ${shellJoin(argv)}`;
   // The marker sits DIRECTLY after the binary and the flags follow: codex spells
   // resume as a `resume` SUBCOMMAND, so `codex resume <id> --model x` is the one
   // order every agent accepts.
@@ -218,11 +225,9 @@ export function resumableCommand(
   reg: AgentCliRegistry,
   target: RestoreTarget | undefined,
 ): string | null {
-  if (target === undefined || resumeFormFor(reg, target) === null) return null;
-  switch (target.kind) {
-    case "none":
-      return null;
-    case "exact":
-      return agentLaunchLine(reg, target.agent.kind, target.argv);
-  }
+  if (target?.kind !== "exact") return null;
+  // Gate on the ONE authority (a ref that fails its shape gate, or a kind this
+  // build does not know, yields nothing), then render the launch form.
+  if (resumeFormFor(reg, target) === null) return null;
+  return agentLaunchLine(reg, target.agent.kind, target.argv);
 }

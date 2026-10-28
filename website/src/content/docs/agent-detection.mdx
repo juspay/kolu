@@ -297,8 +297,8 @@ awaiting you, `turn_ended` for waiting. An open `ask_user_question` promotes to
 _awaiting you_ even mid-tool, so a multiple-choice prompt never reads as "running
 tools".
 
-**Resume** uses `grok -c` (most recent in the directory) or `grok --resume <uuid>`
-(an exact conversation). Launch-shape flags such as `--model` / `-m`,
+**Resume** uses `grok --resume <uuid>` — the exact conversation kolu observed.
+Launch-shape flags such as `--model` / `-m`,
 `--always-approve`, `--no-plan`, `--no-subagents`, and **`--no-alt-screen`**
 (inline TUI instead of the alternate screen) are kept on the **recent agents**
 list and on sleep/wake resume. **Context tokens** come from `signals.json`
@@ -366,11 +366,10 @@ lands.
 | Tool use | spinning amber | newest assistant message ended `stopReason: "toolUse"` |
 | Waiting | dim dot | newest assistant message ended its turn (`stop` / `length` / `error` / `aborted`) |
 
-**Resume** uses `pi -c` (most recent in the directory) or `pi --session`
-with the transcript's **absolute path** when known (an exact conversation —
-pi accepts both the id and the path; the path is spliced because an id alone
-can no longer be found once the session store was moved by a redirect
-above). Launch-shape flags such as `--model` / `--provider` /
+**Resume** uses `pi --session` with the transcript's **absolute path** (the
+exact conversation kolu observed — pi accepts both the id and the path; the path
+is spliced because an id alone can no longer be found once the session store was
+moved by a redirect above). Launch-shape flags such as `--model` / `--provider` /
 `--thinking` / `--name` are kept on the **recent agents** list and on sleep/wake
 resume. **Context tokens** come from the newest assistant message's usage
 (`input + cacheRead + cacheWrite` — pi's buckets are disjoint, so the sum is
@@ -459,10 +458,9 @@ and the tile stays on **running tools** for the duration of the prompt. A
 recognition loose enough to take any corner risks reading prose as a prompt,
 so the default corner is what kolu commits to recognizing.
 
-**Resume** uses `omp -c` (this terminal's breadcrumb, else the most recent
-conversation in the directory) or `omp --resume` with the transcript's
-**absolute path** when known — the breadcrumb already carries it, and it is the
-one reference that survives a moved store. Launch-shape flags such as `--model`,
+**Resume** uses `omp --resume` with the transcript's **absolute path** — the
+exact conversation this terminal's breadcrumb named, and the one reference that
+survives a moved store. Launch-shape flags such as `--model`,
 `--smol`, `--slow`, `--plan`, `--thinking`, `--approval-mode`, and `--profile`
 are kept on the **recent agents** list and on sleep/wake resume. **Context
 tokens** come from the newest assistant message's usage (`input + cacheRead +
@@ -531,18 +529,19 @@ inspector still show the **session title** (from the sidecar) and the
 badge that reads _waiting_ does not mean it's your turn — it's the floor every
 turn returns to.
 
-**Resume** uses `xyne --session <uuid>` (an exact conversation, including a
-cold-restored terminal from before the reboot — the UUID filename is the id
-upstream's flag takes) or `xyne --continue` (most recent). **Transcript
-export** reads the same session JSONL, taking token usage from the freshest
-assistant row's usage.
+**Resume** uses `xyne --session <uuid>` — the exact conversation (including a
+cold-restored terminal from before the reboot; the UUID filename is the id
+upstream's flag takes). **Transcript export** reads the same session JSONL,
+taking token usage from the freshest assistant row's usage.
 
 ## Adding an agent
 
 Because detection is agent-agnostic, a new CLI doesn't wait on kolu. Once you've
 run a known agent in any terminal it also surfaces in the [command palette](/concepts)
 — as a launch option in the worktree-naming flow and in the **Recent agents**
-group.
+group. Only an agent with a **detection adapter** is a candidate: a binary kolu can
+merely name (`aider`, `goose`, `gemini`, `cursor-agent`) has no session to detect,
+so it never appears there.
 
 Every fact about an agent lives in that agent's own package
 (`packages/integrations/<agent>/`), as two values:

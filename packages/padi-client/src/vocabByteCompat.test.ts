@@ -19,7 +19,9 @@
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
+  backfillRestoreTargetArgv,
   backfillSavedSession,
+  backfillSnapshotCutover,
   DaemonStatusSchema,
   DEFAULT_PADI_PROCESS_MEMORY,
   type PadiProcessMemory,
@@ -85,10 +87,12 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
       .replace('"promptedAt":null,', "")
       // …and it predates the restore target, which the backfill must supply.
       .replace('"restoreTarget":{"kind":"none"},', "");
+    // Absence stays absent: the ladder does not invent a `{ kind: "none" }` where
+    // the record simply never had a target.
     const migrated = MINIMAL_ACTIVE.replace(
       '"git":{"kind":"none"}',
       '"git":{"kind":"unresolved"}',
-    );
+    ).replace('"restoreTarget":{"kind":"none"},', "");
     const stored = (t: string) =>
       `{"terminals":[${t}],"activeTerminalId":"t-1","savedAt":1700000000000}`;
     expect(accepts(SavedSessionSchema, JSON.parse(stored(legacy)))).toBe(false);
@@ -272,6 +276,55 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
     });
     // The forged text is gone, not converted into a flag list.
     expect(JSON.stringify(target)).not.toContain("LD_PRELOAD");
+  });
+
+  it("leaves an ABSENT restore target absent — absence is its own spelling", () => {
+    // The #1621 rung must not materialize `{ kind: "none" }` where the record
+    // simply had no target: the t1.3 shape keeps absence, so there is one owner
+    // per transition and no invented value to review.
+    const repaired = backfillSavedSession({
+      terminals: [
+        {
+          cwd: "/repo",
+          git: null,
+          location: { kind: "local" },
+          lastActivityAt: 7,
+          state: "active",
+          id: "t-1",
+        },
+      ],
+      savedAt: 1,
+    }) as { terminals: Record<string, unknown>[] };
+    expect("restoreTarget" in (repaired.terminals[0] ?? {})).toBe(false);
+    expect(decodeSession(repaired).terminals[0]?.restoreTarget).toBeUndefined();
+  });
+
+  it("splits the transition across rungs: #1621 emits its era's shape, 1.3.0 converts", () => {
+    // One owner per transition. The #1621 rung COPIES the remembered line into
+    // its era's `{ command, agent }` target and leaves `lastAgentCommand` in
+    // place; the 1.3.0 rung deletes the text and installs `argv: []`.
+    const command = "LD_PRELOAD=/x claude --settings '{}'";
+    const cutover = backfillSnapshotCutover({
+      cwd: "/repo",
+      git: null,
+      lastAgentCommand: command,
+      agentSession: { kind: "claude-code", id: "s-9" },
+      state: "active",
+      id: "t-1",
+    });
+    expect(cutover.restoreTarget).toEqual({
+      kind: "exact",
+      command,
+      agent: { kind: "claude-code", sessionId: "s-9", resumeRef: "s-9" },
+    });
+    expect(cutover.lastAgentCommand).toBe(command);
+    const converted = backfillRestoreTargetArgv(cutover);
+    expect(converted.restoreTarget).toEqual({
+      kind: "exact",
+      agent: { kind: "claude-code", sessionId: "s-9", resumeRef: "s-9" },
+      argv: [],
+    });
+    expect("lastAgentCommand" in converted).toBe(false);
   });
 
   it("migrates legacyMostRecent to none — it named no conversation", () => {

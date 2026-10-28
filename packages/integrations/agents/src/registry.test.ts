@@ -16,9 +16,9 @@ import {
   AgentInfoSchema,
   AgentKindSchema,
   type AgentKind,
+  agentCliGrammar,
   agentVocab,
   isAgentKind,
-  requireAgentVocab,
 } from "./vocab.ts";
 
 const KINDS = Object.keys(AGENT_VOCABS) as AgentKind[];
@@ -108,11 +108,9 @@ describe("the CLI registry", () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
-  it("requireAgentVocab crashes loudly on an unknown kind; isAgentKind does not narrow it", () => {
-    expect(requireAgentVocab("opencode")).toBe(AGENT_VOCABS.opencode);
-    expect(() => requireAgentVocab("not-an-agent")).toThrow(
-      /unknown agent kind/,
-    );
+  it("agentCliGrammar crashes loudly on an unknown kind; isAgentKind does not narrow it", () => {
+    expect(agentCliGrammar("opencode")).toBe(AGENT_VOCABS.opencode.cli);
+    expect(() => agentCliGrammar("not-an-agent")).toThrow(/unknown agent kind/);
     expect(isAgentKind("not-an-agent")).toBe(false);
   });
 });

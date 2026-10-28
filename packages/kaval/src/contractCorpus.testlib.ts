@@ -443,9 +443,6 @@ export function runContractCorpus(opts: {
       );
       const live = await cmdP;
       expect(live.command).toContain("corpus-command");
-      // A live mark is flagged `replayed: false` so a consumer can fire its
-      // live-only side effect (a foreground re-sample) on it.
-      expect(live.replayed).toBe(false);
 
       // Snapshot-first replay (the new contract guarantee): a subscriber that
       // joins AFTER the mark still gets the last command on its first frame,
@@ -455,7 +452,7 @@ export function runContractCorpus(opts: {
       const lateStream = client().surface.commandRun.get({ id });
       const replay = await firstYield(lateStream);
       expect(replay.command).toContain("corpus-command");
-      expect(replay.replayed).toBe(true);
+      expect(replay).not.toHaveProperty("replayed");
 
       await Effect.runPromise(client().surface.terminal.kill({ id }));
     });

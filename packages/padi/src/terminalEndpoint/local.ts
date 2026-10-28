@@ -105,7 +105,6 @@ import {
   type FoldCtx,
   fold,
   restoreTargetEqual,
-  restoreTargetOf,
   seedRecencyBaseline,
   stepRecencyBaseline,
 } from "../terminalWorkspace/fold.ts";
@@ -537,11 +536,9 @@ function readScreenTextFor(id: TerminalId, tailLines: number): Promise<string> {
 }
 
 /** Did any AUTHORED fact the fold writes change — the memory fields the
- *  authored record stores (`lastActivityAt`, `promptedAt`) plus the
- *  fold-derived `restoreTarget`? Compares the restore target BY VALUE
- *  (`restoreTargetEqual` over `restoreTargetOf`) rather than re-deriving the move
- *  from the target's raw inputs, so this fence can never desync from the projection
- *  it gates on — fold another input into `restoreTargetOf` and this stays correct.
+ *  authored record stores (`lastActivityAt`, `promptedAt`) plus the fold-derived
+ *  `restoreTarget`? The fold stores the target itself, so this compares it BY
+ *  VALUE and there is nothing to re-derive: one owner, one fence.
  *  The AUTHORED-publish fence: a pure agent-detail / foreground tick leaves all of
  *  these equal, so the `kolu.authored` collection is NOT re-published on the ~150 ms
  *  observation firehose — only `commitSnapshot` (the snapshots collection) sees
@@ -550,7 +547,7 @@ function authoredFactsEqual(a: TerminalState, b: TerminalState): boolean {
   return (
     a.memory.lastActivityAt === b.memory.lastActivityAt &&
     a.memory.promptedAt === b.memory.promptedAt &&
-    restoreTargetEqual(restoreTargetOf(a), restoreTargetOf(b))
+    restoreTargetEqual(a.restoreTarget, b.restoreTarget)
   );
 }
 
@@ -1240,17 +1237,15 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // can't re-observe (the memory facts, the resume target) survives because
     // it is simply never in an observation.
     const seedEntry = getTerminal(id)!;
-    const seedTarget = seedEntry.meta.restoreTarget;
     let current: TerminalState = {
       snapshot: seedEntry.snapshot,
       memory: {
         lastActivityAt: seedEntry.meta.lastActivityAt,
         promptedAt: seedEntry.meta.promptedAt,
       },
-      // The durable target's flags seed the fold so a re-observation before the
-      // process is re-sampled does not transiently rewrite the persisted target
-      // with an empty argv.
-      argv: seedTarget?.kind === "exact" ? [...seedTarget.argv] : [],
+      // The durable target seeds the fold so an authored-fact change before the
+      // agent is re-observed cannot transiently rewrite the persisted target.
+      restoreTarget: seedEntry.meta.restoreTarget ?? { kind: "none" },
     };
 
     // Recency frame phase, decided BY VALUE against the agent identity the producer
@@ -1294,7 +1289,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         o.agent.value !== null &&
         step.live
       ) {
-        trackRecentAgent(o.agent.value.kind, o.argv);
+        trackRecentAgent(o.agent.value.info.kind, o.agent.value.argv);
       }
       if (current === before) return; // `unknown`/dedup no-op — nothing else to commit
       unresumable.check(current);
@@ -1308,11 +1303,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       if (current.snapshot !== before.snapshot)
         commitSnapshot(id, current.snapshot);
       // Evaluate the authored-fact delta ONCE and feed it to the disk fence (a strict
-      // superset), so the firehose path doesn't recompute `authoredFactsEqual` —
-      // and its `restoreTargetOf` allocations — a second time inside it.
+      // superset), so the firehose path doesn't recompute `authoredFactsEqual` a
+      // second time inside it.
       const authoredEqual = authoredFactsEqual(before, current);
       if (!authoredEqual)
-        updateMemory(id, current.memory, restoreTargetOf(current));
+        updateMemory(id, current.memory, current.restoreTarget);
       if (!restoreRelevantEqual(before, current, authoredEqual)) notifyDirty();
     };
 
@@ -1333,10 +1328,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         // and feeds the shim hint (`agentNameHint`). Its text is logged as context
         // for an unresumable agent and never becomes a command.
         unresumable.noteRawCommand(msg.command);
-        signals.commandRun.publish({
-          command: msg.command,
-          replayed: msg.replayed,
-        });
+        signals.commandRun.publish({ command: msg.command });
       },
     );
     void bridgeStream(

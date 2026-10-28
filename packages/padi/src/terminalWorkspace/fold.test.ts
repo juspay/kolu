@@ -6,12 +6,13 @@ import {
   fold,
   foldSnapshot,
   RECENCY_THROTTLE_MS,
-  restoreTargetOf,
+  restoreTargetFor,
   seedRecencyBaseline,
   stepRecencyBaseline,
 } from "./fold.ts";
 import {
   type AgentInfo,
+  type AgentObservation,
   type RestoreTarget,
   seedMemory,
   seedSnapshot,
@@ -50,8 +51,14 @@ function claude(sessionId: string, state: AgentInfo["state"]): AgentInfo {
 const seed = (): TerminalState => ({
   snapshot: seedSnapshot("/work/repo"),
   memory: seedMemory(),
-  argv: [],
+  restoreTarget: { kind: "none" },
 });
+
+/** One agent observation — info + its allowlisted argv. */
+const observed = (
+  info: AgentInfo,
+  argv: readonly string[] = [],
+): AgentObservation => ({ info, argv });
 
 // `runStartedAt` defaults: a DELTA models steady-state activity long after the run
 // started (0 → the throttle anchors on the prior stamp); a SNAPSHOT models the adopt
@@ -72,8 +79,7 @@ const agentObs = (
   argv: readonly string[] = [],
 ): TerminalEvent => ({
   kind: "agent",
-  agent: { value: agent },
-  argv,
+  agent: { value: agent === null ? null : observed(agent, argv) },
 });
 
 describe("foldSnapshot — last-write-wins over the six snapshot fields", () => {
@@ -92,7 +98,7 @@ describe("foldSnapshot — last-write-wins over the six snapshot fields", () => 
 
   it("KEEPS the prior agent on `unknown` (same reference — no clobber)", () => {
     const o = { ...seedSnapshot("/a"), agent: claude("A", "thinking") };
-    const next = foldSnapshot(o, { kind: "agent", agent: "unknown", argv: [] });
+    const next = foldSnapshot(o, { kind: "agent", agent: "unknown" });
     expect(next).toBe(o); // identical reference → kolu detects "nothing changed"
   });
 
@@ -101,7 +107,6 @@ describe("foldSnapshot — last-write-wins over the six snapshot fields", () => 
     const next = foldSnapshot(o, {
       kind: "agent",
       agent: { value: null },
-      argv: [],
     });
     expect(next.agent).toBeNull();
   });
@@ -145,7 +150,7 @@ describe("fold — recency bumps only on a LIVE agent-identity change", () => {
     const cur: TerminalState = {
       snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
       memory: { lastActivityAt: 500, promptedAt: null },
-      argv: [],
+      restoreTarget: { kind: "none" },
     };
     const next = fold(cur, agentObs(claude("A", "waiting")), delta(9999));
     expect(next.snapshot.agent?.state).toBe("waiting");
@@ -156,7 +161,7 @@ describe("fold — recency bumps only on a LIVE agent-identity change", () => {
     let cur: TerminalState = {
       snapshot: { ...seedSnapshot("/a"), agent: claude("A", "waiting") },
       memory: { lastActivityAt: 500, promptedAt: null },
-      argv: [],
+      restoreTarget: { kind: "none" },
     };
     cur = fold(cur, agentObs(null), delta(600)); // A finishes
     expect(cur.memory.lastActivityAt).toBe(600);
@@ -168,13 +173,9 @@ describe("fold — recency bumps only on a LIVE agent-identity change", () => {
     const cur: TerminalState = {
       snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
       memory: { lastActivityAt: 500, promptedAt: null },
-      argv: [],
+      restoreTarget: { kind: "none" },
     };
-    const next = fold(
-      cur,
-      { kind: "agent", agent: "unknown", argv: [] },
-      delta(9999),
-    );
+    const next = fold(cur, { kind: "agent", agent: "unknown" }, delta(9999));
     expect(next).toBe(cur); // no-op
   });
 });
@@ -183,7 +184,7 @@ describe("fold — a stable session's OUTPUT advances recency, THROTTLED (the fr
   const busy = (at: number): TerminalState => ({
     snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
     memory: { lastActivityAt: at, promptedAt: null },
-    argv: [],
+    restoreTarget: { kind: "none" },
   });
 
   it("bumps on a same-identity output tick once the throttle window has elapsed", () => {
@@ -224,7 +225,7 @@ describe("fold — a stable session's OUTPUT advances recency, THROTTLED (the fr
     const adoptedIdle: TerminalState = {
       snapshot: { ...seedSnapshot("/a"), agent: null },
       memory: { lastActivityAt: 500, promptedAt: null },
-      argv: [],
+      restoreTarget: { kind: "none" },
     };
     const now = 500 + 10 * RECENCY_THROTTLE_MS;
     const next = fold(adoptedIdle, agentObs(claude("A", "waiting")), {
@@ -279,7 +280,7 @@ describe("recency baseline — adopt survives its multi-emit settle, then output
   const adopted = (savedAt: number): TerminalState => ({
     snapshot: { ...seedSnapshot("/a"), agent: null },
     memory: { lastActivityAt: savedAt, promptedAt: null },
-    argv: [],
+    restoreTarget: { kind: "none" },
   });
 
   it("fresh spawn: baseline is null, so the first agent is live and bumps (#1626)", () => {
@@ -393,7 +394,7 @@ describe("promptedAt — the current agent's first live turn", () => {
     const adoptedPrompted: TerminalState = {
       snapshot: { ...seedSnapshot("/a"), agent: null },
       memory: { lastActivityAt: 1000, promptedAt: 900 },
-      argv: [],
+      restoreTarget: { kind: "none" },
     };
     const out = driveRecency(EXACT_TARGET, adoptedPrompted, 999_999, [
       { agent: claude("A", "waiting"), at: 999_999 },
@@ -403,113 +404,106 @@ describe("promptedAt — the current agent's first live turn", () => {
   });
 });
 
-describe("fold — the live agent's argv rides the agent observation", () => {
-  it("carries the allowlisted argv into the fold state", () => {
+describe("fold — the observation's argv reaches the restore target", () => {
+  it("derives the target from the SAME observation (identity + allowlisted argv)", () => {
     const next = fold(
       seed(),
       agentObs(claude("A", "thinking"), ["--model", "sonnet"]),
       delta(1),
     );
-    expect(next.argv).toEqual(["--model", "sonnet"]);
+    expect(next.restoreTarget).toEqual({
+      kind: "exact",
+      agent: { kind: "claude-code", sessionId: "A", resumeRef: "A" },
+      argv: ["--model", "sonnet"],
+    });
   });
 
-  it("keeps the SAME argv reference when a detail tick carries equal tokens", () => {
-    const first = fold(
-      seed(),
-      agentObs(claude("A", "thinking"), ["--model", "sonnet"]),
-      delta(1),
-    );
+  it("REPLACES an empty argv on a same-identity tick (the flags-return case)", () => {
+    // The producer's first sample may not have read the process yet; a later
+    // same-identity sample that does must reach the target. The observation is
+    // one value, so the dedup cannot swallow it.
+    const first = fold(seed(), agentObs(claude("A", "thinking"), []), delta(1));
     const second = fold(
       first,
       agentObs(claude("A", "waiting"), ["--model", "sonnet"]),
       delta(2),
     );
-    expect(second.argv).toBe(first.argv);
+    expect(second.restoreTarget).toMatchObject({
+      kind: "exact",
+      argv: ["--model", "sonnet"],
+    });
   });
 
-  it("clears the argv when the agent ends", () => {
+  it("clears the target when the agent ends", () => {
     const live = fold(
       seed(),
       agentObs(claude("A", "thinking"), ["--model", "sonnet"]),
       delta(1),
     );
     const after = fold(live, agentObs(null), delta(2));
-    expect(after.argv).toEqual([]);
+    expect(after.restoreTarget).toEqual({ kind: "none" });
   });
 
-  it("keeps the argv and the agent through an `unknown` tick", () => {
+  it("keeps the target through an `unknown` tick", () => {
     const live = fold(
       seed(),
       agentObs(claude("A", "thinking"), ["--model", "sonnet"]),
       delta(1),
     );
-    const after = fold(
-      live,
-      { kind: "agent", agent: "unknown", argv: [] },
-      delta(2),
-    );
+    const after = fold(live, { kind: "agent", agent: "unknown" }, delta(2));
     expect(after).toBe(live);
   });
 });
 
-describe("restoreTargetOf — the fold owns the discriminated resume target", () => {
-  /** A live agent with the flags the producer sampled off its process. */
-  const live = (argv: readonly string[] = []): TerminalState => ({
-    snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
-    memory: { lastActivityAt: 1, promptedAt: null },
-    argv,
-  });
-
-  it("a LIVE agent → `exact` with its identity and the live argv", () => {
-    expect(restoreTargetOf(live(["--model", "sonnet"]))).toEqual({
+describe("restoreTargetFor — the fold owns the discriminated resume target", () => {
+  it("an observation → `exact` with its identity and argv", () => {
+    expect(
+      restoreTargetFor(
+        observed(claude("A", "thinking"), ["--model", "sonnet"]),
+      ),
+    ).toEqual({
       kind: "exact",
       agent: { kind: "claude-code", sessionId: "A", resumeRef: "A" },
       argv: ["--model", "sonnet"],
     });
   });
 
-  it("a live agent with no allowlisted flags → `exact` with an empty argv", () => {
-    expect(restoreTargetOf(live())).toEqual({
+  it("an observation with no allowlisted flags → `exact` with an empty argv", () => {
+    expect(restoreTargetFor(observed(claude("A", "thinking")))).toEqual({
       kind: "exact",
       agent: { kind: "claude-code", sessionId: "A", resumeRef: "A" },
       argv: [],
     });
   });
 
-  it("a quit-to-shell (agent null) → `none` (bare shell), whatever argv was last seen", () => {
-    const cur: TerminalState = {
-      snapshot: { ...seedSnapshot("/a"), agent: null },
-      memory: { lastActivityAt: 1, promptedAt: null },
-      argv: ["--model", "sonnet"],
-    };
-    expect(restoreTargetOf(cur)).toEqual({ kind: "none" });
+  it("no observation → `none` (bare shell)", () => {
+    expect(restoreTargetFor(null)).toEqual({ kind: "none" });
   });
 
-  it("a never-launched terminal → `none`", () => {
-    expect(restoreTargetOf(seed())).toEqual({ kind: "none" });
-  });
-
-  it("copies the argv out — a caller cannot mutate the fold state through the target", () => {
-    const state = live(["--model", "sonnet"]);
-    const target = restoreTargetOf(state);
+  it("copies the argv out — a caller cannot mutate the observation through the target", () => {
+    const observation = observed(claude("A", "thinking"), [
+      "--model",
+      "sonnet",
+    ]);
+    const target = restoreTargetFor(observation);
     if (target.kind !== "exact") throw new Error("expected exact");
-    expect(target.argv).not.toBe(state.argv);
+    expect(target.argv).not.toBe(observation.argv);
     (target.argv as string[]).push("--yolo");
-    expect(state.argv).toEqual(["--model", "sonnet"]);
+    expect(observation.argv).toEqual(["--model", "sonnet"]);
   });
 });
 
 describe("W12 — the two absences persist the resume target differently (twin pins)", () => {
   // A live claude with its sampled flags → an `exact` resume target on disk.
-  const liveExact: TerminalState = {
-    snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
-    memory: { lastActivityAt: 1, promptedAt: null },
-    argv: ["--model", "sonnet"],
-  };
   const exact: RestoreTarget = {
     kind: "exact",
     agent: { kind: "claude-code", sessionId: "A", resumeRef: "A" },
     argv: ["--model", "sonnet"],
+  };
+  const liveExact: TerminalState = {
+    snapshot: { ...seedSnapshot("/a"), agent: claude("A", "thinking") },
+    memory: { lastActivityAt: 1, promptedAt: null },
+    restoreTarget: exact,
   };
 
   it("PIN #1 — an UNOBSERVABLE terminal (sensor emits `unknown`) KEEPS the exact target", () => {
@@ -518,26 +512,26 @@ describe("W12 — the two absences persist the resume target differently (twin p
     // CONTENT discriminant (defined non-shell foreground) resolves to `unknown`, not
     // `{value:null}`. This fold-only pin feeds that `unknown` DIRECTLY (the producer's own
     // decision is pinned separately in `sensors.observability.test.ts`); the fold keeps
-    // the last agent, so `restoreTargetOf` STILL yields `exact` — the resume identity
-    // and its flags survive the unclean death on disk by construction. Before the fix the
-    // sensor emitted `{value:null}` here and this flipped to `none` (bare shells on restore).
-    expect(restoreTargetOf(liveExact)).toEqual(exact);
+    // the last agent, so the stored target STILL stands — the resume identity and its
+    // flags survive the unclean death on disk by construction. Before the fix the sensor
+    // emitted `{value:null}` here and this flipped to `none` (bare shells on restore).
+    expect(liveExact.restoreTarget).toEqual(exact);
     const after = fold(
       liveExact,
-      { kind: "agent", agent: "unknown", argv: [] },
+      { kind: "agent", agent: "unknown" },
       delta(2),
     );
-    expect(restoreTargetOf(after)).toEqual(exact);
+    expect(after.restoreTarget).toEqual(exact);
   });
 
   it("PIN #2 — a GENUINE end (sensor emits `{value:null}`) CLEARS the target to `none`", () => {
     // The inverse bug the fix must NOT introduce: an agent that genuinely quits back to
     // the shell (a SHELL-IDLE foreground → the agent really ended) still emits authoritative
-    // null, so `restoreTargetOf` clears — a later restore wakes a bare shell instead of
+    // null, so the stored target clears — a later restore wakes a bare shell instead of
     // resurrecting a dead agent. This pin feeds that `{value:null}` directly.
-    expect(restoreTargetOf(liveExact)).toEqual(exact);
+    expect(liveExact.restoreTarget).toEqual(exact);
     const after = fold(liveExact, agentObs(null), delta(2));
-    expect(restoreTargetOf(after)).toEqual({ kind: "none" });
+    expect(after.restoreTarget).toEqual({ kind: "none" });
   });
 });
 

@@ -40,7 +40,7 @@ function harness() {
   let state: TerminalState = {
     snapshot: seedSnapshot("/work"),
     memory: seedMemory(),
-    argv: [],
+    restoreTarget: { kind: "none" },
   };
   // The endpoint's emit loop in miniature: fold, then check on a delta.
   const emit = (o: TerminalEvent) => {
@@ -52,7 +52,10 @@ function harness() {
   // changes nothing the fold sees.
   const noteRaw = (raw: string) => watch.noteRawCommand(raw);
   const agent = (value: AgentInfo | null, argv: readonly string[] = []) =>
-    emit({ kind: "agent", agent: { value }, argv });
+    emit({
+      kind: "agent",
+      agent: { value: value === null ? null : { info: value, argv } },
+    });
   return { warn, noteRaw, agent, state: () => state };
 }
 

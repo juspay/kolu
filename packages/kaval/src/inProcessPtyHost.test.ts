@@ -148,8 +148,7 @@ describeDaemon(
       // host's retention is in place before the late subscriber joins.
       // `subscribeFrames`, not a bare open: the subscription must be ESTABLISHED
       // before the mark is driven, or the host's retention would replay it to a
-      // late subscriber and the `replayed: false` assertion below would be
-      // asserting the opposite of what it names.
+      // late subscriber and the "live frame" would be the replayed one.
       const early = subscribeFrames(client.surface.commandRun.get({ id }));
       await Effect.runPromise(
         client.surface.terminal.write({
@@ -159,19 +158,14 @@ describeDaemon(
       );
       const liveFrame = await early.next();
       expect(liveFrame.command).toContain("codex");
-      // A live mark is flagged `replayed: false`.
-      expect(liveFrame.replayed).toBe(false);
       early.close();
 
       // The repro: a NEW subscriber, joining after the mark, must still receive
       // the command — snapshot-first, on its very first frame. Before the fix it
-      // got nothing and this hangs to the nextFrame timeout. The frame is flagged
-      // `replayed: true` so the consumer seeds detection WITHOUT re-firing the
-      // live-only recent-agent recency bump.
+      // got nothing and this hangs to the nextFrame timeout.
       const late = openStream(client.surface.commandRun.get({ id }));
       const replayFrame = await nextFrame(late);
       expect(replayFrame.command).toContain("codex");
-      expect(replayFrame.replayed).toBe(true);
 
       closeStream(late);
       await Effect.runPromise(client.surface.terminal.kill({ id }));
@@ -191,9 +185,9 @@ describeDaemon(
       );
       const seed = openStream(client.surface.commandRun.get({ id }));
       const frame = await nextFrame(seed);
-      expect(frame.replayed).toBe(true);
       expect(frame.command).toBe("/bin/sh -c 'sleep 5'");
       expect(frame).not.toHaveProperty("shellJoin");
+      expect(frame).not.toHaveProperty("replayed");
       closeStream(seed);
       await Effect.runPromise(client.surface.terminal.kill({ id }));
     });

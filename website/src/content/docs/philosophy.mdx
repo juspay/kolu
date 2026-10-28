@@ -59,8 +59,10 @@ so kolu treats terminals as the thesis, not the substrate.
 Kolu populates its UI by watching what you already do — the repos you `cd` into,
 the agents you run, the sessions you save — not by asking you to configure it.
 Recent repos track `cd` events, branch / PR / CI status derive from the terminal's
-working directory, Claude Code state is read from the foreground pid, and recent
-agent CLIs come from preexec command marks emitted by kolu's shell integration.
+working directory, Claude Code state is read from the foreground pid, and a
+recent agent is a **detected live agent** — its kind plus the flags its own
+process runs with, read from the OS. The shell's command marks are a sensor: they
+help name a shimmed CLI, never supply a command.
 
 If kolu knows something, it's because the shell already told it. That's the point
 of the principle: the surface grows with your workflow, not with a preferences

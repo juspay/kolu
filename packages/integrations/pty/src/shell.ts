@@ -390,7 +390,8 @@ export const OSC2_PREEXEC_FN = `__kolu_preexec() { printf '\\033]2;%s\\033\\\\' 
  *  trap there; it chains whatever trap it displaced, but its dispatch gate is
  *  closed for the FIRST command of the session — and an agent launch is
  *  typically the first command (kolu's restore resume-writes always are), so
- *  those terminals silently never earned a resumable restore target. Nothing in
+ *  those terminals silently lost the mark that names a shimmed agent's process
+ *  (detection still worked by kernel basename; the mark is a sensor). Nothing in
  *  the ecosystem contends for `PS0`, so there is no fight to lose and no
  *  first-command window. It also structurally cannot fire for PROMPT_COMMAND
  *  hooks or readline widgets (`__fzf_history__` etc.) — the leaks the old

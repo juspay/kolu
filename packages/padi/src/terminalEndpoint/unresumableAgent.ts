@@ -20,7 +20,6 @@
 import type { TerminalId, TerminalState } from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "kolu-agents/vocab";
 import type { Logger } from "pino";
-import { restoreTargetOf } from "../terminalWorkspace/fold.ts";
 
 export interface UnresumableAgentWatch {
   /** Remember the latest raw command line the terminal's shell reported — for the
@@ -48,7 +47,8 @@ export function unresumableAgentWatch(
         warned = false;
         return;
       }
-      if (warned || resumeFormFor(restoreTargetOf(state)) !== null) return;
+      // The fold stores the target; this watch only asks whether it renders.
+      if (warned || resumeFormFor(state.restoreTarget) !== null) return;
       warned = true;
       log.warn(
         {

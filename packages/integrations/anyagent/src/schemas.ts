@@ -52,7 +52,7 @@ export type TaskProgress = typeof TaskProgressSchema.Type;
  *
  *  Every field here is OS-DERIVED (a session file's identity, a process's
  *  argv) — never a string read off PTY output. See `agent-cli.ts` for the
- *  invariant and `restoreTargetOf` for the builder. */
+ *  invariant and the fold's `restoreTargetFor` for the builder. */
 export const AgentIdentitySchema = Schema.Struct({
   kind: Schema.String,
   sessionId: Schema.String,
@@ -81,7 +81,7 @@ export type AgentIdentity = typeof AgentIdentitySchema.Type;
  *  provenance is PTY bytes. `resumeFormFor` renders the shell line from
  *  `agent` + `argv` + the agent's registry vocab.
  *
- *  Produced by kolu's fold (`restoreTargetOf`), persisted on the authored record,
+ *  Produced by kolu's fold (`restoreTargetFor`), persisted on the authored record,
  *  consumed by `resumeFormFor`. The 1.29-era `legacyMostRecent` arm (a migrated
  *  record that remembered a launch `command` but no session id) is gone: it had
  *  no honest structured replacement, so the migration maps it to `none` — a bare

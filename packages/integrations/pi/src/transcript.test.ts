@@ -313,6 +313,42 @@ describe("loadPiTranscript", () => {
     });
   });
 
+  it("refuses a `--no-session` invocation — the cwd's sessions belong to earlier runs", () => {
+    // A flat redirected store holding one session for this cwd. `--no-session`
+    // writes nothing, so offering that file would resume a stranger's
+    // conversation; without the flag the same store resolves it.
+    const cwd = "/work/no-session-project";
+    const id = "eeeeeeee-0000-4000-8000-00000000000e";
+    const customRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "kolu-pi-nosession-"),
+    );
+    fs.writeFileSync(
+      path.join(customRoot, `2026-08-24T00-00-00-000Z_${id}.jsonl`),
+      line({ type: "session", id, timestamp: "2026-08-24T00:00:00.000Z", cwd }),
+    );
+    const state = (argv: string[]) => ({
+      foregroundPid: 1234,
+      cwd,
+      readForegroundBasename: () => "pi",
+      lastAgentCommandName: null,
+      // The live process's own argv/env — injected so the test needs no fork.
+      readProcessSnapshot: () => ({
+        argv,
+        env: { PI_CODING_AGENT_SESSION_DIR: customRoot },
+      }),
+    });
+    try {
+      expect(
+        piAdapter.resolveSessions(state(["pi"]), log)?.map((s) => s.id),
+      ).toEqual([id]);
+      expect(
+        piAdapter.resolveSessions(state(["pi", "--no-session"]), log),
+      ).toEqual([]);
+    } finally {
+      fs.rmSync(customRoot, { recursive: true, force: true });
+    }
+  });
+
   it("nulls when the caller cannot supply a cwd", () => {
     expect(
       loadPiTranscript({

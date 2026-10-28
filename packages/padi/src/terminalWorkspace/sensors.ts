@@ -67,6 +67,7 @@ import { type Channel, inMemoryChannel } from "@kolu/surface/server";
 import type { Logger } from "pino";
 import type {
   AgentInfo,
+  AgentObservation,
   TerminalEvent,
   PrUnavailableSource,
   TerminalGrid,
@@ -82,9 +83,11 @@ import { claimSession, releaseTerminal } from "./sessionOwnership.ts";
  *  producer is memoryless); shared across the three adapter detectors + the
  *  agent-command tracker so they coordinate one agent field without a host store. */
 interface AgentEngineState {
-  /** The last agent value the engine EMITTED — the publish-if-changed baseline and
+  /** The last agent OBSERVATION the engine emitted — info + the live process's
+   *  allowlisted argv, as ONE value. It is both the publish-if-changed baseline
+   *  (so a same-identity sample that finally reads flags is a NEW observation) and
    *  the cross-adapter ownership narrow (which adapter, if any, owns the tile). */
-  mirror: AgentInfo | null;
+  mirror: AgentObservation | null;
   /** Basename of the agent-binary head token the last PTY command mark named
    *  (e.g. "claude"), set by the agent-command tracker and read by the
    *  detectors' `matchesAgent` shim gate. It is a HINT read off PTY bytes: it can
@@ -154,16 +157,13 @@ export function freshAgentEngineState(): AgentEngineState {
   };
 }
 
-/** A preexec command mark off the `commandRun` tap. `replayed` is true for the
- *  snapshot-first frame the pty-host emits on subscribe (the last command seen
- *  before the subscriber joined), false for a live mark.
+/** A preexec command mark off the `commandRun` tap.
  *
  *  `command` is RAW PTY BYTES and is a SENSOR only: the sensor set reads its head
  *  basename (`agentNameHint`) and nothing else. It must never reach a remembered
  *  fact, a persisted field, or a command line. */
 export interface CommandRunSample {
   command: string;
-  replayed: boolean;
 }
 
 /** Per-terminal signals the sensors subscribe to. The host (`padi`, serving
@@ -173,9 +173,8 @@ export interface CommandRunSample {
 export interface SensorSignals {
   cwd: Channel<string>;
   title: Channel<string>;
-  /** Preexec command marks. `replayed` distinguishes the snapshot-first frame
-   *  (the last command seen before subscribe, replayed so a late/restarted
-   *  sensor still learns it) from a live mark. The mark is a SENSOR: the
+  /** Preexec command marks (the host replays the last one on subscribe, so a
+   *  late/restarted sensor still learns it). The mark is a SENSOR: the
    *  agent-command tracker takes its head basename as a shim hint and re-samples
    *  the foreground; nothing here can become a command. */
   commandRun: Channel<CommandRunSample>;
@@ -547,22 +546,21 @@ export function startAgentCommandSensor(
     onEvent: ({ command: raw }) => {
       // This mark is a SENSOR, never a command. It answers exactly one question —
       // which process name the shell says it just started, so an interpreter shim
-      // (`node` running an npm-installed CLI) still matches its adapter. The
-      // basename of the head token is all that survives; there is no
-      // normalization, no flag capture, and nothing emitted to the fold.
-      agentState.currentAgent = agentNameHint(raw);
+      // (`node` running an npm-installed CLI) still matches its adapter. Only the
+      // basename of the head token is kept, and only when it names one of kolu's
+      // agent binaries; there is no normalization, no flag capture, and nothing
+      // emitted to the fold.
+      const hint = agentNameHint(raw);
+      agentState.currentAgent =
+        hint !== null && isAgentBinaryName(hint) ? hint : null;
       // The agent process forks AFTER this mark — re-sample the foreground (the
       // existing settle-window schedule in the detector) so detection sees the
       // real foreground and can read ITS argv from the OS.
-      if (
-        agentState.mirror === null &&
-        agentState.currentAgent !== null &&
-        isAgentBinaryName(agentState.currentAgent)
-      ) {
+      if (agentState.mirror === null && agentState.currentAgent !== null) {
         // An agent is LAUNCHING from a clean state (no agent owns the tile yet):
         // emit `unknown` so the session file landing a beat later is read as
         // "still resolving" (kolu KEEPS its value), never an ambiguous null.
-        emit({ kind: "agent", agent: "unknown", argv: [] });
+        emit({ kind: "agent", agent: "unknown" });
       }
     },
     onError: (err) =>
@@ -702,28 +700,42 @@ function isNotFoundError(err: unknown): boolean {
   );
 }
 
-/** Emit an authoritative agent value `{ value: nextAgent }` (incl. an
- *  authoritative null = session ended) TOGETHER with the live process's
- *  allowlisted argv, with the publish-if-changed dedup against the engine's
- *  last-emitted MIRROR — the one gate for "did kolu already reflect this?", so
- *  every publisher (watcher + screen-scrape poll + the session-ended branch)
- *  funnels through one equality check. The mirror REPLACES the old
- *  `record.meta.agent` read-back; recency (kolu's fold — an identity change
+/** Emit an authoritative agent OBSERVATION (info + allowlisted argv; a null
+ *  observation = session ended), with the publish-if-changed dedup against the
+ *  engine's last-emitted MIRROR — the one gate for "did kolu already reflect
+ *  this?", so every publisher (watcher + screen-scrape poll + the session-ended
+ *  branch) funnels through one equality check.
+ *
+ *  The dedup key is the WHOLE observation: comparing the info alone would throw
+ *  away a same-identity sample that finally read the process's flags, leaving the
+ *  persisted `argv` empty for the life of that session. The mirror REPLACES the
+ *  old `record.meta.agent` read-back; recency (kolu's fold — an identity change
  *  always, a same-identity output tick throttled) and the agent-session ref
  *  (collapsed into the frozen agent) are no longer the producer's concern.
  *
- *  `argv` is a STRUCTURED fact (the process's own tokens, filtered by the
- *  agent's stable-flag allowlist) — never PTY text. It rides the agent event so
- *  the fold can build the restore target without a second process sample. */
+ *  The argv is a STRUCTURED fact (the process's own tokens, filtered by the
+ *  agent's stable-flag allowlist) — never PTY text. */
 function emitAgentValue(
   agentState: AgentEngineState,
   emit: (o: TerminalEvent) => void,
-  nextAgent: AgentInfo | null,
-  argv: readonly string[],
+  next: AgentObservation | null,
 ): void {
-  if (agentInfoEqual(agentState.mirror, nextAgent)) return;
-  agentState.mirror = nextAgent;
-  emit({ kind: "agent", agent: { value: nextAgent }, argv });
+  if (agentObservationEqual(agentState.mirror, next)) return;
+  agentState.mirror = next;
+  emit({ kind: "agent", agent: { value: next } });
+}
+
+/** The mirror's equality: same info AND the same allowlisted argv (order
+ *  matters — flag order is part of the invocation). */
+function agentObservationEqual(
+  a: AgentObservation | null,
+  b: AgentObservation | null,
+): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  if (!agentInfoEqual(a.info, b.info)) return false;
+  if (a.argv.length !== b.argv.length) return false;
+  return a.argv.every((token, i) => token === b.argv[i]);
 }
 
 // Exported for the producer-level regression test (`sensors.observability.test.ts`),
@@ -771,7 +783,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
   // declaratively off the result. Reads the ENGINE MIRROR (not a host store).
   const publishedAgent = (): AgentInfo | null => {
     const published = agentState.mirror;
-    return published?.kind === adapter.kind ? published : null;
+    return published?.info.kind === adapter.kind ? published.info : null;
   };
   let registeredForExternal = false;
   let stopped = false;
@@ -973,9 +985,9 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
       // ONLY when THIS adapter owns the emitted tile (the mirror narrow). When no
       // adapter owns it (a launch mid-resolution), nothing is emitted, so kolu keeps
       // its value rather than seeing an ambiguous null.
-      if (agentState.mirror?.kind === adapter.kind) {
-        if (shellIdle) emitAgentValue(agentState, emit, null, []);
-        else emit({ kind: "agent", agent: "unknown", argv: [] });
+      if (agentState.mirror?.info.kind === adapter.kind) {
+        if (shellIdle) emitAgentValue(agentState, emit, null);
+        else emit({ kind: "agent", agent: "unknown" });
       }
       return;
     }
@@ -1023,12 +1035,10 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
           ) {
             return;
           }
-          emitAgentValue(
-            agentState,
-            emit,
-            info as unknown as AgentInfo,
-            liveArgv(),
-          );
+          emitAgentValue(agentState, emit, {
+            info: info as unknown as AgentInfo,
+            argv: liveArgv(),
+          });
         },
         plog,
       ),
@@ -1086,12 +1096,10 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
         const desired = scrape.promote(info, text);
         const published = publishedAgent();
         if (published && !isDeepStrictEqual(published, desired)) {
-          emitAgentValue(
-            agentState,
-            emit,
-            desired as unknown as AgentInfo,
-            liveArgv(),
-          );
+          emitAgentValue(agentState, emit, {
+            info: desired as unknown as AgentInfo,
+            argv: liveArgv(),
+          });
         }
       } catch (err) {
         // A NOT_FOUND is the benign teardown race — the PTY vanished between

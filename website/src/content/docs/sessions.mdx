@@ -83,8 +83,8 @@ Wake respawns the terminal in the same directory and resumes the agent on the
 **exact conversation it was running** — resumed by its own exact-conversation
 form (`claude --resume <id>`, `codex resume <id>`, `opencode --session <id>`,
 `xyne --session <id>`, the Grok equivalent, and for pi and Oh My Pi the
-transcript's absolute path, which those two accept verbatim), not merely the
-most-recent conversation in that folder.
+transcript's absolute path, which those two accept verbatim), never "the most
+recent conversation in this folder".
 
 The line wake types is **rendered from facts kolu owns**, never replayed from
 something a shell printed: the agent's own registry entry supplies the binary

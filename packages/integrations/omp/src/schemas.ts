@@ -127,7 +127,6 @@ export const ompVocab: AgentVocab<OmpInfo> = {
     // invocation (which has no session and exits) can never appear in it.
   },
   resume: {
-    last: "-c",
     byId: (id) => `--resume ${id}`,
     idPattern: OMP_RESUME_REF_RE,
     // omp prefers the PATH over the id: `--resume <ref>` accepts an id prefix, a

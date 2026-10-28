@@ -475,12 +475,15 @@ What wake replays is the fold-derived **`restoreTarget`**, a structured value:
   (`readProcessSnapshot` — `/proc` on Linux, the baked `osfacts` binary's
   `--argv` on macOS, which keeps tokens exact) and filtered through the agent
   package's `stableFlags` allowlist. A path, a prompt, a loader, or a resume
-  marker is dropped; a `--model sonnet` survives.
+  marker is dropped; a `--model sonnet` survives. The filter runs again at
+  RENDER (`resumeFormFor` / `agentLaunchLine`), so a target written by an older
+  build with a wider allowlist cannot bypass today's.
 - `none` is a bare shell: no live agent at sleep, or a terminal that quit one.
 
-`resumeFormFor` renders the line from those facts plus the agent's own registry
-entry (binary name and how it spells resume), and gates the session ref against
-the agent's `idPattern`. The SAME renderer feeds the wake path, the session
+`restoreTargetFor` builds that target from ONE agent observation (info + argv),
+the fold stores it on `TerminalState`, and `resumeFormFor` renders the line from
+it plus the agent's own registry entry (binary name and how it spells resume),
+gating the session ref against the agent's `idPattern`. The SAME renderer feeds the wake path, the session
 restore path, the restore card, and the recent-agents palette — so a displayed
 line and a typed line cannot drift, and neither can read captured text.
 
@@ -488,6 +491,11 @@ Two consequences the docs state rather than hide: a shell-typed env prefix
 (`FOO=1 claude`) is no longer replayed (it is not in the process's arguments;
 kolu-authored `AI_PROFILE` still is), and a target saved before 1.3.0 resumes
 its conversation without its old flags once.
+
+An IMPORTED blob (`session.import`, a restored padi state backup) is foreign
+input: `stripImportedTargetArgv` keeps each target's identity and drops its
+argv. Those flags were never observed here, and a flag list is enough to inject
+behaviour even through the allowlist.
 
 The recent-agents MRU rides the same facts: a row is `{ kind, argv }`, recorded
 when an agent is **detected live**, and the palette renders it through the

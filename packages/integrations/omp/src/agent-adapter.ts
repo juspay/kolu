@@ -125,9 +125,10 @@ function noteBreadcrumbDir(dir: string): void {
  *  `#resetToNewSession` leaves `#sessionFile` undefined and never re-stamps
  *  this tty's breadcrumb, so whatever crumb the tty already carries belongs to
  *  an EARLIER run — a stale answer that must not stand for this one
- *  (session-manager.ts in omp's source). The fold refuses it here rather than
- *  in the vocab's `nonSessionFlags`, because a `--no-session` launch still
- *  matches `omp` on the kernel basename and ends up here.
+ *  (session-manager.ts in omp's source). The fold refuses it here because a
+ *  `--no-session` launch still matches `omp` on the kernel basename and ends up
+ *  here — the typed line is no longer parsed for it (pi's adapter has the same
+ *  argv guard).
  *
  *  One platform caveat, inherited from the shared snapshot and documented the
  *  same way pi documents it: on macOS the kernel redacts even a same-user

@@ -288,13 +288,10 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           }),
       },
       // Preexec command marks — snapshot-then-deltas (dev/skills/streaming/SKILL.md §2). The
-      // last command replays first (`replayed: true`) so a sensor that attaches
-      // AFTER the mark (a lazily-attaching or restarted padi) still learns it
-      // and resolves a command-only agent like codex; live marks follow with
-      // `replayed: false`. The flag is load-bearing, NOT decorative: unlike
-      // `foreground`, a consumer may take a live-only action (a foreground
-      // re-sample) on a live mark, so a replay must be distinguishable or a
-      // reconnect/late-subscribe would re-fire it.
+      // last command replays first so a sensor that attaches AFTER the mark (a
+      // lazily-attaching or restarted padi) still learns it and resolves a
+      // command-only agent like codex; live marks follow. There is no
+      // replay/live discriminator: no consumer branches on one.
       //
       // The payload is SENSOR DATA: PTY output is a sensor, and nothing that
       // executes may read a value whose provenance is PTY bytes.
@@ -308,15 +305,14 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
               // published synchronously at spawn, before any subscriber, so it
               // never arrives live).
               const live = sub.marks.pipe(
-                Stream.map((command) => ({ command, replayed: false })),
+                Stream.map((command) => ({ command })),
                 endOnOverflow("commandRun", input.id),
               );
               return sub.retained === undefined
                 ? live
-                : Stream.make({
-                    command: sub.retained.command,
-                    replayed: true,
-                  }).pipe(Stream.concat(live));
+                : Stream.make({ command: sub.retained.command }).pipe(
+                    Stream.concat(live),
+                  );
             }),
           ),
       },

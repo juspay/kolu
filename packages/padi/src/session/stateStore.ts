@@ -18,7 +18,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ActivityFeed, SavedSession } from "@kolu/padi-client/surface";
-import { backfillSavedSession } from "@kolu/padi-client/surface";
+import {
+  backfillActivityFeed,
+  backfillSavedSession,
+} from "@kolu/padi-client/surface";
 import type { CellStore } from "@kolu/surface/server";
 import { confStore } from "@kolu/surface/server";
 import Conf from "conf";
@@ -61,11 +64,10 @@ export const PADI_STATE_SCHEMA_VERSION = "1.3.0";
  *    `{ kind: "exact", agent, argv: [] }`, and `legacyMostRecent` becomes `none`
  *    (`backfillRestoreTargetArgv`) — the old `command` is DELETED, never parsed:
  *    re-parsing it is the forgery hole this closes. The remembered
- *    `lastAgentCommand` key is dropped by the same backfill
- *    (`backfillSnapshotCutover`), and the recent-agents MRU — whose rows carried
- *    a captured `command` string — is cleared, since its new rows are
- *    `{ kind, argv }` facts and no old row can be honestly converted without the
- *    same re-parse. */
+ *    `lastAgentCommand` key is dropped by the same rung, and the activity feed
+ *    goes through its shared row-shape backfill (`backfillActivityFeed`): old
+ *    agent rows carried a captured `command` and cannot be converted, so the MRU
+ *    starts empty and refills from live detection. */
 const PADI_STATE_MIGRATIONS: Record<
   string,
   (store: Conf<PadiPersistedState>) => void
@@ -84,9 +86,7 @@ const PADI_STATE_MIGRATIONS: Record<
     const session = store.get("session");
     if (session !== null)
       store.set("session", backfillSavedSession(session) as SavedSession);
-    const feed = store.get("activityFeed");
-    if (feed.recentAgents.length > 0)
-      store.set("activityFeed", { ...feed, recentAgents: [] });
+    store.set("activityFeed", backfillActivityFeed(store.get("activityFeed")));
   },
 };
 

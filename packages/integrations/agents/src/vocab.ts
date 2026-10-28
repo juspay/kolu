@@ -91,21 +91,14 @@ export function isAgentKind(raw: string): raw is AgentKind {
   return Object.hasOwn(AGENT_VOCABS, raw);
 }
 
-/** Resolve an OPEN kind (an adapter's kind, a persisted record's kind) to its
- *  vocab, CRASHING loudly when this build does not know it. For a caller that
- *  holds kolu's own data — our adapters, our registry — an unknown kind is a
- *  programming error, not a user-facing condition. A PERSISTED record takes the
- *  non-throwing door (`resumeFormFor` → bare shell) instead. */
-export function requireAgentVocab(kind: string): AnyAgentVocab {
-  if (!isAgentKind(kind)) throw new Error(`unknown agent kind: ${kind}`);
-  return AGENT_VOCABS[kind];
-}
-
 /** The CLI grammar (binary name + stable-flag allowlist) for an OPEN kind —
- *  the sensor's argv filter reads it. Throws for an unknown kind, as
- *  {@link requireAgentVocab} does. */
+ *  the sensor's argv filter reads it. CRASHES when this build does not know the
+ *  kind: for a caller holding kolu's own data (our adapters, our registry) that
+ *  is a programming error, not a user-facing condition. A PERSISTED record takes
+ *  the non-throwing door (`resumeFormFor` → bare shell) instead. */
 export function agentCliGrammar(kind: string): AgentCliGrammar {
-  return requireAgentVocab(kind).cli;
+  if (!isAgentKind(kind)) throw new Error(`unknown agent kind: ${kind}`);
+  return AGENT_VOCABS[kind].cli;
 }
 
 /** Does this basename name one of kolu's agent binaries? The sensor asks it of a

@@ -158,7 +158,7 @@ describe("RestoreTargetSchema — reader tolerance and refusal", () => {
     });
   });
 
-  /** Refusal is what makes `restoreTargetOf`'s two arms exhaustive: a
+  /** Refusal is what makes the target's two arms exhaustive: a
    *  half-written `exact` (identity lost, or no argv list) must not decode into
    *  something the wake path would act on. padi drops the whole malformed record
    *  instead. */

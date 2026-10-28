@@ -29,7 +29,10 @@
 
 import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { backfillSavedSession } from "@kolu/padi-client/surface";
+import {
+  backfillActivityFeed,
+  backfillSavedSession,
+} from "@kolu/padi-client/surface";
 import type { Logger } from "@kolu/surface-daemon";
 import type { PadiStateStores } from "./stateStore.ts";
 
@@ -120,8 +123,17 @@ export function importLegacyConfigOnce(
       // blob arrives in kolu-server's last shape; padi's ladder already ran on
       // its own (empty) file, so the session takes padi's later steps here, via
       // the same saved-terminal backfill (`backfillSavedSession`).
+      // Each key takes the shared backfill for its domain at this door: the
+      // session's saved-terminal ladder, and the activity feed's row shapes
+      // (old agent rows carried a captured command and cannot be converted —
+      // they would crash `upsertMru` and, swallowed inside `emit`, stop every
+      // terminal on the host from committing). `lastPairedDaemon` needs none.
       const value =
-        key === "session" ? backfillSavedSession(raw[key]) : raw[key];
+        key === "session"
+          ? backfillSavedSession(raw[key])
+          : key === "activityFeed"
+            ? backfillActivityFeed(raw[key])
+            : raw[key];
       // biome-ignore lint/suspicious/noExplicitAny: seeding a raw blob key into the typed Conf; the old file's shape is validated by kolu-server's ladder, not re-parsed here.
       conf.set(key, value as any);
     }

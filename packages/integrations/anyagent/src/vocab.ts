@@ -58,19 +58,20 @@ export interface AgentCliGrammar {
  *  policy, declared in the agent's own vocab, so "how does agent X resume?" is
  *  one thing in one place.
  *
- *  Four facets:
- *   - `last`  — continue the MOST-RECENT conversation in the cwd, no id needed
- *       (claude `-c`, codex `resume --last`, opencode `--continue`).
+ *  Three facets:
  *   - `byId`  — resume the EXACT conversation by its native ref (juspay/kolu#1495).
  *   - `idPattern` — the shell-inert shape gate a ref must pass before it is
- *       spliced via `byId`. Fail-closed: a same-agent ref that fails this
- *       pattern yields NO resume (a bare shell), never a downgrade to `last`.
+ *       spliced via `byId`. Fail-closed: a ref that fails this pattern yields NO
+ *       resume (a bare shell) — there is no most-recent fallback to downgrade to.
  *   - `ref`   — the persisted resume ref for a live session's info. Four agents
  *       write `(i) => i.sessionId`; pi (the fifth) writes `(i) => i.sessionPath`.
  *       REQUIRED, not optional: no default, no `??` collapse (conventions: no
- *       override knobs). */
+ *       override knobs).
+ *
+ *  There is deliberately no `last` spelling: resume always names the conversation
+ *  kolu observed, so the "most recent in this directory" fallback has no reader
+ *  and is gone with the captured-launch-line world. */
 export interface AgentResumePolicy<Info> {
-  readonly last: string;
   readonly byId: (ref: string) => string;
   readonly idPattern: RegExp;
   readonly ref: (info: Info) => string;

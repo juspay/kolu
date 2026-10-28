@@ -153,7 +153,6 @@ describe("W12 — the agent sensor's resolved-null SAMPLE-CONTENT discriminant",
       expect(agentEvents(h.emits).at(-1)).toEqual({
         kind: "agent",
         agent: { value: null },
-        argv: [],
       });
     } finally {
       h.stop();
@@ -170,7 +169,6 @@ describe("W12 — the agent sensor's resolved-null SAMPLE-CONTENT discriminant",
       expect(agentEvents(h.emits).at(-1)).toEqual({
         kind: "agent",
         agent: "unknown",
-        argv: [],
       });
     } finally {
       h.stop();
@@ -206,7 +204,6 @@ describe("W12 — the agent sensor's resolved-null SAMPLE-CONTENT discriminant",
       expect(agents.at(-1)).toEqual({
         kind: "agent",
         agent: "unknown",
-        argv: [],
       });
     } finally {
       h.stop();
@@ -234,7 +231,6 @@ describe("W12 — the agent sensor's resolved-null SAMPLE-CONTENT discriminant",
       expect(agentEvents(h.emits).at(-1)).toEqual({
         kind: "agent",
         agent: "unknown",
-        argv: [],
       });
     } finally {
       h.stop();
@@ -253,14 +249,12 @@ describe("W12 — the agent sensor's resolved-null SAMPLE-CONTENT discriminant",
       expect(agentEvents(h.emits).at(-1)).toEqual({
         kind: "agent",
         agent: "unknown",
-        argv: [],
       });
 
       await h.foreground(shellSample); // the shell is genuinely back → clear
       expect(agentEvents(h.emits).at(-1)).toEqual({
         kind: "agent",
         agent: { value: null },
-        argv: [],
       });
     } finally {
       h.stop();

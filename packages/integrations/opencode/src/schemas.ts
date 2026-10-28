@@ -69,7 +69,6 @@ export const opencodeVocab: AgentVocab<OpenCodeInfo> = {
     ]),
   },
   resume: {
-    last: "--continue",
     byId: (id) => `--session ${id}`,
     idPattern: /^ses_[0-9a-zA-Z]{1,64}$/,
     ref: (info) => info.sessionId,

@@ -317,11 +317,12 @@ let
         # Same argument as @kolu/xterm-kit above.
         "terminal-snapshot"
         # `@kolu/shell-quote` — the POSIX-quote source of truth. kaval seeds a
-        # command-rooted PTY's `lastCommand` with `shellJoin` (#1872), and the
-        # seed's DIALECT is carried on the `commandRun` frame's `shellJoin`
-        # field, which lives in `ptyHostSurface` (kaval) and IS hashed via
-        # PTY_HOST_CONTRACT_VERSION — so a wire-relevant quoting change rides
-        # the contract bump; a browser-irrelevant leaf change must not nudge.
+        # command-rooted PTY's `lastCommand` with `shellJoin` (#1872); the seed
+        # is sensor data on the `commandRun` frame (no dialect field any more),
+        # and anyagent renders resume/launch lines with it. A quoting change
+        # reaches kaval's hashed source closure through that import and rides
+        # PTY_HOST_CONTRACT_VERSION — a browser-irrelevant leaf change must not
+        # nudge.
         "@kolu/shell-quote"
         # `@kolu/heap-diag` — opt-in heap instrumentation, no wire/behaviour.
         "@kolu/heap-diag"

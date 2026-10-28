@@ -24,8 +24,9 @@
  *  per-invocation overrides are forfeited, which is the honest information
  *  available.
  *
- *  `--no-session` produces no store at all; anyagent's command grammar
- *  already refuses it, so no case for it exists here. */
+ *  `--no-session` produces no store at all. This module still folds its other
+ *  links (it is pure given argv/env); the ADAPTER refuses the invocation before
+ *  asking, so no stale cwd session is ever attributed to it. */
 
 import fs from "node:fs";
 import path from "node:path";

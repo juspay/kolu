@@ -1057,7 +1057,7 @@ retirements:
     defectSurface: [recent-agents, e2e-command-lifecycle]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-429b93553ce0a7528476]
+    survivorRevisionIds: [revision-fce244a91d0f488a3d84]
     sameCodePathEvidence:
       file: packages/tests/features/recent-agents.feature
       symbol: "Scenario: Drilling into Recent agents keeps focus on palette input"
@@ -1070,7 +1070,7 @@ retirements:
     defectSurface: [recent-agents, e2e-command-lifecycle]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-72a2af203a68b1b7ff37]
+    survivorRevisionIds: [revision-ee56c08a2a963f6208d9]
     sameCodePathEvidence:
       file: packages/tests/features/recent-agents.feature
       symbol: 'Scenario: Known agent invocation surfaces under "Recent agents"'
@@ -1083,7 +1083,7 @@ retirements:
     defectSurface: [worktree-agent, e2e-command-lifecycle]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-29a9ba6d97c83785f8f8]
+    survivorRevisionIds: [revision-339402453f4f8d932620]
     sameCodePathEvidence:
       file: packages/tests/features/worktree-agent.feature
       symbol: "Scenario: Agent sub-palette appears under a recent repo when agents exist"
@@ -1096,7 +1096,7 @@ retirements:
     defectSurface: [worktree-agent, e2e-command-lifecycle]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-8cf7a1038b6a594c079c]
+    survivorRevisionIds: [revision-a7948b3ef69dfde4cf69]
     sameCodePathEvidence:
       file: packages/tests/features/worktree-agent.feature
       symbol: "Scenario: Picking an agent creates the worktree and writes the command"
@@ -1109,7 +1109,7 @@ retirements:
     defectSurface: [worktree-agent, e2e-command-lifecycle]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-48e819201e86a26bb076]
+    survivorRevisionIds: [revision-18b0178fbbe7b64202eb]
     sameCodePathEvidence:
       file: packages/tests/features/worktree-agent.feature
       symbol: "Scenario: Picking Plain shell creates a plain worktree terminal"
@@ -1122,7 +1122,7 @@ retirements:
     defectSurface: [worktree-agent, e2e-command-lifecycle]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-42b5b7aee6b1fb948c83]
+    survivorRevisionIds: [revision-9ecec81675b75dff8f6d]
     sameCodePathEvidence:
       file: packages/tests/features/worktree-agent.feature
       symbol: "Scenario: Typing a custom name and picking an agent creates a named worktree with the agent"
@@ -1213,7 +1213,7 @@ retirements:
     defectSurface: [recent-agents, e2e-command-lifecycle]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-d693ae151dd9f4c5c1ca]
+    survivorRevisionIds: [revision-d84d38d42a10f8cdd5fc]
     sameCodePathEvidence:
       file: packages/tests/features/recent-agents.feature
       symbol: "Scenario: A quoted flag value survives intact in the list (#1407)"
@@ -1226,10 +1226,10 @@ retirements:
     defectSurface: [recent-agents, e2e-command-lifecycle]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-14a54fc0cd3d6c282483]
+    survivorRevisionIds: [revision-5a0cb4f86dfab153ac8a]
     sameCodePathEvidence:
       file: packages/tests/features/recent-agents.feature
-      symbol: "Scenario: Prompt flag values are stripped before storage"
+      symbol: "Scenario: Flags outside the allowlist are stripped from the row"
       test: The revised scenario explicitly starts the intentionally absent Claude binary after its preexec event.
   - id: revise-5d80e2b7f4f44c94576d
     revisionId: revision-5d80e2b7f4f44c94576d
@@ -1978,7 +1978,7 @@ retirements:
     defectSurface: [session-restore, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-9882f17943531dee33e0]
+    survivorRevisionIds: [revision-088d4f405a67a1516a66]
     sameCodePathEvidence:
       file: packages/tests/features/session-restore.feature
       symbol: "Scenario Outline: A split terminal's agent resumes on session restore"
@@ -1991,7 +1991,7 @@ retirements:
     defectSurface: [session-restore, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-9882f17943531dee33e0]
+    survivorRevisionIds: [revision-088d4f405a67a1516a66]
     sameCodePathEvidence:
       file: packages/tests/features/session-restore.feature
       symbol: "Scenario Outline: A split terminal's agent resumes on session restore"
@@ -2004,7 +2004,7 @@ retirements:
     defectSurface: [session-restore, user-journey, test-timing-race]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-9882f17943531dee33e0]
+    survivorRevisionIds: [revision-088d4f405a67a1516a66]
     sameCodePathEvidence:
       file: packages/tests/features/session-restore.feature
       symbol: "Scenario Outline: A split terminal's agent resumes on session restore"
@@ -3342,3 +3342,172 @@ retirements:
       file: packages/tests/features/opencode.feature
       symbol: "Scenario: OpenCode running a tool shows tool use"
       test: The revised scenario keeps the tool_use journey; its task-progress half is dropped because OpenCode 2.x writes no todo table.
+  - id: revise-74a46285e69fb6451e2a
+    revisionId: revision-74a46285e69fb6451e2a
+    action: revised
+    status: landed
+    promise: "\"Recent agents\" is hidden when no agents have been run"
+    defectSurface: [recent-agents]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-d12fc291481e24680859]
+    sameCodePathEvidence:
+      file: features/recent-agents.feature
+      symbol: "Scenario: \"Recent agents\" is hidden when no agents have been run"
+      test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
+  - id: revise-806007eece06b17fbca4
+    revisionId: revision-806007eece06b17fbca4
+    action: revised
+    status: landed
+    promise: "Non-agent commands do not pollute the list"
+    defectSurface: [recent-agents]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-a113efa723c731ff6d46]
+    sameCodePathEvidence:
+      file: features/recent-agents.feature
+      symbol: "Scenario: Non-agent commands do not pollute the list"
+      test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
+  - id: revise-429b93553ce0a7528476
+    revisionId: revision-429b93553ce0a7528476
+    action: revised
+    status: landed
+    promise: "Drilling into Recent agents keeps focus on palette input"
+    defectSurface: [recent-agents]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-fce244a91d0f488a3d84]
+    sameCodePathEvidence:
+      file: features/recent-agents.feature
+      symbol: "Scenario: Drilling into Recent agents keeps focus on palette input"
+      test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
+  - id: revise-29a9ba6d97c83785f8f8
+    revisionId: revision-29a9ba6d97c83785f8f8
+    action: revised
+    status: landed
+    promise: "Agent sub-palette appears under a recent repo when agents exist"
+    defectSurface: [worktree-agent]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-339402453f4f8d932620]
+    sameCodePathEvidence:
+      file: features/worktree-agent.feature
+      symbol: "Scenario: Agent sub-palette appears under a recent repo when agents exist"
+      test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
+  - id: revise-8cf7a1038b6a594c079c
+    revisionId: revision-8cf7a1038b6a594c079c
+    action: revised
+    status: landed
+    promise: "Picking an agent creates the worktree and writes the command"
+    defectSurface: [worktree-agent]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-a7948b3ef69dfde4cf69]
+    sameCodePathEvidence:
+      file: features/worktree-agent.feature
+      symbol: "Scenario: Picking an agent creates the worktree and writes the command"
+      test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
+  - id: revise-48e819201e86a26bb076
+    revisionId: revision-48e819201e86a26bb076
+    action: revised
+    status: landed
+    promise: "Picking Plain shell creates a plain worktree terminal"
+    defectSurface: [worktree-agent]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-18b0178fbbe7b64202eb]
+    sameCodePathEvidence:
+      file: features/worktree-agent.feature
+      symbol: "Scenario: Picking Plain shell creates a plain worktree terminal"
+      test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
+  - id: revise-42b5b7aee6b1fb948c83
+    revisionId: revision-42b5b7aee6b1fb948c83
+    action: revised
+    status: landed
+    promise: "Typing a custom name and picking an agent creates a named worktree with the agent"
+    defectSurface: [worktree-agent]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-9ecec81675b75dff8f6d]
+    sameCodePathEvidence:
+      file: features/worktree-agent.feature
+      symbol: "Scenario: Typing a custom name and picking an agent creates a named worktree with the agent"
+      test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
+  - id: revise-d693ae151dd9f4c5c1ca
+    revisionId: revision-d693ae151dd9f4c5c1ca
+    action: revised
+    status: landed
+    promise: "A quoted flag value survives intact in the list (#1407)"
+    defectSurface: [recent-agents]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-d84d38d42a10f8cdd5fc]
+    sameCodePathEvidence:
+      file: features/recent-agents.feature
+      symbol: "Scenario: A quoted flag value survives intact in the list (#1407)"
+      test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
+  - id: revise-024ebc7e5cf5c71778b2
+    revisionId: revision-024ebc7e5cf5c71778b2
+    action: revised
+    status: landed
+    promise: "Mouse submission survives a live palette refresh"
+    defectSurface: [worktree-agent]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-fc2ee9106b46f7197717]
+    sameCodePathEvidence:
+      file: features/worktree-agent.feature
+      symbol: "Scenario: Mouse submission survives a live palette refresh"
+      test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
+  - id: revise-9882f17943531dee33e0
+    revisionId: revision-9882f17943531dee33e0
+    action: revised
+    status: landed
+    promise: "A split terminal's agent resumes on session restore"
+    defectSurface: [session-restore]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-088d4f405a67a1516a66]
+    sameCodePathEvidence:
+      file: features/session-restore.feature
+      symbol: "Scenario: A split terminal's agent resumes on session restore"
+      test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
+  - id: revise-72a2af203a68b1b7ff37
+    revisionId: revision-72a2af203a68b1b7ff37
+    action: revised
+    status: landed
+    promise: A known agent invocation appears under Recent agents
+    defectSurface: [recent-agents]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-ee56c08a2a963f6208d9]
+    sameCodePathEvidence:
+      file: features/recent-agents.feature
+      symbol: "Scenario: A live agent surfaces under \"Recent agents\""
+      test: The renamed scenario still asserts that a detected agent surfaces in the palette; its arrangement now runs a live agent process instead of a captured command mark.
+  - id: revise-14a54fc0cd3d6c282483
+    revisionId: revision-14a54fc0cd3d6c282483
+    action: revised
+    status: landed
+    promise: Prompt flag values are stripped before Recent-agents storage
+    defectSurface: [recent-agents]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-5a0cb4f86dfab153ac8a]
+    sameCodePathEvidence:
+      file: features/recent-agents.feature
+      symbol: "Scenario: Flags outside the allowlist are stripped from the row"
+      test: The renamed scenario still asserts that flags outside the allowlist never reach the row; it now reads the live process's argv instead of a typed line.
+  - id: revise-e491a92ff0d84c497fa2
+    revisionId: revision-e491a92ff0d84c497fa2
+    action: revised
+    status: landed
+    promise: Restore card surfaces agent commands behind a global resume toggle
+    defectSurface: [session-restore]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-4730b83691773bb98439]
+    sameCodePathEvidence:
+      file: features/session-restore.feature
+      symbol: "Scenario: Restore card surfaces resumable agents behind a global resume toggle"
+      test: The renamed scenario still asserts the resume toggle and the per-terminal agent lines; it now plants structured restore targets instead of captured commands.

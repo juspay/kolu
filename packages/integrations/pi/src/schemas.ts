@@ -106,7 +106,6 @@ export const piVocab: AgentVocab<PiInfo> = {
     // invocation (which has no session and exits) can never appear in it.
   },
   resume: {
-    last: "-c",
     byId: (id) => `--session ${id}`,
     idPattern: PI_RESUME_REF_RE,
     // Pi prefers the PATH over the id: pi's id lookup searches only its OWN

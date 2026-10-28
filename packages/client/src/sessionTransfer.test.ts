@@ -71,7 +71,8 @@ describe("parseSavedSession", () => {
     // pre-discriminant terminal was live), `location: LOCAL_LOCATION`, and
     // `pr: { kind: "absent" }` (the live PR sensor re-resolves on restore).
     // `lastActivityAt` rides through verbatim — it predates these bumps. The
-    // old nullable `git` becomes the three-case fact.
+    // old nullable `git` becomes the three-case fact. A record with no resume
+    // target keeps ABSENT (`none` is not invented for it).
     const legacy = {
       terminals: [
         { id: "t1", cwd: "/home/user", git: null, lastActivityAt: 0 },
@@ -90,7 +91,6 @@ describe("parseSavedSession", () => {
           state: "active",
           location: LOCAL_LOCATION,
           pr: { kind: "absent" },
-          restoreTarget: { kind: "none" },
           promptedAt: null,
         },
       ],

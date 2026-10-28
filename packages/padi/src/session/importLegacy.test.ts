@@ -10,6 +10,12 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  __resetPadiSurfaceCtxForTest,
+  noopPadiSurfaceCtxForTest,
+  setPadiSurfaceCtx,
+} from "../padiSurfaceCtx.ts";
+import { trackRecentAgent } from "../activity/activity.ts";
 import { importLegacyConfigOnce } from "./importLegacy.ts";
 import {
   PADI_STATE_SCHEMA_VERSION,
@@ -49,7 +55,11 @@ const legacyBlob = () => ({
     terminals: [{ id: "11111111-1111-1111-1111-111111111111" }],
     activeTerminalId: null,
   },
-  activityFeed: { recentRepos: ["/repo/a"], recentAgents: ["claude"] },
+  activityFeed: {
+    recentRepos: [{ repoRoot: "/repo/a", repoName: "a", lastSeen: 5 }],
+    // An old-shape row: it carried a captured command, not `{ kind, argv }`.
+    recentAgents: [{ command: "claude --yolo", lastSeen: 5 }],
+  },
   lastPairedDaemon: { startedAt: 1234 },
   // preferences must NOT cross into padi's store — it stays kolu-server's.
   preferences: { theme: "dark", newTerminalTheme: "x", shuffleBehavior: "y" },
@@ -62,7 +72,12 @@ describe("importLegacyConfigOnce", () => {
     importLegacyConfigOnce(stores, log);
 
     expect(stores.session.get()?.terminals).toHaveLength(1);
-    expect(stores.activityFeed.get().recentRepos).toEqual(["/repo/a"]);
+    expect(stores.activityFeed.get().recentRepos).toEqual([
+      { repoRoot: "/repo/a", repoName: "a", lastSeen: 5 },
+    ]);
+    // The old-shape agent row is dropped at the door — it cannot be converted
+    // without re-parsing a captured command.
+    expect(stores.activityFeed.get().recentAgents).toEqual([]);
     expect(stores.lastPairedDaemon.get()).toEqual({ startedAt: 1234 });
     // preferences is not a padi key at all — it never entered padi's store.
     expect(stores.conf.get("importedLegacyConfig")).toBe(true);
@@ -88,7 +103,12 @@ describe("importLegacyConfigOnce", () => {
     writeLegacy(legacyBlob());
     const stores = openPadiStateStores(stateRoot);
     importLegacyConfigOnce(stores, log);
-    expect(stores.activityFeed.get().recentRepos).toEqual(["/repo/a"]);
+    expect(stores.activityFeed.get().recentRepos).toEqual([
+      { repoRoot: "/repo/a", repoName: "a", lastSeen: 5 },
+    ]);
+    // The old-shape agent row is dropped at the door — it cannot be converted
+    // without re-parsing a captured command.
+    expect(stores.activityFeed.get().recentAgents).toEqual([]);
 
     // The old file changes, but the marker blocks a re-import (padi owns its
     // state now — a re-import must never clobber padi's own later writes).
@@ -97,7 +117,51 @@ describe("importLegacyConfigOnce", () => {
       activityFeed: { recentRepos: ["/repo/b"], recentAgents: [] },
     });
     importLegacyConfigOnce(stores, log);
-    expect(stores.activityFeed.get().recentRepos).toEqual(["/repo/a"]);
+    expect(stores.activityFeed.get().recentRepos).toEqual([
+      { repoRoot: "/repo/a", repoName: "a", lastSeen: 5 },
+    ]);
+    // The old-shape agent row is dropped at the door — it cannot be converted
+    // without re-parsing a captured command.
+    expect(stores.activityFeed.get().recentAgents).toEqual([]);
+  });
+
+  it("an imported legacy MRU row cannot crash the first live track", () => {
+    // The regression: the 1.3.0 ladder ran on padi's EMPTY file before this
+    // import seeded an old-shape `{ command }` row, so the row survived stamped
+    // 1.3.0. The next `trackRecentAgent` → `upsertMru` → `argv.join` threw inside
+    // `emit`; the catch in `reconcile` swallowed it AFTER the mirror advanced, so
+    // every terminal on the host stopped committing. The door now normalizes the
+    // feed, so the first track is an ordinary write.
+    writeLegacy(legacyBlob());
+    const stores = openPadiStateStores(stateRoot);
+    importLegacyConfigOnce(stores, log);
+    expect(stores.activityFeed.get().recentAgents).toEqual([]);
+
+    __resetPadiSurfaceCtxForTest();
+    const base = noopPadiSurfaceCtxForTest();
+    setPadiSurfaceCtx({
+      ...base,
+      cells: new Proxy({} as never, {
+        get: (_t, name) =>
+          name === "activityFeed"
+            ? stores.activityFeed
+            : (base.cells as Record<string, unknown>)[name as string],
+      }),
+    } as ReturnType<typeof noopPadiSurfaceCtxForTest>);
+    try {
+      expect(() =>
+        trackRecentAgent("claude-code", ["--model", "sonnet"]),
+      ).not.toThrow();
+      expect(stores.activityFeed.get().recentAgents).toEqual([
+        {
+          kind: "claude-code",
+          argv: ["--model", "sonnet"],
+          lastSeen: expect.any(Number),
+        },
+      ]);
+    } finally {
+      __resetPadiSurfaceCtxForTest();
+    }
   });
 
   it("CRASHES loudly on a malformed old file — never starts empty", () => {
@@ -180,7 +244,12 @@ describe("importLegacyConfigOnce", () => {
     expect(stores.session.get()?.terminals[0]?.id).toBe(
       "11111111-1111-1111-1111-111111111111",
     );
-    expect(stores.activityFeed.get().recentRepos).toEqual(["/repo/a"]);
+    expect(stores.activityFeed.get().recentRepos).toEqual([
+      { repoRoot: "/repo/a", repoName: "a", lastSeen: 5 },
+    ]);
+    // The old-shape agent row is dropped at the door — it cannot be converted
+    // without re-parsing a captured command.
+    expect(stores.activityFeed.get().recentAgents).toEqual([]);
     expect(stores.lastPairedDaemon.get()).toEqual({ startedAt: 1234 });
     expect(stores.conf.get("importedLegacyConfig")).toBe(true);
     // The strip-backup is already durable — no SECOND `pre-padi-import` copy.

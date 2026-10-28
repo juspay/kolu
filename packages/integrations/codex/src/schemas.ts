@@ -82,7 +82,6 @@ export const codexVocab: AgentVocab<CodexInfo> = {
     ]),
   },
   resume: {
-    last: "resume --last",
     byId: (id) => `resume ${id}`,
     idPattern:
       /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,

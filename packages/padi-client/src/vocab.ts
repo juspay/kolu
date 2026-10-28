@@ -266,7 +266,7 @@ const KoluAuthoredServerFieldsSchema = Schema.Struct({
    *  waking this terminal do?" (`{@link RestoreTargetSchema}`): `exact` resumes the
    *  EXACT conversation that was live (#1495) from its identity plus the live
    *  process's allowlisted flags, `none` wakes to a bare shell (#1492).
-   *  Produced by `restoreTargetOf` and written by the fold's `updateMemory`; it
+   *  Produced by the fold (`restoreTargetFor`) and written by `updateMemory`; it
    *  rides the AUTHORED record (not the observation) because a server restart keeps
    *  only the agent's IDENTITY, never its lie-when-dead detail. ABSENT reads as
    *  `none` (a fresh terminal with no agent), never as "resume something" — the
@@ -1096,103 +1096,111 @@ export function backfillTerminalState(
   return { ...t, state: "active" };
 }
 
-/** Backfill the awareness-derive-store cutover (PR #1621): `pr` became a PERSISTED
- *  (restore-relevant) field, and the old sticky `agentSession` ref collapsed into
- *  the discriminated `restoreTarget` (`{@link RestoreTargetSchema}`). A
- *  pre-cutover record:
- *   - lacks `pr` (it was a never-persisted live field) → backfill `{ kind: "absent"
- *     }` so the now-persisted field parses; the live PR sensor re-resolves on
- *     restore. A frozen sleeping-arm `pr` already satisfies it and passes through;
- *   - is given a `restoreTarget` from its STRUCTURED identity: an `agentSession
- *     { kind, id }` becomes `{ kind: "exact", agent: { kind, sessionId, resumeRef },
- *     argv: [] }` (the EXACT conversation, #1495), so an already-saved session
- *     still resumes — without its old flags once; the next live sample supplies
- *     them. A record with NO structured identity gets `none` (a bare shell).
- *  The old `lastAgentCommand` launch line is DROPPED and never read: re-parsing
- *  captured PTY text was the forgery hole (a `cat`-ed file could name the command
- *  wake typed), so a record that only ever remembered a launch line loses it
- *  rather than having it converted. `agentSession` and `lastAgentCommand` are
- *  removed either way. Idempotent and presence-keyed: a record that already has
- *  `pr` and a `restoreTarget` passes through untouched. */
+/** Backfill the awareness-derive-store cutover (PR #1621) — THIS rung's era only.
+ *  `pr` became a PERSISTED (restore-relevant) field, and the old sticky
+ *  `agentSession` ref collapsed into the discriminated `restoreTarget`
+ *  (`{@link RestoreTargetSchema}`). A pre-cutover record:
+ *   - lacks `pr` (it was a never-persisted live field) → backfill `{ kind:
+ *     "absent" }` so the now-persisted field parses; the live PR sensor
+ *     re-resolves on restore. A frozen sleeping-arm `pr` already satisfies it;
+ *   - is given the era's target from its STRUCTURED identity and remembered
+ *     line: `agentSession { kind, id }` + a `lastAgentCommand` →
+ *     `{ kind: "exact", command, agent }`; a line with no usable identity →
+ *     `{ kind: "legacyMostRecent", command }`; neither → the key stays ABSENT
+ *     (absent ≡ `none`, the era's spelling).
+ *  The command is COPIED, never parsed: this rung only carries the text forward
+ *  so the 1.3.0 rung can delete it. `lastAgentCommand` is left in place for that
+ *  rung (one owner per transition). `agentSession` is dropped. Idempotent and
+ *  presence-keyed: a record that already has `pr` and a `restoreTarget` passes
+ *  through untouched. */
 /** zod's `AgentKindSchema.safeParse`, in Effect terms — a `Result`, so a corrupt
- *  on-disk `agentSession.kind` is a BRANCH here (no target), never a throw that
- *  would drop the whole terminal at the read boundary. */
+ *  on-disk `agentSession.kind` is a BRANCH here (no exact target), never a throw
+ *  that would drop the whole terminal at the read boundary. */
 const decodeAgentKindResult = Schema.decodeUnknownResult(AgentKindSchema);
 
 export function backfillSnapshotCutover(
   t: Record<string, unknown>,
 ): Record<string, unknown> {
-  const { agentSession, lastAgentCommand: _dropped, ...rest } = t;
+  const { agentSession, ...rest } = t;
   const next: Record<string, unknown> = { ...rest };
   if (!("pr" in next)) next.pr = { kind: "absent" };
   if (!("restoreTarget" in next)) {
-    // Validate the captured ref's VALUE types, not just key presence: a corrupt
-    // on-disk `agentSession` (a non-`AgentKind` `kind`, a non-string `id`) must NOT
-    // build an `exact` target that fails `RestoreTargetSchema` and drops the whole
-    // terminal at the read boundary.
-    const ref =
-      agentSession && typeof agentSession === "object"
-        ? (agentSession as Record<string, unknown>)
-        : null;
-    const kind = ref ? decodeAgentKindResult(ref.kind) : null;
-    next.restoreTarget =
-      ref !== null &&
-      kind !== null &&
-      Result.isSuccess(kind) &&
-      typeof ref.id === "string" &&
-      ref.id.length > 0
-        ? {
-            kind: "exact",
-            agent: {
-              kind: kind.success,
-              sessionId: ref.id,
-              resumeRef: ref.id,
-            },
-            argv: [],
-          }
-        : { kind: "none" };
+    const command =
+      typeof next.lastAgentCommand === "string"
+        ? next.lastAgentCommand
+        : undefined;
+    if (command !== undefined) {
+      // Validate the captured ref's VALUE types, not just key presence: a corrupt
+      // on-disk `agentSession` (a non-`AgentKind` `kind`, a non-string `id`) must NOT
+      // build an `exact` target that fails `RestoreTargetSchema` and drops the whole
+      // terminal at the read boundary.
+      const ref =
+        agentSession && typeof agentSession === "object"
+          ? (agentSession as Record<string, unknown>)
+          : null;
+      const kind = ref ? decodeAgentKindResult(ref.kind) : null;
+      const exact =
+        ref !== null &&
+        kind !== null &&
+        Result.isSuccess(kind) &&
+        typeof ref.id === "string" &&
+        ref.id.length > 0
+          ? {
+              kind: "exact",
+              command,
+              agent: {
+                kind: kind.success,
+                sessionId: ref.id,
+                resumeRef: ref.id,
+              },
+            }
+          : { kind: "legacyMostRecent", command };
+      next.restoreTarget = exact;
+    }
   }
   return next;
 }
 
-/** Backfill the restore-target argv reshape: a target from before kolu stopped
- *  replaying captured command text was `{ kind: "exact", command, agent }` or
- *  `{ kind: "legacyMostRecent", command }`. The new shape is
- *  `{ kind: "exact", agent, argv }` | `{ kind: "none" }`, and the captured
- *  `command` is DELETED, never parsed — that parse is the hole being closed.
+/** The 1.3.0 rung: restore is rendered from facts, never from captured PTY text.
+ *  This is the ONE owner of that transition, and it runs after every earlier
+ *  rung has produced its own era's shape.
  *
- *   - `exact` → keep the structured identity, replace `command` with `argv: []`.
- *     The conversation still resumes by id; its flags return on the next live
+ *   - `exact { command, agent }` → `{ kind: "exact", agent, argv: [] }` — the
+ *     conversation still resumes by id; the command is DELETED, never parsed
+ *     (that parse is the hole being closed). Flags return on the next live
  *     sample.
- *   - `legacyMostRecent` → `none`: it named no conversation, only a remembered
- *     line, so there is nothing honest left to restore.
- *   - `none` (and a record with no target) passes through.
+ *   - `legacyMostRecent` → `{ kind: "none" }`: it named no conversation, only a
+ *     remembered line, so there is nothing honest left to restore.
+ *   - `none`, a current `exact` (already carrying `argv`), and an ABSENT target
+ *     pass through unchanged — absence stays absent.
  *
- *  Idempotent and presence-keyed on `argv`: a current `exact` target is untouched. */
+ *  Also drops the remembered `lastAgentCommand`. Idempotent and presence-keyed on
+ *  `argv`. */
 export function backfillRestoreTargetArgv(
   t: Record<string, unknown>,
 ): Record<string, unknown> {
-  const target = t.restoreTarget;
-  if (!target || typeof target !== "object") return t;
+  const { lastAgentCommand: _dropped, ...next } = t;
+  const target = next.restoreTarget;
+  if (!target || typeof target !== "object") return next;
   const shaped = target as Record<string, unknown>;
   switch (shaped.kind) {
     case "none":
-      return t;
+      return next;
     case "legacyMostRecent":
-      return { ...t, restoreTarget: { kind: "none" } };
+      return { ...next, restoreTarget: { kind: "none" } };
     case "exact": {
-      if ("argv" in shaped) return t;
+      if ("argv" in shaped) return next;
       const agent = shaped.agent;
       // A malformed identity is left alone for `RestoreTargetSchema` to refuse
       // loudly rather than silently become a bare shell.
-      if (!agent || typeof agent !== "object") return t;
+      if (!agent || typeof agent !== "object") return next;
       return {
-        ...t,
+        ...next,
         restoreTarget: { kind: "exact", agent, argv: [] },
       };
     }
     default:
-      return t;
+      return next;
   }
 }
 
@@ -1251,5 +1259,52 @@ export function backfillSavedSession(parsed: unknown): unknown {
         ? backfillSavedTerminal(t as Record<string, unknown>)
         : t,
     ),
+  };
+}
+
+/** Bring an IMPORTED activity feed up to the current row shapes. Two old shapes
+ *  reach this door: `recentRepos` rows that were bare path strings (or partial
+ *  objects) before the row schema, and `recentAgents` rows that carried a
+ *  captured `command` string. Neither can be converted honestly — the agent rows
+ *  would require re-parsing PTY text, exactly what restore no longer does — so
+ *  invalid repo rows are dropped and the agent MRU starts empty (it refills from
+ *  live detection). */
+export function backfillActivityFeed(value: unknown): ActivityFeed {
+  const feed =
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
+  const repos = Array.isArray(feed.recentRepos) ? feed.recentRepos : [];
+  return {
+    recentRepos: repos.filter(isRecentRepoRow),
+    recentAgents: [],
+  };
+}
+
+function isRecentRepoRow(value: unknown): value is RecentRepo {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  return (
+    typeof row.repoRoot === "string" &&
+    typeof row.repoName === "string" &&
+    typeof row.lastSeen === "number"
+  );
+}
+
+/** Drop the resume FLAGS from a session blob kolu did not observe — a
+ *  `kolu-session.json` import or a restored state backup. The identity is
+ *  structured and worth keeping (the conversation still resumes); the argv is
+ *  whatever that foreign file said, and a flag list is enough to inject
+ *  behaviour (`--append-system-prompt`, `--settings`) even through the
+ *  allowlist — so it is discarded, identity-only. Flags return on the next live
+ *  sample, exactly as the 1.3.0 state ladder treats an old target. */
+export function stripImportedTargetArgv(session: SavedSession): SavedSession {
+  return {
+    ...session,
+    terminals: session.terminals.map((terminal) => {
+      const target = terminal.restoreTarget;
+      if (target?.kind !== "exact") return terminal;
+      return { ...terminal, restoreTarget: { ...target, argv: [] } };
+    }),
   };
 }

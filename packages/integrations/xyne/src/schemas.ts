@@ -73,7 +73,6 @@ export const xyneVocab: AgentVocab<XyneInfo> = {
   resume: {
     // Xyne: `--continue` for most-recent in cwd; `--session <uuid>` for exact
     // (both forms accepted upstream — cli-parser takes space-separated too).
-    last: "--continue",
     byId: (id) => `--session ${id}`,
     idPattern: UUID_RE,
     ref: (info) => info.sessionId,

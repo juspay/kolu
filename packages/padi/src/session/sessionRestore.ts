@@ -21,6 +21,7 @@ import type {
 import {
   backfillSavedSession,
   SavedSessionSchema,
+  stripImportedTargetArgv,
 } from "@kolu/padi-client/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { resumeFormFor } from "kolu-agents/vocab";
@@ -113,7 +114,7 @@ function respawnActive(
       // until then the saved value stands — a resume that never lands, or a second unclean
       // death right after restore, still finds the target on disk). An OPTED-OUT terminal
       // (`resume` false) spawns a genuine bare shell: it has no agent to re-observe, so the
-      // fold would NEVER clear a seeded `exact` (its `restoreTargetOf` is already `none`, so
+      // fold would NEVER clear a seeded `exact` (its stored target is already `none`, so
       // `updateMemory` never fires to overwrite the seed) — the exact target would persist
       // and a later WAKE would resume the very agent the user declined. So drop both,
       // leaving the bare shell's target at `none`.
@@ -547,8 +548,10 @@ export function forfeitSession(stateRoot: string): void {
 
 /** Import a session blob and restore it host-side — the diagnostic "Import
  *  session" flow moved off the client. Backfills the imported blob to the
- *  current schema (idempotent on an already-current record), persists it as the
- *  saved session, then runs the restore path with the same resume intent.
+ *  current schema (idempotent on an already-current record), strips resume
+ *  FLAGS (a foreign file's argv was never observed by this host; the identity
+ *  and conversation are kept), persists it as the saved session, then runs the
+ *  restore path with the same resume intent.
  *  Answers nothing: neither of its two callers (`session.import`,
  *  `backups.restore`) seeds a view from the call — both restore a blob the user
  *  just chose — so an active-marker here would be shape for its own sake, which
@@ -561,7 +564,10 @@ export async function importSession(input: {
   optOutIds?: readonly string[];
 }): Promise<void> {
   const backfilled = decodeSavedSession(backfillSavedSession(input.session));
-  setSavedSession(backfilled);
+  // A foreign blob's flags are not facts this host observed. Keep the identity
+  // (the conversation still resumes), discard the argv — identity-only, exactly
+  // what the 1.3.0 ladder does to an old target.
+  setSavedSession(stripImportedTargetArgv(backfilled));
   await restoreSession({
     resumeAgents: input.resumeAgents,
     optOutIds: input.optOutIds,

@@ -89,7 +89,8 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  *  surface kaval's memory on the rail — a 3.1 survivor (lacking the verb) is
  *  recycled on adoption rather than silently reporting no daemon memory.
  *  Bumped to 3.3 (additive · minor): the `commandRun` stream gained a required
- *  `replayed` field on each frame (snapshot-replay vs. live mark) — a 3.2
+ *  `replayed` field on each frame (snapshot-replay vs. live mark; REMOVED again at
+ *  7.1 — see [#2326] below) — a 3.2
  *  survivor would serve bare `{ command }` frames the new schema rejects, so it
  *  is recycled on adoption rather than feeding the server unparseable marks.
  *  Bumped to 4.0 (breaking · major): `getScreenText`'s input was *reshaped*, not
@@ -193,7 +194,7 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  *  command's quoting dialect, so a replayed seed vs a raw 633 line is reparsed with
  *  the right tokenizer) — same additive-optional call, NO bump: a survivor that
  *  omits it degrades to the raw (`string-argv`) reading, the pre-fix behavior.
- *  [#2316] That `shellJoin` field is REMOVED again (the sensor no longer reparses
+ *  [#2326] That `shellJoin` field is REMOVED again (the sensor no longer reparses
  *  the mark at all — see below), and the removal rides at 7.1 with NO bump, for
  *  the mirror-image reason an optional FIELD-ADD needs none: both directions
  *  degrade to nothing. A 7.1 survivor that still emits `shellJoin` is stripped by
@@ -201,7 +202,16 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  *  it always did. Nothing branches on the value any more, so there is no
  *  behaviour that could be mis-parsed — bumping would force-recycle a surviving
  *  kaval (killing its live PTYs) to delete a field nobody reads.
- *  The `command` mark itself is declared a SENSOR: no consumer may replay it. */
+ *  The `command` mark itself is declared a SENSOR: no consumer may replay it.
+ *
+ *  [#2326] The `replayed` flag is REMOVED too, at 7.1 with NO bump: nothing read
+ *  it once the last writer of a remembered fact (recent-agent recency) stopped
+ *  consuming marks, and a field nobody reads is a lie about the contract. The
+ *  skew direction is honest in the same way as `shellJoin`'s: a 7.1 survivor that
+ *  still sends `replayed` is stripped by this schema; a consumer of a survivor
+ *  that omits it reads the same `command`. (An OLDER consumer meeting a newer
+ *  daemon would reject the frame — the cost is one degraded shim hint, never a
+ *  terminal: detection still rides the foreground basename and the session file.) */
 /*  Bumped to 5.3 (MINOR): the host-global `activity` stream (meaningful-output
  *  edges). This is a NEW EMITTED STREAM MEMBER, not an optional field — a survivor
  *  5.2 daemon does not serve it at all, so a 5.3 consumer subscribing would hit a
@@ -900,10 +910,9 @@ export const ptyHostSurface = defineSurface({
       outputSchema: Schema.Struct({ title: Schema.String }),
     },
     /** OSC 633;E preexec command lines. Snapshot-then-deltas: the first frame
-     *  replays the last command seen before subscribe (`replayed: true`) so a
-     *  late/restarted sensor still learns it; subsequent frames are live marks
-     *  (`replayed: false`). The flag lets consumers seed from the replay WITHOUT
-     *  re-firing live-only side effects (a foreground re-sample burst).
+     *  replays the last command seen before subscribe, so a late/restarted sensor
+     *  still learns it; subsequent frames are live marks. There is no `replayed`
+     *  discriminator — no consumer branches on one.
      *
      *  SENSOR DATA. PTY output is a sensor: nothing that executes may read a
      *  value whose provenance is PTY bytes, so no consumer may turn `command`
@@ -911,10 +920,7 @@ export const ptyHostSurface = defineSurface({
      *  basename (a shim hint) and a foreground re-sample trigger. */
     commandRun: {
       inputSchema: TerminalIdInputSchema,
-      outputSchema: Schema.Struct({
-        command: Schema.String,
-        replayed: Schema.Boolean,
-      }),
+      outputSchema: Schema.Struct({ command: Schema.String }),
     },
     /** Foreground process name + pid, sampled at the tty (deduped). */
     foreground: {

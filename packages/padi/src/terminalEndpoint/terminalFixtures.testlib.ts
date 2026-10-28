@@ -41,7 +41,7 @@ const RESUME_AGENT: AgentIdentity = {
 /** The fold-derived `restoreTarget` the fixture seeds — an `exact` target carrying
  *  the live agent's identity plus the flags its process ran with, so wake resumes
  *  THAT conversation (#1495). Every field is OS-derived, exactly as
- *  `restoreTargetOf` produces it. */
+ *  the fold's `restoreTargetFor` produces it. */
 export const EXACT_TARGET: RestoreTarget = {
   kind: "exact",
   agent: RESUME_AGENT,

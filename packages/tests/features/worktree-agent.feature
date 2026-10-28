@@ -16,9 +16,8 @@ Feature: Agent-aware worktree creation
     Then the right panel should be visible
 
   Scenario: Agent sub-palette appears under a recent repo when agents exist
-    # `claude` is not installed in the test env, but the preexec hook
-    # fires BEFORE execution — the OSC 633;E mark is emitted regardless
-    # of whether the command runs successfully.
+    # A live fake Claude Code process: the MRU row comes from DETECTION (the
+    # agent's kind + the flags its process runs with), not from a command mark.
     When I set up a git repo at "/tmp/kolu-wt-agent-pick"
     And I run "cd /tmp/kolu-wt-agent-pick"
     And a fake Claude Code agent is running with the arguments "--dangerously-skip-permissions"
