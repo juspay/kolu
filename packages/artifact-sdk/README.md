@@ -90,6 +90,15 @@ suffix }` is the single anchor model.
   `allow-same-origin`). Parent ↔ iframe only via `postMessage`;
   `event.origin` is the literal string `"null"`, so the bridge validates
   by `event.source === iframe.contentWindow` identity.
+- **The iframe sandbox is not the whole confinement.** It holds only while the
+  file sits in the frame; the same URL loaded top-level would run at the
+  host's origin. So the host must also serve previews with
+  `Content-Security-Policy: sandbox allow-scripts` (kolu-server does, in
+  `iframePreviewRoute.ts`), and `observeIframeOpenExternal` drops any URL at
+  the parent's own origin (`isCrossOriginHttpUrl`, the same predicate the
+  in-frame classifier uses). The origin check is defense in depth only — a
+  host alias (`localhost` vs `127.0.0.1`) slips past it; the CSP is the
+  control.
 
 ## Tracking issue
 

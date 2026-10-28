@@ -20,7 +20,11 @@
  */
 
 import { match, P } from "ts-pattern";
-import { isDeepLinkHash, isHttpUrl } from "../core/url";
+import {
+  isCrossOriginHttpUrl,
+  isDeepLinkHash,
+  parseHttpUrl,
+} from "../core/url";
 import type {
   IframeToParent,
   Locator,
@@ -184,9 +188,18 @@ export function observeIframeHistory(
  *  absolute URL here; the parent (not sandboxed) opens it in a real browser tab.
  *  Mirrors `observeIframeNavigation`/`observeIframeHistory`: a focused listener
  *  with the same `event.source` identity boundary. The payload guard requires a
- *  string `url` AND an http(s) scheme — a hostile in-frame script can post any
- *  shape, and a non-http URL handed to `window.open` would run in the parent's
- *  origin. Returns a disposer. */
+ *  string `url` that is http(s) AND cross-origin to kolu (the shared
+ *  `isCrossOriginHttpUrl`, the same predicate the in-frame classifier runs) — a
+ *  hostile in-frame script can post any shape. A non-http URL handed to
+ *  `window.open` would run in the parent's origin; a kolu-origin URL (e.g. the
+ *  frame's own preview URL) would load the file as an UNSANDBOXED top-level tab.
+ *
+ *  The origin half is defense in depth only: it is bypassable through any host
+ *  alias of the same server (`localhost` vs `127.0.0.1`, a LAN IP, a
+ *  `KOLU_ALLOWED_ORIGINS` entry). The real control is response-level: kolu-server
+ *  serves every non-PDF preview with `Content-Security-Policy: sandbox`, so a
+ *  top-level load stays opaque-origin however it was reached. Returns a
+ *  disposer. */
 export function observeIframeOpenExternal(
   iframe: HTMLIFrameElement,
   onOpenExternal: (url: string) => void,
@@ -197,7 +210,10 @@ export function observeIframeOpenExternal(
       match(msg)
         .with(
           { type: "kolu-artifact-sdk:open-external", url: P.string },
-          (m) => (isHttpUrl(m.url) ? m.url : null),
+          (m) =>
+            isCrossOriginHttpUrl(parseHttpUrl(m.url), window.location.origin)
+              ? m.url
+              : null,
         )
         .otherwise(() => null),
     onOpenExternal,

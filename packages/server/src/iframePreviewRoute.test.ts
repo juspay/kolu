@@ -16,6 +16,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { NodeHttpServer } from "@effect/platform-node";
+import { withArtifactSdk } from "@kolu/artifact-sdk/server";
 import { padiClientOver } from "@kolu/padi-client/dial";
 import { contentTypeForPath, serveFile } from "@kolu/serve-dir";
 import type { RemotePool } from "@kolu/surface-remote";
@@ -735,5 +736,217 @@ describe("remotePreviewReader — the UNRANGED dial must stay key-absent (#17)",
       filePath: "blob.png",
       range: "bytes=0-127",
     });
+  });
+});
+
+// The response-level confinement (`Content-Security-Policy: sandbox`) is what
+// keeps a previewed document sandboxed even when it is loaded TOP-LEVEL, outside
+// the Code tab's iframe. Driven through the shipped route, BOTH arms, decorated by
+// the same `withArtifactSdk` the composition root wraps it in — so a header the
+// decorator dropped, or an arm that skipped `serveResultResponse`, fails here.
+describe("iframe-preview route confines every non-PDF preview with a CSP sandbox", () => {
+  const terminalId = "abc";
+  const REMOTE = "remote%3Abox";
+  let tmpRoot: string;
+  let server: http.Server;
+  let handlerScope: Scope.Closeable;
+  let port: number;
+
+  /** What the fake remote padi sent, per dial — so a test can prove the CSP on
+   *  the wire came from kolu-server, not from upstream. */
+  const remoteHeaders: Record<string, string>[] = [];
+
+  /** The REMOTE arm's padi: the real serve-dir read, base64'd — a padi that
+   *  does NOT confine for us (serve-dir sets no CSP). `weak.html` instead carries a
+   *  permissive CSP of its own, which the route must replace, never merge. */
+  const remoteClient: PreviewPadiClient = {
+    surface: {
+      preview: {
+        repoRootForTerminal: () => Effect.succeed({ repoRoot: tmpRoot }),
+        read: ({ repoPath, filePath, range }) =>
+          Effect.flatMap(serveFile(repoPath, filePath, range ?? null), (r) =>
+            Effect.promise(async () => {
+              const headers =
+                filePath === "weak.html"
+                  ? { ...r.headers, "Content-Security-Policy": "default-src *" }
+                  : r.headers;
+              remoteHeaders.push(headers);
+              const bodyBase64 =
+                typeof r.body === "string"
+                  ? Buffer.from(r.body, "utf8").toString("base64")
+                  : Buffer.from(
+                      await new Response(r.body).arrayBuffer(),
+                    ).toString("base64");
+              return { status: r.status, headers, bodyBase64 };
+            }),
+          ),
+      },
+    },
+  };
+  const localClient: PreviewPadiClient = {
+    surface: {
+      preview: {
+        repoRootForTerminal: () => Effect.succeed({ repoRoot: tmpRoot }),
+        read: () =>
+          Effect.fail(new Error("the local arm must never dial preview.read")),
+      },
+    },
+  };
+  const pool: PreviewHostPool = {
+    getSession: (encoded) =>
+      encoded === "local"
+        ? { currentClient: () => Promise.resolve(localClient) }
+        : encoded === "remote:box"
+          ? { currentClient: () => Promise.resolve(remoteClient) }
+          : undefined,
+  };
+
+  beforeAll(async () => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-route-csp-"));
+    fs.writeFileSync(
+      path.join(tmpRoot, "page.html"),
+      "<html><body><script>1</script></body></html>",
+    );
+    fs.writeFileSync(
+      path.join(tmpRoot, "weak.html"),
+      "<html><body></body></html>",
+    );
+    fs.writeFileSync(
+      path.join(tmpRoot, "art.svg"),
+      '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+    );
+    fs.writeFileSync(path.join(tmpRoot, "doc.pdf"), "%PDF-1.4\n");
+
+    handlerScope = await Effect.runPromise(Scope.make());
+    const handler = await Effect.runPromise(
+      Effect.gen(function* () {
+        const httpEffect = yield* HttpRouter.toHttpEffect(
+          HttpRouter.add(
+            "GET",
+            PREVIEW_ROUTE_PATTERN,
+            withArtifactSdk("/sdk.js")(
+              previewRouteHandler({ pool, log: { error: () => {} } }),
+            ),
+          ),
+        );
+        return yield* NodeHttpServer.makeHandler(httpEffect, {
+          scope: handlerScope,
+        });
+      }).pipe(Scope.provide(handlerScope)),
+    );
+    server = http.createServer();
+    server.on("request", handler);
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", () => resolve()),
+    );
+    const addr = server.address();
+    if (!addr || typeof addr === "string") {
+      throw new Error("expected a TCP address from the test server");
+    }
+    port = addr.port;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await Effect.runPromise(Scope.close(handlerScope, Exit.void));
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  function get(
+    host: string,
+    file: string,
+  ): Promise<{
+    status: number;
+    headers: http.IncomingHttpHeaders;
+    body: string;
+  }> {
+    return new Promise((resolve, reject) => {
+      const req = http.request(
+        {
+          host: "127.0.0.1",
+          port,
+          method: "GET",
+          path: `/api/terminals/${host}/${terminalId}/file/${file}`,
+        },
+        (res) => {
+          let body = "";
+          res.setEncoding("utf8");
+          res.on("data", (chunk) => {
+            body += chunk;
+          });
+          res.on("end", () =>
+            resolve({
+              status: res.statusCode ?? 0,
+              headers: res.headers,
+              body,
+            }),
+          );
+        },
+      );
+      req.on("error", reject);
+      req.end();
+    });
+  }
+
+  for (const [arm, host] of [
+    ["local", "local"],
+    ["remote", REMOTE],
+  ] as const) {
+    it(`${arm} arm: a decorated html 200 keeps the CSP sandbox`, async () => {
+      const res = await get(host, "page.html");
+      expect(res.status).toBe(200);
+      // Proves the decoration ran (so the header survived IT, not a bypass).
+      expect(res.body).toContain('src="/sdk.js?v=');
+      expect(res.headers["content-security-policy"]).toBe(
+        "sandbox allow-scripts",
+      );
+    });
+
+    it(`${arm} arm: svg carries the CSP sandbox`, async () => {
+      const res = await get(host, "art.svg");
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toMatch(/^image\/svg\+xml/);
+      expect(res.headers["content-security-policy"]).toBe(
+        "sandbox allow-scripts",
+      );
+    });
+
+    it(`${arm} arm: pdf carries NO CSP (Chromium's viewer won't run under it)`, async () => {
+      const res = await get(host, "doc.pdf");
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toMatch(/^application\/pdf/);
+      expect(res.headers["content-security-policy"]).toBeUndefined();
+    });
+
+    it(`${arm} arm: an error response is confined too`, async () => {
+      const res = await get(host, "missing.html");
+      expect(res.status).toBe(404);
+      expect(res.headers["content-security-policy"]).toBe(
+        "sandbox allow-scripts",
+      );
+    });
+  }
+
+  it("remote arm: the CSP is added by kolu-server — the padi headers lacked it", async () => {
+    remoteHeaders.length = 0;
+    const res = await get(REMOTE, "page.html");
+    expect(res.headers["content-security-policy"]).toBe(
+      "sandbox allow-scripts",
+    );
+    expect(remoteHeaders.length).toBeGreaterThan(0);
+    for (const h of remoteHeaders)
+      expect(
+        Object.keys(h).some(
+          (k) => k.toLowerCase() === "content-security-policy",
+        ),
+      ).toBe(false);
+  });
+
+  it("remote arm: a padi's own weaker CSP is replaced, not merged", async () => {
+    const res = await get(REMOTE, "weak.html");
+    expect(res.status).toBe(200);
+    expect(res.headers["content-security-policy"]).toBe(
+      "sandbox allow-scripts",
+    );
   });
 });

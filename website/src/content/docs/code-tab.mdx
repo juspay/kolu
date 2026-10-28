@@ -100,9 +100,11 @@ ssh hop too.
   your eye already is. MDX is previewed as Markdown — component tags are not
   executed and are stripped by the sanitizer (use Source for the raw MDX).
 - Agent-generated **`.html`** and **`.svg`** artifacts preview inline in a
-  sandboxed iframe; **`.pdf`** opens in the browser's native viewer; images and
-  **video** render as themselves. Everything live-reloads on change, and an
-  external link in an HTML preview opens in a new tab.
+  sandboxed iframe — and stay sandboxed even when opened on their own in a
+  browser tab, so a file's scripts never get kolu's access; **`.pdf`** opens in
+  the browser's native viewer; images and **video** render as themselves.
+  Everything live-reloads on change, and an external link in an HTML preview
+  opens in a new tab (a link back into kolu itself does not).
 
 ## File comments
 

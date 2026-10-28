@@ -6,10 +6,13 @@ import {
   observeIframeOpenExternal,
 } from "./bridge";
 
-/** `observeIframeNavigation` reads only `window.addEventListener("message")`,
- *  `event.source`, and `event.data`. The artifact-sdk package runs its unit
- *  suite in the node env (no jsdom), so we stub the minimum surface and drive
- *  the captured handler directly with synthetic message events. */
+/** The observers read only `window.addEventListener("message")`,
+ *  `window.location.origin` (the parent's own origin), `event.source`, and
+ *  `event.data`. The artifact-sdk package runs its unit suite in the node env
+ *  (no jsdom), so we stub the minimum surface and drive the captured handler
+ *  directly with synthetic message events. */
+const KOLU_ORIGIN = "http://localhost:7681";
+
 function withFakeWindow(): {
   iframe: HTMLIFrameElement;
   post: (source: unknown, data: unknown) => void;
@@ -26,6 +29,7 @@ function withFakeWindow(): {
     removeEventListener: () => {
       handler = null;
     },
+    location: { origin: KOLU_ORIGIN },
   };
   return {
     iframe,
@@ -204,6 +208,32 @@ describe("observeIframeOpenExternal", () => {
       });
     }
     expect(onOpenExternal).not.toHaveBeenCalled();
+  });
+
+  // The frame's own preview URL is kolu-origin: opened by the unsandboxed parent
+  // it would run the file top-level at kolu's origin. Only a cross-origin URL
+  // is "external".
+  it("drops a same-origin url (the frame's own preview URL) but still delivers a cross-origin one", () => {
+    const fake = withFakeWindow();
+    restore = fake.restore;
+    const onOpenExternal = vi.fn();
+    observeIframeOpenExternal(fake.iframe, onOpenExternal);
+    for (const url of [
+      `${KOLU_ORIGIN}/api/terminals/local/t1/file/evil.html`,
+      `${KOLU_ORIGIN}/`,
+      "https://example.com/docs",
+      // Same host, different port — a different origin, so external.
+      "http://localhost:9999/",
+    ]) {
+      fake.post(fake.iframe.contentWindow, {
+        type: "kolu-artifact-sdk:open-external",
+        url,
+      });
+    }
+    expect(onOpenExternal.mock.calls).toEqual([
+      ["https://example.com/docs"],
+      ["http://localhost:9999/"],
+    ]);
   });
 
   it("drops a message with a missing or non-string url", () => {

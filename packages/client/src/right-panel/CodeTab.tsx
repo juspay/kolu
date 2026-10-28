@@ -1566,14 +1566,14 @@ const CodeTab: Component<{
                           // SDK's click trap — can post this message. We therefore
                           // treat it as exactly that: a request from untrusted
                           // in-frame content to open an http(s) foreground tab.
-                          // That's an accepted capability, not an escalation: a
-                          // sandboxed script can already `location =` itself to any
-                          // URL and `fetch` outbound, so a `noopener,noreferrer`
-                          // tab to an http(s) URL grants nothing it couldn't reach,
-                          // only a more visible surface. The scheme is re-validated
-                          // in `observeIframeOpenExternal` so `javascript:`/`data:`
-                          // (which would run in kolu's own origin) can never reach
-                          // `window.open`.
+                          // `observeIframeOpenExternal` re-checks the URL is http(s)
+                          // AND cross-origin to kolu (`isCrossOriginHttpUrl`), so
+                          // `javascript:`/`data:` and a same-origin preview URL
+                          // (which would load the file unsandboxed at kolu's
+                          // origin) never reach `window.open`. That origin check is
+                          // bypassable via host aliases; the load-bearing control
+                          // is the preview route's `Content-Security-Policy:
+                          // sandbox`, which keeps any top-level load opaque-origin.
                           onOpenExternal={(url) =>
                             window.open(url, "_blank", EXTERNAL_OPEN_FLAGS)
                           }

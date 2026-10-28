@@ -46,7 +46,12 @@ import {
   rawPathname,
 } from "@kolu/serve-dir";
 import { Effect, Result, Stream } from "effect";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
+import {
+  Headers,
+  HttpRouter,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "effect/http";
 import {
   decodeHostKey,
   decodeHostKeyValue,
@@ -502,23 +507,56 @@ const refusal = (body: string, status: number) =>
     contentType: "text/plain; charset=utf-8",
   });
 
-/** serve-dir's `ServeResult` → an HTTP response, verbatim. A `ReadableStream`
- *  body stays a stream (bytes flow disk→socket with a bounded heap, so a
- *  multi-GB video never lands in kolu-server's memory); a string body is an
- *  error reason. Status and headers are serve-dir's own — this route never
- *  reshapes them. */
+/** The response-level confinement every preview carries (see
+ *  {@link confinedHeaders}). */
+const PREVIEW_CSP = "sandbox allow-scripts";
+
+/** serve-dir's headers plus `Content-Security-Policy: sandbox allow-scripts`.
+ *
+ *  The Code tab's iframe sandbox only confines the file while it sits IN that
+ *  iframe. A top-level load of the same URL — a parent-opened tab, a pasted
+ *  link — would otherwise run the repo's script at kolu's real origin, where
+ *  the websocket origin gate admits it to the full RPC. The CSP sandbox gives
+ *  every load an opaque origin (`Origin: null`), so the ws gate refuses it no
+ *  matter how the document was reached.
+ *
+ *  It is added HERE, in kolu-server, rather than in `@kolu/serve-dir` or padi:
+ *  the remote arm's headers come from a remote padi we don't trust to confine
+ *  for us, and a version-skewed padi must not reopen the hole.
+ *
+ *  PDF is the one exception: Chromium's PDF viewer doesn't instantiate under
+ *  this sandbox (see `solid-fileview`'s `renderers/pdf.tsx`), and a PDF can't
+ *  run script at the origin, so nothing is left to confine. Images, video and
+ *  text are harmless either way — CSP is ignored on non-document loads. */
+function confinedHeaders(input: Record<string, string>): Headers.Headers {
+  // `fromInput` lowercases every name, so `set`/`remove` replace any CSP the
+  // upstream sent under any casing — never merged.
+  const headers = Headers.fromInput(input);
+  return headers["content-type"]?.toLowerCase().startsWith("application/pdf")
+    ? Headers.remove(headers, "content-security-policy")
+    : Headers.set(headers, "content-security-policy", PREVIEW_CSP);
+}
+
+/** serve-dir's `ServeResult` → an HTTP response. A `ReadableStream` body stays
+ *  a stream (bytes flow disk→socket with a bounded heap, so a multi-GB video
+ *  never lands in kolu-server's memory); a string body is an error reason.
+ *  Status and headers are serve-dir's own, with ONE addition: the CSP sandbox
+ *  of {@link confinedHeaders}. This is the single point both the local and the
+ *  remote arm pass through, so neither can skip it. */
 const serveResultResponse = (
   r: ServeResult,
-): HttpServerResponse.HttpServerResponse =>
-  typeof r.body === "string"
-    ? HttpServerResponse.text(r.body, { status: r.status, headers: r.headers })
+): HttpServerResponse.HttpServerResponse => {
+  const headers = confinedHeaders(r.headers);
+  return typeof r.body === "string"
+    ? HttpServerResponse.text(r.body, { status: r.status, headers })
     : HttpServerResponse.stream(
         Stream.fromReadableStream({
           evaluate: () => r.body as ReadableStream<Uint8Array>,
           onError: (error) => error,
         }),
-        { status: r.status, headers: r.headers },
+        { status: r.status, headers },
       );
+};
 
 /** The iframe-preview byte route's handler.
  *
