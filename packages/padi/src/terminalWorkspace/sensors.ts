@@ -524,11 +524,10 @@ function startPrSensor(
 
 // ── Agent-command tracker ─────────────────────────────────────────────
 
-/** Exported for its own producer-level test (as `startPortSensor` is): the
- *  forged-mark fence is about what this sensor does NOT emit, which is cheapest
- *  to observe with the sensor alone rather than through `startSensors`. */
 /**
- * @internal Producer door opened for the sensor-level tests; not module API.
+ * @internal Producer door opened for the sensor-level tests (the forged-mark
+ * fence is about what this sensor does NOT emit, cheapest to observe with the
+ * sensor alone); not module API.
  */
 export function startAgentCommandSensor(
   agentState: AgentEngineState,

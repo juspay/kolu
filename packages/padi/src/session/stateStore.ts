@@ -43,6 +43,18 @@ interface PadiPersistedState {
 /** padi's state schema version — the last step of {@link PADI_STATE_MIGRATIONS}. */
 export const PADI_STATE_SCHEMA_VERSION = "1.3.0";
 
+/** The SESSION half of the ladder — ONE function behind three rungs. Every
+ *  schema-era bump since 1.1.0 is expressed by the idempotent, presence-keyed
+ *  `backfillSavedSession`, so the rungs share it instead of pretending each has
+ *  its own session arm. Recorded decision (review round 3, R9): only the
+ *  ACTIVITY-FEED era is rung-local, because its old rows carried captured text
+ *  that must never be re-parsed. */
+const backfillSavedSessionIn = (store: Conf<PadiPersistedState>): void => {
+  const session = store.get("session");
+  if (session !== null)
+    store.set("session", backfillSavedSession(session) as SavedSession);
+};
+
 /** padi's migration ladder, keyed by the version each step brings the file to.
  *
  *  - `1.1.0`: a saved terminal's `git` became the three-case `GitFact`
@@ -64,19 +76,10 @@ export const PADI_STATE_SCHEMA_VERSION = "1.3.0";
  *    `lastAgentCommand` key is dropped by the same rung, and the recent-agents MRU
  *    is cleared: its old rows carried a captured `command` and cannot be
  *    converted, so it starts empty and refills from live detection. `recentRepos`
- *    is untouched by this rung. */
-/** The SESSION half of the ladder — ONE function behind three rungs. Every
- *  schema-era bump since 1.1.0 is expressed by the idempotent, presence-keyed
- *  `backfillSavedSession`, so the rungs share it instead of pretending each has
- *  its own session arm. This is the recorded decision (review round 3, R9): only
- *  the ACTIVITY-FEED era is rung-local, because its old rows carried captured
- *  text that must never be re-parsed. */
-const backfillSavedSessionIn = (store: Conf<PadiPersistedState>): void => {
-  const session = store.get("session");
-  if (session !== null)
-    store.set("session", backfillSavedSession(session) as SavedSession);
-};
-
+ *    is untouched by this rung.
+ *
+ *  The SESSION half of all three rungs is one function (`backfillSavedSessionIn`),
+ *  by the recorded decision above; only 1.3.0's own era is spelled here. */
 const PADI_STATE_MIGRATIONS: Record<
   string,
   (store: Conf<PadiPersistedState>) => void

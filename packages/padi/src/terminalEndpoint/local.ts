@@ -78,6 +78,7 @@ import {
 import { probeProfileInEffect } from "../agentDistro/inEffect.ts";
 import { agentLayerOfRecord, withAgentLayer } from "../agentDistro/layer.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
+import type { Logger } from "pino";
 import { notifyDirty } from "../publisher.ts";
 import {
   type ActiveTerminalProcess,
@@ -124,6 +125,54 @@ import {
   reattachingDeltas,
   releaseOnAbort,
 } from "./reattachingDeltas.ts";
+
+/** The loud half of a terminal that will not resume across a restart: a terminal
+ *  can hold a LIVE agent identity while kolu cannot render a resume form for it —
+ *  the agent's kind is not one this build knows, or its ref no longer passes the
+ *  agent's own shape gate — and its wake lands on a bare shell. Warns once per
+ *  agent episode; the raw mark is kept only as LOG CONTEXT (never parsed).
+ *
+ *  @internal Exported for the endpoint-level test (the emit loop is otherwise
+ *  private); the endpoint is the only production caller.
+ */
+export function unresumableAgentWatch(
+  id: TerminalId,
+  log: Pick<Logger, "warn">,
+): {
+  /** Remember the latest raw command line for the warning's context only. */
+  noteRawCommand(raw: string): void;
+  /** Check a freshly folded state; warns at most once per agent episode. */
+  check(state: TerminalState): void;
+} {
+  let lastRawCommand: string | undefined;
+  let warned = false;
+  return {
+    noteRawCommand(raw) {
+      lastRawCommand = raw;
+    },
+    check(state) {
+      if (state.snapshot.agent === null) {
+        warned = false;
+        return;
+      }
+      // `kind !== "exact"` first: a bare-shell target never pays for a render.
+      if (state.restoreTarget.kind !== "exact" || warned) return;
+      if (willResume(state.restoreTarget)) return;
+      warned = true;
+      log.warn(
+        {
+          terminal: id,
+          agent: state.snapshot.agent.kind,
+          reason: "no-resume-form",
+          // Why it refused: an unknown kind, or a ref that failed its shape gate.
+          resumeRef: state.snapshot.agent.sessionId,
+          lastRawCommand,
+        },
+        "agent detected but kolu cannot render a resume form for it — this terminal will not resume across restart",
+      );
+    },
+  };
+}
 
 // ── Decoders ────────────────────────────────────────────────────────────
 // `Schema.decodeUnknownSync` is the successor of zod's `.parse` — same fail-fast
@@ -1260,36 +1309,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       seedEntry.meta.restoreTarget,
     );
     const runStartedAt = Date.now();
-    // The loud half of a terminal that will not resume across a restart. A
-    // terminal can hold a LIVE agent identity while kolu cannot render a resume
-    // form for it — the agent's kind is not one this build knows, or its ref no
-    // longer passes the agent's own shape gate — and its wake lands on a bare
-    // shell. This names it once per agent episode; the raw mark is kept only as
-    // LOG CONTEXT (never parsed).
-    let warnedUnresumable = false;
-    let lastRawCommand: string | undefined;
-    const noteRawCommand = (raw: string): void => {
-      lastRawCommand = raw;
-    };
-    const checkUnresumable = (state: TerminalState): void => {
-      if (state.snapshot.agent === null) {
-        warnedUnresumable = false;
-        return;
-      }
-      if (warnedUnresumable || willResume(state.restoreTarget)) return;
-      warnedUnresumable = true;
-      log.warn(
-        {
-          terminal: id,
-          agent: state.snapshot.agent.kind,
-          reason: "no-resume-form",
-          // Why it refused: an unknown kind, or a ref that failed its shape gate.
-          resumeRef: state.snapshot.agent.sessionId,
-          lastRawCommand,
-        },
-        "agent detected but kolu cannot render a resume form for it — this terminal will not resume across restart",
-      );
-    };
+    const unresumable = unresumableAgentWatch(id, log);
 
     const emit = (o: TerminalEvent): void => {
       const before = current;
@@ -1336,7 +1356,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         });
       }
       if (current === before) return; // `unknown`/dedup no-op — nothing else to commit
-      checkUnresumable(current);
+      unresumable.check(current);
       // Three effect arms, each gated by ITS OWN delta — no firehose on any:
       //  - the OBSERVED half → the `snapshots` collection, on a snapshot change;
       //  - the MEMORY half + the derived `restoreTarget` → `kolu.authored`, on an
@@ -1371,7 +1391,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         // The OSC 633 command mark is a SENSOR only: it re-samples the foreground
         // and feeds the shim hint (`agentNameHint`). Its text is logged as context
         // for an unresumable agent and never becomes a command.
-        noteRawCommand(msg);
+        unresumable.noteRawCommand(msg);
         signals.commandRun.publish(msg);
       },
     );

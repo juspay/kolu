@@ -175,7 +175,12 @@ function renderLine(
 /** Would a wake resume this target? The ONE gate: the kind is one this build
  *  knows AND its resume ref passes the agent's own shape gate — exactly the two
  *  ways `resumeFormFor` yields `null`. Every display/decision site asks this
- *  instead of rendering a whole command line just to compare it with `null`. */
+ *  instead of rendering a whole command line just to compare it with `null`.
+ *
+ *  ASYMMETRIC narrowing: `true` means "an `exact` target that renders"; `false`
+ *  does NOT mean "not `exact`" (an `exact` with an unknown kind or a bad ref is
+ *  also false). Only the POSITIVE branch is load-bearing — an `else` branch must
+ *  still handle an `exact` target. */
 export function willResume(
   reg: AgentCliRegistry,
   target: RestoreTarget | undefined,

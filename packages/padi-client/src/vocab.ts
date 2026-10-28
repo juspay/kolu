@@ -1195,7 +1195,14 @@ export function backfillRestoreTargetArgv(
       // A malformed identity is left alone for `RestoreTargetSchema` to refuse
       // loudly rather than silently become a bare shell.
       if (!agent || typeof agent !== "object") return next;
-      return { ...next, restoreTarget: identityOnlyTarget(agent) };
+      // The FROZEN rung spells its own literal, deliberately NOT
+      // `identityOnlyTarget` (which the import door uses): a later change to that
+      // current-shape constructor must not retroactively change what 1.3.0 writes
+      // to a 1.2.x file. Same reasoning as the MRU arm below.
+      return {
+        ...next,
+        restoreTarget: { kind: "exact", agent, argv: [] },
+      };
     }
     default:
       return next;
