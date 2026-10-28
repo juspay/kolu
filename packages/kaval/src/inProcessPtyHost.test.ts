@@ -157,7 +157,7 @@ describeDaemon(
         }),
       );
       const liveFrame = await early.next();
-      expect(liveFrame.command).toContain("codex");
+      expect(liveFrame).toContain("codex");
       early.close();
 
       // The repro: a NEW subscriber, joining after the mark, must still receive
@@ -165,7 +165,7 @@ describeDaemon(
       // got nothing and this hangs to the nextFrame timeout.
       const late = openStream(client.surface.commandRun.get({ id }));
       const replayFrame = await nextFrame(late);
-      expect(replayFrame.command).toContain("codex");
+      expect(replayFrame).toContain("codex");
 
       closeStream(late);
       await Effect.runPromise(client.surface.terminal.kill({ id }));
@@ -185,9 +185,7 @@ describeDaemon(
       );
       const seed = openStream(client.surface.commandRun.get({ id }));
       const frame = await nextFrame(seed);
-      expect(frame.command).toBe("/bin/sh -c 'sleep 5'");
-      expect(frame).not.toHaveProperty("shellJoin");
-      expect(frame).not.toHaveProperty("replayed");
+      expect(frame).toBe("/bin/sh -c 'sleep 5'");
       closeStream(seed);
       await Effect.runPromise(client.surface.terminal.kill({ id }));
     });

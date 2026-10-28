@@ -21,11 +21,7 @@ import type {
 import type { ForegroundSample } from "kaval";
 import pino from "pino";
 import { describe, expect, it } from "vitest";
-import {
-  type CommandRunSample,
-  type SensorSignals,
-  startPortSensor,
-} from "./sensors.ts";
+import { type SensorSignals, startPortSensor } from "./sensors.ts";
 
 const silent = pino({ level: "silent" });
 
@@ -50,7 +46,7 @@ function harness() {
   const signals: SensorSignals = {
     cwd: inMemoryChannel<string>(),
     title: inMemoryChannel<string>(),
-    commandRun: inMemoryChannel<CommandRunSample>(),
+    commandRun: inMemoryChannel<string>(),
     foreground: inMemoryChannel<ForegroundSample>(),
     ports: inMemoryChannel<TerminalPorts>(),
     grid: inMemoryChannel<TerminalGrid>(),

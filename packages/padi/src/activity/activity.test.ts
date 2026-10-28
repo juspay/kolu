@@ -65,7 +65,9 @@ describe("trackRecentAgent", () => {
       expect.objectContaining({ kind: "claude-code", argv: [] }),
     ]);
     // Second sample: same identity, flags read. The placeholder must go.
-    trackRecentAgent("claude-code", ["--model", "sonnet"]);
+    trackRecentAgent("claude-code", ["--model", "sonnet"], {
+      replacePlaceholder: true,
+    });
     expect(feed.recentAgents).toEqual([
       expect.objectContaining({
         kind: "claude-code",
@@ -74,9 +76,20 @@ describe("trackRecentAgent", () => {
     ]);
   });
 
+  it("keeps a deliberate bare launch beside a flagged one (no blind supersede)", () => {
+    // The default is NOT to replace: a bare `claude` the user ran on purpose is
+    // still a launch they may want back.
+    trackRecentAgent("claude-code", []);
+    trackRecentAgent("claude-code", ["--model", "opus"]);
+    expect(feed.recentAgents).toHaveLength(2);
+    expect(feed.recentAgents.map((r) => r.argv)).toEqual(
+      expect.arrayContaining([[], ["--model", "opus"]]),
+    );
+  });
+
   it("keeps a flagless row for a DIFFERENT kind (no cross-agent supersede)", () => {
     trackRecentAgent("claude-code", []);
-    trackRecentAgent("codex", ["--model", "x"]);
+    trackRecentAgent("codex", ["--model", "x"], { replacePlaceholder: true });
     expect(feed.recentAgents).toHaveLength(2);
   });
 });

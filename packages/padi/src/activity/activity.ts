@@ -23,7 +23,7 @@ import type {
   RecentAgent,
   RecentRepo,
 } from "@kolu/padi-client/surface";
-import { agentCliGrammar, stableFlagTokens } from "kolu-agents/vocab";
+import { AGENT_CLI, stableFlagTokens } from "kolu-agents/vocab";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 
@@ -76,16 +76,11 @@ function getRecentRepos(): readonly RecentRepo[] {
   return live;
 }
 
-/** Get recent agents, most-recently-seen first. */
-function getRecentAgents(): readonly RecentAgent[] {
-  return padiSurfaceCtx.cells.activityFeed.get().recentAgents;
-}
-
 /** Get the full activity feed snapshot. */
 export function getActivityFeed(): ActivityFeed {
   return {
     recentRepos: getRecentRepos(),
-    recentAgents: getRecentAgents(),
+    recentAgents: padiSurfaceCtx.cells.activityFeed.get().recentAgents,
   };
 }
 
@@ -102,14 +97,16 @@ export function trackRecentRepo(repoRoot: string, repoName: string): void {
   padiSurfaceCtx.cells.activityFeed.set({ ...feed, recentRepos: next });
 }
 
-/** The identity of a recent-agent row — the agent kind plus its allowlisted argv
- *  tokens. Two launches of one agent with different flags are different rows, and
- *  a relaunch of the same invocation refreshes its `lastSeen`. Exported so a
- *  reader (and the tests) spell this key once. */
-export function recentAgentKey(
-  agent: Pick<RecentAgent, "kind" | "argv">,
-): string {
-  return `${agent.kind}\u0000${agent.argv.join("\u0000")}`;
+/** The identity of a recent-agent row — the agent kind plus its CANONICAL
+ *  allowlisted argv tokens. Both sides of the upsert go through here, so a row
+ *  persisted under an older (wider) allowlist keys equal to today's spelling
+ *  instead of forking a duplicate. A kind this build does not know keys on its
+ *  stored tokens (the same graceful door `resumeFormFor` takes). */
+function recentAgentKey(agent: Pick<RecentAgent, "kind" | "argv">): string {
+  const vocab = AGENT_CLI.byKind(agent.kind);
+  const flags =
+    vocab === undefined ? agent.argv : stableFlagTokens(vocab.cli, agent.argv);
+  return `${agent.kind}\u0000${flags.join("\u0000")}`;
 }
 
 /** Upsert a detected agent into the recent-agents MRU.
@@ -119,23 +116,30 @@ export function recentAgentKey(
  *  (`readProcessSnapshot` → `stableFlagTokens`). No command text is accepted or
  *  stored — a row renders through the registry (`agentLaunchLine`) at its use
  *  site. */
-export function trackRecentAgent(kind: string, argv: readonly string[]): void {
+export function trackRecentAgent(
+  kind: string,
+  argv: readonly string[],
+  { replacePlaceholder = false }: { replacePlaceholder?: boolean } = {},
+): void {
   // Canonicalize through the SAME allowlist the palette renders through
   // (`agentLaunchLine` re-filters at use time). A row captured under a wider
   // historical allowlist would otherwise render identically to a narrower one,
   // leaving two MRU rows for one launch line. Idempotent for the live path.
-  const flags = stableFlagTokens(agentCliGrammar(kind), argv);
+  const vocab = AGENT_CLI.byKind(kind);
+  const flags =
+    vocab === undefined ? [...argv] : stableFlagTokens(vocab.cli, argv);
   const feed = padiSurfaceCtx.cells.activityFeed.get();
-  // A FLAGLESS row for this kind is a placeholder: the first observation may land
-  // before the process's argv could be read (or before its final exec). The first
-  // successful read for the same kind supersedes it, so the palette never offers
-  // both `claude` and `claude --model sonnet`.
+  // A FLAGLESS row is a PLACEHOLDER only when the caller says this same
+  // conversation wrote it: the first observation may land before the process's
+  // argv could be read (or before its final exec). Superseding EVERY bare row of
+  // the kind would erase a deliberate bare `claude` launch the user wants back in
+  // the palette.
   const rows =
-    flags.length === 0
-      ? feed.recentAgents
-      : feed.recentAgents.filter(
+    replacePlaceholder && flags.length > 0
+      ? feed.recentAgents.filter(
           (row) => !(row.kind === kind && row.argv.length === 0),
-        );
+        )
+      : feed.recentAgents;
   const next = upsertMru(
     rows,
     { kind, argv: flags, lastSeen: Date.now() },

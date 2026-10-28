@@ -16,7 +16,7 @@
  * lives beside those schemas in `@kolu/terminal-vocab`.
  *
  * The needles are REGEXES so a PascalCase sibling cannot slip past a camelCase
- * one: `commandRun` alone could not see `CommandRunSample` /
+ * one: `commandRun` alone could not see `CommandRunSubscription` /
  * `subscribeCommandRun`, which is exactly the "a new package consumes the mark"
  * case this fence claims to catch.
  *
@@ -114,13 +114,11 @@ const LAWS: readonly Law[] = [
   {
     promise:
       "the raw mark reaches only the log-context watch, never a resolver",
-    // `noteRawCommand` hands the raw line to the unresumable-agent warning, where
-    // it is LOG CONTEXT. A third caller would be a new reader of PTY text.
+    // `noteRawCommand` hands the raw line to the unresumable-agent warning inside
+    // the endpoint's emit loop, where it is LOG CONTEXT. A second file would be a
+    // new reader of PTY text.
     needle: /\bnoteRawCommand\b/,
-    allowed: [
-      "packages/padi/src/terminalEndpoint/local.ts",
-      "packages/padi/src/terminalEndpoint/unresumableAgent.ts",
-    ],
+    allowed: ["packages/padi/src/terminalEndpoint/local.ts"],
   },
   {
     promise:

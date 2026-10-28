@@ -27,15 +27,19 @@ export {
   resumableCommand,
   resumeFormFor,
   stableFlagTokens,
+  willResume,
 } from "./agent-cli.ts";
 export { classifyByAwaiting } from "./lifecycle.ts";
 export type { AgentPlugin } from "./plugin.ts";
 export { type TaskProgress, TaskProgressSchema } from "./schemas.ts";
-export type {
-  AgentCliGrammar,
-  AgentMark,
-  AgentResumePolicy,
-  AnyAgentVocab,
-  AgentVocab,
-  FlagArity,
+export {
+  type AgentCliGrammar,
+  type AgentMark,
+  type AgentResumePolicy,
+  type AnyAgentVocab,
+  type AgentVocab,
+  type FlagArity,
+  NODE_CLI_SHIMS,
+  SESSION_PATH_OR_UUID_RE,
+  UUID_RE,
 } from "./vocab.ts";

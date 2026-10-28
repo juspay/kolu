@@ -22,6 +22,7 @@ import {
   buildCliRegistry,
   resumableCommand as cliResumableCommand,
   resumeFormFor as cliResumeFormFor,
+  willResume as cliWillResume,
 } from "anyagent";
 import type { RestoreTarget } from "anyagent/schemas";
 import { Schema } from "effect";
@@ -146,6 +147,13 @@ export const AGENT_CLI: AgentCliRegistry = buildCliRegistry(
 export const resumeFormFor = (
   target: RestoreTarget | undefined,
 ): string | null => cliResumeFormFor(AGENT_CLI, target);
+
+/** Would a wake resume this target? The ONE gate the display/decision sites ask
+ *  instead of rendering a full command line to compare with `null`. */
+export const willResume = (
+  target: RestoreTarget | undefined,
+): target is Extract<RestoreTarget, { kind: "exact" }> =>
+  cliWillResume(AGENT_CLI, target);
 
 /** The launch line a display site shows (gated on wake actually resuming). */
 export const resumableCommand = (

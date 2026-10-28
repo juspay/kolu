@@ -201,7 +201,7 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  *  value any more, so there is no behaviour to mis-parse.
  *  The `command` mark itself is declared a SENSOR: no consumer may replay it.
  *
- *  [#2326] The `replayed` flag is REMOVED too, and THIS one forces the "7.2" bump
+ *  [#2326] The `replayed` flag is REMOVED too, and THIS one forces the "8.0" bump
  *  below. It was a REQUIRED field (3.3), so it is not the `shellJoin` case: a 7.1
  *  consumer meeting a newer daemon that omits it rejects the whole frame. And a
  *  rejected frame here is not cosmetic — `commandRun` is a pure-enrichment tap
@@ -267,15 +267,18 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  *  managed recycle. The park/restore cost is bounded and already the routine price
  *  of every other additive member.
  *
- *  Bumped to 7.2 (MINOR · breaking-in-one-direction): `commandRun` loses its
- *  REQUIRED `replayed` field (see [#2326] above). A required-field REMOVAL is the
- *  3.3 shape inverted — a survivor that still sends it is fine (stripped), but a
- *  7.1 consumer meeting this daemon rejects every frame, and the tap has no
- *  retry, so that terminal keeps no marks for the life of the process. The minor
- *  bump turns that skew into the routine recycle (session parks and restores)
- *  instead of a silently degraded detection surface. THE 3.3 PRECEDENT: the same
- *  field's ADD was a minor bump for the same reason, in the other direction. */
-export const PTY_HOST_CONTRACT_VERSION = "7.2";
+ *  Bumped to 8.0 (BREAKING · major): `commandRun` loses its REQUIRED `replayed`
+ *  field (see [#2326] above). A required-field REMOVAL is the 3.3 shape inverted
+ *  — a survivor that still sends it is fine (stripped), but an OLD consumer
+ *  meeting this daemon rejects every frame, and the tap has no retry, so that
+ *  terminal keeps no marks for the life of the process. A MINOR is not enough:
+ *  `isContractVersionCompatible` is `major equal && reported.minor >= expected`,
+ *  so a 7.2 daemon reads as compatible to a 7.1 consumer and the skew is waved
+ *  through. The file's own precedent for OLD-consumer/new-daemon is the major at
+ *  the `overflow` variant (`:111-118`): only a major rejects BOTH directions, so
+ *  rollback never waves a shape the peer cannot decode through. The recycle is
+ *  honest (session parks and restores). */
+export const PTY_HOST_CONTRACT_VERSION = "8.0";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -927,7 +930,7 @@ export const ptyHostSurface = defineSurface({
      *  basename (a shim hint) and a foreground re-sample trigger. */
     commandRun: {
       inputSchema: TerminalIdInputSchema,
-      outputSchema: Schema.Struct({ command: Schema.String }),
+      outputSchema: Schema.String,
     },
     /** Foreground process name + pid, sampled at the tty (deduped). */
     foreground: {

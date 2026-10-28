@@ -49,6 +49,15 @@ export const RECENCY_THROTTLE_MS = 60_000;
  *  no resume ref. */
 export type AgentIdentityRef = { kind: string; sessionId: string };
 
+/** The CONVERSATION identity of an agent — the `{kind, sessionId}` pair every
+ *  identity comparison and baseline is built from. */
+function identityRef(info: {
+  kind: string;
+  sessionId: string;
+}): AgentIdentityRef {
+  return { kind: info.kind, sessionId: info.sessionId };
+}
+
 /** Apply one observation to the OBSERVED half (last-write-wins). Shared by kolu's
  *  full {@link fold} and a memory-less dashboard accumulator, so "apply an
  *  observation to the snapshot state" lives once. The agent's `Known<>` rule
@@ -132,10 +141,7 @@ export function seedRecencyBaseline(
   // full persisted `AgentIdentity`, which also carries `resumeRef`) keeps the
   // survivor's identity stable across a restore that re-derives the ref.
   return restoreTarget?.kind === "exact"
-    ? {
-        kind: restoreTarget.agent.kind,
-        sessionId: restoreTarget.agent.sessionId,
-      }
+    ? identityRef(restoreTarget.agent)
     : null;
 }
 
@@ -159,9 +165,7 @@ export function stepRecencyBaseline(
   const live = agentIdentityChanged(baseline, next);
   return {
     live,
-    baseline: live
-      ? next && { kind: next.kind, sessionId: next.sessionId }
-      : baseline,
+    baseline: live ? next && identityRef(next) : baseline,
   };
 }
 
@@ -193,8 +197,7 @@ export function restoreTargetFor(
   return {
     kind: "exact",
     agent: {
-      kind: info.kind,
-      sessionId: info.sessionId,
+      ...identityRef(info),
       // The agent's OWN resume ref (juspay/kolu#1495): for most agents the
       // session id; for pi the transcript PATH (which opens regardless of where
       // pi's session store has moved). Derived by the agent's own vocab, so this

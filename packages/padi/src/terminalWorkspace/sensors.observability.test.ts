@@ -29,7 +29,6 @@ import type {
   TerminalGrid,
 } from "@kolu/terminal-vocab/schema";
 import {
-  type CommandRunSample,
   type SensorSignals,
   freshAgentEngineState,
   startAgentSensor,
@@ -96,7 +95,7 @@ function startHarness(): Harness {
   const signals: SensorSignals = {
     cwd: inMemoryChannel<string>(),
     title: inMemoryChannel<string>(),
-    commandRun: inMemoryChannel<CommandRunSample>(),
+    commandRun: inMemoryChannel<string>(),
     foreground: inMemoryChannel<ForegroundSample>(),
     ports: inMemoryChannel<TerminalPorts>(),
     grid: inMemoryChannel<TerminalGrid>(),

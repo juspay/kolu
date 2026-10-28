@@ -35,7 +35,7 @@ knows nothing about shell-environment preparation: callers hand it a ready
 | meaningful output (activity edge) | `onData`, **resize-repaint excluded** | host-global `activity` stream (`{ id }` edges) |
 | cwd            | OSC 7 `file://` reports         | `subscribeCwd` / `getCwd` |
 | title          | OSC 0/2 title changes           | `subscribeTitle` / `getTitle` |
-| command-run    | OSC 633 ; E ; `<cmd>` preexec — a SENSOR; never replayed | `subscribeCommandRun` / `getLastCommand` |
+| command-run    | OSC 633 ; E ; `<cmd>` preexec — a SENSOR; never replayed | `subscribeCommandRun` (retained replay + live marks) |
 | exit           | child exit code                 | `exit` (fails `PtyNotFound`) |
 | foreground pid | `tcgetpgrp(3)` at the tty       | `getForegroundPid`        |
 | foreground process | node-pty `argv[0]` basename; a dynamic-loader `argv[0]` (`ld-linux…` / `ld-musl-…` / `ld.so`) is resolved to the program it loads, read from `/proc/<fgpid>/cmdline` | `getProcess` · `foreground` stream |
@@ -182,7 +182,9 @@ version skew. A kaval survivor from the previous epoch is therefore **recycled**
 not drainable — once the supervisor has corroborated it owns the gate and
 verified the pid it names. The constant still bumps because it remains the
 **in-epoch** skew mechanism — see its note in `ptyHostSurface.ts`. It has since
-moved to **7.1** (minor · additive) for `terminal.getScreenCells`.
+moved to **8.0** (major): `commandRun` lost the REQUIRED `replayed` field, which a
+7.x consumer cannot decode, and a minor (7.2) would have read as compatible in
+the old-consumer direction. `terminal.getScreenCells` came in at 7.1.
 
 That verb is the one place a reader might expect kaval to have grown a feature
 it deliberately did not. It returns the screen as **attributed cells** —

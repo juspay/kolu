@@ -16,11 +16,12 @@
  *     (`lastActivityAt`, `promptedAt`). kolu remembers them; a producer's
  *     `TerminalSnapshot` cannot spell either, and NEITHER can PTY output: a
  *     shell's `OSC 633;E` mark is only a sensor, never a remembered launch line.
- *   - `TerminalState = { snapshot, memory, argv }` is kolu's fold accumulator,
- *     never on a wire (kolu folds in-process). `argv` is the live agent
- *     process's allowlisted flag tokens — RAM-only, because its persisted form
- *     is the restore target's `exact.argv`. `TerminalEvent` is the per-field
- *     EMIT type a producer streams.
+ *   - `TerminalState = { snapshot, memory, restoreTarget }` is kolu's fold
+ *     accumulator, never on a wire (kolu folds in-process). `restoreTarget` is
+ *     the DERIVED resume fact — the agent identity plus the live process's
+ *     allowlisted argv, built from ONE observation — and is the value persisted
+ *     on the authored record. `TerminalEvent` is the per-field EMIT type a
+ *     producer streams.
  *
  * The old persisted-vs-live write fence (and its `AwarenessSink` mutator split) is
  * GONE: the producer is memoryless and the emit type forbids a memory field, so no

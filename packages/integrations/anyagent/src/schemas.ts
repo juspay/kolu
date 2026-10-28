@@ -98,3 +98,16 @@ export const RestoreTargetSchema = Schema.Union([
   }),
 ]);
 export type RestoreTarget = typeof RestoreTargetSchema.Type;
+
+/** One IDENTITY-ONLY `exact` target: the conversation, no flags. THE shape rule
+ *  shared by the 1.3.0 ladder arm (an old record's captured command is deleted)
+ *  and the import door (a foreign file's argv was never observed on this host).
+ *  Generic in the agent so the ladder can build it from a shape it has only
+ *  validated structurally. */
+export function identityOnlyTarget<A>(agent: A): {
+  kind: "exact";
+  agent: A;
+  argv: [];
+} {
+  return { kind: "exact", agent, argv: [] };
+}

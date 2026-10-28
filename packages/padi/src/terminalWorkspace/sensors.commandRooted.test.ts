@@ -29,7 +29,6 @@ import type {
 } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import {
-  type CommandRunSample,
   type SensorSignals,
   freshAgentEngineState,
   startAgentSensor,
@@ -71,7 +70,7 @@ function startHarness(commandRooted: boolean) {
   const signals: SensorSignals = {
     cwd: inMemoryChannel<string>(),
     title: inMemoryChannel<string>(),
-    commandRun: inMemoryChannel<CommandRunSample>(),
+    commandRun: inMemoryChannel<string>(),
     foreground: inMemoryChannel<ForegroundSample>(),
     ports: inMemoryChannel<TerminalPorts>(),
     grid: inMemoryChannel<TerminalGrid>(),

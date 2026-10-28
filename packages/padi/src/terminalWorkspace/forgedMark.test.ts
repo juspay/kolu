@@ -49,11 +49,7 @@ import {
   restoreTargetEqual,
   stepRecencyBaseline,
 } from "./fold.ts";
-import {
-  type CommandRunSample,
-  freshAgentEngineState,
-  startAgentCommandSensor,
-} from "./sensors.ts";
+import { freshAgentEngineState, startAgentCommandSensor } from "./sensors.ts";
 
 const log = pino({ level: "silent" });
 const ID = "11111111-1111-4111-8111-111111111111" as TerminalId;
@@ -120,7 +116,17 @@ function foldThroughEndpoint(
       o.agent.value !== null &&
       !restoreTargetEqual(before.restoreTarget, state.restoreTarget)
     ) {
-      trackRecentAgent(o.agent.value.info.kind, o.agent.value.argv);
+      const prev = before.restoreTarget;
+      const next = state.restoreTarget;
+      const replacePlaceholder =
+        prev.kind === "exact" &&
+        next.kind === "exact" &&
+        prev.agent.sessionId === next.agent.sessionId &&
+        prev.argv.length === 0 &&
+        next.argv.length > 0;
+      trackRecentAgent(o.agent.value.info.kind, o.agent.value.argv, {
+        replacePlaceholder,
+      });
     }
   }
   return state;
@@ -168,7 +174,7 @@ describe("a forged 633;E mark", () => {
     const signals = {
       cwd: inMemoryChannel<string>(),
       title: inMemoryChannel<string>(),
-      commandRun: inMemoryChannel<CommandRunSample>(),
+      commandRun: inMemoryChannel<string>(),
       foreground: inMemoryChannel<ForegroundSample>(),
       ports: inMemoryChannel<TerminalPorts>(),
       grid: inMemoryChannel<TerminalGrid>(),
@@ -181,7 +187,7 @@ describe("a forged 633;E mark", () => {
       log,
     );
 
-    signals.commandRun.publish({ command: FORGED });
+    signals.commandRun.publish(FORGED);
     await flush();
     stop();
 
@@ -236,7 +242,7 @@ describe("a forged 633;E mark", () => {
     const signals = {
       cwd: inMemoryChannel<string>(),
       title: inMemoryChannel<string>(),
-      commandRun: inMemoryChannel<CommandRunSample>(),
+      commandRun: inMemoryChannel<string>(),
       foreground: inMemoryChannel<ForegroundSample>(),
       ports: inMemoryChannel<TerminalPorts>(),
       grid: inMemoryChannel<TerminalGrid>(),
@@ -248,7 +254,7 @@ describe("a forged 633;E mark", () => {
       (o) => emitted.push(o),
       log,
     );
-    signals.commandRun.publish({ command: FORGED });
+    signals.commandRun.publish(FORGED);
     await flush();
     stop();
 

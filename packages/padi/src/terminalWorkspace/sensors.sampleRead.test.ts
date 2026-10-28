@@ -62,7 +62,16 @@ describe("observationFromSample — unread argv is not 'no flags'", () => {
     expect(agentObservationEqual(mirror, resolved)).toBe(false);
   });
 
-  it("carries forward when there is no mirror yet", () => {
+  it("carries forward across a STATE tick with an unread argv (same identity)", () => {
+    // The firehose case: the agent moved thinking→waiting while the argv read
+    // failed. The identity is unchanged, so the flags still carry — gating on
+    // whole-Info equality would have written `argv: []` here.
+    const moved = { ...info, state: "waiting" as const, contextTokens: 1234 };
+    const resolved = observationFromSample({ info: moved, argv: null }, mirror);
+    expect(resolved).toEqual({ info: moved, argv: mirror.argv });
+  });
+
+  it("records an empty list when there is no mirror yet", () => {
     expect(observationFromSample({ info, argv: null }, null)).toEqual({
       info,
       argv: [],

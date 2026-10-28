@@ -432,21 +432,14 @@ export interface PtyAttachOpts {
   resizeTo?: PtyGrid;
 }
 
-/** The command a PTY has already run, retained so a late subscriber still learns
- *  it. SENSOR DATA, never a command kolu replays: see the 633 handler's invariant
- *  note. There is no quoting dialect any more — no consumer reparses it into
- *  argv; the only readers take its head basename. */
-export interface RetainedCommand {
-  readonly command: string;
-}
-
 /** {@link PtyHost.subscribeCommandRun}'s two halves, taken in ONE synchronous
  *  step so a mark published between them can neither be lost nor delivered
  *  twice. */
 export interface CommandRunSubscription {
   /** The command retained at subscribe time, or `undefined` before the first
-   *  mark. A consumer replays it as its snapshot frame. */
-  readonly retained: RetainedCommand | undefined;
+   *  mark. A consumer replays it as its snapshot frame. SENSOR DATA, never a
+   *  command kolu replays: the only readers take its head basename. */
+  readonly retained: string | undefined;
   /** Live OSC 633;E marks published AFTER the reading. */
   readonly marks: Stream.Stream<string, SubscriberOverflow>;
 }
@@ -1634,11 +1627,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       Effect.suspend(() => {
         const entry = requireEntry(id);
         return Effect.map(
-          entry.commandRunFanOut.subscribeWith(() =>
-            entry.lastCommand === undefined
-              ? undefined
-              : { command: entry.lastCommand },
-          ),
+          entry.commandRunFanOut.subscribeWith(() => entry.lastCommand),
           ({ stream, reading }): CommandRunSubscription => ({
             retained: reading,
             marks: stream,

@@ -49,7 +49,7 @@ import type {
   TerminalState,
 } from "@kolu/terminal-vocab/schema";
 import { seedSnapshot, TerminalIdSchema } from "@kolu/terminal-vocab/schema";
-import { resumeFormFor } from "kolu-agents/vocab";
+import { resumeFormFor, willResume } from "kolu-agents/vocab";
 import { Effect, Result, Schema, Stream } from "effect";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type { SnapshotGrid } from "terminal-snapshot";
@@ -79,7 +79,6 @@ import { probeProfileInEffect } from "../agentDistro/inEffect.ts";
 import { agentLayerOfRecord, withAgentLayer } from "../agentDistro/layer.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
 import { notifyDirty } from "../publisher.ts";
-import { unresumableAgentWatch } from "./unresumableAgent.ts";
 import {
   type ActiveTerminalProcess,
   claimActiveTerminal,
@@ -109,7 +108,6 @@ import {
   stepRecencyBaseline,
 } from "../terminalWorkspace/fold.ts";
 import {
-  type CommandRunSample,
   type SensorSignals,
   startSensors,
 } from "../terminalWorkspace/sensors.ts";
@@ -1219,7 +1217,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const signals: SensorSignals = {
       cwd: inMemoryChannel<string>(),
       title: inMemoryChannel<string>(),
-      commandRun: inMemoryChannel<CommandRunSample>(),
+      commandRun: inMemoryChannel<string>(),
       foreground: inMemoryChannel<ForegroundSample>(),
       // Fed by the host-wide port sampler (below), not by a pty-host tap.
       ports: inMemoryChannel<TerminalPorts>(),
@@ -1262,7 +1260,36 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       seedEntry.meta.restoreTarget,
     );
     const runStartedAt = Date.now();
-    const unresumable = unresumableAgentWatch(id, log);
+    // The loud half of a terminal that will not resume across a restart. A
+    // terminal can hold a LIVE agent identity while kolu cannot render a resume
+    // form for it — the agent's kind is not one this build knows, or its ref no
+    // longer passes the agent's own shape gate — and its wake lands on a bare
+    // shell. This names it once per agent episode; the raw mark is kept only as
+    // LOG CONTEXT (never parsed).
+    let warnedUnresumable = false;
+    let lastRawCommand: string | undefined;
+    const noteRawCommand = (raw: string): void => {
+      lastRawCommand = raw;
+    };
+    const checkUnresumable = (state: TerminalState): void => {
+      if (state.snapshot.agent === null) {
+        warnedUnresumable = false;
+        return;
+      }
+      if (warnedUnresumable || willResume(state.restoreTarget)) return;
+      warnedUnresumable = true;
+      log.warn(
+        {
+          terminal: id,
+          agent: state.snapshot.agent.kind,
+          reason: "no-resume-form",
+          // Why it refused: an unknown kind, or a ref that failed its shape gate.
+          resumeRef: state.snapshot.agent.sessionId,
+          lastRawCommand,
+        },
+        "agent detected but kolu cannot render a resume form for it — this terminal will not resume across restart",
+      );
+    };
 
     const emit = (o: TerminalEvent): void => {
       const before = current;
@@ -1292,10 +1319,24 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         o.agent.value !== null &&
         !restoreTargetEqual(before.restoreTarget, current.restoreTarget)
       ) {
-        trackRecentAgent(o.agent.value.info.kind, o.agent.value.argv);
+        const prev = before.restoreTarget;
+        const next = current.restoreTarget;
+        // This launch wrote a flagless placeholder iff the target was `exact`,
+        // still names the SAME conversation, and its flags were empty. Only then
+        // may the richer row supersede that placeholder — a bare `claude` the
+        // user ran deliberately is a different launch and stays.
+        const replacePlaceholder =
+          prev.kind === "exact" &&
+          next.kind === "exact" &&
+          prev.agent.sessionId === next.agent.sessionId &&
+          prev.argv.length === 0 &&
+          next.argv.length > 0;
+        trackRecentAgent(o.agent.value.info.kind, o.agent.value.argv, {
+          replacePlaceholder,
+        });
       }
       if (current === before) return; // `unknown`/dedup no-op — nothing else to commit
-      unresumable.check(current);
+      checkUnresumable(current);
       // Three effect arms, each gated by ITS OWN delta — no firehose on any:
       //  - the OBSERVED half → the `snapshots` collection, on a snapshot change;
       //  - the MEMORY half + the derived `restoreTarget` → `kolu.authored`, on an
@@ -1330,8 +1371,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
         // The OSC 633 command mark is a SENSOR only: it re-samples the foreground
         // and feeds the shim hint (`agentNameHint`). Its text is logged as context
         // for an unresumable agent and never becomes a command.
-        unresumable.noteRawCommand(msg.command);
-        signals.commandRun.publish({ command: msg.command });
+        noteRawCommand(msg);
+        signals.commandRun.publish(msg);
       },
     );
     void bridgeStream(
@@ -1688,7 +1729,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       return now?.meta.state === "active"
         ? {
             info: now.info,
-            resumed: resumeFormFor(slept.meta.restoreTarget) !== null,
+            resumed: willResume(slept.meta.restoreTarget),
           }
         : undefined;
     // The ONE decision of whether the conversation comes back: while agents

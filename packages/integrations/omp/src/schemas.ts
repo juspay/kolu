@@ -7,7 +7,13 @@
  *  Anything exported here MUST stay free of `node:*` imports and filesystem
  *  access — Effect Schema and `anyagent`'s schema re-exports only. */
 
-import { type AgentVocab, type FlagArity, TaskProgressSchema } from "anyagent";
+import {
+  type AgentVocab,
+  type FlagArity,
+  NODE_CLI_SHIMS,
+  SESSION_PATH_OR_UUID_RE,
+  TaskProgressSchema,
+} from "anyagent";
 import { Schema } from "effect";
 
 export type { TaskProgress } from "anyagent";
@@ -85,13 +91,6 @@ const OMP_MARK = {
   paths: ["M5.25 6h13.5v3H15v12h-3V9H9.75v8.25H6.75V9H5.25z"],
 };
 
-/** omp's resume ref admits a session id or an absolute session PATH, restricted
- *  to shell-inert writing-system characters (no control, no quotes, no
- *  `$`/`;`/backtick/metachars). The splice itself always goes through
- *  `shellJoin`, which is the lock; this is the second wall. */
-const OMP_RESUME_REF_RE =
-  /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\/[\w .,@=+(){}#%/~-]*\.jsonl)$/;
-
 /** omp's vocabulary — display name, brand mark, CLI grammar (including its
  *  one-shot/subcommand carve-outs), resume policy, and wire schema.
  *
@@ -104,16 +103,7 @@ export const ompVocab: AgentVocab<OmpInfo> = {
   mark: OMP_MARK,
   cli: {
     basename: "omp",
-    shims: new Set([
-      "node",
-      "nodejs",
-      "npm",
-      "npx",
-      "pnpm",
-      "yarn",
-      "bun",
-      "deno",
-    ]),
+    shims: NODE_CLI_SHIMS,
     stableFlags: new Map<string, FlagArity>([
       ["--model", "value"],
       ["--smol", "value"],
@@ -138,7 +128,7 @@ export const ompVocab: AgentVocab<OmpInfo> = {
   },
   resume: {
     byId: (id) => `--resume ${id}`,
-    idPattern: OMP_RESUME_REF_RE,
+    idPattern: SESSION_PATH_OR_UUID_RE,
     // omp prefers the PATH over the id: `--resume <ref>` accepts an id prefix, a
     // filename prefix, OR an absolute path, and only the path survives a store
     // that moved (a `--session-dir` run, a profile switch) — the breadcrumb

@@ -75,7 +75,7 @@ import type {
   TerminalPorts,
 } from "@kolu/terminal-vocab/schema";
 import { gitFactOf, gridsEqual, portsEqual } from "@kolu/terminal-vocab/schema";
-import { sameArgv } from "./fold.ts";
+import { agentIdentityChanged, sameArgv } from "./fold.ts";
 import { claimSession, releaseTerminal } from "./sessionOwnership.ts";
 
 /** The engine's transient agent working state — the last-emitted agent value (the
@@ -158,15 +158,6 @@ export function freshAgentEngineState(): AgentEngineState {
   };
 }
 
-/** A preexec command mark off the `commandRun` tap.
- *
- *  `command` is RAW PTY BYTES and is a SENSOR only: the sensor set reads its head
- *  basename (`agentNameHint`) and nothing else. It must never reach a remembered
- *  fact, a persisted field, or a command line. */
-export interface CommandRunSample {
-  command: string;
-}
-
 /** Per-terminal signals the sensors subscribe to. The host (`padi`, serving
  *  a local or remote host) creates a fresh in-memory channel of each kind
  *  per terminal and feeds them from the pty-host's tap streams; a remote
@@ -174,11 +165,11 @@ export interface CommandRunSample {
 export interface SensorSignals {
   cwd: Channel<string>;
   title: Channel<string>;
-  /** Preexec command marks (the host replays the last one on subscribe, so a
-   *  late/restarted sensor still learns it). The mark is a SENSOR: the
-   *  agent-command tracker takes its head basename as a shim hint and re-samples
-   *  the foreground; nothing here can become a command. */
-  commandRun: Channel<CommandRunSample>;
+  /** Preexec command marks — RAW PTY BYTES, the host replaying the last one on
+   *  subscribe so a late/restarted sensor still learns it. The mark is a SENSOR:
+   *  the agent-command tracker takes its head basename as a shim hint and
+   *  re-samples the foreground; nothing here can become a command. */
+  commandRun: Channel<string>;
   /** Foreground samples (`{process, foregroundPid}`) from pty-host's
    *  foreground tap — the channel form of the old synchronous
    *  `ptyHandle.process` / `.foregroundPid` reads, so the sensor set works across a
@@ -536,6 +527,9 @@ function startPrSensor(
 /** Exported for its own producer-level test (as `startPortSensor` is): the
  *  forged-mark fence is about what this sensor does NOT emit, which is cheapest
  *  to observe with the sensor alone rather than through `startSensors`. */
+/**
+ * @internal Producer door opened for the sensor-level tests; not module API.
+ */
 export function startAgentCommandSensor(
   agentState: AgentEngineState,
   terminalId: TerminalId,
@@ -544,7 +538,7 @@ export function startAgentCommandSensor(
   log: Logger,
 ): () => void {
   return signals.commandRun.consume({
-    onEvent: ({ command: raw }) => {
+    onEvent: (raw) => {
       // This mark is a SENSOR, never a command. It answers exactly one question —
       // which process name the shell says it just started, so an interpreter shim
       // (`node` running an npm-installed CLI) still matches its adapter. Only the
@@ -710,15 +704,21 @@ function isNotFoundError(err: unknown): boolean {
  *  `[]` — the identity is authoritative, the flags arrive on a later sample (the
  *  dedup key is the whole observation, so they do).
  *
- *  Exported for the producer-level test; the sensor is the only caller. */
+ *  @internal Producer door opened for the sensor-level test; the sensor is the
+ *  only caller. */
 export function observationFromSample(
   next: { info: AgentInfo; argv: readonly string[] | null } | null,
   mirror: AgentObservation | null,
 ): AgentObservation | null {
   if (next === null) return null;
+  // The SAME identity — not the same whole Info. `state`/`model`/`summary`/
+  // `contextTokens` move on the firehose, so gating on `agentInfoEqual` would
+  // carry the flags forward only when the observation would have deduped anyway;
+  // a read failure on a thinking→waiting tick would still overwrite the target
+  // with `argv: []`.
   const argv =
     next.argv ??
-    (mirror !== null && agentInfoEqual(mirror.info, next.info)
+    (mirror !== null && !agentIdentityChanged(mirror.info, next.info)
       ? mirror.argv
       : []);
   return { info: next.info, argv };
@@ -750,8 +750,9 @@ function emitAgentValue(
   emit({ kind: "agent", agent: { value: resolved } });
 }
 
-/** The mirror's equality: same info AND the same allowlisted argv. Exported for
- *  the producer-level test (the "unread argv is not a change" pin). */
+/** The mirror's equality: same info AND the same allowlisted argv.
+ *  @internal Producer door opened for the sensor-level test (the "unread argv is
+ *  not a change" pin). */
 export function agentObservationEqual(
   a: AgentObservation | null,
   b: AgentObservation | null,

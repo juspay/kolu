@@ -90,42 +90,38 @@ function noteStore(store: SessionStore): void {
 
 /** The session STORE for THIS terminal's pi, from the ONE process snapshot the
  *  caller already read (the host memoises it per foreground sample —
- *  juspay/kolu#2286 — so this never takes a second read). `null` means the
- *  process could not be read: fall back to the default store, the only honest
- *  answer left for the STORE (the caller decides whether it may attribute a
- *  session at all). */
+ *  juspay/kolu#2286 — so this never takes a second read). The caller refuses to
+ *  attribute at all when the read failed; a store is only ever resolved from a
+ *  real snapshot. */
 function sessionStoreFor(
   state: AgentTerminalState,
-  proc: ProcessSnapshot | null,
+  proc: ProcessSnapshot,
   log?: Logger,
 ): SessionStore {
-  if (proc) {
-    const resolved = resolveSessionDir({
-      argv: proc.argv,
-      // `null` = this platform redacts the environment (macOS), which is a
-      // different fact from an empty env map; `undefined` is what pi's chain
-      // spells "nothing named a store", so the default root applies — the
-      // documented Darwin blind spot in this module's header.
-      env: proc.env ?? undefined,
-      home: os.homedir(),
-      defaultAgentDir: AGENT_DIR,
-      cwd: state.cwd,
-      log,
-    });
-    if (resolved.source !== "default") {
-      log?.info(
-        {
-          dir: resolved.dir,
-          layout: resolved.layout,
-          source: resolved.source,
-          cwd: state.cwd,
-        },
-        "pi: session store redirected",
-      );
-    }
-    return { root: resolved.dir, layout: resolved.layout };
+  const resolved = resolveSessionDir({
+    argv: proc.argv,
+    // `null` = this platform redacts the environment (macOS), which is a
+    // different fact from an empty env map; `undefined` is what pi's chain
+    // spells "nothing named a store", so the default root applies — the
+    // documented Darwin blind spot in this module's header.
+    env: proc.env ?? undefined,
+    home: os.homedir(),
+    defaultAgentDir: AGENT_DIR,
+    cwd: state.cwd,
+    log,
+  });
+  if (resolved.source !== "default") {
+    log?.info(
+      {
+        dir: resolved.dir,
+        layout: resolved.layout,
+        source: resolved.source,
+        cwd: state.cwd,
+      },
+      "pi: session store redirected",
+    );
   }
-  return defaultSessionStore();
+  return { root: resolved.dir, layout: resolved.layout };
 }
 
 export const piAdapter: AgentAdapter<PiSession, PiInfo> = {

@@ -32,6 +32,7 @@ import {
   type TerminalSnapshot,
   TerminalSnapshotSchema,
 } from "@kolu/terminal-vocab/schema";
+import { identityOnlyTarget } from "anyagent/schemas";
 import { type PrInfo, prValue } from "anyforge/schemas";
 import { Effect, Result, Schema, Struct } from "effect";
 import {
@@ -1194,10 +1195,7 @@ export function backfillRestoreTargetArgv(
       // A malformed identity is left alone for `RestoreTargetSchema` to refuse
       // loudly rather than silently become a bare shell.
       if (!agent || typeof agent !== "object") return next;
-      return {
-        ...next,
-        restoreTarget: { kind: "exact", agent, argv: [] },
-      };
+      return { ...next, restoreTarget: identityOnlyTarget(agent) };
     }
     default:
       return next;
@@ -1295,8 +1293,9 @@ export function stripImportedTargetArgv(session: SavedSession): SavedSession {
     ...session,
     terminals: session.terminals.map((terminal) => {
       const target = terminal.restoreTarget;
-      if (target?.kind !== "exact") return terminal;
-      return { ...terminal, restoreTarget: { ...target, argv: [] } };
+      return target?.kind === "exact"
+        ? { ...terminal, restoreTarget: identityOnlyTarget(target.agent) }
+        : terminal;
     }),
   };
 }

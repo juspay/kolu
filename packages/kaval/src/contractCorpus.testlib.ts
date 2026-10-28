@@ -442,17 +442,15 @@ export function runContractCorpus(opts: {
         }),
       );
       const live = await cmdP;
-      expect(live.command).toContain("corpus-command");
+      expect(live).toContain("corpus-command");
 
       // Snapshot-first replay (the new contract guarantee): a subscriber that
-      // joins AFTER the mark still gets the last command on its first frame,
-      // flagged `replayed: true` so it names the foreground without re-firing the
-      // live-only re-sample. Pinned HERE — not just the identity-link suite —
+      // joins AFTER the mark still gets the last command on its first frame.
+      // Pinned HERE — not just the identity-link suite —
       // so the real socket daemon path exercises it too.
       const lateStream = client().surface.commandRun.get({ id });
       const replay = await firstYield(lateStream);
-      expect(replay.command).toContain("corpus-command");
-      expect(replay).not.toHaveProperty("replayed");
+      expect(replay).toContain("corpus-command");
 
       await Effect.runPromise(client().surface.terminal.kill({ id }));
     });

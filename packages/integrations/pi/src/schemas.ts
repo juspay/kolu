@@ -7,7 +7,13 @@
  *  Anything exported here MUST stay free of `node:*` imports and filesystem
  *  access — Effect Schema and `anyagent`'s schema re-exports only. */
 
-import { type AgentVocab, type FlagArity, TaskProgressSchema } from "anyagent";
+import {
+  type AgentVocab,
+  type FlagArity,
+  NODE_CLI_SHIMS,
+  SESSION_PATH_OR_UUID_RE,
+  TaskProgressSchema,
+} from "anyagent";
 import { Schema } from "effect";
 
 export type { TaskProgress } from "anyagent";
@@ -77,13 +83,6 @@ const PI_MARK = {
   paths: ["M5 6h14v2.5H16V18h-2.5V8.5h-3V18H8V8.5H5V6z"],
 };
 
-/** pi's resume ref admits an id or the absolute session PATH, restricted to
- *  shell-inert writing-system characters (no control, no quotes, no
- *  `$`/`;`/backtick/metachars). The splice itself always goes through
- *  `shellJoin`, which is the lock; this is the second wall. */
-const PI_RESUME_REF_RE =
-  /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\/[\w .,@=+(){}#%/~-]*\.jsonl)$/;
-
 /** Pi's vocabulary — display name, brand mark, CLI grammar (including its
  *  resume policy, and wire schema. */
 export const piVocab: AgentVocab<PiInfo> = {
@@ -92,16 +91,7 @@ export const piVocab: AgentVocab<PiInfo> = {
   mark: PI_MARK,
   cli: {
     basename: "pi",
-    shims: new Set([
-      "node",
-      "nodejs",
-      "npm",
-      "npx",
-      "pnpm",
-      "yarn",
-      "bun",
-      "deno",
-    ]),
+    shims: NODE_CLI_SHIMS,
     stableFlags: new Map<string, FlagArity>([
       ["--model", "value"],
       ["--provider", "value"],
@@ -117,7 +107,7 @@ export const piVocab: AgentVocab<PiInfo> = {
   },
   resume: {
     byId: (id) => `--session ${id}`,
-    idPattern: PI_RESUME_REF_RE,
+    idPattern: SESSION_PATH_OR_UUID_RE,
     // Pi prefers the PATH over the id: pi's id lookup searches only its OWN
     // current store resolution, so a session whose store MOVED is unfindable by
     // id from a fresh invocation, while the absolute path opens unconditionally.

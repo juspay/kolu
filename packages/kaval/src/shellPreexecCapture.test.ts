@@ -61,7 +61,7 @@ function retainedCommand(
 ): Promise<string | undefined> {
   return Effect.runPromise(
     Effect.scoped(
-      Effect.map(host.subscribeCommandRun(id), (sub) => sub.retained?.command),
+      Effect.map(host.subscribeCommandRun(id), (sub) => sub.retained),
     ),
   );
 }

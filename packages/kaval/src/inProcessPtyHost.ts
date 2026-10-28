@@ -305,14 +305,11 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
               // published synchronously at spawn, before any subscriber, so it
               // never arrives live).
               const live = sub.marks.pipe(
-                Stream.map((command) => ({ command })),
                 endOnOverflow("commandRun", input.id),
               );
               return sub.retained === undefined
                 ? live
-                : Stream.make({ command: sub.retained.command }).pipe(
-                    Stream.concat(live),
-                  );
+                : Stream.make(sub.retained).pipe(Stream.concat(live));
             }),
           ),
       },

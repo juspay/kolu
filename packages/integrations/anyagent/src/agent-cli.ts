@@ -26,12 +26,11 @@ import { parseArgsStringToArgv } from "string-argv";
 import type { RestoreTarget } from "./schemas.ts";
 import type { AnyAgentVocab, AgentCliGrammar } from "./vocab.ts";
 
-/** The CLI registry: every known agent, keyed by `kind`. `vocabs` are the full
- *  agents (kind · resume · schema). There is no basename-keyed PARSER any more —
- *  a basename read off PTY text can only be compared against a known agent name
- *  ({@link agentNameHint}), never used to interpret a command line. */
+/** The CLI registry: every known agent, keyed by `kind`. There is no
+ *  basename-keyed PARSER any more — a basename read off PTY text can only be
+ *  compared against a known agent name ({@link agentNameHint}), never used to
+ *  interpret a command line. */
 export interface AgentCliRegistry {
-  readonly vocabs: readonly AnyAgentVocab[];
   /** Resolve an agent `kind` to its vocab, or `undefined` when this build no
    *  longer knows it (a persisted target naming a retired agent → no resume,
    *  the documented bare-shell refusal, never a throw). */
@@ -50,10 +49,7 @@ export function buildCliRegistry(
       throw new Error(`duplicate agent kind: ${vocab.kind}`);
     byKind.set(vocab.kind, vocab);
   }
-  return {
-    vocabs,
-    byKind: (kind) => byKind.get(kind),
-  };
+  return { byKind: (kind) => byKind.get(kind) };
 }
 
 /** Basename of a path-like token (strips directory prefix). */
@@ -154,12 +150,39 @@ export function agentLaunchLine(
   argv: readonly string[],
 ): string | null {
   const vocab = reg.byKind(kind);
-  if (vocab === undefined) return null;
-  // Re-filtered at RENDER, not only at capture: `stableFlags` revs with an agent
-  // release, so a target written by an older padi (a wider allowlist) must not
-  // bypass today's. The allowlist is the single live authority; filtering is
-  // idempotent.
-  return shellJoin([vocab.cli.basename, ...stableFlagTokens(vocab.cli, argv)]);
+  return vocab === undefined ? null : renderLine(vocab, null, argv);
+}
+
+/** THE renderer of a launch/resume line: the vocab's binary, an optional resume
+ *  marker (`byId`'s spelling), and the allowlisted flags. Re-filtered at RENDER,
+ *  not only at capture: `stableFlags` revs with an agent release, so a target
+ *  written by an older padi (a wider allowlist) must not bypass today's. The
+ *  allowlist is the single live authority; filtering is idempotent. */
+function renderLine(
+  vocab: AnyAgentVocab,
+  marker: string | null,
+  argv: readonly string[],
+): string {
+  const flags = stableFlagTokens(vocab.cli, argv);
+  if (marker === null) return shellJoin([vocab.cli.basename, ...flags]);
+  // The marker sits DIRECTLY after the binary and the flags follow: codex spells
+  // resume as a `resume` SUBCOMMAND, so `codex resume <id> --model x` is the one
+  // order every agent accepts.
+  const suffix = flags.length === 0 ? "" : ` ${shellJoin(flags)}`;
+  return `${shellJoin([vocab.cli.basename])} ${marker}${suffix}`;
+}
+
+/** Would a wake resume this target? The ONE gate: the kind is one this build
+ *  knows AND its resume ref passes the agent's own shape gate — exactly the two
+ *  ways `resumeFormFor` yields `null`. Every display/decision site asks this
+ *  instead of rendering a whole command line just to compare it with `null`. */
+export function willResume(
+  reg: AgentCliRegistry,
+  target: RestoreTarget | undefined,
+): target is Extract<RestoreTarget, { kind: "exact" }> {
+  if (target?.kind !== "exact") return false;
+  const vocab = reg.byKind(target.agent.kind);
+  return vocab?.resume.idPattern.test(target.agent.resumeRef) ?? false;
 }
 
 /**
@@ -189,23 +212,13 @@ export function resumeFormFor(
   reg: AgentCliRegistry,
   target: RestoreTarget | undefined,
 ): string | null {
-  if (!target || target.kind === "none") return null;
+  if (!willResume(reg, target)) return null;
   const vocab = reg.byKind(target.agent.kind);
   if (vocab === undefined) return null;
-  const policy = vocab.resume;
-  const ref = target.agent.resumeRef;
-  if (!policy.idPattern.test(ref)) return null;
   // The ref is data, not shell text: `shellJoin([ref])` quotes it as ONE token
   // (a no-op for a gate-passing ref) before the policy splices it.
-  const marker = policy.byId(shellJoin([ref]));
-  // Render-time re-filter — see `agentLaunchLine`'s note. The persisted list may
-  // predate a narrower allowlist.
-  const argv = stableFlagTokens(vocab.cli, target.argv);
-  const flags = argv.length === 0 ? "" : ` ${shellJoin(argv)}`;
-  // The marker sits DIRECTLY after the binary and the flags follow: codex spells
-  // resume as a `resume` SUBCOMMAND, so `codex resume <id> --model x` is the one
-  // order every agent accepts.
-  return `${shellJoin([vocab.cli.basename])} ${marker}${flags}`;
+  const marker = vocab.resume.byId(shellJoin([target.agent.resumeRef]));
+  return renderLine(vocab, marker, target.argv);
 }
 
 /** The launch line a restore card COUNTS and a tile DISPLAYS, or `null` when
@@ -225,9 +238,6 @@ export function resumableCommand(
   reg: AgentCliRegistry,
   target: RestoreTarget | undefined,
 ): string | null {
-  if (target?.kind !== "exact") return null;
-  // Gate on the ONE authority (a ref that fails its shape gate, or a kind this
-  // build does not know, yields nothing), then render the launch form.
-  if (resumeFormFor(reg, target) === null) return null;
+  if (!willResume(reg, target)) return null;
   return agentLaunchLine(reg, target.agent.kind, target.argv);
 }

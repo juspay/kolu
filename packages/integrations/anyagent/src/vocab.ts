@@ -23,6 +23,32 @@ import type { AgentInfoShape } from "./agent-adapter.ts";
  *  positional out of the MRU (the living-clue / kolu#1895 leak fix). */
 export type FlagArity = "boolean" | "value";
 
+/** The interpreter/package-manager foregrounds a Node-distributed agent hides
+ *  behind: npm/pnpm/yarn/bun installs all run as their runtime, so the kernel
+ *  basename is the interpreter, not the agent. A shared VALUE — the packaging
+ *  fact is the same for every Node-distributed CLI — while each vocab still
+ *  declares the field (the boundary that revs with its own packaging). An agent
+ *  on another runtime declares its own set (Xyne: `python`/`uv`). */
+export const NODE_CLI_SHIMS: ReadonlySet<string> = new Set([
+  "node",
+  "nodejs",
+  "npm",
+  "npx",
+  "pnpm",
+  "yarn",
+  "bun",
+  "deno",
+]);
+
+/** A canonical UUID (session ids for most agents, and Xyne's resume ref). */
+export const UUID_RE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/** An agent whose resume ref may be EITHER a native id or a transcript PATH
+ *  (pi, omp): an absolute path ending in `.jsonl`, or a UUID. */
+export const SESSION_PATH_OR_UUID_RE =
+  /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\/[\w .,@=+(){}#%/~-]*\.jsonl)$/;
+
 /** THE brand mark for an agent, as data — ONE mark, rendered by both the
  *  tile-chrome icon and the dock pip. Structurally identical to
  *  `@kolu/solid-statepip`'s `PipGlyphDef` — no import in either direction; TS

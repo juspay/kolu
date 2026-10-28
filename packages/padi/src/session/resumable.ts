@@ -17,15 +17,13 @@
  */
 
 import type { SavedTerminal } from "@kolu/padi-client/surface";
-import { resumableCommand } from "kolu-agents/vocab";
+import { willResume } from "kolu-agents/vocab";
 
 /** Ids of saved terminals that will resume an agent on restore (host-owned). */
 export function resumableTerminalIds(
   terminals: readonly SavedTerminal[],
 ): string[] {
   return terminals
-    .filter(
-      (t) => t.state === "active" && resumableCommand(t.restoreTarget) !== null,
-    )
+    .filter((t) => t.state === "active" && willResume(t.restoreTarget))
     .map((t) => t.id);
 }
