@@ -1,1226 +1,249 @@
-/** Unit tests for agent CLI parsing and normalization. */
+/** Unit tests for the CLI facts kolu still keeps: the sensor's name hint, the
+ *  live-process stable-flag filter, and the ONE renderer from a restore target
+ *  to a shell line.
+ *
+ *  The old suite pinned a text-splicing pipeline (`parseAgentCommand` →
+ *  `resumeAgentCommand`), which is exactly the behaviour this change deletes:
+ *  captured PTY text no longer becomes a command. There is deliberately no test
+ *  here for turning a command STRING into a launch — that door is gone. */
 
-import { shellJoin, shellSplit } from "@kolu/shell-quote";
-import { parseArgsStringToArgv } from "string-argv";
 import { describe, expect, it } from "vitest";
 import type { RestoreTarget } from "anyagent/schemas";
 import {
-  agentKindFromCommand,
-  agentNameFromCommand,
-  exactRestoreTarget,
-  parseAgentCommand,
+  agentLaunchLine,
+  agentNameHint,
   resumableCommand,
-  resumeAgentCommand,
   resumeFormFor,
+  stableFlagTokens,
 } from "./vocab.ts";
+import { agentCliGrammar } from "./vocab.ts";
 
-describe("parseAgentCommand", () => {
-  // Table from juspay/kolu#452
+const CLAUDE_ID = "0192f3a1-4c5b-7d8e-9f01-23456789abcd";
+const CODEX_ID = "0192f3a1-4c5b-7d8e-9f02-23456789abcd";
+const GROK_ID = "0192f3a1-4c5b-7d8e-9f03-23456789abcd";
+const XYNE_ID = "0192f3a1-4c5b-7d8e-9f04-23456789abcd";
+const OPENCODE_ID = "ses_118316090ffewMmbj6bsfKwj4R";
+const PI_PATH = "/home/u/.pi/sessions/a.jsonl";
+const OMP_PATH = "/home/u/.omp/sessions/a.jsonl";
+
+function target(
+  kind: string,
+  resumeRef: string,
+  argv: readonly string[] = [],
+): RestoreTarget {
+  return {
+    kind: "exact",
+    agent: { kind, sessionId: resumeRef, resumeRef },
+    argv: [...argv],
+  };
+}
+
+describe("agentNameHint — the only reader of a raw PTY command mark", () => {
   it.each([
-    // bare invocation
     ["claude", "claude"],
-    // prompt flag stripped with its value
-    [`claude -p "fix my leaked API key foo"`, "claude"],
-    // stable flag kept verbatim
+    ["/usr/local/bin/claude --model sonnet", "claude"],
+    ["FOO=bar opencode", "opencode"],
+    ["A=1 B='x y' claude --model sonnet", "claude"],
+    ["exec claude --resume x", "claude"],
+    ["env FOO=1 claude", "claude"],
+    ["ls -la", "ls"],
+    ["", null],
+  ])("%j → %j", (raw, expected) => {
+    expect(agentNameHint(raw)).toBe(expected);
+  });
+});
+
+describe("stableFlagTokens — the live process's argv, filtered by the allowlist", () => {
+  /** The REAL argv shapes observed through `/proc` on a Linux host, one per
+   *  registered agent. Wrapper-injected flags, loaders, paths, positionals and
+   *  resume markers are all dropped by the allowlist; only flags the agent
+   *  grammar declares stable survive. */
+  it.each<[string, string[], string[]]>([
     [
-      "claude --dangerously-skip-permissions",
-      "claude --dangerously-skip-permissions",
-    ],
-    // mixed: stable flag preserved, prompt flag stripped
-    [`claude --model sonnet -p "tweak this"`, "claude --model sonnet"],
-    // aider with --model and -m prompt
-    [`aider --model opus -m "refactor this"`, "aider --model opus"],
-    // repeated identity
-    ["claude", "claude"],
-    // session-resume flags stripped — juspay/kolu#467: `-c` and
-    // `--resume` were creating distinct recent-agents MRU entries for
-    // what is semantically the same invocation.
-    [
-      "claude --dangerously-skip-permissions -c",
-      "claude --dangerously-skip-permissions",
+      "claude-code",
+      [
+        "/home/u/.local/bin/claude",
+        "--plugin-dir",
+        "/home/u/.claude/plugins/p",
+        "--plugin-dir",
+        "/home/u/.claude/plugins/p",
+        "--resume",
+        CLAUDE_ID,
+        "--dangerously-skip-permissions",
+      ],
+      ["--dangerously-skip-permissions"],
     ],
     [
-      "claude --dangerously-skip-permissions --resume",
-      "claude --dangerously-skip-permissions",
-    ],
-    ["claude --continue --model sonnet", "claude --model sonnet"],
-    ["claude -r --model sonnet", "claude --model sonnet"],
-    // `--resume` with an optional session-id value — value stripped
-    // by the same "skip next non-flag token" branch as prompt flags.
-    [
-      "claude --resume abc123-session-uuid --model sonnet",
-      "claude --model sonnet",
-    ],
-  ])("normalizes %j → %j", (raw, expected) => {
-    expect(parseAgentCommand(raw)).toBe(expected);
-  });
-
-  it("strips trailing positional arguments", () => {
-    expect(parseAgentCommand("aider src/foo.ts src/bar.ts")).toBe("aider");
-  });
-
-  it("strips positionals but keeps flag values that follow the flag", () => {
-    expect(parseAgentCommand("claude --model sonnet some-file.ts")).toBe(
-      "claude --model sonnet",
-    );
-  });
-
-  it("stops processing at explicit --", () => {
-    expect(parseAgentCommand("claude --model sonnet -- anything here")).toBe(
-      "claude --model sonnet",
-    );
-  });
-
-  it("handles absolute path to agent binary", () => {
-    expect(parseAgentCommand("/usr/local/bin/claude --model sonnet")).toBe(
-      "claude --model sonnet",
-    );
-  });
-
-  it("returns null for non-agent commands", () => {
-    expect(parseAgentCommand("ls -la")).toBeNull();
-    expect(parseAgentCommand("vim foo.ts")).toBeNull();
-    expect(parseAgentCommand("git status")).toBeNull();
-    expect(parseAgentCommand("")).toBeNull();
-    expect(parseAgentCommand("   ")).toBeNull();
-  });
-
-  it("returns null for exit-immediately flags (--version, --help)", () => {
-    expect(parseAgentCommand("claude --version")).toBeNull();
-    expect(parseAgentCommand("claude -V")).toBeNull();
-    expect(parseAgentCommand("claude --help")).toBeNull();
-    expect(parseAgentCommand("claude -h")).toBeNull();
-    expect(parseAgentCommand("opencode --version")).toBeNull();
-    expect(parseAgentCommand("opencode --help")).toBeNull();
-  });
-
-  // #1872 command-rooted seed: kaval seeds `lastCommand` as `shellJoin(argv)`, and
-  // this parser is its consumer — the caller passes `shellJoinFormat: true` (the
-  // terminal is command-rooted) so the exact inverse `shellSplit` round-trips ANY
-  // argv, including tokens a bare `argv.join(" ")` would word-split or that carry a
-  // literal single quote (the agent PATH → no Dock invisibility, or a stable FLAG
-  // VALUE → exact command preserved).
-  it("round-trips a shellJoin'd command-rooted seed via shellJoinFormat", () => {
-    expect(parseAgentCommand(shellJoin(["claude"]), true)).toBe("claude");
-    expect(
-      parseAgentCommand(
-        shellJoin(["/usr/local/bin/claude", "--model", "sonnet"]),
-        true,
-      ),
-    ).toBe("claude --model sonnet");
-    expect(
-      parseAgentCommand(
-        shellJoin(["opencode", "--dangerously-skip-permissions"]),
-        true,
-      ),
-    ).toBe("opencode --dangerously-skip-permissions");
-    expect(
-      parseAgentCommand(
-        shellJoin(["claude", "--settings", '{"ultracode": true}']),
-        true,
-      ),
-    ).toBe(`claude --settings '{"ultracode": true}'`);
-    expect(
-      parseAgentCommand(
-        shellJoin(["/home/o'connor/bin/claude", "--model", "sonnet"]),
-        true,
-      ),
-    ).toBe("claude --model sonnet");
-    expect(
-      parseAgentCommand(
-        shellJoin(["claude", "--append-system-prompt", "don't reveal secrets"]),
-        true,
-      ),
-    ).toBe(`claude --append-system-prompt 'don'\\''t reveal secrets'`);
-  });
-
-  it("drops unknown flags (allowlist, not denylist)", () => {
-    expect(parseAgentCommand("claude --verbose")).toBe("claude");
-    expect(parseAgentCommand("claude --no-color")).toBe("claude");
-    expect(parseAgentCommand("opencode --debug")).toBe("opencode");
-  });
-
-  it("preserves --dangerously-skip-permissions for opencode", () => {
-    expect(parseAgentCommand("opencode --dangerously-skip-permissions")).toBe(
-      "opencode --dangerously-skip-permissions",
-    );
-  });
-
-  it("preserves --yolo for opencode", () => {
-    expect(parseAgentCommand("opencode --yolo")).toBe("opencode --yolo");
-  });
-
-  it("preserves --yolo for codex", () => {
-    expect(parseAgentCommand("codex --yolo")).toBe("codex --yolo");
-  });
-
-  it("preserves --config for codex", () => {
-    // The `model_reasoning_effort="xhigh"` value carries embedded double
-    // quotes (TOML string syntax codex wants to receive), so it is single-
-    // quoted in the normalized form to survive shell re-execution verbatim.
-    expect(
-      parseAgentCommand(
-        `codex --yolo --model gpt-5.5 --config model_reasoning_effort="xhigh"`,
-      ),
-    ).toBe(
-      `codex --yolo --model gpt-5.5 --config 'model_reasoning_effort="xhigh"'`,
-    );
-  });
-
-  it("preserves session-defining flags for codex", () => {
-    expect(
-      parseAgentCommand(
-        "codex --profile dev --sandbox workspace-write --ask-for-approval on-failure --full-auto --oss",
-      ),
-    ).toBe(
-      "codex --profile dev --sandbox workspace-write --ask-for-approval on-failure --full-auto --oss",
-    );
-  });
-
-  it("preserves -c short form for codex --config", () => {
-    expect(parseAgentCommand("codex -c model_reasoning_effort=high")).toBe(
-      "codex -c model_reasoning_effort=high",
-    );
-  });
-
-  it("preserves session-defining flags for claude", () => {
-    expect(
-      parseAgentCommand(
-        "claude --permission-mode plan --add-dir /tmp/foo --agent reviewer --mcp-config mcp.json --strict-mcp-config --append-system-prompt terse --settings settings.json --bare --disallowedTools Bash",
-      ),
-    ).toBe(
-      "claude --permission-mode plan --add-dir /tmp/foo --agent reviewer --mcp-config mcp.json --strict-mcp-config --append-system-prompt terse --settings settings.json --bare --disallowedTools Bash",
-    );
-  });
-
-  it("preserves --agent and --pure for opencode", () => {
-    expect(parseAgentCommand("opencode --agent build --pure")).toBe(
-      "opencode --agent build --pure",
-    );
-  });
-
-  it("recognizes all known agents", () => {
-    for (const agent of [
-      "claude",
-      "opencode",
-      "aider",
-      "codex",
-      "goose",
-      "gemini",
-      "cursor-agent",
-      "grok",
-      "pi",
       "omp",
+      [
+        "/home/u/.local/bin/omp",
+        "-e",
+        "/home/u/.omp/ext",
+        "-e",
+        "/home/u/.omp/ext",
+        "--resume",
+        OMP_PATH,
+        "--model",
+        "fable",
+      ],
+      ["--model", "fable"],
+    ],
+    [
+      "opencode",
+      [
+        "ld-linux-x86-64.so.2",
+        "/home/u/.opencode/libexec/opencode",
+        "--standalone",
+        "--session",
+        OPENCODE_ID,
+        "--model",
+        "sonnet",
+      ],
+      ["--model", "sonnet"],
+    ],
+    [
+      "codex",
+      ["/usr/local/bin/codex", "--model", "gpt-5.5", "-c", "x=1", "resume"],
+      ["--model", "gpt-5.5", "-c", "x=1"],
+    ],
+    [
+      "grok",
+      ["/home/u/.local/bin/grok", "-m", "grok-4.5", "--no-alt-screen"],
+      ["-m", "grok-4.5", "--no-alt-screen"],
+    ],
+    [
+      "pi",
+      ["/home/u/.local/bin/pi", "--model", "x", "--name", "n"],
+      ["--model", "x", "--name", "n"],
+    ],
+    [
       "xyne",
-    ]) {
-      expect(parseAgentCommand(agent)).toBe(agent);
-    }
+      ["/home/u/.local/bin/xyne", "--port", "3000", "--debug"],
+      ["--port", "3000", "--debug"],
+    ],
+  ])("%s keeps only its allowlisted flags", (kind, argv, expected) => {
+    expect(stableFlagTokens(agentCliGrammar(kind), argv)).toEqual(expected);
   });
 
-  it("preserves grok stable flags and strips positionals", () => {
-    // `-m` takes a value; trailing prompt words after the last flag are
-    // positionals and drop. A bare boolean like `--always-approve` does NOT
-    // swallow the token after it (see the leak regression below), so a real
-    // valued flag downstream still keeps its value.
-    expect(parseAgentCommand("grok -m grok-4.5 fix the bug")).toBe(
-      "grok -m grok-4.5",
-    );
-    expect(parseAgentCommand("grok --always-approve --model grok-4.5")).toBe(
-      "grok --always-approve --model grok-4.5",
-    );
-    // `--no-alt-screen` is a launch-shape boolean (inline TUI); recent agents
-    // / resume must re-run with it, not drop it as an unknown flag.
-    expect(parseAgentCommand("grok --no-alt-screen fix the bug")).toBe(
-      "grok --no-alt-screen",
-    );
+  it("does not let a boolean flag swallow the positional after it", () => {
     expect(
-      parseAgentCommand("grok --no-alt-screen -m grok-4.5 'ship it'"),
-    ).toBe("grok --no-alt-screen -m grok-4.5");
+      stableFlagTokens(agentCliGrammar("claude-code"), [
+        "claude",
+        "--dangerously-skip-permissions",
+        "fix the bug",
+      ]),
+    ).toEqual(["--dangerously-skip-permissions"]);
   });
 
-  it("preserves pi stable flags and strips positionals", () => {
-    expect(parseAgentCommand("pi --model anthropic/claude fix the bug")).toBe(
-      "pi --model anthropic/claude",
-    );
-    expect(parseAgentCommand("pi --provider google --thinking high")).toBe(
-      "pi --provider google --thinking high",
-    );
-    expect(parseAgentCommand("pi -n 'my task' fix it")).toBe("pi -n 'my task'");
-    // Unknown one-shot flags (`--no-tools`, `--session-dir`) drop safely.
-    expect(parseAgentCommand("pi --no-tools --model kimi-k3 run")).toBe(
-      "pi --model kimi-k3",
-    );
-  });
-
-  it("treats pi's lowercase -v as a version flag (not a session)", () => {
-    expect(parseAgentCommand("pi -v")).toBeNull();
-    expect(parseAgentCommand("pi --version")).toBeNull();
-    expect(parseAgentCommand("pi --help")).toBeNull();
-    // One-shot invocations must never be attributed as live sessions.
-    expect(parseAgentCommand("pi --export /tmp/out.html")).toBeNull();
-    expect(parseAgentCommand("pi --list-models anthropic")).toBeNull();
-    expect(parseAgentCommand('pi -p "summarize"')).toBeNull();
-    expect(parseAgentCommand('pi --print "summarize"')).toBeNull();
-    // Tool/management subcommands are not sessions either.
+  it("stops at an explicit end-of-flags marker", () => {
     expect(
-      parseAgentCommand("pi auth print-api-key --provider openai"),
-    ).toBeNull();
-    expect(parseAgentCommand("pi config list")).toBeNull();
-    expect(parseAgentCommand("pi install npm:foo")).toBeNull();
-    expect(parseAgentCommand("pi update")).toBeNull();
-    // Value-flag contents are NOT subcommand words (arity-aware scan).
-    expect(parseAgentCommand("pi --name config")).toBe("pi --name config");
-    // Session-redirecting flags: kolu scans only its own sessions tree, so
-    // these invocations are unmatchable — recorded as not-a-session rather
-    // than bound to a stranger's conversation in the same cwd.
-    expect(parseAgentCommand("pi --session-dir /elsewhere")).toBeNull();
-    expect(parseAgentCommand("pi --no-session")).toBeNull();
-    // Subcommand words kill ONLY in argv position 0; pi takes any later
-    // occurrence as prompt text (verified against pi 0.84.2: `pi --provider
-    // google list` runs interactively with `list` as the prompt).
-    expect(parseAgentCommand("pi --provider google list")).toBe(
-      "pi --provider google",
-    );
-    expect(parseAgentCommand("pi --model kimi-k3 config the knobs")).toBe(
-      "pi --model kimi-k3",
-    );
+      stableFlagTokens(agentCliGrammar("claude-code"), [
+        "claude",
+        "--model",
+        "sonnet",
+        "--",
+        "--model",
+        "opus",
+      ]),
+    ).toEqual(["--model", "sonnet"]);
+  });
+
+  it("keeps a value with spaces as ONE token (the argv boundary was exact)", () => {
     expect(
-      parseAgentCommand("pi --thinking high remove the dead function"),
-    ).toBe("pi --thinking high");
-    // …while a lowercase -v elsewhere stays untouched territory.
-    expect(parseAgentCommand("pi")).toBe("pi");
-  });
-
-  it("preserves omp stable flags and strips positionals", () => {
-    expect(parseAgentCommand("omp --model opus fix the bug")).toBe(
-      "omp --model opus",
-    );
-    expect(
-      parseAgentCommand("omp --approval-mode always-ask --thinking high"),
-    ).toBe("omp --approval-mode always-ask --thinking high");
-    // A boolean launch flag does not swallow the positional behind it.
-    expect(parseAgentCommand("omp --auto-approve ship it")).toBe(
-      "omp --auto-approve",
-    );
-    // Unknown flags (`--cwd`, `--max-time`, `--add-dir`, prompt text) drop.
-    expect(parseAgentCommand("omp --tools read,bash --model kimi-k3 run")).toBe(
-      "omp --model kimi-k3",
-    );
-  });
-
-  it("treats omp's one-shot invocations as exits, never sessions", () => {
-    expect(parseAgentCommand("omp -v")).toBeNull();
-    expect(parseAgentCommand("omp --version")).toBeNull();
-    expect(parseAgentCommand("omp --help")).toBeNull();
-    expect(parseAgentCommand("omp --export /tmp/out.html")).toBeNull();
-    expect(parseAgentCommand('omp -p "summarize"')).toBeNull();
-    expect(parseAgentCommand('omp --print "summarize"')).toBeNull();
-    // A `--profile` alias creates a shell shortcut and exits.
-    expect(parseAgentCommand("omp --profile work --alias omp-work")).toBeNull();
-    // Management subcommands are not sessions.
-    expect(parseAgentCommand("omp models list")).toBeNull();
-    expect(parseAgentCommand("omp config get model")).toBeNull();
-    expect(parseAgentCommand("omp worktree list")).toBeNull();
-    expect(parseAgentCommand("omp wt list")).toBeNull();
-    expect(parseAgentCommand("omp update")).toBeNull();
-    // …but the three that DRIVE a real session are sessions, not carved out:
-    // `cleanse` and `commit` create a persisted session in this terminal, and
-    // `join` launches the TUI — each writes a breadcrumb kolu binds. Their
-    // subcommand word and arguments are positionals, so they normalize to the
-    // bare launch shape, exactly as `pi --provider google list` does.
-    expect(parseAgentCommand("omp cleanse ts errors")).toBe("omp");
-    expect(parseAgentCommand("omp commit")).toBe("omp");
-    expect(parseAgentCommand("omp join <link>")).toBe("omp");
-    // Subcommand words kill ONLY in argv position 0; a later occurrence is
-    // prompt text for an interactive session.
-    expect(parseAgentCommand("omp --model kimi-k3 config the knobs")).toBe(
-      "omp --model kimi-k3",
-    );
-    // `--no-session` is ephemeral — nothing on disk, no breadcrumb.
-    expect(parseAgentCommand("omp --no-session")).toBeNull();
-    // `--session-dir` is NOT a non-session flag for omp: it moves the session
-    // FILE, but the breadcrumb still carries its absolute path, so kolu binds
-    // that session exactly as it binds a default-store one. (Unlisted, so the
-    // flag itself is stripped from the MRU form like any unknown flag — the
-    // command stays a session, which is the part that matters.)
-    expect(parseAgentCommand("omp --session-dir /elsewhere")).toBe("omp");
-    // `--profile` changes omp's agent dir (where the breadcrumb lands) but is
-    // still an interactive session, and is a launch-shape flag.
-    expect(parseAgentCommand("omp --profile work")).toBe("omp --profile work");
-  });
-
-  // Regression (living-clue): a BOOLEAN stable flag must never consume the
-  // token after it. Before per-flag arity was recorded in `STABLE_FLAGS`, the
-  // normalizer attached the token following ANY kept stable flag as its "value", so
-  // `claude --dangerously-skip-permissions 'You are BOOT1. Read BRIEF-BOOT1.md…'`
-  // kept the whole prompt — which then leaked verbatim into the recent-agents
-  // MRU shown in the command palette. The prompt is a positional and must drop.
-  it("does not leak a prompt after a boolean flag into the MRU", () => {
-    expect(
-      parseAgentCommand(
-        "claude --dangerously-skip-permissions 'You are BOOT1. Read BRIEF-BOOT1.md in this directory and follow it exactly.'",
-      ),
-    ).toBe("claude --dangerously-skip-permissions");
-    // Same via the command-rooted (#1872) seed dialect.
-    expect(
-      parseAgentCommand(
-        shellJoin([
-          "claude",
-          "--dangerously-skip-permissions",
-          "You are AWAIT1. Read BRIEF-AWAIT1.md in this directory and follow it exactly.",
-        ]),
-        true,
-      ),
-    ).toBe("claude --dangerously-skip-permissions");
-    // Every other boolean stable flag has the same exposure.
-    expect(parseAgentCommand("opencode --yolo 'do the thing'")).toBe(
-      "opencode --yolo",
-    );
-    expect(parseAgentCommand("codex --full-auto 'ship it'")).toBe(
-      "codex --full-auto",
-    );
-    expect(parseAgentCommand("claude --bare 'summarize this'")).toBe(
-      "claude --bare",
-    );
-    expect(parseAgentCommand("grok --no-plan 'fix the bug'")).toBe(
-      "grok --no-plan",
-    );
-    expect(parseAgentCommand("grok --no-alt-screen 'fix the bug'")).toBe(
-      "grok --no-alt-screen",
-    );
-  });
-
-  // A boolean flag dropping its follower must not disturb a real valued flag
-  // that comes after it — the prompt drops, the model value survives.
-  it("keeps a valued flag after a boolean flag while dropping a trailing prompt", () => {
-    expect(
-      parseAgentCommand(
-        "claude --dangerously-skip-permissions --model sonnet 'do this'",
-      ),
-    ).toBe("claude --dangerously-skip-permissions --model sonnet");
-  });
-
-  // Regression: a stable flag's VALUE can contain shell-significant
-  // characters (spaces, JSON braces/quotes). `string-argv` strips the outer
-  // quotes during tokenization, so re-joining the kept tokens with a bare
-  // space dropped the quoting: the stored/displayed/re-run command became
-  // `--settings {"ultracode": true}`, and on re-run the shell word-split the
-  // JSON back apart (`Error: Settings file not found: {ultracode:`). The
-  // normalized form must re-quote any token the shell would otherwise split.
-  it("re-quotes a --settings JSON value so it survives re-execution", () => {
-    expect(
-      parseAgentCommand(
-        `claude --dangerously-skip-permissions --settings '{"ultracode": true}'`,
-      ),
-    ).toBe(
-      `claude --dangerously-skip-permissions --settings '{"ultracode": true}'`,
-    );
-  });
-
-  it("re-quotes a flag value containing a space", () => {
-    expect(
-      parseAgentCommand(`claude --append-system-prompt "be terse please"`),
-    ).toBe(`claude --append-system-prompt 'be terse please'`);
-  });
-
-  // Regression (codex review F2): an UNQUOTED leading-`~` path value must stay
-  // BARE in the normalized form. The preexec mark captures the command's shell
-  // SOURCE before tilde expansion, so re-quoting `~/…` would suppress expansion
-  // and replay a literal `~` path (Claude would then fail to find the settings
-  // file). The normalized form keeps it unquoted so the rerun re-expands it.
-  it("keeps an unquoted leading-tilde path value bare so it re-expands on rerun", () => {
-    expect(parseAgentCommand(`claude --settings ~/.claude/settings.json`)).toBe(
-      `claude --settings ~/.claude/settings.json`,
-    );
-    expect(parseAgentCommand(`claude --add-dir ~/projects/foo`)).toBe(
-      `claude --add-dir ~/projects/foo`,
-    );
-  });
-
-  // Accepted trade-off (juspay/kolu#1407): `string-argv` strips the source
-  // quotes, so a quoted-literal tilde (`--settings '~/x'`) and a bare one
-  // (`--settings ~/x`) tokenize to the IDENTICAL token `~/x`. We intentionally
-  // do NOT recover the source's quote provenance, so both normalize to a bare
-  // (expanding) `~`. Preserving the rare quoted-literal-tilde case is not worth
-  // the machinery — the overwhelmingly common case is an unquoted path.
-  it("normalizes a quoted leading tilde to a bare (expanding) one", () => {
-    expect(parseAgentCommand(`claude --settings '~/x'`)).toBe(
-      `claude --settings ~/x`,
-    );
-    expect(parseAgentCommand(`claude --settings "~/x"`)).toBe(
-      `claude --settings ~/x`,
-    );
-  });
-
-  // Accepted trade-off (juspay/kolu#1407): a tilde value that ALSO needs quoting
-  // for a space loses expansion on rerun. Without the source-provenance
-  // machinery, `string-argv` retains the mid-token quotes (the token is the
-  // literal `~/'My Projects'`) and we quote the whole thing, so the `~` ends up
-  // literal — a rare degradation we accept. The property that MUST still hold —
-  // the one the original bug broke — is that the value stays ONE argument and
-  // never word-splits on its space.
-  it("keeps a spaced tilde value as a single argument (tilde no longer expands)", () => {
-    const normalized = parseAgentCommand(`claude --add-dir ~/'My Projects'`);
-    expect(shellSplit(normalized as string)).toEqual([
-      "claude",
-      "--add-dir",
-      `~/'My Projects'`,
-    ]);
-  });
-
-  // Regression (codex review F3): a flag value containing an apostrophe is
-  // single-quoted with the canonical `'\''` idiom; the normalized form must
-  // re-tokenize (via shellSplit, the inverse of shellJoin) back to one token.
-  it("round-trips a flag value containing an apostrophe", () => {
-    const normalized = parseAgentCommand(
-      `claude --append-system-prompt "don't be verbose"`,
-    );
-    expect(normalized).toBe(
-      `claude --append-system-prompt 'don'\\''t be verbose'`,
-    );
-    expect(shellSplit(normalized as string)).toEqual([
-      "claude",
-      "--append-system-prompt",
-      "don't be verbose",
-    ]);
-  });
-
-  // The chosen quote style is an implementation detail; the invariant that
-  // actually matters is that the normalized string re-tokenizes to the same
-  // argv it was built from — i.e. no value silently splits into two args.
-  it("normalized output re-tokenizes to the same kept argv (no re-split)", () => {
-    const normalized = parseAgentCommand(
-      `claude --settings '{"ultracode": true}' --append-system-prompt "be terse"`,
-    );
-    expect(normalized).not.toBeNull();
-    expect(parseArgsStringToArgv(normalized as string)).toEqual([
-      "claude",
-      "--settings",
-      `{"ultracode": true}`,
-      "--append-system-prompt",
-      "be terse",
-    ]);
+      stableFlagTokens(agentCliGrammar("claude-code"), [
+        "claude",
+        "--settings",
+        '{"ultracode": true}',
+      ]),
+    ).toEqual(["--settings", '{"ultracode": true}']);
   });
 });
 
-describe("resumeAgentCommand", () => {
-  it.each([
-    ["claude", "claude -c"],
-    ["claude --model sonnet", "claude -c --model sonnet"],
+describe("resumeFormFor — a shell line rendered from structured facts", () => {
+  it.each<[string, RestoreTarget, string]>([
     [
-      "claude --permission-mode plan --add-dir /tmp/foo",
-      "claude -c --permission-mode plan --add-dir /tmp/foo",
-    ],
-    ["codex", "codex resume --last"],
-    ["codex --yolo", "codex resume --last --yolo"],
-    [
-      // Input is the (now single-quoted) normalized form; the resume splice
-      // must preserve that quoting around the embedded-quote value.
-      `codex --yolo --model gpt-5.5 --config 'model_reasoning_effort="xhigh"'`,
-      `codex resume --last --yolo --model gpt-5.5 --config 'model_reasoning_effort="xhigh"'`,
-    ],
-    ["opencode", "opencode --continue"],
-    [
-      "opencode --agent build --pure",
-      "opencode --continue --agent build --pure",
-    ],
-    ["grok", "grok -c"],
-    ["grok -m grok-4.5", "grok -c -m grok-4.5"],
-    ["pi", "pi -c"],
-    ["pi --model kimi-k3", "pi -c --model kimi-k3"],
-    ["omp", "omp -c"],
-    ["omp --model opus", "omp -c --model opus"],
-    ["xyne", "xyne --continue"],
-    ["xyne --debug", "xyne --continue --debug"],
-  ])("resume form of %j → %j", (normalized, expected) => {
-    expect(resumeAgentCommand(normalized)).toBe(expected);
-  });
-
-  it("returns null for detection-only agents", () => {
-    expect(resumeAgentCommand("aider")).toBeNull();
-    expect(resumeAgentCommand("aider --model opus")).toBeNull();
-    expect(resumeAgentCommand("goose")).toBeNull();
-    expect(resumeAgentCommand("gemini")).toBeNull();
-    expect(resumeAgentCommand("cursor-agent")).toBeNull();
-  });
-
-  it("returns null for empty input", () => {
-    expect(resumeAgentCommand("")).toBeNull();
-    expect(resumeAgentCommand("   ")).toBeNull();
-  });
-
-  // Regression: same quote-loss as parseAgentCommand, on the resume
-  // path. The input here is already a normalized (quoted) command; splicing
-  // in the resume flag and re-joining must preserve the quoting so the
-  // auto-typed session-restore command does not word-split on re-execution.
-  it("preserves a quoted flag value across the resume splice", () => {
-    expect(resumeAgentCommand(`claude --settings '{"ultracode": true}'`)).toBe(
-      `claude -c --settings '{"ultracode": true}'`,
-    );
-  });
-
-  // Regression (codex review F3): the resume reparse must use shellSplit, not
-  // string-argv — a value carrying the canonical `'\''` apostrophe idiom would
-  // otherwise shatter into several tokens and corrupt the spliced command.
-  it("round-trips an apostrophe value across the resume splice", () => {
-    const resumed = resumeAgentCommand(
-      `claude --append-system-prompt 'don'\\''t be verbose'`,
-    );
-    expect(resumed).toBe(
-      `claude -c --append-system-prompt 'don'\\''t be verbose'`,
-    );
-    expect(shellSplit(resumed as string)).toEqual([
-      "claude",
-      "-c",
-      "--append-system-prompt",
-      "don't be verbose",
-    ]);
-  });
-
-  // The resume splice keeps the tail VERBATIM (head + marker + raw tail), so a
-  // bare tilde stays bare and still expands on rerun — there is no
-  // shellSplit+shellJoin round-trip that could re-quote it.
-  it("preserves a bare tilde across the resume splice", () => {
-    expect(resumeAgentCommand(`claude --add-dir ~/projects/foo`)).toBe(
-      `claude -c --add-dir ~/projects/foo`,
-    );
-  });
-});
-
-describe("resumeAgentCommand by session id (juspay/kolu#1495)", () => {
-  const CLAUDE_ID = "edb66a3b-9f17-4c39-9050-3b77904c313a";
-  const CODEX_ID = "7f9f9a2e-1b3c-4c7a-9b0e-1d2e3f4a5b6c";
-  const OPENCODE_ID = "ses_118316090ffewMmbj6bsfKwj4R";
-  const GROK_ID = "019f4782-7854-7592-8d87-3ba3a205a0a1";
-  const PI_ID = "01a0302a-b94b-7b18-a3c3-b3f83dfe6fe8";
-  const OMP_ID = "01a0a0e3-1843-701b-bfde-c9c816e3e92f";
-  const XYNE_ID = "019fca61-be8e-75b0-b72f-b68984e0d3c0";
-
-  it.each([
-    [
-      "claude",
-      { kind: "claude-code", sessionId: CLAUDE_ID, resumeRef: CLAUDE_ID },
+      "claude-code",
+      target("claude-code", CLAUDE_ID),
       `claude --resume ${CLAUDE_ID}`,
     ],
-    [
-      "claude --model sonnet",
-      { kind: "claude-code", sessionId: CLAUDE_ID, resumeRef: CLAUDE_ID },
-      `claude --resume ${CLAUDE_ID} --model sonnet`,
-    ],
-    [
-      "codex",
-      { kind: "codex", sessionId: CODEX_ID, resumeRef: CODEX_ID },
-      `codex resume ${CODEX_ID}`,
-    ],
-    [
-      "codex --yolo",
-      { kind: "codex", sessionId: CODEX_ID, resumeRef: CODEX_ID },
-      `codex resume ${CODEX_ID} --yolo`,
-    ],
+    ["codex", target("codex", CODEX_ID), `codex resume ${CODEX_ID}`],
     [
       "opencode",
-      { kind: "opencode", sessionId: OPENCODE_ID, resumeRef: OPENCODE_ID },
-      `opencode --session ${OPENCODE_ID}`,
-    ],
-    [
-      "opencode --agent build --pure",
-      { kind: "opencode", sessionId: OPENCODE_ID, resumeRef: OPENCODE_ID },
-      `opencode --session ${OPENCODE_ID} --agent build --pure`,
+      target("opencode", OPENCODE_ID, ["--model", "sonnet"]),
+      `opencode --session ${OPENCODE_ID} --model sonnet`,
     ],
     [
       "grok",
-      { kind: "grok", sessionId: GROK_ID, resumeRef: GROK_ID },
-      `grok --resume ${GROK_ID}`,
-    ],
-    [
-      "grok -m grok-4.5",
-      { kind: "grok", sessionId: GROK_ID, resumeRef: GROK_ID },
+      target("grok", GROK_ID, ["-m", "grok-4.5"]),
       `grok --resume ${GROK_ID} -m grok-4.5`,
     ],
-    [
-      "pi",
-      { kind: "pi", sessionId: PI_ID, resumeRef: PI_ID },
-      `pi --session ${PI_ID}`,
-    ],
-    [
-      "pi --model kimi-k3",
-      { kind: "pi", sessionId: PI_ID, resumeRef: PI_ID },
-      `pi --session ${PI_ID} --model kimi-k3`,
-    ],
+    ["pi", target("pi", PI_PATH), `pi --session ${PI_PATH}`],
     [
       "omp",
-      { kind: "omp", sessionId: OMP_ID, resumeRef: OMP_ID },
-      `omp --resume ${OMP_ID}`,
-    ],
-    [
-      "omp --profile work",
-      { kind: "omp", sessionId: OMP_ID, resumeRef: OMP_ID },
-      `omp --resume ${OMP_ID} --profile work`,
+      target("omp", OMP_PATH, ["--model", "fable"]),
+      `omp --resume ${OMP_PATH} --model fable`,
     ],
     [
       "xyne",
-      { kind: "xyne", sessionId: XYNE_ID, resumeRef: XYNE_ID },
-      `xyne --session ${XYNE_ID}`,
-    ],
-    [
-      "xyne --debug",
-      { kind: "xyne", sessionId: XYNE_ID, resumeRef: XYNE_ID },
+      target("xyne", XYNE_ID, ["--debug"]),
       `xyne --session ${XYNE_ID} --debug`,
     ],
-  ] as const)("resumes the exact conversation: %j + %j → %j", (normalized, session, expected) => {
-    expect(resumeAgentCommand(normalized, session)).toBe(expected);
+  ])("renders the %s resume form", (_kind, t, expected) => {
+    expect(resumeFormFor(t)).toBe(expected);
   });
 
-  // The id is spliced as a single safe token, and the rest of the tail keeps its
-  // existing quoting — so a quoted flag value survives alongside the id splice.
-  it("preserves a quoted tail value alongside the id splice", () => {
+  it("re-quotes a flag value so the shell reproduces the token", () => {
     expect(
-      resumeAgentCommand(`claude --settings '{"ultracode": true}'`, {
-        kind: "claude-code",
-        sessionId: CLAUDE_ID,
-        resumeRef: CLAUDE_ID,
-      }),
-    ).toBe(`claude --resume ${CLAUDE_ID} --settings '{"ultracode": true}'`);
+      resumeFormFor(
+        target("claude-code", CLAUDE_ID, ["--settings", '{"a": 1}']),
+      ),
+    ).toBe(`claude --resume ${CLAUDE_ID} --settings '{"a": 1}'`);
   });
 
-  // Fallback policy (locked): a ref naming a DIFFERENT agent than the command is
-  // never aimed at this CLI — fall back to the most-recent marker.
-  it("falls back to most-recent when the ref names a different agent", () => {
-    expect(
-      resumeAgentCommand("claude", {
-        kind: "codex",
-        sessionId: CODEX_ID,
-        resumeRef: CODEX_ID,
-      }),
-    ).toBe("claude -c");
-  });
-
-  // A SAME-agent ref whose id fails its per-agent shape gate (would-be shell
-  // injection, wrong format, empty) is a BROKEN claim to know the conversation:
-  // never splice it, and never silently downgrade to the most-recent (wrong)
-  // conversation either. `resumeAgentCommand` returns null so the terminal wakes
-  // to a bare shell rather than landing in a stranger's conversation.
-  it.each([
-    [
-      "claude",
-      { kind: "claude-code", sessionId: "not-a-uuid", resumeRef: "not-a-uuid" },
-    ],
-    ["claude", { kind: "claude-code", sessionId: "", resumeRef: "" }],
-    [
-      // a hostile id carrying shell metacharacters never reaches the command
-      "claude",
-      {
-        kind: "claude-code",
-        sessionId: "$(rm -rf ~)",
-        resumeRef: "$(rm -rf ~)",
-      },
-    ],
-    [
-      "codex",
-      {
-        kind: "codex",
-        sessionId: "ses_wrongshape",
-        resumeRef: "ses_wrongshape",
-      },
-    ],
-    [
-      // an opencode ref whose id is UUID-shaped (codex/claude format, not `ses_…`)
-      "opencode",
-      {
-        kind: "opencode",
-        sessionId: "11111111-2222-3333-4444-555555555555",
-        resumeRef: "11111111-2222-3333-4444-555555555555",
-      },
-    ],
-  ] as const)("refuses to resume on a malformed same-agent id (returns null): %j + %j", (normalized, session) => {
-    expect(resumeAgentCommand(normalized, session)).toBeNull();
-  });
-
-  // pi's exact-resume prefers the transcript PATH (pi's own `--session`
-  // accepts it, and it bypasses the session-store lookup that a moved store
-  // — e.g. a harness's per-run `PI_CODING_AGENT_DIR` — breaks for ids).
-  const PI_PATH =
-    "/tmp/pi-agent-XXXXXX/sessions/--home-u-code-kolu--/2026-08-24T00-00-00-000Z_01a0302a-b94b-7b18-a3c3-b3f83dfe6fe8.jsonl";
-  it("pi prefers the transcript path over the id when the producer carries it", () => {
-    expect(
-      resumeAgentCommand("pi", {
-        kind: "pi",
-        sessionId: PI_ID,
-        resumeRef: PI_PATH,
-      }),
-    ).toBe(`pi --session ${PI_PATH}`);
-    expect(
-      resumeAgentCommand("pi --model kimi-k3", {
-        kind: "pi",
-        sessionId: PI_ID,
-        resumeRef: PI_PATH,
-      }),
-    ).toBe(`pi --session ${PI_PATH} --model kimi-k3`);
-  });
-
-  it("pi splices a path with shell-active characters only via quoting", () => {
-    // Only inert path characters pass the gate; the splice quotes the token.
-    expect(
-      resumeAgentCommand("pi", {
-        kind: "pi",
-        sessionId: PI_ID,
-        resumeRef: "/tmp/pi agent x/$(pwn).jsonl",
-      }),
-    ).toBeNull();
-    expect(
-      resumeAgentCommand("pi", {
-        kind: "pi",
-        sessionId: PI_ID,
-        resumeRef: "relative/file.jsonl",
-      }),
-    ).toBeNull();
-    expect(
-      resumeAgentCommand("pi", {
-        kind: "pi",
-        sessionId: PI_ID,
-        resumeRef: "/tmp/no-suffix",
-      }),
-    ).toBeNull();
-  });
-
-  it("a quoted path with spaces + parens passes the gate and the splice", () => {
-    expect(
-      resumeAgentCommand("pi", {
-        kind: "pi",
-        sessionId: PI_ID,
-        resumeRef: "/w/work dir/x (1)/2026-01-01T00-00-00-000Z_a.jsonl",
-      }),
-    ).toBe("pi --session '/w/work dir/x (1)/2026-01-01T00-00-00-000Z_a.jsonl'");
-  });
-
-  // omp's exact-resume is ALWAYS the breadcrumb's absolute path: kolu never
-  // holds an id without it, and `omp --resume <path>` is the one ref that
-  // survives a moved store (a `--session-dir` run, a profile switch).
-  const OMP_PATH =
-    "/home/u/.omp/agent/sessions/-code-proj/2026-09-14T17-07-12-579Z_01a0a0e3-1843-701b-bfde-c9c816e3e92f.jsonl";
-  it("omp resumes by the transcript path the breadcrumb carries", () => {
-    expect(
-      resumeAgentCommand("omp", {
-        kind: "omp",
-        sessionId: OMP_ID,
-        resumeRef: OMP_PATH,
-      }),
-    ).toBe(`omp --resume ${OMP_PATH}`);
-    expect(
-      resumeAgentCommand("omp --profile work", {
-        kind: "omp",
-        sessionId: OMP_ID,
-        resumeRef: OMP_PATH,
-      }),
-    ).toBe(`omp --resume ${OMP_PATH} --profile work`);
-  });
-
-  it("omp refuses a ref that fails its shape gate — bare shell, never -c", () => {
-    // A relative path, a non-`.jsonl` suffix, and a shell-active path all fail
-    // the gate: the terminal wakes to a bare shell rather than landing in the
-    // most-recent conversation, which is a stranger's.
-    expect(
-      resumeAgentCommand("omp", {
-        kind: "omp",
-        sessionId: OMP_ID,
-        resumeRef: "relative/file.jsonl",
-      }),
-    ).toBeNull();
-    expect(
-      resumeAgentCommand("omp", {
-        kind: "omp",
-        sessionId: OMP_ID,
-        resumeRef: "/tmp/omp agent x/$(pwn).jsonl",
-      }),
-    ).toBeNull();
-    expect(
-      resumeAgentCommand("omp", {
-        kind: "omp",
-        sessionId: OMP_ID,
-        resumeRef: "/tmp/no-suffix",
-      }),
-    ).toBeNull();
-  });
-
-  // No ref at all → unchanged most-recent behavior (back-compat with callers
-  // that have no captured conversation id).
-  it("falls back to most-recent when no session ref is given", () => {
-    expect(resumeAgentCommand("claude")).toBe("claude -c");
-    expect(resumeAgentCommand("codex --yolo")).toBe(
-      "codex resume --last --yolo",
-    );
-  });
-
-  // Detection-only agents stay null even with a ref — there is no resume form.
-  it("returns null for a non-resumable agent regardless of ref", () => {
-    expect(
-      resumeAgentCommand("aider", {
-        kind: "claude-code",
-        sessionId: CLAUDE_ID,
-        resumeRef: CLAUDE_ID,
-      }),
-    ).toBeNull();
-  });
-});
-
-describe("resumeFormFor — switches on the discriminated RestoreTarget", () => {
-  const OPENCODE_ID = "ses_118316090ffewMmbj6bsfKwj4R";
-
-  it("an absent target → null (a bare shell, by construction)", () => {
+  it("returns null for `none` and for an absent target", () => {
+    expect(resumeFormFor({ kind: "none" })).toBeNull();
     expect(resumeFormFor(undefined)).toBeNull();
   });
 
-  it("`none` → null (quit-to-shell never reads as most-recent)", () => {
-    expect(resumeFormFor({ kind: "none" })).toBeNull();
+  it("refuses a same-agent ref that fails its shape gate — a bare shell, never a bad token", () => {
+    expect(resumeFormFor(target("claude-code", "not-a-uuid"))).toBeNull();
+    expect(resumeFormFor(target("opencode", "../../etc/passwd"))).toBeNull();
   });
 
-  it("`exact` → resume the EXACT conversation by id (#1495)", () => {
-    const target: RestoreTarget = {
-      kind: "exact",
-      command: "opencode --model sonnet",
-      agent: {
-        kind: "opencode",
-        sessionId: OPENCODE_ID,
-        resumeRef: OPENCODE_ID,
-      },
-    };
-    expect(resumeFormFor(target)).toBe(
-      `opencode --session ${OPENCODE_ID} --model sonnet`,
+  it("refuses a kind this build no longer knows", () => {
+    expect(resumeFormFor(target("retired-agent", CLAUDE_ID))).toBeNull();
+  });
+
+  it("still resumes on an empty argv — flags are an enhancement, not a requirement", () => {
+    expect(resumeFormFor(target("claude-code", CLAUDE_ID, []))).toBe(
+      `claude --resume ${CLAUDE_ID}`,
     );
   });
-
-  it("`exact` with an id that FAILS its shape gate → null (a bare shell, never the wrong conversation)", () => {
-    const target: RestoreTarget = {
-      kind: "exact",
-      command: "claude",
-      agent: {
-        kind: "claude-code",
-        sessionId: "not-a-uuid",
-        resumeRef: "not-a-uuid",
-      },
-    };
-    expect(resumeFormFor(target)).toBeNull();
-  });
-
-  it("`legacyMostRecent` → the most-recent marker (migrated pre-1.29 records)", () => {
-    const target: RestoreTarget = {
-      kind: "legacyMostRecent",
-      command: "claude --model sonnet",
-    };
-    expect(resumeFormFor(target)).toBe("claude -c --model sonnet");
-  });
 });
 
-describe("exactRestoreTarget — refuses a command/agent KIND mismatch", () => {
-  const CLAUDE_ID = "12341234-1234-1234-1234-123412341234";
-
-  it("builds `exact` when the command's agent kind matches the identity", () => {
+describe("resumableCommand — the display projection, gated on wake", () => {
+  it("renders the LAUNCH line (not the resume marker) for a resumable target", () => {
     expect(
-      exactRestoreTarget("claude --model sonnet", {
-        kind: "claude-code",
-        sessionId: CLAUDE_ID,
-        resumeRef: CLAUDE_ID,
-      }),
-    ).toEqual({
-      kind: "exact",
-      command: "claude --model sonnet",
-      agent: {
-        kind: "claude-code",
-        sessionId: CLAUDE_ID,
-        resumeRef: CLAUDE_ID,
-      },
-    });
-  });
-
-  it("returns null on a kind MISMATCH (an `opencode` command paired with a claude identity)", () => {
-    // The wrong-agent pair that would otherwise downgrade to opencode's most-recent.
-    expect(
-      exactRestoreTarget("opencode --model sonnet", {
-        kind: "claude-code",
-        sessionId: CLAUDE_ID,
-        resumeRef: CLAUDE_ID,
-      }),
-    ).toBeNull();
-  });
-
-  it("returns null when the command names no known agent", () => {
-    expect(
-      exactRestoreTarget("ls -la", {
-        kind: "claude-code",
-        sessionId: CLAUDE_ID,
-        resumeRef: CLAUDE_ID,
-      }),
-    ).toBeNull();
-  });
-});
-
-describe("resumableCommand — the DISPLAY/COUNT projection, gated on resumeFormFor", () => {
-  const CLAUDE_ID2 = "12341234-1234-1234-1234-123412341234";
-  const OPENCODE_ID = "ses_118316090ffewMmbj6bsfKwj4R";
-
-  it("absent / `none` → null", () => {
-    expect(resumableCommand(undefined)).toBeNull();
-    expect(resumableCommand({ kind: "none" })).toBeNull();
-  });
-
-  it("`exact` with a resumable id → the raw launch command (not the invocation)", () => {
-    const target: RestoreTarget = {
-      kind: "exact",
-      command: "opencode --model sonnet",
-      agent: {
-        kind: "opencode",
-        sessionId: OPENCODE_ID,
-        resumeRef: OPENCODE_ID,
-      },
-    };
-    // The DISPLAY string is the raw command, NOT `opencode --session … --model …`.
-    expect(resumableCommand(target)).toBe("opencode --model sonnet");
-  });
-
-  it("`legacyMostRecent` for a resume-capable agent → the raw launch command", () => {
-    expect(
-      resumableCommand({
-        kind: "legacyMostRecent",
-        command: "claude --model sonnet",
-      }),
+      resumableCommand(target("claude-code", CLAUDE_ID, ["--model", "sonnet"])),
     ).toBe("claude --model sonnet");
   });
 
-  // The bug F1 fixed: count/display must AGREE with wake. These targets carry an
-  // `exact`/`legacyMostRecent` kind but `resumeFormFor` returns null for them, so a
-  // raw-`kind` test would have counted/shown a command wake never resumes.
-  it("`exact` with an id that FAILS its shape gate → null (matches resumeFormFor)", () => {
-    const target: RestoreTarget = {
-      kind: "exact",
-      command: "claude",
-      agent: {
-        kind: "claude-code",
-        sessionId: "not-a-uuid",
-        resumeRef: "not-a-uuid",
-      },
-    };
-    expect(resumeFormFor(target)).toBeNull();
-    expect(resumableCommand(target)).toBeNull();
-  });
-
-  it("`legacyMostRecent` for a detection-only agent → null (matches resumeFormFor)", () => {
-    const target: RestoreTarget = {
-      kind: "legacyMostRecent",
-      command: "aider --model opus",
-    };
-    expect(resumeFormFor(target)).toBeNull();
-    expect(resumableCommand(target)).toBeNull();
-  });
-
-  it("`exact` whose command head names a non-resumable agent → null", () => {
-    const target: RestoreTarget = {
-      kind: "exact",
-      command: "aider --model opus",
-      agent: {
-        kind: "claude-code",
-        sessionId: CLAUDE_ID2,
-        resumeRef: CLAUDE_ID2,
-      },
-    };
-    expect(resumeFormFor(target)).toBeNull();
-    expect(resumableCommand(target)).toBeNull();
+  it("is null exactly when wake would land on a bare shell", () => {
+    expect(resumableCommand({ kind: "none" })).toBeNull();
+    expect(resumableCommand(undefined)).toBeNull();
+    expect(resumableCommand(target("claude-code", "not-a-uuid"))).toBeNull();
   });
 });
 
-describe("agentKindFromCommand", () => {
-  it("maps claude basename to claude-code kind", () => {
-    expect(agentKindFromCommand("claude")).toBe("claude-code");
-    expect(agentKindFromCommand("claude --model sonnet")).toBe("claude-code");
-    expect(agentKindFromCommand("claude --dangerously-skip-permissions")).toBe(
-      "claude-code",
+describe("agentLaunchLine — the recent-agents palette's ONE renderer", () => {
+  it("renders the registry basename plus the allowlisted argv", () => {
+    expect(agentLaunchLine("opencode", ["--model", "sonnet"])).toBe(
+      "opencode --model sonnet",
     );
+    expect(agentLaunchLine("claude-code", [])).toBe("claude");
   });
 
-  it("maps codex, opencode, grok, and xyne basenames to matching kinds", () => {
-    expect(agentKindFromCommand("codex")).toBe("codex");
-    expect(agentKindFromCommand("codex --yolo --model gpt-5.5")).toBe("codex");
-    expect(agentKindFromCommand("opencode --continue")).toBe("opencode");
-    expect(agentKindFromCommand("grok -m grok-4.5")).toBe("grok");
-    expect(agentKindFromCommand("xyne")).toBe("xyne");
-    expect(
-      agentKindFromCommand(
-        "xyne --session a7e1c76e-cf2b-4c63-801d-5f0b1f2a4f6e",
-      ),
-    ).toBe("xyne");
-  });
-
-  it("strips a path prefix on the agent binary", () => {
-    expect(agentKindFromCommand("/usr/local/bin/claude --model sonnet")).toBe(
-      "claude-code",
-    );
-  });
-
-  it("returns null for detection-only and unknown commands", () => {
-    expect(agentKindFromCommand("aider --model gpt-4")).toBe(null);
-    expect(agentKindFromCommand("goose")).toBe(null);
-    expect(agentKindFromCommand("gemini")).toBe(null);
-    expect(agentKindFromCommand("cursor-agent")).toBe(null);
-    expect(agentKindFromCommand("vim")).toBe(null);
-    expect(agentKindFromCommand("")).toBe(null);
-  });
-});
-
-// Incident: splits launched by an orchestrator as `AI_PROFILE=… opencode --auto`
-// came back as bare shells after a kaval restart — the parser read
-// `AI_PROFILE=…` as the binary, so no launch command was ever recorded. Every
-// head reader now reads through the POSIX simple-command prefix.
-describe("launch lines with an env / exec / env-wrapper prefix", () => {
-  // [raw 633;E line, normalized] — assignments are KEPT (a resume must replay
-  // the same profile/config); `exec` / `env` are dropped.
-  it.each([
-    ["FOO=bar opencode", "FOO=bar opencode"],
-    [
-      "AI_PROFILE=github:juspay/skills opencode --auto",
-      "AI_PROFILE=github:juspay/skills opencode",
-    ],
-    [`A=1 B='x y' claude --model sonnet`, `A=1 B='x y' claude --model sonnet`],
-    [`A=1 B="x y" claude --model sonnet`, `A=1 B='x y' claude --model sonnet`],
-    // The incident's second line, verbatim.
-    [
-      `OPENCODE_CONFIG_CONTENT='{"model":"opencode/deepseek-v4.1-flash"}' opencode --auto`,
-      `OPENCODE_CONFIG_CONTENT='{"model":"opencode/deepseek-v4.1-flash"}' opencode`,
-    ],
-    // string-argv keeps the mid-word quotes; the space and inner double quotes
-    // must survive the dequote → re-quote.
-    [
-      `OPENCODE_CONFIG_CONTENT='{"model": "x y"}' opencode`,
-      `OPENCODE_CONFIG_CONTENT='{"model": "x y"}' opencode`,
-    ],
-    ["EMPTY= opencode", "EMPTY= opencode"],
-    ["exec omp --model fable", "omp --model fable"],
-    ["FOO=1 exec omp", "FOO=1 omp"],
-    ["env FOO=1 codex", "FOO=1 codex"],
-    ["A=1 env B=2 codex --yolo", "A=1 B=2 codex --yolo"],
-    ["FOO=bar /usr/local/bin/claude", "FOO=bar claude"],
-  ])("raw line %j → %j", (raw, expected) => {
-    expect(parseAgentCommand(raw)).toBe(expected);
-  });
-
-  // The command-rooted seed dialect (`shellJoin(argv)`, reparsed by
-  // `shellSplit`) goes through the SAME anatomy.
-  it.each([
-    [shellJoin(["exec", "omp", "--model", "fable"]), "omp --model fable"],
-    [shellJoin(["env", "FOO=1", "codex"]), "FOO=1 codex"],
-    [`B='x y' claude --model sonnet`, `B='x y' claude --model sonnet`],
-    // The incident lines as a command-rooted argv seed.
-    [
-      shellJoin(["AI_PROFILE=github:juspay/skills", "opencode", "--auto"]),
-      "AI_PROFILE=github:juspay/skills opencode",
-    ],
-    [
-      shellJoin([
-        'OPENCODE_CONFIG_CONTENT={"model":"opencode/deepseek-v4.1-flash"}',
-        "opencode",
-        "--auto",
-      ]),
-      `OPENCODE_CONFIG_CONTENT='{"model":"opencode/deepseek-v4.1-flash"}' opencode`,
-    ],
-    [
-      shellJoin(['OPENCODE_CONFIG_CONTENT={"model": "x y"}', "opencode"]),
-      `OPENCODE_CONFIG_CONTENT='{"model": "x y"}' opencode`,
-    ],
-  ])("shellJoin seed %j → %j", (seed, expected) => {
-    expect(parseAgentCommand(seed, true)).toBe(expected);
-  });
-
-  it.each([
-    "env -i opencode", // env's own flags — don't guess
-    "env -u HOME opencode",
-    "exec -a name opencode",
-    "FOO=bar ls", // not an agent
-    "FOO=bar", // no binary at all
-    "env FOO=1",
-    "exec",
-    "FOO=bar opencode --version", // the exit flag still wins
-    "cd x && opencode", // non-goal: compound commands stay unrecognized
-  ])("returns null for %j", (raw) => {
-    expect(parseAgentCommand(raw)).toBeNull();
-    expect(parseAgentCommand(raw, true)).toBeNull();
-  });
-
-  it("reads the kind and name behind the prefix", () => {
-    expect(agentKindFromCommand("FOO=bar opencode")).toBe("opencode");
-    expect(agentKindFromCommand(`A=1 B='x y' claude --model sonnet`)).toBe(
-      "claude-code",
-    );
-    expect(agentKindFromCommand("FOO=bar ls")).toBeNull();
-    expect(
-      agentNameFromCommand("AI_PROFILE=github:juspay/skills opencode"),
-    ).toBe("opencode");
-    expect(agentNameFromCommand(`B='x y' claude --model sonnet`)).toBe(
-      "claude",
-    );
-    expect(agentNameFromCommand("claude")).toBe("claude");
-    expect(agentNameFromCommand("")).toBeNull();
-  });
-
-  it("resumes the JSON incident line with its config value intact", () => {
-    const OPENCODE_ID = "ses_118316090ffewMmbj6bsfKwj4R";
-    const command = parseAgentCommand(
-      `OPENCODE_CONFIG_CONTENT='{"model": "x y"}' opencode --auto`,
-    );
-    if (command === null) throw new Error("not recognized");
-    const resumed = resumeAgentCommand(command, {
-      kind: "opencode",
-      sessionId: OPENCODE_ID,
-      resumeRef: OPENCODE_ID,
-    });
-    expect(resumed).toBe(
-      `OPENCODE_CONFIG_CONTENT='{"model": "x y"}' opencode --session ${OPENCODE_ID}`,
-    );
-    // What a shell re-reading the resume line would see.
-    expect(shellSplit(resumed as string)).toEqual([
-      'OPENCODE_CONFIG_CONTENT={"model": "x y"}',
-      "opencode",
-      "--session",
-      OPENCODE_ID,
-    ]);
-  });
-
-  it("keeps the assignments in front of the head across the resume splice", () => {
-    expect(resumeAgentCommand("FOO=bar opencode")).toBe(
-      "FOO=bar opencode --continue",
-    );
-    expect(resumeAgentCommand(`A=1 B='x y' claude --model sonnet`)).toBe(
-      `A=1 B='x y' claude -c --model sonnet`,
-    );
-    expect(resumeAgentCommand("FOO=1 aider")).toBeNull(); // detection-only
-  });
-
-  // A command that was never normalized can still arrive from disk (the
-  // cutover migration copies any stored string) — refuse it, don't crash.
-  it("refuses a command that was never normalized", () => {
-    expect(resumeAgentCommand("exec claude")).toBeNull();
-    expect(resumeAgentCommand("env FOO=1 claude")).toBeNull();
-    expect(
-      resumableCommand({ kind: "legacyMostRecent", command: "exec claude" }),
-    ).toBeNull();
-  });
-
-  // The whole chain the incident broke: raw line → normalized → kind gate →
-  // exact restore target → resume form, with the profile still in front.
-  it("round-trips a prefixed opencode launch to an exact resume", () => {
-    const OPENCODE_ID = "ses_118316090ffewMmbj6bsfKwj4R";
-    const command = parseAgentCommand(
-      "AI_PROFILE=github:juspay/skills opencode --auto",
-    );
-    expect(command).toBe("AI_PROFILE=github:juspay/skills opencode");
-    if (command === null) throw new Error("unreachable");
-    expect(agentKindFromCommand(command)).toBe("opencode");
-    const target = exactRestoreTarget(command, {
-      kind: "opencode",
-      sessionId: OPENCODE_ID,
-      resumeRef: OPENCODE_ID,
-    });
-    expect(target?.kind).toBe("exact");
-    expect(resumeFormFor(target ?? undefined)).toBe(
-      `AI_PROFILE=github:juspay/skills opencode --session ${OPENCODE_ID}`,
-    );
-    expect(resumableCommand(target ?? undefined)).toBe(command);
+  it("renders nothing for an unknown kind", () => {
+    expect(agentLaunchLine("retired-agent", [])).toBeNull();
   });
 });

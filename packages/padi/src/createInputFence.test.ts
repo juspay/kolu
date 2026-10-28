@@ -1,6 +1,6 @@
 /**
  * W12 — the create-input TYPE fence. The three server-derived authored facts
- * (`lastActivityAt`, `lastAgentCommand`, `restoreTarget`) must be unspellable by an
+ * (`lastActivityAt`, `promptedAt`, `restoreTarget`) must be unspellable by an
  * ordinary create and reachable only through `restoreSpawn`'s distinct `restoreOnly`
  * arm — the fence is the TYPE, not a convention. Before this split the exclusion was a
  * maintained `.omit(...)` on a shared shape; a future field could leak to the wire by
@@ -26,11 +26,11 @@ describe("create-input fence — restore-only facts never ride an ordinary creat
       cwd: "/x",
       themeName: "dracula",
       lastActivityAt: 5,
-      lastAgentCommand: "claude",
+      promptedAt: 4,
       restoreTarget: { kind: "none" },
     });
     expect("lastActivityAt" in parsed).toBe(false);
-    expect("lastAgentCommand" in parsed).toBe(false);
+    expect("promptedAt" in parsed).toBe(false);
     expect("restoreTarget" in parsed).toBe(false);
     // The base chrome + cwd still round-trip.
     expect(parsed.cwd).toBe("/x");

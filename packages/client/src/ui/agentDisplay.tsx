@@ -7,8 +7,8 @@
 
 import {
   type AgentMark,
-  agentKindFromCommand,
   agentVocab,
+  isAgentKind,
   mapAgentVocabs,
 } from "kolu-agents/vocab";
 import type { AgentInfo } from "kolu-common/surface";
@@ -94,14 +94,12 @@ export function agentWorkflow(agent: AgentInfo | null | undefined) {
     : null;
 }
 
-/** Resolve the icon for a raw agent command string (e.g. `"claude --model
- *  sonnet"`). Returns `undefined` for detection-only agents that have no
- *  `AgentInfo` discriminator (aider/goose/gemini/cursor-agent) and for
- *  unknown commands. Bridges the basename axis to the per-kind marks; the
- *  component is a STABLE per-kind reference (see `AGENT_ICONS`). */
-export function iconForCommand(
-  command: string,
+/** Resolve the icon for an agent KIND (e.g. `"claude-code"`). Returns `undefined`
+ *  for a kind this build no longer knows — a stale recent-agents row renders no
+ *  icon rather than a guess. The component is a STABLE per-kind reference (see
+ *  `AGENT_ICONS`). */
+export function iconForKind(
+  kind: string,
 ): Component<{ class?: string }> | undefined {
-  const kind = agentKindFromCommand(command);
-  return kind === null ? undefined : AGENT_ICONS[kind];
+  return isAgentKind(kind) ? AGENT_ICONS[kind] : undefined;
 }

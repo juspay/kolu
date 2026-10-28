@@ -537,7 +537,7 @@ function readScreenTextFor(id: TerminalId, tailLines: number): Promise<string> {
 }
 
 /** Did any AUTHORED fact the fold writes change — the memory fields the
- *  authored record stores (`lastActivityAt`, `promptedAt`, `lastAgentCommand`) plus the
+ *  authored record stores (`lastActivityAt`, `promptedAt`) plus the
  *  fold-derived `restoreTarget`? Compares the restore target BY VALUE
  *  (`restoreTargetEqual` over `restoreTargetOf`) rather than re-deriving the move
  *  from the target's raw inputs, so this fence can never desync from the projection
@@ -550,7 +550,6 @@ function authoredFactsEqual(a: TerminalState, b: TerminalState): boolean {
   return (
     a.memory.lastActivityAt === b.memory.lastActivityAt &&
     a.memory.promptedAt === b.memory.promptedAt &&
-    a.memory.lastAgentCommand === b.memory.lastAgentCommand &&
     restoreTargetEqual(restoreTargetOf(a), restoreTargetOf(b))
   );
 }
@@ -759,11 +758,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // Likewise a resumed agent's first live turn, so its first-prompt tip stays gone.
     if (opts.initialMetadata?.promptedAt !== undefined)
       meta.promptedAt = opts.initialMetadata.promptedAt;
-    // Session restore threads the saved agent-resume facts through so the restore-time
-    // re-persist can't write `none` over a resuming agent before the fold re-derives
-    // them (the fold's `updateMemory` rewrites both live once the agent is re-observed).
-    if (opts.initialMetadata?.lastAgentCommand !== undefined)
-      meta.lastAgentCommand = opts.initialMetadata.lastAgentCommand;
+    // Session restore threads the saved agent-resume target through so the
+    // restore-time re-persist can't write `none` over a resuming agent before the
+    // fold re-derives it (the fold's `updateMemory` rewrites it live once the agent
+    // is re-observed). It carries the identity AND the flags — the whole thing a
+    // resume needs, all of it structured.
     if (opts.initialMetadata?.restoreTarget !== undefined)
       meta.restoreTarget = opts.initialMetadata.restoreTarget;
     if (opts.parentId) meta.parentId = opts.parentId;
@@ -1118,7 +1117,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // the command-run tap catches the resumed invocation and the agent indicator
     // re-lights. The PTY buffers the bytes until the shell reaches its prompt
     // (the same type-ahead a fast typist relies on), so there's no readiness
-    // race — only set on wake (`resumeAgentCommand` output), never an ordinary spawn.
+    // race — only set on wake (`resumeFormFor` output), never an ordinary spawn.
     if (opts.resumeCommand) proxy.write(`${opts.resumeCommand}\r`);
     this.recordProfileInEffect(id, entry, res);
     tlog.info({ pid: res.pid, total: listTerminals().length }, "created");
@@ -1191,8 +1190,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  observation + memory and folds each emitted observation: the five snapshot
    *  fields are last-write-wins; `lastActivityAt` is stamped from a LIVE agent
    *  observation with kolu's clock — an identity change always, a same-identity
-   *  output tick throttled; `lastAgentCommand` + the derived `restoreTarget`
-   *  are kolu's to remember. It commits the snapshot half to the `snapshot`
+   *  output tick throttled; the live agent's allowlisted argv (persisted as the
+   *  derived `restoreTarget`) is kolu's to remember. It commits the snapshot half
+   *  to the `snapshot`
    *  collection, the memory half + the `restoreTarget` to `kolu.authored`, and arms
    *  the session autosave — each effect arm gated by ITS OWN delta so the ~150 ms
    *  agent-detail / foreground firehose reaches NONE of disk, the authored
@@ -1240,13 +1240,17 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // can't re-observe (the memory facts, the resume target) survives because
     // it is simply never in an observation.
     const seedEntry = getTerminal(id)!;
+    const seedTarget = seedEntry.meta.restoreTarget;
     let current: TerminalState = {
       snapshot: seedEntry.snapshot,
       memory: {
         lastActivityAt: seedEntry.meta.lastActivityAt,
         promptedAt: seedEntry.meta.promptedAt,
-        lastAgentCommand: seedEntry.meta.lastAgentCommand,
       },
+      // The durable target's flags seed the fold so a re-observation before the
+      // process is re-sampled does not transiently rewrite the persisted target
+      // with an empty argv.
+      argv: seedTarget?.kind === "exact" ? [...seedTarget.argv] : [],
     };
 
     // Recency frame phase, decided BY VALUE against the agent identity the producer
@@ -1277,15 +1281,21 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       const ctx: FoldCtx = { live: step.live, at: Date.now(), runStartedAt };
       current = fold(current, o, ctx);
       // Cross-terminal MRUs (kolu's, fold-side) track the OBSERVATION itself — a git
-      // context seen, a (non-replayed) agent command run — NOT the fold delta, so they
-      // run BEFORE the no-op early-return below. Re-launching the SAME agent command
-      // dedups in the fold (`lastAgentCommand` is unchanged → `current === before`) but
-      // is still a fresh launch that must refresh the recent-agents MRU `lastSeen`;
-      // gating it on the fold delta would drop that bump — the old command sensor fired
-      // `trackRecentAgent` on every non-replayed mark, independent of the memory write.
+      // context seen, a live agent detected — NOT the fold delta, so they run BEFORE
+      // the no-op early-return below. The recent-agents row is now recorded from
+      // STRUCTURED facts: the agent kind plus the live process's allowlisted argv
+      // (`step.live` = a new agent identity, so a detail tick does not reorder the
+      // MRU). Nothing a shell printed is stored or typed.
       if (o.kind === "git" && o.git.kind === "repo")
         trackRecentRepo(o.git.info.mainRepoRoot, o.git.info.repoName);
-      if (o.kind === "commandRun" && !o.replayed) trackRecentAgent(o.command);
+      if (
+        o.kind === "agent" &&
+        o.agent !== "unknown" &&
+        o.agent.value !== null &&
+        step.live
+      ) {
+        trackRecentAgent(o.agent.value.kind, o.argv);
+      }
       if (current === before) return; // `unknown`/dedup no-op — nothing else to commit
       unresumable.check(current);
       // Three effect arms, each gated by ITS OWN delta — no firehose on any:
@@ -1319,19 +1329,13 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       ptyHostClient.surface.commandRun.get({ id }),
       signal,
       (msg) => {
-        // The OSC 633 command mark: a command that just started is the one most
-        // likely to bind a port. The 5 s baseline is what reports it.
+        // The OSC 633 command mark is a SENSOR only: it re-samples the foreground
+        // and feeds the shim hint (`agentNameHint`). Its text is logged as context
+        // for an unresumable agent and never becomes a command.
         unresumable.noteRawCommand(msg.command);
         signals.commandRun.publish({
           command: msg.command,
           replayed: msg.replayed,
-          // The wire field is OPTIONAL for forward-compat (an additive frame field,
-          // no contract bump). A survivor kaval predating it emits no `shellJoin`
-          // AND no command-rooted seed (lock 1 ships with the field), so its
-          // commands are all raw — `false` is correct, never a revived defect. The
-          // skew default lives ONLY here at the wire boundary; the internal sample
-          // carries a definite dialect from this point on.
-          shellJoin: msg.shellJoin ?? false,
         });
       },
     );
@@ -1598,10 +1602,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     | undefined {
     const entry = getTerminal(id);
     if (!entry || entry.meta.state !== "sleeping") return undefined;
-    // The resume FORM switches on the authored `restoreTarget`: `exact` resumes the
-    // EXACT conversation that was live at sleep by id (juspay/kolu#1495);
-    // `legacyMostRecent` (migrated pre-1.29 records) the most-recent marker (claude
-    // `-c`, codex `resume --last`, opencode `--continue`); `none` / absent / a
+    // The resume FORM is rendered from the authored `restoreTarget`: an `exact`
+    // target resumes the EXACT conversation that was live (session identity +
+    // the process's allowlisted flags, juspay/kolu#1495); `none` / absent / a
     // non-resumable agent → null, a bare shell (juspay/kolu#1492).
     const resumeCommand = opts.resume
       ? resumeFormFor(entry.meta.restoreTarget)

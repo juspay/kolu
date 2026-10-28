@@ -91,7 +91,6 @@ const parkedMeta: AuthoredParkedTerminal = Schema.decodeUnknownSync(
   parkedAt: 999,
   location: LOCAL_LOCATION,
   lastActivityAt: 55,
-  lastAgentCommand: "claude --model opus",
   themeName: "nord",
 });
 

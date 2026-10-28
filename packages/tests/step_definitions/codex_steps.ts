@@ -104,7 +104,8 @@ async function startFakeAgent(world: KoluWorld, prefix = ""): Promise<void> {
   const bin = process.env.KOLU_FAKE_CODEX_BIN;
   if (!bin) throw new Error("KOLU_FAKE_CODEX_BIN must be set");
   // `prefix` is typed in front of the binary verbatim — an env-assignment
-  // prefix (`FOO=bar codex …`) the launch-line parser must see through.
+  // prefix (`FOO=bar codex …`) the SHIM HINT must see through (it never reaches
+  // an executed line: the resume target is built from the live process).
   await world.page.keyboard.type(
     `${prefix === "" ? "" : `${prefix} `}${bin} -c "printf '\\033]0;codex\\007'; sleep 99999 ; :"`,
   );
@@ -119,8 +120,8 @@ async function startShimmedAgent(world: KoluWorld): Promise<void> {
   // npm-shimmed `codex` install where the real binary is `node`.
   //
   // Define a shell function named `codex`, then invoke it. The preexec
-  // hook fires on the second line with exactly "codex", so
-  // `parseAgentCommand` normalizes to "codex".
+  // hook fires on the second line with exactly "codex", so the mark's head
+  // basename (`agentNameHint`) names `codex`.
   //
   // The function body emits a second OSC 2 from inside the subshell —
   // the reconcile triggered by the preexec OSC 2 fires BEFORE the

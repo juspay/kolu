@@ -35,28 +35,23 @@ export interface AgentMark {
   strokeWidth?: number;
 }
 
-/** An agent's CLI grammar — everything `parseAgentCommand` needs to recognize
- *  and normalize an invocation of this binary. `basename` is the binary name
- *  (`"claude"`, `"xyne"`); `stableFlags` is the allowlist of flags that define
- *  a meaningfully different invocation; the three sets carve out invocations
- *  that are NOT sessions (exit-immediately flags, session-redirecting flags,
- *  and first-argument subcommands that take a non-interactive path). */
+/** An agent's CLI grammar — the two facts kolu needs to turn the agent's
+ *  REGISTRY vocab plus a live process's argv into a launch line. `basename` is
+ *  the binary name (`"claude"`, `"xyne"`); `stableFlags` is the allowlist of
+ *  flags that define a meaningfully different invocation.
+ *
+ *  No exit/non-session carve-outs live here any more: those existed to decide
+ *  whether a user-TYPED line named an agent session. kolu no longer reads a
+ *  captured command line at all — an agent is identified by the foreground
+ *  process and its session file, and its flags are read from the LIVE process's
+ *  argv, which by definition belongs to a running session. */
 export interface AgentCliGrammar {
   /** The binary name, e.g. `"claude"`, `"xyne"`. */
   readonly basename: string;
   /** Allowlist of flags that define a meaningfully different invocation, each
-   *  mapped to its arity. Only these are preserved in the MRU form; a flag not
-   *  listed is dropped silently — the safe default. */
+   *  mapped to its arity. Only these survive capture from the process argv; a
+   *  flag not listed is dropped silently — the safe default. */
   readonly stableFlags: ReadonlyMap<string, FlagArity>;
-  /** Exit-immediately flags this agent spells DIFFERENTLY from the shared set
-   *  (`--version`/`-V`/`--help`/`-h`). Empty for most. */
-  readonly extraExitFlags: ReadonlySet<string>;
-  /** Flags that make an invocation produce NO session kolu can bind to
-   *  (`--session-dir <dir>`, `--no-session`). Checked position-independent. */
-  readonly nonSessionFlags: ReadonlySet<string>;
-  /** BARE positional subcommand words — but only in argv position 0 — that
-   *  take a non-interactive path (pi's `list`/`config`/…). */
-  readonly nonSessionSubcommands: ReadonlySet<string>;
 }
 
 /** How an agent resumes a prior conversation — the whole per-agent resume

@@ -14,7 +14,7 @@
  *   1. ENCODED BYTES — `JSON.stringify(encodeSync(...))` character for character.
  *   2. LEGACY DECODE — a record written before `lastActivityAt` existed decodes
  *      to the honest `null` (the documented backfill e2e steps rely on), and a
- *      record without `lastAgentCommand` decodes without the key.
+ *      record written before the launch line was retired decodes without it.
  *   3. DISCRIMINANTS — every arm of the five unions keeps its field name and its
  *      literal values.
  */
@@ -59,10 +59,19 @@ describe("AgentMemory — the flat on-disk memory pair", () => {
       encodeJson(AgentMemorySchema)({
         lastActivityAt: 1_712_345_678_901,
         promptedAt: 1_712_345_600_000,
-        lastAgentCommand: "claude --model sonnet",
       }),
-    ).toBe(
-      '{"lastActivityAt":1712345678901,"promptedAt":1712345600000,"lastAgentCommand":"claude --model sonnet"}',
+    ).toBe('{"lastActivityAt":1712345678901,"promptedAt":1712345600000}');
+  });
+
+  it("has NO remembered launch line — a captured command is not memory", () => {
+    // The forgery fence, expressed as a byte: there is no `lastAgentCommand`
+    // key left to persist, so no PTY mark can become one.
+    const decoded = Schema.decodeUnknownSync(AgentMemorySchema)({
+      lastActivityAt: 1,
+      lastAgentCommand: "LD_PRELOAD=/x claude --settings '{}'",
+    });
+    expect(encodeJson(AgentMemorySchema)(decoded)).toBe(
+      '{"lastActivityAt":1,"promptedAt":null}',
     );
   });
 
@@ -74,30 +83,11 @@ describe("AgentMemory — the flat on-disk memory pair", () => {
       lastActivityAt: null,
       promptedAt: null,
     });
-    expect(
-      Schema.decodeUnknownSync(AgentMemorySchema)({
-        lastAgentCommand: "codex",
-      }),
-    ).toEqual({
-      lastActivityAt: null,
-      promptedAt: null,
-      lastAgentCommand: "codex",
-    });
-  });
-
-  it("leaves lastAgentCommand ABSENT rather than undefined when unset", () => {
-    const decoded = Schema.decodeUnknownSync(AgentMemorySchema)({
-      lastActivityAt: 5,
-    });
-    expect("lastAgentCommand" in decoded).toBe(false);
-    expect(JSON.stringify(decoded)).toBe(
-      '{"lastActivityAt":5,"promptedAt":null}',
-    );
   });
 
   it("round-trips a stored record byte-for-byte", () => {
     const stored =
-      '{"lastActivityAt":1712345678901,"promptedAt":1712345600000,"lastAgentCommand":"grok"}';
+      '{"lastActivityAt":1712345678901,"promptedAt":1712345600000}';
     const decoded = Schema.decodeUnknownSync(AgentMemorySchema)(
       JSON.parse(stored),
     );

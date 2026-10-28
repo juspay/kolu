@@ -80,9 +80,6 @@ export const codexVocab: AgentVocab<CodexInfo> = {
       ["--full-auto", "boolean"],
       ["--oss", "boolean"],
     ]),
-    extraExitFlags: new Set<string>(),
-    nonSessionFlags: new Set<string>(),
-    nonSessionSubcommands: new Set<string>(),
   },
   resume: {
     last: "resume --last",

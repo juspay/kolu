@@ -85,7 +85,7 @@ const PI_RESUME_REF_RE =
   /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\/[\w .,@=+(){}#%/~-]*\.jsonl)$/;
 
 /** Pi's vocabulary — display name, brand mark, CLI grammar (including its
- *  one-shot/subcommand carve-outs), resume policy, and wire schema. */
+ *  resume policy, and wire schema. */
 export const piVocab: AgentVocab<PiInfo> = {
   kind: "pi",
   displayName: "Pi",
@@ -99,34 +99,11 @@ export const piVocab: AgentVocab<PiInfo> = {
       ["--name", "value"],
       ["-n", "value"],
     ]),
-    // Pi's one-shot surface is wider than the other agents': `-v` is its
-    // version spell (capital `-V` is a different, unknown switch), and
-    // `--export` / `--list-models` / `-p` (`--print`) are print-and-exit
-    // invocations that must never enter the recent-agents MRU.
-    extraExitFlags: new Set([
-      "-v",
-      "--export",
-      "--list-models",
-      "-p",
-      "--print",
-    ]),
-    // `--session-dir <dir>` writes outside the scanned tree; `--no-session` is
-    // ephemeral. Attributing either would bind the terminal to a DIFFERENT
-    // session in the cwd (the #1495 wrong-conversation class via the
-    // unmatchable direction). Valid in ANY argv position.
-    nonSessionFlags: new Set(["--session-dir", "--no-session"]),
-    // BARE positional subcommand words — only in argv position 0: pi dispatches
-    // a subcommand from its FIRST argument alone, and any later occurrence is
-    // prompt text for an interactive session.
-    nonSessionSubcommands: new Set([
-      "auth",
-      "config",
-      "install",
-      "list",
-      "remove",
-      "uninstall",
-      "update",
-    ]),
+    // Pi's one-shot surface (`-v`, `--export`, `--list-models`, `-p`) and its
+    // subcommand words (`list`, `config`, …) used to be carved out here so a
+    // TYPED line could not enter the recent-agents MRU. Nothing reads a typed
+    // line any more: the MRU is fed by a detected LIVE agent, so a one-shot
+    // invocation (which has no session and exits) can never appear in it.
   },
   resume: {
     last: "-c",

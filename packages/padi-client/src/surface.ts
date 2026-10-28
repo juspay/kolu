@@ -1014,7 +1014,7 @@ function sameIds<T>(a: readonly T[], b: readonly T[]): boolean {
 // migrate onto (the root `terminal.*` namespace dies across W1.R). They are
 // intentionally distinct from `kolu-common/contract`'s raw-oRPC schemas — most
 // notably `create` carries only the base chrome, never the three SERVER-DERIVED
-// authored facts (`lastActivityAt`, `lastAgentCommand`, `restoreTarget`) that padi
+// authored facts (`lastActivityAt`, `promptedAt`, `restoreTarget`) that padi
 // earns from its own observation, so they are not duplicates to fold away.
 
 /** Create input — the BASE `CreateTerminalInputSchema` (client chrome) plus the
@@ -1023,7 +1023,7 @@ function sameIds<T>(a: readonly T[], b: readonly T[]): boolean {
  *  server-derived authored facts, so the exclusion is structural, not a maintained
  *  omit list: a future field added to `RestoreOnlyMetadataSchema` can never leak to
  *  the wire by someone forgetting to extend an omit. A fresh terminal has no truth
- *  about `lastActivityAt` / `lastAgentCommand` / `restoreTarget` (the fold derives
+ *  about `lastActivityAt` / `promptedAt` / `restoreTarget` (the fold derives
  *  them from its own observation); `session.restore` threads them from the saved blob
  *  through `restoreSpawn`'s distinct `restoreOnly` arm, never this input.
  *

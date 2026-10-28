@@ -35,7 +35,7 @@ knows nothing about shell-environment preparation: callers hand it a ready
 | meaningful output (activity edge) | `onData`, **resize-repaint excluded** | host-global `activity` stream (`{ id }` edges) |
 | cwd            | OSC 7 `file://` reports         | `subscribeCwd` / `getCwd` |
 | title          | OSC 0/2 title changes           | `subscribeTitle` / `getTitle` |
-| command-run    | OSC 633 ; E ; `<cmd>` preexec   | `subscribeCommandRun` / `getLastCommand` |
+| command-run    | OSC 633 ; E ; `<cmd>` preexec — a SENSOR; never replayed | `subscribeCommandRun` / `getLastCommand` |
 | exit           | child exit code                 | `exit` (fails `PtyNotFound`) |
 | foreground pid | `tcgetpgrp(3)` at the tty       | `getForegroundPid`        |
 | foreground process | node-pty `argv[0]` basename; a dynamic-loader `argv[0]` (`ld-linux…` / `ld-musl-…` / `ld.so`) is resolved to the program it loads, read from `/proc/<fgpid>/cmdline` | `getProcess` · `foreground` stream |

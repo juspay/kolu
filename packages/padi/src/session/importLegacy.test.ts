@@ -319,8 +319,80 @@ describe("padi's own migration ladder", () => {
       session: { terminals: Record<string, unknown>[] };
       __internal__: { migrations: { version: string } };
     };
-    expect(onDisk.__internal__.migrations.version).toBe("1.2.0");
+    expect(onDisk.__internal__.migrations.version).toBe("1.3.0");
     expect(onDisk.session.terminals[0]).not.toHaveProperty("agents");
+  });
+
+  it("1.3.0: a captured command line and the old MRU rows are DROPPED, never re-parsed", () => {
+    // The forgery shape: a saved terminal whose restore target remembered the raw
+    // text a shell printed, plus a recent-agents row that did the same. The step
+    // keeps the STRUCTURED identity (so the conversation still resumes) with an
+    // empty argv, drops `lastAgentCommand`, maps the retired
+    // `legacyMostRecent` arm to `none`, and clears the MRU — no old text is ever
+    // turned into a flag or an executable line.
+    const sessionId = "0192f3a1-4c5b-7d8e-9f01-23456789abcd";
+    writeFileSync(
+      join(stateRoot, "config.json"),
+      JSON.stringify({
+        session: {
+          terminals: [
+            {
+              id: "exact",
+              state: "active",
+              cwd: "/tmp",
+              git: { kind: "unresolved" },
+              pr: { kind: "absent" },
+              location: { kind: "local" },
+              lastActivityAt: 5,
+              promptedAt: null,
+              lastAgentCommand: "LD_PRELOAD=/x claude --settings '{}'",
+              restoreTarget: {
+                kind: "exact",
+                command: "LD_PRELOAD=/x claude --settings '{}'",
+                agent: {
+                  kind: "claude-code",
+                  sessionId,
+                  resumeRef: sessionId,
+                },
+              },
+            },
+            {
+              id: "legacy",
+              state: "active",
+              cwd: "/tmp",
+              git: { kind: "unresolved" },
+              pr: { kind: "absent" },
+              location: { kind: "local" },
+              lastActivityAt: 5,
+              promptedAt: null,
+              restoreTarget: { kind: "legacyMostRecent", command: "codex" },
+            },
+          ],
+          activeTerminalId: "exact",
+          savedAt: 1,
+        },
+        activityFeed: {
+          recentRepos: [],
+          recentAgents: [{ command: "claude --yolo", lastSeen: 5 }],
+        },
+        __internal__: { migrations: { version: "1.2.0" } },
+      }),
+    );
+    const stores = openPadiStateStores(stateRoot);
+    const terminals = stores.session.get()?.terminals ?? [];
+    expect(terminals[0]?.restoreTarget).toEqual({
+      kind: "exact",
+      agent: { kind: "claude-code", sessionId, resumeRef: sessionId },
+      argv: [],
+    });
+    expect(terminals[1]?.restoreTarget).toEqual({ kind: "none" });
+    expect("lastAgentCommand" in (terminals[0] ?? {})).toBe(false);
+    expect(stores.activityFeed.get().recentAgents).toEqual([]);
+    // The dropped text is nowhere on disk: the file the next boot reads cannot
+    // resurrect it into a command.
+    expect(readFileSync(join(stateRoot, "config.json"), "utf8")).not.toContain(
+      "LD_PRELOAD",
+    );
   });
 
   it("a fresh state-root has no session to migrate", () => {

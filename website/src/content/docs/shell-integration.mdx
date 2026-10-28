@@ -27,14 +27,17 @@ itself that a raw byte stream can't say.
 | --- | --- | --- |
 | **Working directory** (OSC 7) | at every prompt | the directory and git branch on the dock and tile, repo grouping, and restoring a terminal into the directory it was in |
 | **Title** (OSC 0/2) | your directory at the prompt, the command while one runs — and full-screen apps override it with their own | tile and dock titles, and the nudge that the foreground process may have changed |
-| **Command marks** (OSC 633;E) | the exact command line, the moment you run it | [agent detection](/agent-detection) for shimmed CLIs, the recent-agents list, and the **launch line that resume replays** |
+| **Command marks** (OSC 633;E) | the exact command line, the moment you run it | [agent detection](/agent-detection) for shimmed CLIs — a **sensor only** |
 
-The command mark is the quiet load-bearer of the three. It is how kolu knows an
-agent installed through npm is `codex` and not the `node` the operating system
-reports, and it is the line — flags included — that [sleep, wake, and session
-restore](/sessions) type back into a fresh shell to bring your agent back on its
-exact conversation. A terminal whose agent launch was never marked has nothing
-to resume with.
+The command mark is the quiet load-bearer of the three, but only as a *sensor*.
+It is how kolu knows an agent installed through npm is `codex` and not the `node`
+the operating system reports. It is deliberately **not** what [sleep, wake, and
+session restore](/sessions) type back into a fresh shell: anyone whose text you
+display can print that escape sequence, so the mark can name a process but never
+supply a command. A resume replays the live agent process's own allowlisted
+arguments and its session file's identity instead. A terminal whose agent launch
+was never marked still detects and resumes fine — the mark is a convenience for
+shimmed CLIs, not a requirement.
 
 ## How it gets into your shell
 
@@ -83,5 +86,5 @@ live in.
 
 <CardGrid>
   <LinkCard title="Agent Detection" href="/agent-detection" description="how the command mark and the foreground process combine into live agent state" />
-  <LinkCard title="Sessions, Sleep & Wake" href="/sessions" description="the launch line at work — resume on the exact conversation after sleep, restart, or crash" />
+  <LinkCard title="Sessions, Sleep & Wake" href="/sessions" description="wake on the exact conversation — resume on the same session after sleep, restart, or crash" />
 </CardGrid>

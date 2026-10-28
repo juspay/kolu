@@ -449,6 +449,59 @@ worker that no longer exists must be told, not left waiting. A kaval recycle
 retires every active terminal id, so this is the signal that a lane's id is stale
 rather than merely quiet.
 
+## Restore — rendered from facts, never from PTY bytes
+
+**PTY output is a sensor. Nothing that executes may read a value whose
+provenance is PTY bytes.**
+
+That sentence is the load-bearing rule of the whole restore path. A shell's
+`OSC 633;E` command mark is attacker-controlled: anyone whose text the user
+displays (`cat` a file, curl, an ssh banner) can print it while the shell is
+idle. It used to be persisted as the terminal's launch line and typed into a
+fresh shell on wake, so `LD_PRELOAD=/x claude --settings '{…}'` in a log file
+became a command kolu executed. It never does now — the mark only re-samples the
+foreground and names a shim for the adapters.
+
+What wake replays is the fold-derived **`restoreTarget`**, a structured value:
+
+```ts
+{ kind: "exact", agent: { kind, sessionId, resumeRef }, argv: string[] }
+  | { kind: "none" }
+```
+
+- `agent` is the OS-derived session identity the detection adapter matched
+  (session file + process, or the agent's per-tty breadcrumb).
+- `argv` is the live agent process's own arguments, read from the OS
+  (`readProcessSnapshot` — `/proc` on Linux, the baked `osfacts` binary's
+  `--argv` on macOS, which keeps tokens exact) and filtered through the agent
+  package's `stableFlags` allowlist. A path, a prompt, a loader, or a resume
+  marker is dropped; a `--model sonnet` survives.
+- `none` is a bare shell: no live agent at sleep, or a terminal that quit one.
+
+`resumeFormFor` renders the line from those facts plus the agent's own registry
+entry (binary name and how it spells resume), and gates the session ref against
+the agent's `idPattern`. The SAME renderer feeds the wake path, the session
+restore path, the restore card, and the recent-agents palette — so a displayed
+line and a typed line cannot drift, and neither can read captured text.
+
+Two consequences the docs state rather than hide: a shell-typed env prefix
+(`FOO=1 claude`) is no longer replayed (it is not in the process's arguments;
+kolu-authored `AI_PROFILE` still is), and a target saved before 1.3.0 resumes
+its conversation without its old flags once.
+
+The recent-agents MRU rides the same facts: a row is `{ kind, argv }`, recorded
+when an agent is **detected live**, and the palette renders it through the
+registry. Detect-only binaries (no session adapter, no resume policy) are not
+candidates. `trackRecentAgent` has exactly one production caller — the
+endpoint's live-agent arm — and `terminal-vocab`'s `restoreFence.test.ts` is the
+grep law that keeps it that way.
+
+The state migration (`1.3.0`) is the one place an old shape is met: an on-disk
+`exact { command, agent }` becomes `exact { agent, argv: [] }`, `legacyMostRecent`
+becomes `none`, and the remembered `lastAgentCommand` plus the old MRU rows are
+dropped. The old `command` is **deleted, never parsed** — re-parsing it is the
+hole this closes.
+
 ## The agent-state watch — the other source
 
 `src/attention/` holds **two** event sources, and a subscriber picks one. The

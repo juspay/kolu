@@ -234,7 +234,7 @@ while kaval handles terminal survival.
 | `screen` | snapshot + live deltas |
 | `cwd` | from OSC 7 reports |
 | `title` | from OSC 0/2 changes |
-| `command` | from OSC 633 preexec |
+| `command` | from OSC 633 preexec — a **sensor** (`commandRun`); no consumer may replay it |
 | `exit` | the child's exit code |
 
 ## What lives above it

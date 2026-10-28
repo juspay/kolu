@@ -72,9 +72,6 @@ export const grokVocab: AgentVocab<GrokInfo> = {
       ["--reasoning-effort", "value"],
       ["--effort", "value"],
     ]),
-    extraExitFlags: new Set<string>(),
-    nonSessionFlags: new Set<string>(),
-    nonSessionSubcommands: new Set<string>(),
   },
   resume: {
     last: "-c",

@@ -4,19 +4,28 @@
  *  the adapter registry — all re-seeded empty each start) and EMITS per-field
  *  `TerminalEvent`s through `emit`. It takes NO seed and touches no host
  *  store: it cannot CONSTRUCT the memory facts (`lastActivityAt` /
- *  `promptedAt` / `lastAgentCommand`), so however buggy / restarted / hostile its stream, it
+ *  `promptedAt`), so however buggy / restarted / hostile its stream, it
  *  cannot overwrite a remembered fact — the fence is the EMIT TYPE (`TerminalSnapshot`),
  *  not a runtime mutator split. padi folds the stream into a `TerminalState`
  *  (`./fold.ts`, with memory on the host clock); a memoryless dashboard consumer
  *  folds the snapshot half only.
+ *
+ *  ## The invariant
+ *
+ *  **PTY output is a sensor. Nothing that executes may read a value whose
+ *  provenance is PTY bytes.** The `commandRun` tap therefore emits NOTHING: it
+ *  re-samples the foreground (an agent forks a beat after the mark) and its head
+ *  basename feeds the adapters' shim hint. What a wake replays is the live agent
+ *  process's allowlisted argv, read from the OS (`readProcessSnapshot`), which
+ *  rides the `agent` event.
  *
  *  Producer:
  *
  *    cwd:<id>          ─►  git watcher           ─►  PR watcher        emit pr
  *                          emit git
  *    title:<id>        ─►  process observer                           emit foreground
- *    title/cwd/cmd     ─►  agent detector ×3                          emit agent (Known<>)
- *    commandRun:<id>   ─►  agent-command tracker                      emit commandRun
+ *    title/cwd/cmd     ─►  agent detector ×3                          emit agent (Known<>, argv)
+ *    commandRun:<id>   ─►  agent-command tracker (sensor only: hint + re-sample)
  *    ports:<id>        ─►  port sensor (dedup)                        emit ports
  *                          (fed host-wide by padi's port sampler, not by a pty tap)
  *
@@ -32,8 +41,8 @@
  *  every cwd change to that channel. Any host that satisfies the
  *  `SensorSignals` shape and publishes cwd will get correct agent / git
  *  resolution. The MRUs (recent repos / recent agents) and recency are kolu's
- *  fold-side concern now — the producer emits the raw `git` / `commandRun`
- *  observations and kolu decides what to remember.
+ *  fold-side concern now — the producer emits the raw `git` observation and the
+ *  structured `agent` observation, and kolu decides what to remember.
  */
 
 import path from "node:path";
@@ -44,10 +53,11 @@ import type {
   AgentTerminalState,
   AgentWatcher,
 } from "anyagent";
-import { agentInfoEqual, agentNameFromCommand } from "anyagent";
+import { agentInfoEqual, agentNameHint, stableFlagTokens } from "anyagent";
 import type { ForgeAdapter, PrResult } from "anyforge";
 import { parseRemoteHost, subscribePr } from "anyforge";
-import { AGENT_PLUGINS, parseAgentCommand } from "kolu-agents";
+import { AGENT_PLUGINS } from "kolu-agents";
+import { agentCliGrammar, isAgentBinaryName } from "kolu-agents/vocab";
 import { type ProcessSnapshot, readProcessSnapshot } from "kolu-io";
 import { subscribeGitInfo } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
@@ -75,9 +85,11 @@ interface AgentEngineState {
   /** The last agent value the engine EMITTED — the publish-if-changed baseline and
    *  the cross-adapter ownership narrow (which adapter, if any, owns the tile). */
   mirror: AgentInfo | null;
-  /** Basename of the recognized agent binary at the foreground (e.g. "claude"),
-   *  set by the agent-command tracker, read by the detectors. Null when no
-   *  recognized agent command is in flight (shell idle / non-agent command). */
+  /** Basename of the agent-binary head token the last PTY command mark named
+   *  (e.g. "claude"), set by the agent-command tracker and read by the
+   *  detectors' `matchesAgent` shim gate. It is a HINT read off PTY bytes: it can
+   *  only ever be compared against a known agent name, never executed. Null when
+   *  no mark has been seen (shell idle / a line with no head token). */
   currentAgent: string | null;
   /** When the terminal's CURRENT agent run began — the fact the session-ownership
    *  arbiter anchors stickiness to (`sessionOwnership.ts`). One per TERMINAL, not
@@ -144,17 +156,14 @@ export function freshAgentEngineState(): AgentEngineState {
 
 /** A preexec command mark off the `commandRun` tap. `replayed` is true for the
  *  snapshot-first frame the pty-host emits on subscribe (the last command seen
- *  before the subscriber joined), false for a live mark. */
+ *  before the subscriber joined), false for a live mark.
+ *
+ *  `command` is RAW PTY BYTES and is a SENSOR only: the sensor set reads its head
+ *  basename (`agentNameHint`) and nothing else. It must never reach a remembered
+ *  fact, a persisted field, or a command line. */
 export interface CommandRunSample {
   command: string;
   replayed: boolean;
-  /** The command's quoting dialect: `true` = the command-rooted `shellJoin` seed
-   *  (reparse with `shellSplit`), `false` = a raw OSC 633;E line (reparse with
-   *  `string-argv`). REQUIRED — a host hands the producer a definite dialect (the
-   *  optional-on-the-wire skew default is resolved once at the pty-host bridge),
-   *  so the tokenizer is never guessed from the string, the terminal, or a
-   *  fallback in the parsing path. */
-  shellJoin: boolean;
 }
 
 /** Per-terminal signals the sensors subscribe to. The host (`padi`, serving
@@ -166,10 +175,9 @@ export interface SensorSignals {
   title: Channel<string>;
   /** Preexec command marks. `replayed` distinguishes the snapshot-first frame
    *  (the last command seen before subscribe, replayed so a late/restarted
-   *  sensor still learns it) from a live mark. The agent-command tracker seeds
-   *  detection from BOTH, but fires the live-only recent-agent recency bump
-   *  ONLY on a live mark — a replay must not reorder the MRU as if the user
-   *  just ran the command. */
+   *  sensor still learns it) from a live mark. The mark is a SENSOR: the
+   *  agent-command tracker takes its head basename as a shim hint and re-samples
+   *  the foreground; nothing here can become a command. */
   commandRun: Channel<CommandRunSample>;
   /** Foreground samples (`{process, foregroundPid}`) from pty-host's
    *  foreground tap — the channel form of the old synchronous
@@ -525,7 +533,10 @@ function startPrSensor(
 
 // ── Agent-command tracker ─────────────────────────────────────────────
 
-function startAgentCommandSensor(
+/** Exported for its own producer-level test (as `startPortSensor` is): the
+ *  forged-mark fence is about what this sensor does NOT emit, which is cheapest
+ *  to observe with the sensor alone rather than through `startSensors`. */
+export function startAgentCommandSensor(
   agentState: AgentEngineState,
   terminalId: TerminalId,
   signals: SensorSignals,
@@ -533,27 +544,25 @@ function startAgentCommandSensor(
   log: Logger,
 ): () => void {
   return signals.commandRun.consume({
-    onEvent: ({ command: raw, replayed, shellJoin }) => {
-      // The pty-host tags each command's dialect: a command-rooted `shellJoin`
-      // seed (`shellJoin: true` → reparse with `shellSplit`) vs a raw OSC 633;E
-      // line (reparse with `string-argv`). Tokenize by that fact — no fallback in
-      // the parsing path; `shellJoin` is a required field on the sample.
-      const normalized = parseAgentCommand(raw, shellJoin);
-      agentState.currentAgent = normalized
-        ? agentNameFromCommand(normalized)
-        : null;
-      if (normalized) {
-        // Emit the recognized, normalized command mark. kolu's fold owns the
-        // dedup (`lastAgentCommand === command`) and the recent-agent MRU
-        // (live-only, on `!replayed`) — a memoryless producer can't dedup
-        // against a value it doesn't keep.
-        emit({ kind: "commandRun", command: normalized, replayed });
+    onEvent: ({ command: raw }) => {
+      // This mark is a SENSOR, never a command. It answers exactly one question —
+      // which process name the shell says it just started, so an interpreter shim
+      // (`node` running an npm-installed CLI) still matches its adapter. The
+      // basename of the head token is all that survives; there is no
+      // normalization, no flag capture, and nothing emitted to the fold.
+      agentState.currentAgent = agentNameHint(raw);
+      // The agent process forks AFTER this mark — re-sample the foreground (the
+      // existing settle-window schedule in the detector) so detection sees the
+      // real foreground and can read ITS argv from the OS.
+      if (
+        agentState.mirror === null &&
+        agentState.currentAgent !== null &&
+        isAgentBinaryName(agentState.currentAgent)
+      ) {
         // An agent is LAUNCHING from a clean state (no agent owns the tile yet):
         // emit `unknown` so the session file landing a beat later is read as
-        // "still resolving" (kolu KEEPS its value), never an ambiguous null. Once
-        // an adapter resolves it, the authoritative `{ value }` supersedes this.
-        if (agentState.mirror === null)
-          emit({ kind: "agent", agent: "unknown" });
+        // "still resolving" (kolu KEEPS its value), never an ambiguous null.
+        emit({ kind: "agent", agent: "unknown", argv: [] });
       }
     },
     onError: (err) =>
@@ -606,25 +615,34 @@ function snapshotSignals(
       lastAgentCommandName: shellIdle ? null : agentState.currentAgent,
       // At most one read per SAMPLE, shared across every adapter — see
       // `AgentEngineState.procSnapshot`.
-      readProcessSnapshot: () => {
-        if (foregroundPid === undefined) return null;
-        const held = agentState.procSnapshot;
-        if (held !== null && held.sample === foreground) return held.value;
-        const value = readProcessSnapshot(foregroundPid, log);
-        // A FAILED read is never cached. `readProcessSnapshot` folds every
-        // failure to `null` — an exited pid, a `hidepid` host, a transient
-        // EACCES/EMFILE — and a sample spans a whole agent run (kaval publishes
-        // one only when the foreground process or pid changes), so caching the
-        // null would blind omp's agent-dir chain and pi's store resolution for
-        // the rest of that run. Re-reading on the next reconcile costs two
-        // `/proc` reads in the one case that is already broken.
-        if (value !== null)
-          agentState.procSnapshot = { sample: foreground, value };
-        return value;
-      },
+      readProcessSnapshot: () =>
+        readForegroundSnapshot(agentState, foreground, log),
     },
     shellIdle,
   };
+}
+
+/** The foreground pid's argv + env, read at most once per foreground SAMPLE and
+ *  shared by every adapter of one terminal (see `AgentEngineState.procSnapshot`).
+ *
+ *  A FAILED read is never cached. `readProcessSnapshot` folds every failure to
+ *  `null` — an exited pid, a `hidepid` host, a transient EACCES/EMFILE — and a
+ *  sample spans a whole agent run (kaval publishes one only when the foreground
+ *  process or pid changes), so caching the null would blind omp's agent-dir chain
+ *  and pi's store resolution for the rest of that run. Re-reading on the next
+ *  reconcile costs two `/proc` reads in the one case that is already broken. */
+function readForegroundSnapshot(
+  agentState: AgentEngineState,
+  foreground: ForegroundSample,
+  log: Logger,
+): ProcessSnapshot | null {
+  const foregroundPid = foreground.foregroundPid;
+  if (foregroundPid === undefined) return null;
+  const held = agentState.procSnapshot;
+  if (held !== null && held.sample === foreground) return held.value;
+  const value = readProcessSnapshot(foregroundPid, log);
+  if (value !== null) agentState.procSnapshot = { sample: foreground, value };
+  return value;
 }
 
 interface ExternalChangesActivation {
@@ -685,21 +703,27 @@ function isNotFoundError(err: unknown): boolean {
 }
 
 /** Emit an authoritative agent value `{ value: nextAgent }` (incl. an
- *  authoritative null = session ended), with the publish-if-changed dedup against
- *  the engine's last-emitted MIRROR — the one gate for "did kolu already reflect
- *  this?", so every publisher (watcher + screen-scrape poll + the session-ended
- *  branch) funnels through one equality check. The mirror REPLACES the old
+ *  authoritative null = session ended) TOGETHER with the live process's
+ *  allowlisted argv, with the publish-if-changed dedup against the engine's
+ *  last-emitted MIRROR — the one gate for "did kolu already reflect this?", so
+ *  every publisher (watcher + screen-scrape poll + the session-ended branch)
+ *  funnels through one equality check. The mirror REPLACES the old
  *  `record.meta.agent` read-back; recency (kolu's fold — an identity change
  *  always, a same-identity output tick throttled) and the agent-session ref
- *  (collapsed into the frozen agent) are no longer the producer's concern. */
+ *  (collapsed into the frozen agent) are no longer the producer's concern.
+ *
+ *  `argv` is a STRUCTURED fact (the process's own tokens, filtered by the
+ *  agent's stable-flag allowlist) — never PTY text. It rides the agent event so
+ *  the fold can build the restore target without a second process sample. */
 function emitAgentValue(
   agentState: AgentEngineState,
   emit: (o: TerminalEvent) => void,
   nextAgent: AgentInfo | null,
+  argv: readonly string[],
 ): void {
   if (agentInfoEqual(agentState.mirror, nextAgent)) return;
   agentState.mirror = nextAgent;
-  emit({ kind: "agent", agent: { value: nextAgent } });
+  emit({ kind: "agent", agent: { value: nextAgent }, argv });
 }
 
 // Exported for the producer-level regression test (`sensors.observability.test.ts`),
@@ -763,6 +787,23 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
   let currentForeground: ForegroundSample = {
     process: "",
     foregroundPid: undefined,
+  };
+  // The agent's stable-flag allowlist, resolved ONCE: every argv sample this
+  // adapter takes is filtered through it. `agentCliGrammar` throws for a kind the
+  // registry does not know — an adapter that is not in the registry is a
+  // programming error, and failing at install is louder than a silently empty
+  // restore target.
+  const grammar = agentCliGrammar(adapter.kind);
+  // The live foreground process's allowlisted flag tokens — the ONLY thing a
+  // restore replays. Read through the host's memoised snapshot, so the several
+  // emits per reconcile share one read.
+  const liveArgv = (): readonly string[] => {
+    const snapshot = readForegroundSnapshot(
+      agentState,
+      currentForeground,
+      plog,
+    );
+    return snapshot === null ? [] : stableFlagTokens(grammar, snapshot.argv);
   };
   plog.debug("started");
 
@@ -933,8 +974,8 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
       // adapter owns it (a launch mid-resolution), nothing is emitted, so kolu keeps
       // its value rather than seeing an ambiguous null.
       if (agentState.mirror?.kind === adapter.kind) {
-        if (shellIdle) emitAgentValue(agentState, emit, null);
-        else emit({ kind: "agent", agent: "unknown" });
+        if (shellIdle) emitAgentValue(agentState, emit, null, []);
+        else emit({ kind: "agent", agent: "unknown", argv: [] });
       }
       return;
     }
@@ -982,7 +1023,12 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
           ) {
             return;
           }
-          emitAgentValue(agentState, emit, info as unknown as AgentInfo);
+          emitAgentValue(
+            agentState,
+            emit,
+            info as unknown as AgentInfo,
+            liveArgv(),
+          );
         },
         plog,
       ),
@@ -1040,7 +1086,12 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
         const desired = scrape.promote(info, text);
         const published = publishedAgent();
         if (published && !isDeepStrictEqual(published, desired)) {
-          emitAgentValue(agentState, emit, desired as unknown as AgentInfo);
+          emitAgentValue(
+            agentState,
+            emit,
+            desired as unknown as AgentInfo,
+            liveArgv(),
+          );
         }
       } catch (err) {
         // A NOT_FOUND is the benign teardown race — the PTY vanished between

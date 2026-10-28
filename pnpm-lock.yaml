@@ -753,6 +753,9 @@ importers:
       '@kolu/log':
         specifier: workspace:*
         version: link:../../log
+      osfacts-client:
+        specifier: workspace:*
+        version: link:../../../osfacts-client
     devDependencies:
       '@kolu/daemon-test-gate':
         specifier: workspace:*

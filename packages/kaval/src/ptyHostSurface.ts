@@ -192,7 +192,16 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  *  #1872 also adds an OPTIONAL `shellJoin` to the `commandRun` frame (the retained
  *  command's quoting dialect, so a replayed seed vs a raw 633 line is reparsed with
  *  the right tokenizer) — same additive-optional call, NO bump: a survivor that
- *  omits it degrades to the raw (`string-argv`) reading, the pre-fix behavior. */
+ *  omits it degrades to the raw (`string-argv`) reading, the pre-fix behavior.
+ *  [#2316] That `shellJoin` field is REMOVED again (the sensor no longer reparses
+ *  the mark at all — see below), and the removal rides at 7.1 with NO bump, for
+ *  the mirror-image reason an optional FIELD-ADD needs none: both directions
+ *  degrade to nothing. A 7.1 survivor that still emits `shellJoin` is stripped by
+ *  this schema; a consumer of a survivor that omits it reads the same `command`
+ *  it always did. Nothing branches on the value any more, so there is no
+ *  behaviour that could be mis-parsed — bumping would force-recycle a surviving
+ *  kaval (killing its live PTYs) to delete a field nobody reads.
+ *  The `command` mark itself is declared a SENSOR: no consumer may replay it. */
 /*  Bumped to 5.3 (MINOR): the host-global `activity` stream (meaningful-output
  *  edges). This is a NEW EMITTED STREAM MEMBER, not an optional field — a survivor
  *  5.2 daemon does not serve it at all, so a 5.3 consumer subscribing would hit a
@@ -893,20 +902,18 @@ export const ptyHostSurface = defineSurface({
     /** OSC 633;E preexec command lines. Snapshot-then-deltas: the first frame
      *  replays the last command seen before subscribe (`replayed: true`) so a
      *  late/restarted sensor still learns it; subsequent frames are live marks
-     *  (`replayed: false`). The flag lets consumers seed detection from the
-     *  replay WITHOUT re-firing live-only side effects (recent-agent recency). */
+     *  (`replayed: false`). The flag lets consumers seed from the replay WITHOUT
+     *  re-firing live-only side effects (a foreground re-sample burst).
+     *
+     *  SENSOR DATA. PTY output is a sensor: nothing that executes may read a
+     *  value whose provenance is PTY bytes, so no consumer may turn `command`
+     *  into a command kolu types. Its only sanctioned reads are the head
+     *  basename (a shim hint) and a foreground re-sample trigger. */
     commandRun: {
       inputSchema: TerminalIdInputSchema,
       outputSchema: Schema.Struct({
         command: Schema.String,
         replayed: Schema.Boolean,
-        // #1872 (additive · optional, NO contract bump — see the version note):
-        // the command's quoting dialect. `true` = the command-rooted `shellJoin`
-        // seed (reparse with `shellSplit`); absent/`false` = a raw OSC 633;E line
-        // (reparse with `string-argv`). Carried per frame so the snapshot replay of
-        // a retained seed is reparsed correctly regardless of delivery timing; a
-        // survivor that omits it degrades to the raw reading (today's behavior).
-        shellJoin: Schema.optionalKey(Schema.Boolean),
       }),
     },
     /** Foreground process name + pid, sampled at the tty (deduped). */

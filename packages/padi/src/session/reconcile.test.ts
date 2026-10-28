@@ -25,12 +25,12 @@ function term(id: string): SavedTerminal {
     // (#1275), replacing the deleted sticky `agentSession` + bare `resumeAgent`.
     restoreTarget: {
       kind: "exact",
-      command: "claude",
       agent: {
         kind: "claude-code",
         sessionId: `${id}-sess`,
         resumeRef: `${id}-sess`,
       },
+      argv: [],
     },
   };
 }
@@ -47,12 +47,12 @@ function sleepingTerm(id: string): SavedTerminal {
     promptedAt: null,
     restoreTarget: {
       kind: "exact",
-      command: "claude",
       agent: {
         kind: "claude-code",
         sessionId: `${id}-sess`,
         resumeRef: `${id}-sess`,
       },
+      argv: [],
     },
   };
 }

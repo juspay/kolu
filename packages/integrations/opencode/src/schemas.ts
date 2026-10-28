@@ -67,9 +67,6 @@ export const opencodeVocab: AgentVocab<OpenCodeInfo> = {
       ["--agent", "value"],
       ["--pure", "boolean"],
     ]),
-    extraExitFlags: new Set<string>(),
-    nonSessionFlags: new Set<string>(),
-    nonSessionSubcommands: new Set<string>(),
   },
   resume: {
     last: "--continue",

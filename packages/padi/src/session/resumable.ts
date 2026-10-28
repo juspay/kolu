@@ -2,12 +2,12 @@
  * Host-owned resumability fold — which saved terminals will resume an agent
  * when the session is restored.
  *
- * Resumability is read off the fold-derived `restoreTarget`, NOT a sticky
- * `lastAgentCommand`: a terminal that ran an agent and then quit to a shell keeps
- * its `lastAgentCommand` (the last launch line) but carries `restoreTarget: none`,
- * and wake brings back a bare shell — counting it would make the card promise a
- * resume that won't happen. Only `exact` (resume the exact conversation) and
- * `legacyMostRecent` (migrated pre-1.29 most-recent) actually relaunch an agent.
+ * Resumability is read off the fold-derived `restoreTarget` — there is no
+ * remembered launch line any more. A terminal that ran an agent and then quit to a
+ * shell carries `restoreTarget: none`, and wake brings back a bare shell — counting
+ * it would make the card promise a resume that won't happen. Only `exact` (resume
+ * the exact conversation, rendered from its identity + allowlisted flags) actually
+ * relaunches an agent.
  *
  * A SLEEPING saved record restores DORMANT: no PTY spawn and no agent resume
  * (the user wakes it later), so it is NOT resumable here even if its target

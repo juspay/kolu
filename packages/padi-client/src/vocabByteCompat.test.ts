@@ -41,13 +41,13 @@ const accepts = (
  *  authored record (server fields, then client chrome), then the discriminant,
  *  then the id — exactly what the zod `.merge` chain produced. */
 const MINIMAL_ACTIVE =
-  '{"cwd":"/repo","git":{"kind":"none"},"pr":{"kind":"absent"},"location":{"kind":"local"},"lastActivityAt":null,"promptedAt":null,"state":"active","id":"t-1"}';
+  '{"cwd":"/repo","git":{"kind":"none"},"pr":{"kind":"absent"},"location":{"kind":"local"},"restoreTarget":{"kind":"none"},"lastActivityAt":null,"promptedAt":null,"state":"active","id":"t-1"}';
 
 /** The same record with every optional authored + chrome field populated. */
 const FULL_SLEEPING =
   '{"cwd":"/repo","git":{"kind":"none"},"pr":{"kind":"absent"},"location":{"kind":"remote","hostId":"zest"},' +
-  '"restoreTarget":{"kind":"exact","command":"claude","agent":{"kind":"claude-code","sessionId":"s-1","resumeRef":"s-1"}},' +
-  '"lastActivityAt":1700000000000,"promptedAt":1699999999000,"lastAgentCommand":"claude","themeName":"nord","parentId":"t-0",' +
+  '"restoreTarget":{"kind":"exact","agent":{"kind":"claude-code","sessionId":"s-1","resumeRef":"s-1"},"argv":["--model","sonnet"]},' +
+  '"lastActivityAt":1700000000000,"promptedAt":1699999999000,"themeName":"nord","parentId":"t-0",' +
   '"canvasLayout":{"x":0,"y":1,"w":2,"h":3},"subPanel":{"collapsed":false,"panelSize":40},' +
   '"rightPanel":{"collapsed":true,"activeTab":"code","codeMode":"branch"},"intent":"ship it",' +
   '"state":"sleeping","sleptAt":1700000001000,"id":"t-2"}';
@@ -81,10 +81,10 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
     // was no `promptedAt`. The schema alone refuses `null`; the backfill (which
     // the 1.1.0 state migration and the import hatch both run) is what turns
     // it into "never checked" — never "not a repo".
-    const legacy = MINIMAL_ACTIVE.replace(
-      '"git":{"kind":"none"}',
-      '"git":null',
-    ).replace('"promptedAt":null,', "");
+    const legacy = MINIMAL_ACTIVE.replace('"git":{"kind":"none"}', '"git":null')
+      .replace('"promptedAt":null,', "")
+      // …and it predates the restore target, which the backfill must supply.
+      .replace('"restoreTarget":{"kind":"none"},', "");
     const migrated = MINIMAL_ACTIVE.replace(
       '"git":{"kind":"none"}',
       '"git":{"kind":"unresolved"}',
@@ -168,13 +168,14 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
     expect(accepts(SavedSessionSchema, repaired)).toBe(true);
   });
 
-  it("the backfill ladder rebuilds a PRE-CUTOVER record (no pr, an agentSession ref)", () => {
+  it("the backfill ladder rebuilds a PRE-CUTOVER record from its STRUCTURED identity", () => {
     const preCutover = {
       cwd: "/repo",
       git: null,
       location: { kind: "local" },
       lastActivityAt: 7,
-      lastAgentCommand: "claude",
+      // Captured text: dropped, NEVER parsed into a target.
+      lastAgentCommand: "LD_PRELOAD=/x claude --settings '{}'",
       agentSession: { kind: "claude-code", id: "s-9" },
       state: "active",
       id: "t-1",
@@ -187,14 +188,36 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
     expect(decoded?.pr).toEqual({ kind: "absent" });
     expect(decoded?.restoreTarget).toEqual({
       kind: "exact",
-      command: "claude",
       agent: { kind: "claude-code", sessionId: "s-9", resumeRef: "s-9" },
+      argv: [],
     });
-    // The old sticky ref is DROPPED, not carried alongside its successor.
+    // The old sticky ref is DROPPED, not carried alongside its successor, and
+    // so is the captured command text.
     expect("agentSession" in (repaired.terminals[0] ?? {})).toBe(false);
+    expect("lastAgentCommand" in (repaired.terminals[0] ?? {})).toBe(false);
   });
 
-  it("a CORRUPT agentSession falls back to legacyMostRecent instead of dropping the terminal", () => {
+  it("a record that ONLY remembered a launch line restores NOTHING — the text is never re-parsed", () => {
+    const repaired = backfillSavedSession({
+      terminals: [
+        {
+          cwd: "/repo",
+          git: null,
+          location: { kind: "local" },
+          lastActivityAt: 7,
+          lastAgentCommand: "LD_PRELOAD=/x claude --settings '{}'",
+          state: "active",
+          id: "t-1",
+        },
+      ],
+      savedAt: 1,
+    });
+    expect(decodeSession(repaired).terminals[0]?.restoreTarget).toEqual({
+      kind: "none",
+    });
+  });
+
+  it("a CORRUPT agentSession yields `none` instead of dropping the terminal", () => {
     // The `safeParse` → `Result` translation, pinned where it bites: a bad
     // on-disk `kind` must be a BRANCH, never a throw that loses the record.
     const repaired = backfillSavedSession({
@@ -213,8 +236,62 @@ describe("SavedSession — the conf store + the exported kolu-session.json", () 
       savedAt: 1,
     });
     expect(decodeSession(repaired).terminals[0]?.restoreTarget).toEqual({
-      kind: "legacyMostRecent",
-      command: "claude",
+      kind: "none",
+    });
+  });
+
+  it("migrates an old exact{command} target to exact{argv:[]} without reading the command", () => {
+    const repaired = backfillSavedSession({
+      terminals: [
+        {
+          cwd: "/repo",
+          git: null,
+          pr: { kind: "absent" },
+          location: { kind: "local" },
+          lastActivityAt: 7,
+          restoreTarget: {
+            kind: "exact",
+            command: "LD_PRELOAD=/x claude --settings '{}'",
+            agent: {
+              kind: "claude-code",
+              sessionId: "s-9",
+              resumeRef: "s-9",
+            },
+          },
+          state: "active",
+          id: "t-1",
+        },
+      ],
+      savedAt: 1,
+    });
+    const target = decodeSession(repaired).terminals[0]?.restoreTarget;
+    expect(target).toEqual({
+      kind: "exact",
+      agent: { kind: "claude-code", sessionId: "s-9", resumeRef: "s-9" },
+      argv: [],
+    });
+    // The forged text is gone, not converted into a flag list.
+    expect(JSON.stringify(target)).not.toContain("LD_PRELOAD");
+  });
+
+  it("migrates legacyMostRecent to none — it named no conversation", () => {
+    const repaired = backfillSavedSession({
+      terminals: [
+        {
+          cwd: "/repo",
+          git: null,
+          pr: { kind: "absent" },
+          location: { kind: "local" },
+          lastActivityAt: 7,
+          restoreTarget: { kind: "legacyMostRecent", command: "claude" },
+          state: "active",
+          id: "t-1",
+        },
+      ],
+      savedAt: 1,
+    });
+    expect(decodeSession(repaired).terminals[0]?.restoreTarget).toEqual({
+      kind: "none",
     });
   });
 });

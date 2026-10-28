@@ -137,9 +137,6 @@ export const claudeCodeVocab: AgentVocab<ClaudeCodeInfo> = {
       ["--settings", "value"],
       ["--bare", "boolean"],
     ]),
-    extraExitFlags: new Set<string>(),
-    nonSessionFlags: new Set<string>(),
-    nonSessionSubcommands: new Set<string>(),
   },
   resume: {
     last: "-c",

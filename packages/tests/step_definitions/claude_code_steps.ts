@@ -381,6 +381,8 @@ let mockCwd: string | null = null;
 let mockSessionFile: string | null = null;
 let mockProjectDir: string | null = null;
 let mockTranscriptPath: string | null = null;
+/** The pid marker file a fake-agent launch writes (`echo $$`), removed on cleanup. */
+let mockAgentPidMarker: string | null = null;
 
 function cleanup() {
   if (mockSessionFile && fs.existsSync(mockSessionFile)) {
@@ -395,57 +397,153 @@ function cleanup() {
     mockProjectDir = null;
   }
   mockTranscriptPath = null;
+  if (mockAgentPidMarker && fs.existsSync(mockAgentPidMarker)) {
+    fs.unlinkSync(mockAgentPidMarker);
+  }
+  mockAgentPidMarker = null;
 }
 
 After(() => {
   cleanup();
 });
 
+/** Write one mock Claude Code session for `pid`: the JSONL transcript first,
+ *  then the session file (the "trigger" the SESSIONS_DIR watcher fires on).
+ *  Claude Code's session is anchored to the AGENT pid, so the pid is the whole
+ *  identity: the plain mock step passes the terminal's shell pid (idle prompt),
+ *  the fake-agent step passes the launched agent's own pid. */
+function writeClaudeMock(pid: number, cwd: string, state: MockState): void {
+  const sessionsDir = getSessionsDir();
+  const projectsDir = getProjectsDir();
+  if (!sessionsDir || !projectsDir) {
+    throw new Error(
+      "KOLU_CLAUDE_SESSIONS_DIR and KOLU_CLAUDE_PROJECTS_DIR must be set",
+    );
+  }
+
+  mockCwd = cwd;
+  const encodedCwd = cwd.replace(/[/.]/g, "-");
+
+  // Write the JSONL transcript and project dir BEFORE the session file (the
+  // "trigger"). As of juspay/kolu#1754 the watcher subscribes unconditionally
+  // on the deterministic transcript path and the append-robust floor recovers
+  // a late-appearing JSONL, so the old "waiting on project dir + a second
+  // fs.watch event" fragility is gone — but writing data-then-trigger stays the
+  // clean setup (the tile lights up on the session file without a poll wait).
+  fs.mkdirSync(projectsDir, { recursive: true });
+  mockProjectDir = path.join(projectsDir, encodedCwd);
+  fs.mkdirSync(mockProjectDir, { recursive: true });
+  mockTranscriptPath = path.join(mockProjectDir, `${SESSION_ID}.jsonl`);
+  fs.writeFileSync(mockTranscriptPath, buildTranscript(state));
+  if (state === "running_background") writeWorkflowJournal(mockProjectDir);
+  if (state === "orphaned_workflow")
+    writeWorkflowJournal(mockProjectDir, { stale: true });
+  if (state === "fork") writeForkSubagent(mockProjectDir);
+
+  // Now the trigger — session file last.
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  const sessionData = {
+    pid,
+    sessionId: SESSION_ID,
+    cwd,
+    startedAt: Date.now(),
+  };
+  mockSessionFile = path.join(sessionsDir, `${pid}.json`);
+  fs.writeFileSync(mockSessionFile, JSON.stringify(sessionData));
+}
+
 When(
   "a Claude Code session is mocked with state {string}",
   async function (this: KoluWorld, state: string) {
-    const sessionsDir = getSessionsDir();
-    const projectsDir = getProjectsDir();
-    if (!sessionsDir || !projectsDir) {
+    cleanup();
+    const pid = await getTerminalPid(this);
+    // Unique CWD per scenario to avoid parallel worker collisions.
+    writeClaudeMock(
+      pid,
+      `/tmp/claude-test-${pid}-${Date.now()}`,
+      state as MockState,
+    );
+  },
+);
+
+/**
+ * Start the fake `claude` binary as the terminal's FOREGROUND process and point
+ * a mock session file at ITS pid.
+ *
+ * This is the only honest way to produce a recent-agents row now: the MRU is fed
+ * by a DETECTED LIVE agent (an OS-derived session identity plus the process's
+ * argv), never by a captured command line. The fake binary is a copy of bash, so
+ * `-c <script>` keeps it resident and the agent's own flags ride AFTER the script
+ * (bash stops option parsing at `-c`) — the argv the stable-flag filter sees is
+ * exactly `… -c <script> <the flags the scenario named>`.
+ *
+ * Waits for kolu to DETECT the agent, so the caller's next step (opening the
+ * palette) cannot race the MRU write.
+ */
+When(
+  "a fake Claude Code agent is running with the arguments {string}",
+  async function (this: KoluWorld, args: string) {
+    const bin = process.env.KOLU_FAKE_CLAUDE_BIN;
+    if (!bin) throw new Error("KOLU_FAKE_CLAUDE_BIN must be set");
+    cleanup();
+    const marker = `/tmp/kolu-claude-agent-pid-${process.pid}-${Date.now()}`;
+    mockAgentPidMarker = marker;
+    // `$$` is the fake binary's own pid (it IS bash) — the pid the session file
+    // must be keyed on. It is escaped (`\\$\\$` in the source → `\$\$` typed)
+    // because the LOGIN shell would otherwise expand it before the fake agent ever
+    // sees it, keying the mock to the shell instead of the agent. A trailing `:`
+    // keeps bash resident as the foreground.
+    const script = `printf '\\033]0;claude\\007'; echo \\$\\$ > ${marker}; sleep 99999 ; :`;
+    const line = `${bin} -c "${script}"${args === "" ? "" : ` ${args}`}`;
+    await this.page.keyboard.type(line);
+    await this.page.keyboard.press("Enter");
+
+    const agentPid = await pollFor({
+      observe: async () =>
+        fs.existsSync(marker)
+          ? Number(fs.readFileSync(marker, "utf8").trim())
+          : null,
+      isDone: (pid) => pid !== null && Number.isFinite(pid) && pid > 0,
+      onTimeout: (_, ms) =>
+        new Error(`fake claude agent never reported its pid within ${ms}ms`),
+      timeoutMs: POLL_TIMEOUT,
+    });
+    if (agentPid === null) throw new Error("fake claude agent pid missing");
+
+    writeClaudeMock(
+      agentPid,
+      `/tmp/claude-test-agent-${process.pid}-${Date.now()}`,
+      "thinking",
+    );
+
+    // Wait for DETECTION (not merely the file write) — the recent-agents MRU is
+    // fed by the detected agent, so the palette must not open before it lands.
+    try {
+      await pollFor({
+        observe: () =>
+          this.page.evaluate(
+            () =>
+              document
+                .querySelector(
+                  '[data-testid="canvas-tile"] [data-testid="agent-indicator"]',
+                )
+                ?.getAttribute("data-agent-kind") ?? null,
+          ),
+        isDone: (kind) => kind === "claude-code",
+        onTimeout: (last, ms) =>
+          new Error(
+            `fake claude agent was never detected (kind=${last ?? "null"}) within ${ms}ms`,
+          ),
+        timeoutMs: POLL_TIMEOUT,
+      });
+    } catch (err) {
+      // Quote the terminal's own last lines: a start that never reached the
+      // detector is indistinguishable from a UI bug in the bare timeout message.
+      const buffer = await readBufferText(this.page);
       throw new Error(
-        "KOLU_CLAUDE_SESSIONS_DIR and KOLU_CLAUDE_PROJECTS_DIR must be set",
+        `${(err as Error).message}\n— terminal tail:\n${buffer.slice(-600)}`,
       );
     }
-
-    cleanup();
-
-    const pid = await getTerminalPid(this);
-
-    // Unique CWD per scenario to avoid parallel worker collisions
-    mockCwd = `/tmp/claude-test-${pid}-${Date.now()}`;
-    const encodedCwd = mockCwd.replace(/[/.]/g, "-");
-
-    // Write the JSONL transcript and project dir BEFORE the session file (the
-    // "trigger"). As of juspay/kolu#1754 the watcher subscribes unconditionally
-    // on the deterministic transcript path and the append-robust floor recovers
-    // a late-appearing JSONL, so the old "waiting on project dir + a second
-    // fs.watch event" fragility is gone — but writing data-then-trigger stays the
-    // clean setup (the tile lights up on the session file without a poll wait).
-    fs.mkdirSync(projectsDir, { recursive: true });
-    mockProjectDir = path.join(projectsDir, encodedCwd);
-    fs.mkdirSync(mockProjectDir, { recursive: true });
-    mockTranscriptPath = path.join(mockProjectDir, `${SESSION_ID}.jsonl`);
-    fs.writeFileSync(mockTranscriptPath, buildTranscript(state as MockState));
-    if (state === "running_background") writeWorkflowJournal(mockProjectDir);
-    if (state === "orphaned_workflow")
-      writeWorkflowJournal(mockProjectDir, { stale: true });
-    if (state === "fork") writeForkSubagent(mockProjectDir);
-
-    // Now the trigger — session file last.
-    fs.mkdirSync(sessionsDir, { recursive: true });
-    const sessionData = {
-      pid,
-      sessionId: SESSION_ID,
-      cwd: mockCwd,
-      startedAt: Date.now(),
-    };
-    mockSessionFile = path.join(sessionsDir, `${pid}.json`);
-    fs.writeFileSync(mockSessionFile, JSON.stringify(sessionData));
   },
 );
 

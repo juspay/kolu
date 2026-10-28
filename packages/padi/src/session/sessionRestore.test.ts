@@ -98,15 +98,14 @@ const subRecord: SavedActiveTerminal = {
   promptedAt: null,
   // Default fixture: a parented terminal running an agent — the class of
   // record the client used to drop from the resume set.
-  lastAgentCommand: "claude --permission-mode auto",
   restoreTarget: {
     kind: "exact",
-    command: "claude --permission-mode auto",
     agent: {
       kind: "claude-code",
       sessionId: "12341234-1234-1234-1234-123412341234",
       resumeRef: "12341234-1234-1234-1234-123412341234",
     },
+    argv: ["--permission-mode", "auto"],
   },
 };
 const sleeperRecord: SavedTerminal = {
@@ -344,12 +343,12 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
   // resumable fold counts this terminal (matches wake / resumeFormFor).
   const W12_EXACT = {
     kind: "exact",
-    command: "claude --model sonnet",
     agent: {
       kind: "claude-code",
       sessionId: "12341234-1234-1234-1234-123412341234",
       resumeRef: "12341234-1234-1234-1234-123412341234",
     },
+    argv: ["--model", "sonnet"],
   } as const;
   const w12AgentRecord: SavedActiveTerminal = {
     ...base,
@@ -358,7 +357,6 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     cwd: "/agent",
     lastActivityAt: 500,
     promptedAt: 450,
-    lastAgentCommand: "claude --model sonnet",
     restoreTarget: W12_EXACT,
   };
   const seedW12Agent = (): void => {
@@ -375,8 +373,8 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
   it("W12 — a resuming agent's restoreTarget survives the restore re-persist (not clobbered to none)", async () => {
     // Restore closes with `saveSession(snapshotSession())`. The fresh terminal must
     // carry the saved EXACT resume target on disk — BEFORE the fix, `createTerminal`
-    // seeded no `restoreTarget`/`lastAgentCommand`, so that re-persist wrote `none`
-    // and a second unclean death (or a resume that never landed) left a bare shell.
+    // seeded no `restoreTarget`, so that re-persist wrote `none` and a second
+    // unclean death (or a resume that never landed) left a bare shell.
     seedW12Agent();
 
     const done = restoreSession({});
@@ -384,7 +382,6 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     const restored = restoredW12Agent();
     expect(restored).toBeDefined();
     expect(restored?.restoreTarget).toEqual(W12_EXACT);
-    expect(restored?.lastAgentCommand).toBe("claude --model sonnet");
     // The resumed agent already had its first live turn — it must not come back
     // reading as one still at its first prompt.
     expect(restored?.promptedAt).toBe(450);
@@ -408,7 +405,6 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     const restored = restoredW12Agent();
     expect(restored).toBeDefined();
     expect(restored?.restoreTarget).toBeUndefined();
-    expect(restored?.lastAgentCommand).toBeUndefined();
     expect(restored?.promptedAt).toBeNull();
 
     await done;
@@ -421,12 +417,12 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
     const orphanId = "deadbeef-dead-4beef-8bee-deadbeefdead";
     const orphanExact = {
       kind: "exact" as const,
-      command: "claude --model sonnet",
       agent: {
         kind: "claude-code" as const,
         sessionId: "12341234-1234-1234-1234-123412341234",
         resumeRef: "12341234-1234-1234-1234-123412341234",
       },
+      argv: ["--model", "sonnet"],
     };
     const orphan: SavedActiveTerminal = {
       ...base,
@@ -436,7 +432,6 @@ describe("restoreSession — parked→active restore (the W1.R6 gate)", () => {
       parentId: "ffffffff-ffff-4fff-8fff-ffffffffffff", // not in session
       lastActivityAt: 9,
       promptedAt: null,
-      lastAgentCommand: "claude --model sonnet",
       restoreTarget: orphanExact,
     };
     setSavedSession({

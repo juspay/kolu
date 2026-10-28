@@ -292,26 +292,23 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
       // AFTER the mark (a lazily-attaching or restarted padi) still learns it
       // and resolves a command-only agent like codex; live marks follow with
       // `replayed: false`. The flag is load-bearing, NOT decorative: unlike
-      // `foreground`, this stream's consumer has a LIVE-ONLY side effect
-      // (recent-agent recency stamps `Date.now()`), so a replay must be
-      // distinguishable or a reconnect/late-subscribe would re-bump an old
-      // command's recency as if the user just ran it.
+      // `foreground`, a consumer may take a live-only action (a foreground
+      // re-sample) on a live mark, so a replay must be distinguishable or a
+      // reconnect/late-subscribe would re-fire it.
+      //
+      // The payload is SENSOR DATA: PTY output is a sensor, and nothing that
+      // executes may read a value whose provenance is PTY bytes.
       commandRun: {
         source: (input) =>
           Stream.unwrap(
             Effect.gen(function* () {
               requirePtySync(input.id as PtyId);
               const sub = yield* host.subscribeCommandRun(input.id);
-              // The snapshot carries the RETAINED command's dialect (it may be a
-              // command-rooted seed); every LIVE mark is a raw OSC 633;E line (the
-              // seed is published synchronously at spawn, before any subscriber, so
-              // it never arrives live) — hence `shellJoin: false` on the live frames.
+              // Live marks are raw OSC 633;E lines (the command-rooted seed is
+              // published synchronously at spawn, before any subscriber, so it
+              // never arrives live).
               const live = sub.marks.pipe(
-                Stream.map((command) => ({
-                  command,
-                  replayed: false,
-                  shellJoin: false,
-                })),
+                Stream.map((command) => ({ command, replayed: false })),
                 endOnOverflow("commandRun", input.id),
               );
               return sub.retained === undefined
@@ -319,7 +316,6 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
                 : Stream.make({
                     command: sub.retained.command,
                     replayed: true,
-                    shellJoin: sub.retained.shellJoin,
                   }).pipe(Stream.concat(live));
             }),
           ),

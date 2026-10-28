@@ -8,17 +8,23 @@
  *  twice — a second copy of process introspection is a second source of truth
  *  for the same /proc format.
  *
- *  Linux reads `/proc/<pid>` (argv AND env); Darwin reads the argv from `ps`
- *  but the env map comes back EMPTY — modern macOS redacts even same-user
- *  environments (see the Darwin branch below), so a config-env redirect is
- *  unrecoverable there. Any failure — an exited process (routine), a hidden
- *  proc (a `hidepid` host), an unsupported platform — yields null and the
- *  caller resolves its own default; those are genuinely unknowable overrides,
- *  not errors to surface. */
+ *  Linux reads `/proc/<pid>` (argv AND env, one cheap read each). Darwin reads
+ *  the argv through the BAKED `osfacts` binary (`snapshot --pids <pid> --argv`,
+ *  KERN_PROCARGS2) — exact tokens. It does NOT use `ps -o command=`: that
+ *  prints ONE string and every consumer then has to whitespace-split it, which
+ *  is not invertible (`--settings '{"a": 1}'` becomes three tokens, verified
+ *  on macOS 26.5) and would hand the stable-flag filter fragments of a value
+ *  instead of the value. The env map still comes back EMPTY on Darwin — modern
+ *  macOS redacts even same-user environments, and osfacts has no env facet — so
+ *  a config-env redirect is a permanent Darwin blind spot while every flag-only
+ *  override resolves. Any failure — an exited process (routine), a hidden proc
+ *  (a `hidepid` host), an unbaked osfacts path, an unsupported platform —
+ *  yields null and the caller resolves its own default; those are genuinely
+ *  unknowable overrides, not errors to surface. */
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import type { Logger } from "@kolu/log";
+import { bakedOsFactsBin, snapshotPidsSync } from "osfacts-client";
 import type { ProcessSnapshot } from "./types.ts";
 
 export type { ProcessSnapshot };
@@ -45,20 +51,19 @@ export function readProcessSnapshot(
       return { argv, env };
     }
     if (process.platform === "darwin") {
-      // Modern macOS (>=10.13) redacts even a SAME-USER process's
-      // environment from ps: `-E` is accepted but prints the command line
-      // only (verified live on a macOS 15 host — the env row simply does
-      // not appear). So `env` here is null by OS policy, not empty: an
-      // env-var redirect is a permanent Darwin blind spot, while argv stays
-      // the full command line and every flag-only override still resolves.
-      const out = execFileSync(
-        "ps",
-        ["-ww", "-p", String(pid), "-o", "command="],
-        { encoding: "utf8" },
-      ).trim();
-      const argv = out.split(/\s+/).filter((s) => s.length > 0);
-      if (argv.length === 0) return null;
-      return { argv, env: null };
+      // Exact argv tokens from the OS, via the binary Nix bakes (there is no
+      // PATH fallback by design — `bakedOsFactsBin` throws when the path is
+      // absent, and the catch below turns that into the honest `null`).
+      // `env` is null by OS policy, not empty: macOS redacts even a same-user
+      // process's environment, and osfacts has no env facet.
+      const reading = snapshotPidsSync(
+        bakedOsFactsBin("KOLU_OSFACTS_BIN"),
+        [pid],
+        { argv: true },
+      );
+      const row = reading.argv.find((r) => r.pid === pid);
+      if (row === undefined || row.argv.length === 0) return null;
+      return { argv: row.argv, env: null };
     }
     return null;
   } catch (err) {

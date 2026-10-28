@@ -21,6 +21,7 @@ const valid: SavedSession = {
       // carries it verbatim and the parse round-trips with no backfill.
       pr: { kind: "absent" },
       location: LOCAL_LOCATION,
+      restoreTarget: { kind: "none" },
       lastActivityAt: 0,
       promptedAt: null,
     },
@@ -89,20 +90,21 @@ describe("parseSavedSession", () => {
           state: "active",
           location: LOCAL_LOCATION,
           pr: { kind: "absent" },
+          restoreTarget: { kind: "none" },
           promptedAt: null,
         },
       ],
     });
   });
 
-  it("maps a pre-cutover agentSession + command to an `exact` restoreTarget (keying id → sessionId)", () => {
+  it("maps a pre-cutover agentSession to an `exact` target from its STRUCTURED identity — the captured command is dropped, never parsed", () => {
     // The awareness-derive-store cutover (PR #1621) collapsed the sticky
-    // `agentSession: { kind, id }` resume ref and the implicit "lastAgentCommand ⇒
-    // most-recent" rule into the fold-derived discriminated `restoreTarget`. A
-    // pre-cutover export that carries BOTH an `agentSession` and a launch command
-    // maps to an `exact` target (the EXACT conversation wake resumes by id, #1495) —
-    // the inner key `id` → `sessionId` to match the agent's own field, `agentSession`
-    // dropped. The same record predates persisted `pr`, so it is backfilled `absent`.
+    // `agentSession: { kind, id }` resume ref into the fold-derived discriminated
+    // `restoreTarget`. The identity is structured data, so it still maps to an
+    // `exact` target (the EXACT conversation, #1495) — `id` → `sessionId` — with an
+    // EMPTY argv (the flags return on the next live sample). The captured
+    // `lastAgentCommand` is DELETED and never read: re-parsing it is the forgery
+    // hole. The record predates persisted `pr`, so it is backfilled `absent`.
     const legacy = {
       terminals: [
         {
@@ -129,27 +131,27 @@ describe("parseSavedSession", () => {
           git: { kind: "unresolved" },
           location: LOCAL_LOCATION,
           lastActivityAt: 5,
-          lastAgentCommand: "claude --model sonnet",
           pr: { kind: "absent" },
           promptedAt: null,
           restoreTarget: {
             kind: "exact",
-            command: "claude --model sonnet",
             agent: {
               kind: "claude-code",
               sessionId: "sess-123",
               resumeRef: "sess-123",
             },
+            argv: [],
           },
         },
       ],
     });
   });
 
-  it("maps a pre-cutover command WITHOUT an agentSession to a `legacyMostRecent` target", () => {
+  it("maps a pre-cutover command WITHOUT an agentSession to `none` — a bare shell, never a re-parsed command", () => {
     // A record that remembered a launch command but never captured the session id
-    // (no `agentSession`) preserves the OLD most-recent behavior — but as a NAMED
-    // `legacyMostRecent` value, never confused with a quit-to-shell `none`.
+    // has nothing honest to resume: `legacyMostRecent` is retired, and turning the
+    // captured text back into a target is the forgery hole. It imports resumable by
+    // nothing — wake lands on a bare shell.
     const legacy = {
       terminals: [
         {
@@ -175,24 +177,19 @@ describe("parseSavedSession", () => {
           git: { kind: "unresolved" },
           location: LOCAL_LOCATION,
           lastActivityAt: 5,
-          lastAgentCommand: "opencode --model sonnet",
           pr: { kind: "absent" },
           promptedAt: null,
-          restoreTarget: {
-            kind: "legacyMostRecent",
-            command: "opencode --model sonnet",
-          },
+          restoreTarget: { kind: "none" },
         },
       ],
     });
   });
 
-  it("maps a pre-cutover agentSession whose KIND disagrees with the command to `legacyMostRecent`, not a mismatched `exact`", () => {
-    // A corrupt / cross-agent pre-cutover record: the captured `agentSession` is a
-    // claude-code conversation but the remembered command launched opencode. Building
-    // an `exact` from that pair would silently resume the wrong agent — so the
-    // migration falls to `legacyMostRecent` (same kind-consistency gate the live fold
-    // enforces via `exactRestoreTarget`).
+  it("ignores a captured command that names a DIFFERENT agent than the structured identity", () => {
+    // A cross-agent pre-cutover record: the structured `agentSession` is a
+    // claude-code conversation while the remembered line says opencode. There is
+    // no pair to reconcile any more — the line is dropped, and the resume target
+    // comes from the identity alone, so a wrong-agent resume is unspellable.
     const legacy = {
       terminals: [
         {
@@ -219,12 +216,16 @@ describe("parseSavedSession", () => {
           git: { kind: "unresolved" },
           location: LOCAL_LOCATION,
           lastActivityAt: 5,
-          lastAgentCommand: "opencode --model sonnet",
           pr: { kind: "absent" },
           promptedAt: null,
           restoreTarget: {
-            kind: "legacyMostRecent",
-            command: "opencode --model sonnet",
+            kind: "exact",
+            agent: {
+              kind: "claude-code",
+              sessionId: "sess-mismatch",
+              resumeRef: "sess-mismatch",
+            },
+            argv: [],
           },
         },
       ],

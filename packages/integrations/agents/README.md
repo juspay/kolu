@@ -3,7 +3,7 @@
 The agent **registry** — the ONE place kolu lists its agents. It folds every
 `kolu-<agent>` package's `AgentVocab` (browser-safe facts) and `AgentPlugin`
 (adapter + fetcher + env keys) into the closed `AgentKind`/`AgentInfo` wire
-vocabulary, the basename-keyed CLI registry, and the flattened env-key list.
+vocabulary, the kind-keyed CLI registry, and the flattened env-key list.
 
 It is the registry **plug board** that `anyagent` (the kernel, which names no
 agent) deliberately is not. `anyagent` owns the contracts and the algorithms;
@@ -16,7 +16,7 @@ the **only** package (besides `packages/tests`) allowed to depend on a
 
 | Module      | Exports                                                                                                                                                  | Purpose                                                          |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `vocab.ts`  | `AGENT_VOCABS`, `AgentKind`, `AgentInfoOf`, `AgentKindSchema`, `AgentInfoSchema`, `AgentInfo`, `DETECT_ONLY_AGENTS`, `agentVocab`, `isAgentKind`, `resumeRefFor`, `AGENT_CLI`, the registry-bound CLI functions (`parseAgentCommand`, `resumeAgentCommand`, `resumeFormFor`, `resumableCommand`, `agentKindFromCommand`, `exactRestoreTarget`) | Browser-safe vocabulary + CLI/resume, pre-bound to the registry. |
+| `vocab.ts`  | `AGENT_VOCABS`, `AgentKind`, `AgentInfoOf`, `AgentKindSchema`, `AgentInfoSchema`, `AgentInfo`, `agentVocab`, `requireAgentVocab`, `agentCliGrammar`, `isAgentKind`, `isAgentBinaryName`, `resumeRefFor`, `AGENT_CLI`, the registry-bound CLI functions (`resumeFormFor`, `resumableCommand`, `agentLaunchLine`) — plus `anyagent`'s `agentNameHint` / `stableFlagTokens` re-exported | Browser-safe vocabulary + the resume/launch renderer, pre-bound to the registry. |
 | `index.ts`  | `AGENT_PLUGINS`, `AGENT_DIR_ENV_KEYS`, `agentDiagnostics`                                                                                                | Node plugin record (adapters · fetchers · env keys) and its folds. |
 
 ## Adding an agent
@@ -40,8 +40,12 @@ registration — is derived. See the "Adding an agent" section of
 - **Derived, not hand-maintained.** `AgentKind`/`AgentInfoSchema` come from
   `Object.values(AGENT_VOCABS)`; a hand-copied kind list would be a second
   closed set for one vocabulary.
-- **Crash loudly at load.** `buildCliRegistry` throws on a duplicate kind or
-  basename — the compile fence the old `BASENAME_TO_KIND` record had becomes a
-  load-time fence.
+- **Crash loudly at load.** `buildCliRegistry` throws on a duplicate kind — the
+  compile fence the old `BASENAME_TO_KIND` record had becomes a load-time fence.
+- **No basename index, and no parser.** The registry resolves by KIND. A shell's
+  command text is a sensor only: `agentNameHint` returns the head token's
+  basename for the adapters' shim gate, and nothing else reads it. A command line
+  kolu types is rendered from `{ kind, argv }` facts (`resumeFormFor`,
+  `agentLaunchLine`) through the same registry.
 - **The registry is browser-safe where it can be.** `vocab.ts` imports only
   `kolu-<agent>/schemas` + `anyagent` + `effect`; the node half is `index.ts`.

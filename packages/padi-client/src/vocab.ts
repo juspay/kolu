@@ -32,7 +32,6 @@ import {
   type TerminalSnapshot,
   TerminalSnapshotSchema,
 } from "@kolu/terminal-vocab/schema";
-import { exactRestoreTarget } from "kolu-agents/vocab";
 import { type PrInfo, prValue } from "anyforge/schemas";
 import { Effect, Result, Schema, Struct } from "effect";
 import {
@@ -137,8 +136,8 @@ export function decodeHostLocation(s: string): HostLocation {
 //     `terminalWorkspace.snapshots` collection and held in `entry.snapshot`;
 //   - kolu's AUTHORED record (`entry.meta`): the kolu-owned `location`, the
 //     client/UI fields, the REMEMBERED `AgentMemory` facts (`lastActivityAt`
-//     /`promptedAt`/`lastAgentCommand`, written ONLY by the fold's
-//     `updateMemory`), and the
+//     /`promptedAt`, written ONLY by the fold's `updateMemory`), the
+//     fold-derived `restoreTarget`, and the
 //     active|sleeping discriminant;
 //   - the discriminant `state`/`sleptAt`.
 //
@@ -236,8 +235,9 @@ const SleepingDiscriminantSchema = Schema.Struct({
 // foreground) rides the registry entry's own `awareness` field, folded by kolu
 // from the producer's stream. What rides `entry.meta` is the AUTHORED record: the
 // kolu-owned `location`, the client/UI fields, the REMEMBERED `AgentMemory`
-// facts (`lastActivityAt`/`promptedAt`/`lastAgentCommand`, written only by the fold's
-// `updateMemory`), and the active|sleeping discriminant.
+// facts (`lastActivityAt`/`promptedAt`, written only by the fold's
+// `updateMemory`), the fold-derived `restoreTarget`, and the active|sleeping
+// discriminant.
 //
 // The authored TYPE names no OBSERVED field, so `entry.meta.cwd = x` is a COMPILE
 // ERROR — "two writers of the observation" is unrepresentable. The unified
@@ -264,14 +264,16 @@ const KoluAuthoredServerFieldsSchema = Schema.Struct({
   location: HostLocationSchema,
   /** The fold-derived RESTORE TARGET — kolu's discriminated answer to "what does
    *  waking this terminal do?" (`{@link RestoreTargetSchema}`): `exact` resumes the
-   *  EXACT conversation that was live by id (#1495), `none` wakes to a bare shell
-   *  (#1492), `legacyMostRecent` resumes most-recent for migrated pre-1.29 records.
+   *  EXACT conversation that was live (#1495) from its identity plus the live
+   *  process's allowlisted flags, `none` wakes to a bare shell (#1492).
    *  Produced by `restoreTargetOf` and written by the fold's `updateMemory`; it
    *  rides the AUTHORED record (not the observation) because a server restart keeps
    *  only the agent's IDENTITY, never its lie-when-dead detail. ABSENT reads as
    *  `none` (a fresh terminal with no agent), never as "resume something" — the
-   *  discriminant is what `resumeFormFor` switches on, so an absent field can't be
-   *  misread as the most-recent fallback the old bare `resumeAgent` left ambiguous. */
+   *  discriminant is what `resumeFormFor` switches on.
+   *
+   *  Every field is OS-derived. No captured command line rides here: PTY output is
+   *  a sensor, so nothing a shell printed may become a command wake types. */
   restoreTarget: Schema.optionalKey(RestoreTargetSchema),
   /** The agents padi put on this terminal's PATH at spawn (the Agents setting as
    *  it stood then) — `@kolu/agent-distro/schema`'s one struct. ABSENT when
@@ -479,15 +481,15 @@ export const CreateTerminalInputSchema = Schema.Struct({
 });
 
 /** The three server-derived authored facts a fresh create has NO business setting —
- *  `lastActivityAt`, `lastAgentCommand`, and the fold-derived `restoreTarget`. Session
+ *  `lastActivityAt`, `promptedAt`, and the fold-derived `restoreTarget`. Session
  *  RESTORE is the one path with truth about their prior value (read from the saved
  *  blob), so ONLY `restoreSpawn` (terminals.ts) threads them, through its distinct
  *  `restoreOnly` parameter — an ordinary `createTerminal` can't name this shape at all.
  *
  *  `lastActivityAt` keeps recency ordering stable across a restart (without it a
  *  restored terminal resets to `0`); `promptedAt` keeps a resumed agent from
- *  reading as one still at its first prompt. `lastAgentCommand` + `restoreTarget` bridge the
- *  agent-resume window: threading them onto the respawned terminal keeps restore's
+ *  reading as one still at its first prompt. `restoreTarget` bridges the
+ *  agent-resume window: threading it onto the respawned terminal keeps restore's
  *  closing re-persist (`restoreSession`'s `saveSession(snapshotSession())`) from
  *  writing `none` over a resuming agent's id before the fold re-derives it — so a
  *  SECOND unclean death right after restore, or a resume that never lands, still finds
@@ -495,7 +497,6 @@ export const CreateTerminalInputSchema = Schema.Struct({
 export const RestoreOnlyMetadataSchema = Schema.Struct({
   lastActivityAt: Schema.optionalKey(Schema.Number),
   promptedAt: Schema.optionalKey(Schema.Number),
-  lastAgentCommand: Schema.optionalKey(Schema.String),
   restoreTarget: Schema.optionalKey(RestoreTargetSchema),
 });
 
@@ -531,20 +532,27 @@ export const RecentRepoSchema = Schema.Struct({
   lastSeen: Schema.Number,
 });
 
-/** A normalized agent CLI invocation (e.g. "claude --model sonnet").
- *  Populated from OSC 633;E command marks emitted by kolu's preexec hook
- *  whenever the user runs a known agent binary in any terminal. */
+/** One recently-seen agent, as STRUCTURED FACTS — the agent kind plus the
+ *  allowlisted flag tokens its live process ran with. Populated when an agent is
+ *  DETECTED LIVE (the same OS-derived observation that produces a restore
+ *  target), never from a command line read off the PTY.
+ *
+ *  The palette renders the launch line through the agent registry
+ *  (`agentLaunchLine`), so nothing a shell printed is stored or typed. Two
+ *  launches of one agent with different flags are two rows. */
 export const RecentAgentSchema = Schema.Struct({
-  /** Normalized command line — first token is the agent binary,
-   *  followed by its stable flags. Prompt/message flags and trailing
-   *  positional arguments are stripped so ephemeral prompt text does
-   *  not pollute the MRU. */
-  command: Schema.String,
+  /** The agent kind (`"claude-code"`, `"opencode"`, …). An OPEN string for the
+   *  same reason `AgentIdentitySchema.kind` is: this row is persisted, and a
+   *  build that no longer knows the kind must render nothing for it rather than
+   *  fail the decode and lose the whole feed. */
+  kind: Schema.String,
+  /** The live process's `stableFlags`-filtered argv tokens. */
+  argv: Schema.Array(Schema.String),
   lastSeen: Schema.Number,
 });
 
-/** Server-derived activity feed: recent repos cd'd into and recent agent
- *  CLIs spotted via OSC 633;E. Server is sole writer; client is read-only. */
+/** Server-derived activity feed: recent repos cd'd into and recent agents
+ *  detected live. Server is sole writer; client is read-only. */
 export const ActivityFeedSchema = Schema.Struct({
   recentRepos: Schema.Array(RecentRepoSchema),
   recentAgents: Schema.Array(RecentAgentSchema),
@@ -1089,69 +1097,103 @@ export function backfillTerminalState(
 }
 
 /** Backfill the awareness-derive-store cutover (PR #1621): `pr` became a PERSISTED
- *  (restore-relevant) field, and the old sticky `agentSession` ref + the implicit
- *  "`lastAgentCommand` ⇒ resume most-recent" rule collapsed into one discriminated
- *  `restoreTarget` (`{@link RestoreTargetSchema}`). A pre-cutover record:
+ *  (restore-relevant) field, and the old sticky `agentSession` ref collapsed into
+ *  the discriminated `restoreTarget` (`{@link RestoreTargetSchema}`). A
+ *  pre-cutover record:
  *   - lacks `pr` (it was a never-persisted live field) → backfill `{ kind: "absent"
  *     }` so the now-persisted field parses; the live PR sensor re-resolves on
  *     restore. A frozen sleeping-arm `pr` already satisfies it and passes through;
- *   - is given a `restoreTarget` from what it remembered, so the OLD resume behavior
- *     is preserved as a NAMED value rather than re-derived from field absence:
- *       · `agentSession { kind, id }` + a `lastAgentCommand` → `{ kind: "exact",
- *         command, agent: { kind, sessionId: id } }` (the EXACT conversation, #1495);
- *       · a `lastAgentCommand` but no `agentSession` → `{ kind: "legacyMostRecent",
- *         command }` (the old most-recent fallback, kept for already-saved sessions);
- *       · no `lastAgentCommand` → no `restoreTarget` (absent ≡ `none`, a bare shell).
- *  `agentSession` is dropped either way. Idempotent and presence-keyed: a record
- *  that already has `pr` and a `restoreTarget` passes through untouched. */
+ *   - is given a `restoreTarget` from its STRUCTURED identity: an `agentSession
+ *     { kind, id }` becomes `{ kind: "exact", agent: { kind, sessionId, resumeRef },
+ *     argv: [] }` (the EXACT conversation, #1495), so an already-saved session
+ *     still resumes — without its old flags once; the next live sample supplies
+ *     them. A record with NO structured identity gets `none` (a bare shell).
+ *  The old `lastAgentCommand` launch line is DROPPED and never read: re-parsing
+ *  captured PTY text was the forgery hole (a `cat`-ed file could name the command
+ *  wake typed), so a record that only ever remembered a launch line loses it
+ *  rather than having it converted. `agentSession` and `lastAgentCommand` are
+ *  removed either way. Idempotent and presence-keyed: a record that already has
+ *  `pr` and a `restoreTarget` passes through untouched. */
 /** zod's `AgentKindSchema.safeParse`, in Effect terms — a `Result`, so a corrupt
- *  on-disk `agentSession.kind` is a BRANCH here (fall to `legacyMostRecent`),
- *  never a throw that would drop the whole terminal at the read boundary. */
+ *  on-disk `agentSession.kind` is a BRANCH here (no target), never a throw that
+ *  would drop the whole terminal at the read boundary. */
 const decodeAgentKindResult = Schema.decodeUnknownResult(AgentKindSchema);
 
 export function backfillSnapshotCutover(
   t: Record<string, unknown>,
 ): Record<string, unknown> {
-  const { agentSession, ...rest } = t;
+  const { agentSession, lastAgentCommand: _dropped, ...rest } = t;
   const next: Record<string, unknown> = { ...rest };
   if (!("pr" in next)) next.pr = { kind: "absent" };
   if (!("restoreTarget" in next)) {
-    const command =
-      typeof next.lastAgentCommand === "string"
-        ? next.lastAgentCommand
-        : undefined;
-    if (command !== undefined) {
-      // Validate the captured ref's VALUE types, not just key presence: a corrupt
-      // on-disk `agentSession` (a non-`AgentKind` `kind`, a non-string `id`) must NOT
-      // build an `exact` target that fails `RestoreTargetSchema` and drops the whole
-      // terminal at the read boundary. A bad ref falls to `legacyMostRecent` (resume
-      // most-recent — still valid, the same degraded behavior the pre-cutover record
-      // already had).
-      const ref =
-        agentSession && typeof agentSession === "object"
-          ? (agentSession as Record<string, unknown>)
-          : null;
-      const kind = ref ? decodeAgentKindResult(ref.kind) : null;
-      // Route through `exactRestoreTarget` so the SAME command/agent-kind consistency
-      // gate the live fold enforces also applies here: a migrated record whose old
-      // `agentSession.kind` disagrees with the remembered `lastAgentCommand`'s agent
-      // kind (corrupt / hand-edited / cross-agent) falls to `legacyMostRecent` rather
-      // than building a mismatched `exact` that would silently resume the wrong agent.
-      const exact =
-        ref &&
-        kind !== null &&
-        Result.isSuccess(kind) &&
-        typeof ref.id === "string"
-          ? exactRestoreTarget(command, {
+    // Validate the captured ref's VALUE types, not just key presence: a corrupt
+    // on-disk `agentSession` (a non-`AgentKind` `kind`, a non-string `id`) must NOT
+    // build an `exact` target that fails `RestoreTargetSchema` and drops the whole
+    // terminal at the read boundary.
+    const ref =
+      agentSession && typeof agentSession === "object"
+        ? (agentSession as Record<string, unknown>)
+        : null;
+    const kind = ref ? decodeAgentKindResult(ref.kind) : null;
+    next.restoreTarget =
+      ref !== null &&
+      kind !== null &&
+      Result.isSuccess(kind) &&
+      typeof ref.id === "string" &&
+      ref.id.length > 0
+        ? {
+            kind: "exact",
+            agent: {
               kind: kind.success,
               sessionId: ref.id,
               resumeRef: ref.id,
-            })
-          : null;
-      next.restoreTarget = exact ?? { kind: "legacyMostRecent", command };
-    }
+            },
+            argv: [],
+          }
+        : { kind: "none" };
   }
   return next;
+}
+
+/** Backfill the restore-target argv reshape: a target from before kolu stopped
+ *  replaying captured command text was `{ kind: "exact", command, agent }` or
+ *  `{ kind: "legacyMostRecent", command }`. The new shape is
+ *  `{ kind: "exact", agent, argv }` | `{ kind: "none" }`, and the captured
+ *  `command` is DELETED, never parsed — that parse is the hole being closed.
+ *
+ *   - `exact` → keep the structured identity, replace `command` with `argv: []`.
+ *     The conversation still resumes by id; its flags return on the next live
+ *     sample.
+ *   - `legacyMostRecent` → `none`: it named no conversation, only a remembered
+ *     line, so there is nothing honest left to restore.
+ *   - `none` (and a record with no target) passes through.
+ *
+ *  Idempotent and presence-keyed on `argv`: a current `exact` target is untouched. */
+export function backfillRestoreTargetArgv(
+  t: Record<string, unknown>,
+): Record<string, unknown> {
+  const target = t.restoreTarget;
+  if (!target || typeof target !== "object") return t;
+  const shaped = target as Record<string, unknown>;
+  switch (shaped.kind) {
+    case "none":
+      return t;
+    case "legacyMostRecent":
+      return { ...t, restoreTarget: { kind: "none" } };
+    case "exact": {
+      if ("argv" in shaped) return t;
+      const agent = shaped.agent;
+      // A malformed identity is left alone for `RestoreTargetSchema` to refuse
+      // loudly rather than silently become a bare shell.
+      if (!agent || typeof agent !== "object") return t;
+      return {
+        ...t,
+        restoreTarget: { kind: "exact", agent, argv: [] },
+      };
+    }
+    default:
+      return t;
+  }
 }
 
 /** Drop an `agents` stamp from before agent-distro's one package: it named a
@@ -1182,9 +1224,11 @@ export function backfillSavedTerminal(
   t: Record<string, unknown>,
 ): Record<string, unknown> {
   return backfillAgentsStamp(
-    backfillSnapshotCutover(
-      backfillTerminalState(
-        backfillLocation(backfillGitFact(backfillRemoteUrl(t))),
+    backfillRestoreTargetArgv(
+      backfillSnapshotCutover(
+        backfillTerminalState(
+          backfillLocation(backfillGitFact(backfillRemoteUrl(t))),
+        ),
       ),
     ),
   );

@@ -69,9 +69,6 @@ export const xyneVocab: AgentVocab<XyneInfo> = {
       ["--debug", "boolean"],
       ["--port", "value"],
     ]),
-    extraExitFlags: new Set(),
-    nonSessionFlags: new Set(),
-    nonSessionSubcommands: new Set(),
   },
   resume: {
     // Xyne: `--continue` for most-recent in cwd; `--session <uuid>` for exact

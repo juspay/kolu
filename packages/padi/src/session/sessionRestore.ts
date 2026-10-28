@@ -107,9 +107,9 @@ function respawnActive(
       ...(t.intent === undefined ? {} : { intent: t.intent }),
     },
     {
-      // Carry the saved agent-resume facts ONLY when actually resuming, so the closing
+      // Carry the saved agent-resume target ONLY when actually resuming, so the closing
       // `saveSession(snapshotSession())` re-persists the EXACT target, not `none` (the
-      // fold's `updateMemory` re-derives both live once the resumed agent is re-observed;
+      // fold's `updateMemory` re-derives it live once the resumed agent is re-observed;
       // until then the saved value stands — a resume that never lands, or a second unclean
       // death right after restore, still finds the target on disk). An OPTED-OUT terminal
       // (`resume` false) spawns a genuine bare shell: it has no agent to re-observe, so the
@@ -117,9 +117,6 @@ function respawnActive(
       // `updateMemory` never fires to overwrite the seed) — the exact target would persist
       // and a later WAKE would resume the very agent the user declined. So drop both,
       // leaving the bare shell's target at `none`.
-      ...(resume && t.lastAgentCommand !== undefined
-        ? { lastAgentCommand: t.lastAgentCommand }
-        : {}),
       ...(resume && t.restoreTarget !== undefined
         ? { restoreTarget: t.restoreTarget }
         : {}),
@@ -141,12 +138,13 @@ function respawnActive(
       ...(resume && t.promptedAt !== null ? { promptedAt: t.promptedAt } : {}),
     },
   );
-  // Auto-launch the resume form of the previously captured agent command, if the
-  // user didn't opt out. `resumeFormFor` switches on the fold-derived
+  // Auto-launch the resume form of the previously detected agent, if the user
+  // didn't opt out. `resumeFormFor` renders the line from the fold-derived
   // `restoreTarget` (the SAME composition the wake path feeds a fresh spawn, so
-  // restore and wake can't drift): `exact` re-targets the exact conversation,
-  // `legacyMostRecent` the most-recent fallback, `none`/absent a bare shell. The
-  // proxy handle queues the write until the PTY spawn resolves.
+  // restore and wake can't drift): `exact` re-targets the exact conversation from
+  // its OS-derived identity plus the live process's allowlisted flags;
+  // `none`/absent is a bare shell. The proxy handle queues the write until the PTY
+  // spawn resolves.
   if (resume) {
     const resumeForm = resumeFormFor(t.restoreTarget);
     if (resumeForm) getActiveTerminal(info.id)?.handle.write(`${resumeForm}\r`);

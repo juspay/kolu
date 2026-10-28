@@ -72,11 +72,7 @@ function startOmpSensor() {
   const signals = {
     cwd: inMemoryChannel<string>(),
     title: inMemoryChannel<string>(),
-    commandRun: inMemoryChannel<{
-      command: string;
-      replayed: boolean;
-      shellJoin: boolean;
-    }>(),
+    commandRun: inMemoryChannel<{ command: string; replayed: boolean }>(),
     foreground: inMemoryChannel<ForegroundSample>(),
     ports: inMemoryChannel<TerminalPorts>(),
     grid: inMemoryChannel<TerminalGrid>(),
