@@ -233,8 +233,10 @@ export function restoreTargetEqual(
 
 /** Element-wise argv equality — the flag tokens are the only ordered list in the
  *  restore target, and replaying them in a different order is a different
- *  invocation (`--model x --model y`), so order is part of the value. */
-function sameArgv(a: readonly string[], b: readonly string[]): boolean {
+ *  invocation (`--model x --model y`), so order is part of the value. Exported
+ *  so the producer's observation dedup ({@link observationFromSample}'s caller)
+ *  spells the same rule instead of hand-rolling a second length+every loop. */
+export function sameArgv(a: readonly string[], b: readonly string[]): boolean {
   if (a === b) return true;
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;

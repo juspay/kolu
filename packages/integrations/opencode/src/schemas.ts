@@ -60,6 +60,16 @@ export const opencodeVocab: AgentVocab<OpenCodeInfo> = {
   mark: OPENCODE_MARK,
   cli: {
     basename: "opencode",
+    shims: new Set([
+      "node",
+      "nodejs",
+      "npm",
+      "npx",
+      "pnpm",
+      "yarn",
+      "bun",
+      "deno",
+    ]),
     stableFlags: new Map<string, FlagArity>([
       ["--model", "value"],
       ["--dangerously-skip-permissions", "boolean"],

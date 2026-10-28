@@ -1281,15 +1281,7 @@ export function backfillActivityFeed(value: unknown): ActivityFeed {
   };
 }
 
-function isRecentRepoRow(value: unknown): value is RecentRepo {
-  if (!value || typeof value !== "object") return false;
-  const row = value as Record<string, unknown>;
-  return (
-    typeof row.repoRoot === "string" &&
-    typeof row.repoName === "string" &&
-    typeof row.lastSeen === "number"
-  );
-}
+const isRecentRepoRow = Schema.is(RecentRepoSchema);
 
 /** Drop the resume FLAGS from a session blob kolu did not observe — a
  *  `kolu-session.json` import or a restored state backup. The identity is

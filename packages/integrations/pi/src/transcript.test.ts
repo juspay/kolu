@@ -5,6 +5,7 @@ import path from "node:path";
 import { describeDaemon } from "@kolu/daemon-test-gate";
 import { silentLogger } from "@kolu/log/loggerStubs.testutil";
 import { readProcessSnapshot } from "kolu-io";
+import type { ProcessSnapshot } from "kolu-io/types";
 import { afterAll, describe, expect, it } from "vitest";
 
 const log = silentLogger;
@@ -326,24 +327,43 @@ describe("loadPiTranscript", () => {
       path.join(customRoot, `2026-08-24T00-00-00-000Z_${id}.jsonl`),
       line({ type: "session", id, timestamp: "2026-08-24T00:00:00.000Z", cwd }),
     );
-    const state = (argv: string[]) => ({
+    const state = (readProcessSnapshot: () => ProcessSnapshot | null) => ({
       foregroundPid: 1234,
       cwd,
       readForegroundBasename: () => "pi",
       lastAgentCommandName: null,
       // The live process's own argv/env — injected so the test needs no fork.
-      readProcessSnapshot: () => ({
+      readProcessSnapshot,
+    });
+    const live =
+      (argv: string[]): (() => ProcessSnapshot) =>
+      () => ({
         argv,
         env: { PI_CODING_AGENT_SESSION_DIR: customRoot },
-      }),
-    });
+      });
     try {
       expect(
-        piAdapter.resolveSessions(state(["pi"]), log)?.map((s) => s.id),
+        piAdapter.resolveSessions(state(live(["pi"])), log)?.map((s) => s.id),
       ).toEqual([id]);
+      // Both spellings of the flag, and the guard must not fall through to the
+      // default store: the read that answers `--no-session` is the ONLY read.
       expect(
-        piAdapter.resolveSessions(state(["pi", "--no-session"]), log),
+        piAdapter.resolveSessions(state(live(["pi", "--no-session"])), log),
       ).toEqual([]);
+      expect(
+        piAdapter.resolveSessions(
+          state(live(["pi", "--no-session=true"])),
+          log,
+        ),
+      ).toEqual([]);
+      // A failed read is "cannot judge" (null = keep what was published), never
+      // an invitation to attribute the cwd's stale session.
+      expect(
+        piAdapter.resolveSessions(
+          state(() => null),
+          log,
+        ),
+      ).toBeNull();
     } finally {
       fs.rmSync(customRoot, { recursive: true, force: true });
     }

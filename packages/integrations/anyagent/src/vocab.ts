@@ -48,6 +48,20 @@ export interface AgentMark {
 export interface AgentCliGrammar {
   /** The binary name, e.g. `"claude"`, `"xyne"`. */
   readonly basename: string;
+  /** Foreground process names that HIDE this agent's CLI: an npm/pip-installed
+   *  agent runs as its interpreter, so the kernel basename never names it. A
+   *  shell's preexec hint may break the tie ONLY against one of these — the exact
+   *  case juspay/kolu#673 needed. Declared per agent, beside
+   *  `basename`/`stableFlags`, so it revs with the agent's OWN packaging: a
+   *  `uv`-installed agent adds `uv` in its own package, and one agent's shims can
+   *  never claim another agent.
+   *
+   *  This does NOT close the residual: a forged mark naming THIS agent while one
+   *  of these interpreters runs a non-agent program (`node` running vite) still
+   *  matches, and a cwd-keyed resolver (codex / opencode / pi / xyne) can then
+   *  claim a session from the directory. The alternative — never trusting a hint
+   *  — blinds every npm-installed agent, which is why the window exists. */
+  readonly shims: ReadonlySet<string>;
   /** Allowlist of flags that define a meaningfully different invocation, each
    *  mapped to its arity. Only these survive capture from the process argv; a
    *  flag not listed is dropped silently — the safe default. */

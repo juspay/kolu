@@ -195,23 +195,21 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  *  the right tokenizer) — same additive-optional call, NO bump: a survivor that
  *  omits it degrades to the raw (`string-argv`) reading, the pre-fix behavior.
  *  [#2326] That `shellJoin` field is REMOVED again (the sensor no longer reparses
- *  the mark at all — see below), and the removal rides at 7.1 with NO bump, for
- *  the mirror-image reason an optional FIELD-ADD needs none: both directions
- *  degrade to nothing. A 7.1 survivor that still emits `shellJoin` is stripped by
- *  this schema; a consumer of a survivor that omits it reads the same `command`
- *  it always did. Nothing branches on the value any more, so there is no
- *  behaviour that could be mis-parsed — bumping would force-recycle a surviving
- *  kaval (killing its live PTYs) to delete a field nobody reads.
+ *  the mark at all — see below), and — being `optionalKey` — its removal needs NO
+ *  bump: a survivor that still emits it is stripped by this schema, and a consumer
+ *  of a survivor that omits it reads the same `command`. Nothing branches on the
+ *  value any more, so there is no behaviour to mis-parse.
  *  The `command` mark itself is declared a SENSOR: no consumer may replay it.
  *
- *  [#2326] The `replayed` flag is REMOVED too, at 7.1 with NO bump: nothing read
- *  it once the last writer of a remembered fact (recent-agent recency) stopped
- *  consuming marks, and a field nobody reads is a lie about the contract. The
- *  skew direction is honest in the same way as `shellJoin`'s: a 7.1 survivor that
- *  still sends `replayed` is stripped by this schema; a consumer of a survivor
- *  that omits it reads the same `command`. (An OLDER consumer meeting a newer
- *  daemon would reject the frame — the cost is one degraded shim hint, never a
- *  terminal: detection still rides the foreground basename and the session file.) */
+ *  [#2326] The `replayed` flag is REMOVED too, and THIS one forces the "7.2" bump
+ *  below. It was a REQUIRED field (3.3), so it is not the `shellJoin` case: a 7.1
+ *  consumer meeting a newer daemon that omits it rejects the whole frame. And a
+ *  rejected frame here is not cosmetic — `commandRun` is a pure-enrichment tap
+ *  with no `onError`/retry, so it dies at the first mark for that terminal's
+ *  life: every shim hint and the launch-window `unknown` fence, on every
+ *  terminal of a rolled-back install. The honest answer is the 3.3 reasoning
+ *  again — an incompatible shape change RECYCLES the survivor (its session parks
+ *  and restores) rather than serving frames the peer cannot read. */
 /*  Bumped to 5.3 (MINOR): the host-global `activity` stream (meaningful-output
  *  edges). This is a NEW EMITTED STREAM MEMBER, not an optional field — a survivor
  *  5.2 daemon does not serve it at all, so a 5.3 consumer subscribing would hit a
@@ -267,8 +265,17 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  *  explain, while a missing procedure surfaces as an unspeakable-member error at
  *  the wire — the class of failure this constant exists to convert into an honest,
  *  managed recycle. The park/restore cost is bounded and already the routine price
- *  of every other additive member. */
-export const PTY_HOST_CONTRACT_VERSION = "7.1";
+ *  of every other additive member.
+ *
+ *  Bumped to 7.2 (MINOR · breaking-in-one-direction): `commandRun` loses its
+ *  REQUIRED `replayed` field (see [#2326] above). A required-field REMOVAL is the
+ *  3.3 shape inverted — a survivor that still sends it is fine (stripped), but a
+ *  7.1 consumer meeting this daemon rejects every frame, and the tap has no
+ *  retry, so that terminal keeps no marks for the life of the process. The minor
+ *  bump turns that skew into the routine recycle (session parks and restores)
+ *  instead of a silently degraded detection surface. THE 3.3 PRECEDENT: the same
+ *  field's ADD was a minor bump for the same reason, in the other direction. */
+export const PTY_HOST_CONTRACT_VERSION = "7.2";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its

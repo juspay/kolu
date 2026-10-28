@@ -441,7 +441,12 @@ describe("padi's own migration ladder", () => {
           savedAt: 1,
         },
         activityFeed: {
-          recentRepos: [],
+          // A 1.2.x-era repo row: the rung must LEAVE it alone (only the agent
+          // rows carried captured text) — and must not rewrite the key when there
+          // is nothing to clear.
+          recentRepos: [
+            { repoRoot: "/repo/kept", repoName: "kept", lastSeen: 5 },
+          ],
           recentAgents: [{ command: "claude --yolo", lastSeen: 5 }],
         },
         __internal__: { migrations: { version: "1.2.0" } },
@@ -457,6 +462,9 @@ describe("padi's own migration ladder", () => {
     expect(terminals[1]?.restoreTarget).toEqual({ kind: "none" });
     expect("lastAgentCommand" in (terminals[0] ?? {})).toBe(false);
     expect(stores.activityFeed.get().recentAgents).toEqual([]);
+    expect(stores.activityFeed.get().recentRepos).toEqual([
+      { repoRoot: "/repo/kept", repoName: "kept", lastSeen: 5 },
+    ]);
     // The dropped text is nowhere on disk: the file the next boot reads cannot
     // resurrect it into a command.
     expect(readFileSync(join(stateRoot, "config.json"), "utf8")).not.toContain(

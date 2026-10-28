@@ -15,6 +15,7 @@ import {
   HEADLESS_TERM_ID,
   isDynamicLoader,
   type PtyHost,
+  type PtyId,
   readProcCmdline,
   resolveScreenExtent,
 } from "./ptyHost.ts";
@@ -297,12 +298,29 @@ const shellEnv = {
   TERM: "xterm-256color",
 };
 
-async function waitFor(fn: () => boolean, ms = 3000): Promise<void> {
+async function waitFor(
+  fn: () => boolean | Promise<boolean>,
+  ms = 3000,
+): Promise<void> {
   const start = Date.now();
-  while (!fn()) {
+  while (!(await fn())) {
     if (Date.now() - start > ms) throw new Error("waitFor timed out");
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
+}
+
+/** The command `subscribeCommandRun` replays on attach — the ONE public reader
+ *  of the retained mark (the sensor's snapshot-first source). There is no
+ *  synchronous getter: a second read path would be a second contract. */
+async function retainedCommand(
+  host: PtyHost,
+  id: PtyId,
+): Promise<string | undefined> {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.map(host.subscribeCommandRun(id), (sub) => sub.retained?.command),
+    ),
+  );
 }
 
 /** First frame of a tap, with the subscription ESTABLISHED before this returns
@@ -552,9 +570,9 @@ describeDaemon("createPtyHost", () => {
     );
   });
 
-  it("retains the last command line so a late reader catches up (getLastCommand)", async () => {
+  it("retains the last command line so a late reader catches up", async () => {
     // The retention `commandRun`'s snapshot-first source replays on subscribe:
-    // a sensor attaching AFTER the OSC 633;E mark (e.g. a late/restarted pulam)
+    // a sensor attaching AFTER the OSC 633;E mark (e.g. a late/restarted padi)
     // must still learn the command, so the agent isn't shown as a non-agent
     // `node`. A long-lived shell keeps the entry alive past the mark.
     host = createPtyHost({ log: silentLog });
@@ -564,19 +582,19 @@ describeDaemon("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    await waitFor(() => host.getLastCommand(id) === "codex");
-    expect(host.getLastCommand(id)).toBe("codex");
+    await waitFor(async () => (await retainedCommand(host, id)) === "codex");
+    expect(await retainedCommand(host, id)).toBe("codex");
     host.kill(id);
     await Effect.runPromise(host.exit(id));
   });
 
   // ── R2: command-rooted PTYs (#1872 lock 1 — the argv is not discarded) ──
 
-  it("seeds lastCommand from the argv for a command-rooted PTY", async () => {
+  it("seeds the retained command from the argv for a command-rooted PTY", async () => {
     // A `kaval-tui create -- claude …` PTY has the agent as argv[0] and no
-    // shell, so it never emits the OSC 633;E mark that is lastCommand's only
-    // writer today. The daemon received the command line at spawn — it must not
-    // discard it. RED before lock 1 (getLastCommand stays undefined).
+    // shell, so it never emits the OSC 633;E mark that is otherwise the
+    // retained command's only writer. The daemon received the command line at
+    // spawn — it must not discard it.
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
@@ -585,17 +603,20 @@ describeDaemon("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    await waitFor(() => host.getLastCommand(id) === "/bin/sh -c 'sleep 5'");
-    expect(host.getLastCommand(id)).toBe("/bin/sh -c 'sleep 5'");
+    await waitFor(
+      async () => (await retainedCommand(host, id)) === "/bin/sh -c 'sleep 5'",
+    );
+    expect(await retainedCommand(host, id)).toBe("/bin/sh -c 'sleep 5'");
     host.kill(id);
     await Effect.runPromise(host.exit(id));
   });
 
   it("does not seed a title (the title tap is live-only, no snapshot replay)", async () => {
-    // The seed is `lastCommand` ONLY: the commandRun source replays snapshot-first
-    // (so a late padi sensor learns the command), but the title tap is live-only —
-    // a seeded title would be erased by the foreground sensor's first sample, so we
-    // deliberately don't seed one. The tile carries the foreground process name.
+    // The seed is the retained command ONLY: the commandRun source replays
+    // snapshot-first (so a late padi sensor learns the command), but the title
+    // tap is live-only — a seeded title would be erased by the foreground
+    // sensor's first sample, so we deliberately don't seed one. The tile carries
+    // the foreground process name.
     host = createPtyHost({ log: silentLog });
     // Use `/bin/sh` as argv[0] (a guaranteed-present binary, not a real agent
     // executable that CI may lack / a dev machine would actually launch) — the
@@ -607,8 +628,10 @@ describeDaemon("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    // lastCommand is seeded; title is not.
-    await waitFor(() => host.getLastCommand(id) === "/bin/sh -c 'sleep 5'");
+    // The command is seeded; the title is not.
+    await waitFor(
+      async () => (await retainedCommand(host, id)) === "/bin/sh -c 'sleep 5'",
+    );
     expect(host.getTitle(id)).toBe("");
     host.kill(id);
     await Effect.runPromise(host.exit(id));
@@ -616,7 +639,6 @@ describeDaemon("createPtyHost", () => {
 
   it("a live 633;E mark overrides the command-rooted seed (precedence)", async () => {
     // Seed writes first; a real shell command mark is the live last-writer.
-    // (A pin, green today: the 633;E handler already wins whatever was there.)
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
@@ -625,13 +647,16 @@ describeDaemon("createPtyHost", () => {
       env: shellEnv,
       cwd: "/tmp",
     });
-    await waitFor(() => host.getLastCommand(id) === "git status");
-    expect(host.getLastCommand(id)).toBe("git status");
+    await waitFor(
+      async () => (await retainedCommand(host, id)) === "git status",
+    );
+    expect(await retainedCommand(host, id)).toBe("git status");
   });
 
-  it("does NOT seed lastCommand for a shell-rooted PTY (regression guard)", async () => {
-    // The default (shell) path is unchanged: lastCommand stays undefined until a
-    // real 633;E mark — seeding every spawn would mislabel every shell terminal.
+  it("does NOT seed a command for a shell-rooted PTY (regression guard)", async () => {
+    // The default (shell) path is unchanged: the retained command stays
+    // undefined until a real 633;E mark — seeding every spawn would mislabel
+    // every shell terminal.
     host = createPtyHost({ log: silentLog });
     const { id } = host.spawn({
       shell: "/bin/sh",
@@ -641,7 +666,7 @@ describeDaemon("createPtyHost", () => {
     });
     // A beat for any (erroneous) seed to land; the shell emits no 633;E here.
     await new Promise((r) => setTimeout(r, 200));
-    expect(host.getLastCommand(id)).toBeUndefined();
+    expect(await retainedCommand(host, id)).toBeUndefined();
   });
 
   it("publishes title changes on OSC 0/2", async () => {

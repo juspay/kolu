@@ -231,7 +231,7 @@ export interface PtySpawnOpts {
   args?: string[];
   /** True when `shell` is not a shell but the ROOT COMMAND itself — a
    *  `kaval-tui create -- <cmd>` PTY with the command as `argv[0]` and no shell
-   *  wrapping it. The host seeds {@link PtyHost.getLastCommand} from the argv (a
+   *  wrapping it. The host seeds the retained command from the argv (a
    *  shell-less PTY never emits the OSC 633;E mark that is otherwise
    *  `lastCommand`'s only writer), and reports the fact on the inventory row so
    *  the workspace sensors read foreground==root as BUSY, not as an idle shell
@@ -558,11 +558,6 @@ export interface PtyHost {
   getForegroundPid(id: PtyId): number | undefined;
   /** Current foreground process name, or `undefined` if gone. */
   getProcess(id: PtyId): string | undefined;
-  /** Last command line seen on an OSC 633;E mark, or `undefined` if none yet /
-   *  gone. The synchronous read the `commandRun` source replays snapshot-first,
-   *  mirroring {@link getProcess} for the `foreground` source. SENSOR DATA: a
-   *  consumer may take its head basename; it must never replay it as a command. */
-  getLastCommand(id: PtyId): string | undefined;
   /** Current cwd, or `undefined` if gone. */
   getCwd(id: PtyId): string | undefined;
   /** Last OSC 0/2 title (empty string if none yet), or `undefined` if
@@ -1147,8 +1142,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         // including any secrets; consumers normalize before logging at
         // higher levels.
         log.debug({ id, command }, "command run (OSC 633;E)");
-        // Retain the command BEFORE publishing so the synchronous
-        // `getLastCommand` is already current for anyone the publish wakes.
+        // Retain the command BEFORE publishing so `subscribeCommandRun`'s
+        // snapshot-first reading is already current for anyone the publish wakes.
         entry.lastCommand = command;
         entry.commandRunFanOut.publishUnsafe(command);
         // The agent process forks AFTER this mark — re-sample foreground
@@ -1681,7 +1676,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     size: () => entries.size,
     getForegroundPid,
     getProcess: foregroundProcessName,
-    getLastCommand: (id) => entries.get(id)?.lastCommand,
     getCwd: (id) => entries.get(id)?.cwd,
     getTitle: (id) => entries.get(id)?.title,
     getScreenState,

@@ -104,6 +104,16 @@ export const ompVocab: AgentVocab<OmpInfo> = {
   mark: OMP_MARK,
   cli: {
     basename: "omp",
+    shims: new Set([
+      "node",
+      "nodejs",
+      "npm",
+      "npx",
+      "pnpm",
+      "yarn",
+      "bun",
+      "deno",
+    ]),
     stableFlags: new Map<string, FlagArity>([
       ["--model", "value"],
       ["--smol", "value"],

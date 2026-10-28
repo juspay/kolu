@@ -45,7 +45,7 @@ import { type AgentDirResolution, resolveAgentDir } from "./agent-dir.ts";
 import { type OmpSession, readBreadcrumb, ttyIdForPid } from "./breadcrumb.ts";
 import { AGENT_DIR_OVERRIDE, BREADCRUMB_DIR } from "./config.ts";
 import { subscribeBreadcrumbDir } from "./core.ts";
-import type { OmpInfo } from "./schemas.ts";
+import { type OmpInfo, ompVocab } from "./schemas.ts";
 import {
   isOmpScreenPollable,
   promoteOmpFromScreen,
@@ -178,7 +178,7 @@ export const ompAdapter: AgentAdapter<OmpSession, OmpInfo> = {
   kind: "omp",
 
   resolveSessions(state, log) {
-    if (!matchesAgent(state, "omp")) return [];
+    if (!matchesAgent(state, ompVocab.cli)) return [];
     const pid = state.foregroundPid;
     if (pid === undefined) return null;
     const dir = agentDirFor(state, log);
@@ -210,7 +210,7 @@ export const ompAdapter: AgentAdapter<OmpSession, OmpInfo> = {
 
   externalChanges: {
     isPresent(state) {
-      return matchesAgent(state, "omp") || fs.existsSync(BREADCRUMB_DIR);
+      return matchesAgent(state, ompVocab.cli) || fs.existsSync(BREADCRUMB_DIR);
     },
     install(onChange, onError, log) {
       installed = { onChange, onError, log: log ?? undefined };

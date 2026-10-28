@@ -16,7 +16,7 @@ the **only** package (besides `packages/tests`) allowed to depend on a
 
 | Module      | Exports                                                                                                                                                  | Purpose                                                          |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `vocab.ts`  | `AGENT_VOCABS`, `AgentKind`, `AgentInfoOf`, `AgentKindSchema`, `AgentInfoSchema`, `AgentInfo`, `agentVocab`, `agentCliGrammar`, `isAgentKind`, `isAgentBinaryName`, `resumeRefFor`, `AGENT_CLI`, the registry-bound CLI functions (`resumeFormFor`, `resumableCommand`, `agentLaunchLine`) — plus `anyagent`'s `agentNameHint` / `stableFlagTokens` re-exported | Browser-safe vocabulary + the resume/launch renderer, pre-bound to the registry. |
+| `vocab.ts`  | `AGENT_VOCABS`, `AgentKind`, `AgentInfoOf`, `AgentKindSchema`, `AgentInfoSchema`, `AgentInfo`, `agentVocab`, `agentCliGrammar`, `mapAgentVocabs`, `isAgentKind`, `isAgentBinaryName`, `resumeRefFor`, `AGENT_CLI`, the registry-bound CLI functions (`resumeFormFor`, `resumableCommand`, `agentLaunchLine`) — plus `anyagent`'s `agentNameHint` / `stableFlagTokens` re-exported | Browser-safe vocabulary + the resume/launch renderer, pre-bound to the registry. |
 | `index.ts`  | `AGENT_PLUGINS`, `AGENT_DIR_ENV_KEYS`, `agentDiagnostics`                                                                                                | Node plugin record (adapters · fetchers · env keys) and its folds. |
 
 ## Adding an agent
@@ -42,10 +42,11 @@ registration — is derived. See the "Adding an agent" section of
   closed set for one vocabulary.
 - **Crash loudly at load.** `buildCliRegistry` throws on a duplicate kind — the
   compile fence the old `BASENAME_TO_KIND` record had becomes a load-time fence.
-- **No basename index, and no parser.** The registry resolves by KIND. A shell's
-  command text is a sensor only: `agentNameHint` returns the head token's
-  basename for the adapters' shim gate, and nothing else reads it. A command line
-  kolu types is rendered from `{ kind, argv }` facts (`resumeFormFor`,
+- **No basename-keyed PARSER, and no command-string reader.** The registry
+  resolves by KIND. The one basename predicate — `isAgentBinaryName` — answers
+  "could this head token name an agent that may be launching?", the sensor's
+  shim hint; nothing derives anything else from a basename. A command line kolu
+  types is rendered from `{ kind, argv }` facts (`resumeFormFor`,
   `agentLaunchLine`) through the same registry.
 - **The registry is browser-safe where it can be.** `vocab.ts` imports only
   `kolu-<agent>/schemas` + `anyagent` + `effect`; the node half is `index.ts`.

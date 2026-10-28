@@ -15,7 +15,7 @@ import {
   type GrokSession,
   resolveGrokSessions,
 } from "./core.ts";
-import type { GrokInfo } from "./schemas.ts";
+import { type GrokInfo, grokVocab } from "./schemas.ts";
 import { createGrokWatcher } from "./session-watcher.ts";
 
 export const grokAdapter: AgentAdapter<GrokSession, GrokInfo> = {
@@ -28,7 +28,7 @@ export const grokAdapter: AgentAdapter<GrokSession, GrokInfo> = {
   // arbiter keeps it from landing on a terminal that already has a session
   // (juspay/kolu#2057).
   resolveSessions(state, log) {
-    if (!matchesAgent(state, "grok")) return [];
+    if (!matchesAgent(state, grokVocab.cli)) return [];
     return resolveGrokSessions(state.foregroundPid, state.cwd, log);
   },
 
@@ -46,7 +46,7 @@ export const grokAdapter: AgentAdapter<GrokSession, GrokInfo> = {
 
   externalChanges: {
     isPresent(state) {
-      return matchesAgent(state, "grok") || grokHomePresent();
+      return matchesAgent(state, grokVocab.cli) || grokHomePresent();
     },
     install(onChange, onError, log) {
       subscribeActiveSessions(onChange, onError, log);

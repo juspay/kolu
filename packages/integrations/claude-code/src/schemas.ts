@@ -123,6 +123,16 @@ export const claudeCodeVocab: AgentVocab<ClaudeCodeInfo> = {
   mark: CLAUDE_MARK,
   cli: {
     basename: "claude",
+    shims: new Set([
+      "node",
+      "nodejs",
+      "npm",
+      "npx",
+      "pnpm",
+      "yarn",
+      "bun",
+      "deno",
+    ]),
     stableFlags: new Map<string, FlagArity>([
       ["--model", "value"],
       ["--dangerously-skip-permissions", "boolean"],

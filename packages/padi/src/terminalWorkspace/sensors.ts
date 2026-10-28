@@ -75,6 +75,7 @@ import type {
   TerminalPorts,
 } from "@kolu/terminal-vocab/schema";
 import { gitFactOf, gridsEqual, portsEqual } from "@kolu/terminal-vocab/schema";
+import { sameArgv } from "./fold.ts";
 import { claimSession, releaseTerminal } from "./sessionOwnership.ts";
 
 /** The engine's transient agent working state — the last-emitted agent value (the
@@ -700,6 +701,29 @@ function isNotFoundError(err: unknown): boolean {
   );
 }
 
+/** One sample as an OBSERVATION: the resolved info plus its allowlisted argv.
+ *  `argv: null` means the OS could not be READ this time — a different fact from
+ *  "the process has no allowlisted flags". For the SAME identity the mirror's
+ *  flags are carried forward, so a transient EACCES/EMFILE/osfacts-spawn blip
+ *  cannot overwrite a good target with `argv: []` (and stick there if the
+ *  terminal sleeps inside the window). A NEW identity with an unread argv records
+ *  `[]` — the identity is authoritative, the flags arrive on a later sample (the
+ *  dedup key is the whole observation, so they do).
+ *
+ *  Exported for the producer-level test; the sensor is the only caller. */
+export function observationFromSample(
+  next: { info: AgentInfo; argv: readonly string[] | null } | null,
+  mirror: AgentObservation | null,
+): AgentObservation | null {
+  if (next === null) return null;
+  const argv =
+    next.argv ??
+    (mirror !== null && agentInfoEqual(mirror.info, next.info)
+      ? mirror.argv
+      : []);
+  return { info: next.info, argv };
+}
+
 /** Emit an authoritative agent OBSERVATION (info + allowlisted argv; a null
  *  observation = session ended), with the publish-if-changed dedup against the
  *  engine's last-emitted MIRROR — the one gate for "did kolu already reflect
@@ -718,24 +742,24 @@ function isNotFoundError(err: unknown): boolean {
 function emitAgentValue(
   agentState: AgentEngineState,
   emit: (o: TerminalEvent) => void,
-  next: AgentObservation | null,
+  next: { info: AgentInfo; argv: readonly string[] | null } | null,
 ): void {
-  if (agentObservationEqual(agentState.mirror, next)) return;
-  agentState.mirror = next;
-  emit({ kind: "agent", agent: { value: next } });
+  const resolved = observationFromSample(next, agentState.mirror);
+  if (agentObservationEqual(agentState.mirror, resolved)) return;
+  agentState.mirror = resolved;
+  emit({ kind: "agent", agent: { value: resolved } });
 }
 
-/** The mirror's equality: same info AND the same allowlisted argv (order
- *  matters — flag order is part of the invocation). */
-function agentObservationEqual(
+/** The mirror's equality: same info AND the same allowlisted argv. Exported for
+ *  the producer-level test (the "unread argv is not a change" pin). */
+export function agentObservationEqual(
   a: AgentObservation | null,
   b: AgentObservation | null,
 ): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
   if (!agentInfoEqual(a.info, b.info)) return false;
-  if (a.argv.length !== b.argv.length) return false;
-  return a.argv.every((token, i) => token === b.argv[i]);
+  return sameArgv(a.argv, b.argv);
 }
 
 // Exported for the producer-level regression test (`sensors.observability.test.ts`),
@@ -807,15 +831,18 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
   // restore target.
   const grammar = agentCliGrammar(adapter.kind);
   // The live foreground process's allowlisted flag tokens — the ONLY thing a
-  // restore replays. Read through the host's memoised snapshot, so the several
-  // emits per reconcile share one read.
-  const liveArgv = (): readonly string[] => {
+  // restore replays. `null` = the OS could not be read this time, which is NOT
+  // "no flags": `observationFromSample` carries the mirror's flags forward for
+  // the same identity, so a transient read failure cannot erase a good target.
+  // Read through the host's memoised snapshot, so the several emits per
+  // reconcile share one read.
+  const liveArgv = (): readonly string[] | null => {
     const snapshot = readForegroundSnapshot(
       agentState,
       currentForeground,
       plog,
     );
-    return snapshot === null ? [] : stableFlagTokens(grammar, snapshot.argv);
+    return snapshot === null ? null : stableFlagTokens(grammar, snapshot.argv);
   };
   plog.debug("started");
 

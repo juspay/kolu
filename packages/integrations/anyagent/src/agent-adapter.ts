@@ -24,6 +24,7 @@
 
 import type { Logger } from "@kolu/log";
 import type { ProcessSnapshot } from "kolu-io/types";
+import type { AgentCliGrammar } from "./vocab.ts";
 import type { TaskProgress } from "./schemas.ts";
 
 /** Snapshot of a terminal's observable state, passed to `resolveSessions`.
@@ -266,41 +267,25 @@ export interface AgentAdapter<Session, Info extends AgentInfoShape> {
   };
 }
 
-/** Foreground process names that HIDE the real CLI: an npm/pip-installed agent
- *  runs as its interpreter, so the kernel basename never names the agent. This
- *  is the ONLY window in which a shell's preexec hint may break the tie — the
- *  exact case #673 needed.
+/** True if the KERNEL names this agent's binary, or the shell's preexec hint
+ *  names it while the foreground is one of the shims THIS agent's own package
+ *  declares (`cli.shims` — the packaging-owned window; see its docblock for the
+ *  residual it deliberately does not close).
  *
  *  Narrow on purpose. A hint is read off PTY bytes, which anything the user
  *  displays can print, so accepting it against an ARBITRARY foreground would let
  *  a printed mark make an adapter claim a terminal that runs no agent (an `exact`
  *  resume target and an MRU row for a conversation never started there). */
-const INTERPRETER_SHIMS: ReadonlySet<string> = new Set([
-  "node",
-  "nodejs",
-  "npm",
-  "npx",
-  "pnpm",
-  "yarn",
-  "bun",
-  "deno",
-  "python",
-  "python3",
-]);
-
-/** True if the KERNEL names `agentName`, or the shell's preexec hint names it
- *  while the foreground is an interpreter shim (the one case the kernel cannot
- *  answer). */
 export function matchesAgent(
   state: AgentTerminalState,
-  agentName: string,
+  cli: Pick<AgentCliGrammar, "basename" | "shims">,
 ): boolean {
   const foreground = state.readForegroundBasename();
-  if (foreground === agentName) return true;
+  if (foreground === cli.basename) return true;
   return (
-    state.lastAgentCommandName === agentName &&
+    state.lastAgentCommandName === cli.basename &&
     foreground !== null &&
-    INTERPRETER_SHIMS.has(foreground)
+    cli.shims.has(foreground)
   );
 }
 

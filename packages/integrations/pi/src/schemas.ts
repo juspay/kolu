@@ -92,6 +92,16 @@ export const piVocab: AgentVocab<PiInfo> = {
   mark: PI_MARK,
   cli: {
     basename: "pi",
+    shims: new Set([
+      "node",
+      "nodejs",
+      "npm",
+      "npx",
+      "pnpm",
+      "yarn",
+      "bun",
+      "deno",
+    ]),
     stableFlags: new Map<string, FlagArity>([
       ["--model", "value"],
       ["--provider", "value"],

@@ -18,6 +18,7 @@
 import pino from "pino";
 import type { AgentAdapter, AgentInfoShape } from "anyagent";
 import { matchesAgent } from "anyagent";
+import { agentCliGrammar } from "kolu-agents/vocab";
 import { inMemoryChannel } from "@kolu/surface/server";
 import type { ForegroundSample } from "kaval";
 import type {
@@ -59,7 +60,7 @@ function startHarness(commandRooted: boolean) {
     // Resolve via matchesAgent (command hint OR kernel basename), like the real
     // codex/opencode adapters. Here basename is "node", so it hinges on the hint.
     resolveSessions: (state) =>
-      matchesAgent(state, "opencode") ? [ROOT_PID] : [],
+      matchesAgent(state, agentCliGrammar("opencode")) ? [ROOT_PID] : [],
     sessionKey: (s) => String(s),
     sessionStartedAt: () => null,
     createWatcher: (_s, onChange) => {

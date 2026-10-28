@@ -99,7 +99,6 @@ const sleepingMeta: AuthoredSleepingTerminal = Schema.decodeUnknownSync(
   state: "sleeping",
   location: LOCAL_LOCATION,
   lastActivityAt: 7,
-  lastAgentCommand: "claude --model sonnet",
   sleptAt: 111,
 });
 
@@ -121,7 +120,6 @@ const parkedMeta: AuthoredParkedTerminal = Schema.decodeUnknownSync(
   parkedAt: 999,
   location: LOCAL_LOCATION,
   lastActivityAt: 55,
-  lastAgentCommand: "claude --model opus",
   themeName: "nord",
 });
 

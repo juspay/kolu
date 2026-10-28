@@ -36,6 +36,7 @@ import {
   matchesAgent,
 } from "anyagent";
 import type { Logger } from "kolu-shared";
+import type { ProcessSnapshot } from "kolu-io/types";
 import { AGENT_DIR } from "./config.ts";
 import {
   defaultSessionStore,
@@ -45,7 +46,7 @@ import {
   type SessionStore,
   subscribeSessionsTree,
 } from "./core.ts";
-import type { PiInfo } from "./schemas.ts";
+import { type PiInfo, piVocab } from "./schemas.ts";
 import { resolveSessionDir } from "./session-root.ts";
 import { createPiWatcher } from "./session-watcher.ts";
 
@@ -87,46 +88,42 @@ function noteStore(store: SessionStore): void {
   if (treeFanOut) watchStore(store);
 }
 
-/** The session STORE for THIS terminal's pi. Reads the foreground pi
- *  process's argv/env (where pi's overrides actually live) and folds them
- *  through pi's precedence chain; an unreadable or already-exited process
- *  resolves to the default store — the only honest answer left, never an
- *  error. */
+/** The session STORE for THIS terminal's pi, from the ONE process snapshot the
+ *  caller already read (the host memoises it per foreground sample —
+ *  juspay/kolu#2286 — so this never takes a second read). `null` means the
+ *  process could not be read: fall back to the default store, the only honest
+ *  answer left for the STORE (the caller decides whether it may attribute a
+ *  session at all). */
 function sessionStoreFor(
   state: AgentTerminalState,
+  proc: ProcessSnapshot | null,
   log?: Logger,
 ): SessionStore {
-  const pid = state.foregroundPid;
-  if (pid !== undefined) {
-    // The host's ONE read for this reconcile tick, shared with every other
-    // adapter (juspay/kolu#2286) — never a per-adapter `readProcessSnapshot`.
-    const proc = state.readProcessSnapshot();
-    if (proc) {
-      const resolved = resolveSessionDir({
-        argv: proc.argv,
-        // `null` = this platform redacts the environment (macOS), which is a
-        // different fact from an empty env map; `undefined` is what pi's chain
-        // spells "nothing named a store", so the default root applies — the
-        // documented Darwin blind spot in this module's header.
-        env: proc.env ?? undefined,
-        home: os.homedir(),
-        defaultAgentDir: AGENT_DIR,
-        cwd: state.cwd,
-        log,
-      });
-      if (resolved.source !== "default") {
-        log?.info(
-          {
-            dir: resolved.dir,
-            layout: resolved.layout,
-            source: resolved.source,
-            cwd: state.cwd,
-          },
-          "pi: session store redirected",
-        );
-      }
-      return { root: resolved.dir, layout: resolved.layout };
+  if (proc) {
+    const resolved = resolveSessionDir({
+      argv: proc.argv,
+      // `null` = this platform redacts the environment (macOS), which is a
+      // different fact from an empty env map; `undefined` is what pi's chain
+      // spells "nothing named a store", so the default root applies — the
+      // documented Darwin blind spot in this module's header.
+      env: proc.env ?? undefined,
+      home: os.homedir(),
+      defaultAgentDir: AGENT_DIR,
+      cwd: state.cwd,
+      log,
+    });
+    if (resolved.source !== "default") {
+      log?.info(
+        {
+          dir: resolved.dir,
+          layout: resolved.layout,
+          source: resolved.source,
+          cwd: state.cwd,
+        },
+        "pi: session store redirected",
+      );
     }
+    return { root: resolved.dir, layout: resolved.layout };
   }
   return defaultSessionStore();
 }
@@ -135,14 +132,19 @@ export const piAdapter: AgentAdapter<PiSession, PiInfo> = {
   kind: "pi",
 
   resolveSessions(state, log) {
-    if (!matchesAgent(state, "pi")) return [];
-    // `pi --no-session` writes NO store at all, so whatever session files the
-    // cwd already holds belong to EARLIER runs — binding one would resume a
-    // stranger's conversation (the #1495 class). The typed-line grammar used to
-    // refuse this flag before the mark stopped being parsed; the live process's
-    // own argv is the honest witness now (omp's adapter has the same guard).
-    if (state.readProcessSnapshot()?.argv.includes("--no-session")) return [];
-    const store = sessionStoreFor(state, log);
+    if (!matchesAgent(state, piVocab.cli)) return [];
+    // ONE read for this reconcile tick, as omp does: a failed read is "cannot
+    // judge" (null), never "no `--no-session`". Falling through to the default
+    // store on a failed read would attribute the cwd's stale session to a
+    // `pi --no-session` run — exactly the #1495 class this guard closes, and the
+    // two reads could disagree (a failure is not cached).
+    const proc = state.readProcessSnapshot();
+    if (proc === null) return null;
+    // `--no-session` writes NO store at all, so whatever session files the cwd
+    // already holds belong to EARLIER runs. `--no-session=true` is the same flag
+    // in pi's argv parser.
+    if (proc.argv.some((arg) => arg.startsWith("--no-session"))) return [];
+    const store = sessionStoreFor(state, proc, log);
     noteStore(store);
     return findSessionsByDirectory(state.cwd, store, log);
   },
@@ -161,7 +163,7 @@ export const piAdapter: AgentAdapter<PiSession, PiInfo> = {
 
   externalChanges: {
     isPresent(state) {
-      return matchesAgent(state, "pi") || piHomePresent();
+      return matchesAgent(state, piVocab.cli) || piHomePresent();
     },
     install(onChange, onError, log) {
       treeFanOut = onChange;

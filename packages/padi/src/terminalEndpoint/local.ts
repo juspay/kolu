@@ -1277,17 +1277,20 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       current = fold(current, o, ctx);
       // Cross-terminal MRUs (kolu's, fold-side) track the OBSERVATION itself — a git
       // context seen, a live agent detected — NOT the fold delta, so they run BEFORE
-      // the no-op early-return below. The recent-agents row is now recorded from
-      // STRUCTURED facts: the agent kind plus the live process's allowlisted argv
-      // (`step.live` = a new agent identity, so a detail tick does not reorder the
-      // MRU). Nothing a shell printed is stored or typed.
+      // the no-op early-return below. The recent-agents row is recorded from
+      // STRUCTURED facts: the agent kind plus the live process's allowlisted argv.
+      // The gate is the DERIVED TARGET moving — identity OR flags — not the
+      // identity edge alone: a first observation whose argv could not be read
+      // writes a flagless row, and the corrected flags must reach the MRU too or
+      // the palette types a flagless line. State/summary ticks leave the target
+      // equal, so they still never reorder the list.
       if (o.kind === "git" && o.git.kind === "repo")
         trackRecentRepo(o.git.info.mainRepoRoot, o.git.info.repoName);
       if (
         o.kind === "agent" &&
         o.agent !== "unknown" &&
         o.agent.value !== null &&
-        step.live
+        !restoreTargetEqual(before.restoreTarget, current.restoreTarget)
       ) {
         trackRecentAgent(o.agent.value.info.kind, o.agent.value.argv);
       }

@@ -539,9 +539,9 @@ taking token usage from the freshest assistant row's usage.
 Because detection is agent-agnostic, a new CLI doesn't wait on kolu. Once you've
 run a known agent in any terminal it also surfaces in the [command palette](/concepts)
 — as a launch option in the worktree-naming flow and in the **Recent agents**
-group. Only an agent with a **detection adapter** is a candidate: a binary kolu can
-merely name (`aider`, `goose`, `gemini`, `cursor-agent`) has no session to detect,
-so it never appears there.
+group. Only an agent with a **detection adapter** is a candidate. Aider, Goose,
+Gemini and Cursor Agent have none — there is no session for kolu to detect — so
+they never appear there.
 
 Every fact about an agent lives in that agent's own package
 (`packages/integrations/<agent>/`), as two values:

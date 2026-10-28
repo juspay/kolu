@@ -23,6 +23,7 @@ import type {
   RecentAgent,
   RecentRepo,
 } from "@kolu/padi-client/surface";
+import { agentCliGrammar, stableFlagTokens } from "kolu-agents/vocab";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
 
@@ -112,20 +113,36 @@ export function recentAgentKey(
 }
 
 /** Upsert a detected agent into the recent-agents MRU.
- *  Called from `LocalTerminalEndpoint`'s fold loop when a NEW agent identity is
- *  observed live. Both arguments are STRUCTURED facts: the registry `kind` and the
- *  live process's `stableFlags`-filtered argv (`readProcessSnapshot` →
- *  `stableFlagTokens`). No command text is accepted or stored — a row renders
- *  through the registry (`agentLaunchLine`) at its use site. */
+ *  Called from `LocalTerminalEndpoint`'s fold loop when the DERIVED restore
+ *  target moves (identity OR flags). Both arguments are STRUCTURED facts: the
+ *  registry `kind` and the live process's `stableFlags`-filtered argv
+ *  (`readProcessSnapshot` → `stableFlagTokens`). No command text is accepted or
+ *  stored — a row renders through the registry (`agentLaunchLine`) at its use
+ *  site. */
 export function trackRecentAgent(kind: string, argv: readonly string[]): void {
+  // Canonicalize through the SAME allowlist the palette renders through
+  // (`agentLaunchLine` re-filters at use time). A row captured under a wider
+  // historical allowlist would otherwise render identically to a narrower one,
+  // leaving two MRU rows for one launch line. Idempotent for the live path.
+  const flags = stableFlagTokens(agentCliGrammar(kind), argv);
   const feed = padiSurfaceCtx.cells.activityFeed.get();
+  // A FLAGLESS row for this kind is a placeholder: the first observation may land
+  // before the process's argv could be read (or before its final exec). The first
+  // successful read for the same kind supersedes it, so the palette never offers
+  // both `claude` and `claude --model sonnet`.
+  const rows =
+    flags.length === 0
+      ? feed.recentAgents
+      : feed.recentAgents.filter(
+          (row) => !(row.kind === kind && row.argv.length === 0),
+        );
   const next = upsertMru(
-    feed.recentAgents,
-    { kind, argv: [...argv], lastSeen: Date.now() },
+    rows,
+    { kind, argv: flags, lastSeen: Date.now() },
     recentAgentKey,
     (a) => a.lastSeen,
     MAX_RECENT_AGENTS,
   );
   padiSurfaceCtx.cells.activityFeed.set({ ...feed, recentAgents: next });
-  log.info({ kind, argv, total: next.length }, "recent agent tracked");
+  log.info({ kind, argv: flags, total: next.length }, "recent agent tracked");
 }

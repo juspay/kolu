@@ -66,6 +66,16 @@ export const codexVocab: AgentVocab<CodexInfo> = {
   mark: CODEX_MARK,
   cli: {
     basename: "codex",
+    shims: new Set([
+      "node",
+      "nodejs",
+      "npm",
+      "npx",
+      "pnpm",
+      "yarn",
+      "bun",
+      "deno",
+    ]),
     stableFlags: new Map<string, FlagArity>([
       ["--model", "value"],
       ["--yolo", "boolean"],

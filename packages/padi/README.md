@@ -477,7 +477,10 @@ What wake replays is the fold-derived **`restoreTarget`**, a structured value:
   package's `stableFlags` allowlist. A path, a prompt, a loader, or a resume
   marker is dropped; a `--model sonnet` survives. The filter runs again at
   RENDER (`resumeFormFor` / `agentLaunchLine`), so a target written by an older
-  build with a wider allowlist cannot bypass today's.
+  build with a wider allowlist cannot bypass today's. An UNREAD process (a
+  transient `/proc` error, a blind osfacts spawn) is not "no flags": the producer
+  carries the last observed flags forward for the same identity, so a read blip
+  cannot overwrite a good target with `argv: []`.
 - `none` is a bare shell: no live agent at sleep, or a terminal that quit one.
 
 `restoreTargetFor` builds that target from ONE agent observation (info + argv),

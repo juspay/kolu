@@ -20,11 +20,15 @@
  *  permanent Darwin blind spot, while every flag-only override resolves).
  *
  *  Any failure READ — an exited process (routine), a hidden proc (a `hidepid`
- *  host), an unsupported platform — yields null and the caller
- *  resolves its own default; those are genuinely unknowable, not errors. An
- *  UNBAKED `KOLU_OSFACTS_BIN`, by contrast, is a packaging defect: it is
- *  resolved OUTSIDE the forgiveness below, so the process crashes loudly instead
- *  of silently losing every restored flag. */
+ *  host), an unsupported platform — yields null and the caller resolves its own
+ *  default; those are genuinely unknowable, not errors. An UNBAKED
+ *  `KOLU_OSFACTS_BIN`, by contrast, is a packaging defect, and it is resolved at
+ *  MODULE LOAD: the throw surfaces while this module is imported (padi's
+ *  `terminalWorkspace/sensors.ts` and every other consumer import it at the top
+ *  of their graph), so the daemon dies at BOOT with the missing-bake error on
+ *  its own log. Resolving it inside the read instead would be caught by
+ *  `reconcile`'s `catch` two frames up, which swallows the throw and leaves
+ *  every terminal detection-blind — silently, for the life of the daemon. */
 
 import fs from "node:fs";
 import type { Logger } from "@kolu/log";
@@ -33,18 +37,18 @@ import type { ProcessSnapshot } from "./types.ts";
 
 export type { ProcessSnapshot };
 
+/** The baked osfacts binary, resolved ONCE at import (darwin only; Linux reads
+ *  `/proc`). A missing bake is a PACKAGING defect, so it must throw OUTSIDE
+ *  every forgiving read loop — see the header. */
+const OSFACTS_BIN =
+  process.platform === "darwin" ? bakedOsFactsBin("KOLU_OSFACTS_BIN") : null;
+
 /** The live process's argv + environment — the one place a launched agent
  *  invocation's flags and env vars genuinely live. */
 export function readProcessSnapshot(
   pid: number,
   log?: Logger,
 ): ProcessSnapshot | null {
-  // The bake is resolved OUTSIDE the forgiving read: a missing `KOLU_OSFACTS_BIN`
-  // is a packaging defect that would silently cost every restored flag on this
-  // host (and, because failures are not cached, re-spawn once per scrape tick).
-  // Every other osfacts caller keeps the bake loud the same way.
-  const osfactsBin =
-    process.platform === "darwin" ? bakedOsFactsBin("KOLU_OSFACTS_BIN") : null;
   try {
     if (process.platform === "linux") {
       const argv = fs
@@ -60,11 +64,11 @@ export function readProcessSnapshot(
       }
       return { argv, env };
     }
-    if (process.platform === "darwin" && osfactsBin !== null) {
+    if (process.platform === "darwin" && OSFACTS_BIN !== null) {
       // Exact argv tokens from the OS (KERN_PROCARGS2). `env` is null by OS
       // policy, not empty: macOS redacts even a same-user process's environment,
       // and osfacts has no env facet.
-      const reading = snapshotPidsSync(osfactsBin, [pid], { argv: true });
+      const reading = snapshotPidsSync(OSFACTS_BIN, [pid], { argv: true });
       const row = reading.argv.find((r) => r.pid === pid);
       if (row === undefined || row.argv.length === 0) return null;
       return { argv: row.argv, env: null };

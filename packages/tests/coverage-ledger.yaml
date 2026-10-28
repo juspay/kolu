@@ -1229,7 +1229,7 @@ retirements:
     survivorRevisionIds: [revision-5a0cb4f86dfab153ac8a]
     sameCodePathEvidence:
       file: packages/tests/features/recent-agents.feature
-      symbol: "Scenario: Flags outside the allowlist are stripped from the row"
+      symbol: "Scenario: Prompt flag values are stripped before storage"
       test: The revised scenario explicitly starts the intentionally absent Claude binary after its preexec event.
   - id: revise-5d80e2b7f4f44c94576d
     revisionId: revision-5d80e2b7f4f44c94576d
@@ -3352,9 +3352,9 @@ retirements:
     replacements: []
     survivorRevisionIds: [revision-d12fc291481e24680859]
     sameCodePathEvidence:
-      file: features/recent-agents.feature
+      file: packages/tests/features/recent-agents.feature
       symbol: "Scenario: \"Recent agents\" is hidden when no agents have been run"
-      test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
+      test: Body unchanged; the revision moved because the feature gained the `@claude-mock` tag (the fingerprint covers tags).
   - id: revise-806007eece06b17fbca4
     revisionId: revision-806007eece06b17fbca4
     action: revised
@@ -3365,9 +3365,9 @@ retirements:
     replacements: []
     survivorRevisionIds: [revision-a113efa723c731ff6d46]
     sameCodePathEvidence:
-      file: features/recent-agents.feature
+      file: packages/tests/features/recent-agents.feature
       symbol: "Scenario: Non-agent commands do not pollute the list"
-      test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
+      test: Body unchanged; the revision moved because the feature gained the `@claude-mock` tag (the fingerprint covers tags).
   - id: revise-429b93553ce0a7528476
     revisionId: revision-429b93553ce0a7528476
     action: revised
@@ -3378,7 +3378,7 @@ retirements:
     replacements: []
     survivorRevisionIds: [revision-fce244a91d0f488a3d84]
     sameCodePathEvidence:
-      file: features/recent-agents.feature
+      file: packages/tests/features/recent-agents.feature
       symbol: "Scenario: Drilling into Recent agents keeps focus on palette input"
       test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
   - id: revise-29a9ba6d97c83785f8f8
@@ -3391,7 +3391,7 @@ retirements:
     replacements: []
     survivorRevisionIds: [revision-339402453f4f8d932620]
     sameCodePathEvidence:
-      file: features/worktree-agent.feature
+      file: packages/tests/features/worktree-agent.feature
       symbol: "Scenario: Agent sub-palette appears under a recent repo when agents exist"
       test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
   - id: revise-8cf7a1038b6a594c079c
@@ -3404,7 +3404,7 @@ retirements:
     replacements: []
     survivorRevisionIds: [revision-a7948b3ef69dfde4cf69]
     sameCodePathEvidence:
-      file: features/worktree-agent.feature
+      file: packages/tests/features/worktree-agent.feature
       symbol: "Scenario: Picking an agent creates the worktree and writes the command"
       test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
   - id: revise-48e819201e86a26bb076
@@ -3417,7 +3417,7 @@ retirements:
     replacements: []
     survivorRevisionIds: [revision-18b0178fbbe7b64202eb]
     sameCodePathEvidence:
-      file: features/worktree-agent.feature
+      file: packages/tests/features/worktree-agent.feature
       symbol: "Scenario: Picking Plain shell creates a plain worktree terminal"
       test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
   - id: revise-42b5b7aee6b1fb948c83
@@ -3430,7 +3430,7 @@ retirements:
     replacements: []
     survivorRevisionIds: [revision-9ecec81675b75dff8f6d]
     sameCodePathEvidence:
-      file: features/worktree-agent.feature
+      file: packages/tests/features/worktree-agent.feature
       symbol: "Scenario: Typing a custom name and picking an agent creates a named worktree with the agent"
       test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
   - id: revise-d693ae151dd9f4c5c1ca
@@ -3443,7 +3443,7 @@ retirements:
     replacements: []
     survivorRevisionIds: [revision-d84d38d42a10f8cdd5fc]
     sameCodePathEvidence:
-      file: features/recent-agents.feature
+      file: packages/tests/features/recent-agents.feature
       symbol: "Scenario: A quoted flag value survives intact in the list (#1407)"
       test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
   - id: revise-024ebc7e5cf5c71778b2
@@ -3456,7 +3456,7 @@ retirements:
     replacements: []
     survivorRevisionIds: [revision-fc2ee9106b46f7197717]
     sameCodePathEvidence:
-      file: features/worktree-agent.feature
+      file: packages/tests/features/worktree-agent.feature
       symbol: "Scenario: Mouse submission survives a live palette refresh"
       test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
   - id: revise-9882f17943531dee33e0
@@ -3469,8 +3469,8 @@ retirements:
     replacements: []
     survivorRevisionIds: [revision-088d4f405a67a1516a66]
     sameCodePathEvidence:
-      file: features/session-restore.feature
-      symbol: "Scenario: A split terminal's agent resumes on session restore"
+      file: packages/tests/features/session-restore.feature
+      symbol: "Scenario Outline: A split terminal's agent resumes on session restore"
       test: The scenario still drives the same journey; its arrangement now runs a live agent process instead of a captured command mark.
   - id: revise-72a2af203a68b1b7ff37
     revisionId: revision-72a2af203a68b1b7ff37
@@ -3482,7 +3482,7 @@ retirements:
     replacements: []
     survivorRevisionIds: [revision-ee56c08a2a963f6208d9]
     sameCodePathEvidence:
-      file: features/recent-agents.feature
+      file: packages/tests/features/recent-agents.feature
       symbol: "Scenario: A live agent surfaces under \"Recent agents\""
       test: The renamed scenario still asserts that a detected agent surfaces in the palette; its arrangement now runs a live agent process instead of a captured command mark.
   - id: revise-14a54fc0cd3d6c282483
@@ -3495,7 +3495,7 @@ retirements:
     replacements: []
     survivorRevisionIds: [revision-5a0cb4f86dfab153ac8a]
     sameCodePathEvidence:
-      file: features/recent-agents.feature
+      file: packages/tests/features/recent-agents.feature
       symbol: "Scenario: Flags outside the allowlist are stripped from the row"
       test: The renamed scenario still asserts that flags outside the allowlist never reach the row; it now reads the live process's argv instead of a typed line.
   - id: revise-e491a92ff0d84c497fa2
@@ -3508,6 +3508,6 @@ retirements:
     replacements: []
     survivorRevisionIds: [revision-4730b83691773bb98439]
     sameCodePathEvidence:
-      file: features/session-restore.feature
+      file: packages/tests/features/session-restore.feature
       symbol: "Scenario: Restore card surfaces resumable agents behind a global resume toggle"
       test: The renamed scenario still asserts the resume toggle and the per-terminal agent lines; it now plants structured restore targets instead of captured commands.

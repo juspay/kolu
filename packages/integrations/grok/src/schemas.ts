@@ -58,6 +58,16 @@ export const grokVocab: AgentVocab<GrokInfo> = {
   mark: GROK_MARK,
   cli: {
     basename: "grok",
+    shims: new Set([
+      "node",
+      "nodejs",
+      "npm",
+      "npx",
+      "pnpm",
+      "yarn",
+      "bun",
+      "deno",
+    ]),
     stableFlags: new Map<string, FlagArity>([
       ["--model", "value"],
       ["-m", "value"],

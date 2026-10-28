@@ -43,7 +43,12 @@ import {
   noopPadiSurfaceCtxForTest,
   setPadiSurfaceCtx,
 } from "../padiSurfaceCtx.ts";
-import { type FoldCtx, fold, stepRecencyBaseline } from "./fold.ts";
+import {
+  type FoldCtx,
+  fold,
+  restoreTargetEqual,
+  stepRecencyBaseline,
+} from "./fold.ts";
 import {
   type CommandRunSample,
   freshAgentEngineState,
@@ -89,8 +94,10 @@ afterEach(() => {
 });
 
 /** Drive the endpoint's emit loop in miniature over the sensor's emissions:
- *  fold each event, and take the ONE recent-agents arm `local.ts` has. Returns
- *  the final folded state. */
+ *  fold each event, and take the ONE recent-agents arm `local.ts` has — the gate
+ *  is the DERIVED TARGET moving (identity OR flags), exactly as there (and the
+ *  governance fence pins `local.ts` as the only production writer). Returns the
+ *  final folded state. */
 function foldThroughEndpoint(
   emitted: readonly TerminalEvent[],
   from?: TerminalState,
@@ -104,19 +111,34 @@ function foldThroughEndpoint(
   for (const o of emitted) {
     const step = stepRecencyBaseline(baseline, o);
     baseline = step.baseline;
+    const before = state;
     const ctx: FoldCtx = { live: step.live, at: 1, runStartedAt: 0 };
     state = fold(state, o, ctx);
     if (
       o.kind === "agent" &&
       o.agent !== "unknown" &&
       o.agent.value !== null &&
-      step.live
+      !restoreTargetEqual(before.restoreTarget, state.restoreTarget)
     ) {
       trackRecentAgent(o.agent.value.info.kind, o.agent.value.argv);
     }
   }
   return state;
 }
+
+/** A resolved observation of one Claude Code session. The fold does not
+ *  validate info; the shape is the wire member. */
+const claudeInfo = {
+  kind: "claude-code" as const,
+  state: "thinking" as const,
+  sessionId: "11111111-1111-4111-8111-111111111111",
+  model: null,
+  summary: null,
+  taskProgress: null,
+  workflow: null,
+  contextTokens: null,
+  startedAt: null,
+};
 
 /** The terminal's on-disk record, composed and encoded exactly as the autosave
  *  does it. */
@@ -175,6 +197,34 @@ describe("a forged 633;E mark", () => {
     expect(feed.read().recentAgents).toEqual([]);
     expect(getActivityFeed().recentAgents).toEqual([]);
     expect(encodeSavedTerminal(state)).not.toContain("LD_PRELOAD");
+  });
+
+  it("records the rich MRU row when the flags arrive after a flagless sample", () => {
+    // The writer must be REACHABLE (a forged mark never gets here), and the MRU
+    // gate must fire on the second observation even though the identity did not
+    // change: the first sample could not read argv, the second can, and the
+    // palette must not be left typing a flagless line.
+    const feed = recordingActivityFeed();
+    const state = foldThroughEndpoint([
+      { kind: "agent", agent: { value: { info: claudeInfo, argv: [] } } },
+      {
+        kind: "agent",
+        agent: {
+          value: { info: claudeInfo, argv: ["--model", "sonnet"] },
+        },
+      },
+    ]);
+    expect(state.restoreTarget).toMatchObject({
+      kind: "exact",
+      argv: ["--model", "sonnet"],
+    });
+    expect(feed.read().recentAgents).toEqual([
+      {
+        kind: "claude-code",
+        argv: ["--model", "sonnet"],
+        lastSeen: expect.any(Number),
+      },
+    ]);
   });
 
   it("cannot resurrect a target after a genuine agent ended", async () => {

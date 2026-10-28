@@ -65,14 +65,16 @@ export const xyneVocab: AgentVocab<XyneInfo> = {
   mark: XYNE_MARK,
   cli: {
     basename: "xyne",
+    shims: new Set(["python", "python3", "uv", "uvx"]),
     stableFlags: new Map([
       ["--debug", "boolean"],
       ["--port", "value"],
     ]),
   },
   resume: {
-    // Xyne: `--continue` for most-recent in cwd; `--session <uuid>` for exact
-    // (both forms accepted upstream — cli-parser takes space-separated too).
+    // The exact form: `--session <uuid>` (cli-parser takes space-separated too).
+    // kolu never renders the most-recent `--continue` form — a target names the
+    // conversation it observed, never "whatever is newest in this directory".
     byId: (id) => `--session ${id}`,
     idPattern: UUID_RE,
     ref: (info) => info.sessionId,
