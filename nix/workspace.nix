@@ -292,7 +292,7 @@ let
     pnpm = pkgs.pnpm-build;
     # Platform-independent. `just ci::pnpm-hash-fresh` forces this fetcher to
     # re-execute so a changed lockfile cannot ride a stale binary-cache result.
-    hash = "sha256-KkuHMJ7zX4KhUT5lt+TZ5+azSkjtWst5ZRnlCUTKDwk=";
+    hash = "sha256-F9+IdKH+WyJseZgTnBDLgbMsVzbj7vaNjbssYUl6Z0o=";
     fetcherVersion = 3;
   };
 in

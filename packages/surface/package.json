@@ -58,7 +58,7 @@
   "devDependencies": {
     "@kolu/daemon-test-gate": "workspace:*",
     "@types/node": "^22.0.0",
-    "happy-dom": "^20.8.9",
+    "happy-dom": "^21.0.4",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
     "vite-plugin-solid": "^2.11.0",
