@@ -84,7 +84,6 @@ export {
   type PtyListEntry,
   type PtySpawnOpts,
   type PtySpawnResult,
-  type RetainedCommand,
   // The bounded attach-snapshot depth — paired with DEFAULT_MIRROR_SCROLLBACK in
   // the scrollback-backfill sizing invariant a consumer asserts at startup.
   SNAPSHOT_SCROLLBACK,

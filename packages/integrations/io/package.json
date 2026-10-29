@@ -17,7 +17,8 @@
     "test:daemon": "vitest run"
   },
   "dependencies": {
-    "@kolu/log": "workspace:*"
+    "@kolu/log": "workspace:*",
+    "osfacts-client": "workspace:*"
   },
   "devDependencies": {
     "@kolu/daemon-test-gate": "workspace:*",

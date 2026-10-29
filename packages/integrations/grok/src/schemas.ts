@@ -4,7 +4,13 @@
  *  the schema without pulling the package root, which imports `node:fs`.
  *  Mirrors the `kolu-codex/schemas` precedent. */
 
-import { type AgentVocab, type FlagArity, TaskProgressSchema } from "anyagent";
+import {
+  type AgentVocab,
+  type FlagArity,
+  NODE_CLI_SHIMS,
+  TaskProgressSchema,
+  UUID_RE,
+} from "anyagent";
 import { Schema } from "effect";
 
 export type { TaskProgress } from "anyagent";
@@ -58,6 +64,7 @@ export const grokVocab: AgentVocab<GrokInfo> = {
   mark: GROK_MARK,
   cli: {
     basename: "grok",
+    shims: NODE_CLI_SHIMS,
     stableFlags: new Map<string, FlagArity>([
       ["--model", "value"],
       ["-m", "value"],
@@ -72,15 +79,10 @@ export const grokVocab: AgentVocab<GrokInfo> = {
       ["--reasoning-effort", "value"],
       ["--effort", "value"],
     ]),
-    extraExitFlags: new Set<string>(),
-    nonSessionFlags: new Set<string>(),
-    nonSessionSubcommands: new Set<string>(),
   },
   resume: {
-    last: "-c",
     byId: (id) => `--resume ${id}`,
-    idPattern:
-      /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+    idPattern: UUID_RE,
     ref: (info) => info.sessionId,
   },
   infoSchema: GrokInfoSchema,

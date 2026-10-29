@@ -9,6 +9,7 @@ import {
   type AgentPaintClass,
   agentPaintClass,
   type PrResult,
+  resumableCommand,
 } from "kolu-common/surface";
 
 /** The switcher-column bucket vocabulary — the shared `AgentPaintClass`
@@ -157,7 +158,10 @@ export function workspaceSearchText(entry: {
 
   add(values, entry.suffix);
   add(values, meta.cwd);
-  add(values, meta.lastAgentCommand);
+  // The resume line, RENDERED from the structured restore target (registry
+  // basename + the live process's allowlisted flags) — never a captured command
+  // string, which no longer exists anywhere in the record.
+  add(values, resumableCommand(meta.restoreTarget));
   add(values, git?.repoRoot);
   add(values, git?.repoName);
   add(values, git?.worktreePath);

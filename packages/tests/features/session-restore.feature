@@ -123,28 +123,33 @@ Feature: Session restore
     And a restored terminal should replay the agent resume invocation "<resume>"
     And there should be no page errors
 
+    # A shell-typed env prefix is deliberately NOT replayed: the resume line is
+    # rendered from the agent process + its registry entry, never from the typed
+    # line. The prefixed launch still has to DETECT and RESUME the conversation —
+    # the prefix only no longer rides along.
     Examples:
-      | prefix                 | resume                                                                |
-      |                        | codex resume 00000000-0000-0000-0000-000000000001                     |
-      | KOLU_E2E_PROFILE=split | KOLU_E2E_PROFILE=split codex resume 00000000-0000-0000-0000-000000000001 |
+      | prefix                 | resume                                            |
+      |                        | codex resume 00000000-0000-0000-0000-000000000001 |
+      | KOLU_E2E_PROFILE=split | codex resume 00000000-0000-0000-0000-000000000001 |
 
-  # Captured agent commands (persisted on each SavedTerminal's `lastAgentCommand`)
-  # surface as a "resume M agents" suffix on the restore button, with each
-  # command shown beneath its terminal. A single "Resume agent sessions" toggle
-  # (default on) controls whether the agents are re-run at all — turning it off
-  # hides the CLI lines and drops the suffix.
-  Scenario: Restore card surfaces agent commands behind a global resume toggle
+  # A SavedTerminal's fold-derived `restoreTarget` (an OS-detected agent's
+  # identity + the flags its live process ran with) surfaces as a "resume M
+  # agents" suffix on the restore button, with each agent's launch line shown
+  # beneath its terminal. A single "Resume agent sessions" toggle (default on)
+  # controls whether the agents are re-run at all — turning it off hides the
+  # lines and drops the suffix.
+  Scenario: Restore card surfaces resumable agents behind a global resume toggle
     Given a saved session with 2 terminals
-    And terminal 0 has captured agent command "claude --model sonnet"
-    And terminal 1 has captured agent command "codex --yolo"
+    And terminal 0 has a resumable agent "claude --model sonnet"
+    And terminal 1 has a resumable agent "codex --yolo"
     When I open the app
     Then the session restore card should be visible
-    And the restore card should show agent command "claude --model sonnet"
-    And the restore card should show agent command "codex --yolo"
+    And the restore card should show the agent line "claude --model sonnet"
+    And the restore card should show the agent line "codex --yolo"
     And the restore button should mention "resume 2 agents"
     When I turn off the resume-agents toggle
     Then the restore button should not mention "resume"
-    And the restore card should not show agent command "claude --model sonnet"
+    And the restore card should not show the agent line "claude --model sonnet"
     And there should be no page errors
 
   Scenario: Plain shell terminals are grouped but carry no resume offer

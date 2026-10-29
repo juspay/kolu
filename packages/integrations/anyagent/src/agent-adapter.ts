@@ -24,6 +24,7 @@
 
 import type { Logger } from "@kolu/log";
 import type { ProcessSnapshot } from "kolu-io/types";
+import type { AgentCliGrammar } from "./vocab.ts";
 import type { TaskProgress } from "./schemas.ts";
 
 /** Snapshot of a terminal's observable state, passed to `resolveSessions`.
@@ -45,9 +46,13 @@ export interface AgentTerminalState {
    *  "codex", "opencode"), or null. Populated by the shell's preexec hook
    *  before the command runs, so it reflects the user's typed command even
    *  when the kernel-level process is an interpreter shim (npm-installed
-   *  `codex` shows up as `node` to the kernel). Only set while a command
-   *  is actively running — clears to null once the shell is idle at the
-   *  prompt again, so stale hints don't outlive the process they name. */
+   *  `codex` shows up as `node` to the kernel). Cleared once the shell is
+   *  idle at the prompt again, so stale hints don't outlive the process they
+   *  name.
+   *
+   *  This value comes from PTY bytes, so `matchesAgent` consults it ONLY when
+   *  the kernel's foreground is an interpreter shim — never as a general
+   *  override. */
   lastAgentCommandName: string | null;
   /** The FOREGROUND process's argv + environment — where a launched agent's
    *  flags and config redirects actually live (`omp --profile`, pi's
@@ -262,16 +267,25 @@ export interface AgentAdapter<Session, Info extends AgentInfoShape> {
   };
 }
 
-/** True if the preexec hint or the kernel basename names `agentName`.
- *  Preexec hint comes first so interpreter-shim matches skip the darwin
- *  sysctl inside `readForegroundBasename`. */
+/** True if the KERNEL names this agent's binary, or the shell's preexec hint
+ *  names it while the foreground is one of the shims THIS agent's own package
+ *  declares (`cli.shims` — the packaging-owned window; see its docblock for the
+ *  residual it deliberately does not close).
+ *
+ *  Narrow on purpose. A hint is read off PTY bytes, which anything the user
+ *  displays can print, so accepting it against an ARBITRARY foreground would let
+ *  a printed mark make an adapter claim a terminal that runs no agent (an `exact`
+ *  resume target and an MRU row for a conversation never started there). */
 export function matchesAgent(
   state: AgentTerminalState,
-  agentName: string,
+  cli: Pick<AgentCliGrammar, "basename" | "shims">,
 ): boolean {
+  const foreground = state.readForegroundBasename();
+  if (foreground === cli.basename) return true;
   return (
-    state.lastAgentCommandName === agentName ||
-    state.readForegroundBasename() === agentName
+    state.lastAgentCommandName === cli.basename &&
+    foreground !== null &&
+    cli.shims.has(foreground)
   );
 }
 

@@ -12,7 +12,7 @@
  * `resolveSessions` returns nothing until claude writes its session file,
  * which is exactly what the SESSIONS_DIR watcher fires on — so we need
  * a cheaper "might be running here" signal to authorize the watcher
- * install. `matchesAgent(state, "claude")` covers the OSC 633;E preexec
+ * install. `matchesAgent(state, claudeCodeVocab.cli)` covers the OSC 633;E preexec
  * hint and the kernel foreground basename; the directory check covers
  * the PID-match path where a session file can appear with no preexec
  * signal because claude is invoked via a shim (npx, wrapper) or via
@@ -29,7 +29,7 @@ import {
   type SessionFile,
   subscribeSessionsDir,
 } from "./core.ts";
-import type { ClaudeCodeInfo } from "./schemas.ts";
+import { type ClaudeCodeInfo, claudeCodeVocab } from "./schemas.ts";
 import {
   isScreenPollable,
   promoteFromScreen,
@@ -73,7 +73,9 @@ export const claudeCodeAdapter: AgentAdapter<SessionFile, ClaudeCodeInfo> = {
 
   externalChanges: {
     isPresent(state) {
-      return matchesAgent(state, "claude") || fs.existsSync(SESSIONS_DIR);
+      return (
+        matchesAgent(state, claudeCodeVocab.cli) || fs.existsSync(SESSIONS_DIR)
+      );
     },
     install(onChange, onError, log) {
       subscribeSessionsDir(onChange, onError, log);

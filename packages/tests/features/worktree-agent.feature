@@ -1,10 +1,11 @@
+@claude-mock
 Feature: Agent-aware worktree creation
   When creating a worktree from the command palette, the user can pick
   what runs in it — Plain shell or any agent CLI they've recently run.
   Selecting an agent creates the worktree AND writes the command to the
   new terminal's input so the agent starts immediately.
 
-  The sub-palette only appears when the user has at least one known
+  The sub-palette only appears when the user has at least one live-detected
   agent in their recent-agents MRU. With no agents, picking a recent
   repo behaves exactly like the pre-phase-2 flow (flat leaf → plain
   shell worktree) — first-run UX is unchanged.
@@ -15,12 +16,11 @@ Feature: Agent-aware worktree creation
     Then the right panel should be visible
 
   Scenario: Agent sub-palette appears under a recent repo when agents exist
-    # `claude` is not installed in the test env, but the preexec hook
-    # fires BEFORE execution — the OSC 633;E mark is emitted regardless
-    # of whether the command runs successfully.
+    # A live fake Claude Code process: the MRU row comes from DETECTION (the
+    # agent's kind + the flags its process runs with), not from a command mark.
     When I set up a git repo at "/tmp/kolu-wt-agent-pick"
     And I run "cd /tmp/kolu-wt-agent-pick"
-    And I start "claude --dangerously-skip-permissions"
+    And a fake Claude Code agent is running with the arguments "--dangerously-skip-permissions"
     And I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-agent-pick" in the palette
@@ -31,7 +31,7 @@ Feature: Agent-aware worktree creation
   Scenario: Picking an agent creates the worktree and writes the command
     When I set up a git repo at "/tmp/kolu-wt-agent-run"
     And I run "cd /tmp/kolu-wt-agent-run"
-    And I start "claude --dangerously-skip-permissions"
+    And a fake Claude Code agent is running with the arguments "--dangerously-skip-permissions"
     And I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-agent-run" in the palette
@@ -46,7 +46,7 @@ Feature: Agent-aware worktree creation
   Scenario: Picking Plain shell creates a plain worktree terminal
     When I set up a git repo at "/tmp/kolu-wt-agent-plain"
     And I run "cd /tmp/kolu-wt-agent-plain"
-    And I start "claude --dangerously-skip-permissions"
+    And a fake Claude Code agent is running with the arguments "--dangerously-skip-permissions"
     And I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-agent-plain" in the palette
@@ -58,7 +58,7 @@ Feature: Agent-aware worktree creation
   Scenario: Typing a custom name and picking an agent creates a named worktree with the agent
     When I set up a git repo at "/tmp/kolu-wt-agent-named"
     And I run "cd /tmp/kolu-wt-agent-named"
-    And I start "claude --dangerously-skip-permissions"
+    And a fake Claude Code agent is running with the arguments "--dangerously-skip-permissions"
     And I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-agent-named" in the palette
@@ -72,7 +72,7 @@ Feature: Agent-aware worktree creation
   Scenario: Mouse submission survives a live palette refresh
     When I set up a git repo at "/tmp/kolu-wt-agent-click"
     And I run "cd /tmp/kolu-wt-agent-click"
-    And I start "claude --dangerously-skip-permissions"
+    And a fake Claude Code agent is running with the arguments "--dangerously-skip-permissions"
     And I open the command palette
     And I select "New terminal" in the palette
     And I select "kolu-wt-agent-click" in the palette

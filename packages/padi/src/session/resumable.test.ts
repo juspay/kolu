@@ -12,30 +12,30 @@ const base = {
 } as const;
 
 /** A claude-code native session id — a UUID, the only shape that passes
- *  `resumeAgentCommand`'s shell-safe id gate (so the `exact` target actually
+ *  `resumeFormFor`'s shell-safe id gate (so the `exact` target actually
  *  resumes rather than waking to a bare shell). */
 const CLAUDE_ID = "12341234-1234-1234-1234-123412341234";
 
-const exactTarget = (command: string): SavedTerminal["restoreTarget"] => ({
+const exactTarget = (
+  argv: readonly string[] = [],
+): SavedTerminal["restoreTarget"] => ({
   kind: "exact",
-  command,
   agent: { kind: "claude-code", sessionId: CLAUDE_ID, resumeRef: CLAUDE_ID },
+  argv: [...argv],
 });
 
 const activeWithAgent: SavedTerminal = {
   ...base,
   id: "active-agent",
   state: "active",
-  lastAgentCommand: "claude --permission-mode auto",
-  restoreTarget: exactTarget("claude --permission-mode auto"),
+  restoreTarget: exactTarget(["--permission-mode", "auto"]),
 };
 const sleepingWithAgent: SavedTerminal = {
   ...base,
   id: "sleeping-agent",
   state: "sleeping",
   sleptAt: 1,
-  lastAgentCommand: "claude --permission-mode auto",
-  restoreTarget: exactTarget("claude --permission-mode auto"),
+  restoreTarget: exactTarget(["--permission-mode", "auto"]),
 };
 const activeNoAgent: SavedTerminal = {
   ...base,
@@ -46,7 +46,6 @@ const activeQuitToShell: SavedTerminal = {
   ...base,
   id: "active-quit",
   state: "active",
-  lastAgentCommand: "claude --permission-mode auto",
   restoreTarget: { kind: "none" },
 };
 const subWithAgent: SavedTerminal = {
@@ -54,8 +53,7 @@ const subWithAgent: SavedTerminal = {
   id: "sub-agent",
   state: "active",
   parentId: "active-agent",
-  lastAgentCommand: "claude",
-  restoreTarget: exactTarget("claude"),
+  restoreTarget: exactTarget(),
 };
 
 describe("resumableTerminalIds (host-owned)", () => {
@@ -72,17 +70,6 @@ describe("resumableTerminalIds (host-owned)", () => {
     expect(ids).toEqual(["active-agent", "sub-agent"]);
   });
 
-  it("counts a `legacyMostRecent` target (migrated pre-1.29 record)", () => {
-    const legacy: SavedTerminal = {
-      ...base,
-      id: "active-legacy",
-      state: "active",
-      lastAgentCommand: "opencode",
-      restoreTarget: { kind: "legacyMostRecent", command: "opencode" },
-    };
-    expect(resumableTerminalIds([legacy])).toEqual(["active-legacy"]);
-  });
-
   it("returns [] when every agent-carrying terminal is asleep", () => {
     expect(resumableTerminalIds([sleepingWithAgent])).toEqual([]);
   });
@@ -92,17 +79,34 @@ describe("resumableTerminalIds (host-owned)", () => {
       ...base,
       id: "active-broken-id",
       state: "active",
-      lastAgentCommand: "claude",
       restoreTarget: {
         kind: "exact",
-        command: "claude",
         agent: {
           kind: "claude-code",
           sessionId: "not-a-uuid",
           resumeRef: "not-a-uuid",
         },
+        argv: [],
       },
     };
     expect(resumableTerminalIds([brokenId])).toEqual([]);
+  });
+
+  it("excludes an agent kind this build no longer knows", () => {
+    const retired: SavedTerminal = {
+      ...base,
+      id: "active-retired",
+      state: "active",
+      restoreTarget: {
+        kind: "exact",
+        agent: {
+          kind: "retired-agent",
+          sessionId: CLAUDE_ID,
+          resumeRef: CLAUDE_ID,
+        },
+        argv: [],
+      },
+    };
+    expect(resumableTerminalIds([retired])).toEqual([]);
   });
 });

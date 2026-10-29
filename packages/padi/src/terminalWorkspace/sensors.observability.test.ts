@@ -29,7 +29,6 @@ import type {
   TerminalGrid,
 } from "@kolu/terminal-vocab/schema";
 import {
-  type CommandRunSample,
   type SensorSignals,
   freshAgentEngineState,
   startAgentSensor,
@@ -96,7 +95,7 @@ function startHarness(): Harness {
   const signals: SensorSignals = {
     cwd: inMemoryChannel<string>(),
     title: inMemoryChannel<string>(),
-    commandRun: inMemoryChannel<CommandRunSample>(),
+    commandRun: inMemoryChannel<string>(),
     foreground: inMemoryChannel<ForegroundSample>(),
     ports: inMemoryChannel<TerminalPorts>(),
     grid: inMemoryChannel<TerminalGrid>(),
@@ -201,7 +200,10 @@ describe("W12 — the agent sensor's resolved-null SAMPLE-CONTENT discriminant",
         ),
       ).toBe(false);
       // The last emission is `unknown` (keep-last).
-      expect(agents.at(-1)).toEqual({ kind: "agent", agent: "unknown" });
+      expect(agents.at(-1)).toEqual({
+        kind: "agent",
+        agent: "unknown",
+      });
     } finally {
       h.stop();
     }

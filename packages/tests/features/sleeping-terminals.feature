@@ -14,7 +14,7 @@ Feature: Sleeping terminals
   @codex-mock
   Scenario: Waking a sleeping agent terminal resumes the SAME conversation
     # Run a real (mock) Codex agent in the terminal so the dock lights up with a
-    # codex agent state and the server captures `lastAgentCommand` AND the live
+    # codex agent state and the server captures the live restore target (identity+flags) AND the live
     # session id (the codex mock's fixed thread `00000000-0000-0000-0000-000000000001`).
     # Sleep it via the tile ☾ button: the live xterm/PTY is released and the dormant
     # body shows. Wake it: the PTY re-spawns on the SAME id and the server replays

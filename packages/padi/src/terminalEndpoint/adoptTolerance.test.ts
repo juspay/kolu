@@ -117,21 +117,21 @@ function active(id: string, cwd: string): SavedActiveTerminal {
   };
 }
 
-/** A saved record written by a NEWER build — its `restoreTarget.agent.kind`
- *  names an agent kind THIS build's `AgentKindSchema` does not carry. Cast
- *  because the whole point is a value this build's types cannot spell: it comes
- *  off disk, written by a build whose enum was wider. */
+/** A saved record written by a NEWER build — its `restoreTarget.agent` is shaped
+ *  by an identity contract this build does not have (no `resumeRef`; the newer
+ *  build derives it), so the whole terminal cannot decode and must be forfeited
+ *  ALONE, without costing the host its other terminals. Cast because the whole
+ *  point is a value this build's types cannot spell: it comes off disk. */
 function futureAgentActive(id: string, cwd: string): SavedActiveTerminal {
   return {
     ...active(id, cwd),
-    lastAgentCommand: "xyne",
     restoreTarget: {
       kind: "exact",
-      command: "xyne",
       agent: {
         kind: "an-agent-kind-from-the-future",
         sessionId: "019fdd5e-7524-793f-acbc-66250aac65ea",
       },
+      argv: [],
     },
   } as unknown as SavedActiveTerminal;
 }

@@ -4,10 +4,14 @@
  * the stream. For the six OBSERVED fields it is plain last-write-wins; the only
  * judgments are the REMEMBERED fields — stamp `lastActivityAt` from a LIVE
  * agent observation (kolu's clock — an identity change always, a same-identity
- * output tick throttled), stamp `promptedAt` at the current agent's first live
- * state, and keep `lastAgentCommand` from the latest recognized `commandRun`. A producer can write none of that: `TerminalSnapshot` has no
- * memory field to carry, so however buggy / restarted / hostile a producer's
- * stream, it cannot overwrite a remembered fact — the fence is the EMIT TYPE.
+ * output tick throttled) and stamp `promptedAt` at the current agent's first
+ * live state — plus the derived resume target (agent identity + the live
+ * process's allowlisted argv, from ONE observation). A producer can write none of
+ * that: `TerminalSnapshot` has no memory field to carry, so
+ * however buggy / restarted / hostile a producer's stream, it cannot overwrite a
+ * remembered fact — the fence is the EMIT TYPE. And no PTY BYTE reaches here at
+ * all: a shell command mark re-samples the foreground; it carries no command
+ * line into the fold.
  *
  * Pure and host-agnostic: kolu's in-process fold (R9.0) and a remote fold (R9.3)
  * are the SAME function. `foldSnapshot` (the snapshot-only half) is shared with
@@ -18,12 +22,13 @@
 import { agentLive } from "@kolu/terminal-vocab/agentProjection";
 import type {
   AgentInfo,
+  AgentObservation,
   RestoreTarget,
   TerminalEvent,
   TerminalSnapshot,
   TerminalState,
 } from "@kolu/terminal-vocab/schema";
-import { exactRestoreTarget, resumeRefFor } from "kolu-agents/vocab";
+import { resumeRefFor } from "kolu-agents/vocab";
 import { match, P } from "ts-pattern";
 
 /** How often a same-identity OUTPUT tick may re-stamp recency. The agent-detail
@@ -44,6 +49,15 @@ export const RECENCY_THROTTLE_MS = 60_000;
  *  no resume ref. */
 export type AgentIdentityRef = { kind: string; sessionId: string };
 
+/** The CONVERSATION identity of an agent — the `{kind, sessionId}` pair every
+ *  identity comparison and baseline is built from. */
+function identityRef(info: {
+  kind: string;
+  sessionId: string;
+}): AgentIdentityRef {
+  return { kind: info.kind, sessionId: info.sessionId };
+}
+
 /** Apply one observation to the OBSERVED half (last-write-wins). Shared by kolu's
  *  full {@link fold} and a memory-less dashboard accumulator, so "apply an
  *  observation to the snapshot state" lives once. The agent's `Known<>` rule
@@ -51,7 +65,7 @@ export type AgentIdentityRef = { kind: string; sessionId: string };
  *  session is unresolvable — W12's can't-tell-ended-from-lost-observer) returns the
  *  SAME object — kolu KEEPS its last value, no clobber and no spurious autosave;
  *  `{ value }` is authoritative and APPLIES (even an authoritative `null` = session
- *  ended). A `commandRun` is a memory mark — the snapshot half is unchanged. */
+ *  ended). A PTY command mark emits no event — it is a sensor. */
 export function foldSnapshot(
   snapshot: TerminalSnapshot,
   o: TerminalEvent,
@@ -81,10 +95,10 @@ export function foldSnapshot(
       .with({ kind: "agent", agent: "unknown" }, () => snapshot)
       .with({ kind: "agent", agent: { value: P.any } }, ({ agent }) => ({
         ...snapshot,
-        agent: agent.value,
+        // The wire snapshot carries the info alone; the observation's argv is a
+        // fold fact, not a snapshot field.
+        agent: agent.value === null ? null : agent.value.info,
       }))
-      // A `commandRun` is a memory mark — the snapshot half is unchanged.
-      .with({ kind: "commandRun" }, () => snapshot)
       .exhaustive()
   );
 }
@@ -127,10 +141,7 @@ export function seedRecencyBaseline(
   // full persisted `AgentIdentity`, which also carries `resumeRef`) keeps the
   // survivor's identity stable across a restore that re-derives the ref.
   return restoreTarget?.kind === "exact"
-    ? {
-        kind: restoreTarget.agent.kind,
-        sessionId: restoreTarget.agent.sessionId,
-      }
+    ? identityRef(restoreTarget.agent)
     : null;
 }
 
@@ -150,53 +161,58 @@ export function stepRecencyBaseline(
 ): { live: boolean; baseline: AgentIdentityRef | null } {
   if (o.kind !== "agent" || o.agent === "unknown")
     return { live: false, baseline };
-  const next = o.agent.value;
+  const next = o.agent.value?.info ?? null;
   const live = agentIdentityChanged(baseline, next);
   return {
     live,
-    baseline: live
-      ? next && { kind: next.kind, sessionId: next.sessionId }
-      : baseline,
+    baseline: live ? next && identityRef(next) : baseline,
   };
 }
 
-/** kolu's RESTORE TARGET, derived from the folded state — the fold OWNS this
- *  projection rather than the shell assembling it. The discriminant is decided by
- *  the agent the fold just observed paired with the remembered launch line:
- *   - a LIVE `agent` + a remembered `lastAgentCommand` THAT INVOKES THE SAME AGENT
- *     KIND → `exact` (wake resumes THAT conversation by id, #1495);
- *   - otherwise → `none` (a quit-to-shell drops the live agent, a never-launched
- *     terminal never had one, OR the remembered command and the live agent disagree
- *     on kind — either way wake lands on a BARE SHELL, #1492, never the wrong agent).
- *  The kind-consistency gate lives in `exactRestoreTarget`: a stale-command/new-agent
- *  race (the producer observes a new agent before the replayed command mark updates
- *  memory) could otherwise pair, say, an `opencode` command with a `claude-code`
- *  identity, which `resumeAgentCommand` would silently downgrade to opencode's
- *  most-recent — the wrong-agent resume #2 makes unspellable. Refused here instead.
- *  Absence is decided HERE as `none`; never read downstream as "resume most-recent".
- *  The live fold never produces `legacyMostRecent` — that arm exists only for migrated
- *  pre-1.29 records (`backfillSnapshotCutover`). */
-export function restoreTargetOf(aw: TerminalState): RestoreTarget {
-  const command = aw.memory.lastAgentCommand;
-  const agent = aw.snapshot.agent;
-  if (command === undefined || agent === null) return { kind: "none" };
-  return (
-    exactRestoreTarget(command, {
-      kind: agent.kind,
-      sessionId: agent.sessionId,
+/** The RESTORE TARGET an agent observation implies — the fold's ONE projection
+ *  from "what the producer resolved" to "what a wake may do". Every input is a
+ *  fact kolu owns through the OS:
+ *   - `null` (no live agent) → `none`: a quit-to-shell or a never-launched
+ *     terminal; wake lands on a BARE SHELL (juspay/kolu#1492);
+ *   - an observation → `exact`, pairing its IDENTITY (the adapter matched a
+ *     session file / the foreground process — `kind` + `sessionId` + the agent's
+ *     own resume ref) with the live process's `stableFlags`-filtered argv.
+ *
+ *  There is no command string and no kind-consistency gate, because there is
+ *  nothing to disagree: identity and argv come from the SAME live agent
+ *  observation, so `{ opencode command, claude identity }` is unspellable. The
+ *  old gate policed a stale PTY mark paired against a new agent — a class that no
+ *  longer exists now that the mark feeds neither.
+ *
+ *  The PTY's `OSC 633;E` mark is NOT an input. Detection may be HINTED by it (an
+ *  interpreter shim's basename), but every value that reaches a command line here
+ *  is OS-derived; a restored command rendered from PTY text would be
+ *  attacker-controlled (`cat` a file, `curl` a banner), which is exactly the
+ *  forgery this projection exists to make unspellable. */
+export function restoreTargetFor(
+  observation: AgentObservation | null,
+): RestoreTarget {
+  if (observation === null) return { kind: "none" };
+  const { info } = observation;
+  return {
+    kind: "exact",
+    agent: {
+      ...identityRef(info),
       // The agent's OWN resume ref (juspay/kolu#1495): for most agents the
       // session id; for pi the transcript PATH (which opens regardless of where
       // pi's session store has moved). Derived by the agent's own vocab, so this
       // fold knows nothing about which agent spells its ref as a path.
-      resumeRef: resumeRefFor(agent),
-    }) ?? { kind: "none" }
-  );
+      resumeRef: resumeRefFor(info),
+    },
+    // Copied out of the observation: the persisted value is a plain array, and
+    // nothing downstream may mutate the producer's sample.
+    argv: [...observation.argv],
+  };
 }
 
-/** Structural equality of two RESTORE TARGETS, BY VALUE. Lets an emit fence gate
- *  on the projection {@link restoreTargetOf} produces rather than re-deriving "did
- *  the target move" from its raw inputs (the agent identity + `lastAgentCommand`):
- *  fold in another input here and every consumer stays correct for free. Switches
+/** Structural equality of two RESTORE TARGETS, BY VALUE — the authored-fact and
+ *  autosave fences compare the value the fold stores rather than re-deriving "did
+ *  the target move" from raw inputs. Switches
  *  on the discriminant — a future arm is a compile error (no path returns) — and is
  *  hand-written rather than `node:util` `isDeepStrictEqual` so the fold stays
  *  browser-safe (it runs in the client bundle). */
@@ -207,17 +223,27 @@ export function restoreTargetEqual(
   switch (a.kind) {
     case "none":
       return b.kind === "none";
-    case "legacyMostRecent":
-      return b.kind === "legacyMostRecent" && a.command === b.command;
     case "exact":
       return (
         b.kind === "exact" &&
-        a.command === b.command &&
         a.agent.kind === b.agent.kind &&
         a.agent.sessionId === b.agent.sessionId &&
-        a.agent.resumeRef === b.agent.resumeRef
+        a.agent.resumeRef === b.agent.resumeRef &&
+        sameArgv(a.argv, b.argv)
       );
   }
+}
+
+/** Element-wise argv equality — the flag tokens are the only ordered list in the
+ *  restore target, and replaying them in a different order is a different
+ *  invocation (`--model x --model y`), so order is part of the value. Exported
+ *  so the producer's observation dedup ({@link observationFromSample}'s caller)
+ *  spells the same rule instead of hand-rolling a second length+every loop. */
+export function sameArgv(a: readonly string[], b: readonly string[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 /** Liveness + clock, kolu's own facts passed as VALUES (never a thunk the reducer
@@ -233,28 +259,22 @@ export function restoreTargetEqual(
 export type FoldCtx = { live: boolean; at: number; runStartedAt: number };
 
 /** Fold one framed observation into a NEW `TerminalState` — nothing is mutated.
- *  Six snapshot fields: last-write-wins (via {@link foldSnapshot}). Three memory
- *  fields: `lastActivityAt` stamped from a LIVE agent observation — an IDENTITY
+ *  Six snapshot fields: last-write-wins (via {@link foldSnapshot}). The memory
+ *  facts: `lastActivityAt` stamped from a LIVE agent observation — an IDENTITY
  *  change (kolu's clock) or, on a stable identity, an OUTPUT tick throttled to
  *  {@link RECENCY_THROTTLE_MS}; `promptedAt` stamped once per agent identity, at
- *  its first live state ({@link nextPromptedAt}); `lastAgentCommand` kept from the
- *  latest `commandRun`
- *  (the producer emits it ONLY for a recognized, normalized agent command, so a
- *  non-agent `ls` never reaches here — a replay is deduped to a no-op). */
+ *  its first live state ({@link nextPromptedAt}). The resume target is
+ *  re-derived from the SAME observation (`info` + `argv`), so a same-identity
+ *  sample that finally reads the process's flags replaces an earlier empty one. */
 export function fold(
   cur: TerminalState,
   o: TerminalEvent,
   ctx: FoldCtx,
 ): TerminalState {
-  if (o.kind === "commandRun") {
-    return cur.memory.lastAgentCommand === o.command
-      ? cur // dedup: a replayed (or repeated) mark is a no-op
-      : { ...cur, memory: { ...cur.memory, lastAgentCommand: o.command } };
-  }
   const snapshot = foldSnapshot(cur.snapshot, o);
   if (o.kind !== "agent" || o.agent === "unknown") {
     // Observed-only change (or `unknown`, which `foldSnapshot` returned as-is →
-    // snapshot === cur.snapshot → cur). Memory is untouched.
+    // snapshot === cur.snapshot → cur). Memory and the target are untouched.
     return snapshot === cur.snapshot ? cur : { ...cur, snapshot };
   }
   // An authoritative agent `{ value }` (incl. a shell-idle null = session ended).
@@ -268,15 +288,19 @@ export function fold(
   // `snapshot.agent`, so it never trusts the caller's `ctx.live` blindly. Requiring
   // BOTH is this file's producer-fence thesis applied to itself — a self-contained
   // contract for any present-or-future caller, not a redundant AND to simplify away.
+  const observation = o.agent.value;
+  const info = observation === null ? null : observation.info;
   const newIdentity =
-    ctx.live && agentIdentityChanged(cur.snapshot.agent, o.agent.value);
+    ctx.live && agentIdentityChanged(cur.snapshot.agent, info);
   // FIRST LIVE TURN first (it rides every arm below), then RECENCY.
   const next: TerminalState = {
     ...cur,
     snapshot,
+    // ONE observation → ONE target. A null observation clears it to a bare shell.
+    restoreTarget: restoreTargetFor(observation),
     memory: {
       ...cur.memory,
-      promptedAt: nextPromptedAt(cur, o.agent.value, newIdentity, ctx.at),
+      promptedAt: nextPromptedAt(cur, info, newIdentity, ctx.at),
     },
   };
   // RECENCY, two arms that COMPOSE, kolu's clock stamps both — one stamp shape:

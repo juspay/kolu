@@ -35,20 +35,19 @@ const encodeJson = (schema: AnySchema, value: unknown): string =>
   JSON.stringify(Schema.encodeUnknownSync(schema)(value));
 
 describe("PTY_HOST_CONTRACT_VERSION", () => {
-  it("the Effect-4 protocol epoch is the 7.x breaking wire", () => {
+  it("the protocol epoch is the MAJOR — a previous epoch is refused both ways", () => {
     // The MAJOR is the epoch and is what this case is about; the MINOR moves
-    // with each additive member (7.1 added `terminal.getScreenCells`), so
-    // pinning the whole string here would make every additive change edit a
-    // test about the EPOCH.
-    expect(PTY_HOST_CONTRACT_VERSION.split(".")[0]).toBe("7");
-    // Both directions are refused, which is what a MAJOR buys. Not because a 6.0
-    // peer would mis-parse a payload — it cannot be spoken to at all — but so
-    // that no in-epoch comparison ever waves a previous-epoch version string
-    // through as compatible.
-    expect(isContractVersionCompatible("6.0", PTY_HOST_CONTRACT_VERSION)).toBe(
+    // with additive changes (7.1 added `terminal.getScreenCells`; 8.0 removed a
+    // required field), so pinning the whole string here would make every such
+    // change edit a test about the EPOCH.
+    expect(PTY_HOST_CONTRACT_VERSION.split(".")[0]).toBe("8");
+    // Both directions are refused, which is what a MAJOR buys. A previous-epoch
+    // peer cannot even be spoken to (framing), but the comparison must never wave
+    // its version string through on the strength of a minor alone.
+    expect(isContractVersionCompatible("7.0", PTY_HOST_CONTRACT_VERSION)).toBe(
       false,
     );
-    expect(isContractVersionCompatible(PTY_HOST_CONTRACT_VERSION, "6.0")).toBe(
+    expect(isContractVersionCompatible(PTY_HOST_CONTRACT_VERSION, "7.0")).toBe(
       false,
     );
   });
@@ -65,8 +64,8 @@ describe("PTY_HOST_CONTRACT_VERSION", () => {
   it("a same-major, NEWER-minor daemon stays adoptable — the in-epoch skew mechanism still works", () => {
     // The reason D6 bumps this constant at all rather than letting it rot: from
     // the flag day forward, minor additions must keep their old graceful arm.
-    expect(isContractVersionCompatible("7.1", "7.0")).toBe(true);
-    expect(isContractVersionCompatible("7.0", "7.1")).toBe(false);
+    expect(isContractVersionCompatible("8.1", "8.0")).toBe(true);
+    expect(isContractVersionCompatible("8.0", "8.1")).toBe(false);
   });
 });
 

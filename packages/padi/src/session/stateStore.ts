@@ -41,7 +41,19 @@ interface PadiPersistedState {
 }
 
 /** padi's state schema version — the last step of {@link PADI_STATE_MIGRATIONS}. */
-export const PADI_STATE_SCHEMA_VERSION = "1.2.0";
+export const PADI_STATE_SCHEMA_VERSION = "1.3.0";
+
+/** The SESSION half of the ladder — ONE function behind three rungs. Every
+ *  schema-era bump since 1.1.0 is expressed by the idempotent, presence-keyed
+ *  `backfillSavedSession`, so the rungs share it instead of pretending each has
+ *  its own session arm. Recorded decision (review round 3, R9): only the
+ *  ACTIVITY-FEED era is rung-local, because its old rows carried captured text
+ *  that must never be re-parsed. */
+const backfillSavedSessionIn = (store: Conf<PadiPersistedState>): void => {
+  const session = store.get("session");
+  if (session !== null)
+    store.set("session", backfillSavedSession(session) as SavedSession);
+};
 
 /** padi's migration ladder, keyed by the version each step brings the file to.
  *
@@ -55,20 +67,37 @@ export const PADI_STATE_SCHEMA_VERSION = "1.2.0";
  *    package and the built profiles it exported (`{ bundle, profiles }`); a
  *    stamp from before (`{ profile, bundle }`) is dropped by the same backfill
  *    (`backfillAgentsStamp`) — the spawn that brings the terminal back stamps
- *    it afresh. */
+ *    it afresh.
+ *  - `1.3.0`: restore is rendered from structured facts, never from captured PTY
+ *    text. A saved `restoreTarget` of `{ kind: "exact", command, agent }` becomes
+ *    `{ kind: "exact", agent, argv: [] }`, and `legacyMostRecent` becomes `none`
+ *    (`backfillRestoreTargetArgv`) — the old `command` is DELETED, never parsed:
+ *    re-parsing it is the forgery hole this closes. The remembered
+ *    `lastAgentCommand` key is dropped by the same rung, and the recent-agents MRU
+ *    is cleared: its old rows carried a captured `command` and cannot be
+ *    converted, so it starts empty and refills from live detection. `recentRepos`
+ *    is untouched by this rung.
+ *
+ *  The SESSION half of all three rungs is one function (`backfillSavedSessionIn`),
+ *  by the recorded decision above; only 1.3.0's own era is spelled here. */
 const PADI_STATE_MIGRATIONS: Record<
   string,
   (store: Conf<PadiPersistedState>) => void
 > = {
-  "1.1.0": (store) => {
-    const session = store.get("session");
-    if (session === null) return;
-    store.set("session", backfillSavedSession(session) as SavedSession);
-  },
-  "1.2.0": (store) => {
-    const session = store.get("session");
-    if (session === null) return;
-    store.set("session", backfillSavedSession(session) as SavedSession);
+  "1.1.0": backfillSavedSessionIn,
+  "1.2.0": backfillSavedSessionIn,
+  "1.3.0": (store) => {
+    backfillSavedSessionIn(store);
+    // This rung spells ITS OWN era — it must not delegate to
+    // `backfillActivityFeed`, whose clock is the CURRENT row shapes (a later row
+    // change would retroactively change what 1.3.0 does to a 1.2.x file, the
+    // exact drift the rung split exists to prevent). Its era only has to clear
+    // agent rows that carried a captured `command`; `recentRepos` is left
+    // byte-for-byte as found, presence-keyed so an already-clean feed is not
+    // rewritten on every upgrade.
+    const feed = store.get("activityFeed");
+    if (feed.recentAgents.length > 0)
+      store.set("activityFeed", { ...feed, recentAgents: [] });
   },
 };
 

@@ -82,11 +82,10 @@ describe("composeTerminalMetadata — the sleeping arm is the restore-relevant p
       location: LOCAL_LOCATION,
       lastActivityAt: 7,
       promptedAt: null,
-      lastAgentCommand: "claude",
       restoreTarget: {
         kind: "exact",
-        command: "claude",
         agent: { kind: "claude-code", sessionId: "ses-A", resumeRef: "ses-A" },
+        argv: ["--model", "sonnet"],
       },
       state: "sleeping",
       sleptAt: 123,
@@ -101,8 +100,8 @@ describe("composeTerminalMetadata — the sleeping arm is the restore-relevant p
     expect(wire.lastActivityAt).toBe(7);
     expect(wire.restoreTarget).toEqual({
       kind: "exact",
-      command: "claude",
       agent: { kind: "claude-code", sessionId: "ses-A", resumeRef: "ses-A" },
+      argv: ["--model", "sonnet"],
     });
   });
 
@@ -111,7 +110,6 @@ describe("composeTerminalMetadata — the sleeping arm is the restore-relevant p
       location: LOCAL_LOCATION,
       lastActivityAt: 7,
       promptedAt: null,
-      lastAgentCommand: "claude",
       restoreTarget: { kind: "none" },
       state: "sleeping",
       sleptAt: 123,

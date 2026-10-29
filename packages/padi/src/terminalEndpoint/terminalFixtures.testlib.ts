@@ -39,13 +39,13 @@ const RESUME_AGENT: AgentIdentity = {
 };
 
 /** The fold-derived `restoreTarget` the fixture seeds — an `exact` target carrying
- *  the launch command + the live agent's identity, so wake resumes THAT
- *  conversation by id (#1495). The `command` matches the seeded `lastAgentCommand`,
- *  exactly as `restoreTargetOf` would have produced it. */
+ *  the live agent's identity plus the flags its process ran with, so wake resumes
+ *  THAT conversation (#1495). Every field is OS-derived, exactly as
+ *  the fold's `restoreTargetFor` produces it. */
 export const EXACT_TARGET: RestoreTarget = {
   kind: "exact",
-  command: "opencode --model sonnet",
   agent: RESUME_AGENT,
+  argv: ["--model", "sonnet"],
 };
 
 /** The OBSERVATION half — the six snapshot fields a memoryless producer emits,
@@ -76,9 +76,8 @@ function activeSnapshot(): TerminalSnapshot {
 
 /** An active registry entry under `id`. `restoreTarget` rides an options object
  *  so a test can pass `{ restoreTarget: { kind: "none" } }` for the
- *  quit-to-shell case (wake → bare shell) or a `legacyMostRecent` target — an
- *  options bag, not a defaulted scalar, since `activeEntry(id, undefined)`
- *  would resurrect the default. */
+ *  quit-to-shell case (wake → bare shell) — an options bag, not a defaulted
+ *  scalar, since `activeEntry(id, undefined)` would resurrect the default. */
 export function activeEntry(
   id: TerminalId,
   opts: { restoreTarget?: RestoreTarget } = { restoreTarget: EXACT_TARGET },
@@ -94,7 +93,6 @@ export function activeEntry(
       // these onto the authored record live; here we seed them directly.
       lastActivityAt: 123,
       promptedAt: null,
-      lastAgentCommand: "opencode --model sonnet",
       restoreTarget: opts.restoreTarget,
     },
     snapshot: activeSnapshot(),

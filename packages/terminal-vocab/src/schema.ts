@@ -12,12 +12,16 @@
  *     the per-agent packages) and naming NOTHING app-specific — no `location`
  *     discriminator, no client/UI fields. It is what kolu serves UNCHANGED on its
  *     `terminalWorkspace.snapshots` collection.
- *   - `AgentMemory` is the two facts a host CANNOT re-sample — a clock reading
- *     (`lastActivityAt`) and the launch line the user typed (`lastAgentCommand`).
- *     kolu remembers them; a producer's `TerminalSnapshot` cannot spell either.
- *   - `TerminalState = { snapshot, memory }` is kolu's fold accumulator, never on
- *     a wire (kolu folds in-process). `TerminalEvent` is the per-field EMIT
- *     type a producer streams.
+ *   - `AgentMemory` is the two facts a host CANNOT re-sample — clock readings
+ *     (`lastActivityAt`, `promptedAt`). kolu remembers them; a producer's
+ *     `TerminalSnapshot` cannot spell either, and NEITHER can PTY output: a
+ *     shell's `OSC 633;E` mark is only a sensor, never a remembered launch line.
+ *   - `TerminalState = { snapshot, memory, restoreTarget }` is kolu's fold
+ *     accumulator, never on a wire (kolu folds in-process). `restoreTarget` is
+ *     the DERIVED resume fact — the agent identity plus the live process's
+ *     allowlisted argv, built from ONE observation — and is the value persisted
+ *     on the authored record. `TerminalEvent` is the per-field EMIT type a
+ *     producer streams.
  *
  * The old persisted-vs-live write fence (and its `AwarenessSink` mutator split) is
  * GONE: the producer is memoryless and the emit type forbids a memory field, so no
@@ -573,16 +577,22 @@ export type TerminalSnapshot = typeof TerminalSnapshotSchema.Type;
  *  `sessionId`) and the discriminated RESTORE TARGET the fold derives from it —
  *  both OWNED by anyagent/schemas (the resume vocabulary layer), re-exported here
  *  as the schema home kolu-common/surface and the fold resolve them through. The
- *  fold's `restoreTargetOf` PRODUCES the target; `resumeFormFor` CONSUMES it. */
+ *  fold's `restoreTargetFor` PRODUCES the target; `resumeFormFor` CONSUMES it. */
 export type AgentIdentity = typeof AgentIdentitySchema.Type;
 export type RestoreTarget = typeof RestoreTargetSchema.Type;
 
 /** The facts a host CANNOT observe — recency and the first live turn are CLOCK
- *  readings, the launch line is what the user TYPED. Irrecoverable from a screen,
- *  so kolu remembers them; written by kolu's fold ALONE (a producer's
- *  `TerminalSnapshot` cannot spell any of them). Kept FLAT on kolu's authored
- *  record (`updateMemory` is the one narrowed writer), so the on-disk JSON path
- *  for each is a top-level key. */
+ *  readings. Irrecoverable from a screen, so kolu remembers them; written by
+ *  kolu's fold ALONE (a producer's `TerminalSnapshot` cannot spell any of them).
+ *  Kept FLAT on kolu's authored record (`updateMemory` is the one narrowed
+ *  writer), so the on-disk JSON path for each is a top-level key.
+ *
+ *  There is deliberately NO remembered launch line. A `lastAgentCommand` string
+ *  was the forgery hole: `OSC 633;E` text is whatever the user displays, and it
+ *  was replayed as a command on wake/restore. What the wake needs instead is the
+ *  RESTORE TARGET — a session identity plus the live process's allowlisted argv
+ *  — which rides `KoluAuthoredServerFieldsSchema.restoreTarget`, not this
+ *  memory. */
 export const AgentMemorySchema = Schema.Struct({
   /** Workspace-switcher recency: epoch-millis of the last LIVE agent observation,
    *  on kolu's clock — an agent-IDENTITY change (start / finish / new session)
@@ -621,18 +631,25 @@ export const AgentMemorySchema = Schema.Struct({
   promptedAt: Schema.NullOr(Schema.Number).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(null)),
   ),
-  /** Normalized agent CLI invocation last observed (e.g. `"claude --model
-   *  sonnet"`). Preserved across intervening non-agent input; drives the "resume
-   *  agent on restore" offer. Absent for terminals that never ran a known agent. */
-  lastAgentCommand: Schema.optionalKey(Schema.String),
 });
 export type AgentMemory = typeof AgentMemorySchema.Type;
 
-/** kolu's stored value: the last-seen `TerminalSnapshot` + the remembered facts.
- *  NESTED, not merged, so the half published to the snapshots collection is
- *  `current.snapshot` — structurally WITHOUT the memory fields, not a runtime
- *  strip. The fold accumulator; never crosses a wire (kolu folds in-process). */
-export type TerminalState = { snapshot: TerminalSnapshot; memory: AgentMemory };
+/** kolu's stored value: the last-seen `TerminalSnapshot`, the remembered facts,
+ *  and the derived resume target. NESTED, not merged, so the half published to
+ *  the snapshots collection is `current.snapshot` — structurally WITHOUT the
+ *  memory fields, not a runtime strip. `restoreTarget` is the fold's derived
+ *  resume fact — the ONE place the agent identity and the process's allowlisted
+ *  flags meet, so there is no second "live argv" field to keep in step. The fold
+ *  accumulator; never crosses a wire (kolu folds in-process). */
+export type TerminalState = {
+  snapshot: TerminalSnapshot;
+  memory: AgentMemory;
+  /** What a wake would do with this terminal — re-derived by the fold on every
+   *  authoritative agent observation (so a same-identity flag sample replaces an
+   *  earlier empty one), and seeded from the durable authored target on
+   *  adopt/wake. `none` is a bare shell. */
+  restoreTarget: RestoreTarget;
+};
 
 /** The async resolution of the agent field made LAWFUL. The session file lands a
  *  beat after the command mark (over the settle window), so a bare `agent: null`
@@ -646,21 +663,33 @@ export type TerminalState = { snapshot: TerminalSnapshot; memory: AgentMemory };
  *  only the resolved value is. */
 export type Known<T> = "unknown" | { value: T };
 
-/** A per-field sample a memoryless producer emits. The standing five build
- *  the `TerminalSnapshot`; `commandRun` is a discrete mark that feeds kolu's
- *  `lastAgentCommand` memory + the recent-agent MRU. The agent is the one field
- *  that resolves ASYNCHRONOUSLY, so it carries `Known<>` rather than a bare
- *  nullable. In-process for R9.0 (a plain TS union, no wire schema — the framed
- *  `terminalEvents` stream that serializes these is R9.3). */
+/** One authoritative answer to "which agent runs here, and with what flags?" —
+ *  the info the adapter resolved and the LIVE process's allowlisted argv tokens,
+ *  as ONE value. Keeping them together is what gives the producer a single
+ *  dedup key: a same-identity sample that finally reads the process's flags is a
+ *  NEW observation, not a discarded detail tick. */
+export type AgentObservation = {
+  info: AgentInfo;
+  /** `stableFlags`-filtered argv tokens (never the raw process argv). */
+  argv: readonly string[];
+};
+
+/** A per-field sample a memoryless producer emits. The standing six build the
+ *  `TerminalSnapshot`; an `agent` observation carries the whole
+ *  {@link AgentObservation} (info + allowlisted argv — STRUCTURED facts read from
+ *  the OS, never text from the PTY). A shell's `OSC 633;E` mark emits no event at
+ *  all: it is a sensor only (it re-samples the foreground and feeds the adapters'
+ *  shim hint), so nothing it carries can reach a remembered fact or a restored
+ *  command line. In-process for R9.0 (a plain TS union, no wire schema — the
+ *  framed `terminalEvents` stream that serializes these is R9.3). */
 export type TerminalEvent =
   | { kind: "cwd"; cwd: string }
   | { kind: "git"; git: GitFact }
   | { kind: "pr"; pr: PrResult }
   | { kind: "foreground"; foreground: Foreground | null }
-  | { kind: "agent"; agent: Known<AgentInfo | null> }
+  | { kind: "agent"; agent: Known<AgentObservation | null> }
   | { kind: "ports"; ports: TerminalPorts }
-  | { kind: "grid"; grid: TerminalGrid }
-  | { kind: "commandRun"; command: string; replayed: boolean };
+  | { kind: "grid"; grid: TerminalGrid };
 
 /** A fresh terminal's initial `TerminalSnapshot`: spawn-time cwd, everything else at
  *  its "not yet resolved" seed (git unresolved, PR pending, no agent, no foreground, no
@@ -677,9 +706,9 @@ export function seedSnapshot(cwd: string): TerminalSnapshot {
 }
 
 /** A fresh terminal's empty memory — no recency yet (honest `null`: a fresh
- *  terminal has never had an agent transition), no command yet. The ONE home
- *  for the memory-default set (a fresh spawn seeds empty memory; wake/adopt
- *  seed from the durable record). */
+ *  terminal has never had an agent transition). The ONE home for the
+ *  memory-default set (a fresh spawn seeds empty memory; wake/adopt seed from
+ *  the durable record). */
 export function seedMemory(): AgentMemory {
   return { lastActivityAt: null, promptedAt: null };
 }

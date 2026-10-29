@@ -123,7 +123,6 @@ vi.mock("solid-sonner", () => ({
     warning: () => {},
   }),
 }));
-vi.mock("anyagent/cli", () => ({ resumeFormFor: () => null }));
 
 import { addHost, resetHosts } from "../hostScope/mockHostMap.testlib";
 import {

@@ -442,20 +442,15 @@ export function runContractCorpus(opts: {
         }),
       );
       const live = await cmdP;
-      expect(live.command).toContain("corpus-command");
-      // A live mark is flagged `replayed: false` so consumers fire their
-      // live-only side effects (recent-agent recency) on it.
-      expect(live.replayed).toBe(false);
+      expect(live).toContain("corpus-command");
 
       // Snapshot-first replay (the new contract guarantee): a subscriber that
-      // joins AFTER the mark still gets the last command on its first frame,
-      // flagged `replayed: true` so it seeds detection without re-firing the
-      // live-only recency bump. Pinned HERE — not just the identity-link suite —
+      // joins AFTER the mark still gets the last command on its first frame.
+      // Pinned HERE — not just the identity-link suite —
       // so the real socket daemon path exercises it too.
       const lateStream = client().surface.commandRun.get({ id });
       const replay = await firstYield(lateStream);
-      expect(replay.command).toContain("corpus-command");
-      expect(replay.replayed).toBe(true);
+      expect(replay).toContain("corpus-command");
 
       await Effect.runPromise(client().surface.terminal.kill({ id }));
     });

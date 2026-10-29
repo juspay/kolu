@@ -647,7 +647,6 @@ Given(
       pr: { kind: "absent" },
       location: LOCAL_LOCATION,
       lastActivityAt: 0,
-      lastAgentCommand: "claude --model sonnet",
     };
     // The malformed record: a non-UUID id is the sole defect. It clears the
     // persisted-session schema (loose `z.string()` id) so the session plants,
@@ -661,7 +660,6 @@ Given(
       pr: { kind: "absent" },
       location: LOCAL_LOCATION,
       lastActivityAt: 0,
-      lastAgentCommand: "codex",
     } as unknown as SavedSleepingTerminal;
 
     // Stash for the restore-card self-heal (mirrors session_restore_steps:

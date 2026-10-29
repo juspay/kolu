@@ -118,40 +118,57 @@ the foreground. When an agent is launched **as the terminal's root process** —
 shell wrapping it, e.g. `kaval-tui create -- codex` — there is no shell to print
 that marker, so kolu instead **remembers the exact command the terminal was
 spawned with** and uses it as the recognition hint (and reads that root's
-foreground as busy, since the agent *is* the root). kolu never scrapes a running
-process's argv from `/proc`, with one exception: a nixpkgs-wrapped binary runs as
-a **dynamic loader** (`ld-linux…` / `ld-musl-…` / `ld.so`) with the real program
-as its first argument, so when the foreground's `argv[0]` *is* a loader kolu
-reads that argument from `/proc` and recognises the program the loader loads —
-which is how `opencode` is found even with no shell marker naming it. Otherwise
-it uses only the shell's marks and the command it was handed at spawn. Adding a
-new agent is one small package that declares its
+foreground as busy, since the agent *is* the root). It also reads the foreground
+process's own **arguments** — from `/proc` on Linux, and through kolu's baked
+`osfacts` helper on macOS, so the tokens stay exact — for two jobs: a
+nixpkgs-wrapped binary runs as a **dynamic loader** (`ld-linux…` / `ld-musl…` /
+`ld.so`) with the real program as its first argument, so kolu recognises the
+program the loader loads (which is how `opencode` is found even with no shell
+marker naming it), and the arguments' allowlisted flags are what a
+[resume](/sessions) may replay. What a shell *prints* stays a hint: the mark can
+name a shim, never a command. Adding a new agent is one small package that declares its
 `AgentVocab` (name, mark, CLI grammar, resume policy, info schema) and its
 `AgentPlugin` (detection adapter, transcript fetcher, env keys), plus one row in
 the agent registry and the build wiring (`nix/workspace.nix`, lockfile) — no
 shared table anywhere in the tree changes.
 
-### What a launch line may carry
+### What a resume may carry
 
-The command you type to start an agent is also the line kolu replays to
-[resume it](/sessions) after a sleep or restart. kolu reads the agent's name
-behind a plain shell prefix:
+Resuming a conversation after a [sleep or restart](/sessions) is rendered from
+three kinds of **structured fact** kolu already owns — never from a command line
+a shell printed:
 
-| You type | kolu remembers |
+| fact | where it comes from |
 | --- | --- |
-| `opencode --model x` | `opencode --model x` |
-| `AI_PROFILE=github:juspay/skills opencode` | `AI_PROFILE=github:juspay/skills opencode` |
-| `exec omp --model fable` | `omp --model fable` |
-| `env FOO=1 codex` | `FOO=1 codex` |
+| which agent | the detection adapter that matched this terminal's foreground process |
+| which conversation | the agent's own session file (plus its process, or its per-tty breadcrumb) |
+| which flags | the **live agent process's arguments**, read from the OS and filtered through the agent's allowlist |
 
-Environment assignments are **kept**, so the resumed agent gets the same profile
-or config it started with. `exec` and `env` are dropped. Anything else in front of
-the agent — a pipeline, `cd dir && claude`, a subshell, a flag on `env` like
-`env -i` — is not recognized. The agent is still detected and shown, but its
-terminal will **not** resume across a restart, and padi's log says so once: with
-the line it saw when the line was not recognized (`reason: "unrecognized"`), or
-noting that no launch line ever arrived — a shell without kolu's integration, such
-as fish (`reason: "no-launch-line"`).
+The filter is an allowlist, and it is the whole security story: a shell's
+`OSC 633;E` command mark is a *sensor*. Anyone whose text you display — a file
+you `cat`, a curl response, an ssh banner — can print that escape sequence, so a
+captured line can never become a command kolu types. Only flags the agent's own
+package declares as launch-shape come back; unknown flags, wrappers, paths,
+positional prompt text and resume markers are dropped. Where `--model` is
+declared as taking a value, the value rides along:
+
+| the live process runs | wake replays |
+| --- | --- |
+| `claude --plugin-dir P --resume <id> --dangerously-skip-permissions` | `claude --resume <id> --dangerously-skip-permissions` |
+| `omp -e P --resume <path> --model fable` | `omp --resume <path> --model fable` |
+| `ld-linux… …/opencode --standalone --session <id> --model sonnet` | `opencode --session <id> --model sonnet` |
+
+Two consequences worth stating plainly. A **shell-typed environment prefix**
+(`FOO=1 claude`, `AI_PROFILE=… opencode`) is no longer replayed — it lives in the
+typed line, not in the process's arguments; put the variable in your shell
+profile or an [agents profile](/agents). (`AI_PROFILE` set by kolu's own agents
+feature still works: it is in the spawn environment, and it keeps coming back.)
+And a terminal saved by an older kolu keeps its conversation but comes back
+without its old flags once — they return on the next live sample.
+
+A terminal whose live agent kolu cannot render a resume form for (an agent kind
+this build does not know, or a session ref that fails the agent's own shape gate)
+wakes to a bare shell, and padi's log says so once.
 
 <Aside type="note" title="One conversation belongs to one terminal">
   Claude Code, Grok, and Oh My Pi anchor a conversation to a specific terminal —
@@ -280,8 +297,8 @@ awaiting you, `turn_ended` for waiting. An open `ask_user_question` promotes to
 _awaiting you_ even mid-tool, so a multiple-choice prompt never reads as "running
 tools".
 
-**Resume** uses `grok -c` (most recent in the directory) or `grok --resume <uuid>`
-(an exact conversation). Launch-shape flags such as `--model` / `-m`,
+**Resume** uses `grok --resume <uuid>` — the exact conversation kolu observed.
+Launch-shape flags such as `--model` / `-m`,
 `--always-approve`, `--no-plan`, `--no-subagents`, and **`--no-alt-screen`**
 (inline TUI instead of the alternate screen) are kept on the **recent agents**
 list and on sleep/wake resume. **Context tokens** come from `signals.json`
@@ -349,11 +366,10 @@ lands.
 | Tool use | spinning amber | newest assistant message ended `stopReason: "toolUse"` |
 | Waiting | dim dot | newest assistant message ended its turn (`stop` / `length` / `error` / `aborted`) |
 
-**Resume** uses `pi -c` (most recent in the directory) or `pi --session`
-with the transcript's **absolute path** when known (an exact conversation —
-pi accepts both the id and the path; the path is spliced because an id alone
-can no longer be found once the session store was moved by a redirect
-above). Launch-shape flags such as `--model` / `--provider` /
+**Resume** uses `pi --session` with the transcript's **absolute path** (the
+exact conversation kolu observed — pi accepts both the id and the path; the path
+is spliced because an id alone can no longer be found once the session store was
+moved by a redirect above). Launch-shape flags such as `--model` / `--provider` /
 `--thinking` / `--name` are kept on the **recent agents** list and on sleep/wake
 resume. **Context tokens** come from the newest assistant message's usage
 (`input + cacheRead + cacheWrite` — pi's buckets are disjoint, so the sum is
@@ -442,10 +458,9 @@ and the tile stays on **running tools** for the duration of the prompt. A
 recognition loose enough to take any corner risks reading prose as a prompt,
 so the default corner is what kolu commits to recognizing.
 
-**Resume** uses `omp -c` (this terminal's breadcrumb, else the most recent
-conversation in the directory) or `omp --resume` with the transcript's
-**absolute path** when known — the breadcrumb already carries it, and it is the
-one reference that survives a moved store. Launch-shape flags such as `--model`,
+**Resume** uses `omp --resume` with the transcript's **absolute path** — the
+exact conversation this terminal's breadcrumb named, and the one reference that
+survives a moved store. Launch-shape flags such as `--model`,
 `--smol`, `--slow`, `--plan`, `--thinking`, `--approval-mode`, and `--profile`
 are kept on the **recent agents** list and on sleep/wake resume. **Context
 tokens** come from the newest assistant message's usage (`input + cacheRead +
@@ -514,18 +529,19 @@ inspector still show the **session title** (from the sidecar) and the
 badge that reads _waiting_ does not mean it's your turn — it's the floor every
 turn returns to.
 
-**Resume** uses `xyne --session <uuid>` (an exact conversation, including a
-cold-restored terminal from before the reboot — the UUID filename is the id
-upstream's flag takes) or `xyne --continue` (most recent). **Transcript
-export** reads the same session JSONL, taking token usage from the freshest
-assistant row's usage.
+**Resume** uses `xyne --session <uuid>` — the exact conversation (including a
+cold-restored terminal from before the reboot; the UUID filename is the id
+upstream's flag takes). **Transcript export** reads the same session JSONL,
+taking token usage from the freshest assistant row's usage.
 
 ## Adding an agent
 
 Because detection is agent-agnostic, a new CLI doesn't wait on kolu. Once you've
 run a known agent in any terminal it also surfaces in the [command palette](/concepts)
 — as a launch option in the worktree-naming flow and in the **Recent agents**
-group.
+group. Only an agent with a **detection adapter** is a candidate. Aider, Goose,
+Gemini and Cursor Agent have none — there is no session for kolu to detect — so
+they never appear there.
 
 Every fact about an agent lives in that agent's own package
 (`packages/integrations/<agent>/`), as two values:

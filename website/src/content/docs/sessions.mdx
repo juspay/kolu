@@ -83,16 +83,31 @@ Wake respawns the terminal in the same directory and resumes the agent on the
 **exact conversation it was running** — resumed by its own exact-conversation
 form (`claude --resume <id>`, `codex resume <id>`, `opencode --session <id>`,
 `xyne --session <id>`, the Grok equivalent, and for pi and Oh My Pi the
-transcript's absolute path, which those two accept verbatim), not merely the
-most-recent conversation in that folder. The launch line it replays — flags
-included — is the one kolu's [shell integration](/shell-integration) captured
-when you started the agent, env-assignment prefix (`FOO=bar claude`) included —
-[what a launch line may carry](/agent-detection#what-a-launch-line-may-carry)
-lists what kolu can read. When a terminal slept before kolu captured its
-session id, wake falls back to the agent's own most-recent resume
-(`xyne --continue` and friends). The one exception is
-deliberate: if you'd **quit** the agent to a bare shell before sleeping, waking
-lands you at that shell rather than silently relaunching something you'd closed.
+transcript's absolute path, which those two accept verbatim), never "the most
+recent conversation in this folder".
+
+The line wake types is **rendered from facts kolu owns**, never replayed from
+something a shell printed: the agent's own registry entry supplies the binary
+and how it spells resume, the agent's session file supplies the conversation
+id, and the **live agent process's own arguments** supply the flags — filtered
+through that agent's allowlist, so only recognised launch-shape flags (a
+`--model`, a `--dangerously-skip-permissions`, an `--no-alt-screen`) come back
+and a stray path, prompt, or resume marker is dropped.
+[What a resume may carry](/agent-detection#what-a-resume-may-carry) lists the
+allowlist per agent.
+
+That is also why the line cannot be forged. A command mark is only a *sensor*:
+anyone whose text you display — a `cat`, a curl response, an ssh banner — can
+print the escape sequence, so kolu never lets one become a command it types. The
+one thing wake can no longer replay is a **shell-typed environment prefix**
+(`FOO=1 claude`): that prefix existed only in the typed line, not in the
+process's own arguments, so the agent comes back without it — set the variable
+in your shell profile, or through an [agents profile](/agents), if it must
+survive. A terminal that slept before kolu captured its session id has nothing
+honest to resume and wakes to a bare shell; the flags of a pre-existing saved
+target return on the next live sample. The one exception is deliberate: if you'd
+**quit** the agent to a bare shell before sleeping, waking lands you at that
+shell rather than silently relaunching something you'd closed.
 
 Wake restores the **family** the same way: every dormant member re-spawns on its
 own id, parents first, with each split back under the tile it belonged to and

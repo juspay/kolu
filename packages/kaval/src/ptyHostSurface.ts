@@ -89,7 +89,8 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  *  surface kaval's memory on the rail — a 3.1 survivor (lacking the verb) is
  *  recycled on adoption rather than silently reporting no daemon memory.
  *  Bumped to 3.3 (additive · minor): the `commandRun` stream gained a required
- *  `replayed` field on each frame (snapshot-replay vs. live mark) — a 3.2
+ *  `replayed` field on each frame (snapshot-replay vs. live mark; REMOVED again at
+ *  7.1 — see [#2326] below) — a 3.2
  *  survivor would serve bare `{ command }` frames the new schema rejects, so it
  *  is recycled on adoption rather than feeding the server unparseable marks.
  *  Bumped to 4.0 (breaking · major): `getScreenText`'s input was *reshaped*, not
@@ -192,7 +193,23 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  *  #1872 also adds an OPTIONAL `shellJoin` to the `commandRun` frame (the retained
  *  command's quoting dialect, so a replayed seed vs a raw 633 line is reparsed with
  *  the right tokenizer) — same additive-optional call, NO bump: a survivor that
- *  omits it degrades to the raw (`string-argv`) reading, the pre-fix behavior. */
+ *  omits it degrades to the raw (`string-argv`) reading, the pre-fix behavior.
+ *  [#2326] That `shellJoin` field is REMOVED again (the sensor no longer reparses
+ *  the mark at all — see below), and — being `optionalKey` — its removal needs NO
+ *  bump: a survivor that still emits it is stripped by this schema, and a consumer
+ *  of a survivor that omits it reads the same `command`. Nothing branches on the
+ *  value any more, so there is no behaviour to mis-parse.
+ *  The `command` mark itself is declared a SENSOR: no consumer may replay it.
+ *
+ *  [#2326] The `replayed` flag is REMOVED too, and THIS one forces the "8.0" bump
+ *  below. It was a REQUIRED field (3.3), so it is not the `shellJoin` case: a 7.1
+ *  consumer meeting a newer daemon that omits it rejects the whole frame. And a
+ *  rejected frame here is not cosmetic — `commandRun` is a pure-enrichment tap
+ *  with no `onError`/retry, so it dies at the first mark for that terminal's
+ *  life: every shim hint and the launch-window `unknown` fence, on every
+ *  terminal of a rolled-back install. The honest answer is the 3.3 reasoning
+ *  again — an incompatible shape change RECYCLES the survivor (its session parks
+ *  and restores) rather than serving frames the peer cannot read. */
 /*  Bumped to 5.3 (MINOR): the host-global `activity` stream (meaningful-output
  *  edges). This is a NEW EMITTED STREAM MEMBER, not an optional field — a survivor
  *  5.2 daemon does not serve it at all, so a 5.3 consumer subscribing would hit a
@@ -248,8 +265,20 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  *  explain, while a missing procedure surfaces as an unspeakable-member error at
  *  the wire — the class of failure this constant exists to convert into an honest,
  *  managed recycle. The park/restore cost is bounded and already the routine price
- *  of every other additive member. */
-export const PTY_HOST_CONTRACT_VERSION = "7.1";
+ *  of every other additive member.
+ *
+ *  Bumped to 8.0 (BREAKING · major): `commandRun` loses its REQUIRED `replayed`
+ *  field (see [#2326] above). A required-field REMOVAL is the 3.3 shape inverted
+ *  — a survivor that still sends it is fine (stripped), but an OLD consumer
+ *  meeting this daemon rejects every frame, and the tap has no retry, so that
+ *  terminal keeps no marks for the life of the process. A MINOR is not enough:
+ *  `isContractVersionCompatible` is `major equal && reported.minor >= expected`,
+ *  so a 7.2 daemon reads as compatible to a 7.1 consumer and the skew is waved
+ *  through. The file's own precedent for OLD-consumer/new-daemon is the major at
+ *  the `overflow` variant (`:111-118`): only a major rejects BOTH directions, so
+ *  rollback never waves a shape the peer cannot decode through. The recycle is
+ *  honest (session parks and restores). */
+export const PTY_HOST_CONTRACT_VERSION = "8.0";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -891,23 +920,17 @@ export const ptyHostSurface = defineSurface({
       outputSchema: Schema.Struct({ title: Schema.String }),
     },
     /** OSC 633;E preexec command lines. Snapshot-then-deltas: the first frame
-     *  replays the last command seen before subscribe (`replayed: true`) so a
-     *  late/restarted sensor still learns it; subsequent frames are live marks
-     *  (`replayed: false`). The flag lets consumers seed detection from the
-     *  replay WITHOUT re-firing live-only side effects (recent-agent recency). */
+     *  replays the last command seen before subscribe, so a late/restarted sensor
+     *  still learns it; subsequent frames are live marks. There is no `replayed`
+     *  discriminator — no consumer branches on one.
+     *
+     *  SENSOR DATA. PTY output is a sensor: nothing that executes may read a
+     *  value whose provenance is PTY bytes, so no consumer may turn `command`
+     *  into a command kolu types. Its only sanctioned reads are the head
+     *  basename (a shim hint) and a foreground re-sample trigger. */
     commandRun: {
       inputSchema: TerminalIdInputSchema,
-      outputSchema: Schema.Struct({
-        command: Schema.String,
-        replayed: Schema.Boolean,
-        // #1872 (additive · optional, NO contract bump — see the version note):
-        // the command's quoting dialect. `true` = the command-rooted `shellJoin`
-        // seed (reparse with `shellSplit`); absent/`false` = a raw OSC 633;E line
-        // (reparse with `string-argv`). Carried per frame so the snapshot replay of
-        // a retained seed is reparsed correctly regardless of delivery timing; a
-        // survivor that omits it degrades to the raw reading (today's behavior).
-        shellJoin: Schema.optionalKey(Schema.Boolean),
-      }),
+      outputSchema: Schema.String,
     },
     /** Foreground process name + pid, sampled at the tty (deduped). */
     foreground: {

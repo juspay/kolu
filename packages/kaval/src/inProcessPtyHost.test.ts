@@ -148,8 +148,7 @@ describeDaemon(
       // host's retention is in place before the late subscriber joins.
       // `subscribeFrames`, not a bare open: the subscription must be ESTABLISHED
       // before the mark is driven, or the host's retention would replay it to a
-      // late subscriber and the `replayed: false` assertion below would be
-      // asserting the opposite of what it names.
+      // late subscriber and the "live frame" would be the replayed one.
       const early = subscribeFrames(client.surface.commandRun.get({ id }));
       await Effect.runPromise(
         client.surface.terminal.write({
@@ -158,32 +157,24 @@ describeDaemon(
         }),
       );
       const liveFrame = await early.next();
-      expect(liveFrame.command).toContain("codex");
-      // A live mark is flagged `replayed: false`.
-      expect(liveFrame.replayed).toBe(false);
+      expect(liveFrame).toContain("codex");
       early.close();
 
       // The repro: a NEW subscriber, joining after the mark, must still receive
       // the command — snapshot-first, on its very first frame. Before the fix it
-      // got nothing and this hangs to the nextFrame timeout. The frame is flagged
-      // `replayed: true` so the consumer seeds detection WITHOUT re-firing the
-      // live-only recent-agent recency bump.
+      // got nothing and this hangs to the nextFrame timeout.
       const late = openStream(client.surface.commandRun.get({ id }));
       const replayFrame = await nextFrame(late);
-      expect(replayFrame.command).toContain("codex");
-      expect(replayFrame.replayed).toBe(true);
+      expect(replayFrame).toContain("codex");
 
       closeStream(late);
       await Effect.runPromise(client.surface.terminal.kill({ id }));
     });
 
-    it("a command-rooted spawn's commandRun snapshot carries the shellJoin dialect (#1872)", async () => {
-      // Emitter-exhaustive pin: every SEED frame the surface serves carries
-      // `shellJoin: true`, so the "a seed frame without a dialect flag" half-state
-      // is test-unspellable even though the wire field is optional-for-forward-compat.
-      // A late subscriber (padi adopts post-spawn) thus reparses the seed with
-      // shellSplit, never string-argv. A shell terminal's 633 marks carry
-      // `shellJoin: false` (the raw-line dialect) — covered by the replay test above.
+    it("a command-rooted spawn's commandRun snapshot replays the seed verbatim (#1872)", async () => {
+      // The seed is SENSOR data, not a command: a late subscriber (padi adopts
+      // post-spawn) replays it so it can name the foreground process — nothing
+      // reparses it into argv any more, which is why the frame carries no dialect.
       const client = makeClient();
       const { id } = await Effect.runPromise(
         client.surface.terminal.spawn({
@@ -194,9 +185,7 @@ describeDaemon(
       );
       const seed = openStream(client.surface.commandRun.get({ id }));
       const frame = await nextFrame(seed);
-      expect(frame.replayed).toBe(true);
-      expect(frame.command).toBe("/bin/sh -c 'sleep 5'");
-      expect(frame.shellJoin).toBe(true);
+      expect(frame).toBe("/bin/sh -c 'sleep 5'");
       closeStream(seed);
       await Effect.runPromise(client.surface.terminal.kill({ id }));
     });

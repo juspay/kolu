@@ -361,13 +361,13 @@ export const OSC7_FN = `__kolu_osc7() { printf '\\033]7;file://%s%s\\033\\\\' "$
  *     foreground process detection.
  *
  *  2. **OSC 633 ; E ; <cmd>** — VS Code's semantic "exact command line"
- *     mark. The OSC 633 handler in `kaval` republishes the raw
- *     payload on the `commandRun` channel; downstream consumers derive the global
- *     "recent agents" MRU and a per-terminal agent-command stash (used to
- *     detect interpreter-shimmed agents like npm-installed codex, where
- *     the kernel-level process name is `node`). The shell hands us the
- *     command string verbatim, so callers never need `/proc` (Linux-only)
- *     or `ps` spawning (slow). Works identically on Linux and macOS.
+ *     mark. The OSC 633 handler in `kaval` republishes the raw payload on the
+ *     `commandRun` channel, and it is a SENSOR: downstream may take its head
+ *     basename (so an interpreter-shimmed agent like npm-installed codex, whose
+ *     kernel process name is `node`, still matches its adapter) and re-sample the
+ *     foreground — but it never becomes a command kolu types. PTY output is a
+ *     sensor; nothing that executes may read a value whose provenance is PTY
+ *     bytes. Works identically on Linux and macOS.
  *
  *  Emission order is not load-bearing. Preexec fires while the shell is
  *  still at its prompt, so any reconcile triggered here would be gated
@@ -390,7 +390,8 @@ export const OSC2_PREEXEC_FN = `__kolu_preexec() { printf '\\033]2;%s\\033\\\\' 
  *  trap there; it chains whatever trap it displaced, but its dispatch gate is
  *  closed for the FIRST command of the session — and an agent launch is
  *  typically the first command (kolu's restore resume-writes always are), so
- *  those terminals silently never earned a resumable restore target. Nothing in
+ *  those terminals silently lost the mark that names a shimmed agent's process
+ *  (detection still worked by kernel basename; the mark is a sensor). Nothing in
  *  the ecosystem contends for `PS0`, so there is no fight to lose and no
  *  first-command window. It also structurally cannot fire for PROMPT_COMMAND
  *  hooks or readline widgets (`__fzf_history__` etc.) — the leaks the old

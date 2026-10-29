@@ -231,7 +231,7 @@ export interface PtySpawnOpts {
   args?: string[];
   /** True when `shell` is not a shell but the ROOT COMMAND itself — a
    *  `kaval-tui create -- <cmd>` PTY with the command as `argv[0]` and no shell
-   *  wrapping it. The host seeds {@link PtyHost.getLastCommand} from the argv (a
+   *  wrapping it. The host seeds the retained command from the argv (a
    *  shell-less PTY never emits the OSC 633;E mark that is otherwise
    *  `lastCommand`'s only writer), and reports the fact on the inventory row so
    *  the workspace sensors read foreground==root as BUSY, not as an idle shell
@@ -432,22 +432,14 @@ export interface PtyAttachOpts {
   resizeTo?: PtyGrid;
 }
 
-/** The command a PTY has already run, retained so a late subscriber still learns
- *  it, with the QUOTING DIALECT it was written in (`true` = the command-rooted
- *  `shellJoin` seed, reparse with `shellSplit`; `false` = a raw OSC 633;E line,
- *  reparse with `string-argv`). */
-export interface RetainedCommand {
-  readonly command: string;
-  readonly shellJoin: boolean;
-}
-
 /** {@link PtyHost.subscribeCommandRun}'s two halves, taken in ONE synchronous
  *  step so a mark published between them can neither be lost nor delivered
  *  twice. */
 export interface CommandRunSubscription {
   /** The command retained at subscribe time, or `undefined` before the first
-   *  mark. A consumer replays it as its snapshot frame. */
-  readonly retained: RetainedCommand | undefined;
+   *  mark. A consumer replays it as its snapshot frame. SENSOR DATA, never a
+   *  command kolu replays: the only readers take its head basename. */
+  readonly retained: string | undefined;
   /** Live OSC 633;E marks published AFTER the reading. */
   readonly marks: Stream.Stream<string, SubscriberOverflow>;
 }
@@ -559,15 +551,6 @@ export interface PtyHost {
   getForegroundPid(id: PtyId): number | undefined;
   /** Current foreground process name, or `undefined` if gone. */
   getProcess(id: PtyId): string | undefined;
-  /** Last command line seen on an OSC 633;E mark, or `undefined` if none yet /
-   *  gone. The synchronous read the `commandRun` source replays snapshot-first,
-   *  mirroring {@link getProcess} for the `foreground` source. */
-  getLastCommand(id: PtyId): string | undefined;
-  /** Quoting dialect of the current {@link getLastCommand}: `true` = the
-   *  command-rooted `shellJoin` seed (reparse with `shellSplit`), `false` = a raw
-   *  OSC 633;E line (reparse with `string-argv`). `false` when there is no command
-   *  yet. The `commandRun` snapshot carries it so a reparse is never guessed. */
-  getLastCommandShellJoin(id: PtyId): boolean;
   /** Current cwd, or `undefined` if gone. */
   getCwd(id: PtyId): string | undefined;
   /** Last OSC 0/2 title (empty string if none yet), or `undefined` if
@@ -653,17 +636,11 @@ interface Entry {
   cwdFanOut: FanOut<string>;
   titleFanOut: FanOut<string>;
   commandRunFanOut: FanOut<string>;
-  /** Last command line seen on an OSC 633;E mark (`undefined` until the first),
-   *  retained so the `commandRun` source can replay it snapshot-first to a late
-   *  subscriber — mirroring how `foreground` replays the current process. */
+  /** Last command line seen on an OSC 633;E mark — or, for a command-rooted PTY,
+   *  the `shellJoin` seed of its spawn argv (`undefined` until then). Retained so
+   *  the `commandRun` source can replay it snapshot-first to a late subscriber —
+   *  mirroring how `foreground` replays the current process. SENSOR DATA ONLY. */
   lastCommand: string | undefined;
-  /** Quoting dialect of the CURRENT `lastCommand`: `true` when it is the
-   *  command-rooted SEED (`shellJoin(argv)` — reparse with `shellSplit`), `false`
-   *  when it is a raw OSC 633;E line (reparse with `string-argv`). A later 633
-   *  mark overwrites both the value and this flag, so the retained command's
-   *  dialect is always known — the `commandRun` snapshot carries it so a
-   *  reconnect/late subscriber reparses correctly regardless of which wrote last. */
-  lastCommandShellJoin: boolean;
   /** True when this PTY's root process IS the spawned command (no shell) — the
    *  seed source for `lastCommand` at spawn, and the fact reported on the
    *  inventory row so the sensors read `foreground === root` as busy. */
@@ -1071,7 +1048,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       titleFanOut: new FanOut<string>(),
       commandRunFanOut: new FanOut<string>(),
       lastCommand: undefined,
-      lastCommandShellJoin: false,
       commandRooted: spawnOpts.commandRooted ?? false,
       foregroundFanOut: new FanOut<ForegroundSample>(),
       lastForegroundKey: undefined,
@@ -1088,17 +1064,17 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // field + channel the 633;E handler uses (so the sync getter and the stream
     // never disagree), and it is only a SEED — a later live 633;E mark (if a shell
     // ever runs inside) is the temporal last-writer and overwrites it. `shellJoin`
-    // (the repo's POSIX-quote source of truth, the same helper kaval-tui/padi-tui
-    // rebuild a command line with), NOT a bare `join(" ")`, so a stable flag whose
-    // value carries spaces (`--settings '{"x": 1}'`) survives `parseAgentCommand`'s
-    // tokenizer instead of word-splitting. (We deliberately do NOT seed the title:
-    // the title tap is live-only — no snapshot-first replay — so a seeded title is
-    // erased by the foreground sensor's first sample; the tile carries the agent's
-    // foreground process name instead, and the Dock reads state from the command.)
+    // (the repo's POSIX-quote source of truth) keeps tokens intact so a value with
+    // spaces stays one word if anyone ever re-tokenizes it; today's only reader
+    // takes the head basename. This is SENSOR data: `commandRooted` also stays the
+    // `isShellIdle` seed, and nothing here becomes a command kolu replays.
+    // (We deliberately do NOT seed the title: the title tap is live-only — no
+    // snapshot-first replay — so a seeded title is erased by the foreground
+    // sensor's first sample; the tile carries the agent's foreground process name
+    // instead, and the Dock reads state from the command.)
     if (entry.commandRooted) {
       const command = shellJoin([spawnOpts.shell, ...(spawnOpts.args ?? [])]);
       entry.lastCommand = command;
-      entry.lastCommandShellJoin = true;
       entry.commandRunFanOut.publishUnsafe(command);
     }
 
@@ -1140,6 +1116,17 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // OSC 633 ; E ; <command> — VS Code's "exact command line" mark. The
     // payload arrives as "E;<command>"; accept only the E sub-code so
     // future VS Code sequences (A/B/C/D) pass through untouched.
+    //
+    // PTY output is a SENSOR. Nothing that executes may read a value whose
+    // provenance is PTY bytes. This payload is attacker-controlled — anyone whose
+    // text the user displays (`cat` a file, curl, an ssh banner) can emit the
+    // mark while the shell is idle, and the normalizer would keep env assignments
+    // and value flags, so `LD_PRELOAD=/x claude --settings '{…}'` would become a
+    // command wake typed into a fresh shell. So the mark stays a sensor here and
+    // downstream: it re-samples the foreground (an agent forks a beat after it)
+    // and its head basename may name a shim for the adapters. A restore replays
+    // the LIVE PROCESS's allowlisted argv plus the OS-derived session identity
+    // (`resumeFormFor`), never this text.
     entry.disposables.push(
       headless.parser.registerOscHandler(633, (data: string) => {
         if (!data.startsWith("E;")) return false;
@@ -1148,12 +1135,9 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         // including any secrets; consumers normalize before logging at
         // higher levels.
         log.debug({ id, command }, "command run (OSC 633;E)");
-        // Retain the command BEFORE publishing so the synchronous
-        // `getLastCommand` is already current for anyone the publish wakes. A 633
-        // line is raw shell (string-argv), so it clears the shellJoin-seed dialect
-        // even if it overwrites a command-rooted PTY's seed (precedence).
+        // Retain the command BEFORE publishing so `subscribeCommandRun`'s
+        // snapshot-first reading is already current for anyone the publish wakes.
         entry.lastCommand = command;
-        entry.lastCommandShellJoin = false;
         entry.commandRunFanOut.publishUnsafe(command);
         // The agent process forks AFTER this mark — re-sample foreground
         // across the settle window so detection sees the real foreground.
@@ -1643,14 +1627,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       Effect.suspend(() => {
         const entry = requireEntry(id);
         return Effect.map(
-          entry.commandRunFanOut.subscribeWith(() =>
-            entry.lastCommand === undefined
-              ? undefined
-              : {
-                  command: entry.lastCommand,
-                  shellJoin: entry.lastCommandShellJoin,
-                },
-          ),
+          entry.commandRunFanOut.subscribeWith(() => entry.lastCommand),
           ({ stream, reading }): CommandRunSubscription => ({
             retained: reading,
             marks: stream,
@@ -1688,9 +1665,6 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     size: () => entries.size,
     getForegroundPid,
     getProcess: foregroundProcessName,
-    getLastCommand: (id) => entries.get(id)?.lastCommand,
-    getLastCommandShellJoin: (id) =>
-      entries.get(id)?.lastCommandShellJoin ?? false,
     getCwd: (id) => entries.get(id)?.cwd,
     getTitle: (id) => entries.get(id)?.title,
     getScreenState,
