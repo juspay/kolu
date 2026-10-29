@@ -47,18 +47,12 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
    *  `restarted` guard (on a genuine server restart the dim overlay is the
    *  authoritative rescue UI and the restore button must not compete).
    *
-   *  DERIVED, never latched — this memo must stay a pure projection of the cell.
-   *  It briefly carried a version-latched optimistic override so a local action
-   *  could answer before the server did; that override was never released, so
-   *  ONE Restore (or Start fresh) click answered `null` for the rest of the tab's
-   *  life and every later server push was ignored. The visible defect: Restart
-   *  kaval parks N rows and padi offers them correctly, but the canvas stayed
-   *  cardless, and the session never autosaved again (`suppressed-parked` with no
-   *  way to accept the offer). The card needs no optimistic answer — during a
-   *  restore the cell still holds the session it is consuming (so the card stays
-   *  mounted, with `isRestoring()` gating its buttons), and after a restore or
-   *  forfeit the HOST's next snapshot is what dismisses it. Faking that locally
-   *  is the bug, not the fix. */
+   *  A PURE projection of the cell — never a local answer that outlives the
+   *  action which produced it. Such an answer hides every later host offer, and
+   *  with it the only thing that can consume the parked rows. The card needs no
+   *  optimistic value: through a restore the cell still holds the blob being
+   *  consumed (so the card stays mounted, `isRestoring` gating its buttons), and
+   *  after an action the HOST's next snapshot is what dismisses it. */
   const savedSession = createMemo(() => {
     if (lifecycle().kind === "restarted") return null;
     return serverSavedSession();
@@ -67,10 +61,8 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
    *  resolves (success or failure). The restore card stays mounted
    *  while this is true so the click target doesn't detach mid-flight. */
   const [isRestoring, setIsRestoring] = createSignal(false);
-  /** True from the moment `handleForfeitSession` starts until it settles. The
-   *  card is dismissed by the HOST's `null` snapshot, not by us — so this flag is
-   *  what gates the buttons while that write is in flight, and what makes a
-   *  double click a no-op. */
+  /** True from the moment `handleForfeitSession` starts until it settles — the
+   *  forfeit's write is in flight and the host has not yet cleared the blob. */
   const [isForfeiting, setIsForfeiting] = createSignal(false);
 
   // ── The answered tile's arrival deadline ────────────────────────────────────
@@ -429,13 +421,10 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
 
   /** Explicit forfeit — the user chose "Start fresh" over the saved session.
    *  One server call discards the parked entries AND clears the saved session
-   *  together (creating a terminal no longer forfeits implicitly, W1). On
-   *  success the server pushes a `null` saved-session snapshot, and that IS what
-   *  dismisses the card — `savedSession` derives from the cell, so there is
-   *  nothing here to clear. `isForfeiting` is the only local fact: it gates the
-   *  card's buttons (and makes a second click a no-op) while the write is in
-   *  flight, so the user sees a disabled "Start fresh" rather than a card that
-   *  vanishes before the host agreed to it. */
+   *  together (creating a terminal no longer forfeits implicitly, W1). The
+   *  `null` snapshot the host pushes back is what dismisses the card — there is
+   *  nothing here to clear, only `isForfeiting` to gate the buttons while the
+   *  write is in flight (and to make a second click a no-op). */
   function handleForfeitSession(): UiAction {
     return Effect.suspend(() => {
       if (isForfeiting()) return Effect.void;

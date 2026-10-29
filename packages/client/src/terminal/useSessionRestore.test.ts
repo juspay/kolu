@@ -451,7 +451,6 @@ describe("useSessionRestore — forfeit fires session.forfeit; the HOST dismisse
             expect(rpc.forfeit).toHaveBeenCalledWith({});
             // NOTHING is cleared locally: `savedSession` is the host's cell, and
             // the card is dismissed by the `null` snapshot the forfeit writes.
-            // (The old optimistic clear is what latched the card away for good.)
             expect(session.savedSession()).toEqual(saved);
             expect(session.isForfeiting()).toBe(false);
 
@@ -1041,10 +1040,9 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
 
 describe("useSessionRestore — savedSession is the host's cell, never a latched local answer", () => {
   it("adopts a LATER host push after a local action (the Restart-kaval regression)", async () => {
-    // The incident this pins: one Restore/Start-fresh click used to latch a local
-    // `null` override for the rest of the tab's life, so a later Restart kaval —
-    // padi parking N rows and offering them on its `session` cell — reached the
-    // canvas as NO restore card, and the session was never autosaved again.
+    // A local action must not latch the card away: after Start fresh, a later host
+    // push (kaval restarted → parked rows offered) is still adopted. A latched
+    // answer hides the offer, and with it the only thing that consumes those rows.
     rpc.forfeit.mockClear();
     h.listPending = false;
     h.list = [];

@@ -30,7 +30,7 @@ import {
   type SavedSession,
   type SavedTerminal,
 } from "@kolu/padi-client/surface";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { setDaemonProcessId } from "../koluRoot.ts";
 import { resumeFormFor } from "kolu-agents/vocab";
 import {
@@ -991,10 +991,11 @@ describe("importSession — a foreign blob's resume flags are not facts", () => 
 });
 
 describe("importSession — the replacement reaps parked rows it does not name", () => {
-  /** Wire the AutosaveGate to the REAL restore-pending/orphan queries so this file
-   *  can read the fire DECISION (`captureFinalSession` returns it) without a timer.
-   *  The persist effects are no-ops: this file asserts decisions, never writes. */
-  function wireGate(): void {
+  // Wired ONCE for the describe: `initAutosaveGate` starts a `terminals:dirty`
+  // subscription that lives for the module's lifetime, so re-wiring per test would
+  // pile up subscribers. The persist effects are no-ops — these tests read the fire
+  // DECISION (`captureFinalSession` returns it) without a timer, never the writes.
+  beforeAll(() => {
     initAutosaveGate({
       snapshot: snapshotSession,
       isRestorePending: hasParkedTerminals,
@@ -1003,7 +1004,7 @@ describe("importSession — the replacement reaps parked rows it does not name",
       persistFinal: () => {},
       persistActiveId: () => {},
     });
-  }
+  });
 
   const activeRecord = (id: string, cwd: string): SavedActiveTerminal => ({
     ...base,
@@ -1016,14 +1017,9 @@ describe("importSession — the replacement reaps parked rows it does not name",
   });
 
   it("discards parked entries the imported blob does not name, so the autosave resumes", async () => {
-    // The incident: a backups-dialog restore replaced the saved session while
-    // parked rows from an EARLIER park still stood in the registry. Nothing could
-    // consume them (the parked→active flip is id-keyed), so `hasParkedTerminals()`
-    // pinned the autosave at `suppressed-parked` for the rest of the daemon's life.
     const ORPHAN_A = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
     const ORPHAN_B = "ffffffff-ffff-4fff-8fff-ffffffffffff";
     const IMPORTED_ID = "99999999-9999-4999-8999-999999999999";
-    wireGate();
     setSavedSession(savedSession());
     expect(seedParkedTerminal(activeRecord(ORPHAN_A, "/orphan-a"))).toBe(true);
     expect(seedParkedTerminal(activeRecord(ORPHAN_B, "/orphan-b"))).toBe(true);
@@ -1065,7 +1061,6 @@ describe("importSession — the replacement reaps parked rows it does not name",
     // idempotent on a present id) and a stale parked entry would stand over the
     // dormant seed — still pinning `hasParkedTerminals()`.
     const SLEEPING_ID = "77777777-7777-4777-8777-777777777777";
-    wireGate();
     setSavedSession(savedSession());
     expect(seedParkedTerminal(activeRecord(SLEEPING_ID, "/was-parked"))).toBe(
       true,

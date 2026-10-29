@@ -72,10 +72,10 @@ interface AutosaveGateDeps {
   /** Is a restore still pending (parked entries present)? Read LIVE at fire — the
    *  registry is its source of truth and the value can change between arm and fire. */
   isRestorePending: () => boolean;
-  /** The parked entries the saved session does NOT name, read LIVE at fire — the
+  /** The parked rows the saved session does NOT name, read LIVE at fire — the
    *  contradiction that makes a `suppressed-parked` answer a lie. Reported as a
-   *  `log.error` (never healed: a parked entry nothing can consume is a defect,
-   *  and hiding it is what let one run silently for hours). */
+   *  `log.error`, never healed: a row nothing can consume is a defect, and hiding
+   *  it only moves the silence. */
   orphanedParkedIds: () => string[];
   /** Persist a snapshot (clears the blob on an empty snapshot). */
   persist: (snapshot: SessionSnapshot) => void;
@@ -229,14 +229,11 @@ export function unfreezeAutosave(token?: AutosaveFreeze): void {
  *  is a plain call — not an optional on a value that cannot be absent once the gate has
  *  fired.
  *
- *  The parked branch also states the contradiction it is entitled to assume away: a
- *  parked entry the saved session does not name is not a restore offer, so it can
- *  never be consumed, and "the parked entries stand in for the blob" stops being
- *  true while the suppression goes on forever. That is exactly the silent-hours
- *  state an incident left behind (ghost parked rows after a backups restore: no
- *  autosave for the rest of the daemon's life), so the orphans are logged as an
- *  ERROR here, at the one place that makes the claim. No self-heal: the defect is
- *  in whatever parked them, and hiding it would only move the silence. */
+ *  `suppressed-parked` claims "the parked rows stand in for the blob", which holds only
+ *  while every parked row IS a row the blob names: a row it does not name can never be
+ *  consumed, so the suppression would outlive every offer. That is a defect in whatever
+ *  parked the row, so it is logged as an ERROR at the one place that makes the claim —
+ *  never healed here, which would only move the silence. */
 function decideSave(deps: AutosaveGateDeps): SaveDecision {
   if (activeFreezes.size > 0)
     return { kind: "frozen", reason: [...activeFreezes.values()].join("; ") };
@@ -245,7 +242,7 @@ function decideSave(deps: AutosaveGateDeps): SaveDecision {
     if (orphaned.length > 0) {
       log.error(
         { orphanedParkedIds: orphaned },
-        `session-trace autosave: suppressed-parked while ${orphaned.length} parked entr${orphaned.length === 1 ? "y is" : "ies are"} absent from the saved session — nothing can consume them, so the autosave is pinned. This is a defect, not a state to wait out.`,
+        `session-trace autosave: suppressed-parked while ${orphaned.length} parked row${orphaned.length === 1 ? " is" : "s are"} absent from the saved session — nothing can consume them, so the autosave is pinned`,
       );
     }
     return { kind: "suppressed-parked" };

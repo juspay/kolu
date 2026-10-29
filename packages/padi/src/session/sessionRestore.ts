@@ -564,18 +564,16 @@ export async function importSession(input: {
   optOutIds?: readonly string[];
 }): Promise<void> {
   const backfilled = decodeSavedSession(backfillSavedSession(input.session));
-  // The import is a WHOLESALE REPLACEMENT: the blob the user chose IS the session
-  // now, so every parked registry entry left by an EARLIER park is an orphan —
-  // its id is either absent from the imported blob (nothing will ever consume it)
-  // or, worse, PRESENT but SLEEPING (the flip would leave a stale parked row
-  // standing over the dormant seed). An orphan pins `hasParkedTerminals()`, which
-  // pins the autosave at `suppressed-parked` for the life of the daemon: the
-  // restored session is never saved again. Same discipline `forfeitSession` uses
-  // before it clears — discard first, then install the blob.
+  // The import is a WHOLESALE REPLACEMENT, so every parked row left by an EARLIER
+  // park is an orphan — its id is either absent from the imported blob (nothing
+  // will ever consume it) or present but SLEEPING (the sleeper seeds on that same
+  // id, leaving the parked row standing over it). Either pins
+  // `hasParkedTerminals()`, and with it the autosave at `suppressed-parked`.
+  // Discard first, then install — the order `forfeitSession` uses.
   //
-  // Safe for the restore that follows: `respawnActive`'s no-parked-token arm
-  // (a session set after boot, e2e `test__set`) is the ordinary path, so the
-  // imported records still restore exactly once each.
+  // The restore that follows is unaffected: `respawnActive`'s no-parked-token arm
+  // (a session set after boot, e2e `test__set`) is the ordinary path, so each
+  // imported record still restores exactly once.
   discardAllLocalParked();
   // A foreign blob's flags are not facts this host observed. Keep the identity
   // (the conversation still resumes), discard the argv — identity-only, exactly

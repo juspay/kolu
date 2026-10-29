@@ -221,17 +221,14 @@ export function setSavedSessionFromSnapshot(snapshot: SessionSnapshot): void {
   saveSession(snapshot);
 }
 
-/** Parked registry ids that the SAVED SESSION no longer names.
+/** Parked registry ids the SAVED SESSION no longer names — the join behind the
+ *  autosave gate's `suppressed-parked` answer, whose claim ("the parked rows stand
+ *  in for the blob") holds only while every parked row IS a row the blob offers.
  *
- *  The join behind the autosave gate's `suppressed-parked` answer: that answer
- *  says "the parked entries stand in for the blob, so the live set is not the
- *  session" — a claim that only holds while every parked entry IS a row the blob
- *  offers. A parked entry the blob does not name can never be consumed by
- *  `session.restore` (the parked→active flip is id-keyed), so it pins
- *  `hasParkedTerminals()` and the autosave never persists again — silently, for
- *  the life of the daemon. That is a defect state, not a state to degrade
- *  around, so the gate reports these ids loudly
- *  ({@link AutosaveGateDeps.orphanedParkedIds}) instead of suppressing forever. */
+ *  An unnamed row can never be consumed: `session.restore`'s parked→active flip is
+ *  id-keyed. It therefore pins `hasParkedTerminals()`, and with it the autosave,
+ *  for the life of the daemon — which is why the gate reports these ids as an
+ *  error rather than suppressing quietly. */
 export function orphanedParkedIds(): string[] {
   const named = new Set((getSavedSession()?.terminals ?? []).map((t) => t.id));
   return parkedTerminalIds().filter((id) => !named.has(id));
