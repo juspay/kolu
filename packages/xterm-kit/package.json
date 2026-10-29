@@ -41,7 +41,7 @@
     "@babel/parser": "^7.29.2",
     "@types/node": "^22.0.0",
     "@xterm/headless": "^6.0.0",
-    "happy-dom": "^20.8.9",
+    "happy-dom": "^21.0.4",
     "solid-js": "^1.9.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
