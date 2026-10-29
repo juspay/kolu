@@ -12,7 +12,7 @@
 import type { SavedSession, SavedTerminal } from "@kolu/padi-client/surface";
 import { log } from "../log.ts";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
-import { hasParkedTerminals } from "../terminal-registry.ts";
+import { hasParkedTerminals, parkedTerminalIds } from "../terminal-registry.ts";
 import { cancelPendingAutosave } from "./autosaveGate.ts";
 
 /** Write the session blob (or clear it). The surface owns persist+publish. */
@@ -219,4 +219,20 @@ export function setSavedSessionFromSnapshot(snapshot: SessionSnapshot): void {
     `session-trace capture: snapshot=${snapshot.terminals.length} → persisting`,
   );
   saveSession(snapshot);
+}
+
+/** Parked registry ids that the SAVED SESSION no longer names.
+ *
+ *  The join behind the autosave gate's `suppressed-parked` answer: that answer
+ *  says "the parked entries stand in for the blob, so the live set is not the
+ *  session" — a claim that only holds while every parked entry IS a row the blob
+ *  offers. A parked entry the blob does not name can never be consumed by
+ *  `session.restore` (the parked→active flip is id-keyed), so it pins
+ *  `hasParkedTerminals()` and the autosave never persists again — silently, for
+ *  the life of the daemon. That is a defect state, not a state to degrade
+ *  around, so the gate reports these ids loudly
+ *  ({@link AutosaveGateDeps.orphanedParkedIds}) instead of suppressing forever. */
+export function orphanedParkedIds(): string[] {
+  const named = new Set((getSavedSession()?.terminals ?? []).map((t) => t.id));
+  return parkedTerminalIds().filter((id) => !named.has(id));
 }

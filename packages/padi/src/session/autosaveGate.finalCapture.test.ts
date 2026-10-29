@@ -53,6 +53,7 @@ function wire(opts: {
   initAutosaveGate({
     snapshot: opts.snapshot,
     isRestorePending: opts.isRestorePending,
+    orphanedParkedIds: () => [],
     persist: (s) => w.persisted.push(s),
     persistFinal: (s) => w.persistedFinal.push(s),
     persistActiveId: (id) => w.activeIds.push(id),

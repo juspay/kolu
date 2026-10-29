@@ -74,6 +74,10 @@ interface EmptyStateProps {
    *  so the click target doesn't detach between click and canvas
    *  reveal. */
   isRestoring?: boolean;
+  /** True while `handleForfeitSession` is running. The card is dismissed by the
+   *  HOST's `null` session snapshot, never optimistically, so this keeps both
+   *  buttons gated until that write lands. */
+  isForfeiting?: boolean;
   onRestore?: (options: {
     resumeAgents: boolean;
     optOutIds: readonly string[];
@@ -361,7 +365,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
               <button
                 type="button"
                 data-testid="restore-session"
-                disabled={props.isRestoring}
+                disabled={props.isRestoring || props.isForfeiting}
                 class="mt-4 w-full px-3 py-2 text-sm rounded-xl bg-accent text-surface-1 font-medium hover:brightness-110 disabled:opacity-70 disabled:cursor-wait transition-all"
                 onClick={handleRestore}
               >
@@ -385,7 +389,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
               <Show when={props.onForfeit}>
                 <div class="mt-2">
                   <ForfeitSessionButton
-                    inFlight={props.isRestoring ?? false}
+                    inFlight={Boolean(props.isRestoring || props.isForfeiting)}
                     onConfirm={() => props.onForfeit?.()}
                   />
                 </div>

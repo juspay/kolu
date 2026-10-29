@@ -41,6 +41,7 @@ import {
 import {
   type ActiveTerminalProcess,
   getTerminal,
+  hasParkedTerminals,
   parkedTerminalIds,
   registerTerminal,
   terminalEntries,
@@ -50,8 +51,13 @@ import {
   seedParkedTerminal,
   TerminalSpawnRacedError,
 } from "../terminalEndpoint/local.ts";
-import { setTerminalTheme } from "../terminals.ts";
-import { getSavedSession, setSavedSession } from "./session.ts";
+import { setTerminalTheme, snapshotSession } from "../terminals.ts";
+import { captureFinalSession, initAutosaveGate } from "./autosaveGate.ts";
+import {
+  getSavedSession,
+  orphanedParkedIds,
+  setSavedSession,
+} from "./session.ts";
 import {
   forfeitSession,
   importSession,
@@ -981,6 +987,75 @@ describe("importSession — a foreign blob's resume flags are not facts", () => 
     );
 
     await done;
+  });
+});
+
+describe("importSession — the replacement reaps parked rows it does not name", () => {
+  /** Wire the AutosaveGate to the REAL restore-pending/orphan queries so this file
+   *  can read the fire DECISION (`captureFinalSession` returns it) without a timer.
+   *  The persist effects are no-ops: this file asserts decisions, never writes. */
+  function wireGate(): void {
+    initAutosaveGate({
+      snapshot: snapshotSession,
+      isRestorePending: hasParkedTerminals,
+      orphanedParkedIds,
+      persist: () => {},
+      persistFinal: () => {},
+      persistActiveId: () => {},
+    });
+  }
+
+  const activeRecord = (id: string, cwd: string): SavedActiveTerminal => ({
+    ...base,
+    id,
+    state: "active",
+    cwd,
+    lastActivityAt: 1,
+    promptedAt: null,
+    restoreTarget: { kind: "none" },
+  });
+
+  it("discards parked entries the imported blob does not name, so the autosave resumes", async () => {
+    // The incident: a backups-dialog restore replaced the saved session while
+    // parked rows from an EARLIER park still stood in the registry. Nothing could
+    // consume them (the parked→active flip is id-keyed), so `hasParkedTerminals()`
+    // pinned the autosave at `suppressed-parked` for the rest of the daemon's life.
+    const ORPHAN_A = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const ORPHAN_B = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+    const IMPORTED_ID = "99999999-9999-4999-8999-999999999999";
+    wireGate();
+    setSavedSession(savedSession());
+    expect(seedParkedTerminal(activeRecord(ORPHAN_A, "/orphan-a"))).toBe(true);
+    expect(seedParkedTerminal(activeRecord(ORPHAN_B, "/orphan-b"))).toBe(true);
+
+    // Red-before: the parked rows stand in for a blob that never named them, so
+    // the autosave is suppressed — the pinned state the diagnostic reports.
+    expect(orphanedParkedIds()).toEqual([ORPHAN_A, ORPHAN_B]);
+    expect(captureFinalSession("pre-import")).toEqual({
+      kind: "suppressed-parked",
+    });
+
+    const done = importSession({
+      session: {
+        terminals: [activeRecord(IMPORTED_ID, "/imported-fresh")],
+        activeTerminalId: IMPORTED_ID,
+        savedAt: 2,
+      },
+    });
+
+    // The wholesale replacement discarded the orphans BEFORE installing the blob,
+    // and the imported record restored anyway (the no-parked-token arm of
+    // `respawnActive` — the token was never this blob's to consume).
+    expect(hasParkedTerminals()).toBe(false);
+    expect(orphanedParkedIds()).toEqual([]);
+    expect(captureFinalSession("post-import")).toEqual({ kind: "persist" });
+    expect(activeByCwd("/imported-fresh")).toBeDefined();
+
+    await done;
+
+    // The kaval-less spawn fails and re-parks its FRESH id — a genuine restore
+    // offer, and the settle write NAMES it, so it is not an orphan either.
+    expect(orphanedParkedIds()).toEqual([]);
   });
 });
 

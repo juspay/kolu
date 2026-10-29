@@ -171,3 +171,26 @@ Feature: Session restore
     And the restore card heading should be "kolu-714-fixture"
     And the restore card heading should not contain "/"
     And there should be no page errors
+
+  # Regression for the missing restore card after a Restart kaval (gossamer,
+  # 2026-10-29): the client used to latch a local `null` saved-session answer on
+  # the first Restore / Start fresh click, so a LATER Restart kaval — padi parking
+  # N rows and offering them on its `session` cell — reached the canvas as NO card,
+  # and the session was never autosaved again. Every existing Restart-kaval
+  # scenario starts from a fresh tab that never clicked Restore, which is exactly
+  # why none of them could see it: this one restores FIRST, then recycles kaval in
+  # the same tab.
+  @kaval-restart
+  Scenario: Restart kaval still offers the restore card after an earlier Restore
+    Given a saved session with 2 terminals
+    When I open the app
+    Then the session restore card should be visible
+    When I click the restore button
+    Then there should be 2 workspace switcher entries
+    When I open the kaval rail dialog
+    And I restart kaval from the rail dialog
+    Then the daemon returns to running
+    And the session restore card should be visible
+    When I click the restore button
+    Then there should be 2 workspace switcher entries
+    And there should be no page errors

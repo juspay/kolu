@@ -71,6 +71,7 @@ beforeAll(() => {
       activeTerminalId: getActiveTerminalId(),
     }),
     isRestorePending: () => restorePending,
+    orphanedParkedIds: () => [],
     persist: (s) => traceWrites.push(s),
     persistFinal: (s) => finalWrites.push(s),
     // Models `saveActiveTerminalId` rather than recording the call: the real

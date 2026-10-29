@@ -49,7 +49,8 @@
  * freeze or a pending restore.
  *
  * The gate is a pure state machine over injected effects (`snapshot`, `persist`,
- * `persistFinal`, `persistActiveId`, `isRestorePending`): it imports no runtime
+ * `persistFinal`, `persistActiveId`, `isRestorePending`, `orphanedParkedIds`): it
+ * imports no runtime
  * VALUE from the session/registry layers it
  * drives (only the `SessionSnapshot` type, erased at compile), so those layers PUSH
  * their facts and effects into it rather than the gate reaching back out. It consumes
@@ -71,6 +72,11 @@ interface AutosaveGateDeps {
   /** Is a restore still pending (parked entries present)? Read LIVE at fire — the
    *  registry is its source of truth and the value can change between arm and fire. */
   isRestorePending: () => boolean;
+  /** The parked entries the saved session does NOT name, read LIVE at fire — the
+   *  contradiction that makes a `suppressed-parked` answer a lie. Reported as a
+   *  `log.error` (never healed: a parked entry nothing can consume is a defect,
+   *  and hiding it is what let one run silently for hours). */
+  orphanedParkedIds: () => string[];
   /** Persist a snapshot (clears the blob on an empty snapshot). */
   persist: (snapshot: SessionSnapshot) => void;
   /**
@@ -221,11 +227,29 @@ export function unfreezeAutosave(token?: AutosaveFreeze): void {
  *  parked query misses), then the live parked query, else persist. Takes `deps` as a
  *  parameter (the fire callback threads its own closure), so the restore-pending query
  *  is a plain call — not an optional on a value that cannot be absent once the gate has
- *  fired. */
+ *  fired.
+ *
+ *  The parked branch also states the contradiction it is entitled to assume away: a
+ *  parked entry the saved session does not name is not a restore offer, so it can
+ *  never be consumed, and "the parked entries stand in for the blob" stops being
+ *  true while the suppression goes on forever. That is exactly the silent-hours
+ *  state an incident left behind (ghost parked rows after a backups restore: no
+ *  autosave for the rest of the daemon's life), so the orphans are logged as an
+ *  ERROR here, at the one place that makes the claim. No self-heal: the defect is
+ *  in whatever parked them, and hiding it would only move the silence. */
 function decideSave(deps: AutosaveGateDeps): SaveDecision {
   if (activeFreezes.size > 0)
     return { kind: "frozen", reason: [...activeFreezes.values()].join("; ") };
-  if (deps.isRestorePending()) return { kind: "suppressed-parked" };
+  if (deps.isRestorePending()) {
+    const orphaned = deps.orphanedParkedIds();
+    if (orphaned.length > 0) {
+      log.error(
+        { orphanedParkedIds: orphaned },
+        `session-trace autosave: suppressed-parked while ${orphaned.length} parked entr${orphaned.length === 1 ? "y is" : "ies are"} absent from the saved session — nothing can consume them, so the autosave is pinned. This is a defect, not a state to wait out.`,
+      );
+    }
+    return { kind: "suppressed-parked" };
+  }
   return { kind: "persist" };
 }
 
