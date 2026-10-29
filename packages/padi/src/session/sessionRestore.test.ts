@@ -1057,6 +1057,38 @@ describe("importSession — the replacement reaps parked rows it does not name",
     // offer, and the settle write NAMES it, so it is not an orphan either.
     expect(orphanedParkedIds()).toEqual([]);
   });
+
+  it("a parked id the imported blob names as SLEEPING ends up sleeping, not parked", async () => {
+    // The other half of "discard, do not merge": a parked row whose id the blob
+    // names as a SLEEPER. The sleeper is seeded on its OWN id, so without the
+    // discard `seedHandlelessTerminal` would no-op against the parked row (it is
+    // idempotent on a present id) and a stale parked entry would stand over the
+    // dormant seed — still pinning `hasParkedTerminals()`.
+    const SLEEPING_ID = "77777777-7777-4777-8777-777777777777";
+    wireGate();
+    setSavedSession(savedSession());
+    expect(seedParkedTerminal(activeRecord(SLEEPING_ID, "/was-parked"))).toBe(
+      true,
+    );
+    expect(getTerminal(SLEEPING_ID)?.meta.state).toBe("parked");
+
+    const sleeping: SavedTerminal = {
+      ...base,
+      id: SLEEPING_ID,
+      state: "sleeping",
+      sleptAt: 5,
+      cwd: "/was-parked",
+      lastActivityAt: 1,
+      promptedAt: null,
+    };
+    await importSession({
+      session: { terminals: [sleeping], activeTerminalId: null, savedAt: 2 },
+    });
+
+    expect(getTerminal(SLEEPING_ID)?.meta.state).toBe("sleeping");
+    expect(hasParkedTerminals()).toBe(false);
+    expect(orphanedParkedIds()).toEqual([]);
+  });
 });
 
 describe("forfeitSession — the discard is recoverable or it does not happen", () => {
