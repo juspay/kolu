@@ -1,7 +1,7 @@
 /** Session restore — hydration from server state, session restore handler. */
 
-import type { SavedSession, TerminalMetadata } from "@kolu/padi-client/surface";
-import { batch, createMemo } from "solid-js";
+import type { TerminalMetadata } from "@kolu/padi-client/surface";
+import { createMemo } from "solid-js";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import type { TerminalId } from "kolu-common/surface";
@@ -43,36 +43,27 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
   const subPanel = useSubPanel();
   const rightPanel = useRightPanel();
 
-  // Local actions invalidate the optimistic answer explicitly, independent of
-  // mutable server-store identity or newly allocated terminal-id arrays.
-  const [actionVersion, setActionVersion] = createSignal(0);
-  const [sessionOverride, setSessionOverride] = createSignal<{
-    host: unknown;
-    version: number;
-    value: SavedSession | null;
-  }>();
+  /** The restore card's one source of truth: padi's `session` cell, plus the
+   *  `restarted` guard (on a genuine server restart the dim overlay is the
+   *  authoritative rescue UI and the restore button must not compete).
+   *
+   *  A PURE projection of the cell — never a local answer that outlives the
+   *  action which produced it. Such an answer hides every later host offer, and
+   *  with it the only thing that can consume the parked rows. The card needs no
+   *  optimistic value: through a restore the cell still holds the blob being
+   *  consumed (so the card stays mounted, `isRestoring` gating its buttons), and
+   *  after an action the HOST's next snapshot is what dismisses it. */
   const savedSession = createMemo(() => {
     if (lifecycle().kind === "restarted") return null;
-    const override = sessionOverride();
-    if (
-      override &&
-      override.host === activeScope() &&
-      override.version === actionVersion()
-    )
-      return override.value;
     return serverSavedSession();
   });
-  const beginSessionAction = () => {
-    const version = actionVersion() + 1;
-    setActionVersion(version);
-    const host = activeScope();
-    return (value: SavedSession | null) =>
-      setSessionOverride({ host, version, value });
-  };
   /** True from the moment `handleRestoreSession` starts until it
    *  resolves (success or failure). The restore card stays mounted
    *  while this is true so the click target doesn't detach mid-flight. */
   const [isRestoring, setIsRestoring] = createSignal(false);
+  /** True from the moment `handleForfeitSession` starts until it settles — the
+   *  forfeit's write is in flight and the host has not yet cleared the blob. */
+  const [isForfeiting, setIsForfeiting] = createSignal(false);
 
   // ── The answered tile's arrival deadline ────────────────────────────────────
   // The seed below defers while the answered id is absent from the collection.
@@ -324,14 +315,12 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
       if (isRestoring()) return Effect.void;
       const session = savedSession();
       if (!session) return Effect.void;
-      const setSavedSession = beginSessionAction();
       // Keep the restore card mounted until the server restore actually completes.
-      // Synchronously clearing `savedSession` before the async RPC returns detaches
-      // the click target mid-event — Playwright sees "element detached from the DOM"
-      // retries, and a human sees an empty-state flicker between click and canvas
-      // reveal. The visible card during the restore window is gated by
-      // `isRestoring()`; on success we clear `savedSession` before the toast, on
-      // failure we leave it set so the user can retry.
+      // The card reads `savedSession` — the `session` cell, which still holds the
+      // blob being consumed — so it stays put for the whole RPC with no local
+      // answer of our own; `isRestoring()` is what disables its buttons. On success
+      // the canvas replaces the empty state as the restored terminals arrive; on
+      // failure the cell is untouched and the card is still there to retry.
       setIsRestoring(true);
       // Re-arm the VIEW-STATE seed for THIS restore, on the ACTIVE host's latch. It
       // latches true on the first live load so a reconnect doesn't re-pan/re-seed the
@@ -397,11 +386,8 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
               // mid-flight host switch can't misfile it) BEFORE `isRestoring`
               // drops and releases the hydration effect's gate. This, not the
               // `session` cell's next snapshot, is what seeds the active tile.
-              batch(() => {
-                latch?.reportRestoredActive(restored.activeTerminalId);
-                setSavedSession(null);
-                setIsRestoring(false);
-              });
+              latch?.reportRestoredActive(restored.activeTerminalId);
+              setIsRestoring(false);
               // Faithful summary — "Restored N terminals, resumed M agents". M is
               // the host-served resumable set minus opt-outs when resume is on; 0
               // when off. Counts EVERY host-resumable terminal (including
@@ -435,26 +421,26 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
 
   /** Explicit forfeit — the user chose "Start fresh" over the saved session.
    *  One server call discards the parked entries AND clears the saved session
-   *  together (creating a terminal no longer forfeits implicitly, W1). On
-   *  success the server pushes a `null` saved-session snapshot, which the
-   *  derived `savedSession` accessor adopts it and dismisses the card;
-   *  we also clear it optimistically so the card drops immediately. */
+   *  together (creating a terminal no longer forfeits implicitly, W1). The
+   *  `null` snapshot the host pushes back is what dismisses the card — there is
+   *  nothing here to clear, only `isForfeiting` to gate the buttons while the
+   *  write is in flight (and to make a second click a no-op). */
   function handleForfeitSession(): UiAction {
     return Effect.suspend(() => {
+      if (isForfeiting()) return Effect.void;
       const session = savedSession();
       if (!session) return Effect.void;
-      const setSavedSession = beginSessionAction();
-      // Optimistic dismissal: the card is gone the moment the user commits.
-      setSavedSession(null);
+      setIsForfeiting(true);
       return activePadiRpc.session.forfeit({}).pipe(
         Effect.catch((err) =>
           Effect.sync(() => {
-            // Surface the failure and restore the card so the user can retry —
-            // a caught error must not collapse silently to the empty state.
-            setSavedSession(session);
+            // Surface the failure — a caught error must not collapse silently to
+            // the empty state. The card is still there (the host never cleared
+            // the session), so the user can retry.
             toast.error(`Failed to start fresh: ${toError(err).message}`);
           }),
         ),
+        Effect.ensuring(Effect.sync(() => setIsForfeiting(false))),
       );
     });
   }
@@ -483,6 +469,7 @@ export function useSessionRestore(deps: { store: TerminalStore }) {
         (store.recordPhases().awaited > 0 || savedSessionSub.pending())),
     savedSession,
     isRestoring,
+    isForfeiting,
     handleRestoreSession,
     handleForfeitSession,
   };

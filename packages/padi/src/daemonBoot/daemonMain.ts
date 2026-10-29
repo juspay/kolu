@@ -97,6 +97,7 @@ import {
 } from "../session/confStores.ts";
 import { importLegacyConfigOnce } from "../session/importLegacy.ts";
 import {
+  orphanedParkedIds,
   saveActiveTerminalId,
   saveSession,
   setSavedSessionFromSnapshot,
@@ -323,6 +324,10 @@ function configureDaemonIdentity(
   initAutosaveGate({
     snapshot: snapshotSession,
     isRestorePending: hasParkedTerminals,
+    // The contradiction the `suppressed-parked` answer assumes away: a parked
+    // entry the saved session does not name can never be consumed, so it would
+    // pin the autosave forever. The gate logs those ids as an ERROR.
+    orphanedParkedIds,
     persist: saveSession,
     // The shutdown edge writes through the EMPTY-PRESERVE receptacle — the same
     // one the control-core drain uses — so a stop observed mid-teardown cannot

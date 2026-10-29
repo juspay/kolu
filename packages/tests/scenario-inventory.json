@@ -9406,6 +9406,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "b4a97a49c76847fae63c18876a2f24033308625c"
+    },
+    {
+      "revisionId": "revision-5e1e93e9f714250158f9",
+      "scenarioKey": "scenario-68f700136290083fd003",
+      "feature": "features/session-restore.feature",
+      "scenario": "Restart kaval still offers the restore card after an earlier Restore",
+      "kind": "scenario",
+      "tags": ["@kaval-restart"],
+      "bodyHash": "f8461bc443f7b5601574ac684ffd3a1bfbdd19a3710ca2ed5a70bbcff0ae9b8c",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "533745f9c140d1071148f6a6c37d1d26b2d79dae"
     }
   ]
 }

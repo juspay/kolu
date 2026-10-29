@@ -30,10 +30,11 @@ import type { Component } from "solid-js";
 import InlineConfirmButton from "./ui/InlineConfirmButton";
 
 const ForfeitSessionButton: Component<{
-  /** True while the card's RESTORE is in flight — gates the trigger out so the
-   *  two actions can't race. The label deliberately holds still rather than
-   *  reading "Restoring…": the primary button directly above already says that,
-   *  and echoing it here would name a restore this button isn't running. */
+  /** True while EITHER card action is in flight — a restore, or this forfeit's
+   *  own host write. Gates the trigger out so the two actions can't race. The
+   *  label deliberately holds still rather than reading "Restoring…": the primary
+   *  button directly above already says that, and echoing it here would name a
+   *  restore this button isn't running. */
   inFlight: boolean;
   onConfirm: () => void;
 }> = (props) => (

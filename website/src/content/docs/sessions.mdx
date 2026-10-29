@@ -45,12 +45,16 @@ lose, because it isn't lost.
   naming what goes, and only the second discards. A snapshot is taken before
   anything is cleared, so a session you discarded on purpose — or by accident —
   is still recoverable from **Debug → Restore state from backup**.
+- **Restart kaval** — the button, and the same repair [padi](/padi) runs by
+  itself on a stuck daemon — always ends on that card, whatever you did earlier
+  in the tab. Restoring a session, or starting fresh, never hides a later offer.
 - Behind all of this sits a **backup ring**: at every boot, once a day while
   running, and before **Start fresh** discards anything, the saved-session file
   is snapshotted into a rotated history — so even a bug that *overwrites* the
   saved session with a bad value is recoverable. **Debug → Restore state from
   backup** in the command palette brings a snapshot's terminals back, agents
-  resumed. See
+  resumed; the snapshot replaces the saved session outright, so any restore rows
+  left over from the session it replaced go with it. See
   [Troubleshooting](/troubleshooting#kolu-lost-my-session-or-my-settings-look-wrong).
 
 ## Sleep a terminal

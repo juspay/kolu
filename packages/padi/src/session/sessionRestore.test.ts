@@ -30,7 +30,7 @@ import {
   type SavedSession,
   type SavedTerminal,
 } from "@kolu/padi-client/surface";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { setDaemonProcessId } from "../koluRoot.ts";
 import { resumeFormFor } from "kolu-agents/vocab";
 import {
@@ -41,6 +41,7 @@ import {
 import {
   type ActiveTerminalProcess,
   getTerminal,
+  hasParkedTerminals,
   parkedTerminalIds,
   registerTerminal,
   terminalEntries,
@@ -50,8 +51,13 @@ import {
   seedParkedTerminal,
   TerminalSpawnRacedError,
 } from "../terminalEndpoint/local.ts";
-import { setTerminalTheme } from "../terminals.ts";
-import { getSavedSession, setSavedSession } from "./session.ts";
+import { setTerminalTheme, snapshotSession } from "../terminals.ts";
+import { captureFinalSession, initAutosaveGate } from "./autosaveGate.ts";
+import {
+  getSavedSession,
+  orphanedParkedIds,
+  setSavedSession,
+} from "./session.ts";
 import {
   forfeitSession,
   importSession,
@@ -981,6 +987,102 @@ describe("importSession — a foreign blob's resume flags are not facts", () => 
     );
 
     await done;
+  });
+});
+
+describe("importSession — the replacement reaps parked rows it does not name", () => {
+  // Wired ONCE for the describe: `initAutosaveGate` starts a `terminals:dirty`
+  // subscription that lives for the module's lifetime, so re-wiring per test would
+  // pile up subscribers. The persist effects are no-ops — these tests read the fire
+  // DECISION (`captureFinalSession` returns it) without a timer, never the writes.
+  beforeAll(() => {
+    initAutosaveGate({
+      snapshot: snapshotSession,
+      isRestorePending: hasParkedTerminals,
+      orphanedParkedIds,
+      persist: () => {},
+      persistFinal: () => {},
+      persistActiveId: () => {},
+    });
+  });
+
+  const activeRecord = (id: string, cwd: string): SavedActiveTerminal => ({
+    ...base,
+    id,
+    state: "active",
+    cwd,
+    lastActivityAt: 1,
+    promptedAt: null,
+    restoreTarget: { kind: "none" },
+  });
+
+  it("discards parked entries the imported blob does not name, so the autosave resumes", async () => {
+    const ORPHAN_A = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const ORPHAN_B = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+    const IMPORTED_ID = "99999999-9999-4999-8999-999999999999";
+    setSavedSession(savedSession());
+    expect(seedParkedTerminal(activeRecord(ORPHAN_A, "/orphan-a"))).toBe(true);
+    expect(seedParkedTerminal(activeRecord(ORPHAN_B, "/orphan-b"))).toBe(true);
+
+    // Red-before: the parked rows stand in for a blob that never named them, so
+    // the autosave is suppressed — the pinned state the diagnostic reports.
+    expect(orphanedParkedIds()).toEqual([ORPHAN_A, ORPHAN_B]);
+    expect(captureFinalSession("pre-import")).toEqual({
+      kind: "suppressed-parked",
+    });
+
+    const done = importSession({
+      session: {
+        terminals: [activeRecord(IMPORTED_ID, "/imported-fresh")],
+        activeTerminalId: IMPORTED_ID,
+        savedAt: 2,
+      },
+    });
+
+    // The wholesale replacement discarded the orphans BEFORE installing the blob,
+    // and the imported record restored anyway (the no-parked-token arm of
+    // `respawnActive` — the token was never this blob's to consume).
+    expect(hasParkedTerminals()).toBe(false);
+    expect(orphanedParkedIds()).toEqual([]);
+    expect(captureFinalSession("post-import")).toEqual({ kind: "persist" });
+    expect(activeByCwd("/imported-fresh")).toBeDefined();
+
+    await done;
+
+    // The kaval-less spawn fails and re-parks its FRESH id — a genuine restore
+    // offer, and the settle write NAMES it, so it is not an orphan either.
+    expect(orphanedParkedIds()).toEqual([]);
+  });
+
+  it("a parked id the imported blob names as SLEEPING ends up sleeping, not parked", async () => {
+    // The other half of "discard, do not merge": a parked row whose id the blob
+    // names as a SLEEPER. The sleeper is seeded on its OWN id, so without the
+    // discard `seedHandlelessTerminal` would no-op against the parked row (it is
+    // idempotent on a present id) and a stale parked entry would stand over the
+    // dormant seed — still pinning `hasParkedTerminals()`.
+    const SLEEPING_ID = "77777777-7777-4777-8777-777777777777";
+    setSavedSession(savedSession());
+    expect(seedParkedTerminal(activeRecord(SLEEPING_ID, "/was-parked"))).toBe(
+      true,
+    );
+    expect(getTerminal(SLEEPING_ID)?.meta.state).toBe("parked");
+
+    const sleeping: SavedTerminal = {
+      ...base,
+      id: SLEEPING_ID,
+      state: "sleeping",
+      sleptAt: 5,
+      cwd: "/was-parked",
+      lastActivityAt: 1,
+      promptedAt: null,
+    };
+    await importSession({
+      session: { terminals: [sleeping], activeTerminalId: null, savedAt: 2 },
+    });
+
+    expect(getTerminal(SLEEPING_ID)?.meta.state).toBe("sleeping");
+    expect(hasParkedTerminals()).toBe(false);
+    expect(orphanedParkedIds()).toEqual([]);
   });
 });
 

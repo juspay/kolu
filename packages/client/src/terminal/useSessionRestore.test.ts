@@ -297,8 +297,8 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
       createRoot((dispose) => {
         void (async () => {
           try {
-            // Empty canvas + a saved session in hand → the hydration effect sets
-            // the restore card's `savedSession` signal.
+            // Empty canvas + a saved session on the cell → the restore card's
+            // `savedSession` derives it.
             h.listPending = false;
             h.list = [];
             h.terminalIds = [];
@@ -407,17 +407,79 @@ describe("useSessionRestore — restore fires ONLY session.restore (respawn loop
   });
 });
 
-describe("useSessionRestore — forfeit fires session.forfeit and dismisses the card", () => {
-  it("issues session.forfeit({}) and clears the saved session", async () => {
+describe("useSessionRestore — forfeit fires session.forfeit; the HOST dismisses the card", () => {
+  it("issues session.forfeit({}) and keeps the card until the host pushes null", async () => {
     rpc.forfeit.mockClear();
 
     await new Promise<void>((resolve, reject) => {
       createRoot((dispose) => {
         void (async () => {
           try {
-            // Empty canvas + a saved session in hand → the hydration effect sets
-            // the restore card's `savedSession` signal, so the forfeit path has
-            // something to discard.
+            // Empty canvas + a saved session on the cell → the restore card's
+            // `savedSession` derives it, so the forfeit path has something to
+            // discard.
+            h.listPending = false;
+            h.list = [];
+            h.terminalIds = [];
+            h.sessionPending = false;
+            const saved = {
+              terminals: [
+                {
+                  id: "0",
+                  state: "active",
+                  cwd: "/a",
+                  git: { kind: "none" },
+                  pr: { kind: "absent" },
+                  location: { kind: "local" },
+                  lastActivityAt: 0,
+                },
+              ],
+              activeTerminalId: "0",
+              savedAt: 1,
+              resumableIds: [],
+            };
+            h.savedSession = saved;
+            const session = mount();
+            await new Promise((r) => setTimeout(r, 0));
+            expect(session.savedSession()).toEqual(saved);
+
+            await Effect.runPromise(session.handleForfeitSession());
+
+            // ONE server call — the explicit discard — with the empty input the
+            // contract declares.
+            expect(rpc.forfeit).toHaveBeenCalledTimes(1);
+            expect(rpc.forfeit).toHaveBeenCalledWith({});
+            // NOTHING is cleared locally: `savedSession` is the host's cell, and
+            // the card is dismissed by the `null` snapshot the forfeit writes.
+            expect(session.savedSession()).toEqual(saved);
+            expect(session.isForfeiting()).toBe(false);
+
+            // The host's answer lands → the card drops.
+            h.pushSavedSession(null);
+            expect(session.savedSession()).toBeNull();
+
+            dispose();
+            resolve();
+          } catch (err) {
+            dispose();
+            reject(err);
+          }
+        })();
+      });
+    });
+  });
+
+  it("gates a second forfeit while the first is in flight", async () => {
+    rpc.forfeit.mockClear();
+    const gate = Promise.withResolvers<void>();
+    rpc.forfeit.mockImplementationOnce(
+      () => Effect.promise(() => gate.promise) as never,
+    );
+
+    await new Promise<void>((resolve, reject) => {
+      createRoot((dispose) => {
+        void (async () => {
+          try {
             h.listPending = false;
             h.list = [];
             h.terminalIds = [];
@@ -439,22 +501,19 @@ describe("useSessionRestore — forfeit fires session.forfeit and dismisses the 
               resumableIds: [],
             };
             const session = mount();
-            // Let the hydration effect flush so `savedSession()` is populated.
             await new Promise((r) => setTimeout(r, 0));
-            expect(session.savedSession()).toEqual(h.savedSession);
 
+            const first = Effect.runPromise(session.handleForfeitSession());
+            await new Promise((r) => setTimeout(r, 0));
+            expect(session.isForfeiting()).toBe(true);
+            // The card is still mounted and its buttons are gated while the write
+            // is in flight — a second click is a no-op, not a second discard.
             await Effect.runPromise(session.handleForfeitSession());
-
-            // ONE server call — the explicit discard — with the empty input the
-            // contract declares.
             expect(rpc.forfeit).toHaveBeenCalledTimes(1);
-            expect(rpc.forfeit).toHaveBeenCalledWith({});
-            // The card is dismissed optimistically. Fresh list arrays and an
-            // in-place update of the same server record cannot undo that action.
-            expect(session.savedSession()).toBeNull();
-            h.terminalIds = [];
-            h.pushSavedSession(h.savedSession);
-            expect(session.savedSession()).toBeNull();
+
+            gate.resolve();
+            await first;
+            expect(session.isForfeiting()).toBe(false);
 
             dispose();
             resolve();
@@ -979,33 +1038,102 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
   });
 });
 
-it("a restart takes precedence over a restored optimistic error card", async () => {
-  await createRoot(async (dispose) => {
-    try {
-      const [kind, setKind] = createSignal<"connected" | "restarted">(
-        "connected",
-      );
-      h.lifecycleKind = kind;
-      h.listPending = false;
-      h.list = [];
-      h.terminalIds = [];
-      h.sessionPending = false;
-      h.savedSession = {
-        terminals: [],
-        activeTerminalId: null,
-        savedAt: 1,
-        resumableIds: [],
-      };
-      const session = mount();
-      rpc.forfeit.mockReturnValueOnce(
-        Effect.fail(new Error("forfeit refused")) as never,
-      );
-      await Effect.runPromise(session.handleForfeitSession());
-      expect(session.savedSession()).toEqual(h.savedSession);
-      setKind("restarted");
-      expect(session.savedSession()).toBeNull();
-    } finally {
-      dispose();
-    }
+describe("useSessionRestore — savedSession is the host's cell, never a latched local answer", () => {
+  it("adopts a LATER host push after a local action (the Restart-kaval regression)", async () => {
+    // A local action must not latch the card away: after Start fresh, a later host
+    // push (kaval restarted → parked rows offered) is still adopted. A latched
+    // answer hides the offer, and with it the only thing that consumes those rows.
+    rpc.forfeit.mockClear();
+    h.listPending = false;
+    h.list = [];
+    h.terminalIds = [];
+    h.sessionPending = false;
+    const before = {
+      terminals: [
+        {
+          id: "0",
+          state: "active",
+          cwd: "/before",
+          git: { kind: "none" },
+          pr: { kind: "absent" },
+          location: { kind: "local" },
+          lastActivityAt: 0,
+        },
+      ],
+      activeTerminalId: "0",
+      savedAt: 1,
+      resumableIds: [],
+    };
+    const afterRestart = {
+      terminals: [
+        {
+          id: "1",
+          state: "active",
+          cwd: "/parked-by-the-restart",
+          git: { kind: "none" },
+          pr: { kind: "absent" },
+          location: { kind: "local" },
+          lastActivityAt: 0,
+        },
+      ],
+      activeTerminalId: null,
+      savedAt: 2,
+      resumableIds: [],
+    };
+
+    await createRoot(async (dispose) => {
+      try {
+        h.savedSession = before;
+        const session = mount();
+        await new Promise((r) => setTimeout(r, 0));
+        expect(session.savedSession()).toEqual(before);
+
+        // A local action (Start fresh) — the host answers with its own null.
+        await Effect.runPromise(session.handleForfeitSession());
+        h.pushSavedSession(null);
+        expect(session.savedSession()).toBeNull();
+
+        // …then kaval restarts and padi offers the parked rows. The card must
+        // come back: the answer is the host's cell, not a latch.
+        h.pushSavedSession(afterRestart);
+        expect(session.savedSession()).toEqual(afterRestart);
+      } finally {
+        dispose();
+      }
+    });
+  });
+
+  it("answers null on a restarted lifecycle, then the cell again once connected", async () => {
+    const [kind, setKind] = createSignal<"connected" | "restarted">(
+      "connected",
+    );
+    h.lifecycleKind = kind;
+    h.listPending = false;
+    h.list = [];
+    h.terminalIds = [];
+    h.sessionPending = false;
+    const saved = {
+      terminals: [],
+      activeTerminalId: null,
+      savedAt: 1,
+      resumableIds: [],
+    };
+
+    await createRoot(async (dispose) => {
+      try {
+        h.savedSession = saved;
+        const session = mount();
+        await new Promise((r) => setTimeout(r, 0));
+        expect(session.savedSession()).toEqual(saved);
+        // The dim overlay is the rescue UI on a genuine server restart — the
+        // restore button must not compete.
+        setKind("restarted");
+        expect(session.savedSession()).toBeNull();
+        setKind("connected");
+        expect(session.savedSession()).toEqual(saved);
+      } finally {
+        dispose();
+      }
+    });
   });
 });

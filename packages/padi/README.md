@@ -500,6 +500,13 @@ input: `stripImportedTargetArgv` keeps each target's identity and drops its
 argv. Those flags were never observed here, and a flag list is enough to inject
 behaviour even through the allowlist.
 
+The import is also a WHOLESALE REPLACEMENT of the saved session, so it discards
+every parked restore row first — the same order `forfeitSession` uses. A parked
+row from an earlier park can never be consumed once the blob naming it is gone
+(the parked→active flip is id-keyed), and a lingering one pins the autosave at
+`suppressed-parked`; the gate states that contradiction as a `log.error` naming
+the orphan ids rather than suppressing quietly.
+
 The recent-agents MRU rides the same facts: a row is `{ kind, argv }`, recorded
 when an agent is **detected live**, and the palette renders it through the
 registry. Detect-only binaries (no session adapter, no resume policy) are not
