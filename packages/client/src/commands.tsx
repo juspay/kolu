@@ -34,6 +34,7 @@ import {
   forwardFromPalette,
   forwardInputError,
 } from "./forwards/forwardFromPalette";
+import { agentLaunchLine } from "kolu-agents/vocab";
 import { recentAgents, recentRepos } from "./hostScope/activeWire";
 import {
   ACTIONS,
@@ -57,7 +58,7 @@ import { stateBackupsDialog } from "./StateBackupsDialog";
 import { useTerminalCrud } from "./terminal/useTerminalCrud";
 import { themePaletteGroup } from "./themePalette";
 import { useTileStore } from "./tile/useTileStore";
-import { iconForCommand } from "./ui/agentDisplay";
+import { iconForKind } from "./ui/agentDisplay";
 import { TerminalIcon } from "./ui/Icons";
 import { welcomeDialog } from "./WelcomeDialog";
 import { padiMap, preferences, updatePreferences } from "./wire";
@@ -85,7 +86,26 @@ function validateWorktreeName(name: string): string | null {
   return isValidWorktreeName(trimmed) ? null : WORKTREE_NAME_MESSAGE;
 }
 
-/** PaletteItems listing each recent agent command — used by the
+/** One recent agent as the palette presents it: the launch line RENDERED from
+ *  its structured fact (`kind` + the live process's allowlisted argv) by the
+ *  agent registry. A row whose kind this build no longer knows renders nothing —
+ *  no guess, and no stored string to fall back to. The same string is what the
+ *  palette types into a terminal, so display and execution cannot diverge. */
+interface RecentAgentRow {
+  readonly kind: string;
+  readonly command: string;
+}
+
+function recentAgentRows(agents: readonly RecentAgent[]): RecentAgentRow[] {
+  const rows: RecentAgentRow[] = [];
+  for (const a of agents) {
+    const command = agentLaunchLine(a.kind, a.argv);
+    if (command !== null) rows.push({ kind: a.kind, command });
+  }
+  return rows;
+}
+
+/** PaletteItems listing each recent agent — used by the
  *  "Recent agents" drill-in group under Active Terminal. Icons mirror the
  *  worktree-naming leaf so agents render with the same visual treatment
  *  in both palettes. */
@@ -93,20 +113,20 @@ function agentItems(
   agents: readonly RecentAgent[],
   onPick: (command: string) => void,
 ): PaletteItem[] {
-  return agents.map(
+  return recentAgentRows(agents).map(
     (a): PaletteAction => ({
       kind: "action",
       name: a.command,
       onSelect: () => onPick(a.command),
-      icon: iconForCommand(a.command),
+      icon: iconForKind(a.kind),
     }),
   );
 }
 
 /** Children of the worktree-naming leaf. Each row's `data` is the agent
- *  CLI string to launch (or `undefined` for plain shell). They render as
- *  passive labels — Enter/click routes through the value group's
- *  `onSubmit`, not these rows' own (absent) handler. */
+ *  launch line to type (or `undefined` for plain shell), rendered from the
+ *  row's structured fact. They render as passive labels — Enter/click routes
+ *  through the value group's `onSubmit`, not these rows' own (absent) handler. */
 function worktreeAgentOptions(
   agents: readonly RecentAgent[],
 ): (PaletteLabel | PaletteHint)[] {
@@ -117,12 +137,12 @@ function worktreeAgentOptions(
       data: undefined,
       icon: TerminalIcon,
     },
-    ...agents.map(
+    ...recentAgentRows(agents).map(
       (a): PaletteLabel => ({
         kind: "label",
         name: a.command,
         data: a.command,
-        icon: iconForCommand(a.command),
+        icon: iconForKind(a.kind),
       }),
     ),
   ];
@@ -423,10 +443,10 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
                 actionPaletteCommand("screenshotTerminal", deps, {
                   section: "active-terminal",
                 }),
-                // "Recent agents" — surfaces agent CLIs the user has previously
-                // run in any kolu terminal, auto-detected via the preexec OSC
-                // 633;E command mark. Prefills into the active PTY, so it needs a
-                // live terminal as well as a seen agent.
+                // "Recent agents" — agents kolu has detected LIVE in any
+                // terminal, as `{ kind, argv }` facts. The launch line is rendered
+                // through the registry and prefilled into the active PTY, so it
+                // needs a live terminal as well as a seen agent.
                 ...(recentAgents().length > 0
                   ? [
                       {

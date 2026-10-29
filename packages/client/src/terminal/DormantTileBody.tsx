@@ -49,10 +49,11 @@ const DormantTileBody: Component<{
     return a ? formatTimeAgo(a.sleptAt) : "";
   };
   // The agent line wake will RESUME — read off the fold-derived `restoreTarget`
-  // (it rides the authored sleeping arm), so it shows the command ONLY when wake
-  // will actually relaunch an agent: `exact` (the exact conversation) or
-  // `legacyMostRecent`. Null for `none`/absent — a quit-to-shell or never-launched
-  // terminal whose wake brings back a bare shell, so the line stays honest.
+  // (it rides the authored sleeping arm), so it shows the launch line ONLY when
+  // wake will actually relaunch an agent (`exact`). Null for `none`/absent — a
+  // quit-to-shell or never-launched terminal whose wake brings back a bare shell,
+  // so the line stays honest. The line is RENDERED from the target's facts
+  // (registry basename + the live process's allowlisted flags).
   const resumableAgent = () => resumableCommand(arm()?.restoreTarget);
   // Last-known metadata, frozen at sleep. `cwd`, `git.branch`, and `pr` ALL ride the
   // persisted restore-relevant base (the `PersistedSnapshot`) — there is no

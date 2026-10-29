@@ -835,7 +835,8 @@
       "dir": "packages/integrations/io",
       "vendored": true,
       "workspace": [
-        "@kolu/log"
+        "@kolu/log",
+        "osfacts-client"
       ],
       "external": {}
     },

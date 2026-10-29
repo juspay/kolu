@@ -7,7 +7,13 @@
  *  Anything exported here MUST stay free of `node:*` imports and filesystem
  *  access — Effect Schema and `anyagent`'s schema re-exports only. */
 
-import { type AgentVocab, type FlagArity, TaskProgressSchema } from "anyagent";
+import {
+  type AgentVocab,
+  type FlagArity,
+  NODE_CLI_SHIMS,
+  SESSION_PATH_OR_UUID_RE,
+  TaskProgressSchema,
+} from "anyagent";
 import { Schema } from "effect";
 
 export type { TaskProgress } from "anyagent";
@@ -85,13 +91,6 @@ const OMP_MARK = {
   paths: ["M5.25 6h13.5v3H15v12h-3V9H9.75v8.25H6.75V9H5.25z"],
 };
 
-/** omp's resume ref admits a session id or an absolute session PATH, restricted
- *  to shell-inert writing-system characters (no control, no quotes, no
- *  `$`/`;`/backtick/metachars). The splice itself always goes through
- *  `shellJoin`, which is the lock; this is the second wall. */
-const OMP_RESUME_REF_RE =
-  /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\/[\w .,@=+(){}#%/~-]*\.jsonl)$/;
-
 /** omp's vocabulary — display name, brand mark, CLI grammar (including its
  *  one-shot/subcommand carve-outs), resume policy, and wire schema.
  *
@@ -104,6 +103,7 @@ export const ompVocab: AgentVocab<OmpInfo> = {
   mark: OMP_MARK,
   cli: {
     basename: "omp",
+    shims: NODE_CLI_SHIMS,
     stableFlags: new Map<string, FlagArity>([
       ["--model", "value"],
       ["--smol", "value"],
@@ -120,69 +120,15 @@ export const ompVocab: AgentVocab<OmpInfo> = {
       ["--no-title", "boolean"],
       ["--hide-thinking", "boolean"],
     ]),
-    // omp's one-shot surface: `-v` is its version spell (there is no `-V`),
-    // and `--export` / `-p` (`--print`) / `--alias` print a result and exit.
-    extraExitFlags: new Set(["-v", "--export", "-p", "--print", "--alias"]),
-    // `--no-session` is ephemeral, so no session file appears and no breadcrumb
-    // is written — there is nothing to bind to. `--session-dir <dir>` is
-    // deliberately NOT here: it moves the session FILE, but omp still writes
-    // the breadcrumb, which carries the absolute path — kolu binds that session
-    // exactly as it binds a default-store one.
-    nonSessionFlags: new Set(["--no-session"]),
-    // BARE positional subcommand words — only in argv position 0: omp
-    // dispatches a subcommand from its FIRST argument alone, and any later
-    // occurrence is prompt text for an interactive session.
-    //
-    // `cleanse`, `commit`, and `join` are deliberately ABSENT: each drives a
-    // real omp session in the current terminal (`cleanse` via
-    // `SessionManager.create`, `commit` via the SDK's `createAgentSession`,
-    // `join` by launching the TUI), so each writes a breadcrumb kolu binds —
-    // listing them as non-session would deny a session that exists.
-    nonSessionSubcommands: new Set([
-      "acp",
-      "agents",
-      "auth-broker",
-      "auth-gateway",
-      "bench",
-      "browser-relay",
-      "collab",
-      "completions",
-      "compress",
-      "config",
-      "dry-balance",
-      "gallery",
-      "gc",
-      "git",
-      "grep",
-      "grievances",
-      "if-bench",
-      "images",
-      "install",
-      "models",
-      "plugin",
-      "ps",
-      "read",
-      "render",
-      "say",
-      "search",
-      "setup",
-      "share",
-      "shell",
-      "ssh",
-      "stats",
-      "tiny-models",
-      "token",
-      "ttsr",
-      "update",
-      "usage",
-      "worktree",
-      "wt", // `omp worktree`'s alias
-    ]),
+    // omp's one-shot surface (`-v`, `--export`, `-p`, `--alias`) and its
+    // subcommand words (`list`, `config`, …) used to be carved out here so a
+    // TYPED line could not enter the recent-agents MRU. Nothing reads a typed
+    // line any more: the MRU is fed by a detected LIVE agent, so a one-shot
+    // invocation (which has no session and exits) can never appear in it.
   },
   resume: {
-    last: "-c",
     byId: (id) => `--resume ${id}`,
-    idPattern: OMP_RESUME_REF_RE,
+    idPattern: SESSION_PATH_OR_UUID_RE,
     // omp prefers the PATH over the id: `--resume <ref>` accepts an id prefix, a
     // filename prefix, OR an absolute path, and only the path survives a store
     // that moved (a `--session-dir` run, a profile switch) — the breadcrumb

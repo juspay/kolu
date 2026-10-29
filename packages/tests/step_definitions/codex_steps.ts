@@ -104,7 +104,8 @@ async function startFakeAgent(world: KoluWorld, prefix = ""): Promise<void> {
   const bin = process.env.KOLU_FAKE_CODEX_BIN;
   if (!bin) throw new Error("KOLU_FAKE_CODEX_BIN must be set");
   // `prefix` is typed in front of the binary verbatim — an env-assignment
-  // prefix (`FOO=bar codex …`) the launch-line parser must see through.
+  // prefix (`FOO=bar codex …`) the SHIM HINT must see through (it never reaches
+  // an executed line: the resume target is built from the live process).
   await world.page.keyboard.type(
     `${prefix === "" ? "" : `${prefix} `}${bin} -c "printf '\\033]0;codex\\007'; sleep 99999 ; :"`,
   );
@@ -112,24 +113,20 @@ async function startFakeAgent(world: KoluWorld, prefix = ""): Promise<void> {
 }
 
 async function startShimmedAgent(world: KoluWorld): Promise<void> {
-  // Exercise the preexec-hint-only branch of `matchesAgent`: the
-  // command line says `codex` (captured via OSC 633;E so
-  // `lastAgentCommandName` resolves to "codex"), but the foreground
-  // process's kernel basename is something else ("bash"). Simulates an
-  // npm-shimmed `codex` install where the real binary is `node`.
+  // Exercise the preexec-hint branch of `matchesAgent` for the ONE case it is
+  // allowed: an interpreter-shimmed CLI. The typed line is `codex` (so the
+  // shell's OSC 633;E hint names `codex`), while the foreground process is the
+  // fake `node` binary — exactly what an npm-installed codex looks like.
   //
-  // Define a shell function named `codex`, then invoke it. The preexec
-  // hook fires on the second line with exactly "codex", so
-  // `parseAgentCommand` normalizes to "codex".
-  //
-  // The function body emits a second OSC 2 from inside the subshell —
-  // the reconcile triggered by the preexec OSC 2 fires BEFORE the
-  // subshell is in the foreground (shellIdle=true at that instant
-  // clears lastAgentCommandName), so a second title event with the
-  // subshell already running is what lets matchesAgent succeed via
-  // the preexec-hint branch.
+  // The function body emits a second OSC 2 from inside the subshell — the
+  // reconcile triggered by the preexec OSC 2 fires BEFORE the subshell is in the
+  // foreground (shellIdle=true at that instant clears lastAgentCommandName), so
+  // a second title event with the subshell already running is what lets
+  // matchesAgent succeed via the hint.
+  const node = process.env.KOLU_FAKE_NODE_BIN;
+  if (!node) throw new Error("KOLU_FAKE_NODE_BIN must be set");
   await world.page.keyboard.type(
-    `codex() { ( printf '\\033]0;codex\\007'; sleep 99999 ; :); }`,
+    `codex() { ${node} -c "printf '\\033]0;codex\\007'; sleep 99999 ; :"; }`,
   );
   await world.page.keyboard.press("Enter");
   await world.page.keyboard.type("codex");

@@ -16,8 +16,9 @@ import {
   AgentInfoSchema,
   AgentKindSchema,
   type AgentKind,
+  agentCliGrammar,
   agentVocab,
-  DETECT_ONLY_AGENTS,
+  isAgentKind,
 } from "./vocab.ts";
 
 const KINDS = Object.keys(AGENT_VOCABS) as AgentKind[];
@@ -89,44 +90,28 @@ describe("AgentInfoSchema — a closed discriminated union", () => {
 });
 
 describe("the CLI registry", () => {
-  it("indexes every vocab and every detect-only grammar by basename", () => {
+  it("resolves every vocab by KIND", () => {
     for (const kind of KINDS) {
-      expect(AGENT_CLI.byBasename(AGENT_VOCABS[kind].cli.basename)).toBe(
-        AGENT_VOCABS[kind],
-      );
+      expect(AGENT_CLI.byKind(kind)).toBe(AGENT_VOCABS[kind]);
     }
-    for (const grammar of DETECT_ONLY_AGENTS) {
-      expect(AGENT_CLI.byBasename(grammar.basename)).toBe(grammar);
-    }
+    expect(AGENT_CLI.byKind("not-an-agent")).toBeUndefined();
   });
 
-  it("THROWS on a duplicate basename (the load-time fence)", () => {
-    // Same basename, DIFFERENT kind — isolates the basename check from the kind
-    // check (which would otherwise fire first).
-    const dupBasename = {
-      ...agentVocab("claude-code"),
-      kind: "codex" as const,
-    };
-    expect(() =>
-      buildCliRegistry([agentVocab("claude-code"), dupBasename], []),
-    ).toThrow(/duplicate agent basename/);
-    expect(() =>
-      buildCliRegistry([], [DETECT_ONLY_AGENTS[0]!, DETECT_ONLY_AGENTS[0]!]),
-    ).toThrow(/duplicate agent basename/);
-  });
-
-  it("THROWS on a duplicate kind", () => {
+  it("THROWS on a duplicate kind (the load-time fence)", () => {
     const a = agentVocab("claude-code");
     const b = { ...a, cli: { ...a.cli, basename: "other" } };
-    expect(() => buildCliRegistry([a, b], [])).toThrow(/duplicate agent kind/);
+    expect(() => buildCliRegistry([a, b])).toThrow(/duplicate agent kind/);
   });
 
-  it("basenames are unique across vocabs and detect-only grammars", () => {
-    const names = [
-      ...KINDS.map((k) => AGENT_VOCABS[k].cli.basename),
-      ...DETECT_ONLY_AGENTS.map((g) => g.basename),
-    ];
+  it("basenames are unique across vocabs", () => {
+    const names = KINDS.map((k) => AGENT_VOCABS[k].cli.basename);
     expect(new Set(names).size).toBe(names.length);
+  });
+
+  it("agentCliGrammar crashes loudly on an unknown kind; isAgentKind does not narrow it", () => {
+    expect(agentCliGrammar("opencode")).toBe(AGENT_VOCABS.opencode.cli);
+    expect(() => agentCliGrammar("not-an-agent")).toThrow(/unknown agent kind/);
+    expect(isAgentKind("not-an-agent")).toBe(false);
   });
 });
 

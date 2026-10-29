@@ -19,9 +19,10 @@ Kolu's integration with [Xyne CLI](https://github.com/xynehq/xyne-cli)
   are likewise permanent honest nulls.
 
 - **Sleep/restore resume** — a slept or cold-restored Xyne terminal wakes
-  to `xyne --session <uuid>` (exact conversation, via anyagent's
-  `resumeAgentCommand`), or `xyne --continue` (most-recent in cwd) when no
-  id was captured.
+  to `xyne --session <uuid>` — the exact conversation it was running, rendered
+  from the OS-derived identity plus the live process's allowlisted flags by
+  anyagent's `resumeFormFor`. There is no most-recent fallback: a terminal with
+  no captured identity wakes to a bare shell.
 
 ## File layout
 

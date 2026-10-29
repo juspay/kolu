@@ -16,14 +16,29 @@ describe("readProcessSnapshot", () => {
       // The child parks on stdin rather than on a timer: it must stay alive
       // for the parent's /proc read, and `process.stdin.resume()` holds the
       // event loop open without binding the test to any duration.
-      const child = spawn(process.execPath, ["-e", "process.stdin.resume()"], {
-        env: { ...process.env, KOLU_SNAPSHOT_MARKER: "present" },
-      });
+      // A whitespace-bearing argument is load-bearing: it is the shape the
+      // darwin `ps -o command=` branch used to whitespace-split (three tokens
+      // instead of one), so this test fails against that implementation instead
+      // of passing on `argv.length > 0`.
+      const settings = '{"a": 1}';
+      const child = spawn(
+        process.execPath,
+        ["-e", "process.stdin.resume()", "--", "--settings", settings],
+        { env: { ...process.env, KOLU_SNAPSHOT_MARKER: "present" } },
+      );
       try {
         expect(child.pid).toBeDefined();
         const snap = readProcessSnapshot(child.pid!);
         expect(snap).not.toBeNull();
-        expect(snap?.argv.length).toBeGreaterThan(0);
+        // The exact token array — the value stays ONE argv element on every
+        // platform (Linux `/proc`, darwin KERN_PROCARGS2 via osfacts).
+        expect(snap?.argv.slice(1)).toEqual([
+          "-e",
+          "process.stdin.resume()",
+          "--",
+          "--settings",
+          settings,
+        ]);
         if (process.platform === "linux") {
           expect(snap?.env?.KOLU_SNAPSHOT_MARKER).toBe("present");
         } else {

@@ -20,6 +20,7 @@ import type {
   TerminalPorts,
 } from "@kolu/terminal-vocab/schema";
 import type { ForegroundSample } from "kaval";
+
 import type { ProcessSnapshot } from "kolu-io/types";
 import pino from "pino";
 import { afterEach, expect, it, vi } from "vitest";
@@ -72,11 +73,7 @@ function startOmpSensor() {
   const signals = {
     cwd: inMemoryChannel<string>(),
     title: inMemoryChannel<string>(),
-    commandRun: inMemoryChannel<{
-      command: string;
-      replayed: boolean;
-      shellJoin: boolean;
-    }>(),
+    commandRun: inMemoryChannel<string>(),
     foreground: inMemoryChannel<ForegroundSample>(),
     ports: inMemoryChannel<TerminalPorts>(),
     grid: inMemoryChannel<TerminalGrid>(),

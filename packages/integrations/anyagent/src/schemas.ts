@@ -40,15 +40,19 @@ export type TaskProgress = typeof TaskProgressSchema.Type;
  *  anyagent cannot import the registry without a cycle, and this record is
  *  PERSISTED — a record naming an agent this build no longer knows yields no
  *  resume (a bare shell), the documented refusal path, rather than failing the
- *  decode and dropping the whole terminal. `resumeAgentCommand`'s same-agent
- *  gate validates the ref against the registry at the point of use.
+ *  decode and dropping the whole terminal. `resumeFormFor` resolves the kind
+ *  against the registry and gates the ref at the point of use.
  *
  *  `resumeRef` is the agent-specific ref spliced through the CLI's `byId`
  *  (juspay/kolu#1495): for claude/codex/opencode/grok it equals `sessionId`;
  *  for pi it is the transcript PATH (which bypasses pi's session-store lookup
  *  entirely). It is derived at fold time via `vocab.resume.ref(liveInfo)` and
  *  gated by the same agent's `idPattern` before it reaches a shell line.
- *  `sessionId` is kept for identity/display. */
+ *  `sessionId` is kept for identity/display.
+ *
+ *  Every field here is OS-DERIVED (a session file's identity, a process's
+ *  argv) — never a string read off PTY output. See `agent-cli.ts` for the
+ *  invariant and the fold's `restoreTargetFor` for the builder. */
 export const AgentIdentitySchema = Schema.Struct({
   kind: Schema.String,
   sessionId: Schema.String,
@@ -58,33 +62,52 @@ export type AgentIdentity = typeof AgentIdentitySchema.Type;
 
 /** The fold-derived RESTORE TARGET — kolu's discriminated answer to "what does
  *  waking this terminal do?", made a single value so the wake/restore path can
- *  never read it wrong. Three arms, with no fourth meaning smuggled into an absent
+ *  never read it wrong. Two arms, with no third meaning smuggled into an absent
  *  field:
  *   - `none` — nothing to bring back (never launched an agent, or quit to a shell
  *     while live): wake lands on a BARE SHELL, by construction (juspay/kolu#1492).
  *     An ABSENT target reads as `none` — never as "resume something".
- *   - `exact` — an agent was LIVE at sleep: resume THAT conversation by id
- *     (juspay/kolu#1495), splicing `agent` into `command`.
- *   - `legacyMostRecent` — a migrated pre-1.29 record that remembered a launch
- *     `command` but never captured the session id: resume the MOST-RECENT
- *     conversation in the cwd (the old behavior, kept for already-saved sessions).
- *     NAMED so it is never confused with `none`; the live fold never produces it,
- *     only `backfillSnapshotCutover` does.
- *  Produced by kolu's fold (`restoreTargetOf`), persisted on the authored record,
- *  consumed by `resumeFormFor`. The previous shape — a bare optional `resumeAgent`
- *  identity read alongside `lastAgentCommand` — left `(command set, identity
- *  absent)` meaning BOTH "quit, restore nothing" and "no id captured, resume
- *  most-recent"; this discriminant splits those two into distinct values. */
+ *   - `exact` — an agent was LIVE at sleep: resume THAT conversation
+ *     (juspay/kolu#1495). Every part of the line the wake types is a structured
+ *     fact kolu owns: `agent` names the conversation (OS-derived session
+ *     identity) and `argv` carries the live process's flags, already filtered
+ *     through the agent's `stableFlags` allowlist when it was captured
+ *     (`readProcessSnapshot` → `stableFlagTokens`).
+ *
+ *  There is deliberately no `command: string`. A captured launch line was the
+ *  forgery hole: `OSC 633 ; E ; <text>` is whatever the user displays, so
+ *  `LD_PRELOAD=/x claude …` typed into a `cat` became a command wake executed.
+ *  PTY output is a sensor; nothing that executes may read a value whose
+ *  provenance is PTY bytes. `resumeFormFor` renders the shell line from
+ *  `agent` + `argv` + the agent's registry vocab.
+ *
+ *  Produced by kolu's fold (`restoreTargetFor`), persisted on the authored record,
+ *  consumed by `resumeFormFor`. The 1.29-era `legacyMostRecent` arm (a migrated
+ *  record that remembered a launch `command` but no session id) is gone: it had
+ *  no honest structured replacement, so the migration maps it to `none` — a bare
+ *  shell — rather than re-parsing the captured text (that parse was the hole). */
 export const RestoreTargetSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("none") }),
   Schema.Struct({
     kind: Schema.Literal("exact"),
-    command: Schema.String,
     agent: AgentIdentitySchema,
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("legacyMostRecent"),
-    command: Schema.String,
+    /** The live agent process's `stableFlags`-filtered argv tokens (never the
+     *  raw process argv). Already allowlisted when persisted, so replaying them
+     *  cannot smuggle a path, a resume marker, or an unvetted flag. */
+    argv: Schema.Array(Schema.String),
   }),
 ]);
 export type RestoreTarget = typeof RestoreTargetSchema.Type;
+
+/** One IDENTITY-ONLY `exact` target: the conversation, no flags. THE shape rule
+ *  shared by the 1.3.0 ladder arm (an old record's captured command is deleted)
+ *  and the import door (a foreign file's argv was never observed on this host).
+ *  Generic in the agent so the ladder can build it from a shape it has only
+ *  validated structurally. */
+export function identityOnlyTarget<A>(agent: A): {
+  kind: "exact";
+  agent: A;
+  argv: [];
+} {
+  return { kind: "exact", agent, argv: [] };
+}

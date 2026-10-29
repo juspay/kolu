@@ -106,8 +106,8 @@ describeDaemon("in-epoch contract skew over the Effect wire", () => {
     // the read itself to fail, "skew" and "broken link" would be one
     // observation, and a supervisor could not tell a wrong-version daemon
     // (recycle it) from a foreign process squatting the socket (leave it alone).
-    const reported = await readVersion(await serveFakeDaemon("7.4"));
-    expect(reported).toBe("7.4");
+    const reported = await readVersion(await serveFakeDaemon("8.4"));
+    expect(reported).toBe("8.4");
     // …and the verdict is then computed, purely, from the two strings.
     expect(
       isContractVersionCompatible(reported, PTY_HOST_CONTRACT_VERSION),
@@ -118,21 +118,19 @@ describeDaemon("in-epoch contract skew over the Effect wire", () => {
     // The direction every minor bump in this contract's history has relied on: a
     // survivor that predates a new stream/field reports a lower minor and is
     // recycled BEFORE any call touches the member it lacks.
-    const reported = await readVersion(await serveFakeDaemon("7.0"));
-    expect(reported).toBe("7.0");
-    expect(isContractVersionCompatible(reported, "7.3")).toBe(false);
+    const reported = await readVersion(await serveFakeDaemon("8.0"));
+    expect(reported).toBe("8.0");
+    expect(isContractVersionCompatible(reported, "8.3")).toBe(false);
   });
 
   it("a peer reporting a PREVIOUS-EPOCH version over the current protocol is refused", async () => {
-    // The guard the 7.0 bump buys, stated as a test rather than as a comment.
-    // Such a peer cannot exist as a real 6.x daemon (its framing is undecodable
-    // — that is the unspeakable-protocol path), but a mislabeled or hand-rolled
-    // build CAN present a 6.x string on this wire. Had the constant stayed at
-    // "6.0", that string would have compared EQUAL to ours and been adopted as
-    // wire-compatible: the pty-host's own version lever, silently disarmed
-    // across the one break it most needed to name.
-    const reported = await readVersion(await serveFakeDaemon("6.0"));
-    expect(reported).toBe("6.0");
+    // The guard every major bump buys, stated as a test rather than as a
+    // comment. Such a peer cannot exist as a real 7.x daemon (its framing is
+    // undecodable — the unspeakable-protocol path), but a mislabeled or
+    // hand-rolled build CAN present a 7.x string on this wire; the comparison
+    // must refuse it rather than adopt it on a minor.
+    const reported = await readVersion(await serveFakeDaemon("7.0"));
+    expect(reported).toBe("7.0");
     expect(
       isContractVersionCompatible(reported, PTY_HOST_CONTRACT_VERSION),
     ).toBe(false);

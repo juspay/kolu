@@ -6,9 +6,9 @@
  * These pin the invariants the discarded first cut (PR #1466) violated, now
  * across the two halves:
  *   - sleep flips the SAME registry entry to the AUTHORED sleeping arm in place;
- *     the resume inputs ride `entry.meta` (the authored record) — `lastAgentCommand`
- *     and the fold-derived `restoreTarget` (BUG-B stripped the agent so wake resumed
- *     nothing). The OBSERVATION (`cwd`/`git`/`pr`) rides `entry.snapshot`, carried
+ *     the resume input rides `entry.meta` (the authored record) — the fold-derived
+ *     `restoreTarget` (BUG-B stripped the agent so wake resumed nothing). The
+ *     OBSERVATION (`cwd`/`git`/`pr`) rides `entry.snapshot`, carried
  *     over unchanged so the dormant tile recomposes cwd/branch/pr off it. `pr` is
  *     restore-relevant now and rides the snapshot, so the frozen-`pr`-on-the-
  *     sleeping-arm special case is GONE;
@@ -128,11 +128,9 @@ describe("beginSleep — flip active → sleeping in place", () => {
     expect(entry.meta.intent).toBe("fix the auth race");
     expect(entry.meta.sleptAt).toBeGreaterThan(0);
 
-    // The resume inputs ride the AUTHORED arm — `lastAgentCommand` + the
-    // `restoreTarget` (the resume inputs, BUG-B/#1495). The fold set `restoreTarget`
-    // during the active session; the sleep freeze carries it over with no special
-    // capture.
-    expect(entry.meta.lastAgentCommand).toBe("opencode --model sonnet");
+    // The resume input rides the AUTHORED arm — the `restoreTarget`
+    // (BUG-B/#1495). The fold set it during the active session; the sleep freeze
+    // carries it over with no special capture.
     expect(entry.meta.restoreTarget).toEqual(EXACT_TARGET);
 
     // Authored names NO snapshot field — cwd/git/pr/agent are absent from entry.meta
@@ -193,11 +191,10 @@ describe("beginSleep after the fold's authored write — the sleeping decode", (
     unregisterTerminal(MEM_ID);
   });
 
-  it("flips and PUBLISHES sleeping for a terminal whose fold remembered no launch line", () => {
+  it("flips and PUBLISHES sleeping for a terminal whose fold remembers no agent", () => {
     const entry = activeEntry(MEM_ID, { restoreTarget: { kind: "none" } });
-    // A terminal that never ran a KNOWN agent has no remembered launch line —
-    // the absent-key shape, the only one `Schema.optionalKey` accepts.
-    delete (entry.meta as { lastAgentCommand?: string }).lastAgentCommand;
+    // A terminal that never ran an agent has no resume target at all — its own
+    // `none` arm, not a remembered launch line.
     registerTerminal(MEM_ID, entry);
     installSnapshot(MEM_ID);
 
@@ -215,13 +212,13 @@ describe("beginSleep after the fold's authored write — the sleeping decode", (
     expect(getTerminal(MEM_ID)?.meta.state).toBe("sleeping");
     // The flip must reach the WIRE — a swallowed publish is the same dead tile.
     expect(upserts).toContainEqual({ id: MEM_ID, state: "sleeping" });
-    // And the absent fact stays absent, never a present `undefined`.
-    expect("lastAgentCommand" in (getTerminal(MEM_ID)?.meta ?? {})).toBe(false);
+    // And the target stays the bare-shell arm through the flip.
+    expect(getTerminal(MEM_ID)?.meta.restoreTarget).toEqual({ kind: "none" });
   });
 });
 
 describe("snapshotSession — a slept terminal serializes through the sleeping arm", () => {
-  it("emits state=sleeping + sleptAt, strips agent/foreground, keeps the pr snapshot + lastAgentCommand + restoreTarget", () => {
+  it("emits state=sleeping + sleptAt, strips agent/foreground, keeps the pr snapshot + restoreTarget", () => {
     seedActiveTerminal(ID);
     beginSleepLocal(ID);
 
@@ -230,7 +227,6 @@ describe("snapshotSession — a slept terminal serializes through the sleeping a
     if (saved?.state !== "sleeping") throw new Error("expected sleeping arm");
     expect(saved.sleptAt).toBeGreaterThan(0);
     // The authored memory + the restore target ride to disk (joined at save).
-    expect(saved.lastAgentCommand).toBe("opencode --model sonnet");
     expect(saved.restoreTarget).toEqual(EXACT_TARGET);
 
     // Round-trips through the saved discriminated union — agent/foreground don't
@@ -268,7 +264,6 @@ describe("wake — resets the snapshot, keeps the authored memory", () => {
     // The restore target rides `entry.meta` (the AUTHORED record), surviving the
     // flip back to active — so wake can resume.
     const meta = getTerminal(ID)?.meta;
-    expect(meta?.lastAgentCommand).toBe("opencode --model sonnet");
     expect(meta?.restoreTarget).toEqual(EXACT_TARGET);
 
     // The resume form switches on the AUTHORED `restoreTarget` and targets the EXACT
@@ -285,8 +280,8 @@ describe("wake — resets the snapshot, keeps the authored memory", () => {
 
   it("wakes to a BARE SHELL on a `none` restore target (quit-to-shell, by construction)", async () => {
     // A quit-to-shell drops the live agent, so the fold wrote `restoreTarget: none`.
-    // Even with a sticky `lastAgentCommand` still on the record, wake resumes NOTHING
-    // — `none` is read as a bare shell, never the most-recent fallback (model B).
+    // Wake resumes NOTHING — `none` is read as a bare shell, never a most-recent
+    // fallback (model B).
     const entry = activeEntry(ID, { restoreTarget: { kind: "none" } });
     registerTerminal(ID, entry);
     installSnapshot(ID);
@@ -297,31 +292,9 @@ describe("wake — resets the snapshot, keeps the authored memory", () => {
 
     await waking;
   });
-
-  it("resumes most-recent on a `legacyMostRecent` target (migrated pre-1.29 record)", async () => {
-    // A pre-1.29 record that remembered a launch command but never captured the
-    // session id migrates to a NAMED `legacyMostRecent` target — so the old
-    // most-recent behavior is preserved for already-saved sessions, distinctly from
-    // a quit-to-shell `none`.
-    const entry = activeEntry(ID, {
-      restoreTarget: {
-        kind: "legacyMostRecent",
-        command: "opencode --model sonnet",
-      },
-    });
-    registerTerminal(ID, entry);
-    installSnapshot(ID);
-    expect(beginSleepLocal(ID)).toBe(true);
-
-    const waking = wakeLocalTerminal(ID);
-    const resumeCommand = resumeFormFor(getTerminal(ID)?.meta.restoreTarget);
-    expect(resumeCommand).toBe("opencode --continue --model sonnet");
-
-    await waking;
-  });
 });
 
-describe("wake — a failed PTY spawn must NOT drop the sleeping record (F2)", () => {
+describe("wake — the resume form switches on the AUTHORED restore target", () => {
   const WAKE_ID = "33333333-3333-4333-8333-333333333333";
   const sleepingRecord = () => ({
     id: WAKE_ID,
@@ -335,7 +308,6 @@ describe("wake — a failed PTY spawn must NOT drop the sleeping record (F2)", (
     location: LOCAL_LOCATION,
     lastActivityAt: 7,
     promptedAt: null,
-    lastAgentCommand: "claude --model sonnet",
   });
 
   afterEach(() => {
@@ -361,9 +333,9 @@ describe("wake — a failed PTY spawn must NOT drop the sleeping record (F2)", (
       );
     expect(entry.meta.sleptAt).toBe(222);
     expect(entry.handle).toBeUndefined();
-    // The resume input (the authored `lastAgentCommand`) rode through on the restored
-    // sleeping arm — never dropped on a wake-spawn failure.
-    expect(entry.meta.lastAgentCommand).toBe("claude --model sonnet");
+    // The authored memory rode through on the restored sleeping arm — never
+    // dropped on a wake-spawn failure.
+    expect(entry.meta.lastActivityAt).toBe(7);
     // The snapshot survives too (one backing store).
     expect(snapshotFor(WAKE_ID)?.cwd).toBe("/work/repo");
   });
@@ -381,7 +353,6 @@ describe("wake/spawn PUSHES the authored active snapshot (issue #1529)", () => {
     location: LOCAL_LOCATION,
     lastActivityAt: 7,
     promptedAt: null,
-    lastAgentCommand: "claude --model sonnet",
   });
 
   let upserts: Array<{ id: string; state: AuthoredTerminal["state"] }>;
@@ -440,18 +411,17 @@ describe("seedSleepingTerminal — boot seed with per-record tolerance", () => {
     location: LOCAL_LOCATION,
     lastActivityAt: 5,
     promptedAt: null,
-    lastAgentCommand: "claude --model sonnet",
     // The restore target the cold-restored terminal will resume — rides the authored
-    // sleeping record (its `exact` arm keeps only the identity, no full-agent
-    // reconstruction across a cold restart).
+    // sleeping record (its `exact` arm keeps only the identity + the live process's
+    // allowlisted flags, no full-agent reconstruction across a cold restart).
     restoreTarget: {
       kind: "exact",
-      command: "claude --model sonnet",
       agent: {
         kind: "claude-code",
         sessionId: "9b2f1c34-5a6d-4e7f-8a90-b1c2d3e4f567",
         resumeRef: "9b2f1c34-5a6d-4e7f-8a90-b1c2d3e4f567",
       },
+      argv: ["--model", "sonnet"],
     } as const,
   });
 
@@ -466,15 +436,15 @@ describe("seedSleepingTerminal — boot seed with per-record tolerance", () => {
     expect(entry.meta.sleptAt).toBe(111);
     expect(entry.handle).toBeUndefined();
     // The authored memory + the restore target rode onto `entry.meta`.
-    expect(entry.meta.lastAgentCommand).toBe("claude --model sonnet");
+    expect(entry.meta.lastActivityAt).toBe(5);
     expect(entry.meta.restoreTarget).toEqual({
       kind: "exact",
-      command: "claude --model sonnet",
       agent: {
         kind: "claude-code",
         sessionId: "9b2f1c34-5a6d-4e7f-8a90-b1c2d3e4f567",
         resumeRef: "9b2f1c34-5a6d-4e7f-8a90-b1c2d3e4f567",
       },
+      argv: ["--model", "sonnet"],
     });
     // The restore-relevant snapshot (cwd + the persisted pr) rode into the entry
     // (the dormant tile reads cwd/pr off it).

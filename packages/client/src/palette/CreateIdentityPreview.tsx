@@ -18,7 +18,6 @@ import type {
 import { recentRepos } from "../hostScope/activeWire";
 import { assignColors } from "../terminal/terminalDisplay";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { iconForCommand } from "../ui/agentDisplay";
 import { TerminalIcon } from "../ui/Icons";
 import RepoMonogram from "../ui/RepoMonogram";
 import { NEW_TERMINAL_GROUP } from "./newTerminalGroup";
@@ -118,12 +117,12 @@ export function createPreviewModel(
     const typed = query.trim();
     const agentLabel =
       highlighted?.kind === "label" ? highlighted.name : "Plain shell";
-    const agentCmd =
-      highlighted?.kind === "label" && typeof highlighted.data === "string"
-        ? highlighted.data
-        : undefined;
+    // The label already carries the agent's registry mark (the value group
+    // builds its rows through `iconForKind`), so the preview reads it off the
+    // highlighted row instead of re-deriving a kind from displayed text.
     const AgentIcon =
-      (agentCmd ? iconForCommand(agentCmd) : undefined) ?? TerminalIcon;
+      (highlighted?.kind === "label" ? highlighted.icon : undefined) ??
+      TerminalIcon;
     return buildModel(
       repoName,
       typed || "worktree name…",

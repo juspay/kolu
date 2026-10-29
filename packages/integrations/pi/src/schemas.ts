@@ -7,7 +7,13 @@
  *  Anything exported here MUST stay free of `node:*` imports and filesystem
  *  access — Effect Schema and `anyagent`'s schema re-exports only. */
 
-import { type AgentVocab, type FlagArity, TaskProgressSchema } from "anyagent";
+import {
+  type AgentVocab,
+  type FlagArity,
+  NODE_CLI_SHIMS,
+  SESSION_PATH_OR_UUID_RE,
+  TaskProgressSchema,
+} from "anyagent";
 import { Schema } from "effect";
 
 export type { TaskProgress } from "anyagent";
@@ -77,21 +83,15 @@ const PI_MARK = {
   paths: ["M5 6h14v2.5H16V18h-2.5V8.5h-3V18H8V8.5H5V6z"],
 };
 
-/** pi's resume ref admits an id or the absolute session PATH, restricted to
- *  shell-inert writing-system characters (no control, no quotes, no
- *  `$`/`;`/backtick/metachars). The splice itself always goes through
- *  `shellJoin`, which is the lock; this is the second wall. */
-const PI_RESUME_REF_RE =
-  /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\/[\w .,@=+(){}#%/~-]*\.jsonl)$/;
-
 /** Pi's vocabulary — display name, brand mark, CLI grammar (including its
- *  one-shot/subcommand carve-outs), resume policy, and wire schema. */
+ *  resume policy, and wire schema. */
 export const piVocab: AgentVocab<PiInfo> = {
   kind: "pi",
   displayName: "Pi",
   mark: PI_MARK,
   cli: {
     basename: "pi",
+    shims: NODE_CLI_SHIMS,
     stableFlags: new Map<string, FlagArity>([
       ["--model", "value"],
       ["--provider", "value"],
@@ -99,39 +99,15 @@ export const piVocab: AgentVocab<PiInfo> = {
       ["--name", "value"],
       ["-n", "value"],
     ]),
-    // Pi's one-shot surface is wider than the other agents': `-v` is its
-    // version spell (capital `-V` is a different, unknown switch), and
-    // `--export` / `--list-models` / `-p` (`--print`) are print-and-exit
-    // invocations that must never enter the recent-agents MRU.
-    extraExitFlags: new Set([
-      "-v",
-      "--export",
-      "--list-models",
-      "-p",
-      "--print",
-    ]),
-    // `--session-dir <dir>` writes outside the scanned tree; `--no-session` is
-    // ephemeral. Attributing either would bind the terminal to a DIFFERENT
-    // session in the cwd (the #1495 wrong-conversation class via the
-    // unmatchable direction). Valid in ANY argv position.
-    nonSessionFlags: new Set(["--session-dir", "--no-session"]),
-    // BARE positional subcommand words — only in argv position 0: pi dispatches
-    // a subcommand from its FIRST argument alone, and any later occurrence is
-    // prompt text for an interactive session.
-    nonSessionSubcommands: new Set([
-      "auth",
-      "config",
-      "install",
-      "list",
-      "remove",
-      "uninstall",
-      "update",
-    ]),
+    // Pi's one-shot surface (`-v`, `--export`, `--list-models`, `-p`) and its
+    // subcommand words (`list`, `config`, …) used to be carved out here so a
+    // TYPED line could not enter the recent-agents MRU. Nothing reads a typed
+    // line any more: the MRU is fed by a detected LIVE agent, so a one-shot
+    // invocation (which has no session and exits) can never appear in it.
   },
   resume: {
-    last: "-c",
     byId: (id) => `--session ${id}`,
-    idPattern: PI_RESUME_REF_RE,
+    idPattern: SESSION_PATH_OR_UUID_RE,
     // Pi prefers the PATH over the id: pi's id lookup searches only its OWN
     // current store resolution, so a session whose store MOVED is unfindable by
     // id from a fresh invocation, while the absolute path opens unconditionally.

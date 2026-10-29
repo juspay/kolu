@@ -9241,6 +9241,171 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "c3eeced54cfd3bdeec58714c0fd23d49ea1de2a3"
+    },
+    {
+      "revisionId": "revision-d12fc291481e24680859",
+      "scenarioKey": "scenario-87b899d742012bd75f9d",
+      "feature": "features/recent-agents.feature",
+      "scenario": "\"Recent agents\" is hidden when no agents have been run",
+      "kind": "scenario",
+      "tags": ["@claude-mock"],
+      "bodyHash": "ec1ddc9827a33c333d898601476ae8cac98a05e420e2633ac3dbb14eac380a81",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b4a97a49c76847fae63c18876a2f24033308625c"
+    },
+    {
+      "revisionId": "revision-ee56c08a2a963f6208d9",
+      "scenarioKey": "scenario-8e175cacae7758939dfd",
+      "feature": "features/recent-agents.feature",
+      "scenario": "A live agent surfaces under \"Recent agents\"",
+      "kind": "scenario",
+      "tags": ["@claude-mock"],
+      "bodyHash": "6083529c015a2eafaa762f221db17973373c885f3c790768eb55d657da464332",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b4a97a49c76847fae63c18876a2f24033308625c"
+    },
+    {
+      "revisionId": "revision-d84d38d42a10f8cdd5fc",
+      "scenarioKey": "scenario-5c6023294bfe5d30d74b",
+      "feature": "features/recent-agents.feature",
+      "scenario": "A quoted flag value survives intact in the list (#1407)",
+      "kind": "scenario",
+      "tags": ["@claude-mock"],
+      "bodyHash": "e4f4c2bbd336dbc4493ce881366e49be37e8332643db5e8cffbf7d162caa872e",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b4a97a49c76847fae63c18876a2f24033308625c"
+    },
+    {
+      "revisionId": "revision-fce244a91d0f488a3d84",
+      "scenarioKey": "scenario-6c7844e262a24b41d1ff",
+      "feature": "features/recent-agents.feature",
+      "scenario": "Drilling into Recent agents keeps focus on palette input",
+      "kind": "scenario",
+      "tags": ["@claude-mock"],
+      "bodyHash": "e1944c69ef67f9e8adea53c2e6850a955d310e6b887d0a08d02deb1f31f8aec2",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b4a97a49c76847fae63c18876a2f24033308625c"
+    },
+    {
+      "revisionId": "revision-5a0cb4f86dfab153ac8a",
+      "scenarioKey": "scenario-39f7355fb16f72636b89",
+      "feature": "features/recent-agents.feature",
+      "scenario": "Flags outside the allowlist are stripped from the row",
+      "kind": "scenario",
+      "tags": ["@claude-mock"],
+      "bodyHash": "61eaee03d6cdbfe311b3165c63841f48c1136cdf4400e13a3bab7ffad00f7dff",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b4a97a49c76847fae63c18876a2f24033308625c"
+    },
+    {
+      "revisionId": "revision-a113efa723c731ff6d46",
+      "scenarioKey": "scenario-17c81aa3e153599d9d24",
+      "feature": "features/recent-agents.feature",
+      "scenario": "Non-agent commands do not pollute the list",
+      "kind": "scenario",
+      "tags": ["@claude-mock"],
+      "bodyHash": "90f8b8b40415d4f17e33be8125d92828fbfdaa9e781aafa69ee173bc0d931cd0",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b4a97a49c76847fae63c18876a2f24033308625c"
+    },
+    {
+      "revisionId": "revision-088d4f405a67a1516a66",
+      "scenarioKey": "scenario-5a982f5e712fcdc6b434",
+      "feature": "features/session-restore.feature",
+      "scenario": "A split terminal's agent resumes on session restore",
+      "kind": "outline",
+      "tags": ["@codex-mock", "@kaval-restart"],
+      "bodyHash": "f4b69239b7d66229ee23cae61c8572e1bd2228a9f817a570e6d7a8f6e0ca8188",
+      "exampleRows": [
+        {
+          "id": "example-b2a3805808b288141f29",
+          "name": "A split terminal's agent resumes on session restore"
+        },
+        {
+          "id": "example-b47f8cc5693fbd56479e",
+          "name": "A split terminal's agent resumes on session restore"
+        }
+      ],
+      "executions": 2,
+      "firstSeenSha": "b4a97a49c76847fae63c18876a2f24033308625c"
+    },
+    {
+      "revisionId": "revision-4730b83691773bb98439",
+      "scenarioKey": "scenario-d0afbdf7df6e398348aa",
+      "feature": "features/session-restore.feature",
+      "scenario": "Restore card surfaces resumable agents behind a global resume toggle",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "5277d2971aee4cf953f0bfe95d67ad813666589169070934bdc1db20a1591ad5",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b4a97a49c76847fae63c18876a2f24033308625c"
+    },
+    {
+      "revisionId": "revision-339402453f4f8d932620",
+      "scenarioKey": "scenario-a276ff22e937e6988617",
+      "feature": "features/worktree-agent.feature",
+      "scenario": "Agent sub-palette appears under a recent repo when agents exist",
+      "kind": "scenario",
+      "tags": ["@claude-mock"],
+      "bodyHash": "f121f81201c134b9076c1570a709867e248975abae4445a2af18f1b9f4e1b954",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b4a97a49c76847fae63c18876a2f24033308625c"
+    },
+    {
+      "revisionId": "revision-fc2ee9106b46f7197717",
+      "scenarioKey": "scenario-ef480b4cc963533eff5b",
+      "feature": "features/worktree-agent.feature",
+      "scenario": "Mouse submission survives a live palette refresh",
+      "kind": "scenario",
+      "tags": ["@claude-mock"],
+      "bodyHash": "443c3c477170c864a35be3cb5c430ce518b4f8bb001a7659de8524cb74e2c73f",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b4a97a49c76847fae63c18876a2f24033308625c"
+    },
+    {
+      "revisionId": "revision-a7948b3ef69dfde4cf69",
+      "scenarioKey": "scenario-5284fb052f6d0f7dc001",
+      "feature": "features/worktree-agent.feature",
+      "scenario": "Picking an agent creates the worktree and writes the command",
+      "kind": "scenario",
+      "tags": ["@claude-mock"],
+      "bodyHash": "d8be5bb148e6628507db86ed295f9367730d7fefb70684304fd7cea8c48ccfe0",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b4a97a49c76847fae63c18876a2f24033308625c"
+    },
+    {
+      "revisionId": "revision-18b0178fbbe7b64202eb",
+      "scenarioKey": "scenario-20345d133fd691674335",
+      "feature": "features/worktree-agent.feature",
+      "scenario": "Picking Plain shell creates a plain worktree terminal",
+      "kind": "scenario",
+      "tags": ["@claude-mock"],
+      "bodyHash": "09fe1fe0876955a9d09cee5ec42887125e9f88d75cdb03881144aceba28ccc78",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b4a97a49c76847fae63c18876a2f24033308625c"
+    },
+    {
+      "revisionId": "revision-9ecec81675b75dff8f6d",
+      "scenarioKey": "scenario-ad014149b87ad6628f09",
+      "feature": "features/worktree-agent.feature",
+      "scenario": "Typing a custom name and picking an agent creates a named worktree with the agent",
+      "kind": "scenario",
+      "tags": ["@claude-mock"],
+      "bodyHash": "75daa1271b067afeb7b2313472e19b54dc7e52bff1da35e2d0e02f16da260f14",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b4a97a49c76847fae63c18876a2f24033308625c"
     }
   ]
 }

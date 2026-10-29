@@ -177,7 +177,7 @@ export function commitSnapshot(
 }
 
 /** Write the fold's restore-relevant AUTHORED facts — the remembered
- *  `AgentMemory` fields (`lastActivityAt`, `promptedAt`, `lastAgentCommand`) and the fold-derived
+ *  `AgentMemory` fields (`lastActivityAt`, `promptedAt`) and the fold-derived
  *  `restoreTarget` — onto `entry.meta`, then publish the composed record. The ONE
  *  writer of these (the fold's), so no other code path can spell them — the typed
  *  mirror of `updateClientMetadata`. Does NOT arm the autosave (no {@link notifyDirty}):
@@ -205,19 +205,10 @@ export function updateMemory(
   // a lost publish self-heals on the next authored-fact change.
   entry.meta.lastActivityAt = memory.lastActivityAt;
   entry.meta.promptedAt = memory.promptedAt;
-  // `lastAgentCommand` is an OPTIONAL KEY (`Schema.optionalKey`) on the authored
-  // record: ABSENT means "this terminal never ran a known agent". A plain
-  // assignment of an absent memory field would write the key PRESENT with the
-  // value `undefined` — a shape the schema rejects ("Expected string, got
-  // undefined"), and `snapshotSession`'s `decodeUnknownSync(SavedTerminalSchema)`
-  // throws SYNCHRONOUSLY out of the autosave, killing padi. (That is exactly what
-  // happened once an agent was detected in a terminal with no remembered launch
-  // line: the first agent observation stamps `lastActivityAt`, this write lands the
-  // present-`undefined` key, and the next autosave takes the daemon down — the
-  // agent indicator then froze or vanished in the browser.) So DELETE on absence:
-  // "absent" is spelled as an absent key, the only spelling the schema accepts.
-  if (memory.lastAgentCommand === undefined) delete entry.meta.lastAgentCommand;
-  else entry.meta.lastAgentCommand = memory.lastAgentCommand;
+  // The restore target is the WHOLE resume fact — identity plus allowlisted flags.
+  // It is a structured value, so an absent target is its own `none` arm rather than
+  // an absent key: assign it unconditionally (never spell `undefined`, which the
+  // schema rejects and an autosave's synchronous decode would throw on).
   entry.meta.restoreTarget = restoreTarget;
   // The composed publish recomputes the derived urgency cell uniformly; the memory
   // facts written above are none of `recomputeUrgency`'s inputs, so the recompute

@@ -4,7 +4,7 @@
  *  the schema without pulling the package root, which imports `node:fs`.
  *  Mirrors the `kolu-grok/schemas` precedent. */
 
-import { type AgentVocab, TaskProgressSchema } from "anyagent";
+import { type AgentVocab, TaskProgressSchema, UUID_RE } from "anyagent";
 import { Schema } from "effect";
 
 export type { TaskProgress } from "anyagent";
@@ -40,12 +40,6 @@ export const XyneInfoSchema = Schema.Struct({
 
 export type XyneInfo = typeof XyneInfoSchema.Type;
 
-/** Canonical UUID shape — xyne's session ids (and claude's / codex's) are
- *  plain UUIDs; the shell-inert gate a ref must pass before `--session`
- *  splices it (fail-closed, see `AgentResumePolicy.idPattern`). */
-const UUID_RE =
-  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-
 /** Xyne "X" monogram — xyne-cli ships no brand mark in simple-icons, so a
  *  bold geometric X stands in; weight matched to the other filled marks.
  *  ONE mark for both the tile-chrome icon and the dock pip. */
@@ -65,18 +59,16 @@ export const xyneVocab: AgentVocab<XyneInfo> = {
   mark: XYNE_MARK,
   cli: {
     basename: "xyne",
+    shims: new Set(["python", "python3", "uv", "uvx"]),
     stableFlags: new Map([
       ["--debug", "boolean"],
       ["--port", "value"],
     ]),
-    extraExitFlags: new Set(),
-    nonSessionFlags: new Set(),
-    nonSessionSubcommands: new Set(),
   },
   resume: {
-    // Xyne: `--continue` for most-recent in cwd; `--session <uuid>` for exact
-    // (both forms accepted upstream — cli-parser takes space-separated too).
-    last: "--continue",
+    // The exact form: `--session <uuid>` (cli-parser takes space-separated too).
+    // kolu never renders the most-recent `--continue` form — a target names the
+    // conversation it observed, never "whatever is newest in this directory".
     byId: (id) => `--session ${id}`,
     idPattern: UUID_RE,
     ref: (info) => info.sessionId,

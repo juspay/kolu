@@ -220,11 +220,7 @@ function startTerminal(id: TerminalId, agentPid: number): Harness {
   const signals = {
     cwd: inMemoryChannel<string>(),
     title: inMemoryChannel<string>(),
-    commandRun: inMemoryChannel<{
-      command: string;
-      replayed: boolean;
-      shellJoin: boolean;
-    }>(),
+    commandRun: inMemoryChannel<string>(),
     foreground: inMemoryChannel<ForegroundSample>(),
     ports: inMemoryChannel<TerminalPorts>(),
     grid: inMemoryChannel<TerminalGrid>(),
@@ -257,7 +253,7 @@ function startTerminal(id: TerminalId, agentPid: number): Harness {
         e.kind === "agent" &&
         typeof e.agent === "object" &&
         e.agent.value !== null
-          ? [e.agent.value]
+          ? [e.agent.value.info]
           : [],
       );
       return agents.at(-1);

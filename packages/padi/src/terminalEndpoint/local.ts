@@ -49,7 +49,7 @@ import type {
   TerminalState,
 } from "@kolu/terminal-vocab/schema";
 import { seedSnapshot, TerminalIdSchema } from "@kolu/terminal-vocab/schema";
-import { resumeFormFor } from "kolu-agents/vocab";
+import { resumeFormFor, willResume } from "kolu-agents/vocab";
 import { Effect, Result, Schema, Stream } from "effect";
 import type { ForegroundSample, PtyHostClient, PtyHostListEntry } from "kaval";
 import type { SnapshotGrid } from "terminal-snapshot";
@@ -78,8 +78,8 @@ import {
 import { probeProfileInEffect } from "../agentDistro/inEffect.ts";
 import { agentLayerOfRecord, withAgentLayer } from "../agentDistro/layer.ts";
 import { buildTerminalSpawnInput, ptyHostClient } from "../ptyHost/index.ts";
+import type { Logger } from "pino";
 import { notifyDirty } from "../publisher.ts";
-import { unresumableAgentWatch } from "./unresumableAgent.ts";
 import {
   type ActiveTerminalProcess,
   claimActiveTerminal,
@@ -105,12 +105,10 @@ import {
   type FoldCtx,
   fold,
   restoreTargetEqual,
-  restoreTargetOf,
   seedRecencyBaseline,
   stepRecencyBaseline,
 } from "../terminalWorkspace/fold.ts";
 import {
-  type CommandRunSample,
   type SensorSignals,
   startSensors,
 } from "../terminalWorkspace/sensors.ts";
@@ -127,6 +125,54 @@ import {
   reattachingDeltas,
   releaseOnAbort,
 } from "./reattachingDeltas.ts";
+
+/** The loud half of a terminal that will not resume across a restart: a terminal
+ *  can hold a LIVE agent identity while kolu cannot render a resume form for it —
+ *  the agent's kind is not one this build knows, or its ref no longer passes the
+ *  agent's own shape gate — and its wake lands on a bare shell. Warns once per
+ *  agent episode; the raw mark is kept only as LOG CONTEXT (never parsed).
+ *
+ *  @internal Exported for the endpoint-level test (the emit loop is otherwise
+ *  private); the endpoint is the only production caller.
+ */
+export function unresumableAgentWatch(
+  id: TerminalId,
+  log: Pick<Logger, "warn">,
+): {
+  /** Remember the latest raw command line for the warning's context only. */
+  noteRawCommand(raw: string): void;
+  /** Check a freshly folded state; warns at most once per agent episode. */
+  check(state: TerminalState): void;
+} {
+  let lastRawCommand: string | undefined;
+  let warned = false;
+  return {
+    noteRawCommand(raw) {
+      lastRawCommand = raw;
+    },
+    check(state) {
+      if (state.snapshot.agent === null) {
+        warned = false;
+        return;
+      }
+      // `kind !== "exact"` first: a bare-shell target never pays for a render.
+      if (state.restoreTarget.kind !== "exact" || warned) return;
+      if (willResume(state.restoreTarget)) return;
+      warned = true;
+      log.warn(
+        {
+          terminal: id,
+          agent: state.snapshot.agent.kind,
+          reason: "no-resume-form",
+          // Why it refused: an unknown kind, or a ref that failed its shape gate.
+          resumeRef: state.snapshot.agent.sessionId,
+          lastRawCommand,
+        },
+        "agent detected but kolu cannot render a resume form for it — this terminal will not resume across restart",
+      );
+    },
+  };
+}
 
 // ── Decoders ────────────────────────────────────────────────────────────
 // `Schema.decodeUnknownSync` is the successor of zod's `.parse` — same fail-fast
@@ -537,11 +583,9 @@ function readScreenTextFor(id: TerminalId, tailLines: number): Promise<string> {
 }
 
 /** Did any AUTHORED fact the fold writes change — the memory fields the
- *  authored record stores (`lastActivityAt`, `promptedAt`, `lastAgentCommand`) plus the
- *  fold-derived `restoreTarget`? Compares the restore target BY VALUE
- *  (`restoreTargetEqual` over `restoreTargetOf`) rather than re-deriving the move
- *  from the target's raw inputs, so this fence can never desync from the projection
- *  it gates on — fold another input into `restoreTargetOf` and this stays correct.
+ *  authored record stores (`lastActivityAt`, `promptedAt`) plus the fold-derived
+ *  `restoreTarget`? The fold stores the target itself, so this compares it BY
+ *  VALUE and there is nothing to re-derive: one owner, one fence.
  *  The AUTHORED-publish fence: a pure agent-detail / foreground tick leaves all of
  *  these equal, so the `kolu.authored` collection is NOT re-published on the ~150 ms
  *  observation firehose — only `commitSnapshot` (the snapshots collection) sees
@@ -550,8 +594,7 @@ function authoredFactsEqual(a: TerminalState, b: TerminalState): boolean {
   return (
     a.memory.lastActivityAt === b.memory.lastActivityAt &&
     a.memory.promptedAt === b.memory.promptedAt &&
-    a.memory.lastAgentCommand === b.memory.lastAgentCommand &&
-    restoreTargetEqual(restoreTargetOf(a), restoreTargetOf(b))
+    restoreTargetEqual(a.restoreTarget, b.restoreTarget)
   );
 }
 
@@ -759,11 +802,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // Likewise a resumed agent's first live turn, so its first-prompt tip stays gone.
     if (opts.initialMetadata?.promptedAt !== undefined)
       meta.promptedAt = opts.initialMetadata.promptedAt;
-    // Session restore threads the saved agent-resume facts through so the restore-time
-    // re-persist can't write `none` over a resuming agent before the fold re-derives
-    // them (the fold's `updateMemory` rewrites both live once the agent is re-observed).
-    if (opts.initialMetadata?.lastAgentCommand !== undefined)
-      meta.lastAgentCommand = opts.initialMetadata.lastAgentCommand;
+    // Session restore threads the saved agent-resume target through so the
+    // restore-time re-persist can't write `none` over a resuming agent before the
+    // fold re-derives it (the fold's `updateMemory` rewrites it live once the agent
+    // is re-observed). It carries the identity AND the flags — the whole thing a
+    // resume needs, all of it structured.
     if (opts.initialMetadata?.restoreTarget !== undefined)
       meta.restoreTarget = opts.initialMetadata.restoreTarget;
     if (opts.parentId) meta.parentId = opts.parentId;
@@ -1118,7 +1161,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     // the command-run tap catches the resumed invocation and the agent indicator
     // re-lights. The PTY buffers the bytes until the shell reaches its prompt
     // (the same type-ahead a fast typist relies on), so there's no readiness
-    // race — only set on wake (`resumeAgentCommand` output), never an ordinary spawn.
+    // race — only set on wake (`resumeFormFor` output), never an ordinary spawn.
     if (opts.resumeCommand) proxy.write(`${opts.resumeCommand}\r`);
     this.recordProfileInEffect(id, entry, res);
     tlog.info({ pid: res.pid, total: listTerminals().length }, "created");
@@ -1191,8 +1234,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  observation + memory and folds each emitted observation: the five snapshot
    *  fields are last-write-wins; `lastActivityAt` is stamped from a LIVE agent
    *  observation with kolu's clock — an identity change always, a same-identity
-   *  output tick throttled; `lastAgentCommand` + the derived `restoreTarget`
-   *  are kolu's to remember. It commits the snapshot half to the `snapshot`
+   *  output tick throttled; the live agent's allowlisted argv (persisted as the
+   *  derived `restoreTarget`) is kolu's to remember. It commits the snapshot half
+   *  to the `snapshot`
    *  collection, the memory half + the `restoreTarget` to `kolu.authored`, and arms
    *  the session autosave — each effect arm gated by ITS OWN delta so the ~150 ms
    *  agent-detail / foreground firehose reaches NONE of disk, the authored
@@ -1222,7 +1266,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     const signals: SensorSignals = {
       cwd: inMemoryChannel<string>(),
       title: inMemoryChannel<string>(),
-      commandRun: inMemoryChannel<CommandRunSample>(),
+      commandRun: inMemoryChannel<string>(),
       foreground: inMemoryChannel<ForegroundSample>(),
       // Fed by the host-wide port sampler (below), not by a pty-host tap.
       ports: inMemoryChannel<TerminalPorts>(),
@@ -1245,8 +1289,10 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       memory: {
         lastActivityAt: seedEntry.meta.lastActivityAt,
         promptedAt: seedEntry.meta.promptedAt,
-        lastAgentCommand: seedEntry.meta.lastAgentCommand,
       },
+      // The durable target seeds the fold so an authored-fact change before the
+      // agent is re-observed cannot transiently rewrite the persisted target.
+      restoreTarget: seedEntry.meta.restoreTarget ?? { kind: "none" },
     };
 
     // Recency frame phase, decided BY VALUE against the agent identity the producer
@@ -1277,15 +1323,38 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       const ctx: FoldCtx = { live: step.live, at: Date.now(), runStartedAt };
       current = fold(current, o, ctx);
       // Cross-terminal MRUs (kolu's, fold-side) track the OBSERVATION itself — a git
-      // context seen, a (non-replayed) agent command run — NOT the fold delta, so they
-      // run BEFORE the no-op early-return below. Re-launching the SAME agent command
-      // dedups in the fold (`lastAgentCommand` is unchanged → `current === before`) but
-      // is still a fresh launch that must refresh the recent-agents MRU `lastSeen`;
-      // gating it on the fold delta would drop that bump — the old command sensor fired
-      // `trackRecentAgent` on every non-replayed mark, independent of the memory write.
+      // context seen, a live agent detected — NOT the fold delta, so they run BEFORE
+      // the no-op early-return below. The recent-agents row is recorded from
+      // STRUCTURED facts: the agent kind plus the live process's allowlisted argv.
+      // The gate is the DERIVED TARGET moving — identity OR flags — not the
+      // identity edge alone: a first observation whose argv could not be read
+      // writes a flagless row, and the corrected flags must reach the MRU too or
+      // the palette types a flagless line. State/summary ticks leave the target
+      // equal, so they still never reorder the list.
       if (o.kind === "git" && o.git.kind === "repo")
         trackRecentRepo(o.git.info.mainRepoRoot, o.git.info.repoName);
-      if (o.kind === "commandRun" && !o.replayed) trackRecentAgent(o.command);
+      if (
+        o.kind === "agent" &&
+        o.agent !== "unknown" &&
+        o.agent.value !== null &&
+        !restoreTargetEqual(before.restoreTarget, current.restoreTarget)
+      ) {
+        const prev = before.restoreTarget;
+        const next = current.restoreTarget;
+        // This launch wrote a flagless placeholder iff the target was `exact`,
+        // still names the SAME conversation, and its flags were empty. Only then
+        // may the richer row supersede that placeholder — a bare `claude` the
+        // user ran deliberately is a different launch and stays.
+        const replacePlaceholder =
+          prev.kind === "exact" &&
+          next.kind === "exact" &&
+          prev.agent.sessionId === next.agent.sessionId &&
+          prev.argv.length === 0 &&
+          next.argv.length > 0;
+        trackRecentAgent(o.agent.value.info.kind, o.agent.value.argv, {
+          replacePlaceholder,
+        });
+      }
       if (current === before) return; // `unknown`/dedup no-op — nothing else to commit
       unresumable.check(current);
       // Three effect arms, each gated by ITS OWN delta — no firehose on any:
@@ -1298,11 +1367,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       if (current.snapshot !== before.snapshot)
         commitSnapshot(id, current.snapshot);
       // Evaluate the authored-fact delta ONCE and feed it to the disk fence (a strict
-      // superset), so the firehose path doesn't recompute `authoredFactsEqual` —
-      // and its `restoreTargetOf` allocations — a second time inside it.
+      // superset), so the firehose path doesn't recompute `authoredFactsEqual` a
+      // second time inside it.
       const authoredEqual = authoredFactsEqual(before, current);
       if (!authoredEqual)
-        updateMemory(id, current.memory, restoreTargetOf(current));
+        updateMemory(id, current.memory, current.restoreTarget);
       if (!restoreRelevantEqual(before, current, authoredEqual)) notifyDirty();
     };
 
@@ -1319,20 +1388,11 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       ptyHostClient.surface.commandRun.get({ id }),
       signal,
       (msg) => {
-        // The OSC 633 command mark: a command that just started is the one most
-        // likely to bind a port. The 5 s baseline is what reports it.
-        unresumable.noteRawCommand(msg.command);
-        signals.commandRun.publish({
-          command: msg.command,
-          replayed: msg.replayed,
-          // The wire field is OPTIONAL for forward-compat (an additive frame field,
-          // no contract bump). A survivor kaval predating it emits no `shellJoin`
-          // AND no command-rooted seed (lock 1 ships with the field), so its
-          // commands are all raw — `false` is correct, never a revived defect. The
-          // skew default lives ONLY here at the wire boundary; the internal sample
-          // carries a definite dialect from this point on.
-          shellJoin: msg.shellJoin ?? false,
-        });
+        // The OSC 633 command mark is a SENSOR only: it re-samples the foreground
+        // and feeds the shim hint (`agentNameHint`). Its text is logged as context
+        // for an unresumable agent and never becomes a command.
+        unresumable.noteRawCommand(msg);
+        signals.commandRun.publish(msg);
       },
     );
     void bridgeStream(
@@ -1598,10 +1658,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     | undefined {
     const entry = getTerminal(id);
     if (!entry || entry.meta.state !== "sleeping") return undefined;
-    // The resume FORM switches on the authored `restoreTarget`: `exact` resumes the
-    // EXACT conversation that was live at sleep by id (juspay/kolu#1495);
-    // `legacyMostRecent` (migrated pre-1.29 records) the most-recent marker (claude
-    // `-c`, codex `resume --last`, opencode `--continue`); `none` / absent / a
+    // The resume FORM is rendered from the authored `restoreTarget`: an `exact`
+    // target resumes the EXACT conversation that was live (session identity +
+    // the process's allowlisted flags, juspay/kolu#1495); `none` / absent / a
     // non-resumable agent → null, a bare shell (juspay/kolu#1492).
     const resumeCommand = opts.resume
       ? resumeFormFor(entry.meta.restoreTarget)
@@ -1690,7 +1749,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       return now?.meta.state === "active"
         ? {
             info: now.info,
-            resumed: resumeFormFor(slept.meta.restoreTarget) !== null,
+            resumed: willResume(slept.meta.restoreTarget),
           }
         : undefined;
     // The ONE decision of whether the conversation comes back: while agents

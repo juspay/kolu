@@ -177,35 +177,33 @@ describe("metadata publish routing", () => {
     // too would double-arm — the memory write itself stays silent.
     updateMemory(
       ID,
-      { lastActivityAt: 123, promptedAt: null, lastAgentCommand: "claude" },
+      { lastActivityAt: 123, promptedAt: null },
       {
         kind: "exact",
-        command: "claude",
         agent: {
           kind: "claude-code",
           sessionId: "sess-A",
           resumeRef: "sess-A",
         },
+        argv: ["--model", "sonnet"],
       },
     );
     await settle();
     expect(dirtyCount).toBe(0);
   });
 
-  it("updateMemory leaves `lastAgentCommand` ABSENT when nothing is remembered, so the saved record still decodes", () => {
-    // `lastAgentCommand` is an OPTIONAL KEY: absent ≡ "never ran a known agent".
-    // A plain assignment of the absent memory field wrote the key PRESENT with
-    // `undefined`, which `SavedTerminalSchema` rejects — and `snapshotSession`
-    // decodes SYNCHRONOUSLY inside the autosave, so the throw took padi down the
-    // first time an agent was detected in a terminal with no remembered launch
-    // line (the agent indicator then froze/vanished in the browser).
+  it("updateMemory writes the whole target (never an absent-key `undefined`) so the saved record still decodes", () => {
+    // The restore target is a structured value with its own `none` arm, so the
+    // writer assigns it unconditionally — no optional key that could be spelled
+    // PRESENT-with-`undefined`, the shape `SavedTerminalSchema` rejects (and
+    // `snapshotSession` decodes SYNCHRONOUSLY inside the autosave).
     updateMemory(
       ID,
       { lastActivityAt: 123, promptedAt: null },
       { kind: "none" },
     );
     const entry = getTerminal(ID) as ActiveTerminalProcess;
-    expect("lastAgentCommand" in entry.meta).toBe(false);
+    expect(entry.meta.restoreTarget).toEqual({ kind: "none" });
     // The real consumer: `snapshotSession`'s decode of the composed record.
     expect(() =>
       decodeSavedTerminal({
@@ -300,12 +298,12 @@ describe("commit seams guard the publish boundary (emit stays infallible)", () =
     expect(() =>
       updateMemory(
         ID,
-        { lastActivityAt: 77, promptedAt: null, lastAgentCommand: "claude" },
+        { lastActivityAt: 77, promptedAt: null },
         { kind: "none" },
       ),
     ).not.toThrow();
     const meta = getTerminal(ID)?.meta;
     expect(meta?.lastActivityAt).toBe(77);
-    expect(meta?.lastAgentCommand).toBe("claude");
+    expect(meta?.restoreTarget).toEqual({ kind: "none" });
   });
 });

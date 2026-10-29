@@ -17,7 +17,7 @@ import {
   xyneSessionsPresent,
   xyneSessionStartedAt,
 } from "./core.ts";
-import type { XyneInfo } from "./schemas.ts";
+import { type XyneInfo, xyneVocab } from "./schemas.ts";
 import { subscribeSessionDirs } from "./sessions-dir-watcher.ts";
 import { createXyneWatcher } from "./session-watcher.ts";
 
@@ -29,7 +29,7 @@ export const xyneAdapter: AgentAdapter<XyneSession, XyneInfo> = {
   // candidate offered; the orchestrator's ownership arbiter (juspay/kolu#2057)
   // keeps it from landing on a terminal that already holds a session.
   resolveSessions(state, log) {
-    if (!matchesAgent(state, "xyne")) return [];
+    if (!matchesAgent(state, xyneVocab.cli)) return [];
     return resolveXyneSessions(state.cwd, log);
   },
 
@@ -49,7 +49,7 @@ export const xyneAdapter: AgentAdapter<XyneSession, XyneInfo> = {
 
   externalChanges: {
     isPresent(state) {
-      return matchesAgent(state, "xyne") || xyneSessionsPresent();
+      return matchesAgent(state, xyneVocab.cli) || xyneSessionsPresent();
     },
     install(onChange, onError, log) {
       subscribeSessionDirs(onChange, onError, log);

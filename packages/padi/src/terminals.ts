@@ -140,7 +140,7 @@ export function snapshotSession(): SessionSnapshot {
  *  `setCanvasLayout` / `setTheme` / `setSubPanel` RPCs against the client's
  *  canvas-cascade effect). Its `CreateTerminalInput` type carries NO server-derived
  *  authored facts — a fresh terminal earns `lastActivityAt` / `promptedAt` /
- *  `lastAgentCommand` / `restoreTarget` from padi's own observation, and the type makes them unspellable
+ *  `restoreTarget` from padi's own observation, and the type makes them unspellable
  *  here. The one path with prior truth about them, session restore, uses
  *  {@link restoreSpawn} instead.
  *
@@ -432,8 +432,7 @@ export function setCanvasLayout(
  *  Equality-gated: the client RPCs this on every drag tick of the
  *  resizable handle, so without a guard each mouse-move would fan a
  *  full per-key metadata publish to every connected client. Same shape
- *  as the `lastAgentCommand` gate inside `LocalTerminalEndpoint`'s
- *  agent-command tracker. */
+ *  as the restore-target gate inside `LocalTerminalEndpoint`'s fold loop. */
 export function setSubPanelState(
   id: TerminalId,
   state: { collapsed: boolean; panelSize: number },

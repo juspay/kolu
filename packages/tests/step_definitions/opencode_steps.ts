@@ -60,9 +60,14 @@ async function startFakeAgent(world: KoluWorld): Promise<void> {
 }
 
 async function startShimmedAgent(world: KoluWorld): Promise<void> {
-  // See codex_steps.ts::startShimmedAgent for the full rationale.
+  // See codex_steps.ts::startShimmedAgent for the full rationale: the typed
+  // line names the agent (the OSC 633;E hint), the foreground process is the
+  // fake `node` binary — an interpreter-shimmed CLI, the one case
+  // `matchesAgent` accepts a hint for.
+  const node = process.env.KOLU_FAKE_NODE_BIN;
+  if (!node) throw new Error("KOLU_FAKE_NODE_BIN must be set");
   await world.page.keyboard.type(
-    `opencode() { ( printf '\\033]0;opencode\\007'; sleep 99999 ; :); }`,
+    `opencode() { ${node} -c "printf '\\033]0;opencode\\007'; sleep 99999 ; :"; }`,
   );
   await world.page.keyboard.press("Enter");
   await world.page.keyboard.type("opencode");

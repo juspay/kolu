@@ -35,7 +35,7 @@ const decodeIdentityResult = Schema.decodeUnknownResult(AgentIdentitySchema);
 const encodeProgress = Schema.encodeSync(TaskProgressSchema);
 const decodeProgressResult = Schema.decodeUnknownResult(TaskProgressSchema);
 
-/** A real claude-code session id shape (the UUID `resumeAgentCommand` gates on). */
+/** A real claude-code session id shape (the UUID `resumeFormFor` gates on). */
 const SESSION_ID = "0192f3a1-4c5b-7d8e-9f01-23456789abcd";
 
 describe("AgentIdentitySchema — the persisted resume identity, byte for byte", () => {
@@ -69,7 +69,7 @@ describe("AgentIdentitySchema — the persisted resume identity, byte for byte",
 
   it("accepts an OPEN kind — anyagent names no agent, so a record for an agent this build does not know still decodes", () => {
     // The kind is a plain string here by design: the refusal for an unknown
-    // agent happens at the point of use (`resumeAgentCommand`'s registry gate),
+    // agent happens at the point of use (`resumeFormFor`'s registry gate),
     // not at the decode boundary — a decode throw would drop the whole terminal.
     expect(
       decodeIdentity({
@@ -98,34 +98,29 @@ describe("RestoreTargetSchema — every arm, byte for byte", () => {
     );
   });
 
-  it("encodes `exact` with the identity nested under `agent`", () => {
+  it("encodes `exact` as identity + allowlisted argv — and NO command string", () => {
     const target: RestoreTarget = {
       kind: "exact",
-      command: "claude --model sonnet",
       agent: {
         kind: "claude-code",
         sessionId: SESSION_ID,
         resumeRef: SESSION_ID,
       },
+      argv: ["--model", "sonnet", "--dangerously-skip-permissions"],
     };
-    expect(JSON.stringify(encodeTarget(target))).toBe(
-      `{"kind":"exact","command":"claude --model sonnet","agent":{"kind":"claude-code","sessionId":"${SESSION_ID}","resumeRef":"${SESSION_ID}"}}`,
+    const bytes = JSON.stringify(encodeTarget(target));
+    expect(bytes).toBe(
+      `{"kind":"exact","agent":{"kind":"claude-code","sessionId":"${SESSION_ID}","resumeRef":"${SESSION_ID}"},"argv":["--model","sonnet","--dangerously-skip-permissions"]}`,
     );
-  });
-
-  it("encodes `legacyMostRecent` with a command and no identity", () => {
-    expect(
-      JSON.stringify(
-        encodeTarget({ kind: "legacyMostRecent", command: "codex --yolo" }),
-      ),
-    ).toBe(`{"kind":"legacyMostRecent","command":"codex --yolo"}`);
+    // The forgery surface: a target can no longer carry a captured command line.
+    expect(bytes).not.toContain("command");
   });
 
   it("round-trips each arm's on-disk bytes unchanged", () => {
     for (const bytes of [
       `{"kind":"none"}`,
-      `{"kind":"exact","command":"claude --model sonnet","agent":{"kind":"claude-code","sessionId":"${SESSION_ID}","resumeRef":"${SESSION_ID}"}}`,
-      `{"kind":"legacyMostRecent","command":"codex --yolo"}`,
+      `{"kind":"exact","agent":{"kind":"claude-code","sessionId":"${SESSION_ID}","resumeRef":"${SESSION_ID}"},"argv":[]}`,
+      `{"kind":"exact","agent":{"kind":"pi","sessionId":"s1","resumeRef":"/tmp/a.jsonl"},"argv":["--model","x"]}`,
     ]) {
       expect(
         JSON.stringify(encodeTarget(decodeTarget(JSON.parse(bytes)))),
@@ -143,7 +138,7 @@ describe("RestoreTargetSchema — reader tolerance and refusal", () => {
     expect(
       decodeTarget({
         kind: "exact",
-        command: "claude --model sonnet",
+        argv: ["--model", "sonnet"],
         agent: {
           kind: "claude-code",
           sessionId: SESSION_ID,
@@ -154,7 +149,7 @@ describe("RestoreTargetSchema — reader tolerance and refusal", () => {
       }),
     ).toStrictEqual({
       kind: "exact",
-      command: "claude --model sonnet",
+      argv: ["--model", "sonnet"],
       agent: {
         kind: "claude-code",
         sessionId: SESSION_ID,
@@ -163,11 +158,19 @@ describe("RestoreTargetSchema — reader tolerance and refusal", () => {
     });
   });
 
-  /** Refusal is what makes `restoreTargetOf`'s three arms exhaustive: a
-   *  half-written `exact` (id captured, command lost, or the reverse) must not
-   *  decode into something the wake path would act on. padi drops the whole
-   *  malformed record instead. */
-  it("refuses an `exact` arm missing its command or its identity", () => {
+  /** Refusal is what makes the target's two arms exhaustive: a
+   *  half-written `exact` (identity lost, or no argv list) must not decode into
+   *  something the wake path would act on. padi drops the whole malformed record
+   *  instead. */
+  it("refuses an `exact` arm missing its identity or its argv", () => {
+    expect(
+      Result.isFailure(
+        decodeTargetResult({
+          kind: "exact",
+          argv: [],
+        }),
+      ),
+    ).toBe(true);
     expect(
       Result.isFailure(
         decodeTargetResult({
@@ -180,9 +183,31 @@ describe("RestoreTargetSchema — reader tolerance and refusal", () => {
         }),
       ),
     ).toBe(true);
+  });
+
+  /** The retired arms are not silently accepted under their old spelling: a
+   *  downgrade or a hand-edited file naming `command` must be MIGRATED, not
+   *  decoded into a shape the wake would replay. */
+  it("refuses the old `command`-bearing exact arm and `legacyMostRecent`", () => {
     expect(
       Result.isFailure(
-        decodeTargetResult({ kind: "exact", command: "claude --model sonnet" }),
+        decodeTargetResult({
+          kind: "exact",
+          command: "claude --model sonnet",
+          agent: {
+            kind: "claude-code",
+            sessionId: SESSION_ID,
+            resumeRef: SESSION_ID,
+          },
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      Result.isFailure(
+        decodeTargetResult({
+          kind: "legacyMostRecent",
+          command: "codex --yolo",
+        }),
       ),
     ).toBe(true);
   });

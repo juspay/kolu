@@ -65,15 +65,14 @@ const sentinel: SavedActiveTerminal = {
       mergeStateStatus: "UNKNOWN",
     },
   },
-  lastAgentCommand: "claude --model sonnet",
   restoreTarget: {
     kind: "exact",
-    command: "claude --model sonnet",
     agent: {
       kind: "claude-code",
       sessionId: "edb66a3b-9f17-4c39-9050-3b77904c313a",
       resumeRef: "edb66a3b-9f17-4c39-9050-3b77904c313a",
     },
+    argv: ["--model", "sonnet"],
   },
   lastActivityAt: 1_718_000_000_000,
   promptedAt: null,

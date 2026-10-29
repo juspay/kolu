@@ -3,8 +3,8 @@
  *  Each `kolu-<agent>` package declares its own `AgentVocab` (the browser-safe
  *  facts) and `AgentPlugin` (adapter + fetcher + env keys). This module folds
  *  the vocabs into the closed `AgentKind`/`AgentInfo` wire vocabulary and the
- *  basename-keyed CLI registry, and re-binds every CLI function to that
- *  registry so call sites keep their names.
+ *  kind-keyed CLI registry, and re-binds every CLI function to that registry so
+ *  call sites keep their names.
  *
  *  Browser-safe: imports only `kolu-<agent>/schemas` (vocab) and `anyagent`. The node
  *  half — `AGENT_PLUGINS`, `AGENT_DIR_ENV_KEYS` — lives in `./index.ts`.
@@ -15,18 +15,16 @@
  *  `kolu-agents` under `packages/integrations/`, not `@kolu/*`. */
 
 import {
+  type AgentCliGrammar,
   type AgentCliRegistry,
   type AnyAgentVocab,
-  type AgentCliGrammar,
-  agentKindFromCommand as cliAgentKindFromCommand,
+  agentLaunchLine as cliAgentLaunchLine,
   buildCliRegistry,
-  exactRestoreTarget as cliExactRestoreTarget,
-  parseAgentCommand as cliParseAgentCommand,
   resumableCommand as cliResumableCommand,
-  resumeAgentCommand as cliResumeAgentCommand,
   resumeFormFor as cliResumeFormFor,
+  willResume as cliWillResume,
 } from "anyagent";
-import type { AgentIdentity, RestoreTarget } from "anyagent/schemas";
+import type { RestoreTarget } from "anyagent/schemas";
 import { Schema } from "effect";
 import { claudeCodeVocab } from "kolu-claude-code/schemas";
 import { codexVocab } from "kolu-codex/schemas";
@@ -35,42 +33,6 @@ import { ompVocab } from "kolu-omp/schemas";
 import { opencodeVocab } from "kolu-opencode/schemas";
 import { piVocab } from "kolu-pi/schemas";
 import { xyneVocab } from "kolu-xyne/schemas";
-
-/** The detect-only agents — binaries kolu recognizes for the recent-agents MRU
- *  but has no session/agent discriminator for. They carry CLI grammar ONLY (no
- *  `kind`, no info schema, no resume), so `agentKindFromCommand` and the resume
- *  path return null for them while `parseAgentCommand` still normalizes their
- *  invocation. This was the non-vocab half of the old `STABLE_FLAGS` map. */
-export const DETECT_ONLY_AGENTS: readonly AgentCliGrammar[] = [
-  {
-    basename: "aider",
-    stableFlags: new Map([["--model", "value"]]),
-    extraExitFlags: new Set(),
-    nonSessionFlags: new Set(),
-    nonSessionSubcommands: new Set(),
-  },
-  {
-    basename: "goose",
-    stableFlags: new Map(),
-    extraExitFlags: new Set(),
-    nonSessionFlags: new Set(),
-    nonSessionSubcommands: new Set(),
-  },
-  {
-    basename: "gemini",
-    stableFlags: new Map(),
-    extraExitFlags: new Set(),
-    nonSessionFlags: new Set(),
-    nonSessionSubcommands: new Set(),
-  },
-  {
-    basename: "cursor-agent",
-    stableFlags: new Map(),
-    extraExitFlags: new Set(),
-    nonSessionFlags: new Set(),
-    nonSessionSubcommands: new Set(),
-  },
-];
 
 /** The agent vocabs, keyed by kind — the ONE list. Adding an agent is one import
  *  and one row here, plus the agent's own package. */
@@ -130,6 +92,25 @@ export function isAgentKind(raw: string): raw is AgentKind {
   return Object.hasOwn(AGENT_VOCABS, raw);
 }
 
+/** The CLI grammar (binary name + stable-flag allowlist) for an OPEN kind —
+ *  the sensor's argv filter reads it. CRASHES when this build does not know the
+ *  kind: for a caller holding kolu's own data (our adapters, our registry) that
+ *  is a programming error, not a user-facing condition. A PERSISTED record takes
+ *  the non-throwing door (`resumeFormFor` → bare shell) instead. */
+export function agentCliGrammar(kind: string): AgentCliGrammar {
+  if (!isAgentKind(kind)) throw new Error(`unknown agent kind: ${kind}`);
+  return AGENT_VOCABS[kind].cli;
+}
+
+/** Does this basename name one of kolu's agent binaries? The sensor asks it of a
+ *  PTY mark's head token to decide whether an agent may be launching — a
+ *  question about our registry, never about the mark's content. */
+export function isAgentBinaryName(name: string): boolean {
+  return Object.values(AGENT_VOCABS).some(
+    (vocab) => vocab.cli.basename === name,
+  );
+}
+
 /** Map every registered vocab to a uniform value, preserving the kind key — a
  *  typed `Object.fromEntries` whose call sites need no cast. The ONE cast lives
  *  here, where the key set is the registry itself. */
@@ -152,46 +133,40 @@ export function resumeRefFor(agent: AgentInfo): string {
   return vocab.resume.ref(agent);
 }
 
-/** The basename-keyed CLI registry. Built once at module init; a duplicate
- *  kind or basename throws there (crash loudly, conventions.md) — the compile
- *  fence the old `BASENAME_TO_KIND` record had becomes a load-time fence. */
+/** The kind-keyed CLI registry. Built once at module init; a duplicate kind
+ *  throws there (crash loudly, AGENTS.md) — the compile fence the old
+ *  `BASENAME_TO_KIND` record had becomes a load-time fence. */
 export const AGENT_CLI: AgentCliRegistry = buildCliRegistry(
   Object.values(AGENT_VOCABS),
-  DETECT_ONLY_AGENTS,
 );
 
 // ── The CLI functions, pre-bound to `AGENT_CLI` and re-exported under the same
 //    names anyagent uses, so a call site changes only its import path. ──
 
-export const parseAgentCommand = (
-  raw: string,
-  shellJoinFormat?: boolean,
-): string | null => cliParseAgentCommand(AGENT_CLI, raw, shellJoinFormat);
-
-export const resumeAgentCommand = (
-  normalized: string,
-  session?: AgentIdentity,
-): string | null => cliResumeAgentCommand(AGENT_CLI, normalized, session);
-
+/** Render a restore target into the resume form a fresh shell is typed. */
 export const resumeFormFor = (
   target: RestoreTarget | undefined,
 ): string | null => cliResumeFormFor(AGENT_CLI, target);
 
+/** Would a wake resume this target? The ONE gate the display/decision sites ask
+ *  instead of rendering a full command line to compare with `null`. */
+export const willResume = (
+  target: RestoreTarget | undefined,
+): target is Extract<RestoreTarget, { kind: "exact" }> =>
+  cliWillResume(AGENT_CLI, target);
+
+/** The launch line a display site shows (gated on wake actually resuming). */
 export const resumableCommand = (
   target: RestoreTarget | undefined,
 ): string | null => cliResumableCommand(AGENT_CLI, target);
 
-/** Resolve an agent command string to its kind, narrowed to `AgentKind | null`
- *  at the registry boundary — callers never re-narrow. */
-export const agentKindFromCommand = (command: string): AgentKind | null => {
-  const kind = cliAgentKindFromCommand(AGENT_CLI, command);
-  return kind !== null && isAgentKind(kind) ? kind : null;
-};
-
-export const exactRestoreTarget = (
-  command: string,
-  agent: AgentIdentity,
-): RestoreTarget | null => cliExactRestoreTarget(AGENT_CLI, command, agent);
+/** Render `kind argv…` for the recent-agents palette and the typed launch line
+ *  — the ONE renderer of a stored `{ kind, argv }` fact. `null` for a kind this
+ *  build no longer knows (a stale MRU row renders nothing, never a guess). */
+export const agentLaunchLine = (
+  kind: string,
+  argv: readonly string[],
+): string | null => cliAgentLaunchLine(AGENT_CLI, kind, argv);
 
 export type {
   AgentCliRegistry,
@@ -200,7 +175,7 @@ export type {
   AgentResumePolicy,
   AgentVocab,
 } from "anyagent";
-export { agentNameFromCommand } from "anyagent";
+export { agentNameHint, stableFlagTokens } from "anyagent";
 
 // The per-agent info types, re-exported so consumers that used to import them
 // from `@kolu/terminal-vocab/schema` (which no longer depends on the agent

@@ -6,6 +6,7 @@ import { Given, Then, When } from "@cucumber/cucumber";
 import { resumableTerminalIds } from "@kolu/padi/resumable";
 import {
   LOCAL_LOCATION,
+  type RestoreTarget,
   SavedSessionSchema,
   type SavedTerminal,
 } from "@kolu/padi-client/surface";
@@ -63,7 +64,7 @@ async function postSavedSessionPayload(
   } = {
     // Stamp the now-required `location` (local), `state` (active) discriminant, and
     // `pr` here so the call sites stay focused on what they test
-    // (cwd/themeName/lastAgentCommand) and never re-spell them. Unlike
+    // (cwd/themeName/restoreTarget) and never re-spell them. Unlike
     // `lastActivityAt` — which the server backfills from its Zod `.default(0)` when
     // it validates this payload — none of `location`, the `state` discriminant, or
     // `pr` has a schema default (a required host / a discriminant / a restore-relevant
@@ -486,19 +487,47 @@ Then(
 
 // --- Agent-resume scenarios ---
 
+/** The structured resume facts behind each label these scenarios plant — the
+ *  SAME shape the fold derives from an OS-detected agent (identity + the live
+ *  process's allowlisted argv). Written as a table because the scenario names the
+ *  DISPLAY line, and a restore target can never be rebuilt by re-parsing text:
+ *  that parse is exactly what the forgery fix removed. An unknown label fails
+ *  loudly rather than fabricating a target. */
+const RESUME_TARGETS: Record<string, RestoreTarget> = {
+  "claude --model sonnet": {
+    kind: "exact",
+    agent: {
+      kind: "claude-code",
+      sessionId: "00000000-0000-4000-8000-0000000000c1",
+      resumeRef: "00000000-0000-4000-8000-0000000000c1",
+    },
+    argv: ["--model", "sonnet"],
+  },
+  "codex --yolo": {
+    kind: "exact",
+    agent: {
+      kind: "codex",
+      sessionId: "00000000-0000-4000-8000-0000000000c2",
+      resumeRef: "00000000-0000-4000-8000-0000000000c2",
+    },
+    argv: ["--yolo"],
+  },
+};
+
 Given(
-  "terminal {int} has captured agent command {string}",
-  async function (this: KoluWorld, index: number, command: string) {
-    // Idempotent edit to the saved session's remembered agent fields for the
-    // matching terminal. Sets `lastAgentCommand` AND a discriminated
-    // `restoreTarget` — the restore card + the resumable count read the target now,
-    // not a bare `lastAgentCommand`. A `legacyMostRecent` target carries the command
-    // (so the card shows it) and counts as resumable (so the "resume N agents"
-    // suffix appears), resuming the most-recent conversation — exactly the offer
-    // this scenario asserts, with no synthetic session id to fabricate. Relies on an
-    // earlier "a saved session with N terminals" step seeding ids "0", "1", … and
-    // stashing the payload on `this.savedSessionTerminals`.
+  "terminal {int} has a resumable agent {string}",
+  async function (this: KoluWorld, index: number, label: string) {
+    // Idempotent edit to the saved session's restore target for the matching
+    // terminal. The card counts and renders from `restoreTarget` (the fold-derived
+    // structured value), so planting one is what makes the terminal resumable —
+    // there is no remembered launch line to plant.
     const id = String(index);
+    const restoreTarget = RESUME_TARGETS[label];
+    if (restoreTarget === undefined) {
+      throw new Error(
+        `no structured restore target for "${label}" — add one to RESUME_TARGETS`,
+      );
+    }
     const terminals =
       this.savedSessionTerminals ??
       [...Array(this.savedSessionTerminalCount ?? 0)].map((_, i) => ({
@@ -507,13 +536,7 @@ Given(
         git: { kind: "none" },
       }));
     const updated: SavedTerminal[] = terminals.map((t) =>
-      t.id === id
-        ? {
-            ...t,
-            lastAgentCommand: command,
-            restoreTarget: { kind: "legacyMostRecent", command },
-          }
-        : t,
+      t.id === id ? { ...t, restoreTarget } : t,
     );
     this.savedSessionTerminals = updated;
     await postSavedSessionPayload(this, updated);
@@ -521,11 +544,11 @@ Given(
 );
 
 Then(
-  "the restore card should show agent command {string}",
+  "the restore card should show the agent line {string}",
   async function (this: KoluWorld, command: string) {
     // Same race as the visibility step: under parallel-worker load the
     // client can hydrate `savedSession` before the server snapshot
-    // includes the most recent `lastAgentCommand` POST. Re-POSTing on
+    // includes the most recent restore target POST. Re-POSTing on
     // each poll iteration drives a `serverState.savedSession()` change
     // that re-fires `useSessionRestore`'s recovery effect — so the
     // commands eventually land in the rendered card. The replayed POST
@@ -548,7 +571,7 @@ Then(
       },
       onTimeout: (_, ms) =>
         new Error(
-          `Restore card never showed agent command "${command}" within ${ms}ms`,
+          `Restore card never showed the agent line "${command}" within ${ms}ms`,
         ),
       timeoutMs: POLL_TIMEOUT,
     });
@@ -575,7 +598,7 @@ When("I turn off the resume-agents toggle", async function (this: KoluWorld) {
 });
 
 Then(
-  "the restore card should not show agent command {string}",
+  "the restore card should not show the agent line {string}",
   async function (this: KoluWorld, command: string) {
     // Wait for the command row to disappear. Uses waitForFunction so we poll
     // the reactive DOM rather than race the toggle's state flush.

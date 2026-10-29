@@ -11,7 +11,9 @@
  *
  * These tests drive the genuine production surface end to end: the wrapper
  * rcfile `prepareShellInit` plans (kolu-pty), an interactive bash spawned on a
- * node-pty PTY, and kaval's own OSC 633 parse observed via `getLastCommand`.
+ * node-pty PTY, and kaval's own OSC 633 parse observed through
+ * `subscribeCommandRun`'s retained frame (the ONE public reader of the mark —
+ * the sensor's snapshot-first source).
  * A pipe-based harness cannot express this — bash-preexec refuses to dispatch
  * when stdout is not a tty, and PROMPT_COMMAND/readline need a real prompt
  * cycle — hence a PTY test here rather than in kolu-pty's subprocess suite.
@@ -30,7 +32,8 @@ import { describeDaemon } from "@kolu/daemon-test-gate";
 import { silentLogger as silentLog } from "@kolu/log/loggerStubs.testutil";
 import { prepareShellInit } from "kolu-pty";
 import { afterEach, expect, it } from "vitest";
-import { createPtyHost, type PtyHost } from "./ptyHost.ts";
+import { Effect } from "effect";
+import { createPtyHost, type PtyHost, type PtyId } from "./ptyHost.ts";
 
 const FIXTURE_BASH_PREEXEC = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -50,15 +53,28 @@ const PROMPT_MARK_RC = [
   `PROMPT_COMMAND="__kolu_test_prompt_mark\${PROMPT_COMMAND:+;$PROMPT_COMMAND}"`,
 ].join("\n");
 
+/** The command `subscribeCommandRun` replays on attach — the sensor's
+ *  snapshot-first source, and the only public reader of the retained mark. */
+function retainedCommand(
+  host: PtyHost,
+  id: PtyId,
+): Promise<string | undefined> {
+  return Effect.runPromise(
+    Effect.scoped(
+      Effect.map(host.subscribeCommandRun(id), (sub) => sub.retained),
+    ),
+  );
+}
+
 /** Wait for `fn`, failing with `diagnose()`'s output in the error — a CI box
  *  can't be attached to, so the timeout itself must say what the shell showed. */
 async function waitFor(
-  fn: () => boolean,
+  fn: () => boolean | Promise<boolean>,
   diagnose: () => string,
   ms = 20_000,
 ): Promise<void> {
   const start = Date.now();
-  while (!fn()) {
+  while (!(await fn())) {
     if (Date.now() - start > ms)
       throw new Error(`waitFor timed out; screen:\n${diagnose()}`);
     await new Promise((resolve) => setTimeout(resolve, 25));
@@ -178,10 +194,10 @@ describeDaemon("OSC 633;E capture in a real interactive bash", () => {
       // first-prompt DEBUG-trap takeover left its dispatch gate closed for
       // exactly this command, and the mark never fired.
       await waitFor(
-        () => (host as PtyHost).getLastCommand(t.id) === "echo t1",
+        async () => (await retainedCommand(host!, t.id)) === "echo t1",
         t.screen,
       );
-      expect((host as PtyHost).getLastCommand(t.id)).toBe("echo t1");
+      expect(await retainedCommand(host!, t.id)).toBe("echo t1");
     },
   );
 
@@ -194,10 +210,10 @@ describeDaemon("OSC 633;E capture in a real interactive bash", () => {
       await runCommand(t, "echo t1");
       await runCommand(t, "echo t2");
       await waitFor(
-        () => (host as PtyHost).getLastCommand(t.id) === "echo t2",
+        async () => (await retainedCommand(host!, t.id)) === "echo t2",
         t.screen,
       );
-      expect((host as PtyHost).getLastCommand(t.id)).toBe("echo t2");
+      expect(await retainedCommand(host!, t.id)).toBe("echo t2");
     },
   );
 
@@ -209,10 +225,10 @@ describeDaemon("OSC 633;E capture in a real interactive bash", () => {
       await waitFor(() => t.promptCount() >= 1, t.screen);
       await runCommand(t, "echo t1");
       await waitFor(
-        () => (host as PtyHost).getLastCommand(t.id) === "echo t1",
+        async () => (await retainedCommand(host!, t.id)) === "echo t1",
         t.screen,
       );
-      expect((host as PtyHost).getLastCommand(t.id)).toBe("echo t1");
+      expect(await retainedCommand(host!, t.id)).toBe("echo t1");
     },
   );
 });

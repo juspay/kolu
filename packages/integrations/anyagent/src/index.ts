@@ -1,8 +1,8 @@
 /** Agent contracts shared across integration packages.
  *
  *  Owns: the `AgentAdapter` contract, terminal-state matching, the
- *  `AgentVocab`/`AgentPlugin` vocabulary contracts, agent CLI parsing, and the
- *  cross-integration TaskProgress schema.
+ *  `AgentVocab`/`AgentPlugin` vocabulary contracts, the stable-flag filter and
+ *  restore-target renderer, and the cross-integration TaskProgress schema.
  *
  *  Generic utilities (Logger, file/DB helpers, WAL subscription factory)
  *  live in `@kolu/log` — agent integrations and `kolu-git` import them
@@ -21,23 +21,25 @@ export {
 } from "./agent-adapter.ts";
 export {
   type AgentCliRegistry,
-  agentKindFromCommand,
-  agentNameFromCommand,
+  agentLaunchLine,
+  agentNameHint,
   buildCliRegistry,
-  exactRestoreTarget,
-  parseAgentCommand,
   resumableCommand,
-  resumeAgentCommand,
   resumeFormFor,
+  stableFlagTokens,
+  willResume,
 } from "./agent-cli.ts";
 export { classifyByAwaiting } from "./lifecycle.ts";
 export type { AgentPlugin } from "./plugin.ts";
 export { type TaskProgress, TaskProgressSchema } from "./schemas.ts";
-export type {
-  AgentCliGrammar,
-  AgentMark,
-  AgentResumePolicy,
-  AnyAgentVocab,
-  AgentVocab,
-  FlagArity,
+export {
+  type AgentCliGrammar,
+  type AgentMark,
+  type AgentResumePolicy,
+  type AnyAgentVocab,
+  type AgentVocab,
+  type FlagArity,
+  NODE_CLI_SHIMS,
+  SESSION_PATH_OR_UUID_RE,
+  UUID_RE,
 } from "./vocab.ts";

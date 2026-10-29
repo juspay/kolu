@@ -9,7 +9,13 @@
  *  and filesystem access — Effect Schema and `anyagent`'s schema re-exports
  *  only. */
 
-import { type AgentVocab, type FlagArity, TaskProgressSchema } from "anyagent";
+import {
+  type AgentVocab,
+  type FlagArity,
+  NODE_CLI_SHIMS,
+  TaskProgressSchema,
+  UUID_RE,
+} from "anyagent";
 import { Schema } from "effect";
 
 export type { TaskProgress } from "anyagent";
@@ -123,6 +129,7 @@ export const claudeCodeVocab: AgentVocab<ClaudeCodeInfo> = {
   mark: CLAUDE_MARK,
   cli: {
     basename: "claude",
+    shims: NODE_CLI_SHIMS,
     stableFlags: new Map<string, FlagArity>([
       ["--model", "value"],
       ["--dangerously-skip-permissions", "boolean"],
@@ -137,15 +144,10 @@ export const claudeCodeVocab: AgentVocab<ClaudeCodeInfo> = {
       ["--settings", "value"],
       ["--bare", "boolean"],
     ]),
-    extraExitFlags: new Set<string>(),
-    nonSessionFlags: new Set<string>(),
-    nonSessionSubcommands: new Set<string>(),
   },
   resume: {
-    last: "-c",
     byId: (id) => `--resume ${id}`,
-    idPattern:
-      /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+    idPattern: UUID_RE,
     ref: (info) => info.sessionId,
   },
   infoSchema: ClaudeCodeInfoSchema,

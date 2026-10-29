@@ -524,15 +524,9 @@ importers:
         specifier: workspace:*
         version: link:../xyne
     devDependencies:
-      '@kolu/shell-quote':
-        specifier: workspace:*
-        version: link:../../shell-quote
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
-      string-argv:
-        specifier: ^0.3.2
-        version: 0.3.2
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -753,6 +747,9 @@ importers:
       '@kolu/log':
         specifier: workspace:*
         version: link:../../log
+      osfacts-client:
+        specifier: workspace:*
+        version: link:../../../osfacts-client
     devDependencies:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
