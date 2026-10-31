@@ -955,7 +955,10 @@ function oneConnectionSocketServer(
           Effect.succeed(socket as unknown as WebSocket),
           (ws) =>
             Effect.sync(() => {
-              // 0 CONNECTING / 1 OPEN — anything else is already closing.
+              // The acquire's own contract, not the wire's close frame: the
+              // serving's teardown already sent it (with the app's code, when the
+              // app ended the connection), so this only covers a socket still
+              // open — 0 CONNECTING / 1 OPEN; anything else is already closing.
               if (ws.readyState <= 1) ws.close();
             }),
         ),
@@ -983,12 +986,52 @@ function oneConnectionSocketServer(
   );
 }
 
+/** The close frame this seam is willing to put on the wire — `1000` (normal
+ *  closure) or an APPLICATION code, `3000`–`4999` (RFC 6455 §7.4.2), with a
+ *  reason of at most 123 UTF-8 bytes (a control frame's payload is 125 bytes,
+ *  less the two-byte code).
+ *
+ *  Checked BEFORE anything about the connection changes, and thrown rather than
+ *  coerced or left to `ws`, for a reason the transport makes structural:
+ *  `ws.close` sets `readyState = CLOSING` and only THEN validates the code, so a
+ *  bad frame leaves a socket with no close timer — never closed, never a
+ *  `Disconnected`, and a retry that is a no-op. Validating first keeps a bad
+ *  frame a caller error with an untouched connection instead of a zombie.
+ *
+ *  Callers on the `serve.ts` side check it at the app's call so the throw lands
+ *  there on every path (the serving may not exist yet); the serving checks it
+ *  again as its own precondition, because it is exported on its own. */
+export function checkCloseFrame(code?: number, reason?: string): void {
+  if (code !== undefined && code !== 1000 && (code < 3000 || code > 4999)) {
+    throw new RangeError(
+      `close code ${code} is not one this seam sends: use 1000 (normal closure) or the application range 3000–4999 (RFC 6455 §7.4.2)`,
+    );
+  }
+  if (reason !== undefined) {
+    const bytes = Buffer.byteLength(reason, "utf8");
+    if (bytes > 123) {
+      throw new RangeError(
+        `close reason is ${bytes} UTF-8 bytes; a control frame carries at most 123`,
+      );
+    }
+  }
+}
+
 /** A socket being served: the teardown handle and the fault channel. */
 export interface SurfaceSocketServing {
-  /** Stop serving this socket and release everything the serve owns (the RPC
-   *  server's fibers, every in-flight subscription, the buffered-view listener)
-   *  and close the socket. Idempotent. */
-  close(): void;
+  /** Stop serving this socket, release everything the serve owns (the RPC
+   *  server's fibers, every in-flight subscription, the buffered-view listener),
+   *  and close the socket with `code`/`reason` — the ONE way a serving is ended,
+   *  whether the listener's drain called it or the app did.
+   *
+   *  The frame is validated by {@link checkCloseFrame} BEFORE anything is torn
+   *  down: an invalid one throws and leaves the serving — and the socket —
+   *  untouched. With no frame the socket is closed with none, which is what
+   *  shutdown wants.
+   *
+   *  Idempotent: the first call (or the peer hanging up) owns the close, and
+   *  every later one is a no-op, frame included. */
+  close(code?: number, reason?: string): void;
   /** Rejects if the serving stack itself failed; resolves when serving ended
    *  cleanly (the peer closed, or `close()` was called). A serving site MUST
    *  observe it — same contract as `SurfaceRuntime.done`: an ignored rejection is
@@ -1050,10 +1093,20 @@ export function serveSurfaceSocket<Svc = never>(opts: {
 
   const scope = Scope.makeUnsafe();
   let ended = false;
-  const teardown = (err?: unknown): void => {
+  const teardown = (
+    err?: unknown,
+    frame?: { readonly code?: number; readonly reason?: string },
+  ): void => {
     if (ended) return;
     ended = true;
     buffered.detach();
+    // The frame is sent HERE, and only here: the app's `close(code, reason)` and
+    // the drain's `close()` are the same call, and the socket's own release below
+    // no longer decides what goes on the wire. Before the scope is released, so
+    // the peer hears why as soon as we decide; `ws` ignores a close on a socket
+    // that already sent one, which is what makes a peer-initiated teardown (the
+    // frame-less arm) a no-op rather than a second frame.
+    opts.socket.close(frame?.code, frame?.reason);
     // Releasing the scope interrupts the RPC server's fibers, which finalizes
     // every in-flight subscription this connection opened — the server-side
     // zombie the reaper's `terminate()` exists to prevent, closed from the other
@@ -1077,5 +1130,13 @@ export function serveSurfaceSocket<Svc = never>(opts: {
     // caller through `done`; it never touches another peer or the listener.
     (err) => teardown(err),
   );
-  return { close: () => teardown(), done };
+  return {
+    close: (code?: number, reason?: string) => {
+      // Precondition first: a frame this seam cannot send must leave the serving
+      // live (and the caller holding a connection it can still end correctly).
+      checkCloseFrame(code, reason);
+      teardown(undefined, { code, reason });
+    },
+    done,
+  };
 }
