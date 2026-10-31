@@ -308,6 +308,34 @@ export interface SurfaceAppConnection<H extends string = never> {
    *  Why it is an allowlist, and why an unnamed read must not compile: this
    *  module's header, "The upgrade's headers are an ALLOWLIST". */
   readonly headers: Readonly<Partial<Record<H, string>>>;
+  /** End THIS connection from the app's side — the handle a credential decision
+   *  needs (a session that logged out, expired, or was revoked), where the app
+   *  knows the connection must go rather than suspects it may be dead.
+   *
+   *  Closing means what the listener's own drain means by `close()`: stop
+   *  serving this socket, release everything this connection's serve owns — the
+   *  RPC fibers, every in-flight subscription, and the per-connection
+   *  {@link ServeSurfaceAppOptions.services} layer — and close the peer with
+   *  `code` and `reason`. {@link SurfaceAppEvent}'s `Disconnected` is then
+   *  reported ONCE with those, exactly as a peer-initiated close reports.
+   *
+   *  `code` defaults to `1000` (normal closure): a caller who passed none has
+   *  made no policy claim, so this seam sends the neutral code rather than
+   *  inventing a reason. A policy end names its own — a session that ended is
+   *  `4401`, in the application range (RFC 6455 §7.4.2), with a reason a
+   *  watcher can read. A code `ws` cannot send throws its own `TypeError`; the
+   *  connection is still released before that throw reaches the caller.
+   *
+   *  Idempotent, and a no-op once the peer has hung up. Bound to THIS
+   *  connection's serving by the closure that built this record: there is no id
+   *  to look up, so an app holding one connection cannot close another.
+   *
+   *  Why not refuse the heartbeat instead: `heartbeat.ts` counts a refused round
+   *  trip as ALIVE, so a client's watchdog only fires after `interval + timeout`
+   *  (45 s by default) — and a client with no watchdog at all (a stdio MCP
+   *  bridge, a raw socket) never fires. A credential decision must not wait on a
+   *  liveness heuristic. */
+  readonly close: (code?: number, reason?: string) => void;
 }
 
 /** The allowlist's grammar, and the shape a listener takes its list in — both
@@ -791,11 +819,51 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
             });
             named = [];
           }
+          // The connection's `close` needs the serving, but the RECORD is built
+          // first — `services(connection)` is handed it before
+          // `serveSurfaceSocket` exists. So `close` resolves the serving LAZILY:
+          // until the serving is assigned it only records the frame, and this
+          // site replays it the moment the serving is created. That window is
+          // not a corner case — it is the odu shape (a `services` callback that
+          // ends a refused session) and every `Connected` handler that closes
+          // what it was just handed.
+          let serving: SurfaceSocketServing | undefined;
+          let closing:
+            | { readonly code?: number; readonly reason?: string }
+            | undefined;
+          const end = (
+            started: SurfaceSocketServing,
+            frame: { readonly code?: number; readonly reason?: string },
+          ): void => {
+            // The FRAME goes first, while the socket is still OPEN: the serving's
+            // own release closes with no code, and a socket that has already sent
+            // a close frame keeps that one. Then release what this serve owns —
+            // the RPC fibers, every subscription, the services layer. `finally`
+            // because `ws` validates the code itself and throws on one it cannot
+            // send: a bad number must still end the connection rather than leave
+            // its layer holding the socket, and the throw reaches the app.
+            try {
+              peer.close(frame.code, frame.reason);
+            } finally {
+              started.close();
+            }
+          };
           const connection: SurfaceAppConnection<H> = Object.freeze({
             id: ++accepted,
             url,
             remoteAddress: request.socket.remoteAddress,
             headers: pickUpgradeHeaders(request, named),
+            close: (code?: number, reason?: string) => {
+              // The FIRST close owns the frame; a second call is the app
+              // repeating itself, and the serving's own `close` is idempotent.
+              if (closing !== undefined) return;
+              // An explicit 1000, not an absent code: a close frame with no
+              // status reads as 1005 ("no status received") at the peer, which
+              // is the wire's word for an anomaly rather than for the ordinary
+              // end this is.
+              closing = { code: code ?? 1000, reason };
+              if (serving !== undefined) end(serving, closing);
+            },
           });
           report({ _tag: "Connected", connection });
           peer.once("close", (code: number, reason: Buffer) =>
@@ -806,7 +874,7 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
               reason: reason.toString(),
             }),
           );
-          const serving = serveSurfaceSocket({
+          const started = serveSurfaceSocket({
             group: served.group,
             handlers: served.handlers,
             // `ws`'s socket satisfies `ServableSocket` structurally; its typings
@@ -814,17 +882,22 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
             socket: peer as unknown as ServableSocket,
             services: options.services?.(connection),
           });
-          servings.add(serving);
+          servings.add(started);
+          serving = started;
+          // A `close` that arrived in the window — from `services` above, or
+          // from the `Connected` report before it — is replayed now, against the
+          // serving that was not there to receive it.
+          if (closing !== undefined) end(started, closing);
           // A serving site owns its `done`: it resolves on hang-up and REJECTS if
           // the serving stack failed. An unobserved rejection is an unhandled
           // one, and one dead socket must never take the listener with it.
           // Forgotten the moment it ends, however it ended, so the set stays the
           // LIVE population rather than a log of everything ever served.
-          void serving.done
+          void started.done
             .catch((cause: unknown) =>
               report({ _tag: "ServingFailed", cause, connection }),
             )
-            .finally(() => servings.delete(serving));
+            .finally(() => servings.delete(started));
         });
       });
     });
