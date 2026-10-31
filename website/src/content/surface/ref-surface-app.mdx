@@ -334,8 +334,7 @@ Refusing the heartbeat is **not** a cut: a refused probe counts as alive
 (`@kolu/surface/heartbeat`), so only an unanswered one trips the client's
 watchdog — after `interval + timeout` (25 s at the defaults) — and a client with
 no watchdog (a stdio MCP bridge, a raw socket) never closes. A credential
-decision must not wait on a liveness heuristic. `checkCloseFrame(code, reason)`
-is the same validation, exported for a hand-built listener.
+decision must not wait on a liveness heuristic.
 
 ## Serving the fresh shell
 
@@ -515,7 +514,6 @@ per-request header channel.
 | `acceptSurfaceSocket` | accept + reap + sequence, in one call |
 | `serveSurfaceSocket` | serve `{ group, handlers }` over one accepted socket, with per-connection `services` |
 | `SurfaceSocketServing` | the handle `serveSurfaceSocket` returns: `close(code?, reason?)` — the ONE close, whether the listener's drain or the app calls it, frame validated first — and `done`, the fault channel to observe |
-| `checkCloseFrame(code, reason)` | the close-frame rule (`1000` or `3000`–`4999`, reason at most 123 UTF-8 bytes); throws `RangeError`. `close` runs it before anything changes; exported for a hand-built listener that validates before it starts tearing down |
 | `gateStaleSocket` | the WS-upgrade handshake gate (error-handler-first; close `4001`). It takes **no** live id: it compares the echoed `pid` against this process's `surfaceProcessId()` (`@kolu/surface/identity`) — the same value the reserved `system/identity` member answers with, so the two sides cannot be pointed at different strings |
 | `startWsHeartbeat` · `heartbeatSweep` | the server-side liveness reaper and its one sweep |
 | `STALE_PROCESS_CLOSE_CODE` · `SERVER_PROCESS_ID_PARAM` | the stale-tab vocabulary the gate and the client's close classifier share |

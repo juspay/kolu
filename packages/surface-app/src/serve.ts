@@ -342,11 +342,9 @@ export interface SurfaceAppConnection<H extends string = never> {
    *  not exist yet — a close from there is applied the moment it does, and a
    *  `Connected` handler that closes means `services` is never called.
    *
-   *  Why not refuse the heartbeat instead: a refused probe counts as alive
-   *  (`@kolu/surface/heartbeat`), so only an unanswered one trips the client's
-   *  watchdog — after `interval + timeout` (25 s at the defaults) — and a client
-   *  with no watchdog (a stdio MCP bridge, a raw socket) never closes. A
-   *  credential decision must not wait on a liveness heuristic. */
+   *  Refusing the heartbeat is not a cut — the client's watchdog never fires on
+   *  one. Why, and what it does wait for:
+   *  https://kolu.dev/surface/ref-surface-app */
   readonly close: (code?: number, reason?: string) => void;
 }
 

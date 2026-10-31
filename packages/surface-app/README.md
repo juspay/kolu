@@ -70,14 +70,10 @@ services: (connection) =>
 
 `connection.close(code?, reason?)` releases this connection's serve (RPC fibers,
 in-flight subscriptions, that layer) and closes the peer with your frame; a bad
-frame throws at the call and changes nothing. Default, idempotence, the window
-before the serving exists, and what `Disconnected` reports for an unresponsive
-peer: [Reference](https://kolu.dev/surface/ref-surface-app).
-
-Refusing the heartbeat is not a cut: a refused probe counts as alive, so only an
-unanswered one trips the client's watchdog — after `interval + timeout` (25 s at
-the defaults) — and a client with no watchdog (a stdio MCP bridge, a raw socket)
-never closes.
+frame throws at the call and changes nothing. The default, idempotence, the
+window before the serving exists, what `Disconnected` reports for an unresponsive
+peer, and why refusing the heartbeat is not a cut:
+[Reference](https://kolu.dev/surface/ref-surface-app).
 
 Connecting is one call too:
 
