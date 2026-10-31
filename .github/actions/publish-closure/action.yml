@@ -32,6 +32,12 @@
 # Verification does not care which: it imports the published paths back out of
 # the substituter URL, and a Nix binary cache is a Nix binary cache.
 #
+# Each pusher reads ONE credential — `attic-token` for attic, `odu-cache-token`
+# for odu — and a run whose declaration needs it and has none fails here rather
+# than skipping the push it was asked for. A fork pull request is the exception:
+# it has no secrets, so it rewrites, smokes and import-verifies, and pushes
+# nothing.
+#
 # The index is its `closureIndex` — `repo` must be the repository this runs in
 # (refused otherwise), `branch` the one written.
 name: publish-closure
@@ -72,13 +78,18 @@ inputs:
       the caller's own pin, never an unpinned ref resolved at run time.
     required: true
   attic-token:
-    description: Token for the declaration's attic cache. Empty on a fork pull request — then nothing is pushed.
-    required: true
+    description: >-
+      Token for the declaration's attic cache. Read only when the declaration's
+      `pusher` is attic (or absent); a run whose pusher needs it and has none
+      fails loudly, and a fork pull request — which has no secrets — skips the
+      push instead.
+    required: false
+    default: ""
   odu-cache-token:
     description: >-
       Token for the declaration's odu cache bucket, exported as
       `ODU_CACHE_TOKEN`. Read only when the declaration's `pusher` is `odu`;
-      empty on a fork pull request — then nothing is pushed.
+      empty on a fork pull request — which pushes nothing.
     required: false
     default: ""
 
@@ -158,15 +169,44 @@ runs:
         python3 "$SCRIPT" smoke --rev-key "$REV_KEY" --system "$SYSTEM" \
           --directory "$OUT" --smoke "$SMOKE" $INSTALLABLES
 
+    # `secrets` cannot be read in an `if:`, and a run that was asked to publish
+    # must not silently skip it because a token is absent — so the credential
+    # the DECLARATION's pusher needs is asserted here, before anything is
+    # pushed. The one run with no credential by design is a fork pull request
+    # (`pull_request`, not `_target`: no secrets), which skips the push, the
+    # import guard and the index below.
+    - name: Fail when the pusher has no credential
+      if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true
+      shell: bash
+      env:
+        PUSHER: ${{ steps.resolve.outputs.pusher }}
+        ATTIC_TOKEN: ${{ inputs.attic-token }}
+        ODU_CACHE_TOKEN: ${{ inputs.odu-cache-token }}
+      run: |
+        set -euo pipefail
+        case "$PUSHER" in
+          attic)
+            [ -n "$ATTIC_TOKEN" ] || {
+              echo "::error::the declaration's pusher is attic, but attic-token is empty"
+              exit 1
+            } ;;
+          odu)
+            [ -n "$ODU_CACHE_TOKEN" ] || {
+              echo "::error::the declaration's pusher is odu, but odu-cache-token is empty"
+              exit 1
+            } ;;
+          *)
+            echo "::error::unknown pusher ${PUSHER:-<none>} — expected attic or odu"
+            exit 1 ;;
+        esac
+
     # The index must not name a path the cache does not hold, and the import
     # guard below reads it back from there — so the push is explicit, here,
     # and not left to anybody's post step. WHICH client pushes is the
-    # declaration's `pusher`; the list is the same file either way, so the two
-    # paths cannot disagree about what the cache must hold.
+    # declaration's `pusher`; `publish-closure.py push` reads the same path list
+    # either way, so the two cannot disagree about what the cache must hold.
     - name: Push the closures
-      if: >-
-        (steps.resolve.outputs.pusher == 'attic' && inputs.attic-token != '') ||
-        (steps.resolve.outputs.pusher == 'odu' && inputs.odu-cache-token != '')
+      if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true
       shell: bash
       env:
         SCRIPT: ${{ github.action_path }}/publish-closure.py
@@ -174,46 +214,21 @@ runs:
         REV_KEY: ${{ steps.resolve.outputs.rev-key }}
         SYSTEM: ${{ steps.resolve.outputs.system }}
         PUSHER: ${{ steps.resolve.outputs.pusher }}
-        SERVER: ${{ steps.resolve.outputs.attic-server }}
-        ATTIC_CACHE: ${{ steps.resolve.outputs.attic-cache }}
+        CACHE: ${{ steps.resolve.outputs.cache }}
+        BUCKET: ${{ steps.resolve.outputs.odu-bucket }}
         ATTIC_TOKEN: ${{ inputs.attic-token }}
         ATTIC_NIXPKGS: ${{ inputs.attic-nixpkgs }}
-        ODU_FROM: ${{ steps.resolve.outputs.odu-from }}
-        ODU_BUCKET: ${{ steps.resolve.outputs.odu-bucket }}
-        ODU_ORIGIN: ${{ steps.resolve.outputs.odu-origin }}
         ODU_CACHE_TOKEN: ${{ inputs.odu-cache-token }}
-        PUSH_PATHS: ${{ runner.temp }}/push-paths
       run: |
         set -euo pipefail
-        # Every path the entries name — the signed `ia` too: a darwin host, or a
-        # Linux Nix outside the content-addressed line, pulls those.
-        python3 "$SCRIPT" paths --rev-key "$REV_KEY" --system "$SYSTEM" --directory "$OUT" \
-          > "$PUSH_PATHS"
-        if [ "$PUSHER" = "attic" ]; then
-          # attic from the CALLER's pinned nixpkgs, never an unpinned ref
-          # resolved through the GitHub API at run time.
-          nix profile add "$ATTIC_NIXPKGS#attic-client"
-          attic login --set-default publish "$SERVER" "$ATTIC_TOKEN"
-          attic push --stdin "publish:$ATTIC_CACHE" < "$PUSH_PATHS"
-        else
-          # odu from THIS repository's npins pin — the same rule: nothing
-          # unpinned resolved at run time. `odu cache push` is an HTTP client
-          # of the bucket, so the bucket and its origin are named explicitly
-          # and `ODU_CACHE_TOKEN` (above) is the credential.
-          paths=()
-          while IFS= read -r path; do
-            [ -n "$path" ] && paths+=("$path")
-          done < "$PUSH_PATHS"
-          nix run --accept-flake-config "$ODU_FROM#odu" -- \
-            cache push "$ODU_BUCKET" --origin "$ODU_ORIGIN" "${paths[@]}"
-        fi
+        python3 "$SCRIPT" push --rev-key "$REV_KEY" --system "$SYSTEM" --directory "$OUT" \
+          --cache "$CACHE" --pusher "$PUSHER" --bucket "$BUCKET" --attic-nixpkgs "$ATTIC_NIXPKGS"
 
     # What a consumer does, done here with the publishing Nix: nothing reaches
     # the index unless it imports into a fresh store and verifies.
     - name: Verify the published closures import
       if: >-
-        ((steps.resolve.outputs.pusher == 'attic' && inputs.attic-token != '') ||
-        (steps.resolve.outputs.pusher == 'odu' && inputs.odu-cache-token != '')) &&
+        (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true) &&
         runner.os == 'Linux'
       shell: bash
       env:
@@ -233,10 +248,7 @@ runs:
     # Never on a pull request: its entries would key a commit that may never
     # land — the rewrite, smoke and import guard above still run there.
     - name: Push the index
-      if: >-
-        ((steps.resolve.outputs.pusher == 'attic' && inputs.attic-token != '') ||
-        (steps.resolve.outputs.pusher == 'odu' && inputs.odu-cache-token != '')) &&
-        github.event_name != 'pull_request'
+      if: github.event_name != 'pull_request'
       shell: bash
       env:
         OUT: ${{ steps.resolve.outputs.directory }}
