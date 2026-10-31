@@ -24,13 +24,17 @@
  *  marking the socket CLOSING. It is reachable from typed code (`Number(h)`), and
  *  a non-number from an untyped caller behaves the same way. */
 export function checkCloseFrame(code?: number, reason?: string): void {
-  if (
-    code !== undefined &&
-    (!Number.isInteger(code) || (code !== 1000 && (code < 3000 || code > 4999)))
-  ) {
-    throw new RangeError(
-      `close code ${String(code)} is not one this seam sends: use 1000 (normal closure) or the application range 3000–4999 (RFC 6455 §7.4.2)`,
-    );
+  if (code !== undefined) {
+    if (!Number.isInteger(code)) {
+      throw new RangeError(
+        `close code must be an integer, got ${typeof code} (${String(code)})`,
+      );
+    }
+    if (code !== 1000 && (code < 3000 || code > 4999)) {
+      throw new RangeError(
+        `close code ${code} is not one this seam sends: use 1000 (normal closure) or the application range 3000–4999 (RFC 6455 §7.4.2)`,
+      );
+    }
   }
   if (reason !== undefined) {
     if (typeof reason !== "string") {
