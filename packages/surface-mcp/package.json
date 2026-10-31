@@ -20,7 +20,8 @@
     "@kolu/surface": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.31.0",
     "effect": "4.0.0",
-    "ts-pattern": "^5.9.0"
+    "ts-pattern": "^5.9.0",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
