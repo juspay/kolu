@@ -26,6 +26,14 @@
 # TypeScript spells an index URL; `@kolu/surface-remote`'s `provisionAgent`
 # reads it to let a host pull a published build itself, with no trust.
 #
+# HOW that first substituter is pushed is `pusher`, OPTIONAL and null by
+# default: `{ kind = "attic"; }` (or null, which emits nothing — every
+# declaration baked before the field existed) means the publisher derives an
+# attic cache from the URL it always did; `{ kind = "odu"; bucket = "…"; }` names
+# an odu cache bucket. The field is emitted ONLY when given, so a binder that
+# does not set it bakes the byte-identical declaration it baked yesterday.
+# Malformed values fail the binder's eval, like `closureIndex`.
+#
 # Both flake spellings normalize on BOTH axes: `nixConfig` values may be a
 # space-separated string (the common form) or a list, and nix honors
 # `substituters` / `extra-substituters` (and the `trusted-public-keys` pair)
@@ -35,6 +43,7 @@
 { flakeNix # path of the flake whose nixConfig declares the caches
 , label # caller name, for the eval-time error
 , closureIndex # { repo, branch } the closures are published on, or null
+, pusher ? null # { kind = "attic"; } | { kind = "odu"; bucket = "…"; } | null
 }:
 let
   cfg = (import flakeNix).nixConfig or null;
@@ -77,6 +86,30 @@ let
         inherit (closureIndex) repo branch;
         rawBase = "https://raw.githubusercontent.com/${closureIndex.repo}/${closureIndex.branch}";
       };
+
+  # HOW the first substituter is pushed, or null for "nothing said" — which
+  # emits no field at all, so a binder that never sets `pusher` bakes exactly
+  # the declaration it baked before this option existed. Strict about the
+  # shape: a misspelt key would otherwise be silently dropped and the publish
+  # would go to a different cache than the one declared here.
+  pusherValue =
+    if pusher == null then null
+    else
+      assert lib.assertMsg
+        (builtins.isAttrs pusher && builtins.elem (pusher.kind or null) [ "attic" "odu" ])
+        "${label}: pusher must be null, { kind = \"attic\"; } or { kind = \"odu\"; bucket = \"…\"; }";
+      if pusher.kind == "attic" then
+        assert lib.assertMsg
+          (builtins.attrNames pusher == [ "kind" ])
+          "${label}: an attic pusher takes only its kind — { kind = \"attic\"; }";
+        { kind = "attic"; }
+      else
+        assert lib.assertMsg
+          (builtins.isString (pusher.bucket or null)
+            && pusher.bucket != ""
+            && builtins.attrNames pusher == [ "bucket" "kind" ])
+          "${label}: an odu pusher needs exactly { kind = \"odu\"; bucket = \"…\"; }";
+        { kind = "odu"; inherit (pusher) bucket; };
 in
 rec {
   substituters = require [ "extra-substituters" "substituters" ];
@@ -87,5 +120,6 @@ rec {
   # justfile — take these two values and use their own mechanism, so this stays
   # a pure value module with no `$out`-in-scope shell convention baked in.
   inherit fileName index;
-  json = builtins.toJSON { inherit substituters trustedPublicKeys index; };
+  json = builtins.toJSON ({ inherit substituters trustedPublicKeys index; }
+    // lib.optionalAttrs (pusherValue != null) { pusher = pusherValue; });
 }

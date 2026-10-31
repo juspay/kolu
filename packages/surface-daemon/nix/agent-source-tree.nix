@@ -17,6 +17,7 @@
 , flakeNix # path of the agent flake, copied to $out/flake.nix
 , label # caller name, for the binary-cache eval-time error
 , closureIndex # { repo, branch } the builds are published on, or null (binary-cache.nix)
+, pusher ? null # how that cache is pushed: null (nothing said) | attic | odu (binary-cache.nix)
 , extraFiles ? { } # basename → contents, written on top of the copy
 }:
 let
@@ -29,7 +30,7 @@ let
       (closureIndex == null || (extraFiles ? ${revFile} && extraFiles.${revFile} != ""))
       "${label}: closureIndex is set but no `${revFile}` extra file is baked — the index is keyed by it";
     import ./binary-cache.nix { inherit lib; } {
-      inherit flakeNix label closureIndex;
+      inherit flakeNix label closureIndex pusher;
     };
   # The sidecar is just another root file, so it rides the SAME writer as the
   # caller's extras rather than carrying its own copy of the shell line. One

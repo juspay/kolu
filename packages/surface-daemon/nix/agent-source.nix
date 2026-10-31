@@ -38,6 +38,12 @@
 # flake reads). They are packaged as a derivation only AFTER the pure prove
 # step; the prove itself never imports through that derivation (no IFD).
 #
+# The declaration also says HOW that cache is pushed (`pusher`, optional): null
+# leaves the field out — byte-identical to every declaration baked before the
+# option existed — `{ kind = "attic"; }` keeps the publisher's attic path, and
+# `{ kind = "odu"; bucket = "…"; }` names an odu cache bucket. See
+# `binary-cache.nix` for the shape and `publish-closure` for the two clients.
+#
 # The binary-cache sidecar is the third baked file, and it is NOT optional: the
 # provisioning stack (`@kolu/surface-remote`) prefetches the agent closure into
 # the binder's local store from the caches named here before realising on a
@@ -64,6 +70,7 @@
 , agents            # agent attr names to prove (e.g. [ "padi" "kaval" ])
 , flakeNix          # path of the agent flake (copied to $out/flake.nix)
 , closureIndex      # { repo, branch } its builds are published on, or null
+, pusher ? null     # how that first substituter is pushed (binary-cache.nix), or null
 }:
 let
   # Pure: store path changes iff any selected file changes; importable at eval.
@@ -94,7 +101,7 @@ let
   # `mkAgentSourceTree`, so this recipe is exactly prove-then-assemble and the
   # example flake's assemble-only bake cannot drift from it.
   flakeSrc = import ./agent-source-tree.nix { inherit lib; } {
-    inherit pkgs flakeNix closureIndex;
+    inherit pkgs flakeNix closureIndex pusher;
     src = provenTree;
     label = "mkProvenAgentSource";
     # The name is the one `@kolu/surface-remote` reads it by (agent-env.json).
