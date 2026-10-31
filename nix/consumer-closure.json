@@ -450,7 +450,8 @@
       "external": {
         "@modelcontextprotocol/sdk": "^1.31.0",
         "effect": "4.0.0",
-        "ts-pattern": "^5.9.0"
+        "ts-pattern": "^5.9.0",
+        "zod": "^4.6.6"
       }
     },
     "@kolu/surface-remote": {
@@ -667,7 +668,8 @@
       "external": {
         "@anthropic-ai/claude-agent-sdk": "^0.2.96",
         "effect": "4.0.0",
-        "ts-pattern": "^5.9.0"
+        "ts-pattern": "^5.9.0",
+        "zod": "^4.6.6"
       }
     },
     "kolu-cli": {
@@ -855,7 +857,8 @@
         "@effect/platform-node": "catalog:",
         "@modelcontextprotocol/sdk": "^1.31.0",
         "effect": "catalog:",
-        "ts-pattern": "^5.9.0"
+        "ts-pattern": "^5.9.0",
+        "zod": "^4.6.6"
       }
     },
     "kolu-omp": {

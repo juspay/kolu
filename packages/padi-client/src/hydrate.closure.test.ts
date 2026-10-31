@@ -324,6 +324,11 @@ const EXPECTED_EXTERNALS = [
   // websocket route needs it, and nothing in this package's own import graph
   // did before.
   "ws",
+  // The MCP SDKs (`@modelcontextprotocol/sdk`, `@anthropic-ai/claude-agent-sdk`)
+  // peer-require zod, and pnpm does not apply `overrides` to an auto-installed
+  // peer — so the packages carrying those SDKs declare it. That makes it a
+  // declared edge of this closure, not an assumed one.
+  "zod",
 ];
 
 describe("@kolu/padi-client hydrates without the daemon", () => {
