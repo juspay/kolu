@@ -20,6 +20,7 @@
  */
 
 import { NetAddress } from "effect/net";
+import { checkCloseFrame } from "./closeFrame";
 import { resolve } from "node:path";
 import { rpcSerializationLayer } from "@kolu/surface/frame-limit";
 import { surfaceProcessId } from "@kolu/surface/identity";
@@ -860,6 +861,11 @@ export interface ServableSocket {
   removeEventListener(type: string, listener: (event: Event) => void): void;
   send(data: string | Uint8Array): void;
   close(code?: number, reason?: string): void;
+  /** Drop the socket without a handshake — what `ws` calls `terminate`. Used
+   *  when the transport REFUSES a close frame, the one case where `close` had
+   *  nothing to send; optional because the browser `WebSocket` has no such
+   *  method, and this seam only ever hands a server socket to it. */
+  terminate?(): void;
 }
 
 /** The address a `SocketServer` must declare. Nothing in Effect's socket-server
@@ -986,37 +992,6 @@ function oneConnectionSocketServer(
   );
 }
 
-/** The close frame this seam is willing to put on the wire — `1000` (normal
- *  closure) or an APPLICATION code, `3000`–`4999` (RFC 6455 §7.4.2), with a
- *  reason of at most 123 UTF-8 bytes (a control frame's payload is 125 bytes,
- *  less the two-byte code).
- *
- *  Checked BEFORE anything about the connection changes, and thrown rather than
- *  coerced or left to `ws`, for a reason the transport makes structural:
- *  `ws.close` sets `readyState = CLOSING` and only THEN validates the code, so a
- *  bad frame leaves a socket with no close timer — never closed, never a
- *  `Disconnected`, and a retry that is a no-op. Validating first keeps a bad
- *  frame a caller error with an untouched connection instead of a zombie.
- *
- *  Callers on the `serve.ts` side check it at the app's call so the throw lands
- *  there on every path (the serving may not exist yet); the serving checks it
- *  again as its own precondition, because it is exported on its own. */
-export function checkCloseFrame(code?: number, reason?: string): void {
-  if (code !== undefined && code !== 1000 && (code < 3000 || code > 4999)) {
-    throw new RangeError(
-      `close code ${code} is not one this seam sends: use 1000 (normal closure) or the application range 3000–4999 (RFC 6455 §7.4.2)`,
-    );
-  }
-  if (reason !== undefined) {
-    const bytes = Buffer.byteLength(reason, "utf8");
-    if (bytes > 123) {
-      throw new RangeError(
-        `close reason is ${bytes} UTF-8 bytes; a control frame carries at most 123`,
-      );
-    }
-  }
-}
-
 /** A socket being served: the teardown handle and the fault channel. */
 export interface SurfaceSocketServing {
   /** Stop serving this socket, release everything the serve owns (the RPC
@@ -1106,16 +1081,29 @@ export function serveSurfaceSocket<Svc = never>(opts: {
     // the peer hears why as soon as we decide; `ws` ignores a close on a socket
     // that already sent one, which is what makes a peer-initiated teardown (the
     // frame-less arm) a no-op rather than a second frame.
-    opts.socket.close(frame?.code, frame?.reason);
-    // Releasing the scope interrupts the RPC server's fibers, which finalizes
-    // every in-flight subscription this connection opened — the server-side
-    // zombie the reaper's `terminate()` exists to prevent, closed from the other
-    // end. The socket's own release (the acquire above) closes it.
-    void Effect.runPromise(Scope.close(scope, Exit.void)).then(
-      () => settle(err),
-      // A teardown fault must not replace the reason we are tearing down.
-      (closeErr) => settle(err ?? closeErr),
-    );
+    let frameError: unknown;
+    try {
+      opts.socket.close(frame?.code, frame?.reason);
+    } catch (cause) {
+      // The transport refused the frame. `checkCloseFrame` already said it is one
+      // this seam sends, so this is the transport's own state (ws throws only
+      // after marking the socket CLOSING) — and the release below is what `done`
+      // and the listener's drain depend on, so it must run whatever happened
+      // here. Drop the socket the other way, and carry the fault to `done`,
+      // which the serving site already reports.
+      frameError = cause;
+      opts.socket.terminate?.();
+    } finally {
+      // Releasing the scope interrupts the RPC server's fibers, which finalizes
+      // every in-flight subscription this connection opened — the server-side
+      // zombie the reaper's `terminate()` exists to prevent, closed from the
+      // other end. The socket's own release (the acquire above) closes it.
+      void Effect.runPromise(Scope.close(scope, Exit.void)).then(
+        () => settle(err ?? frameError),
+        // A teardown fault must not replace the reason we are tearing down.
+        (closeErr) => settle(err ?? frameError ?? closeErr),
+      );
+    }
   };
   // The peer hanging up ends the serve. Registered on the REAL socket (not the
   // buffered view, whose `message` channel is the RPC server's) so it fires

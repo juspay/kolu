@@ -247,9 +247,9 @@ import {
   pickUpgradeHeaders,
   type UpgradeHeadersSource,
 } from "./upgradeHeaders";
+import { checkCloseFrame } from "./closeFrame";
 import {
   acceptSurfaceSocket,
-  checkCloseFrame,
   type ServableSocket,
   serveSurfaceSocket,
   type SurfaceAppLayerOptions,
