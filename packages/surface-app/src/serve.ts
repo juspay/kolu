@@ -247,6 +247,7 @@ import {
   pickUpgradeHeaders,
   type UpgradeHeadersSource,
 } from "./upgradeHeaders";
+import { checkCloseFrame } from "./closeFrame";
 import {
   acceptSurfaceSocket,
   type ServableSocket,
@@ -308,6 +309,43 @@ export interface SurfaceAppConnection<H extends string = never> {
    *  Why it is an allowlist, and why an unnamed read must not compile: this
    *  module's header, "The upgrade's headers are an ALLOWLIST". */
   readonly headers: Readonly<Partial<Record<H, string>>>;
+  /** End THIS connection from the app's side — the handle a credential decision
+   *  needs (a session that logged out, expired, or was revoked), where the app
+   *  knows the connection must go rather than suspects it may be dead.
+   *
+   *  Closing is ONE call: it stops serving this socket, releases everything this
+   *  connection's serve owns — the RPC fibers, every in-flight subscription, the
+   *  per-connection {@link ServeSurfaceAppOptions.services} layer — and closes
+   *  the peer with `code` and `reason`, through the same `SurfaceSocketServing`
+   *  the listener's drain closes.
+   *
+   *  The frame must be one this seam can send: `1000` (normal closure, and the
+   *  default when `code` is omitted, because a caller who passed none made no
+   *  policy claim) or an APPLICATION code, `3000`–`4999` (RFC 6455 §7.4.2), with
+   *  a reason of at most 123 UTF-8 bytes. A policy end names its own — a session
+   *  that ended is `4401`, with a reason a watcher can read. Anything else
+   *  throws `RangeError` at THIS call, before any state changes: the connection
+   *  stays open and a later valid `close` still works. (That is also why the
+   *  check is here and not left to `ws`: it validates only after putting the
+   *  socket in CLOSING, which strands a peer with no frame and no timer.)
+   *
+   *  {@link SurfaceAppEvent}'s `Disconnected` reports once, and reports what the
+   *  transport actually saw: normally the code you passed, because a conforming
+   *  peer echoes the close frame — but `1006` when the peer never answered and
+   *  `ws`'s close timeout dropped it. A peer that echoes nothing is exactly what
+   *  a credential cut can face, so the frame is a request, not a promise.
+   *
+   *  Idempotent, and a no-op once the peer has hung up. Bound to THIS
+   *  connection's serving by the closure that built this record: there is no id
+   *  to look up, so an app holding one connection cannot close another. Safe
+   *  from `services(connection)` or a `Connected` handler, where the serving does
+   *  not exist yet — a close from there is applied the moment it does, and a
+   *  `Connected` handler that closes means `services` is never called.
+   *
+   *  Refusing the heartbeat is not a cut — the client's watchdog never fires on
+   *  one. Why, and what it does wait for:
+   *  https://kolu.dev/surface/ref-surface-app */
+  readonly close: (code?: number, reason?: string) => void;
 }
 
 /** The allowlist's grammar, and the shape a listener takes its list in — both
@@ -791,11 +829,45 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
             });
             named = [];
           }
+          // The record is built BEFORE the serving: `services(connection)` is
+          // handed it before `serveSurfaceSocket` exists. So `close` resolves the
+          // serving lazily, through two facts with different lifetimes — the
+          // frame the app asked for (`closeFrame`, which may arrive first) and
+          // the serving itself (`liveServing`, filled once created below) — and
+          // this site replays a frame that arrived in that window. The window is
+          // not a corner case: it is the odu shape (a `services` callback that
+          // ends a refused session) and every `Connected` handler that closes
+          // what it was just handed.
+          let closeFrame:
+            | { readonly code: number; readonly reason?: string }
+            | undefined;
+          // The same object as `serving` below, readable before it exists and
+          // cleared the moment it ends — the name says LIVE, so a record whose
+          // serving is gone must not still be holding one.
+          let liveServing: SurfaceSocketServing | undefined;
           const connection: SurfaceAppConnection<H> = Object.freeze({
             id: ++accepted,
             url,
             remoteAddress: request.socket.remoteAddress,
             headers: pickUpgradeHeaders(request, named),
+            close: (code?: number, reason?: string) => {
+              // The FIRST close owns the frame; a second call is the app
+              // repeating itself, and the serving's own `close` is idempotent.
+              if (closeFrame !== undefined) return;
+              // Validated at the CALLER, on both paths: here in the window the
+              // serving does not exist yet, and a throw at replay time would land
+              // in this upgrade handler instead of the app's call. Nothing is
+              // recorded and nothing is torn down when it throws.
+              checkCloseFrame(code, reason);
+              // An explicit 1000, not an absent code: a close frame with no
+              // status reads as 1005 ("no status received") at the peer, which
+              // is the wire's word for an anomaly rather than for the ordinary
+              // end this is.
+              closeFrame = { code: code ?? 1000, reason };
+              if (liveServing !== undefined) {
+                liveServing.close(closeFrame.code, closeFrame.reason);
+              }
+            },
           });
           report({ _tag: "Connected", connection });
           peer.once("close", (code: number, reason: Buffer) =>
@@ -806,15 +878,33 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
               reason: reason.toString(),
             }),
           );
+          // A connection the app ended before its serving existed is not served:
+          // no handler can run on it, so `services(connection)` is NOT called and
+          // its layer is never built. That matters for the odu shape, where the
+          // callback opens a session lease — building one for a socket that is
+          // already going would acquire and release it in the same breath. The
+          // serving itself is still created, so that ENDING has one spelling: it
+          // closes at once, releasing nothing.
+          const servicesLayer =
+            closeFrame === undefined
+              ? options.services?.(connection)
+              : undefined;
           const serving = serveSurfaceSocket({
             group: served.group,
             handlers: served.handlers,
             // `ws`'s socket satisfies `ServableSocket` structurally; its typings
             // narrow `addEventListener` per event name, which the seam does not.
             socket: peer as unknown as ServableSocket,
-            services: options.services?.(connection),
+            services: servicesLayer,
           });
           servings.add(serving);
+          liveServing = serving;
+          // A `close` that arrived in the window — from `services` above, or
+          // from the `Connected` report before it — is replayed now, against the
+          // serving that was not there to receive it.
+          if (closeFrame !== undefined) {
+            serving.close(closeFrame.code, closeFrame.reason);
+          }
           // A serving site owns its `done`: it resolves on hang-up and REJECTS if
           // the serving stack failed. An unobserved rejection is an unhandled
           // one, and one dead socket must never take the listener with it.
@@ -824,7 +914,12 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
             .catch((cause: unknown) =>
               report({ _tag: "ServingFailed", cause, connection }),
             )
-            .finally(() => servings.delete(serving));
+            .finally(() => {
+              servings.delete(serving);
+              // Both halves of the same fact: this connection has no serving any
+              // more. A later `close` is then the no-op-after-hang-up case.
+              liveServing = undefined;
+            });
         });
       });
     });

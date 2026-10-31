@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { surfaceProcessId } from "@kolu/surface/identity";
 import { implementSurfaces } from "@kolu/surface/server";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSurfaceSocket } from "./connect";
 import { socketPair } from "./fakeSocket.testlib";
@@ -1014,6 +1014,139 @@ describe("serveSurfaceSocket — the RPC serving seam", () => {
     await expect(c.serving.done).resolves.toBeUndefined();
     await c.link.dispose();
     await c.runtime.close();
+  });
+
+  it("releases the scope when the transport REFUSES the close frame", async () => {
+    // The last-ditch arm. `checkCloseFrame` already says the frame is one this
+    // seam sends, but the TRANSPORT can still refuse it (ws throws only after
+    // marking the socket CLOSING) — and if that throw skipped the scope release,
+    // `done` would never settle and the listener's drain would hang forever on
+    // this connection. So the send is guarded, the socket is terminated instead,
+    // and the fault still reaches `done`, which the serving site reports.
+    const runtime = implementSurfaces(
+      { surfaceApp: surfaceAppSurface },
+      {},
+      { surfaceApp: surfaceAppServer({ commit: "c" }) },
+    );
+    const pair = socketPair();
+    const acquired: string[] = [];
+    const released: string[] = [];
+    const terminate = vi.fn();
+    // The app's FRAME is refused; the codeless close the socket's own release
+    // makes is passed through, so this isolates the frame send from the release.
+    const refusing = {
+      get readyState() {
+        return pair.server.readyState;
+      },
+      addEventListener: (
+        type: string,
+        listener: (event: Event) => void,
+        options?: { once?: boolean },
+      ) => pair.server.addEventListener(type, listener, options),
+      removeEventListener: (type: string, listener: (event: Event) => void) =>
+        pair.server.removeEventListener(type, listener),
+      send: (data: string | Uint8Array) => pair.server.send(data),
+      close: (code?: number, reason?: string) => {
+        if (code !== undefined || reason !== undefined) {
+          throw new TypeError("the transport refused the close frame");
+        }
+        pair.server.close();
+      },
+      terminate,
+    };
+    const serving = serveSurfaceSocket({
+      group: runtime.group,
+      handlers: runtime.handlers,
+      socket: refusing as unknown as ServableSocket,
+      services: Layer.effectDiscard(
+        Effect.acquireRelease(
+          Effect.sync(() => {
+            acquired.push("acquired");
+          }),
+          () =>
+            Effect.sync(() => {
+              released.push("released");
+            }),
+        ),
+      ),
+    });
+    // The serving stack — and so the layer — is up before the close is asked for.
+    await expect.poll(() => acquired.length).toBe(1);
+
+    serving.close(4401, "session ended");
+
+    // The refusal is surfaced, not swallowed…
+    await expect(serving.done).rejects.toThrow(
+      "the transport refused the close frame",
+    );
+    // …the socket was dropped the other way…
+    expect(terminate).toHaveBeenCalledTimes(1);
+    // …and the release ran anyway. This is the hang the guard prevents.
+    expect(released).toEqual(["released"]);
+    await runtime.close();
+  });
+
+  it("releases the scope even when the fallback terminate ALSO throws", async () => {
+    // `exit` sharpens to a second arm: `terminate` is the last chance to drop a
+    // socket whose frame was refused, and a transport already gone can throw from
+    // there too. The release is what `done` and the listener's drain wait on, so
+    // neither throw may reach it — and the FIRST failure is the one reported.
+    const runtime = implementSurfaces(
+      { surfaceApp: surfaceAppSurface },
+      {},
+      { surfaceApp: surfaceAppServer({ commit: "c" }) },
+    );
+    const pair = socketPair();
+    const acquired: string[] = [];
+    const released: string[] = [];
+    const refusing = {
+      get readyState() {
+        return pair.server.readyState;
+      },
+      addEventListener: (
+        type: string,
+        listener: (event: Event) => void,
+        options?: { once?: boolean },
+      ) => pair.server.addEventListener(type, listener, options),
+      removeEventListener: (type: string, listener: (event: Event) => void) =>
+        pair.server.removeEventListener(type, listener),
+      send: (data: string | Uint8Array) => pair.server.send(data),
+      close: (code?: number, reason?: string) => {
+        if (code !== undefined || reason !== undefined) {
+          throw new TypeError("the transport refused the close frame");
+        }
+        pair.server.close();
+      },
+      terminate: () => {
+        throw new TypeError("the transport refused to terminate");
+      },
+    };
+    const serving = serveSurfaceSocket({
+      group: runtime.group,
+      handlers: runtime.handlers,
+      socket: refusing as unknown as ServableSocket,
+      services: Layer.effectDiscard(
+        Effect.acquireRelease(
+          Effect.sync(() => {
+            acquired.push("acquired");
+          }),
+          () =>
+            Effect.sync(() => {
+              released.push("released");
+            }),
+        ),
+      ),
+    });
+    await expect.poll(() => acquired.length).toBe(1);
+
+    serving.close(4401, "session ended");
+
+    // The frame's refusal is reported, not the fallback's — and the release ran.
+    await expect(serving.done).rejects.toThrow(
+      "the transport refused the close frame",
+    );
+    expect(released).toEqual(["released"]);
+    await runtime.close();
   });
 
   it("serves each socket its OWN RpcServer — one peer's teardown leaves the other answering", async () => {
