@@ -26,26 +26,32 @@ Subcommands, one per step of `action.yml`:
     resolve  — the inputs, made concrete: the installables, the declaration
                (caches + index), the index key; written as step outputs.
     index    — build each installable, rewrite it (off darwin), write entries.
-    paths    — every store path the entries name (ia, and ca), one per line.
+    push     — hand the entries' store paths (ia, and ca) to the declaration's
+               own pusher: `attic push`, or `odu cache push` run from this
+               repository's npins pin.
     smoke    — run each rewritten closure's declared program (Linux only).
     verify   — import each published path from the cache into a throwaway
                store with this Nix, and verify it.
 """
 import argparse
 import json
+import os
 import pathlib
 import re
 import subprocess
 import sys
+from urllib.parse import quote, urlsplit
 
 # An attribute names the index file, so nothing that could climb out of the
 # directory is allowed through.
 ATTR = re.compile(r"[A-Za-z_][A-Za-z0-9_'-]*")
+# This repository — the action ships beside it, so the pinned tools it runs are
+# found from here rather than from the caller's working directory.
+REPO = pathlib.Path(__file__).resolve().parents[3]
 # The baked source's file names, from the registry Nix writes them by and
 # TypeScript reads them by (`packages/surface-remote/agent-env.json`) — the
 # action's checkout is the whole kolu repository, so it is beside this script.
-AGENT_ENV = json.loads(
-    (pathlib.Path(__file__).resolve().parents[3] / "packages/surface-remote/agent-env.json").read_text())
+AGENT_ENV = json.loads((REPO / "packages/surface-remote/agent-env.json").read_text())
 STORE_PATH = re.compile(r"/nix/store/[0-9a-z]{32}-[^/]+")
 FULL_REV = re.compile(r"[0-9a-f]{40}")
 
@@ -69,6 +75,15 @@ def nix_json(args: list):
         return json.loads(text)
     except json.JSONDecodeError as error:
         die(f"nix {' '.join(args)}: unreadable JSON: {error}")
+
+
+def run(command: list, stdin=None) -> None:
+    """Run a publishing client with this process's own stdout/stderr — the push
+    is the one step a person watches live — or exit naming what failed."""
+    data = None if stdin is None else "".join(f"{path}\n" for path in stdin)
+    result = subprocess.run(command, input=data, text=True)
+    if result.returncode != 0:
+        die(f"{' '.join(command)} exited {result.returncode}")
 
 
 def segment(name: str, value: str) -> str:
@@ -115,6 +130,103 @@ def attic_target(cache_url: str) -> tuple:
     return match.group(1), match.group(2)
 
 
+def pusher_of(declaration: dict) -> dict:
+    """HOW the declaration's first substituter is pushed.
+
+    Absent means `attic` — every declaration written before this field existed
+    keeps working, and attic keeps deriving its server and cache from the URL,
+    as it always has. An odu bucket is an HTTP client rather than a URL shape,
+    so it names the bucket and this publisher derives the origin.
+
+    Strict about the shape: `{"kind": …}` with exactly the keys its kind needs.
+    A misspelt key would otherwise be silently dropped and the push would go to
+    the wrong place, which is the one outcome this field exists to prevent."""
+    raw = declaration.get("pusher", {"kind": "attic"})
+    if not isinstance(raw, dict):
+        die(f"the declaration's pusher must be an object (got {raw!r}) — "
+            '{"kind": "attic"} or {"kind": "odu", "bucket": "…"}')
+    kind = raw.get("kind")
+    if kind == "attic":
+        wanted = {"kind"}
+    elif kind == "odu":
+        wanted = {"kind", "bucket"}
+        if not isinstance(raw.get("bucket"), str) or not raw["bucket"]:
+            die('the declaration\'s pusher names no bucket — {"kind": "odu", "bucket": "…"}')
+    else:
+        die(f"the declaration's pusher kind {kind!r} is not one this publisher knows (attic, odu)")
+    extra = set(raw) - wanted
+    if extra:
+        die(f"the declaration's pusher names {sorted(extra)}, which its {kind!r} kind does not take")
+    return {"kind": kind, **({"bucket": raw["bucket"]} if kind == "odu" else {})}
+
+
+def odu_origin(cache_url: str, bucket: str) -> str:
+    """The substituter a bucket is served at → the origin `odu cache push`
+    talks to. odu serves a bucket at its domain's root (`https://cache.kolu.dev`)
+    or under `/cache/<bucket>`; nothing else — a `/<bucket>` path is a shape no
+    odu server answers, so it is refused rather than guessed at."""
+    url = urlsplit(cache_url)
+    if url.scheme != "https" or not url.hostname:
+        die(f"{cache_url} is not an https substituter URL odu can push to")
+    path = url.path.rstrip("/")
+    if path and path != f"/cache/{bucket}":
+        die(f"the declaration pushes to bucket {bucket!r} but its substituter {cache_url} "
+            f"is not that bucket ({bucket!r} is served at / or /cache/{bucket})")
+    return f"https://{url.netloc}"
+
+
+def odu_pin() -> tuple:
+    """odu's source AND its hash, from THIS repository's npins pin — the
+    publisher installs nothing unpinned. The action ships beside the pin it runs
+    (a consumer using it remotely gets this repository's archive), so the file is
+    found from the script rather than from the caller's working directory."""
+    try:
+        sources = json.loads((REPO / "npins/sources.json").read_text())
+        pin = sources["pins"]["odu"]
+        url, digest = pin["url"], pin["hash"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
+        die(f"npins/sources.json names no odu pin ({error}) — the odu pusher runs the pinned odu")
+    if not isinstance(url, str) or not isinstance(digest, str):
+        die("npins/sources.json's odu pin carries no url/hash — the odu pusher runs the pinned odu")
+    return url, digest
+
+
+def pinned(ref_url: str, ref_hash: str) -> str:
+    """A flake ref that is the PIN, not merely a URL: npins records the
+    archive's hash, and handing it over as the locked `narHash` means a branch
+    that moved (or a switched archive) cannot change what this step runs."""
+    separator = "&" if "?" in ref_url else "?"
+    return f"{ref_url}{separator}narHash={quote(ref_hash)}"
+
+
+def push_plan(cache: str, pusher: dict) -> dict:
+    """Everything a push needs, derived ONCE from the declaration's two facts.
+
+    `resolve` calls it so a malformed declaration fails before a closure is
+    built, and `push` calls it to run the client — the values are a pure
+    function of the same inputs, so the two cannot disagree about the target."""
+    plan = {"cache": cache, "kind": pusher["kind"]}
+    if plan["kind"] == "attic":
+        plan["server"], plan["cache-name"] = attic_target(cache)
+    else:
+        plan["bucket"] = pusher["bucket"]
+        plan["origin"] = odu_origin(cache, pusher["bucket"])
+        plan["pin-url"], plan["pin-hash"] = odu_pin()
+    return plan
+
+
+def requested_pusher(kind: str, bucket: str) -> dict:
+    """`push`'s own spelling of a pusher, validated like a declaration's: a
+    bucket belongs to `odu` and only to it."""
+    if kind == "odu":
+        if not bucket:
+            die("push --pusher odu needs --bucket <name>")
+        return {"kind": "odu", "bucket": bucket}
+    if bucket:
+        die("push --pusher attic takes no --bucket — an attic cache is named by its URL")
+    return {"kind": "attic"}
+
+
 def resolve(args) -> int:
     """Make the inputs concrete, as `key=value` lines for `$GITHUB_OUTPUT`."""
     if args.source:
@@ -150,15 +262,19 @@ def resolve(args) -> int:
         die(f"the declaration publishes to {declaration['index']['repo']}, "
             f"but this run is in {args.repository} — run it in the declared repository")
     cache = declaration["substituters"][0]
-    server, name = attic_target(cache)
+    pusher = pusher_of(declaration)
+    # Early refusal, before a closure is built: the pusher's own target must be
+    # derivable. `push` derives it again from the values printed below.
+    push_plan(cache, pusher)
     outputs = {
         "installables": " ".join(installables),
         "rev-key": rev_key,
         "cache": cache,
-        "attic-server": server,
-        "attic-cache": name,
+        "pusher": pusher["kind"],
         "index-branch": declaration["index"]["branch"],
     }
+    if pusher["kind"] == "odu":
+        outputs["odu-bucket"] = pusher["bucket"]
     for key, value in outputs.items():
         print(f"{key}={value}")
     return 0
@@ -215,13 +331,41 @@ def entries(directory: pathlib.Path, rev_key: str, system: str) -> list:
     return [(path.stem, json.loads(path.read_text())) for path in found]
 
 
-def paths(args) -> int:
-    """Every store path the entries name — the signed `ia` and, off darwin,
-    the content-addressed `ca` — one per line: what the cache must hold."""
-    for _, entry in entries(args.directory, args.rev_key, args.system):
-        print(entry["ia"])
-        if entry.get("ca"):
-            print(entry["ca"])
+def store_paths(directory: pathlib.Path, rev_key: str, system: str) -> list:
+    """Every store path the entries name — the signed `ia`, and off darwin the
+    content-addressed `ca` too — in entry order: what the cache must hold."""
+    return [path for _, entry in entries(directory, rev_key, system)
+            for path in (entry["ia"], entry.get("ca")) if path]
+
+
+def push(args) -> int:
+    """Push every store path the entries name, with the declaration's client.
+
+    Two clients, one path list. `attic push` takes its server and cache from the
+    substituter URL; `odu cache push` takes the bucket the declaration names and
+    its origin from the same URL, and runs the pinned odu — npins' url AND hash,
+    handed to Nix as a locked ref. Each computes the closures itself, so the list
+    is the entries' own roots: `ia` and, off darwin, `ca`.
+
+    When the pinned odu carries `--wait` (juspay/odu PR 3), pass it here: a path
+    the cache merely REPORTS as held is one the verify step below fetches from a
+    cache that does not hold it yet, and the failure would read as a fetch error
+    instead of the hold it is."""
+    plan = push_plan(args.cache, requested_pusher(args.pusher, args.bucket))
+    paths = store_paths(args.directory, args.rev_key, args.system)
+    if plan["kind"] == "attic":
+        if not args.attic_nixpkgs:
+            die("push --pusher attic needs --attic-nixpkgs — the caller's pinned nixpkgs")
+        token = os.environ.get("ATTIC_TOKEN", "")
+        if not token:
+            die("the attic pusher has no ATTIC_TOKEN — the declaration's cache needs its credential")
+        run(["nix", "profile", "add", f"{args.attic_nixpkgs}#attic-client"])
+        run(["attic", "login", "--set-default", "publish", plan["server"], token])
+        run(["attic", "push", "--stdin", f"publish:{plan['cache-name']}"], stdin=paths)
+    else:
+        run(["nix", "run", "--accept-flake-config",
+             f"{pinned(plan['pin-url'], plan['pin-hash'])}#odu",
+             "--", "cache", "push", plan["bucket"], "--origin", plan["origin"], *paths])
     return 0
 
 
@@ -317,9 +461,14 @@ def main(argv=None) -> int:
     p.add_argument("installables", nargs="+")
     p.set_defaults(run=index)
 
-    p = sub.add_parser("paths")
-    entry_args(p)
-    p.set_defaults(run=paths)
+    parser_push = sub.add_parser("push")
+    entry_args(parser_push)
+    parser_push.add_argument("--cache", required=True, help="the declaration's first substituter")
+    parser_push.add_argument("--pusher", required=True, choices=["attic", "odu"])
+    parser_push.add_argument("--bucket", default="", help="the odu bucket; odu pushers only")
+    parser_push.add_argument("--attic-nixpkgs", default="",
+                             help="the caller's pinned nixpkgs, to install attic-client from")
+    parser_push.set_defaults(run=push)
 
     p = sub.add_parser("smoke")
     entry_args(p)

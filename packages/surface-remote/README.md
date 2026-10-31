@@ -30,7 +30,7 @@ content-addressed path needs no trust setting, but only within the Nix line
 that wrote it — publishers rewrite with Nix 2.34, which hosts on 2.17–2.34
 verify; 2.35+ and macOS (a rewrite breaks Mach-O signatures) get the signed
 path, which needs the host to trust the login or the key. Publishing is
-`.github/actions/publish-closure` ([Publish your daemon content-addressed](https://kolu.dev/surface/publish-content-addressed)). The
+`.github/actions/publish-closure` ([Publish your daemon content-addressed](https://kolu.dev/surface/publish-content-addressed)), which pushes to the declaration's first substituter — an attic cache by default, or an **[odu](https://github.com/juspay/odu) cache bucket** when the declaration's `pusher` says so (the read side is identical: a Nix binary cache is a Nix binary cache). The
 delivery steps alone — warm check, index step, staging, root, never a build —
 are `deliverClosure`, for a path the caller already holds (kolu ships the
 agent profiles it builds through it).

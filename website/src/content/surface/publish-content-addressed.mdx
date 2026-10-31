@@ -15,9 +15,10 @@ publishes your daemon that way, so `provisionAgent` has the host pull it
 straight from your cache, with no trust and no bytes through your machine.
 
 You need a binder built with `mkProvenAgentSource`
-([@kolu/surface-daemon](/surface/ref-surface-daemon)), an
-[attic](https://github.com/zhaofengli/attic) cache already named in your agent
-flake's `nixConfig`, and GitHub Actions.
+([@kolu/surface-daemon](/surface/ref-surface-daemon)), a binary cache already
+named in your agent flake's `nixConfig` — an
+[attic](https://github.com/zhaofengli/attic) cache, or an
+[odu](https://github.com/juspay/odu) cache bucket — and GitHub Actions.
 
 ## 1. Declare where your builds are published
 
@@ -74,6 +75,44 @@ on macOS), runs the program out of the rewrite, pushes both forms to your
 cache, imports the rewrite back into a throwaway store to verify it, and only
 then writes `<rev>/<system>/<attr>.json` to the index branch. On a pull request
 it does everything except write the index.
+
+### How the cache is pushed
+
+The cache it pushes to is the declaration's **first substituter**, and the
+declaration says *how* that cache is pushed — no action input decides it.
+Absent (or `{"kind": "attic"}`) means an attic cache, pushed with `attic push`
+under `attic-token`, exactly as before. An odu cache bucket says so instead:
+
+```json
+{ "substituters": ["https://cache.kolu.dev"],
+  "pusher": { "kind": "odu", "bucket": "my-daemon" } }
+```
+
+The action then runs `odu cache push <bucket>` from its own npins pin (nothing
+unpinned, url and hash both) under `odu-cache-token`, against the substituter's
+origin — the domain's root or `/cache/<bucket>`, the only two shapes an odu
+server answers. Verification is identical either way: it imports the published
+paths back out of the substituter URL, and a Nix binary cache is a Nix binary
+cache.
+
+`pusher` lives in the **declaration**, so where you set it depends on who writes
+that file. A baked source takes it from `mkProvenAgentSource`:
+
+```nix
+agentSource = mkProvenAgentSource {
+  # …as before…
+  pusher = { kind = "odu"; bucket = "my-daemon"; };
+};
+```
+
+and `sidecar` mode sets it in the declaration you pass. Omit it and the field is
+not emitted at all: the declaration is byte-identical to one baked before the
+option existed, and the publisher takes attic.
+
+Each pusher reads one credential — `attic-token` for attic, `odu-cache-token`
+for odu — and a run whose declaration needs it and has none fails rather than
+skipping the push it was asked for. A fork pull request is the exception: it has
+no secrets, so it rewrites, smokes and import-verifies, and pushes nothing.
 
 ## 3. Dial as usual
 
