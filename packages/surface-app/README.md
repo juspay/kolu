@@ -50,31 +50,34 @@ costs, and why a bad live list refuses *itself* rather than the socket:
 
 ## Ending a connection from the app
 
-`services` is also where the app *decides* a connection must go — a session that
-logged out, expired, or was revoked. `connection.close(code?, reason?)` is that
-handle: it releases everything this connection's serve owns (its RPC fibers,
-every in-flight subscription, the `services` layer) and closes the peer with your
-frame, so `Disconnected` carries the app's own account on the one sink.
+`services` is also where the app *decides* a connection must go. Open the lease
+inside the layer, so the layer's release is what closes it:
 
 ```ts
-services: (connection) => {
-  const session = sessions.open(connection.headers["Tailscale-User-Login"]);
-  // The lease ending — logout, expiry, revocation — ends THIS connection now.
-  session.onEnd(() => connection.close(4401, "session ended"));
-  return Layer.succeed(Session)(session);
-},
+services: (connection) =>
+  Layer.effect(Session)(
+    Effect.acquireRelease(
+      Effect.sync(() => {
+        const lease = sessions.lease(connection.headers["Tailscale-User-Login"]);
+        // Logout, expiry, revocation: the lease ending ends THIS connection.
+        lease.onEnd(() => connection.close(4401, "session ended"));
+        return lease;
+      }),
+      (lease) => Effect.sync(() => lease.close()),
+    ),
+  ),
 ```
 
-`code` defaults to `1000` (normal closure); a policy end names its own — `4401`
-is the application-range code for "session ended" (RFC 6455 §7.4.2). The call is
-idempotent, a no-op after the peer has hung up, and bound to *this* connection:
-there is no id to look up, so one connection cannot close another.
+`connection.close(code?, reason?)` releases this connection's serve (RPC fibers,
+in-flight subscriptions, that layer) and closes the peer with your frame; a bad
+frame throws at the call and changes nothing. Default, idempotence, the window
+before the serving exists, and what `Disconnected` reports for an unresponsive
+peer: [Reference](https://kolu.dev/surface/ref-surface-app).
 
-Refusing the heartbeat is **not** a cut: `heartbeat.ts` counts a refused round
-trip as *alive*, so the client's watchdog only fires after `interval + timeout`
-(45 s by default) — and a client with no watchdog at all (a stdio MCP bridge, a
-raw socket) never closes. A credential decision must not wait on a liveness
-heuristic.
+Refusing the heartbeat is not a cut: a refused probe counts as alive, so only an
+unanswered one trips the client's watchdog — after `interval + timeout` (25 s at
+the defaults) — and a client with no watchdog (a stdio MCP bridge, a raw socket)
+never closes.
 
 Connecting is one call too:
 
