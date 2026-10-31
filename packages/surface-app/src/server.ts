@@ -992,6 +992,18 @@ function oneConnectionSocketServer(
   );
 }
 
+/** Why a serving is ending — three sources, three arms, never two at once. The
+ *  close frame belongs to the arm that asks for one; a peer that hung up has
+ *  already sent its own, and a serving whose build failed never had one to send. */
+type Ending =
+  | { readonly why: "hangup" }
+  | {
+      readonly why: "close";
+      readonly code?: number;
+      readonly reason?: string;
+    }
+  | { readonly why: "fault"; readonly cause: unknown };
+
 /** A socket being served: the teardown handle and the fault channel. */
 export interface SurfaceSocketServing {
   /** Stop serving this socket, release everything the serve owns (the RPC
@@ -1058,57 +1070,58 @@ export function serveSurfaceSocket<Svc = never>(opts: {
       ? base
       : base.pipe(Layer.provide(opts.services));
 
-  let settle!: (err?: unknown) => void;
+  let settle!: (failure?: unknown) => void;
   const done = new Promise<void>((resolvePromise, rejectPromise) => {
-    settle = (err) => {
-      if (err === undefined) resolvePromise();
-      else rejectPromise(err);
+    settle = (failure) => {
+      if (failure === undefined) resolvePromise();
+      else rejectPromise(failure);
     };
   });
 
   const scope = Scope.makeUnsafe();
   let ended = false;
-  const teardown = (
-    err?: unknown,
-    frame?: { readonly code?: number; readonly reason?: string },
-  ): void => {
+  const end = (ending: Ending): void => {
     if (ended) return;
     ended = true;
     buffered.detach();
-    // The frame is sent HERE, and only here: the app's `close(code, reason)` and
-    // the drain's `close()` are the same call, and the socket's own release below
-    // no longer decides what goes on the wire. Before the scope is released, so
-    // the peer hears why as soon as we decide; `ws` ignores a close on a socket
-    // that already sent one, which is what makes a peer-initiated teardown (the
-    // frame-less arm) a no-op rather than a second frame.
-    let frameError: unknown;
+    // The socket is closed HERE, and only here — but only the close arm has a
+    // FRAME to give it. The drain's `close()` (no code) and the app's
+    // `close(code, reason)` are this same path, so the socket's own release below
+    // no longer decides what goes on the wire. The other two arms still close it
+    // with no frame: a peer that hung up is already closed (a no-op), and a
+    // serving whose build failed may never have acquired the socket for its
+    // release to close.
+    const frame = ending.why === "close" ? ending : undefined;
+    let refusedFrame: unknown;
     try {
       opts.socket.close(frame?.code, frame?.reason);
     } catch (cause) {
       // The transport refused the frame. `checkCloseFrame` already said it is one
       // this seam sends, so this is the transport's own state (ws throws only
-      // after marking the socket CLOSING) — and the release below is what `done`
-      // and the listener's drain depend on, so it must run whatever happened
-      // here. Drop the socket the other way, and carry the fault to `done`,
-      // which the serving site already reports.
-      frameError = cause;
+      // after marking the socket CLOSING). Dropping the socket the other way is
+      // all that is left; the failure itself rides to `done`.
+      refusedFrame = cause;
       opts.socket.terminate?.();
-    } finally {
-      // Releasing the scope interrupts the RPC server's fibers, which finalizes
-      // every in-flight subscription this connection opened — the server-side
-      // zombie the reaper's `terminate()` exists to prevent, closed from the
-      // other end. The socket's own release (the acquire above) closes it.
-      void Effect.runPromise(Scope.close(scope, Exit.void)).then(
-        () => settle(err ?? frameError),
-        // A teardown fault must not replace the reason we are tearing down.
-        (closeErr) => settle(err ?? frameError ?? closeErr),
-      );
     }
+    // The release runs whatever happened above — `done` and the listener's drain
+    // both hang on it. Releasing the scope interrupts the RPC server's fibers,
+    // which finalizes every in-flight subscription this connection opened — the
+    // server-side zombie the reaper's `terminate()` exists to prevent, closed
+    // from the other end. The socket's own release (the acquire above) closes it.
+    const failure = ending.why === "fault" ? ending.cause : refusedFrame;
+    void Effect.runPromise(Scope.close(scope, Exit.void)).then(
+      () => settle(failure),
+      // A release failure must not replace an earlier reason we are ending; the
+      // order is "why the serve ended" first, then what broke on the way out.
+      (releaseFailure) => settle(failure ?? releaseFailure),
+    );
   };
   // The peer hanging up ends the serve. Registered on the REAL socket (not the
   // buffered view, whose `message` channel is the RPC server's) so it fires
   // whether the close came from the client, the reaper's `terminate()`, or us.
-  opts.socket.addEventListener("close", () => teardown(), { once: true });
+  opts.socket.addEventListener("close", () => end({ why: "hangup" }), {
+    once: true,
+  });
   Effect.runPromise(Scope.provide(Layer.build(serving), scope)).then(
     // The build resolves once the serving stack is up; the connection then lives
     // in the scope until a close. Nothing to do here — `done` settles at
@@ -1116,14 +1129,14 @@ export function serveSurfaceSocket<Svc = never>(opts: {
     () => {},
     // A per-connection build failure kills THIS connection and reaches the
     // caller through `done`; it never touches another peer or the listener.
-    (err) => teardown(err),
+    (cause) => end({ why: "fault", cause }),
   );
   return {
     close: (code?: number, reason?: string) => {
       // Precondition first: a frame this seam cannot send must leave the serving
       // live (and the caller holding a connection it can still end correctly).
       checkCloseFrame(code, reason);
-      teardown(undefined, { code, reason });
+      end({ why: "close", code, reason });
     },
     done,
   };

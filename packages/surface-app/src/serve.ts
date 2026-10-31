@@ -831,18 +831,20 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
             });
             named = [];
           }
-          // The connection's `close` needs the serving, but the RECORD is built
-          // first — `services(connection)` is handed it before
-          // `serveSurfaceSocket` exists. So `close` resolves the serving LAZILY:
-          // until the serving is assigned it only records the frame, and this
-          // site replays it the moment the serving is created. That window is
-          // not a corner case — it is the odu shape (a `services` callback that
+          // The record is built BEFORE the serving: `services(connection)` is
+          // handed it before `serveSurfaceSocket` exists. So `close` resolves the
+          // serving lazily, through two facts with different lifetimes — the
+          // frame the app asked for (`closeFrame`, which may arrive first) and
+          // the serving itself (`liveServing`, filled once created below) — and
+          // this site replays a frame that arrived in that window. The window is
+          // not a corner case: it is the odu shape (a `services` callback that
           // ends a refused session) and every `Connected` handler that closes
           // what it was just handed.
-          let serving: SurfaceSocketServing | undefined;
-          let closing:
+          let closeFrame:
             | { readonly code: number; readonly reason?: string }
             | undefined;
+          // The same object as `serving` below, readable before it exists.
+          let liveServing: SurfaceSocketServing | undefined;
           const connection: SurfaceAppConnection<H> = Object.freeze({
             id: ++accepted,
             url,
@@ -851,7 +853,7 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
             close: (code?: number, reason?: string) => {
               // The FIRST close owns the frame; a second call is the app
               // repeating itself, and the serving's own `close` is idempotent.
-              if (closing !== undefined) return;
+              if (closeFrame !== undefined) return;
               // Validated at the CALLER, on both paths: here in the window the
               // serving does not exist yet, and a throw at replay time would land
               // in this upgrade handler instead of the app's call. Nothing is
@@ -861,9 +863,10 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
               // status reads as 1005 ("no status received") at the peer, which
               // is the wire's word for an anomaly rather than for the ordinary
               // end this is.
-              closing = { code: code ?? 1000, reason };
-              if (serving !== undefined)
-                serving.close(closing.code, closing.reason);
+              closeFrame = { code: code ?? 1000, reason };
+              if (liveServing !== undefined) {
+                liveServing.close(closeFrame.code, closeFrame.reason);
+              }
             },
           });
           report({ _tag: "Connected", connection });
@@ -883,8 +886,10 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
           // serving itself is still created, so that ENDING has one spelling: it
           // closes at once, releasing nothing.
           const servicesLayer =
-            closing === undefined ? options.services?.(connection) : undefined;
-          const started = serveSurfaceSocket({
+            closeFrame === undefined
+              ? options.services?.(connection)
+              : undefined;
+          const serving = serveSurfaceSocket({
             group: served.group,
             handlers: served.handlers,
             // `ws`'s socket satisfies `ServableSocket` structurally; its typings
@@ -892,23 +897,24 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
             socket: peer as unknown as ServableSocket,
             services: servicesLayer,
           });
-          servings.add(started);
-          serving = started;
+          servings.add(serving);
+          liveServing = serving;
           // A `close` that arrived in the window — from `services` above, or
           // from the `Connected` report before it — is replayed now, against the
           // serving that was not there to receive it.
-          if (closing !== undefined)
-            started.close(closing.code, closing.reason);
+          if (closeFrame !== undefined) {
+            serving.close(closeFrame.code, closeFrame.reason);
+          }
           // A serving site owns its `done`: it resolves on hang-up and REJECTS if
           // the serving stack failed. An unobserved rejection is an unhandled
           // one, and one dead socket must never take the listener with it.
           // Forgotten the moment it ends, however it ended, so the set stays the
           // LIVE population rather than a log of everything ever served.
-          void started.done
+          void serving.done
             .catch((cause: unknown) =>
               report({ _tag: "ServingFailed", cause, connection }),
             )
-            .finally(() => servings.delete(started));
+            .finally(() => servings.delete(serving));
         });
       });
     });
