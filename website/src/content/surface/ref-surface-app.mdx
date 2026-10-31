@@ -243,7 +243,7 @@ annotation above is what keeps the guarantee.
 | --- | --- | --- |
 | `serveSurfaceApp(opts)` | `/serve` | the whole listener — shell, socket, gates, heartbeat, bind, teardown. Generation is `ServedGenerationSource` |
 | `SurfaceAppListenFailed` | `/serve` | the one failure it reports, `cause` intact |
-| `SurfaceAppConnection` | `/serve` | one accepted connection's `{ id, url, remoteAddress, headers }` — what a per-connection `services` layer is built from |
+| `SurfaceAppConnection` | `/serve` | one accepted connection's `{ id, url, remoteAddress, headers, close }` — what a per-connection `services` layer is built from, and the handle that can end it |
 | `SurfaceAppEvent` | `/serve` | the tagged union `onEvent` narrates |
 | `SurfaceAppHttpMiddleware` | `/serve` | the shape `middleware` takes — error and response types preserved, adding only `HttpServerRequest` |
 | `checkUpgradeHeaders(names)` | `/upgrade-headers` (also re-exported from `/serve`) | the allowlist's grammar, for an app that ASSEMBLES its list — refuse a bad name where it is minted, rather than at the accept. Returns the names unchanged; throws |
@@ -260,7 +260,7 @@ consumer has exactly one logger:
 | `_tag` | Carries | Default (`reportSurfaceAppEvent`) |
 | --- | --- | --- |
 | `Connected` | `connection` | silent — the accept a live-connection count increments on |
-| `Disconnected` | `connection`, `code`, `reason` | silent — the same connection hung up, with the close frame's own account of why |
+| `Disconnected` | `connection`, `code`, `reason` | silent — the same connection hung up (peer, reaper, or the app's own `connection.close`), with the close frame's own account of why |
 | `SocketError` | `error`, `url` | loud `console.error` — a transport error |
 | `GenerationRefused` | `error`, `url` | loud `console.error` — a live generation `restrictHandlers` refused. The socket is **terminated**: there is no honest reduced thing to serve when the served set itself is unservable |
 | `UpgradeHeadersRefused` | `error`, `url` | loud `console.error` — a live `upgradeHeaders` could not be produced: it named something unreadable, or the thunk threw. The socket is **served anyway**, with no named headers, and the fault is reported at **each** such accept ([why](#a-live-allowlist-read-at-each-accept)) |
@@ -280,6 +280,43 @@ directly when an app's listener needs something the primitive does not take
 today — drishti's per-host `?host=` dispatch, which picks *which* runtime serves
 a socket, is the in-tree case. Both kolu and this package's example ride the
 primitive.
+
+### Ending a connection from the app — `connection.close`
+
+`services` is also where the app *decides* a connection must go — a session that
+logged out, expired, or was revoked. `connection.close(code?, reason?)` is that
+handle: it stops serving this socket, releases everything the serve owns (the RPC
+fibers, every in-flight subscription, the per-connection `services` layer), and
+closes the peer with your frame, so `Disconnected` reports **once** with the code
+and reason you passed — the same event a peer's own goodbye produces.
+
+```ts
+services: (connection) => {
+  const lease = sessions.lease(connection.headers["Tailscale-User-Login"]);
+  // Logout, expiry, revocation: the lease ending ends THIS connection now.
+  lease.onEnd(() => connection.close(4401, "session ended"));
+  return Layer.succeed(Session)(lease);
+},
+```
+
+| Fact | Shape | Notes |
+| --- | --- | --- |
+| `connection.close` | `(code?: number, reason?: string) => void` | ends **this** connection — bound to its own serving by the closure that built the record, so there is no id to look up and one connection cannot close another |
+| default `code` | `1000` | normal closure. A caller who passed no code made no policy claim; a policy end names its own — `4401` is the application-range code for "session ended" (RFC 6455 §7.4.2) |
+| idempotence | — | the first call owns the frame; a second is a no-op, and so is a call after the peer has already hung up |
+
+It is safe to call from `services` itself, or from a `Connected` handler: the
+record is built **before** the serving exists (the serving is built over
+`services(connection)`, after all), so `close` resolves its serving lazily and
+the accept site closes the peer the moment the serving is there. Nothing is
+leaked in that window — the peer gets your frame and the not-yet-built serve is
+released.
+
+Refusing the heartbeat is **not** a cut. [`heartbeat.ts`](/surface/ref-surface-app)
+counts a refused round trip as *alive*, so the client's watchdog only fires after
+`interval + timeout` (45 s by default) — and a client with no watchdog at all (a
+stdio MCP bridge, a raw socket) never closes. A credential decision must not wait
+on a liveness heuristic.
 
 ## Serving the fresh shell
 
