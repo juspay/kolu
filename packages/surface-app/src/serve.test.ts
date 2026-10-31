@@ -34,7 +34,16 @@ import {
   implementSurface,
   inMemoryStore,
 } from "@kolu/surface/server";
-import { Cause, Context, Effect, Exit, Layer, Schema, Scope } from "effect";
+import {
+  Cause,
+  Context,
+  Effect,
+  Exit,
+  Layer,
+  Schema,
+  Scope,
+  Stream,
+} from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { generate as generateSelfSigned } from "selfsigned";
 import { WebSocket as WsClient } from "ws";
@@ -61,8 +70,9 @@ class Viewer extends Context.Service<Viewer, { readonly seen: string }>()(
 ) {}
 
 /** A surface with one procedure that takes a payload as large as the caller
- *  likes (so the frame cap is observable) and one that can only be answered by
- *  reading the per-connection service. */
+ *  likes (so the frame cap is observable), one that can only be answered by
+ *  reading the per-connection service, and one STREAM that yields a frame and
+ *  then parks — an in-flight subscription whose finalizer is observable. */
 const testSurface = defineSurface({
   procedures: {
     echo: {
@@ -78,9 +88,18 @@ const testSurface = defineSurface({
       },
     },
   },
+  streams: {
+    tick: {
+      inputSchema: Schema.Struct({}),
+      outputSchema: Schema.Struct({ n: Schema.Number }),
+    },
+  },
 });
 
-const makeRuntime = () =>
+/** `onTickFinalize` is how a test sees a handler being CUT mid-call: the tick
+ *  stream never completes on its own, so its `ensuring` only runs when the
+ *  connection serving it is ended. */
+const makeRuntime = (onTickFinalize?: () => void) =>
   implementSurface(testSurface, {
     procedures: {
       echo: {
@@ -98,6 +117,20 @@ const makeRuntime = () =>
           Viewer.use((viewer) =>
             Effect.succeed({ seen: viewer.seen }),
           )) as unknown as () => Effect.Effect<{ readonly seen: string }>,
+      },
+    },
+    streams: {
+      tick: {
+        // One frame, then forever: the subscription is demonstrably RUNNING, and
+        // only a cut can finalize it.
+        source: () =>
+          Stream.ensuring(
+            Stream.concat(
+              Stream.make({ n: 0 }),
+              Stream.never as Stream.Stream<{ n: number }>,
+            ),
+            Effect.sync(() => onTickFinalize?.()),
+          ),
       },
     },
   });
@@ -135,9 +168,10 @@ afterEach(async () => {
  *  inference a consumer actually uses. */
 async function boot<Svc = never, H extends string = never>(
   overrides: Partial<ServeSurfaceAppOptions<Svc, H>> = {},
+  hooks: { onTickFinalize?: () => void } = {},
 ): Promise<Booted> {
   const dist = makeDist();
-  const runtime = makeRuntime();
+  const runtime = makeRuntime(hooks.onTickFinalize);
   const scope = Scope.makeUnsafe();
   let closed = false;
   let entry: Booted | undefined;
@@ -1478,9 +1512,9 @@ describe("serveSurfaceApp — the live generation", () => {
 
 // The app-side cut. A credential decision (a session logged out, expired, or was
 // revoked) has to end the connection NOW; refusing the heartbeat is not a cut —
-// `heartbeat.ts` counts a refused round trip as ALIVE, so the client's watchdog
-// only fires after `interval + timeout` (45 s by default) and a client without
-// one (a stdio MCP bridge, a raw socket) never closes at all. Every claim below
+// a refused probe counts as alive, so only an unanswered one trips the client's
+// watchdog, after `interval + timeout` (25 s at the defaults) — and a client with
+// no watchdog (a stdio MCP bridge, a raw socket) never closes. Every claim below
 // is read off a REAL socket and the REAL sink.
 describe("serveSurfaceApp — ending a connection from the app", () => {
   /** A raw dial whose CLOSE FRAME is ours to observe. A `createSurfaceSocket`
@@ -1501,17 +1535,37 @@ describe("serveSurfaceApp — ending a connection from the app", () => {
     return { socket, opened, closed };
   };
 
+  /** A per-connection layer whose acquire/release a test can watch — the odu
+   *  shape is "`services` opens a session lease and its release closes it". */
+  const tracedLayer = (acquired: string[], released: string[]) =>
+    Layer.effect(Viewer)(
+      Effect.acquireRelease(
+        Effect.sync(() => {
+          acquired.push("acquired");
+          return { seen: "live" };
+        }),
+        () =>
+          Effect.sync(() => {
+            released.push("released");
+          }),
+      ),
+    );
+
   it("ends the connection from services(connection) — the odu shape", async () => {
-    // `services` runs BEFORE the serving exists: it is handed the record and
-    // its result is what the serving is built over. So this close lands in the
-    // record→serving window, and the peer must still get the app's frame —
-    // a refused session is exactly the decision the handle exists for.
+    // `services` runs BEFORE the serving exists: it is handed the record and its
+    // result is what the serving is built over. So this close lands in the
+    // record→serving window, and the peer must still get the app's frame — a
+    // refused session is exactly the decision the handle exists for.
     const events: SurfaceAppEvent[] = [];
-    const server = await boot({
+    const acquired: string[] = [];
+    const released: string[] = [];
+    const server = await boot<Viewer>({
       onEvent: (event) => events.push(event),
       services: (connection) => {
         connection.close(4401, "session ended");
-        return Layer.empty;
+        // A REAL layer, so the release this window advertises has something to
+        // release and a leak would show.
+        return tracedLayer(acquired, released);
       },
     });
     const raw = rawDial(server);
@@ -1519,6 +1573,12 @@ describe("serveSurfaceApp — ending a connection from the app", () => {
       code: 4401,
       reason: "session ended",
     });
+
+    // The layer was built and then released by the close, in that order…
+    await vi.waitFor(() => expect(acquired).toEqual(["acquired"]));
+    await vi.waitFor(() => expect(released).toEqual(["released"]));
+    // …and the listener is left with nothing to drain for it.
+    await server.teardown();
 
     // Exactly ONE Connected/Disconnected pair, and the disconnect carries the
     // app's own code and reason — indistinguishable from a peer's goodbye,
@@ -1534,6 +1594,9 @@ describe("serveSurfaceApp — ending a connection from the app", () => {
       code: 4401,
       reason: "session ended",
     });
+    expect(events.filter((event) => event._tag === "ServingFailed")).toEqual(
+      [],
+    );
   });
 
   it("ends a LIVE connection when its services layer's lease ends, and releases that layer", async () => {
@@ -1549,18 +1612,7 @@ describe("serveSurfaceApp — ending a connection from the app", () => {
       onEvent: (event) => events.push(event),
       services: (connection) => {
         endLease = () => connection.close(4401, "session ended");
-        return Layer.effect(Viewer)(
-          Effect.acquireRelease(
-            Effect.sync(() => {
-              acquired.push("acquired");
-              return { seen: "live" };
-            }),
-            () =>
-              Effect.sync(() => {
-                released.push("released");
-              }),
-          ),
-        );
+        return tracedLayer(acquired, released);
       },
     });
     const raw = rawDial(server);
@@ -1595,18 +1647,21 @@ describe("serveSurfaceApp — ending a connection from the app", () => {
     });
   });
 
-  it("ends the connection from a Connected handler — before the serving starts", async () => {
+  it("ends the connection from a Connected handler — without calling services", async () => {
     // The other half of the window: the record is reported before
     // `serveSurfaceSocket` is called, so an app that refuses the connection the
     // moment it sees it is closing something that does not exist yet. It must
-    // still close the peer.
+    // still close the peer — and `services` must NOT run, because in the odu
+    // shape that callback opens a session lease for a connection already gone.
     const events: SurfaceAppEvent[] = [];
+    const services = vi.fn(() => Layer.empty);
     const server = await boot({
       onEvent: (event) => {
         events.push(event);
         if (event._tag === "Connected")
           event.connection.close(4002, "refused at accept");
       },
+      services,
     });
     const raw = rawDial(server);
     await expect(raw.closed).resolves.toEqual({
@@ -1624,6 +1679,7 @@ describe("serveSurfaceApp — ending a connection from the app", () => {
       code: 4002,
       reason: "refused at accept",
     });
+    expect(services).not.toHaveBeenCalled();
   });
 
   it("is idempotent — the FIRST close owns the frame", async () => {
@@ -1720,53 +1776,190 @@ describe("serveSurfaceApp — ending a connection from the app", () => {
 
   it("leaves the listener's drain unaffected by an already-closed serving", async () => {
     // A closed serving is still in the drain's LIVE set until its `done`
-    // settles, so shutdown can reach one the app already ended. The drain's
-    // `close()` must be the idempotent no-op the seam promises — one release,
-    // no ServingFailed, and a teardown that still resolves.
+    // settles, so shutdown can reach one the app already ended. The release is
+    // GATED, not slow: it stays pending until this test opens it, so the serving
+    // is provably still in the set when the drain snapshots — no sleep, no race.
     let connection: SurfaceAppConnection | undefined;
+    const acquired: string[] = [];
     const released: string[] = [];
+    let openGate!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      openGate = resolve;
+    });
     const events: SurfaceAppEvent[] = [];
-    const server = await boot({
+    const server = await boot<Viewer>({
       onEvent: (event) => events.push(event),
       services: (accepted) => {
         connection = accepted;
         return Layer.effect(Viewer)(
-          Effect.acquireRelease(Effect.succeed({ seen: "live" }), () =>
-            // A SLOW release, so the serving's `done` is still pending when the
-            // drain takes its snapshot — a fast one would be gone from the set
-            // before shutdown could notice.
-            Effect.promise(
-              () =>
-                new Promise<void>((resolve) =>
-                  setTimeout(() => {
+          Effect.acquireRelease(
+            Effect.sync(() => {
+              acquired.push("acquired");
+              return { seen: "live" };
+            }),
+            () =>
+              Effect.promise(() => gate).pipe(
+                Effect.tap(() =>
+                  Effect.sync(() => {
                     released.push("released");
-                    resolve();
-                  }, 300),
+                  }),
                 ),
-            ),
+              ),
           ),
         );
       },
     });
     const raw = rawDial(server);
     await raw.opened;
-    await vi.waitFor(() => expect(connection).toBeDefined());
+    await vi.waitFor(() => expect(acquired).toEqual(["acquired"]));
 
     connection?.close(4401, "session ended");
     await expect(raw.closed).resolves.toEqual({
       code: 4401,
       reason: "session ended",
     });
+    // The socket is closed and the release has STARTED, but `done` is pending —
+    // so the serving is still in `servings` when the drain takes its snapshot.
+    expect(released).toEqual([]);
 
-    // Drain NOW, before the slow release has finished.
-    await server.teardown();
+    const torndown = server.teardown();
+    // Opening the gate lets the drain's `done` (and the app's own close) settle;
+    // the layer is released exactly once.
+    openGate();
+    await torndown;
     expect(released).toEqual(["released"]);
     expect(events.filter((event) => event._tag === "ServingFailed")).toEqual(
       [],
     );
-    expect(events.map((event) => event._tag)).toEqual([
-      "Connected",
-      "Disconnected",
-    ]);
+    await vi.waitFor(() =>
+      expect(events.map((event) => event._tag)).toEqual([
+        "Connected",
+        "Disconnected",
+      ]),
+    );
+  }, 20_000);
+
+  it("throws a bad frame at the caller on a LIVE connection, and leaves it open", async () => {
+    // A frame `ws` cannot send is worse than an error: `ws.close` flips the
+    // socket to CLOSING and only THEN validates, so the throw leaves a socket
+    // with no close timer — no frame, no Disconnected, and a retry that is a
+    // no-op. So the frame is validated at the CALL, before anything changes:
+    // the throw lands in the app's own call stack and the connection survives it.
+    const events: SurfaceAppEvent[] = [];
+    let connection: SurfaceAppConnection | undefined;
+    const server = await boot({
+      onEvent: (event) => {
+        events.push(event);
+        if (event._tag === "Connected") connection = event.connection;
+      },
+    });
+    const raw = rawDial(server);
+    await raw.opened;
+    expect(raw.socket.readyState).toBe(WsClient.OPEN);
+
+    expect(() => connection?.close(99)).toThrow(RangeError);
+    expect(raw.socket.readyState).toBe(WsClient.OPEN);
+    // The reason is counted in UTF-8 BYTES, not characters: 42 of these are 126.
+    expect(() => connection?.close(4401, "あ".repeat(42))).toThrow(/123/);
+    expect(raw.socket.readyState).toBe(WsClient.OPEN);
+    expect(events.map((event) => event._tag)).toEqual(["Connected"]);
+
+    // The boundary is allowed, and the connection still closes for real.
+    const reason = "x".repeat(123);
+    connection?.close(4401, reason);
+    await expect(raw.closed).resolves.toEqual({ code: 4401, reason });
+    await vi.waitFor(() =>
+      expect(events.map((event) => event._tag)).toEqual([
+        "Connected",
+        "Disconnected",
+      ]),
+    );
+  });
+
+  it("throws a bad frame at the caller in the WINDOW, and serves on", async () => {
+    // The window is the dangerous half: there is no serving to hand the frame to,
+    // so a check at replay time would throw inside the upgrade handler (an
+    // uncaught exception) instead of at the app's call. Validated at the call,
+    // the throw lands in `services` — where the app can catch it — and the
+    // connection is untouched, so the accept is served normally.
+    let thrown: unknown;
+    let connection: SurfaceAppConnection | undefined;
+    const events: SurfaceAppEvent[] = [];
+    const server = await boot({
+      onEvent: (event) => events.push(event),
+      services: (accepted) => {
+        connection = accepted;
+        try {
+          accepted.close(99);
+        } catch (cause) {
+          thrown = cause;
+        }
+        return Layer.empty;
+      },
+    });
+    const raw = rawDial(server);
+    await raw.opened;
+
+    expect(thrown).toBeInstanceOf(RangeError);
+    expect((thrown as Error).message).toMatch(/3000–4999/);
+    expect(raw.socket.readyState).toBe(WsClient.OPEN);
+    expect(events.map((event) => event._tag)).toEqual(["Connected"]);
+
+    connection?.close(4401, "session ended");
+    await expect(raw.closed).resolves.toEqual({
+      code: 4401,
+      reason: "session ended",
+    });
+  });
+
+  it("cuts a handler mid-call — an in-flight subscription is finalized", async () => {
+    // "Released what this connection's serve owns" includes a handler that is
+    // RUNNING, not just an idle connection: the tick stream yields once and then
+    // parks, and only the serving's teardown can finalize it. A close that only
+    // dropped the socket would leave the producer running.
+    const events: SurfaceAppEvent[] = [];
+    let finalized = false;
+    let connection: SurfaceAppConnection | undefined;
+    const server = await boot(
+      {
+        onEvent: (event) => {
+          events.push(event);
+          if (event._tag === "Connected" && connection === undefined)
+            connection = event.connection;
+        },
+      },
+      { onTickFinalize: () => (finalized = true) },
+    );
+    const socket = await dial(server);
+    const seen: number[] = [];
+    void Effect.runPromise(
+      Stream.runForEach(
+        socket.link.dispatch.stream("surface/tick/get", {}) as Stream.Stream<
+          { n: number },
+          unknown
+        >,
+        (frame) =>
+          Effect.sync(() => {
+            seen.push(frame.n);
+          }),
+      ),
+    ).catch(() => {});
+    // The subscription is demonstrably in flight before the cut.
+    await vi.waitFor(() => expect(seen.length).toBeGreaterThan(0), {
+      timeout: 2_000,
+    });
+    expect(finalized).toBe(false);
+
+    connection?.close(4401, "session ended");
+
+    await vi.waitFor(() => expect(finalized).toBe(true), { timeout: 2_000 });
+    await vi.waitFor(
+      () =>
+        expect(
+          events.find((event) => event._tag === "Disconnected"),
+        ).toMatchObject({ code: 4401, reason: "session ended" }),
+      { timeout: 2_000 },
+    );
+    await socket.dispose();
   }, 20_000);
 });
