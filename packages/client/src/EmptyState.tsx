@@ -74,6 +74,9 @@ interface EmptyStateProps {
    *  so the click target doesn't detach between click and canvas
    *  reveal. */
   isRestoring?: boolean;
+  /** True while `handleForfeitSession` is running — its write is in flight and
+   *  the host has not cleared the session yet. */
+  isForfeiting?: boolean;
   onRestore?: (options: {
     resumeAgents: boolean;
     optOutIds: readonly string[];
@@ -127,6 +130,11 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
   );
   const hasAnyAgent = () => resumableIds().length > 0;
   const resumableSet = createMemo(() => new Set(resumableIds()));
+
+  /** Either card action is in flight — the one fact BOTH action buttons gate on,
+   *  so the two can never race. Named once here rather than spelled as a
+   *  disjunction at each button. */
+  const busy = () => Boolean(props.isRestoring || props.isForfeiting);
 
   const handleRestore = () => {
     // Intent only: host owns the resumable set; client may only opt out.
@@ -361,7 +369,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
               <button
                 type="button"
                 data-testid="restore-session"
-                disabled={props.isRestoring}
+                disabled={busy()}
                 class="mt-4 w-full px-3 py-2 text-sm rounded-xl bg-accent text-surface-1 font-medium hover:brightness-110 disabled:opacity-70 disabled:cursor-wait transition-all"
                 onClick={handleRestore}
               >
@@ -385,7 +393,7 @@ const EmptyState: Component<EmptyStateProps> = (props) => {
               <Show when={props.onForfeit}>
                 <div class="mt-2">
                   <ForfeitSessionButton
-                    inFlight={props.isRestoring ?? false}
+                    inFlight={busy()}
                     onConfirm={() => props.onForfeit?.()}
                   />
                 </div>

@@ -571,6 +571,7 @@ const App: Component = () => {
                 install={pwaInstall}
                 savedSession={session.savedSession() ?? undefined}
                 isRestoring={session.isRestoring()}
+                isForfeiting={session.isForfeiting()}
                 onRestore={(opts) =>
                   runAction(
                     "restore session",

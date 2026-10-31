@@ -48,6 +48,33 @@ an allowlist and not the request, what an absent name means, what a misspelling
 costs, and why a bad live list refuses *itself* rather than the socket:
 [Reference](https://kolu.dev/surface/ref-surface-app).
 
+## Ending a connection from the app
+
+`services` is also where the app *decides* a connection must go. Open the lease
+inside the layer, so the layer's release is what closes it:
+
+```ts
+services: (connection) =>
+  Layer.effect(Session)(
+    Effect.acquireRelease(
+      Effect.sync(() => {
+        const lease = sessions.lease(connection.headers["Tailscale-User-Login"]);
+        // Logout, expiry, revocation: the lease ending ends THIS connection.
+        lease.onEnd(() => connection.close(4401, "session ended"));
+        return lease;
+      }),
+      (lease) => Effect.sync(() => lease.close()),
+    ),
+  ),
+```
+
+`connection.close(code?, reason?)` releases this connection's serve (RPC fibers,
+in-flight subscriptions, that layer) and closes the peer with your frame; a bad
+frame throws at the call and changes nothing. The default, idempotence, the
+window before the serving exists, what `Disconnected` reports for an unresponsive
+peer, and why refusing the heartbeat is not a cut:
+[Reference](https://kolu.dev/surface/ref-surface-app).
+
 Connecting is one call too:
 
 ```ts

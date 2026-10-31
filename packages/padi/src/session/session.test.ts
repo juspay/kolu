@@ -31,6 +31,7 @@ import type { TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { Schema } from "effect";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { setDaemonProcessId } from "../koluRoot.ts";
+import { log } from "../log.ts";
 import {
   __resetPadiSurfaceCtxForTest,
   noopPadiSurfaceCtxForTest,
@@ -50,6 +51,7 @@ import { snapshotSession } from "../terminals.ts";
 import { cancelPendingAutosave, initAutosaveGate } from "./autosaveGate.ts";
 import {
   getSavedSession,
+  orphanedParkedIds,
   saveActiveTerminalId,
   saveSession,
   setSavedSession,
@@ -61,8 +63,16 @@ import {
 setDaemonProcessId("padi-session-test");
 
 const ACTIVE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const PARKED_A = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
-const PARKED_B = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+/** The two ids `savedBlob()` names — a parked entry stands in for the record with
+ *  ITS OWN id (the boot reconcile parks each saved ACTIVE record under that id, and
+ *  the parked→active flip is id-keyed), so the parked fixtures below reuse them.
+ *  Naming anything else would model a state nothing can consume — the orphan the
+ *  gate now reports as an error. */
+const PARKED_A = "11111111-1111-4111-8111-111111111111";
+const PARKED_B = "22222222-2222-4222-8222-222222222222";
+/** A parked id the saved blob does NOT name — the orphan case (see the
+ *  `orphanedParkedIds` test below). */
+const ORPHAN_PARKED = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 
 const activeMeta: AuthoredActiveTerminal = {
   state: "active",
@@ -176,6 +186,26 @@ function registerActive(id: string): void {
 
 const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Capture `log.error` calls. `log` is a Proxy forwarding to the live pino logger
+ *  (`log.ts`), so `vi.spyOn` cannot see `error` as a property — assign through the
+ *  proxy's own `set` trap instead and put the original back in `finally`. */
+function captureLogError(): {
+  calls: unknown[][];
+  restore: () => void;
+} {
+  const original = log.error;
+  const calls: unknown[][] = [];
+  log.error = ((...args: unknown[]) => {
+    calls.push(args);
+  }) as unknown as typeof log.error;
+  return {
+    calls,
+    restore: () => {
+      log.error = original;
+    },
+  };
+}
+
 /** Arm the autosave loop once and let it pass the 500 ms window: publish a dirty
  *  event, tick so the loop schedules the timer, then wait past the window. */
 async function fireAutosave(): Promise<void> {
@@ -190,6 +220,7 @@ beforeAll(async () => {
   initAutosaveGate({
     snapshot: snapshotSession,
     isRestorePending: hasParkedTerminals,
+    orphanedParkedIds,
     persist: saveSession,
     persistFinal: setSavedSessionFromSnapshot,
     persistActiveId: saveActiveTerminalId,
@@ -241,6 +272,35 @@ describe("session autosave — the PATH-B session-clobber guard", () => {
     // The saved session survives (NOT null). Red-when-reverted: guard removed →
     // the empty snapshot clears it to null.
     expect(getSavedSession()).not.toBeNull();
+  });
+
+  it("(vii) REPORTS the contradiction — a parked entry the blob does not name pins the autosave, and says so", async () => {
+    // The incident behind this: a backups-dialog restore left parked rows from an
+    // EARLIER park standing beside the newly imported session. Nothing could
+    // consume them (the flip is id-keyed), so every autosave answered
+    // `suppressed-parked` and the live session was never saved again — silently,
+    // for the rest of the daemon's life. The diagnostic must name the orphans.
+    setSavedSession(savedBlob());
+    registerParked(ORPHAN_PARKED);
+    expect(orphanedParkedIds()).toEqual([ORPHAN_PARKED]);
+
+    const captured = captureLogError();
+    try {
+      await fireAutosave();
+      const orphanLines = captured.calls.filter(([, msg]) =>
+        String(msg).includes("suppressed-parked"),
+      );
+      expect(orphanLines).toHaveLength(1);
+      expect(orphanLines[0]?.[0]).toEqual({
+        orphanedParkedIds: [ORPHAN_PARKED],
+      });
+    } finally {
+      captured.restore();
+    }
+
+    // The diagnostic REPORTS, it never heals: the suppression is still in force
+    // and the blob is untouched. Hiding the defect is what made it silent.
+    expect(getSavedSession()?.terminals.length).toBe(2);
   });
 
   it("(control-A) with NO parked entries, an autosave persists the live terminals normally (guard is scoped)", async () => {

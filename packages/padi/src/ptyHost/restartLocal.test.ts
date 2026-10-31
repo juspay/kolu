@@ -304,6 +304,7 @@ beforeAll(() => {
       return s;
     },
     isRestorePending: hasParkedTerminals,
+    orphanedParkedIds: () => [],
     persist: saveSession,
     persistFinal: setSavedSessionFromSnapshot,
     persistActiveId: saveActiveTerminalId,
