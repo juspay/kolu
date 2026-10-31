@@ -64,6 +64,20 @@ publish-closures:
         attic-token: ${{ secrets.ATTIC_TOKEN }}
 ```
 
+Without `source`, pass `sidecar` (the declaration) and, optionally, `rev` — the
+key entries are written under. Omitted, `rev` is the commit being published
+(`github.event.pull_request.head.sha || github.sha`); never pass a bare
+`github.sha` on a pull request, where it is GitHub's merge commit and is
+refused. It refuses to run in a repository other than your declared `closureIndex.repo`,
+and an installable with no `smoke` line fails the run rather than skipping.
+For each attribute it builds the closure, rewrites it content-addressed (not
+on macOS), runs the program out of the rewrite, pushes both forms to your
+cache, imports the rewrite back into a throwaway store to verify it, and only
+then writes `<rev>/<system>/<attr>.json` to the index branch. On a pull request
+it does everything except write the index.
+
+### How the cache is pushed
+
 The cache it pushes to is the declaration's **first substituter**, and the
 declaration says *how* that cache is pushed — no action input decides it.
 Absent (or `{"kind": "attic"}`) means an attic cache, pushed with `attic push`
@@ -82,17 +96,10 @@ empty) and `odu-cache-token` is read only when the `pusher` is `odu`.
 Verification is identical either way — it imports the published paths back out
 of the substituter URL, and a Nix binary cache is a Nix binary cache.
 
-Without `source`, pass `sidecar` (the declaration) and, optionally, `rev` — the
-key entries are written under. Omitted, `rev` is the commit being published
-(`github.event.pull_request.head.sha || github.sha`); never pass a bare
-`github.sha` on a pull request, where it is GitHub's merge commit and is
-refused. It refuses to run in a repository other than your declared `closureIndex.repo`,
-and an installable with no `smoke` line fails the run rather than skipping.
-For each attribute it builds the closure, rewrites it content-addressed (not
-on macOS), runs the program out of the rewrite, pushes both forms to your
-cache, imports the rewrite back into a throwaway store to verify it, and only
-then writes `<rev>/<system>/<attr>.json` to the index branch. On a pull request
-it does everything except write the index.
+`pusher` is a field of the **declaration**, so it is yours to write when you
+pass the declaration yourself (`sidecar`). A declaration baked by
+`mkProvenAgentSource` carries the caches its flake declares and no `pusher`, so
+it publishes to attic — the default.
 
 ## 3. Dial as usual
 
