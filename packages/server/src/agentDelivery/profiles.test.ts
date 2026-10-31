@@ -62,13 +62,13 @@ describe("nixWords", () => {
           "       … while evaluating a branch condition",
           "",
           "error: /home/me/repo/agent-distro.nix: agent-distro.nix is no longer read — a profile is a plugin.json.",
-          'Move its fields into `extensions."asia.nixos.agent-distro"` (see https://agent-distro.nixos.asia/#profiles)',
+          'Move its fields into `extensions."asia.nixos.agent-distro"` (see https://agent-distro.kolu.dev/#profiles)',
         ].join("\n"),
         "exit 1",
       ),
     ).toBe(
       "error: /home/me/repo/agent-distro.nix: agent-distro.nix is no longer read — a profile is a plugin.json. " +
-        'Move its fields into `extensions."asia.nixos.agent-distro"` (see https://agent-distro.nixos.asia/#profiles)',
+        'Move its fields into `extensions."asia.nixos.agent-distro"` (see https://agent-distro.kolu.dev/#profiles)',
     );
   });
 
