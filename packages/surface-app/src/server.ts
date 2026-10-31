@@ -1101,20 +1101,29 @@ export function serveSurfaceSocket<Svc = never>(opts: {
       // after marking the socket CLOSING). Dropping the socket the other way is
       // all that is left; the failure itself rides to `done`.
       refusedFrame = cause;
-      opts.socket.terminate?.();
+      try {
+        opts.socket.terminate?.();
+      } catch (terminateFailure) {
+        // The fallback can throw too (a transport already gone). The FIRST
+        // failure is the one worth reporting; the release below is what `done`
+        // and the listener's drain hang on, so neither throw may reach it.
+        refusedFrame ??= terminateFailure;
+      }
+    } finally {
+      // The release runs whatever happened above — `done` and the listener's
+      // drain both hang on it. Releasing the scope interrupts the RPC server's
+      // fibers, which finalizes every in-flight subscription this connection
+      // opened — the server-side zombie the reaper's `terminate()` exists to
+      // prevent, closed from the other end. The socket's own release (the
+      // acquire above) closes it.
+      const failure = ending.why === "fault" ? ending.cause : refusedFrame;
+      void Effect.runPromise(Scope.close(scope, Exit.void)).then(
+        () => settle(failure),
+        // A release failure must not replace an earlier reason we are ending; the
+        // order is "why the serve ended" first, then what broke on the way out.
+        (releaseFailure) => settle(failure ?? releaseFailure),
+      );
     }
-    // The release runs whatever happened above — `done` and the listener's drain
-    // both hang on it. Releasing the scope interrupts the RPC server's fibers,
-    // which finalizes every in-flight subscription this connection opened — the
-    // server-side zombie the reaper's `terminate()` exists to prevent, closed
-    // from the other end. The socket's own release (the acquire above) closes it.
-    const failure = ending.why === "fault" ? ending.cause : refusedFrame;
-    void Effect.runPromise(Scope.close(scope, Exit.void)).then(
-      () => settle(failure),
-      // A release failure must not replace an earlier reason we are ending; the
-      // order is "why the serve ended" first, then what broke on the way out.
-      (releaseFailure) => settle(failure ?? releaseFailure),
-    );
   };
   // The peer hanging up ends the serve. Registered on the REAL socket (not the
   // buffered view, whose `message` channel is the RPC server's) so it fires
