@@ -841,7 +841,9 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
           let closeFrame:
             | { readonly code: number; readonly reason?: string }
             | undefined;
-          // The same object as `serving` below, readable before it exists.
+          // The same object as `serving` below, readable before it exists and
+          // cleared the moment it ends — the name says LIVE, so a record whose
+          // serving is gone must not still be holding one.
           let liveServing: SurfaceSocketServing | undefined;
           const connection: SurfaceAppConnection<H> = Object.freeze({
             id: ++accepted,
@@ -912,7 +914,12 @@ export const serveSurfaceApp = <Svc = never, H extends string = never>(
             .catch((cause: unknown) =>
               report({ _tag: "ServingFailed", cause, connection }),
             )
-            .finally(() => servings.delete(serving));
+            .finally(() => {
+              servings.delete(serving);
+              // Both halves of the same fact: this connection has no serving any
+              // more. A later `close` is then the no-op-after-hang-up case.
+              liveServing = undefined;
+            });
         });
       });
     });
