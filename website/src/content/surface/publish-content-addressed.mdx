@@ -15,9 +15,10 @@ publishes your daemon that way, so `provisionAgent` has the host pull it
 straight from your cache, with no trust and no bytes through your machine.
 
 You need a binder built with `mkProvenAgentSource`
-([@kolu/surface-daemon](/surface/ref-surface-daemon)), an
-[attic](https://github.com/zhaofengli/attic) cache already named in your agent
-flake's `nixConfig`, and GitHub Actions.
+([@kolu/surface-daemon](/surface/ref-surface-daemon)), a binary cache already
+named in your agent flake's `nixConfig` — an
+[attic](https://github.com/zhaofengli/attic) cache, or an
+[odu](https://github.com/juspay/odu) cache bucket — and GitHub Actions.
 
 ## 1. Declare where your builds are published
 
@@ -62,6 +63,22 @@ publish-closures:
         attic-nixpkgs: github:NixOS/nixpkgs/<a pinned rev>
         attic-token: ${{ secrets.ATTIC_TOKEN }}
 ```
+
+The cache it pushes to is the declaration's **first substituter**, and the
+declaration says *how* that cache is pushed — no action input decides it.
+Absent (or `{"kind": "attic"}`) means an attic cache, pushed with `attic push`
+under `attic-token`, exactly as before. An odu cache bucket says so instead:
+
+```json
+{ "substituters": ["https://cache.kolu.dev"],
+  "pusher": { "kind": "odu", "bucket": "my-daemon" } }
+```
+
+The action then runs `odu cache push <bucket>` from its own npins pin (nothing
+unpinned) under `odu-cache-token`, against the substituter's origin; a bucket
+named in the URL's path must be the one the `pusher` names. Verification is
+identical either way — it imports the published paths back out of the
+substituter URL, and a Nix binary cache is a Nix binary cache.
 
 Without `source`, pass `sidecar` (the declaration) and, optionally, `rev` — the
 key entries are written under. Omitted, `rev` is the commit being published

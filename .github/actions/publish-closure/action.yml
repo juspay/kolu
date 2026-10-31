@@ -19,9 +19,21 @@
 #   * `sidecar` + `rev` — the declaration (a path, or its JSON inline) and the
 #     index key, with `installables` as full flake installables.
 #
-# The cache pushed to is the declaration's FIRST substituter (an attic cache,
-# `https://<server>/<cache>`); the index is its `closureIndex` — `repo` must be
-# the repository this runs in (refused otherwise), `branch` the one written.
+# The cache pushed to is the declaration's FIRST substituter. HOW it is pushed
+# is the declaration's own `pusher` field — never an action input:
+#
+#   * absent, or `{"kind": "attic"}` — an attic cache (`https://<server>/<cache>`),
+#     logged in to and pushed with `attic push`. Every declaration written
+#     before the field existed keeps this path, unchanged.
+#   * `{"kind": "odu", "bucket": "<name>"}` — an odu cache bucket served at the
+#     substituter's origin, pushed with `odu cache push <bucket>` (run from THIS
+#     repository's npins pin, nothing unpinned) under `ODU_CACHE_TOKEN`.
+#
+# Verification does not care which: it imports the published paths back out of
+# the substituter URL, and a Nix binary cache is a Nix binary cache.
+#
+# The index is its `closureIndex` — `repo` must be the repository this runs in
+# (refused otherwise), `branch` the one written.
 name: publish-closure
 description: Rewrite closures content-addressed, push them, verify them, and publish their index.
 
@@ -62,6 +74,13 @@ inputs:
   attic-token:
     description: Token for the declaration's attic cache. Empty on a fork pull request — then nothing is pushed.
     required: true
+  odu-cache-token:
+    description: >-
+      Token for the declaration's odu cache bucket, exported as
+      `ODU_CACHE_TOKEN`. Read only when the declaration's `pusher` is `odu`;
+      empty on a fork pull request — then nothing is pushed.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -141,34 +160,61 @@ runs:
 
     # The index must not name a path the cache does not hold, and the import
     # guard below reads it back from there — so the push is explicit, here,
-    # and not left to anybody's post step. `attic push` pushes closures.
+    # and not left to anybody's post step. WHICH client pushes is the
+    # declaration's `pusher`; the list is the same file either way, so the two
+    # paths cannot disagree about what the cache must hold.
     - name: Push the closures
-      if: inputs.attic-token != ''
+      if: >-
+        (steps.resolve.outputs.pusher == 'attic' && inputs.attic-token != '') ||
+        (steps.resolve.outputs.pusher == 'odu' && inputs.odu-cache-token != '')
       shell: bash
       env:
         SCRIPT: ${{ github.action_path }}/publish-closure.py
         OUT: ${{ steps.resolve.outputs.directory }}
         REV_KEY: ${{ steps.resolve.outputs.rev-key }}
         SYSTEM: ${{ steps.resolve.outputs.system }}
+        PUSHER: ${{ steps.resolve.outputs.pusher }}
         SERVER: ${{ steps.resolve.outputs.attic-server }}
-        CACHE: ${{ steps.resolve.outputs.attic-cache }}
+        ATTIC_CACHE: ${{ steps.resolve.outputs.attic-cache }}
         ATTIC_TOKEN: ${{ inputs.attic-token }}
         ATTIC_NIXPKGS: ${{ inputs.attic-nixpkgs }}
+        ODU_FROM: ${{ steps.resolve.outputs.odu-from }}
+        ODU_BUCKET: ${{ steps.resolve.outputs.odu-bucket }}
+        ODU_ORIGIN: ${{ steps.resolve.outputs.odu-origin }}
+        ODU_CACHE_TOKEN: ${{ inputs.odu-cache-token }}
+        PUSH_PATHS: ${{ runner.temp }}/push-paths
       run: |
         set -euo pipefail
-        # attic from the CALLER's pinned nixpkgs, never an unpinned ref
-        # resolved through the GitHub API at run time.
-        nix profile add "$ATTIC_NIXPKGS#attic-client"
-        attic login --set-default publish "$SERVER" "$ATTIC_TOKEN"
         # Every path the entries name — the signed `ia` too: a darwin host, or a
         # Linux Nix outside the content-addressed line, pulls those.
         python3 "$SCRIPT" paths --rev-key "$REV_KEY" --system "$SYSTEM" --directory "$OUT" \
-          | attic push --stdin "publish:$CACHE"
+          > "$PUSH_PATHS"
+        if [ "$PUSHER" = "attic" ]; then
+          # attic from the CALLER's pinned nixpkgs, never an unpinned ref
+          # resolved through the GitHub API at run time.
+          nix profile add "$ATTIC_NIXPKGS#attic-client"
+          attic login --set-default publish "$SERVER" "$ATTIC_TOKEN"
+          attic push --stdin "publish:$ATTIC_CACHE" < "$PUSH_PATHS"
+        else
+          # odu from THIS repository's npins pin — the same rule: nothing
+          # unpinned resolved at run time. `odu cache push` is an HTTP client
+          # of the bucket, so the bucket and its origin are named explicitly
+          # and `ODU_CACHE_TOKEN` (above) is the credential.
+          paths=()
+          while IFS= read -r path; do
+            [ -n "$path" ] && paths+=("$path")
+          done < "$PUSH_PATHS"
+          nix run --accept-flake-config "$ODU_FROM#odu" -- \
+            cache push "$ODU_BUCKET" --origin "$ODU_ORIGIN" "${paths[@]}"
+        fi
 
     # What a consumer does, done here with the publishing Nix: nothing reaches
     # the index unless it imports into a fresh store and verifies.
     - name: Verify the published closures import
-      if: inputs.attic-token != '' && runner.os == 'Linux'
+      if: >-
+        ((steps.resolve.outputs.pusher == 'attic' && inputs.attic-token != '') ||
+        (steps.resolve.outputs.pusher == 'odu' && inputs.odu-cache-token != '')) &&
+        runner.os == 'Linux'
       shell: bash
       env:
         SCRIPT: ${{ github.action_path }}/publish-closure.py
@@ -187,7 +233,10 @@ runs:
     # Never on a pull request: its entries would key a commit that may never
     # land — the rewrite, smoke and import guard above still run there.
     - name: Push the index
-      if: inputs.attic-token != '' && github.event_name != 'pull_request'
+      if: >-
+        ((steps.resolve.outputs.pusher == 'attic' && inputs.attic-token != '') ||
+        (steps.resolve.outputs.pusher == 'odu' && inputs.odu-cache-token != '')) &&
+        github.event_name != 'pull_request'
       shell: bash
       env:
         OUT: ${{ steps.resolve.outputs.directory }}

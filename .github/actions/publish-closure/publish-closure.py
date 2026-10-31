@@ -37,15 +37,18 @@ import pathlib
 import re
 import subprocess
 import sys
+from urllib.parse import urlsplit
 
 # An attribute names the index file, so nothing that could climb out of the
 # directory is allowed through.
 ATTR = re.compile(r"[A-Za-z_][A-Za-z0-9_'-]*")
+# This repository — the action ships beside it, so the pinned tools it runs are
+# found from here rather than from the caller's working directory.
+REPO = pathlib.Path(__file__).resolve().parents[3]
 # The baked source's file names, from the registry Nix writes them by and
 # TypeScript reads them by (`packages/surface-remote/agent-env.json`) — the
 # action's checkout is the whole kolu repository, so it is beside this script.
-AGENT_ENV = json.loads(
-    (pathlib.Path(__file__).resolve().parents[3] / "packages/surface-remote/agent-env.json").read_text())
+AGENT_ENV = json.loads((REPO / "packages/surface-remote/agent-env.json").read_text())
 STORE_PATH = re.compile(r"/nix/store/[0-9a-z]{32}-[^/]+")
 FULL_REV = re.compile(r"[0-9a-f]{40}")
 
@@ -115,6 +118,65 @@ def attic_target(cache_url: str) -> tuple:
     return match.group(1), match.group(2)
 
 
+def pusher_of(declaration: dict) -> dict:
+    """HOW the declaration's first substituter is pushed.
+
+    Absent means `attic` — every declaration written before this field existed
+    keeps working, and attic keeps deriving its server and cache from the URL,
+    as it always has. An odu bucket is an HTTP client rather than a URL shape,
+    so it names the bucket and this publisher derives the origin.
+
+    Strict about the shape: `{"kind": …}` with exactly the keys its kind needs.
+    A misspelt key would otherwise be silently dropped and the push would go to
+    the wrong place, which is the one outcome this field exists to prevent."""
+    raw = declaration.get("pusher", {"kind": "attic"})
+    if not isinstance(raw, dict):
+        die(f"the declaration's pusher must be an object (got {raw!r}) — "
+            '{"kind": "attic"} or {"kind": "odu", "bucket": "…"}')
+    kind = raw.get("kind")
+    if kind == "attic":
+        wanted = {"kind"}
+    elif kind == "odu":
+        wanted = {"kind", "bucket"}
+        if not isinstance(raw.get("bucket"), str) or not raw["bucket"]:
+            die('the declaration\'s pusher names no bucket — {"kind": "odu", "bucket": "…"}')
+    else:
+        die(f"the declaration's pusher kind {kind!r} is not one this publisher knows (attic, odu)")
+    extra = set(raw) - wanted
+    if extra:
+        die(f"the declaration's pusher names {sorted(extra)}, which its {kind!r} kind does not take")
+    return {"kind": kind, **({"bucket": raw["bucket"]} if kind == "odu" else {})}
+
+
+def odu_origin(cache_url: str, bucket: str) -> str:
+    """The substituter a bucket is served at → the origin `odu cache push`
+    talks to. `https://cache.kolu.dev` (one bucket at the root) and
+    `https://host/cache/<bucket>` both resolve to `https://host`; a path's last
+    segment, when it names something, must BE the bucket — a push that lands
+    where no consumer reads is the failure this guards."""
+    url = urlsplit(cache_url)
+    if url.scheme != "https" or not url.hostname:
+        die(f"{cache_url} is not an https substituter URL odu can push to")
+    tail = url.path.rstrip("/").rsplit("/", 1)[-1]
+    if tail and tail != bucket:
+        die(f"the declaration pushes to bucket {bucket!r} but its substituter "
+            f"{cache_url} serves {tail!r} — they must name the same bucket")
+    return f"https://{url.netloc}"
+
+
+def odu_pin() -> str:
+    """odu's source, from THIS repository's npins pin — the publisher installs
+    nothing unpinned. The action ships beside the pin it runs (a consumer using
+    it remotely gets this repository's archive), so the file is found from the
+    script rather than from the caller's working directory."""
+    try:
+        sources = json.loads((REPO / "npins/sources.json").read_text())
+        pin = sources["pins"]["odu"]["url"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
+        die(f"npins/sources.json names no odu pin ({error}) — the odu pusher runs the pinned odu")
+    return pin
+
+
 def resolve(args) -> int:
     """Make the inputs concrete, as `key=value` lines for `$GITHUB_OUTPUT`."""
     if args.source:
@@ -150,15 +212,22 @@ def resolve(args) -> int:
         die(f"the declaration publishes to {declaration['index']['repo']}, "
             f"but this run is in {args.repository} — run it in the declared repository")
     cache = declaration["substituters"][0]
-    server, name = attic_target(cache)
+    pusher = pusher_of(declaration)
     outputs = {
         "installables": " ".join(installables),
         "rev-key": rev_key,
         "cache": cache,
-        "attic-server": server,
-        "attic-cache": name,
+        "pusher": pusher["kind"],
         "index-branch": declaration["index"]["branch"],
     }
+    if pusher["kind"] == "attic":
+        server, name = attic_target(cache)
+        outputs["attic-server"] = server
+        outputs["attic-cache"] = name
+    else:
+        outputs["odu-bucket"] = pusher["bucket"]
+        outputs["odu-origin"] = odu_origin(cache, pusher["bucket"])
+        outputs["odu-from"] = odu_pin()
     for key, value in outputs.items():
         print(f"{key}={value}")
     return 0
