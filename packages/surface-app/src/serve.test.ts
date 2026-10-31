@@ -1859,6 +1859,19 @@ describe("serveSurfaceApp — ending a connection from the app", () => {
 
     expect(() => connection?.close(99)).toThrow(RangeError);
     expect(raw.socket.readyState).toBe(WsClient.OPEN);
+    // `NaN` fails every range comparison, so it is the code probe a range check
+    // alone waves through — into a transport that then throws AFTER marking the
+    // socket CLOSING. Reachable from typed code: `Number(header)`.
+    expect(() => connection?.close(Number.NaN)).toThrow(/1000/);
+    expect(raw.socket.readyState).toBe(WsClient.OPEN);
+    // Not an integer, so not a code this seam sent: `ws` would silently send 3000.
+    expect(() => connection?.close(3000.5)).toThrow(RangeError);
+    expect(raw.socket.readyState).toBe(WsClient.OPEN);
+    // A string from an untyped caller is the same defect one indirection out.
+    expect(() => connection?.close("4401" as unknown as number)).toThrow(
+      RangeError,
+    );
+    expect(raw.socket.readyState).toBe(WsClient.OPEN);
     // The reason is counted in UTF-8 BYTES, not characters: 42 of these are 126.
     expect(() => connection?.close(4401, "あ".repeat(42))).toThrow(/123/);
     expect(raw.socket.readyState).toBe(WsClient.OPEN);
