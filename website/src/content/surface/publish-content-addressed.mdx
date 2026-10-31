@@ -76,9 +76,11 @@ under `attic-token`, exactly as before. An odu cache bucket says so instead:
 
 The action then runs `odu cache push <bucket>` from its own npins pin (nothing
 unpinned) under `odu-cache-token`, against the substituter's origin; a bucket
-named in the URL's path must be the one the `pusher` names. Verification is
-identical either way — it imports the published paths back out of the
-substituter URL, and a Nix binary cache is a Nix binary cache.
+named in the URL's path must be the one the `pusher` names. The token inputs
+are per-pusher: `attic-token` stays required (an odu declaration passes it
+empty) and `odu-cache-token` is read only when the `pusher` is `odu`.
+Verification is identical either way — it imports the published paths back out
+of the substituter URL, and a Nix binary cache is a Nix binary cache.
 
 Without `source`, pass `sidecar` (the declaration) and, optionally, `rev` — the
 key entries are written under. Omitted, `rev` is the commit being published
