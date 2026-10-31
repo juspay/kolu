@@ -22,7 +22,8 @@
     "kolu-io": "workspace:*",
     "kolu-shared": "workspace:*",
     "kolu-transcript-core": "workspace:*",
-    "ts-pattern": "^5.9.0"
+    "ts-pattern": "^5.9.0",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@kolu/daemon-test-gate": "workspace:*",
