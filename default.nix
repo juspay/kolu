@@ -140,6 +140,11 @@ let
     # revision has the host pull it with no trust (`provisionAgent`'s index
     # step).
     closureIndex = { repo = "juspay/kolu"; branch = "ca-index"; };
+    # HOW that cache is pushed: nix-cache.yml's `publish-closure` step runs
+    # `odu cache push kolu` from this repo's npins pin (the action reads the
+    # declaration's own `pusher`, never an input) — so `cache.kolu.dev` is both
+    # the substituter consumers read and the bucket this repo fills.
+    pusher = { kind = "odu"; bucket = "kolu"; };
   };
   agentFlakeSrc = agentSource.flakeSrc;
   agentFlakeRefEnv =

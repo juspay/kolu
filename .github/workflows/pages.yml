@@ -40,8 +40,8 @@ jobs:
       - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
         with:
           nix_conf: |
-            extra-substituters = https://cache.nixos.asia/oss
-            extra-trusted-public-keys = oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=
+            extra-substituters = https://cache.kolu.dev
+            extra-trusted-public-keys = kolu-1:eAXwD1RPt1BpFjrHfVUO8Ia0bK32WcuIeJcwFWmgj9Y=
             accept-flake-config = true
 
       - name: Build website (nix)

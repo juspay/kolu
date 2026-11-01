@@ -1,7 +1,19 @@
 # Build every output this flake exposes, on linux + darwin, and push each
-# closure to the shared Attic cache (https://cache.nixos.asia/oss). The flake
-# already lists this cache as a substituter, so a green push here warms CI
-# boxes and local `nix build`s on both platforms.
+# closure to kolu's OWN binary cache — `https://cache.kolu.dev`, the `kolu`
+# bucket on odu's public cache. The flake already lists this cache as a
+# substituter, so a green push here warms CI boxes and local `nix build`s on
+# both platforms.
+#
+# The cache is kolu's, not a shared Attic cache: odu serves it (`odu cache
+# push` is the client), it re-signs every narinfo with the `kolu-1` key the
+# flake declares, and it drops what upstream `cache.nixos.org` already signs
+# instead of re-uploading nixpkgs.
+#
+# TWO FACTS ABOUT THE PUSH. It goes to the cache's ADVERTISED name — the same
+# `cache.kolu.dev` every consumer substitutes from — because the pinned odu
+# chunks a NAR across requests, so Cloudflare's 100 MB per-body cap is not in
+# the way. And a path whose upstream reference the bucket is still fetching is
+# reported as `held` and exits 0; only a real failure is red.
 #
 # The build set is DERIVED, never hand-listed, and derived by the one script
 # that already answers "what does this repo build" — `ci/flake-build`. This job
@@ -34,7 +46,7 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Least privilege — this job only needs the checkout and ATTIC_TOKEN secret.
+# Least privilege — this job only needs the checkout and ODU_CACHE_TOKEN secret.
 permissions:
   contents: read
 
@@ -72,41 +84,20 @@ jobs:
       # the dispatched ref) — the correct tree there already.
       #
       # No new exposure: this is `pull_request`, not `pull_request_target`, so a
-      # fork PR gets no `ATTIC_TOKEN` and cannot push regardless of which of the
-      # two trees is checked out. Both refs already run this PR's Nix code.
+      # fork PR gets no `ODU_CACHE_TOKEN` and cannot push regardless of which of
+      # the two trees is checked out. Both refs already run this PR's Nix code.
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
       # Pin by commit (CodeQL: unpinned third-party action). v35 → 9f63be7.
-      # Defaults to Nix 2.34.7 (`nix profile add`).
+      # Defaults to Nix 2.34.7, which is what the pinned odu client is run with.
       - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
         with:
           nix_conf: |
-            extra-substituters = https://cache.nixos.asia/oss
-            extra-trusted-public-keys = oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=
+            extra-substituters = https://cache.kolu.dev
+            extra-trusted-public-keys = kolu-1:eAXwD1RPt1BpFjrHfVUO8Ia0bK32WcuIeJcwFWmgj9Y=
             accept-flake-config = true
-
-      # ryanccn/attic-action used to do the install/login/push below, but it
-      # installs attic by resolving UNPINNED nixpkgs-unstable through the
-      # GitHub API at run time — one API 503 fails the job (it did, repo-wide,
-      # 2026-07-16), and even green runs re-fetch an unpinned rev. Its logic
-      # is four CLI calls, so do them directly, installing attic from the
-      # repo's own npins-pinned nixpkgs: the exact tarball URL nix/nixpkgs.nix
-      # builds from (no ref resolution, no api.github.com), with attic-client
-      # substituted from cache.nixos.org. Needs a Nix new enough for
-      # `nix profile add` (hence v35 above — v31's 2.29 only had
-      # `profile install`, which is why #1731 dropped the action once before).
-      # No `attic use` — the nix_conf above already wires the substituter.
-      #
-      # Fork PRs get no `ATTIC_TOKEN` (header above); `secrets` isn't readable
-      # in a step `if:`, and gating on presence would silently skip a same-repo
-      # run with a missing token.
-      - name: Install attic (pinned) and log in
-        if: github.event.pull_request.head.repo.fork != true
-        run: |
-          nix profile add "$(jq -r .pins.nixpkgs.url npins/sources.json)#attic-client"
-          attic login --set-default oss https://cache.nixos.asia '${{ secrets.ATTIC_TOKEN }}'
 
       # Discovery is `ci/flake-build` — the SAME script every `ci::*-nix` node
       # already uses (ci/mod.just:90, :124, :148). It enumerates attrNames of
@@ -123,8 +114,8 @@ jobs:
       # over-pushed anything unrelated that touched the store inside the window
       # (the whole nixpkgs build-time toolchain, republished into a project
       # cache), and silently EXCLUDED genuine closure members that happened to
-      # predate the snapshot — every path attic-client's own install shares with
-      # kolu. Naming the artifact directly is both smaller and correct, and
+      # predate the snapshot — every path the push client's own install shares
+      # with kolu. Naming the artifact directly is both smaller and correct, and
       # needs no `.drv`/`.check`/`.lock` blocklist to filter clutter that never
       # arrives.
       - name: Build every flake output
@@ -174,18 +165,40 @@ jobs:
           warm --kinds packages,checks ./website
           warm --kinds packages ./ci
 
-      # `--stdin` rather than `xargs`, which may silently split a long list
-      # across invocations: one process, one list. `attic push` pushes closures
-      # (`--no-closure` opts out) and skips paths substitutable from upstream
-      # (`--ignore-upstream-cache-filter` opts out). Same fork gate as
-      # login/verify — an empty token on a same-repo run must fail loudly here.
+      # ONE process, one list. odu computes each closure from the roots it is
+      # given, asks the bucket what it is missing in one batched query, drops
+      # what an upstream key (`cache.nixos.org-1`) signed, orders uploads by
+      # dependency depth and retries each path — so the roots named above are
+      # all this step has to hand over.
+      #
+      # The client is THIS repo's npins-pinned odu, handed to Nix as a LOCKED
+      # ref (url AND npins' `narHash`) — a branch that moved cannot change what
+      # runs as the publisher. `--origin` is the cache's advertised name: the
+      # client chunks a NAR, so the proxy's body cap costs nothing.
+      #
+      # A path whose upstream reference the server is still fetching prints as
+      # `held` and the push exits 0 — the cache catching up, not a miss.
+      #
+      # Fork PRs get no `ODU_CACHE_TOKEN` (header above); `secrets` isn't
+      # readable in a step `if:`, and gating on presence would silently skip a
+      # same-repo run with a missing token. An empty credential therefore fails
+      # odu here, which is what a same-repo push must do.
       - name: Push the closures to the cache
         if: github.event.pull_request.head.repo.fork != true
         shell: bash
+        env:
+          ODU_CACHE_TOKEN: ${{ secrets.ODU_CACHE_TOKEN }}
         run: |
           set -euo pipefail
           echo "push → $(wc -l < "$RUNNER_TEMP/outputs" | tr -d ' ') outputs:"
-          attic push --stdin oss < "$RUNNER_TEMP/outputs"
+          pin=$(jq -r .pins.odu.url npins/sources.json)
+          hash=$(jq -r .pins.odu.hash npins/sources.json)
+          # A LOCKED ref: npins' url AND its narHash, percent-encoded exactly as
+          # the publisher action's own client does.
+          ref="$pin?narHash=$(jq -rn --arg h "$hash" '$h|@uri')#odu"
+          # shellcheck disable=SC2046 # store paths hold no whitespace; one process, one list
+          nix run --accept-flake-config "$ref" -- \
+            cache push kolu --origin https://cache.kolu.dev $(cat "$RUNNER_TEMP/outputs")
 
       # The push above is an INSTRUCTION; this is the VERDICT. It re-asks the
       # cache — over the network, as a client — whether the remote-agent
@@ -202,9 +215,9 @@ jobs:
       #
       # Placed HERE and not in `ci/mod.just` on purpose: the odu lanes run
       # concurrently with this job on the same commit, so an odu node would be
-      # asking before the answer could be yes. After our own `attic push`, in
-      # our own job, the question has a real answer — and a red here means the
-      # exact thing it says, on both platforms the matrix covers.
+      # asking before the answer could be yes. After our own push, in our own
+      # job, the question has a real answer — and a red here means the exact
+      # thing it says, on both platforms the matrix covers.
       #
       # It is a HARD failure, not a warning. A soft-fail would restore the state
       # this whole job was already in during the incident: green, and cold.
@@ -226,6 +239,11 @@ jobs:
   # it rewrites with (2.34.8 — see its `action.yml`), which must be the job's
   # only Nix. kolu's `ca-index` branch is born by the first master push; a pull
   # request rewrites, smokes and import-verifies, and writes no index.
+  #
+  # The action reads HOW to push from the declaration itself: kolu's agent
+  # source bakes `pusher = { kind = "odu"; bucket = "kolu"; }` (default.nix), so
+  # a push here is `odu cache push kolu` from THIS repo's npins pin, under
+  # `ODU_CACHE_TOKEN` — no client is chosen by an input.
   publish-closures:
     needs: build-and-push
     strategy:
@@ -246,14 +264,14 @@ jobs:
       # inventory (`nix/agent-packages.json`'s `expose`), never hand-listed.
       - id: expose
         run: |
-          echo "attrs=$(jq -r '.expose | join(" ")' nix/agent-packages.json)" >> "$GITHUB_OUTPUT"
-          # attic from the same pinned nixpkgs `build-and-push` installs it from.
-          echo "nixpkgs=$(jq -r .pins.nixpkgs.url npins/sources.json)" >> "$GITHUB_OUTPUT"
+          echo "installables=$(jq -r '.expose | join(" ")' nix/agent-packages.json)" >> "$GITHUB_OUTPUT"
 
+      # `source` mode: the action reads the declaration, the index key and the
+      # caches from the baked agent source itself — nothing here restates them.
       - uses: ./.github/actions/publish-closure
         with:
           source: .#agent-flake-source
-          installables: ${{ steps.expose.outputs.attrs }}
+          installables: ${{ steps.expose.outputs.installables }}
           latest: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
           # One line per exposed attr — the action fails on an attr with none,
           # so a new `expose` entry cannot slip through unsmoked. padi and
@@ -263,5 +281,4 @@ jobs:
             padi-agent=bin/padi --help
             padi=bin/padi --help
             kaval=bin/kaval --help
-          attic-nixpkgs: ${{ steps.expose.outputs.nixpkgs }}
-          attic-token: ${{ secrets.ATTIC_TOKEN }}
+          odu-cache-token: ${{ secrets.ODU_CACHE_TOKEN }}

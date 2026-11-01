@@ -17,7 +17,7 @@ OTHER_IA = "/nix/store/" + "c" * 32 + "-mac"
 SOURCE = "/nix/store/" + "s" * 32 + "-agent-flake-source"
 CONTENT_ADDRESSED = "fixed:r:sha256:abc"
 DECLARATION = {
-    "substituters": ["https://cache.nixos.asia/oss"],
+    "substituters": ["https://cache.example.invalid/oss"],
     "trustedPublicKeys": ["oss:KEY="],
     "index": {"repo": "juspay/kolu", "branch": "ca-index",
               "rawBase": "https://raw.githubusercontent.com/juspay/kolu/ca-index"},
@@ -187,7 +187,7 @@ class Resolve(unittest.TestCase):
             out = dict(line.split("=", 1) for line in r.stdout.splitlines())
             self.assertEqual(out["installables"], ".#padi .#kaval")
             self.assertEqual(out["rev-key"], KEY)
-            self.assertEqual(out["cache"], "https://cache.nixos.asia/oss")
+            self.assertEqual(out["cache"], "https://cache.example.invalid/oss")
             # No `pusher` field: the default, and the only shape every
             # declaration written before the field existed has.
             self.assertEqual(out["pusher"], "attic")
@@ -247,7 +247,7 @@ class Pusher(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             out = self.outputs(Path(d), dict(DECLARATION, pusher={"kind": "attic"}))
             self.assertEqual(out["pusher"], "attic")
-            self.assertEqual(out["cache"], "https://cache.nixos.asia/oss")
+            self.assertEqual(out["cache"], "https://cache.example.invalid/oss")
 
     def test_an_odu_pusher_names_its_bucket(self):
         with tempfile.TemporaryDirectory() as d:
@@ -341,12 +341,12 @@ class Push(unittest.TestCase):
             root = Path(d)
             write_entries(root)
             env = dict(push_stub(root), ATTIC_TOKEN="t")
-            r = self.push(root, "--cache", "https://cache.nixos.asia/oss", "--pusher", "attic",
+            r = self.push(root, "--cache", "https://cache.example.invalid/oss", "--pusher", "attic",
                          "--attic-nixpkgs", "https://example/nixpkgs.tar.gz", env=env)
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(self.calls(root), [
                 "nix profile add https://example/nixpkgs.tar.gz#attic-client",
-                "attic login --set-default publish https://cache.nixos.asia t",
+                "attic login --set-default publish https://cache.example.invalid t",
                 "attic push --stdin publish:oss",
             ])
             self.assertEqual((root / "attic.stdin").read_text(), f"{IA}\n{CA}\n")
@@ -364,7 +364,7 @@ class Push(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             write_entries(root)
-            r = self.push(root, "--cache", "https://cache.nixos.asia/oss", "--pusher", "attic",
+            r = self.push(root, "--cache", "https://cache.example.invalid/oss", "--pusher", "attic",
                          "--bucket", "kolu", "--attic-nixpkgs", "x", env=dict(push_stub(root), ATTIC_TOKEN="t"))
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("takes no --bucket", r.stderr)
@@ -390,7 +390,7 @@ class Push(unittest.TestCase):
             root = Path(d)
             write_entries(root)
             env = dict(push_stub(root), ATTIC_TOKEN="")
-            r = self.push(root, "--cache", "https://cache.nixos.asia/oss", "--pusher", "attic",
+            r = self.push(root, "--cache", "https://cache.example.invalid/oss", "--pusher", "attic",
                          "--attic-nixpkgs", "x", env=env)
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("no ATTIC_TOKEN", r.stderr)
@@ -400,7 +400,7 @@ class Push(unittest.TestCase):
             root = Path(d)
             write_entries(root)
             env = dict(push_stub(root), ATTIC_TOKEN="t")
-            r = self.push(root, "--cache", "https://cache.nixos.asia/oss", "--pusher", "attic", env=env)
+            r = self.push(root, "--cache", "https://cache.example.invalid/oss", "--pusher", "attic", env=env)
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("needs --attic-nixpkgs", r.stderr)
 

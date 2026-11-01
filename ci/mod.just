@@ -96,7 +96,7 @@ install:
 # path doesn't exist yet. The first `nix build` realizes the path (from
 # substituter or fresh fetch); --rebuild then forces re-execution and
 # compares, so a stale cached artifact at the declared hash (local store
-# or cache.nixos.asia) can't silently satisfy a hash that no longer
+# or cache.kolu.dev) can't silently satisfy a hash that no longer
 # matches the lockfile.
 pnpm-hash-fresh: nix
     nix build .#pnpmDeps --no-link
@@ -464,7 +464,7 @@ attach:
 # platform (`x86_64-linux`, pinned by the script so the required list can never
 # drift with a machine-local host file; pass `--platform aarch64-darwin` to add
 # a darwin lane deliberately), PLUS the GitHub Actions contexts that
-# `.github/workflows/nix-cache.yml` posts for the Attic cache warm — those stay
+# `.github/workflows/nix-cache.yml` posts for the binary-cache warm — those stay
 # two-platform, and the macOS one stays required, because a cold darwin cache is
 # what #2101 was about. This is the source of truth for "is CI done"; verify
 # each is green with `gh pr checks`.

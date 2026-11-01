@@ -142,7 +142,7 @@ badges, or notifications.
 ## First run compiling? Enable the binary cache
 
 Every kolu commit is pre-built and pushed to a public binary cache,
-`https://cache.nixos.asia/oss`. The flake declares it, but Nix only honors a
+`https://cache.kolu.dev`. The flake declares it, but Nix only honors a
 flake-declared cache if you accept it **and** your user is
 [trusted](https://nix.dev/manual/nix/latest/command-ref/conf-file#conf-trusted-users)
 by the Nix daemon — and on a standard multi-user install it isn't, so the
@@ -155,16 +155,16 @@ To download pre-built binaries instead, add the cache to the **system** Nix
 configuration (`/etc/nix/nix.conf`):
 
 ```text
-extra-substituters = https://cache.nixos.asia/oss
-extra-trusted-public-keys = oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=
+extra-substituters = https://cache.kolu.dev
+extra-trusted-public-keys = kolu-1:eAXwD1RPt1BpFjrHfVUO8Ia0bK32WcuIeJcwFWmgj9Y=
 ```
 
 Or, on NixOS:
 
 ```nix
 nix.settings = {
-  extra-substituters = [ "https://cache.nixos.asia/oss" ];
-  extra-trusted-public-keys = [ "oss:KO872wNJkCDgmGN3xy9dT89WAhvv13EiKncTtHDItVU=" ];
+  extra-substituters = [ "https://cache.kolu.dev" ];
+  extra-trusted-public-keys = [ "kolu-1:eAXwD1RPt1BpFjrHfVUO8Ia0bK32WcuIeJcwFWmgj9Y=" ];
 };
 ```
 
@@ -191,7 +191,7 @@ Apple Silicon). On aarch64 Linux the cache has no
 build of them, so the first `nix run` there compiles them, which takes a while. For a
 remote host this machine needs none of that: it reads which build the host needs
 from agent-distro's published index and has the **host** download it over its own
-HTTPS from agent-distro's cache (the same `https://cache.nixos.asia/oss` above),
+HTTPS from agent-distro's binary cache,
 never building it — and keeps every machine current the same way, four times a
 day ([Kept up to date](/agents#kept-up-to-date)). This machine's Nix trusts
 nothing for it. A Linux host's needn't either — on Nix 2.17 through 2.34 it gets

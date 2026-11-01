@@ -4,7 +4,7 @@
       "dir": "juspay/agent-distro",
       "pin": {
         "name": "agent-distro",
-        "revision": "ee7320bb5f23b3a5f23fe56da910716824c743bb",
+        "revision": "ce4ea8df5fd8d7ddf2e6aad70eb2671b023fad72",
         "subdir": "src"
       },
       "vendored": true,
@@ -530,7 +530,7 @@
       "dir": "odu/run-client",
       "pin": {
         "name": "odu",
-        "revision": "66462dd14b8d23c9203af61c594adabe7b1a1c90",
+        "revision": "c81115a1e4d0e8395d3b534045fd1d6089bfe923",
         "subdir": "packages/run-client"
       },
       "vendored": true,
@@ -545,7 +545,7 @@
       "dir": "odu/run-history",
       "pin": {
         "name": "odu",
-        "revision": "66462dd14b8d23c9203af61c594adabe7b1a1c90",
+        "revision": "c81115a1e4d0e8395d3b534045fd1d6089bfe923",
         "subdir": "packages/run-history"
       },
       "vendored": true,
@@ -560,7 +560,7 @@
       "dir": "odu/service-client",
       "pin": {
         "name": "odu",
-        "revision": "66462dd14b8d23c9203af61c594adabe7b1a1c90",
+        "revision": "c81115a1e4d0e8395d3b534045fd1d6089bfe923",
         "subdir": "packages/service-client"
       },
       "vendored": true,
