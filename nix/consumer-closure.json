@@ -4,7 +4,7 @@
       "dir": "juspay/agent-distro",
       "pin": {
         "name": "agent-distro",
-        "revision": "ee7320bb5f23b3a5f23fe56da910716824c743bb",
+        "revision": "ce4ea8df5fd8d7ddf2e6aad70eb2671b023fad72",
         "subdir": "src"
       },
       "vendored": true,
