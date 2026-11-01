@@ -37,6 +37,7 @@ import ChangeHighlights from "../../components/ChangeHighlights.astro";
 ### [Install](/quickstart)
 
 - <Change kind="heads-up" title="Intel Macs are no longer a supported kolu system" pr={2265}>kolu's flake drops <code>x86_64-darwin</code>: agent-distro, which now supplies every terminal's agents, does not build for Intel Macs. Apple Silicon Macs and Linux (x86_64, aarch64) are unchanged.</Change>
+- <Change kind="changed" title="kolu's binary cache has a new address" pr={2335}>Every kolu commit is still pre-built for you — the public [binary cache](/deployment#first-run-compiling-enable-the-binary-cache) has moved from <code>cache.nixos.asia/oss</code> to <code>cache.kolu.dev</code>, kolu's own bucket, after the old one stopped accepting kolu's builds. The flake declares the new one, so <code>nix run</code> needs nothing from you; if you had pasted the old two lines into <code>/etc/nix/nix.conf</code> or your NixOS config, replace them with <code>extra-substituters = https://cache.kolu.dev</code> and <code>extra-trusted-public-keys = kolu-1:eAXwD1RPt1BpFjrHfVUO8Ia0bK32WcuIeJcwFWmgj9Y=</code>.</Change>
 
 ### Performance
 
