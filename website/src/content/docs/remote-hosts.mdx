@@ -278,8 +278,12 @@ switch-back has nothing to reload. The [switcher](/switcher) is different: it ke
 **lightweight fleet index** (terminal keys + metadata, not PTY bytes) live for every
 **connected** pool member, including hosts you have not opened yet, so ⌘/Super+K can jump
 cross-host without waiting for a first visit. Only the host you're viewing gets a live
-on-screen renderer (its terminals' WebGL/DOM canvases), which re-attaches in a blink when
-you switch back — kolu does not hold a live canvas per background host. Browser memory
+on-screen renderer (its terminals' WebGL/DOM canvases), which re-attaches when you switch
+back — kolu does not hold a live canvas per background host. That re-attach asks the host
+for a fresh screen snapshot per terminal (the recent screenful, ~100 KB for a busy agent),
+so a host with many terminals takes a moment longer to paint; the kolu server log keeps one
+`terminal attach burst` line per switch saying how many were asked, how large the snapshots
+were and how long the host took to answer (`journalctl --user -u kolu` under systemd). Browser memory
 therefore scales with that retained per-host view state, the fleet metadata index, and
 the number of connected hosts — not with a full canvas for every host. If a multi-host
 session feels heavy, see [kolu is using a lot of memory](/troubleshooting#kolu-is-using-a-lot-of-memory).

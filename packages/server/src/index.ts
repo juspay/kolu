@@ -64,6 +64,7 @@ import {
   type AgentDeliveryHandle,
   installAgentDelivery,
 } from "./agentDelivery/install.ts";
+import { withAttachTelemetry } from "./padi/attachTelemetry.ts";
 import { entryDispatch } from "./padi/entryDispatch.ts";
 import { installNewTerminalPolicyPusher } from "./padi/newTerminalPolicy.ts";
 import { installPadiCellPusher } from "./padi/padiCellPusher.ts";
@@ -510,7 +511,13 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     dispatchFor: (h, s) =>
       entryDispatch({
         siblingTagPrefixes,
-        mirror: directDispatch({ handlers: reServeFor(h, s).handlers }),
+        // Observed, not altered: `terminalAttach` subscriptions on this host are
+        // timed per burst and reported in ONE journald line (a host switch is
+        // such a burst) — see `attachTelemetry.ts` for what the line says.
+        mirror: withAttachTelemetry(
+          directDispatch({ handlers: reServeFor(h, s).handlers }),
+          { host: encodeHostKey(h), log },
+        ),
         link: () => s.currentDispatch?.(),
         host: encodeHostKey(h),
       }),
