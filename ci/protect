@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Set the branch's required status checks to the COMPLETE gate: odu's canonical
-# DAG contexts PLUS the GitHub Actions contexts that guard the Attic cache warm.
+# DAG contexts PLUS the GitHub Actions contexts that guard the binary-cache warm.
 #
 #     ci/protect --dry-run            # print the complete required set
 #     ci/protect                      # apply it to the default branch
@@ -18,7 +18,7 @@
 # WHY THESE CONTEXTS ARE WORTH GATING ON
 # --------------------------------------
 # `.github/workflows/nix-cache.yml` is what pushes this repo's closures to
-# https://cache.nixos.asia/oss. When it is green-but-not-required, a red or
+# https://cache.kolu.dev. When it is green-but-not-required, a red or
 # never-run cache push blocks nothing — and a deploy off that commit finds no
 # agent closure in the cache and COMPILES the daemon on the remote host over
 # ssh. That is not hypothetical: it happened (juspay/kolu#2101, G7) while the
