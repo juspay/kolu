@@ -75,8 +75,11 @@ inputs:
   attic-nixpkgs:
     description: >-
       A pinned nixpkgs (flake ref or tarball URL) to install attic-client from —
-      the caller's own pin, never an unpinned ref resolved at run time.
-    required: true
+      the caller's own pin, never an unpinned ref resolved at run time. Read only
+      when the declaration's `pusher` is attic (or absent); a caller whose
+      declaration pushes to an odu bucket need not pass one.
+    required: false
+    default: ""
   attic-token:
     description: >-
       Token for the declaration's attic cache. Read only when the declaration's

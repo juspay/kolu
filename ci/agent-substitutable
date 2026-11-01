@@ -78,10 +78,10 @@
 # ----------------------
 # This checks the TOP-LEVEL out-path of each exposed attr, not every closure
 # member, and that is the right granularity for two reasons. It is precisely
-# the condition whose absence produced the incident's log line. And `attic
-# push` uploads CLOSURES by default (`--no-closure` is the opt-out), so a
-# present top-level path implies its non-upstream members went with it; the
-# members it deliberately skips are the ones already substitutable from
+# the condition whose absence produced the incident's log line. And the push
+# uploads CLOSURES — `odu cache push` computes each closure from the roots it is
+# given — so a present top-level path implies its non-upstream members went with
+# it; the members it deliberately skips are the ones already substitutable from
 # cache.nixos.org, which every host reaches on its own.
 #
 # A hit on ANY declared cache passes, because that is provisioning's own
@@ -95,7 +95,7 @@
 # GitHub-hosted cache push run concurrently on the same commit, so an odu node
 # asking "is this in the cache yet?" would be asking before the answer can be
 # yes — a check that goes red for a reason unrelated to the change under
-# review. It runs in `nix-cache.yml` AFTER that job's own `attic push`, where
+# review. It runs in `nix-cache.yml` AFTER that job's own push, where
 # the answer is a real verdict about work the same job just did.
 #
 # IT TAKES A FLAKE REF, BECAUSE CI IS NOT WHAT SHIPS
