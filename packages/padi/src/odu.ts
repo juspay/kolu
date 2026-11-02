@@ -76,11 +76,11 @@ export function serveOduSibling(deps: { log: Logger }): OduSibling {
     // contract versions and cannot get the direction of that comparison
     // backwards. padi DECLARES the rows it reads — the runs, `CI_NEEDS`, and
     // nothing else — so a daemon whose cache, door or tunnel moved a major is
-    // still adopted; only the host or the runs row can refuse it. A refusal is LOUD and does NOT retry at the floor: the session
-    // publishes it as a down arm, which is a different thing from the quiet
-    // `absent` a machine without odu sits in, and the difference is exactly what
-    // a reader needs (a blank for "no odu here", a stated problem for "an odu
-    // this build cannot read").
+    // still adopted; only the host or the runs row can refuse it. A refusal is
+    // LOUD and does NOT retry at the floor: the session publishes it as a down
+    // arm, which is a different thing from the quiet `absent` a machine without
+    // odu sits in, and the difference is exactly what a reader needs (a blank
+    // for "no odu here", a stated problem for "an odu this build cannot read").
     admit: async (client) => {
       const cell = await Effect.runPromise(readServiceCell(client as never));
       const verdict = admitService(cell, serviceSocketPath(), CI_NEEDS);
