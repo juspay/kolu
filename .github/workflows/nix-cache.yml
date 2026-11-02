@@ -12,8 +12,8 @@
 # TWO FACTS ABOUT THE PUSH. It goes to the cache's ADVERTISED name — the same
 # `cache.kolu.dev` every consumer substitutes from — because the pinned odu
 # chunks a NAR across requests, so Cloudflare's 100 MB per-body cap is not in
-# the way. And a path whose upstream reference the bucket is still fetching is
-# reported as `held` and exits 0; only a real failure is red.
+# the way. And the push has one success: a path is STORED (`200`) or the push
+# is red. There is no in-between "the cache will catch up" answer.
 #
 # The build set is DERIVED, never hand-listed, and derived by the one script
 # that already answers "what does this repo build" — `ci/flake-build`. This job
@@ -176,8 +176,9 @@ jobs:
       # runs as the publisher. `--origin` is the cache's advertised name: the
       # client chunks a NAR, so the proxy's body cap costs nothing.
       #
-      # A path whose upstream reference the server is still fetching prints as
-      # `held` and the push exits 0 — the cache catching up, not a miss.
+      # Every path is stored or the step is red: `200` is odu's only "stored"
+      # answer, a refusal is red at once, and only a transient answer (429, 5xx)
+      # is retried. There is no deferred "held" state to wait out.
       #
       # Fork PRs get no `ODU_CACHE_TOKEN` (header above); `secrets` isn't
       # readable in a step `if:`, and gating on presence would silently skip a

@@ -42,6 +42,7 @@ import { serviceSocketPath } from "@odu/service-client/socket";
 import {
   admitService,
   CHECKOUT_NONE,
+  CI_NEEDS,
   oduServiceClientOver,
   oduServiceSurface,
 } from "@odu/service-client/surface";
@@ -73,22 +74,24 @@ export function serveOduSibling(deps: { log: Logger }): OduSibling {
     // ADOPT OR REFUSE, on odu's own verdict. The comparison is `admitService` —
     // odu's, beside the version it is about — so this file never compares
     // contract versions and cannot get the direction of that comparison
-    // backwards. A refusal is LOUD and does NOT retry at the floor: the session
-    // publishes it as a down arm, which is a different thing from the quiet
-    // `absent` a machine without odu sits in, and the difference is exactly what
-    // a reader needs (a blank for "no odu here", a stated problem for "an odu
-    // this build cannot read").
+    // backwards. padi DECLARES the rows it reads — the runs, `CI_NEEDS`, and
+    // nothing else — so a daemon whose cache, door or tunnel moved a major is
+    // still adopted; only the host or the runs row can refuse it. A refusal is
+    // LOUD and does NOT retry at the floor: the session publishes it as a down
+    // arm, which is a different thing from the quiet `absent` a machine without
+    // odu sits in, and the difference is exactly what a reader needs (a blank
+    // for "no odu here", a stated problem for "an odu this build cannot read").
     admit: async (client) => {
       const cell = await Effect.runPromise(readServiceCell(client as never));
-      const verdict = admitService(cell, serviceSocketPath());
+      const verdict = admitService(cell, serviceSocketPath(), CI_NEEDS);
       if (verdict.kind === "adopt") return { kind: "adopt" };
-      log.error(
-        { speaks: verdict.speaks, expected: verdict.expected },
-        `padi: ${verdict.message}`,
-      );
+      // The refusal's OWN facts — `on`, and per arm `row` / `speaks` /
+      // `expected` — logged as odu states them, never as a shape guessed here.
+      const { kind: _refuse, message, ...refusal } = verdict;
+      log.error(refusal, `padi: ${message}`);
       return {
         kind: "refuse",
-        state: { error: verdict.message, cause: "remote" },
+        state: { error: message, cause: "remote" },
       };
     },
     log,

@@ -1017,11 +1017,11 @@ describe("WorkSection odu CI readout", () => {
     mountWithOdu(undefined, {
       error: new SurfaceUpstreamRefused({
         reason:
-          "the odu service at /tmp/x.sock speaks contract 9.9; this build reads 1.5",
+          "the odu service at /tmp/x.sock serves the ci row at 9.9; this build reads ci 2.4 — upgrade the daemon (`odu web --upgrade`) or this build.",
       }),
     });
     expect(text("inspector-odu-error")).toContain("odu CI unavailable");
-    expect(text("inspector-odu-error")).toContain("9.9");
+    expect(text("inspector-odu-error")).toContain("ci row at 9.9");
     // A failure is not "nothing to show": the chip and the disclosure are absent
     // (there is no frame), and the row is what stands in for them.
     expect(el("inspector-odu-chip")).toBeNull();

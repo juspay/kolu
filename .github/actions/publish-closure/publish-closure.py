@@ -347,10 +347,9 @@ def push(args) -> int:
     handed to Nix as a locked ref. Each computes the closures itself, so the list
     is the entries' own roots: `ia` and, off darwin, `ca`.
 
-    When the pinned odu carries `--wait` (juspay/odu PR 3), pass it here: a path
-    the cache merely REPORTS as held is one the verify step below fetches from a
-    cache that does not hold it yet, and the failure would read as a fetch error
-    instead of the hold it is."""
+    odu's push has one success: every path stored (`200`), or a non-zero exit.
+    There is no "held, catching up" answer to wait on, so a green push is one the
+    verify step below can fetch back from."""
     plan = push_plan(args.cache, requested_pusher(args.pusher, args.bucket))
     paths = store_paths(args.directory, args.rev_key, args.system)
     if plan["kind"] == "attic":
