@@ -457,7 +457,7 @@ biome: install
 
 # Attach a live dashboard to a run in progress (paints over `.ci/odu.sock`).
 attach:
-    nix run ./ci#odu -- attach
+    nix run ./ci#odu -- ci attach
 
 # The final green-gate: the COMPLETE required-status-check set, which is two
 # lists — odu's canonical `<recipe>@<platform>` contexts for the gated CI
