@@ -209,12 +209,14 @@ jobs:
       # and pushes nothing, says so, and succeeds; a `push` event with no token
       # FAILS, because a cache job that goes green having warmed nothing is the
       # state this whole file exists to make impossible.
-      - uses: juspay/odu/.github/actions/push@b80555719e70c2574355bb00d54b771f70a6b4e7 # odu master; #142 merged
+      - uses: juspay/odu/.github/actions/push@8ee6c59bf3e2a2c94f1405e003c203c7d972091f # odu #145 (pin input)
         with:
           origin: https://cache.kolu.dev
           bucket: kolu
           token: ${{ secrets.ODU_CACHE_TOKEN }}
           paths: ${{ steps.build.outputs.paths }}
+          # Re-point the kolu-master pin at this closure on a default-branch push.
+          pin: kolu-master
 
       # The push above proves what the BUCKET SERVES, path by path. This asks
       # the narrower, load-bearing question the deploy actually depends on: are
