@@ -57,6 +57,11 @@ const ENTRY = resolve(SRC, "index.ts");
  *  seal — just under `padi/`. The serving shell and the true leaves stay top-level. */
 const WEB_SHELL_FILES = [
   // ── the padi hosting arm (packages/server/src/padi/) ──
+  // The attach-burst logger (#2336): it wraps ONE host's `entryDispatch` mirror
+  // arm and only OBSERVES the `terminalAttach` subscriptions it relays, stamping
+  // them and logging one line per burst. Web-shell telemetry on the re-serve,
+  // not a terminal-domain module: it neither opens nor shapes a terminal.
+  "padi/attachTelemetry",
   // The read-only host-daemon inventory sampler — the web shell's diagnostic
   // enumeration of every running kaval + padi (reusing kaval/padi discovery), marking
   // kolu's active one. Shell code (it publishes koluSurface's `daemonInventory` cell,

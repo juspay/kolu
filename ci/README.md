@@ -22,20 +22,20 @@ just ci::e2e
 Run the canonical multi-platform pipeline:
 
 ```sh
-nix run ./ci#odu -- run
+nix run ./ci#odu -- ci run
 ```
 
 Only odu posts GitHub commit statuses. Add its live NDJSON feed when another
 tool is supervising the run:
 
 ```sh
-nix run ./ci#odu -- run --progress json
+nix run ./ci#odu -- ci run --progress json
 ```
 
 Attach a terminal dashboard to a run already in progress:
 
 ```sh
-nix run ./ci#odu -- attach
+nix run ./ci#odu -- ci attach
 # or
 just ci::attach
 ```

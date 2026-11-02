@@ -203,7 +203,7 @@ done
 # gates on linux (see the ci skill). A caller who deliberately wants a darwin
 # lane in the gate passes `--platform aarch64-darwin`, which forwards through
 # "$@" and adds to — rather than replaces — the pin below.
-nix run "${root}/ci#odu" -- protect --platform x86_64-linux "$@"
+nix run "${root}/ci#odu" -- ci protect --platform x86_64-linux "$@"
 
 if [ -n "$dry_run" ]; then
   # odu printed the DAG contexts one per line; ours complete the set. Together
