@@ -212,7 +212,7 @@ jobs:
       # and pushes nothing, says so, and succeeds; a `push` event with no token
       # FAILS, because a cache job that goes green having warmed nothing is the
       # state this whole file exists to make impossible.
-      - uses: juspay/odu/.github/actions/push@a6d7a0e2e8c095ae0f8b56663e315926b6ce8548 # odu master: #145 merged
+      - uses: juspay/odu/.github/actions/push@9607dfe3fd7ab3d1e5d699d2b090182189b876b5 # odu master: #145 merged
         with:
           origin: https://odu-k3s.rooster-blues.ts.net
           bucket: kolu-r2
