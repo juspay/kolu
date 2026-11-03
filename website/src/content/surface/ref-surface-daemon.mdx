@@ -422,8 +422,8 @@ eval. `@kolu/surface-remote` reads it as `readBakedDeclaration(…).index` (with
 substituter is pushed, and is emitted as a `pusher` field **only when given** —
 `null` bakes the byte-identical declaration it baked before the option existed.
 `{ kind = "attic"; }` is the publisher's attic path, spelled out;
-`{ kind = "odu"; bucket = "…"; }` names an odu cache bucket, and may add
-`origin = "https://…"` — the odu server the push goes to, for a bucket that is
-read somewhere it cannot be written (object storage); with no `origin` the
-publisher derives one from the substituter URL. Any other shape —
-an unknown kind, a missing bucket, an extra key — fails the binder's eval.
+`{ kind = "odu"; }` says the substituter is an odu cache bucket, which states
+its own push origin and bucket in its `nix-cache-info` (`Odu-Origin`,
+`Odu-Bucket`) for `odu cache push --cache <substituter>` to read — so no
+address is spelled here and none can drift. Any other shape — an unknown kind,
+an extra key, the retired `bucket` or `origin` — fails the binder's eval.

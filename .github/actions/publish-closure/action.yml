@@ -25,9 +25,11 @@
 #   * absent, or `{"kind": "attic"}` — an attic cache (`https://<server>/<cache>`),
 #     logged in to and pushed with `attic push`. Every declaration written
 #     before the field existed keeps this path, unchanged.
-#   * `{"kind": "odu", "bucket": "<name>"}` — an odu cache bucket served at the
-#     substituter's origin, pushed with `odu cache push <bucket>` (run from THIS
-#     repository's npins pin, nothing unpinned) under `ODU_CACHE_TOKEN`.
+#   * `{"kind": "odu"}` — an odu cache bucket. The substituter STATES where it
+#     is pushed and which bucket that is (`Odu-Origin` / `Odu-Bucket` in its
+#     `nix-cache-info`), so the push is `odu cache push --cache <substituter>`
+#     (run from THIS repository's npins pin, nothing unpinned) under
+#     `ODU_CACHE_TOKEN` — nothing here names an origin or a bucket.
 #
 # Verification does not care which: it imports the published paths back out of
 # the substituter URL, and a Nix binary cache is a Nix binary cache.
@@ -218,16 +220,13 @@ runs:
         SYSTEM: ${{ steps.resolve.outputs.system }}
         PUSHER: ${{ steps.resolve.outputs.pusher }}
         CACHE: ${{ steps.resolve.outputs.cache }}
-        BUCKET: ${{ steps.resolve.outputs.odu-bucket }}
-        ORIGIN: ${{ steps.resolve.outputs.odu-origin }}
         ATTIC_TOKEN: ${{ inputs.attic-token }}
         ATTIC_NIXPKGS: ${{ inputs.attic-nixpkgs }}
         ODU_CACHE_TOKEN: ${{ inputs.odu-cache-token }}
       run: |
         set -euo pipefail
         python3 "$SCRIPT" push --rev-key "$REV_KEY" --system "$SYSTEM" --directory "$OUT" \
-          --cache "$CACHE" --pusher "$PUSHER" --bucket "$BUCKET" --origin "$ORIGIN" \
-          --attic-nixpkgs "$ATTIC_NIXPKGS"
+          --cache "$CACHE" --pusher "$PUSHER" --attic-nixpkgs "$ATTIC_NIXPKGS"
 
     # What a consumer does, done here with the publishing Nix: nothing reaches
     # the index unless it imports into a fresh store and verifies.
