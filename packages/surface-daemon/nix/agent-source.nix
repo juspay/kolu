@@ -41,7 +41,8 @@
 # The declaration also says HOW that cache is pushed (`pusher`, optional): null
 # leaves the field out — byte-identical to every declaration baked before the
 # option existed — `{ kind = "attic"; }` keeps the publisher's attic path, and
-# `{ kind = "odu"; bucket = "…"; }` names an odu cache bucket. See
+# `{ kind = "odu"; bucket = "…"; }` names an odu cache bucket, optionally with
+# the `origin` its pushes go to. See
 # `binary-cache.nix` for the shape and `publish-closure` for the two clients.
 #
 # The binary-cache sidecar is the third baked file, and it is NOT optional: the

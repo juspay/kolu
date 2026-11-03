@@ -30,7 +30,10 @@
 # default: `{ kind = "attic"; }` (or null, which emits nothing — every
 # declaration baked before the field existed) means the publisher derives an
 # attic cache from the URL it always did; `{ kind = "odu"; bucket = "…"; }` names
-# an odu cache bucket. The field is emitted ONLY when given, so a binder that
+# an odu cache bucket, and its OPTIONAL `origin` names the odu server the push
+# goes to (a bucket read from object storage is not pushable at its read URL).
+# With no `origin` the publisher derives one from the substituter URL, as it
+# always did. The field is emitted ONLY when given, so a binder that
 # does not set it bakes the byte-identical declaration it baked yesterday.
 # Malformed values fail the binder's eval, like `closureIndex`.
 #
@@ -43,7 +46,7 @@
 { flakeNix # path of the flake whose nixConfig declares the caches
 , label # caller name, for the eval-time error
 , closureIndex # { repo, branch } the closures are published on, or null
-, pusher ? null # { kind = "attic"; } | { kind = "odu"; bucket = "…"; } | null
+, pusher ? null # { kind = "attic"; } | { kind = "odu"; bucket = "…"; origin ? "…"; } | null
 }:
 let
   cfg = (import flakeNix).nixConfig or null;
@@ -107,9 +110,11 @@ let
         assert lib.assertMsg
           (builtins.isString (pusher.bucket or null)
             && pusher.bucket != ""
-            && builtins.attrNames pusher == [ "bucket" "kind" ])
-          "${label}: an odu pusher needs exactly { kind = \"odu\"; bucket = \"…\"; }";
-        { kind = "odu"; inherit (pusher) bucket; };
+            && builtins.elem (builtins.attrNames pusher) [ [ "bucket" "kind" ] [ "bucket" "kind" "origin" ] ]
+            && (!(pusher ? origin) || (builtins.isString pusher.origin && pusher.origin != "")))
+          "${label}: an odu pusher needs { kind = \"odu\"; bucket = \"…\"; } and may add origin = \"https://…\";";
+        { kind = "odu"; inherit (pusher) bucket; }
+        // lib.optionalAttrs (pusher ? origin) { inherit (pusher) origin; };
 in
 rec {
   substituters = require [ "extra-substituters" "substituters" ];
