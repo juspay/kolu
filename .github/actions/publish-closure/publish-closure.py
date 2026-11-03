@@ -40,7 +40,7 @@ import pathlib
 import re
 import subprocess
 import sys
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 # An attribute names the index file, so nothing that could climb out of the
 # directory is allowed through.
@@ -135,53 +135,25 @@ def pusher_of(declaration: dict) -> dict:
 
     Absent means `attic` — every declaration written before this field existed
     keeps working, and attic keeps deriving its server and cache from the URL,
-    as it always has. An odu bucket is an HTTP client rather than a URL shape,
-    so it names the bucket, and either names the `origin` to push to or lets
-    this publisher derive it from the substituter URL.
+    as it always has. An odu cache STATES where it is pushed: its
+    `nix-cache-info` carries `Odu-Origin` and `Odu-Bucket`, and `odu cache push
+    --cache <substituter>` reads them. So an odu pusher names its kind and
+    nothing else — there is no address here to get wrong.
 
-    Strict about the shape: `{"kind": …}` with exactly the keys its kind needs.
-    A misspelt key would otherwise be silently dropped and the push would go to
-    the wrong place, which is the one outcome this field exists to prevent."""
+    Strict about the shape: `{"kind": …}` and no other key. A misspelt key
+    would otherwise be silently dropped and the push would go to the wrong
+    place, which is the one outcome this field exists to prevent."""
     raw = declaration.get("pusher", {"kind": "attic"})
     if not isinstance(raw, dict):
         die(f"the declaration's pusher must be an object (got {raw!r}) — "
-            '{"kind": "attic"} or {"kind": "odu", "bucket": "…"}')
+            '{"kind": "attic"} or {"kind": "odu"}')
     kind = raw.get("kind")
-    if kind == "attic":
-        wanted = {"kind"}
-    elif kind == "odu":
-        wanted = {"kind", "bucket", "origin"}
-        if not isinstance(raw.get("bucket"), str) or not raw["bucket"]:
-            die('the declaration\'s pusher names no bucket — {"kind": "odu", "bucket": "…"}')
-        if "origin" in raw and (not isinstance(raw["origin"], str) or not raw["origin"]):
-            die('the declaration\'s pusher origin must be a non-empty URL — '
-                '{"kind": "odu", "bucket": "…", "origin": "https://…"}')
-    else:
+    if kind not in ("attic", "odu"):
         die(f"the declaration's pusher kind {kind!r} is not one this publisher knows (attic, odu)")
-    extra = set(raw) - wanted
+    extra = set(raw) - {"kind"}
     if extra:
         die(f"the declaration's pusher names {sorted(extra)}, which its {kind!r} kind does not take")
-    if kind != "odu":
-        return {"kind": kind}
-    return {"kind": kind, "bucket": raw["bucket"],
-            **({"origin": raw["origin"]} if "origin" in raw else {})}
-
-
-def odu_origin(cache_url: str, bucket: str) -> str:
-    """The substituter a bucket is served at → the origin `odu cache push`
-    talks to, for a declaration that names no `origin` of its own. odu serves a
-    bucket at its domain's root or under `/cache/<bucket>`; nothing else — a
-    `/<bucket>` path is a shape no odu server answers (an R2-backed bucket is
-    read there but cannot be pushed there), so it is refused rather than
-    guessed at, and such a declaration must name its `origin`."""
-    url = urlsplit(cache_url)
-    if url.scheme != "https" or not url.hostname:
-        die(f"{cache_url} is not an https substituter URL odu can push to")
-    path = url.path.rstrip("/")
-    if path and path != f"/cache/{bucket}":
-        die(f"the declaration pushes to bucket {bucket!r} but its substituter {cache_url} "
-            f"is not that bucket ({bucket!r} is served at / or /cache/{bucket})")
-    return f"https://{url.netloc}"
+    return {"kind": kind}
 
 
 def odu_pin() -> tuple:
@@ -214,30 +186,15 @@ def push_plan(cache: str, pusher: dict) -> dict:
     `resolve` calls it so a malformed declaration fails before a closure is
     built, and `push` calls it to run the client — the values are a pure
     function of the same inputs, so the two cannot disagree about the target.
-    An odu pusher that names an `origin` is pushed THERE, verbatim; one that
-    does not keeps deriving the origin from the substituter URL."""
+    An odu push is handed the substituter and nothing else: the cache states
+    its own push origin and bucket, so the only other fact is WHICH odu runs,
+    which is this repository's pin."""
     plan = {"cache": cache, "kind": pusher["kind"]}
     if plan["kind"] == "attic":
         plan["server"], plan["cache-name"] = attic_target(cache)
     else:
-        plan["bucket"] = pusher["bucket"]
-        plan["origin"] = pusher.get("origin") or odu_origin(cache, pusher["bucket"])
         plan["pin-url"], plan["pin-hash"] = odu_pin()
     return plan
-
-
-def requested_pusher(kind: str, bucket: str, origin: str = "") -> dict:
-    """`push`'s own spelling of a pusher, validated like a declaration's: a
-    bucket (and the origin it is pushed to) belongs to `odu` and only to it."""
-    if kind == "odu":
-        if not bucket:
-            die("push --pusher odu needs --bucket <name>")
-        return {"kind": "odu", "bucket": bucket, **({"origin": origin} if origin else {})}
-    if bucket:
-        die("push --pusher attic takes no --bucket — an attic cache is named by its URL")
-    if origin:
-        die("push --pusher attic takes no --origin — an attic cache is named by its URL")
-    return {"kind": "attic"}
 
 
 def resolve(args) -> int:
@@ -286,9 +243,6 @@ def resolve(args) -> int:
         "pusher": pusher["kind"],
         "index-branch": declaration["index"]["branch"],
     }
-    if pusher["kind"] == "odu":
-        outputs["odu-bucket"] = pusher["bucket"]
-        outputs["odu-origin"] = pusher.get("origin", "")
     for key, value in outputs.items():
         print(f"{key}={value}")
     return 0
@@ -356,16 +310,16 @@ def push(args) -> int:
     """Push every store path the entries name, with the declaration's client.
 
     Two clients, one path list. `attic push` takes its server and cache from the
-    substituter URL; `odu cache push` takes the bucket the declaration names and
-    the origin it names (or, naming none, the one derived from the same URL),
-    and runs the pinned odu — npins' url AND hash,
+    substituter URL; `odu cache push --cache <substituter>` takes the SAME URL
+    and reads the cache's own `nix-cache-info` for the origin it pushes to and
+    the bucket it lands in, running the pinned odu — npins' url AND hash,
     handed to Nix as a locked ref. Each computes the closures itself, so the list
     is the entries' own roots: `ia` and, off darwin, `ca`.
 
     odu's push has one success: every path stored (`200`), or a non-zero exit.
     There is no "held, catching up" answer to wait on, so a green push is one the
     verify step below can fetch back from."""
-    plan = push_plan(args.cache, requested_pusher(args.pusher, args.bucket, args.origin))
+    plan = push_plan(args.cache, {"kind": args.pusher})
     paths = store_paths(args.directory, args.rev_key, args.system)
     if plan["kind"] == "attic":
         if not args.attic_nixpkgs:
@@ -379,7 +333,7 @@ def push(args) -> int:
     else:
         run(["nix", "run", "--accept-flake-config",
              f"{pinned(plan['pin-url'], plan['pin-hash'])}#odu",
-             "--", "cache", "push", plan["bucket"], "--origin", plan["origin"], *paths])
+             "--", "cache", "push", "--cache", plan["cache"], *paths])
     return 0
 
 
@@ -479,10 +433,6 @@ def main(argv=None) -> int:
     entry_args(parser_push)
     parser_push.add_argument("--cache", required=True, help="the declaration's first substituter")
     parser_push.add_argument("--pusher", required=True, choices=["attic", "odu"])
-    parser_push.add_argument("--bucket", default="", help="the odu bucket; odu pushers only")
-    parser_push.add_argument("--origin", default="",
-                             help="the odu origin to push to; odu pushers only, "
-                                  "empty to derive it from the substituter URL")
     parser_push.add_argument("--attic-nixpkgs", default="",
                              help="the caller's pinned nixpkgs, to install attic-client from")
     parser_push.set_defaults(run=push)

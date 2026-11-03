@@ -22,10 +22,10 @@ DECLARATION = {
     "index": {"repo": "juspay/kolu", "branch": "ca-index",
               "rawBase": "https://raw.githubusercontent.com/juspay/kolu/ca-index"},
 }
-# The same declaration pointing at an odu cache bucket: one substituter at the
-# origin's root, and a `pusher` saying how it is administered.
+# The same declaration pointing at an odu cache bucket: the substituter is the
+# whole address, and the `pusher` says only that odu is the client.
 ODU_DECLARATION = dict(DECLARATION, substituters=["https://odu.example.invalid"],
-                       pusher={"kind": "odu", "bucket": "kolu"})
+                       pusher={"kind": "odu"})
 
 STUB = '''#!/usr/bin/env python3
 """A nix answering the calls publish-closure.py makes, from canned JSON."""
@@ -192,7 +192,6 @@ class Resolve(unittest.TestCase):
             # declaration written before the field existed has.
             self.assertEqual(out["pusher"], "attic")
             self.assertEqual(out["index-branch"], "ca-index")
-            self.assertNotIn("odu-bucket", out)
             self.assertNotIn("extra-trusted-public-keys", out)
 
     def test_a_declaration_for_another_repository_is_refused(self):
@@ -232,7 +231,8 @@ class Resolve(unittest.TestCase):
 
 class Pusher(unittest.TestCase):
     """HOW the first substituter is pushed is the declaration's own `pusher`:
-    attic (absent, or explicit) or an odu bucket. No action input decides it."""
+    attic (absent, or explicit) or odu. No action input decides it, and an odu
+    pusher carries no address of its own — the cache states that itself."""
 
     def resolve(self, root, declaration):
         return run(root, stub(root, {}), "resolve", "--rev", REV, "--repository", "juspay/kolu",
@@ -249,85 +249,51 @@ class Pusher(unittest.TestCase):
             self.assertEqual(out["pusher"], "attic")
             self.assertEqual(out["cache"], "https://cache.example.invalid/oss")
 
-    def test_an_odu_pusher_names_its_bucket(self):
+    def test_an_odu_pusher_is_its_kind_and_the_substituter(self):
         with tempfile.TemporaryDirectory() as d:
             out = self.outputs(Path(d), ODU_DECLARATION)
             self.assertEqual(out["pusher"], "odu")
-            self.assertEqual(out["odu-bucket"], "kolu")
             self.assertEqual(out["cache"], "https://odu.example.invalid")
+            self.assertEqual(sorted(out), ["cache", "index-branch", "installables", "pusher", "rev-key"])
 
-    def test_a_bucket_served_under_a_path_is_accepted(self):
+    def test_any_substituter_shape_is_accepted_for_odu(self):
+        """The read address is no longer judged here: an R2 domain that answers
+        GET and takes no push is a perfectly good `cache:` — it names the
+        origin pushes go to in its own `nix-cache-info`."""
         with tempfile.TemporaryDirectory() as d:
-            declaration = dict(ODU_DECLARATION, substituters=["https://odu.example.invalid/cache/kolu"])
-            self.assertEqual(self.outputs(Path(d), declaration)["pusher"], "odu")
-
-    def test_a_bucket_the_substituter_does_not_serve_is_refused(self):
-        with tempfile.TemporaryDirectory() as d:
-            declaration = dict(ODU_DECLARATION, substituters=["https://odu.example.invalid/cache/other"])
-            r = self.resolve(Path(d), declaration)
-            self.assertNotEqual(r.returncode, 0)
-            self.assertIn("is not that bucket", r.stderr)
-
-    def test_a_pusher_with_no_bucket_is_refused(self):
-        with tempfile.TemporaryDirectory() as d:
-            r = self.resolve(Path(d), dict(ODU_DECLARATION, pusher={"kind": "odu"}))
-            self.assertNotEqual(r.returncode, 0)
-            self.assertIn("names no bucket", r.stderr)
+            declaration = dict(ODU_DECLARATION, substituters=["https://cache.kolu.dev/kolu-r2"])
+            out = self.outputs(Path(d), declaration)
+            self.assertEqual(out["pusher"], "odu")
+            self.assertEqual(out["cache"], "https://cache.kolu.dev/kolu-r2")
 
     def test_a_pusher_kind_this_publisher_does_not_know_is_refused(self):
         with tempfile.TemporaryDirectory() as d:
-            r = self.resolve(Path(d), dict(ODU_DECLARATION, pusher={"kind": "s3", "bucket": "kolu"}))
+            r = self.resolve(Path(d), dict(ODU_DECLARATION, pusher={"kind": "s3"}))
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("not one this publisher knows", r.stderr)
 
     def test_a_misspelt_pusher_key_is_refused_rather_than_dropped(self):
         with tempfile.TemporaryDirectory() as d:
-            pusher = {"kind": "odu", "bucket": "kolu", "region": "us-east-1"}
+            pusher = {"kind": "odu", "region": "us-east-1"}
             r = self.resolve(Path(d), dict(ODU_DECLARATION, pusher=pusher))
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("does not take", r.stderr)
 
-    def test_a_pusher_origin_is_carried_beside_a_bucket_path_substituter(self):
-        """The R2 shape: the bucket is READ at `<store>/<bucket>` and PUSHED to
-        the odu origin the declaration names — no derivation from the URL."""
-        with tempfile.TemporaryDirectory() as d:
-            declaration = dict(ODU_DECLARATION,
-                               substituters=["https://cache.kolu.dev/kolu-r2"],
-                               pusher={"kind": "odu", "bucket": "kolu-r2",
-                                       "origin": "https://odu-k3s.rooster-blues.ts.net"})
-            out = self.outputs(Path(d), declaration)
-            self.assertEqual(out["odu-bucket"], "kolu-r2")
-            self.assertEqual(out["odu-origin"], "https://odu-k3s.rooster-blues.ts.net")
-            self.assertEqual(out["cache"], "https://cache.kolu.dev/kolu-r2")
-
-    def test_the_same_substituter_with_no_origin_is_still_refused(self):
-        with tempfile.TemporaryDirectory() as d:
-            declaration = dict(ODU_DECLARATION,
-                               substituters=["https://cache.kolu.dev/kolu-r2"],
-                               pusher={"kind": "odu", "bucket": "kolu-r2"})
-            r = self.resolve(Path(d), declaration)
-            self.assertNotEqual(r.returncode, 0)
-            self.assertIn("is not that bucket", r.stderr)
-
-    def test_an_empty_pusher_origin_is_refused(self):
-        with tempfile.TemporaryDirectory() as d:
-            pusher = {"kind": "odu", "bucket": "kolu", "origin": ""}
-            r = self.resolve(Path(d), dict(ODU_DECLARATION, pusher=pusher))
-            self.assertNotEqual(r.returncode, 0)
-            self.assertIn("origin must be a non-empty URL", r.stderr)
+    def test_a_declaration_still_naming_a_bucket_or_origin_is_refused(self):
+        """Both fields are retired. A stale declaration must fail here, loudly,
+        rather than have its address silently ignored."""
+        for pusher in ({"kind": "odu", "bucket": "kolu"},
+                       {"kind": "odu", "origin": "https://odu.example.invalid"}):
+            with tempfile.TemporaryDirectory() as d:
+                r = self.resolve(Path(d), dict(ODU_DECLARATION, pusher=pusher))
+                self.assertNotEqual(r.returncode, 0)
+                self.assertIn("does not take", r.stderr)
 
     def test_a_pusher_that_is_not_an_object_is_refused(self):
         with tempfile.TemporaryDirectory() as d:
             r = self.resolve(Path(d), dict(ODU_DECLARATION, pusher="odu"))
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("must be an object", r.stderr)
-
-    def test_a_non_https_substituter_is_refused_for_odu(self):
-        with tempfile.TemporaryDirectory() as d:
-            declaration = dict(ODU_DECLARATION, substituters=["http://odu.example.invalid"])
-            r = self.resolve(Path(d), declaration)
-            self.assertNotEqual(r.returncode, 0)
-            self.assertIn("not an https substituter URL", r.stderr)
 
 
 class Push(unittest.TestCase):
@@ -345,47 +311,28 @@ class Push(unittest.TestCase):
     def calls(self, root):
         return (root / "calls").read_text().splitlines()
 
-    def test_an_odu_pusher_runs_the_pinned_odu_with_the_bucket_and_its_origin(self):
+    def test_an_odu_pusher_runs_the_pinned_odu_against_the_substituter(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             write_entries(root)
-            r = self.push(root, "--cache", "https://odu.example.invalid", "--pusher", "odu", "--bucket", "kolu")
+            r = self.push(root, "--cache", "https://odu.example.invalid", "--pusher", "odu")
             self.assertEqual(r.returncode, 0, r.stderr)
             ref = f"{self.PIN['url']}?narHash={quote(self.PIN['hash'])}"
             self.assertEqual(self.calls(root), [
                 f"nix run --accept-flake-config {ref}#odu -- "
-                f"cache push kolu --origin https://odu.example.invalid {IA} {CA}",
+                f"cache push --cache https://odu.example.invalid {IA} {CA}",
             ])
 
-    def test_an_odu_bucket_served_under_a_path_keeps_the_origin(self):
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            write_entries(root)
-            r = self.push(root, "--cache", "https://odu.example.invalid/cache/kolu", "--pusher", "odu", "--bucket", "kolu")
-            self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertIn("--origin https://odu.example.invalid ", self.calls(root)[0])
-
-    def test_a_declared_origin_is_pushed_to_verbatim(self):
+    def test_the_read_url_is_handed_over_verbatim(self):
         """A bucket READ at `<store>/<bucket>` — static R2 files, unpushable —
-        is pushed to the origin the declaration names."""
+        is still the one address given: `odu cache push --cache` reads that
+        cache's `nix-cache-info` for the origin that does take a push."""
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             write_entries(root)
-            r = self.push(root, "--cache", "https://cache.kolu.dev/kolu-r2", "--pusher", "odu",
-                          "--bucket", "kolu-r2", "--origin", "https://odu-k3s.rooster-blues.ts.net")
+            r = self.push(root, "--cache", "https://cache.kolu.dev/kolu-r2", "--pusher", "odu")
             self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertIn("cache push kolu-r2 --origin https://odu-k3s.rooster-blues.ts.net ",
-                          self.calls(root)[0])
-
-    def test_an_origin_belongs_to_odu_only(self):
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            write_entries(root)
-            r = self.push(root, "--cache", "https://cache.example.invalid/oss", "--pusher", "attic",
-                          "--origin", "https://elsewhere.invalid", "--attic-nixpkgs", "x",
-                          env=dict(push_stub(root), ATTIC_TOKEN="t"))
-            self.assertNotEqual(r.returncode, 0)
-            self.assertIn("takes no --origin", r.stderr)
+            self.assertIn("cache push --cache https://cache.kolu.dev/kolu-r2 ", self.calls(root)[0])
 
     def test_an_attic_pusher_runs_the_same_three_calls_over_the_same_paths(self):
         with tempfile.TemporaryDirectory() as d:
@@ -407,34 +354,9 @@ class Push(unittest.TestCase):
             root = Path(d)
             write_entries(root)
             env = dict(push_stub(root), NIX_EXIT="1")
-            r = self.push(root, "--cache", "https://odu.example.invalid", "--pusher", "odu", "--bucket", "kolu", env=env)
+            r = self.push(root, "--cache", "https://odu.example.invalid", "--pusher", "odu", env=env)
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("exited 1", r.stderr)
-
-    def test_the_bucket_belongs_to_odu_only(self):
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            write_entries(root)
-            r = self.push(root, "--cache", "https://cache.example.invalid/oss", "--pusher", "attic",
-                         "--bucket", "kolu", "--attic-nixpkgs", "x", env=dict(push_stub(root), ATTIC_TOKEN="t"))
-            self.assertNotEqual(r.returncode, 0)
-            self.assertIn("takes no --bucket", r.stderr)
-
-    def test_an_odu_pusher_without_a_bucket_is_refused(self):
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            write_entries(root)
-            r = self.push(root, "--cache", "https://odu.example.invalid", "--pusher", "odu")
-            self.assertNotEqual(r.returncode, 0)
-            self.assertIn("needs --bucket", r.stderr)
-
-    def test_a_bucket_at_a_shape_odu_does_not_serve_is_refused(self):
-        with tempfile.TemporaryDirectory() as d:
-            root = Path(d)
-            write_entries(root)
-            r = self.push(root, "--cache", "https://odu.example.invalid/kolu", "--pusher", "odu", "--bucket", "kolu")
-            self.assertNotEqual(r.returncode, 0)
-            self.assertIn("is not that bucket", r.stderr)
 
     def test_an_attic_pusher_without_its_token_is_refused_not_skipped(self):
         with tempfile.TemporaryDirectory() as d:

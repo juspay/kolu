@@ -29,12 +29,13 @@
 # HOW that first substituter is pushed is `pusher`, OPTIONAL and null by
 # default: `{ kind = "attic"; }` (or null, which emits nothing — every
 # declaration baked before the field existed) means the publisher derives an
-# attic cache from the URL it always did; `{ kind = "odu"; bucket = "…"; }` names
-# an odu cache bucket, and its OPTIONAL `origin` names the odu server the push
-# goes to (a bucket read from object storage is not pushable at its read URL).
-# With no `origin` the publisher derives one from the substituter URL, as it
-# always did. The field is emitted ONLY when given, so a binder that
-# does not set it bakes the byte-identical declaration it baked yesterday.
+# attic cache from the URL it always did; `{ kind = "odu"; }` means the
+# substituter is an odu cache bucket, which STATES its own push origin and
+# bucket in its `nix-cache-info` (`Odu-Origin`, `Odu-Bucket`) for `odu cache
+# push --cache <substituter>` to read — so neither is spelled here, and
+# neither can drift from the cache. The field is emitted ONLY when given, so a
+# binder that does not set it bakes the byte-identical declaration it baked
+# yesterday.
 # Malformed values fail the binder's eval, like `closureIndex`.
 #
 # Both flake spellings normalize on BOTH axes: `nixConfig` values may be a
@@ -46,7 +47,7 @@
 { flakeNix # path of the flake whose nixConfig declares the caches
 , label # caller name, for the eval-time error
 , closureIndex # { repo, branch } the closures are published on, or null
-, pusher ? null # { kind = "attic"; } | { kind = "odu"; bucket = "…"; origin ? "…"; } | null
+, pusher ? null # { kind = "attic"; } | { kind = "odu"; } | null
 }:
 let
   cfg = (import flakeNix).nixConfig or null;
@@ -100,7 +101,7 @@ let
     else
       assert lib.assertMsg
         (builtins.isAttrs pusher && builtins.elem (pusher.kind or null) [ "attic" "odu" ])
-        "${label}: pusher must be null, { kind = \"attic\"; } or { kind = \"odu\"; bucket = \"…\"; }";
+        "${label}: pusher must be null, { kind = \"attic\"; } or { kind = \"odu\"; }";
       if pusher.kind == "attic" then
         assert lib.assertMsg
           (builtins.attrNames pusher == [ "kind" ])
@@ -108,13 +109,12 @@ let
         { kind = "attic"; }
       else
         assert lib.assertMsg
-          (builtins.isString (pusher.bucket or null)
-            && pusher.bucket != ""
-            && builtins.elem (builtins.attrNames pusher) [ [ "bucket" "kind" ] [ "bucket" "kind" "origin" ] ]
-            && (!(pusher ? origin) || (builtins.isString pusher.origin && pusher.origin != "")))
-          "${label}: an odu pusher needs { kind = \"odu\"; bucket = \"…\"; } and may add origin = \"https://…\";";
-        { kind = "odu"; inherit (pusher) bucket; }
-        // lib.optionalAttrs (pusher ? origin) { inherit (pusher) origin; };
+          (builtins.attrNames pusher == [ "kind" ])
+          ("${label}: an odu pusher takes only its kind — { kind = \"odu\"; }. "
+            + "`bucket` and `origin` are RETIRED: the cache states its own push "
+            + "origin and bucket in its nix-cache-info (Odu-Origin, Odu-Bucket), "
+            + "which `odu cache push --cache <substituter>` reads.");
+        { kind = "odu"; };
 in
 rec {
   substituters = require [ "extra-substituters" "substituters" ];
