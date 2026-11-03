@@ -272,17 +272,12 @@ class Pusher(unittest.TestCase):
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("not one this publisher knows", r.stderr)
 
-    def test_a_misspelt_pusher_key_is_refused_rather_than_dropped(self):
-        with tempfile.TemporaryDirectory() as d:
-            pusher = {"kind": "odu", "region": "us-east-1"}
-            r = self.resolve(Path(d), dict(ODU_DECLARATION, pusher=pusher))
-            self.assertNotEqual(r.returncode, 0)
-            self.assertIn("does not take", r.stderr)
-
-    def test_a_declaration_still_naming_a_bucket_or_origin_is_refused(self):
-        """Both fields are retired. A stale declaration must fail here, loudly,
-        rather than have its address silently ignored."""
-        for pusher in ({"kind": "odu", "bucket": "kolu"},
+    def test_any_key_beside_kind_is_refused_rather_than_dropped(self):
+        """One rule — a pusher is its kind — and it is what retires `bucket`
+        and `origin`: a stale declaration fails loudly here instead of having
+        the address it names silently ignored."""
+        for pusher in ({"kind": "odu", "region": "us-east-1"},
+                       {"kind": "odu", "bucket": "kolu"},
                        {"kind": "odu", "origin": "https://odu.example.invalid"}):
             with tempfile.TemporaryDirectory() as d:
                 r = self.resolve(Path(d), dict(ODU_DECLARATION, pusher=pusher))
@@ -294,6 +289,15 @@ class Pusher(unittest.TestCase):
             r = self.resolve(Path(d), dict(ODU_DECLARATION, pusher="odu"))
             self.assertNotEqual(r.returncode, 0)
             self.assertIn("must be an object", r.stderr)
+
+    def test_a_plaintext_substituter_is_refused_for_odu(self):
+        """The bucket token rides to `<substituter>/nix-cache-info` as a Bearer
+        header, so an `http://` cache would put the credential on the wire."""
+        with tempfile.TemporaryDirectory() as d:
+            declaration = dict(ODU_DECLARATION, substituters=["http://odu.example.invalid"])
+            r = self.resolve(Path(d), declaration)
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("is not an https substituter", r.stderr)
 
 
 class Push(unittest.TestCase):

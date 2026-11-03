@@ -102,19 +102,13 @@ let
       assert lib.assertMsg
         (builtins.isAttrs pusher && builtins.elem (pusher.kind or null) [ "attic" "odu" ])
         "${label}: pusher must be null, { kind = \"attic\"; } or { kind = \"odu\"; }";
-      if pusher.kind == "attic" then
-        assert lib.assertMsg
-          (builtins.attrNames pusher == [ "kind" ])
-          "${label}: an attic pusher takes only its kind — { kind = \"attic\"; }";
-        { kind = "attic"; }
-      else
-        assert lib.assertMsg
-          (builtins.attrNames pusher == [ "kind" ])
-          ("${label}: an odu pusher takes only its kind — { kind = \"odu\"; }. "
-            + "`bucket` and `origin` are RETIRED: the cache states its own push "
-            + "origin and bucket in its nix-cache-info (Odu-Origin, Odu-Bucket), "
-            + "which `odu cache push --cache <substituter>` reads.");
-        { kind = "odu"; };
+      assert lib.assertMsg
+        (builtins.attrNames pusher == [ "kind" ])
+        ("${label}: a pusher is its kind and nothing else — "
+          + "{ kind = \"${pusher.kind}\"; }. `bucket` and `origin` are RETIRED: an odu "
+          + "cache states its own push origin and bucket in its nix-cache-info "
+          + "(Odu-Origin, Odu-Bucket), which `odu cache push --cache <substituter>` reads.");
+      { inherit (pusher) kind; };
 in
 rec {
   substituters = require [ "extra-substituters" "substituters" ];

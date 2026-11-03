@@ -94,7 +94,9 @@ cache states the rest. An odu cache's `nix-cache-info` carries `Odu-Origin`
 the action runs `odu cache push --cache <substituter>` from its own npins pin
 (nothing unpinned, url and hash both) under `odu-cache-token` and that command
 reads both off the cache. A bucket served from object storage — read at
-`<store>/<bucket>`, pushable nowhere — needs nothing extra said about it.
+`<store>/<bucket>`, pushable nowhere — needs nothing extra said about it. The
+substituter must be `https://`: that read carries the bucket token as a Bearer
+header, so a plaintext URL is refused before anything is built.
 Verification is identical either way: it imports the published paths back out
 of the substituter URL, and a Nix binary cache is a Nix binary cache.
 
