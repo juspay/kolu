@@ -85,19 +85,18 @@ under `attic-token`, exactly as before. An odu cache bucket says so instead:
 
 ```json
 { "substituters": ["https://cache.example.dev/my-daemon"],
-  "pusher": { "kind": "odu", "bucket": "my-daemon",
-              "origin": "https://odu.example.ts.net" } }
+  "pusher": { "kind": "odu" } }
 ```
 
-The action then runs `odu cache push <bucket>` from its own npins pin (nothing
-unpinned, url and hash both) under `odu-cache-token`, against the `origin` the
-declaration names. Leave `origin` out and the origin is derived from the
-substituter instead — the domain's root or `/cache/<bucket>`, the only two
-shapes an odu server answers at the URL it is read from. A bucket served from
-object storage is read at `<store>/<bucket>` and cannot be pushed there, so it
-names its `origin`. Verification is identical either way: it imports the
-published paths back out of the substituter URL, and a Nix binary cache is a
-Nix binary cache.
+That is the whole of it: the substituter is the one address you give, and the
+cache states the rest. An odu cache's `nix-cache-info` carries `Odu-Origin`
+(the server a push is taken at) and `Odu-Bucket` (the bucket it lands in), so
+the action runs `odu cache push --cache <substituter>` from its own npins pin
+(nothing unpinned, url and hash both) under `odu-cache-token` and that command
+reads both off the cache. A bucket served from object storage — read at
+`<store>/<bucket>`, pushable nowhere — needs nothing extra said about it.
+Verification is identical either way: it imports the published paths back out
+of the substituter URL, and a Nix binary cache is a Nix binary cache.
 
 `pusher` lives in the **declaration**, so where you set it depends on who writes
 that file. A baked source takes it from `mkProvenAgentSource`:
@@ -105,7 +104,7 @@ that file. A baked source takes it from `mkProvenAgentSource`:
 ```nix
 agentSource = mkProvenAgentSource {
   # …as before…
-  pusher = { kind = "odu"; bucket = "my-daemon"; origin = "https://odu.example.ts.net"; };
+  pusher = { kind = "odu"; };
 };
 ```
 
