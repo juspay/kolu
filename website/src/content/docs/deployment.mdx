@@ -142,7 +142,7 @@ badges, or notifications.
 ## First run compiling? Enable the binary cache
 
 Every kolu commit is pre-built and pushed to a public binary cache,
-`https://cache.kolu.dev`. The flake declares it, but Nix only honors a
+`https://cache.kolu.dev/kolu-r2`. The flake declares it, but Nix only honors a
 flake-declared cache if you accept it **and** your user is
 [trusted](https://nix.dev/manual/nix/latest/command-ref/conf-file#conf-trusted-users)
 by the Nix daemon — and on a standard multi-user install it isn't, so the
@@ -155,16 +155,16 @@ To download pre-built binaries instead, add the cache to the **system** Nix
 configuration (`/etc/nix/nix.conf`):
 
 ```text
-extra-substituters = https://cache.kolu.dev
-extra-trusted-public-keys = kolu-1:eAXwD1RPt1BpFjrHfVUO8Ia0bK32WcuIeJcwFWmgj9Y=
+extra-substituters = https://cache.kolu.dev/kolu-r2
+extra-trusted-public-keys = kolu-r2-1:7KmFrK05rVrnxkyZi9hJGnJJmRCpg87u6MUQIk7nokQ=
 ```
 
 Or, on NixOS:
 
 ```nix
 nix.settings = {
-  extra-substituters = [ "https://cache.kolu.dev" ];
-  extra-trusted-public-keys = [ "kolu-1:eAXwD1RPt1BpFjrHfVUO8Ia0bK32WcuIeJcwFWmgj9Y=" ];
+  extra-substituters = [ "https://cache.kolu.dev/kolu-r2" ];
+  extra-trusted-public-keys = [ "kolu-r2-1:7KmFrK05rVrnxkyZi9hJGnJJmRCpg87u6MUQIk7nokQ=" ];
 };
 ```
 

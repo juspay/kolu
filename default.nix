@@ -141,10 +141,15 @@ let
     # step).
     closureIndex = { repo = "juspay/kolu"; branch = "ca-index"; };
     # HOW that cache is pushed: nix-cache.yml's `publish-closure` step runs
-    # `odu cache push kolu` from this repo's npins pin (the action reads the
-    # declaration's own `pusher`, never an input) — so `cache.kolu.dev` is both
-    # the substituter consumers read and the bucket this repo fills.
-    pusher = { kind = "odu"; bucket = "kolu"; };
+    # `odu cache push kolu-r2` from this repo's npins pin (the action reads the
+    # declaration's own `pusher`, never an input). Reads come from R2 —
+    # `https://cache.kolu.dev/kolu-r2`, static files nothing can push to — so
+    # the push names odu's own origin instead.
+    pusher = {
+      kind = "odu";
+      bucket = "kolu-r2";
+      origin = "https://odu-k3s.rooster-blues.ts.net";
+    };
   };
   agentFlakeSrc = agentSource.flakeSrc;
   agentFlakeRefEnv =

@@ -219,13 +219,15 @@ runs:
         PUSHER: ${{ steps.resolve.outputs.pusher }}
         CACHE: ${{ steps.resolve.outputs.cache }}
         BUCKET: ${{ steps.resolve.outputs.odu-bucket }}
+        ORIGIN: ${{ steps.resolve.outputs.odu-origin }}
         ATTIC_TOKEN: ${{ inputs.attic-token }}
         ATTIC_NIXPKGS: ${{ inputs.attic-nixpkgs }}
         ODU_CACHE_TOKEN: ${{ inputs.odu-cache-token }}
       run: |
         set -euo pipefail
         python3 "$SCRIPT" push --rev-key "$REV_KEY" --system "$SYSTEM" --directory "$OUT" \
-          --cache "$CACHE" --pusher "$PUSHER" --bucket "$BUCKET" --attic-nixpkgs "$ATTIC_NIXPKGS"
+          --cache "$CACHE" --pusher "$PUSHER" --bucket "$BUCKET" --origin "$ORIGIN" \
+          --attic-nixpkgs "$ATTIC_NIXPKGS"
 
     # What a consumer does, done here with the publishing Nix: nothing reaches
     # the index unless it imports into a fresh store and verifies.

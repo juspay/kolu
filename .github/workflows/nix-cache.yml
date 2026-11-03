@@ -1,22 +1,24 @@
 # Build every output this flake exposes, on linux + darwin, and push each
-# closure to kolu's OWN binary cache — `https://cache.kolu.dev`, the `kolu`
-# bucket on odu's public cache. The flake already lists this cache as a
-# substituter, so a green push here warms CI boxes and local `nix build`s on
-# both platforms.
+# closure to kolu's OWN binary cache — `https://cache.kolu.dev/kolu-r2`, the
+# `kolu-r2` bucket odu keeps on Cloudflare R2. The flake already lists this
+# cache as a substituter, so a green push here warms CI boxes and local
+# `nix build`s on both platforms.
 #
 # The cache is kolu's, not a shared Attic cache: odu serves it (`odu cache
-# push` is the client), it re-signs every narinfo with the `kolu-1` key the
+# push` is the client), it re-signs every narinfo with the `kolu-r2-1` key the
 # flake declares, and it drops what upstream `cache.nixos.org` already signs
 # instead of re-uploading nixpkgs.
 #
 # THE PUSH IS ONE ACTION, not a shell pipeline: odu's own push action, pinned
 # by commit, which builds the odu it pushes with out of that commit's checkout
 # and then proves what it pushed (see the step below).
-# Two facts it inherits. It talks to the cache's ADVERTISED name — the same
-# `cache.kolu.dev` every consumer substitutes from — which is safe because odu
-# chunks a NAR across requests, so Cloudflare's 100 MB per-body cap is not in
-# the way. And the push has one success: a path is STORED (`200`) or the step
-# is red. There is no in-between "the cache will catch up" answer.
+# Two facts it inherits. READS and WRITES have different addresses: consumers
+# substitute from R2 at `cache.kolu.dev/kolu-r2`, which is static files nothing
+# can push to, so the push talks to odu itself at its own origin
+# (`https://odu-k3s.rooster-blues.ts.net`, a Tailscale Funnel; the cache push
+# API takes the bucket token). And the push has one success: a path is STORED
+# (`200`) or the step is red. There is no in-between "the cache will catch up"
+# answer.
 #
 # The build set is DERIVED, never hand-listed, and derived by the one script
 # that already answers "what does this repo build" — `ci/flake-build`. This job
@@ -98,8 +100,8 @@ jobs:
       - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
         with:
           nix_conf: |
-            extra-substituters = https://cache.kolu.dev
-            extra-trusted-public-keys = kolu-1:eAXwD1RPt1BpFjrHfVUO8Ia0bK32WcuIeJcwFWmgj9Y=
+            extra-substituters = https://cache.kolu.dev/kolu-r2
+            extra-trusted-public-keys = kolu-r2-1:7KmFrK05rVrnxkyZi9hJGnJJmRCpg87u6MUQIk7nokQ=
             accept-flake-config = true
 
       # Discovery is `ci/flake-build` — the SAME script every `ci::*-nix` node
@@ -181,8 +183,9 @@ jobs:
       # given, asks the bucket what it is missing in one batched query, drops
       # what an upstream key (`cache.nixos.org-1`) signed, orders uploads by
       # dependency depth and retries each path — so the paths built above are
-      # all this step has to hand over. `origin` is the cache's advertised
-      # name: the pusher chunks a NAR, so the proxy's body cap costs nothing.
+      # all this step has to hand over. `origin` is odu's own address, not the
+      # cache's read URL: the bucket's bytes live in R2 and are only written
+      # through odu. The pusher still chunks a NAR, so no body cap binds it.
       #
       # THE PUSHER IS THE ACTION'S OWN ODU. The action builds `#odu` from the
       # checkout it lives in — its own pinned commit — so a moved branch cannot
@@ -209,10 +212,10 @@ jobs:
       # and pushes nothing, says so, and succeeds; a `push` event with no token
       # FAILS, because a cache job that goes green having warmed nothing is the
       # state this whole file exists to make impossible.
-      - uses: juspay/odu/.github/actions/push@a6d7a0e2e8c095ae0f8b56663e315926b6ce8548 # odu master: #145 merged
+      - uses: juspay/odu/.github/actions/push@9607dfe3fd7ab3d1e5d699d2b090182189b876b5 # odu master: #145 merged
         with:
-          origin: https://cache.kolu.dev
-          bucket: kolu
+          origin: https://odu-k3s.rooster-blues.ts.net
+          bucket: kolu-r2
           token: ${{ secrets.ODU_CACHE_TOKEN }}
           paths: ${{ steps.build.outputs.paths }}
           # Hold this push's closure while it is the default branch's.
@@ -260,8 +263,9 @@ jobs:
   # request rewrites, smokes and import-verifies, and writes no index.
   #
   # The action reads HOW to push from the declaration itself: kolu's agent
-  # source bakes `pusher = { kind = "odu"; bucket = "kolu"; }` (default.nix), so
-  # a push here is `odu cache push kolu` from THIS repo's npins pin, under
+  # source bakes `pusher = { kind = "odu"; bucket = "kolu-r2"; origin = "…"; }`
+  # (default.nix), so a push here is `odu cache push kolu-r2 --origin
+  # https://odu-k3s.rooster-blues.ts.net` from THIS repo's npins pin, under
   # `ODU_CACHE_TOKEN` — no client is chosen by an input.
   publish-closures:
     needs: build-and-push

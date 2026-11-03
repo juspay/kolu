@@ -19,8 +19,8 @@
   # without any nix.conf of their own. --accept-flake-config on the local nix
   # invocations accepts this same block for eval-time use.
   nixConfig = {
-    extra-substituters = "https://cache.kolu.dev";
-    extra-trusted-public-keys = "kolu-1:eAXwD1RPt1BpFjrHfVUO8Ia0bK32WcuIeJcwFWmgj9Y=";
+    extra-substituters = "https://cache.kolu.dev/kolu-r2";
+    extra-trusted-public-keys = "kolu-r2-1:7KmFrK05rVrnxkyZi9hJGnJJmRCpg87u6MUQIk7nokQ=";
   };
 
   outputs = { ... }:
