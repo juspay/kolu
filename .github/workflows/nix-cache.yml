@@ -236,7 +236,7 @@ jobs:
       # and pushes nothing, says so, and succeeds; a `push` event with no token
       # FAILS, because a cache job that goes green having warmed nothing is the
       # state this whole file exists to make impossible.
-      - uses: juspay/odu/.github/actions/push@bfb5fe2e0ee278f958e319e53b5c0c538df8d69b # odu PR #159 head (unmerged)
+      - uses: juspay/odu/.github/actions/push@306e313671bfb9b8ba80f4a804aac9dca1947aa6 # odu master: #159 merged
         with:
           token: ${{ secrets.ODU_CACHE_TOKEN }}
           paths: ${{ steps.build.outputs.paths }}
