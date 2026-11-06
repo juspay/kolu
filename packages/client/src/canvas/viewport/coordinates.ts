@@ -31,7 +31,11 @@ export function canvasTransformCSS(
  *  so we add `translate(l.x*(z-1) - panX*z + dragX, …)` to shift the
  *  post-scale top-left to the target screen position. Drag delta is added in
  *  screen-space directly (no `/zoom` divisor — `solid-dnd` reports
- *  `draggable.transform` in screen-space pixels). */
+ *  `draggable.transform` in screen-space pixels).
+ *
+ *  Snap the composed translation to device pixels to prevent hairline seams.
+ *  At zoom ≠ 100%, CSS scale can still introduce fractional interior positions
+ *  that translate rounding cannot fix — accepted, since tiles are read at 100%. */
 export function tileTransformCSS(
   layoutX: number,
   layoutY: number,
@@ -40,10 +44,12 @@ export function tileTransformCSS(
   zoom: number,
   dragX: number,
   dragY: number,
+  dpr: number,
 ): string {
   const tx = layoutX * (zoom - 1) - panX * zoom + dragX;
   const ty = layoutY * (zoom - 1) - panY * zoom + dragY;
-  return `translate(${tx}px, ${ty}px) scale(${zoom})`;
+  const snap = (v: number) => Math.round(v * dpr) / dpr;
+  return `translate(${snap(tx)}px, ${snap(ty)}px) scale(${zoom})`;
 }
 
 /** CSS background-position for the grid, tracking pan+zoom. */
