@@ -8,11 +8,14 @@
  */
 
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
+import { mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   catalogPins,
+  collectEffectPins,
   type EffectPin,
   isEffectFamily,
   literalReason,
@@ -330,4 +333,32 @@ test("no catalog at all is a hard stop, not a pass", () => {
     () => validate([vendoredPin]),
     /declares no effect-family catalog entry/,
   );
+});
+
+test("a symlinked tree is not walked — a nix out-link is not kolu's manifest", () => {
+  // `ci/flake-build --link` leaves `result-<flake>` out-links in the repo root
+  // for odu to glob and push, and `result-root-2` is `agent-flake-source`: a
+  // whole second copy of `packages/`, whose literal Effect versions are
+  // correct there and a violation here. Following it reddened `ci::fmt`'s
+  // neighbour `ci::e2e-governance` on every CI run. The walk now reads
+  // `lstatSync`, so the link is a file this gate does not open.
+  const root = mkdtempSync(join(tmpdir(), "kolu-effect-pin-"));
+  writeFileSync(
+    join(root, "pnpm-workspace.yaml"),
+    `catalog:\n  effect: ${V}\n`,
+  );
+  writeFileSync(
+    join(root, "package.json"),
+    JSON.stringify({ pnpm: { overrides: { effect: V } } }),
+  );
+  const elsewhere = mkdtempSync(join(tmpdir(), "kolu-effect-pin-store-"));
+  writeFileSync(
+    join(elsewhere, "package.json"),
+    JSON.stringify({ dependencies: { effect: "9.9.9" } }),
+  );
+  symlinkSync(elsewhere, join(root, "result-root-2"));
+
+  const paths = collectEffectPins(root).map((pin) => pin.path);
+  assert.ok(!paths.some((p) => p.startsWith("result-root-2")));
+  assert.deepEqual(paths, ["pnpm-workspace.yaml", "package.json"]);
 });
