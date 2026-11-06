@@ -96,10 +96,8 @@
 # Both lanes run it, after their own push:
 #
 #   * `ci::cache-substitutable` (ci/mod.just), `needs: nix` — on the odu lane
-#     the push is part of a node's completion: odu globs the `result*`
-#     out-links `ci/flake-build --link` leaves and pushes each closure to the
-#     cache `flake.nix` declares. So the dependency edge IS "after this lane's
-#     push", and the question has a real answer by construction.
+#     the push is part of a node's completion, so the dependency edge IS
+#     "after this lane's push".
 #   * `.github/workflows/nix-cache.yml`'s last step, after that job's own
 #     `odu cache push` — same question, darwin's lane.
 #

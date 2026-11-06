@@ -165,23 +165,19 @@ fi
 
 (( ${#outputs[@]} > 0 )) || die "nothing to build for ${system} (${flake})"
 
-# --no-link, or an out-link prefix UNIQUE to this invocation.
+# --no-link, or an out-link prefix naming the flake that was built.
 #
-# Under odu, a recipe's build outputs are collected from the filesystem after
-# it exits 0 — the runner globs `result*` in the directory the recipe ran in
-# (for this repo's `ci` module, `set working-directory := '..'`, i.e. the repo
-# root) and pushes each closure to the cache `flake.nix`'s `nixConfig` names.
-# A `--no-link` build leaves nothing to glob, so the lane warms nothing.
+# `--link` IS THE PUSH: odu collects a node's outputs by globbing `result*` in
+# the directory the recipe ran in, so a `--no-link` build warms nothing. The
+# whole mechanism is `ci/README.md`'s "The cache is warmed by the run".
 #
-# The prefix must be unique per invocation because `ci::nix`, `ci::website-nix`
-# and `ci::odu-nix` run CONCURRENTLY in that one directory and nix names a
-# multi-output build `<prefix>`, `<prefix>-2`, … — a shared prefix would have
-# three builds overwriting each other's links and pushing a partial set. Flake
-# path plus kinds is exactly what distinguishes them:
-#
-#   .                 packages,checks,devShells  → result-root-packages-checks-devShells
-#   ./website         packages,checks            → result-website-packages-checks
-#   ./ci              packages                   → result-ci-packages
+# The prefix is the FLAKE PATH and nothing else — `result-root`,
+# `result-website`, `result-ci`. One `--link` recipe per flake, so that is
+# already unique, and the links then say which flake they came from rather
+# than restating the recipe's `--kinds`. Uniqueness matters because those
+# recipes run CONCURRENTLY in one directory and nix names a multi-output build
+# `<prefix>`, `<prefix>-1`, … — a shared prefix would have two builds
+# overwriting each other's links and pushing a partial set.
 build_args=(--no-link)
 if (( link )); then
   slug=${flake#./}
@@ -191,12 +187,15 @@ if (( link )); then
   slug=${slug#-}
   slug=${slug%-}
   [[ -n $slug ]] || slug=root
-  for kind in "${kinds[@]}"; do
-    slug="${slug}-${kind}"
-  done
-  if (( nixos_toplevels )); then
-    slug="${slug}-nixos-toplevels"
-  fi
+  # nix WRITES one link per installable and never removes one a previous
+  # invocation left, so a re-run whose output set shrank would leave
+  # `result-<slug>-<n>` pointing at a path this tree no longer builds — and
+  # odu would push it, because its glob resolves whatever it finds. Each link
+  # is also an indirect GC root (`/nix/var/nix/gcroots/auto/…`), so stale ones
+  # pin dead closures on the warm pool boxes forever. Dropping this
+  # invocation's own prefix first makes the links a statement about THIS
+  # build: what is here afterwards is exactly what was built.
+  rm -f "result-${slug}" "result-${slug}"-*
   build_args=(--out-link "result-${slug}")
 fi
 

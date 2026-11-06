@@ -102,19 +102,26 @@ silently disappearing from CI.
 ## The cache is warmed by the run
 
 Linux CI builds for kolu's own binary cache. `ci/flake-build --link` leaves
-`result-<flake>-<kinds>` out-links in the repo root, and odu pushes each
-closure to the substituter `flake.nix`'s `nixConfig` already declares
-(`https://cache.kolu.dev/kolu-r2`) when the node exits 0. A push failure
-reddens the node, so a green `ci::nix` means "built **and** warmed".
+`result-<flake>` out-links in the repo root, and odu pushes each closure to
+the substituter `flake.nix`'s `nixConfig` already declares when the node exits
+0. A push failure reddens the node, so a green `ci::nix` means "built **and**
+warmed".
 
 | Node | Flake | Out-link prefix |
 | --- | --- | --- |
-| `nix` | `.` | `result-root-packages-checks-devShells` |
-| `website-nix` | `./website` | `result-website-packages-checks` |
-| `odu-nix` | `./ci` | `result-ci-packages` |
+| `nix` | `.` | `result-root` |
+| `website-nix` | `./website` | `result-website` |
+| `odu-nix` | `./ci` | `result-ci` |
 
-Prefixes are unique per invocation because those three nodes run concurrently
-in one workspace and nix names a multi-output build `<prefix>`, `<prefix>-2`, …
+One `--link` recipe per flake, so the prefixes are unique — which matters
+because those three nodes run concurrently in one workspace and nix names a
+multi-output build `<prefix>`, `<prefix>-1`, …
+
+Each `--link` build drops its own prefix's links first, so what is on disk
+afterwards is exactly what that invocation built — nix never removes a link a
+previous run left, and a stale one is both a closure odu would push and a GC
+root pinning it.
+
 Everything else keeps `--no-link`: the two example subflakes build docsites
 nobody substitutes, and `home-manager` builds NixOS toplevels and VM tests for
 an example configuration.
@@ -158,7 +165,8 @@ invokes `nix build`. Their commands remain self-contained, but start from a
 warmed store instead of running several Nix builds at once:
 
 ```text
-                   ┌─ website-nix ─ website-pnpm-hash-fresh
+                   ┌─ cache-substitutable
+                   ├─ website-nix ─ website-pnpm-hash-fresh
                    ├─ surface-examples-nix
                    ├─ solid-browser-example-nix
                    ├─ odu-nix
@@ -167,6 +175,9 @@ setup ─── nix ─────├─ home-manager (Darwin checks / Linux VM
                    ├─ smoke
                    └─ pnpm-hash-fresh
 ```
+
+`cache-substitutable` is the one child here that is not about contention: its
+edge is ordering, because odu's push happens as `nix` completes.
 
 This lengthens the critical path but lowers peak CPU, memory, and Nix-store
 contention.

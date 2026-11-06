@@ -64,10 +64,9 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 #     root evaluator/build process has exited instead of competing with it for
 #     CPU, memory, and Nix locks.
 #   * `home-manager` is the one deliberate exception — its recipe owns why.
-#   * `cache-substitutable` depends on `nix` for a different reason than the
-#     rest: not contention, but ORDER. odu pushes a node's `result*` closures
-#     as part of that node's completion, so the edge is what makes "ask the
-#     cache back" ask after this lane's own push.
+#   * `cache-substitutable`'s edge is the one that is not about contention:
+#     it is ORDER — odu's push happens as `nix` completes, so the edge is
+#     what makes "ask the cache back" ask afterwards.
 #
 # The remaining edges intentionally trade critical-path length for lower peak
 # contention.
@@ -115,32 +114,24 @@ pnpm-hash-fresh: nix
 #    gate. Step 1 already realizes the check derivations; this command exists
 #    only to validate the flake structure and evaluation.
 #
-# `--link` IS THE PUSH. odu collects a node's build outputs from the
-# filesystem — after the recipe exits 0 it globs `result*` in the directory
-# the recipe ran in (this module's `set working-directory := '..'`, so the
-# repo root) and pushes each closure to the cache `flake.nix`'s `nixConfig`
-# already names, `https://cache.kolu.dev/kolu-r2`. Without an out-link there
-# is nothing to glob and the lane warms nothing. Only the three invocations
-# the GitHub workflow used to `warm` carry it — see `ci/flake-build`'s
-# `--link` note for the per-invocation prefix, and `surface-examples-nix` /
-# `solid-browser-example-nix` / `home-manager` below for what deliberately
-# does not.
+# `--link` IS THE PUSH: odu globs `result*` in the directory the recipe ran in
+# and pushes each closure to the cache this repo already substitutes from, so
+# a `--no-link` build warms nothing (`ci/README.md`, "The cache is warmed by
+# the run"). Carried by the three invocations the GitHub workflow used to
+# `warm`; `surface-examples-nix`, `solid-browser-example-nix` and
+# `home-manager` below each own why they do not.
 nix:
     bash ci/flake-build --link .
     nix flake check --no-build --accept-flake-config -L
 
 # Ask the cache back for the closures a `--host` dial provisions, AFTER the
-# push that `ci::nix`'s out-links triggered. This is the same question
-# `.github/workflows/nix-cache.yml` asks on its own lane; here the ordering is
-# structural rather than hopeful — odu pushes a node's `result*` as part of
-# that node's completion, so `needs: nix` IS "after this lane's push".
-#
-# (It used to be unwireable for exactly that reason: with the push living in a
-# GitHub job running concurrently with the odu lanes, an odu node would have
-# been asking before the answer could be yes. The push moved into the lane.)
+# push that `ci::nix`'s out-links triggered. `needs: nix` IS that ordering:
+# odu pushes a node's `result*` as part of the node's completion, so this
+# cannot ask before the answer can be yes — which is why the check used to be
+# GitHub-only (`ci/agent-substitutable`'s header has the history).
 #
 # Reads only — no token, no credential: a narinfo GET against the public
-# substituter. See `ci/agent-substitutable`'s header for scope.
+# substituter.
 cache-substitutable: nix
     {{ nix_shell }} bash ci/agent-substitutable
 
