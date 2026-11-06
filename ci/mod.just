@@ -64,6 +64,10 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 #     root evaluator/build process has exited instead of competing with it for
 #     CPU, memory, and Nix locks.
 #   * `home-manager` is the one deliberate exception — its recipe owns why.
+#   * `cache-substitutable` depends on `nix` for a different reason than the
+#     rest: not contention, but ORDER. odu pushes a node's `result*` closures
+#     as part of that node's completion, so the edge is what makes "ask the
+#     cache back" ask after this lane's own push.
 #
 # The remaining edges intentionally trade critical-path length for lower peak
 # contention.
@@ -71,7 +75,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix agent-flake-nix agent-bake website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh
+default: nix cache-substitutable agent-flake-nix agent-bake website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -110,9 +114,35 @@ pnpm-hash-fresh: nix
 # 2. Run `nix flake check --no-build` as the whole-output evaluation/schema
 #    gate. Step 1 already realizes the check derivations; this command exists
 #    only to validate the flake structure and evaluation.
+#
+# `--link` IS THE PUSH. odu collects a node's build outputs from the
+# filesystem — after the recipe exits 0 it globs `result*` in the directory
+# the recipe ran in (this module's `set working-directory := '..'`, so the
+# repo root) and pushes each closure to the cache `flake.nix`'s `nixConfig`
+# already names, `https://cache.kolu.dev/kolu-r2`. Without an out-link there
+# is nothing to glob and the lane warms nothing. Only the three invocations
+# the GitHub workflow used to `warm` carry it — see `ci/flake-build`'s
+# `--link` note for the per-invocation prefix, and `surface-examples-nix` /
+# `solid-browser-example-nix` / `home-manager` below for what deliberately
+# does not.
 nix:
-    bash ci/flake-build .
+    bash ci/flake-build --link .
     nix flake check --no-build --accept-flake-config -L
+
+# Ask the cache back for the closures a `--host` dial provisions, AFTER the
+# push that `ci::nix`'s out-links triggered. This is the same question
+# `.github/workflows/nix-cache.yml` asks on its own lane; here the ordering is
+# structural rather than hopeful — odu pushes a node's `result*` as part of
+# that node's completion, so `needs: nix` IS "after this lane's push".
+#
+# (It used to be unwireable for exactly that reason: with the push living in a
+# GitHub job running concurrently with the odu lanes, an odu node would have
+# been asking before the answer could be yes. The push moved into the lane.)
+#
+# Reads only — no token, no credential: a narinfo GET against the public
+# substituter. See `ci/agent-substitutable`'s header for scope.
+cache-substitutable: nix
+    {{ nix_shell }} bash ci/agent-substitutable
 
 # Evaluate every remote-agent package from the exact minimal source flake baked
 # into Kolu's wrappers. The package names come from Kolu's agent manifest,
@@ -145,9 +175,11 @@ agent-flake-nix: nix
 
 # Build and schema-check the website subflake after the root Kolu build exits.
 # Packages and checks are both required; the website intentionally has no
-# development shell of its own.
+# development shell of its own. `--link` for the same reason `nix` carries it:
+# the website's closure shares nothing with the root flake (`./website` pins
+# its own nixpkgs), so this lane is its only writer.
 website-nix: nix
-    bash ci/flake-build --kinds packages,checks ./website
+    bash ci/flake-build --link --kinds packages,checks ./website
     nix flake check ./website --no-build --accept-flake-config -L
 
 # Verify website/pnpm-lock.yaml against the website subflake's declared fixed
@@ -159,19 +191,24 @@ website-pnpm-hash-fresh: website-nix
 
 # Build every Nix package shipped by the @kolu/surface examples. These depend
 # on Kolu's workspace source and pnpm closure, so run after the root Nix gate.
+#
+# No `--link`: these build docsites nobody substitutes, so they stay out of
+# the cache exactly as they stayed out of the GitHub workflow's warm set.
 surface-examples-nix: nix
     bash ci/flake-build --kinds packages ./packages/surface/example
     nix flake check ./packages/surface/example --no-build --accept-flake-config -L
 
 # Build the @kolu/solid-browser docsite from its independent example subflake.
+# No `--link`, same reason as `surface-examples-nix`.
 solid-browser-example-nix: nix
     bash ci/flake-build --kinds packages ./packages/solid-browser/example
     nix flake check ./packages/solid-browser/example --no-build --accept-flake-config -L
 
 # Build the repository-pinned Odu coordinator from ci/flake.nix. Odu drives the
 # pipeline, but its package must not make `nix run` evaluate CI tooling.
+# `--link`: `./ci` pins its own nixpkgs too, so nothing else warms it.
 odu-nix: nix
-    bash ci/flake-build --kinds packages ./ci
+    bash ci/flake-build --link --kinds packages ./ci
     nix flake check ./ci --no-build --accept-flake-config -L
 
 # Build the separate home-manager example flake. Deliberately NOT dependent on
@@ -181,6 +218,11 @@ odu-nix: nix
 # this node behind the root gate. Darwin checks the activation package and
 # launchd configuration. Linux checks the NixOS configuration and runs the
 # service, adoption, and upgrade VM tests.
+#
+# No `--link`, and never add one: these outputs are NixOS system toplevels and
+# VM-test runners for an EXAMPLE configuration. Nobody substitutes them, and a
+# machine that did would be pulling a test fixture's system closure out of
+# kolu's cache.
 home-manager:
     if [ "$(uname)" = Darwin ]; then \
       bash ci/flake-build --kinds checks ./nix/home/example -- --override-input kolu .; \

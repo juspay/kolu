@@ -14,12 +14,16 @@
 #   --require KIND[,KIND...]   Kinds that must be non-empty (default: same as --kinds)
 #   --nixos-toplevels          Also build same-system nixosConfigurations.*.config.system.build.toplevel
 #                              (optional; empty is fine — Darwin has none)
+#   --link                     Leave `result-*` out-links instead of --no-link, so a
+#                              caller that collects build outputs from the filesystem
+#                              (odu's post-recipe `result*` push) can see them
 #
 # NIX_ARGS (after --, or any --override-input / --accept-flake-config style flag
 # once FLAKE is set) are passed to every `nix eval` and the final `nix build`.
 #
 # Examples:
 #   ci/flake-build .
+#   ci/flake-build --link --kinds packages,checks ./website
 #   ci/flake-build --kinds checks --nixos-toplevels ./nix/home/example -- --override-input kolu .
 
 set -euo pipefail
@@ -28,9 +32,10 @@ kinds=(packages checks devShells)
 require=()
 require_set=0
 nixos_toplevels=0
+link=0
 flake=""
 # Expanded as ${nix_args[@]:+"${nix_args[@]}"} at every use site, never as a
-# bare "${nix_args[@]}". Under `set -u` (line 24), bash BEFORE 4.4 treats an
+# bare "${nix_args[@]}". Under `set -u` above, bash BEFORE 4.4 treats an
 # empty array's expansion as an unbound variable and dies. Every caller used to
 # reach this script through a Nix-provided bash 5.x, so the bug was unreachable
 # — until GitHub Actions' macos-latest image, whose /bin/bash is 3.2, became a
@@ -43,8 +48,10 @@ die() {
   exit 1
 }
 
+# The header block above IS the help text — derived, never a line range, so
+# editing the header cannot silently truncate `--help`.
 usage() {
-  sed -n '2,24p' "$0" | sed 's/^# \?//'
+  awk 'NR > 1 && !/^#/ { exit } NR > 1' "$0" | sed 's/^# \?//'
   exit 2
 }
 
@@ -75,6 +82,10 @@ while (( $# > 0 )); do
       ;;
     --nixos-toplevels)
       nixos_toplevels=1
+      shift
+      ;;
+    --link)
+      link=1
       shift
       ;;
     --)
@@ -154,6 +165,41 @@ fi
 
 (( ${#outputs[@]} > 0 )) || die "nothing to build for ${system} (${flake})"
 
-nix build -L --no-link --print-out-paths \
+# --no-link, or an out-link prefix UNIQUE to this invocation.
+#
+# Under odu, a recipe's build outputs are collected from the filesystem after
+# it exits 0 — the runner globs `result*` in the directory the recipe ran in
+# (for this repo's `ci` module, `set working-directory := '..'`, i.e. the repo
+# root) and pushes each closure to the cache `flake.nix`'s `nixConfig` names.
+# A `--no-link` build leaves nothing to glob, so the lane warms nothing.
+#
+# The prefix must be unique per invocation because `ci::nix`, `ci::website-nix`
+# and `ci::odu-nix` run CONCURRENTLY in that one directory and nix names a
+# multi-output build `<prefix>`, `<prefix>-2`, … — a shared prefix would have
+# three builds overwriting each other's links and pushing a partial set. Flake
+# path plus kinds is exactly what distinguishes them:
+#
+#   .                 packages,checks,devShells  → result-root-packages-checks-devShells
+#   ./website         packages,checks            → result-website-packages-checks
+#   ./ci              packages                   → result-ci-packages
+build_args=(--no-link)
+if (( link )); then
+  slug=${flake#./}
+  slug=${slug%/}
+  slug=${slug//[^A-Za-z0-9]/-}
+  while [[ $slug == *--* ]]; do slug=${slug//--/-}; done
+  slug=${slug#-}
+  slug=${slug%-}
+  [[ -n $slug ]] || slug=root
+  for kind in "${kinds[@]}"; do
+    slug="${slug}-${kind}"
+  done
+  if (( nixos_toplevels )); then
+    slug="${slug}-nixos-toplevels"
+  fi
+  build_args=(--out-link "result-${slug}")
+fi
+
+nix build -L "${build_args[@]}" --print-out-paths \
   ${nix_args[@]:+"${nix_args[@]}"} \
   "${outputs[@]}"

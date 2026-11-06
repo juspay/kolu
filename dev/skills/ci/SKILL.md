@@ -30,7 +30,12 @@ master's required-status set is linux-only.
 **Never run `aarch64-darwin` unless the user asks for it in THIS
 conversation.** Not "to be safe", not because a change looks platform-shaped.
 Darwin's Nix closure is built by `.github/workflows/nix-cache.yml` on every
-push — that lane is GitHub's to drive, not yours.
+push — that lane is GitHub's to drive, not yours. The **linux** warm is no
+longer there: your run does it. `ci::nix` / `ci::website-nix` / `ci::odu-nix`
+leave `result*` out-links and odu pushes each closure to
+`https://cache.kolu.dev/kolu-r2`; `ci::cache-substitutable` asks the cache
+back. A red `ci::nix` can therefore mean "the push failed", and a red
+`ci::cache-substitutable` means the lane warmed nothing.
 
 **Kolu's Linux pool:** `just ci::pool-ensure` / `just ci::pool-status` keep the
 warm `kolu-ci-1..N` boxes healthy; odu leases them natively. Warm idle slots by

@@ -33,7 +33,7 @@
 # it: EVERY job, each with one matrix dimension and one flow sequence of values
 # (`build-and-push` warms the cache; `publish-closures` writes the closure
 # index a trust-free remote dial reads — both deploy-critical, both gated). A hardcoded
-# `build-and-push (ubuntu-latest)` here would be a second source of truth that
+# `build-and-push (macos-latest)` here would be a second source of truth that
 # goes stale the day the job or the matrix is renamed — and it would go stale
 # SILENTLY, by requiring a context nothing posts (which blocks every merge) or
 # by dropping one nothing gates (which restores the incident above).
@@ -161,10 +161,15 @@ gha_contexts() {
           print job " (" item ")"
           emitted++
         }
-        # A one-platform gate is the single-platform-subset bug the
-        # `--platform` pinning below exists to prevent, in the other half of
-        # the required set.
-        if (emitted < 2) bail("matrix `" dimension[j] ":` of job `" job "` yields " emitted " context(s), expected at least 2")
+        # A job must still yield at least ONE context — an empty matrix would
+        # silently drop a deploy-critical gate, which is the whole point of
+        # this parse. Two is no longer the floor: `build-and-push` is
+        # deliberately `[macos-latest]` alone, because x86_64-linux is warmed
+        # and verified on the odu lane (`ci::nix` pushes its `result*`
+        # closures, `ci::cache-substitutable` asks the cache back) and the
+        # contexts of that lane are the other half of this set. A linux warm
+        # is therefore gated, just not by GitHub Actions.
+        if (emitted == 0) bail("matrix `" dimension[j] ":` of job `" job "` yields no contexts")
       }
     }
   ' "$1"
@@ -225,7 +230,7 @@ fi
 
 echo "ci/protect: enrolling the ${workflow##*/} contexts on ${repo}@${branch}:"
 # An ARRAY, not a string: every one of these names contains a space
-# (`build-and-push (ubuntu-latest)`), so an unquoted word-split would post two
+# (`build-and-push (macos-latest)`), so an unquoted word-split would post two
 # mangled contexts instead of one real one — and the read-back below would then
 # fail on a branch whose gate had already been replaced.
 gh_args=()

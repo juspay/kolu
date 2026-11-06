@@ -47,7 +47,9 @@ Every reachable recipe is attributed for both `x86_64-linux` and
 on **`x86_64-linux`** — that is what `ci/protect` pins and what agents run.
 Add `aarch64-darwin` explicitly (`platforms=`, or `--platform aarch64-darwin`
 for `just ci::protect`) when you actually want the darwin lane. Darwin's Nix
-closure is still built on every push by `.github/workflows/nix-cache.yml`.
+closure is built on every push by `.github/workflows/nix-cache.yml`, which is
+darwin-only for exactly that reason — the linux closure is warmed by this
+pipeline itself (below).
 
 Lane hosts come from `$ODU_HOSTS`, then `~/.config/odu/hosts.json`, with
 `~/.config/justci/hosts.json` accepted as the legacy location. A localhost lane
@@ -96,6 +98,31 @@ proof: Vite and `tsx` transpile without checking types.
 The `daemon` node is separate from `unit` because it forks real padi and kaval
 processes. Keeping it explicit prevents the default-off daemon suites from
 silently disappearing from CI.
+
+## The cache is warmed by the run
+
+Linux CI builds for kolu's own binary cache. `ci/flake-build --link` leaves
+`result-<flake>-<kinds>` out-links in the repo root, and odu pushes each
+closure to the substituter `flake.nix`'s `nixConfig` already declares
+(`https://cache.kolu.dev/kolu-r2`) when the node exits 0. A push failure
+reddens the node, so a green `ci::nix` means "built **and** warmed".
+
+| Node | Flake | Out-link prefix |
+| --- | --- | --- |
+| `nix` | `.` | `result-root-packages-checks-devShells` |
+| `website-nix` | `./website` | `result-website-packages-checks` |
+| `odu-nix` | `./ci` | `result-ci-packages` |
+
+Prefixes are unique per invocation because those three nodes run concurrently
+in one workspace and nix names a multi-output build `<prefix>`, `<prefix>-2`, …
+Everything else keeps `--no-link`: the two example subflakes build docsites
+nobody substitutes, and `home-manager` builds NixOS toplevels and VM tests for
+an example configuration.
+
+`cache-substitutable` then asks the cache back for the remote-agent closures a
+`--host` dial provisions (`ci/agent-substitutable`, read-only, no token). Its
+`needs: nix` edge is what makes it ask *after* this lane's push — the push is
+part of the node's completion, not a separate job racing it.
 
 ## Sharding the browser lane
 

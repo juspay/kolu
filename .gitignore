@@ -3,7 +3,9 @@ dist/
 # …except the self-contained Atlas output, committed for in-app Code-tab preview.
 !/docs/atlas/dist/
 !/docs/atlas/dist/**
-result
+# `result`, plus the `result-<flake>-<kinds>` out-links `ci/flake-build --link`
+# leaves for odu to glob and push (ci/mod.just's `nix`, `website-nix`, `odu-nix`).
+result*
 .direnv/
 # Claude Code per-user state (not vendored)
 .claude/worktrees/
