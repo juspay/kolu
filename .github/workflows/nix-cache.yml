@@ -1,8 +1,19 @@
-# Build every output this flake exposes, on linux + darwin, and push each
-# closure to kolu's OWN binary cache — `https://cache.kolu.dev/kolu-r2`, the
-# `kolu-r2` bucket odu keeps on Cloudflare R2. The flake already lists this
-# cache as a substituter, so a green push here warms CI boxes and local
-# `nix build`s on both platforms.
+# Push kolu's closures to its OWN binary cache — `https://cache.kolu.dev/kolu-r2`,
+# the `kolu-r2` bucket odu keeps on Cloudflare R2. The flake already lists this
+# cache as a substituter, so a green push warms CI boxes and local `nix build`s.
+#
+# THIS FILE WRITES THE CACHE FOR DARWIN ONLY. `odu ci run` pushes every
+# recipe's `result*` closure to the cache the repo's `flake.nix` `nixConfig`
+# names, so the x86_64-linux warm is `ci::nix` (+ `ci::website-nix`,
+# `ci::odu-nix`), verified by `ci::cache-substitutable` on the same lane. One
+# linux build, on the lane that already had to do it, instead of a second one
+# here. Darwin has no odu lane in this repo's gate (`ci/protect` pins
+# x86_64-linux), so darwin stays GitHub's job.
+#
+# `publish-closures` still runs on BOTH, and its ubuntu leg no longer has a
+# linux warm from this file to lean on — the tradeoff is spelled out at that
+# job. Read "darwin-only" as a statement about who WRITES the cache here, not
+# about which systems this workflow touches.
 #
 # The cache is kolu's, not a shared Attic cache: odu serves it (`odu cache
 # push` is the client), it re-signs every narinfo with the `kolu-r2-1` key the
@@ -16,11 +27,13 @@
 # ONE FACT, not three. The step is given the SUBSTITUTER URL this repo already
 # substitutes from (`https://cache.kolu.dev/kolu-r2`); that cache states where
 # a push is taken and which bucket it lands in in its own `nix-cache-info`
-# (`Odu-Origin`, `Odu-Bucket`), which `odu cache push --cache` reads. Reads
-# come from R2 — static files nothing can push to — so the two addresses
-# genuinely differ; the cache is what reconciles them, not this file. And the
-# push has one success: a path is STORED (`200`) or the step is red. There is
-# no in-between "the cache will catch up" answer.
+# (`Odu-Origin`, `Odu-Bucket`). Reads come from R2 — static files nothing can
+# push to — so the two addresses genuinely differ; the cache is what
+# reconciles them, not this file. The URL is named here rather than inferred
+# from `flake.nix` because odu's pusher only authenticates to a URL the
+# operator named (juspay/odu#163). And the push has one success: a path is
+# STORED (`200`) or the step is red. There is no in-between "the cache will
+# catch up" answer.
 #
 # The build set is DERIVED, never hand-listed, and derived by the one script
 # that already answers "what does this repo build" — `ci/flake-build`. This job
@@ -66,12 +79,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # ubuntu-latest → x86_64-linux; macos-latest → aarch64-darwin
-        # (GitHub's current macos-latest image). Covers the two platforms
-        # that actually run kolu day-to-day; aarch64-linux stays out of the
-        # matrix until something needs it warmed (x86_64-darwin is no longer a
-        # kolu system at all — agent-distro does not build there).
-        os: [ubuntu-latest, macos-latest]
+        # macos-latest → aarch64-darwin (GitHub's current image). ONE entry on
+        # purpose: x86_64-linux is warmed by the odu lanes (`ci::nix` and its
+        # subflake siblings leave `result*` out-links; odu pushes each closure
+        # as part of the node's completion) and verified there by
+        # `ci::cache-substitutable`. Darwin has no odu lane in the gate, so it
+        # is warmed here. The cost is at `publish-closures`, whose ubuntu leg
+        # loses the in-workflow warm it used to inherit — stated in full at
+        # that job. aarch64-linux stays out until something needs it warmed;
+        # x86_64-darwin is no longer a kolu system at all — agent-distro does
+        # not build there.
+        os: [macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       # `ref:` is LOAD-BEARING on `pull_request`. actions/checkout defaults to
@@ -107,13 +125,16 @@ jobs:
             accept-flake-config = true
 
       # Discovery is `ci/flake-build` — the SAME script every `ci::*-nix` node
-      # already uses (ci/mod.just:90, :124, :148). It enumerates attrNames of
-      # the flake's own outputs, dies loudly when a required kind is empty, and
-      # ends in `nix build -L --no-link --print-out-paths`, so its stdout IS the
-      # list of built artifacts (`-L` logs go to stderr). Warming the cache and
-      # building in CI are therefore the same question with one answer; a job
-      # that spelled the question itself could drift from `ci::nix` again, which
-      # is exactly how `padi-agent` stayed cold and unnoticed.
+      # already uses (`nix`, `website-nix`, `odu-nix` in ci/mod.just). It
+      # enumerates attrNames of the flake's own outputs, dies loudly when a
+      # required kind is empty, and ends in `nix build -L … --print-out-paths`,
+      # so its stdout IS the list of built artifacts (`-L` logs go to stderr).
+      # Those nodes pass `--link` so odu can push what they built from the
+      # out-links; this job pushes an explicit path list, so it does not.
+      # Warming the cache and building in CI are therefore the same question
+      # with one answer; a job that spelled the question itself could drift
+      # from `ci::nix` again, which is exactly how `padi-agent` stayed cold
+      # and unnoticed.
       #
       # We push the closures of the built outputs, NOT a before/after diff of
       # `nix path-info --all`. The diff inferred "what this build produced" from
@@ -158,7 +179,7 @@ jobs:
           }
           warm .
           # The nested flakes, with the SAME --kinds their own CI nodes use
-          # (ci/mod.just:124, :148). These have closures that share nothing with
+          # (`website-nix`, `odu-nix`). These have closures that share nothing with
           # the root flake — ./ci pins its own nixpkgs — so nothing else warms
           # them and they were being rebuilt cold on every run, forever.
           # `pages.yml` reads this cache but never writes it, so the website's
@@ -185,10 +206,11 @@ jobs:
       # given, asks the bucket what it is missing in one batched query, drops
       # what an upstream key (`cache.nixos.org-1`) signed, orders uploads by
       # dependency depth and retries each path — so the paths built above are
-      # all this step has to hand over. `cache` is the read URL above, and the
-      # action resolves the push origin from that cache's own `nix-cache-info`:
-      # the bucket's bytes live in R2 and are only written through odu. The
-      # pusher still chunks a NAR, so no body cap binds it.
+      # all this step has to hand over. `cache` is the read URL this repo
+      # substitutes from, and the action resolves the push origin from that
+      # cache's own `nix-cache-info`: the bucket's bytes live in R2 and are
+      # only written through odu. The pusher still chunks a NAR, so no body
+      # cap binds it.
       #
       # THE PUSHER IS THE ACTION'S OWN ODU. The action builds `#odu` from the
       # checkout it lives in — its own pinned commit — so a moved branch cannot
@@ -215,10 +237,14 @@ jobs:
       # and pushes nothing, says so, and succeeds; a `push` event with no token
       # FAILS, because a cache job that goes green having warmed nothing is the
       # state this whole file exists to make impossible.
-      - uses: juspay/odu/.github/actions/push@d82ae6652d1645f124ac3f3a7c110cfdfdc97871 # odu master: #150 merged
+      - uses: juspay/odu/.github/actions/push@306e313671bfb9b8ba80f4a804aac9dca1947aa6 # odu master: #159 merged
         with:
-          cache: https://cache.kolu.dev/kolu-r2
           token: ${{ secrets.ODU_CACHE_TOKEN }}
+          # EXPLICIT, not inferred. odu #159 made this input optional (infer
+          # from `./flake.nix`'s `nixConfig`), but its push client sends a
+          # token only to a URL the OPERATOR named, so an inferred substituter
+          # pushes anonymously and the bucket answers 401 — juspay/odu#163.
+          cache: https://cache.kolu.dev/kolu-r2
           paths: ${{ steps.build.outputs.paths }}
           # Hold this push's closure while it is the default branch's.
           pin: ${{ github.ref_name == github.event.repository.default_branch }}
@@ -237,11 +263,14 @@ jobs:
       # cannot, cover the artifact an operator ships — see `ci/agent-preflight`,
       # which is the deploy-host half of this.
       #
-      # Placed HERE and not in `ci/mod.just` on purpose: the odu lanes run
-      # concurrently with this job on the same commit, so an odu node would be
-      # asking before the answer could be yes. After our own push, in our own
-      # job, the question has a real answer — and a red here means the exact
-      # thing it says, on both platforms the matrix covers.
+      # Also a node on the odu lane now (`ci::cache-substitutable`, `needs:
+      # nix`): odu pushes a node's `result*` closures as part of that node's
+      # completion, so on linux the dependency edge already means "after this
+      # lane's push". It could not live there while the push was a GitHub job
+      # running concurrently with the odu lanes — an odu node would have been
+      # asking before the answer could be yes. Here it stays because darwin
+      # has no odu lane, and the question has a real answer after our own
+      # push, in our own job.
       #
       # It is a HARD failure, not a warning. A soft-fail would restore the state
       # this whole job was already in during the incident: green, and cold.
@@ -257,12 +286,28 @@ jobs:
   # The agents' content-addressed builds and the index naming them, so a dial
   # from a published revision has the host pull its daemon with NO trust — no
   # `trusted-users`, no cache key (`@kolu/surface-remote`'s `provisionAgent`
-  # index step; `.github/actions/publish-closure` is the publisher). After
-  # `build-and-push` so the input-addressed closures are already in the cache
-  # this job substitutes from. Its own job because the action installs the Nix
-  # it rewrites with (2.34.8 — see its `action.yml`), which must be the job's
-  # only Nix. kolu's `ca-index` branch is born by the first master push; a pull
-  # request rewrites, smokes and import-verifies, and writes no index.
+  # index step; `.github/actions/publish-closure` is the publisher). Its own
+  # job because the action installs the Nix it rewrites with (2.34.8 — see its
+  # `action.yml`), which must be the job's only Nix. kolu's `ca-index` branch
+  # is born by the first master push; a pull request rewrites, smokes and
+  # import-verifies, and writes no index.
+  #
+  # `needs: build-and-push` IS ONLY A WARM FOR DARWIN NOW, and that asymmetry
+  # is deliberate. The action realises `source` and every exposed attr with its
+  # own `nix build` on the runner's system (`publish-closure.py`), which
+  # substitutes from `cache.kolu.dev/kolu-r2` (`accept-flake-config = true` in
+  # its `action.yml`). On macOS the job above just pushed those closures. On
+  # ubuntu the writer is the odu lane, which is a different system with no
+  # ordering relationship to this workflow — so the ubuntu leg SUBSTITUTES when
+  # the lane landed the commit first and BUILDS the agent closure itself
+  # otherwise.
+  #
+  # That is the price of not building linux twice, and it is paid in runner
+  # minutes on the uncommon path, never in correctness: the index this job
+  # writes is content-addressed from the closure it realised, so a self-built
+  # one is identical to a substituted one. Restoring `ubuntu-latest` to
+  # `build-and-push` would buy the warm back at the cost of the second full
+  # linux build this PR exists to remove.
   #
   # The action reads HOW to push from the declaration itself: kolu's agent
   # source bakes `pusher = { kind = "odu"; }` (default.nix), so a push here is

@@ -33,12 +33,14 @@
 # 2-second nuisance for a warm closure and an outage for a cold one — it was
 # observed on a real production deploy (juspay/kolu#2101, F5(a)).
 #
-# `.github/workflows/nix-cache.yml` pushes every flake output to that cache, so
-# "the push covers padi-agent" is true by construction. What was NOT true is
-# that the push covered the COMMIT people deploy: on `pull_request` the job
-# checked out `refs/pull/N/merge`, a synthetic tree nobody ever builds, so a
-# branch head's agent closure was never warmed. This script is the assertion
-# that closes the loop — it does not trust the push, it QUERIES the cache.
+# Every flake output reaches that cache — `ci::nix` on the odu linux lane
+# (`ci/flake-build --link`, pushed by odu), `.github/workflows/nix-cache.yml`
+# on darwin — so "the push covers padi-agent" is true by construction. What
+# was NOT true is that the push covered the COMMIT people deploy: on
+# `pull_request` the job checked out `refs/pull/N/merge`, a synthetic tree
+# nobody ever builds, so a branch head's agent closure was never warmed. This
+# script is the assertion that closes the loop — it does not trust the push,
+# it QUERIES the cache.
 #
 # EVERY INPUT IS DERIVED, NOTHING IS SPELLED TWICE
 # ------------------------------------------------
@@ -89,14 +91,21 @@
 # answers. Requiring ALL of them would fail the day someone declares a cache
 # this repo is not the publisher for.
 #
-# WHY THIS IS NOT AN `odu` CI RECIPE
-# -----------------------------------
-# It is deliberately NOT wired into `ci/mod.just`'s DAG. The odu lanes and the
-# GitHub-hosted cache push run concurrently on the same commit, so an odu node
-# asking "is this in the cache yet?" would be asking before the answer can be
-# yes — a check that goes red for a reason unrelated to the change under
-# review. It runs in `nix-cache.yml` AFTER that job's own push, where
-# the answer is a real verdict about work the same job just did.
+# WHO RUNS THIS, AND WHY THE ORDERING IS NOW STRUCTURAL
+# ------------------------------------------------------
+# Both lanes run it, after their own push:
+#
+#   * `ci::cache-substitutable` (ci/mod.just), `needs: nix` — on the odu lane
+#     the push is part of a node's completion, so the dependency edge IS
+#     "after this lane's push".
+#   * `.github/workflows/nix-cache.yml`'s last step, after that job's own
+#     `odu cache push` — same question, darwin's lane.
+#
+# This used to be GitHub-only, and deliberately so: when the push lived in a
+# GitHub job that ran CONCURRENTLY with the odu lanes on the same commit, an
+# odu node would have been asking before the answer could be yes — red for a
+# reason unrelated to the change under review. The push moved into the lane,
+# so the race it avoided no longer exists.
 #
 # IT TAKES A FLAKE REF, BECAUSE CI IS NOT WHAT SHIPS
 # ---------------------------------------------------

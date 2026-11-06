@@ -47,7 +47,9 @@ Every reachable recipe is attributed for both `x86_64-linux` and
 on **`x86_64-linux`** — that is what `ci/protect` pins and what agents run.
 Add `aarch64-darwin` explicitly (`platforms=`, or `--platform aarch64-darwin`
 for `just ci::protect`) when you actually want the darwin lane. Darwin's Nix
-closure is still built on every push by `.github/workflows/nix-cache.yml`.
+closure is built on every push by `.github/workflows/nix-cache.yml`, which is
+darwin-only for exactly that reason — the linux closure is warmed by this
+pipeline itself (below).
 
 Lane hosts come from `$ODU_HOSTS`, then `~/.config/odu/hosts.json`, with
 `~/.config/justci/hosts.json` accepted as the legacy location. A localhost lane
@@ -97,6 +99,44 @@ The `daemon` node is separate from `unit` because it forks real padi and kaval
 processes. Keeping it explicit prevents the default-off daemon suites from
 silently disappearing from CI.
 
+## The cache is warmed by the run
+
+Linux CI builds for kolu's own binary cache. `ci/flake-build --link` leaves
+`result-<flake>` out-links in the repo root, and odu pushes each closure to
+the substituter `flake.nix`'s `nixConfig` already declares when the node exits
+0. A push failure reddens the node, so a green `ci::nix` means "built **and**
+warmed".
+
+| Node | Flake | Out-link prefix |
+| --- | --- | --- |
+| `nix` | `.` | `result-root` |
+| `website-nix` | `./website` | `result-website` |
+| `odu-nix` | `./ci` | `result-ci` |
+
+One `--link` recipe per flake, so the prefixes are unique — which matters
+because those three nodes run concurrently in one workspace and nix names a
+multi-output build `<prefix>`, `<prefix>-1`, …
+
+Each `--link` build drops its own prefix's links first, so what is on disk
+afterwards is exactly what that invocation built — nix never removes a link a
+previous run left, and a stale one is both a closure odu would push and a GC
+root pinning it.
+
+Everything else keeps `--no-link`: the two example subflakes build docsites
+nobody substitutes, and `home-manager` builds NixOS toplevels and VM tests for
+an example configuration.
+
+`cache-substitutable` then asks the cache back for the remote-agent closures a
+`--host` dial provisions (`ci/agent-substitutable`, read-only, no token). Its
+`needs: nix` edge is what makes it ask *after* this lane's push — the push is
+part of the node's completion, not a separate job racing it.
+
+It verifies **this run's** push, so it asks only when this run pushed. odu sets
+`ODU_CACHE_ORIGIN` / `ODU_CACHE_BUCKET` in a recipe's environment exactly when
+it is pushing that lane's outputs; a daemon serving no `kolu-r2` sets neither
+and the node says so and passes. Whether a run pushed at all is
+`run_read`'s `push.target` and the `_ci-setup` log, not this node.
+
 ## Sharding the browser lane
 
 `e2e` is the one sharded node. It carries `[metadata("odu:shard=4")]`, so on a
@@ -131,7 +171,8 @@ invokes `nix build`. Their commands remain self-contained, but start from a
 warmed store instead of running several Nix builds at once:
 
 ```text
-                   ┌─ website-nix ─ website-pnpm-hash-fresh
+                   ┌─ cache-substitutable
+                   ├─ website-nix ─ website-pnpm-hash-fresh
                    ├─ surface-examples-nix
                    ├─ solid-browser-example-nix
                    ├─ odu-nix
@@ -140,6 +181,9 @@ setup ─── nix ─────├─ home-manager (Darwin checks / Linux VM
                    ├─ smoke
                    └─ pnpm-hash-fresh
 ```
+
+`cache-substitutable` is the one child here that is not about contention: its
+edge is ordering, because odu's push happens as `nix` completes.
 
 This lengthens the critical path but lowers peak CPU, memory, and Nix-store
 contention.

@@ -4,6 +4,11 @@ dist/
 !/docs/atlas/dist/
 !/docs/atlas/dist/**
 result
+# The out-links `ci/flake-build --link` leaves for odu to push (ci/README.md,
+# "The cache is warmed by the run"). Anchored: they only ever land in the repo
+# root, so a bare `result*` would only buy the power to hide a future
+# `src/resultSchema.ts`.
+/result-*
 .direnv/
 # Claude Code per-user state (not vendored)
 .claude/worktrees/

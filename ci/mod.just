@@ -64,6 +64,9 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 #     root evaluator/build process has exited instead of competing with it for
 #     CPU, memory, and Nix locks.
 #   * `home-manager` is the one deliberate exception — its recipe owns why.
+#   * `cache-substitutable`'s edge is the one that is not about contention:
+#     it is ORDER — odu's push happens as `nix` completes, so the edge is
+#     what makes "ask the cache back" ask afterwards.
 #
 # The remaining edges intentionally trade critical-path length for lower peak
 # contention.
@@ -71,7 +74,7 @@ nix_shell := if env('IN_NIX_SHELL', '') != '' { '' } else { 'nix develop --accep
 [macos]
 [parallel]
 [metadata("ci")]
-default: nix agent-flake-nix agent-bake website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh
+default: nix cache-substitutable agent-flake-nix agent-bake website-nix website-pnpm-hash-fresh surface-examples-nix solid-browser-example-nix odu-nix home-manager e2e e2e-governance dev-smoke smoke fmt biome unit daemon upgrade-window surface-example-build surface-app-example-build pnpm-hash-fresh
 
 # Single per-platform `pnpm install`. The runner fans every recipe out into
 # its own process and starts them all in parallel as soon as setup completes,
@@ -110,9 +113,45 @@ pnpm-hash-fresh: nix
 # 2. Run `nix flake check --no-build` as the whole-output evaluation/schema
 #    gate. Step 1 already realizes the check derivations; this command exists
 #    only to validate the flake structure and evaluation.
+#
+# `--link` IS THE PUSH: odu globs `result*` in the directory the recipe ran in
+# and pushes each closure to the cache this repo already substitutes from, so
+# a `--no-link` build warms nothing (`ci/README.md`, "The cache is warmed by
+# the run"). Carried by the three invocations the GitHub workflow used to
+# `warm`; `surface-examples-nix`, `solid-browser-example-nix` and
+# `home-manager` below each own why they do not.
 nix:
-    bash ci/flake-build .
+    bash ci/flake-build --link .
     nix flake check --no-build --accept-flake-config -L
+
+# Ask the cache back for the closures a `--host` dial provisions, AFTER the
+# push that `ci::nix`'s out-links triggered. `needs: nix` IS that ordering:
+# odu pushes a node's `result*` as part of the node's completion, so this
+# cannot ask before the answer can be yes — which is why the check used to be
+# GitHub-only (`ci/agent-substitutable`'s header has the history).
+#
+# Reads only — no token, no credential: a narinfo GET against the public
+# substituter.
+#
+# IT VERIFIES THIS RUN'S PUSH, so it asks only when this run pushed. odu puts
+# `ODU_CACHE_ORIGIN`/`ODU_CACHE_BUCKET` in a recipe's environment exactly when
+# it is pushing that lane's `result*` (the token is stripped before the recipe
+# sees it); with no cache target it sets neither and says "not pushing: …" in
+# `_ci-setup`. A daemon that serves no kolu-r2 — anybody's laptop — would
+# otherwise red this node on every commit that moves the agent source, for a
+# push it was never going to make. Same rule `.github/workflows/nix-cache.yml`
+# already applies to a fork PR: pushed nothing, so nothing of its own to
+# verify. The skip is LOUD, and `run_read`'s `push.target` is the other half
+# of the story.
+cache-substitutable: nix
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -z "${ODU_CACHE_BUCKET:-}" ]; then
+      echo "ci::cache-substitutable: this run pushed nothing — odu set no ODU_CACHE_BUCKET (see _ci-setup's 'not pushing' line), so there is no push of its own to ask the cache about."
+      exit 0
+    fi
+    echo "ci::cache-substitutable: verifying this run's push to bucket ${ODU_CACHE_BUCKET}"
+    {{ nix_shell }} bash ci/agent-substitutable
 
 # Evaluate every remote-agent package from the exact minimal source flake baked
 # into Kolu's wrappers. The package names come from Kolu's agent manifest,
@@ -145,9 +184,11 @@ agent-flake-nix: nix
 
 # Build and schema-check the website subflake after the root Kolu build exits.
 # Packages and checks are both required; the website intentionally has no
-# development shell of its own.
+# development shell of its own. `--link` for the same reason `nix` carries it:
+# the website's closure shares nothing with the root flake (`./website` pins
+# its own nixpkgs), so this lane is its only writer.
 website-nix: nix
-    bash ci/flake-build --kinds packages,checks ./website
+    bash ci/flake-build --link --kinds packages,checks ./website
     nix flake check ./website --no-build --accept-flake-config -L
 
 # Verify website/pnpm-lock.yaml against the website subflake's declared fixed
@@ -159,19 +200,24 @@ website-pnpm-hash-fresh: website-nix
 
 # Build every Nix package shipped by the @kolu/surface examples. These depend
 # on Kolu's workspace source and pnpm closure, so run after the root Nix gate.
+#
+# No `--link`: these build docsites nobody substitutes, so they stay out of
+# the cache exactly as they stayed out of the GitHub workflow's warm set.
 surface-examples-nix: nix
     bash ci/flake-build --kinds packages ./packages/surface/example
     nix flake check ./packages/surface/example --no-build --accept-flake-config -L
 
 # Build the @kolu/solid-browser docsite from its independent example subflake.
+# No `--link`, same reason as `surface-examples-nix`.
 solid-browser-example-nix: nix
     bash ci/flake-build --kinds packages ./packages/solid-browser/example
     nix flake check ./packages/solid-browser/example --no-build --accept-flake-config -L
 
 # Build the repository-pinned Odu coordinator from ci/flake.nix. Odu drives the
 # pipeline, but its package must not make `nix run` evaluate CI tooling.
+# `--link`: `./ci` pins its own nixpkgs too, so nothing else warms it.
 odu-nix: nix
-    bash ci/flake-build --kinds packages ./ci
+    bash ci/flake-build --link --kinds packages ./ci
     nix flake check ./ci --no-build --accept-flake-config -L
 
 # Build the separate home-manager example flake. Deliberately NOT dependent on
@@ -181,6 +227,11 @@ odu-nix: nix
 # this node behind the root gate. Darwin checks the activation package and
 # launchd configuration. Linux checks the NixOS configuration and runs the
 # service, adoption, and upgrade VM tests.
+#
+# No `--link`, and never add one: these outputs are NixOS system toplevels and
+# VM-test runners for an EXAMPLE configuration. Nobody substitutes them, and a
+# machine that did would be pulling a test fixture's system closure out of
+# kolu's cache.
 home-manager:
     if [ "$(uname)" = Darwin ]; then \
       bash ci/flake-build --kinds checks ./nix/home/example -- --override-input kolu .; \

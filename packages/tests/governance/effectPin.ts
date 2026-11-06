@@ -52,7 +52,7 @@
  * member outside them resolves on its own.
  */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 // Effect's own YAML parser, not the `yaml` package: this file's inputs are
 // machine-generated (pnpm-workspace.yaml), the workspace already depends on
@@ -178,11 +178,21 @@ export function catalogPins(relPath: string, yamlText: string): EffectPin[] {
  *  refuse. Not ours to author is not the same as not ours to check. */
 const SKIPPED = new Set(["node_modules", "dist", ".git", ".direnv", ".logs"]);
 
+/** `lstatSync`, never `statSync`: a symlink is a pointer at somebody else's
+ *  tree, and following one makes this gate police manifests kolu does not
+ *  author. The repo root holds `result-<flake>` out-links during a CI run
+ *  (`ci/flake-build --link`, which is how odu finds what to push), and
+ *  `result-root-2` is `agent-flake-source` — a whole second copy of
+ *  `packages/`, whose literal Effect versions are correct THERE and a
+ *  violation here. Grafted members (`osfacts-client/`, `odu/`, `juspay/`) are
+ *  real directories, so they stay policed. */
 function walkManifests(dir: string, out: string[]): void {
   for (const entry of readdirSync(dir)) {
     if (SKIPPED.has(entry)) continue;
     const full = path.join(dir, entry);
-    if (statSync(full).isDirectory()) walkManifests(full, out);
+    const stat = lstatSync(full);
+    if (stat.isSymbolicLink()) continue;
+    if (stat.isDirectory()) walkManifests(full, out);
     else if (entry === "package.json") out.push(full);
   }
 }

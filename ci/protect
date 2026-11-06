@@ -3,6 +3,7 @@
 # DAG contexts PLUS the GitHub Actions contexts that guard the binary-cache warm.
 #
 #     ci/protect --dry-run            # print the complete required set
+#     ci/protect --contexts-only      # print only this file's GHA contexts
 #     ci/protect                      # apply it to the default branch
 #     ci/protect --branch some-branch # …to another branch
 #
@@ -33,7 +34,7 @@
 # it: EVERY job, each with one matrix dimension and one flow sequence of values
 # (`build-and-push` warms the cache; `publish-closures` writes the closure
 # index a trust-free remote dial reads — both deploy-critical, both gated). A hardcoded
-# `build-and-push (ubuntu-latest)` here would be a second source of truth that
+# `build-and-push (macos-latest)` here would be a second source of truth that
 # goes stale the day the job or the matrix is renamed — and it would go stale
 # SILENTLY, by requiring a context nothing posts (which blocks every merge) or
 # by dropping one nothing gates (which restores the incident above).
@@ -67,7 +68,7 @@ workflow="${root}/.github/workflows/nix-cache.yml"
 
 case "${1:-}" in
   -h | --help)
-    echo "usage: ci/protect [--dry-run] [--branch B] [odu protect args…]"
+    echo "usage: ci/protect [--dry-run | --contexts-only] [--branch B] [odu protect args…]"
     exit 2
     ;;
 esac
@@ -160,17 +161,55 @@ gha_contexts() {
           if (item ~ /[()]/) bail("matrix value `" item "` cannot appear in a check-run name")
           print job " (" item ")"
           emitted++
+          if (item ~ /ubuntu/) seen_linux = 1
+          if (item ~ /macos/) seen_darwin = 1
         }
-        # A one-platform gate is the single-platform-subset bug the
-        # `--platform` pinning below exists to prevent, in the other half of
-        # the required set.
-        if (emitted < 2) bail("matrix `" dimension[j] ":` of job `" job "` yields " emitted " context(s), expected at least 2")
+        if (emitted == 0) bail("matrix `" dimension[j] ":` of job `" job "` yields no contexts")
       }
+      # The floor used to be TWO contexts per job, to catch a gate quietly
+      # narrowed to one platform. That floor is wrong now: `build-and-push`
+      # is deliberately `[macos-latest]` alone, because x86_64-linux is
+      # warmed and verified on the odu lane (`ci::nix` pushes its `result*`
+      # closures, `ci::cache-substitutable` asks the cache back) and that
+      # lane contributes the other half of this required set.
+      #
+      # What it was really guarding survives one level up: ACROSS the whole
+      # workflow, both platform families must stay gated. `publish-closures`
+      # is the job that now carries it — nothing in the DAG posts the
+      # closure index, so a narrowing there has no odu lane standing in for
+      # it. Derived from the matrix values, so no job and no runner label is
+      # hand-listed here.
+      if (!seen_linux || !seen_darwin) bail("the workflow matrices cover only one platform family (linux: " (seen_linux + 0) ", darwin: " (seen_darwin + 0) ") — both must stay gated")
     }
   ' "$1"
 }
 
+# ── the parser's own door ────────────────────────────────────────────────────
+# `ci/protect --contexts-only [WORKFLOW]` prints the derived contexts and
+# stops, touching neither odu nor GitHub. It exists so the parse is EXECUTED
+# by an automated check rather than only by an operator editing branch
+# protection — the state this file's own header calls worse than no parser at
+# all. `packages/daemon-test-gate/src/ci-parsers.test.ts` runs it against the
+# real workflow and compares the output to the three names GitHub posts, and
+# against a one-platform-family fixture it must refuse. A quoting regression
+# in the awk program (one apostrophe closes it) is then red in CI, not at the
+# gate.
+#
+# The optional WORKFLOW is why the refusal is testable at all: same shape as
+# `ci/agent-substitutable [FLAKE]` — the question is parameterised by the
+# thing being asked about, and defaults to this repo's own.
+contexts_only=""
+if [ "${1:-}" = "--contexts-only" ]; then
+  contexts_only=1
+  workflow="${2:-$workflow}"
+fi
+
 [ -f "$workflow" ] || die "no ${workflow} — the cache-warm contexts are derived from it, and it is gone"
+
+if [ -n "$contexts_only" ]; then
+  gha_contexts "$workflow"
+  exit
+fi
 
 contexts=""
 contexts="$(gha_contexts "$workflow")" || die "cannot derive the cache-warm contexts from ${workflow} (see above).
@@ -225,7 +264,7 @@ fi
 
 echo "ci/protect: enrolling the ${workflow##*/} contexts on ${repo}@${branch}:"
 # An ARRAY, not a string: every one of these names contains a space
-# (`build-and-push (ubuntu-latest)`), so an unquoted word-split would post two
+# (`build-and-push (macos-latest)`), so an unquoted word-split would post two
 # mangled contexts instead of one real one — and the read-back below would then
 # fail on a branch whose gate had already been replaced.
 gh_args=()
