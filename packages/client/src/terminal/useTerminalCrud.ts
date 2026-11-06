@@ -27,6 +27,7 @@ import { restartedLabel } from "@kolu/agent-distro/status";
 import { agentLive } from "@kolu/terminal-vocab/agentProjection";
 import { createRestartGuard, type RestartGuard } from "../agents/restartGuard";
 import { usePendingLayouts } from "../canvas/usePendingLayouts";
+import { releaseTerminal } from "../comments/useComments";
 import { createSharedRoot } from "../createSharedRoot";
 import { exportScrollbackAsPdf } from "../exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "../exportSessionAsHtml";
@@ -168,6 +169,7 @@ export const useTerminalCrud = createSharedRoot(() => {
     subPanel,
     removeRightPanel: rightPanel.removePanel,
     removeSearch: terminalSearch.removeTerminal,
+    releaseComments: releaseTerminal,
   };
 
   /** Intact parent graph at the moment of eviction — live for the imperative
