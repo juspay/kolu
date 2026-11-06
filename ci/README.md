@@ -131,6 +131,12 @@ an example configuration.
 `needs: nix` edge is what makes it ask *after* this lane's push — the push is
 part of the node's completion, not a separate job racing it.
 
+It verifies **this run's** push, so it asks only when this run pushed. odu sets
+`ODU_CACHE_ORIGIN` / `ODU_CACHE_BUCKET` in a recipe's environment exactly when
+it is pushing that lane's outputs; a daemon serving no `kolu-r2` sets neither
+and the node says so and passes. Whether a run pushed at all is
+`run_read`'s `push.target` and the `_ci-setup` log, not this node.
+
 ## Sharding the browser lane
 
 `e2e` is the one sharded node. It carries `[metadata("odu:shard=4")]`, so on a

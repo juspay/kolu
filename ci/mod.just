@@ -132,7 +132,25 @@ nix:
 #
 # Reads only — no token, no credential: a narinfo GET against the public
 # substituter.
+#
+# IT VERIFIES THIS RUN'S PUSH, so it asks only when this run pushed. odu puts
+# `ODU_CACHE_ORIGIN`/`ODU_CACHE_BUCKET` in a recipe's environment exactly when
+# it is pushing that lane's `result*` (the token is stripped before the recipe
+# sees it); with no cache target it sets neither and says "not pushing: …" in
+# `_ci-setup`. A daemon that serves no kolu-r2 — anybody's laptop — would
+# otherwise red this node on every commit that moves the agent source, for a
+# push it was never going to make. Same rule `.github/workflows/nix-cache.yml`
+# already applies to a fork PR: pushed nothing, so nothing of its own to
+# verify. The skip is LOUD, and `run_read`'s `push.target` is the other half
+# of the story.
 cache-substitutable: nix
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -z "${ODU_CACHE_BUCKET:-}" ]; then
+      echo "ci::cache-substitutable: this run pushed nothing — odu set no ODU_CACHE_BUCKET (see _ci-setup's 'not pushing' line), so there is no push of its own to ask the cache about."
+      exit 0
+    fi
+    echo "ci::cache-substitutable: verifying this run's push to bucket ${ODU_CACHE_BUCKET}"
     {{ nix_shell }} bash ci/agent-substitutable
 
 # Evaluate every remote-agent package from the exact minimal source flake baked

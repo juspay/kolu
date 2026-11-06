@@ -35,7 +35,12 @@ longer there: your run does it. `ci::nix` / `ci::website-nix` / `ci::odu-nix`
 leave `result*` out-links and odu pushes each closure to
 `https://cache.kolu.dev/kolu-r2`; `ci::cache-substitutable` asks the cache
 back. A red `ci::nix` can therefore mean "the push failed", and a red
-`ci::cache-substitutable` means the lane warmed nothing.
+`ci::cache-substitutable` means the lane warmed nothing. **Only a daemon that
+serves `kolu-r2` pushes.** On one that does not, `_ci-setup` says `not
+pushing: …`, `run_read`'s `push.target` is `null`, and
+`ci::cache-substitutable` says it has no push of its own to verify and
+passes — so a green from your laptop is a green about the tests, never about
+the cache.
 
 **Kolu's Linux pool:** `just ci::pool-ensure` / `just ci::pool-status` keep the
 warm `kolu-ci-1..N` boxes healthy; odu leases them natively. Warm idle slots by
