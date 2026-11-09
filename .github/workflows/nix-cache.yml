@@ -24,16 +24,19 @@
 # by commit, which builds the odu it pushes with out of that commit's checkout
 # and then proves what it pushed (see the step below).
 #
-# ONE FACT, not three. The step is given the SUBSTITUTER URL this repo already
-# substitutes from (`https://cache.kolu.dev/kolu-r2`); that cache states where
-# a push is taken and which bucket it lands in in its own `nix-cache-info`
-# (`Odu-Origin`, `Odu-Bucket`). Reads come from R2 — static files nothing can
-# push to — so the two addresses genuinely differ; the cache is what
-# reconciles them, not this file. The URL is named here rather than inferred
-# from `flake.nix` because odu's pusher only authenticates to a URL the
-# operator named (juspay/odu#163). And the push has one success: a path is
-# STORED (`200`) or the step is red. There is no in-between "the cache will
-# catch up" answer.
+# ONE FACT, and this file does not even hold it. The step is given NO cache
+# address: it runs `odu cache target`, which reads the one odu substituter
+# `./flake.nix`'s `nixConfig` already declares (`https://cache.kolu.dev/kolu-r2`
+# — the line every reader substitutes from), and pushes there WITH the token.
+# That cache states where a push is taken and which bucket it lands in in its
+# own `nix-cache-info` (`Odu-Origin`, `Odu-Bucket`). Reads come from R2 —
+# static files nothing can push to — so the two addresses genuinely differ; the
+# cache is what reconciles them, not this file. The URL used to be named here
+# because an inferred one was pushed to anonymously and the bucket answered 401
+# (juspay/odu#163); odu#168 fixed that — an inferred target is now an address
+# the caller chose, so the token goes with it. And the push has one success: a
+# path is STORED (`200`) or the step is red. There is no in-between "the cache
+# will catch up" answer.
 #
 # The build set is DERIVED, never hand-listed, and derived by the one script
 # that already answers "what does this repo build" — `ci/flake-build`. This job
@@ -206,11 +209,11 @@ jobs:
       # given, asks the bucket what it is missing in one batched query, drops
       # what an upstream key (`cache.nixos.org-1`) signed, orders uploads by
       # dependency depth and retries each path — so the paths built above are
-      # all this step has to hand over. `cache` is the read URL this repo
-      # substitutes from, and the action resolves the push origin from that
-      # cache's own `nix-cache-info`: the bucket's bytes live in R2 and are
-      # only written through odu. The pusher still chunks a NAR, so no body
-      # cap binds it.
+      # all this step has to hand over. The target is the flake's own
+      # `extra-substituters` line, resolved by the action, and the push origin
+      # comes from that cache's own `nix-cache-info`: the bucket's bytes live
+      # in R2 and are only written through odu. The pusher still chunks a NAR,
+      # so no body cap binds it.
       #
       # THE PUSHER IS THE ACTION'S OWN ODU. The action builds `#odu` from the
       # checkout it lives in — its own pinned commit — so a moved branch cannot
@@ -237,14 +240,14 @@ jobs:
       # and pushes nothing, says so, and succeeds; a `push` event with no token
       # FAILS, because a cache job that goes green having warmed nothing is the
       # state this whole file exists to make impossible.
-      - uses: juspay/odu/.github/actions/push@306e313671bfb9b8ba80f4a804aac9dca1947aa6 # odu master: #159 merged
+      - uses: juspay/odu/.github/actions/push@b7733a490484cd96c554e5cf5a48d7b4af80cc47 # odu master: #168 merged
         with:
           token: ${{ secrets.ODU_CACHE_TOKEN }}
-          # EXPLICIT, not inferred. odu #159 made this input optional (infer
-          # from `./flake.nix`'s `nixConfig`), but its push client sends a
-          # token only to a URL the OPERATOR named, so an inferred substituter
-          # pushes anonymously and the bucket answers 401 — juspay/odu#163.
-          cache: https://cache.kolu.dev/kolu-r2
+          # No `cache:`. The flake's `extra-substituters` line is the
+          # declaration — one place, already kept because readers substitute
+          # from it — and `odu cache target` is what reads it (juspay/odu#168).
+          # Name a `cache:` here only if this workflow ever builds for a cache
+          # the flake does not list.
           paths: ${{ steps.build.outputs.paths }}
           # Hold this push's closure while it is the default branch's.
           pin: ${{ github.ref_name == github.event.repository.default_branch }}
