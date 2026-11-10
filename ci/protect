@@ -43,6 +43,14 @@
 # There is no partial extraction and no empty list: this script would rather
 # refuse to touch branch protection than set a gate it cannot justify.
 #
+# ONE SHAPE IS EXEMPT, and only this one: a job whose `if:` says
+# `github.event_name == 'push'` cannot run on a pull request, so it posts no
+# check-run there and requiring it would block EVERY merge on a context nobody
+# reports. `linux-pin` is that job — it starts the pod's run of master, which
+# is meaningless on a PR. Such a job contributes no context and carries no
+# matrix. Any OTHER `if:` is a hard failure: this parse will not guess when
+# GitHub does and does not post a check-run.
+#
 # `yq` is not in this repo's dev shell (`nix develop`), so the parse is awk —
 # deliberately, rather than as a fallback. A yq branch that never executes here
 # is an untested parser, and an untested parser guarding a merge gate is worse
@@ -114,9 +122,16 @@ gha_contexts() {
     }
 
     # Job-level keys. A `name:` here renames every check-run, so the derivation
-    # would be wrong in a way GitHub reports as "expected, never posted".
+    # would be wrong in a way GitHub reports as "expected, never posted". An
+    # `if:` decides whether the job runs on a pull request at all, which is the
+    # event branch protection observes; it is read here and judged in END.
     indent == 4 {
       if (key ~ /^name:/) named[njobs] = 1
+      if (key ~ /^if:/) {
+        cond = key
+        sub(/^if:[[:space:]]*/, "", cond)
+        guard[njobs] = cond
+      }
       in_strategy = (key == "strategy:")
       in_matrix = 0
       next
@@ -145,6 +160,13 @@ gha_contexts() {
       if (njobs == 0) bail("no `jobs:` mapping with a job under it")
       for (j = 1; j <= njobs; j++) {
         job = jobs[j]
+        # A push-only job posts nothing on a pull request, so it is not a
+        # gateable context. Matched without a literal quote character: this
+        # awk program lives inside a single-quoted shell string.
+        if (guard[j] != "") {
+          if (guard[j] ~ /github\.event_name[[:space:]]*==[[:space:]]*.push./) continue
+          bail("job `" job "` has an `if:` this parse cannot reason about: " guard[j])
+        }
         if (named[j]) bail("job `" job "` sets its own `name:`, which renames every check-run")
         if (nmatrix[j] != 1) bail("expected exactly 1 matrix dimension under job `" job "`, found " (nmatrix[j] + 0))
         vals = values[j]
@@ -214,7 +236,9 @@ fi
 contexts=""
 contexts="$(gha_contexts "$workflow")" || die "cannot derive the cache-warm contexts from ${workflow} (see above).
 A check-run's name is '<job-id> (<matrix value>)'; this script requires every
-job in that workflow to hold exactly one inline matrix dimension.
+job in that workflow to hold exactly one inline matrix dimension, except a
+push-only job (an \`if:\` naming \`github.event_name == 'push'\`), which posts
+no check-run on a pull request and is therefore gated on nothing.
 Fix the workflow or teach this parse the new shape — do NOT let protect run
 without these contexts: an unrequired cache push is how a deploy ends up
 compiling the daemon over ssh (juspay/kolu#2101, G7)."

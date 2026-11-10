@@ -47,6 +47,8 @@ test("`ci/protect --contexts-only` derives the GitHub contexts from the real wor
   // strings branch protection must require. `build-and-push` is darwin-only
   // because the odu lane warms and verifies x86_64-linux; `publish-closures`
   // stays on both because nothing in the DAG posts the closure index.
+  // `linux-pin` is absent on purpose: it runs on master pushes only, so a
+  // pull request never gets a check-run from it.
   const r = run("protect", "--contexts-only");
   expect(r.status, r.stderr).toBe(0);
   expect(r.stdout.trim().split("\n")).toEqual([
@@ -54,6 +56,60 @@ test("`ci/protect --contexts-only` derives the GitHub contexts from the real wor
     "publish-closures (ubuntu-latest)",
     "publish-closures (macos-latest)",
   ]);
+});
+
+test("a push-only job contributes no context, and any other `if:` is refused", () => {
+  // The one exemption from "every job carries a matrix": a job that cannot run
+  // on a pull request posts no check-run there, so requiring it would block
+  // every merge. Anything else conditional is a hard failure rather than a
+  // guess about when GitHub reports a status.
+  const dir = mkdtempSync(join(tmpdir(), "kolu-ci-parsers-"));
+  const matrixJobs = [
+    "  build-and-push:",
+    "    strategy:",
+    "      matrix:",
+    "        os: [macos-latest]",
+    "  publish-closures:",
+    "    strategy:",
+    "      matrix:",
+    "        os: [ubuntu-latest, macos-latest]",
+  ];
+
+  const exempt = join(dir, "exempt.yml");
+  writeFileSync(
+    exempt,
+    [
+      "jobs:",
+      ...matrixJobs,
+      "  linux-pin:",
+      "    if: github.event_name == 'push' && github.ref == 'refs/heads/master'",
+      "    runs-on: ubuntu-latest",
+      "",
+    ].join("\n"),
+  );
+  const ok = run("protect", "--contexts-only", exempt);
+  expect(ok.status, ok.stderr).toBe(0);
+  expect(ok.stdout.trim().split("\n")).toEqual([
+    "build-and-push (macos-latest)",
+    "publish-closures (ubuntu-latest)",
+    "publish-closures (macos-latest)",
+  ]);
+
+  const unknown = join(dir, "unknown.yml");
+  writeFileSync(
+    unknown,
+    [
+      "jobs:",
+      ...matrixJobs,
+      "  linux-pin:",
+      "    if: github.actor != 'dependabot[bot]'",
+      "    runs-on: ubuntu-latest",
+      "",
+    ].join("\n"),
+  );
+  const bad = run("protect", "--contexts-only", unknown);
+  expect(bad.status).not.toBe(0);
+  expect(bad.stderr).toMatch(/cannot reason about/);
 });
 
 test("the contexts parser refuses a workflow that gates only one platform family", () => {
