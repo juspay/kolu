@@ -15,6 +15,11 @@
 # job. Read "darwin-only" as a statement about who WRITES the cache here, not
 # about which systems this workflow touches.
 #
+# ONE JOB HERE IS NOT A PUSH AT ALL. `linux-pin` runs on master pushes only and
+# writes nothing itself: it asks the pod to run `ci::nix` for the commit that
+# just landed, which is what moves master's linux cache pin. Its own comment
+# block says why.
+#
 # The cache is kolu's, not a shared Attic cache: odu serves it (`odu cache
 # push` is the client), it re-signs every narinfo with the `kolu-r2-1` key the
 # flake declares, and it drops what upstream `cache.nixos.org` already signs
@@ -240,7 +245,7 @@ jobs:
       # and pushes nothing, says so, and succeeds; a `push` event with no token
       # FAILS, because a cache job that goes green having warmed nothing is the
       # state this whole file exists to make impossible.
-      - uses: juspay/odu/.github/actions/push@71e62402008e328779676618e43d499f9d299988 # odu master: #169 merged
+      - uses: juspay/odu/.github/actions/push@0e4f727ca491a1094254447b97225cfba0015592 # odu master: #173 merged
         with:
           token: ${{ secrets.ODU_CACHE_TOKEN }}
           # No `cache:`. The flake's `extra-substituters` line is the
@@ -356,3 +361,58 @@ jobs:
             padi=bin/padi --help
             kaval=bin/kaval --help
           odu-cache-token: ${{ secrets.ODU_CACHE_TOKEN }}
+
+  # ONE COMMAND: ask the pod to run kolu's linux Nix build for the commit that
+  # just landed on master, and wait for it.
+  #
+  # `ci::nix` carries `[metadata("odu:pin")]`, so a run of master that passes
+  # it re-points the cache pin `juspay/kolu@master/x86_64-linux` at what that
+  # commit builds — and GC keeps that closure. The pin only moves when a run
+  # of master happens, and until now nothing started one: runs were started by
+  # hand, so master's linux pin sat on whatever commit someone last ran. This
+  # job is the thing that starts it, on every master push.
+  #
+  # MASTER ONLY, and that is a rule about the pod, not a convenience. The
+  # command moves the pod's own kolu clone (`/data/checkouts/kolu`) onto the
+  # commit it is given, and `ODU_TOKEN` is a secret a pull request must never
+  # be handed. A PR gets neither — the `if:` below keeps this job off every
+  # event except a push to master, so a fork PR has nothing to borrow.
+  #
+  # `--supersede`: a newer master push cancels the run the previous one
+  # started, so the pin follows the newest commit instead of whichever run
+  # happened to finish last.
+  #
+  # `--no-post`: the pod has no GitHub credentials, so it cannot write commit
+  # statuses. THIS JOB's own red/green is what GitHub shows — the command
+  # streams the run's progress into this log and exits non-zero when the run
+  # fails. (The banned-flag rule in kolu's `/ci` skill is about a human or an
+  # agent driving CI from a machine that CAN post; it does not apply here.)
+  #
+  # `--platform x86_64-linux`: this job exists for the linux pin. Darwin is
+  # built by `build-and-push` above and is not in the gate.
+  #
+  # No `actions/checkout`: every argument is a literal or `$GITHUB_SHA`, and
+  # the tree the run uses is the pod's clone, which `--branch master` makes
+  # the pod fetch and move onto that commit itself (juspay/odu#173).
+  #
+  # `ODU_TOKEN` is a personal odu token for the pod — minted on the board's
+  # profile page at <https://odu-k3s.rooster-blues.ts.net> — kept as a repo
+  # secret. Without it the command is refused and this job is red; there is no
+  # quiet skip.
+  linux-pin:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      # Pin by commit (CodeQL: unpinned third-party action). v35 → 9f63be7.
+      # Same installer the job above uses; the odu it runs comes from odu's
+      # own flake, whose cache `--accept-flake-config` accepts.
+      - uses: nixbuild/nix-quick-install-action@9f63be77f412a248c9d9a65a4c82cf066cdf8f0c # v35
+
+      - name: Run ci::nix on the pod, which moves master's linux pin
+        env:
+          ODU_TOKEN: ${{ secrets.ODU_TOKEN }}
+        run: |
+          nix run --accept-flake-config github:juspay/odu/0e4f727ca491a1094254447b97225cfba0015592 -- \
+            ci run --origin https://odu-k3s.rooster-blues.ts.net \
+            --checkout /data/checkouts/kolu --sha "$GITHUB_SHA" --branch master \
+            --supersede --no-post --platform x86_64-linux ci::nix

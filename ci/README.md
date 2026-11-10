@@ -113,6 +113,16 @@ GC never collects master's linux build. It is the same pin name
 `.github/workflows/nix-cache.yml` makes for `aarch64-darwin`; a run on any other
 branch pushes as usual and pins nothing.
 
+What starts that run is the `linux-pin` job in
+`.github/workflows/nix-cache.yml`: on every push to master it asks the pod
+(`https://odu-k3s.rooster-blues.ts.net`) to run `ci::nix@x86_64-linux` for the
+commit that just landed, in the pod's own clone, which `--branch master` makes
+it fetch and move onto that commit first. The job waits for the run and is red
+when it fails, so master's linux pin follows master's newest green commit
+instead of whoever last started a run by hand. It runs on master pushes only —
+a pull request must not move the pod's clone, and the `ODU_TOKEN` the job sends
+is a repo secret.
+
 | Node | Flake | Out-link prefix |
 | --- | --- | --- |
 | `nix` | `.` | `result-root` |
