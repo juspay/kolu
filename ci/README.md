@@ -107,6 +107,12 @@ the substituter `flake.nix`'s `nixConfig` already declares when the node exits
 0. A push failure reddens the node, so a green `ci::nix` means "built **and**
 warmed".
 
+`nix` also carries `[metadata("odu:pin")]`, so on a run on the **default
+branch** odu holds that closure under the pin `juspay/kolu@master/<system>` and
+GC never collects master's linux build. It is the same pin name
+`.github/workflows/nix-cache.yml` makes for `aarch64-darwin`; a run on any other
+branch pushes as usual and pins nothing.
+
 | Node | Flake | Out-link prefix |
 | --- | --- | --- |
 | `nix` | `.` | `result-root` |
