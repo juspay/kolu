@@ -121,9 +121,9 @@ it fetch and move onto that commit first. The job waits for the run and is red
 when it fails, so master's linux pin follows master's newest green commit
 instead of whoever last started a run by hand. It runs on master pushes only —
 a pull request must not move the pod's clone, and the `ODU_TOKEN` the job sends
-is a repo secret. Being master-only, it posts no check-run on a pull request,
-so `ci/protect` leaves it out of the required set (that script's one exemption
-from "every job in the workflow is a gated context").
+is a repo secret. On a pull request it only ever skips, so there is nothing to
+gate on and `ci/protect` leaves it out of the required set (that script's one
+exemption from "every job in the workflow is a gated context").
 
 | Node | Flake | Out-link prefix |
 | --- | --- | --- |

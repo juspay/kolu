@@ -44,12 +44,12 @@
 # refuse to touch branch protection than set a gate it cannot justify.
 #
 # ONE SHAPE IS EXEMPT, and only this one: a job whose `if:` says
-# `github.event_name == 'push'` cannot run on a pull request, so it posts no
-# check-run there and requiring it would block EVERY merge on a context nobody
-# reports. `linux-pin` is that job — it starts the pod's run of master, which
-# is meaningless on a PR. Such a job contributes no context and carries no
-# matrix. Any OTHER `if:` is a hard failure: this parse will not guess when
-# GitHub does and does not post a check-run.
+# `github.event_name == 'push'` never runs on a pull request. GitHub reports it
+# there as SKIPPED, which says nothing about the commit, so there is no result
+# to gate on — and it carries no matrix, so this parse could not name a context
+# for it anyway. `linux-pin` is that job: it starts the pod's run of master,
+# which is meaningless on a PR. Any OTHER `if:` is a hard failure — this parse
+# will not guess when a job does and does not really run.
 #
 # `yq` is not in this repo's dev shell (`nix develop`), so the parse is awk —
 # deliberately, rather than as a fallback. A yq branch that never executes here
@@ -160,7 +160,7 @@ gha_contexts() {
       if (njobs == 0) bail("no `jobs:` mapping with a job under it")
       for (j = 1; j <= njobs; j++) {
         job = jobs[j]
-        # A push-only job posts nothing on a pull request, so it is not a
+        # A push-only job only ever skips on a pull request, so it is not a
         # gateable context. Matched without a literal quote character: this
         # awk program lives inside a single-quoted shell string.
         if (guard[j] != "") {
