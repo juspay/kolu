@@ -120,6 +120,14 @@ pnpm-hash-fresh: nix
 # the run"). Carried by the three invocations the GitHub workflow used to
 # `warm`; `surface-examples-nix`, `solid-browser-example-nix` and
 # `home-manager` below each own why they do not.
+#
+# `[metadata("odu:pin")]` HOLDS WHAT THAT PUSH LANDED: on a run on the default
+# branch odu re-points the pin `juspay/kolu@master/<system>` at this closure, so
+# GC never collects master's linux build. That is the same pin name
+# `.github/workflows/nix-cache.yml` makes for aarch64-darwin, so the two systems
+# share one naming scheme and linux needs no workflow of its own. A run on any
+# other branch — every PR — still pushes, and pins nothing.
+[metadata("odu:pin")]
 nix:
     bash ci/flake-build --link .
     nix flake check --no-build --accept-flake-config -L

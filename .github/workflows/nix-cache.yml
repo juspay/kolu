@@ -240,7 +240,7 @@ jobs:
       # and pushes nothing, says so, and succeeds; a `push` event with no token
       # FAILS, because a cache job that goes green having warmed nothing is the
       # state this whole file exists to make impossible.
-      - uses: juspay/odu/.github/actions/push@b7733a490484cd96c554e5cf5a48d7b4af80cc47 # odu master: #168 merged
+      - uses: juspay/odu/.github/actions/push@71e62402008e328779676618e43d499f9d299988 # odu master: #169 merged
         with:
           token: ${{ secrets.ODU_CACHE_TOKEN }}
           # No `cache:`. The flake's `extra-substituters` line is the
@@ -249,8 +249,9 @@ jobs:
           # Name a `cache:` here only if this workflow ever builds for a cache
           # the flake does not list.
           paths: ${{ steps.build.outputs.paths }}
-          # Hold this push's closure while it is the default branch's.
-          pin: ${{ github.ref_name == github.event.repository.default_branch }}
+          # No `pin:` either. Left empty the action pins on the default branch
+          # and nowhere else (juspay/odu#169) — the condition this file used to
+          # spell out as an expression.
 
       # The push above proves what the BUCKET SERVES, path by path. This asks
       # the narrower, load-bearing question the deploy actually depends on: are
