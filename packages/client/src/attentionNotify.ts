@@ -6,13 +6,16 @@
  *  one permission request, and one tag-keyed multi-window de-dup discipline,
  *  never two hand-rolled copies of the same landmine handling.
  *
- *  The click payload is DISCRIMINATED by `kind` so a per-terminal click and a
- *  cross-host click each route to their own handler and can never cross-deliver
- *  (a `host` payload can never be read as a `terminal` one, or vice versa). BOTH
- *  variants carry the originating `host`: a notification outlives the active-host
- *  selection, so clicking one must switch back to the host it fired FOR before
- *  focusing the terminal — otherwise the id routes against whatever padi happens
- *  to be active, focusing the wrong host's terminal (or nothing). */
+ *  The click payload is DISCRIMINATED by `kind` so a per-terminal click, a
+ *  cross-host click and an orchestrator question each route to their own
+ *  handler and can never cross-deliver (a `host` payload can never be read as a
+ *  `terminal` one, or vice versa). The two arms that NAME A TERMINAL carry the
+ *  originating `host`: a notification outlives the active-host selection, so
+ *  clicking one must switch back to the host it fired FOR before focusing the
+ *  terminal — otherwise the id routes against whatever padi happens to be
+ *  active, focusing the wrong host's terminal (or nothing). The orchestrator
+ *  arm carries neither, because one conversation covers every machine: there is
+ *  no host to switch back to and no terminal to focus. */
 
 import { createNotify } from "@kolu/surface-app/notify";
 import { Result, Schema } from "effect";

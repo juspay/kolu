@@ -4,8 +4,8 @@
  *  `useTerminalStore`, so a future enum upgrade (PiP, per-tile maximize)
  *  can grow `layout()`'s discriminant without rippling across every reader.
  *
- *  Scope is deliberately narrow: two questions (`layout`, `posture`) and
- *  `toggle` (the single writer). Per-reader derivations like "show minimap"
+ *  Scope is deliberately narrow: two questions (`layout`, `canMaximize`) and
+ *  two writers (`postureTo`, `toggle`). Per-reader derivations like "show minimap"
  *  or "workspace-switcher opacity" stay at the reader — naming hook
  *  outputs after reader-specific behaviors would couple this interface
  *  to their internals.

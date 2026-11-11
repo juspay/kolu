@@ -1,15 +1,14 @@
 /** The orchestrator on a touch layout: a full-screen sheet.
  *
- *  Below the breakpoint there is no canvas to peek into and no room for three
- *  columns, so the mode is not a layout at all — it is the conversation, over
- *  everything, dismissed the way every other touch sheet in kolu is. The pane
- *  inside is the SAME component the desktop mounts: a phone gets the whole
- *  conversation, not a reduction of it. What it does not get is the peek pane,
- *  because the thing a peek shows (a live terminal beside the chat) is a
- *  two-column idea.
+ *  The conversation is chat and nothing else on every form factor, so below the
+ *  breakpoint there is no layout left to reduce: the mode is not a layout at
+ *  all — it is the conversation, over everything, dismissed the way every other
+ *  touch sheet in kolu is. The pane inside is the SAME component the desktop
+ *  mounts, so a phone gets the whole conversation rather than a cut-down one.
  *
- *  Mode is the same device-global signal the desktop reads, so the sheet is
- *  open exactly when orchestrator mode is on — including when the chord was
+ *  Mode is the same per-tab `sessionStorage` selection the desktop reads
+ *  (`useOrchestratorMode`), so the sheet is open exactly when the orchestrator
+ *  is the selected chrome-bar entry in THIS tab — including when the chord was
  *  pressed on a hardware keyboard attached to a tablet. */
 
 import Drawer from "@corvu/drawer";

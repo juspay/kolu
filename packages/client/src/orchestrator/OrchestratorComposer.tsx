@@ -6,12 +6,13 @@
  *  message that arrives mid-turn is QUEUED at the agent and its row says so, and
  *  `■ Stop` is beside Send rather than instead of it.
  *
- *  `@` completes this host's terminals and `/` completes the agent's own
- *  commands. Both are plain text in a plain textarea — see `./mentions` for why
- *  the structured mention is resolved at SEND time rather than carried as a
- *  widget. */
+ *  `@` completes EVERY host's terminals — one conversation reaches the whole
+ *  fleet — and `/` completes the agent's own commands. Both are plain text in a
+ *  plain textarea — see `./mentions` for why the structured mention is resolved
+ *  at SEND time rather than carried as a widget. */
 
 import { formatBytes } from "@kolu/byte-units";
+import { Key } from "@solid-primitives/keyed";
 import { decodeHostKey } from "kolu-common/hostKey";
 import type { OrchestratorState } from "kolu-common/orchestrator";
 import {
@@ -202,7 +203,18 @@ const OrchestratorComposer: Component<{
           data-testid="orchestrator-mention-menu"
           class="absolute left-3 right-3 bottom-full mb-1 max-h-60 overflow-y-auto rounded-lg border border-edge-bright bg-surface-1 shadow-lg shadow-black/40 p-1.5"
         >
-          <For each={mentionMatches()}>
+          {/* KEYED, never `<For>`. `candidates` mints fresh objects on every
+              fleet notification and the fleet index notifies on ANY metadata
+              change on ANY host, so a reference-keyed list rebuilds every row
+              of this menu when a terminal nobody is looking at, on a machine
+              nobody is looking at, retitles itself — dropping the hovered row
+              mid-choice. The identity is the FLEET reference and not the bare
+              id: two hosts may carry one terminal id, and two entries sharing
+              a key are handed the SAME node, which silently loses a row. */}
+          <Key
+            each={mentionMatches()}
+            by={(candidate) => `${candidate.host}/${candidate.terminalId}`}
+          >
             {(candidate, index) => (
               <button
                 ref={(el) =>
@@ -210,8 +222,8 @@ const OrchestratorComposer: Component<{
                 }
                 type="button"
                 data-testid="orchestrator-mention-row"
-                data-terminal-id={candidate.terminalId}
-                data-host={candidate.host}
+                data-terminal-id={candidate().terminalId}
+                data-host={candidate().host}
                 data-selected={index() === selected() ? "" : undefined}
                 class="w-full flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer"
                 classList={{ "bg-surface-2": index() === selected() }}
@@ -220,7 +232,7 @@ const OrchestratorComposer: Component<{
                 onPointerEnter={() => setSelected(index())}
                 onClick={() => accept(index())}
               >
-                <span class="font-semibold text-fg">{candidate.name}</span>
+                <span class="font-semibold text-fg">{candidate().name}</span>
                 {/* WHICH MACHINE. Two hosts can both carry a `main`, and the
                     name alone would offer a person a choice they cannot read.
                     It leads the quiet columns because it is the thing that
@@ -229,21 +241,21 @@ const OrchestratorComposer: Component<{
                   data-testid="orchestrator-mention-host"
                   class="font-mono text-[0.6rem] uppercase tracking-[0.1em] text-accent"
                 >
-                  {hostLabel(decodeHostKey(candidate.host))}
+                  {hostLabel(decodeHostKey(candidate().host))}
                 </span>
-                <Show when={candidate.repo}>
+                <Show when={candidate().repo}>
                   {(repo) => (
                     <span class="font-mono text-[0.6rem] uppercase tracking-[0.1em] text-fg-3">
                       {repo()}
                     </span>
                   )}
                 </Show>
-                <Show when={candidate.intent}>
+                <Show when={candidate().intent}>
                   {(intent) => (
                     <span class="truncate text-fg-2">{intent()}</span>
                   )}
                 </Show>
-                <Show when={candidate.state}>
+                <Show when={candidate().state}>
                   {(state) => (
                     <span class="ml-auto font-mono text-[0.62rem] text-fg-3">
                       {state()}
@@ -252,7 +264,7 @@ const OrchestratorComposer: Component<{
                 </Show>
               </button>
             )}
-          </For>
+          </Key>
         </div>
       </Show>
       <Show when={commandMatches().length > 0}>
@@ -288,31 +300,36 @@ const OrchestratorComposer: Component<{
       </Show>
       <Show when={armed().length > 0}>
         <div class="mb-1.5 flex flex-wrap gap-1.5">
-          <For each={armed()}>
+          {/* KEYED for the same reason as the menu: `armed()` re-resolves
+              against freshly minted candidates on every fleet tick, and a
+              rebuilt chip is a chip whose press target moved under the finger.
+              The name is the identity — `resolveMentions` emits each name once,
+              and the name is what the × drops from the text. */}
+          <Key each={armed()} by="name">
             {(mention) => (
               <button
                 type="button"
                 data-testid="orchestrator-mention-chip"
-                data-terminal-id={mention.terminalId}
-                data-host={mention.host}
-                title={mention.intent ?? mention.cwd ?? undefined}
+                data-terminal-id={mention().terminalId}
+                data-host={mention().host}
+                title={mention().intent ?? mention().cwd ?? undefined}
                 class="rounded-full bg-accent/15 px-2 py-px font-mono text-[0.68rem] font-semibold text-accent cursor-pointer"
                 onClick={() =>
-                  write(dropMention(composerText(), mention.name), 0)
+                  write(dropMention(composerText(), mention().name), 0)
                 }
               >
                 {/* The host rides ON the chip — what is sent is `host/id`, and
                     a chip that showed only the name would hide which of two
                     machines the question is about. */}
-                @{mention.name}
+                @{mention().name}
                 <span class="font-normal text-accent/70">
                   {" "}
-                  · {hostLabel(decodeHostKey(mention.host))}
+                  · {hostLabel(decodeHostKey(mention().host))}
                 </span>{" "}
                 ×
               </button>
             )}
-          </For>
+          </Key>
         </div>
       </Show>
       <Show when={composerAttachments().length > 0}>

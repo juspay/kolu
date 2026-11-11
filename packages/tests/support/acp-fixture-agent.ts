@@ -2,11 +2,12 @@
  * THE ACP ADAPTER THE E2E SUITE RUNS — a scripted agent on stdio.
  *
  * `KOLU_ACP_AGENT` points at this file, so the orchestrator the browser talks
- * to is a real subprocess speaking the real protocol over a real pipe: padi
- * spawns it, the harness handshakes with it, and every frame the panel draws
- * is a frame an agent could have sent. What it is NOT is a mock of the
- * harness — the scenarios exercise the whole chain, and a stubbed store would
- * have proved only that the browser can render a value somebody put there.
+ * to is a real subprocess speaking the real protocol over a real pipe:
+ * kolu-server spawns it, the harness handshakes with it, and every frame the
+ * panel draws is a frame an agent could have sent. What it is NOT is a mock of
+ * the harness — the scenarios exercise the whole chain, and a stubbed store
+ * would have proved only that the browser can render a value somebody put
+ * there.
  *
  * It answers on the LAST LINE of a prompt, because the standing instruction
  * kolu teaches every new session rides above the person's words. The vocabulary
