@@ -17,11 +17,14 @@ import { getClockNow } from "../time/clock";
 import { formatElapsedShort } from "../time/duration";
 import Tip from "../ui/Tip";
 
+// The three standings a row can actually hold. There is no `missing`: a
+// server kolu could not reach does not get a red row, it refuses the whole
+// conversation (padi's `OrchestratorUnavailable`), because an orchestrator
+// that cannot reach the fleet is not a degraded orchestrator.
 const STANDING_CLASS: Record<string, string> = {
   connected: "text-ok",
   handed: "text-fg-2",
   unattached: "text-attention",
-  missing: "text-danger",
 };
 
 const OrchestratorStrip: Component<{
@@ -57,7 +60,10 @@ const OrchestratorStrip: Component<{
               >
                 {server.name}
                 {server.standing === "connected" ? " ✓" : ""}
-                <Show when={server.standing === "missing" && server.said}>
+                <Show when={server.standing === "unattached" && server.said}>
+                  {/* The agent's own sentence about why it is not on this
+                      server, beside the name — the one standing that carries a
+                      quote worth reading without hovering for the tip. */}
                   {(said) => (
                     <span class="font-normal text-fg-3"> · {said()}</span>
                   )}

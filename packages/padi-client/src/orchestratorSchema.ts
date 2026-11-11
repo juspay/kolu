@@ -411,16 +411,25 @@ export const OrchestratorCommandSchema = Schema.Struct({
 
 /** Where one MCP server in this conversation stands.
  *
- *  Four standings and they are not interchangeable: `connected` is the AGENT'S
- *  own word, `handed` is what kolu gave over and the agent has not spoken
- *  about, `unattached` quotes what the agent said instead, and `missing` is a
- *  probe's no that the agent can never overwrite. A server the agent names
- *  that kolu never handed adds NO row — the strip says "plus the agent's own"
- *  rather than inventing one. */
+ *  Three standings and they are not interchangeable: `connected` is the
+ *  AGENT'S own word, `handed` is what kolu gave over and the agent has not
+ *  spoken about, and `unattached` quotes what the agent said instead. A server
+ *  the agent names that kolu never handed adds NO row — the strip says "plus
+ *  the agent's own" rather than inventing one.
+ *
+ *  THERE IS NO `missing`, and its absence is the fail-fast rule showing
+ *  through. A fourth standing would mean "kolu's own MCP server could not be
+ *  found, carry on without it" — but padi refuses the whole conversation when
+ *  `KOLU_MCP_BIN` is unset or the socket is not there yet
+ *  (`OrchestratorUnavailable`), because an orchestrator that cannot reach the
+ *  fleet is not a degraded orchestrator, it is a chat window. So no row can
+ *  ever reach that standing, and a value nothing can mint is a case the panel
+ *  would be pretending to have.
+ */
 export const OrchestratorServerSchema = Schema.Struct({
   name: Schema.String,
-  standing: Schema.Literals(["connected", "handed", "unattached", "missing"]),
-  /** The agent's or the prober's own sentence, carried verbatim. */
+  standing: Schema.Literals(["connected", "handed", "unattached"]),
+  /** The agent's own sentence about this server, carried verbatim. */
   said: Schema.NullOr(Schema.String),
   where: Schema.NullOr(Schema.String),
 });

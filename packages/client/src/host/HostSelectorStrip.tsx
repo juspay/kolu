@@ -652,7 +652,14 @@ const AddHostAffordance: Component = () => {
               onInput={(e) => setDraft(e.currentTarget.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") submit();
-                if (e.key === "Escape") setOpen(false);
+                if (e.key === "Escape") {
+                  // CONSUME the key. A window-level `Escape` reader (the
+                  // orchestrator pane leaving its mode) acts on an unhandled
+                  // press, so without this one press would close this panel
+                  // AND drop the conversation behind it.
+                  e.preventDefault();
+                  setOpen(false);
+                }
               }}
             />
           </div>

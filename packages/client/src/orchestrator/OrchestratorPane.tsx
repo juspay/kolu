@@ -22,6 +22,7 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { capturePointerGesture } from "../canvas/viewport/capturePointerGesture";
+import { useDialogStack } from "../ui/useDialogStack";
 import { completionOpen } from "./drafts";
 import OrchestratorComposer from "./OrchestratorComposer";
 import OrchestratorFleet from "./OrchestratorFleet";
@@ -51,6 +52,8 @@ const OrchestratorPane: Component<{
   let transcriptEl: HTMLDivElement | undefined;
   let paneEl!: HTMLElement;
 
+  const dialogStack = useDialogStack();
+
   // `Esc` RETURNS to the posture underneath — the mode is a layer, not a
   // destination, so leaving it needs no memory of where you were. The listener
   // lives here because the behaviour belongs to the pane: it exists exactly
@@ -60,23 +63,35 @@ const OrchestratorPane: Component<{
   // on the window sees `Escape` before ANYTHING else — which is what the peek
   // pane needs, because it is a live terminal and xterm claims the key for the
   // program running in the PTY without ever letting it reach the window. It is
-  // also, applied to the whole window, a key thief: every popover, Corvu
-  // dialog, `SearchBar`, `PrintedUrlCard` and `CodeContextMenu` dismisses on
-  // `Escape`, and a capture listener that swallowed the key left the overlay
-  // open while the mode quietly exited underneath it.
+  // also, applied anywhere else, a key thief: every popover, Corvu dialog,
+  // `SearchBar`, `PrintedUrlCard` and `CodeContextMenu` dismisses on `Escape`,
+  // and a capture listener that swallowed the key left the overlay open while
+  // the mode quietly exited underneath it.
   //
-  // So the capture listener is SCOPED to the places that eat the key — the
-  // pane itself and any xterm (the peek's terminal, and the tiles behind it) —
-  // and everything else is handled on the way back up, where an overlay that
-  // stops propagation or marks the key handled simply wins.
+  // So the capture listener is scoped to `.xterm` AND NOTHING ELSE — the one
+  // place the key provably never reaches the window. Scoping it to the whole
+  // pane instead made the pane's own popovers undismissable: the model and
+  // settings panels open from a trigger that keeps focus inside the pane, so
+  // the capture listener left the mode before `useAnchoredPopover`'s own
+  // document-level dismiss ever ran, and the panel stayed on screen over a
+  // canvas. Everything outside an xterm is handled on the way back up, where
+  // an overlay that stops propagation or marks the key handled simply wins.
   const eatsEscape = (target: EventTarget | null): boolean =>
-    target instanceof Element &&
-    (paneEl.contains(target) || target.closest(".xterm") !== null);
+    target instanceof Element && target.closest(".xterm") !== null;
+  // When a modal is up the press is ITS dismiss, and the mode must not take the
+  // same one. Corvu's `createEscapeKeyDown` closes a dialog WITHOUT marking the
+  // event handled, so neither listener below can learn it from the event — the
+  // depth `ModalDialog` already publishes is the fact, and it counts every
+  // dialog (palette, Settings, About, the intent editor, a confirm) for free.
+  // Same rule for an open completion menu, which `drafts.ts` publishes for the
+  // same reason.
+  const standDown = (): boolean =>
+    completionOpen() || dialogStack.openCount() > 0;
   makeEventListener(
     window,
     "keydown",
     (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || completionOpen()) return;
+      if (event.key !== "Escape" || standDown()) return;
       if (!eatsEscape(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
@@ -88,7 +103,7 @@ const OrchestratorPane: Component<{
     // `defaultPrevented` is the other half of "an overlay won": a dismiss that
     // handled the key without stopping it still reaches here, and leaving the
     // mode on the same press would close two things with one `Esc`.
-    if (event.key !== "Escape" || completionOpen() || event.defaultPrevented) {
+    if (event.key !== "Escape" || standDown() || event.defaultPrevented) {
       return;
     }
     event.preventDefault();

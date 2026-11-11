@@ -60,9 +60,14 @@ export function useViewPosture() {
    *  Leaving the orchestrator FIRST is what makes the write visible. The mode
    *  reads as `maximized` while it is on, so a write that only touched the bit
    *  underneath changed a posture nobody could see — and silently moved where
-   *  `Esc` would land you later. Exiting happens whether or not the bit then
-   *  moves, because with zero tiles there is no posture to flip but there is
-   *  still a conversation to leave.
+   *  `Esc` would land you later.
+   *
+   *  It happens before the write guard below, not inside it, and that ordering
+   *  is the behaviour: `⌘⇧M` on a phone must still leave the conversation. The
+   *  guard refuses to move a posture that has no canvas to show it and no tile
+   *  to maximize — neither of which is true of the chat, which is mounted on
+   *  every form factor (a sheet on touch) and is the thing on screen. A guard
+   *  that ran first made the chord dead on exactly the device with no `Esc` key.
    *
    *  The write guard: a no-op without a spatial canvas (any non-desktop layout
    *  — phone or compact — where the canvas isn't mounted) or with zero
@@ -72,8 +77,8 @@ export function useViewPosture() {
    *  per-host posture signal with no visible effect: the safety lives in the
    *  receptacle. */
   const postureTo = (maximized: boolean): void => {
-    if (!supportsSpatialCanvas()) return;
     if (orchestratorMode()) exitOrchestratorMode();
+    if (!supportsSpatialCanvas()) return;
     if (canMaximize() && store.canvasMaximized() !== maximized) {
       store.toggleCanvasMaximized();
     }

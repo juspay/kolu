@@ -1,8 +1,15 @@
 /** The composer's keyboard rule: `Enter` sends only when no menu is open, the
- *  arrows walk a wrapping list, and Tab can never send. */
+ *  arrows walk a wrapping list, and Tab can never send. Plus the rule that
+ *  moves the highlight on its own — a new question, and nothing else. */
 
+import { createRoot, createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
-import { completionIntent } from "./completion";
+import {
+  completionIntent,
+  completionQuestion,
+  createCompletionHighlight,
+} from "./completion";
+import type { TokenQuery } from "./mentions";
 
 describe("completionIntent", () => {
   it("sends on Enter when no menu is open", () => {
@@ -64,4 +71,58 @@ describe("completionIntent", () => {
     // With no menu the key belongs to the pane, which leaves the mode.
     expect(completionIntent("Escape", false, 0, 0)).toEqual({ kind: "pass" });
   });
+});
+
+const typed = (query: string): TokenQuery => ({
+  start: 0,
+  end: query.length + 1,
+  query,
+});
+
+describe("completionQuestion", () => {
+  it("tells a bare trigger apart from no token at all", () => {
+    // `@` alone lists every terminal — a question with an empty answer typed
+    // so far, not the absence of one.
+    expect(completionQuestion(typed(""), null)).not.toBe(
+      completionQuestion(null, null),
+    );
+  });
+
+  it("tells the two menus apart on the same letters", () => {
+    expect(completionQuestion(typed("fix"), null)).not.toBe(
+      completionQuestion(null, typed("fix")),
+    );
+  });
+
+  it("is the letters typed, so one more changes it", () => {
+    expect(completionQuestion(typed("fi"), null)).not.toBe(
+      completionQuestion(typed("fix"), null),
+    );
+    expect(completionQuestion(typed("fi"), null)).toBe(
+      completionQuestion(typed("fi"), null),
+    );
+  });
+});
+
+describe("createCompletionHighlight", () => {
+  it("survives a fleet tick and starts over on a new question", () =>
+    createRoot((dispose) => {
+      const [query, setQuery] = createSignal("fi");
+      // Stands in for `candidates()`: every terminal's intent, cwd and agent
+      // state feed the match list, so it ticks whenever any agent moves — while
+      // the menu is open and somebody is halfway through `↓↓⏎`.
+      const [fleetTick, setFleetTick] = createSignal(0);
+      const [selected, setSelected] = createCompletionHighlight(() => {
+        fleetTick();
+        return completionQuestion(typed(query()), null);
+      });
+
+      setSelected(2);
+      setFleetTick(1);
+      expect(selected()).toBe(2);
+
+      setQuery("fix");
+      expect(selected()).toBe(0);
+      dispose();
+    }));
 });

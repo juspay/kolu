@@ -20,12 +20,15 @@ import {
   createMemo,
   createSignal,
   For,
-  on,
   onCleanup,
   Show,
 } from "solid-js";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { completionIntent } from "./completion";
+import {
+  completionIntent,
+  completionQuestion,
+  createCompletionHighlight,
+} from "./completion";
 import { composerText, setCompletionOpen, setComposerText } from "./drafts";
 import {
   completeToken,
@@ -93,20 +96,16 @@ const OrchestratorComposer: Component<{
 
   /** The highlighted row. At most ONE menu is open at a time — a token starts
    *  with `@` or with `/`, never both — so one index serves whichever is
-   *  showing. */
-  const [selected, setSelected] = createSignal(0);
+   *  showing. It returns to the top when the QUESTION changes and at no other
+   *  time; `createCompletionHighlight` carries the argument for why the match
+   *  list is not allowed to move it. */
+  const [selected, setSelected] = createCompletionHighlight(() =>
+    completionQuestion(mentionToken(), commandToken()),
+  );
   const menuCount = () =>
     mentionMatches().length > 0
       ? mentionMatches().length
       : commandMatches().length;
-  // A different list is a different question: the highlight goes back to the
-  // top rather than staying on an index that now names something else. Typing
-  // one more letter must not arm a completion you never looked at.
-  createEffect(
-    on([mentionMatches, commandMatches], () => {
-      setSelected(0);
-    }),
-  );
 
   const write = (text: string, position: number): void => {
     setComposerText(text);

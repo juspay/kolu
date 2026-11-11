@@ -1,6 +1,6 @@
-/** What a key MEANS while a completion menu is open — the composer's one
- *  keyboard rule, pure so the cases are pinned by tests instead of by driving a
- *  textarea.
+/** What a key MEANS while a completion menu is open, and where the highlight
+ *  sits — the composer's two menu rules, kept here so both are pinned by tests
+ *  instead of by driving a textarea.
  *
  *  The menus used to be mouse-only, and `Enter` always sent. That is not a
  *  missing nicety: typing `@fix` and pressing Enter — the single most natural
@@ -12,6 +12,16 @@
  *  open: one key, one meaning at a time, and the meaning is the one that is on
  *  screen. Tab accepts too (and only accepts) — the shell habit — so somebody
  *  who distrusts Enter mid-token has a key that can never send. */
+
+import {
+  type Accessor,
+  createComputed,
+  createMemo,
+  createSignal,
+  on,
+  type Setter,
+} from "solid-js";
+import type { TokenQuery } from "./mentions";
 
 export type CompletionIntent =
   /** Move the highlight to `index` — the list wraps, so ↓ off the end is the
@@ -58,4 +68,43 @@ export function completionIntent(
     default:
       return { kind: "pass" };
   }
+}
+
+/** The QUESTION the open menu is answering: the trigger and the letters typed
+ *  after it, both menus in one string. `@` with nothing after it is a real
+ *  question (list every terminal), so it spells itself `"@"` and a caret that
+ *  sits in no token at all spells itself `""` — two different states that must
+ *  not collapse onto each other. The NUL keeps the two fields apart; nobody
+ *  types one. */
+export function completionQuestion(
+  mention: TokenQuery | null,
+  command: TokenQuery | null,
+): string {
+  const asking = mention === null ? "" : `@${mention.query}`;
+  const commanding = command === null ? "" : `/${command.query}`;
+  return `${asking}\u0000${commanding}`;
+}
+
+/** The highlighted row, and the one rule that moves it without a keypress: a
+ *  NEW QUESTION starts over at the top. Typing one more letter must not leave
+ *  a completion armed that you never looked at.
+ *
+ *  The question — not the match list — is what the reset keys on, and the
+ *  difference is the bug this primitive exists to prevent. Each match carries
+ *  its terminal's intent, cwd and agent state, so a build finishing two tiles
+ *  away rebuilds the array while the menu is open; keying the reset on that
+ *  array snapped the highlight back to row 0 mid-`↓↓⏎` and completed whatever
+ *  the fleet happened to list first. The person changed the query or they did
+ *  not; nothing else gets a vote.
+ *
+ *  A COMPUTED, not an effect: the reset writes derived state, so it must land
+ *  in the same update as the keystroke that changed the question — an effect
+ *  would run after the render that already drew a stale highlight. */
+export function createCompletionHighlight(
+  question: () => string,
+): readonly [Accessor<number>, Setter<number>] {
+  const asked = createMemo(question);
+  const [selected, setSelected] = createSignal(0);
+  createComputed(on(asked, () => setSelected(0)));
+  return [selected, setSelected];
 }

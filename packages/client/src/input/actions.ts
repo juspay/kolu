@@ -56,9 +56,11 @@ export interface ActionContext {
   toggleRightPanel: () => void;
   toggleDock: () => void;
   /** Flip the canvas between tiled and maximized posture. Wired to
-   *  `useViewPosture().toggle`, whose own write guard makes it a no-op
-   *  off the spatial canvas (mobile / narrow) or with zero terminals — so
-   *  the keybind needs no extra guard. */
+   *  `useViewPosture().toggle`, whose own write guard makes the POSTURE write
+   *  a no-op off the spatial canvas (mobile / narrow) or with zero terminals —
+   *  so the keybind needs no extra guard. The chord still leaves the
+   *  orchestrator everywhere, which is the one thing a hardware keyboard on a
+   *  phone can act on. */
   toggleCanvasPosture: () => void;
   /** Flip the workspace into (or out of) the orchestrator — the third view
    *  axis, layered over the posture rather than replacing it, so leaving lands
