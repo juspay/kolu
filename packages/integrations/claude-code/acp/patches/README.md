@@ -23,11 +23,18 @@ dependency set. The added lines still say `olai patch (…)` in their comments:
 that is whose patch it is, and rewriting the attribution would make the two
 copies diverge for nothing.
 
-`session-list-info.patch` is **generated**, not hand-written — its source lives
-in olai (`packages/plugins/claude/acp/session-list-info/`, with the suite that
-holds its rules and a `regenerate.sh`). A bump that needs it re-anchored is
-regenerated there and the result copied here; there is no generator in this
-tree to run.
+`session-list-info.patch` is **generated**, not hand-written, and kolu carries
+it as a **frozen artifact**: its generator (`facts.js`, its suite, and a
+`regenerate.sh` that re-anchors the hunks against a pristine npm extract) lives
+in olai at `packages/plugins/claude/acp/session-list-info/` and was
+deliberately NOT vendored here. A second copy would be a copy nothing in this
+tree runs — the suite is `bun test`, and kolu has no bun lane — so it would
+drift from the patch beside it and still have to be regenerated in olai to be
+trusted. So: a bump that needs this patch re-anchored is regenerated THERE
+(against this same pin, pointing at olai's shim lockfile, which carries the
+same `@agentclientprotocol/claude-agent-acp` version) and the resulting patch
+copied here. There is no generator in this tree to run, and that is the
+arrangement rather than an omission.
 
 ## `background-tasks-visible.patch` — a background task lives past its launch
 
@@ -105,7 +112,9 @@ Move the version in `../shim/package.json`, regenerate the lockfile
 `lib.fakeHash` and build once to get the new one. Then the real work: the build
 will fail loudly if a hunk no longer applies, and the answer is never fuzz. Ask
 whether each patch is still NEEDED (upstream may have landed it), re-anchor it
-against the new `dist/` by `diff -u` against a pristine npm extract, and look
+against the new `dist/` by `diff -u` against a pristine npm extract —
+`session-list-info.patch` is re-anchored by running olai's `regenerate.sh` at
+the new pin and copying its print-out here, never by hand — and look
 at the layer no dist diff can see — the Claude Agent SDK moves with the
 adapter, and the vocabulary both patches read (`SDKTaskStarted/Updated/
 Notification`, `SDKBackgroundTasksChanged`, the undocumented

@@ -28,10 +28,13 @@
 # Patches are read from `patches/`, sorted by name, because the order patches
 # apply in is a fact somebody depends on the moment two of them touch one file
 # and `readDir` has no order worth relying on. The directory's own `README.md`
-# says what each patch is and where it came from. A DIRECTORY THAT IS NOT
-# THERE is an adapter with no patches, so absence answers the empty list
-# rather than failing the eval. A patch is a store input, so editing one
-# rebuilds its adapter.
+# says what each patch is and where it came from. An adapter that names a
+# `patches` directory MUST get patches from it: a missing directory, or one
+# with no `.patch` in it, FAILS THE EVAL rather than answering the empty list,
+# because the failure it would otherwise hide is silent and behavioural — a
+# rename that loses `background-tasks-visible.patch` builds green and every
+# `run_in_background` task reads as finished the instant it launches. A patch
+# is a store input, so editing one rebuilds its adapter.
 #
 # `patch -p1 -F0` is the audible promise the whole arrangement rests on: npm
 # ships the adapter COMPILED, so what `patch -p1` reads is the bundle rather
@@ -92,14 +95,22 @@ buildNpmPackage {
     let
       mods = "$out/lib/node_modules/${shimName}/node_modules";
       allPatches =
-        if patches != null && builtins.pathExists patches then
-          map (n: patches + "/${n}")
-            (builtins.sort (a: b: a < b)
-              (builtins.attrNames
-                (lib.filterAttrs (n: kind: kind == "regular" && lib.hasSuffix ".patch" n)
-                  (builtins.readDir patches))))
+        let
+          found =
+            if patches == null then [ ]
+            else if !builtins.pathExists patches then
+              throw "npm-adapter: ${name} names a patches directory that is not there (${toString patches}); a renamed or deleted patch dir must not build green"
+            else
+              map (n: patches + "/${n}")
+                (builtins.sort (a: b: a < b)
+                  (builtins.attrNames
+                    (lib.filterAttrs (n: kind: kind == "regular" && lib.hasSuffix ".patch" n)
+                      (builtins.readDir patches))));
+        in
+        if patches != null && found == [ ] then
+          throw "npm-adapter: ${name}'s patches directory (${toString patches}) holds no .patch file; the adapter would build with upstream behaviour (for claude-agent-acp: background tasks completing at launch) and say nothing"
         else
-          [ ];
+          found;
     in
     ''
       adapter="${mods}/${package}"

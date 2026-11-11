@@ -875,6 +875,18 @@ let
   # required values the orchestrator crashes loudly without, and baking them
   # here is also what puts the adapter in the closure `nix copy` ships to a
   # remote host: a host gets no npm and no network.
+  #
+  # Both are `--set-default`, NOT `--set` (olai's choice for the same knob),
+  # and the difference is a test lane that silently tests nothing. The e2e
+  # harness points `KOLU_ACP_AGENT` at a scripted fixture adapter and
+  # `KOLU_MCP_BIN` at the kolu-server binary it just spawned
+  # (`packages/tests/support/hooks.ts`), kolu-server forwards both to the padi
+  # it spawns (`padiBinding.ts`'s `ORCHESTRATOR_BAKE_ENVS` loop), and that padi
+  # is THIS wrapper (`justfile`'s e2e lane runs the nix `koluBin`). With `--set`
+  # the wrapper overwrote both, so `orchestrator.feature` drove the real pinned
+  # adapter against a real `claude` — green or red for reasons the fixture
+  # never stated. `--set-default` keeps the bake as the value nothing else
+  # supplies, which is every production path: nobody exports these names.
   padi = pkgs.runCommand "padi"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -890,8 +902,8 @@ let
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       ${osfactsBakeArg} \
       ${snapshotFontsBakeArg} \
-      --set KOLU_ACP_AGENT "${koluEnv.KOLU_ACP_AGENT}" \
-      --set KOLU_MCP_BIN "${koluMcpBin}/bin/kolu" \
+      --set-default KOLU_ACP_AGENT "${koluEnv.KOLU_ACP_AGENT}" \
+      --set-default KOLU_MCP_BIN "${koluMcpBin}/bin/kolu" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.gitMinimal pkgs.gh ]} \
       --run '${exportPadiStateDirRun}' \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "padi-")}

@@ -32,15 +32,20 @@ export * from "./leg.ts";
  * Which executable speaks ACP, and what "none" means.
  *
  * **The default is the pinned Claude Code adapter, on every documented way of
- * starting kolu** (the claude plugin's own `default.nix` declares the
- * `KOLU_ACP_AGENT` knob), baked into the packaged binary's wrapper with
- * `--set-default`; the dev-loop recipes resolve the same derivation on
- * demand. So a person who follows any documented path gets a
- * working chat panel and never has to know this variable exists.
+ * starting kolu** — `nix/packages/acp-adapter.nix` builds it and `nix/env.nix`
+ * puts the path in `koluEnv`, from which padi's wrapper bakes it with
+ * `--set-default`. So a person who follows any documented path gets a working
+ * orchestrator and never has to know this variable exists.
  *
- * It names the adapter resource. An empty value makes that engine unavailable;
- * it does not suppress the other engines. Chat enablement belongs to the vault.
- * The static name lives here so consumers need not import another plugin.
+ * `--set-default` RATHER THAN `--set`, and the difference is load-bearing
+ * twice: a developer can point one host at a build of the adapter they are
+ * working on, and kolu's own e2e suite points it at a scripted agent. A
+ * `--set` would win over both — and the suite would silently have been driving
+ * the real pinned adapter, which is exactly what it did until this was caught.
+ *
+ * It names the adapter resource and nothing else. An absent or empty value
+ * leaves this engine unseated with a sentence saying why ({@link NotHere}),
+ * never a silently missing row.
  */
 export const AGENT_ENV = "KOLU_ACP_AGENT";
 /**

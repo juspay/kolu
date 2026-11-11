@@ -14,6 +14,21 @@
  * marker still accepts the notification — the marker says "this agent talks
  * about its identity", never anything about the payload.
  *
+ * THE PRODUCER kolu reads is the pinned adapter
+ * `@agentclientprotocol/claude-agent-acp` 0.81.2 (the version
+ * `packages/integrations/claude-code/acp/shim/package-lock.json` pins and
+ * `nix/packages/acp-adapter.nix` builds), whose `dist/auth-status.js` spells
+ * the method and whose `dist/acp-agent.js` sends it with
+ * `client.extNotification(AUTH_STATUS_UPDATE_METHOD, { authStatus })` and sets
+ * the marker from `authStatusCapability()` in its `initialize` reply. It reads
+ * its identity at `initialize` (an async `claude auth status --json` probe), on
+ * a completed `authenticate` or `logout`, at each session creation (a REFUSED
+ * one included), and at the start of each prompt — and pushes only when the
+ * payload differs from the last one sent, which is why a reader must hold the
+ * value rather than expect one per turn. The extension is interim: the
+ * adapter's own note says the fields move out of `_meta` when the upstream RFD
+ * lands, so a pin bump is where this reading is re-checked.
+ *
  * SILENCE IS NOT LOGGED OUT. An agent that cannot determine its identity sends
  * nothing, and the panel draws nothing; a KNOWN logged-out state is a payload
  * of its own (`kind: "none"`), which is what lets the panel say "not signed
