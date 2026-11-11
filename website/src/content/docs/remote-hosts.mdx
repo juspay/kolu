@@ -293,16 +293,18 @@ session feels heavy, see [kolu is using a lot of memory](/troubleshooting#kolu-i
 **Drag a host tab** along the strip to move it. The tab you dragged lands where
 you dropped it; everything else keeps its relative order, including machines
 currently folded into the **⋯ +N** overflow. A plain click still switches host
-and the connection dot still opens diagnostics — the drag only starts once you
-have held the tab for a moment or moved it a little.
+and the connection dot still opens diagnostics; a drag does neither, even when
+you drop the tab back in the slot you picked it up from. The drag itself starts
+only once you have held the tab for a moment or moved it a little, so an
+ordinary click is never mistaken for one.
 
 Your arrangement is saved **on the server, not in the browser**, so every tab,
 browser and device you open kolu from shows the same strip — and so does every
 other place kolu lists machines: the **⋯ +N** menu, the narrow-window host
 dropdown, the phone host row, and the **Hosts** rows in the
 [switcher](/switcher). A machine you add later joins at the **end** rather than
-jumping into the middle, and removing one leaves no hole — re-add it and it
-returns to the slot it had.
+jumping into the middle; removing one leaves no hole, and a machine you add
+back is a new arrival — it joins at the end like any other.
 
 Your own machine's tab is **pinned first** and is not draggable: it is the one
 host that can never leave the pool, and the escape hatch when a remote is down.

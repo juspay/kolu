@@ -523,20 +523,31 @@ const hostScoped = createRoot(() => {
       `Host "${encodeHostKey(departed)}" left the pool — switched to the local host`,
     );
   });
-  // The pool membership IN THE USER'S ARRANGEMENT, exposed as a plain accessor
-  // so the host-switcher palette group can list hosts off the SAME `members`
-  // authority this block holds — no second `entries` subscription in the
-  // command layer. `orderHostKeys` is an OVERLAY (host/hostOrder.ts): membership
-  // still decides WHO is listed, the `hostOrder` preference only WHERE each sits
-  // (local pinned first, unnamed members after the named ones in pool order).
+  // The user's host ARRANGEMENT, lifted into its own memo so an unrelated
+  // preference write cannot recompute the ordered list below. The `preferences`
+  // cell replaces its value object on every patch (a seen tip, a theme), but
+  // `applyPreferencesPatch` spreads the untouched fields THROUGH, so
+  // `hostOrder` keeps its array reference and this memo's value is unchanged —
+  // `createMemo`'s `===` check then stops the propagation here.
+  const hostOrder = createMemo(
+    () => (preferences.value() ?? DEFAULT_PREFERENCES).hostOrder,
+  );
+  // The pool membership IN THE USER'S ARRANGEMENT, exposed so the host-switcher
+  // palette group can list hosts off the SAME `members` authority this block
+  // holds — no second `entries` subscription in the command layer.
+  // `orderHostKeys` is an OVERLAY (host/hostOrder.ts): membership still decides
+  // WHO is listed, the `hostOrder` preference only WHERE each sits (the local
+  // tab pinned first, unnamed members after the named ones in pool order).
   // Ordering HERE rather than at each consumer is what keeps the strip, the
   // overflow menu, the dropdown switcher, the phone row and the palette's Hosts
   // rows showing one arrangement.
-  const hostKeys = (): HostKey[] =>
-    orderHostKeys(
-      [...members.keys()],
-      (preferences.value() ?? DEFAULT_PREFERENCES).hostOrder,
-    );
+  //
+  // A MEMO, not a plain function: the fold allocates a Map, two filters and an
+  // array, and its consumers read it several times per build (`commands.tsx`
+  // alone five). One recompute per membership-or-arrangement change, shared.
+  const hostKeys = createMemo(() =>
+    orderHostKeys([...members.keys()], hostOrder()),
+  );
   return {
     connection,
     preferences,
@@ -553,17 +564,22 @@ const hostScoped = createRoot(() => {
  *  join-activation arm), so there is no second `setActiveHost` writer to reason about. */
 export const requestActivateOnJoin = hostScoped.requestActivateOnJoin;
 
-/** The current pool membership IN THE USER'S ARRANGEMENT — reads the `members`
- *  authority `hostScoped` already holds (so the host-switcher palette group
- *  lists hosts without opening a second `entries` subscription), laid out by the
- *  `hostOrder` preference through the pure {@link orderHostKeys}. The ONE
- *  ordered host list: every surface that LISTS hosts renders off this or off
- *  `useHostMembers`, which applies the same fold to the same preference.
+/** The current pool membership IN THE USER'S ARRANGEMENT — the ONE ordered host
+ *  list. Reads the `members` authority `hostScoped` already holds (so no
+ *  surface opens a second `entries` subscription), laid out by the `hostOrder`
+ *  preference through the pure {@link orderHostKeys}, memoised there.
+ *
+ *  EVERY surface that lists hosts reads THIS: the chip strip, the "⋯ +N"
+ *  overflow menu, the narrow dropdown switcher, the phone host row, the
+ *  diagnostics-panel membership guard, the welcome card and the palette's Hosts
+ *  rows. There is no second fold to keep in step — the former `useHostMembers`
+ *  wrapper is gone, its own `entries.use()` lease having added nothing over the
+ *  app-lifetime subscription this root holds.
  *
  *  Order is DISPLAY only. Every other consumer keys BY host (`padiMap.entry`,
  *  `mapArray` over encoded keys, membership scans), so a re-order moves chips
  *  and nothing else. */
-export const hostKeys = hostScoped.hostKeys;
+export const hostKeys: Accessor<HostKey[]> = hostScoped.hostKeys;
 
 /** The ACTIVE host GROUNDED against live membership — the accessor the per-host SCOPE
  *  (`hostScope/hostScopes` → `scopedByEntry`) reads instead of raw `activeHost`: the

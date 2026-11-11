@@ -14,12 +14,28 @@
  *    · a member the stored order does not name sorts AFTER them, in pool order —
  *      so a newly added host lands at the end rather than jumping the queue;
  *    · a stored key that is no longer a member is ignored — a removed host
- *      leaves no hole, and re-adding it later just puts it back where it was.
+ *      leaves no hole. Its slot is NOT remembered: the next drag writes the
+ *      arrangement of the hosts that are members then, so a host re-added later
+ *      arrives as a new one and lands at the end.
  *
  *  Pure and wire-free on purpose: the one place the arrangement rule lives, and
  *  the one place it is tested (`hostOrder.test.ts`). */
 
-import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import { encodeHostKey, type HostKey, LOCAL_HOST } from "kolu-common/hostKey";
+
+/** The pinned tab's canonical key — the local host. */
+const PINNED_KEY: string = encodeHostKey(LOCAL_HOST);
+
+/** Is this CANONICAL encoded key the pinned tab's? THE one predicate for "this
+ *  chip does not take part in the gesture": the local host is the pool's
+ *  unremovable default and the always-available escape hatch, so its tab stays
+ *  first, is never a sortable (hence neither draggable nor a drop target), and
+ *  is never stored in the arrangement. Read it here rather than re-spelling
+ *  `kind === "local"` or an inline `encodeHostKey(LOCAL_HOST)` at each site —
+ *  two spellings of "pinned" is how the strip and the fold come to disagree. */
+export function isPinnedHostKey(key: string): boolean {
+  return key === PINNED_KEY;
+}
 
 /** The pool's members in the user's arrangement — the ONE ordered host list
  *  every surface that LISTS hosts renders off (the chip strip, the "⋯ +N"
@@ -30,8 +46,8 @@ export function orderHostKeys(
   stored: readonly string[],
 ): HostKey[] {
   const byKey = new Map(members.map((h) => [encodeHostKey(h), h]));
-  const local = members.filter((h) => h.kind === "local");
-  const placed = new Set(local.map(encodeHostKey));
+  const pinned = members.filter((h) => isPinnedHostKey(encodeHostKey(h)));
+  const placed = new Set(pinned.map(encodeHostKey));
 
   const arranged: HostKey[] = [];
   for (const key of stored) {
@@ -44,13 +60,13 @@ export function orderHostKeys(
   }
 
   const rest = members.filter((h) => !placed.has(encodeHostKey(h)));
-  return [...local, ...arranged, ...rest];
+  return [...pinned, ...arranged, ...rest];
 }
 
 /** The re-orderable keys of an arranged list — every member except the pinned
- *  local host, encoded. What a drag permutes and what gets stored. */
+ *  tab, encoded. What a drag permutes and what gets stored. */
 export function reorderableHostKeys(ordered: readonly HostKey[]): string[] {
-  return ordered.filter((h) => h.kind !== "local").map(encodeHostKey);
+  return ordered.map(encodeHostKey).filter((key) => !isPinnedHostKey(key));
 }
 
 /** THE drop verb: move host `from` onto host `to`'s slot in the arrangement,

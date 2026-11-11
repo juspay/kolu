@@ -114,6 +114,22 @@ describe("moveHostKey", () => {
     ]);
   });
 
+  it("drops onto the TARGET HOST's slot in the arrangement, not the seat it is borrowing", () => {
+    // The active host is kept visible at every width: when it was overflowed,
+    // `computeVisibleHosts` seats it LAST on the strip while its slot in the
+    // arrangement stays put (here `d`, seated beside `a`). Dropping `a` onto it
+    // therefore lands `a` at `d`'s index in the arrangement — inside the
+    // overflow — rather than beside `a`'s own visible neighbours. The
+    // arrangement is what the gesture edits; a borrowed seat is a width
+    // accident, not an order the user set.
+    expect(moveHostKey(all, "remote:a", "remote:d")).toEqual([
+      "remote:b",
+      "remote:c",
+      "remote:d",
+      "remote:a",
+    ]);
+  });
+
   it("is a no-op for an unknown id (a host that left mid-gesture)", () => {
     expect(moveHostKey(all, "remote:gone", "remote:b")).toEqual(all);
     expect(moveHostKey(all, "remote:b", "remote:gone")).toEqual(all);

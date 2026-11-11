@@ -18,7 +18,7 @@
 import { decodeHostKey, encodeHostKey } from "kolu-common/hostKey";
 import { type Component, createEffect, Show } from "solid-js";
 import { HostDiagnosticsPopover } from "./HostDiagnosticsPopover";
-import { useHostMembers } from "./useHostMembers";
+import { hostKeys } from "../wire";
 import {
   closeHostDiagnostics,
   hostDiagnosticsAnchor,
@@ -26,7 +26,7 @@ import {
 } from "./useHostDiagnosticsOpen";
 
 const HostDiagnosticsHost: Component = () => {
-  const members = useHostMembers();
+  const members = hostKeys;
   createEffect(() => {
     const key = openHostDiagnosticsKey();
     if (key === null) return;
