@@ -101,6 +101,7 @@ import {
   goneOf,
   locationsOf,
   mcpServersOf,
+  messageOf,
   methodsIn,
   type Offered,
   progressOf,
@@ -115,7 +116,6 @@ import type {
   OrchestratorMention,
   OrchestratorModel,
   OrchestratorOption,
-  OrchestratorPhase,
   OrchestratorRow,
   OrchestratorServer,
   OrchestratorSignIn,
@@ -137,8 +137,6 @@ export interface StdioServer {
 }
 
 export interface HarnessOptions {
-  /** What the agent is CALLED — "Claude Code". The panel never spells it. */
-  readonly agentName: string;
   /** How to read what this agent sends. Every bet that is true of one agent and
    *  not another is behind this; nothing in this file names an adapter. */
   readonly leg: Leg;
@@ -148,8 +146,9 @@ export interface HarnessOptions {
   /** `$HOME` of this padi's host: the directory the conversation works in. */
   readonly cwd: string;
   readonly mcpServers: ReadonlyArray<StdioServer>;
-  /** The standing prompt's lines ({@link ./teaching.ts}), which ride under the
-   *  first message of every session. */
+  /** The standing prompt's lines, which ride under the first message of every
+   *  session. The WORDS are the caller's — they name kolu's own MCP verbs, and
+   *  this package knows no tool but the protocol's. */
   readonly teaching: ReadonlyArray<string>;
   readonly log: {
     info(o: unknown, m?: string): void;
@@ -196,6 +195,16 @@ export interface HarnessOptions {
   readonly onChange: (change: HarnessChange) => void;
 }
 
+/** WHAT A HARNESS CAN ANSWER FOR: padi's whole orchestrator state minus the
+ *  three facts it would only be echoing back. `install` and `agentName` are
+ *  the ENGINE's, settled when kolu was built, and `cwd` is the directory padi
+ *  handed in — a harness that published them would be overwriting the caller's
+ *  own answer with a copy of it. */
+export type HarnessState = Omit<
+  OrchestratorState,
+  "install" | "agentName" | "cwd"
+>;
+
 /**
  * WHAT MOVED — the two things a reader of a conversation can be told, and
  * deliberately not one.
@@ -206,7 +215,7 @@ export interface HarnessOptions {
  * it is small and a patch of it would be a second thing to get right.
  */
 export type HarnessChange =
-  | { readonly kind: "state"; readonly state: OrchestratorState }
+  | { readonly kind: "state"; readonly state: HarnessState }
   | {
       readonly kind: "rows";
       readonly upserts: ReadonlyArray<OrchestratorRow>;
@@ -219,7 +228,7 @@ export type HarnessChange =
     };
 
 export interface Harness {
-  readonly state: () => OrchestratorState;
+  readonly state: () => HarnessState;
   /** Whether there is still a subprocess to talk to. Asked by a caller that
    *  would otherwise replace a harness over `phase`, which answers a different
    *  question: an agent that refused the open for want of a signature is
@@ -425,7 +434,6 @@ export const startHarness = async (
    *  history the agent re-sent (and padi already had). */
   let replayed = 0;
   let stopped = false;
-  let phase: OrchestratorPhase = "starting";
   let taught = false;
   let model: OrchestratorModel | null = null;
   /** The model a PERSON chose, as the id they chose it under — handed in by
@@ -503,19 +511,22 @@ export const startHarness = async (
     });
   };
 
-  const state = (): OrchestratorState => ({
-    install: { kind: "installed" },
+  const state = (): HarnessState => ({
+    // PHASE IS DERIVED, never kept: every fact it reports is already written
+    // down somewhere else, and a flag beside them is a second answer free to
+    // drift from the first. A refused open is OFFLINE with the process still
+    // up, which is the one case `live` alone gets wrong.
     phase:
-      live === null || stopped
+      live === null || stopped || refusal !== null
         ? "offline"
         : questions.open().length > 0
           ? "asking"
           : turns.busy
             ? "working"
-            : phase,
-    agentName: options.agentName,
+            : activeSession === null
+              ? "starting"
+              : "idle",
     sessionId: activeSession,
-    cwd: options.cwd,
     model,
     usage,
     options: settings,
@@ -1236,7 +1247,6 @@ export const startHarness = async (
     leaving();
     identity = null;
     activeSession = null;
-    phase = "offline";
     report(transcript.abandon());
     if (!stopped) {
       notice(
@@ -1366,9 +1376,7 @@ export const startHarness = async (
         modeId: mode,
       });
     } catch (cause) {
-      const why = `the permission mode \`${mode}\` was not selected: ${
-        cause instanceof Error ? cause.message : String(cause)
-      }`;
+      const why = `the permission mode \`${mode}\` was not selected: ${messageOf(cause)}`;
       if (leg.bypassModeRequired === true) {
         // The visit is WITHDRAWN rather than left half-made: nothing entered
         // this conversation, so its late frames are fenced exactly like those
@@ -1439,9 +1447,7 @@ export const startHarness = async (
     } catch (cause) {
       notice(
         `this conversation was on ${models.nameIn(labels, wanted) ?? wanted}` +
-          ` and could not be put back: ${
-            cause instanceof Error ? cause.message : String(cause)
-          }`,
+          ` and could not be put back: ${messageOf(cause)}`,
       );
     }
   };
@@ -1465,7 +1471,6 @@ export const startHarness = async (
     // Coming back into a conversation we left makes its leftovers news about
     // THIS visit.
     closed.delete(id);
-    phase = "idle";
     refusal = null;
     // ... and there is nothing left to sign into: the sign-in row exists
     // because an open was refused for want of a signature, and this is an open
@@ -1495,8 +1500,7 @@ export const startHarness = async (
    * person is offered becomes unreachable.
    */
   const refusedOpen = (cause: unknown): boolean => {
-    refusal = cause instanceof Error ? cause.message : String(cause);
-    phase = "offline";
+    refusal = messageOf(cause);
     if (cause instanceof HarnessRefused && cause.auth) {
       signIn = {
         why: cause.why,
@@ -1596,9 +1600,9 @@ export const startHarness = async (
       const said = stderrSince(from);
       if (said !== "")
         log.warn({ said }, "the agent's own words for a turn that failed");
-      const why = cause instanceof Error ? cause.message : String(cause);
+      const why = messageOf(cause);
       if (cause instanceof HarnessRefused) {
-        report(transcript.refused(ticket.key, body, cause.auth));
+        report(transcript.refused(ticket.key, cause.auth));
       } else {
         // NOTHING CAME BACK: the agent may have the message already, so no
         // retry is offered — an offered duplicate is worse than none.
@@ -1656,7 +1660,7 @@ export const startHarness = async (
       // that carries it: what reaches a person is a refusal under the button
       // they pressed.
       throw new HarnessUnavailable(
-        `the turn could not be cancelled: ${cause instanceof Error ? cause.message : String(cause)}`,
+        `the turn could not be cancelled: ${messageOf(cause)}`,
       );
     } finally {
       publish();
@@ -1735,6 +1739,10 @@ export const startHarness = async (
   // ── signing in ───────────────────────────────────────────────────────
 
   const sayAttempt = (running: Attempt): void => {
+    // A WITHDRAWN ATTEMPT IS NOT DRAWN: the runner goes on finishing the
+    // process it started after the slot was given up, and the row a cancel
+    // took away must not come back behind it.
+    if (running.stopping) return;
     signIn = {
       // The agent's own sentence, which is on the state already: it is the
       // refusal that made this sign-in offerable in the first place. An empty
@@ -1803,6 +1811,14 @@ export const startHarness = async (
     } finally {
       attempt = null;
     }
+    // A CANCEL IS DECIDED ONCE, here, by the one place that owns the slot a
+    // cancel withdraws. A runner crosses five awaits and a person can press
+    // the button at any of them; re-pairing the ending with its clean-up at
+    // each boundary was five chances to pair them wrong.
+    if (claim.stopping) {
+      clearAttempt();
+      ended = "cancelled";
+    }
     // ... AND THE CONVERSATION THE REFUSAL COST, opened here rather than by
     // whoever pressed the button. A sign-in exists because an open was refused
     // for want of a signature, so the thing that knows what to open — this
@@ -1848,7 +1864,7 @@ export const startHarness = async (
       });
     } catch (cause) {
       throw new HarnessUnavailable(
-        `could not run \`${run.command}\`: ${cause instanceof Error ? cause.message : String(cause)}`,
+        `could not run \`${run.command}\`: ${messageOf(cause)}`,
       );
     }
     const appended = (chunk: string): void => {
@@ -1874,11 +1890,7 @@ export const startHarness = async (
     claim.stop = () => process_.stop().then(() => undefined);
     // A STOP THAT BEAT THE SPAWN is acted on here rather than never: the claim
     // is taken before the process is, which is the price of the atomicity.
-    if (claim.stopping) {
-      await process_.stop();
-      clearAttempt();
-      return "cancelled";
-    }
+    if (claim.stopping) await process_.stop();
     sayAttempt(claim);
     const close = await process_.closed;
     if (process_.failed() !== undefined) {
@@ -1888,10 +1900,6 @@ export const startHarness = async (
       );
       sayAttempt(claim);
       return "failed";
-    }
-    if (claim.stopping) {
-      clearAttempt();
-      return "cancelled";
     }
     if (close.code === 0) {
       claim.state = "succeeded";
@@ -1919,10 +1927,6 @@ export const startHarness = async (
       // ITS end rather than wait forever.
       claim.link?.answer("decline");
     };
-    if (claim.stopping) {
-      clearAttempt();
-      return "cancelled";
-    }
     try {
       await request(
         methods.agent.authenticate,
@@ -1930,18 +1934,10 @@ export const startHarness = async (
         null,
       );
     } catch (cause) {
-      if (claim.stopping) {
-        clearAttempt();
-        return "cancelled";
-      }
       claim.state = "failed";
-      claim.output = `${claim.output}${cause instanceof Error ? cause.message : String(cause)}\n`;
+      claim.output = `${claim.output}${messageOf(cause)}\n`;
       sayAttempt(claim);
       return "failed";
-    }
-    if (claim.stopping) {
-      clearAttempt();
-      return "cancelled";
     }
     claim.state = "succeeded";
     sayAttempt(claim);
@@ -1992,7 +1988,6 @@ export const startHarness = async (
     leaving();
     identity = null;
     activeSession = null;
-    phase = "offline";
     turns.drain();
     // Close the protocol before the process, and before joining anything
     // waiting on it.

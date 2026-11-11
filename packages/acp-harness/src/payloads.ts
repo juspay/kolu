@@ -74,6 +74,13 @@ const AUTH_REQUIRED = -32000;
 export const authOf = (cause: unknown): boolean =>
   cause instanceof RequestError && cause.code === AUTH_REQUIRED;
 
+/** WHAT ANYTHING THAT WENT WRONG SAID — an `Error`'s own sentence, and
+ *  anything else as the string it prints as. Spelled ONCE, because every place
+ *  in this package that reports a failure asks exactly this question and nine
+ *  hand-written spellings of it were nine chances to answer it differently. */
+export const messageOf = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
+
 /**
  * ... AND WHAT IT SAID, in the agent's own sentence rather than the protocol's
  * code word.
@@ -101,7 +108,7 @@ export const saidOf = (cause: unknown): string => {
       return data.message;
     }
   }
-  return cause instanceof Error ? cause.message : String(cause);
+  return messageOf(cause);
 };
 
 /**

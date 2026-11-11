@@ -251,13 +251,6 @@ export class Transcript {
    *  task and a call that sent an agent out are two ways of ending, and keyed
    *  by task id the two guards would be in two key spaces. */
   #ended = new Set<string>();
-  /** What it would take to send a REFUSED row again, by that row's key. Here
-   *  beside the rows rather than in the caller, because it is half of one fact
-   *  and the other half is a field on the row: a row offering a retry with no
-   *  prompt behind it draws a button that refuses. ONLY refused rows are in
-   *  here — a row whose delivery went `unanswered` is one the agent may already
-   *  have, so there is no honest retry to offer. */
-  #undelivered = new Map<string, string>();
   readonly #now: () => number;
 
   /**
@@ -366,39 +359,28 @@ export class Transcript {
     return this.#put(key, waiting ? { ...content, queued: true } : content);
   }
 
-  /** That message CERTAINLY never reached the agent, and here is what it would
-   *  take to send it again. The row does not move and nothing is minted: what a
-   *  person typed stays exactly where they typed it, with a mark saying it is
-   *  still theirs to send. */
-  refused(key: string, prompt: string, auth = false): Change {
+  /** That message CERTAINLY never reached the agent. The row does not move and
+   *  nothing is minted: what a person typed stays exactly where they typed it,
+   *  with a mark saying it is still theirs to send — and the text it would take
+   *  to send it again is the row's own, which is where the browser reads it. */
+  refused(key: string, auth = false): Change {
     if (!this.#rows.has(key)) return EMPTY;
-    this.#undelivered.set(key, prompt);
     return this.#mark(key, "refused", auth);
   }
 
-  /** NOTHING CAME BACK about that message, and that is all anybody can say. It
-   *  takes no prompt, deliberately: an agent that went quiet may have the
-   *  message already, so a retry would be a duplicate offered to somebody with
-   *  no way to tell, and the way to make that unofferable is to keep nothing to
-   *  offer. */
+  /** NOTHING CAME BACK about that message, and that is all anybody can say. No
+   *  retry is offered at all: an agent that went quiet may have the message
+   *  already, so sending it again is a duplicate offered to somebody with no
+   *  way to tell. */
   unanswered(key: string): Change {
     if (!this.#rows.has(key)) return EMPTY;
-    this.#undelivered.delete(key);
     return this.#mark(key, "unanswered");
   }
 
   /** ... and it went after all. A row must not go on advertising a failure that
-   *  has stopped being true, and a prompt kept past its row's mark is a retry
-   *  nothing can ask for. */
+   *  has stopped being true. */
   sent(key: string): Change {
-    this.#undelivered.delete(key);
     return this.#mark(key, null);
-  }
-
-  /** What it would take to send that row again, or `null` when there is no
-   *  honest retry to offer. */
-  undelivered(key: string): string | null {
-    return this.#undelivered.get(key) ?? null;
   }
 
   #mark(

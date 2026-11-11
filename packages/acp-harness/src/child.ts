@@ -27,6 +27,7 @@
 
 import { type StdioOptions, spawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
+import { messageOf } from "./payloads.ts";
 
 /** How long SIGTERM gets before SIGKILL. Long enough for an adapter that
  *  honours the signal and flushes its credential store, short enough that a
@@ -38,19 +39,15 @@ const GRACE_MS = 2_000;
 const KILL_MS = 1_000;
 
 /**
- * The child did not do what the wait asked, in the time it was given — and what
- * it SAID while not doing it.
+ * The child did not do what the wait asked, in the time it was given.
  *
  * A `false` after a deadline is how a hang becomes "expected false to be true"
- * in a test summary. Throwing puts the sentence and the child's own words in
- * the failure instead.
+ * in a test summary. Throwing puts the sentence in the failure instead.
  */
 export class Hung extends Error {
-  readonly said: string;
-  constructor(why: string, said: string) {
-    super(`${why}:\n${said === "" ? "nothing said" : said}`);
+  constructor(why: string) {
+    super(why);
     this.name = "Hung";
-    this.said = said;
   }
 }
 
@@ -63,14 +60,9 @@ export interface Start {
   readonly cwd?: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly stdio?: StdioOptions;
-  /** Drain a stream into the box so a pipe nobody reads cannot block the
-   *  child. stdout is never drained by default: for the agent it is the
-   *  PROTOCOL, and stealing it would be reading the conversation. */
-  readonly drain?: { readonly stdout?: boolean; readonly stderr?: boolean };
 }
 
 export interface Child {
-  readonly pid: number | undefined;
   readonly stdin: Writable | null;
   readonly stdout: Readable | null;
   readonly stderr: Readable | null;
@@ -81,19 +73,14 @@ export interface Child {
   /** The same fact as a value: the reason once it has arrived, `undefined`
    *  until then and forever for a child that started. */
   readonly failed: () => string | undefined;
-  readonly said: () => string;
   /** `close` — the process is gone AND its stdio has drained. Attached at
    *  spawn, so asking after the fact is not a wait for an event that has
    *  already happened. */
   readonly closed: Promise<Close>;
-  readonly wait: (ms: number, why: string) => Promise<Close>;
   /** SIGTERM, then SIGKILL after the grace. ESRCH is success: the child is
    *  already gone. */
   readonly stop: (opts?: { readonly graceMs?: number }) => Promise<Close>;
 }
-
-const reasonOf = (cause: unknown): string =>
-  cause instanceof Error ? cause.message : String(cause);
 
 const isEsrch = (cause: unknown): boolean =>
   typeof cause === "object" &&
@@ -118,24 +105,11 @@ export const start = (
     detached: true,
   });
 
-  let said = "";
-  const take = (chunk: string): void => {
-    said += chunk;
-  };
-  if (options.drain?.stdout === true && child.stdout !== null) {
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", take);
-  }
-  if (options.drain?.stderr === true && child.stderr !== null) {
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", take);
-  }
-
   // BOTH listeners on the line after spawn — see this file's header.
   let execFail: string | undefined;
   const unstartable = new Promise<string>((resolve) => {
     child.once("error", (cause) => {
-      execFail = reasonOf(cause);
+      execFail = messageOf(cause);
       resolve(execFail);
     });
   });
@@ -164,7 +138,7 @@ export const start = (
         act();
       };
       const timer = setTimeout(() => {
-        finish(() => reject(new Hung(why, said)));
+        finish(() => reject(new Hung(why)));
       }, ms);
       void closed.then((close) => finish(() => resolve(close)));
     });
@@ -191,17 +165,12 @@ export const start = (
   };
 
   return {
-    get pid() {
-      return child.pid;
-    },
     stdin: child.stdin,
     stdout: child.stdout,
     stderr: child.stderr,
     unstartable,
     failed: () => execFail,
-    said: () => said,
     closed,
-    wait,
     stop,
   };
 };

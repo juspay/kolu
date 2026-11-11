@@ -10,8 +10,8 @@ One entry, deliberately. A second subpath would be a second way to reach a subpr
 
 ```ts
 const harness = await startHarness({
-  agentName, leg, adapter,      // who, how it reads its wire, what to spawn
-  cwd, mcpServers, teaching,    // where it works, what it can reach, what it is told
+  leg, adapter,                 // how it reads its wire, what to spawn
+  cwd, mcpServers, teaching,    // where it works, what it can reach, the standing prompt the CALLER wrote
   log, resume,                  // a session id to `session/load`, or null for a fresh one
   resumedSeq, fleet, model,     // the highest `seq` already persisted; the terminals remembered; the model a person chose
   onChange,                     // { kind: "state" } | { kind: "rows", upserts, removes, appends }
@@ -22,7 +22,7 @@ const harness = await startHarness({
 
 Two error classes are the whole of what a caller may branch on: `HarnessUnavailable` (no child, no session) and `HarnessRefused` (`{why, auth}` — a refusal, the agent's or this end's). Anything else is a defect and propagates unwrapped, because an orchestrator that broke in a way nobody declared should crash loudly rather than arrive as a polite sentence in a chat.
 
-The verbs are `prompt` · `cancel` · `answer` · `signIn` · `signInInput` · `signInCancel` · `setOption` · `newSession` · `stop`, plus `state()`, `rows()` and `alive()` — the last for a caller deciding whether to replace a harness, since an `auth`-refused one is offline AND alive.
+The verbs are `prompt` · `cancel` · `answer` · `signIn` · `signInInput` · `signInCancel` · `setOption` · `newSession` · `stop`, plus `state()`, `rows()` and `alive()` — the last for a caller deciding whether to replace a harness, since an `auth`-refused one is offline AND alive. `state()` answers padi's orchestrator state **minus `install`, `agentName` and `cwd`** (`HarnessState`): those were settled before this process started — the engine's and the caller's own — and a harness that echoed them back would be overwriting the caller's answer with a copy of it.
 
 ## The rules it keeps
 

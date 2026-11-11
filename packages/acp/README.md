@@ -39,4 +39,4 @@ So it has a test instead. `src/sharedVocabulary.json` records every exported nam
 
 This package is where it belongs on merit rather than by elimination: an engine is *an ACP agent and how to reach one*, and the protocol is the language rather than an integration. A `Leg` is a reading of one speaker's spelling of that language, which is the same kind of thing `asks.ts` and `diffs.ts` are one degree less specifically.
 
-What is deliberately NOT on that door: the standing prompt's TEXT (one module in `@kolu/acp-harness`, versioned with the binary — only the CHANNEL is the engine's), and the SPAWN, which is `@kolu/acp-harness`'s because that is the package that speaks the protocol out loud.
+What is deliberately NOT on that door: the standing prompt's TEXT (one module in the host that composes it — kolu's is `packages/padi/src/orchestrator/teaching.ts`, because the words name that host's own MCP verbs; only the CHANNEL is the engine's), and the SPAWN, which is `@kolu/acp-harness`'s because that is the package that speaks the protocol out loud.

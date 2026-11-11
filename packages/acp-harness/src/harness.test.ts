@@ -25,12 +25,17 @@ import {
   type Harness,
   type HarnessChange,
   HarnessRefused,
+  type HarnessState,
   startHarness,
 } from "./harness.ts";
-import type { OrchestratorRow, OrchestratorState } from "./rows.ts";
-import { teachingLines } from "./teaching.ts";
+import type { OrchestratorRow } from "./rows.ts";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures");
+
+/** The standing prompt, as DATA — padi's words now
+ *  (`packages/padi/src/orchestrator/teaching.ts`), and all this package has to
+ *  keep about them is that they ride the first message and no later one. */
+const TEACHING = ["[kolu] you are kolu's orchestrator on hostname"];
 
 /** How the fixture spells an MCP server's tools — the pinned Claude adapter's
  *  own spelling, which is what makes the auto-allow rule's positive
@@ -130,7 +135,7 @@ interface Running {
    *  the assertions below are about what a READER sees rather than about the
    *  harness's own copy. */
   readonly rows: () => ReadonlyArray<OrchestratorRow>;
-  readonly states: ReadonlyArray<OrchestratorState>;
+  readonly states: ReadonlyArray<HarnessState>;
 }
 
 /** Every harness this file has started, so a failed assertion cannot leave a
@@ -154,7 +159,7 @@ const open = async (
   } = {},
 ): Promise<Running> => {
   const rows = new Map<string, OrchestratorRow>();
-  const states: Array<OrchestratorState> = [];
+  const states: Array<HarnessState> = [];
   const fold = (change: HarnessChange): void => {
     if (change.kind === "state") {
       states.push(change.state);
@@ -172,7 +177,6 @@ const open = async (
     }
   };
   const harness = await startHarness({
-    agentName: "Fixture",
     leg: extra.leg ?? leg,
     adapter: {
       command: process.execPath,
@@ -180,7 +184,7 @@ const open = async (
     },
     cwd: process.cwd(),
     mcpServers: [{ name: "kolu", command: "/bin/true", args: [], env: {} }],
-    teaching: teachingLines("hostname"),
+    teaching: TEACHING,
     log: silent,
     resume: extra.resume ?? null,
     ...(extra.resumedSeq === undefined ? {} : { resumedSeq: extra.resumedSeq }),
@@ -262,7 +266,7 @@ describe("one conversation with a real agent", () => {
     // the first carries the standing prompt above the word, and the second is
     // the word alone.
     const bodies = (await asked(running, "prompts")) as ReadonlyArray<string>;
-    expect(bodies[0]).toBe(`${teachingLines("hostname").join("\n")}\n\nhello`);
+    expect(bodies[0]).toBe(`${TEACHING.join("\n")}\n\nhello`);
     expect(bodies[0]).toContain("hostname");
     expect(bodies[1]).toBe("hello");
   });
@@ -471,9 +475,8 @@ describe("the permission mode a conversation is opened in", () => {
     // without the mode: the open does not happen, the refusal is published,
     // and the subprocess goes with it rather than idling on a host with a
     // conversation nobody may use.
-    const states: Array<OrchestratorState> = [];
+    const states: Array<HarnessState> = [];
     const starting = startHarness({
-      agentName: "Fixture",
       leg: { ...leg, bypassMode: "yolo", bypassModeRequired: true },
       adapter: {
         command: process.execPath,
@@ -481,7 +484,7 @@ describe("the permission mode a conversation is opened in", () => {
       },
       cwd: process.cwd(),
       mcpServers: [],
-      teaching: teachingLines("hostname"),
+      teaching: TEACHING,
       log: silent,
       onChange: (change) => {
         if (change.kind === "state") states.push(change.state);
@@ -683,9 +686,8 @@ describe("an agent nobody is signed in to", () => {
 
 describe("a bring-up nothing can be done about", () => {
   test("publishes the refusal before it throws, and takes the child with it", async () => {
-    const states: Array<OrchestratorState> = [];
+    const states: Array<HarnessState> = [];
     const starting = startHarness({
-      agentName: "Fixture",
       leg,
       adapter: {
         command: path.join(FIXTURES, "no-such-adapter"),
@@ -693,7 +695,7 @@ describe("a bring-up nothing can be done about", () => {
       },
       cwd: process.cwd(),
       mcpServers: [],
-      teaching: teachingLines("hostname"),
+      teaching: TEACHING,
       log: silent,
       onChange: (change) => {
         if (change.kind === "state") states.push(change.state);

@@ -161,8 +161,9 @@ export interface Where {
  * WHERE A STANDING PROMPT GOES on this engine's wire.
  *
  * kolu teaches an orchestrator's session one standing instruction, once
- * (`@kolu/acp-harness`'s `teaching.ts`, which argues both the words and the channel).
- * The TEXT of it is the harness's and is versioned with the binary — one
+ * (padi's `teaching.ts`, which argues both the words and the channel — the
+ * words name kolu's own MCP verbs, so they belong to the host, not here).
+ * The TEXT of it is the host's and is versioned with the binary — one
  * contract, one spelling, and a reader comparing two agents' first turns sees
  * one law. WHICH CHANNEL it rides is not: it is a fact about the engine, so the
  * engine's own integration package says it.

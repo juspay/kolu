@@ -19,9 +19,9 @@ export {
   type HarnessChange,
   type HarnessOptions,
   HarnessRefused,
+  type HarnessState,
   HarnessUnavailable,
   type SignedIn,
   type StdioServer,
   startHarness,
 } from "./harness.ts";
-export { teachingLines } from "./teaching.ts";
