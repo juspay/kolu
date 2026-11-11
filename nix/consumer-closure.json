@@ -957,6 +957,7 @@
         "@kolu/surface-app",
         "@kolu/surface-daemon",
         "@kolu/surface-daemon-supervisor",
+        "@kolu/surface-map",
         "@kolu/surface-remote",
         "@kolu/terminal-protocol",
         "@kolu/terminal-vocab",

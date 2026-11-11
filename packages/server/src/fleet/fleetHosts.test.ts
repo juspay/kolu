@@ -39,8 +39,8 @@ import { directDispatch } from "@kolu/surface/links/direct";
 import type { SurfaceHandlers } from "@kolu/surface/server";
 import {
   type RemotePool,
-  serveHostMap,
   type SessionState,
+  serveHostMap,
   sessionConnection,
 } from "@kolu/surface-remote";
 import { Effect, Option, Stream } from "effect";

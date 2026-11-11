@@ -48,7 +48,7 @@
  * fallback the repo's rules forbid.
  */
 
-import { padiClientOver, type PadiSurfaceClient } from "@kolu/padi-client/dial";
+import { type PadiSurfaceClient, padiClientOver } from "@kolu/padi-client/dial";
 import { padiSurfaceSibling } from "@kolu/padi-client/surface";
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import {

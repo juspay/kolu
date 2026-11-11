@@ -88,7 +88,6 @@ import {
   activeHost,
   hostKeys,
   padiMap,
-  setActiveHost,
   updatePreferences,
 } from "../wire";
 import { selectHostTab } from "./selectHostTab";

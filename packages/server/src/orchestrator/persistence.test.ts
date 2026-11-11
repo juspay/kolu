@@ -5,7 +5,7 @@
  *  - a ROUND TRIP: a conversation written by one process comes back whole to
  *    the next one — its rows, the session it IS and the fleet it was working
  *    with — through the same `Conf` the host map and the preferences ride;
- *  - the 1.43.0 MIGRATION RUNG: a state file written before the orchestrator
+ *  - the 1.44.0 MIGRATION RUNG: a state file written before the orchestrator
  *    moved here opens and answers the empty record, walked through the REAL
  *    ladder rather than a re-implementation of it;
  *  - FAIL-LOUD: a parseable-but-wrong record refuses by name instead of being
@@ -21,18 +21,18 @@
 
 import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { AGENT_ENV } from "@kolu/acp/engine";
 import type { Harness, HarnessChange, HarnessOptions } from "@kolu/acp-harness";
+import { confStore } from "@kolu/surface/server";
+import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
+import { Schema } from "effect";
 import {
   DEFAULT_ORCHESTRATOR_STATE,
   type OrchestratorFrame,
   type OrchestratorRow,
 } from "kolu-common/orchestrator";
-import { confStore } from "@kolu/surface/server";
-import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
-import { Schema } from "effect";
 import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AGENT_ENV } from "@kolu/acp/engine";
 import {
   type FleetMcpEndpoint as LiveFleetMcpEndpoint,
   startFleetMcpEndpoint,
@@ -56,8 +56,10 @@ const HOME = "/home/tester";
 const FLEET_REF = "local/11111111-1111-4111-8111-111111111111";
 
 /** The version this file's ladder pin names. A literal, deliberately: a pin
- *  read off the constant it is pinning asserts nothing. */
-const STATE_SCHEMA_VERSION = "1.43.0";
+ *  read off the constant it is pinning asserts nothing. The orchestrator's
+ *  rung is 1.44.0 because master took 1.43.0 for `hostOrder` — see the note
+ *  on the ladder entry in `state.ts`. */
+const STATE_SCHEMA_VERSION = "1.44.0";
 
 const log = {
   debug() {},
@@ -254,7 +256,7 @@ describe("the conversation survives a restart", () => {
   });
 });
 
-describe("the 1.43.0 rung", () => {
+describe("the 1.44.0 rung", () => {
   it("costs a pre-orchestrator state file nothing, and carries the version", () => {
     // A 1.42-era file: everything kolu-server persisted before the orchestrator
     // moved here, and no `orchestrator` key at all. Walked through the REAL

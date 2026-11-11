@@ -34,7 +34,7 @@
  * through it.
  */
 
-import { padiClientOver, type PadiSurfaceClient } from "@kolu/padi-client/dial";
+import { type PadiSurfaceClient, padiClientOver } from "@kolu/padi-client/dial";
 import {
   type PadiTerminal,
   type PadiUrgency,

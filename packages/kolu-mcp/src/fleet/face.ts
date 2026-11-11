@@ -67,12 +67,7 @@ import {
   type FleetUrgency,
   fleetSurface,
 } from "./fleetSurface.ts";
-import {
-  type FleetHosts,
-  requireHost,
-  requireMember,
-  requireTerminal,
-} from "./hosts.ts";
+import { type FleetHosts, requireHost, requireTerminal } from "./hosts.ts";
 import { fleetTerminalRef } from "./ref.ts";
 import { type FleetWatchRegistry, fleetWatchClose } from "./watch.ts";
 

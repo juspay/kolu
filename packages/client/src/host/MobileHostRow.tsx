@@ -12,8 +12,9 @@
  *  amber pulse / red), Home glyph for local or hostname for remote, `hostHue`
  *  for the per-host identity accent, and the shared `AttentionTriplet`
  *  (working · needs-you violet · unseen amber) — so a signal means
- *  the same thing on a phone as on a laptop. A tap calls `setActiveHost` (the
- *  identical write the desktop strip makes; W9 makes the switch instant).
+ *  the same thing on a phone as on a laptop. A tap goes through `selectHostTab`
+ *  (the identical write the desktop strip makes, which also leaves the
+ *  orchestrator if that is what was on screen; W9 makes the switch instant).
  *  Adding a host reuses the shared `addHost` mechanism; only the CONTAINER
  *  differs from desktop — a full-width in-sheet section rather than an
  *  anchored popover (the popover clips at phone width).
@@ -35,7 +36,7 @@ import {
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import { hostMarks } from "../attention/attentionMarks";
 import DocLink from "../ui/DocLink";
-import { hostKeys, padiMap, setActiveHost } from "../wire";
+import { hostKeys, padiMap } from "../wire";
 import { orchestratorMode } from "../orchestrator/useOrchestratorMode";
 import { selectHostTab } from "./selectHostTab";
 import { runAction } from "../runAction";

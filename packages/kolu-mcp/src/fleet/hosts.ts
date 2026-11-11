@@ -44,12 +44,14 @@ export interface FleetHosts {
 /** MEMBERSHIP alone: this key names a host the fleet holds, or a refusal
  *  listing the ones it does.
  *
- *  Its own function because the roster resource needs exactly this half and
- *  not the other: a host that is not connected still has a row, so asking
- *  {@link requireHost} there would refuse the very reading the row exists to
- *  give. Spelled once, so the two readers cannot teach an agent two grammars
- *  for one mistake. */
-export function requireMember(
+ *  Its own function because {@link requireHost} is membership AND reachability
+ *  and the two refusals are different sentences: a host that is in the fleet
+ *  but not answering is told what it is doing, where a key nobody holds is
+ *  told the roster. Split here, once, so the two readings cannot teach an
+ *  agent two grammars for one mistake. Module-private: every caller wants the
+ *  pair, and the roster resource that once wanted this half alone now answers
+ *  rows straight off `hosts.keys()`. */
+function requireMember(
   hosts: FleetHosts,
   key: string,
 ): Effect.Effect<void, ToolFailure> {
