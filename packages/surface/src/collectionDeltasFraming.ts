@@ -8,10 +8,10 @@
  * entries}` frame carrying the WHOLE set (`server.ts`'s `collectionHandlers`).
  * For a long conversation (olai's transcript) that frame is several MB, and
  * every subscribe and every reconnect sends it again. It rides the SAME socket as
- * Effect's keep-alive, so on a slow link the frame the server is still pushing
- * when the pinger's next tick fires takes the whole connection down — and with it
- * every unrelated subscription multiplexed on that socket (`./frameLimit.ts` has
- * the frame-cap incident; `./keepAlive.ts` the ping deadline). The fix is to stop
+ * every other subscription and the link's liveness probe, so on a slow link
+ * everything queues behind it for as long as it drains — a probe answer late
+ * enough reads as a dead host (`./frameChunking.ts` has the arithmetic;
+ * `./frameLimit.ts` the frame-cap incident). The fix is to stop
  * letting a single frame scale with user content: the snapshot (and any coalesced
  * delta whose upsert set is large) is split into bounded parts, and the parts are
  * reassembled here so every consumer sees exactly the frames it saw before.

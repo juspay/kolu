@@ -173,6 +173,15 @@ just the first link. A host you can reach whose terminal daemon is dead is not
 green: that combination is the one that used to read as healthy while nothing
 would run.
 
+**A busy host is not a dead host.** The pip turns on what kolu's own watchdog
+decides, not on a single missed reply: a host that is merely slow — a build
+pinning its CPUs, a stall under load — keeps its connection for as long as it
+answers the watchdog's probe in time, and on this machine kolu also checks that
+the process is still running before it reconnects anything. A host that really
+goes away (powered off, network gone) is noticed in about **25–30 seconds**, and
+kolu reconnects as soon as it is back. A connection that carries nothing at all
+for a full minute is ended regardless, as a last resort.
+
 Click the **connection pip** for the **diagnostics popover** — connection
 state, terminal and awaiting counts, that machine's **agents** (the profile and
 build its new terminals get, its last update, and its check-for-newer-agents

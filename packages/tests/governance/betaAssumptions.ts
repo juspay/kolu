@@ -114,6 +114,10 @@ export const BETA_ASSUMPTION_SITES: readonly string[] = [
   "packages/padi-client/src/vocab.ts",
   "packages/surface-daemon-supervisor/src/probeDaemonIdentity.ts",
   "packages/surface/src/frameLimit.ts",
+  // The keep-alive backstop's numbers are OURS, but the fatal-silence bound
+  // derived from them rests on how Effect's pinger counts liveness (any decoded
+  // frame) and when it fires; stdioPingStall.test.ts measures the death.
+  "packages/surface/src/keepAlive.ts",
   // The delivery-lane workaround for Effect RPC's reader rests on which
   // responses wait on a consumer, on a delivery failing only when interrupted,
   // and on a stream's own finaliser releasing its queue;
@@ -123,9 +127,9 @@ export const BETA_ASSUMPTION_SITES: readonly string[] = [
   // every attempt, including swallowed pre-open failures. The old dispatch
   // epoch fence is gone: stable Effect broadcasts heartbeat failures itself.
   "packages/surface/src/links/websocket.ts",
-  // The duplex keep-alive classification depends on SocketReadError's
-  // upstream "ping timeout" cause; stdioPingStall.test.ts measures it and
-  // distinguishes an ordinary read failure.
+  // An undecodable frame ENDS the link because Effect fails every call in
+  // flight but keeps the socket run; stdio.test.ts and websocket.test.ts
+  // measure it. (The keep-alive death is named by `onPingTimeout`, not sniffed.)
   "packages/surface/src/links/wire.ts",
   "packages/surface/src/mirrorRemoteSurface.ts",
   // The reactor's ENGINE seam (juspay/kolu#2101 G6). Three assumptions live here,

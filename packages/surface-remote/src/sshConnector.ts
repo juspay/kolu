@@ -209,23 +209,23 @@ export interface SshConnectorOptions<S extends SurfaceSpec> {
    *  dial, and never clamped.
    *
    *  **What it does NOT buy — because it is only ONE of four independent bounds
-   *  on how long a link may be silent, and it is the LOOSEST of them:**
+   *  on how long a link may be silent:**
    *
-   *   1. **Effect RPC's own pinger, on a connected link — 5–10s of no frame.**
-   *      `RpcClient.makeProtocolSocket` pings every 5s and ends the socket once
-   *      a tick finds its ping outstanding and no frame from the peer for
-   *      longer than 5s — Effect's defaults, which this stack does not set — and
-   *      no retry survives it. Canonical account: the docstring at
-   *      `@kolu/surface`'s `links/wire.ts` (`keepAliveWentUnanswered`), measured by
-   *      `links/stdioPingStall.test.ts`. This is the bound that actually ends a
-   *      connected link, and nothing here can move it.
-   *   2. **`makeSession`'s heartbeat — ≈25s at its defaults, tunable via
-   *      `MakeSessionOptions.liveness`.** At its defaults and at every RAISED
-   *      tuning it gets no vote on a connected link: the lower deadline always
-   *      wins. (`heartbeat.ts` sets no floor, so a sub-10s tuning does fire
-   *      first — that is tightening a link, not surviving a silence.) Tune it
-   *      for its own reasons, not as a way to ride out a blip.
-   *   3. **The provisioning child-lifetime budget, which GROUP-KILLS the
+   *   1. **`makeSession`'s heartbeat — ≈25s at its defaults, tunable via
+   *      `MakeSessionOptions.liveness`.** The liveness AUTHORITY on a connected
+   *      link: at its defaults it decides first, before this option's 30s
+   *      verdict. Tuned past the link's backstop (below) it gets no vote.
+   *   2. **This option** — the ssh transport's own death, 30s at the default
+   *      policy.
+   *   3. **The link's keep-alive backstop — 60–65s of no frame.** `@kolu/surface`
+   *      owns it (`keepAlive.ts`): a ping every 5s, the link ended once 60s pass
+   *      with nothing decoded from the peer, and no retry survives it. It sits
+   *      above (1) and (2) at their defaults, so it only ends a link they have
+   *      not already judged. Canonical account: `duplexWireLink` in
+   *      `@kolu/surface`'s `links/wire.ts`, measured by
+   *      `links/stdioPingStall.test.ts`. A policy raised past it is inert on a
+   *      CONNECTED link.
+   *   4. **The provisioning child-lifetime budget, which GROUP-KILLS the
    *      child.** ssh keepalives are protocol-level traffic and produce no child
    *      stdout, so they reset none of it. It is not ONE number — it is per
    *      step, and the steps differ:
@@ -241,17 +241,16 @@ export interface SshConnectorOptions<S extends SurfaceSpec> {
    *          under a fixed `PROVISION_COPY_SILENCE_MS` 600s that never escalates
    *          — they charge no expiry, so they must not inherit the build's
    *          doubled allowance.
-   *   4. **This option** — the ssh transport's own death, the backstop
-   *      underneath all three.
    *
    *  So: do not read a raised policy as "this lane now survives a five-minute
-   *  interruption". It does not. A connected link is gone in 5–10s, and during
-   *  provisioning the tolerance you REQUEST is bounded by whatever (3) grants
-   *  the step the dial is in — inert past 30s for a probe, past the current
-   *  120–960s grant for a required build, past 600s for a speculative copy.
-   *  What a raised policy prevents is the opposite failure — a 30s dead-peer
-   *  verdict tearing down a dial whose peer was merely slow to answer a probe —
-   *  and an unbounded park on a transport that is genuinely gone.
+   *  interruption". It does not. A connected link whose peer says nothing is
+   *  judged by the watchdog at ~25s and ended by the backstop at 60–65s, and
+   *  during provisioning the tolerance you REQUEST is bounded by whatever (4)
+   *  grants the step the dial is in — inert past 30s for a probe, past the
+   *  current 120–960s grant for a required build, past 600s for a speculative
+   *  copy. What a raised policy prevents is the opposite failure — a 30s
+   *  dead-peer verdict tearing down a dial whose peer was merely slow to answer
+   *  a probe — and an unbounded park on a transport that is genuinely gone.
    *
    *  Threaded into EVERY ssh the dial spawns (arch probe, cache prefetch, warm
    *  validity check, GC-root pin, closure ship, Nix's own remote-store ssh, and
@@ -501,9 +500,9 @@ export function sshConnector<S extends SurfaceSpec>(
     // juspay/kolu#2101. Everything below this point builds an `RpcClient`, and
     // building one starts Effect RPC's pinger. A remote daemon from a PREVIOUS
     // protocol epoch accepts the splice and then says nothing — it is waiting
-    // for a greeting in a protocol we no longer speak — so the pinger kills the
-    // link ~10s later on its unanswered keep-alive (the mechanism is argued in
-    // `duplexWireLink`'s `keepAliveWentUnanswered`), the session classifies that
+    // for a greeting in a protocol we no longer speak — so the pinger ends the
+    // link at its keep-alive backstop (the mechanism is argued in
+    // `duplexWireLink`, `@kolu/surface`'s `links/wire.ts`), the session classifies that
     // as `"network"`, and `"network"` retries forever. That is the incident:
     // every remote host wedged in a permanent loop, with a log line
     // indistinguishable from an unreachable box.

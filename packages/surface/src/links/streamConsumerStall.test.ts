@@ -5,26 +5,30 @@
  *
  * Measured here against the real loopback-wired stdio link:
  *
- *  A. a consumer that takes one frame and then stalls for 12 s — past
- *     `RPC_PING_FATAL_SILENCE_MS`, so the old reader would have died of it —
- *     and then RESUMES with every frame, in order: the stall cost nothing but
- *     its own stream's progress, which is backpressure surviving the decoupling;
+ *  A. a consumer that takes one frame and then stalls past
+ *     `RPC_PING_FATAL_SILENCE_MS` — so a reader parked on its queue would have
+ *     let the pinger kill the link — and then RESUMES with every frame, in
+ *     order: the stall cost nothing but its own stream's progress, which is
+ *     backpressure surviving the decoupling;
  *  B. a consumer that takes one frame, stalls briefly, and is INTERRUPTED;
  *  C. a chunk the client cannot decode fails ITS stream and nothing else;
  *  D. a protocol without acks is refused when the link is built, because the
  *     per-request lane is only bounded by the ack.
  *
- * Real time for A and B, for the reason `stdioPingStall.test.ts` gives: the
- * pinger runs on Effect's own clock at its default cadence, so there is no clock
- * to fake without faking the thing under test. "Answers" is bounded by `ANSWER_WITHIN_MS` rather
- * than awaited bare, because the failure being guarded against is a call that
- * never answers.
+ * A and B run their stall on a VIRTUAL clock, for the reason
+ * `stdioPingStall.test.ts` gives: only `setTimeout` and `Date` are faked, so
+ * the pinger is Effect's real one and the bytes are real. The clock is walked a
+ * second at a time with a real breath between steps (the one real wait here:
+ * the loopback bytes, pongs included, move on the real event loop), so the
+ * peer's pongs are read as they would be in production. "Answers" is bounded
+ * by `ANSWER_WITHIN_MS` rather than awaited bare, because the failure being
+ * guarded against is a call that never answers.
  */
 
-import { setTimeout as delay } from "node:timers/promises";
+import { setTimeout as breathe } from "node:timers/promises";
 import { Cause, Effect, Exit, Fiber, Layer, Schema, Stream } from "effect";
 import { RpcClient } from "effect/rpc";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineSurface } from "../define";
 import { RPC_PING_FATAL_SILENCE_MS } from "../keepAlive";
 import { createLoopbackPair, greetLoopback } from "../loopback";
@@ -39,12 +43,28 @@ import {
 import { openWireLink } from "./wire";
 
 /** How long an unrelated call may take to answer and still count as answered —
- *  generous for a loaded box, and far inside the ping window the old reader
- *  died in. */
+ *  generous for a loaded box, and far inside every keep-alive deadline. */
 const ANSWER_WITHIN_MS = 3_000;
 
-/** The A stall: past the whole-link deadline the old reader died of. */
+/** The A stall: past the whole-link deadline a parked reader would die of. */
 const STALL_MS = RPC_PING_FATAL_SILENCE_MS + 2_000;
+
+/** Walk the virtual clock `ms` forward, one second at a time, with a REAL
+ *  breath between steps so every byte in flight (the peer's pongs included) is
+ *  read before the next pinger tick — the cadence production sees. */
+async function passVirtually(ms: number): Promise<void> {
+  for (let walked = 0; walked < ms; walked += 1_000) {
+    await vi.advanceTimersByTimeAsync(1_000);
+    await breathe(2);
+  }
+}
+
+/** A virtual-clock wait: resolves when the faked `setTimeout` fires. */
+function virtualDelay(ms: number): Promise<void> {
+  const { promise, resolve } = Promise.withResolvers<void>();
+  setTimeout(resolve, ms);
+  return promise;
+}
 
 /** Far more frames than the stream's buffer holds, so the stalled consumer's
  *  queue is full and a delivery is parked on it for the whole stall. */
@@ -74,24 +94,40 @@ function stallingConsumer(w: LoopbackWired, to: number, stallMs: number) {
       ({ n }) =>
         Effect.promise(async () => {
           seen.push(n);
-          if (seen.length === 1) await delay(stallMs);
+          if (seen.length === 1) await virtualDelay(stallMs);
         }),
     ),
   );
   return { fiber, seen };
 }
 
-describe.concurrent("wire link — a stalled stream consumer", () => {
+describe("wire link — a stalled stream consumer (virtual clock)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "setInterval",
+        "clearInterval",
+        "Date",
+      ],
+    });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("A: unrelated calls answer through the stall, the link outlives it, and the stalled stream resumes in order with no gap", async () => {
     const w = await wiredLoopback();
     try {
       const consumer = stallingConsumer(w, FRAMES, STALL_MS);
-      await delay(1_000);
+      await breathe(1_000);
       expect(consumer.seen).toEqual([0]);
       // The consumer's queue is full and a delivery is parked on it; a reader
       // that delivers in line would not see this answer at all.
       expect(await answers(w.link, 2, 3)).toBe(5);
 
+      await passVirtually(STALL_MS);
       await Effect.runPromise(Fiber.join(consumer.fiber));
       // Past the stall: the link is alive — the pinger was answered throughout.
       expect(await answers(w.link, 20, 3)).toBe(23);
@@ -109,20 +145,22 @@ describe.concurrent("wire link — a stalled stream consumer", () => {
     const w = await wiredLoopback();
     try {
       const consumer = stallingConsumer(w, 1_000_000, STALL_MS);
-      await delay(500);
+      await breathe(500);
       expect(consumer.seen).toEqual([0]);
       await Effect.runPromise(Fiber.interrupt(consumer.fiber));
 
       expect(await answers(w.link, 2, 3)).toBe(5);
       // Past the whole-link deadline: a reader left parked on the orphaned
       // queue would have let the pinger kill the link by now.
-      await delay(RPC_PING_FATAL_SILENCE_MS + 1_000);
+      await passVirtually(RPC_PING_FATAL_SILENCE_MS + 1_000);
       expect(await answers(w.link, 40, 2)).toBe(42);
     } finally {
       await w.done();
     }
   }, 60_000);
+});
 
+describe.concurrent("wire link — a stalled stream consumer", () => {
   it("C: a chunk the client cannot decode fails its own stream and leaves the link answering", async () => {
     // The CLIENT is built from a surface whose counter frames are strings, so
     // every frame the real server sends fails to decode. Effect writes that

@@ -31,14 +31,16 @@
  * marker AND for `websocket.ts`'s — bump the pin, re-run this file, re-stamp.
  */
 
+import { setTimeout as breathe } from "node:timers/promises";
 import { NetAddress } from "effect/net";
 import { Effect, Exit, Layer, Schema, Scope, Stream } from "effect";
 import { RpcServer } from "effect/rpc";
 import { Socket, SocketServer } from "effect/socket";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fenceStream } from "../client";
 import { defineSurface } from "../define";
 import { rpcSerializationLayer } from "../frameLimit";
+import { RPC_PING_FATAL_SILENCE_MS } from "../keepAlive";
 import type { WireStatus } from "../link";
 import { implementSurface, surfaceRpcServerLayer } from "../server";
 import {
@@ -459,18 +461,49 @@ describe("re-dial law 2 — a pre-open DIAL FAILURE is swallowed, so a registere
 /**
  * Law 3 — established-socket heartbeat failures are broadcast by Effect.
  * The retry fence opens exactly one replacement subscription; unaries fail
- * without waiting for a new socket. These drives use the real ping cadence.
+ * without waiting for a new socket.
+ *
+ * The two drives that wait for the pinger's death run on a VIRTUAL clock (only
+ * `setTimeout` and `Date` are faked, as in `stdioPingStall.test.ts`): the
+ * backstop is a minute, so real time is out, and the pinger under test is
+ * still Effect's own with the numbers `websocketLink` passes.
  */
-describe("re-dial law 3 — heartbeat failure and one re-subscription", () => {
-  /** How long to allow for the protocol to notice a socket that died silently:
-   *  the pinger writes a ping every 5s and opens its timeout latch on the next
-   *  tick that finds that ping outstanding and no frame for over 5s, so ~10s.
-   *  These fixtures exercise the real timeout. */
-  const PING_TIMEOUT_WINDOW_MS = 25_000;
+describe("re-dial law 3 — heartbeat failure and one re-subscription (virtual clock)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "setInterval",
+        "clearInterval",
+        "Date",
+      ],
+    });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
-  it("THE FIELD SHAPE: a silently-dead socket's parked subscription re-drives on the next open, with no server-side action", {
-    timeout: 90_000,
-  }, async () => {
+  /** Walk the virtual clock in 100ms steps, with a real breath between them,
+   *  until `holds()` — failing loudly past `budgetMs` of virtual time. The
+   *  budget for a heartbeat death is the backstop itself plus slack for the
+   *  re-dial backoff. */
+  async function virtually(
+    holds: () => boolean,
+    budgetMs: number,
+    what: string,
+  ): Promise<void> {
+    for (let walked = 0; !holds(); walked += 100) {
+      if (walked > budgetMs) {
+        throw new Error(`${what} did not hold within ${budgetMs}ms (virtual)`);
+      }
+      await vi.advanceTimersByTimeAsync(100);
+      await breathe(1);
+    }
+  }
+  const DEATH_BUDGET_MS = RPC_PING_FATAL_SILENCE_MS + 5_000;
+
+  it("THE FIELD SHAPE: a silently-dead socket's parked subscription re-drives on the next open, with no server-side action", async () => {
     const h = servedHarness();
     const link = await h.link;
     const first = await nthSocket(h.dialled, 1);
@@ -514,9 +547,15 @@ describe("re-dial law 3 — heartbeat failure and one re-subscription", () => {
     // comes back — see the assertion at the end.
     h.setState("connected");
 
-    // The pinger broadcasts SocketReadError, failing the subscription before
-    // the schedule re-dials. The fence queues its replacement on the new wire.
-    const second = await nthSocket(h.dialled, 2, PING_TIMEOUT_WINDOW_MS);
+    // The pinger broadcasts SocketReadError at the backstop, failing the
+    // subscription before the schedule re-dials. The fence queues its
+    // replacement on the new wire.
+    await virtually(
+      () => h.dialled.length >= 2,
+      DEATH_BUDGET_MS,
+      "the re-dial after the heartbeat death",
+    );
+    const second = await nthSocket(h.dialled, 2);
     const secondOpenedAt = Date.now();
     second.open();
     await expect
@@ -525,9 +564,12 @@ describe("re-dial law 3 — heartbeat failure and one re-subscription", () => {
 
     // The whole claim: exactly ONE re-subscribe lands on the new socket, and it
     // renders the state the server has held all along.
-    await expect
-      .poll(() => items, { timeout: 10_000 })
-      .toEqual(["provisioning", "connected"]);
+    await virtually(
+      () => items.length >= 2,
+      10_000,
+      "the re-subscribe's first frame",
+    );
+    expect(items).toEqual(["provisioning", "connected"]);
     expect(requestsOn(second, TICKS_TAG)).toBe(1);
     expect(onRetry).toHaveBeenCalledTimes(1);
     expect(failures).toEqual([]); // retried, never surfaced
@@ -560,6 +602,65 @@ describe("re-dial law 3 — heartbeat failure and one re-subscription", () => {
     await h.dispose();
   });
 
+  it("an in-flight UNARY fails on heartbeat silence before the next open", async () => {
+    // A reconnect orphans every in-flight unary BY CONSTRUCTION: the answer can
+    // only travel the socket the request went out on, and nothing re-sends it.
+    // Un-failed, the call's promise never settles — a `runAction` that never
+    // reports, a `catch` arm that never runs, a spinner with no end.
+    const h = harness();
+    const link = await h.link;
+    const first = await nthSocket(h.dialled, 1);
+    first.open();
+    await expect
+      .poll(() => link.wire.status(), { timeout: 5_000 })
+      .toBe("open");
+
+    let settled: { ok: boolean; value: unknown } | undefined;
+    const call = Effect.runPromise(
+      link.dispatch.unary(ASK_TAG, undefined),
+    ).then(
+      (value) => {
+        settled = { ok: true, value };
+      },
+      (error) => {
+        settled = { ok: false, value: error };
+      },
+    );
+
+    // The request is on socket #1. Nothing will ever answer it: this socket has
+    // no peer, so the pinger hears no frame either.
+    await expect
+      .poll(() => requestsOn(first, ASK_TAG), { timeout: 5_000 })
+      .toBe(1);
+    expect(settled).toBe(undefined);
+
+    // The protocol fails the call BEFORE the next socket opens.
+    await virtually(
+      () => h.dialled.length >= 2,
+      DEATH_BUDGET_MS,
+      "the re-dial after the heartbeat death",
+    );
+    const second = await nthSocket(h.dialled, 2);
+    await virtually(() => settled !== undefined, 5_000, "the unary settling");
+    expect(settled?.ok).toBe(false);
+    const error = settled?.value as {
+      _tag: string;
+      reason: { _tag: string; cause: Error };
+    };
+    expect(error._tag).toBe("RpcClientError");
+    expect(error.reason._tag).toBe("SocketReadError");
+    expect(error.reason.cause.message).toBe("ping timeout");
+    expect(requestsOn(second, ASK_TAG)).toBe(0);
+    second.open();
+
+    await call;
+    await link.dispose();
+  });
+});
+
+/** Law 3, continued — the fence's coalescing, which needs no heartbeat death
+ *  and so runs in real time. */
+describe("re-dial law 3 — one re-subscription per cycle", () => {
   it("law 1 still coalesces to ONE re-drive: a force-cycle does not double-subscribe", async () => {
     // A force-cycle and a protocol failure share one fence: count the
     // replacement request to prove they do not double-subscribe.
@@ -632,58 +733,6 @@ describe("re-dial law 3 — heartbeat failure and one re-subscription", () => {
     expect(fiber.pollUnsafe()).toBe(undefined);
 
     fiber.interruptUnsafe();
-    await link.dispose();
-  });
-
-  it("an in-flight UNARY fails on heartbeat silence before the next open", {
-    timeout: 90_000,
-  }, async () => {
-    // A reconnect orphans every in-flight unary BY CONSTRUCTION: the answer can
-    // only travel the socket the request went out on, and nothing re-sends it.
-    // Un-failed, the call's promise never settles — a `runAction` that never
-    // reports, a `catch` arm that never runs, a spinner with no end.
-    const h = harness();
-    const link = await h.link;
-    const first = await nthSocket(h.dialled, 1);
-    first.open();
-    await expect
-      .poll(() => link.wire.status(), { timeout: 5_000 })
-      .toBe("open");
-
-    let settled: { ok: boolean; value: unknown } | undefined;
-    const call = Effect.runPromise(
-      link.dispatch.unary(ASK_TAG, undefined),
-    ).then(
-      (value) => {
-        settled = { ok: true, value };
-      },
-      (error) => {
-        settled = { ok: false, value: error };
-      },
-    );
-
-    // The request is on socket #1. Nothing will ever answer it: this socket has
-    // no peer, so the pinger hears no frame either.
-    await expect
-      .poll(() => requestsOn(first, ASK_TAG), { timeout: 5_000 })
-      .toBe(1);
-    expect(settled).toBe(undefined);
-
-    // The stable protocol fails the call BEFORE the next socket opens.
-    const second = await nthSocket(h.dialled, 2, PING_TIMEOUT_WINDOW_MS);
-    await expect.poll(() => settled, { timeout: 5_000 }).toBeDefined();
-    expect(settled?.ok).toBe(false);
-    const error = settled?.value as {
-      _tag: string;
-      reason: { _tag: string; cause: Error };
-    };
-    expect(error._tag).toBe("RpcClientError");
-    expect(error.reason._tag).toBe("SocketReadError");
-    expect(error.reason.cause.message).toBe("ping timeout");
-    expect(requestsOn(second, ASK_TAG)).toBe(0);
-    second.open();
-
-    await call;
     await link.dispose();
   });
 });

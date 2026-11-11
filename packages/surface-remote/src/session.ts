@@ -1332,13 +1332,13 @@ export function makeSession<
             // A rejection normally counts as ALIVE — the round-trip completed and the
             // far end answered, even if it answered "no". A DEAD-TRANSPORT rejection is
             // the one rejection that is not an answer at all: the link itself reported
-            // that it is gone. Effect RPC's protocol carries a ping/pong keepalive, so a
-            // silently wedged peer (process alive, app hung — no stdio EOF, ssh
-            // keepalive ~30s away) now fails the LINK within ~10s and every later call
-            // rejects with `SurfaceStdioTransportClosed`. Reading that as "alive" would
-            // park the session `connected` over a corpse forever, since a stdio leg never
-            // reconnects itself and no `closed` fires while the wedged child lives — the
-            // green-dot-over-a-dead-link lie, one hop out.
+            // that it is gone. The link ends itself on a stray undecodable line, and
+            // its keep-alive backstop ends a silently wedged peer (process alive, app
+            // hung — no stdio EOF) once 60s pass with no frame; after either, every
+            // later call rejects with `SurfaceStdioTransportClosed`. Reading that as
+            // "alive" would park the session `connected` over a corpse forever, since
+            // a stdio leg never reconnects itself and no `closed` fires while the
+            // child lives — the green-dot-over-a-dead-link lie, one hop out.
             //
             // So force-cycle NOW instead of waiting out a timeout the link can no longer
             // meet. This is the SAME verdict `onStale` reaches for a wedged remote, taken

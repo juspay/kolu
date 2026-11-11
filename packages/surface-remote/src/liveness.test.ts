@@ -14,9 +14,24 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
+import { setTimeout as breathe } from "node:timers/promises";
+import { buildSurfaceFace } from "@kolu/surface/client";
 import { defineSurface } from "@kolu/surface/define";
-import { createLoopbackPair } from "@kolu/surface/loopback";
+import {
+  DEFAULT_HEARTBEAT_INTERVAL_MS,
+  DEFAULT_HEARTBEAT_TIMEOUT_MS,
+} from "@kolu/surface/heartbeat";
+import {
+  createLoopbackPair,
+  greetLoopback,
+  stallLoopback,
+} from "@kolu/surface/loopback";
 import { writeStdioReadiness } from "@kolu/surface/links/readiness";
+import { stdioLink } from "@kolu/surface/links/stdio";
+import {
+  RPC_PING_FATAL_SILENCE_MS,
+  RPC_PING_TIMEOUT_MS,
+} from "@kolu/surface/links/wire";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { Schema } from "effect";
@@ -28,6 +43,7 @@ import {
   type Connector,
   makeSession,
   type SessionState,
+  surfaceLiveProbe,
 } from "./session";
 import { type AgentClient, type SshProv, sshConnector } from "./sshConnector";
 import { TEST_BINARY_CACHE } from "./agentDerivation.testutil";
@@ -472,5 +488,121 @@ describe("local arm liveness — same-box process oracle (#1776)", () => {
 
     nowSpy.mockRestore();
     session.destroy();
+  });
+});
+
+// ── The oracle's vote, over a REAL link (round 4: kolu owns the keep-alive) ───
+//
+// The tests above stub `isAlive`. This one rides the real thing: a same-box
+// arm whose link is a real stdio link to a real served surface, whose
+// `isAlive` is the framework's own `system.live` probe over that link, and
+// whose peer then goes totally silent (both directions corked — alive, not
+// gone). Before round 4 the link's pinger killed it at 5–10s and the session
+// cycled on the dead transport long before the oracle was asked; the oracle had
+// no vote. Now the pinger is a backstop: the watchdog times out at 25s, asks
+// the oracle, hears "alive", and keeps the link — and nothing ends it until the
+// backstop, 60–65s in. Only `setTimeout` and `Date` are faked, so the bytes and
+// Effect's own pinger run as in production.
+describe("local arm over a real link — the oracle gets its vote (#1776)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "setInterval",
+        "clearInterval",
+        "Date",
+      ],
+    });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  /** Walk the virtual clock, a second at a time, with a real breath between
+   *  steps so bytes in flight (pongs included) are read before the next tick. */
+  async function pass(ms: number): Promise<void> {
+    for (let walked = 0; walked < ms; walked += 1_000) {
+      await vi.advanceTimersByTimeAsync(1_000);
+      await breathe(2);
+    }
+  }
+
+  it("a same-box peer alive but silent past the watchdog is neither cycled nor killed before the backstop", async () => {
+    let connects = 0;
+    let teardowns = 0;
+    let stalls: { stall(): void; resume(): void } | undefined;
+    const links: Array<{ dispose(): Promise<void> }> = [];
+    const connectOnce: Connector<LocalClient> = async (ctx) => {
+      connects += 1;
+      ctx.connecting();
+      const pair = createLoopbackPair();
+      const { group, handlers } = implementSurface(surface, {
+        cells: { v: { store: inMemoryStore({ n: 0 }) } },
+      });
+      void serveOverStdio({ group, handlers, transport: pair.server });
+      const readiness = await greetLoopback(pair, "padi on this box");
+      const link = await stdioLink({
+        group: surface.group,
+        read: pair.client.read,
+        write: pair.client.write,
+        readiness,
+      });
+      links.push(link);
+      stalls = stallLoopback(pair);
+      // `Promise.withResolvers` is ES2024; this package's lib target predates it.
+      let close: (info: ClosedInfo) => void = () => {};
+      const closed = new Promise<ClosedInfo>((resolve) => {
+        close = resolve;
+      });
+      return {
+        client: {} as LocalClient,
+        closed,
+        isAlive: surfaceLiveProbe(buildSurfaceFace(surface, link.dispatch)),
+        // The same-box oracle: the padi process is running throughout.
+        processAlive: () => true,
+        teardown: () => {
+          teardowns += 1;
+          void link.dispose();
+          pair.server.write.end();
+          close({ kind: "endpoint-down" });
+        },
+      };
+    };
+    const session = makeSession<LocalClient>({
+      initialConnection: "connecting",
+      connectOnce,
+      reconnectDelayMs: 50,
+      liveness: {
+        intervalMs: DEFAULT_HEARTBEAT_INTERVAL_MS,
+        timeoutMs: DEFAULT_HEARTBEAT_TIMEOUT_MS,
+      },
+      label: "padi-local-real-link",
+    });
+    session.pin().catch(() => {});
+    await pass(1_000);
+    session.markConnected();
+    expect(connects).toBe(1);
+
+    // The peer goes silent: alive, busy, saying nothing in either direction.
+    stalls?.stall();
+
+    // Past the OLD pinger window, past the watchdog's verdict, and up to the
+    // backstop's timeout: the watchdog asked the oracle, the oracle said alive,
+    // and the link is still the one the session dialled.
+    await pass(RPC_PING_TIMEOUT_MS - 2_000);
+    expect(teardowns).toBe(0);
+    expect(connects).toBe(1);
+    expect(localPhase(session)).toBe("connected");
+
+    // At the backstop the link ends itself; the next probe meets the dead
+    // transport and the session cycles. That is the backstop working, not the
+    // watchdog overruling its oracle.
+    await pass(RPC_PING_FATAL_SILENCE_MS - RPC_PING_TIMEOUT_MS + 30_000);
+    expect(teardowns).toBe(1);
+
+    session.destroy();
+    for (const link of links) await link.dispose();
   });
 });

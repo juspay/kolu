@@ -31,36 +31,33 @@ const CONTROL_CORE_HELLO_TIMEOUT_MS = 30_000;
  * accepted our connection may say **nothing at all** before it is classified as
  * not-of-this-epoch.
  *
- * The value is not a free knob — it is pinned between two facts of the protocol
- * we run, both pinned by `probeDaemonIdentity.test.ts`:
+ * The value is not a free knob — it is pinned between two facts of the link we
+ * dial, both owned by `@kolu/surface`'s `keepAlive.ts` and both pinned by
+ * `probeDaemonIdentity.test.ts`:
  *
- * - **Floor (5 s).** Effect's RPC socket protocol pings every 5 s and a peer of
- *   this epoch answers `Pong` from the protocol layer, *below* its handlers. So
- *   a daemon that is merely SLOW — one whose `hello` handler is blocked, or
- *   whose event loop stalled — has still demonstrably spoken within 5 s. Any
- *   bound above that cannot mistake slowness for silence.
- * - **Ceiling (~10 s).** A peer that sends no frame at all is killed by that
- *   same protocol on the second ping tick — its first ping still outstanding
- *   and nothing heard for longer than the 5 s interval — with a
- *   `SocketReadError("ping timeout")` the leg reports as an ordinary transport
- *   death. Past ~10 s there is nothing left to classify: the
- *   outcome degrades to `probe-failed`, which is exactly the measured failure
- *   this trigger exists to fix (a real previous-release kaval, silent, refused
+ * - **Floor (5 s, `RPC_PING_INTERVAL_MS`).** The link pings every 5 s and a
+ *   peer of this epoch answers `Pong` from the protocol layer, *below* its
+ *   handlers. So a daemon that is merely SLOW — one whose `hello` handler is
+ *   blocked, or whose event loop stalled — has still demonstrably spoken
+ *   within 5 s. Any bound above that cannot mistake slowness for silence.
+ * - **Ceiling (60 s, `RPC_PING_TIMEOUT_MS`).** A peer that sends no frame at
+ *   all is ended by the link's keep-alive backstop, 60–65 s in, as an ordinary
+ *   transport death. Past that there is nothing left to classify: the outcome
+ *   degrades to `probe-failed`, which is exactly the measured failure this
+ *   trigger exists to fix (a real previous-release kaval, silent, refused
  *   instead of recycled).
  *
- * BETA-ASSUMPTION(4.1.4): the RPC socket protocol pings every 5 s, a server answers Pong below its handlers, and a peer silent for two ping intervals (~10 s) is disconnected.
- *   Re-read in effect@4.1.4 src/rpc/RpcClient.ts makePinger (default
- *   pingInterval 5 s, pingTimeout = the interval, any decoded frame counts as
- *   liveness; this stack sets neither) and RpcServer.ts's `Ping` → `constPong`;
- *   measured by surface/links/stdioPingStall.test.ts and probeDaemonIdentity.test.ts.
- *   Both numbers are protocol BEHAVIOR — nothing in the type system holds them
- *   — and the 8 s is derived from them, so a bump that moves either turns this
- *   value from the generous middle into a floor breach or a dead trigger.
+ * BETA-ASSUMPTION(4.1.4): an Effect RPC server answers a client's Ping with Pong from the protocol layer, below its handlers.
+ *   Re-read in effect@4.1.4 src/rpc/RpcServer.ts (`Ping` → `send(client.id,
+ *   constPong)`, outside any handler fiber); measured by the "a pong is speech"
+ *   case in probeDaemonIdentity.test.ts. It is the one Effect behaviour the
+ *   floor stands on — the numbers themselves are the link's own.
  *
- * 8 s takes the generous end of that band — 3 s of headroom over a slow peer's
- * pong, 2 s of margin under the protocol's own execution. Both timers live in
- * THIS process's event loop and Node fires timers in deadline order, so the
- * ordering is deterministic under load, not a race we hope to win.
+ * 8 s sits 3 s above the floor (a slow peer's first pong) and far under the
+ * ceiling, so a silent previous-epoch peer is classified in 8 s rather than
+ * left to the backstop. Both timers live in THIS process's event loop and Node
+ * fires timers in deadline order, so the ordering is deterministic under load,
+ * not a race we hope to win.
  */
 export const UNSPEAKABLE_SILENCE_MS = 8_000;
 

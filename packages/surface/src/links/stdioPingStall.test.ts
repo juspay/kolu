@@ -1,38 +1,43 @@
 /**
  * A peer that goes SILENT but is not dead — the shape that took a production
  * host down, and the INCIDENT NARRATIVE for it. A box at load 67 on 16 cores,
- * its `padi --stdio` front too starved to answer inside Effect RPC's ping
- * window: the agent was alive throughout and demonstrably served a request 79ms
- * after we had declared it dead. juspay/kolu#2101 had already burned an incident
- * on the same reading — a log line "indistinguishable from an unreachable box".
+ * its `padi --stdio` front too starved to answer inside Effect RPC's old 5–10s
+ * ping window: the agent was alive throughout and demonstrably served a request
+ * 79ms after we had declared it dead. juspay/kolu#2101 had already burned an
+ * incident on the same reading — a log line "indistinguishable from an
+ * unreachable box". The link now owns its keep-alive and sets the pinger as a
+ * BACKSTOP above the framework watchdog.
  *
  * Why the death can be read as the keep-alive at all, what sets its deadline,
  * and why the link cannot be retried through are argued ONCE, in
- * `keepAliveWentUnanswered` and `neverReconnect` in `links/wire.ts`. This file
- * measures them rather than restating them.
- *
- * What it measures:
+ * `duplexWireLink` and `neverReconnect` in `links/wire.ts` (numbers in
+ * `keepAlive.ts`). This file measures them rather than restating them:
  *
  *  1. the bytes never stop flowing permanently — the pipes are open at both ends
- *     throughout, and the server answers correctly the instant a SHORT stall
- *     lifts. Nothing here is ever a dead fd;
- *  2. a stall past the ping window nevertheless kills the link, irrecoverably;
- *  3. and the diagnosis it dies with names the keep-alive — as DATA, on
- *     `death` — rather than claiming the peer exited, which is the part this
- *     repo can actually fix.
+ *     throughout, and the server answers correctly the instant a stall lifts,
+ *     including one longer than the old ping window AND the watchdog's verdict;
+ *  2. an ordinary read failure is `streamEnded`, not the keep-alive;
+ *  3. total silence past the backstop kills the link, irrecoverably, and the
+ *     death lands where `RPC_PING_FATAL_SILENCE_MS` says — measured, not
+ *     assumed;
+ *  4. and the diagnosis it dies with names the keep-alive — as DATA, on
+ *     `death`, set by `onPingTimeout` — rather than claiming the peer exited.
  *
- * Real time, deliberately: the pinger runs on Effect's own clock, so there
- * is no clock to fake without faking the thing under test. But the file never
- * SLEEPS past the deadline: it parks a call on the corked wire and awaits that
- * call's own rejection, which settles at the real death. A sleep would be a
- * guess at Effect's cadence — a second, independent derivation of it beside
- * `socketRedialLaws.test.ts`'s, and a flake surface on a loaded box.
+ * The long waits run on a VIRTUAL clock (see the second `describe`): a minute
+ * of real silence per run would be a flake surface, and faking only `setTimeout`
+ * and `Date` leaves the pinger itself — Effect's `makePinger`, fed by a real
+ * wire — exactly the code production runs.
  */
 
 import { setTimeout as delay } from "node:timers/promises";
 import { Effect, Stream } from "effect";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SurfaceStdioTransportClosed } from "../errors";
+import {
+  RPC_PING_FATAL_SILENCE_MS,
+  RPC_PING_INTERVAL_MS,
+  RPC_PING_TIMEOUT_MS,
+} from "../keepAlive";
 import { stallLoopback } from "../loopback";
 import { wiredLoopback } from "./loopbackWired.testlib";
 
@@ -99,50 +104,107 @@ describe.concurrent("stdio link — a peer that is slow, not dead", () => {
       await w.done();
     }
   });
+});
 
-  it("a stall PAST the ping window kills the link — and says the keep-alive went unanswered, not that the peer exited", async () => {
+/** The silence a default framework watchdog needs to reach its verdict
+ *  (`heartbeat.ts`: 15s interval + 10s timeout). Spelled here, not imported,
+ *  because it is only the yardstick for "past the point where the watchdog
+ *  would already have decided"; `keepaliveOrdering.test.ts` pins the real one. */
+const WATCHDOG_VERDICT_MS = 25_000;
+
+/** The pinger on a VIRTUAL clock. Only time is faked — `setTimeout` (Effect's
+ *  sleep, and so the pinger's tick) and `Date` (Effect's `Clock`, which the
+ *  pinger reads for `lastSeen`). `setImmediate` stays real, so Effect's own
+ *  scheduler and every stream byte run exactly as in production: the pinger
+ *  under test is Effect's real `makePinger` with the numbers `duplexWireLink`
+ *  really passes, fed by a real loopback wire. Nothing in a public factory
+ *  takes a timing argument to make this possible. */
+describe("stdio link — the keep-alive is a backstop, not a verdict (virtual clock)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "setInterval",
+        "clearInterval",
+        "Date",
+      ],
+    });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("survives total silence past the OLD 10s window and past the watchdog's 25s — and answers when it lifts", async () => {
     const w = await wiredThroughStalls();
-    expect(await w.add(2, 3)).toBe(5);
+    try {
+      expect(await w.add(2, 3)).toBe(5);
+      w.stall();
+      // Longer than Effect's old default death (5–10s) AND than the framework
+      // watchdog's verdict: a busy-but-running peer is now the watchdog's call.
+      await vi.advanceTimersByTimeAsync(WATCHDOG_VERDICT_MS + 5_000);
+      w.resume();
+      expect(await w.add(20, 3)).toBe(23);
+    } finally {
+      await w.done();
+    }
+  });
 
-    // Cork the wire and park a call on it, then await THAT call's rejection.
-    // Effect RPC registers a request's entry before it forks the send fiber, so
-    // this call is a registered entry sitting on a write that cannot flush; when
-    // the pinger gives up it broadcasts a protocol error that fails EVERY
-    // registered entry. So this settles at the real death — no sleep, no margin
-    // tuned for a loaded CI box, and no second local derivation of Effect's
-    // cadence.
-    w.stall();
-    const failure = await w.failure(40, 2);
+  it("dies at the backstop — 60–65s after the last frame — as keepAliveUnanswered, named by onPingTimeout", async () => {
+    const w = await wiredThroughStalls();
+    try {
+      expect(await w.add(2, 3)).toBe(5);
 
-    // The link IS dead — that is Effect's pinger, not ours to move — and it is
-    // dead with the leg's own typed error, read as its own type rather than
-    // through a structural cast.
-    expect(failure).toBeInstanceOf(SurfaceStdioTransportClosed);
-    const closed = failure as SurfaceStdioTransportClosed;
+      // Cork the wire with the last frame just received (the virtual clock has
+      // not moved since), and park a call on it. Effect RPC registers a
+      // request's entry before it forks the send, so this is a registered entry
+      // the pinger's death will fail.
+      w.stall();
+      const silentFrom = Date.now();
+      let failedAt: number | undefined;
+      const failure = w.failure(40, 2).finally(() => {
+        failedAt = Date.now();
+      });
 
-    // The DISCRIMINANT, not the sentence. This is the assertion that fails if
-    // the classification regresses, and it is what a consumer branches on — so
-    // the wording below stays re-writable instead of becoming load-bearing API.
-    // Reading it off the narrowed class is the point of shipping it as a closed
-    // `Schema.Literals`: `"streamEnded"` here would not compile-and-pass, it
-    // would compile and FAIL.
-    expect(closed.death).toBe("keepAliveUnanswered");
+      // Walk the virtual clock in 100ms steps until the call settles: the
+      // MEASUREMENT of the worst-case fatal silence, read off the real pinger.
+      for (
+        let walked = 0;
+        failedAt === undefined && walked <= 2 * RPC_PING_FATAL_SILENCE_MS;
+        walked += 100
+      ) {
+        await vi.advanceTimersByTimeAsync(100);
+      }
+      const closed = await failure;
+      if (failedAt === undefined) throw new Error("the call never settled");
+      const silence = failedAt - silentFrom;
 
-    // One prose check, and it is about the LABEL rather than the diagnosis: the
-    // transport `describe` must reach the operator's line. The never-claims that
-    // used to sit here — "no `timeout waiting for \"open\"`", "no `the peer
-    // process exited`" — are derivable from `death` and hardcoded the OTHER
-    // arms' wording, so they broke on a legitimate rewrite of a sentence they
-    // were not guarding.
-    expect(closed.message).toContain("padi on a starved host");
+      // Strictly past the timeout, and no later than one tick after it.
+      expect(silence).toBeGreaterThan(RPC_PING_TIMEOUT_MS);
+      expect(silence).toBeLessThanOrEqual(RPC_PING_FATAL_SILENCE_MS);
+      expect(RPC_PING_FATAL_SILENCE_MS).toBe(
+        RPC_PING_TIMEOUT_MS + RPC_PING_INTERVAL_MS,
+      );
 
-    // The stall lifts and every held byte flushes in order, with nothing
-    // destroyed by the test at either end — and the link stays dead anyway.
-    // That is `neverReconnect`: the corpse is not resurrected by the peer coming
-    // back, which is exactly why the DIAGNOSIS is the part worth getting right.
-    w.resume();
-    expect(await w.failure(1, 1)).toBeInstanceOf(SurfaceStdioTransportClosed);
+      // The DISCRIMINANT, not the sentence — what a consumer branches on, read
+      // off the narrowed class. `"streamEnded"` here would compile and FAIL.
+      expect(closed).toBeInstanceOf(SurfaceStdioTransportClosed);
+      expect((closed as SurfaceStdioTransportClosed).death).toBe(
+        "keepAliveUnanswered",
+      );
+      // One prose check, about the LABEL: the transport `describe` reaches the
+      // operator's line.
+      expect((closed as SurfaceStdioTransportClosed).message).toContain(
+        "padi on a starved host",
+      );
 
-    await w.done();
-  }, 60_000);
+      // The stall lifts and every held byte flushes in order — and the link
+      // stays dead anyway. That is `neverReconnect`: the corpse is not
+      // resurrected by the peer coming back.
+      w.resume();
+      expect(await w.failure(1, 1)).toBeInstanceOf(SurfaceStdioTransportClosed);
+    } finally {
+      await w.done();
+    }
+  });
 });

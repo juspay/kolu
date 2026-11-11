@@ -1,39 +1,66 @@
 /**
- * Effect RPC's own keep-alive cadence, as a LEAFLET — no imports, so the
- * arithmetic that must respect the cadence (frame budgeting, chunk sizing) can
- * depend on the numbers without pulling in a socket library or a Node stream.
+ * The keep-alive numbers every wire link passes to Effect RPC's pinger, as a
+ * LEAFLET — no imports, so the arithmetic that must respect them (frame
+ * budgeting, chunk sizing, the silence bounds above the link) can depend on the
+ * numbers without pulling in a socket library or a Node stream.
  *
- * These are **Effect's DEFAULTS, OBSERVED — not knobs we set**.
- * `RpcClient.makeProtocolSocket` runs a pinger of its own: `makePinger` writes a
- * ping every `pingInterval` ({@link RPC_PING_INTERVAL_MS}), counts ANY frame
- * decoded from the peer as liveness, and ends the socket run when a tick finds
- * its previous ping outstanding and no frame for longer than `pingTimeout`
- * (which defaults to the interval). This stack passes neither option, so the
- * defaults hold; these constants exist so the repo's other reasoning about link
- * silence can REFERENCE the fact instead of transcribing it.
+ * These are **OURS**. Every `RpcClient.makeProtocolSocket` call site
+ * (`./links/wire.ts`'s `duplexWireLink`, `./links/websocket.ts`) passes
+ * `pingInterval: RPC_PING_INTERVAL_MS` and `pingTimeout: RPC_PING_TIMEOUT_MS`
+ * explicitly, so no leg rides Effect's defaults. They are baked framework
+ * constants, not consumer options: no link factory takes a timing parameter.
+ *
+ * THE RULE THEY ENCODE: Effect's pinger is a BACKSTOP, above the framework's own
+ * watchdog (`./heartbeat.ts`), which is the liveness authority. The watchdog is
+ * suspension-aware, progress-aware, and on a same-box arm consults a process
+ * oracle; the pinger knows none of that. So it must never decide first while
+ * the watchdog — or, on an ssh leg, ssh's own dead-peer policy — would still
+ * vote. A peer that really dies on a stdio or unix-socket leg is reported by
+ * the OS (EOF) at once; the pinger only ever adds "alive but silent", and that
+ * is the watchdog's call to make.
  *
  * The canonical account of the MECHANISM is `./links/wire.ts`'s
- * `keepAliveWentUnanswered`, which is the only code that acts on the death;
- * `stdioPingStall.test.ts` measures the behaviour. If Effect's defaults change,
- * or this stack starts passing the options, that docstring changes first and
- * these two follow. `./links/wire.ts` re-exports both under its public subpath
- * for existing importers.
+ * `duplexWireLink` docstring; `stdioPingStall.test.ts` measures it.
+ * `./links/wire.ts` re-exports these under its public subpath.
+ *
+ * BETA-ASSUMPTION(4.1.4): the pinger ends a run at the first tick that finds its ping outstanding and no decoded frame for longer than `pingTimeout`.
+ * In effect@4.1.4 `rpc/RpcClient.ts` `makePinger`, every decoded server frame
+ * (not only `Pong`) refreshes `lastSeen` and clears `awaitingResponse`; each
+ * tick either ends the run (ping outstanding, `now - lastSeen > pingTimeout`)
+ * or writes a ping. {@link RPC_PING_FATAL_SILENCE_MS} is derived from exactly
+ * that, and `stdioPingStall.test.ts` measures the death landing inside it.
  */
 
-/** How often `RpcClient.makeProtocolSocket`'s own pinger writes a ping. */
+/** How often a link's pinger writes a ping. Kept at Effect's old default: a
+ *  ping every 5s is cheap, and it is also the floor `probeDaemonIdentity`'s
+ *  silence bound stands on (a peer of this epoch answers it below its
+ *  handlers, so a merely slow peer has spoken within one interval). */
 export const RPC_PING_INTERVAL_MS = 5_000;
 
-/** The worst-case silence Effect's pinger tolerates on a CONNECTED link before
- *  it ends the socket run. A tick sends a ping; the NEXT tick, one interval
- *  later, ends the run if no frame has arrived for longer than the timeout (the
- *  interval again). The last frame can land just after a tick, so the silence
- *  that kills is between one and two intervals — this is the two.
+/** How long a link may go with NO decoded frame before its pinger ends it.
  *
- *  This is the bound that actually ends a connected link in this stack. Every
- *  other silence budget in the repo — the heartbeat watchdog, the provisioning
- *  child-lifetime budgets, `@kolu/surface-remote`'s ssh keepalive — sits above
- *  it and gets no vote while a link is connected. It is therefore also the
- *  deadline a slow-but-flowing link's frames must never be able to starve: see
- *  `./frameChunking.ts`'s `RPC_STREAM_CHUNK_BYTES`, sized so one outbound frame
- *  drains well inside this window. */
-export const RPC_PING_FATAL_SILENCE_MS = RPC_PING_INTERVAL_MS * 2;
+ *  Derived from the bounds it must sit above, at their defaults:
+ *
+ *    heartbeat verdict   15s interval + 10s timeout          = 25s
+ *    ssh dead-peer       ServerAliveInterval 10 × CountMax 3 = 30s
+ *    pinger backstop     2 × the slowest of those            = 60s
+ *
+ *  Twice the slowest default verdict, so the pinger cannot pre-empt either one
+ *  even when both fire late. (`@kolu/surface-remote`'s
+ *  `keepaliveOrdering.test.ts` pins the ordering; this package cannot import
+ *  the ssh default, which lives above it.) */
+export const RPC_PING_TIMEOUT_MS = 60_000;
+
+/** The worst-case silence a CONNECTED link survives before its pinger ends it.
+ *  The last frame can land just after a tick; the run ends at the first tick
+ *  past {@link RPC_PING_TIMEOUT_MS} of silence, and ticks are
+ *  {@link RPC_PING_INTERVAL_MS} apart — so death lands in
+ *  (`RPC_PING_TIMEOUT_MS`, `RPC_PING_TIMEOUT_MS + RPC_PING_INTERVAL_MS`]:
+ *  60–65s. `stdioPingStall.test.ts` measures it.
+ *
+ *  Every other silence budget in the repo — the heartbeat watchdog, ssh's
+ *  dead-peer policy at its defaults — sits BELOW it and decides first. The
+ *  provisioning child-lifetime budgets sit above it, but they bound a child
+ *  that is not yet a connected link. */
+export const RPC_PING_FATAL_SILENCE_MS =
+  RPC_PING_TIMEOUT_MS + RPC_PING_INTERVAL_MS;

@@ -7,6 +7,10 @@ import { controlCoreFragment, controlCoreSurface } from "@kolu/surface-daemon";
 import { defineSurface } from "@kolu/surface/define";
 import { implementSurface, implementSurfaces } from "@kolu/surface/server";
 import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
+import {
+  RPC_PING_INTERVAL_MS,
+  RPC_PING_TIMEOUT_MS,
+} from "@kolu/surface/links/wire";
 import { Effect, Fiber } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { isUnspeakableProtocolError } from "./convergence/unspeakable.ts";
@@ -243,10 +247,10 @@ describe("probeDaemonIdentity", () => {
   //
   // A real previous-release daemon never gets as far as an undecodable frame:
   // its oRPC server waits for a client hello it can recognise, our ndjson is not
-  // one, and nobody says anything until the protocol's own ping timeout kills
-  // the connection ~10 s later as an ordinary transport death. That is the
-  // measured failure `previousRelease.e2e` hit (probe-failed ⇒ refuse ⇒ the old
-  // daemon left standing), and these three tests are its fix.
+  // one, and nobody says anything until the link's keep-alive backstop ends the
+  // connection as an ordinary transport death. That is the measured failure
+  // `previousRelease.e2e` hit (probe-failed ⇒ refuse ⇒ the old daemon left
+  // standing), and these three tests are its fix.
 
   it("classifies a peer that accepts and stays SILENT as unspeakable", async () => {
     const path = socketPath("probe-silent-");
@@ -284,19 +288,20 @@ describe("probeDaemonIdentity", () => {
       trigger: "silence",
       silentForMs: UNSPEAKABLE_SILENCE_MS,
     });
-    // The bound must WIN against the RPC protocol's own ping timeout — past
-    // that the connection is dead of an ordinary transport error and there is
-    // nothing left to classify. This is the assertion that would have caught
-    // the previousRelease regression at unit scale.
-    expect(elapsed).toBeLessThan(9_500);
+    // The bound must WIN against the link's keep-alive backstop — past that the
+    // connection is dead of an ordinary transport error and there is nothing
+    // left to classify. This is the assertion that would have caught the
+    // previousRelease regression at unit scale.
+    expect(elapsed).toBeLessThan(RPC_PING_TIMEOUT_MS);
+    expect(elapsed).toBeLessThan(UNSPEAKABLE_SILENCE_MS + 1_500);
   }, 20_000);
 
-  it("brackets the silence bound between the protocol's ping and its ping timeout", () => {
-    // Not a magic number: Effect's RPC socket protocol pings every 5 s (so a
+  it("brackets the silence bound between the link's ping and its keep-alive backstop", () => {
+    // Not a magic number: the link pings every `RPC_PING_INTERVAL_MS` (so a
     // peer of this epoch has demonstrably spoken by then, below its handlers)
-    // and fails the connection after two unanswered intervals.
-    expect(UNSPEAKABLE_SILENCE_MS).toBeGreaterThan(5_000);
-    expect(UNSPEAKABLE_SILENCE_MS).toBeLessThan(10_000);
+    // and ends a silent connection only past `RPC_PING_TIMEOUT_MS`.
+    expect(UNSPEAKABLE_SILENCE_MS).toBeGreaterThan(RPC_PING_INTERVAL_MS);
+    expect(UNSPEAKABLE_SILENCE_MS).toBeLessThan(RPC_PING_TIMEOUT_MS);
   });
 
   it("does NOT misfire on a slow-but-speaking daemon: a pong is speech (#9)", async () => {

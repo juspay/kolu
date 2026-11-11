@@ -10,8 +10,10 @@
  * with `Queue.offerAll` into that stream's BOUNDED queue (16) — then sends the
  * `Ack`. So a consumer that stops pulling fills its queue, the offer suspends,
  * and the READER suspends with it: no other stream, no unary answer and no
- * frame of any kind is read until that one consumer moves, and Effect's pinger
- * ends the link 5–10 s later with the peer healthy throughout.
+ * frame of any kind is read until that one consumer moves: every other stream
+ * and call on the link waits on one stalled consumer, and once no frame has
+ * been decoded for the keep-alive's window (`../keepAlive.ts`) the link's own
+ * pinger ends it, with the peer healthy throughout.
  *
  * THE WORKAROUND. {@link decoupleDelivery} wraps the client `Protocol` so each
  * request's responses drain through their own in-order LANE and the reader moves

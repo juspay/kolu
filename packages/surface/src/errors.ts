@@ -78,22 +78,28 @@ export class SurfaceTransportRetired extends Schema.TaggedError<SurfaceTransport
 
 /** WHICH death a {@link SurfaceStdioTransportClosed} was — the discriminant, so
  *  a consumer that puts words on a screen never has to read `reason` to tell two
- *  of them apart. All three are permanently dead for that link and re-dialling is
+ *  of them apart. Every one is permanently dead for that link and re-dialling is
  *  the right response to each, which is why they share ONE tag; they are not the
  *  same fact about the PEER, and reading `keepAliveUnanswered` as `streamEnded`
  *  is the misdiagnosis kolu#2101 cost an incident on. */
 export const StdioTransportDeath = Schema.Literals([
   /** Nothing arrived from the peer inside the transport's keep-alive deadline —
-   *  not the ping's answer, not any other frame — AS THIS SIDE'S READER SAW IT.
-   *  The peer may still be ALIVE and merely too busy to answer — a box under
-   *  load, not a box that exited — or this side may not have been able to read
-   *  (its own event loop starved). This is NOT evidence that the peer exited. A
-   *  local stream consumer that stops pulling is not a cause: delivery is off
-   *  the link's reader, so that consumer holds up only its own stream. (The
-   *  mechanism, and
-   *  why a duplex leg may read that timeout this way at all, is argued once — in
-   *  `keepAliveWentUnanswered` in `links/wire.ts`.) */
+   *  not the ping's answer, not any other frame, for a whole minute — AS THIS
+   *  SIDE'S READER SAW IT. The framework watchdog decides long before this on
+   *  every leg it guards, so this is the backstop firing: the peer may still be
+   *  ALIVE and merely too busy to answer — a box under load, not a box that
+   *  exited — or this side may not have been able to read (its own event loop
+   *  starved). This is NOT evidence that the peer exited. A local stream
+   *  consumer that stops pulling is not a cause: delivery is off the link's
+   *  reader. (The mechanism, the numbers, and why a duplex leg may read that
+   *  timeout this way at all are argued once — in `duplexWireLink` in
+   *  `links/wire.ts`.) */
   "keepAliveUnanswered",
+  /** The peer wrote a line that is not a protocol frame — most often a stray
+   *  write to a remote's stdout. The decoder had already lost whatever followed
+   *  it, so the link was ENDED rather than kept: nothing after that point could
+   *  be trusted. The peer is very likely alive; a fresh link is the repair. */
+  "undecodableFrame",
   /** The subprocess or socket the link rode is gone: the stream ended or the
    *  pipe broke. The far end really is unreachable. */
   "streamEnded",

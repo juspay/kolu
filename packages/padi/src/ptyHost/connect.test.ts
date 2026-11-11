@@ -27,6 +27,7 @@
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, Socket } from "node:net";
+import { setTimeout as breathe } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { controlCoreFragment, controlCoreSurface } from "@kolu/surface-daemon";
@@ -292,7 +293,21 @@ describe("connectKaval — identity comes only from frozen hello", () => {
 });
 
 describe("connectKaval — the handshake read is bounded (F2)", () => {
-  it("rejects a completely silent peer on keep-alive loss, then refuses the foreign socket holder", async () => {
+  it("rejects a completely silent peer at the frozen-hello deadline, then refuses the foreign socket holder", async () => {
+    // A peer that says NOTHING — not even a Pong. The link's keep-alive is a
+    // 60s backstop now (`@kolu/surface`'s `keepAlive.ts`), so the bound that
+    // ends each pass is the 30s frozen-hello deadline, which sits below it.
+    // Thirty seconds per pass, three passes: walked on a virtual clock (only
+    // `setTimeout`/`Date` faked, so sockets and Effect's scheduler stay real).
+    vi.useFakeTimers({
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "setInterval",
+        "clearInterval",
+        "Date",
+      ],
+    });
     const socketPath = sockPath("kolu-completely-silent-");
     const sockets = new Set<Socket>();
     const server = createServer((socket) => {
@@ -340,7 +355,22 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
       adoptConnectAttempts: 1,
     });
     try {
-      const result = await Effect.runPromise(Effect.result(converge(endpoint)));
+      let settled = false;
+      const outcome = Effect.runPromise(Effect.result(converge(endpoint))).then(
+        (result) => {
+          settled = true;
+          return result;
+        },
+      );
+      // A REAL breath before each virtual step: the endpoint's socket probe and
+      // every connect are real I/O, and they must settle before the probe's own
+      // (virtual) timeout can fire.
+      for (let walked = 0; !settled; walked += 500) {
+        if (walked > 4 * 35_000) throw new Error("converge never settled");
+        await breathe(5);
+        await vi.advanceTimersByTimeAsync(500);
+      }
+      const result = await outcome;
       expect(result._tag).toBe("Failure");
       if (result._tag !== "Failure")
         throw new Error("foreign peer was adopted");
@@ -349,18 +379,19 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
       expect(
         result.failure.holders.some((holder) => holder.pid === process.pid),
       ).toBe(true);
-      // Three bounded recovery passes, each ending in Effect 4's keep-alive
-      // refusal rather than the independent 30s frozen-hello deadline.
+      // Three bounded recovery passes, each ending at the frozen-hello
+      // deadline — the keep-alive backstop (60s) never gets that far.
       expect(failures).toHaveLength(3);
       for (const error of failures) {
-        expect(error.message).toBe(
-          `pty-host handshake failed — could not read control.core.hello (surface stdio transport closed: unix socket ${socketPath}: the peer stopped answering the keep-alive ping)`,
+        expect(error.message).toMatch(
+          /control-core hello timed out after 30000ms/,
         );
       }
       expect(states).toContain("dead");
       expect(spawn).not.toHaveBeenCalled();
       expect(server.listening).toBe(true);
     } finally {
+      vi.useRealTimers();
       for (const socket of sockets) socket.destroy();
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
@@ -370,9 +401,9 @@ describe("connectKaval — the handshake read is bounded (F2)", () => {
   }, 60_000);
 
   it("rejects on the baked deadline when a peer accepts the socket but never answers frozen hello", async () => {
-    // Keep the transport healthy while the hello handler wedges. A completely
-    // silent socket now loses Effect 4's keep-alive race before the 30s hello
-    // deadline, so it cannot prove this independent bound on the RPC read.
+    // Keep the transport healthy while the hello handler wedges, so this pins
+    // the bound on the RPC read itself with a peer that DOES answer pings.
+    // (A completely silent peer reaches the same deadline — the case above.)
     // Both the real transport and the baked deadline remain enabled.
     const socketPath = sockPath("kolu-hello-silent-");
     const listener = await serveFake(socketPath, {

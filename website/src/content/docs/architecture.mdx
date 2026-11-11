@@ -396,6 +396,15 @@ connection and every other terminal keep flowing, and it picks up where it left
 off. (A reader that falls so far behind that kaval's own per-viewer buffer
 overflows is re-attached with a fresh snapshot, as before.)
 
+Who decides that a hop is dead is just as deliberate. Each connection's own
+keep-alive ping is only a **backstop**: it ends a connection that has carried
+nothing at all for a full minute. Before that, the decision belongs to the
+framework's watchdog — wake-aware in the browser, and on a same-box hop (kolu ↔
+padi, padi ↔ kaval) checking that the peer process is still running before it
+reconnects anything — and, on a remote hop, to ssh's own dead-peer check. A
+busy-but-running daemon therefore keeps its connection; one that exits is
+noticed at once, because the operating system closes the pipe.
+
 **Metadata** (dashed) — every per-terminal sensor lives in padi's awareness
 producer. A CWD change (OSC 7) wakes the git sensor (branch, remote), which wakes
 the PR sensor (open PR + CI checks); agent detection tails each agent's session
