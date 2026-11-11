@@ -18,7 +18,7 @@
  */
 
 import { rmSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import {
   DEFAULT_PADI_VERSION,
   isPadiDeclaredError,
@@ -93,7 +93,11 @@ import {
   newTerminalPolicyStore,
   resolveNewTerminalTheme,
 } from "./newTerminalTheme.ts";
-import { startOrchestratorHost } from "./orchestrator/orchestrator.ts";
+import { startHarness } from "@kolu/acp-harness";
+import {
+  type OrchestratorHost,
+  startOrchestratorHost,
+} from "./orchestrator/orchestrator.ts";
 import { orchestratorTranscriptSource } from "./orchestrator/transcriptStream.ts";
 import { readPreview } from "./preview.ts";
 import {
@@ -121,6 +125,7 @@ import {
   listPadiStateBackups,
   restorePadiStateBackup,
 } from "./session/stateBackups.ts";
+import { padiConfigPath } from "./session/stateStore.ts";
 import {
   getActiveTerminal,
   getTerminal,
@@ -284,6 +289,23 @@ const scopeRefused = (message: string, idField: "id" | "ids"): Error =>
  *  is a closure inside the same function body, holding the value lexically. */
 let disposeStanding: (() => void) | undefined;
 
+/** THIS HOST'S CONVERSATION, reachable by the daemon's shutdown.
+ *
+ *  `disposeStanding` above is the REBUILD lifetime and is synchronous; stopping
+ *  an ACP adapter is not. The child is spawned `detached`, so the stop has to
+ *  be AWAITED by whoever is ending the process — otherwise a drain, an upgrade
+ *  or a SIGTERM orphans the adapter, the `claude` under it and its `kolu mcp`.
+ *  Module-scoped because the assembler is a function and its teardown twin runs
+ *  from `daemonMain`, which holds no handle on what that function built. */
+let liveOrchestrator: OrchestratorHost | undefined;
+
+/** Stop this host's conversation and write what it was saying. Idempotent: a
+ *  second call (the rebuild path raced a real shutdown) stops an already
+ *  stopped child, which is a no-op in the harness too. */
+export async function disposePadiOrchestrator(): Promise<void> {
+  await liveOrchestrator?.dispose();
+}
+
 /** Assemble the FULL `padiSurface` server deps (minus `channel`). Every member
  *  gets a functional read/procedure/source handler AND a live write path (the padi
  *  ctx `surface.ts` registers drives the collection/cell publishes). The
@@ -388,12 +410,28 @@ export function buildPadiSurfaceDeps(deps: {
     // it is the directory a person's repositories are under, and it is what
     // makes a stored session findable when it is resumed.
     home: homedir(),
+    // …and it is seated on a MACHINE, which is what the standing prompt names.
+    // The two are different facts and the conversation needs both: a directory
+    // is where it works, a host is where it IS — and "where it is" is the half
+    // it quotes back when it reports what it did.
+    hostName: hostname(),
     socketPath: () => getPadiServeSocketPath() ?? null,
     store: {
       get: () => requirePadiOrchestratorStore().get(),
       set: (v) => requirePadiOrchestratorStore().set(v),
     },
+    storePath: () => padiConfigPath(stateRoot),
+    // The composition root is the one place that knows BOTH that a
+    // conversation is an ACP subprocess and that padi is what hosts it.
+    spawn: startHarness,
   });
+  // The daemon's shutdown reaches the adapter through here (`daemonMain`'s
+  // `serveDaemonSurfaces.close`), because the child is spawned `detached`: a
+  // drain, an upgrade or a SIGTERM that did not stop it would leave the
+  // adapter, its `claude` and its `kolu mcp` running with nothing on the other
+  // end. Module-scoped for the same reason the socket path is — the one
+  // assembler is a function, and its shutdown twin is reached by name.
+  liveOrchestrator = orchestrator;
   disposeStanding = () => {
     unsubscribeSettle();
     watchRegistry.dispose();
@@ -401,7 +439,11 @@ export function buildPadiSurfaceDeps(deps: {
     settleEvents.dispose();
     watchEdges.dispose();
     finish.dispose();
-    orchestrator.dispose();
+    // A REBUILD (tests only) cannot await — `disposeStanding` is the
+    // synchronous half of this lifetime. The daemon's real teardown awaits
+    // `disposePadiOrchestrator` below; here the stop is fired so the prior
+    // build's child is on its way out before the next one looks.
+    void orchestrator.dispose();
   };
 
   // The padi memory / host-inventory poll cells fire on their fixed cadence AND the
@@ -636,10 +678,12 @@ export function buildPadiSurfaceDeps(deps: {
         },
       },
       // THIS HOST'S ONE CONVERSATION. Seeded from the host's own first reading
-      // — which, before the adapter is up, is the persisted model and fleet
-      // under an `offline` phase, i.e. the truth rather than a blank. Every
-      // later movement is published through padi's ctx by the host module, the
-      // same way `agentDistroStatus` is.
+      // — `offline`, with this agent's name and this host's `$HOME`, and with
+      // the REMEMBERED half still unread: the conf store is injected after this
+      // deps object is built (padi's boot order, and never at all in a unit
+      // test), so the host reads its record on the first reader's edge and
+      // publishes it through padi's ctx a moment later, the same way
+      // `agentDistroStatus` lands.
       orchestrator: { store: inMemoryStore(orchestrator.state()) },
     },
 

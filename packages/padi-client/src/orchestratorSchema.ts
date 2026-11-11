@@ -308,6 +308,16 @@ export const OrchestratorSayingSchema = Schema.Struct({
  * assign over its accumulator. A reader that appended an implicit replay into
  * an already-populated map would double every row — which is exactly why the
  * discriminant is on the wire rather than agreed by convention.
+ *
+ * A delta is folded in ONE order, and both folds (padi's `applyRows`, the
+ * client's `transcript.ts`) obey it: **removes, then upserts, then appends.**
+ * The order is load-bearing in both directions. Removes first means a frame
+ * that drops a row and re-upserts the same id is a REPLACEMENT rather than a
+ * row deleted after it was rewritten; appends last means text that arrives in
+ * the same frame as the row it belongs to lands on the row that frame just
+ * put there, instead of on the row it replaced. Two readers folding the same
+ * frame in two orders is two different transcripts, and the wire has nothing
+ * in it that would ever reveal the disagreement.
  */
 export const OrchestratorFrameSchema = Schema.Union([
   Schema.Struct({

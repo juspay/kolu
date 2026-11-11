@@ -2623,21 +2623,26 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
         input: OrchestratorEmptySchema,
         error: Schema.Union([OrchestratorUnavailable, OrchestratorRefused]),
       },
-      /** Settle one ask. `answers: null` DECLINES it. */
+      /** Settle one ask. `answers: null` DECLINES it. Refusable: two tabs
+       *  looking at the same conversation settle the same ask, and the loser
+       *  is told the agent is no longer asking — a padi that let that escape
+       *  undeclared would crash a caller doing the ordinary thing. */
       answer: {
         input: OrchestratorAnswerInputSchema,
         output: OrchestratorAnswerOutputSchema,
-        error: Schema.Union([OrchestratorUnavailable]),
+        error: Schema.Union([OrchestratorUnavailable, OrchestratorRefused]),
       },
       signIn: {
         input: OrchestratorSignInInputSchema,
         output: OrchestratorSignInOutputSchema,
         error: Schema.Union([OrchestratorUnavailable, OrchestratorRefused]),
       },
-      /** One line into a running `terminal`-kind sign-in — the code box. */
+      /** One line into a running `terminal`-kind sign-in — the code box.
+       *  Refusable for the same reason `answer` is: the attempt it is typed
+       *  into can have ended between the keystroke and the call. */
       signInInput: {
         input: OrchestratorTextInputSchema,
-        error: Schema.Union([OrchestratorUnavailable]),
+        error: Schema.Union([OrchestratorUnavailable, OrchestratorRefused]),
       },
       signInCancel: {
         input: OrchestratorEmptySchema,

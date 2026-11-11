@@ -680,8 +680,9 @@ describe("the declared error vocabulary (PLAN D4)", () => {
         // Every orchestrator verb can be refused — by the ADAPTER being absent
         // (`OrchestratorUnavailable`) or by the AGENT saying no
         // (`OrchestratorRefused`), which are different things a caller acts on
-        // differently. `answer`, `signInInput` and `signInCancel` are talking
-        // to a question already on screen, so only the first can apply.
+        // differently. `signInCancel` is the one verb that cannot say the
+        // second: a cancel with nothing behind it is a stale tab, answered
+        // `false` rather than refused.
         "orchestrator.answer",
         "orchestrator.cancel",
         "orchestrator.newSession",

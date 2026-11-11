@@ -813,20 +813,41 @@ the `orchestratorTranscript` stream (explicit snapshot-then-deltas, forwarded
 `delta`), and the `orchestrator` procedure namespace. The protocol itself is
 `@kolu/acp-harness`'s: padi never spells `session/prompt`.
 
-Two decisions worth knowing:
+Four decisions worth knowing:
 
 - **It starts when somebody looks.** The adapter is a real Claude subprocess,
   and a provisioned host nobody has opened should not be running one. The first
   transcript subscription or the first procedure call brings it up; after that
-  it is kept for the daemon's life. The persisted rows are served BEFORE the
-  agent is up, so a restart shows the conversation you were in and the live
-  agent arrives underneath it.
-- **Resume is the normal path.** padi drains on upgrade, so `session/load` by
-  the stored id — with the model the person chose re-applied — is what a
-  restart does. What is NOT restored is anything that was a fact about a
-  subprocess that no longer exists: the phase, the usage, a turn in flight, a
-  half-finished sign-in. `src/orchestrator/persisted.ts` argues each of the
-  five fields it keeps.
+  it is kept for the daemon's life. That same first look is when the REMEMBERED
+  record is read — `buildPadiSurfaceDeps` runs before padi's boot has injected
+  the conf store, so a read at assembly would be a crash rather than a restore.
+  The persisted rows are served BEFORE the agent is up, so a restart shows the
+  conversation you were in and the live agent arrives underneath it.
+- **Resume is the normal path, and padi's copy is the authoritative one.** padi
+  drains on upgrade, so `session/load` by the stored id — with the model the
+  person chose re-applied — is what a restart does. The agent replays its own
+  messages on that load and padi DROPS the replay: a kolu transcript also holds
+  the kolu-aware tool cards, the background-task lanes and the notices the panel
+  wrote about itself, none of which the agent has. What makes the two survivable
+  side by side is `resumedSeq` — the harness mints its ids and ordering numbers
+  starting above the highest one padi already holds, so a resumed conversation
+  cannot become two copies of itself. What is NOT restored is anything that was
+  a fact about a subprocess that no longer exists: the phase, the usage, a turn
+  in flight, a half-finished sign-in. `src/orchestrator/persisted.ts` argues
+  each of the five fields it keeps, and re-validates the record where it reads
+  it — a parseable-but-wrong `orchestrator` key refuses by name rather than
+  restoring a transcript with holes in it.
+- **The record is written on a throttle.** It lives in the same `config.json`
+  as the saved session, and a streaming answer is one row and six hundred
+  frames; the write is leading-edge with a one-second window, and the shutdown
+  flushes whatever the window still owes.
+- **padi's shutdown stops the conversation.** The adapter is spawned `detached`
+  — deliberately, so a crashing padi cannot take a conversation's subprocess
+  with it by accident — which means nothing but an explicit stop reaches it. A
+  drain, an upgrade or a SIGTERM runs the serve scope's finalizer, which awaits
+  the child's stop before the socket closes; without it every restart would
+  leave an adapter, its `claude` and its `kolu mcp` behind and spawn a second
+  set beside them.
 
 ## What padi knows nothing about
 
