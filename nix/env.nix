@@ -44,10 +44,10 @@ in
   # wrapper-only.
   KOLU_OSFACTS_BIN = "${osfacts}/bin/osfacts";
   # Claude Code's ACP adapter (nix/packages/acp-adapter.nix) — the binary
-  # kolu-server spawns for THE orchestrator conversation (one, covering every
+  # kolu-server spawns for THE conductor conversation (one, covering every
   # host). Same footing as KOLU_GH_BIN / KOLU_OSFACTS_BIN: a required absolute
   # path baked by Nix, with no PATH search and no `npx` fallback — an
-  # orchestrator that resolved some ambient adapter would speak a protocol
+  # conductor that resolved some ambient adapter would speak a protocol
   # version this build never proved. `koluBin`'s wrapper bakes this value too
   # (default.nix), which is what pulls the adapter into kolu-server's closure.
   # A REMOTE host no longer carries it: padi hosts no conversation, so the

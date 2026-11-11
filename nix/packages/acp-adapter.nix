@@ -1,4 +1,4 @@
-# THE ORCHESTRATOR'S AGENT, PINNED — Claude Code's ACP adapter as a store path.
+# THE CONDUCTOR'S AGENT, PINNED — Claude Code's ACP adapter as a store path.
 #
 # kolu-server hosts ONE Claude conversation over the Agent Client Protocol,
 # whose hands are the whole fleet, and it has to be able to START one on a
@@ -25,7 +25,7 @@ let
   # the floor: the very launcher this machine's terminals run.
   #
   # It used to be the Claude Agent SDK's bundled binary, and the reason was the
-  # hosting: the orchestrator ran inside `padi`, agent-distro's floor is baked
+  # hosting: the conductor ran inside `padi`, agent-distro's floor is baked
   # onto the wrapper a person runs LOCALLY and deliberately never onto
   # `padi-agent`, so a remote host's closure held no agent-distro path to point
   # at. THAT REASON IS GONE — kolu-server hosts the one conversation now, on
@@ -44,7 +44,7 @@ let
   # `mkLaunchers` exposes no harness package and the launcher carries no
   # `passthru`, so the inner CLI could only be had by re-deriving `claude-code`
   # out of agent-distro's locked nixpkgs — which is 2.1.318 there, a DIFFERENT
-  # build from the 2.1.319 the floor execs. An orchestrator one quiet version
+  # build from the 2.1.319 the floor execs. A conductor one quiet version
   # off the terminals is exactly the drift this pin exists to prevent. The
   # launcher resolves the machine's profiles and plugins at spawn and prepends
   # its own argv to the CLI the SDK drives; measured, the SDK's own flags

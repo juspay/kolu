@@ -15,7 +15,7 @@
  * to recognise it.**
  *
  * Everything is a PURE function over a payload — `@kolu/acp`'s pattern, for the
- * reason that pattern exists: the rule that stops the orchestrator approving
+ * reason that pattern exists: the rule that stops the conductor approving
  * its own permissions is a function with unit tests rather than a branch
  * reachable only by starting a subprocess and talking it into asking. Which
  * side of that package boundary a new reader belongs on is not which payload it
@@ -689,7 +689,7 @@ export const CLAUDE: Leg = {
   bypassMode: BYPASS_MODE,
   // ... and a refusal of it is NOT fatal. The pinned adapter omits this mode
   // under root unless IS_SANDBOX is set, and a host that cannot have it is a
-  // host whose orchestrator still works: the refusal is reported, the adapter's
+  // host whose conductor still works: the refusal is reported, the adapter's
   // own default mode stands, and `allowedWithoutAsking` is the backstop that
   // was always underneath it.
   bypassModeRequired: false,

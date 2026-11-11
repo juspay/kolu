@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
 /**
- * The tab row has two halves — the host tabs and the one orchestrator entry —
+ * The tab row has two halves — the host tabs and the one conductor entry —
  * and this pins the trip between them.
  *
  * `⌘⇧O` is a ROUND TRIP: it shows the conversation and the next press puts you
  * back on the host tab you were on, not on the local default and not on
  * whichever host something else touched meanwhile. That holds because the two
- * halves are separate values: selecting the orchestrator never writes a host
+ * halves are separate values: selecting the conductor never writes a host
  * key, and `selectHostTab` never writes anything but one.
  */
 
@@ -26,10 +26,10 @@ vi.mock("../wire", () => ({
 }));
 
 import {
-  exitOrchestratorMode,
-  orchestratorMode,
-  toggleOrchestratorMode,
-} from "../orchestrator/useOrchestratorMode";
+  exitConductorMode,
+  conductorMode,
+  toggleConductorMode,
+} from "../conductor/useConductorMode";
 import { selectHostTab } from "./selectHostTab";
 
 const ZEST: HostKey = { kind: "remote", target: "srid@zest" };
@@ -37,28 +37,28 @@ const ZEST: HostKey = { kind: "remote", target: "srid@zest" };
 beforeEach(() => {
   wire.host = LOCAL_HOST;
   wire.writes = 0;
-  exitOrchestratorMode();
+  exitConductorMode();
 });
 
 describe("selectHostTab", () => {
-  it("switches the host and leaves the orchestrator in one act", () => {
-    toggleOrchestratorMode();
-    expect(orchestratorMode()).toBe(true);
+  it("switches the host and leaves the conductor in one act", () => {
+    toggleConductorMode();
+    expect(conductorMode()).toBe(true);
 
     selectHostTab(ZEST);
     expect(wire.host).toBe(ZEST);
-    expect(orchestratorMode()).toBe(false);
+    expect(conductorMode()).toBe(false);
   });
 
   it("does not re-write an already-active host, but still leaves", () => {
     selectHostTab(ZEST);
     const writesAfterSwitch = wire.writes;
-    toggleOrchestratorMode();
+    toggleConductorMode();
 
     // Clicking the tab you are already on, while reading the chat, is how a
     // person asks to go back to it — a no-op would strand them.
     selectHostTab({ kind: "remote", target: "srid@zest" });
-    expect(orchestratorMode()).toBe(false);
+    expect(conductorMode()).toBe(false);
     expect(wire.writes).toBe(writesAfterSwitch);
   });
 });
@@ -67,14 +67,14 @@ describe("the ⌘⇧O round trip", () => {
   it("returns to the host tab that was active, not to the default", () => {
     selectHostTab(ZEST);
 
-    toggleOrchestratorMode();
-    expect(orchestratorMode()).toBe(true);
+    toggleConductorMode();
+    expect(conductorMode()).toBe(true);
     // Showing the conversation touches no host at all.
     expect(wire.host).toBe(ZEST);
     const writesWhileReading = wire.writes;
 
-    toggleOrchestratorMode();
-    expect(orchestratorMode()).toBe(false);
+    toggleConductorMode();
+    expect(conductorMode()).toBe(false);
     expect(wire.host).toBe(ZEST);
     expect(wire.writes).toBe(writesWhileReading);
   });

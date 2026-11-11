@@ -19,7 +19,7 @@ final: _prev:
   agent-distro = final.callPackage ../packages/agent-distro/package.nix {
     src = (import ../npins).agent-distro;
   };
-  # Claude Code's ACP adapter, pinned — the agent kolu-server's orchestrator
+  # Claude Code's ACP adapter, pinned — the agent kolu-server's conductor
   # spawns. A leaf like the fonts: `nix/env.nix` reads it into `koluEnv` as
   # KOLU_ACP_AGENT, so the build, the devShell and `koluBin`'s wrapper name ONE
   # store path. `callPackage` injects the `agent-distro` above as the CLI it

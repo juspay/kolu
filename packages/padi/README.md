@@ -800,7 +800,7 @@ reach for as by what it owns:
   points strictly OUT. The few facts the server knows about itself are INJECTED at
   boot (`setKoluServerProcessId` · `setSpawnServerVersion`), never imported, so no
   edge ever points back in.
-- **The orchestrator.** The ACP conversation kolu drives its terminals from is
+- **The conductor.** The ACP conversation kolu drives its terminals from is
   kolu-server's, not padi's: ONE conversation for the whole fleet, whose hands
   are the kolu MCP tool list lifted over kolu-server's host map, reaching each
   host through the padi client it already holds. padi therefore spawns no child

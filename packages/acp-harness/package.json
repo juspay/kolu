@@ -7,7 +7,7 @@
   "sideEffects": false,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "//exports": "ONE door. Everything this package owns is reachable through `startHarness` and the row/state types the contract already declares in `kolu-common/orchestrator`; a second subpath would be a second way to reach a subprocess, and there is exactly one subprocess.",
+  "//exports": "ONE door. Everything this package owns is reachable through `startHarness` and the row/state types the contract already declares in `kolu-common/conductor`; a second subpath would be a second way to reach a subprocess, and there is exactly one subprocess.",
   "exports": {
     ".": "./src/index.ts"
   },

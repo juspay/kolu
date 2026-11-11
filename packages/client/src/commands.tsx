@@ -44,7 +44,7 @@ import {
 import { offerRestartVerb } from "./kaval/daemonPresentation";
 import { restartDaemon } from "./kaval/useDaemonRestart";
 import { activeKavalPresence } from "./kaval/useDaemonStatus";
-import { orchestratorMode } from "./orchestrator/useOrchestratorMode";
+import { conductorMode } from "./conductor/useConductorMode";
 import {
   hostRootActions,
   terminalHostGroups,
@@ -548,14 +548,14 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       ? [actionPaletteCommand("toggleRightPanel", deps, { section: "ui" })]
       : []),
     actionPaletteCommand("toggleDock", deps, { section: "ui" }),
-    // The orchestrator, through the SAME registry entry the chord and the
+    // The conductor, through the SAME registry entry the chord and the
     // chrome-bar entry read, so the palette's shortcut chip has one source.
     // Ungated: the conversation is reachable on an empty workspace and before
     // it has started — the panel says which of those it is, and a command
     // that hides itself is a feature nobody discovers.
-    actionPaletteCommand("toggleOrchestrator", deps, {
+    actionPaletteCommand("toggleConductor", deps, {
       section: "ui",
-      name: orchestratorMode() ? "Leave the orchestrator" : "Orchestrator",
+      name: conductorMode() ? "Leave the conductor" : "Conductor",
       description: "One conversation that drives the terminals on every host",
     }),
     // The tile tip shows only where ambient tips do (desktop), so the size

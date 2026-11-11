@@ -22,7 +22,7 @@
  * exists. An explicitly exported value WINS over the bake — a developer's own
  * build, or the e2e harness's scripted fixture adapter, which the harness
  * exports into the kolu-server process it spawns — and that ordering is the
- * only reason `orchestrator.feature` drives the fixture rather than a real
+ * only reason `conductor.feature` drives the fixture rather than a real
  * `claude`. An absent or empty one leaves THIS engine unseated and says why,
  * which is the {@link NotHere} arm rather than a missing row.
  */
@@ -68,7 +68,7 @@ export const REMOTE_SIGNALS: ReadonlyArray<string> = [
  * agent-distro's launcher (the `claude` `nix/packages/acp-adapter.nix` bakes
  * into `CLAUDE_CODE_EXECUTABLE`) does NOT redirect it: it prepends
  * `--plugin-dir` flags and sets `LITELLM_BASE_URL`, `AGENT_DISTRO_CWD` and
- * `PATH`, and nothing else. So the orchestrator's agent reads the same store
+ * `PATH`, and nothing else. So the conductor's agent reads the same store
  * as every `claude` the person runs in their own terminals.
  *
  * A SENTENCE, NOT A CREDENTIAL PATH. Nothing in kolu opens this directory,
@@ -100,7 +100,7 @@ export const ENGINE: Registering = {
   // a padi started through neither the packaged binary nor the dev recipes — an
   // absence, not a fault — and the sentence a machine in that state is owed is
   // THIS ENGINE'S OWN ({@link ./install.ts}), handed back rather than dropped
-  // so the orchestrator can publish the row and say why.
+  // so the conductor can publish the row and say why.
   at: (where): Adapter | NotHere => {
     const adapter = adapterFrom(where.env[AGENT_ENV]);
     if (adapter === null) return INSTALL;
@@ -110,7 +110,7 @@ export const ENGINE: Registering = {
       // question kolu can answer better. The pinned adapter reads them to
       // decide the person is somewhere else and, on a session it calls remote,
       // offers only its own full-screen `claude /login` — a TUI the
-      // orchestrator has no terminal for. kolu IS the remote end: the person is
+      // conductor has no terminal for. kolu IS the remote end: the person is
       // at a browser, kolu runs the sign-in and draws it. So the adapter is
       // told nothing about where it is running, and it offers the paste-a-code
       // methods the harness can actually run.

@@ -98,7 +98,7 @@ export interface RestoreServerStateBackupDeps {
  *  telling the user it succeeded, which is the exact silent-overwrite class the
  *  ring exists to prevent.
  *
- *  `orchestrator` is the ONE deliberate exception, and it is excluded rather
+ *  `conductor` is the ONE deliberate exception, and it is excluded rather
  *  than given a path because it CANNOT have one that means anything: the live
  *  conversation is the authority for that key while this process runs, and a
  *  record written underneath it is overwritten by the host's own throttled
@@ -108,7 +108,7 @@ export interface RestoreServerStateBackupDeps {
  *  in front of the person pressing restore. */
 type UnrestoredPersistedKey = Exclude<
   keyof DecodedStateBackup,
-  "preferences" | "viewerMode" | "hosts" | "orchestrator"
+  "preferences" | "viewerMode" | "hosts" | "conductor"
 >;
 const _everyPersistedKeyRestored: [UnrestoredPersistedKey] extends [never]
   ? true

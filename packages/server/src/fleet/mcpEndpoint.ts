@@ -36,7 +36,7 @@
  * later one with `400 Invalid Request: Server already initialized`. So a door
  * that minted a single transport at boot would serve the FIRST MCP client it
  * ever saw and nobody else: an adapter that crashes and respawns — the very
- * case the orchestrator's corpse arm exists for — opens a fresh client, is
+ * case the conductor's corpse arm exists for — opens a fresh client, is
  * refused, and the replacement conversation runs with no hands for the life of
  * kolu-server. This door therefore routes on `Mcp-Session-Id`: a request
  * carrying one is handed to that session's transport, and a request carrying
@@ -96,7 +96,7 @@ const SESSION_HEADER = "mcp-session-id";
 const MAX_HANDSHAKE_BYTES = 64 * 1024;
 
 /** Where the fleet face is listening and the credential to reach it — exactly
- *  what the orchestrator puts on its session's one `http` MCP server. */
+ *  what the conductor puts on its session's one `http` MCP server. */
 export interface FleetMcpEndpoint {
   /** `http://127.0.0.1:<ephemeral>/mcp`. */
   readonly url: string;
@@ -241,8 +241,8 @@ interface LiveSession {
  *  that has this value can hand the URL out knowing a request to it will be
  *  answered.
  *
- *  A listen failure REJECTS rather than degrading: an orchestrator with no
- *  hands is not a degraded orchestrator, and the boot that called this decides
+ *  A listen failure REJECTS rather than degrading: a conductor with no
+ *  hands is not a degraded conductor, and the boot that called this decides
  *  what to do with the sentence. */
 export async function startFleetMcpEndpoint(
   opts: FleetMcpEndpointOptions,
@@ -446,10 +446,10 @@ export async function startFleetMcpEndpoint(
 
 /** The sentence a kolu whose own fleet endpoint will not answer says. It names
  *  the URL, because the person who can see this is holding a server whose
- *  listener and whose orchestrator disagree, and the URL is the whole of the
+ *  listener and whose conductor disagree, and the URL is the whole of the
  *  lead. */
 const noAnswerAt = (url: string, cause: string): string =>
-  `This kolu's orchestrator cannot reach this kolu's fleet MCP face: nothing answered at ${url} (${cause}). The agent would be handed the same URL, fail to connect, and carry on without the fleet's terminals — so the conversation is refused instead of opened with no hands.`;
+  `This kolu's conductor cannot reach this kolu's fleet MCP face: nothing answered at ${url} (${cause}). The agent would be handed the same URL, fail to connect, and carry on without the fleet's terminals — so the conversation is refused instead of opened with no hands.`;
 
 /** The sentence a kolu whose own endpoint REFUSED the token says. Separate
  *  from "nothing answered" because it is a different defect with a different
@@ -457,20 +457,20 @@ const noAnswerAt = (url: string, cause: string): string =>
  *  this process minted, which can only mean the two halves of this boot
  *  disagree about who they are. */
 const refusedAt = (url: string, status: number): string =>
-  `This kolu's orchestrator was refused by this kolu's fleet MCP face: ${url} answered ${status} to the token this process minted. The agent would be refused the same way and carry on without the fleet's terminals, so the conversation is refused instead.`;
+  `This kolu's conductor was refused by this kolu's fleet MCP face: ${url} answered ${status} to the token this process minted. The agent would be refused the same way and carry on without the fleet's terminals, so the conversation is refused instead.`;
 
 /** The sentence a kolu whose own endpoint is listening and will not SERVE
  *  says. A third defect with a third lead: the door is open, the gate let us
  *  through, and no session came back — a face that is wedged, or a door whose
  *  one session has already been given away. */
 const notServingAt = (url: string, what: string): string =>
-  `This kolu's orchestrator could not open a session on this kolu's fleet MCP face: ${url} is listening and accepted the token this process minted, but ${what}. The agent's MCP client would be turned away the same way and the conversation would run with no hands, so it is refused instead.`;
+  `This kolu's conductor could not open a session on this kolu's fleet MCP face: ${url} is listening and accepted the token this process minted, but ${what}. The agent's MCP client would be turned away the same way and the conversation would run with no hands, so it is refused instead.`;
 
 /** Will this door SERVE THIS CALLER? `null` when it will, the whole sentence
  *  when it will not.
  *
  *  REPORTED, NOT RAISED — the shape `FleetHosts` already uses for a host that
- *  is not connected: this module answers what it saw and the orchestrator is
+ *  is not connected: this module answers what it saw and the conductor is
  *  what turns that into its own refusal, so the door never has to know the
  *  conversation's error vocabulary.
  *
@@ -514,7 +514,7 @@ export async function proveFleetMcpEndpoint(
           protocolVersion: LATEST_PROTOCOL_VERSION,
           capabilities: {},
           clientInfo: {
-            name: "kolu-orchestrator-probe",
+            name: "kolu-conductor-probe",
             version: serverVersion,
           },
         },
@@ -560,7 +560,7 @@ export async function proveFleetMcpEndpoint(
   } catch (cause) {
     log.warn(
       { err: cause, url: at.url, session },
-      "orchestrator: could not close the session its fleet-MCP proof opened",
+      "conductor: could not close the session its fleet-MCP proof opened",
     );
   }
   return null;

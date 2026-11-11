@@ -1519,7 +1519,7 @@ When(
   "I click the chrome-bar maximize toggle",
   async function (this: KoluWorld) {
     // The lone maximize/restore BUTTON became one segment of the two-way
-    // `canvas · maximized` control (the orchestrator is its own entry in the
+    // `canvas · maximized` control (the conductor is its own entry in the
     // tab row, never a view mode), and a segment is not a toggle: clicking
     // `maximized` while
     // already maximized is a no-op, which is right for a segmented control and

@@ -7,7 +7,7 @@
  *     are bare.
  *   - **`serveKoluFleetMcp`** — every host, in kolu-server: the SAME tool list
  *     lifted over kolu-server's host map, where a terminal is `host/id`. This
- *     is what the one orchestrator conversation holds, over a loopback
+ *     is what the one conductor conversation holds, over a loopback
  *     streamable-HTTP transport kolu-server owns.
  *
  * The manifest is the graduation fence: this package depends on padi/surface

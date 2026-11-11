@@ -36,7 +36,7 @@ export interface ServeKoluFleetMcpOptions {
   /** Where the face answers. REQUIRED — see the module header. */
   transport: Transport;
   /** The `serverInfo` the MCP host sees. REQUIRED for the reason the stdio
-   *  face's is: a baked fallback would let the one server an orchestrator
+   *  face's is: a baked fallback would let the one server a conductor
    *  depends on report a version that is not the product's. */
   serverInfo: { name: string; version: string };
 }

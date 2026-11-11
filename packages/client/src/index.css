@@ -130,12 +130,12 @@ body {
   background: color-mix(in oklch, var(--host-hue) 9%, transparent);
   border-color: color-mix(in oklch, var(--color-edge) 45%, transparent);
 }
-/* The ORCHESTRATOR's entry, resting, hovers the way a host tab does — the same
+/* The CONDUCTOR's entry, resting, hovers the way a host tab does — the same
  * wash at the same strength, in the accent instead of a host hue, because it is
  * the same gesture over the same row and the only thing that differs is whose
  * destination it is. Written here rather than as a utility pair so the two
  * cannot drift: a change to the row's hover is one edit. */
-.orchestrator-tab:not([data-active]):hover {
+.conductor-tab:not([data-active]):hover {
   background: color-mix(in oklch, var(--color-accent) 9%, transparent);
   border-color: color-mix(in oklch, var(--color-edge) 45%, transparent);
 }

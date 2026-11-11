@@ -11,7 +11,7 @@ kolu's **agent face**, in two projections of ONE expose map
   face provably serves agents with padi alone.
 - **`serveKoluFleetMcp` — every host, inside kolu-server.** The same tool list
   lifted over kolu-server's host map, where a terminal is `host/id`. This is
-  what the one orchestrator conversation holds, over a loopback
+  what the one conductor conversation holds, over a loopback
   streamable-HTTP transport kolu-server owns. It reaches the hosts through a
   PORT (`FleetHosts`), never by importing kolu-server, so the fence holds here
   too.
@@ -132,7 +132,7 @@ behaviour.
 
 `serveKoluFleetMcp({ hosts, transport, serverInfo })` serves the same verbs over
 **every** host kolu-server knows, in kolu-server's own process. It is what the
-one orchestrator conversation holds; nothing spawns a `kolu mcp` per host, and
+one conductor conversation holds; nothing spawns a `kolu mcp` per host, and
 the session's MCP server list never changes as machines come and go.
 
 **A terminal is `host/id`.** The host key is kolu-server's (`local`, or

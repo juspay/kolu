@@ -2,7 +2,7 @@
  * WHICH AGENTS SPEAK THE AGENT CLIENT PROTOCOL — the registry's ACP half.
  *
  * Every other per-agent fact in kolu is folded here rather than reached for by
- * name, and the orchestrator's engine is no exception: `@kolu/padi` hosts one
+ * name, and the conductor's engine is no exception: `@kolu/padi` hosts one
  * ACP conversation per host, and a padi that imported `kolu-claude-code`
  * directly would have re-braided the per-agent knowledge this package exists
  * to de-complect. `packages/tests/governance/agentDepFence.test.ts` holds that
@@ -30,7 +30,7 @@ export const ACP_ENGINES: Readonly<Record<string, Registering>> = {
 };
 
 /**
- * The engine a host's orchestrator runs.
+ * The engine a host's conductor runs.
  *
  * A CONSTANT rather than a setting, deliberately: the adapter it names is
  * baked into kolu's closure (`KOLU_ACP_AGENT`), one per build, and an engine
@@ -38,12 +38,12 @@ export const ACP_ENGINES: Readonly<Record<string, Registering>> = {
  * When a second adapter is pinned, this becomes a reading of whatever the
  * build actually carries — still not a knob.
  */
-export const ORCHESTRATOR_ENGINE: Registering = CLAUDE_CODE;
+export const CONDUCTOR_ENGINE: Registering = CLAUDE_CODE;
 
 /**
  * WHERE THAT ENGINE READS ITS SIGNATURE on the host this daemon runs on.
  *
- * HERE for the reason every other per-agent fact is: the orchestrator has to
+ * HERE for the reason every other per-agent fact is: the conductor has to
  * NAME the store in the sentence it shows a signed-out person, and a daemon
  * that worked the path out itself would be a daemon that knows an agent's
  * credential layout — the exact braid `agentDepFence.test.ts` holds red. The
@@ -53,7 +53,7 @@ export const ORCHESTRATOR_ENGINE: Registering = CLAUDE_CODE;
  * A SENTENCE, NOT A CREDENTIAL PATH: nothing above reads the directory, and
  * nothing anywhere points an agent at a different one.
  */
-export const orchestratorConfigDir = (
+export const conductorConfigDir = (
   env: { readonly [name: string]: string | undefined },
   home: string,
 ): string => claudeConfigDir(env, home);

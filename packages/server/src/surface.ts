@@ -91,12 +91,12 @@ import {
 } from "./memorySampler.ts";
 import { DAEMON_INVENTORY_SAMPLE_INTERVAL_MS } from "./padi/daemonInventory.ts";
 import { FORWARD_REAP_INTERVAL_MS } from "./portForward/forwards.ts";
-import { isOrchestratorDeclaredError } from "kolu-common/orchestratorErrors";
+import { isConductorDeclaredError } from "kolu-common/conductorErrors";
 import {
-  liveServerOrchestrator,
-  setOrchestratorCellWriter,
-} from "./orchestrator/live.ts";
-import { orchestratorTranscriptSource } from "./orchestrator/transcriptStream.ts";
+  liveServerConductor,
+  setConductorCellWriter,
+} from "./conductor/live.ts";
+import { conductorTranscriptSource } from "./conductor/transcriptStream.ts";
 import { store } from "./state.ts";
 
 // ── The WIDENING SEAM: kolu-server's served superset group ─────────────────
@@ -325,26 +325,24 @@ export interface StoreCellWriters {
   setViewerMode: (value: ViewerMode) => void;
 }
 
-/** THE ORCHESTRATOR'S HANDLER BRIDGE — the one place the "declared vs defect"
- *  line is drawn for the nine `orchestrator` procedures, rather than once per
+/** THE CONDUCTOR'S HANDLER BRIDGE — the one place the "declared vs defect"
+ *  line is drawn for the nine `conductor` procedures, rather than once per
  *  member.
  *
- *  A value the host raises on purpose (`OrchestratorUnavailable`,
- *  `OrchestratorRefused`) is a caller's to branch on, so it rides the Effect
+ *  A value the host raises on purpose (`ConductorUnavailable`,
+ *  `ConductorRefused`) is a caller's to branch on, so it rides the Effect
  *  FAILURE channel. Anything else — a state file nobody can read, a bug in the
- *  bookkeeping — is a DEFECT and dies loudly: an orchestrator that broke in a
+ *  bookkeeping — is a DEFECT and dies loudly: a conductor that broke in a
  *  way nobody declared should crash, not arrive as a polite sentence in a chat.
  *  The same shape, and the same argument, as padi's `handle`. */
-function askOrchestrator<A, E>(
-  body: () => A | Promise<A>,
-): Effect.Effect<A, E> {
+function askConductor<A, E>(body: () => A | Promise<A>): Effect.Effect<A, E> {
   return Effect.catch(
     Effect.tryPromise({
       try: async () => body(),
       catch: (err: unknown) => err,
     }),
     (err) =>
-      isOrchestratorDeclaredError(err)
+      isConductorDeclaredError(err)
         ? Effect.fail(err as E)
         : (Effect.die(err) as Effect.Effect<A, E>),
   );
@@ -518,16 +516,15 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       // the REMEMBERED half still unread: the host reads its record on the
       // first reader's edge and publishes it through the writer registered
       // below a moment later, the same way `agentDistroStatus` lands on padi.
-      orchestrator: { store: inMemoryStore(liveServerOrchestrator().state()) },
+      conductor: { store: inMemoryStore(liveServerConductor().state()) },
     },
     streams: {
-      // THE ORCHESTRATOR'S TRANSCRIPT — explicit snapshot-then-deltas. The
+      // THE CONDUCTOR'S TRANSCRIPT — explicit snapshot-then-deltas. The
       // snapshot is queued synchronously inside the subscribe, so a reader's
       // first frame can never race a delta, and a re-subscribe after a dropped
       // socket re-leads with a fresh one the reducer assigns over.
-      orchestratorTranscript: {
-        source: () =>
-          orchestratorTranscriptSource(liveServerOrchestrator(), log),
+      conductorTranscript: {
+        source: () => conductorTranscriptSource(liveServerConductor(), log),
       },
     },
     procedures: {
@@ -552,14 +549,14 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       },
       // TALKING TO KOLU'S CONVERSATION. Every verb routes through the host's
       // one seam, which translates the harness's two refusals into the two
-      // DECLARED errors a caller branches on — `OrchestratorUnavailable` (no
-      // adapter, no fleet endpoint, or no child) and `OrchestratorRefused`
+      // DECLARED errors a caller branches on — `ConductorUnavailable` (no
+      // adapter, no fleet endpoint, or no child) and `ConductorRefused`
       // (the agent said no). Anything else stays a defect and crosses the wire
       // as one.
-      orchestrator: {
+      conductor: {
         prompt: ({ input }) =>
-          askOrchestrator(() =>
-            liveServerOrchestrator().prompt(
+          askConductor(() =>
+            liveServerConductor().prompt(
               input.text,
               input.mentions,
               input.attachments,
@@ -571,33 +568,31 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
         // continuation path and the per-attachment cap, and says no in the
         // same two declared errors every other verb here does.
         attach: ({ input }) =>
-          askOrchestrator(() => liveServerOrchestrator().attach(input)),
-        cancel: () => askOrchestrator(() => liveServerOrchestrator().cancel()),
+          askConductor(() => liveServerConductor().attach(input)),
+        cancel: () => askConductor(() => liveServerConductor().cancel()),
         answer: ({ input }) =>
-          askOrchestrator(async () => ({
-            settled: await liveServerOrchestrator().answer(
+          askConductor(async () => ({
+            settled: await liveServerConductor().answer(
               input.askId,
               input.answers,
             ),
           })),
         signIn: ({ input }) =>
-          askOrchestrator(async () => ({
-            outcome: await liveServerOrchestrator().signIn(input.method),
+          askConductor(async () => ({
+            outcome: await liveServerConductor().signIn(input.method),
           })),
         signInInput: ({ input }) =>
-          askOrchestrator(() =>
-            liveServerOrchestrator().signInInput(input.text),
-          ),
+          askConductor(() => liveServerConductor().signInInput(input.text)),
         signInCancel: () =>
-          askOrchestrator(() => liveServerOrchestrator().signInCancel()),
+          askConductor(() => liveServerConductor().signInCancel()),
         setOption: ({ input }) =>
-          askOrchestrator(() =>
-            liveServerOrchestrator().setOption(input.id, input.value),
+          askConductor(() =>
+            liveServerConductor().setOption(input.id, input.value),
           ),
         newSession: () =>
-          askOrchestrator(() => liveServerOrchestrator().newSession()),
+          askConductor(() => liveServerConductor().newSession()),
         clearSession: () =>
-          askOrchestrator(() => liveServerOrchestrator().clearSession()),
+          askConductor(() => liveServerConductor().clearSession()),
       },
     },
   };
@@ -672,14 +667,14 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
     },
   );
 
-  // THE ORCHESTRATOR'S WRITE PATH, registered exactly once and right here —
+  // THE CONDUCTOR'S WRITE PATH, registered exactly once and right here —
   // the first line after the ctx exists. The host publishes every movement of
   // the conversation through it; before this line it has nothing to publish
-  // through, which is why `liveServerOrchestrator()` above only SEEDS the cell
+  // through, which is why `liveServerConductor()` above only SEEDS the cell
   // from a value it already holds and the host refuses a publish that beats
   // this registration rather than swallowing one.
-  setOrchestratorCellWriter((state) => {
-    koluSurfaces.ctx.kolu.cells.orchestrator.set(state);
+  setConductorCellWriter((state) => {
+    koluSurfaces.ctx.kolu.cells.conductor.set(state);
   });
 
   // Observe the surface runtime's `done` and route it into kolu-server's EXISTING

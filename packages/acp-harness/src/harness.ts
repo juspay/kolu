@@ -33,7 +33,7 @@
  *     says, which kolu terminal a call is about. A row carries what was READ,
  *     never the raw protocol value.
  *
- * `fs` capabilities are FALSE in both directions on purpose: the orchestrator
+ * `fs` capabilities are FALSE in both directions on purpose: the conductor
  * is not an editor, and an agent that could write a file whole would be routing
  * around the terminals it is supposed to be driving. `elicitation.form` is TRUE
  * and is what makes any of the asking happen at all — without it the pinned
@@ -113,16 +113,16 @@ import {
 import { streamOver } from "./pipes.ts";
 import { AnswerRefused, Questions } from "./questions.ts";
 import type {
-  OrchestratorAttachment,
-  OrchestratorCommand,
-  OrchestratorKoluCall,
-  OrchestratorMention,
-  OrchestratorModel,
-  OrchestratorOption,
-  OrchestratorRow,
-  OrchestratorServer,
-  OrchestratorSignIn,
-  OrchestratorState,
+  ConductorAttachment,
+  ConductorCommand,
+  ConductorKoluCall,
+  ConductorMention,
+  ConductorModel,
+  ConductorOption,
+  ConductorRow,
+  ConductorServer,
+  ConductorSignIn,
+  ConductorState,
 } from "./rows.ts";
 import { type Change, says, Transcript } from "./transcript.ts";
 import { type Turn, Turns } from "./turns.ts";
@@ -246,13 +246,13 @@ export interface HarnessOptions {
   readonly onChange: (change: HarnessChange) => void;
 }
 
-/** WHAT A HARNESS CAN ANSWER FOR: padi's whole orchestrator state minus the
+/** WHAT A HARNESS CAN ANSWER FOR: padi's whole conductor state minus the
  *  three facts it would only be echoing back. `install` and `agentName` are
  *  the ENGINE's, settled when kolu was built, and `cwd` is the directory padi
  *  handed in — a harness that published them would be overwriting the caller's
  *  own answer with a copy of it. */
 export type HarnessState = Omit<
-  OrchestratorState,
+  ConductorState,
   "install" | "agentName" | "cwd"
 >;
 
@@ -269,7 +269,7 @@ export type HarnessChange =
   | { readonly kind: "state"; readonly state: HarnessState }
   | {
       readonly kind: "rows";
-      readonly upserts: ReadonlyArray<OrchestratorRow>;
+      readonly upserts: ReadonlyArray<ConductorRow>;
       readonly removes: ReadonlyArray<string>;
       readonly appends: ReadonlyArray<{
         of: string;
@@ -286,11 +286,11 @@ export interface Harness {
    *  OFFLINE and ALIVE, and replacing it kills the process the sign-in it is
    *  offering has to run against. */
   readonly alive: () => boolean;
-  readonly rows: () => ReadonlyArray<OrchestratorRow>;
+  readonly rows: () => ReadonlyArray<ConductorRow>;
   prompt(
     text: string,
-    mentions: ReadonlyArray<OrchestratorMention>,
-    attachments: ReadonlyArray<OrchestratorAttachment>,
+    mentions: ReadonlyArray<ConductorMention>,
+    attachments: ReadonlyArray<ConductorAttachment>,
   ): Promise<{ rowId: string }>;
   cancel(): Promise<void>;
   answer(
@@ -482,7 +482,7 @@ export const startHarness = async (
    *  with the conversation, for the reason `Calls.forget` gives: a call id is
    *  only ever looked up inside the session that minted it, and a daemon meant
    *  to run for weeks must not keep every call it ever saw. */
-  const koluReadings = new Map<string, OrchestratorKoluCall>();
+  const koluReadings = new Map<string, ConductorKoluCall>();
   const questions = new Questions((id, outcome) => {
     report(transcript.settleAsk(id, outcome));
     publish();
@@ -506,7 +506,7 @@ export const startHarness = async (
   let replayed = 0;
   let stopped = false;
   let taught = false;
-  let model: OrchestratorModel | null = null;
+  let model: ConductorModel | null = null;
   /** The model a PERSON chose, as the id they chose it under — handed in by
    *  the caller that remembered it, and kept current by {@link setOption} so
    *  that a conversation opened after a switch opens on the switch rather than
@@ -527,8 +527,8 @@ export const startHarness = async (
    */
   let resumable: string | null =
     typeof options.resume === "string" ? options.resume : null;
-  let commands: ReadonlyArray<OrchestratorCommand> = [];
-  let settings: ReadonlyArray<OrchestratorOption> = [];
+  let commands: ReadonlyArray<ConductorCommand> = [];
+  let settings: ReadonlyArray<ConductorOption> = [];
   let labels: ReadonlyMap<string, string> = new Map();
   let offered: ReadonlyArray<Offered> = [];
   /** WHAT THE AGENT CALLS ITSELF, out of the handshake's `agentInfo` — kept
@@ -549,7 +549,7 @@ export const startHarness = async (
    * before the handshake.
    */
   let carries = { image: false, embeddedContext: false };
-  let signIn: OrchestratorSignIn | null = null;
+  let signIn: ConductorSignIn | null = null;
   let attempt: Attempt | null = null;
   /** The MCP servers this conversation was handed, by name — read by the
    *  permission handler and by nothing else. */
@@ -566,7 +566,7 @@ export const startHarness = async (
    * URL — the token beside it stays out of the row, because a row is something
    * a person reads on screen.
    */
-  let servers: ReadonlyArray<OrchestratorServer> = options.mcpServers.map(
+  let servers: ReadonlyArray<ConductorServer> = options.mcpServers.map(
     (server) => ({
       name: server.name,
       standing: "handed" as const,
@@ -1166,8 +1166,8 @@ export const startHarness = async (
   const readSettings = (
     config: ReadonlyArray<SessionConfigOption> | null | undefined,
   ): void => {
-    const read: Array<OrchestratorOption> = [];
-    let picker: OrchestratorOption | null = null;
+    const read: Array<ConductorOption> = [];
+    let picker: ConductorOption | null = null;
     for (const option of config ?? []) {
       // A SELECT'S ROWS, which the protocol lets an agent send as groups of
       // rows rather than as rows. A group has no id of its own and is not a
@@ -1175,7 +1175,7 @@ export const startHarness = async (
       // with a group in it would be one whose heading is selectable.
       const choices = choicesOf(option);
       const isModel = leg.models !== null && option.id === leg.models.config;
-      const row: OrchestratorOption = {
+      const row: ConductorOption = {
         id: option.id,
         name: option.name,
         description: option.description ?? null,
@@ -1200,7 +1200,7 @@ export const startHarness = async (
    *  reader for both, because they are the same question asked at two moments
    *  — and a header that took the NAME from one and the SIZE from the other
    *  would be describing two conversations. */
-  const modelOf = (id: string): OrchestratorModel => ({
+  const modelOf = (id: string): ConductorModel => ({
     id,
     name: leg.models?.nameIn(labels, id) ?? id,
     // A `window` of `null` is a REFUSAL rather than a failure: a leg's table
@@ -1621,7 +1621,7 @@ export const startHarness = async (
    * A REFUSAL IS A ROW rather than a failed bring-up, unless the leg says
    * otherwise: the pinned Claude adapter omits this mode under root unless
    * `IS_SANDBOX` is set, and a host that cannot have it is a host whose
-   * orchestrator still works — `allowedWithoutAsking` is the backstop that was
+   * conductor still works — `allowedWithoutAsking` is the backstop that was
    * always underneath it.
    */
   const askForBypass = async (
@@ -1884,7 +1884,7 @@ export const startHarness = async (
    *  or the panel is claiming a context the model never had. */
   const bodyOf = (
     text: string,
-    mentions: ReadonlyArray<OrchestratorMention>,
+    mentions: ReadonlyArray<ConductorMention>,
   ): string => {
     const parts: Array<string> = [];
     if (!taught) {
@@ -1976,8 +1976,8 @@ export const startHarness = async (
    */
   const prompt = async (
     text: string,
-    mentions: ReadonlyArray<OrchestratorMention>,
-    attachments: ReadonlyArray<OrchestratorAttachment>,
+    mentions: ReadonlyArray<ConductorMention>,
+    attachments: ReadonlyArray<ConductorAttachment>,
   ): Promise<{ rowId: string }> => {
     const sessionId = activeSession;
     if (live === null || sessionId === null) {
@@ -2566,7 +2566,7 @@ const kindOf = (
  * image it was never shown, and no answer to that is worth one.
  */
 const blocksOf = async (
-  attachments: ReadonlyArray<OrchestratorAttachment>,
+  attachments: ReadonlyArray<ConductorAttachment>,
   carries: { readonly image: boolean; readonly embeddedContext: boolean },
 ): Promise<ReadonlyArray<ContentBlock>> => {
   let total = 0;
@@ -2597,7 +2597,7 @@ const blocksOf = async (
 
 /** One attachment as the block it belongs in. */
 const blockOf = async (
-  one: OrchestratorAttachment,
+  one: ConductorAttachment,
   carries: { readonly image: boolean; readonly embeddedContext: boolean },
 ): Promise<ContentBlock> => {
   const mimeType = essenceOf(one.mimeType);
@@ -2671,7 +2671,7 @@ const essenceOf = (mimeType: string): string =>
  * protocol callback: the attachment was swept, or the state root moved, and a
  * person who is told which file is missing can attach it again.
  */
-const bytesOf = async (one: OrchestratorAttachment): Promise<Buffer> => {
+const bytesOf = async (one: ConductorAttachment): Promise<Buffer> => {
   try {
     return await readFile(one.path);
   } catch {
@@ -2687,7 +2687,7 @@ const bytesOf = async (one: OrchestratorAttachment): Promise<Buffer> => {
  *  NAME the file — the protocol has no block for either without a uri — and
  *  the name is padi's own copy under its state root, which is the only path
  *  that exists on the host the agent is running on. */
-const uriOf = (one: OrchestratorAttachment): string => `file://${one.path}`;
+const uriOf = (one: ConductorAttachment): string => `file://${one.path}`;
 
 /** A size a person reads, for the two refusals that name one. */
 const sized = (bytes: number): string =>

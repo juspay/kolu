@@ -29,7 +29,7 @@ Two policies worth stating out loud:
 
 `REMOTE_SIGNALS` names the variables the spawn must NOT see (`NO_BROWSER`, `SSH_*`, `CLAUDE_CODE_REMOTE`): the adapter ORs them into an `isRemote` reading and then offers only a full-screen `claude /login`. kolu *is* the remote end and owns the sign-in, so those are stripped and the paste-a-code methods survive.
 
-`configDirIn` is the other half of the same sentence: the directory this agent's CLI reads a signature out of (`$CLAUDE_CONFIG_DIR`, else `$HOME/.claude`), handed up so a signed-out panel can NAME the store it was judged against. Measured on the pinned pair: agent-distro's launcher — the `claude` `CLAUDE_CODE_EXECUTABLE` points at — does not redirect `CLAUDE_CONFIG_DIR`; it prepends `--plugin-dir` flags and sets `LITELLM_BASE_URL`, `AGENT_DISTRO_CWD` and `PATH`, nothing more. So kolu-server's orchestrator reads the same store as the person's own terminals. It is a STATEMENT: nothing in kolu opens that directory, copies out of it, or points the agent at another one.
+`configDirIn` is the other half of the same sentence: the directory this agent's CLI reads a signature out of (`$CLAUDE_CONFIG_DIR`, else `$HOME/.claude`), handed up so a signed-out panel can NAME the store it was judged against. Measured on the pinned pair: agent-distro's launcher — the `claude` `CLAUDE_CODE_EXECUTABLE` points at — does not redirect `CLAUDE_CONFIG_DIR`; it prepends `--plugin-dir` flags and sets `LITELLM_BASE_URL`, `AGENT_DISTRO_CWD` and `PATH`, nothing more. So kolu-server's conductor reads the same store as the person's own terminals. It is a STATEMENT: nothing in kolu opens that directory, copies out of it, or points the agent at another one.
 
 ## The pin
 

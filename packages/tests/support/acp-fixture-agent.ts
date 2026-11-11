@@ -1,7 +1,7 @@
 /**
  * THE ACP ADAPTER THE E2E SUITE RUNS — a scripted agent on stdio.
  *
- * `KOLU_ACP_AGENT` points at this file, so the orchestrator the browser talks
+ * `KOLU_ACP_AGENT` points at this file, so the conductor the browser talks
  * to is a real subprocess speaking the real protocol over a real pipe:
  * kolu-server spawns it, the harness handshakes with it, and every frame the
  * panel draws is a frame an agent could have sent. What it is NOT is a mock of

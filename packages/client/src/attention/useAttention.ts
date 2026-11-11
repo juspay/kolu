@@ -58,13 +58,13 @@ import { match } from "ts-pattern";
 import { notify } from "../attentionNotify";
 import { hostLabel } from "../host/hostChipTone";
 import {
-  orchestratorAsksTotal,
-  useOrchestratorFacts,
-} from "../orchestrator/useOrchestratorFacts";
+  conductorAsksTotal,
+  useConductorFacts,
+} from "../conductor/useConductorFacts";
 import {
-  enterOrchestratorMode,
-  orchestratorMode,
-} from "../orchestrator/useOrchestratorMode";
+  enterConductorMode,
+  conductorMode,
+} from "../conductor/useConductorMode";
 import { runAction } from "../runAction";
 import type { TerminalSubject } from "../terminal/terminalSubject";
 import { nextAfter } from "../ui/nextAfter";
@@ -183,7 +183,7 @@ export function useAttention(deps: AttentionDeps): {
     }
   }
 
-  /** THE ORCHESTRATOR'S ASKS, through the same channel and nothing else.
+  /** THE CONDUCTOR'S ASKS, through the same channel and nothing else.
    *
    *  A conversation blocked on a question is `asking` in exactly the sense the
    *  frame already means it — the only difference is that the thing blocked is
@@ -201,21 +201,21 @@ export function useAttention(deps: AttentionDeps): {
     try {
       playSound();
       void notify.show({
-        tag: "orchestrator",
-        title: "The orchestrator needs you",
+        tag: "conductor",
+        title: "The conductor needs you",
         body:
           open === 1
             ? "One question is waiting"
             : `${open} questions are waiting`,
         icon: "/favicon.svg",
-        data: { kind: "orchestrator" },
+        data: { kind: "conductor" },
       });
     } catch (err) {
-      console.error("useAttention: orchestrator delivery failed", err);
+      console.error("useAttention: conductor delivery failed", err);
     }
   };
   createEffect(() => {
-    const open = orchestratorAsksTotal();
+    const open = conductorAsksTotal();
     const before = askedBefore;
     // The baseline moves whether or not we deliver: an ask you watched arrive
     // is SEEN, so the next rise is the next episode, not this one re-fired the
@@ -230,7 +230,7 @@ export function useAttention(deps: AttentionDeps): {
     // watched arrive — typed the prompt, saw the ask appear — rang the sound
     // and raised an OS popup for something already on screen, which is the one
     // way an attention channel teaches people to ignore it.
-    if (orchestratorMode() && document.hasFocus()) return;
+    if (conductorMode() && document.hasFocus()) return;
     deliverAsks(open);
   });
 
@@ -256,9 +256,9 @@ export function useAttention(deps: AttentionDeps): {
   // even when no surface has read a pip yet, because attention must reach you
   // on a host you are not looking at. This module is a CONSUMER of that mirror.
   useAttentionFacts();
-  // …and the ORCHESTRATOR mirror, for the same reason: a conversation blocked
+  // …and the CONDUCTOR mirror, for the same reason: a conversation blocked
   // on a host nobody is looking at is exactly the one that has to reach you.
-  useOrchestratorFacts();
+  useConductorFacts();
 
   // Feed every host's attention frame to the engine, off the marks store. One
   // owner per marked host (so a host leaving the pool disposes its engine state
@@ -328,7 +328,7 @@ export function useAttention(deps: AttentionDeps): {
     // Σ asking over LIVE hosts, PLUS the conversations waiting on a question.
     // One number on the icon, because there is one OS slot and a person
     // counting two badges has to add them anyway.
-    paintBadge(liveAskingTotal() + orchestratorAsksTotal());
+    paintBadge(liveAskingTotal() + conductorAsksTotal());
   });
 
   // The violet-capsule JUMP verb (see `attentionNav`): switch to the host, then
@@ -359,10 +359,10 @@ export function useAttention(deps: AttentionDeps): {
           setActiveHost(decodeHostKey(host));
           deps.activate(id);
         })
-        .with({ kind: "orchestrator" }, () => {
+        .with({ kind: "conductor" }, () => {
           // No terminal to focus and no host to switch to — the question
           // belongs to the one conversation, so the click just opens it.
-          enterOrchestratorMode();
+          enterConductorMode();
         })
         .exhaustive(),
     ),

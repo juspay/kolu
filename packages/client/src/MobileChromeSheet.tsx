@@ -22,11 +22,11 @@ import MobileHostRow from "./host/MobileHostRow";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import { daemonTransportLive, serverDot } from "./kaval/useDaemonStatus";
-import { orchestratorAsksTotal } from "./orchestrator/useOrchestratorFacts";
+import { conductorAsksTotal } from "./conductor/useConductorFacts";
 import {
-  enterOrchestratorMode,
-  orchestratorMode,
-} from "./orchestrator/useOrchestratorMode";
+  enterConductorMode,
+  conductorMode,
+} from "./conductor/useConductorMode";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
@@ -78,55 +78,55 @@ const MobileChromeSheet: Component<{
        *  ONLY host chrome the touch layout has. */}
       <MobileHostRow onSwitch={props.onClose} />
 
-      {/* The orchestrator, BESIDE the hosts rather than among them: it is the
+      {/* The conductor, BESIDE the hosts rather than among them: it is the
        *  touch layout's one entry to the conversation, and it is not a host —
        *  no status dot, no hue, nothing in the row above. Selecting it shows
-       *  the chat full-screen (a sheet, `OrchestratorSheet`), which is why
+       *  the chat full-screen (a sheet, `ConductorSheet`), which is why
        *  there is nothing more to lay out here than the door and the count of
        *  questions waiting behind it. */}
       <div class="border-b border-edge/50 px-3 py-2">
         <button
           type="button"
-          data-testid="orchestrator-tab"
-          data-active={orchestratorMode() ? "" : undefined}
-          aria-pressed={orchestratorMode()}
+          data-testid="conductor-tab"
+          data-active={conductorMode() ? "" : undefined}
+          aria-pressed={conductorMode()}
           class="relative flex min-h-[44px] w-full items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           classList={{
-            "border-accent/60 bg-accent/12 text-accent": orchestratorMode(),
+            "border-accent/60 bg-accent/12 text-accent": conductorMode(),
             "border-edge bg-surface-2 text-fg-2 active:bg-surface-3":
-              !orchestratorMode(),
+              !conductorMode(),
           }}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => {
-            enterOrchestratorMode();
+            enterConductorMode();
             props.onClose();
           }}
-          aria-label={ACTIONS.toggleOrchestrator.label}
+          aria-label={ACTIONS.toggleConductor.label}
         >
           {/* The mark carries the accent at rest here too — one destination,
               one hue, whichever layout you reach it from. */}
           <span
             aria-hidden="true"
-            classList={{ "text-accent": !orchestratorMode() }}
+            classList={{ "text-accent": !conductorMode() }}
           >
             ◆
           </span>
-          <span>Orchestrator</span>
+          <span>Conductor</span>
           {/* Inline, beside the name, for the same reason as the desktop
               pill's: the corner holds the needs-you count, and the tag is a
               constant rather than something that arrives. */}
           <span
-            data-testid="orchestrator-beta"
+            data-testid="conductor-beta"
             class="rounded-sm bg-fg-3/15 px-1 py-px font-mono text-[0.6rem] font-semibold uppercase tracking-[0.08em] text-fg-3"
           >
             beta
           </span>
-          <Show when={orchestratorAsksTotal() > 0}>
+          <Show when={conductorAsksTotal() > 0}>
             <span
-              data-testid="orchestrator-badge"
+              data-testid="conductor-badge"
               class="ml-auto min-w-5 rounded-full bg-alert px-1.5 text-center text-[0.68rem] font-semibold leading-5 text-surface-0"
             >
-              {orchestratorAsksTotal()}
+              {conductorAsksTotal()}
             </span>
           </Show>
         </button>

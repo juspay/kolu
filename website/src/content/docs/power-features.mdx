@@ -70,7 +70,7 @@ Chromium-only, as it uses the File System Access API.
 
 ## Link to any view
 
-Every view in kolu has a URL. Anything that can render a link — an orchestrator
+Every view in kolu has a URL. Anything that can render a link — a conductor
 board, a GitHub issue, a Slack message, a browser bookmark — can point **into**
 kolu with a `#/…` hash link. Click it and the installed app comes to the front
 already showing the right host, terminal, file, or dialog (no PWA? the same link
@@ -103,7 +103,7 @@ resolves `<p>` against the split's own repository.
   says so rather than failing silently. A link opened on a cold start waits for
   the host's terminals to load before deciding anything is missing.
 - **Works from inside a preview** — a `#/…` link in an HTML file previewed in
-  the Code tab routes the surrounding app: preview an orchestrator dashboard and
+  the Code tab routes the surrounding app: preview a conductor dashboard and
   its lane pills become click-to-jump, straight to each agent's terminal. (The
   preview stays fully sandboxed — the link is relayed out, and view-only means a
   hostile page still can't do anything but change what you're looking at.)

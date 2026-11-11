@@ -1,5 +1,5 @@
 /**
- * @kolu/acp-harness — one orchestrator conversation, as a subprocess that
+ * @kolu/acp-harness — one conductor conversation, as a subprocess that
  * speaks ACP.
  *
  * THE ONE PACKAGE IN THIS TREE THAT RUNS THE PROTOCOL. `@kolu/acp` owns the
@@ -7,7 +7,7 @@
  * owns the cell, the stream and the store and speaks no ACP. This is the
  * middle: it starts an adapter, keeps one conversation with it, and publishes
  * that conversation in the contract's own words
- * ({@link kolu-common/orchestrator}'s rows and state) through the one callback
+ * ({@link kolu-common/conductor}'s rows and state) through the one callback
  * a caller hands in.
  *
  * It imports nothing from `packages/padi`, `packages/server` or

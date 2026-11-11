@@ -17,7 +17,7 @@
  * back off.
  *
  * It is a keyed, ordered set rather than a list, because that is what the wire
- * member is ({@link kolu-common/orchestrator}'s `OrchestratorFrame`): a
+ * member is ({@link kolu-common/conductor}'s `ConductorFrame`): a
  * collection served snapshot-then-deltas, so a row that changes is one upsert
  * on its own key and a late-joining tab gets the whole thing in one frame. The
  * `seq` on each row keeps the ORDER independent of the delivery.
@@ -40,18 +40,18 @@
 
 import type { AskField, AskLink, AskOutcome, FileDiff } from "@kolu/acp/wire";
 import type {
-  OrchestratorArmed,
-  OrchestratorKoluCall,
-  OrchestratorPlanStep,
-  OrchestratorRow,
-  OrchestratorSaying,
-  OrchestratorSpawned,
-  OrchestratorToolStatus,
-  OrchestratorWatching,
+  ConductorArmed,
+  ConductorKoluCall,
+  ConductorPlanStep,
+  ConductorRow,
+  ConductorSaying,
+  ConductorSpawned,
+  ConductorToolStatus,
+  ConductorWatching,
 } from "./rows.ts";
 
 export interface Change {
-  readonly upserts: ReadonlyArray<OrchestratorRow>;
+  readonly upserts: ReadonlyArray<ConductorRow>;
   readonly removes: ReadonlyArray<string>;
   /**
    * TEXT ADDED TO A ROW THAT IS ALREADY THERE — what a chunk of a streaming
@@ -62,7 +62,7 @@ export interface Change {
    * hundred pieces, and publishing the whole of it once per piece puts the sum
    * of its prefixes on the wire — quadratic in the length of the answer.
    */
-  readonly appends: ReadonlyArray<OrchestratorSaying>;
+  readonly appends: ReadonlyArray<ConductorSaying>;
 }
 
 const EMPTY: Change = { upserts: [], removes: [], appends: [] };
@@ -97,18 +97,18 @@ type Derived = "id" | "seq" | "since" | "streaming" | "stranded";
  * A row's CONTENT: everything about it that a caller decides.
  *
  * Naming the derived fields once, here, is what makes them unsettable: every
- * door into this class takes this rather than a `Partial<OrchestratorRow>`, so
+ * door into this class takes this rather than a `Partial<ConductorRow>`, so
  * a caller cannot hand in a `seq` or a `since` for the writer to have to
  * ignore, and a sixth derived field inherits the rule instead of needing each
  * door to be told about it.
  */
-export type RowContent = DistributiveOmit<OrchestratorRow, Derived>;
+export type RowContent = DistributiveOmit<ConductorRow, Derived>;
 
-type RowPatch<K extends OrchestratorRow["kind"]> = Partial<
+type RowPatch<K extends ConductorRow["kind"]> = Partial<
   Extract<RowContent, { kind: K }>
 >;
 
-const contentOf = <R extends OrchestratorRow>(
+const contentOf = <R extends ConductorRow>(
   row: R,
 ): DistributiveOmit<R, Derived> => {
   switch (row.kind) {
@@ -150,7 +150,7 @@ const minted = (
     readonly since: string;
   },
   marks: { readonly streaming: boolean; readonly stranded: boolean },
-): OrchestratorRow => {
+): ConductorRow => {
   switch (content.kind) {
     case "agent":
       return marks.streaming
@@ -168,14 +168,14 @@ const minted = (
 };
 
 /** The two statuses that mean a call has not reported back. */
-const isRunning = (status: OrchestratorToolStatus): boolean =>
+const isRunning = (status: ConductorToolStatus): boolean =>
   status === "pending" || status === "in_progress";
 
 /** A background task that is STILL OUT — the one kind of call a turn's ending
  *  says nothing about, because outliving its turn is the whole point of it.
  *  Asked of the row rather than of a flag, so the strip above the scroll and
  *  the stranding rule cannot answer it differently. */
-const isTaskOut = (row: Extract<OrchestratorRow, { kind: "tool" }>): boolean =>
+const isTaskOut = (row: Extract<ConductorRow, { kind: "tool" }>): boolean =>
   row.armed !== undefined && row.armed.ended === null;
 
 /**
@@ -203,7 +203,7 @@ const toolKey = (id: string): string => `tool:${id}`;
  *  over reported four identical lines reading *the agent "Task" ended* — a
  *  bottom row that tells a reader something went wrong and refuses to say
  *  which of the four it was. */
-const sentToDo = (spawned: OrchestratorSpawned, title: string): string =>
+const sentToDo = (spawned: ConductorSpawned, title: string): string =>
   spawned.said ?? spawned.kind ?? title;
 
 /** Everything a frame can say about one tool call. Each field `undefined` means
@@ -211,17 +211,17 @@ const sentToDo = (spawned: OrchestratorSpawned, title: string): string =>
  *  only what moved. */
 export interface ToolMove {
   readonly title?: string | undefined;
-  readonly status?: OrchestratorToolStatus | undefined;
+  readonly status?: ConductorToolStatus | undefined;
   readonly server?: string | undefined;
   readonly tool?: string | undefined;
   readonly detail?: string | undefined;
   readonly progress?: string | undefined;
   readonly diffs?: ReadonlyArray<FileDiff> | undefined;
   readonly locations?: ReadonlyArray<string> | undefined;
-  readonly kolu?: OrchestratorKoluCall | undefined;
+  readonly kolu?: ConductorKoluCall | undefined;
   readonly parent?: string | undefined;
-  readonly spawned?: OrchestratorSpawned | undefined;
-  readonly armed?: Partial<OrchestratorArmed> | undefined;
+  readonly spawned?: ConductorSpawned | undefined;
+  readonly armed?: Partial<ConductorArmed> | undefined;
   /** Whether `title` on THIS frame is the adapter's placeholder rather than the
    *  call's name. Scoped to the frame: absent is "not provisional", never
    *  "unchanged". */
@@ -229,7 +229,7 @@ export interface ToolMove {
 }
 
 export class Transcript {
-  #rows = new Map<string, OrchestratorRow>();
+  #rows = new Map<string, ConductorRow>();
   #seq = 0;
   #minted = 0;
   /** The agent row currently being streamed into — the ONE place "still
@@ -282,7 +282,7 @@ export class Transcript {
     this.#endsWithDivider = endsWithDivider;
   }
 
-  rows(): ReadonlyArray<OrchestratorRow> {
+  rows(): ReadonlyArray<ConductorRow> {
     return [...this.#rows.values()];
   }
 
@@ -290,8 +290,8 @@ export class Transcript {
    *  above the scroll, because the row itself may be an hour of scrollback
    *  away. Derived off the rows rather than kept beside them, so it cannot
    *  disagree with what is drawn. */
-  watching(): ReadonlyArray<OrchestratorWatching> {
-    const out: Array<OrchestratorWatching> = [];
+  watching(): ReadonlyArray<ConductorWatching> {
+    const out: Array<ConductorWatching> = [];
     for (const row of this.#rows.values()) {
       if (row.kind !== "tool") continue;
       if (row.armed !== undefined && row.armed.ended === null) {
@@ -320,7 +320,7 @@ export class Transcript {
   }
 
   /** A row that stands on its own. */
-  add<K extends OrchestratorRow["kind"]>(
+  add<K extends ConductorRow["kind"]>(
     kind: K,
     text: string,
     extra: RowPatch<K> = {},
@@ -386,7 +386,7 @@ export class Transcript {
 
   /** That message is WAITING ITS TURN at the agent — it went out while a turn
    *  was still running and nothing has started on it. Not a {@link
-   *  OrchestratorDeliverySchema} value, because a queued message has not FAILED
+   *  ConductorDeliverySchema} value, because a queued message has not FAILED
    *  at anything and a person reading it in the column of things that went
    *  wrong would be told the opposite of the truth. */
   queued(key: string): Change {
@@ -652,7 +652,7 @@ export class Transcript {
 
   /** The agent's plan, which each update REPLACES whole — so it is upserted at
    *  one key for the life of the session, and an empty update removes it. */
-  plan(steps: ReadonlyArray<OrchestratorPlanStep>): Change {
+  plan(steps: ReadonlyArray<ConductorPlanStep>): Change {
     const closed = this.#close();
     if (steps.length === 0) {
       if (!this.#rows.has(PLAN_KEY)) return closed;
@@ -724,9 +724,9 @@ export class Transcript {
    *  arrives later still. A leg answers about the frame in front of it and
    *  never accumulates, so holding the task together is this class's job. */
   #armedOf(
-    held: OrchestratorArmed | undefined,
-    move: Partial<OrchestratorArmed> | undefined,
-  ): OrchestratorArmed | undefined {
+    held: ConductorArmed | undefined,
+    move: Partial<ConductorArmed> | undefined,
+  ): ConductorArmed | undefined {
     if (move === undefined) return held;
     const task = move.task ?? held?.task;
     if (task === undefined) return held;
@@ -746,7 +746,7 @@ export class Transcript {
     return `${kind}:${++this.#minted}`;
   }
 
-  #row<K extends OrchestratorRow["kind"]>(
+  #row<K extends ConductorRow["kind"]>(
     kind: K,
     text: string,
     extra: RowPatch<K>,
@@ -776,7 +776,7 @@ export class Transcript {
 
   /** ... and write it WITHOUT reporting it, for the one caller that reports a
    *  piece instead of the whole ({@link #grow}). */
-  #write(key: string, content: RowContent): OrchestratorRow {
+  #write(key: string, content: RowContent): ConductorRow {
     const current = this.#rows.get(key);
     const row = minted(
       content,

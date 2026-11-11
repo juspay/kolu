@@ -4,7 +4,7 @@
  *
  * {@link ./index.ts}'s probe hands this value back as the `NotHere` arm of its
  * answer, so a host that has not got this engine still publishes a row with the
- * sentence attached: the orchestrator's install face draws it, and the person
+ * sentence attached: the conductor's install face draws it, and the person
  * reading it finds out WHY rather than finding nothing.
  *
  * A MODULE OF ITS OWN rather than lines inside the registration, because the

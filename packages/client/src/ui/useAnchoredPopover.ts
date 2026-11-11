@@ -137,7 +137,7 @@ export function useAnchoredPopover(
     // CONSUME it. An open popover is the frontmost thing on screen, so the key
     // that dismisses it is spent — the same shape `SearchBar` and
     // `PrintedUrlCard` already use. Without this a window-level `Escape`
-    // reader (the orchestrator pane leaving its mode) acts on the same press,
+    // reader (the conductor pane leaving its mode) acts on the same press,
     // and one press closes two things.
     e.preventDefault();
     e.stopPropagation();

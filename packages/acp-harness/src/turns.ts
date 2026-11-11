@@ -2,7 +2,7 @@
  * The turns in flight, IN THE ORDER THEY WENT OUT, and the four questions
  * anybody asks about them.
  *
- * There is more than one whenever somebody types while the orchestrator is
+ * There is more than one whenever somebody types while the conductor is
  * working, which is the ordinary way to send a mid-turn message: the words go
  * out as a plain `session/prompt`, the agent holds them behind the turn it is
  * working on, and until it gets to them there are two turns this process owns

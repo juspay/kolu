@@ -20,7 +20,7 @@ import {
   type ToolCallLocation,
 } from "@agentclientprotocol/sdk";
 import { relativeTo } from "@kolu/acp";
-import type { OrchestratorAuthMethod } from "./rows.ts";
+import type { ConductorAuthMethod } from "./rows.ts";
 
 /**
  * HOW a verb failed — three ways, because a caller has TWO questions and two
@@ -244,7 +244,7 @@ export interface TerminalAuth {
  * command line this process spawns and no browser has any business holding.
  */
 export interface Offered {
-  readonly method: OrchestratorAuthMethod;
+  readonly method: ConductorAuthMethod;
   /** What running it takes, or `null` for a method the AGENT runs, which needs
    *  no command — only the wait. */
   readonly run: TerminalAuth | null;
@@ -292,7 +292,7 @@ export const methodsIn = (
     // sign-in nobody can run.
     if ("type" in method && method.type !== "terminal") continue;
     const terminal = "type" in method ? method : null;
-    const wire: OrchestratorAuthMethod = {
+    const wire: ConductorAuthMethod = {
       id: method.id,
       name: method.name,
       description: method.description ?? null,
@@ -358,7 +358,7 @@ export const terminalAuthIn = (
  *  `type: "stdio"` (`dist/acp-agent.js:6536-6558` — measured, not inferred). So
  *  the http arm must emit `type` and the stdio arm must not emit it at all; a
  *  tidying pass that "completes" the union by adding `type: "stdio"` here would
- *  hand the orchestrator a session with no hands and no error.
+ *  hand the conductor a session with no hands and no error.
  *
  *  The caller's own discriminant is `kind`, never `type`, precisely so the
  *  in-tree field and the wire field cannot be confused for each other. */

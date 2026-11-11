@@ -7,8 +7,8 @@
   "sideEffects": false,
   "exports": {
     "./surface": "./src/surface.ts",
-    "./orchestrator": "./src/orchestratorSchema.ts",
-    "./orchestratorErrors": "./src/orchestratorErrors.ts",
+    "./conductor": "./src/conductorSchema.ts",
+    "./conductorErrors": "./src/conductorErrors.ts",
     "./surfacesWithPadi": "./src/surfacesWithPadi.ts",
     "./hostKey": "./src/hostKey.ts",
     "./hostHue": "./src/hostHue.ts",

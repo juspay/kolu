@@ -66,16 +66,16 @@ build output is needed.
 
 ## Two faces, one tool table
 
-[The Orchestrator](/orchestrator) — the one chat that drives every terminal on every host — is a consumer of exactly this tool table. It gets no private face and no second expose map: kolu declares the tools **once** and projects them twice.
+[The Conductor](/conductor) — the one chat that drives every terminal on every host — is a consumer of exactly this tool table. It gets no private face and no second expose map: kolu declares the tools **once** and projects them twice.
 
 - **The per-host face is this page.** `kolu mcp` over stdio, serving one host's padi, naming terminals by bare id. It is what an agent running **inside** a terminal uses, what the `.mcp.json` entry below starts, and nothing about it changes.
-- **The fleet face is that same table lifted over every host.** It runs in-process inside kolu-server, and the Orchestrator reaches it over **streamable HTTP on a loopback listener** gated by a bearer token minted fresh for each kolu-server process — no stdio relay, no ssh child per host, and exactly one MCP server entry for the whole life of the conversation, however many hosts come and go underneath it.
+- **The fleet face is that same table lifted over every host.** It runs in-process inside kolu-server, and the Conductor reaches it over **streamable HTTP on a loopback listener** gated by a bearer token minted fresh for each kolu-server process — no stdio relay, no ssh child per host, and exactly one MCP server entry for the whole life of the conversation, however many hosts come and go underneath it.
 
 What the fleet projection changes is identity, and only identity:
 
 <div class="doc-scroll">
 
-| | per-host face — `kolu mcp` | fleet face — the Orchestrator's |
+| | per-host face — `kolu mcp` | fleet face — the Conductor's |
 | --- | --- | --- |
 | naming a terminal | `3f29…` | `local/3f29…`, `remote:nix@prod/9a1b…` — the host, then the id, read apart at the **last** `/` |
 | `lifecycle_create` | opens one here | takes the host to open on, and answers a fleet reference |
@@ -87,7 +87,7 @@ What the fleet projection changes is identity, and only identity:
 
 `hosts` is the live roster: which machines kolu knows, what each is called, and whether it is warming, connected or failed *now*. It stands in for the three per-host health views rather than fanning them out — `daemonStatus`, `status` and `identity` are facts about **one** host, and in a fleet they are columns of that roster. A call naming a host that is not connected is **refused by name**, saying which host and what state it is in; it is never answered with an empty list, which an agent would read as "nothing is running there".
 
-Everything else — every tool below, every refusal, the whole allowlist — is one definition serving both. So if you want to know what the Orchestrator is capable of, this page is still the answer.
+Everything else — every tool below, every refusal, the whole allowlist — is one definition serving both. So if you want to know what the Conductor is capable of, this page is still the answer.
 
 ## Connect it to your agent
 
@@ -280,7 +280,7 @@ scoped to the lanes you remembered goes blind to the one you didn't.
 #### Terminals that keep asking until you deal with them
 
 A settle event fires **once**. An agent that finishes and then sits there for an
-hour is reported at the start of that hour and never again — so an orchestrator
+hour is reported at the start of that hour and never again — so a conductor
 that was busy when the report landed loses the terminal entirely. Optional
 parameters on `watch_open` replace that with a level you cannot miss:
 

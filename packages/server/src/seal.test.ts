@@ -201,20 +201,20 @@ const WEB_SHELL_FILES = [
   // in `index.ts`'s graph imports either.
   "wireCall",
   "wireCallMain",
-  // ── the orchestrator arm (packages/server/src/orchestrator/) ──
+  // ── the conductor arm (packages/server/src/conductor/) ──
   // kolu's ONE supervising conversation. kolu-server hosts it because the
   // conversation reaches EVERY host — its hands are the fleet MCP face over
   // the host map, and no single padi can see past its own terminals. It is
   // web-shell code by this seal's own test: it serves koluSurface's own
   // members and runs no terminal domain (every terminal it touches, it touches
   // through a padi client, over the wire, like any other consumer).
-  "orchestrator/live",
-  "orchestrator/orchestrator",
-  "orchestrator/persisted",
-  "orchestrator/teaching",
-  "orchestrator/transcriptStream",
+  "conductor/live",
+  "conductor/conductor",
+  "conductor/persisted",
+  "conductor/teaching",
+  "conductor/transcriptStream",
   // ── the fleet MCP face's server side (packages/server/src/fleet/) ──
-  // The loopback listener the orchestrator's agent reaches the fleet through,
+  // The loopback listener the conductor's agent reaches the fleet through,
   // and kolu-server's implementation of `@kolu/kolu-mcp`'s `FleetHosts` port
   // over the host map. Shell code: a socket in THIS process and a projection of
   // the pool the shell already owns.

@@ -862,7 +862,7 @@ describe("the leg", () => {
   test("has a bypass mode to ask for, and a refusal of it is not fatal", () => {
     expect(CLAUDE.bypassMode).toBe("bypassPermissions");
     // The pinned adapter omits this mode under root unless IS_SANDBOX is set,
-    // and a host that cannot have it still gets an orchestrator: the refusal is
+    // and a host that cannot have it still gets a conductor: the refusal is
     // reported and `allowedWithoutAsking` is the backstop underneath it.
     expect(CLAUDE.bypassModeRequired).toBe(false);
   });

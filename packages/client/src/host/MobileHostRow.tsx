@@ -14,7 +14,7 @@
  *  (working · needs-you violet · unseen amber) — so a signal means
  *  the same thing on a phone as on a laptop. A tap goes through `selectHostTab`
  *  (the identical write the desktop strip makes, which also leaves the
- *  orchestrator if that is what was on screen; W9 makes the switch instant).
+ *  conductor if that is what was on screen; W9 makes the switch instant).
  *  Adding a host reuses the shared `addHost` mechanism; only the CONTAINER
  *  differs from desktop — a full-width in-sheet section rather than an
  *  anchored popover (the popover clips at phone width).
@@ -37,7 +37,7 @@ import { AttentionTriplet } from "@kolu/solid-statepip";
 import { hostMarks } from "../attention/attentionMarks";
 import DocLink from "../ui/DocLink";
 import { hostKeys, padiMap } from "../wire";
-import { orchestratorMode } from "../orchestrator/useOrchestratorMode";
+import { conductorMode } from "../conductor/useConductorMode";
 import { selectHostTab } from "./selectHostTab";
 import { runAction } from "../runAction";
 import { addHost } from "./addHost";
@@ -114,10 +114,10 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
       // `useEntry(activeHost)` consumer for nothing) — `selectHostTab` owns
       // that guard. The tap is only a no-op HERE when the chip is already the
       // selected entry in the row: tapping the active host while the
-      // orchestrator is on screen is how a person asks to go back to it, so
+      // conductor is on screen is how a person asks to go back to it, so
       // that tap must still run (and still close the sheet).
       onClick={() => {
-        if (isActive() && !orchestratorMode()) return;
+        if (isActive() && !conductorMode()) return;
         selectHostTab(props.host);
         props.onSwitch();
       }}

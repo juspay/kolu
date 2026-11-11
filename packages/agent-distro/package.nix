@@ -6,7 +6,7 @@
 #
 #   * ./default.nix, which bakes it onto the wrappers (the manifest, the proof);
 #   * nix/overlay.nix, whose `kolu-acp-adapter` drives this package's
-#     `bin/claude` — the orchestrator's CLI is the floor's CLI.
+#     `bin/claude` — the conductor's CLI is the floor's CLI.
 #
 # The second one cannot reach ./default.nix: that file's `readListing` is a
 # command built out of kolu's own build derivation, which bakes KOLU_ACP_AGENT
@@ -16,7 +16,7 @@
 # nobody could read back to the cause. Nothing here imports anything of kolu's,
 # so both readers import THIS file with the same pin and name the same store
 # path; a second copy of the launchers would be a second floor, and the whole
-# point is that the orchestrator runs the one the terminals do.
+# point is that the conductor runs the one the terminals do.
 { pkgs, src }:
 let
   inherit (pkgs) lib;

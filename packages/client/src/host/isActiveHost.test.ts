@@ -1,6 +1,6 @@
 /** THE TAB ROW MUST NOT LIE ABOUT WHERE YOU ARE.
  *
- *  `activeHost` names a host at all times — the orchestrator is not one and is
+ *  `activeHost` names a host at all times — the conductor is not one and is
  *  deliberately absent from the host map — so a selector reading it alone kept
  *  a host tab lit while the conversation covered the screen. The owner saw two
  *  tabs painted as live at once. This pins the fold that fixes it, at the one
@@ -15,13 +15,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("../wire", () => ({ activeHost: () => ({ kind: "local" }) }));
 
 import {
-  enterOrchestratorMode,
-  exitOrchestratorMode,
-} from "../orchestrator/useOrchestratorMode";
+  enterConductorMode,
+  exitConductorMode,
+} from "../conductor/useConductorMode";
 import { useActiveHostSelector } from "./isActiveHost";
 
 afterEach(() => {
-  exitOrchestratorMode();
+  exitConductorMode();
 });
 
 describe("which host tab is lit", () => {
@@ -33,16 +33,16 @@ describe("which host tab is lit", () => {
     });
   });
 
-  it("is NONE of them while the orchestrator is the selected entry", () => {
+  it("is NONE of them while the conductor is the selected entry", () => {
     createRoot((dispose) => {
       const isActive = useActiveHostSelector();
-      enterOrchestratorMode();
+      enterConductorMode();
       // Not "a different host is lit" — no host is. The host a person left is
       // still `activeHost`, which is what lights the tab they came from the
       // moment they switch back; what changes is only whether the row claims
       // they are standing on it.
       expect(isActive(encodeHostKey(LOCAL_HOST))).toBe(false);
-      exitOrchestratorMode();
+      exitConductorMode();
       expect(isActive(encodeHostKey(LOCAL_HOST))).toBe(true);
       dispose();
     });

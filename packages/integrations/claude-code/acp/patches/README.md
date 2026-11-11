@@ -27,7 +27,7 @@ olai carries a **second** patch at this pin, `session-list-info.patch`, which
 stamps each `session/list` row with a message count and the `/clear` successor
 that superseded it. kolu does not, and the reason is the whole rule this
 directory follows: **a patch is a cost paid at every pin bump, so it must have
-a reader.** kolu's orchestrator is one conversation per host and never lists
+a reader.** kolu's conductor is one conversation per host and never lists
 the stored ones, so nothing here would read those stamps — and an unread patch
 goes on failing bumps for a fact nobody wants. If kolu ever grows a
 conversation picker, that is the moment to bring it across from olai, which
@@ -42,8 +42,8 @@ call's result. An armed watch is then indistinguishable from a finished one,
 nothing ticks, and its DEATH never appears on the wire at all
 ([claude-agent-acp#865](https://github.com/agentclientprotocol/claude-agent-acp/issues/865)).
 
-**This is the patch kolu's orchestrator depends on most directly.** The
-orchestrator watches a host's terminals by arming `kolu watch` as a background
+**This is the patch kolu's conductor depends on most directly.** The
+conductor watches a host's terminals by arming `kolu watch` as a background
 task; without this, the call that armed the watch would settle the instant the
 watch started, and the row the user reads would say "done" about a watch that
 is still running — or has died, which is exactly the fact a supervisor must

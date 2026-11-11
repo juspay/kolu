@@ -2,7 +2,7 @@
 
 The **web shell**. It serves the PWA, holds the browser's one websocket, binds
 one [`@kolu/padi`](../padi) per host — local and remote — and hosts the
-**orchestrator**: the single ACP conversation that drives terminals on every one
+**conductor**: the single ACP conversation that drives terminals on every one
 of those hosts.
 
 Everything about a terminal is padi's. kolu-server owns only what is true of the
@@ -13,15 +13,15 @@ conversation whose subject is all of them.
 
 A host is a `@kolu/surface-remote` session dialled over ssh, re-serving that
 host's `padiSurface` as an entry of one keyed map. The browser reads the map;
-so does the orchestrator. Membership is persisted here — a small list of ssh
+so does the conductor. Membership is persisted here — a small list of ssh
 targets in kolu-server's own config store, distinct from the per-terminal state
 each daemon keeps — so the fleet you added survives a restart of this process.
 
-## The orchestrator — kolu-server's one child that is not a daemon
+## The conductor — kolu-server's one child that is not a daemon
 
-`src/orchestrator/` spawns the ACP adapter, holds its session, keeps its
+`src/conductor/` spawns the ACP adapter, holds its session, keeps its
 transcript, and serves the whole of it as `koluSurface` members: the
-`orchestrator` cell, the `orchestratorTranscript` stream and the `orchestrator`
+`conductor` cell, the `conductorTranscript` stream and the `conductor`
 procedure namespace. The protocol itself is [`@kolu/acp-harness`](../acp-harness)'s;
 nothing here spells `session/prompt`.
 
@@ -31,7 +31,7 @@ reach that host's terminals — so a fleet of five machines meant five
 conversations, each blind to the other four, each needing to be asked
 separately. There is one now, and it runs where kolu-server runs. The price is
 stated plainly in the docs and worth repeating: a remote host has **no**
-orchestrator while this process is down. The supervisor lives where you look.
+conductor while this process is down. The supervisor lives where you look.
 
 **Its hands are kolu's own MCP face, lifted over the host map.** The tool list
 is [`@kolu/kolu-mcp`](../kolu-mcp)'s — the same list `kolu mcp` serves an agent
@@ -61,7 +61,7 @@ what two clients should have: two fleets.
 **The gate is a bearer token**, minted per process and compared with
 `timingSafeEqual`; the adapter is handed it in its session's MCP server entry.
 Loopback alone is not a gate — every other process on the box can reach it. And
-the endpoint is **proved before it is named**: the orchestrator sends the same
+the endpoint is **proved before it is named**: the conductor sends the same
 `initialize` the adapter's client will send and demands a session back, then
 terminates that session behind itself. An endpoint that is not listening, that
 rejects the token, or that is listening and will not serve this caller refuses
@@ -76,11 +76,11 @@ out. Nothing reopens the session.
 
 ### Lifetime
 
-`src/orchestrator/live.ts` holds the one live host for this process:
+`src/conductor/live.ts` holds the one live host for this process:
 `setFleetMcpEndpoint` is called once by the boot that owns the listener,
-`liveServerOrchestrator()` builds the conversation lazily on its first reader —
-a kolu nobody has opened the orchestrator in runs no agent — and
-`disposeServerOrchestrator()` runs **first** in the teardown. That ordering is
+`liveServerConductor()` builds the conversation lazily on its first reader —
+a kolu nobody has opened the conductor in runs no agent — and
+`disposeServerConductor()` runs **first** in the teardown. That ordering is
 load-bearing: the adapter is spawned detached, so nothing else in the teardown
 reaches it, and without the explicit stop every restart would leave an adapter
 and its `claude` behind and spawn a second set beside them.
@@ -89,7 +89,7 @@ and its `claude` behind and spawn a second set beside them.
 
 The transcript, the session id and the model the person chose live in
 kolu-server's state store (`src/state.ts`), under its own migration rung;
-attachments are files under `<state dir>/orchestrator/attachments/<id>`, and the
+attachments are files under `<state dir>/conductor/attachments/<id>`, and the
 bytes never ride a prompt frame. A restart resumes the session by its id and
 re-applies the model. What is not restored is anything that was a fact about a
 subprocess that no longer exists — a turn in flight, a half-finished sign-in —

@@ -13,7 +13,7 @@
  * answers exactly one `initialize`; a door that minted one at boot served the
  * first MCP client it ever saw and answered every later one `400 Server
  * already initialized` — so an adapter respawn, which is the case the
- * orchestrator's corpse arm exists for, left the replacement conversation with
+ * conductor's corpse arm exists for, left the replacement conversation with
  * no tools for the life of kolu-server. Two tests below say that in the only
  * way that catches it: a second `initialize` on the same endpoint, and two
  * clients at once.
@@ -231,7 +231,7 @@ describe("the fleet MCP door", () => {
     expect(stale.status).toBe(404);
 
     // A ping with no session named is not a handshake, and the door does not
-    // invent a session for it — the proof the orchestrator runs demands an
+    // invent a session for it — the proof the conductor runs demands an
     // answer that means "I will serve you", and this is not one.
     const unnamed = await fetch(endpoint.url, {
       method: "POST",

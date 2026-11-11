@@ -2,7 +2,7 @@
  * THE CONTRACT'S WORDS, imported once.
  *
  * Every row, frame and state shape this package writes is declared by the
- * browser-safe contract half (`kolu-common/orchestrator`) and NOT here:
+ * browser-safe contract half (`kolu-common/conductor`) and NOT here:
  * the harness is the WRITER of that contract, not a second author of it. This
  * module exists so the rest of the package names those types through one door —
  * a file that grows a shape of its own is immediately visible as the wrong
@@ -19,43 +19,43 @@
  */
 
 import type {
-  OrchestratorArmedSchema,
-  OrchestratorAttachmentSchema,
-  OrchestratorAuthMethodSchema,
-  OrchestratorCommandSchema,
-  OrchestratorModelSchema,
-  OrchestratorOptionSchema,
-  OrchestratorPlanStepSchema,
-  OrchestratorSayingSchema,
-  OrchestratorServerSchema,
-  OrchestratorSignInSchema,
-  OrchestratorSpawnedSchema,
-  OrchestratorToolStatusSchema,
-  OrchestratorWatchingSchema,
-} from "kolu-common/orchestrator";
+  ConductorArmedSchema,
+  ConductorAttachmentSchema,
+  ConductorAuthMethodSchema,
+  ConductorCommandSchema,
+  ConductorModelSchema,
+  ConductorOptionSchema,
+  ConductorPlanStepSchema,
+  ConductorSayingSchema,
+  ConductorServerSchema,
+  ConductorSignInSchema,
+  ConductorSpawnedSchema,
+  ConductorToolStatusSchema,
+  ConductorWatchingSchema,
+} from "kolu-common/conductor";
 
 export type {
-  OrchestratorAskRow,
-  OrchestratorFrame,
-  OrchestratorKoluCall,
-  OrchestratorMention,
-  OrchestratorPhase,
-  OrchestratorRow,
-  OrchestratorState,
-  OrchestratorToolRow,
-  OrchestratorUserRow,
-} from "kolu-common/orchestrator";
+  ConductorAskRow,
+  ConductorFrame,
+  ConductorKoluCall,
+  ConductorMention,
+  ConductorPhase,
+  ConductorRow,
+  ConductorState,
+  ConductorToolRow,
+  ConductorUserRow,
+} from "kolu-common/conductor";
 
-export type OrchestratorArmed = typeof OrchestratorArmedSchema.Type;
-export type OrchestratorAttachment = typeof OrchestratorAttachmentSchema.Type;
-export type OrchestratorSpawned = typeof OrchestratorSpawnedSchema.Type;
-export type OrchestratorPlanStep = typeof OrchestratorPlanStepSchema.Type;
-export type OrchestratorSaying = typeof OrchestratorSayingSchema.Type;
-export type OrchestratorWatching = typeof OrchestratorWatchingSchema.Type;
-export type OrchestratorToolStatus = typeof OrchestratorToolStatusSchema.Type;
-export type OrchestratorOption = typeof OrchestratorOptionSchema.Type;
-export type OrchestratorCommand = typeof OrchestratorCommandSchema.Type;
-export type OrchestratorServer = typeof OrchestratorServerSchema.Type;
-export type OrchestratorModel = typeof OrchestratorModelSchema.Type;
-export type OrchestratorSignIn = typeof OrchestratorSignInSchema.Type;
-export type OrchestratorAuthMethod = typeof OrchestratorAuthMethodSchema.Type;
+export type ConductorArmed = typeof ConductorArmedSchema.Type;
+export type ConductorAttachment = typeof ConductorAttachmentSchema.Type;
+export type ConductorSpawned = typeof ConductorSpawnedSchema.Type;
+export type ConductorPlanStep = typeof ConductorPlanStepSchema.Type;
+export type ConductorSaying = typeof ConductorSayingSchema.Type;
+export type ConductorWatching = typeof ConductorWatchingSchema.Type;
+export type ConductorToolStatus = typeof ConductorToolStatusSchema.Type;
+export type ConductorOption = typeof ConductorOptionSchema.Type;
+export type ConductorCommand = typeof ConductorCommandSchema.Type;
+export type ConductorServer = typeof ConductorServerSchema.Type;
+export type ConductorModel = typeof ConductorModelSchema.Type;
+export type ConductorSignIn = typeof ConductorSignInSchema.Type;
+export type ConductorAuthMethod = typeof ConductorAuthMethodSchema.Type;

@@ -80,14 +80,14 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: `${formatKeybind(ACTIONS.toggleSubPanel.keybind)} splits your terminal into a bottom pane`,
   },
   {
-    id: "amb-orchestrator",
-    text: `${formatKeybind(ACTIONS.toggleOrchestrator.keybind)} opens the orchestrator — one conversation, across every host, that creates terminals, briefs the agents in them, watches them and answers their questions; its ◆ entry sits at the end of the tab row, and a tool card's "open tile" takes you to the terminal it names, wherever it lives`,
-    doc: "orchestrator",
+    id: "amb-conductor",
+    text: `${formatKeybind(ACTIONS.toggleConductor.keybind)} opens the conductor — one conversation, across every host, that creates terminals, briefs the agents in them, watches them and answers their questions; its ◆ entry sits at the end of the tab row, and a tool card's "open tile" takes you to the terminal it names, wherever it lives`,
+    doc: "conductor",
   },
   {
-    id: "amb-orchestrator-attach",
-    text: "Paste a screenshot or drop a file into the orchestrator's composer and it rides along with your message — the agent sees the picture, not your description of it",
-    doc: "orchestrator",
+    id: "amb-conductor-attach",
+    text: "Paste a screenshot or drop a file into the conductor's composer and it rides along with your message — the agent sees the picture, not your description of it",
+    doc: "conductor",
   },
   {
     id: "amb-host-map",

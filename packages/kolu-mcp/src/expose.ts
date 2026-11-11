@@ -4,7 +4,7 @@
  * spelled as `@kolu/surface-mcp`'s default-deny allowlist, in its TWO
  * projections: over one host's `padiSurface` ({@link KOLU_MCP_EXPOSE}, what
  * `kolu mcp` serves) and over the whole fleet's `fleetSurface`
- * ({@link KOLU_FLEET_EXPOSE}, what kolu-server serves the orchestrator).
+ * ({@link KOLU_FLEET_EXPOSE}, what kolu-server serves the conductor).
  *
  * **The tool list has ONE definition.** {@link KOLU_MCP_TOOL_EXPOSE} holds the
  * rows and both maps spread it, because the two faces differ in what a terminal

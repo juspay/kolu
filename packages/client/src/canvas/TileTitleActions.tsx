@@ -29,8 +29,8 @@ import {
   hostAgentStatusOf,
 } from "../agents/useAgentDistro";
 import { ACTIONS } from "../input/actions";
-import { armComposerMention } from "../orchestrator/drafts";
-import { enterOrchestratorMode } from "../orchestrator/useOrchestratorMode";
+import { armComposerMention } from "../conductor/drafts";
+import { enterConductorMode } from "../conductor/useConductorMode";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { runAction, runActionPromise, type UiAction } from "../runAction";
 import { screenshotTerminal } from "../screenshotTerminal";
@@ -270,10 +270,10 @@ const TileTitleActions: Component<{
             <SearchIcon />
           </button>
         </Tip>
-        <Tip label="Ask the Orchestrator about this">
+        <Tip label="Ask the Conductor about this">
           <button
             type="button"
-            data-testid="tile-ask-orchestrator"
+            data-testid="tile-ask-conductor"
             class={`${TILE_BUTTON_CLASS} w-7`}
             style={{ color: "var(--color-fg-3, currentColor)" }}
             onPointerDown={(e) => e.stopPropagation()}
@@ -285,10 +285,10 @@ const TileTitleActions: Component<{
                 // half-typed there is kept, because arming is an addition.
                 const name = store.getDisplayInfo(props.id)?.key.label;
                 if (name !== undefined) armComposerMention(name);
-                enterOrchestratorMode();
+                enterConductorMode();
               })
             }
-            aria-label="Ask the Orchestrator about this"
+            aria-label="Ask the Conductor about this"
           >
             ◆
           </button>

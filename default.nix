@@ -604,7 +604,7 @@ let
   # would spawn (#1670) while preserving readBakedIdentity's both-or-neither
   # invariant. Both equal the identities baked into their corresponding bins.
   #
-  # KOLU_ACP_AGENT — THE ORCHESTRATOR'S ADAPTER, baked HERE because this is the
+  # KOLU_ACP_AGENT — THE CONDUCTOR'S ADAPTER, baked HERE because this is the
   # binary that spawns it. kolu-server hosts the one conversation now (padi
   # hosts none), so the adapter must be a runtime reference of THIS derivation:
   # that reference is what puts it in kolu-server's closure, and a kolu-server
@@ -864,7 +864,7 @@ let
   # kolu ships and remotes provision) supplies the production path so remote
   # `padi --stdio` needs no `--state-root` on the argv.
   #
-  # NO ORCHESTRATOR BAKE HERE, and that absence is the change: padi no longer
+  # NO CONDUCTOR BAKE HERE, and that absence is the change: padi no longer
   # hosts a conversation. kolu-server does, once, for every host — so the ACP
   # adapter (KOLU_ACP_AGENT) is baked onto `koluBin` instead, and the `kolu`
   # whose `mcp` face a session was handed (KOLU_MCP_BIN, with its own

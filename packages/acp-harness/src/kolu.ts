@@ -19,13 +19,13 @@
  */
 
 import { fleetTerminalRef, splitFleetTerminalRef } from "kolu-mcp/fleetRef";
-import type { OrchestratorKoluCall } from "./rows.ts";
+import type { ConductorKoluCall } from "./rows.ts";
 
 /** The tools the loop IS, by the names the `kolu` MCP face registers them
  *  under. The three ways of WAITING collapse to one reading, because they draw
  *  the same card: who, what state, how long, and the screen tail folded
  *  underneath. */
-const READINGS: Readonly<Record<string, OrchestratorKoluCall["kind"]>> = {
+const READINGS: Readonly<Record<string, ConductorKoluCall["kind"]>> = {
   lifecycle_create: "create",
   lifecycle_sendInput: "sendInput",
   lifecycle_kill: "kill",
@@ -106,7 +106,7 @@ export const koluCallOf = (
   tool: string,
   input: unknown,
   answer: unknown,
-): OrchestratorKoluCall | null => {
+): ConductorKoluCall | null => {
   const kind = READINGS[tool];
   if (kind === undefined) return null;
   // The ref is on the INPUT for every call that acts on an existing terminal
@@ -184,9 +184,9 @@ export const koluCallOf = (
  * reused for a different tool, where the newer frame is the truth.
  */
 export const refineKoluCall = (
-  before: OrchestratorKoluCall | null,
-  next: OrchestratorKoluCall | null,
-): OrchestratorKoluCall | null => {
+  before: ConductorKoluCall | null,
+  next: ConductorKoluCall | null,
+): ConductorKoluCall | null => {
   if (before === null) return next;
   if (next === null) return before;
   if (before.kind !== next.kind) return next;
@@ -194,7 +194,7 @@ export const refineKoluCall = (
   for (const [key, value] of Object.entries(next)) {
     if (value !== null) merged[key] = value;
   }
-  return merged as unknown as OrchestratorKoluCall;
+  return merged as unknown as ConductorKoluCall;
 };
 
 /**
@@ -208,7 +208,7 @@ export const refineKoluCall = (
  *
  * Reading and waiting do NOT join it, which is the line this draws: a
  * `watch_next` over the whole fleet names every terminal on every host, and an
- * orchestrator that once looked at somebody else's terminal has not taken it
+ * conductor that once looked at somebody else's terminal has not taken it
  * over.
  */
 export class Fleet {
@@ -235,7 +235,7 @@ export class Fleet {
    *  still half-written (no host, or no terminal) names nothing anybody could
    *  open. It is dropped rather than remembered as a bare id the fleet grammar
    *  has no row for — the refining frame that completes the call puts it in. */
-  touch(call: OrchestratorKoluCall): boolean {
+  touch(call: ConductorKoluCall): boolean {
     if (call.kind !== "create" && call.kind !== "sendInput") return false;
     if (call.host === null || call.terminalId === null) return false;
     const ref = fleetTerminalRef(call.host, call.terminalId);

@@ -31,7 +31,7 @@ import {
   type HarnessState,
   startHarness,
 } from "./harness.ts";
-import type { OrchestratorAttachment, OrchestratorRow } from "./rows.ts";
+import type { ConductorAttachment, ConductorRow } from "./rows.ts";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures");
 
@@ -41,9 +41,9 @@ const FIXTURES = path.join(import.meta.dirname, "fixtures");
 const CONFIG_DIR = "/tmp/kolu-test-home/.claude";
 
 /** The standing prompt, as DATA — padi's words now
- *  (`packages/padi/src/orchestrator/teaching.ts`), and all this package has to
+ *  (`packages/padi/src/conductor/teaching.ts`), and all this package has to
  *  keep about them is that they ride the first message and no later one. */
-const TEACHING = ["[kolu] you are kolu's orchestrator on hostname"];
+const TEACHING = ["[kolu] you are kolu's conductor on hostname"];
 
 /** How the fixture spells an MCP server's tools — the pinned Claude adapter's
  *  own spelling, which is what makes the auto-allow rule's positive
@@ -142,7 +142,7 @@ interface Running {
   /** Every row the harness has published, folded the way padi folds them — so
    *  the assertions below are about what a READER sees rather than about the
    *  harness's own copy. */
-  readonly rows: () => ReadonlyArray<OrchestratorRow>;
+  readonly rows: () => ReadonlyArray<ConductorRow>;
   readonly states: ReadonlyArray<HarnessState>;
 }
 
@@ -172,7 +172,7 @@ const open = async (
     args?: ReadonlyArray<string>;
   } = {},
 ): Promise<Running> => {
-  const rows = new Map<string, OrchestratorRow>();
+  const rows = new Map<string, ConductorRow>();
   const states: Array<HarnessState> = [];
   const fold = (change: HarnessChange): void => {
     if (change.kind === "state") {
@@ -268,7 +268,7 @@ const waitFor = async (
 
 const textOfKind = (
   running: Running,
-  kind: OrchestratorRow["kind"],
+  kind: ConductorRow["kind"],
 ): ReadonlyArray<string> =>
   running
     .rows()
@@ -301,9 +301,9 @@ const ATTACHMENTS = await mkdtemp(path.join(tmpdir(), "acp-harness-"));
  *  bytes were written to. Nothing carries base64 on this wire — it cannot
  *  ride the frame — so the file below is the only copy there is. */
 const written = async (
-  fields: Omit<OrchestratorAttachment, "path">,
+  fields: Omit<ConductorAttachment, "path">,
   contents: Buffer,
-): Promise<OrchestratorAttachment> => {
+): Promise<ConductorAttachment> => {
   const where = path.join(ATTACHMENTS, fields.id);
   await writeFile(where, contents);
   return { ...fields, path: where };
@@ -311,8 +311,8 @@ const written = async (
 
 /** One pasted image, written out. */
 const picture = (
-  over: Partial<Omit<OrchestratorAttachment, "path">> = {},
-): Promise<OrchestratorAttachment> =>
+  over: Partial<Omit<ConductorAttachment, "path">> = {},
+): Promise<ConductorAttachment> =>
   written(
     {
       id: "att-1",
@@ -335,7 +335,7 @@ const dead = async (running: Running): Promise<void> => {
   throw new Error("the agent never died");
 };
 
-const dividers = (running: Running): ReadonlyArray<OrchestratorRow> =>
+const dividers = (running: Running): ReadonlyArray<ConductorRow> =>
   running.rows().filter((one) => one.kind === "divider");
 
 describe("one conversation with a real agent", () => {
@@ -544,7 +544,7 @@ describe("one conversation with a real agent", () => {
     // HTTP server, an entry with NO `type` key a stdio server, and SILENTLY
     // DROPS one carrying `type: "stdio"`. So this asserts the ABSENCE of the
     // key on the stdio arm as hard as its presence on the http arm: a harness
-    // that "completed" the union would hand the orchestrator a session with no
+    // that "completed" the union would hand the conductor a session with no
     // hands and no error anywhere.
     const running = await open("agent.ts", {
       mcpServers: [
@@ -810,7 +810,7 @@ describe("a conversation the agent does not have", () => {
     // THE OWNER'S HOST. A session id kolu persisted, a CLI that has never
     // heard of it, and the adapter's own refusal: `-32002 Resource not
     // found: <id>`. Read as "the agent is broken" that killed the child and
-    // the orchestrator spawned another to ask the same dead id again — four
+    // the conductor spawned another to ask the same dead id again — four
     // `the agent exited (code 0)` lines and no conversation.
     const running = await open("agent.ts", {
       resume: "gone-ba0d0775-2692-4460-ad85-61bec0aeb318",
@@ -1163,7 +1163,7 @@ describe("the settings a conversation advertises", () => {
     // THE PAYLOAD IS A RECORDING, not a shape this file invented: one live
     // session's `configOptions` off the pinned adapter, pasted into
     // `fixtures/agent.ts` as `RECORDED`. What made it worth recording is
-    // `claude-fable-5-2` — a model the orchestrator's picker did not offer
+    // `claude-fable-5-2` — a model the conductor's picker did not offer
     // while the adapter drove the CLI bundled in the Claude Agent SDK, whose
     // own picker has five rows and no Fable 5.2 at all. The fix was the floor
     // (`nix/packages/acp-adapter.nix` now drives agent-distro's `claude`), and

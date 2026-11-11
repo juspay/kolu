@@ -783,7 +783,7 @@ function composeE2eServerEnv(): Record<string, string> {
  *  server respawns a worker makes). */
 const agentDistroFixture = agentDistroFixtureEnv();
 
-/** The scripted ACP agent the orchestrator's scenarios run against. An
+/** The scripted ACP agent the conductor's scenarios run against. An
  *  absolute path, never a bare name: a production kolu BAKES this variable
  *  with a store path, and the one thing a from-source e2e must not do is
  *  depend on whatever the PTY's PATH happens to resolve
@@ -837,7 +837,7 @@ async function startServerChild(koluServer: string): Promise<void> {
         stdio: "pipe",
         env: {
           // Composed from a NAMED base (shared spawn allowlist + devshell/runtime
-          // keys), NOT a wholesale `...process.env` — so an orchestrator's ambient
+          // keys), NOT a wholesale `...process.env` — so a conductor's ambient
           // identity vars (CLAUDE_CODE_*, #1872) that leaked into the harness can't
           // ride into the server → padi → and muddy agent-detection scenarios.
           ...composeE2eServerEnv(),
@@ -909,12 +909,12 @@ async function startServerChild(koluServer: string): Promise<void> {
           ...(process.env.KOLU_E2E_PADI_HOST_SEED
             ? { KOLU_PADI_HOST: process.env.KOLU_E2E_PADI_HOST_SEED }
             : {}),
-          // THE ORCHESTRATOR'S ADAPTER. kolu-server hosts the one conversation
+          // THE CONDUCTOR'S ADAPTER. kolu-server hosts the one conversation
           // now, so the nix wrapper that bakes `KOLU_ACP_AGENT` is `koluBin` —
           // the very binary this harness spawns — and a from-source e2e run has
           // no wrapper at all, so the value has to arrive here. It is the
           // scripted ACP agent in `support/`, run through this node: the
-          // orchestrator the browser talks to is a real subprocess speaking the
+          // conductor the browser talks to is a real subprocess speaking the
           // real protocol, not a stubbed store. The bake is `--set-default`
           // precisely so this line wins.
           //

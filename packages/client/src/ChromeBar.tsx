@@ -1,9 +1,9 @@
 /** ChromeBar — the always-visible workspace chrome band.
  *
  *  Left → right: quiet Kolu mark, host tab strip (primary multi-host
- *  nav; Padi/Kaval dual marks ride each host tab), the `◆ Orchestrator`
+ *  nav; Padi/Kaval dual marks ride each host tab), the `◆ Conductor`
  *  entry that closes that row (same row, not a host tab — see
- *  `OrchestratorTab`), global control cluster (recorder, view mode,
+ *  `ConductorTab`), global control cluster (recorder, view mode,
  *  dock, inspector, settings, command palette).
  *  The live-terminal navigator lives on the dock at the canvas's left edge
  *  (#903) — not here.
@@ -29,8 +29,8 @@ import { useViewPosture } from "./canvas/useViewPosture";
 import HostSelectorStrip from "./host/HostSelectorStrip";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
-import ModeControl from "./orchestrator/ModeControl";
-import OrchestratorTab from "./orchestrator/OrchestratorTab";
+import ModeControl from "./conductor/ModeControl";
+import ConductorTab from "./conductor/ConductorTab";
 import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
@@ -95,7 +95,7 @@ const ChromeBar: Component<{
        *  it is a pill beside the posture control, and a pill four pixels lower
        *  than its neighbour reads as something somebody forgot to align. */}
       <div class="-mt-2 flex h-10 shrink-0 items-center">
-        <OrchestratorTab />
+        <ConductorTab />
       </div>
 
       {/* Control cluster: recorder → view mode → dock → inspector → settings

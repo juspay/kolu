@@ -131,7 +131,7 @@ const handed: Array<ReadonlyArray<string>> = [];
  *  and an http entry must carry `type: "http"`, because the pinned adapter
  *  reads the arm off the key's presence and silently drops an entry that
  *  carries `type: "stdio"`. A test that only counted names would stay green
- *  while the orchestrator lost its hands. */
+ *  while the conductor lost its hands. */
 const handedRaw: Array<ReadonlyArray<unknown>> = [];
 /** ... and the `_meta` each open carried, same order. */
 const metas: Array<unknown> = [];
@@ -283,7 +283,7 @@ const configOptions = () => [
  * `claude-fable-5-2`: the adapter used to drive the CLI bundled in the Claude
  * Agent SDK, whose picker had five rows and no Fable 5.2 in it at all, so a
  * model the machine's own terminals offered could not be chosen in the
- * orchestrator — and the missing row read as a reading that dropped what it
+ * conductor — and the missing row read as a reading that dropped what it
  * did not recognise. This payload is what proves that reading keeps it.
  */
 const RECORDED = [

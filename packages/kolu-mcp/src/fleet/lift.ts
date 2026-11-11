@@ -385,7 +385,7 @@ function byHost(
  *  `ignoreSelf` is deliberately ABSENT. Per host it means "mute the terminal
  *  this MCP server runs inside", which is true and useful for an agent working
  *  in a terminal. The fleet face runs inside kolu-server and its caller is the
- *  orchestrator — a child of kolu-server, in no terminal at all — so there is
+ *  conductor — a child of kolu-server, in no terminal at all — so there is
  *  no self to mute, and resolving `KAVAL_TERMINAL_ID` here would mute whichever
  *  terminal kolu-server happened to be launched from: a lane nobody asked to go
  *  blind to. `ignoreIds` says it precisely. */

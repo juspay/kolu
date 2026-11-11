@@ -46,7 +46,7 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     // package brings, read once off the floor — a build fact, not a host's),
     // and `agentProfiles` (whether each profile of the Agents setting builds,
     // as kolu-server's delivery finds when it locks and builds them HERE),
-    // and `orchestrator` (kolu's ONE supervising conversation — hosted HERE
+    // and `conductor` (kolu's ONE supervising conversation — hosted HERE
     // because its hands reach every host at once, where a padi can only see
     // its own terminals; what it drives is terminals, but the member is a
     // conversation this process owns). No collections, no events; the one
@@ -54,9 +54,9 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     expect(Object.keys(spec.cells ?? {}).sort()).toEqual([
       "agentDistroListing",
       "agentProfiles",
+      "conductor",
       "daemonInventory",
       "forwards",
-      "orchestrator",
       "padiLink",
       "preferences",
       "processMemory",
@@ -71,7 +71,7 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     const streams = (
       surfaces.kolu.spec as { streams?: Record<string, unknown> }
     ).streams;
-    expect(Object.keys(streams ?? {})).toEqual(["orchestratorTranscript"]);
+    expect(Object.keys(streams ?? {})).toEqual(["conductorTranscript"]);
   });
 
   it("koluSurface's only procedures move the forward map and deliver agents", () => {
@@ -87,7 +87,7 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     expect(Object.keys(spec.procedures ?? {})).toEqual([
       "forwards",
       "agentDistro",
-      "orchestrator",
+      "conductor",
     ]);
     expect(Object.keys(spec.procedures?.forwards ?? {}).sort()).toEqual([
       "cancel",
@@ -98,7 +98,7 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     ]);
     // The ten verbs that ASK the one conversation for something. The cell
     // beside them is read-only, which is why every write is here.
-    expect(Object.keys(spec.procedures?.orchestrator ?? {})).toEqual([
+    expect(Object.keys(spec.procedures?.conductor ?? {})).toEqual([
       "prompt",
       "attach",
       "cancel",

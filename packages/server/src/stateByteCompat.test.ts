@@ -48,9 +48,9 @@ import {
   migratePreferences_1_43_0,
 } from "./state.ts";
 import {
-  EMPTY_PERSISTED_ORCHESTRATOR,
-  PersistedOrchestratorSchema,
-} from "./orchestrator/persisted.ts";
+  EMPTY_PERSISTED_CONDUCTOR,
+  PersistedConductorSchema,
+} from "./conductor/persisted.ts";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -66,13 +66,13 @@ function makeStore(): Conf<Record<string, unknown>> {
   dirs.push(dir);
   return new Conf<Record<string, unknown>>({
     cwd: dir,
-    projectVersion: "1.44.0",
+    projectVersion: "1.45.0",
     configFileMode: 0o600,
     defaults: {
       preferences: DEFAULT_PREFERENCES,
       hosts: [],
       viewerMode: "dark",
-      orchestrator: EMPTY_PERSISTED_ORCHESTRATOR,
+      conductor: EMPTY_PERSISTED_CONDUCTOR,
     },
   });
 }
@@ -108,7 +108,7 @@ describe("the persisted state file — aggregate bytes", () => {
 \t},
 \t"hosts": [],
 \t"viewerMode": "dark",
-\t"orchestrator": {
+\t"conductor": {
 \t\t"sessionId": null,
 \t\t"cwd": "",
 \t\t"model": null,
@@ -135,7 +135,7 @@ describe("the persisted state file — aggregate bytes", () => {
     // carrying the fields every transcript row has. The fleet entry is a
     // FLEET REF — one conversation spans every host, so a bare id would be
     // the one shape this record must never go back to.
-    store.set("orchestrator", {
+    store.set("conductor", {
       sessionId: "sess-live",
       cwd: "/home/tester",
       model: "claude-sonnet-4",
@@ -162,7 +162,7 @@ describe("the persisted state file — aggregate bytes", () => {
       ["preferences", PreferencesSchema],
       ["hosts", PersistedHostsSchema],
       ["viewerMode", ViewerModeSchema],
-      ["orchestrator", PersistedOrchestratorSchema],
+      ["conductor", PersistedConductorSchema],
     ] as const) {
       const decoded = Schema.decodeUnknownSync(schema)(onDisk[key]);
       expect(JSON.stringify(Schema.encodeUnknownSync(schema)(decoded))).toBe(
@@ -175,7 +175,7 @@ describe("the persisted state file — aggregate bytes", () => {
     expect(JSON.stringify(onDisk.viewerMode)).toBe('"light"');
     // The record's own bytes, pinned: a row is a flat object with its kind on
     // it, and the fleet is a list of `host/id` strings.
-    expect(JSON.stringify(onDisk.orchestrator)).toBe(
+    expect(JSON.stringify(onDisk.conductor)).toBe(
       '{"sessionId":"sess-live","cwd":"/home/tester","model":"claude-sonnet-4",' +
         '"rows":[{"id":"a","seq":1,"since":"2026-01-01T00:00:00.000Z","kind":"agent","text":"one"}],' +
         '"fleet":["local/11111111-1111-4111-8111-111111111111"]}',

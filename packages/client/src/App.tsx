@@ -61,9 +61,9 @@ import DegradedCanvas from "./kaval/DegradedCanvas";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
 import MobilePullChrome from "./MobilePullChrome";
-import OrchestratorPane from "./orchestrator/OrchestratorPane";
-import OrchestratorSheet from "./orchestrator/OrchestratorSheet";
-import { orchestratorMode } from "./orchestrator/useOrchestratorMode";
+import ConductorPane from "./conductor/ConductorPane";
+import ConductorSheet from "./conductor/ConductorSheet";
+import { conductorMode } from "./conductor/useConductorMode";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import WebcamOverlay from "./recorder/WebcamOverlay";
@@ -123,7 +123,7 @@ const App: Component = () => {
     terminalIds: store.terminalIds,
     activeAgentState: (id) => activeArm(store.getMetadata(id))?.agent?.state,
   });
-  // Deep links: a `#/…` URL (bookmark, orchestrator tag, PWA launch) commands the
+  // Deep links: a `#/…` URL (bookmark, conductor tag, PWA launch) commands the
   // view onto a host / terminal / file / settings — through the SAME view actions,
   // view-only by law. See `useDeepLinks`.
   useDeepLinks();
@@ -728,7 +728,7 @@ const App: Component = () => {
             </WorkspaceTerminals>
           </Match>
         </Switch>
-        {/* THE ORCHESTRATOR, when its entry in the chrome bar is the selected
+        {/* THE CONDUCTOR, when its entry in the chrome bar is the selected
          *  one: the conversation fills everything below the bar — no dock, no
          *  canvas, no peek, no inspector. It covers the workspace rather than
          *  replacing it in the `<Switch>` above, and that is load-bearing: a
@@ -740,14 +740,14 @@ const App: Component = () => {
          *  `z-[45]` sits above everything the canvas wrapper holds — the
          *  floating dock (`z-30`) and a maximized tile (`z-40`) — and below
          *  the chrome bar (`z-50`) that carries the entry you leave by. */}
-        <Show when={orchestratorMode() && isDesktop()}>
-          <OrchestratorPane class="absolute inset-0 z-[45]" />
+        <Show when={conductorMode() && isDesktop()}>
+          <ConductorPane class="absolute inset-0 z-[45]" />
         </Show>
       </div>
       {/* Below the breakpoint the mode is a full-screen sheet — there is no
        *  canvas to lay three columns over. */}
       <Show when={!isDesktop()}>
-        <OrchestratorSheet />
+        <ConductorSheet />
       </Show>
       <IntentEditorDialog
         open={intentEditor.open()}

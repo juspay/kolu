@@ -84,12 +84,7 @@ import { surface } from "../ui/Surface";
 import { forwardsForHost } from "../forwards/useForwards";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { useServerIdentity } from "../useServerIdentity";
-import {
-  activeHost,
-  hostKeys,
-  padiMap,
-  updatePreferences,
-} from "../wire";
+import { activeHost, hostKeys, padiMap, updatePreferences } from "../wire";
 import { selectHostTab } from "./selectHostTab";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
@@ -267,7 +262,7 @@ const HostChip: Component<{
           role: "tab",
           "aria-selected": isActive(),
           "data-testid": "host-select",
-          // Picking a host tab is also how you LEAVE the orchestrator, which
+          // Picking a host tab is also how you LEAVE the conductor, which
           // is why the already-active tab is not a no-op — see `selectHostTab`.
           // No `classList` here: the shell owns every element's one class
           // expression now (`HostChipShell`), and a bag that carried one would
@@ -670,7 +665,7 @@ const AddHostAffordance: Component = () => {
                 if (e.key === "Enter") submit();
                 if (e.key === "Escape") {
                   // CONSUME the key. A window-level `Escape` reader (the
-                  // orchestrator pane leaving its mode) acts on an unhandled
+                  // conductor pane leaving its mode) acts on an unhandled
                   // press, so without this one press would close this panel
                   // AND drop the conversation behind it.
                   e.preventDefault();

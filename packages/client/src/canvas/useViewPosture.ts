@@ -22,9 +22,9 @@
 
 import { supportsSpatialCanvas } from "../capabilities";
 import {
-  exitOrchestratorMode,
-  orchestratorMode,
-} from "../orchestrator/useOrchestratorMode";
+  exitConductorMode,
+  conductorMode,
+} from "../conductor/useConductorMode";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileStore } from "../tile/useTileStore";
 
@@ -55,9 +55,9 @@ export function useViewPosture() {
    *  count, so a future sleeping-only workspace stays maximizable. */
   const canMaximize = (): boolean => tileStore.tileCount() > 0;
   /** Land on one of the two postures — THE single posture writer, and the one
-   *  place that knows the orchestrator sits beside them.
+   *  place that knows the conductor sits beside them.
    *
-   *  Leaving the orchestrator FIRST is what makes the write visible. The two
+   *  Leaving the conductor FIRST is what makes the write visible. The two
    *  segments describe a HOST TAB's canvas, so pressing either while the
    *  conversation is on screen is a request for that canvas — and a write
    *  whose result stayed hidden behind the chat would be a control that lied
@@ -78,7 +78,7 @@ export function useViewPosture() {
    *  per-host posture signal with no visible effect: the safety lives in the
    *  receptacle. */
   const postureTo = (maximized: boolean): void => {
-    if (orchestratorMode()) exitOrchestratorMode();
+    if (conductorMode()) exitConductorMode();
     if (!supportsSpatialCanvas()) return;
     if (canMaximize() && store.canvasMaximized() !== maximized) {
       store.toggleCanvasMaximized();
@@ -86,7 +86,7 @@ export function useViewPosture() {
   };
   return {
     /** How the chrome LAYS OUT, which is also WHICH POSTURE THE USER CHOSE —
-     *  the two were one question again the moment the orchestrator stopped
+     *  the two were one question again the moment the conductor stopped
      *  borrowing the maximized layout. `"maximized"` is one flush tile with
      *  the dock and the right panel as real sidebars; `"tiled"` is the
      *  freeform canvas with both floating over it.
@@ -97,7 +97,7 @@ export function useViewPosture() {
      *  the moment a terminal returns, and the empty-canvas Dock (mounted by
      *  App.tsx, see `Dock.tsx`) stays in its only reachable layout instead of
      *  taking the flush-sidebar classes inside a non-flex host and pushing the
-     *  welcome card off-screen. The ORCHESTRATOR folds in NOTHING: it is a
+     *  welcome card off-screen. The CONDUCTOR folds in NOTHING: it is a
      *  destination beside the host tabs rather than a posture of one, so the
      *  canvas under the chat stays in the layout its host was left in. */
     layout: (): ViewPostureMode =>

@@ -136,21 +136,21 @@ export class KoluWorld extends World {
    *  prove the tree/content split fraction survives. */
   savedCodeTabPreviewHeight?: number;
   savedActiveTerminalId?: string;
-  /** Which host tab was selected before the orchestrator was entered, so the
+  /** Which host tab was selected before the conductor was entered, so the
    *  `⌘⇧O` round trip can prove it lands back on exactly that tab — the
    *  conversation is not a host, and selecting it must not have moved which
    *  host is active. */
   notedHostKey?: string;
-  /** The terminal id the orchestrator was asked to adopt, so the step that
+  /** The terminal id the conductor was asked to adopt, so the step that
    *  presses the tool card's *open tile* can assert the focus landed on THAT
    *  terminal rather than on whichever tile happened to be active. */
   adoptedTerminalId?: string;
-  /** Everything the page's console said from the orchestrator paste onwards. A
+  /** Everything the page's console said from the conductor paste onwards. A
    *  prompt refused before any row exists (an attachment this agent was never
    *  told it could take) leaves nothing in the transcript, so the console is
    *  the only place the refusal's own sentence survives for the failure
    *  message. */
-  orchestratorConsole?: string[];
+  conductorConsole?: string[];
   savedScrollTop?: number;
   /** Maximized-dock width (px) captured before a resize drag, so a follow-up
    *  step can prove the drag widened it and that the width survives a reload. */
