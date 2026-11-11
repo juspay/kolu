@@ -35,6 +35,11 @@ import type { OrchestratorAttachment, OrchestratorRow } from "./rows.ts";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures");
 
+/** The store a signed-out sentence NAMES. Any path: what is under test is
+ *  that the panel says WHICH directory was judged, never that this harness
+ *  knows anything about what is in one. */
+const CONFIG_DIR = "/tmp/kolu-test-home/.claude";
+
 /** The standing prompt, as DATA — padi's words now
  *  (`packages/padi/src/orchestrator/teaching.ts`), and all this package has to
  *  keep about them is that they ride the first message and no later one. */
@@ -161,6 +166,10 @@ const open = async (
     model?: string | null;
     leg?: Leg;
     mcpServers?: HarnessOptions["mcpServers"];
+    /** Extra argv for the fixture — a scripted agent that models two agents
+     *  takes the difference on its command line rather than in a second copy
+     *  of sixty lines of JSON-RPC. */
+    args?: ReadonlyArray<string>;
   } = {},
 ): Promise<Running> => {
   const rows = new Map<string, OrchestratorRow>();
@@ -185,9 +194,10 @@ const open = async (
     leg: extra.leg ?? leg,
     adapter: {
       command: process.execPath,
-      args: [path.join(FIXTURES, fixture)],
+      args: [path.join(FIXTURES, fixture), ...(extra.args ?? [])],
     },
     cwd: process.cwd(),
+    configDir: CONFIG_DIR,
     mcpServers: extra.mcpServers ?? [
       { kind: "stdio", name: "kolu", command: "/bin/true", args: [], env: {} },
     ],
@@ -221,6 +231,23 @@ const settled = async (running: Running, why: string): Promise<void> => {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`${why}: still ${running.harness.state().phase}`);
+};
+
+/** ... and until the published STATE says something. Polled on the same
+ *  deadline, because half of what a sign-in is reaches a reader as state
+ *  rather than as the answer to a call: the methods, the output of the command
+ *  running, and the line it is waiting for. */
+const waitFor = async (
+  running: Running,
+  holds: (state: HarnessState) => boolean,
+  why: string,
+): Promise<void> => {
+  const until = Date.now() + 10_000;
+  while (Date.now() < until) {
+    if (holds(running.harness.state())) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`${why}: ${JSON.stringify(running.harness.state().signIn)}`);
 };
 
 const textOfKind = (
@@ -605,6 +632,7 @@ describe("the permission mode a conversation is opened in", () => {
         args: [path.join(FIXTURES, "agent.ts")],
       },
       cwd: process.cwd(),
+      configDir: CONFIG_DIR,
       mcpServers: [],
       teaching: TEACHING,
       log: silent,
@@ -804,6 +832,91 @@ describe("an agent nobody is signed in to", () => {
     );
     expect(running.harness.alive()).toBe(true);
   });
+
+  test("offers the sign-in on the agent's own word, conversation and all", async () => {
+    // THE SEQUENCE THE PINNED PAIR REALLY HAS, measured against
+    // `claude-agent-acp` 0.81.2 over agent-distro's `claude` 2.1.319 with an
+    // empty `$HOME`: the handshake advertises the terminal methods, the agent
+    // pushes `{kind:"none"}`, `session/new` SUCCEEDS, and `-32000` does not
+    // arrive until the turn. The offer used to be published by a refused OPEN
+    // alone, so on this sequence nothing was ever offered: the panel drew a
+    // composer over an agent that could not answer, and its sign-in button
+    // said the agent had offered no way in.
+    const running = await open("signed-out-open-agent.ts");
+    await waitFor(running, (one) => one.signIn !== null, "nothing was offered");
+    const state = running.harness.state();
+    expect(state.sessionId).toBe("sess-1");
+    expect(state.identity?.kind).toBe("none");
+    expect(state.signIn?.methods.map((one) => one.id)).toEqual([
+      "console-login",
+    ]);
+    // The agent's own label, and the store its signature was judged against —
+    // a path the next person can look at instead of guessing which config dir
+    // this server read.
+    expect(state.signIn?.why).toContain("Not logged in");
+    expect(state.signIn?.why).toContain(CONFIG_DIR);
+  });
+
+  test("runs the method, takes the code back, and re-opens the conversation", async () => {
+    const running = await open("signed-out-open-agent.ts");
+    await waitFor(running, (one) => one.signIn !== null, "nothing was offered");
+    const signing = running.harness.signIn("console-login");
+    // THE URL REACHES THE PANEL as the row's own output, streamed out of the
+    // command the method handed over ...
+    await waitFor(
+      running,
+      (one) =>
+        (one.signIn?.attempt?.output ?? "").includes(
+          "https://example.invalid/oauth",
+        ),
+      "the sign-in printed no URL",
+    );
+    // ... and the code a person reads off that page goes back down its stdin,
+    // which is the half of a paste-a-code login that cannot be skipped.
+    await running.harness.signInInput("ABCD-1234");
+    expect(await signing).toBe("signed-in");
+    const after = running.harness.state();
+    // THE CONVERSATION IS RE-OPENED rather than kept: the session that existed
+    // was made by a CLI with no credential, and the pinned adapter recreates
+    // that query only under `--hide-claude-auth`, which kolu does not pass.
+    expect(after.sessionId).toBe("sess-1");
+    expect(after.signIn).toBeNull();
+  });
+
+  test("offers it on a refused TURN, for an agent that never said who it is", async () => {
+    const running = await open("signed-out-open-agent.ts", {
+      args: ["--no-status"],
+    });
+    expect(running.harness.state().signIn).toBeNull();
+    await running.harness.prompt("hello", [], []);
+    await settled(running, "the turn never ended");
+    const state = running.harness.state();
+    expect(state.signIn?.why).toContain("Authentication required");
+    expect(state.signIn?.methods.map((one) => one.id)).toEqual([
+      "console-login",
+    ]);
+  });
+
+  test("says what was asked and what came back when nothing is offered", async () => {
+    // THE HONEST DEAD END. An agent that will not work and advertises no way
+    // to fix it gets the whole account — which adapter, what it calls itself,
+    // what kolu asked for, and the store it read — rather than a button this
+    // end invented, which would run nothing.
+    const running = await open("signed-out-open-agent.ts", {
+      args: ["--no-methods"],
+    });
+    await waitFor(
+      running,
+      (one) => one.signIn !== null,
+      "the dead end said nothing",
+    );
+    const state = running.harness.state();
+    expect(state.signIn?.methods).toEqual([]);
+    expect(state.signIn?.why).toContain("fixture-agent 0.0.1");
+    expect(state.signIn?.why).toContain("offered no way to sign in");
+    expect(state.signIn?.why).toContain('_meta["terminal-auth"]');
+    expect(state.signIn?.why).toContain(CONFIG_DIR);
+  });
 });
 
 describe("a bring-up nothing can be done about", () => {
@@ -816,6 +929,7 @@ describe("a bring-up nothing can be done about", () => {
         args: [],
       },
       cwd: process.cwd(),
+      configDir: CONFIG_DIR,
       mcpServers: [],
       teaching: TEACHING,
       log: silent,

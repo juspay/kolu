@@ -18,7 +18,10 @@
  */
 
 import type { Registering } from "@kolu/acp/engine";
-import { ENGINE as CLAUDE_CODE } from "kolu-claude-code/acp";
+import {
+  ENGINE as CLAUDE_CODE,
+  configDirIn as claudeConfigDir,
+} from "kolu-claude-code/acp";
 
 /** Every agent kolu can hold an ACP conversation with, by the registry's own
  *  agent kind. */
@@ -36,3 +39,21 @@ export const ACP_ENGINES: Readonly<Record<string, Registering>> = {
  * build actually carries — still not a knob.
  */
 export const ORCHESTRATOR_ENGINE: Registering = CLAUDE_CODE;
+
+/**
+ * WHERE THAT ENGINE READS ITS SIGNATURE on the host this daemon runs on.
+ *
+ * HERE for the reason every other per-agent fact is: the orchestrator has to
+ * NAME the store in the sentence it shows a signed-out person, and a daemon
+ * that worked the path out itself would be a daemon that knows an agent's
+ * credential layout — the exact braid `agentDepFence.test.ts` holds red. The
+ * engine's own package owns the answer; this is the registry handing it over
+ * without the caller learning whose it is.
+ *
+ * A SENTENCE, NOT A CREDENTIAL PATH: nothing above reads the directory, and
+ * nothing anywhere points an agent at a different one.
+ */
+export const orchestratorConfigDir = (
+  env: { readonly [name: string]: string | undefined },
+  home: string,
+): string => claudeConfigDir(env, home);

@@ -74,7 +74,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, join, sep } from "node:path";
-import { ORCHESTRATOR_ENGINE as ENGINE } from "kolu-agents/acp";
+import {
+  ORCHESTRATOR_ENGINE as ENGINE,
+  orchestratorConfigDir,
+} from "kolu-agents/acp";
 import type { NotHere } from "@kolu/acp/engine";
 import {
   type Harness,
@@ -840,6 +843,11 @@ export function startOrchestratorHost(
         leg: ENGINE.leg,
         adapter: seating as Exclude<typeof seating, NotHere>,
         cwd: home,
+        // WHICH STORE THE AGENT'S SIGNATURE COMES OUT OF, for the sentence a
+        // signed-out panel shows. Read from THIS process's environment because
+        // that is the environment the adapter is spawned into — kolu-server's
+        // own, not the one a person's terminal happens to have.
+        configDir: orchestratorConfigDir(process.env, home),
         mcpServers: [kolu],
         teaching: teachingLines(hostName),
         log,

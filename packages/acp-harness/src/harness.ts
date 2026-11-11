@@ -170,6 +170,21 @@ export interface HarnessOptions {
   /** `$HOME` of the machine hosting this conversation: the directory it works
    *  in. */
   readonly cwd: string;
+  /**
+   * THE DIRECTORY THIS AGENT READS ITS SIGNATURE OUT OF, on this host.
+   *
+   * Named in every sentence a signed-out panel shows, and that is the whole of
+   * what it is for: the first question a surprising "not signed in" raises is
+   * WHICH store was read, and a panel that cannot answer it sends the next
+   * person guessing between `$HOME/.claude`, a `CLAUDE_CONFIG_DIR` somebody
+   * exported and whatever the launcher under the adapter might redirect.
+   *
+   * THE CALLER'S, because the layout is the AGENT's: this file knows no
+   * agent's credential store and never opens one. Nothing here reads, writes
+   * or copies it — the sign-in kolu runs is the agent's own CLI, which owns
+   * the store on both sides of the flow.
+   */
+  readonly configDir: string;
   /** What this conversation's hands are. Each is either a program to spawn on
    *  this machine or an HTTP endpoint already serving — kolu hands exactly one
    *  of the second kind, its fleet face. */
@@ -504,6 +519,11 @@ export const startHarness = async (
   let settings: ReadonlyArray<OrchestratorOption> = [];
   let labels: ReadonlyMap<string, string> = new Map();
   let offered: ReadonlyArray<Offered> = [];
+  /** WHAT THE AGENT CALLS ITSELF, out of the handshake's `agentInfo` — kept
+   *  for the one sentence that has to name it: a sign-in with nothing to press
+   *  is a dead end, and which adapter said so is most of what is left to say
+   *  about it. */
+  let agentSaid: string | null = null;
   /**
    * WHAT THIS AGENT SAID IT CAN BE SENT, beyond the text every agent takes —
    * read off `initialize` and nothing else.
@@ -1294,6 +1314,22 @@ export const startHarness = async (
         const next = identityIn(context.params);
         if (next === null) return;
         identity = next;
+        // THE AGENT'S OWN WORD IS WHAT OFFERS THE SIGN-IN. `kind: "none"` is a
+        // KNOWN logged-out agent — ACP's `-32000` is not the only way one asks
+        // for a signature, and against the pair kolu ships it is not even the
+        // first: MEASURED against the pinned adapter 0.81.2 over
+        // agent-distro's `claude` 2.1.319, a signed-out `session/new`
+        // SUCCEEDS, this notification arrives saying `{kind:"none"}`, and the
+        // refusal does not come until the TURN. An offer published only by a
+        // refused OPEN therefore never appeared at all on the one pair this
+        // build pins: the panel drew a composer over an agent that could not
+        // answer, and the sign-in button said the agent had offered nothing.
+        //
+        // AND IT IS WHAT WITHDRAWS IT: an agent that now names an account has
+        // answered the question the row was asking, and a sign-in row over a
+        // signed-in agent is a lie a person would press.
+        if (next.kind === "none") offerSignIn(next.label);
+        else if (attempt === null) signIn = null;
         publish();
       },
     )
@@ -1611,10 +1647,13 @@ export const startHarness = async (
     // THIS visit.
     closed.delete(id);
     refusal = null;
-    // ... and there is nothing left to sign into: the sign-in row exists
-    // because an open was refused for want of a signature, and this is an open
-    // that was not.
-    signIn = null;
+    // ... and there is nothing left to sign into — UNLESS the agent says there
+    // is. This used to be unconditional, on the reasoning that a sign-in row
+    // exists because an OPEN was refused: MEASURED, that is false for the pair
+    // kolu ships, whose signed-out `session/new` succeeds. An open is no
+    // longer evidence of a signature, so the offer stands until the agent's
+    // own `_auth/status_update` stops saying `none`.
+    if (identity?.kind !== "none") signIn = null;
     publish();
   };
 
@@ -1624,6 +1663,58 @@ export const startHarness = async (
   const openConversation = async (): Promise<void> => {
     if (typeof options.resume === "string") await load(options.resume);
     else await fresh();
+  };
+
+  // ── what a sign-in is OFFERED for ────────────────────────────────────
+  //
+  // HERE rather than beside the rest of the sign-in, because the handshake is
+  // the first thing that reaches for them: an agent can refuse the open before
+  // this function has finished declaring itself, and a `const` read from above
+  // its own line is a `ReferenceError` on the one path that matters.
+
+  /** WHERE THIS HOST KEEPS THE SIGNATURE, in every sentence a signed-out panel
+   *  shows. Stated, never plumbed: kolu does not read the store, copy it or
+   *  point the agent at another one — it names the path so the next person
+   *  looks at a directory instead of guessing which one was read. */
+  const storedAt = `the signature is read from ${options.configDir}`;
+
+  /**
+   * ... AND WHAT A SIGN-IN WITH NOTHING TO PRESS HAS TO SAY FOR ITSELF.
+   *
+   * An agent that will not work and advertises no way to fix it is a dead end,
+   * and the only useful thing left is the whole of what was asked and what came
+   * back: which adapter was spawned, what it calls itself, what kolu asked for
+   * in the handshake, and the store it reads. A button invented here instead —
+   * "offer a login anyway" — would run nothing, which is the failure this
+   * sentence exists to replace.
+   */
+  const nothingOffered = (): string =>
+    `${agentSaid ?? "the agent"} offered no way to sign in: kolu's handshake` +
+    ' asked for terminal auth (`auth.terminal` and `_meta["terminal-auth"]`)' +
+    " and the reply carried no `authMethods`. The adapter is" +
+    ` \`${adapter.command}\`, and ${storedAt}`;
+
+  /**
+   * OFFER THE SIGN-IN — the methods the handshake advertised, under the
+   * sentence that made them offerable.
+   *
+   * ONE DOOR for all three ways an agent asks for a signature: it says nobody
+   * is signed in, it refuses the OPEN, or it refuses a TURN. They used to be
+   * one and a half — only the refused open published anything — and the half
+   * that was missing is the whole of the pair kolu ships.
+   *
+   * A RUNNING ATTEMPT IS NOT OVERWRITTEN: that row belongs to
+   * {@link sayAttempt}, and re-publishing the chooser over it would take the
+   * output a person is reading off the screen. Publishing is the CALLER's, so
+   * one event stays one state.
+   */
+  const offerSignIn = (why: string): void => {
+    if (attempt !== null) return;
+    signIn = {
+      why: `${why} — ${offered.length === 0 ? nothingOffered() : storedAt}.`,
+      methods: offered.map((one) => one.method),
+      attempt: null,
+    };
   };
 
   /**
@@ -1641,11 +1732,7 @@ export const startHarness = async (
   const refusedOpen = (cause: unknown): boolean => {
     refusal = messageOf(cause);
     if (cause instanceof HarnessRefused && cause.auth) {
-      signIn = {
-        why: cause.why,
-        methods: offered.map((one) => one.method),
-        attempt: null,
-      };
+      offerSignIn(cause.why);
       publish();
       return true;
     }
@@ -1675,6 +1762,10 @@ export const startHarness = async (
       failedToStart,
     ])) as InitializeResponse;
     offered = methodsIn(initialized, adapter.command, adapter.args);
+    agentSaid =
+      initialized.agentInfo === undefined || initialized.agentInfo === null
+        ? null
+        : `${initialized.agentInfo.name} ${initialized.agentInfo.version}`;
     const takes = initialized.agentCapabilities?.promptCapabilities;
     carries = {
       image: takes?.image === true,
@@ -1747,6 +1838,16 @@ export const startHarness = async (
       const why = messageOf(cause);
       if (cause instanceof HarnessRefused) {
         report(transcript.refused(ticket.key, cause.auth));
+        // A TURN REFUSED FOR WANT OF A SIGNATURE IS THE OTHER DOOR onto the
+        // sign-in, and on the pinned pair it is the FIRST one a person reaches:
+        // the conversation opened, the composer was there, and `-32000` is what
+        // came back from `session/prompt`. Without this the only remedy stayed
+        // off the screen for the whole life of a process that had already said
+        // exactly what was wrong.
+        if (cause.auth) {
+          offerSignIn(cause.why);
+          publish();
+        }
       } else {
         // NOTHING CAME BACK: the agent may have the message already, so no
         // retry is offered — an offered duplicate is worse than none.
@@ -1977,6 +2078,19 @@ export const startHarness = async (
     publish();
   };
 
+  /** ... AND THE WHOLE OFFER, once a sign-in SUCCEEDED. Exit 0 is the whole of
+   *  "it worked" for every one of these CLIs, and a chooser left standing over
+   *  an agent somebody has just signed into is a row that invites a second
+   *  login. Not merged into {@link clearAttempt}: a CANCELLED attempt must
+   *  leave the methods on screen, which is the same call and the opposite
+   *  answer. If this end is wrong — the command exited 0 and signed nobody in
+   *  — the agent's own next word puts the offer back, which is what the two
+   *  doors into {@link offerSignIn} are for. */
+  const signedInNow = (): void => {
+    signIn = null;
+    publish();
+  };
+
   const doSignIn = async (method: string): Promise<SignedIn> => {
     if (stopped) throw new HarnessUnavailable("the harness is shutting down");
     const running = attempt;
@@ -2029,13 +2143,28 @@ export const startHarness = async (
       ended = "cancelled";
     }
     // ... AND THE CONVERSATION THE REFUSAL COST, opened here rather than by
-    // whoever pressed the button. A sign-in exists because an open was refused
-    // for want of a signature, so the thing that knows what to open — this
+    // whoever pressed the button. The thing that knows what to open — this
     // session id or a fresh one, these servers, this `_meta` — is the harness
     // that was refused. A caller told to "start again" would have to spawn a
     // second adapter to reach a conversation this process is one request away
     // from.
-    if (ended === "signed-in" && activeSession === null && !stopped) {
+    //
+    // FRESH EVEN WHEN ONE IS ALREADY OPEN, because an open conversation is not
+    // evidence of a usable one: a signed-out `session/new` SUCCEEDS on the
+    // pinned pair, and the SDK query behind that session was created by a
+    // `claude` with no credential. The adapter recreates such a query only
+    // under `--hide-claude-auth` (`markSessionForSignOutRespawn` returns at
+    // once without the flag, and kolu passes no flag), and its own note says
+    // the credential that replaced the cached one "is invisible until a new
+    // `initialize` runs". Left alone, every turn in the conversation somebody
+    // just signed into would go on being refused.
+    if (ended === "signed-in" && !stopped) {
+      const left = activeSession;
+      if (left !== null) {
+        leaving();
+        activeSession = null;
+        await release(left);
+      }
       try {
         await openConversation();
       } catch (cause) {
@@ -2113,7 +2242,7 @@ export const startHarness = async (
     if (close.code === 0) {
       claim.state = "succeeded";
       sayAttempt(claim);
-      clearAttempt();
+      signedInNow();
       return "signed-in";
     }
     claim.state = "failed";
@@ -2150,7 +2279,7 @@ export const startHarness = async (
     }
     claim.state = "succeeded";
     sayAttempt(claim);
-    clearAttempt();
+    signedInNow();
     return "signed-in";
   };
 

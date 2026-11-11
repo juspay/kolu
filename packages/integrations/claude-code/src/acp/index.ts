@@ -27,6 +27,8 @@
  * which is the {@link NotHere} arm rather than a missing row.
  */
 
+import { join } from "node:path";
+
 import {
   type Adapter,
   AGENT_ENV,
@@ -57,6 +59,27 @@ export const REMOTE_SIGNALS: ReadonlyArray<string> = [
   "SSH_TTY",
   "CLAUDE_CODE_REMOTE",
 ];
+
+/**
+ * WHERE THIS AGENT KEEPS ITS SIGNATURE on the host kolu-server is running on.
+ *
+ * The CLI under the adapter reads `$CLAUDE_CONFIG_DIR` when one is exported
+ * and `$HOME/.claude` otherwise — and MEASURED on the pair this build pins,
+ * agent-distro's launcher (the `claude` `nix/packages/acp-adapter.nix` bakes
+ * into `CLAUDE_CODE_EXECUTABLE`) does NOT redirect it: it prepends
+ * `--plugin-dir` flags and sets `LITELLM_BASE_URL`, `AGENT_DISTRO_CWD` and
+ * `PATH`, and nothing else. So the orchestrator's agent reads the same store
+ * as every `claude` the person runs in their own terminals.
+ *
+ * A SENTENCE, NOT A CREDENTIAL PATH. Nothing in kolu opens this directory,
+ * copies out of it, or points the agent at a different one; it is published so
+ * a signed-out panel can NAME the store it was judged against instead of
+ * leaving the next person to guess which of the two it was.
+ */
+export const configDirIn = (
+  env: { readonly [name: string]: string | undefined },
+  home: string,
+): string => env.CLAUDE_CONFIG_DIR ?? join(home, ".claude");
 
 /**
  * THIS ENGINE, as a VALUE.
