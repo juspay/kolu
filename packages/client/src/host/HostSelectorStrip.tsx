@@ -16,7 +16,12 @@
  *    · awaiting-count pill + finished-unseen amber count stay on the strip
  *      (an unseen tab also washes amber — `.host-tab[data-unseen]`);
  *    · padi/kaval detail lives in the diagnostics popover, not on the strip;
- *    · remove is in the popover with a confirm step.
+ *    · remove is in the popover with a confirm step;
+ *    · DRAG a remote tab to re-order the strip. The arrangement is a server
+ *      preference (`hostOrder`), so every browser and device shows it; the
+ *      ordering fold itself is `hostOrder.ts`, applied once at the membership
+ *      source (`useHostMembers` / wire's `hostKeys`) so every host LIST agrees.
+ *      The local tab is pinned first and takes no part in the gesture.
  *  A click on the label switches the canvas (a synchronous signal write —
  *  `useEntry(activeHost)` re-keys, no reload).
  *
@@ -29,7 +34,7 @@
  *   2. Host names ellipsize tighter below `lg`.
  *   3. `md..lg` and up: once the chip row's measured content would overflow
  *      its available width, `computeVisibleHosts` (hostOverflow.ts) keeps
- *      the active chip + as many others as fit, in pool order, and folds
+ *      the active chip + as many others as fit, in the arranged order, and folds
  *      the rest into a trailing "⋯ +N" host switcher (`HostOverflowMenu`) —
  *      click an entry to switch. Strictly one row, fixed height: no wrap, no
  *      clip, no scroll (the old `overflow-x-auto` scroll fallback is
@@ -43,20 +48,30 @@
 
 import { useActiveHostSelector } from "./isActiveHost";
 
+import {
+  closestCenter,
+  createSortable,
+  DragDropProvider,
+  DragDropSensors,
+  type DragEvent,
+  maybeTransformStyle,
+  SortableProvider,
+} from "@thisbeyond/solid-dnd";
 import { createMediaQuery } from "@solid-primitives/media";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import {
   decodeHostKey,
   encodeHostKey,
   type HostKey,
+  LOCAL_HOST,
 } from "kolu-common/hostKey";
 import {
   type Component,
-  type JSX,
   createEffect,
   createMemo,
   createSignal,
   For,
+  type JSX,
   onCleanup,
   Show,
 } from "solid-js";
@@ -70,7 +85,7 @@ import { surface } from "../ui/Surface";
 import { forwardsForHost } from "../forwards/useForwards";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { useServerIdentity } from "../useServerIdentity";
-import { activeHost, padiMap, setActiveHost } from "../wire";
+import { activeHost, padiMap, setActiveHost, updatePreferences } from "../wire";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import {
@@ -78,6 +93,7 @@ import {
   toggleHostDiagnostics,
   useHostDiagnosticsSelector,
 } from "./useHostDiagnosticsOpen";
+import { HostChipShell } from "./HostChipShell";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import AgentDistroHostMark from "../agents/AgentDistroHostMark";
 import { forwardRingLabel, HostStatusDot } from "./HostStatusDot";
@@ -92,10 +108,13 @@ import {
   kavalChainOf,
 } from "./hostChipTone";
 import { useHostKavalChain } from "./useHostKaval";
+import { CONTEXTUAL_TIPS } from "../settings/tips";
+import { useTips } from "../settings/useTips";
 import { runAction } from "../runAction";
 import { computeVisibleHosts, type HostFit } from "./hostOverflow";
 import { removeHost } from "./removeHost";
 import { useHostMembers } from "./useHostMembers";
+import { moveHostKey, reorderableHostKeys } from "./hostOrder";
 
 /** First-frame guess for a chip's width before the measuring row's
  *  ResizeObserver lands real DOM widths (jsdom/async). Measurement is truth;
@@ -114,65 +133,26 @@ const OVERFLOW_TRIGGER_RESERVE: number = 44;
  *  from the fit budget now that the "+" is always present. */
 const ADD_BUTTON_RESERVE: number = 38;
 
+/** The pinned chip's canonical key. The local host is the pool's unremovable
+ *  default and the always-available escape hatch, so its tab stays first: it is
+ *  not a sortable, which makes it neither draggable NOR a drop target — nothing
+ *  can land before it. */
+const LOCAL_KEY: string = encodeHostKey(LOCAL_HOST);
+
 /** Decode-then-label in one step — used wherever a component only has the
  *  CANONICAL encoded string (an overflowed/menu
  *  key), never a `HostKey` object. */
 const labelForKey: (key: string) => string = (key) =>
   hostLabel(decodeHostKey(key));
 
-/** Data-free geometry shared by the live chip and its measuring twin. */
-const HostChipShell: Component<{
-  host: HostKey;
-  decoration?: string;
-  tab?: JSX.HTMLAttributes<HTMLDivElement> & {
-    "data-asking"?: string;
-    "data-unseen"?: string;
-  };
-  diagnostics?: JSX.ButtonHTMLAttributes<HTMLButtonElement> & {
-    "data-testid"?: string;
-  };
-  select?: JSX.ButtonHTMLAttributes<HTMLButtonElement> & {
-    "data-testid"?: string;
-  };
-  status?: JSX.Element;
-  attention: JSX.Element;
-  /** The host's agents mark, right after the host name (nothing when agents are
-   *  off). The measuring twin renders it too, so a chip's width estimate counts
-   *  it and the strip keeps to one row. */
-  agents?: JSX.Element;
-  /** Pinned to the tab's bottom edge with no layout of its own — the
-   *  measuring twin leaves it out, since it adds no width to measure. */
-  stripe?: JSX.Element;
-}> = (props) => (
-  <div
-    {...props.tab}
-    class="host-tab relative flex h-8 items-center has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50 has-[:focus-visible]:ring-inset"
-  >
-    <button
-      type="button"
-      {...props.diagnostics}
-      class="pointer-events-auto ml-2 flex h-7 w-4 shrink-0 items-center justify-center rounded-tl-[10px] transition-colors hover:bg-black/5 dark:hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 cursor-pointer"
-    >
-      {props.status}
-    </button>
-    <button
-      type="button"
-      {...props.select}
-      class="pointer-events-auto flex h-8 items-center gap-1.5 pl-1 pr-2.5 transition-colors focus-visible:outline-none cursor-pointer"
-    >
-      <HostIdentityLabel
-        host={props.host}
-        labelClass={`truncate max-w-[5rem] lg:max-w-[10rem] font-medium${props.decoration ?? ""}`}
-      />
-    </button>
-    {props.agents}
-    {props.attention}
-    {props.stripe}
-  </div>
-);
-
 const HostChip: Component<{
   host: HostKey;
+  /** Drag sockets, filled by {@link SortableHostChip} for a RE-ORDERABLE (i.e.
+   *  remote) chip and left empty for the pinned local one — which is therefore
+   *  neither draggable nor a drop target. */
+  chipRef?: (el: HTMLElement) => void;
+  chipStyle?: JSX.CSSProperties;
+  grip?: Record<string, (event: Event) => void>;
 }> = (props) => {
   // The PURE lens per chip (the host is fixed for this chip's lifetime — the `<For>`
   // gives each chip its own reactive owner, disposed when the host leaves the pool).
@@ -213,16 +193,28 @@ const HostChip: Component<{
   let chipEl: HTMLDivElement | undefined;
 
   // UNIFORM SHAPE: measurable SIZE never depends on `isActive()` — only
-  // border/bg/text COLOR. Identity switches; status pip opens diagnostics.
+  // border/bg/text COLOR, and the drag transform below is a translate, so a
+  // chip keeps its width while it is being carried. Identity switches; status
+  // pip opens diagnostics.
   return (
     <div
       ref={(el) => {
         chipEl = el;
+        // The sortable's own node, when this chip is re-orderable — one element
+        // is both the draggable and the droppable.
+        props.chipRef?.(el);
         // This chip owns the element it hands the panel: when it unmounts
         // (overflow fit, the `md` row going away) the panel must not stay
         // floating against a detached node.
         onCleanup(() => releaseHostDiagnosticsAnchor(el));
       }}
+      // The drag activators sit on the WHOLE chip rather than a separate grip:
+      // the tab is two buttons and little else, and solid-dnd's pointer sensor
+      // only takes over after a 250ms hold or 10px of travel — so a plain click
+      // on the label still switches host, and a click on the pip still opens
+      // diagnostics.
+      {...props.grip}
+      style={props.chipStyle}
       class="group -mb-px flex items-center shrink-0 text-xs"
       data-testid="host-chip"
       data-host={encKey}
@@ -232,6 +224,8 @@ const HostChip: Component<{
       <HostChipShell
         host={props.host}
         decoration={glance().labelDecoration}
+        active={isActive()}
+        down={down()}
         tab={{
           style: { "--host-hue": hostHue(props.host) },
           "data-asking": marks.asking() > 0 && !isActive() ? "" : undefined,
@@ -239,11 +233,6 @@ const HostChip: Component<{
             marks.unseenFinished() > 0 && marks.asking() === 0 && !isActive()
               ? ""
               : undefined,
-          classList: {
-            "host-tab-active": isActive(),
-            "host-tab-idle": !isActive() && !down(),
-            "host-tab-down": down(),
-          },
         }}
         diagnostics={{
           "data-testid": "host-diagnostics-open",
@@ -265,11 +254,6 @@ const HostChip: Component<{
           role: "tab",
           "aria-selected": isActive(),
           "data-testid": "host-select",
-          classList: {
-            "text-fg": isActive() && !down(),
-            "text-fg-2 hover:text-fg": !isActive() && !down(),
-            "text-fg-3": down(),
-          },
           onClick: () => {
             if (!isActive()) setActiveHost(props.host);
           },
@@ -301,6 +285,28 @@ const HostChip: Component<{
           (`host/HostDiagnosticsHost`): Settings opens it too, at widths
           where this chip row is not mounted at all. */}
     </div>
+  );
+};
+
+/** A RE-ORDERABLE chip — the whole tab is one sortable (`createSortable` needs
+ *  its own reactive owner, hence a component rather than a call inside the
+ *  `<For>` body). Only remote hosts get one: the local host is the pool's
+ *  unremovable default and the always-available escape hatch, so it is pinned
+ *  first, is not draggable, and — not being a droppable — nothing can land
+ *  before it. */
+const SortableHostChip: Component<{ hostKey: string }> = (props) => {
+  const sortable = createSortable(props.hostKey);
+  // `props.hostKey` is this chip's identity for its whole lifetime (the row's
+  // `<For>` is keyed by the encoded string), so the host decodes exactly once —
+  // the referential stability `HostChip`'s per-host lenses rest on.
+  const host = decodeHostKey(props.hostKey);
+  return (
+    <HostChip
+      host={host}
+      chipRef={sortable.ref}
+      chipStyle={maybeTransformStyle(sortable.transform)}
+      grip={sortable.dragActivators}
+    />
   );
 };
 
@@ -669,6 +675,7 @@ const HostSelectorStrip: Component = () => {
   // chip + "+". `useHostMembers` owns the `padiMap.entries` subscription +
   // `onError` (shared with the mobile row).
   const renderableHosts = useHostMembers();
+  const { showTipOnce } = useTips();
 
   // WHICH host's details are open is a module singleton
   // (`useHostDiagnosticsOpen`), and the panel mounts once at the shell
@@ -735,6 +742,35 @@ const HostSelectorStrip: Component = () => {
     ),
   );
 
+  // ── Drag to re-order (desktop strip only) ─────────────────────────────
+  // The sortable ids: the SEATED chips minus the pinned local one, in rendered
+  // order — `SortableProvider` reads index positions off this list.
+  const draggableVisible = createMemo(() =>
+    hostFit().visible.filter((key) => key !== LOCAL_KEY),
+  );
+  // The first strip holding two SEATED remote tabs — the first moment a drag
+  // changes anything (one remote beside the pinned local tab has nowhere to
+  // go). The tip announces the gesture there, then never again.
+  createEffect(() => {
+    if (draggableVisible().length > 1)
+      showTipOnce(CONTEXTUAL_TIPS.hostRearrange);
+  });
+  /** A drop writes the WHOLE next arrangement — every re-orderable member,
+   *  seated or overflowed — so the stored order stays a total list and the next
+   *  merge rule stays one. `updatePreferences` owns the failure report (a toast
+   *  carrying the server's own message); there is no local fallback order to
+   *  fall back to, and a write that failed must not look like it landed. */
+  const dropHost = ({ draggable, droppable }: DragEvent): void => {
+    if (!droppable || draggable.id === droppable.id) return;
+    updatePreferences({
+      hostOrder: moveHostKey(
+        reorderableHostKeys(renderableHosts()),
+        String(draggable.id),
+        String(droppable.id),
+      ),
+    });
+  };
+
   return (
     <div
       ref={containerRef}
@@ -762,19 +798,45 @@ const HostSelectorStrip: Component = () => {
         <HostDropdownSwitcher hosts={renderableHosts()} />
       </div>
       <div classList={{ hidden: !atMd() }} inert={!atMd()}>
-        <div
-          role="tablist"
-          aria-label="Hosts"
-          class="host-tablist flex items-end gap-0.5 min-w-0 flex-nowrap"
-          data-testid="host-chip-row"
+        {/* The strip's OWN drag context, so a chip drag can never surface to
+         *  the canvas's provider — sortables bind to the NEAREST
+         *  `DragDropProvider`, and the nest is the isolation (the dock makes
+         *  the same nest for the same reason). Desktop only: the narrow
+         *  dropdown switcher and the phone host row are lists, not a strip,
+         *  and have no re-order gesture. */}
+        <DragDropProvider
+          collisionDetector={closestCenter}
+          onDragEnd={dropHost}
         >
-          <For each={hostFit().visible}>
-            {(key) => <HostChip host={decodeHostKey(key)} />}
-          </For>
-          <Show when={hostFit().overflowed.length > 0}>
-            <HostOverflowMenu hosts={hostFit().overflowed} />
-          </Show>
-        </div>
+          <DragDropSensors />
+          {/* Only the chips the fit computation SEATED are sortables, so only
+           *  they are drop targets; a host folded into "⋯ +N" keeps its
+           *  relative slot through a drag it took no part in (`moveHostKey`
+           *  splices over the WHOLE re-orderable list). The local chip is
+           *  absent from these ids on purpose — see `SortableHostChip`. */}
+          <SortableProvider ids={draggableVisible()}>
+            <div
+              role="tablist"
+              aria-label="Hosts"
+              class="host-tablist flex items-end gap-0.5 min-w-0 flex-nowrap"
+              data-testid="host-chip-row"
+            >
+              <For each={hostFit().visible}>
+                {(key) => (
+                  <Show
+                    when={key !== LOCAL_KEY}
+                    fallback={<HostChip host={decodeHostKey(key)} />}
+                  >
+                    <SortableHostChip hostKey={key} />
+                  </Show>
+                )}
+              </For>
+              <Show when={hostFit().overflowed.length > 0}>
+                <HostOverflowMenu hosts={hostFit().overflowed} />
+              </Show>
+            </div>
+          </SortableProvider>
+        </DragDropProvider>
       </div>
 
       {/* Hidden measuring row — off-screen (position absolute, so it never

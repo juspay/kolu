@@ -288,6 +288,26 @@ therefore scales with that retained per-host view state, the fleet metadata inde
 the number of connected hosts — not with a full canvas for every host. If a multi-host
 session feels heavy, see [kolu is using a lot of memory](/troubleshooting#kolu-is-using-a-lot-of-memory).
 
+### Put the tabs in your own order
+
+**Drag a host tab** along the strip to move it. The tab you dragged lands where
+you dropped it; everything else keeps its relative order, including machines
+currently folded into the **⋯ +N** overflow. A plain click still switches host
+and the connection dot still opens diagnostics — the drag only starts once you
+have held the tab for a moment or moved it a little.
+
+Your arrangement is saved **on the server, not in the browser**, so every tab,
+browser and device you open kolu from shows the same strip — and so does every
+other place kolu lists machines: the **⋯ +N** menu, the narrow-window host
+dropdown, the phone host row, and the **Hosts** rows in the
+[switcher](/switcher). A machine you add later joins at the **end** rather than
+jumping into the middle, and removing one leaves no hole — re-add it and it
+returns to the slot it had.
+
+Your own machine's tab is **pinned first** and is not draggable: it is the one
+host that can never leave the pool, and the escape hatch when a remote is down.
+Only remote tabs move, and nothing can be dropped before the local one.
+
 ## When a host is down
 
 If a host's [padi](/padi) can't bind, its canvas is replaced by a card that names the cause

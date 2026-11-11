@@ -40,7 +40,8 @@ describe("Preferences — the conf store's `preferences` field", () => {
         '"newTerminalCollapsed":false,"shuffleBehavior":"auto","scrollLock":true,' +
         '"attentionAlerts":true,"colorScheme":"dark","terminalRenderer":"auto",' +
         '"rightPanel":{"size":0.25,"codeTabTreeSize":0.35},' +
-        '"agentDistro":null,"agentProfilesRecent":[],"tipBarCollapsed":false}',
+        '"agentDistro":null,"agentProfilesRecent":[],"tipBarCollapsed":false,' +
+        '"hostOrder":[]}',
     );
   });
 
@@ -50,7 +51,8 @@ describe("Preferences — the conf store's `preferences` field", () => {
       '"newTerminalCollapsed":true,"shuffleBehavior":"colourful","scrollLock":false,' +
       '"attentionAlerts":false,"colorScheme":"system","terminalRenderer":"webgl",' +
       '"rightPanel":{"size":0.4,"codeTabTreeSize":0.5},' +
-      '"agentDistro":{"enabled":false,"profiles":["github:juspay/skills","~/mine"]},"agentProfilesRecent":["github:me/p"],"tipBarCollapsed":true}';
+      '"agentDistro":{"enabled":false,"profiles":["github:juspay/skills","~/mine"]},"agentProfilesRecent":["github:me/p"],"tipBarCollapsed":true,' +
+      '"hostOrder":["remote:zest","remote:srid@builder"]}';
     const decoded = Schema.decodeUnknownSync(PreferencesSchema)(
       JSON.parse(stored),
     );
