@@ -39,7 +39,6 @@ import {
   allowingOurs,
   type Background,
   type Leg,
-  type ListedFacts,
   type Meta,
   mcpCallBy,
   type Reported,
@@ -407,7 +406,7 @@ export const backgroundTaskIn = (meta: Meta): Background | null => {
  *  The whole of the narrowing every reader in this file does, written once:
  *  everything read here is nested somewhere inside somebody else's payload, and
  *  each level of the nesting is a place a shape can change under us. `_meta`,
- *  `claudeCode` and a handshake's capabilities are all the same step. */
+ *  `claudeCode` and a task-notification's `origin` are all the same step. */
 const fieldIn = (
   value: unknown,
   field: string,
@@ -419,11 +418,6 @@ const fieldIn = (
     : undefined;
 };
 
-/** ... and the one field of it every advertisement hangs off. Named because
- *  `_meta` is the protocol's own word for "an extension said something here",
- *  and both handshake readers start by asking for one. */
-const metaOf = (value: unknown) => fieldIn(value, "_meta");
-
 /** The adapter's own corner of a `_meta`, or `undefined` when there is none —
  *  an absent `_meta`, an absent `claudeCode`, one that is not an object. Every
  *  reader here starts by asking for it, and it is {@link fieldIn} under the one
@@ -432,7 +426,7 @@ const claudeIn = (meta: Meta) => fieldIn(meta, "claudeCode");
 
 /** One field of that corner, when it is a non-empty string and `null` for
  *  everything else — a field of some other type, the empty string. The two
- *  readers above are the same narrowing over two names, and a frame carries
+ *  fields read through it are independent of each other, and a frame carries
  *  either, both or neither: a subagent's terminal output arrives with a
  *  `claudeCode` holding only the parent, and a plan exit's with only the
  *  name. */
@@ -449,173 +443,6 @@ const wordIn = (
   const value = said?.[field];
   return typeof value === "string" && value !== "" ? value : null;
 };
-
-// ── what `session/list` says about one conversation ────────────────────
-
-/**
- * What the adapter's `session/list` says about ONE conversation beyond the
- * protocol's four fields — how many messages it holds, and which session's
- * clearing produced the one listed — out of the entry's own `_meta.claudeCode`.
- *
- * The SECOND reading of this corner that comes from the patch kolu carries on
- * its pin (the first is {@link backgroundTaskIn}): that the list has anything
- * more to say at all is the patch's own news (`../../acp/patches/`), because
- * ACP's `SessionInfo` answers `{sessionId, cwd, title, updatedAt}` and stops,
- * and a per-row count and `superseded by` pair had nothing to read.
- *
- * Each fact is said for itself, the way the patch attaches it: an entry whose
- * transcript never yielded a count still has every protocol field, and an
- * absent `supersededBy` is a conversation nothing replaced. So the answer is
- * `null` for a corner saying nothing, and `null` per field inside it — the
- * corners between (a count and no link) being the ordinary case of them all.
- */
-export const listedIn = (meta: Meta): ListedFacts | null => {
-  const said = claudeIn(meta);
-  const supersededBy = wordIn(said, "supersededBy");
-  const count = said?.messageCount;
-  // The count is one the adapter reports or it is NOTHING at all: a fraction
-  // like 3.5 is forfeited with the same weight as a string — a row drawing
-  // `3.5 messages` is the stamp announcing a reader that trusted anything with
-  // a decimal point.
-  const messageCount =
-    typeof count === "number" && Number.isInteger(count) && count >= 0
-      ? count
-      : null;
-  return messageCount === null && supersededBy === null
-    ? null
-    : { messageCount, supersededBy };
-};
-
-// ── what the adapter says it can do, at the handshake ──────────────────
-
-/**
- * Whether this agent HOLDS a prompt sent while it is busy, out of what it
- * advertised at `initialize`.
- *
- * THE BIT THE DEFAULT RESTS ON. Core ACP's schema has no such capability — it
- * neither defines nor forbids a mid-turn `session/prompt` — so what happens to
- * one is a fact about the agent, and this adapter volunteers it: a `turnQueue`
- * FIFO, in order, said in `agentCapabilities._meta`. Verified on the wire: a
- * prompt sent 1.5s into a 35-second `/compact` waited, the compaction
- * completed, and the message ran after it.
- *
- * It gates NOTHING about delivery — every send is a plain prompt, on this wire
- * and on any other, because there is nowhere else for a message to go. What it
- * gates is what the composer may PROMISE about an agent that is working
- * (`@kolu/acp/engine`'s `Leg`'s `queues`).
- *
- * Read POSITIVELY, like everything else here: an agent that says nothing is one
- * this panel makes no promise for, which is the direction this is safe to lose
- * in.
- */
-export const QUEUES_WHEN_BUSY = (initialized: unknown): boolean =>
-  claudeIn(metaOf(fieldIn(initialized, "agentCapabilities")))
-    ?.promptQueueing === true;
-
-// ── steering a turn that is already running ────────────────────────────
-
-/**
- * The request that puts a message INTO the turn already in flight, rather than
- * behind it.
- *
- * A `session/prompt` sent while a turn runs is not this, and that is the
- * ORDINARY path rather than the fallback: the adapter enqueues it and the agent
- * reaches it when the running turn is over ({@link QUEUES_WHEN_BUSY}). This one
- * is delivered at the SDK's `now` priority — it pre-empts the current
- * generation and lands between the turn's own steps — so what a person typed
- * reaches the model that is working.
- *
- * PRE-EMPTING MEANS ABORTING, which is why it is not the default: the
- * interrupted cycle is torn down, and a turn whose work cannot survive being
- * torn down loses it. `/compact` is exactly such a turn — the symptom is
- * `Compacting failed: API Error: Request was aborted` under a message that only
- * meant to be next in line. So interruption is a gesture somebody makes on
- * purpose, and this is the request behind it.
- *
- * An EXTENSION, hence the leading underscore, and named for the agreed ACP
- * steering wire protocol rather than for one adapter — but it is read here with
- * everything else that is a bet on the agent, because a bet it is. The losing
- * direction is the safe one and is the only one it loses in: an agent without
- * this refuses the method, which is a refusal a caller already has to handle (a
- * dead pipe, a deadline) and which reaches a person as the row keeping their
- * words.
- */
-export const STEER_METHOD = "_session/steering";
-
-/**
- * Whether this agent SAID it takes one, out of the handshake — in a top-level
- * `_meta`, beside `agentCapabilities` rather than inside it, which is where the
- * steering extension's own contract puts it.
- *
- * The advertisement decides whether a person is offered an INTERRUPT at all — a
- * control has to be drawn before anybody can press it, and the only honest
- * input to that is what the agent said about itself. The request is still the
- * proof: a steer that goes out and is refused still comes back as the row
- * keeping its words.
- *
- * Read POSITIVELY. An agent that says nothing gets no button, and its person
- * loses nothing but the interruption — what they type still goes, still at
- * once, and the agent still gets to it.
- */
-export const STEERING_ADVERTISED = (initialized: unknown): boolean =>
-  (
-    metaOf(initialized)?.steering as
-      | { readonly supported?: unknown }
-      | undefined
-  )?.supported === true;
-
-/**
- * How a steer that found NOTHING RUNNING should behave, in the request's own
- * `_meta`.
- *
- * The default is for the agent to start a fresh turn of its own, detached —
- * which would be a turn kolu never asked for, never tracked and could not
- * cancel, reporting through the transcript from nowhere. `promptRequired` hands
- * the message BACK instead ("nothing to steer; send it yourself"), which is the
- * only outcome a client that owns its turns can use. kolu only steers while it
- * believes a turn is running, so this is the answer to the race rather than the
- * ordinary path: the adapter settled while the send was on its way, and it says
- * so instead of inventing a turn.
- */
-export const STEER_WHEN_IDLE = {
-  steering: { idleBehavior: "promptRequired" },
-};
-
-/**
- * How long a steer may go unanswered before the words go back to the person who
- * typed them.
- *
- * HERE and not beside the transport's other deadlines, because its warrant is a
- * claim about this extension rather than about a pipe. A boot or a load is
- * bounded on "the process did not answer", which is true of any agent; this one
- * rests on what the adapter DOES with a steer — it answers as soon as the
- * message is on the SDK's input, long before the turn does anything with it —
- * so silence past this is not a slow turn but an agent that stopped listening.
- *
- * A prompt, by contrast, gets no deadline at all: that one really is a person
- * waiting on a language model.
- */
-export const STEER_TIMEOUT = "30 seconds";
-
-/**
- * Whether the steer went INTO the running turn, out of what the agent answered.
- *
- * Read POSITIVELY, and this is the one reading here whose losing direction is
- * worth spelling out because it is not the usual one. `injected` is the only
- * outcome that counts as taken; `promptRequired`, a legacy `startedNewTurn`,
- * and anything a future version of the extension answers all read as NOT taken,
- * which sends the message again as an ordinary prompt. The worst case of that
- * is a message the agent hears twice; the worst case of reading an unknown
- * outcome as taken is a message nobody has, and between a duplicate and a
- * disappearance there is no contest.
- *
- * Here rather than at the call site for the reason {@link liveModelIn} is: it
- * is a value one adapter's extension chose, and the file that is wrong about a
- * different agent should be the file that names it.
- */
-export const steerTaken = (answered: unknown): boolean =>
-  (answered as { readonly outcome?: unknown } | null | undefined)?.outcome ===
-  "injected";
 
 // ── which model a turn is running on ───────────────────────────────────
 
@@ -739,7 +566,7 @@ const initIn = (
   return shape;
 };
 
-// ── a command is a terminal, and its first title is not its name ───────
+// ── the first title a call carries is not its name ─────────────────────
 
 /**
  * Whether a frame's title is the adapter's PLACEHOLDER rather than the call's
@@ -856,7 +683,6 @@ export const CLAUDE: Leg = {
   spawned: spawnedIn,
   backgroundTask: backgroundTaskIn,
   taskNotification: taskNotificationIn,
-  listedIn,
   // No doubling on this wire: the adapter's `session/new` answers with a
   // session id and `configOptions` and never announces a chunk in advance.
   prologueIn: () => null,
@@ -867,28 +693,20 @@ export const CLAUDE: Leg = {
   // own default mode stands, and `allowedWithoutAsking` is the backstop that
   // was always underneath it.
   bypassModeRequired: false,
-  steering: {
-    method: STEER_METHOD,
-    meta: STEER_WHEN_IDLE,
-    timeout: STEER_TIMEOUT,
-    taken: steerTaken,
-    advertised: STEERING_ADVERTISED,
-  },
-  queues: QUEUES_WHEN_BUSY,
+  // The three questions this panel never asks. They are on `Leg` because
+  // `@kolu/acp` is a SHARED vocabulary — olai's own panel steers, promises a
+  // queue and draws the session list — and the honest nothing is what a leg
+  // owes a question its harness never puts: any answer here would be a 0.81.2
+  // `_meta` spelling re-verified at every adapter bump for no reader at all.
+  steering: null,
+  queues: () => false,
+  listedIn: () => null,
   rawMessages: {
     openMeta: OPEN_SESSION_META,
     method: SDK_MESSAGE,
     modelIn: liveModelIn,
     serversIn: liveServersIn,
   },
-  // A SHELL COMMAND IS A TERMINAL PANE, and saying so is what buys it: asked
-  // (`_meta.terminal_output: true` on the handshake), the adapter reports Bash
-  // and PowerShell with `terminal_info` / `terminal_output` / `terminal_exit`
-  // and a `{type: "terminal"}` block; not asked, it fences the whole output
-  // into one markdown block and sends it as text — backticks a person reads,
-  // with no exit code anywhere (`tools.js`). The handle is the ADAPTER's:
-  // nothing here creates or releases it.
-  terminalOutput: true,
   // ... and the title the announcement carries is not the call's name yet
   // ({@link provisionalTitleIn}).
   provisionalTitle: provisionalTitleIn,

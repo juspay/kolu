@@ -22,18 +22,12 @@ import {
   allowedWithoutAsking,
   backgroundTaskIn,
   CLAUDE,
-  listedIn,
   liveModelIn,
   liveServersIn,
   OPEN_SESSION_META,
   parentToolUseIn,
-  QUEUES_WHEN_BUSY,
-  STEER_METHOD,
-  STEER_WHEN_IDLE,
-  STEERING_ADVERTISED,
   spawnedIn,
   spelling,
-  steerTaken,
   taskNotificationIn,
   toolNameIn,
 } from "./leg.ts";
@@ -236,139 +230,6 @@ describe("which tool a call is", () => {
   });
 });
 
-/**
- * The handshake, as the pinned adapter actually answers it. Trimmed to the two
- * corners and the shape they sit in.
- *
- * The nesting is the point: `promptQueueing` is inside
- * `agentCapabilities._meta`, and the steering advertisement is beside
- * `agentCapabilities` rather than inside it, which is where the steering
- * extension's own contract puts it. A reader that looked in the other place
- * would answer `false` for an adapter that said `true`.
- */
-const HANDSHAKE = {
-  protocolVersion: 1,
-  agentCapabilities: {
-    _meta: { claudeCode: { promptQueueing: true } },
-    promptCapabilities: { image: true },
-    loadSession: true,
-  },
-  agentInfo: {
-    name: "@agentclientprotocol/claude-agent-acp",
-    version: "0.81.2",
-  },
-  _meta: {
-    steering: { supported: true },
-    goal: { version: 1, controlMethod: "_session/goal" },
-  },
-};
-
-describe("what the adapter says it can do at the handshake", () => {
-  test("it HOLDS a prompt sent while it is busy, and says so", () => {
-    // The bit the whole default rests on: core ACP has no such capability, so
-    // "what happens if I send one now" is this agent's own answer. Verified on
-    // the wire beside it — a prompt sent 1.5s into a 35-second `/compact`
-    // waited, the compaction completed, and the message ran after.
-    expect(QUEUES_WHEN_BUSY(HANDSHAKE)).toBe(true);
-  });
-
-  test("... and it takes an interruption, said one level out", () => {
-    expect(STEERING_ADVERTISED(HANDSHAKE)).toBe(true);
-  });
-
-  test("an agent that says NEITHER is promised nothing and offered nothing", () => {
-    // The direction both of these are safe to lose in: what a person can do is
-    // unchanged — the message still goes, at once — and what stops happening is
-    // a claim made on an agent's behalf.
-    const quiet = { protocolVersion: 1, agentCapabilities: {} };
-    expect(QUEUES_WHEN_BUSY(quiet)).toBe(false);
-    expect(STEERING_ADVERTISED(quiet)).toBe(false);
-  });
-
-  test("and neither is read out of the OTHER one's corner", () => {
-    // The near miss that would be invisible: both are `_meta`, one nested
-    // inside the capabilities and one beside them. Swapped, each reader would
-    // answer for an advertisement the agent never made.
-    expect(
-      QUEUES_WHEN_BUSY({ _meta: { claudeCode: { promptQueueing: true } } }),
-    ).toBe(false);
-    expect(
-      STEERING_ADVERTISED({
-        agentCapabilities: { _meta: { steering: { supported: true } } },
-      }),
-    ).toBe(false);
-  });
-
-  test("POSITIVE RECOGNITION: only the word itself is yes", () => {
-    // A capability that is present-but-not-true, or truthy-in-some-other-way,
-    // is not a claim anybody may act on — the rule every reader in this file
-    // follows, read at the one place a `_meta` is somebody else's to reshape.
-    expect(
-      QUEUES_WHEN_BUSY({ agentCapabilities: { _meta: { claudeCode: {} } } }),
-    ).toBe(false);
-    expect(
-      QUEUES_WHEN_BUSY({
-        agentCapabilities: { _meta: { claudeCode: { promptQueueing: "yes" } } },
-      }),
-    ).toBe(false);
-    expect(STEERING_ADVERTISED({ _meta: { steering: {} } })).toBe(false);
-    expect(STEERING_ADVERTISED({ _meta: { steering: "supported" } })).toBe(
-      false,
-    );
-  });
-
-  test("a handshake that is not an object at all answers no", () => {
-    for (const nothing of [null, undefined, "", 0, []]) {
-      expect(QUEUES_WHEN_BUSY(nothing)).toBe(false);
-      expect(STEERING_ADVERTISED(nothing)).toBe(false);
-    }
-  });
-});
-
-describe("steering a turn that is already running", () => {
-  test("the method and the idle behaviour are the wire's own spellings", () => {
-    // Two literals the adapter matches EXACTLY — an underscore or a casing off
-    // and the request is a method the agent has never heard of, which is a
-    // refusal per mid-turn message and no other symptom.
-    expect(STEER_METHOD).toBe("_session/steering");
-    // Without the opt-in a steer against an idle agent starts a DETACHED turn
-    // kolu never asked for, never tracks and cannot cancel. The literal is what
-    // buys the message back instead.
-    expect(STEER_WHEN_IDLE).toEqual({
-      steering: { idleBehavior: "promptRequired" },
-    });
-  });
-
-  test("`injected` is the answer that means the running turn has it", () => {
-    // What the adapter actually answered, captured by steering a turn that was
-    // counting to 600: it took the message at 28.
-    expect(steerTaken({ outcome: "injected" })).toBe(true);
-  });
-
-  test("nothing was running, so the caller still has the message", () => {
-    // The opt-in's whole purpose. Read as taken, this would be the one message
-    // in the conversation that exists on screen and nowhere else.
-    expect(
-      steerTaken({ outcome: "promptRequired", reason: "noRunningTurn" }),
-    ).toBe(false);
-  });
-
-  test("an outcome nobody here knows is NOT taken", () => {
-    // The losing direction, chosen: a message the agent hears twice beats a
-    // message nobody has. `startedNewTurn` is the extension's own legacy answer
-    // for a host that did not opt in — a turn kolu never asked for and could
-    // not cancel, so not taken is also the truthful reading of it.
-    expect(steerTaken({ outcome: "startedNewTurn" })).toBe(false);
-    expect(steerTaken({ outcome: "somethingLater" })).toBe(false);
-    expect(steerTaken({})).toBe(false);
-    expect(steerTaken(null)).toBe(false);
-    expect(steerTaken(undefined)).toBe(false);
-    // Truthy is not the word: an agent answering `outcome: true` said
-    // something, and it did not say `injected`.
-    expect(steerTaken({ outcome: true })).toBe(false);
-  });
-});
-
 describe("which agent made a call", () => {
   test("a subagent's frame names the Agent call that spawned it", () => {
     // What the adapter stamps onto every frame that comes out of a spawned
@@ -511,8 +372,8 @@ describe("which call started an agent", () => {
     expect(spawnedIn({}, {})).toBeNull();
     expect(spawnedIn({ claudeCode: null }, null)).toBeNull();
     expect(spawnedIn({ someOtherAgent: { subagent: true } }, {})).toBeNull();
-    // Truthy is not the word, for `steerTaken`'s reason: an agent that answers
-    // something else here has not said this.
+    // Truthy is not the word: an agent that answers something else here has
+    // not said this.
     expect(spawnedIn({ claudeCode: { subagent: "yes" } }, {})).toBeNull();
     expect(spawnedIn({ claudeCode: { subagent: 1 } }, {})).toBeNull();
   });
@@ -1004,10 +865,6 @@ describe("the leg", () => {
     // and a host that cannot have it still gets an orchestrator: the refusal is
     // reported and `allowedWithoutAsking` is the backstop underneath it.
     expect(CLAUDE.bypassModeRequired).toBe(false);
-    // ... and the refusal path the harness takes is the one this declares:
-    // reported on a row, then the conversation carries on.
-    expect(CLAUDE.steering?.method).toBe(STEER_METHOD);
-    expect(CLAUDE.steering?.taken({ outcome: "injected" })).toBe(true);
   });
 
   test("subscribes to the CLI's own messages when a session is opened", () => {
@@ -1017,58 +874,6 @@ describe("the leg", () => {
         message: { type: "system", subtype: "init", model: "claude-sonnet-5" },
       }),
     ).toBe("claude-sonnet-5");
-  });
-});
-
-describe("what a listed conversation holds", () => {
-  test("reads the count and the link together", () => {
-    // The shape the patched adapter answers for a `/clear` sibling: the count
-    // is always read when the transcript scanned, and the link only exists on
-    // the OLDER row.
-    expect(
-      listedIn({ claudeCode: { messageCount: 3, supersededBy: "s2" } }),
-    ).toEqual({ messageCount: 3, supersededBy: "s2" });
-    expect(listedIn({ claudeCode: { messageCount: 4 } })).toEqual({
-      messageCount: 4,
-      supersededBy: null,
-    });
-  });
-
-  test("zero is an answer", () => {
-    // A conversation nobody has spoken in yet — exactly what a freshly cleared
-    // session reads as, and the one count a generous reader would drop.
-    expect(listedIn({ claudeCode: { messageCount: 0 } })).toEqual({
-      messageCount: 0,
-      supersededBy: null,
-    });
-  });
-
-  test("a row that said nothing reads as nothing", () => {
-    // The losing direction: an old adapter, an unreadable transcript, an agent
-    // that is not this one. Never a count of our own in its place.
-    expect(listedIn({ claudeCode: {} })).toBeNull();
-    expect(listedIn({})).toBeNull();
-    expect(listedIn(null)).toBeNull();
-    expect(listedIn(undefined)).toBeNull();
-    expect(listedIn({ claudeCode: { messageCount: "3" } })).toBeNull();
-    expect(listedIn({ claudeCode: { messageCount: Number.NaN } })).toBeNull();
-    expect(listedIn({ claudeCode: { messageCount: -1 } })).toBeNull();
-    // A fraction is not an integer amount of anything — same rule.
-    expect(listedIn({ claudeCode: { messageCount: 3.5 } })).toBeNull();
-    expect(listedIn({ claudeCode: { supersededBy: "" } })).toBeNull();
-    expect(listedIn({ claudeCode: { supersededBy: 4 } })).toBeNull();
-  });
-});
-
-describe("a shell command is a terminal pane", () => {
-  test("the extension is asked for, because this adapter answers it", () => {
-    // Not decoration: the flag is what the harness puts in
-    // `_meta.terminal_output` at `initialize`, and the adapter branches on it.
-    // With it, a Bash result carries `terminal_info` / `terminal_output` /
-    // `terminal_exit` and a `{type: "terminal"}` block. Without it, the whole
-    // output is fenced into a markdown ```console block and sent as text —
-    // backticks a person reads, and no exit code anywhere.
-    expect(CLAUDE.terminalOutput).toBe(true);
   });
 });
 
