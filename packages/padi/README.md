@@ -872,25 +872,37 @@ Five decisions worth knowing:
   says the session is gone — is the one thing padi does NOT persist: the record
   must hold the conversation as it stood when the daemon let go of it, or the
   next padi restores the transcript and opens a stranger underneath it.
-- **A prompt's attachments are FILES, not base64 in the record.** A pasted
-  image or a dropped log travels up inside the `prompt` call as a `data:` URL,
-  and padi writes the bytes to `<state-root>/orchestrator/attachments/<id>`
-  before the agent is told anything — the harness turns a text-like file into
-  an embedded resource and anything else into a link naming that path, so a
-  link to a file still being written would be a tool call that fails for a
-  reason nobody can see. The id is the whole filename and is refused unless it
-  is one (`[A-Za-z0-9][A-Za-z0-9._-]*`); the caps — 10 MiB a file, 20 MiB a
-  message — are enforced on what was DECODED, not on what the sender claimed,
-  and refuse with a sentence rather than dropping a file silently. The
-  persisted row keeps the chip (name · size · path) and never the `dataUrl`: a
-  second copy of the bytes in `config.json` would be read back in full on every
-  boot to redraw a thumbnail nobody is looking at, so after a restart a row
-  draws its name and size and the thumbnail survives only in the browser that
-  sent it. The files are reconciled to the rows that still name them on the
-  RESTORE — the one edge where rows can be lost (the row cap trimmed the
-  record, or `$HOME` moved and the whole transcript went with it). A
-  `newSession` deliberately sweeps nothing: the divider says the agent's memory
-  was reset, not that the scroll above it was thrown away.
+- **A prompt's attachments are FILES, and the bytes never ride the prompt.** A
+  pasted image or a dropped log goes up FIRST, through `orchestrator.attach`,
+  in frame-sized base64 pieces: the first call creates
+  `<state-root>/orchestrator/attachments/<id>`, each later one hands back the
+  path it was given and appends. That shape is not a nicety — the whole base64
+  on one `prompt` frame busts the RPC decoder's 16 MiB cap, which does not fail
+  the call but closes the socket with 1009 and takes every subscription in the
+  tab with it (the incident is written up in
+  `packages/client/src/terminal/pasteDelivery.ts`, whose chunking this reuses).
+  The upload is sequential per attachment: padi appends to one growing file,
+  and two chunks in flight interleave. The id is the whole filename and is
+  refused unless it is one (`[A-Za-z0-9][A-Za-z0-9._-]*`); an `appendTo` that
+  resolves outside the attachments directory is refused rather than written;
+  the caps — 10 MiB a file as it is appended, 20 MiB a message summed over what
+  it names — are enforced on the BYTES PADI HOLDS, measured from the file,
+  never on what the sender claimed. What the prompt then carries is a chip:
+  name · size · path, with the size re-read from disk and the path recomputed
+  from the id, so a path from the wire can never choose what the agent is
+  handed. A live row and a restored row are therefore the same value — which is
+  what makes "send again" on an hour-old message read the same file — and the
+  thumbnail, which never crossed this wire at all, survives only in the browser
+  that drew it.
+- **A file lives exactly as long as the row that names it.** The attachments
+  directory is reconciled to the transcript on the RESTORE (where rows are
+  lost: the row cap trimmed the record, or `$HOME` moved and the whole
+  transcript went with it), on every upload that CREATES a file (where the
+  directory grows), and after a prompt that was REFUSED — whose files were
+  uploaded for a message that will now never exist, so they go with it. The one
+  exception is an upload younger than an hour: it has no row because nobody has
+  pressed Send yet. A `newSession` deliberately sweeps nothing: the divider says
+  the agent's memory was reset, not that the scroll above it was thrown away.
 
 ## What padi knows nothing about
 

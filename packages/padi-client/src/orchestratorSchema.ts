@@ -97,34 +97,39 @@ export const OrchestratorDeliverySchema = Schema.Literals([
 /** A FILE THAT CAME WITH A MESSAGE — an image pasted into the composer, a
  *  log dropped onto the pane.
  *
- *  One shape for three lives, which is why the two location fields are both
- *  nullable rather than split into three schemas. Travelling UP it carries a
- *  `data:` URL and no `path`: the browser is holding the bytes and padi has
- *  not written them yet. Coming back DOWN on the row this browser minted it
- *  carries both, so the chip can draw its own thumbnail without a second
- *  fetch. Restored from disk after a padi restart it carries NEITHER the
- *  `dataUrl` (never persisted — base64 in `config.json` would make every read
- *  of the saved session pay for an image nobody is looking at) nor, for a
- *  reader in a different browser, anything to draw with but the name and the
- *  size. That is the deliberate trade: the file is still on the host, under
- *  `path`, and the agent was already handed it.
+ *  IT CARRIES NO BYTES, and that is the whole shape. The file is uploaded
+ *  first, in frame-sized pieces, by {@link OrchestratorAttachInputSchema};
+ *  what rides the prompt and the row afterwards is a REFERENCE to what padi
+ *  wrote. Base64 on the prompt frame is what this shape exists to prevent: a
+ *  policy-legal 12 MiB of attachments is ~16.4 MiB encoded, the RPC decoder
+ *  does not fail an oversized frame but CLOSES THE SOCKET with 1009, and that
+ *  takes every subscription in the tab with it — the incident, and the chunked
+ *  answer to it, are written up at the top of
+ *  `packages/client/src/terminal/pasteDelivery.ts`.
  *
- *  `bytes` is NOT derived from the `dataUrl` at the reader: it is the one
- *  field that must still be there when the base64 is gone, because the chip
- *  draws it and the per-prompt cap refuses on it. */
+ *  ONE SHAPE FOR EVERY LIFE, which is the second thing it buys. A row minted
+ *  this session and a row restored from disk after a padi restart are the
+ *  same value, so "send again" on an hour-old message reads the same file the
+ *  first send did. The thumbnail is the only thing that does not survive, and
+ *  it was never on this wire: the browser keeps its own picture for the rows
+ *  it minted, and every other reader draws the name and the size.
+ *
+ *  `bytes` is PADI'S number — what it actually wrote, measured from the file
+ *  — never the sender's claim about it. */
 export const OrchestratorAttachmentSchema = Schema.Struct({
-  /** Stable within the prompt that carried it. */
+  /** Stable within the prompt that carried it, and also the FILENAME under
+   *  the attachments directory — so it is a plain name or it is refused; see
+   *  padi's `SAFE_ATTACHMENT_ID`. */
   id: Schema.String,
   /** What the person called it — a filename, or a minted one for a paste. */
   name: Schema.String,
   mimeType: Schema.String,
-  /** Size in bytes, always; the panel draws it and the cap refuses on it. */
+  /** Size on disk, as padi measured it; the chip draws it and the per-prompt
+   *  cap refuses on it. */
   bytes: Schema.Int,
-  /** A `data:` URL, present ONLY on the prompt travelling up and on the row
-   *  this browser minted. Never persisted, never re-served. */
-  dataUrl: Schema.NullOr(Schema.String),
-  /** Where padi put it under its state root, once it has. Null until then. */
-  path: Schema.NullOr(Schema.String),
+  /** Absolute, under `<stateRoot>/orchestrator/attachments/`. The agent is
+   *  handed this path and the harness reads the bytes off it. */
+  path: Schema.String,
 });
 export type OrchestratorAttachment = typeof OrchestratorAttachmentSchema.Type;
 
@@ -133,10 +138,12 @@ export type OrchestratorAttachment = typeof OrchestratorAttachmentSchema.Type;
  *
  *  Two numbers rather than one because they refuse different mistakes: a
  *  screenshot of a 5K display is one file worth refusing on its own, and
- *  thirty small ones are a prompt worth refusing as a whole. The bytes cross
- *  the wire base64'd inside a procedure argument and land in padi's state
- *  root, so the ceiling is the daemon's, not the browser's — which is why the
- *  numbers live on the contract both ends read rather than in either one.
+ *  thirty small ones are a prompt worth refusing as a whole. The bytes land
+ *  in padi's state root, so the ceiling is the daemon's, not the browser's —
+ *  which is why the numbers live on the contract both ends read rather than
+ *  in either one. They are POLICY caps on a file, deliberately unrelated to
+ *  the wire's frame cap: the upload is chunked, so how big an attachment may
+ *  be and how much of it fits in one frame are independent numbers.
  *
  *  The agent is never told about a file that was refused. A silent drop would
  *  leave a person watching a conversation answer a question about an image it
@@ -152,6 +159,13 @@ export const attachmentTooBig = (name: string, bytes: number): string =>
 
 export const promptAttachmentsTooBig = (bytes: number): string =>
   `These attachments come to ${formatBytes(bytes)}, and one message may carry at most ${formatBytes(PROMPT_ATTACHMENT_BYTE_CAP)}. Send them across more than one message.`;
+
+/** What a prompt naming a file padi no longer holds is told. Reachable: an
+ *  upload abandoned long enough to be swept, or a composer left open across a
+ *  padi restart. Said rather than silently dropped — a message that arrived
+ *  without the screenshot it was about is worse than one that did not go. */
+export const attachmentGone = (name: string): string =>
+  `“${name}” is no longer on this host, so the message was not sent. Attach it again.`;
 
 /** What a person typed. Never markdown — it is quoted, not rendered. */
 export const OrchestratorUserRowSchema = Schema.Struct({
@@ -639,12 +653,12 @@ export const DEFAULT_ORCHESTRATOR_STATE: OrchestratorState = {
 export const OrchestratorPromptInputSchema = Schema.Struct({
   text: Schema.String,
   mentions: Schema.Array(OrchestratorMentionSchema),
-  /** The files that rode with the words, each carrying its `data:` URL — this
-   *  is the ONE hop the bytes travel on, and padi writes them to its state
-   *  root before the agent is told anything. A decoding default so a browser
-   *  served by an earlier build, which omits the key entirely, still sends a
-   *  prompt rather than being refused by the decoder for having nothing to
-   *  attach. */
+  /** The files that ride with the words — NAMES, not bytes. Each was already
+   *  uploaded by `orchestrator.attach`, so what padi does here is look each
+   *  one up under its own attachments directory, measure it, and hand the
+   *  agent a path. A decoding default so a browser served by an earlier
+   *  build, which omits the key entirely, still sends a prompt rather than
+   *  being refused by the decoder for having nothing to attach. */
   attachments: Schema.Array(OrchestratorAttachmentSchema).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed([])),
   ),
@@ -654,6 +668,47 @@ export const OrchestratorPromptOutputSchema = Schema.Struct({
   /** The transcript row the words landed in, so the composer can follow its
    *  delivery without guessing which row is its own. */
   rowId: Schema.String,
+});
+
+/** ONE PIECE of a file on its way up — the chunked upload that keeps base64
+ *  off the prompt frame.
+ *
+ *  The first call for an id omits `appendTo` and CREATES the file; each later
+ *  one passes back the `path` it was handed and APPENDS. The sender cuts the
+ *  base64 with `chunkBase64` and refuses ahead of the first call with
+ *  `frameBytesFor` + `exceedsFrameLimit` (`@kolu/surface/frame-chunking`,
+ *  `@kolu/surface/frame-limit`) — the same arithmetic a terminal paste rides,
+ *  derived once and never twice.
+ *
+ *  STRICTLY SEQUENTIAL. padi appends to one growing file, so two chunks of
+ *  the same attachment in flight at once interleave and corrupt it silently;
+ *  a sender awaits each call before making the next. */
+export const OrchestratorAttachInputSchema = Schema.Struct({
+  /** The attachment id, which is also the filename padi writes under — so it
+   *  must be a plain name, and `..` is refused rather than repaired. */
+  id: Schema.String,
+  /** What the person called it. Carried per chunk because it is what the
+   *  refusals are said about, and a refusal naming an id is not a sentence. */
+  name: Schema.String,
+  mimeType: Schema.String,
+  /** This chunk's bytes, base64. Boundaries are 4-character-aligned so each
+   *  chunk decodes on its own (see `chunkBase64`). */
+  data: Schema.String,
+  /** Absent on the FIRST chunk: create the file. Present on every later one:
+   *  the path the previous call returned. It is VALIDATED, not trusted — a
+   *  path that resolves outside the attachments directory is a refusal, not a
+   *  write, because a trusted continuation token turns an upload into an
+   *  arbitrary-file append. */
+  appendTo: Schema.optionalKey(Schema.String),
+});
+
+export const OrchestratorAttachOutputSchema = Schema.Struct({
+  /** Where the bytes landed — handed straight back as the next chunk's
+   *  `appendTo`, and the `path` the finished attachment carries. */
+  path: Schema.String,
+  /** The file's size on disk AFTER this chunk, measured rather than summed
+   *  from what the sender said it was sending. */
+  bytes: Schema.Int,
 });
 
 export const OrchestratorAnswerInputSchema = Schema.Struct({

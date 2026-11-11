@@ -12,6 +12,8 @@
  * failing assertion cannot walk away from one.
  */
 
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   allowingOurs,
@@ -153,6 +155,7 @@ const open = async (
   extra: {
     resume?: string | null;
     resumedSeq?: number;
+    resumedEndsWithDivider?: boolean;
     fleet?: ReadonlyArray<string>;
     model?: string | null;
     leg?: Leg;
@@ -188,6 +191,9 @@ const open = async (
     log: silent,
     resume: extra.resume ?? null,
     ...(extra.resumedSeq === undefined ? {} : { resumedSeq: extra.resumedSeq }),
+    ...(extra.resumedEndsWithDivider === undefined
+      ? {}
+      : { resumedEndsWithDivider: extra.resumedEndsWithDivider }),
     ...(extra.fleet === undefined ? {} : { fleet: extra.fleet }),
     ...(extra.model === undefined ? {} : { model: extra.model }),
     onChange: fold,
@@ -238,19 +244,38 @@ const asked = async (running: Running, about: string): Promise<unknown> => {
 const PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
-/** One pasted image, as padi hands it over: the browser's `data:` URL and the
- *  path padi has already written the bytes to under its own state root. */
+/** WHERE THE FILES REALLY ARE for this run. padi writes an attachment out
+ *  under its state root before it ever calls the harness, and the harness
+ *  reads the bytes back off that path — so a fixture that invented a path
+ *  would be testing a code path nobody runs. */
+const ATTACHMENTS = await mkdtemp(path.join(tmpdir(), "acp-harness-"));
+
+/** One attachment as padi hands it over: a NAME, a size and the PATH the
+ *  bytes were written to. Nothing carries base64 on this wire — it cannot
+ *  ride the frame — so the file below is the only copy there is. */
+const written = async (
+  fields: Omit<OrchestratorAttachment, "path">,
+  contents: Buffer,
+): Promise<OrchestratorAttachment> => {
+  const where = path.join(ATTACHMENTS, fields.id);
+  await writeFile(where, contents);
+  return { ...fields, path: where };
+};
+
+/** One pasted image, written out. */
 const picture = (
-  over: Partial<OrchestratorAttachment> = {},
-): OrchestratorAttachment => ({
-  id: "att-1",
-  name: "shot.png",
-  mimeType: "image/png",
-  bytes: 68,
-  dataUrl: `data:image/png;base64,${PNG}`,
-  path: "/state/orchestrator/attachments/att-1",
-  ...over,
-});
+  over: Partial<Omit<OrchestratorAttachment, "path">> = {},
+): Promise<OrchestratorAttachment> =>
+  written(
+    {
+      id: "att-1",
+      name: "shot.png",
+      mimeType: "image/png",
+      bytes: 68,
+      ...over,
+    },
+    Buffer.from(PNG, "base64"),
+  );
 
 /** Wait until the subprocess is gone — the `die` turn answers nothing, so the
  *  only word a client gets about it is its own closed pipe. */
@@ -827,10 +852,13 @@ describe("the settings a conversation advertises", () => {
 describe("what a prompt can carry besides words", () => {
   test("an image arrives as an `image` block with its bytes intact", async () => {
     const running = await open("agent.ts");
-    await running.harness.prompt("look at this", [], [picture()]);
+    const shot = await picture();
+    await running.harness.prompt("look at this", [], [shot]);
     await settled(running, "the turn never ended");
 
-    // WHAT CROSSED THE PIPE, asked of the only process that knows.
+    // WHAT CROSSED THE PIPE, asked of the only process that knows — and the
+    // base64 came off the FILE, which is the only copy there is: the bytes
+    // cannot ride the `prompt` frame.
     const [sent] = (await asked(running, "blocks")) as ReadonlyArray<
       ReadonlyArray<Record<string, unknown>>
     >;
@@ -842,32 +870,65 @@ describe("what a prompt can carry besides words", () => {
     });
 
     // ... and the row a reader draws carries the attachment it was handed,
-    // whole: the browser that pasted the image draws its own thumbnail off
-    // this row, and padi — which wrote the bytes out before calling and owns
-    // its own record — is the end that strips the `dataUrl` before persisting.
+    // whole. It is the SAME shape a restored row has — a name, a size and a
+    // path — which is what makes "send again" on an old message work.
     const row = running.rows().find((one) => one.kind === "user");
-    expect(row?.kind === "user" ? row.attachments : null).toEqual([picture()]);
+    expect(row?.kind === "user" ? row.attachments : null).toEqual([shot]);
+  });
+
+  test("a restored row's path is all the harness needs", async () => {
+    // A row read back out of padi's store carries no bytes and never did.
+    // The harness that wanted a `data:` URL refused every retry of an old
+    // message with a sentence about missing bytes; this is that retry.
+    const running = await open("agent.ts", { resume: "sess-1", resumedSeq: 9 });
+    const restored = await written(
+      {
+        id: "att-old",
+        name: "yesterday.png",
+        mimeType: "image/png",
+        bytes: 68,
+      },
+      Buffer.from(PNG, "base64"),
+    );
+    await running.harness.prompt("again", [], [restored]);
+    await settled(running, "the turn never ended");
+    const [sent] = (await asked(running, "blocks")) as ReadonlyArray<
+      ReadonlyArray<Record<string, unknown>>
+    >;
+    expect(sent?.[1]).toMatchObject({ type: "image", data: PNG });
+  });
+
+  test("a file that is gone is a refusal naming it, not a crash", async () => {
+    // The attachment was swept, or the state root moved. A read that threw
+    // inside the protocol callback would be a turn failing with node's own
+    // `ENOENT` sentence; a person is told which file instead.
+    const running = await open("agent.ts");
+    const shot = await picture();
+    await rm(shot.path);
+    await expect(
+      running.harness.prompt("look at this", [], [shot]),
+    ).rejects.toMatchObject({
+      name: "HarnessRefused",
+      why: expect.stringContaining("shot.png"),
+    });
+    expect(running.rows()).toEqual([]);
   });
 
   test("a text file arrives as a `resource` with its text embedded", async () => {
     const running = await open("agent.ts");
-    await running.harness.prompt(
-      "read this",
-      [],
-      [
-        {
-          id: "att-2",
-          name: "notes.txt",
-          // WITH ITS PARAMETERS, which is how a browser hands one over: a rule
-          // that compared the whole string would send the commonest text file
-          // there is as an opaque link.
-          mimeType: "text/plain;charset=utf-8",
-          bytes: 11,
-          dataUrl: `data:text/plain;base64,${Buffer.from("hello there").toString("base64")}`,
-          path: "/state/orchestrator/attachments/att-2",
-        },
-      ],
+    const notes = await written(
+      {
+        id: "att-2",
+        name: "notes.txt",
+        // WITH ITS PARAMETERS, which is how a browser hands one over: a rule
+        // that compared the whole string would send the commonest text file
+        // there is as an opaque link.
+        mimeType: "text/plain;charset=utf-8",
+        bytes: 11,
+      },
+      Buffer.from("hello there"),
     );
+    await running.harness.prompt("read this", [], [notes]);
     await settled(running, "the turn never ended");
     const [sent] = (await asked(running, "blocks")) as ReadonlyArray<
       ReadonlyArray<Record<string, unknown>>
@@ -875,7 +936,7 @@ describe("what a prompt can carry besides words", () => {
     expect(sent?.[1]).toEqual({
       type: "resource",
       resource: {
-        uri: "file:///state/orchestrator/attachments/att-2",
+        uri: `file://${notes.path}`,
         mimeType: "text/plain",
         text: "hello there",
       },
@@ -884,30 +945,27 @@ describe("what a prompt can carry besides words", () => {
 
   test("anything else arrives as a `resource_link` naming the path padi wrote", async () => {
     const running = await open("agent.ts");
-    await running.harness.prompt(
-      "and this",
-      [],
-      [
-        {
-          id: "att-3",
-          name: "report.pdf",
-          mimeType: "application/pdf",
-          bytes: 2048,
-          dataUrl: null,
-          path: "/state/orchestrator/attachments/att-3",
-        },
-      ],
+    const report = await written(
+      {
+        id: "att-3",
+        name: "report.pdf",
+        mimeType: "application/pdf",
+        bytes: 2048,
+      },
+      Buffer.alloc(2048),
     );
+    await running.harness.prompt("and this", [], [report]);
     await settled(running, "the turn never ended");
     const [sent] = (await asked(running, "blocks")) as ReadonlyArray<
       ReadonlyArray<Record<string, unknown>>
     >;
     // The ABSOLUTE path on the host the agent is running on, which is the only
     // one that exists for it: an agent with a shell can go and read it, and
-    // every agent must accept the block whether it can or not.
+    // every agent must accept the block whether it can or not. The bytes stay
+    // on disk — a link is not an embed.
     expect(sent?.[1]).toEqual({
       type: "resource_link",
-      uri: "file:///state/orchestrator/attachments/att-3",
+      uri: `file://${report.path}`,
       name: "report.pdf",
       mimeType: "application/pdf",
       size: 2048,
@@ -920,7 +978,7 @@ describe("what a prompt can carry besides words", () => {
     // wrote for a person; the refusal names the capability instead.
     const running = await open("text-only-agent.ts");
     await expect(
-      running.harness.prompt("look at this", [], [picture()]),
+      running.harness.prompt("look at this", [], [await picture()]),
     ).rejects.toMatchObject({
       name: "HarnessRefused",
       why: expect.stringContaining("`image`"),
@@ -939,22 +997,23 @@ describe("what a prompt can carry besides words", () => {
       running.harness.prompt(
         "huge",
         [],
-        [picture({ bytes: 11 * 1024 * 1024 })],
+        [await picture({ bytes: 11 * 1024 * 1024 })],
       ),
     ).rejects.toMatchObject({
       name: "HarnessRefused",
       why: expect.stringContaining("10 MiB"),
     });
     // ... and the whole message has a limit of its own, which three legal
-    // attachments can pass.
+    // attachments can pass. The SIZE is padi's reading of what it wrote, not
+    // the file under it — the cap is checked before a byte is read.
     await expect(
       running.harness.prompt(
         "huge",
         [],
         [
-          picture({ id: "a", bytes: 9 * 1024 * 1024 }),
-          picture({ id: "b", bytes: 9 * 1024 * 1024 }),
-          picture({ id: "c", bytes: 9 * 1024 * 1024 }),
+          await picture({ id: "a", bytes: 9 * 1024 * 1024 }),
+          await picture({ id: "b", bytes: 9 * 1024 * 1024 }),
+          await picture({ id: "c", bytes: 9 * 1024 * 1024 }),
         ],
       ),
     ).rejects.toMatchObject({
@@ -1022,5 +1081,27 @@ describe("the break that says the agent's memory was reset", () => {
       name: "HarnessUnavailable",
     });
     expect(dividers(running)).toEqual([]);
+  });
+
+  test("a respawned harness knows padi's last row was one", async () => {
+    // The rule is about what a READER sees, and a reader sees padi's rows and
+    // this instance's together. A replacement builds a fresh transcript, so
+    // without the seed `newSession` straight after a respawn minted a second
+    // `— NEW SESSION —` beside the one padi is already holding — once per
+    // replacement, until the next daemon read collapsed them.
+    const running = await open("agent.ts", {
+      resume: "sess-1",
+      resumedSeq: 12,
+      resumedEndsWithDivider: true,
+    });
+    await running.harness.newSession();
+    expect(dividers(running)).toEqual([]);
+
+    // ... and once something has been said here, the seed is spent: a break
+    // after a conversation means what it says again.
+    await running.harness.prompt("hello", [], []);
+    await settled(running, "the turn never ended");
+    await running.harness.newSession();
+    expect(dividers(running)).toHaveLength(1);
   });
 });

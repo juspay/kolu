@@ -1348,6 +1348,12 @@ export function buildPadiSurfaceDeps(deps: {
           handle(() =>
             orchestrator.prompt(input.text, input.mentions, input.attachments),
           ),
+        // The chunked upload a prompt's attachments arrive on, ahead of the
+        // prompt that names them — the whole reason no base64 rides a
+        // `prompt` frame. Straight through: the host validates the id, the
+        // continuation path and the per-attachment cap, and says no in the
+        // same two declared errors every other verb here does.
+        attach: ({ input }) => handle(() => orchestrator.attach(input)),
         cancel: () => handle(() => orchestrator.cancel()),
         answer: ({ input }) =>
           handle(async () => ({

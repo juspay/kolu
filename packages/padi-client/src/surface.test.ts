@@ -684,6 +684,11 @@ describe("the declared error vocabulary (PLAN D4)", () => {
         // second: a cancel with nothing behind it is a stale tab, answered
         // `false` rather than refused.
         "orchestrator.answer",
+        // `attach` refuses an id that is not a filename, an `appendTo`
+        // pointing outside the attachments dir, and a file that grew past the
+        // per-attachment cap mid-upload — each one a sentence a person reads
+        // before they press Send.
+        "orchestrator.attach",
         "orchestrator.cancel",
         "orchestrator.newSession",
         "orchestrator.prompt",

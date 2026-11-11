@@ -144,7 +144,14 @@ function oneDividerPerReset(
  *  so the record cannot disagree with what a reader is looking at. The row
  *  cap is a bound on the FILE, not on the panel: a conversation that has run
  *  for a week is still whole in memory, and what a restart brings back is its
- *  tail — which is the half a person scrolls to anyway. */
+ *  tail — which is the half a person scrolls to anyway.
+ *
+ *  THE ROWS GO THROUGH UNTOUCHED, attachments included, because an attachment
+ *  carries no bytes to strip: it is a name, a size and the path padi wrote
+ *  the file to. A row restored from here is therefore the same value it was
+ *  when it was minted — which is what makes "send again" on an hour-old
+ *  message read the same file the first send did. The thumbnail is the only
+ *  thing that does not survive, and it never left the browser that drew it. */
 export function persistedFrom(
   state: OrchestratorState,
   rows: ReadonlyArray<OrchestratorRow>,
@@ -153,46 +160,9 @@ export function persistedFrom(
     sessionId: state.sessionId,
     cwd: state.cwd,
     model: state.model?.id ?? null,
-    rows: withoutAttachmentBytes(
-      rows.length > ROW_CAP ? rows.slice(rows.length - ROW_CAP) : rows,
-    ),
+    rows: rows.length > ROW_CAP ? rows.slice(rows.length - ROW_CAP) : rows,
     fleet: state.fleet,
   };
-}
-
-/** The same rows with every attachment's `data:` URL REMOVED.
- *
- *  The bytes are already on disk, under the state root, and the agent was
- *  handed the path to them. A SECOND copy base64'd into `config.json` would
- *  be read back — in full, on every boot, beside the saved session — to
- *  redraw a thumbnail nobody is looking at, and a single pasted screenshot
- *  would be the largest thing in the file. What survives is the chip: the
- *  name, the size and the path. The thumbnail survives only in the browser
- *  that sent it, which is the deliberate half of this trade.
- *
- *  The array is rebuilt only when there is something to take out of it — a
- *  transcript nobody attached anything to, which is most of them, is written
- *  through untouched. */
-function withoutAttachmentBytes(
-  rows: ReadonlyArray<OrchestratorRow>,
-): ReadonlyArray<OrchestratorRow> {
-  const carries = rows.some(
-    (row) =>
-      row.kind === "user" &&
-      row.attachments.some((one) => one.dataUrl !== null),
-  );
-  if (!carries) return rows;
-  return rows.map((row) =>
-    row.kind === "user"
-      ? {
-          ...row,
-          attachments: row.attachments.map((one) => ({
-            ...one,
-            dataUrl: null,
-          })),
-        }
-      : row,
-  );
 }
 
 /** How many transcript rows a state-root keeps.

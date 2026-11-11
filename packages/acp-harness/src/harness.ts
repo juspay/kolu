@@ -53,6 +53,7 @@
  * conversation ({@link ./turns.ts}) and not a second queue.
  */
 
+import { readFile } from "node:fs/promises";
 import {
   client as acpClient,
   type ClientConnection,
@@ -172,6 +173,14 @@ export interface HarnessOptions {
    * is what a fresh conversation is.
    */
   readonly resumedSeq?: number;
+  /**
+   * Whether the LAST row the caller has persisted for this conversation is a
+   * break. A replacement harness builds a fresh transcript, and the rule that
+   * refuses a second `— NEW SESSION —` beside the first one can only read its
+   * own rows — so without this a `newSession` right after a respawn minted a
+   * break beside padi's, every time.
+   */
+  readonly resumedEndsWithDivider?: boolean;
   /**
    * The terminals the caller REMEMBERS this conversation was working with, as
    * the fleet stood when it was last persisted.
@@ -413,8 +422,14 @@ export const startHarness = async (
 
   /** The rows, minted PAST what is already persisted elsewhere: padi hands in
    *  the highest `seq` it holds, so nothing this process mints can collide
-   *  with a restored row's id or sort above it. */
-  const transcript = new Transcript(options.resumedSeq ?? 0);
+   *  with a restored row's id or sort above it — and whether the last of those
+   *  rows is a break, which is the one thing a fresh transcript cannot see
+   *  about the conversation it is continuing. */
+  const transcript = new Transcript(
+    options.resumedSeq ?? 0,
+    Date.now,
+    options.resumedEndsWithDivider ?? false,
+  );
   const turns = new Turns();
   const calls = new Calls(leg);
   const fleet = new Fleet(options.fleet ?? []);
@@ -1680,11 +1695,12 @@ export const startHarness = async (
    * still theirs to send with a sentence saying why, rather than a sent row
    * whose picture the model never got.
    *
-   * THE ROW CARRIES WHAT IT WAS HANDED, `dataUrl` and all: the browser that
-   * pasted the image draws its own thumbnail off that row, and padi — which
-   * wrote the bytes out before calling this and owns its own record — is the
-   * one end that strips it before persisting. A harness that emptied the field
-   * here would be deciding what padi may keep.
+   * THE ROW CARRIES WHAT IT WAS HANDED, which is a NAME, a size and the path
+   * padi wrote the bytes to — the same row whether it was minted a moment ago
+   * or restored from padi's store, which is why "send again" on an old
+   * message works: the bytes are read off that path either way. The browser
+   * keeps its own thumbnail for the rows it minted this session; no picture
+   * rides this wire.
    */
   const prompt = async (
     text: string,
@@ -1695,7 +1711,7 @@ export const startHarness = async (
     if (live === null || sessionId === null) {
       throw new HarnessUnavailable("the agent has no session open");
     }
-    const attached = blocksOf(attachments, carries);
+    const attached = await blocksOf(attachments, carries);
     // AT THE AGENT, NEXT IN LINE — this end sent a prompt while a turn of its
     // own was still in flight. kolu's fact about its own conversation, not a
     // queue: the message goes out now, on the wire, exactly as it would have.
@@ -2243,10 +2259,10 @@ const kindOf = (
  * a picture that silently did not travel is a person asking a model about an
  * image it was never shown, and no answer to that is worth one.
  */
-const blocksOf = (
+const blocksOf = async (
   attachments: ReadonlyArray<OrchestratorAttachment>,
   carries: { readonly image: boolean; readonly embeddedContext: boolean },
-): ReadonlyArray<ContentBlock> => {
+): Promise<ReadonlyArray<ContentBlock>> => {
   let total = 0;
   const blocks: Array<ContentBlock> = [];
   for (const one of attachments) {
@@ -2265,16 +2281,19 @@ const blocksOf = (
         false,
       );
     }
-    blocks.push(blockOf(one, carries));
+    // ONE AT A TIME rather than in parallel: the blocks ride the prompt in
+    // the order a person attached them, and a refusal further down the list
+    // should not have started reads nobody will use.
+    blocks.push(await blockOf(one, carries));
   }
   return blocks;
 };
 
 /** One attachment as the block it belongs in. */
-const blockOf = (
+const blockOf = async (
   one: OrchestratorAttachment,
   carries: { readonly image: boolean; readonly embeddedContext: boolean },
-): ContentBlock => {
+): Promise<ContentBlock> => {
   const mimeType = essenceOf(one.mimeType);
   if (mimeType.startsWith("image/")) {
     if (!carries.image) {
@@ -2284,7 +2303,11 @@ const blockOf = (
         false,
       );
     }
-    return { type: "image", data: base64Of(one), mimeType };
+    return {
+      type: "image",
+      data: (await bytesOf(one)).toString("base64"),
+      mimeType,
+    };
   }
   if (TEXT_LIKE[mimeType] === true || mimeType.startsWith("text/")) {
     if (!carries.embeddedContext) {
@@ -2299,7 +2322,7 @@ const blockOf = (
       resource: {
         uri: uriOf(one),
         mimeType,
-        text: Buffer.from(base64Of(one), "base64").toString("utf8"),
+        text: (await bytesOf(one)).toString("utf8"),
       },
     };
   }
@@ -2327,41 +2350,38 @@ const TEXT_LIKE: Readonly<Record<string, true>> = {
 const essenceOf = (mimeType: string): string =>
   (mimeType.split(";")[0] ?? mimeType).trim().toLowerCase();
 
-/** THE BYTES, base64 as both the image block and the decode below want them.
+/**
+ * THE BYTES, read off the file padi wrote.
  *
- *  The `data:` URL the browser minted is the ONE source: padi has written the
- *  file out by now, but a harness that read the disk copy would be a second
- *  answer to "what did they attach" for the day the two disagree. An
- *  attachment that arrives without it is refused rather than sent empty. */
-const base64Of = (one: OrchestratorAttachment): string => {
-  const url = one.dataUrl;
-  const comma = url === null ? -1 : url.indexOf(",");
-  if (url === null || !url.startsWith("data:") || comma === -1) {
+ * THE FILE IS THE ONLY SOURCE, and that is the point rather than an economy:
+ * the base64 cannot ride the `prompt` frame — an oversized frame does not
+ * fail the call, it closes the tab's socket — so the browser uploads in
+ * chunks and hands this end a path. It is also what makes a RESTORED row
+ * sendable: a row read back out of padi's store has a path and nothing else,
+ * and a harness that wanted a `data:` URL refused every "send again" on an
+ * old message.
+ *
+ * A file that is not there is a REFUSAL naming it, not a throw inside a
+ * protocol callback: the attachment was swept, or the state root moved, and a
+ * person who is told which file is missing can attach it again.
+ */
+const bytesOf = async (one: OrchestratorAttachment): Promise<Buffer> => {
+  try {
+    return await readFile(one.path);
+  } catch {
     throw new HarnessRefused(
-      `\`${one.name}\` arrived with no bytes to send`,
+      `\`${one.name}\` is no longer readable at \`${one.path}\`, so there are` +
+        ` no bytes to send`,
       false,
     );
   }
-  const body = url.slice(comma + 1);
-  return url.slice(5, comma).endsWith(";base64")
-    ? body
-    : Buffer.from(decodeURIComponent(body), "utf8").toString("base64");
 };
 
 /** Where the agent can go and find it. A `resource` and a `resource_link` both
  *  NAME the file — the protocol has no block for either without a uri — and
  *  the name is padi's own copy under its state root, which is the only path
  *  that exists on the host the agent is running on. */
-const uriOf = (one: OrchestratorAttachment): string => {
-  if (one.path === null) {
-    throw new HarnessRefused(
-      `\`${one.name}\` has not been written to this host yet, so there is no` +
-        ` file to name`,
-      false,
-    );
-  }
-  return `file://${one.path}`;
-};
+const uriOf = (one: OrchestratorAttachment): string => `file://${one.path}`;
 
 /** A size a person reads, for the two refusals that name one. */
 const sized = (bytes: number): string =>

@@ -140,6 +140,8 @@ import {
   DEFAULT_ORCHESTRATOR_STATE,
   OrchestratorAnswerInputSchema,
   OrchestratorAnswerOutputSchema,
+  OrchestratorAttachInputSchema,
+  OrchestratorAttachOutputSchema,
   OrchestratorEmptySchema,
   OrchestratorFrameSchema,
   OrchestratorPromptInputSchema,
@@ -641,10 +643,18 @@ export * from "./orchestratorSchema.ts";
  *  options · commands · MCP roster · what is still out · open asks · fleet ·
  *  sign-in · refusal), the `orchestratorTranscript` stream (explicit
  *  snapshot-then-deltas over the transcript rows), and the `orchestrator`
- *  procedure namespace (`prompt` · `cancel` · `answer` · `signIn` ·
+ *  procedure namespace (`prompt` · `attach` · `cancel` · `answer` · `signIn` ·
  *  `signInInput` · `signInCancel` · `setOption` · `newSession`). Cell and
  *  namespace merge onto one wire node, the `session` shape. Purely additive:
- *  an older client decodes every member it already knew. */
+ *  an older client decodes every member it already knew.
+ *
+ *  `attach` is the conversation's chunked upload, and it is why an
+ *  attachment is a NAME on the prompt rather than a `data:` URL: the whole
+ *  base64 on one `prompt` frame busts the decoder's 16 MiB cap, which does
+ *  not fail the call but closes the socket with 1009 and takes every
+ *  subscription in the tab with it. Still inside the unreleased 7.1 — the
+ *  version does not move for a member added before the one that declared it
+ *  ever shipped. */
 export const PADI_SURFACE_VERSION = "7.1";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
@@ -2617,6 +2627,18 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       prompt: {
         input: OrchestratorPromptInputSchema,
         output: OrchestratorPromptOutputSchema,
+        error: Schema.Union([OrchestratorUnavailable, OrchestratorRefused]),
+      },
+      /** ONE CHUNK of a file on its way up, ahead of the `prompt` that names
+       *  it. Sequential per attachment: padi appends to one growing file, so
+       *  two chunks in flight interleave and corrupt it with nobody the
+       *  wiser. Refusable because every reason to say no here is one a person
+       *  must read — an id that is not a filename, an `appendTo` that points
+       *  outside the attachments directory, or a file that grew past the
+       *  per-attachment cap as it was written. */
+      attach: {
+        input: OrchestratorAttachInputSchema,
+        output: OrchestratorAttachOutputSchema,
         error: Schema.Union([OrchestratorUnavailable, OrchestratorRefused]),
       },
       cancel: {

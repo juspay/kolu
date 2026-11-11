@@ -252,22 +252,34 @@ export class Transcript {
    *  by task id the two guards would be in two key spaces. */
   #ended = new Set<string>();
   readonly #now: () => number;
+  /** Whether the row the CALLER holds last for this conversation is a break —
+   *  the only thing this instance can know about rows it never minted, and
+   *  exactly what {@link divider}'s guard needs while its own map is empty. */
+  readonly #endsWithDivider: boolean;
 
   /**
-   * The clock and the WATERMARK, both handed in, for the reason every other
-   * rule in this file is a value: the transcript is a data structure with no
-   * agent, no socket and no browser under it.
+   * The clock, the WATERMARK and the one fact about the caller's rows this
+   * class has to know, all handed in, for the reason every other rule in this
+   * file is a value: the transcript is a data structure with no agent, no
+   * socket and no browser under it.
    *
    * `from` is the highest `seq` of the rows somebody ELSE is already holding
    * for this conversation — a resumed one, restored from a store. Every id and
    * every `seq` this instance mints starts after it, so a row minted now can
    * neither collide with a restored row's id nor sort above it. Zero is an
    * empty transcript, which is what a fresh conversation has.
+   *
+   * `endsWithDivider` says that the LAST of those restored rows is already a
+   * break. {@link divider}'s rule is about what a reader sees, and a reader
+   * sees the caller's rows and this instance's together — so a respawned
+   * harness that knew only its own empty map minted a second `— NEW SESSION
+   * —` beside padi's, once per replacement.
    */
-  constructor(from = 0, now: () => number = Date.now) {
+  constructor(from = 0, now: () => number = Date.now, endsWithDivider = false) {
     this.#seq = from;
     this.#minted = from;
     this.#now = now;
+    this.#endsWithDivider = endsWithDivider;
   }
 
   rows(): ReadonlyArray<OrchestratorRow> {
@@ -344,13 +356,21 @@ export class Transcript {
    * say exactly what one says, and the stack of them is what a caller retrying
    * a refused open leaves behind: the owner's screenshot was four
    * `— NEW SESSION —` lines with no conversation between them.
+   *
+   * AND THE ROW BEFORE THE FIRST OF THIS INSTANCE'S IS THE CALLER'S. With an
+   * empty map there is nothing here to compare against, so the seed answers
+   * for it: a harness that replaced a dead one, asked for a new session
+   * before anything was said, would otherwise mint a break beside the one
+   * padi is already holding.
    */
   divider(text: string): {
     readonly key: string | null;
     readonly change: Change;
   } {
     const last = [...this.#rows.values()].at(-1);
-    if (last?.kind === "divider") return { key: null, change: EMPTY };
+    if (last === undefined ? this.#endsWithDivider : last.kind === "divider") {
+      return { key: null, change: EMPTY };
+    }
     return this.#row("divider", text, {});
   }
 

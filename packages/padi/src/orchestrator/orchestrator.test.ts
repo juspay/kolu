@@ -46,7 +46,14 @@ import {
   type OrchestratorAttachment,
   type OrchestratorFrame,
   type OrchestratorRow,
+  PROMPT_ATTACHMENT_BYTE_CAP,
 } from "@kolu/padi-client/surface";
+import {
+  chunkBase64,
+  FRAME_CHUNK_BYTES,
+  frameBytesFor,
+} from "@kolu/surface/frame-chunking";
+import { exceedsFrameLimit } from "@kolu/surface/frame-limit";
 import type { CellStore } from "@kolu/surface/server";
 import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -59,6 +66,7 @@ import { ACP_AGENT_ENV, KOLU_MCP_BIN_ENV } from "./bake.ts";
 import {
   type OrchestratorHost,
   startOrchestratorHost,
+  UNSENT_ATTACHMENT_MS,
 } from "./orchestrator.ts";
 import {
   EMPTY_PERSISTED_ORCHESTRATOR,
@@ -796,82 +804,171 @@ describe("a record that parses but is wrong (R8)", () => {
 });
 
 describe("a prompt's attachments", () => {
-  /** One pixel of PNG, as a browser hands it over. */
+  /** One pixel of PNG, base64 and nothing else — no `data:` prefix, because
+   *  no prompt frame ever carries these bytes. */
   const PIXEL =
-    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
-  const attachment = (
+  /** The chip a prompt carries: a name, a size and the path padi answered
+   *  with. The bytes went up separately, chunk by chunk. */
+  const chip = (
     over: Partial<OrchestratorAttachment> = {},
   ): OrchestratorAttachment => ({
     id: "att-1",
     name: "pixel.png",
     mimeType: "image/png",
-    bytes: 68,
-    dataUrl: PIXEL,
-    path: null,
+    bytes: 70,
+    path: join(root, "orchestrator", "attachments", "att-1"),
     ...over,
   });
 
   let root: string;
+  let dir: string;
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "padi-orch-att-"));
+    dir = join(root, "orchestrator", "attachments");
   });
 
-  it("writes the bytes under the state root and hands the agent the path", async () => {
+  it("takes a file BIGGER THAN ONE FRAME, in pieces, and puts it back together", async () => {
+    // THE DEFECT THIS PINS: the whole base64 on one `prompt` frame. The RPC
+    // decoder does not fail an oversized frame — it closes the socket with
+    // 1009 and takes every subscription in the tab with it. So the test is
+    // not only that the file round-trips, but that no single call it took to
+    // get here would have busted the cap.
     const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
-    await r.host.prompt("look at this", [], [attachment()]);
-    const agent = r.spawns[0];
-    if (agent === undefined) throw new Error("the host spawned nothing");
+    const whole = Buffer.alloc(FRAME_CHUNK_BYTES + 4096, 7);
+    const pieces = chunkBase64(whole.toString("base64"));
+    expect(pieces.length).toBeGreaterThan(1);
 
-    const [first] = agent.handed();
-    const one = first?.[0];
+    let path: string | undefined;
+    let bytes = 0;
+    for (const data of pieces) {
+      expect(exceedsFrameLimit(frameBytesFor(data.length))).toBe(false);
+      const answer = r.host.attach({
+        id: "att-1",
+        name: "big.bin",
+        mimeType: "application/octet-stream",
+        data,
+        ...(path === undefined ? {} : { appendTo: path }),
+      });
+      // The first call CREATES and every later one appends to the path it was
+      // handed — a path that changed under the sender would silently split
+      // one file into two.
+      if (path !== undefined) expect(answer.path).toBe(path);
+      path = answer.path;
+      expect(answer.bytes).toBeGreaterThan(bytes);
+      bytes = answer.bytes;
+    }
+    expect(bytes).toBe(whole.byteLength);
+    expect(readFileSync(join(dir, "att-1")).equals(whole)).toBe(true);
+
+    // ...and the prompt that names it hands the agent that same file.
+    await r.host.prompt("look", [], [chip({ name: "big.bin", bytes: 1 })]);
+    const one = r.spawns[0]?.handed()[0]?.[0];
     if (one === undefined) throw new Error("nothing was handed over");
-    // The PATH is what a `resource_link` names, and the file is there BEFORE
-    // the agent is told about it — a link to a file still being written is a
-    // tool call that fails for a reason nobody can see.
-    expect(one.path).toBe(join(root, "orchestrator", "attachments", "att-1"));
-    expect(readFileSync(one.path as string).length).toBe(70);
-    // ...and the base64 is still ON the value the harness gets: it is the only
-    // byte source an ACP `image` block has.
-    expect(one.dataUrl).toBe(PIXEL);
-    // `bytes` is republished from what was actually written, never carried
-    // over from the sender's claim.
-    expect(one.bytes).toBe(70);
+    expect(one.path).toBe(join(dir, "att-1"));
+    // `bytes` is re-read from the file, never carried over from the claim —
+    // the chip above said 1.
+    expect(one.bytes).toBe(whole.byteLength);
   });
 
-  it("refuses a file bigger than the cap, by what was DECODED rather than by what was claimed", async () => {
+  it("refuses an id that is not a filename, rather than writing where it says", () => {
     const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
-    const big = Buffer.alloc(ATTACHMENT_BYTE_CAP + 1).toString("base64");
-    await expect(
-      r.host.prompt(
-        "here",
-        [],
-        [
-          attachment({
-            name: "huge.bin",
-            mimeType: "application/octet-stream",
-            // The claim is a lie, and the cap is enforced on the bytes.
-            bytes: 1,
-            dataUrl: `data:application/octet-stream;base64,${big}`,
-          }),
-        ],
-      ),
-    ).rejects.toThrow(/at most 10 MiB/);
-    expect(readdirSync(join(root, "orchestrator", "attachments"))).toEqual([]);
+    expect(() =>
+      r.host.attach({
+        id: "../../escaped",
+        name: "escaped",
+        mimeType: "text/plain",
+        data: PIXEL,
+      }),
+    ).toThrow(/not a name this padi will write a file under/);
   });
 
-  it("refuses an id that is not a filename, rather than writing where it says", async () => {
+  it("refuses an `appendTo` that points outside the attachments directory", () => {
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
+    r.host.attach({
+      id: "att-1",
+      name: "pixel.png",
+      mimeType: "image/png",
+      data: PIXEL,
+    });
+    // The continuation token is client-supplied. Trusted, it would turn an
+    // upload into an arbitrary-file append.
+    const victim = join(root, "victim.txt");
+    writeFileSync(victim, "theirs");
+    expect(() =>
+      r.host.attach({
+        id: "att-1",
+        name: "pixel.png",
+        mimeType: "image/png",
+        data: PIXEL,
+        appendTo: victim,
+      }),
+    ).toThrow(/not this attachment's file/);
+    expect(readFileSync(victim, "utf8")).toBe("theirs");
+  });
+
+  it("refuses a file that grows past the per-attachment cap AS IT IS WRITTEN", () => {
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
+    // Each half is legal on its own; together they are one byte over. The
+    // cap has to be enforced on the FILE as it grows, or an unlimited upload
+    // goes through as an unlimited number of legal chunks.
+    const half = Buffer.alloc(ATTACHMENT_BYTE_CAP / 2 + 1, 3).toString(
+      "base64",
+    );
+    const first = r.host.attach({
+      id: "att-1",
+      name: "huge.bin",
+      mimeType: "application/octet-stream",
+      data: half,
+    });
+    expect(() =>
+      r.host.attach({
+        id: "att-1",
+        name: "huge.bin",
+        mimeType: "application/octet-stream",
+        data: half,
+        appendTo: first.path,
+      }),
+    ).toThrow(/at most 10 MiB/);
+    // Dropped rather than left half-written: a file the cap refused must not
+    // be one a prompt can still name.
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it("refuses a MESSAGE whose files come to more than the per-prompt cap", async () => {
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
+    // Three files, each well under the per-attachment cap, that come to more
+    // than one message may carry.
+    const third = Buffer.alloc(
+      Math.ceil(PROMPT_ATTACHMENT_BYTE_CAP / 3) + 1,
+      9,
+    ).toString("base64");
+    const three = ["att-1", "att-2", "att-3"].map((id) => {
+      const answer = r.host.attach({
+        id,
+        name: `${id}.bin`,
+        mimeType: "application/octet-stream",
+        data: third,
+      });
+      return chip({ id, name: `${id}.bin`, ...answer });
+    });
+    await expect(r.host.prompt("all three", [], three)).rejects.toThrow(
+      /at most 20 MiB/,
+    );
+  });
+
+  it("refuses a message naming a file this host no longer holds", async () => {
     const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
     await expect(
-      r.host.prompt("here", [], [attachment({ id: "../../escaped" })]),
-    ).rejects.toThrow(/not a name this padi will write a file under/);
+      r.host.prompt("look", [], [chip({ id: "never-uploaded" })]),
+    ).rejects.toThrow(/no longer on this host/);
   });
 
   it("sweeps files the restored transcript no longer names", async () => {
     // A state-root whose record kept ONE row naming ONE attachment, and two
     // files on disk: the record's row cap trimmed the row the second came in
     // on, and nothing else will ever mention it again.
-    const dir = join(root, "orchestrator", "attachments");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "att-1"), "kept");
     writeFileSync(join(dir, "att-2"), "orphan");
@@ -887,16 +984,7 @@ describe("a prompt's attachments", () => {
             since: "2026-01-01T00:00:00.000Z",
             kind: "user",
             text: "look",
-            attachments: [
-              {
-                id: "att-1",
-                name: "pixel.png",
-                mimeType: "image/png",
-                bytes: 68,
-                dataUrl: null,
-                path: join(dir, "att-1"),
-              },
-            ],
+            attachments: [chip({ bytes: 4, path: join(dir, "att-1") })],
           },
         ],
         fleet: [],
@@ -906,6 +994,57 @@ describe("a prompt's attachments", () => {
     );
     r.host.watch(() => {});
     expect(readdirSync(dir)).toEqual(["att-1"]);
+  });
+
+  it("a REFUSED prompt leaves no file the transcript does not name", async () => {
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
+    const sent = ["att-1", "att-2"].map((id) => {
+      const answer = r.host.attach({
+        id,
+        name: `${id}.png`,
+        mimeType: "image/png",
+        data: PIXEL,
+      });
+      return chip({ id, name: `${id}.png`, ...answer });
+    });
+    // A third file, uploaded and NOT named by the refused message: it belongs
+    // to the composer that is still holding it, and must survive.
+    r.host.attach({
+      id: "att-3",
+      name: "att-3.png",
+      mimeType: "image/png",
+      data: PIXEL,
+    });
+    await expect(
+      r.host.prompt("look", [], [...sent, chip({ id: "gone" })]),
+    ).rejects.toThrow(/no longer on this host/);
+    // The bytes of a message that never went do not sit in the state root
+    // waiting for a daemon restart to notice them.
+    expect(readdirSync(dir)).toEqual(["att-3"]);
+  });
+
+  it("does not keep an upload nobody ever sent", () => {
+    // Only `Date` is faked: the bring-up below is a real socket probe, and a
+    // frozen event loop would hang it.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
+    r.host.attach({
+      id: "att-1",
+      name: "att-1.png",
+      mimeType: "image/png",
+      data: PIXEL,
+    });
+    expect(readdirSync(dir)).toEqual(["att-1"]);
+    // Long enough that nobody is still typing the message it was for. The
+    // next upload — what makes the directory grow — is what reaps it.
+    vi.setSystemTime(Date.now() + UNSENT_ATTACHMENT_MS + 1);
+    r.host.attach({
+      id: "att-2",
+      name: "att-2.png",
+      mimeType: "image/png",
+      data: PIXEL,
+    });
+    expect(readdirSync(dir)).toEqual(["att-2"]);
   });
 });
 
@@ -939,5 +1078,44 @@ describe("a run of NEW SESSION dividers", () => {
     // The FIRST of the run is the one kept: the reset happened there, and a
     // rule that kept the last would draw the line later than the event.
     expect(snapshot.rows.map((one) => one.id)).toEqual(["agent-1", "div-1"]);
+  });
+
+  it("tells a fresh conversation its last row is ALREADY a divider", async () => {
+    // THE DEFECT: `Transcript.divider()` refuses a second consecutive divider
+    // by looking at the rows IT minted, and a respawn builds a fresh one — so
+    // a `newSession` straight after would mint a rule beside padi's last row,
+    // which is already a rule, and the panel would draw two for one reset
+    // until the next daemon read collapsed them. The seed crosses the same
+    // seam `resumedSeq` does.
+    const r = rig({
+      sessionId: "sess-1",
+      cwd: HOME,
+      model: null,
+      rows: [row("agent-1", 1, "you're welcome"), divider("div-1", 2)],
+      fleet: [],
+    });
+    r.host.watch(() => {});
+    await r.host.newSession();
+    const first = r.spawns[0];
+    if (first === undefined) throw new Error("the host spawned nothing");
+    expect(first.options.resumedEndsWithDivider).toBe(true);
+
+    // ...and a REPLACEMENT is told the same thing, read off the rows padi is
+    // still holding rather than off the record it booted from.
+    first.die();
+    await r.host.newSession();
+    expect(r.spawns[1]?.options.resumedEndsWithDivider).toBe(true);
+  });
+
+  it("says so when the last row is NOT a divider — the guard is a fact, not a default", async () => {
+    const r = rig({
+      sessionId: "sess-1",
+      cwd: HOME,
+      model: null,
+      rows: [divider("div-1", 1), row("agent-1", 2, "hello")],
+      fleet: [],
+    });
+    await r.host.newSession();
+    expect(r.spawns[0]?.options.resumedEndsWithDivider).toBe(false);
   });
 });

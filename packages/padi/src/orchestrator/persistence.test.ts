@@ -290,28 +290,30 @@ describe("a record that parses but is wrong", () => {
 });
 
 describe("an attachment's bytes", () => {
-  /** One pixel of PNG, as a browser hands it over. */
+  /** One pixel of PNG, as the browser CUTS it for the wire: base64 and no
+   *  `data:` prefix, because this never rides a prompt frame — it arrives
+   *  through `attach`, in pieces, ahead of the message that names it. */
   const PIXEL =
-    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
   it("land in the state root and NEVER in `config.json`", async () => {
     const first = hostOver(stateRoot);
-    await first.host.prompt(
-      "look at this",
-      [],
-      [
-        {
-          id: "att-1",
-          name: "pixel.png",
-          mimeType: "image/png",
-          bytes: 68,
-          dataUrl: PIXEL,
-          path: null,
-        },
-      ],
-    );
+    const written = first.host.attach({
+      id: "att-1",
+      name: "pixel.png",
+      mimeType: "image/png",
+      data: PIXEL,
+    });
+    const chip = {
+      id: "att-1",
+      name: "pixel.png",
+      mimeType: "image/png",
+      bytes: written.bytes,
+      path: written.path,
+    };
+    await first.host.prompt("look at this", [], [chip]);
     // The harness mints the user row; this one stands in for it, carrying the
-    // attachment the way a real one does — base64 and all.
+    // attachment the way a real one does — a name, a size and a path.
     first.push()({
       kind: "rows",
       upserts: [
@@ -321,16 +323,7 @@ describe("an attachment's bytes", () => {
           since: "2026-01-01T00:00:00.000Z",
           kind: "user",
           text: "look at this",
-          attachments: [
-            {
-              id: "att-1",
-              name: "pixel.png",
-              mimeType: "image/png",
-              bytes: 68,
-              dataUrl: PIXEL,
-              path: join(stateRoot, "orchestrator", "attachments", "att-1"),
-            },
-          ],
+          attachments: [chip],
         },
       ],
       removes: [],
@@ -339,10 +332,9 @@ describe("an attachment's bytes", () => {
     await first.host.dispose();
 
     // The bytes are on disk, once, as bytes.
-    const written = join(stateRoot, "orchestrator", "attachments", "att-1");
-    expect(readFileSync(written).length).toBe(70);
-    // ...and `config.json` carries the chip without them. A second copy
-    // base64'd into the record would be read back in full on every boot, and a
+    expect(readFileSync(written.path).length).toBe(70);
+    // ...and `config.json` carries the chip and nothing else. A copy of the
+    // base64 in the record would be read back in full on every boot, and a
     // single pasted screenshot would be the largest thing in the file.
     const raw = readFileSync(padiConfigPath(stateRoot), "utf8");
     expect(raw).not.toContain("base64");
@@ -350,13 +342,15 @@ describe("an attachment's bytes", () => {
     const config = JSON.parse(raw) as {
       orchestrator: {
         rows: ReadonlyArray<{
-          attachments?: ReadonlyArray<{ dataUrl: string | null; path: string }>;
+          attachments?: ReadonlyArray<Record<string, unknown>>;
         }>;
       };
     };
     const kept = config.orchestrator.rows[0]?.attachments?.[0];
     if (kept === undefined) throw new Error("the row lost its attachment");
-    expect(kept.dataUrl).toBeNull();
-    expect(kept.path).toBe(written);
+    // A RESTORED ROW IS THE SAME SHAPE AS A LIVE ONE — that is what makes
+    // "send again" on an old message read the same file the first send did.
+    expect(kept).toEqual(chip);
+    expect(kept.path).toBe(written.path);
   });
 });
