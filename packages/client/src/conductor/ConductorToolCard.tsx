@@ -168,67 +168,71 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
           const call = props.row.kolu;
           if (call === undefined)
             return <span class="text-fg">{props.row.text}</span>;
-          switch (call.kind) {
-            case "create":
-              return (
-                <>
-                  → <b class="font-semibold">{call.name ?? "terminal"}</b>
-                  <Show when={call.cwd}>
-                    {(cwd) => <span class="text-fg-2"> · {cwd()}</span>}
-                  </Show>
-                  <Show when={call.agent}>
-                    {(agent) => (
-                      <span class="font-mono text-fg-2"> · {agent()}</span>
-                    )}
-                  </Show>
-                </>
-              );
-            case "sendInput":
-              return (
-                <>
-                  <b class="font-semibold">{call.name ?? "terminal"}</b>
-                  <Show when={sentInput(call)}>
-                    {(sent) => (
-                      <span class="font-mono text-fg-2">
-                        {" "}
-                        ←{" "}
-                        {sent().as === "key"
-                          ? sent().value
-                          : `“${sent().value}”`}
-                      </span>
-                    )}
-                  </Show>
-                </>
-              );
-            case "settle":
-              return (
-                <>
-                  <b class="font-semibold">{call.name ?? "terminal"}</b>
-                  <Show when={call.state}>
-                    {(state) => <span class="text-alert"> · {state()}</span>}
-                  </Show>
-                  <Show when={waitedFor(call.elapsedMs)}>
-                    {(waited) => (
-                      <span class="text-fg-2"> after {waited()}</span>
-                    )}
-                  </Show>
-                </>
-              );
-            case "screen":
-              return (
-                <>
-                  <b class="font-semibold">{call.name ?? "terminal"}</b>
-                  <span class="text-fg-2"> · screen</span>
-                </>
-              );
-            case "kill":
-              return (
-                <>
-                  <b class="font-semibold">{call.name ?? "terminal"}</b>
-                  <span class="text-fg-2"> · killed</span>
-                </>
-              );
-          }
+          return (
+            <>
+              {/* WHICH TERMINAL, drawn ONCE. Every arm below used to re-spell
+                  it, so a sixth reading of a call had to re-spell the subject
+                  to say one new thing — and the schema already hoists exactly
+                  this trio (`CALL_SUBJECT`) with that argument written on it.
+                  `create` is the one arm that announces rather than names, so
+                  it keeps its arrow in front. */}
+              <Show when={call.kind === "create"}>→ </Show>
+              <b class="font-semibold">{call.name ?? "terminal"}</b>
+              {(() => {
+                switch (call.kind) {
+                  case "create":
+                    return (
+                      <>
+                        <Show when={call.cwd}>
+                          {(cwd) => <span class="text-fg-2"> · {cwd()}</span>}
+                        </Show>
+                        <Show when={call.agent}>
+                          {(agent) => (
+                            <span class="font-mono text-fg-2">
+                              {" "}
+                              · {agent()}
+                            </span>
+                          )}
+                        </Show>
+                      </>
+                    );
+                  case "sendInput":
+                    return (
+                      <Show when={sentInput(call)}>
+                        {(sent) => (
+                          <span class="font-mono text-fg-2">
+                            {" "}
+                            ←{" "}
+                            {sent().as === "key"
+                              ? sent().value
+                              : `“${sent().value}”`}
+                          </span>
+                        )}
+                      </Show>
+                    );
+                  case "settle":
+                    return (
+                      <>
+                        <Show when={call.state}>
+                          {(state) => (
+                            <span class="text-alert"> · {state()}</span>
+                          )}
+                        </Show>
+                        <Show when={waitedFor(call.elapsedMs)}>
+                          {(waited) => (
+                            <span class="text-fg-2"> after {waited()}</span>
+                          )}
+                        </Show>
+                      </>
+                    );
+                  case "screen":
+                    return <span class="text-fg-2"> · screen</span>;
+                  case "kill":
+                    return <span class="text-fg-2"> · killed</span>;
+                }
+              })()}
+            </>
+          );
         })()}
       </span>
       <span class="flex items-center gap-2 shrink-0">

@@ -214,10 +214,16 @@ export function fleetHostsOver(opts: FleetHostsOptions): FleetHosts {
       const perHost = new Map<string, () => void>();
 
       /** READ the fleet and report whether anything moved since the last
-       *  read: a host left, or a host's word changed. Pure observation — it
-       *  attaches to nothing, which is what makes it safe to run from inside a
-       *  listener. */
-      const fold = (): boolean => {
+       *  read: a host left, or a host's word changed. It attaches to nothing —
+       *  it only drops what left — which is what makes it safe to run from
+       *  inside a listener.
+       *
+       *  NAMED `sweep`, not `fold`: `fold` is the surface map's own envelope
+       *  encoder, imported eight lines up and used by `hostCalls` above. One
+       *  word for two things in the one file whose whole subject is two
+       *  surfaces answering to one name is the confusion this package exists
+       *  to end. */
+      const sweep = (): boolean => {
         let moved = false;
         const live = new Set(pool.hosts());
         for (const [key, off] of perHost) {
@@ -239,7 +245,7 @@ export function fleetHostsOver(opts: FleetHostsOptions): FleetHosts {
       };
 
       /** Listen to every member that is not yet listened to. SEPARATE from
-       *  `fold`, and that separation is the whole trick: `onState` fires its
+       *  `sweep`, and that separation is the whole trick: `onState` fires its
        *  snapshot frame synchronously from inside the attach, so a function
        *  that both attached and reported would re-enter itself mid-loop and
        *  report every host it had not reached yet as newly moved — waking the
@@ -253,20 +259,20 @@ export function fleetHostsOver(opts: FleetHostsOptions): FleetHosts {
           perHost.set(
             key,
             session.onState(() => {
-              if (fold()) cb();
+              if (sweep()) cb();
             }),
           );
         }
       };
 
-      fold();
+      sweep();
       attach();
       const offPool = pool.subscribe(() => {
         // Membership moved by definition — `pool.subscribe` fires only after
-        // `hosts()` reflects it — so the caller is told either way; the fold is
+        // `hosts()` reflects it — so the caller is told either way; the sweep is
         // for the bookkeeping (a departed host's word is forgotten, an arrived
         // host's is recorded before its snapshot can call it news).
-        fold();
+        sweep();
         attach();
         cb();
       });

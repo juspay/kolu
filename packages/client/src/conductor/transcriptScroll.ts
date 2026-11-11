@@ -100,8 +100,3 @@ export function applyTranscriptScroll(el: {
 }): void {
   el.scrollTop = offset() ?? el.scrollHeight;
 }
-
-/** What is remembered, for tests and for nothing else. */
-export function transcriptScrollOffset(): number | null {
-  return offset();
-}

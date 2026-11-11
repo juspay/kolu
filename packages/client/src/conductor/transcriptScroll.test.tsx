@@ -26,11 +26,7 @@ vi.mock("./ConductorDiffs", () => ({ default: () => null }));
 
 import ConductorTranscript from "./ConductorTranscript";
 import type { ConductorRow } from "kolu-common/conductor";
-import {
-  atEnd,
-  pinTranscript,
-  transcriptScrollOffset,
-} from "./transcriptScroll";
+import { atEnd, pinTranscript } from "./transcriptScroll";
 
 const VIEWPORT = 200;
 const COLUMN = 1000;
@@ -143,7 +139,6 @@ describe("the transcript's scroll position", () => {
   it("restores the offset a reader left it at, across a remount", () => {
     const first = mount();
     scrollTo(first, 300);
-    expect(transcriptScrollOffset()).toBe(300);
     unmount();
 
     expect(mount().scrollTop).toBe(300);
@@ -155,7 +150,6 @@ describe("the transcript's scroll position", () => {
     // "at the end", never the pixel — the column is taller next time.
     scrollTo(first, 300);
     scrollTo(first, endOf(COLUMN));
-    expect(transcriptScrollOffset()).toBeNull();
     unmount();
     column += ROW_HEIGHT;
 
@@ -187,7 +181,6 @@ describe("the transcript's follow rule", () => {
     append();
     append();
     expect(scroller.scrollTop).toBe(endOf(column));
-    expect(transcriptScrollOffset()).toBeNull();
     expect(pill()).toBeNull();
   });
 
@@ -198,7 +191,6 @@ describe("the transcript's follow rule", () => {
     append();
     append();
     expect(scroller.scrollTop).toBe(300);
-    expect(transcriptScrollOffset()).toBe(300);
     expect(pill()).not.toBeNull();
   });
 
@@ -209,7 +201,6 @@ describe("the transcript's follow rule", () => {
 
     pill()?.click();
     expect(scroller.scrollTop).toBe(endOf(column));
-    expect(transcriptScrollOffset()).toBeNull();
     expect(pill()).toBeNull();
 
     append();
