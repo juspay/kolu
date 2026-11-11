@@ -288,6 +288,28 @@ therefore scales with that retained per-host view state, the fleet metadata inde
 the number of connected hosts — not with a full canvas for every host. If a multi-host
 session feels heavy, see [kolu is using a lot of memory](/troubleshooting#kolu-is-using-a-lot-of-memory).
 
+### Put the tabs in your own order
+
+**Drag a host tab** along the strip to move it. The tab you dragged lands where
+you dropped it; everything else keeps its relative order, including machines
+currently folded into the **⋯ +N** overflow. A plain click still switches host
+and the connection dot still opens diagnostics; a drag does neither, even when
+you drop the tab back in the slot you picked it up from. The drag itself starts
+only once you have held the tab for a moment or moved it a little, so an
+ordinary click is never mistaken for one.
+
+Your arrangement is saved **on the server, not in the browser**, so every tab,
+browser and device you open kolu from shows the same strip — and so does every
+other place kolu lists machines: the **⋯ +N** menu, the narrow-window host
+dropdown, the phone host row, and the **Hosts** rows in the
+[switcher](/switcher). A machine you add later joins at the **end** rather than
+jumping into the middle; removing one leaves no hole, and a machine you add
+back is a new arrival — it joins at the end like any other.
+
+Your own machine's tab is **pinned first** and is not draggable: it is the one
+host that can never leave the pool, and the escape hatch when a remote is down.
+Only remote tabs move, and nothing can be dropped before the local one.
+
 ## One orchestrator, every host
 
 The canvas shows one host at a time; [the Orchestrator](/orchestrator) does not.
@@ -304,8 +326,9 @@ machines; the `◆ Orchestrator` entry sits in that row **without being one of
 them** — no connection dot, no host hue, no tab chrome — because it is not a
 host and kolu does not model it as one. Selecting it opens the conversation
 (<kbd>⌘⇧O</kbd> does too, and takes you back); selecting any host chip leaves
-it for that machine. Its badge is the violet needs-you count summed across
-every host, not one machine's.
+it for that machine. While it is open **no host tab is lit**: you are not on a
+machine, and a row that still showed one would be saying you were. Its badge is
+the violet needs-you count summed across every host, not one machine's.
 
 <Aside type="note" title="the supervisor lives where you look">
   A remote host has **no orchestrator of its own**. While the machine running

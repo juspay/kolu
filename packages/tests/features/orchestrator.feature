@@ -15,6 +15,13 @@ Feature: The Orchestrator
     # prompt `queued` behind it, and the failure surfaces three scenarios away
     # from its cause. A fresh session is the isolation: the old one is left,
     # the standing prompt is taught again, and nothing is in flight.
+    #
+    # THE GESTURE, as the product now spells it: the `⋯` menu beside the
+    # composer, `New session`, and then a second press to confirm — a wipe is
+    # not something one stray click may do. And it IS a wipe: the transcript
+    # goes empty rather than gaining a `— new session —` divider under the old
+    # rows, so this arrangement is proved by a transcript with no rows in it
+    # and a conversation back at `idle`.
     And the orchestrator is on a fresh conversation
 
   Scenario: Entering the orchestrator gives the chat the whole workspace

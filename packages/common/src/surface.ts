@@ -331,6 +331,18 @@ export const PreferencesSchema = Schema.Struct({
    *  small tab hanging from its bottom-right edge (`true`). One switch for
    *  every tile; it says nothing about which tip shows. */
   tipBarCollapsed: Schema.Boolean,
+  /** The user's HOST TAB arrangement — CANONICAL encoded host keys
+   *  (`encodeHostKey`) in the order their tabs should sit, dragged on the
+   *  desktop host strip. A preference rather than a per-device setting so every
+   *  browser and device shows one arrangement.
+   *
+   *  An OVERLAY on pool membership, never a second membership authority: a
+   *  member this list does not name sorts after the ones it does (in pool
+   *  order), and a key that is no longer a member is ignored — the client's
+   *  `host/hostOrder.ts` owns that fold. The LOCAL host is pinned first and so
+   *  is never stored here, the same rule `PersistedHostsSchema` applies to the
+   *  persisted fleet. */
+  hostOrder: Schema.Array(Schema.String),
 });
 
 /** Preference patch — top-level fields are optional; `rightPanel` is deep-partial.
@@ -459,6 +471,8 @@ export const DEFAULT_PREFERENCES: typeof PreferencesSchema.Type = {
   agentDistro: null,
   agentProfilesRecent: [],
   tipBarCollapsed: false,
+  // Nobody has rearranged yet — pool order, local first.
+  hostOrder: [],
 };
 
 // `applyPreferencesPatch` references `Preferences` / `PreferencesPatch`

@@ -35,7 +35,7 @@ import {
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import { hostMarks } from "../attention/attentionMarks";
 import DocLink from "../ui/DocLink";
-import { padiMap } from "../wire";
+import { hostKeys, padiMap, setActiveHost } from "../wire";
 import { orchestratorMode } from "../orchestrator/useOrchestratorMode";
 import { selectHostTab } from "./selectHostTab";
 import { runAction } from "../runAction";
@@ -44,7 +44,6 @@ import { focusOnMount } from "./focusOnMount";
 import { HostIdentityLabel } from "./HostIdentityLabel";
 import { chipStatusDot, hostGlance, hostHue, hostLabel } from "./hostChipTone";
 import { useHostKavalChain } from "./useHostKaval";
-import { useHostMembers } from "./useHostMembers";
 
 /** One touch chip for a host — a ≥44px hit target; tap switches the canvas. */
 const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
@@ -220,7 +219,6 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
  *  add trigger, and (when open) the in-sheet add section. `onSwitch` closes the
  *  sheet after a switch so the canvas is visible immediately. */
 const MobileHostRow: Component<{ onSwitch: () => void }> = (props) => {
-  const hosts = useHostMembers();
   const [addOpen, setAddOpen] = createSignal(false);
 
   return (
@@ -245,7 +243,7 @@ const MobileHostRow: Component<{ onSwitch: () => void }> = (props) => {
           class="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-1"
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <For each={hosts()}>
+          <For each={hostKeys()}>
             {(host) => <MobileHostChip host={host} onSwitch={props.onSwitch} />}
           </For>
         </div>

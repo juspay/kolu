@@ -98,7 +98,7 @@ string match is:
 | Priority | Kind | Tie-break |
 | --- | --- | --- |
 | 1 | Terminals | Warmth — max(last client visit, server/Dock activity) |
-| 2 | Hosts | Pool order |
+| 2 | Hosts | Your [host order](/remote-hosts#put-the-tabs-in-your-own-order) |
 | 3 | Commands | Existing section order |
 
 So a branch name outranks a host that happens to share a substring, and both
@@ -128,7 +128,8 @@ pointing home.
 
 Which is why a highlighted row part-way down a list is not a bug — the rows
 above it are simply warmer, or ones you visited longer ago. The **Hosts** list
-makes that plainest: it keeps **pool order** and never re-sorts, so the
+makes that plainest: it keeps the order you [arranged the host tabs
+in](/remote-hosts#put-the-tabs-in-your-own-order) and never re-sorts, so the
 highlight is the only thing that moves. In **Terminals** browse the host
 headers are likewise fixed, while the rows inside each host are warmest-first.
 
@@ -174,7 +175,7 @@ a row **switches host if needed and activates** the terminal.
 (one source of truth; there is no separate “Switch host” list). Selecting a
 host re-keys the canvas with no reload — same as the [host strip](/remote-hosts).
 
-The rows stay in **pool order** (a machine list that reshuffles under the cursor
+The rows stay in **your host order** (a machine list that reshuffles under the cursor
 is not one you can learn), and the **highlight** opens on the host you switched
 away from, so **⌘⇧H then Enter** hops between the last two machines the same way
 ⌘/Super+K hops between the last two terminals. Until a tab has switched at least once

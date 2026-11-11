@@ -207,6 +207,19 @@ export function migratePreferences_1_42_0(
   };
 }
 
+/** 1.43.0 — the host-tab arrangement joined preferences. Seeds `hostOrder: []`
+ *  (nobody has rearranged yet, so the strip stays in pool order with the local
+ *  host first) onto a record that has none; a record that already carries one
+ *  is returned untouched. Spelled here rather than read off
+ *  `DEFAULT_PREFERENCES`: a rung says what ITS version did. Exported for
+ *  `state.test.ts`. */
+export function migratePreferences_1_43_0(
+  current: Record<string, unknown>,
+): Record<string, unknown> {
+  if ("hostOrder" in current) return current;
+  return { ...current, hostOrder: [] };
+}
+
 /** 1.32.0 — the new-terminal collapsed DEFAULT moved off `rightPanel.collapsed`
  *  (a write-dead seed jammed next to live geometry) to a top-level
  *  `newTerminalCollapsed` preference beside `newTerminalTheme`. CARRY the old
@@ -357,7 +370,7 @@ function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.43.0";
+const SCHEMA_VERSION = "1.44.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -935,6 +948,17 @@ const CONF_MIGRATIONS = {
       ) as unknown as Preferences,
     );
   },
+  // `hostOrder` — the host-tab arrangement the desktop strip drags — joins
+  // preferences. Seed it empty onto an existing record: nobody has rearranged
+  // yet, so the strip keeps pool order with the local host pinned first.
+  "1.43.0": (store: Conf<PersistedState>) => {
+    store.set(
+      "preferences",
+      migratePreferences_1_43_0(
+        store.get("preferences") as Record<string, unknown>,
+      ) as unknown as Preferences,
+    );
+  },
   // The ORCHESTRATOR moves in. kolu-server hosts kolu's one supervising
   // conversation now — one conversation over every host, rather than one per
   // padi — so the resumable half of it (session id, cwd, chosen model, the
@@ -952,7 +976,11 @@ const CONF_MIGRATIONS = {
   // conversation that is not coming back. padi's orchestrator never shipped in
   // a release, so the only transcripts this declines to inherit are ones a
   // development build wrote.
-  "1.43.0": (store: Conf<PersistedState>) => {
+  //
+  // NUMBERED 1.44.0 rather than 1.43.0: master took that rung for `hostOrder`
+  // while this branch was open, and two rungs with one number is a store that
+  // runs whichever handler the object literal happened to keep.
+  "1.44.0": (store: Conf<PersistedState>) => {
     if (!store.has("orchestrator")) {
       store.set("orchestrator", EMPTY_PERSISTED_ORCHESTRATOR);
     }

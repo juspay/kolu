@@ -72,6 +72,7 @@ import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
 import { groundActiveHost } from "./host/groundActive.ts";
 import { hostReconcileTarget } from "./host/hostReconcile.ts";
+import { orderHostKeys } from "./host/hostOrder.ts";
 import { hostLabel } from "./host/hostChipTone.ts";
 import { persistedPref } from "./persistedPref.ts";
 import { rootProcedures } from "./rpc/rootProcedures.ts";
@@ -522,10 +523,32 @@ const hostScoped = createRoot(() => {
       `Host "${encodeHostKey(departed)}" left the pool — switched to the local host`,
     );
   });
-  // The pool membership, exposed as a plain accessor so the host-switcher
+  // The pool membership IN THE USER'S ARRANGEMENT, exposed so the host-switcher
   // palette group can list hosts off the SAME `members` authority this block
   // holds — no second `entries` subscription in the command layer.
-  const hostKeys = (): HostKey[] => [...members.keys()];
+  // `orderHostKeys` is an OVERLAY (host/hostOrder.ts): membership still decides
+  // WHO is listed, the `hostOrder` preference only WHERE each sits (the local
+  // tab pinned first, unnamed members after the named ones in pool order).
+  // Ordering HERE rather than at each consumer is what keeps the strip, the
+  // overflow menu, the dropdown switcher, the phone row and the palette's Hosts
+  // rows showing one arrangement.
+  //
+  // A MEMO, not a plain function: the fold allocates a Map, two filters and an
+  // array, and its consumers read it several times per build (`commands.tsx`
+  // alone five). One recompute per membership-or-arrangement change, shared.
+  //
+  // An unrelated preference write does NOT recompute it: a cell's value is
+  // merged into a Solid store through `reconcile` (@kolu/surface's one merge
+  // seam, `solid/writeValue.ts`), so reading `.hostOrder` here tracks that
+  // field and nothing else. Measured on a live three-host strip: three
+  // seen-tip writes and a forced reconnect recomputed it zero times, a
+  // `hostOrder` write exactly once.
+  const hostKeys = createMemo(() =>
+    orderHostKeys(
+      [...members.keys()],
+      (preferences.value() ?? DEFAULT_PREFERENCES).hostOrder,
+    ),
+  );
   return {
     connection,
     preferences,
@@ -542,10 +565,20 @@ const hostScoped = createRoot(() => {
  *  join-activation arm), so there is no second `setActiveHost` writer to reason about. */
 export const requestActivateOnJoin = hostScoped.requestActivateOnJoin;
 
-/** The current pool membership as a plain accessor — reads the `members`
- *  authority `hostScoped` already holds, so the host-switcher palette group can
- *  list hosts without opening a second `entries` subscription. */
-export const hostKeys = hostScoped.hostKeys;
+/** The current pool membership IN THE USER'S ARRANGEMENT — the ONE ordered host
+ *  list. Reads the `members` authority `hostScoped` already holds (so no
+ *  surface opens a second `entries` subscription), laid out by the `hostOrder`
+ *  preference through the pure {@link orderHostKeys}, memoised there.
+ *
+ *  EVERY surface that lists hosts reads THIS: the chip strip, the "⋯ +N"
+ *  overflow menu, the narrow dropdown switcher, the phone host row, the
+ *  diagnostics-panel membership guard, the welcome card and the palette's Hosts
+ *  rows — there is no second fold to keep in step.
+ *
+ *  Order is DISPLAY only. Every other consumer keys BY host (`padiMap.entry`,
+ *  `mapArray` over encoded keys, membership scans), so a re-order moves chips
+ *  and nothing else. */
+export const hostKeys: Accessor<HostKey[]> = hostScoped.hostKeys;
 
 /** The ACTIVE host GROUNDED against live membership — the accessor the per-host SCOPE
  *  (`hostScope/hostScopes` → `scopedByEntry`) reads instead of raw `activeHost`: the

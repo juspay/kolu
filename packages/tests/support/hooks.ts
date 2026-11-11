@@ -1260,6 +1260,9 @@ Before(
       agentDistro: null,
       agentProfilesRecent: [],
       tipBarCollapsed: false,
+      // No host arrangement: the strip is in pool order, local pinned first —
+      // what every scenario that lists hosts expects.
+      hostOrder: [],
     });
     // Reset padi's terminals + cells as one retryable transaction. It waits for
     // padi to be live, which is what bounds the tight policy poll that follows.
