@@ -27,8 +27,7 @@
         "@kolu/padi-client"
       ],
       "external": {
-        "@agentclientprotocol/sdk": "^1.3.0",
-        "effect": "catalog:"
+        "@agentclientprotocol/sdk": "^1.3.0"
       }
     },
     "@kolu/agent-distro": {
