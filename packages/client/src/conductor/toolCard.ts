@@ -39,6 +39,54 @@ export function waitedFor(elapsedMs: number | null): string | null {
   return elapsedMs === null ? null : formatElapsedShort(elapsedMs);
 }
 
+/** How deep a payload may nest JSON inside a JSON string before this stops
+ *  unwrapping. Two is what the real traffic needs — an MCP answer arrives as a
+ *  JSON STRING, which the harness then prints with `JSON.stringify`, so the
+ *  text the card holds is a quoted string whose content is a document — and a
+ *  bound rather than a `while (true)` because the input is a remote agent's
+ *  and a hostile one could nest for as long as it liked. */
+const UNWRAP_LIMIT = 2;
+
+/** The folded body, printed rather than dumped.
+ *
+ *  The harness already prints a call's input and output with
+ *  `JSON.stringify(value, null, 2)`, so a STRUCTURED payload arrives here as
+ *  readable lines. What it cannot do anything about is a payload whose content
+ *  is itself JSON carried as a string: `ListMcpResourcesTool` answers 5 KB of
+ *  minified listing as one string value, and stringifying a string gives back
+ *  one 5 KB line with its quotes escaped — unreadable, and (before the card
+ *  learned to wrap) wide enough to push the document past the window.
+ *
+ *  So this unwraps that one case and prints it with the SAME formatter the
+ *  harness used, two-space indent and all — there is no second notion of what
+ *  folded JSON looks like. A block that is not JSON, or whose JSON is a bare
+ *  scalar, is handed back untouched: unquoting `"echo hi"` into `echo hi`
+ *  would be this function editing a payload rather than printing it. */
+export function foldJson(detail: string): string {
+  // TWO BLOCKS, not one: the harness joins a call's input and its output with
+  // a blank line, and the pair is not itself JSON. An indented
+  // `JSON.stringify` never emits a blank line, so that join is the one place
+  // this may split without cutting a document in half.
+  return detail
+    .split("\n\n")
+    .map((block) => {
+      let value: unknown = block;
+      for (let depth = 0; depth < UNWRAP_LIMIT; depth++) {
+        if (typeof value !== "string") break;
+        try {
+          value = JSON.parse(value) as unknown;
+        } catch {
+          break;
+        }
+      }
+      // Only a composite is worth re-printing: anything else either already
+      // reads as itself or is the text the card was given.
+      if (typeof value !== "object" || value === null) return block;
+      return JSON.stringify(value, null, 2);
+    })
+    .join("\n\n");
+}
+
 /** How long a call has been running, as the card's trailing `· 47s`.
  *
  *  Two refusals, both deliberate. A call that is not RUNNING has no clock: a

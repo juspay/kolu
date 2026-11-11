@@ -613,3 +613,205 @@ Then(
     );
   },
 );
+
+/** The folded body of a generic card — the `<pre>` the minified payload lands
+ *  in. It is inside a `<details>`, so it has no layout at all until somebody
+ *  opens it: a measurement taken while it is shut measures `display: none`
+ *  and would pass against the very bug this file is here to catch. */
+const TOOL_DETAIL = '[data-testid="conductor-tool-detail"]';
+
+/** Every box from the payload up to the document, with its own width beside
+ *  the width of what is inside it. A box whose `scrollWidth` exceeds its
+ *  `clientWidth` is one that failed to contain its content; the FIRST such box
+ *  walking up is the link that let the line out, and every box above it is a
+ *  consequence. Reported on pass as well as on failure — the numbers are the
+ *  evidence, not the verdict. */
+async function widthChain(world: KoluWorld): Promise<string> {
+  return await world.page
+    .locator(TOOL_DETAIL)
+    .last()
+    .evaluate((el) => {
+      const style = getComputedStyle(el);
+      const rows: string[] = [
+        `payload: ${el.textContent?.length ?? 0} chars, white-space=${style.whiteSpace} overflow-wrap=${style.overflowWrap} overflow-x=${style.overflowX}`,
+      ];
+      for (
+        let node: HTMLElement | null = el;
+        node !== null;
+        node = node.parentElement
+      ) {
+        const id = node.dataset.testid ?? node.tagName.toLowerCase();
+        rows.push(
+          `${id}: client=${node.clientWidth} scroll=${node.scrollWidth} offset=${node.offsetWidth}`,
+        );
+      }
+      return rows.join("\n");
+    });
+}
+
+When(
+  "I open that tool card's folded payload",
+  async function (this: KoluWorld) {
+    const card = this.page.locator(TOOL_CARD).last();
+    await card.locator("summary").last().click();
+    await this.page
+      .locator(TOOL_DETAIL)
+      .last()
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "that tool card should keep the payload inside it",
+  async function (this: KoluWorld) {
+    const chain = await widthChain(this);
+    this.log(`width chain (payload → document):\n${chain}`);
+    const box = await this.page
+      .locator(TOOL_CARD)
+      .last()
+      .evaluate((el) => {
+        const column = el.parentElement?.parentElement ?? null;
+        return {
+          client: el.clientWidth,
+          scroll: el.scrollWidth,
+          offset: el.offsetWidth,
+          column: column === null ? -1 : column.clientWidth,
+        };
+      });
+    // A pixel of slack for sub-pixel rounding on a fractional device ratio;
+    // the bug this guards is thousands of pixels wide, not one.
+    assert.ok(
+      box.scroll <= box.client + 1,
+      `the card's content is ${box.scroll}px wide inside a ${box.client}px card — the payload escaped it\n${chain}`,
+    );
+    // AND the card itself did not simply GROW to hold the line: a card as wide
+    // as its payload contains it perfectly and still pushes the transcript,
+    // the pane and the document — the failure the assertion above cannot see.
+    assert.ok(
+      box.column > 0 && box.offset <= box.column + 1,
+      `the card is ${box.offset}px wide in a ${box.column}px transcript — the payload widened the card itself\n${chain}`,
+    );
+  },
+);
+
+Then(
+  "that tool card's payload should be readable without scrolling sideways",
+  async function (this: KoluWorld) {
+    // CONTAINED IS NOT ENOUGH. A block with `overflow-x: auto` holds a 5 KB
+    // unbroken line perfectly — 25 000 px of it, reachable only by dragging a
+    // scrollbar inside a 970 px card — and a block with `overflow: hidden`
+    // simply CUTS it, which loses what the agent read. Both pass the
+    // containment assertions above and neither is a readable payload, so this
+    // pins the third thing: the line WRAPPED, so every character is on screen.
+    const blocks = await this.page
+      .locator(`${TOOL_CARD} pre`)
+      .evaluateAll((all) =>
+        all.map((el) => ({
+          id: (el as HTMLElement).dataset.testid ?? "progress",
+          client: el.clientWidth,
+          scroll: el.scrollWidth,
+        })),
+      );
+    assert.ok(blocks.length > 0, "the card has no payload block at all");
+    for (const block of blocks) {
+      assert.ok(
+        block.scroll <= block.client + 1,
+        `${block.id} is ${block.scroll}px wide inside a ${block.client}px block — it did not wrap, so it is readable only by scrolling the block sideways (or, with a hidden overflow, not at all)`,
+      );
+    }
+  },
+);
+
+/** WHAT IS STICKING OUT, by name. A document that scrolls sideways says only
+ *  that something does; the fix needs the element, so this walks every box and
+ *  reports the ones whose right edge is past the window — innermost first,
+ *  which is where the line actually escaped. */
+async function pastTheWindow(world: KoluWorld): Promise<string> {
+  return await world.page.evaluate(() => {
+    const width = document.documentElement.clientWidth;
+    const out: string[] = [];
+    for (const el of document.querySelectorAll<HTMLElement>("body *")) {
+      const right = el.getBoundingClientRect().right;
+      if (right <= width + 1) continue;
+      const id = el.dataset.testid ?? el.tagName.toLowerCase();
+      out.push(
+        `${id} (${(el.getAttribute("class") ?? "").slice(0, 80)}): right=${Math.round(right)} offset=${el.offsetWidth}`,
+      );
+    }
+    return out.length === 0
+      ? "(nothing)"
+      : out.reverse().slice(0, 12).join("\n");
+  });
+}
+
+Then(
+  "the page should be no wider than the window",
+  async function (this: KoluWorld) {
+    const doc = await this.page.evaluate(() => ({
+      scroll: document.documentElement.scrollWidth,
+      client: document.documentElement.clientWidth,
+    }));
+    this.log(`past the window (${doc.scroll} vs ${doc.client})`);
+    assert.equal(
+      doc.scroll,
+      doc.client,
+      `the document scrolls to ${doc.scroll}px in a ${doc.client}px window — something inside the pane is pushing it wider\n${await pastTheWindow(this)}\n${await widthChain(this)}`,
+    );
+  },
+);
+
+/** THE CHROME BAR'S OWN ARITHMETIC, measured. The row is a flex line whose
+ *  only shrinkable member is the host strip; everything else — the identity
+ *  rail, the `◆ Conductor beta` pill, the control cluster — is `shrink-0`. So
+ *  two facts matter and this step pins both: the row FITS the window, and the
+ *  strip's own measured width (the budget `computeVisibleHosts` folds tabs
+ *  against) is exactly what is LEFT once the others have taken theirs. The
+ *  second is the premise the fold rests on — a conductor entry that stopped
+ *  being counted would make the strip claim room it does not have and the
+ *  tabs would collide with the pill instead of folding. */
+Then("the chrome bar should fit the window", async function (this: KoluWorld) {
+  const bar = await this.page.locator(CHROME_BAR).evaluate((el) => {
+    const style = getComputedStyle(el);
+    const kids = [...el.children].map((child) => child as HTMLElement);
+    return {
+      client: el.clientWidth,
+      scroll: el.scrollWidth,
+      // The row's own geometry, read off the element rather than copied
+      // from the markup: padding and the flex gap are what separate the
+      // members, and a step that assumed them would pass through a restyle.
+      chrome:
+        Number.parseFloat(style.paddingLeft) +
+        Number.parseFloat(style.paddingRight) +
+        Number.parseFloat(style.columnGap) * (kids.length - 1),
+      parts: kids.map((kid) => ({
+        id:
+          kid.dataset.testid ??
+          (kid.querySelector("[data-testid]") as HTMLElement | null)?.dataset
+            .testid ??
+          kid.tagName.toLowerCase(),
+        width: kid.getBoundingClientRect().width,
+      })),
+    };
+  });
+  const seated = bar.parts.reduce((sum, part) => sum + part.width, 0);
+  const report = `chrome bar: client=${bar.client} scroll=${bar.scroll} chrome=${bar.chrome} parts=${bar.parts
+    .map((part) => `${part.id}=${Math.round(part.width)}`)
+    .join(" ")}`;
+  // A host tab's own rendered width, logged beside the budget: it is the
+  // number the fold arithmetic is fed, and the one a unit test asserting the
+  // five-host fold has to use if it is to mean anything.
+  const chip = await this.page
+    .locator(HOST_TAB)
+    .first()
+    .evaluate((el) => Math.round(el.getBoundingClientRect().width))
+    .catch(() => -1);
+  this.log(`${report} chip=${chip}`);
+  assert.ok(
+    bar.scroll <= bar.client + 1,
+    `the chrome bar's content is ${bar.scroll}px wide in a ${bar.client}px row — ${report}`,
+  );
+  assert.ok(
+    Math.abs(seated + bar.chrome - bar.client) <= 1,
+    `the chrome bar's members and its own padding come to ${Math.round(seated + bar.chrome)}px in a ${bar.client}px row — the host strip's budget is not the row's leftover, so the tab fold is computing against room something else is using\n${report}`,
+  );
+});

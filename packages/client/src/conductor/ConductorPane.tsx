@@ -150,7 +150,12 @@ const ConductorPane: Component<{
       // beside the canvas instead of covering it. Every caller must therefore
       // pass a positioned class: the drop overlay below is `absolute inset-0`
       // against this element.
-      class={`flex flex-col min-w-0 min-h-0 bg-surface-0 ${props.class ?? ""}`}
+      // `overflow-x-hidden` is the BACKSTOP, not the fix: the transcript and
+      // every card hold their own width (see `ConductorToolCard`), and this is
+      // what keeps a future card that forgets from reaching the DOCUMENT —
+      // where the damage is not a wide pane but a window whose chrome bar and
+      // composer have been pushed off the right-hand edge.
+      class={`flex flex-col min-w-0 min-h-0 overflow-x-hidden bg-surface-0 ${props.class ?? ""}`}
     >
       <Show when={dropping()}>
         <div

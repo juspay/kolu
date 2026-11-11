@@ -734,6 +734,35 @@ const HostSelectorStrip: Component = () => {
   // The "+ add a host" affordance is always present now, so its width is always
   // reserved from the chips' fit budget.
   const chipsBudget = createMemo(() => containerWidth() - ADD_BUTTON_RESERVE);
+  /** THE ROW'S OWN TRAILING ENTRY — `◆ Conductor beta`, whole, tag included.
+   *
+   *  It shares this row and is not a host: it never folds, so every pixel it
+   *  occupies is a pixel the chips must not seat into, or the tabs run into
+   *  the pill instead of folding into `⋯ +N`. It is MEASURED off the live
+   *  entry rather than copied from its markup as a constant — the beta tag is
+   *  exactly the part such a copy forgets, and the pill's width changes with
+   *  the type it renders.
+   *
+   *  What is measured is the entry's LEFT EDGE against this strip's box, not
+   *  its bare width, and that is the whole correctness argument: the header
+   *  lays the pill out as a `shrink-0` sibling of this strip, so in the
+   *  ordinary case the row has ALREADY kept its room clear and the reserve is
+   *  zero — subtracting the pill's width again there would fold a tab that
+   *  fits. The number goes positive exactly when the entry sits over this
+   *  strip's box (a pill wider than the leftover, a re-layout that has not
+   *  settled, chrome that pins it over the row), which is the case where a
+   *  seated tab would collide. Re-read whenever the row's geometry moves. */
+  const conductorReserve = createMemo(() => {
+    const width = containerWidth();
+    const strip = containerRef;
+    const entry = document.querySelector<HTMLElement>(
+      '[data-testid="conductor-tab"]',
+    );
+    if (strip === undefined || entry === null) return 0;
+    const clear =
+      entry.getBoundingClientRect().left - strip.getBoundingClientRect().left;
+    return Math.max(0, width - clear);
+  });
   // `hostFit()` returns fresh `{visible, overflowed}` arrays of CANONICAL string
   // keys on every recompute (it re-runs whenever `activeHost()` changes, even
   // when the outcome is identical). Rendering directly off those STRINGS
@@ -751,6 +780,7 @@ const HostSelectorStrip: Component = () => {
       encodeHostKey(activeHost()),
       chipsBudget(),
       OVERFLOW_TRIGGER_RESERVE,
+      conductorReserve(),
     ),
   );
 

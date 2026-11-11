@@ -57,17 +57,28 @@ const allVisible = (order: readonly HostFit[]): OverflowResult => ({
  * the chips don't all fit; reserving it unconditionally would waste room in
  * the common all-fit case, so this function tries the FULL budget first and
  * only falls back to `containerWidth - trailingReserve` once that fails.
+ *
+ * `pinnedReserve` is the room the row's OWN trailing entry needs — the
+ * `◆ Conductor beta` pill, whole, tag included. It is not a host and never
+ * folds, so whatever it takes is room the chips never had: it comes off the
+ * budget BEFORE anything is seated, which is what makes the tabs fold into
+ * `⋯ +N` rather than run into the pill. It is a MEASURED width the caller
+ * reads off the live entry (never a constant copied from its markup — the
+ * beta tag's own width would be the first thing such a copy forgot), and it
+ * is zero on a chrome that has no such entry.
  */
 export function computeVisibleHosts(
   order: readonly HostFit[],
   activeKey: string,
   containerWidth: number,
   trailingReserve: number,
+  pinnedReserve: number,
 ): OverflowResult {
+  const room = containerWidth - pinnedReserve;
   const total = order.reduce((sum, h) => sum + h.width, 0);
-  if (total <= containerWidth) return allVisible(order);
+  if (total <= room) return allVisible(order);
 
-  const budget = containerWidth - trailingReserve;
+  const budget = room - trailingReserve;
 
   // Greedy PREFIX fit, in the GIVEN (arranged) order — chips fill front-to-back,
   // stopping at the first one that would exceed the budget. A prefix (not a

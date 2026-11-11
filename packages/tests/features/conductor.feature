@@ -167,6 +167,68 @@ Feature: The Conductor
     Then the conductor transcript should show a "generic" tool card
     And there should be no page errors
 
+  Scenario: A minified 5 KB payload stays inside its card
+    # THE SHAPE THAT BROKE THE LAYOUT: `ListMcpResourcesTool` answers with its
+    # JSON as one minified line, and such a line holds no break opportunity at
+    # all where a value is a long hash — so nothing in it is a place a browser
+    # may wrap. A card that neither wraps nor contains it is as wide as the
+    # line, and because every box between it and the document is a flex or
+    # grid child whose default `min-width: auto` refuses to shrink below its
+    # content, the TRANSCRIPT, the PANE and then the DOCUMENT all become that
+    # wide. What the reader sees is the chrome bar's right cluster pushed off
+    # the window and a stray rule down the middle of the screen — symptoms
+    # three layers away from the card that caused them.
+    #
+    # THE PAYLOAD IS MEASURED OPENED, because a `<details>` that is shut has no
+    # layout: a closed-card measurement reads `display: none` and would pass
+    # against any markup at all. For the same reason this assertion lives HERE
+    # and not in the client's unit lane — happy-dom has no layout engine, so
+    # every width it reports is zero and `scrollWidth <= clientWidth` is true
+    # there however broken the card is.
+    #
+    # THE THREE THINGS ASSERTED ARE DIFFERENT. A block with `overflow-x: auto`
+    # CONTAINS a 25 000 px line and is unreadable; a block with
+    # `overflow: hidden` CUTS it and loses what the agent read. Both satisfy
+    # containment, so readability (the line wrapped) is its own assertion.
+    When I create a terminal
+    And I enter conductor mode
+    And I send the conductor the prompt "list the resources"
+    Then the conductor transcript should show a "generic" tool card
+    When I open that tool card's folded payload
+    Then that tool card should keep the payload inside it
+    And that tool card's payload should be readable without scrolling sideways
+    And the page should be no wider than the window
+    # AND AT NARROWING WINDOWS, down to the width below which this chrome is
+    # swapped for the phone layout. Each step measures two things: that nothing
+    # in the pane has pushed the document past the window, and that the chrome
+    # bar's own row still fits — the row whose right cluster went off screen in
+    # the report this scenario comes from.
+    #
+    # WHAT THIS LANE CANNOT PROVE: the worker holds ONE padi (`local`), the
+    # same limit `ports.feature` states for its remote leg, so the host strip
+    # here has a single tab and never folds. The five-host fold — tabs going
+    # into `⋯ +N` before anything collides — is pinned without a machine in
+    # `packages/client/src/host/hostOverflow.test.ts`, against the same pure
+    # function the strip calls with real measured widths. What IS proved here
+    # is the arithmetic's INPUT: the strip's measured width is the row's true
+    # leftover after the identity rail, the `◆ Conductor beta` pill and the
+    # control cluster have taken theirs, which is the premise that fold rests
+    # on and the one a second entry in the row could silently break.
+    When I resize the viewport to 1024x768
+    Then that tool card should keep the payload inside it
+    And the page should be no wider than the window
+    And the chrome bar should fit the window
+    When I resize the viewport to 820x768
+    Then the page should be no wider than the window
+    And the chrome bar should fit the window
+    When I resize the viewport to 700x768
+    Then the page should be no wider than the window
+    And the chrome bar should fit the window
+    When I resize the viewport to 660x768
+    Then the page should be no wider than the window
+    And the chrome bar should fit the window
+    And there should be no page errors
+
   Scenario: A question the agent asks is answered from the transcript
     When I create a terminal
     And I enter conductor mode

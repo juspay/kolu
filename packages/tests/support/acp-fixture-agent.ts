@@ -19,6 +19,10 @@
  *                      host and a terminal that really exist
  *   use its own tool — a call named the way an agent's OWN tool is named, which
  *                      must get the generic card and never a kolu reading
+ *   list the resources — a tool whose answer is 5 KB of MINIFIED JSON on one
+ *                      line with no space in it, i.e. no place a browser may
+ *                      break: the payload that pushed the whole document
+ *                      wider than the window
  *   ask me something — a form elicitation, which stops the turn until a person
  *                      answers; the turn ends when they do
  *   work slowly      — a turn that stays open long enough for a second prompt
@@ -274,6 +278,30 @@ const reportServers = (): void => {
   });
 };
 
+/** A MINIFIED MCP RESOURCE LISTING, the shape that broke the layout — copied
+ *  from the listing the owner's own deploy printed, character classes and all.
+ *
+ *  `ListMcpResourcesTool` answers with its JSON as ONE STRING, minified. What
+ *  makes it lethal is not its length but that it holds NO BREAK OPPORTUNITY:
+ *  quotes forbid a break on either side of the commas and colons between them
+ *  (UAX #14 LB19), so a browser may not wrap this line anywhere, however much
+ *  room it is given. A HYPHEN or a space anywhere in it would let the text
+ *  wrap and the bug would not reproduce — which is exactly what happened to
+ *  the first version of this fixture, whose `terminals-0` names wrapped
+ *  harmlessly. 5 KB is the size the owner's deploy produced with five hosts. */
+const WIDE_PAYLOAD = ((): string => {
+  // One value with NO punctuation in it at all: a 4 KB run of hex, the shape a
+  // commit/closure hash takes when something concatenates a list of them. Not
+  // one character of it is a place a browser may break, so a block that holds
+  // it has to scroll or be told to break mid-word — wrapping alone cannot.
+  const unbreakable = "a1b2c3d4e5f6".repeat(340);
+  const entry =
+    '{"name":"terminals","uri":"surface://collections/terminals","mimeType":"application/json","server":"kolu"}';
+  let body = `{"sha":"${unbreakable}"}`;
+  while (body.length < 5_120) body += `,${entry}`;
+  return `[${body}]`;
+})();
+
 const turn = async (id: unknown, text: string): Promise<void> => {
   reportServers();
   if (text === "refuse this") {
@@ -360,6 +388,31 @@ const turn = async (id: unknown, text: string): Promise<void> => {
       status: "completed",
       rawInput: { command: "echo hi" },
       _meta: { claudeCode: { toolName: "Bash" } },
+    });
+    endTurn(id);
+    return;
+  }
+  if (text === "list the resources") {
+    // ONE UNBROKEN LINE, on purpose. The card folds this into its `<details>`
+    // body, and the body is the only thing standing between a 5 KB line with
+    // no break opportunity in it and a document wider than the window.
+    update({
+      sessionUpdate: "tool_call",
+      toolCallId: "call-resources",
+      title: "ListMcpResources",
+      kind: "read",
+      status: "completed",
+      rawInput: { server: "kolu" },
+      rawOutput: WIDE_PAYLOAD,
+      // BOTH CHANNELS AN MCP ANSWER REACHES A CARD BY, because they land in two
+      // different blocks with two different sets of rules: `rawOutput` is
+      // folded into the `<details>` (escaped, by `detailOf`), while the content
+      // block becomes the card's `progress` pre — the RAW line, unescaped,
+      // which is the one the owner's deploy printed across the window.
+      content: [
+        { type: "content", content: { type: "text", text: WIDE_PAYLOAD } },
+      ],
+      _meta: { claudeCode: { toolName: "ListMcpResourcesTool" } },
     });
     endTurn(id);
     return;

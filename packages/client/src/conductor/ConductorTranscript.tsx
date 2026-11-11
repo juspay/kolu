@@ -89,7 +89,12 @@ const ConductorTranscript: Component<{
       // behind. Recording on unmount instead would read a detached element,
       // whose scrollTop browsers are free to have already reset.
       onScroll={(event) => rememberTranscriptScroll(event.currentTarget)}
-      class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2.5 px-4 py-3"
+      // `min-w-0` + `overflow-x-hidden`: this column is a flex child of the
+      // pane, and a flex child floors at its CONTENT unless told otherwise —
+      // one card holding an unbroken line would make the column, and then the
+      // document, as wide as that line. The hidden axis is the backstop: a row
+      // that overflows anyway is clipped here instead of reaching the page.
+      class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden flex flex-col gap-2.5 px-4 py-3"
     >
       <Show when={props.error}>
         {(err) => (
@@ -124,6 +129,10 @@ function TranscriptRow(props: { row: ConductorRow; repeat: number }) {
       data-testid="conductor-row"
       data-row-kind={props.row.kind}
       data-row-id={props.row.id}
+      // A row is a flex item of the column above, so it needs the same floor
+      // released — without it the row passes its card's content width straight
+      // up and the `min-w-0` above has nothing to do.
+      class="min-w-0"
       classList={{ "self-end max-w-[86%]": props.row.kind === "user" }}
     >
       <Switch>

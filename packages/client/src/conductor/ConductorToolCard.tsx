@@ -22,7 +22,7 @@ import { hostLabel } from "../host/hostChipTone";
 import { selectHostTab } from "../host/selectHostTab";
 import { getClockNow } from "../time/clock";
 import ConductorDiffs from "./ConductorDiffs";
-import { runningFor, sentInput, waitedFor } from "./toolCard";
+import { foldJson, runningFor, sentInput, waitedFor } from "./toolCard";
 
 const STATUS_MARK: Record<ConductorToolRow["status"], string> = {
   pending: "·",
@@ -90,19 +90,35 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
 
   /** The folded body — a screen tail, a snapshot, or the call's own JSON. One
    *  `<details>` for all three, because they are the same affordance: the card
-   *  says what happened, and this is the evidence under it. */
+   *  says what happened, and this is the evidence under it.
+   *
+   *  IT WRAPS, rather than scrolling sideways. A minified tool payload is one
+   *  line with no space in it — `ListMcpResourcesTool` answers 5 KB that way —
+   *  and `pre-wrap` alone cannot break a run of characters that holds no break
+   *  opportunity, so the line stayed 25 000 px wide inside a 970 px block and
+   *  was reachable only by scrolling the block sideways. `wrap-anywhere`
+   *  (`overflow-wrap: anywhere`) lets the break land mid-token, which is the
+   *  right trade for a payload somebody opened deliberately to READ: every
+   *  character is on screen, and the card keeps its width.
+   *
+   *  `min-w-0` on the `<details>` is the structural half. It is a grid item,
+   *  and a grid item's default `min-width: auto` refuses to shrink below its
+   *  content — so a body that ever stopped being a scroll container (as the
+   *  `<pre>`'s `overflow-auto` makes it) would push the card, the transcript
+   *  and the document wider in one step. The containment must not depend on
+   *  which overflow value the next edit happens to leave here. */
   const folded = (summary: string, body: string | null) => (
     <Show when={body}>
       {(text) => (
-        <details class="col-span-full">
+        <details class="col-span-full min-w-0">
           <summary class="font-mono text-[0.65rem] text-fg-3 cursor-pointer">
             {summary}
           </summary>
           <pre
             data-testid="conductor-tool-detail"
-            class="mt-1.5 max-h-64 overflow-auto rounded-md bg-surface-0 px-2.5 py-2 font-mono text-[0.65rem] leading-relaxed whitespace-pre-wrap text-fg-2"
+            class="mt-1.5 max-h-64 overflow-auto rounded-md bg-surface-0 px-2.5 py-2 font-mono text-[0.65rem] leading-relaxed whitespace-pre-wrap wrap-anywhere text-fg-2"
           >
-            {text()}
+            {foldJson(text())}
           </pre>
         </details>
       )}
@@ -115,7 +131,13 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
       data-tool-kind={props.row.kolu?.kind ?? "generic"}
       data-host={props.row.kolu?.host ?? undefined}
       data-status={props.row.status}
-      class="grid grid-cols-[auto_1fr_auto] items-center gap-x-2.5 gap-y-1.5 rounded-lg border border-edge bg-surface-1 px-2.5 py-1.5 text-xs"
+      // `minmax(0, 1fr)` for the title column and `min-w-0` on the card: a
+      // `1fr` track and a grid item both floor at their CONTENT by default, so
+      // one long title or one unbroken payload line would size the card, the
+      // card would size the transcript, and the transcript would size the
+      // document. Written here rather than relied on from the parent because
+      // the card is the box that must hold a tool's output whatever it is.
+      class="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-1.5 rounded-lg border border-edge bg-surface-1 px-2.5 py-1.5 text-xs"
     >
       <span class="font-mono text-[0.62rem] font-semibold text-fg-3 bg-surface-2 rounded px-1.5 py-px">
         {props.row.tool ?? props.row.server ?? "tool"}
@@ -262,7 +284,13 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
       })()}
       <Show when={props.row.progress}>
         {(progress) => (
-          <pre class="col-span-full font-mono text-[0.65rem] text-fg-3 whitespace-pre-wrap max-h-24 overflow-hidden">
+          // LIVE CONTENT, wrapped and height-capped. The vertical clip is the
+          // point — this is a tail, not a transcript — but a horizontal one
+          // was a silent loss: an MCP answer arrives here as one minified line
+          // and `overflow-hidden` CUT it at the card's edge, so what the agent
+          // read was simply gone. `wrap-anywhere` breaks it mid-token instead,
+          // which keeps every character on screen and the card at its width.
+          <pre class="col-span-full min-w-0 font-mono text-[0.65rem] text-fg-3 whitespace-pre-wrap wrap-anywhere max-h-24 overflow-hidden">
             {progress()}
           </pre>
         )}
