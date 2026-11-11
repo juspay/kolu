@@ -3511,3 +3511,56 @@ retirements:
       file: packages/tests/features/session-restore.feature
       symbol: "Scenario: Restore card surfaces resumable agents behind a global resume toggle"
       test: The renamed scenario still asserts the resume toggle and the per-terminal agent lines; it now plants structured restore targets instead of captured commands.
+  - id: revise-9e52cad41649090598e9
+    revisionId: revision-9e52cad41649090598e9
+    action: revised
+    status: landed
+    promise: Entering the orchestrator gives the conversation the main pane
+    defectSurface: [orchestrator, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-bda94bd6c2bb3a7c5305]
+    sameCodePathEvidence:
+      file: packages/tests/features/orchestrator.feature
+      symbol: "Scenario: Entering the orchestrator gives the chat the whole workspace"
+      test: Same chord, same enter-and-leave journey. Two steps changed because the surfaces they named stopped existing - the mode control's third segment is now the chrome bar's own entry, and the dock is no longer mounted beside the chat (the view is chat only), so "the dock should be a sidebar" asserted a layout the product deliberately deleted. The survivor measures the pane's own box instead, which is the honest form of the same promise.
+  - id: revise-38206b3222619ff37c70
+    revisionId: revision-38206b3222619ff37c70
+    action: revised
+    status: landed
+    promise: A question the agent asks is answered from the transcript and counted on the badge
+    defectSurface: [orchestrator, attention-alerts]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-1b37af1f846b515ac92f]
+    sameCodePathEvidence:
+      file: packages/tests/features/orchestrator.feature
+      symbol: "Scenario: A question the agent asks is answered from the transcript"
+      test: Identical elicitation round trip and identical badge arithmetic; only where the badge is READ moved, from the deleted `mode-orchestrator` segment to the `orchestrator-tab` entry that replaced it. The count, the answer and the come-off-at-zero rule are unchanged.
+  - id: revise-f6aacaa497187c947b76
+    revisionId: revision-f6aacaa497187c947b76
+    action: revised
+    status: landed
+    promise: An unanswered question is counted where the orchestrator has no pane
+    defectSurface: [orchestrator, attention-alerts]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-889b840830609ad8212b]
+    sameCodePathEvidence:
+      file: packages/tests/features/orchestrator.feature
+      symbol: "Scenario: An unanswered question is a needs-you source from the tab row"
+      test: The same claim with its name corrected — the orchestrator is no longer a view MODE that canvas and maximized sit beside, so "in canvas mode" named a thing the product does not have. Leaving the conversation for a host tab is the same state the old wording meant, and the badge is still read with the pane unmounted.
+  - id: revise-9dfd9e5c62cf86fb1f40
+    revisionId: revision-9dfd9e5c62cf86fb1f40
+    action: revised
+    status: landed
+    promise: A terminal the orchestrator touched can be reached from the conversation
+    defectSurface: [orchestrator, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-a34c7a8165e860b824c1]
+    sameCodePathEvidence:
+      file: packages/tests/features/orchestrator.feature
+      symbol: "Scenario: A tool card names the host it acted on, and opens that tile"
+      test: The fleet list and the peek pane this revision clicked through are DELETED with the one-conversation cutover — the view is chat only, and a terminal is reached by switching to the host tab it lives on. No coverage is orphaned, because the surviving scenario makes the same journey through the affordance that replaced them, pressing the tool card's "open tile" and asserting the conversation is left and that terminal's tile is the focused one.
+

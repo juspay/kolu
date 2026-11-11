@@ -909,19 +909,19 @@ async function startServerChild(koluServer: string): Promise<void> {
           ...(process.env.KOLU_E2E_PADI_HOST_SEED
             ? { KOLU_PADI_HOST: process.env.KOLU_E2E_PADI_HOST_SEED }
             : {}),
-          // THE ORCHESTRATOR'S ADAPTER. A nix-built kolu BAKES both of these
-          // onto padi's wrapper; a from-source e2e run has no wrapper, so the
-          // server forwards whatever it was given (padiBinding's
-          // `ORCHESTRATOR_BAKE_ENVS` loop). `KOLU_ACP_AGENT` is the scripted
-          // ACP agent in `support/`, run through this node — the orchestrator
-          // the browser talks to is a real subprocess speaking the real
-          // protocol, not a stubbed store. `KOLU_MCP_BIN` is the same `kolu`
-          // binary the harness just spawned the server from: the fixture never
-          // calls a kolu tool, but the harness builds the session's one MCP
-          // server entry before it opens, and a path that is not there is an
-          // honest refusal rather than a thing to work around.
+          // THE ORCHESTRATOR'S ADAPTER. kolu-server hosts the one conversation
+          // now, so the nix wrapper that bakes `KOLU_ACP_AGENT` is `koluBin` —
+          // the very binary this harness spawns — and a from-source e2e run has
+          // no wrapper at all, so the value has to arrive here. It is the
+          // scripted ACP agent in `support/`, run through this node: the
+          // orchestrator the browser talks to is a real subprocess speaking the
+          // real protocol, not a stubbed store. The bake is `--set-default`
+          // precisely so this line wins.
+          //
+          // `KOLU_MCP_BIN` is GONE with the hosting move: the session's one MCP
+          // server is kolu-server's own loopback HTTP face, so there is no
+          // `kolu mcp` child to name and no path to forward.
           KOLU_ACP_AGENT: `${process.execPath} ${acpFixtureAgent}`,
-          KOLU_MCP_BIN: koluServer,
         },
       },
     );

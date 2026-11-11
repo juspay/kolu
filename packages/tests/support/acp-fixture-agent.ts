@@ -13,9 +13,9 @@
  * is small and each entry exists for one scenario:
  *
  *   say hello        — prose, so a round trip has something to assert
- *   adopt <id>       — a `lifecycle_create` call answering with THAT terminal
- *                      id, so the fleet row and the peek pane are about a
- *                      terminal that really exists
+ *   adopt <id>       — a `lifecycle_create` call naming its host and answering
+ *                      with the fleet ref `local/<id>`, so the card names a
+ *                      host and a terminal that really exist
  *   use its own tool — a call named the way an agent's OWN tool is named, which
  *                      must get the generic card and never a kolu reading
  *   ask me something — a form elicitation, which stops the turn until a person
@@ -144,20 +144,32 @@ const turn = async (id: unknown, text: string): Promise<void> => {
   }
   if (text.startsWith("adopt ")) {
     const terminalId = text.slice("adopt ".length).trim();
+    // THE FLEET GRAMMAR, both halves. One conversation covers every host, so
+    // `lifecycle_create` is the call that NAMES its host (it has no terminal
+    // yet to carry one) and answers with a `host/id` ref. The suite's worker
+    // has exactly one padi, so that host is `local` — but the shape is the
+    // fleet's, which is what the card reads to say which machine the agent
+    // typed on and which tab its *open tile* goes to. A bare id here would
+    // leave the card hostless and nothing to open.
     update({
       sessionUpdate: "tool_call",
       toolCallId: "call-create",
       title: "lifecycle_create",
       kind: "other",
       status: "in_progress",
-      rawInput: { name: "fix-parser", cwd: "/tmp/kolu-e2e", agent: "claude" },
+      rawInput: {
+        name: "fix-parser",
+        cwd: "/tmp/kolu-e2e",
+        agent: "claude",
+        host: "local",
+      },
       _meta: { claudeCode: { toolName: "mcp__kolu__lifecycle_create" } },
     });
     update({
       sessionUpdate: "tool_call_update",
       toolCallId: "call-create",
       status: "completed",
-      rawOutput: { id: terminalId },
+      rawOutput: { id: `local/${terminalId}` },
     });
     endTurn(id);
     return;
@@ -234,9 +246,17 @@ process.stdin.on("data", (chunk: string) => {
     }
     switch (message.method) {
       case "initialize":
+        // `promptCapabilities.image` is OPT-IN at the AGENT's end in ACP, and
+        // the harness refuses a picture nobody advertised for — before any row
+        // is minted, so a fixture that stayed silent here made a pasted image
+        // vanish with only a toast to say why. This end can take one: the
+        // image block rides the prompt and the turn answers as usual.
         respond(message.id, {
           protocolVersion: 1,
-          agentCapabilities: { loadSession: true },
+          agentCapabilities: {
+            loadSession: true,
+            promptCapabilities: { image: true },
+          },
         });
         continue;
       case "session/new":

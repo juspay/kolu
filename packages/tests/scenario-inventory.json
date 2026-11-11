@@ -9550,6 +9550,78 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "08a1132112479994bcdb528697f78eca452caaab"
+    },
+    {
+      "revisionId": "revision-cc25a6338729d5a31b5e",
+      "scenarioKey": "scenario-cdc8a47deb518c59bc97",
+      "feature": "features/orchestrator.feature",
+      "scenario": "A pasted image rides the message as an attachment",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "fe7f72848e3d4551234f459748218eea283e2eea9742f7ee226fb7d38c42a8a6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1afac696aca1687198ae779df0a1218e3c48c0f1"
+    },
+    {
+      "revisionId": "revision-1b37af1f846b515ac92f",
+      "scenarioKey": "scenario-178bd1f088572d894578",
+      "feature": "features/orchestrator.feature",
+      "scenario": "A question the agent asks is answered from the transcript",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "ec6fcd5d7f88b8ebc7a770603cda20cf14aa8f2ea0798e2a731649c75f0aa622",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1afac696aca1687198ae779df0a1218e3c48c0f1"
+    },
+    {
+      "revisionId": "revision-a34c7a8165e860b824c1",
+      "scenarioKey": "scenario-f824f6210c3660b54138",
+      "feature": "features/orchestrator.feature",
+      "scenario": "A tool card names the host it acted on, and opens that tile",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "347f9db7afd11cb52e026f2fabc5dc906990bf11cb7822431adc5fbe7f22c1e3",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1afac696aca1687198ae779df0a1218e3c48c0f1"
+    },
+    {
+      "revisionId": "revision-889b840830609ad8212b",
+      "scenarioKey": "scenario-441c2bcef5578a1d0ab1",
+      "feature": "features/orchestrator.feature",
+      "scenario": "An unanswered question is a needs-you source from the tab row",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d2bea9ebb8c157b62fd85683335d9f2ad1a6274c5af6a14edf29febc173baf39",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1afac696aca1687198ae779df0a1218e3c48c0f1"
+    },
+    {
+      "revisionId": "revision-bda94bd6c2bb3a7c5305",
+      "scenarioKey": "scenario-2ffb94f8eaea7e9e8db2",
+      "feature": "features/orchestrator.feature",
+      "scenario": "Entering the orchestrator gives the chat the whole workspace",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "149e3df13919e4cdf1931059017c8ae6ed3609076758586e684662f8b8be5f59",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1afac696aca1687198ae779df0a1218e3c48c0f1"
+    },
+    {
+      "revisionId": "revision-4c2ed93f1ef9b0f21b9d",
+      "scenarioKey": "scenario-6521c768329efd5aba26",
+      "feature": "features/orchestrator.feature",
+      "scenario": "The orchestrator entry is a destination, not a host",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "5fd3562f402753b421fa67771632713588c952fa8287daecc13d12ad491251b4",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1afac696aca1687198ae779df0a1218e3c48c0f1"
     }
   ]
 }
