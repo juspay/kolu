@@ -603,6 +603,22 @@ let
   # currency nudge; the padi pair lets the binder compare the exact daemon it
   # would spawn (#1670) while preserving readBakedIdentity's both-or-neither
   # invariant. Both equal the identities baked into their corresponding bins.
+  #
+  # KOLU_ACP_AGENT — THE ORCHESTRATOR'S ADAPTER, baked HERE because this is the
+  # binary that spawns it. kolu-server hosts the one conversation now (padi
+  # hosts none), so the adapter must be a runtime reference of THIS derivation:
+  # that reference is what puts it in kolu-server's closure, and a kolu-server
+  # whose adapter was merely "somewhere on the machine" would speak a protocol
+  # version this build never proved.
+  #
+  # `--set-default`, NOT `--set`, and the difference is a test lane that
+  # silently tests nothing: the e2e harness points KOLU_ACP_AGENT at a scripted
+  # fixture adapter (`packages/tests/support/hooks.ts`) and the e2e lane runs
+  # this very wrapper (`justfile`), so a `--set` here overwrote the fixture and
+  # drove the real pinned adapter against a real `claude` — green or red for
+  # reasons the fixture never stated. `--set-default` keeps the bake as the
+  # value nothing else supplies, which is every production path: nobody exports
+  # this name.
   koluBin = pkgs.runCommand "kolu-bin"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -622,6 +638,7 @@ let
       --set KOLU_PADI_BIN "${padi}/bin/padi" \
       ${padiIdentity.bakeArgs} \
       ${agentFlakeRefBakeArg} \
+      --set-default KOLU_ACP_AGENT "${koluEnv.KOLU_ACP_AGENT}" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.gitMinimal pkgs.gh pkgs.openssh pkgs.nix ]} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
   '';
@@ -820,26 +837,6 @@ let
       --run ${pkgs.lib.escapeShellArg (diagRunHook "kaval-")}
   '';
 
-  # The `kolu` a padi hands its orchestrator's ACP session as the one stdio MCP
-  # server (`kolu mcp`, with PADI_SOCKET set per spawn by the caller). A SECOND
-  # wrapper rather than `koluBin`: that one bakes KOLU_PADI_BIN, so reaching
-  # for it from padi's own wrapper would close a Nix cycle. It therefore
-  # carries only what `kolu mcp` needs — the entry, the commit hash a CLI
-  # reports, and node on PATH. No client dist, no agent floor, no toolchain:
-  # this wrapper is not something a person runs.
-  koluMcpBin = pkgs.runCommand "kolu-mcp-bin"
-    {
-      nativeBuildInputs = [ pkgs.makeWrapper ];
-      meta.mainProgram = "kolu";
-    } ''
-    mkdir -p $out/bin
-    makeWrapper ${runtimeNode}/bin/node $out/bin/kolu \
-      --add-flags "--import ${runtimeTsxLoader}" \
-      --add-flags "${kolu}/packages/kolu-cli/src/main.ts" \
-      --set KOLU_COMMIT_HASH "${commitHash}" \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode ]}
-  '';
-
   # padi (W2.2): the per-host terminal-workspace daemon — the layer above kaval.
   # It supervises the host's kaval (owning its PTYs), composes the terminal
   # registry, folds awareness on the host's clock, persists the session under its
@@ -867,26 +864,15 @@ let
   # kolu ships and remotes provision) supplies the production path so remote
   # `padi --stdio` needs no `--state-root` on the argv.
   #
-  # The ORCHESTRATOR's two baked paths. padi hosts one ACP conversation per
-  # host, so it needs the adapter binary (KOLU_ACP_AGENT, read from koluEnv so
-  # the devShell and the package name one store path) and the `kolu` whose
-  # `mcp` face is the only MCP server that session is given (KOLU_MCP_BIN —
-  # `koluMcpBin` above, not `koluBin`, which would close a cycle). Both are
-  # required values the orchestrator crashes loudly without, and baking them
-  # here is also what puts the adapter in the closure `nix copy` ships to a
-  # remote host: a host gets no npm and no network.
-  #
-  # Both are `--set-default`, NOT `--set` (olai's choice for the same knob),
-  # and the difference is a test lane that silently tests nothing. The e2e
-  # harness points `KOLU_ACP_AGENT` at a scripted fixture adapter and
-  # `KOLU_MCP_BIN` at the kolu-server binary it just spawned
-  # (`packages/tests/support/hooks.ts`), kolu-server forwards both to the padi
-  # it spawns (`padiBinding.ts`'s `ORCHESTRATOR_BAKE_ENVS` loop), and that padi
-  # is THIS wrapper (`justfile`'s e2e lane runs the nix `koluBin`). With `--set`
-  # the wrapper overwrote both, so `orchestrator.feature` drove the real pinned
-  # adapter against a real `claude` — green or red for reasons the fixture
-  # never stated. `--set-default` keeps the bake as the value nothing else
-  # supplies, which is every production path: nobody exports these names.
+  # NO ORCHESTRATOR BAKE HERE, and that absence is the change: padi no longer
+  # hosts a conversation. kolu-server does, once, for every host — so the ACP
+  # adapter (KOLU_ACP_AGENT) is baked onto `koluBin` instead, and the `kolu`
+  # whose `mcp` face a session was handed (KOLU_MCP_BIN, with its own
+  # cycle-avoiding `koluMcpBin` wrapper) is gone entirely: the fleet face is
+  # served in-process by kolu-server over loopback HTTP, so there is no second
+  # binary to name. The visible consequence is in the CLOSURE — the adapter
+  # left padi's, so a remote host `nix copy` no longer ships it. A remote padi
+  # serves its own terminals and nothing else.
   padi = pkgs.runCommand "padi"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -902,8 +888,6 @@ let
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       ${osfactsBakeArg} \
       ${snapshotFontsBakeArg} \
-      --set-default KOLU_ACP_AGENT "${koluEnv.KOLU_ACP_AGENT}" \
-      --set-default KOLU_MCP_BIN "${koluMcpBin}/bin/kolu" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.gitMinimal pkgs.gh ]} \
       --run '${exportPadiStateDirRun}' \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "padi-")}
