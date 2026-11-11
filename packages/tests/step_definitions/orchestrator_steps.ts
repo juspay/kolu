@@ -29,7 +29,15 @@ const TOOL_CARD = '[data-testid="orchestrator-tool-card"]';
 const INPUT = '[data-testid="orchestrator-input"]';
 const SEND = '[data-testid="orchestrator-send"]';
 const ASK = '[data-testid="orchestrator-ask"]';
-const NEW_SESSION = '[data-testid="orchestrator-new-session"]';
+/** The `⋯` menu button, its portalled panel, and the two-press `New session`
+ *  inside it: the button ARMS and the confirm commits. The old one-press
+ *  `orchestrator-new-session` is gone — a wipe is not something a stray click
+ *  should be able to do. */
+const MENU = '[data-testid="orchestrator-menu"]';
+const MENU_PANEL = '[data-testid="orchestrator-menu-panel"]';
+const MENU_NEW_SESSION = '[data-testid="orchestrator-menu-new-session"]';
+const MENU_NEW_SESSION_CONFIRM =
+  '[data-testid="orchestrator-menu-new-session-confirm"]';
 const USER_MARK = '[data-testid="orchestrator-user-mark"]';
 const CHIP_ATTACHMENT = '[data-testid="orchestrator-attachment-chip"]';
 const ROW_ATTACHMENT = '[data-testid="orchestrator-row-attachment"]';
@@ -154,11 +162,18 @@ Given(
   "the orchestrator is on a fresh conversation",
   async function (this: KoluWorld) {
     await enterOrchestrator(this);
-    await this.page.locator(NEW_SESSION).click();
-    // A fresh session is open once the conversation is idle again and the
-    // divider has landed — waiting on the divider rather than on a timer is
-    // what makes this an arrangement rather than a hope.
-    await waitForAtLeastOne(this, `${ROW}[data-row-kind="divider"]`);
+    await this.page.locator(MENU).click();
+    // The panel is PORTALLED, so it is waited for rather than assumed: a click
+    // on an arming row that has not mounted yet is a click on nothing, and the
+    // confirm below would then time out three lines away from the cause.
+    await waitForAtLeastOne(this, MENU_PANEL);
+    await this.page.locator(MENU_NEW_SESSION).click();
+    await this.page.locator(MENU_NEW_SESSION_CONFIRM).click();
+    // A confirmed new session WIPES: the rows go, rather than a `— new
+    // session —` divider landing under the old ones. So the arrangement is
+    // proved by an EMPTY transcript plus an idle conversation — waiting on
+    // what the product does rather than on a timer.
+    await waitForCount(this, `${TRANSCRIPT} ${ROW}`, 0);
     await waitForValue(
       "orchestrator phase after a new session",
       async () =>
@@ -366,9 +381,10 @@ Then(
 Then(
   "the orchestrator transcript should show a row of kind {string} saying {string}",
   async function (this: KoluWorld, kind: string, text: string) {
-    // PRESENCE, not a count: one conversation outlives a `— new session —`
-    // divider, so a scenario asserting "exactly one agent row ever said this"
-    // would be asserting something about the scenarios before it.
+    // PRESENCE, not a count: a turn can repeat a sentence within one
+    // conversation (a retry, a queued prompt answered twice), so a scenario
+    // asserting "exactly one agent row ever said this" would be asserting
+    // something about the shape of the turn rather than about the answer.
     await waitForAtLeastOne(
       this,
       `${TRANSCRIPT} ${ROW}[data-row-kind="${kind}"]:has-text(${JSON.stringify(text)})`,

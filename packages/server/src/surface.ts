@@ -596,6 +596,8 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
           ),
         newSession: () =>
           askOrchestrator(() => liveServerOrchestrator().newSession()),
+        clearSession: () =>
+          askOrchestrator(() => liveServerOrchestrator().clearSession()),
       },
     },
   };

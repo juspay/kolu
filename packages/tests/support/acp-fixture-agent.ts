@@ -25,6 +25,11 @@
  *                      to be marked `queued` behind it
  *   refuse this      — a JSON-RPC error, which is a turn that ENDED rather than
  *                      an agent that has gone
+ *   list the fleet   — the ONE verb that is not scripted: it opens a real MCP
+ *                      session on the fleet endpoint this session was handed
+ *                      and reads the roster + every host's terminals, then
+ *                      says what it read. A kolu whose fleet face cannot reach
+ *                      its own hosts answers with the refusal instead.
  *
  * Turns are served FIFO and one at a time: `queued` is a fact about the agent's
  * own queue, so an adapter that answered out of order could not be used to
@@ -70,8 +75,147 @@ interface Incoming {
   readonly error?: unknown;
   readonly params?: {
     readonly prompt?: ReadonlyArray<{ readonly text?: string }>;
+    /** ACP's own `session/new` field — what kolu-server hands this session.
+     *  The fleet face is the ONE entry on it (`type: "http"`, its loopback URL
+     *  and the bearer header), which is what lets the `list the fleet` turn
+     *  below be a REAL MCP client rather than a scripted answer. */
+    readonly mcpServers?: ReadonlyArray<{
+      readonly type?: string;
+      readonly name?: string;
+      readonly url?: string;
+      readonly headers?: ReadonlyArray<{
+        readonly name: string;
+        readonly value: string;
+      }>;
+    }>;
   };
 }
+
+/** The kolu MCP server this session was handed, remembered from `session/new`.
+ *  `null` until a session is opened, and `null` forever for a kolu that handed
+ *  over nothing — which the fleet turn reports rather than papers over. */
+let koluServer: { url: string; headers: Record<string, string> } | null = null;
+
+/** One JSON-RPC call to the fleet's streamable-HTTP door.
+ *
+ *  Hand-rolled over `fetch` because this fixture is a standalone stdio program
+ *  with the ACP wire as its whole dependency surface — the same reason
+ *  kolu-server's own endpoint PROOF (`proveFleetMcpEndpoint`) is a bare
+ *  `fetch` rather than an SDK client. The door answers a POST with either JSON
+ *  or a one-message SSE stream depending on the transport's mood, so both are
+ *  read: every `data:` line is a frame, and a plain body is one. */
+const mcpCall = async (
+  server: { url: string; headers: Record<string, string> },
+  session: string | null,
+  body: Record<string, unknown>,
+): Promise<{
+  frame: Record<string, unknown> | null;
+  session: string | null;
+}> => {
+  const answer = await fetch(server.url, {
+    method: "POST",
+    headers: {
+      ...server.headers,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      ...(session === null ? {} : { "mcp-session-id": session }),
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await answer.text();
+  if (!answer.ok) {
+    throw new Error(`${body.method as string}: HTTP ${answer.status} ${text}`);
+  }
+  const lines = text
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice("data:".length).trim());
+  const payloads = lines.length > 0 ? lines : text.trim() === "" ? [] : [text];
+  const frames = payloads.map(
+    (one) => JSON.parse(one) as Record<string, unknown>,
+  );
+  const frame = frames.find((one) => "result" in one || "error" in one) ?? null;
+  const failure = frame?.error as { message?: string } | undefined;
+  if (failure !== undefined) {
+    throw new Error(
+      `${body.method as string}: ${failure.message ?? "refused"}`,
+    );
+  }
+  return { frame, session: answer.headers.get("mcp-session-id") ?? session };
+};
+
+/** Read one `surface://` resource off the fleet face and parse its one text
+ *  body — what every resource on that face answers with. */
+const readResource = async (
+  server: { url: string; headers: Record<string, string> },
+  session: string,
+  uri: string,
+): Promise<unknown> => {
+  const { frame } = await mcpCall(server, session, {
+    jsonrpc: "2.0",
+    id: nextRequestId++,
+    method: "resources/read",
+    params: { uri },
+  });
+  const result = frame?.result as
+    | { contents?: ReadonlyArray<{ text?: string }> }
+    | undefined;
+  const body = result?.contents?.[0]?.text;
+  if (body === undefined) throw new Error(`${uri}: answered no text body`);
+  return JSON.parse(body);
+};
+
+/** THE FLEET, READ BY THE AGENT ITSELF — the roster and every host's
+ *  terminals, through the MCP server kolu-server handed this session.
+ *
+ *  This is the one turn that proves the hands work. Everything else this
+ *  fixture answers is scripted; this opens a real session on the real
+ *  endpoint and reads the real resources, so a kolu whose fleet face cannot
+ *  reach its own hosts answers here with the refusal instead of a roster. */
+const readFleet = async (): Promise<string> => {
+  if (koluServer === null) {
+    return "fleet read failed: this session was handed no kolu MCP server";
+  }
+  const server = koluServer;
+  const opened = await mcpCall(server, null, {
+    jsonrpc: "2.0",
+    id: nextRequestId++,
+    method: "initialize",
+    params: {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "kolu-e2e-fixture-agent", version: "0.0.0" },
+    },
+  });
+  const session = opened.session;
+  if (session === null) {
+    throw new Error("initialize: the door opened no session");
+  }
+  await mcpCall(server, session, {
+    jsonrpc: "2.0",
+    method: "notifications/initialized",
+  });
+  const hosts = (await readResource(
+    server,
+    session,
+    "surface://cells/hosts",
+  )) as ReadonlyArray<{ host: string; state: string }>;
+  const terminals = (await readResource(
+    server,
+    session,
+    "surface://collections/terminals",
+  )) as readonly string[];
+  // The agent's own session, ended by the agent — the fleet face behind it
+  // holds live subscriptions, and a scenario that opened one per turn would
+  // leave them behind the server for the rest of the worker's life.
+  await fetch(server.url, {
+    method: "DELETE",
+    headers: { ...server.headers, "mcp-session-id": session },
+  }).then((ended) => ended.body?.cancel());
+  return `fleet hosts: ${hosts
+    .map((one) => `${one.host}=${one.state}`)
+    .join(", ")}; fleet terminals: ${terminals.join(", ")}`;
+};
 
 /** The agent's own word for the turn, sent only once the work is done — so a
  *  scenario that waits for prose is waiting on the same thing the panel is. */
@@ -175,6 +319,38 @@ const turn = async (id: unknown, text: string): Promise<void> => {
     endTurn(id);
     return;
   }
+  if (text === "list the fleet") {
+    // A REAL MCP ROUND TRIP, drawn as the tool card an agent's own read would
+    // draw. The card is `other`/generic — this is the agent reading a
+    // RESOURCE, not calling one of kolu's tools — and the prose underneath it
+    // is what the scenario asserts, because that prose is the answer the fleet
+    // face gave.
+    update({
+      sessionUpdate: "tool_call",
+      toolCallId: "call-fleet",
+      title: "ReadMcpResource",
+      kind: "read",
+      status: "in_progress",
+      rawInput: { server: "kolu", uri: "surface://cells/hosts" },
+      _meta: { claudeCode: { toolName: "ReadMcpResourceTool" } },
+    });
+    const said = await readFleet().catch(
+      (err: unknown) =>
+        `fleet read failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    update({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "call-fleet",
+      status: "completed",
+      rawOutput: { said },
+    });
+    update({
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: said },
+    });
+    endTurn(id);
+    return;
+  }
   if (text === "use its own tool") {
     update({
       sessionUpdate: "tool_call",
@@ -260,9 +436,27 @@ process.stdin.on("data", (chunk: string) => {
           },
         });
         continue;
-      case "session/new":
+      case "session/new": {
+        // WHAT THE SESSION WAS HANDED, kept: kolu-server puts exactly one MCP
+        // server on a new session — its own fleet face, at a loopback URL with
+        // a bearer token minted this boot. A real adapter would connect it
+        // here; this one keeps the address and dials it when a turn asks for
+        // the fleet, which is the same proof with less machinery.
+        const kolu = (message.params?.mcpServers ?? []).find(
+          (one) => one.name === "kolu" && one.url !== undefined,
+        );
+        koluServer =
+          kolu?.url === undefined
+            ? null
+            : {
+                url: kolu.url,
+                headers: Object.fromEntries(
+                  (kolu.headers ?? []).map((h) => [h.name, h.value]),
+                ),
+              };
         respond(message.id, { sessionId: SESSION });
         continue;
+      }
       case "session/load":
         // padi keeps the transcript, so a load has nothing to replay — it only
         // has to accept the id it minted, which is what resume IS.

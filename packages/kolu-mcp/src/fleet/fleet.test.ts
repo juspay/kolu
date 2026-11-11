@@ -9,19 +9,43 @@
  * and a host leaving says `gone`, and that a host which is not connected is
  * refused BY NAME rather than answered with an empty list.
  *
- * The fakes are the padi CLIENT shape, not a daemon: members return the
- * `Effect`s and `Stream`s a dialled client returns, which is the only thing
- * this face consumes.
+ * WHAT THE FIXTURE IS, AND WHAT IT IS NOT — stated here because the previous
+ * version of this sentence is the reason a production bug lived behind a green
+ * suite. Each host's padi used to be a hand-written object literal cast to
+ * `PadiSurfaceClient`. A cast makes ANY shape a padi client, so the thing this
+ * file exercised was the fleet face against a client the file itself had
+ * invented — and kolu-server's real client, built by `padiClientOver` over a
+ * surface it was never bound to, failed every terminal-level call in
+ * production (`no handler bound at "surface/padi/terminals/keys"`) while this
+ * suite stayed green.
+ *
+ * So each padi here is now a HANDLER RECORD at padi's own wire tags, dialled
+ * through the real `padiClientOver` + `directDispatch`. That pins the FACE
+ * half end to end: the tag each member is dialled at, the face walk that mints
+ * them, and the fail-loud resolver that refuses a tag nothing is bound at. A
+ * member renamed in `padiSurface` now breaks this file instead of passing.
+ *
+ * The half it still cannot pin is kolu-server's MOUNTING — which handlers the
+ * client is pointed at, and whether a host's calls carry the host-map's
+ * `{ mapKey, input }` envelope. That needs `padiHostMap` + `serveHostMap`,
+ * which live behind kolu-server's dependencies, so it is pinned where the
+ * mounting lives: `packages/server/src/fleet/fleetHosts.test.ts`, whose
+ * fixture serves the real map over a stub pool and calls a terminal member
+ * through it.
  */
 
-import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
+import { padiClientOver, type PadiSurfaceClient } from "@kolu/padi-client/dial";
 import {
   type PadiTerminal,
   type PadiUrgency,
   type PadiWatchEvent,
   padiSurface,
+  padiSurfaceSibling,
   WatchSubscriptionNotFound,
 } from "@kolu/padi-client/surface";
+import { surfaceTag } from "@kolu/surface/define";
+import { directDispatch } from "@kolu/surface/links/direct";
+import type { SurfaceHandlers } from "@kolu/surface/server";
 import { resolveExpose } from "@kolu/surface-mcp";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -125,122 +149,124 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
   let watchOpenRefusal: string | null = null;
   let sendInputRefusal: string | null = null;
 
-  const client = {
-    surface: {
-      identity: {
-        get: () =>
-          Stream.make({
-            commit: `${host}-commit`,
-            surfaceVersion: "7.0",
-            startedAt: 1000,
-          }),
-      },
-      status: { get: () => Stream.make({}) },
-      urgency: { get: () => urgency.stream() },
-      terminals: {
-        keys: () => keys.stream(),
-        get: ({ key }: { key: TerminalId }) => {
-          const record = records.get(key);
-          return record === undefined ? Stream.never : Stream.make(record);
-        },
-      },
-      screen: {
-        text: (input: { id: TerminalId }) =>
-          Effect.sync(() => {
-            calls.push(`screen.text:${input.id}`);
-            return `screen of ${host}/${input.id}`;
-          }),
-        history: (input: { id: TerminalId; max: number }) =>
-          Effect.sync(() => {
-            calls.push(`screen.history:${input.id}`);
-            return { kind: "ok", chunk: host, topLine: 1, exhausted: true };
-          }),
-      },
-      lifecycle: {
-        create: (input: unknown) =>
-          Effect.sync(() => {
-            calls.push(`lifecycle.create:${JSON.stringify(input)}`);
-            return { id: BETA_1, pid: 77 };
-          }),
-        kill: (input: { id: TerminalId }) =>
-          Effect.sync(() => {
-            calls.push(`lifecycle.kill:${input.id}`);
-            return { id: input.id, pid: 42 };
-          }),
-        sendInput: (input: unknown) =>
-          Effect.suspend(() => {
-            calls.push(`lifecycle.sendInput:${JSON.stringify(input)}`);
-            return sendInputRefusal === null
-              ? Effect.void
-              : Effect.fail(new Error(sendInputRefusal));
-          }),
-      },
-      git: {
-        getStatus: (input: { repoPath: string }) =>
-          Effect.sync(() => {
-            calls.push(`git.getStatus:${input.repoPath}`);
-            return { files: [], branch: host };
-          }),
-      },
-      watch: {
-        // padi's own rule, because the fleet leans on it: a FRESH subscription
-        // starts acknowledged at the daemon's current sequence (it reports what
-        // happens next), and a RE-ATTACH keeps the watermark it had — which is
-        // what makes a reconnect hand over what was queued while the link was
-        // down instead of skipping it.
-        open: (input: { name: string }) =>
-          Effect.suspend(() => {
-            openedWatches.push(input.name);
-            if (watchOpenRefusal !== null) {
-              return Effect.fail(new Error(watchOpenRefusal));
-            }
-            const held = open.get(input.name);
-            const acknowledged = held ?? seq;
-            open.set(input.name, acknowledged);
-            return Effect.succeed({
-              name: input.name,
-              acknowledged,
-              reattached: held !== undefined,
-            });
-          }),
-        drain: (input: { name: string; after?: number }) =>
-          Effect.suspend(() => {
-            const held = open.get(input.name);
-            if (held === undefined) {
-              return Effect.fail(
-                new WatchSubscriptionNotFound({
-                  name: input.name,
-                  known: [...open.keys()],
-                }),
-              );
-            }
-            const after = input.after ?? held;
-            open.set(input.name, after);
-            const events = queue.filter((event) => event.seq > after);
-            return Effect.succeed({
-              events,
-              dropped: 0,
-              ackAfter: events.at(-1)?.seq ?? seq,
-            });
-          }),
-        close: (input: { name: string }) =>
-          Effect.suspend(() => {
-            if (!open.has(input.name)) {
-              return Effect.fail(
-                new WatchSubscriptionNotFound({
-                  name: input.name,
-                  known: [...open.keys()],
-                }),
-              );
-            }
-            closedWatches.push(input.name);
-            open.delete(input.name);
-            return Effect.succeed({});
-          }),
-      },
-      watchPulse: { get: () => pulse.stream() },
+  /** ONE host's padi, as a HANDLER RECORD at the tags padi's own face dials —
+   *  `surfaceTag(padiSurfaceSibling.tagPrefix, member, verb)`, minted by the
+   *  framework from padi's own sibling, never typed out here. Every member
+   *  this fixture serves therefore has to exist, at its real name, in the real
+   *  surface. */
+  const at = (member: string, verb: string): string =>
+    surfaceTag(padiSurfaceSibling.tagPrefix, member, verb);
+  const handlers = {
+    [at("identity", "get")]: () =>
+      Stream.make({
+        commit: `${host}-commit`,
+        surfaceVersion: "7.0",
+        startedAt: 1000,
+      }),
+    [at("status", "get")]: () => Stream.make({}),
+    [at("urgency", "get")]: () => urgency.stream(),
+    [at("terminals", "keys")]: () => keys.stream(),
+    [at("terminals", "get")]: ({ key }: { key: TerminalId }) => {
+      const record = records.get(key);
+      return record === undefined ? Stream.never : Stream.make(record);
     },
-  } as unknown as PadiSurfaceClient;
+    [at("screen", "text")]: (input: { id: TerminalId }) =>
+      Effect.sync(() => {
+        calls.push(`screen.text:${input.id}`);
+        return `screen of ${host}/${input.id}`;
+      }),
+    [at("screen", "history")]: (input: { id: TerminalId; max: number }) =>
+      Effect.sync(() => {
+        calls.push(`screen.history:${input.id}`);
+        return { kind: "ok", chunk: host, topLine: 1, exhausted: true };
+      }),
+    [at("lifecycle", "create")]: (input: unknown) =>
+      Effect.sync(() => {
+        calls.push(`lifecycle.create:${JSON.stringify(input)}`);
+        return { id: BETA_1, pid: 77 };
+      }),
+    [at("lifecycle", "kill")]: (input: { id: TerminalId }) =>
+      Effect.sync(() => {
+        calls.push(`lifecycle.kill:${input.id}`);
+        return { id: input.id, pid: 42 };
+      }),
+    [at("lifecycle", "sendInput")]: (input: unknown) =>
+      Effect.suspend(() => {
+        calls.push(`lifecycle.sendInput:${JSON.stringify(input)}`);
+        return sendInputRefusal === null
+          ? Effect.void
+          : Effect.fail(new Error(sendInputRefusal));
+      }),
+    [at("git", "getStatus")]: (input: { repoPath: string }) =>
+      Effect.sync(() => {
+        calls.push(`git.getStatus:${input.repoPath}`);
+        return { files: [], branch: host };
+      }),
+    // padi's own rule, because the fleet leans on it: a FRESH subscription
+    // starts acknowledged at the daemon's current sequence (it reports what
+    // happens next), and a RE-ATTACH keeps the watermark it had — which is
+    // what makes a reconnect hand over what was queued while the link was
+    // down instead of skipping it.
+    [at("watch", "open")]: (input: { name: string }) =>
+      Effect.suspend(() => {
+        openedWatches.push(input.name);
+        if (watchOpenRefusal !== null) {
+          return Effect.fail(new Error(watchOpenRefusal));
+        }
+        const held = open.get(input.name);
+        const acknowledged = held ?? seq;
+        open.set(input.name, acknowledged);
+        return Effect.succeed({
+          name: input.name,
+          acknowledged,
+          reattached: held !== undefined,
+        });
+      }),
+    [at("watch", "drain")]: (input: { name: string; after?: number }) =>
+      Effect.suspend(() => {
+        const held = open.get(input.name);
+        if (held === undefined) {
+          return Effect.fail(
+            new WatchSubscriptionNotFound({
+              name: input.name,
+              known: [...open.keys()],
+            }),
+          );
+        }
+        const after = input.after ?? held;
+        open.set(input.name, after);
+        const events = queue.filter((event) => event.seq > after);
+        return Effect.succeed({
+          events,
+          dropped: 0,
+          ackAfter: events.at(-1)?.seq ?? seq,
+        });
+      }),
+    [at("watch", "close")]: (input: { name: string }) =>
+      Effect.suspend(() => {
+        if (!open.has(input.name)) {
+          return Effect.fail(
+            new WatchSubscriptionNotFound({
+              name: input.name,
+              known: [...open.keys()],
+            }),
+          );
+        }
+        closedWatches.push(input.name);
+        open.delete(input.name);
+        return Effect.succeed({});
+      }),
+    [at("watchPulse", "get")]: () => pulse.stream(),
+  } as unknown as SurfaceHandlers;
+
+  // THE REAL FACE WALK — `padiClientOver`, the one kolu-server hands the fleet
+  // face, over an in-process dispatch into the record above. A hand-built
+  // object cast to `PadiSurfaceClient` is what this used to be, and it is
+  // exactly what let the production bug ship: the cast makes any shape a padi
+  // client, so a face that dials tags nothing is bound at looks identical to
+  // one that works. Built this way the fixture cannot pass unless padi's face
+  // and this padi's handlers agree on every tag.
+  const client = padiClientOver(directDispatch({ handlers })).padi;
 
   return {
     client,
@@ -413,24 +439,33 @@ describe("the fleet face over two hosts", () => {
     expect(killed.isError ?? false, JSON.stringify(killed.content)).toBe(false);
   });
 
-  it("`hosts` is the live roster, with each padi's build facts as columns", async () => {
+  it("`hosts` answers the whole roster — every host and its facts — in ONE read", async () => {
+    // The question an agent asks first is "which hosts can I use", and the
+    // answer has to arrive whole. As a COLLECTION this resource was its key
+    // set: five strings, and a per-host template URI an agent had to guess at
+    // to learn anything else. One read, every row.
     const { fleet } = twoHosts();
     const mcp = await servedFleet(fleet.hosts);
     expect(
-      jsonOf(await mcp.readResource({ uri: "surface://collections/hosts" })),
-    ).toEqual(["local", "remote:box"]);
-    expect(
-      jsonOf(
-        await mcp.readResource({ uri: "surface://collections/hosts/local" }),
-      ),
-    ).toEqual({
-      host: "local",
-      display: "this machine",
-      state: "connected",
-      commit: "local-commit",
-      surfaceVersion: "7.0",
-      startedAt: 1000,
-    });
+      jsonOf(await mcp.readResource({ uri: "surface://cells/hosts" })),
+    ).toEqual([
+      {
+        host: "local",
+        display: "this machine",
+        state: "connected",
+        commit: "local-commit",
+        surfaceVersion: "7.0",
+        startedAt: 1000,
+      },
+      {
+        host: "remote:box",
+        display: "box",
+        state: "connected",
+        commit: "remote:box-commit",
+        surfaceVersion: "7.0",
+        startedAt: 1000,
+      },
+    ]);
   });
 
   it("`urgency` concatenates every host's ids, host-qualified", async () => {
@@ -1005,6 +1040,11 @@ describe("one expose map, two projections", () => {
       "terminals",
       "urgency",
     ]);
+    // ... and `hosts` is a CELL, which is what makes the roster one read: a
+    // collection's resource is its key SET plus a per-item template, and an
+    // agent that reads a key set still knows nothing about any host in it.
+    expect(fleet.resources.find((r) => r.key === "hosts")?.kind).toBe("cell");
+    expect(fleet.resourceTemplates.map((t) => t.key)).toEqual(["terminals"]);
   });
 
   it("the served fleet face advertises the same fifteen tools `kolu mcp` does", async () => {

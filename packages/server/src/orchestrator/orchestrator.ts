@@ -185,7 +185,21 @@ export interface OrchestratorHost {
   readonly signInInput: (text: string) => Promise<void>;
   readonly signInCancel: () => Promise<boolean>;
   readonly setOption: (id: string, value: string) => Promise<void>;
+  /** A NEW CONVERSATION OVER THE SAME TRANSCRIPT. The agent's memory is
+   *  reset and the scroll above it stays, with the divider the harness mints
+   *  saying where the break was. The one caller is *try again*, which asks
+   *  for exactly what a refused bring-up refused. */
   readonly newSession: () => Promise<void>;
+  /** THE WIPE — the header menu's `New session`, behind its one confirm.
+   *
+   *  A new conversation AND an empty one: the rows go, the record goes, the
+   *  files the rows named go, and the terminals this conversation knew go
+   *  with them. Named rather than spelled as `newSession(true)` because the
+   *  two differ in what a person LOSES, and a boolean at the call site says
+   *  nothing about that. No divider: a rule drawn across an empty transcript
+   *  marks a break between nothing and nothing. The standing prompt is
+   *  re-taught on the next turn by the path that always teaches it. */
+  readonly clearSession: () => Promise<void>;
   /** Process-lifetime teardown: stop the child, write the record, drop the
    *  readers. AWAITED by kolu-server's shutdown, because the adapter is spawned
    *  `detached` — a teardown that only fired the stop would leave the adapter,
@@ -482,11 +496,12 @@ export function startOrchestratorHost(
    *  is still typing the sentence it goes with.
    *
    *  It runs on the RESTORE (the moment rows are LOST), on every upload that
-   *  creates a file (the moment the directory GROWS), and after a prompt that
-   *  was refused (the moment files stop being destined for a row). A
-   *  `newSession` is none of those and must not be: the divider says the
-   *  agent's memory was reset, not that the scroll above it was thrown away,
-   *  and the rows above it still draw their chips. Rows otherwise only
+   *  creates a file (the moment the directory GROWS), after a prompt that was
+   *  refused (the moment files stop being destined for a row), and on the
+   *  WIPE ({@link clearSession}), which is the moment every row is lost at
+   *  once. A `newSession` is none of those and must not be: the divider says
+   *  the agent's memory was reset, not that the scroll above it was thrown
+   *  away, and the rows above it still draw their chips. Rows otherwise only
    *  arrive; the only ones a frame REMOVES are the ones the harness upserts
    *  at a fixed key (the plan, a tool card), which carry no files.
    *
@@ -1035,6 +1050,36 @@ export function startOrchestratorHost(
     signInCancel: () => ask((agent) => agent.signInCancel()),
     setOption: (id, value) => ask((agent) => agent.setOption(id, value)),
     newSession: () => ask((agent) => agent.newSession()),
+    clearSession: () =>
+      ask(async (agent) => {
+        // THE AGENT'S SESSION GOES FIRST, and the divider it mints on the way
+        // out lands in `byId` like any other row — which is the point: the
+        // wipe below takes it with everything else. Wiping first would leave
+        // that mark standing alone over an empty transcript, a rule drawn
+        // between nothing and nothing.
+        await agent.newSession();
+        // Through `applyRows` rather than a `byId.clear()` of its own: that is
+        // where a row's disappearance reaches the readers subscribed now and
+        // the file a restart will read, and a second path that moved rows
+        // without it would be a wipe one reader saw and another did not.
+        applyRows({ upserts: [], removes: [...byId.keys()], appends: [] });
+        // ... and the files go with the rows that named them, under the rule
+        // the sweep already states. An upload nobody has sent yet is NOT
+        // swept: it belongs to the composer, which still has its chips.
+        sweepAttachments();
+        // THE FLEET IS A MEMORY OF THE CONVERSATION THAT IS GONE. Published
+        // here rather than waited for from the agent: the harness clears its
+        // own on the way out, but the strip must not name a terminal from a
+        // conversation this person just deleted for however long that round
+        // trip takes.
+        state = { ...state, fleet: [] };
+        publishState();
+        // NOT on the throttle. A wipe is the one movement whose whole purpose
+        // is that what was there is gone, and a window in which the file
+        // still holds it is a window in which the next reader — or the next
+        // boot — restores a transcript somebody deleted.
+        writeRecord();
+      }),
     dispose: async () => {
       disposed = true;
       sinks.clear();

@@ -81,6 +81,37 @@ Feature: The Orchestrator
     And the orchestrator roster should show "kolu" as connected
     And there should be no page errors
 
+  Scenario: The agent reads this fleet's terminals through kolu's own MCP face
+    # THE HANDS, END TO END. The scenario above proves the agent was HANDED a
+    # kolu server; this one proves the server answers. The fixture agent opens
+    # a real MCP session on the loopback endpoint kolu-server put on its
+    # `session/new` and reads two resources — the roster and the fleet's
+    # terminals — then says what it read. Every seam of the fleet face is on
+    # that path: the MCP door, the expose map, the `FleetHosts` port, padi's
+    # client face, and the served host map its calls are dialled into. A face
+    # built over a surface the server does not serve answers here with
+    # `no handler bound at "surface/padi/terminals/keys"` instead of a
+    # terminal, which is exactly how this shipped broken once.
+    #
+    # SINGLE-HOST LANE, recorded rather than faked. This worker holds one padi
+    # (`local`), the same limit `ports.feature` states for its remote leg. So
+    # what IS proved here is that the fleet face reaches a REAL padi through
+    # the REAL mounting and answers a terminal that really exists on the
+    # machine the suite just created it on. What is NOT proved is the
+    # multi-host fold — that a second host's rows and terminals merge in roster
+    # order and that a per-host refusal names its host. Those need a second
+    # padi: run this same suite with `KOLU_E2E_PADI_HOST=<disposable host>`
+    # (see `packages/tests/support/hooks.ts` — it is DESTRUCTIVE and demands
+    # `KOLU_E2E_SSH_DESTRUCTIVE_ACK=1`), where the roster line below carries
+    # that host too. The merge itself is pinned without a machine in
+    # `packages/kolu-mcp/src/fleet/fleet.test.ts`.
+    When I create a terminal
+    And I enter orchestrator mode
+    And I send the orchestrator the prompt "list the fleet"
+    Then the orchestrator transcript should show a row of kind "agent" saying "fleet hosts: local=connected"
+    And the orchestrator transcript should show a row of kind "agent" saying "fleet terminals: local/"
+    And there should be no page errors
+
   Scenario: A kolu tool call is drawn as a card that knows what it means
     # The whole point of the kolu-aware cards: a call to one of OUR tools is
     # read structurally, so the row can name the terminal and offer to open it

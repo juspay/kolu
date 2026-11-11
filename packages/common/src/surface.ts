@@ -1266,9 +1266,20 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
         input: OrchestratorSetOptionInputSchema,
         error: Schema.Union([OrchestratorUnavailable, OrchestratorRefused]),
       },
-      /** Start a fresh conversation: the old one is left, the transcript gains
-       *  a `— new session —` divider, and the standing prompt is taught again. */
+      /** Start a fresh conversation OVER the transcript: the old one is left,
+       *  the rows stay, the break gains a `— new session —` divider, and the
+       *  standing prompt is taught again. The *try again* under a refused
+       *  bring-up is what asks for this. */
       newSession: {
+        input: OrchestratorEmptySchema,
+        error: Schema.Union([OrchestratorUnavailable, OrchestratorRefused]),
+      },
+      /** Start a fresh conversation AND EMPTY IT: the rows, the record, the
+       *  files those rows named and the fleet the conversation remembered all
+       *  go. The header menu's `New session` is the gesture, behind its one
+       *  confirm; being explicit is why it leaves no divider behind — there
+       *  is nothing above the break to divide from. */
+      clearSession: {
         input: OrchestratorEmptySchema,
         error: Schema.Union([OrchestratorUnavailable, OrchestratorRefused]),
       },

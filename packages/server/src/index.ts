@@ -600,10 +600,16 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // transport serves exactly one), so `serve` runs once per session — but the
   // host map is this process's, not a client's, and building a second one per
   // session would re-dial nothing and re-cache everything, handing each face
-  // its own copy of a per-mirror padi client this boot has already paid for.
+  // its own copy of a per-session padi client this boot has already paid for.
   const fleetHosts = fleetHostsOver({
     pool,
-    reServeFor,
+    // THE SERVED MAP ITSELF — `padiMap` above, the same `{ group, handlers }`
+    // pair spliced into the app's wire and reached by the browser's socket.
+    // The fleet face dials it in process, so the agent and the operator read
+    // one surface at one set of tags; handing this port the re-serve cache
+    // instead is what made the agent's face and this process's runtime two
+    // different surfaces (`fleet/fleetHosts.ts` tells that story).
+    padiMap,
     // The local host's display name, as the host tab shows it: this machine by
     // its hostname, a remote by its ssh target. An agent holding three hosts
     // at once cannot do anything with "local".

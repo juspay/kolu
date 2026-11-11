@@ -17,9 +17,13 @@
  * answer to "what commit is padi?", there are N answers. So on the fleet face
  * they are COLUMNS of the one `hosts` resource — which is also the live roster,
  * and the thing an agent must be able to read before it can act on a refusal
- * naming a host. The stdio face has no `hosts` for the mirror reason: a face
- * serving one padi has one host, and a roster of one is a row an agent would
- * have to read to learn what it already knows.
+ * naming a host. That resource is a CELL of ROWS (`surface://cells/hosts`), so
+ * "which hosts can I use, and what is each one doing" is ONE read: as a
+ * collection it would have been a key SET, and an agent that could name the
+ * fleet would have had to guess a per-host template URI to learn anything
+ * about a member of it. The stdio face has no `hosts` for the mirror reason: a
+ * face serving one padi has one host, and a roster of one is a row an agent
+ * would have to read to learn what it already knows.
  *
  * **Default deny**: an omitted member is unreachable, full stop. Widening this
  * map is a one-row diff with a review, never a default. The named denials below

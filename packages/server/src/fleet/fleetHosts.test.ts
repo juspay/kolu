@@ -6,18 +6,70 @@
  * woken for either would republish the whole roster a dozen times per
  * reconnect and once per host at startup for nothing.
  *
+ * ... and THE THIRD AXIS, which is why the agent's hands were empty on a live
+ * deploy while the browser read the same hosts fine: the CLIENT the port hands
+ * out has to speak to the surface this process actually serves.
+ *
+ * This file used to stub that away. The re-serve was `{ handlers: {} }` and the
+ * comment beside it said calling a verb "belongs to the fleet face's own
+ * tests" — which hold hand-built padi objects, so nothing anywhere called a
+ * padi member through kolu-server's own mounting. The mounting was wrong:
+ * `padiClientOver` builds padi's face from `padiSurfaceSibling`
+ * (`surface/padi/*` — the tags the HOST MAP serves) and it was pointed at the
+ * per-host re-serve, whose handlers are the ENTRY surface's standalone
+ * `surface/*`. Every terminal-level call died with `no handler bound at
+ * "surface/padi/terminals/keys"`, and no test could see it because no test
+ * dialled.
+ *
+ * So the fixture here is the PRODUCTION MOUNTING: the real `padiHostMap`,
+ * served by the real `serveHostMap` over the real `entryDispatch`, with only
+ * the pool, the sessions and the per-host mirror HANDLERS stood in for. A face
+ * built from a different surface than that runtime cannot pass — it fails in
+ * `directDispatch`'s own fail-loud resolver, with the sentence the deploy
+ * produced.
+ *
  * The pool is a stand-in rather than a real `buildRemotePool`: what is under
- * test is the FOLD (phase → word) and the notification discipline, and a real
- * pool would make the test about ssh and spawning instead.
+ * test is the FOLD (phase → word), the notification discipline and the
+ * binding, and a real pool would make the test about ssh and spawning instead.
  */
 
-import type { padiSurface } from "@kolu/padi-client/surface";
-import type { RemotePool, ReServedSurface } from "@kolu/surface-remote";
+import { padiSurface } from "@kolu/padi-client/surface";
+import { siblingTagPrefix, surfaceTag } from "@kolu/surface/define";
+import { directDispatch } from "@kolu/surface/links/direct";
+import type { SurfaceHandlers } from "@kolu/surface/server";
+import {
+  type RemotePool,
+  serveHostMap,
+  type SessionState,
+  sessionConnection,
+} from "@kolu/surface-remote";
+import { Effect, Option, Stream } from "effect";
+import { encodeHostKey } from "kolu-common/hostKey";
+import { padiHostMap } from "kolu-common/surfacesWithPadi";
 import { describe, expect, test } from "vitest";
-import type { PadiSession } from "../padi/padiSession.ts";
+import { entryDispatch } from "../padi/entryDispatch.ts";
+import { type PadiSession, padiFailureOf } from "../padi/padiSession.ts";
 import { fleetHostsOver } from "./fleetHosts.ts";
 
 type Phase = "connecting" | "connected" | "failed" | "absent";
+
+/** One session frame per phase, in the shape `makeSession` stamps — the map
+ *  validates a connected frame against `ConnectionInfoSchema` on its way to the
+ *  entry's fine `connection` payload, so a half-built frame would fail there
+ *  rather than where the test is looking. */
+const frameFor = (phase: Phase): SessionState<string> =>
+  phase === "connected"
+    ? { phase, log: [], sinceMs: 0, campaignEpoch: 0, clockOffset: null }
+    : phase === "connecting"
+      ? { phase, log: [], sinceMs: 0, campaignEpoch: 0 }
+      : {
+          phase,
+          log: [],
+          sinceMs: 0,
+          campaignEpoch: 0,
+          error: "stub: the link is down",
+          cause: "network",
+        };
 
 /** A stub host: the session the port reads, plus the lever this file moves it
  *  with. */
@@ -27,26 +79,34 @@ interface HostStub {
 }
 
 /** One host's session, with its phase movable by hand. Only the members the
- *  port reads are implemented; anything else it reached for would be a defect
- *  this stub should NOT paper over, so the cast is narrow and deliberate. */
-const sessionStub = (phase: Phase): HostStub => {
-  const listeners = new Set<() => void>();
-  let current = phase;
+ *  port and `serveHostMap` read are implemented; anything else reached for
+ *  would be a defect this stub should NOT paper over, so the cast is narrow
+ *  and deliberate. */
+const sessionStub = (phase: Phase, provisions = false): HostStub => {
+  const listeners = new Set<(s: SessionState<string>) => void>();
+  let current = frameFor(phase);
   return {
     session: {
       isDestroyed: () => false,
-      currentState: () => ({ phase: current }),
-      onState: (cb: () => void) => {
+      currentState: () => current,
+      provisions,
+      entryFailedDetail: () => null,
+      // No live link: an entry member is MIRRORED (the handlers below), and a
+      // sibling's would be forwarded down a link this stub does not have —
+      // which `entryDispatch` refuses by name, exactly as a host mid-reconnect
+      // does in production.
+      currentDispatch: () => undefined,
+      onState: (cb: (s: SessionState<string>) => void) => {
         listeners.add(cb);
         // Snapshot-then-delta, exactly as `makeSession` does it: the current
         // frame fires synchronously, from inside this call.
-        cb();
+        cb(current);
         return () => listeners.delete(cb);
       },
     } as unknown as PadiSession,
     move: (next: Phase) => {
-      current = next;
-      for (const cb of [...listeners]) cb();
+      current = frameFor(next);
+      for (const cb of [...listeners]) cb(current);
     },
   };
 };
@@ -79,24 +139,62 @@ const poolStub = (entries: Array<[string, HostStub]>): PoolStub => {
   };
 };
 
-/** The composition root's cache, stubbed: a mirror with no bound handlers. The
- *  port only ever BUILDS a face over it here — calling a verb is the fleet
- *  face's business and belongs to its own tests. */
-const mirror = {
-  handlers: {},
-} as unknown as ReServedSurface<typeof padiSurface.spec>;
+/** The tag a host's own padi serves its terminal key set at — minted by the
+ *  framework off `padiSurface`'s own prefix, never typed out as a string. That
+ *  is the whole point: the fixture's handler lands where the ENTRY surface
+ *  binds, and the client has to reach it the way production does (through the
+ *  map) rather than by dialling this tag itself. */
+const TERMINALS_KEYS = surfaceTag(padiSurface.tagPrefix, "terminals", "keys");
+
+/** kolu-server's padi mounting, verbatim from `index.ts`: the real map, the
+ *  real per-entry dispatch, the real failure classifier and the real fine
+ *  connection projection. Only the pool, the sessions and the per-host MIRROR
+ *  are the test's — and the mirror is a handler record keyed by the ENTRY
+ *  surface's own full wire tags, which is what `reServeSurface` binds
+ *  (`implementSurfaceOnPublisher` over `padiSurface`, served verbatim). A
+ *  fixture that keyed them any other way would be testing a mounting
+ *  kolu-server does not have. */
+const serveMap = (
+  pool: RemotePool<PadiSession, undefined>,
+  terminalsByHost: Readonly<Record<string, readonly string[]>>,
+) => {
+  const siblingTagPrefixes = Object.keys(padiHostMap.siblings).map(
+    siblingTagPrefix,
+  );
+  return serveHostMap(padiHostMap, pool, {
+    dispatchFor: (host, session) => {
+      const enc = encodeHostKey(host);
+      return entryDispatch({
+        siblingTagPrefixes,
+        mirror: directDispatch({
+          handlers: {
+            [TERMINALS_KEYS]: () => Stream.make(terminalsByHost[enc] ?? []),
+          } as unknown as SurfaceHandlers,
+        }),
+        link: () => session.currentDispatch?.(),
+        host: enc,
+      });
+    },
+    failureOf: (_host, session, state) =>
+      padiFailureOf(session.provisions, session.entryFailedDetail(), state),
+    connection: {
+      project: sessionConnection,
+      isConnected: (c) => c.phase === "connected",
+    },
+  });
+};
 
 describe("the fleet's view of kolu's host map", () => {
   test("names hosts in the pool's order and spells each one the way a person does", () => {
     const local = sessionStub("connected");
-    const prod = sessionStub("connected");
+    const prod = sessionStub("connected", true);
     const { pool } = poolStub([
       ["local", local],
       ["remote:prod", prod],
     ]);
     const hosts = fleetHostsOver({
       pool,
-      reServeFor: () => mirror,
+      padiMap: serveMap(pool, {}),
       localName: "sparrow",
     });
     expect(hosts.keys()).toEqual(["local", "remote:prod"]);
@@ -107,9 +205,9 @@ describe("the fleet's view of kolu's host map", () => {
   });
 
   test("folds every phase to the fleet's three words, and hands no client to a host that is not connected", () => {
-    const warming = sessionStub("connecting");
-    const gone = sessionStub("failed");
-    const away = sessionStub("absent");
+    const warming = sessionStub("connecting", true);
+    const gone = sessionStub("failed", true);
+    const away = sessionStub("absent", true);
     const up = sessionStub("connected");
     const { pool } = poolStub([
       ["local", up],
@@ -119,7 +217,7 @@ describe("the fleet's view of kolu's host map", () => {
     ]);
     const hosts = fleetHostsOver({
       pool,
-      reServeFor: () => mirror,
+      padiMap: serveMap(pool, {}),
       localName: "sparrow",
     });
     expect(hosts.state("local")).toBe("connected");
@@ -139,27 +237,70 @@ describe("the fleet's view of kolu's host map", () => {
     expect(hosts.padi("remote:nothing")).toBeNull();
   });
 
-  test("the same mirror yields the same client, so a face does not re-walk the surface per call", () => {
+  test("the same session yields the same client, so a face does not re-walk the surface per call", () => {
     const up = sessionStub("connected");
     const { pool } = poolStub([["local", up]]);
     const hosts = fleetHostsOver({
       pool,
-      reServeFor: () => mirror,
+      padiMap: serveMap(pool, {}),
       localName: "sparrow",
     });
     expect(hosts.padi("local")).toBe(hosts.padi("local"));
   });
 
+  test("a host's client reaches that host's padi THROUGH the served map", async () => {
+    // THE REGRESSION. The call below is the one an agent's first `terminals`
+    // read makes, and it crosses every seam the deploy crossed: padi's own
+    // face at `surface/padi/*`, the map's `{ mapKey, input }` envelope, the
+    // map's membership + entry-state gate, the per-entry dispatch, the
+    // mirror's standalone tags. Bound to anything but the served map it raises
+    // `no handler bound at "surface/padi/terminals/keys"` instead of answering.
+    const local = sessionStub("connected");
+    const prod = sessionStub("connected", true);
+    const { pool } = poolStub([
+      ["local", local],
+      ["remote:prod", prod],
+    ]);
+    const hosts = fleetHostsOver({
+      pool,
+      padiMap: serveMap(pool, {
+        local: ["t-local-1", "t-local-2"],
+        "remote:prod": ["t-prod-1"],
+      }),
+      localName: "sparrow",
+    });
+
+    const padi = hosts.padi("local");
+    expect(padi).not.toBeNull();
+    expect(
+      await Effect.runPromise(
+        Stream.runHead(padi!.surface.terminals.keys(undefined)),
+      ),
+    ).toEqual(Option.some(["t-local-1", "t-local-2"]));
+
+    // ... and the KEY is what picks the host, not the client: a second host's
+    // client folds its own `mapKey` into the same handlers and gets its own
+    // machine's answer. A fold that dropped the key would answer the first
+    // host's terminals for every host on the fleet.
+    const other = hosts.padi("remote:prod");
+    expect(other).not.toBeNull();
+    expect(
+      await Effect.runPromise(
+        Stream.runHead(other!.surface.terminals.keys(undefined)),
+      ),
+    ).toEqual(Option.some(["t-prod-1"]));
+  });
+
   test("wakes on reachability AND membership, and never merely on attaching", () => {
     const local = sessionStub("connecting");
-    const prod = sessionStub("connected");
+    const prod = sessionStub("connected", true);
     const { pool, drop } = poolStub([
       ["local", local],
       ["remote:prod", prod],
     ]);
     const hosts = fleetHostsOver({
       pool,
-      reServeFor: () => mirror,
+      padiMap: serveMap(pool, {}),
       localName: "sparrow",
     });
 

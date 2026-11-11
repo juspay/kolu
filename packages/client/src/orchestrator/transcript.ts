@@ -124,3 +124,83 @@ export function applyFrame(
   for (const saying of frame.appends) rows = appendSaying(rows, saying);
   return { seq: frame.seq, rows };
 }
+
+/** One row as the panel DRAWS it: the row, and how many identical ones in a
+ *  row it stands for. `repeat` is 1 for everything that is not a run. */
+export interface TranscriptEntry {
+  readonly row: OrchestratorRow;
+  readonly repeat: number;
+}
+
+/** Collapse every RUN of consecutive notices with identical text to the first
+ *  of them, carrying the count.
+ *
+ *  The same rule kolu-server reads persisted dividers by (`oneDividerPerReset`,
+ *  `server/src/orchestrator/persisted.ts`), and for the same reason: eight
+ *  `the agent exited (code 0, signal none)` rows in a row are one fact written
+ *  eight times by a loop, and a transcript that already carries them must stop
+ *  showing eight of them — a reader rule, so nothing is re-minted and nothing
+ *  on disk is rewritten. ADJACENT only: the same sentence an hour later is a
+ *  second event and keeps its own row, because what makes a run one fact is
+ *  that nothing happened between them.
+ *
+ *  The first is kept, because that is when it happened — and because its id is
+ *  the one the list is keyed by, so a run that grows does not re-create the
+ *  subtree it is drawn in. */
+export function foldNoticeRuns(
+  rows: readonly OrchestratorRow[],
+): readonly TranscriptEntry[] {
+  const entries: TranscriptEntry[] = [];
+  for (const row of rows) {
+    const last = entries[entries.length - 1];
+    if (
+      last !== undefined &&
+      row.kind === "notice" &&
+      last.row.kind === "notice" &&
+      last.row.text === row.text
+    ) {
+      entries[entries.length - 1] = { row: last.row, repeat: last.repeat + 1 };
+      continue;
+    }
+    entries.push({ row, repeat: 1 });
+  }
+  return entries;
+}
+
+/** ONE ROW as plain text — what the header menu's `Copy transcript` puts on
+ *  the clipboard, per row.
+ *
+ *  The panel's own drawing is not reachable from a clipboard: a tool card is
+ *  a component, a plan is a list of chips, an ask is a form. So each row is
+ *  reduced to the sentence a person would have read out — who said it, and
+ *  what it said — and the kinds that carry no prose say what KIND they were
+ *  rather than disappearing, because a transcript with the tool calls
+ *  silently removed reads as a conversation that never did anything. */
+function rowText(row: OrchestratorRow): string {
+  switch (row.kind) {
+    case "user":
+      return `you: ${row.text}`;
+    case "agent":
+      return `agent: ${row.text}`;
+    case "plan":
+      return [
+        "plan:",
+        ...row.steps.map((step) => `  [${step.status}] ${step.content}`),
+      ].join("\n");
+    case "tool":
+      return `tool: ${row.text} [${row.status}]`;
+    case "ask":
+      return `ask: ${row.text}`;
+    case "notice":
+      return `note: ${row.text}`;
+    case "divider":
+      return `— ${row.text} —`;
+  }
+}
+
+/** The whole conversation as text, in the order it is drawn in. A blank line
+ *  between rows, because two rows run together are one paragraph to whoever
+ *  pastes this into an issue. */
+export function transcriptText(rows: readonly OrchestratorRow[]): string {
+  return rows.map(rowText).join("\n\n");
+}

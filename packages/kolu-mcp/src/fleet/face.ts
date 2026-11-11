@@ -204,50 +204,76 @@ function fleetUrgency(hosts: FleetHosts): Stream.Stream<FleetUrgency, unknown> {
 
 /** One roster row. A host that is not answering still has a row — the nulls
  *  ARE the answer, and they are what lets an agent read "that machine is
- *  warming" instead of inferring it from a call that failed. */
+ *  warming" instead of inferring it from a call that failed.
+ *
+ *  It takes a key the ROSTER produced, so there is no membership check here:
+ *  {@link fleetRoster} walks `hosts.keys()`, and a key read out of the live
+ *  pool one line earlier cannot be a stranger's. */
 function hostRow(
   hosts: FleetHosts,
   key: string,
 ): Effect.Effect<FleetHost, unknown> {
-  return Effect.flatMap(
-    requireMember(hosts, key),
-    (): Effect.Effect<FleetHost, unknown> => {
-      const base = {
-        host: key,
-        display: hosts.display(key),
-        state: hosts.state(key),
-      };
-      const padi = hosts.padi(key);
-      if (padi === null) {
-        return Effect.succeed({
-          ...base,
-          commit: null,
-          surfaceVersion: null,
-          startedAt: null,
-        });
-      }
-      return Effect.map(
-        Effect.all([
-          firstFrameOrThrow(
-            padi.surface.identity.get(undefined),
-            `host ${key}: padi identity yielded no snapshot frame — link or protocol failure.`,
-          ),
-          firstFrameOrThrow(
-            padi.surface.status.get(undefined),
-            `host ${key}: padi status yielded no snapshot frame — link or protocol failure.`,
-          ),
-        ]),
-        ([identity, status]) => ({
-          ...base,
-          commit: identity.commit,
-          surfaceVersion: identity.surfaceVersion,
-          startedAt: identity.startedAt,
-          ...(status.expectedKaval === undefined
-            ? {}
-            : { expectedKaval: status.expectedKaval }),
-        }),
-      );
-    },
+  const base = {
+    host: key,
+    display: hosts.display(key),
+    state: hosts.state(key),
+  };
+  const padi = hosts.padi(key);
+  if (padi === null) {
+    return Effect.succeed({
+      ...base,
+      commit: null,
+      surfaceVersion: null,
+      startedAt: null,
+    });
+  }
+  return Effect.map(
+    Effect.all([
+      firstFrameOrThrow(
+        padi.surface.identity.get(undefined),
+        `host ${key}: padi identity yielded no snapshot frame — link or protocol failure.`,
+      ),
+      firstFrameOrThrow(
+        padi.surface.status.get(undefined),
+        `host ${key}: padi status yielded no snapshot frame — link or protocol failure.`,
+      ),
+    ]),
+    ([identity, status]) => ({
+      ...base,
+      commit: identity.commit,
+      surfaceVersion: identity.surfaceVersion,
+      startedAt: identity.startedAt,
+      ...(status.expectedKaval === undefined
+        ? {}
+        : { expectedKaval: status.expectedKaval }),
+    }),
+  );
+}
+
+/** THE WHOLE ROSTER, re-read on every move — one answer to "which hosts can I
+ *  use", rather than a key set plus a read per host.
+ *
+ *  Rows are gathered CONCURRENTLY: each connected host's row is two first-frame
+ *  reads off that host's own mirror, and done in series the roster would wait
+ *  for the sum of every host's priming instead of the slowest one. Order is
+ *  the roster's either way (`Effect.all` answers in input order), so local
+ *  stays first.
+ *
+ *  A host that is connected and CANNOT answer fails this read, by name
+ *  (`firstFrameOrThrow` says which host and which member). That is the honest
+ *  trade for one read: the alternative is a row of invented nulls that reads
+ *  exactly like a host that is merely warming, which is the fallback this
+ *  face's whole refusal vocabulary exists to avoid. */
+function fleetRoster(
+  hosts: FleetHosts,
+): Stream.Stream<readonly FleetHost[], unknown> {
+  return Stream.switchMap(hostRoster(hosts), (keys) =>
+    Stream.fromEffect(
+      Effect.all(
+        keys.map((key) => hostRow(hosts, key)),
+        { concurrency: "unbounded" },
+      ),
+    ),
   );
 }
 
@@ -320,11 +346,7 @@ export function fleetClientFace(
         // The WHOLE roster, not just the connected part: "which machines exist
         // and what is each doing" is the question this resource answers, and a
         // warming host omitted from it reads as a host that is not yours.
-        keys: () => Stream.map(hostRoster(hosts), (keys) => [...keys]),
-        get: (input: { key: string }) =>
-          Stream.switchMap(hostRoster(hosts), () =>
-            Stream.fromEffect(hostRow(hosts, input.key)),
-          ),
+        get: () => fleetRoster(hosts),
       },
       urgency: { get: () => fleetUrgency(hosts) },
       screen: {

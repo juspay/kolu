@@ -17,6 +17,10 @@ The [agent-fleets](/agent-fleets) pattern needs a coordinator, and until now the
 
 The **Orchestrator** is that coordinator as a chat. One of them, covering every machine you have. You talk to it; it creates, briefs, watches and answers the agents in your terminals, wherever those terminals are.
 
+<Aside type="caution" title="beta">
+  The Orchestrator is **beta**, and the word is meant literally. Its shape is still moving — what the view holds, what the agent is given, how a session is addressed — so a thing you rely on this week may be spelled differently the next. And the conversation itself is **not** durable across a kolu version: upgrading can leave you with a new, empty conversation, with the previous one's transcript gone rather than migrated. Anything you want to keep, keep outside it — in the repository, in a terminal, in a file an agent wrote.
+</Aside>
+
 ## What it is
 
 A single conversation with Claude, held by **kolu-server** — the process your browser is already talking to — and spoken over the [Agent Client Protocol](https://agentclientprotocol.com). Its working directory is the `$HOME` of the machine kolu-server runs on. Its **hands are kolu's own MCP face**: the same tool table [you can point any agent at](/mcp), lifted over every host kolu knows about. So it opens terminals, types into them, waits for them to settle, reads their screens and kills them — on whichever machine the work belongs on — through exactly the tools documented on the [MCP page](/mcp): nothing special, nothing private.
@@ -48,13 +52,25 @@ The agent's name, and then the facts you steer by:
 - a **state chip** — rust while it is working, violet when it is asking you something, quiet otherwise;
 - **who it is signed in as**, when the agent says — "Claude Max", an API key, a gateway. Silence here is not the same as logged out: an agent that does not report its identity shows nothing, and one that reports it is logged out says so;
 - the **model**, pressable for the session settings;
-- a **context meter**, `148k/1M`. A fraction rather than a percentage, because the window is not a constant — 200k and 1M are both ordinary, and "2%" would read identically in both and mean quite different amounts of work left.
+- a **context meter**, `148k/1M`. A fraction rather than a percentage, because the window is not a constant — 200k and 1M are both ordinary, and "2%" would read identically in both and mean quite different amounts of work left;
+- a **⋯ menu**, which performs nothing by itself.
 
 ### Session settings
 
 Pressing the model opens the adapter's own settings: the models it offers (with their window sizes), reasoning effort, permission mode, and whatever else it advertises. The controls use the **adapter's** names and values — kolu composes none of them. A change the agent refuses leaves the confirmed value where it was, and says why.
 
 The model you choose **survives a restart**. That is a fix rather than a given: the agent re-asserts its own default over a resumed conversation, so kolu records the switch and re-applies it when the conversation comes back.
+
+### The ⋯ menu
+
+Everything kolu can do to the conversation itself, as opposed to the options the agent advertises:
+
+- **New session** — a fresh conversation, and an **empty** one. The messages go, the files attached to them are deleted from the machine running kolu, and the terminals the conversation remembered are forgotten; what is left is a blank chat, and the next thing you say teaches the agent its standing prompt again. There is no undo, so it asks once before it does any of it.
+- **Stop**, while a turn is running.
+- **Sign in…**, while the agent is not signed in.
+- **Copy transcript**, always — the conversation as plain text, on the clipboard.
+
+A conversation kolu could not **resume** after a restart is the one case where a `— new session —` rule is drawn across the transcript: the scroll above it is the conversation you were having, and the line says where the agent's memory stops. A new session you ask for yourself leaves no such line, because there is nothing above it to divide from.
 
 ### The strip
 

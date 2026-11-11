@@ -96,7 +96,7 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     expect(Object.keys(spec.procedures?.agentDistro ?? {})).toEqual([
       "deliver",
     ]);
-    // The nine verbs that ASK the one conversation for something. The cell
+    // The ten verbs that ASK the one conversation for something. The cell
     // beside them is read-only, which is why every write is here.
     expect(Object.keys(spec.procedures?.orchestrator ?? {})).toEqual([
       "prompt",
@@ -108,6 +108,7 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
       "signInCancel",
       "setOption",
       "newSession",
+      "clearSession",
     ]);
   });
 });

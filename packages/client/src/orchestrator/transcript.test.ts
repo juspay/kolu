@@ -7,7 +7,7 @@ import type {
   OrchestratorRow,
 } from "kolu-common/orchestrator";
 import { describe, expect, it } from "vitest";
-import { applyFrame, EMPTY_TRANSCRIPT } from "./transcript";
+import { applyFrame, EMPTY_TRANSCRIPT, foldNoticeRuns } from "./transcript";
 
 const agentRow = (id: string, seq: number, text: string): OrchestratorRow => ({
   id,
@@ -136,5 +136,51 @@ describe("applyFrame", () => {
       delta({ removes: ["a"], upserts: [agentRow("a", 1, "new")] }),
     );
     expect(after.rows).toEqual([agentRow("a", 1, "new")]);
+  });
+});
+
+describe("foldNoticeRuns", () => {
+  const notice = (id: string, seq: number, text: string): OrchestratorRow => ({
+    id,
+    seq,
+    since: "2026-01-01T00:00:00.000Z",
+    kind: "notice",
+    text,
+  });
+
+  it("draws a run of identical notices ONCE, with its count", () => {
+    // The field case: a fixed loop left eight copies of one exit notice in a
+    // transcript that is already on disk. A reader rule, so they fold on read.
+    const entries = foldNoticeRuns(
+      Array.from({ length: 8 }, (_, i) =>
+        notice(`n${i}`, i, "the agent exited"),
+      ),
+    );
+    expect(entries).toEqual([
+      { row: notice("n0", 0, "the agent exited"), repeat: 8 },
+    ]);
+  });
+
+  it("keeps non-adjacent repeats apart — they are separate events", () => {
+    const entries = foldNoticeRuns([
+      notice("a", 1, "the agent exited"),
+      agentRow("b", 2, "then it ran again"),
+      notice("c", 3, "the agent exited"),
+    ]);
+    expect(entries.map((e) => [e.row.id, e.repeat])).toEqual([
+      ["a", 1],
+      ["b", 1],
+      ["c", 1],
+    ]);
+  });
+
+  it("folds only identical text, and only notices", () => {
+    const entries = foldNoticeRuns([
+      notice("a", 1, "exited (code 0)"),
+      notice("b", 2, "exited (code 1)"),
+      agentRow("c", 3, "same"),
+      agentRow("d", 4, "same"),
+    ]);
+    expect(entries.map((e) => e.repeat)).toEqual([1, 1, 1, 1]);
   });
 });

@@ -82,7 +82,7 @@ describe("the composed surface siblings", () => {
       "surface/kolu/forwards/create",
       "surface/kolu/forwards/cancel",
       // The ONE conversation: a read-only cell, a snapshot-then-deltas
-      // transcript stream, and the nine verbs that ASK it for something.
+      // transcript stream, and the ten verbs that ASK it for something.
       "surface/kolu/orchestrator/get",
       "surface/kolu/orchestratorTranscript/get",
       "surface/kolu/orchestrator/prompt",
@@ -94,6 +94,7 @@ describe("the composed surface siblings", () => {
       "surface/kolu/orchestrator/signInCancel",
       "surface/kolu/orchestrator/setOption",
       "surface/kolu/orchestrator/newSession",
+      "surface/kolu/orchestrator/clearSession",
       "surface/surfaceApp/buildInfo/get",
       // The RESTART axis is the framework-reserved member every surface carries —
       // surface-app's duplicate `identity/info` came out with the second process

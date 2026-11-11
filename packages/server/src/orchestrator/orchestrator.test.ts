@@ -22,6 +22,9 @@
  *    session is gone — is not written over them.
  *  - A TEARDOWN IS NOT A WAIT: a drain does not stand there for an open the
  *    agent has not answered, and stops the child anyway.
+ *  - THE WIPE IS THE HOST'S: `clearSession` empties the rows, the record, the
+ *    files and the remembered fleet together, and leaves no divider — while
+ *    `newSession` beside it keeps every one of them.
  */
 
 import {
@@ -106,6 +109,15 @@ interface Spawned {
   readonly opened: () => void;
   readonly die: () => void;
   readonly stops: () => number;
+  /** How many times this conversation was asked for a NEW session — what a
+   *  wipe must have done to the agent, as distinct from what it did to our
+   *  rows. */
+  readonly sessions: () => number;
+  /** What this conversation does ON ITS WAY OUT of `newSession`. The real
+   *  harness mints a `— new session —` row there, and the only way to pin
+   *  what the wipe does with that row is to let a test interleave at the same
+   *  point. */
+  readonly onNewSession: (run: () => void) => void;
   /** The attachments this conversation was HANDED, per prompt — what kolu-server
    *  wrote and filled in before the agent was told anything. */
   readonly handed: () => ReadonlyArray<ReadonlyArray<OrchestratorAttachment>>;
@@ -119,6 +131,8 @@ function fakeSpawner(): {
   const spawn = async (options: HarnessOptions): Promise<Harness> => {
     let alive = true;
     let stops = 0;
+    let sessions = 0;
+    let leaving: (() => void) | null = null;
     const handed: ReadonlyArray<OrchestratorAttachment>[] = [];
     let state: HarnessState = {
       ...DEFAULT_ORCHESTRATOR_STATE,
@@ -142,7 +156,10 @@ function fakeSpawner(): {
       signInInput: async () => {},
       signInCancel: async () => false,
       setOption: async () => {},
-      newSession: async () => {},
+      newSession: async () => {
+        sessions += 1;
+        leaving?.();
+      },
       stop: async () => {
         stops += 1;
         alive = false;
@@ -166,6 +183,10 @@ function fakeSpawner(): {
         alive = false;
       },
       stops: () => stops,
+      sessions: () => sessions,
+      onNewSession: (run) => {
+        leaving = run;
+      },
       handed: () => handed,
     });
     return harness;
@@ -1337,5 +1358,182 @@ describe("a run of NEW SESSION dividers", () => {
     });
     await r.host.newSession();
     expect(r.spawns[0]?.options.resumedEndsWithDivider).toBe(false);
+  });
+});
+
+describe("the wipe (`clearSession`)", () => {
+  const divider = (id: string, seq: number): OrchestratorRow => ({
+    id,
+    seq,
+    since: "2026-01-01T00:00:00.000Z",
+    kind: "divider",
+    text: "new session",
+  });
+
+  /** A conversation with something to lose: three rows, a session and a
+   *  terminal it remembers. */
+  const held: PersistedOrchestrator = {
+    sessionId: "sess-1",
+    cwd: HOME,
+    model: null,
+    rows: [row("user:1", 1, "hello"), row("agent:2", 2, "hello back")],
+    fleet: ["local/term-1"],
+  };
+
+  /** The rows a NEW reader would be handed — the snapshot, which is what the
+   *  next person to open the panel actually sees. */
+  const served = (host: OrchestratorHost): ReadonlyArray<OrchestratorRow> => {
+    const seen: OrchestratorFrame[] = [];
+    host.watch((frame) => seen.push(frame));
+    const first = seen[0];
+    if (first?.kind !== "snapshot") throw new Error("expected a snapshot");
+    return first.rows;
+  };
+
+  it("leaves an EMPTY conversation — rows, record and fleet together", async () => {
+    const r = rig(held);
+    r.host.watch(() => {});
+    await r.host.clearSession();
+
+    // What the panel draws, what the next reader is handed, and what the next
+    // BOOT reads: three readings of one wipe, because a wipe only one of them
+    // saw is a conversation that comes back.
+    expect(served(r.host)).toEqual([]);
+    expect(r.value().rows).toEqual([]);
+    expect(r.value().fleet).toEqual([]);
+    expect(r.host.state().fleet).toEqual([]);
+    // The record is written at once rather than on the throttle: a window in
+    // which the file still holds a deleted conversation is a window in which
+    // a restart restores it.
+    expect(r.writes()).toBeGreaterThan(0);
+    // ... and the AGENT was given a new conversation, which is the half of
+    // this that happens outside our bookkeeping.
+    expect(r.spawns[0]?.sessions()).toBe(1);
+  });
+
+  it("takes the divider the agent mints ON ITS WAY OUT with it", async () => {
+    const r = rig(held);
+    r.host.watch(() => {});
+    // Awaited, because the bring-up a subscription triggers is in flight: the
+    // hook below has to be set on the conversation the wipe will ask.
+    await r.host.prompt("still here?", [], []);
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    // The real harness reports a `— new session —` row from inside
+    // `newSession`, before it opens the next conversation. The wipe runs the
+    // agent's session change FIRST for exactly this reason: a rule drawn
+    // across an empty transcript is a break between nothing and nothing.
+    agent.onNewSession(() => {
+      agent.push({
+        kind: "rows",
+        upserts: [divider("div-1", 3)],
+        removes: [],
+        appends: [],
+      });
+    });
+
+    await r.host.clearSession();
+    expect(served(r.host)).toEqual([]);
+    expect(r.value().rows).toEqual([]);
+  });
+
+  it("leaves a REPLACEMENT nothing to fence against", async () => {
+    // The two seeds a respawn is handed are read off the rows we hold, and
+    // after a wipe we hold none — so a replacement counts from zero and knows
+    // there is no divider above it to double.
+    const r = rig(held);
+    r.host.watch(() => {});
+    await r.host.clearSession();
+    const first = r.spawns[0];
+    if (first === undefined) throw new Error("the host spawned nothing");
+
+    first.die();
+    await r.host.prompt("after", [], []);
+    const second = r.spawns[1];
+    if (second === undefined) throw new Error("the corpse was not replaced");
+    expect(second.options.resumedSeq).toBe(0);
+    expect(second.options.resumedEndsWithDivider).toBe(false);
+  });
+
+  it("sends the next prompt into the conversation it just opened", async () => {
+    const r = rig(held);
+    r.host.watch(() => {});
+    await r.host.clearSession();
+    await r.host.prompt("fresh start", [], []);
+
+    // One adapter, one new session, and the message went to it: the wipe is a
+    // conversation change, never a respawn.
+    expect(r.spawns).toHaveLength(1);
+    expect(r.spawns[0]?.sessions()).toBe(1);
+  });
+
+  it("`newSession` beside it keeps EVERY one of those things", async () => {
+    // The two paths differ by NAME, and this is the difference: what a person
+    // loses. *Try again* under a refused bring-up asks for this one.
+    const r = rig(held);
+    r.host.watch(() => {});
+    await r.host.newSession();
+
+    expect(served(r.host).map((one) => one.id)).toEqual(["user:1", "agent:2"]);
+    expect(r.host.state().fleet).toEqual(["local/term-1"]);
+  });
+
+  it("deletes the files the rows it dropped were naming", async () => {
+    const root = mkdtempSync(join(tmpdir(), "kolu-orch-wipe-"));
+    const dir = join(root, "orchestrator", "attachments");
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveEndpoint, root);
+    r.host.watch(() => {});
+    const written = r.host.attach({
+      id: "att-1",
+      name: "pixel.png",
+      mimeType: "image/png",
+      data: Buffer.from("pixel").toString("base64"),
+    });
+    await r.host.prompt(
+      "look",
+      [],
+      [
+        {
+          id: "att-1",
+          name: "pixel.png",
+          mimeType: "image/png",
+          bytes: written.bytes,
+          path: written.path,
+        },
+      ],
+    );
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    // The row the harness mints for that message is what KEEPS the file: the
+    // rule is that a file lives exactly as long as the row naming it.
+    agent.push({
+      kind: "rows",
+      upserts: [
+        {
+          id: "user:1",
+          seq: 1,
+          since: "2026-01-01T00:00:00.000Z",
+          kind: "user",
+          text: "look",
+          attachments: [
+            {
+              id: "att-1",
+              name: "pixel.png",
+              mimeType: "image/png",
+              bytes: written.bytes,
+              path: written.path,
+            },
+          ],
+        },
+      ],
+      removes: [],
+      appends: [],
+    });
+    expect(readdirSync(dir)).toEqual(["att-1"]);
+
+    await r.host.clearSession();
+    // The rows are gone, so nothing names the bytes — and bytes nothing names
+    // are bytes a person thought they had deleted.
+    expect(readdirSync(dir)).toEqual([]);
   });
 });

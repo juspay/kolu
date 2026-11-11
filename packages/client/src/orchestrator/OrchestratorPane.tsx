@@ -166,6 +166,7 @@ const OrchestratorPane: Component<{
           <>
             <OrchestratorHeader
               state={state()}
+              rows={feed.rows()}
               onSignIn={() => {
                 if (state().signIn !== null) return;
                 // Nothing to offer is a fact about the AGENT, not a button that

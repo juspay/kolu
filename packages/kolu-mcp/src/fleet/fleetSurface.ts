@@ -205,6 +205,37 @@ export const fleetSurface = defineSurface({
       default: EMPTY_FLEET_URGENCY,
       verbs: ["get"],
     },
+    /** THE LIVE ROSTER, AS ROWS — every host and everything known about it in
+     *  ONE read, and it CHANGES under a reader: hosts arrive and leave while a
+     *  conversation is open, which is the whole reason the fleet face exists
+     *  rather than one MCP server per host.
+     *
+     *  A CELL, not a collection, and that is the whole fix. A collection's
+     *  resource IS its key set (`@kolu/surface-mcp` reads it through
+     *  `.keys(undefined)`), so an agent that read `hosts` got five strings and
+     *  had to issue a second read per host — through a `{id}` TEMPLATE, which
+     *  a host does not list and a model therefore has to guess the shape of.
+     *  The observed result is an agent that can name the fleet and knows
+     *  nothing about any member of it. "Which hosts can I use" is one question
+     *  and it now takes one read.
+     *
+     *  The shape does NOT allow both: a cell `hosts` and a collection `hosts`
+     *  would mint the same `surface/hosts/get` tag, which `defineSurface`
+     *  refuses at build. Nothing is lost by choosing the rows — a reader
+     *  holding the array holds every row, and each row still carries its own
+     *  `host` key, so a row read here is usable without the position it
+     *  arrived at.
+     *
+     *  The default is EMPTY, and no reader ever sees it: this surface is
+     *  served by a client FACE (`fleetClientFace`), which answers `get` off
+     *  the live pool. It is the value a hypothetical `implementSurface` would
+     *  seed, and the empty fleet is the only honest seed for "nobody has asked
+     *  the pool yet". */
+    hosts: {
+      schema: Schema.Array(FleetHostSchema),
+      default: [],
+      verbs: ["get"],
+    },
   },
   collections: {
     /** Every terminal on every connected host, keyed by fleet reference — and
@@ -213,14 +244,6 @@ export const fleetSurface = defineSurface({
     terminals: {
       keySchema: FleetTerminalRefSchema,
       schema: FleetTerminalSchema,
-      verbs: ["keys", "get"],
-    },
-    /** The live roster — and it CHANGES under a reader: hosts arrive and leave
-     *  while a conversation is open, which is the whole reason the fleet face
-     *  exists rather than one MCP server per host. */
-    hosts: {
-      keySchema: FleetHostKeySchema,
-      schema: FleetHostSchema,
       verbs: ["keys", "get"],
     },
   },

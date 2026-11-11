@@ -3,25 +3,44 @@
  * host map as the MCP face sees it: which hosts exist, what they are called,
  * whether each is reachable, and one padi client per host.
  *
- * THE CLIENT IS THE IN-PROCESS MIRROR, not a second subscription.
+ * THE CLIENT DIALS THE SERVED HOST MAP — the same door the browser's socket
+ * reaches, not a second surface built beside it.
  *
- * Each host already has a `PadiSession` (one link, local or over ssh) and a
- * re-serve mirroring `padiSurface` over it — the thing the browser reads at
- * `/surface/padi/*`. Two ways to hand the fleet face a client were available:
- * build a face over the session's own dispatch (`session.currentDispatch()`),
- * or build one over the mirror's bound handlers. This takes the MIRROR, for
- * the reason the memory sampler already takes it (`reServedPadiClient` in
- * `index.ts`): the session's dispatch is the WIRE, so every stream the face
- * opened — the terminals collection, urgency, each watch — would be a second
- * upstream subscription travelling the ssh link beside the browser's, doubling
- * a remote host's traffic and giving the agent and the browser two separately
- * folded views of one truth. The mirror has already paid for exactly those
- * subscriptions once and fans them out locally; reading through it means the
- * agent sees the same frames the operator does, with no socket or ssh hop.
+ * Three in-process addresses for "this host's padi" exist in this process and
+ * only ONE of them is the one the product serves:
  *
- * It also inherits the mirror's reconnect discipline for free: a padi that
- * restarts is re-dialled by the session and re-folded by the mirror, and the
- * face on top never knew.
+ *   1. the session's own dispatch (`session.currentDispatch()`) — the WIRE.
+ *      Every stream the fleet face opened would be a second upstream
+ *      subscription travelling the ssh link beside the browser's, doubling a
+ *      remote host's traffic and giving the agent and the operator two
+ *      separately folded views of one truth.
+ *   2. the per-host re-serve's handlers (`reServeFor(h, s).handlers`) — the
+ *      ENTRY surface, `padiSurface` served verbatim, so its handlers are bound
+ *      at the STANDALONE tags `surface/<member>/<verb>`. This is what the host
+ *      map forwards to; it is not what anything dials.
+ *   3. the SERVED HOST MAP (`serveHostMap(padiHostMap, pool, …)` in
+ *      `index.ts`) — handlers bound at `surface/padi/<member>/<verb>` behind
+ *      the uniform `{ mapKey, input }` envelope, which resolve the host, refuse
+ *      a key that is not a member or whose entry has failed, and THEN forward
+ *      to (2) through the map's own per-entry dispatch (sibling forwarding,
+ *      attach telemetry, per-call link reads and all).
+ *
+ * This port takes (3). It used to take (2) — `padiClientOver(directDispatch(
+ * mirror))` — and that is a face and a runtime built from two different
+ * surfaces: `padiClientOver` builds padi's face from `padiSurfaceSibling`
+ * (`surface/padi/*`, the tags the MAP serves), while the mirror binds the entry
+ * surface's standalone `surface/*` tags. Every terminal-level fleet call
+ * therefore died in `directDispatch`'s own fail-loud resolver with `no handler
+ * bound at "surface/padi/terminals/keys"`, while the browser — which goes
+ * through the map — read the same host fine. Dialling the map is what makes
+ * that class unrepresentable: there is one served surface, and the agent and
+ * the operator reach it at the same tags.
+ *
+ * It keeps everything (2) was chosen for: the map forwards to the mirror, so
+ * the fleet face still rides the subscriptions kolu-server has already paid
+ * for (no socket, no ssh hop, no second fold), and still inherits the mirror's
+ * reconnect discipline — a padi that restarts is re-dialled by the session and
+ * re-folded by the mirror, and the face on top never knew.
  *
  * REFUSAL IS THE CALLER'S. This port answers `null` for a host that is not
  * connected and reports its `state`; the fleet face is what turns that into a
@@ -30,12 +49,36 @@
  */
 
 import { padiClientOver, type PadiSurfaceClient } from "@kolu/padi-client/dial";
-import type { padiSurface } from "@kolu/padi-client/surface";
-import { directDispatch } from "@kolu/surface/links/direct";
-import type { RemotePool, ReServedSurface } from "@kolu/surface-remote";
-import { decodeHostKey, type HostKey } from "kolu-common/hostKey";
+import { padiSurfaceSibling } from "@kolu/padi-client/surface";
+import type { SurfaceDispatch } from "@kolu/surface/link";
+import {
+  type DirectlyDispatchable,
+  directDispatch,
+} from "@kolu/surface/links/direct";
+import { fold } from "@kolu/surface-map";
+import type { RemotePool } from "@kolu/surface-remote";
+import { decodeHostKey } from "kolu-common/hostKey";
+import { padiHostMap } from "kolu-common/surfacesWithPadi";
 import type { FleetHostState, FleetHosts } from "kolu-mcp";
 import type { PadiSession } from "../padi/padiSession.ts";
+
+/** The ONE tag space this port stands on, asserted at import.
+ *
+ *  `padiClientOver` builds padi's face from `padiSurfaceSibling`, whose members
+ *  live at `surface/padi/*`; `padiHostMap` is mounted under the same name and
+ *  serves its folded members at `surface/padi/*` too. The two prefixes are
+ *  minted by different packages from different constants, so their agreement is
+ *  a FACT to check rather than a convention to trust — and the failure it
+ *  prevents is the one this module was rewritten for: a face dialling tags
+ *  nothing is bound at, which surfaces as `no handler bound at "surface/padi/
+ *  terminals/keys"` at the first terminal-level call of a conversation, long
+ *  after boot and only on the agent's side. A boot crash says it here instead. */
+if (padiSurfaceSibling.tagPrefix !== padiHostMap.tagPrefix) {
+  throw new Error(
+    `fleet: padi's client face dials "${padiSurfaceSibling.tagPrefix}" while the served host map binds "${padiHostMap.tagPrefix}" — ` +
+      "the fleet face would reach no handler at all. The map's mount name (`PADI_SURFACE_NAME`) and padi's own sibling key must be the same word.",
+  );
+}
 
 /** Fold a session's connection frame to the fleet's coarse word. `connected`
  *  is honest liveness (`currentState().phase`, the session's own rule); a
@@ -56,14 +99,16 @@ function fleetStateOf(session: PadiSession): FleetHostState {
 export interface FleetHostsOptions {
   /** The warm padi pool — the ONE source of truth for membership. */
   pool: RemotePool<PadiSession, undefined>;
-  /** The composition root's cached per-host re-serve (`reServeFor`). Passed in
-   *  rather than built here: `index.ts` owns that cache, its eviction on host
-   *  departure, and the pump-fault disposition for each host — a second cache
-   *  would be a second lifetime for one mirror. */
-  reServeFor: (
-    host: HostKey,
-    session: PadiSession,
-  ) => ReServedSurface<typeof padiSurface.spec>;
+  /** THE SERVED HOST MAP — `serveHostMap(padiHostMap, pool, …)`'s own
+   *  `{ group, handlers }` pair, passed in from the composition root that
+   *  built it.
+   *
+   *  The served value, not the ingredients: handing this port the pool and the
+   *  re-serve cache and letting it assemble its own view is exactly how the
+   *  face and the runtime came to be two different surfaces. There is one
+   *  served map in this process, the browser's socket answers out of it, and
+   *  this is it. */
+  padiMap: DirectlyDispatchable;
   /** What this machine is called, for the local host's display name — the same
    *  reading the host tab shows (`hostDisplayName`: the local machine by its
    *  hostname, a remote by its ssh target), so a fleet line never says "local"
@@ -71,22 +116,47 @@ export interface FleetHostsOptions {
   localName: string;
 }
 
-/** Build the port. Holds no state of its own beyond the per-mirror client
+/** One host's calls into the served map: the map's own tags, carrying the map's
+ *  own `{ mapKey, input }` envelope.
+ *
+ *  The twin of `@kolu/surface-map`'s internal `keyInjectingDispatch` (what
+ *  `connectSurfaceMap` wraps the BROWSER's transport in), minus the retag —
+ *  padi's face already dials the sibling tags the map is mounted at, which is
+ *  the equality asserted at the top of this file. The envelope itself is
+ *  `fold`, the map's own encoder, never a `{ mapKey, input }` object literal
+ *  spelled a second time here: a hand-rolled envelope is a second contract,
+ *  and the whole subject of this module is what happens when two of those
+ *  disagree.
+ *
+ *  No `brandDirectDispatch`: the brand records that a dispatch's liveness leg
+ *  is constant-true by construction, and the framework's own wrappers
+ *  (`keyInjectingDispatch`) do not re-brand either — the face builds the same
+ *  way over a wrapped dispatch, and nothing downstream of here reads the
+ *  brand. */
+function hostCalls(
+  map: DirectlyDispatchable,
+  hostKey: string,
+): SurfaceDispatch {
+  const served = directDispatch(map);
+  return {
+    unary: (tag, input) => served.unary(tag, fold(hostKey, input)),
+    stream: (tag, input) => served.stream(tag, fold(hostKey, input)),
+  };
+}
+
+/** Build the port. Holds no state of its own beyond the per-session client
  *  cache — every question is answered off the live pool at the instant it is
  *  asked, because the roster CHANGES under the conversation. */
 export function fleetHostsOver(opts: FleetHostsOptions): FleetHosts {
-  const { pool, reServeFor, localName } = opts;
+  const { pool, padiMap, localName } = opts;
 
-  /** One `PadiSurfaceClient` per MIRROR, keyed by the mirror itself — not by
-   *  host key. A host that leaves and returns gets a FRESH re-serve (the
-   *  eviction in `index.ts`), and a cache keyed by the string would hand the
-   *  fleet face the dead one's handlers forever. Keyed by the mirror, a new
-   *  mirror simply misses. Weak, so an evicted mirror's client is collectable
-   *  with it. */
-  const clients = new WeakMap<
-    ReServedSurface<typeof padiSurface.spec>,
-    PadiSurfaceClient
-  >();
+  /** One `PadiSurfaceClient` per SESSION. The client itself holds nothing but
+   *  the served map and an encoded key — the host is re-resolved by the map on
+   *  every call, so a stale one could not answer for a dead link even if it
+   *  were handed out. Keying by the session rather than by the key string is
+   *  what keeps the table from growing: a host that leaves and returns gets a
+   *  new session, and the departed one's client is collectable with it. */
+  const clients = new WeakMap<PadiSession, PadiSurfaceClient>();
 
   return {
     // Insertion order, and the pool's first member is the unremovable local
@@ -105,17 +175,17 @@ export function fleetHostsOver(opts: FleetHostsOptions): FleetHosts {
       // asks `state(key)` for which it is, and gets a sentence naming it.
       if (session === undefined) return null;
       if (fleetStateOf(session) !== "connected") return null;
-      const mirror = reServeFor(decodeHostKey(key), session);
-      const cached = clients.get(mirror);
+      const cached = clients.get(session);
       if (cached !== undefined) return cached;
-      // `padiClientOver` over the mirror's handlers: the SAME face a dialed
-      // padi gives, built by the same walk over the same wire tags
-      // (`surface/padi/*` — what the re-serve binds), so nothing here casts a
-      // client into existence. `.padi` is the surface face; the control core
-      // on that value is not mirrored and nothing in the fleet face reaches
-      // for it.
-      const client = padiClientOver(directDispatch(mirror)).padi;
-      clients.set(mirror, client);
+      // The SAME face a dialed padi gives, built by the same walk over the
+      // same wire tags — and now pointed at the handlers those tags are
+      // actually bound to. `key` is the pool's own encoded host string, which
+      // is the canonical `mapKey` the map decodes (a non-canonical one is
+      // refused by name rather than guessed at). `.padi` is the surface face;
+      // the control core on that value is not served by the map and nothing in
+      // the fleet face reaches for it.
+      const client = padiClientOver(hostCalls(padiMap, key)).padi;
+      clients.set(session, client);
       return client;
     },
 

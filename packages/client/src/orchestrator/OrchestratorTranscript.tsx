@@ -9,7 +9,10 @@
  *
  *  Scroll follows the conversation only while the reader is AT the bottom. Once
  *  somebody scrolls up to read something, a streaming turn must not yank them
- *  back — that is the one behaviour that makes a live transcript unusable. */
+ *  back — that is the one behaviour that makes a live transcript unusable. The
+ *  same rule decides where a fresh mount lands, and `transcriptScroll.ts` holds
+ *  it: this component is re-created on every activation of the entry, so where
+ *  the reader is cannot live here. */
 
 import { formatBytes } from "@kolu/byte-units";
 import type { OrchestratorRow } from "kolu-common/orchestrator";
@@ -18,19 +21,23 @@ import { Key } from "@solid-primitives/keyed";
 import {
   type Component,
   createEffect,
+  createMemo,
   For,
   Match,
+  onMount,
   Show,
   Switch,
 } from "solid-js";
 import OrchestratorAsk from "./OrchestratorAsk";
 import OrchestratorToolCard from "./OrchestratorToolCard";
 import { thumbnailOf } from "./thumbnails";
+import { foldNoticeRuns } from "./transcript";
+import {
+  applyTranscriptScroll,
+  atEnd,
+  rememberTranscriptScroll,
+} from "./transcriptScroll";
 import { useOrchestrator } from "./useOrchestrator";
-
-/** How close to the bottom still counts as "following", in pixels. A couple of
- *  lines of slack, so a half-scrolled wheel notch does not unpin the view. */
-const FOLLOW_SLACK_PX = 48;
 
 const OrchestratorTranscript: Component<{
   rows: readonly OrchestratorRow[];
@@ -39,6 +46,20 @@ const OrchestratorTranscript: Component<{
   containerRef: (el: HTMLDivElement) => void;
 }> = (props) => {
   let scroller!: HTMLDivElement;
+  /** Has the restore landed on a column that actually has height? A mount
+   *  whose rows arrive one frame later measures zero, and `scrollTop` clamps
+   *  to 0 against it — which is the top, i.e. the defect. So the restore is
+   *  re-applied until there is something to scroll. */
+  let placed = false;
+  /** What is DRAWN: a run of identical notices is one row carrying its count
+   *  (`foldNoticeRuns`), never eight copies of one fact. */
+  const entries = createMemo(() => foldNoticeRuns(props.rows));
+
+  // BEFORE the follow effect below, and that order is the fix: declared first,
+  // so Solid runs it first and the first follow check measures a container
+  // already at the reader's position instead of a fresh one at 0 (which it
+  // would correctly read as "scrolled far up" and refuse to move).
+  onMount(() => applyTranscriptScroll(scroller));
 
   createEffect(() => {
     // Depend on the row count AND the last row's text, so a streaming
@@ -48,10 +69,12 @@ const OrchestratorTranscript: Component<{
     const last = rows[rows.length - 1];
     void (last !== undefined && last.kind !== "plan" ? last.text : "");
     if (scroller === undefined) return;
-    const distance =
-      scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
-    if (distance <= FOLLOW_SLACK_PX + 1)
-      scroller.scrollTop = scroller.scrollHeight;
+    if (!placed) {
+      applyTranscriptScroll(scroller);
+      placed = scroller.scrollHeight > scroller.clientHeight;
+      return;
+    }
+    if (atEnd(scroller)) scroller.scrollTop = scroller.scrollHeight;
   });
 
   return (
@@ -61,6 +84,11 @@ const OrchestratorTranscript: Component<{
         scroller = el;
         props.containerRef(el);
       }}
+      // Every way the view can move ends here — wheel, drag, keyboard, and the
+      // pin above — so there is no path that leaves the remembered position
+      // behind. Recording on unmount instead would read a detached element,
+      // whose scrollTop browsers are free to have already reset.
+      onScroll={(event) => rememberTranscriptScroll(event.currentTarget)}
       class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2.5 px-4 py-3"
     >
       <Show when={props.error}>
@@ -83,14 +111,14 @@ const OrchestratorTranscript: Component<{
           collapses an open `<details>`, loses `OrchestratorDiffs`' expansion and
           throws away the caret inside a half-filled ask. The id is stable for
           the row's life; the subtree survives with it. */}
-      <Key each={props.rows} by="id">
-        {(row) => <TranscriptRow row={row()} />}
+      <Key each={entries()} by={(entry) => entry.row.id}>
+        {(entry) => <TranscriptRow row={entry().row} repeat={entry().repeat} />}
       </Key>
     </div>
   );
 };
 
-function TranscriptRow(props: { row: OrchestratorRow }) {
+function TranscriptRow(props: { row: OrchestratorRow; repeat: number }) {
   return (
     <div
       data-testid="orchestrator-row"
@@ -139,7 +167,19 @@ function TranscriptRow(props: { row: OrchestratorRow }) {
         </Match>
         <Match when={props.row.kind === "notice" && props.row}>
           {(row) => (
-            <p class="font-mono text-[0.68rem] text-fg-3">{row().text}</p>
+            <p class="font-mono text-[0.68rem] text-fg-3">
+              {row().text}
+              {/* The count is the whole point of folding the run: ONE row, and
+                  it still says how many times the thing happened. */}
+              <Show when={props.repeat > 1}>
+                <span
+                  data-testid="orchestrator-notice-repeat"
+                  class="ml-1.5 rounded-sm bg-fg-3/15 px-1 tabular-nums"
+                >
+                  ×{props.repeat}
+                </span>
+              </Show>
+            </p>
           )}
         </Match>
         <Match when={props.row.kind === "divider" && props.row}>

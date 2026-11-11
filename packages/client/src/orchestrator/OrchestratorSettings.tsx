@@ -13,7 +13,13 @@
  *  heading over an empty section. What is left here is the drawing, where the
  *  rule is that the LABEL is the choice — it gets the width it needs and the
  *  agent's description underneath takes the truncation, because a mode called
- *  `Ac…` beside a full sentence is a panel that spent its room on the gloss. */
+ *  `Ac…` beside a full sentence is a panel that spent its room on the gloss.
+ *
+ *  NOTHING ABOUT THE SESSION ITSELF lives here any more. A new session, a
+ *  stop, a sign-in and a copy are things kolu does to the conversation, not
+ *  options the agent advertised, and two homes for "New session" is two
+ *  gestures to keep in step — they are the header's `⋯` menu
+ *  ({@link OrchestratorMenu}). */
 
 import type { OrchestratorState } from "kolu-common/orchestrator";
 import { type Component, For, Show } from "solid-js";
@@ -41,7 +47,6 @@ const OrchestratorSettings: Component<{
   triggerRef: HTMLElement;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSignIn: () => void;
 }> = (props) => {
   const orch = useOrchestrator();
   const chrome = surface({ radius: "lg", shadow: "soft", portalled: true });
@@ -142,31 +147,6 @@ const OrchestratorSettings: Component<{
               </section>
             )}
           </For>
-          <div class="font-mono text-[0.6rem] uppercase tracking-[0.12em] text-fg-3 px-1.5 py-1 border-t border-edge/60">
-            Session
-          </div>
-          <button
-            type="button"
-            data-testid="orchestrator-settings-signin"
-            class="w-full text-left px-2 py-1 rounded-md text-xs text-fg hover:bg-surface-2 cursor-pointer"
-            onClick={() => {
-              props.onOpenChange(false);
-              props.onSignIn();
-            }}
-          >
-            Sign in…
-          </button>
-          <button
-            type="button"
-            data-testid="orchestrator-settings-new-session"
-            class="w-full text-left px-2 py-1 rounded-md text-xs text-fg hover:bg-surface-2 cursor-pointer"
-            onClick={() => {
-              props.onOpenChange(false);
-              orch.newSession();
-            }}
-          >
-            New session
-          </button>
         </div>
       </Portal>
     </Show>

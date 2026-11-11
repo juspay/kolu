@@ -36,6 +36,7 @@ import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { runAction } from "../runAction";
 import { app } from "../wire";
+import { forgetTranscriptScroll } from "./transcriptScroll";
 import { useOrchestratorFacts } from "./useOrchestratorFacts";
 
 /** Render a failure for a toast, keeping the server's own sentence — a declared
@@ -68,7 +69,15 @@ export interface Orchestrator {
   signInInput(text: string): void;
   signInCancel(): void;
   setOption(id: string, value: string): void;
+  /** A fresh conversation OVER the transcript — the rows stay, with the
+   *  divider the harness mints between them. The one caller is *try again*
+   *  under a refused bring-up. */
   newSession(): void;
+  /** A fresh conversation AND AN EMPTY ONE: the rows, the record, the files
+   *  and the remembered fleet all go, host-side. The header menu's confirmed
+   *  `New session` is the one caller. Two verbs rather than a flag, because
+   *  what a person LOSES is the whole of the difference. */
+  clearSession(): void;
 }
 
 export const useOrchestrator = createSharedRoot<Orchestrator>(() => {
@@ -169,10 +178,24 @@ export const useOrchestrator = createSharedRoot<Orchestrator>(() => {
         "The agent kept its setting",
         app.procedures.orchestrator.setOption({ id, value }),
       ),
-    newSession: () =>
+    newSession: () => {
+      // The transcript this offset described is about to be replaced
+      // wholesale; a pixel from the old conversation would land the new one
+      // mid-air (or, clamped against two rows, back at the top).
+      forgetTranscriptScroll();
       ask(
         "Could not start a new session",
         app.procedures.orchestrator.newSession({}),
-      ),
+      );
+    },
+    clearSession: () => {
+      // Same reason, harder: there will be NO rows to clamp a remembered
+      // offset against.
+      forgetTranscriptScroll();
+      ask(
+        "Could not start a new session",
+        app.procedures.orchestrator.clearSession({}),
+      );
+    },
   };
 });

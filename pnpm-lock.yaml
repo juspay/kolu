@@ -1560,6 +1560,9 @@ importers:
       '@kolu/surface-daemon-supervisor':
         specifier: workspace:*
         version: link:../surface-daemon-supervisor
+      '@kolu/surface-map':
+        specifier: workspace:*
+        version: link:../surface-map
       '@kolu/surface-remote':
         specifier: workspace:*
         version: link:../surface-remote
@@ -1642,9 +1645,6 @@ importers:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
         version: link:../daemon-test-gate
-      '@kolu/surface-map':
-        specifier: workspace:*
-        version: link:../surface-map
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15

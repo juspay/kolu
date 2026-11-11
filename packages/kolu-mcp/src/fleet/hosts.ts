@@ -58,7 +58,7 @@ export function requireMember(
     if (roster.includes(key)) return Effect.void;
     return Effect.fail(
       new ToolFailure(
-        `no host ${JSON.stringify(key)} in this fleet — the fleet is ${roster.map((k) => JSON.stringify(k)).join(", ") || "(empty)"}. Read \`surface://collections/hosts\` for the live roster; it changes while you work.`,
+        `no host ${JSON.stringify(key)} in this fleet — the fleet is ${roster.map((k) => JSON.stringify(k)).join(", ") || "(empty)"}. Read \`surface://cells/hosts\` for the live roster — every host and its state in one read; it changes while you work.`,
         { kind: "unknown-host", host: key, fleet: [...roster] },
       ),
     );

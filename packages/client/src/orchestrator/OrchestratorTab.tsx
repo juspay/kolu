@@ -33,7 +33,14 @@
  *  conversation is blocked on, across every host it has terminals on. It sits
  *  on the pill's top-right CORNER rather than inline, so the pill's width does
  *  not move when a question arrives. ABSENT at zero, never a `0`: a badge that
- *  renders its own silence is one every reader has to parse before ignoring. */
+ *  renders its own silence is one every reader has to parse before ignoring.
+ *
+ *  The `beta` tag is INLINE, and that is the opposite choice for the opposite
+ *  reason. The corner is taken, and two things stacked there would overlap on
+ *  the one press that matters. More to the point the tag is a constant — it is
+ *  true of the feature, not of the moment — so it is part of the pill's width
+ *  from the first paint and never moves the row, which is exactly what the
+ *  badge could not promise. */
 
 import { type Component, Show } from "solid-js";
 import { ACTIONS } from "../input/actions";
@@ -76,6 +83,12 @@ const OrchestratorTab: Component = () => (
         ◆
       </span>
       Orchestrator
+      <span
+        data-testid="orchestrator-beta"
+        class="rounded-sm bg-fg-3/15 px-1 py-px font-mono text-[0.58rem] font-semibold uppercase tracking-[0.08em] leading-[1.4] text-fg-3"
+      >
+        beta
+      </span>
       <Show when={orchestratorAsksTotal() > 0}>
         <span
           data-testid="orchestrator-badge"
