@@ -47,8 +47,10 @@ const laneOf = (id: string): string | null => {
 };
 
 /**
- * What the agent calls the model with this id, out of its own picker — or
- * `null` when the picker does not name it and the caller should say the id raw.
+ * WHICH ROW OF THE PICKER a model id is — the row whose label is what the
+ * agent calls this model, and whose context lane is how big its window is. Or
+ * `null` when the picker names it nowhere, and the caller says the id raw and
+ * claims no window.
  *
  * THE TWO VOCABULARIES. The picker's values are the adapter's *aliases* —
  * `default`, `opus[1m]`, `sonnet`, `haiku` — and the live id the CLI reports is
@@ -109,24 +111,23 @@ const laneOf = (id: string): string | null => {
  * is not an identity: `opus` is whichever Opus, and a row that has pinned
  * itself to a lane is not the one a laneless id belongs to.
  */
-export const modelNameIn = (
+const rowFor = (
   labels: ReadonlyMap<string, string>,
   id: string,
 ): string | null => {
-  const exact = namedExactly(labels, id);
-  if (exact !== null) return exact;
+  if (namedExactly(labels, id) !== null) return id;
 
   const wanted = withoutLane(id);
   if (wanted === "") return null;
 
-  const named = (only: (value: string) => boolean): string | null => {
-    const hits = [...labels].filter(
-      ([value]) => value !== "default" && only(value),
+  const only = (keep: (value: string) => boolean): string | null => {
+    const hits = [...labels.keys()].filter(
+      (value) => value !== "default" && keep(value),
     );
-    return hits.length === 1 ? (hits[0]?.[1] ?? null) : null;
+    return hits.length === 1 ? (hits[0] ?? null) : null;
   };
 
-  const lane = named((value) => withoutLane(value) === wanted);
+  const lane = only((value) => withoutLane(value) === wanted);
   if (lane !== null) return lane;
 
   // `claude-` is the vendor and says nothing about which model this is; what
@@ -140,11 +141,58 @@ export const modelNameIn = (
   // a family alias names a family, and may not throw in a context window the
   // thing it is naming never claimed.
   const lanes = laneOf(id);
-  return named(
+  return only(
     (value) => withoutLane(value) === family && laneOf(value) === lanes,
   );
 };
 
+/** What the agent calls the model with this id: the label of the row above, or
+ *  `null` for an id no row answers for. */
+export const modelNameIn = (
+  labels: ReadonlyMap<string, string>,
+  id: string,
+): string | null => {
+  const row = rowFor(labels, id);
+  return row === null ? null : (labels.get(row) ?? null);
+};
+
+/**
+ * ... and how big that model's context is, off the SAME row.
+ *
+ * The same row deliberately: a window read off one row while the name came
+ * from another would be a header naming one model and sizing a different one,
+ * which is worse than the `null` this answers for anything the picker does not
+ * name.
+ *
+ * THE LANE IS THE ONLY THING THE PICKER SAYS ABOUT A WINDOW, and it says it
+ * only when the row has opted into one: `opus[1m]` is the million-token lane
+ * this CLI offers as a beta, and every other row it ships is a model at the
+ * 200k every Claude ships with ({@link STANDARD}). A row pinned to a lane this
+ * file has never heard of answers `null` rather than guessing — the number
+ * here is read to decide whether to compact, and a wrong one is worse than
+ * none.
+ */
+export const modelWindowIn = (
+  labels: ReadonlyMap<string, string>,
+  id: string,
+): number | null => {
+  const row = rowFor(labels, id);
+  if (row === null) return null;
+  const lane = laneOf(row);
+  return lane === null ? STANDARD : (LANES[lane] ?? null);
+};
+
+/** The context window every model this CLI offers has, unless its row opted
+ *  into a lane. */
+const STANDARD = 200_000;
+
+/** ... and what the lanes it does offer are worth, in tokens. */
+const LANES: Readonly<Record<string, number>> = { "1m": 1_000_000 };
+
 /** THIS ENGINE'S WHOLE READING, as the leg hands it over: the picker's id, and
  *  the arithmetic above. */
-export const MODELS: ModelReading = { config: "model", nameIn: modelNameIn };
+export const MODELS: ModelReading = {
+  config: "model",
+  nameIn: modelNameIn,
+  windowIn: modelWindowIn,
+};

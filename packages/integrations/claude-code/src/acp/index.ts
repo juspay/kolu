@@ -14,11 +14,16 @@
  *
  * ## The executable path belongs to this engine
  *
- * `KOLU_ACP_AGENT` names this adapter's command line. padi's wrapper supplies
- * it with `--set-default`, so a person who starts a host by any documented path
- * never has to know the variable exists; an explicit value overrides it. An
- * absent or empty one leaves THIS engine unseated and says why, which is the
- * {@link NotHere} arm rather than a missing row.
+ * `KOLU_ACP_AGENT` names this adapter's command line. A Nix build bakes the
+ * pinned adapter onto padi's wrapper with `--set-default`, so the pin is what
+ * runs when nothing else supplies the name and a person who starts a host by
+ * any documented path never has to know the variable exists. An explicitly
+ * exported value WINS over the bake — a developer's own build, or the e2e
+ * harness's scripted fixture adapter forwarded through kolu-server's
+ * `padiBinding` — and that ordering is the only reason `orchestrator.feature`
+ * drives the fixture rather than a real `claude`. An absent or empty one
+ * leaves THIS engine unseated and says why, which is the {@link NotHere} arm
+ * rather than a missing row.
  */
 
 import {

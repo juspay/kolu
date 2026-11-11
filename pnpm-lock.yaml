@@ -142,9 +142,6 @@ importers:
       '@kolu/padi-client':
         specifier: workspace:*
         version: link:../padi-client
-      effect:
-        specifier: 4.0.0
-        version: 4.0.0
     devDependencies:
       '@types/node':
         specifier: ^22.0.0

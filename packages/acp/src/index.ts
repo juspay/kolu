@@ -23,11 +23,6 @@
  */
 
 export {
-  type ActivityNotification,
-  type ActivityUpdate,
-  nativeActivity,
-} from "./activity.ts";
-export {
   contentOf,
   type Form,
   formOf,
@@ -39,6 +34,4 @@ export {
 } from "./asks.ts";
 export { diffsOf, relativeTo } from "./diffs.ts";
 export { AUTH_STATUS_METHOD, identityIn } from "./identity.ts";
-
-export { terminalMetaIn } from "./terminal.ts";
 export { usageIn } from "./usage.ts";

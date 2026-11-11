@@ -14,16 +14,17 @@
 
 import { describe, expect, test } from "vitest";
 
-import { MODELS, modelNameIn } from "./models.ts";
+import { MODELS, modelNameIn, modelWindowIn } from "./models.ts";
 
 test("the picker this adapter puts its model in", () => {
   // A bet rather than a protocol fact — ACP's `SessionConfigId` is free-form
   // and its one reserved hint is documented as UX-only — so it is written down
   // where the rest of this adapter's bets are, and asserted where they are.
   expect(MODELS.config).toBe("model");
-  // ...and the reading the leg hands over IS the one below, rather than a
-  // second copy of it that could drift.
+  // ...and the readings the leg hands over ARE the ones below, rather than
+  // second copies of them that could drift.
   expect(MODELS.nameIn).toBe(modelNameIn);
+  expect(MODELS.windowIn).toBe(modelWindowIn);
 });
 
 describe("what the agent calls the model it is running", () => {
@@ -148,5 +149,45 @@ describe("what the agent calls the model it is running", () => {
     ).toBeNull();
     expect(modelNameIn(new Map(), "claude-sonnet-5")).toBeNull();
     expect(modelNameIn(OFFERED, "")).toBeNull();
+  });
+});
+
+describe("how big the running model's context is", () => {
+  /** The same captured picker: the window is read off the row the name came
+   *  from, so the cases are the same cases. */
+  const OFFERED = new Map([
+    ["default", "Default (recommended)"],
+    ["opus[1m]", "Opus (1M context)"],
+    ["claude-fable-5[1m]", "Fable"],
+    ["sonnet", "Sonnet"],
+    ["haiku", "Haiku"],
+  ]);
+
+  test("a row with no lane is the window every Claude ships with", () => {
+    expect(modelWindowIn(OFFERED, "sonnet")).toBe(200_000);
+    // ... including through the alias tier, which is how a live id arrives.
+    expect(modelWindowIn(OFFERED, "claude-sonnet-5")).toBe(200_000);
+  });
+
+  test("a row pinned to the million-token lane is that lane", () => {
+    expect(modelWindowIn(OFFERED, "opus[1m]")).toBe(1_000_000);
+    // The adapter's other spelling of the same row, and the live id that is
+    // the same model: one row, one window.
+    expect(modelWindowIn(OFFERED, "claude-fable-5")).toBe(1_000_000);
+  });
+
+  test("a model the picker does not name has no window to report", () => {
+    // The honest `null`: the header draws no number rather than one that is
+    // five times the real size, which is the number a person reads to decide
+    // whether to compact.
+    expect(modelWindowIn(OFFERED, "gpt-5")).toBeNull();
+    expect(modelWindowIn(OFFERED, "claude-opus-4-5-20260101")).toBeNull();
+    // A laneless live id may not borrow the `opus[1m]` row's lane — the whole
+    // reason the name tier refuses it — so there is no row and no window. And
+    // a lane this file has never heard of is a guess it will not make.
+    expect(modelWindowIn(OFFERED, "claude-opus-5")).toBeNull();
+    expect(
+      modelWindowIn(new Map([["opus[3m]", "Opus (3M)"]]), "opus[3m]"),
+    ).toBeNull();
   });
 });

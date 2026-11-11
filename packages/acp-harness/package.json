@@ -11,16 +11,16 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "//scripts": "`test:daemon`, not `test:unit`: every test here spawns a real ACP agent as a detached process group (`src/fixtures/`), which is the lane `just test-daemon` runs serially and `just test-unit` skips — the same reason `kolu-omp` declares it.",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "vitest run"
+    "test:daemon": "vitest run"
   },
   "//dependencies": "THE ONE PACKAGE IN THIS TREE THAT RUNS THE PROTOCOL, so the SDK is a RUNTIME dependency here and a type-only one in `@kolu/acp` (`packages/acp/src/manifest.test.ts` holds both halves). `@kolu/padi-client` is imported for the row and state TYPES alone — the harness writes padi's contract and never reaches for padi itself.",
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.3.0",
     "@kolu/acp": "workspace:*",
-    "@kolu/padi-client": "workspace:*",
-    "effect": "catalog:"
+    "@kolu/padi-client": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

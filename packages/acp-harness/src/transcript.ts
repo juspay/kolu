@@ -260,10 +260,20 @@ export class Transcript {
   #undelivered = new Map<string, string>();
   readonly #now: () => number;
 
-  /** The clock, HANDED IN with the real one as the default, for the reason
-   *  every other rule in this file is a value: the transcript is a data
-   *  structure with no agent, no socket and no browser under it. */
-  constructor(now: () => number = Date.now) {
+  /**
+   * The clock and the WATERMARK, both handed in, for the reason every other
+   * rule in this file is a value: the transcript is a data structure with no
+   * agent, no socket and no browser under it.
+   *
+   * `from` is the highest `seq` of the rows somebody ELSE is already holding
+   * for this conversation — a resumed one, restored from a store. Every id and
+   * every `seq` this instance mints starts after it, so a row minted now can
+   * neither collide with a restored row's id nor sort above it. Zero is an
+   * empty transcript, which is what a fresh conversation has.
+   */
+  constructor(from = 0, now: () => number = Date.now) {
+    this.#seq = from;
+    this.#minted = from;
     this.#now = now;
   }
 
@@ -302,21 +312,6 @@ export class Transcript {
       }
     }
     return out;
-  }
-
-  /** Everything, gone — a new session. The removes are reported so a
-   *  subscriber's own copy empties rather than accumulating two
-   *  conversations. */
-  clear(): Change {
-    const removes = [...this.#rows.keys()];
-    this.#rows.clear();
-    this.#stranded.clear();
-    this.#named.clear();
-    this.#ended.clear();
-    this.#undelivered.clear();
-    this.#open = null;
-    this.#seq = 0;
-    return { ...EMPTY, removes };
   }
 
   /** A row that stands on its own. */
@@ -433,19 +428,11 @@ export class Transcript {
     return this.#grow("agent", text);
   }
 
-  /** One chunk of what a PERSON said, out of a replay. The same accumulation
-   *  the agent's prose gets, because the protocol's unit is a CHUNK: a row per
-   *  piece is one sentence drawn as three bubbles down the side of the panel. */
-  userSaid(text: string): Change {
-    return this.#grow("user", text);
-  }
-
-  /** One chunk into the row already open, or into a new one. ONE function for
-   *  the two kinds that arrive in pieces, and the KIND is what decides whether
-   *  the open row is the right one to grow: nothing closes a paragraph between
-   *  a person's words and the agent's answer to them, so an agent chunk
-   *  appended to an open user row would put the answer inside the question. */
-  #grow(kind: "agent" | "user", text: string): Change {
+  /** One chunk of prose into the row already open, or into a new one. The
+   *  agent's, and only ever the agent's: what a PERSON said is a row kolu
+   *  minted when they pressed send, and the chunk the wire echoes back for it
+   *  would be that message drawn twice. */
+  #grow(kind: "agent", text: string): Change {
     const open = this.#open;
     const current = open === null ? undefined : this.#rows.get(open);
     if (open !== null && current?.kind === kind) {

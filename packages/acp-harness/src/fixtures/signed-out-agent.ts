@@ -1,6 +1,6 @@
 /**
  * AN AGENT NOBODY IS SIGNED IN TO — the one refusal with something to do about
- * it.
+ * it, and what happens after somebody does it.
  *
  * ACP spells "authenticate first" as an error RESPONSE (`-32000`) to whatever
  * was refused, so the way an agent asks for a signature is to say no to
@@ -8,6 +8,12 @@
  * of sign-in a client may be offered so the method reading has both to read:
  * a `terminal` one, whose command line it hands over in its own `_meta` corner,
  * and an `env_var` one, which this harness deliberately does not offer.
+ *
+ * THE SECOND `session/new` SUCCEEDS, and that is not a trick: a terminal
+ * sign-in is a SEPARATE process writing a credential store, so what the agent
+ * sees is simply a later call made by a client that now has a signature. The
+ * fixture cannot watch that process and does not need to — "refused once, then
+ * open" is the whole of what the agent experiences.
  */
 
 const write = (value: unknown): void => {
@@ -18,6 +24,10 @@ interface Message {
   readonly id?: unknown;
   readonly method?: string;
 }
+
+/** How many opens have been refused. ONE, because the sign-in a client runs
+ *  between the first and the second is the whole subject. */
+let refusals = 0;
 
 let pending = "";
 process.stdin.setEncoding("utf8");
@@ -59,11 +69,27 @@ process.stdin.on("data", (chunk: string) => {
       continue;
     }
     if (message.method === "session/new") {
+      if (refusals === 0) {
+        refusals += 1;
+        write({
+          jsonrpc: "2.0",
+          id: message.id,
+          error: { code: -32000, message: "Authentication required" },
+        });
+        continue;
+      }
       write({
         jsonrpc: "2.0",
         id: message.id,
-        error: { code: -32000, message: "Authentication required" },
+        result: { sessionId: "sess-1", configOptions: [] },
       });
+      continue;
+    }
+    // The permission mode a leg asks for on every open. Answered rather than
+    // ignored: a request nobody replies to is a bring-up that hangs until the
+    // boot deadline, which is a worse test failure than any assertion.
+    if (message.method === "session/set_mode") {
+      write({ jsonrpc: "2.0", id: message.id, result: {} });
       continue;
     }
     if (message.method === "authenticate") {

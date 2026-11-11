@@ -228,10 +228,8 @@ describe("the manifest", () => {
       "formOf",
       "hostOf",
       "identityIn",
-      "nativeActivity",
       "permissionFormOf",
       "relativeTo",
-      "terminalMetaIn",
       "urlOf",
       "usageIn",
     ]);
