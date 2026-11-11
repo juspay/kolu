@@ -92,7 +92,6 @@ import { Effect } from "effect";
 import { assertDaemonSpawnAllowed } from "kaval";
 import type { PadiConvergence } from "kolu-common/surface";
 import { AGENT_DISTRO_BAKE_ENVS } from "@kolu/padi/agentDistroBake";
-import { ORCHESTRATOR_BAKE_ENVS } from "@kolu/padi/orchestratorBake";
 import { AGENT_TOOLS_BAKE_ENV, composeSpawnEnv } from "kolu-pty";
 import {
   bakedOsFactsBin,
@@ -217,17 +216,6 @@ export function daemonEnv(
   if (kavalIdentity.staleKey) {
     env.KAVAL_BUILD_ID = kavalIdentity.staleKey;
     env.KAVAL_COMMIT_HASH = kavalIdentity.navigableCommit;
-  }
-  // The ORCHESTRATOR's two baked paths — the ACP adapter padi spawns, and the
-  // `kolu` it hands that session as its one MCP server. Forwarded for exactly
-  // the reason `KAVAL_BUILD_ID` above is: a nix-built padi wrapper SETS both
-  // (see default.nix), and a remote padi carries its own from `padi-agent`, so
-  // this only feeds the FROM-SOURCE path — dev, and the e2e harness pointing
-  // `KOLU_ACP_AGENT` at a fixture adapter. Forward-if-set, so a production
-  // binding never overwrites its own bake with an ambient value.
-  for (const name of ORCHESTRATOR_BAKE_ENVS) {
-    const value = process.env[name];
-    if (value) env[name] = value;
   }
   // Agent-detection dir/db OVERRIDES that padi's sensors read from their own env (via
   // the `@kolu/integrations-*` agent packages — codex/claude-code/grok/opencode) to
