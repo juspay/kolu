@@ -37,8 +37,21 @@ import {
   type MentionCandidate,
   resolveMentions,
   tokenQueryAt,
+  type TokenQuery,
 } from "./mentions";
 import { useOrchestrator } from "./useOrchestrator";
+
+/** A menu is OPEN when its trigger has a token under the caret and rows to
+ *  offer. One shape for both menus, so the composer's precedence rule — the
+ *  `@` menu wins — is one `??` rather than a branch per reader. */
+const openMenu = (
+  trigger: "@" | "/",
+  token: TokenQuery | null,
+  rows: readonly { readonly name: string }[],
+) =>
+  token === null || rows.length === 0
+    ? null
+    : { trigger, token, words: rows.map((row) => row.name) };
 
 const OrchestratorComposer: Component<{
   state: OrchestratorState;
@@ -94,18 +107,22 @@ const OrchestratorComposer: Component<{
   onCleanup(() => setCompletionOpen(false));
   const armed = createMemo(() => resolveMentions(composerText(), candidates()));
 
-  /** The highlighted row. At most ONE menu is open at a time — a token starts
-   *  with `@` or with `/`, never both — so one index serves whichever is
-   *  showing. It returns to the top when the QUESTION changes and at no other
-   *  time; `createCompletionHighlight` carries the argument for why the match
-   *  list is not allowed to move it. */
+  /** THE OPEN MENU — read by the count the keyboard folds against and by the
+   *  row a click takes, so the two can neither disagree about which menu is
+   *  open nor re-derive the precedence between them. */
+  const menu = createMemo(
+    () =>
+      openMenu("@", mentionToken(), mentionMatches()) ??
+      openMenu("/", commandToken(), commandMatches()),
+  );
+  /** The highlighted row. One index serves whichever menu is open; it returns
+   *  to the top when the QUESTION changes and at no other time, and
+   *  `createCompletionHighlight` carries the argument for why the match list
+   *  is not allowed to move it. */
   const [selected, setSelected] = createCompletionHighlight(() =>
     completionQuestion(mentionToken(), commandToken()),
   );
-  const menuCount = () =>
-    mentionMatches().length > 0
-      ? mentionMatches().length
-      : commandMatches().length;
+  const menuCount = () => menu()?.words.length ?? 0;
 
   const write = (text: string, position: number): void => {
     setComposerText(text);
@@ -119,19 +136,10 @@ const OrchestratorComposer: Component<{
    *  open. The mouse and the keyboard land here together, so a click and a Tab
    *  cannot drift apart. */
   const accept = (index: number): void => {
-    const mentions = mentionMatches();
-    if (mentions.length > 0) {
-      const candidate = mentions[index];
-      const token = mentionToken();
-      if (candidate === undefined || token === null) return;
-      const next = completeToken(composerText(), token, "@", candidate.name);
-      write(next.text, next.caret);
-      return;
-    }
-    const command = commandMatches()[index];
-    const token = commandToken();
-    if (command === undefined || token === null) return;
-    const next = completeToken(composerText(), token, "/", command.name);
+    const open = menu();
+    const word = open?.words[index];
+    if (open === null || word === undefined) return;
+    const next = completeToken(composerText(), open.token, open.trigger, word);
     write(next.text, next.caret);
   };
 

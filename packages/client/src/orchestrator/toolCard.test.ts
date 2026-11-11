@@ -1,137 +1,41 @@
-/** The tool row → card mapping. The kolu-aware arms are what let a card name a
- *  terminal and open it; a call nobody could name must fall to the generic
- *  card rather than guess, which is the direction this is safe to fail in. */
+/** The two derivations a tool card cannot read straight off the row — what
+ *  went in, and how long the wait was — plus the clock under a running call.
+ *  The rest of a card is `row.kolu` read as it stands, so there is nothing
+ *  between the wire and the markup left to pin here. */
 
-import type { OrchestratorToolRow } from "@kolu/padi-client/orchestrator";
 import type { TerminalId } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
-import { runningFor, toolCard } from "./toolCard";
+import { runningFor, sentInput, waitedFor } from "./toolCard";
 
 const TERMINAL = "11111111-1111-4111-8111-111111111111" as TerminalId;
 
-const row = (patch: Partial<OrchestratorToolRow>): OrchestratorToolRow => ({
-  id: "r1",
-  seq: 1,
-  since: "2026-01-01T00:00:00.000Z",
-  kind: "tool",
-  text: "Some call",
-  status: "completed",
-  ...patch,
+const sent = (text: string | null, key: string | null) =>
+  sentInput({
+    kind: "sendInput",
+    terminalId: TERMINAL,
+    name: "fix-parser",
+    text,
+    key,
+  });
+
+describe("sentInput", () => {
+  it("tells typed text and a named key apart", () => {
+    expect(sent("go", null)).toEqual({ as: "text", value: "go" });
+    expect(sent(null, "Enter")).toEqual({ as: "key", value: "Enter" });
+  });
+
+  it("says nothing for a call that carried neither", () => {
+    expect(sent(null, null)).toBeNull();
+  });
 });
 
-describe("toolCard", () => {
-  it("falls to the generic card for a call with no kolu reading", () => {
-    expect(toolCard(row({ text: "Read", detail: "{...}" }))).toEqual({
-      kind: "generic",
-      title: "Read",
-      detail: "{...}",
-    });
+describe("waitedFor", () => {
+  it("phrases the wait down to the second", () => {
+    expect(waitedFor(134_000)).toBe("2m 14s");
   });
 
-  it("reads a create", () => {
-    const card = toolCard(
-      row({
-        kolu: {
-          kind: "create",
-          terminalId: TERMINAL,
-          name: "fix-parser",
-          cwd: "kolu/.worktrees/fix-parser",
-          agent: "claude",
-        },
-      }),
-    );
-    expect(card).toMatchObject({
-      kind: "create",
-      name: "fix-parser",
-      agent: "claude",
-      terminalId: TERMINAL,
-    });
-  });
-
-  it("reads typed input and a named key as the same card, differently sent", () => {
-    const typed = toolCard(
-      row({
-        kolu: {
-          kind: "sendInput",
-          terminalId: TERMINAL,
-          name: "fix-parser",
-          text: "go",
-          key: null,
-        },
-      }),
-    );
-    const keyed = toolCard(
-      row({
-        kolu: {
-          kind: "sendInput",
-          terminalId: TERMINAL,
-          name: "fix-parser",
-          text: null,
-          key: "Enter",
-        },
-      }),
-    );
-    expect(typed).toMatchObject({ sent: { as: "text", value: "go" } });
-    expect(keyed).toMatchObject({ sent: { as: "key", value: "Enter" } });
-  });
-
-  it("phrases a settle's wait and keeps its screen tail", () => {
-    expect(
-      toolCard(
-        row({
-          kolu: {
-            kind: "settle",
-            terminalId: TERMINAL,
-            name: "odu-cache",
-            state: "awaiting",
-            elapsedMs: 134_000,
-            screenTail: "? Retention in days",
-          },
-        }),
-      ),
-    ).toMatchObject({
-      kind: "settle",
-      state: "awaiting",
-      waited: "2m 14s",
-      screenTail: "? Retention in days",
-    });
-  });
-
-  it("says nothing about a wait the tool did not report", () => {
-    expect(
-      toolCard(
-        row({
-          kolu: {
-            kind: "settle",
-            terminalId: null,
-            name: null,
-            state: null,
-            elapsedMs: null,
-            screenTail: null,
-          },
-        }),
-      ),
-    ).toMatchObject({ waited: null });
-  });
-
-  it("reads a screen and a kill", () => {
-    expect(
-      toolCard(
-        row({
-          kolu: {
-            kind: "screen",
-            terminalId: TERMINAL,
-            name: "zsh",
-            snapshot: "$ ",
-          },
-        }),
-      ),
-    ).toMatchObject({ kind: "screen", snapshot: "$ " });
-    expect(
-      toolCard(
-        row({ kolu: { kind: "kill", terminalId: TERMINAL, name: "zsh" } }),
-      ),
-    ).toMatchObject({ kind: "kill", name: "zsh" });
+  it("says nothing about a wait the tool did not report — a wait with no duration is not a wait of zero", () => {
+    expect(waitedFor(null)).toBeNull();
   });
 });
 

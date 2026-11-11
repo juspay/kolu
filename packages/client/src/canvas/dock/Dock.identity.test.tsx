@@ -23,7 +23,7 @@ vi.mock("../../settings/useTips", () => ({
   useTips: () => ({ showTipOnce: () => {} }),
 }));
 vi.mock("../useViewPosture", () => ({
-  useViewPosture: () => ({ mode: () => "tiled" }),
+  useViewPosture: () => ({ layout: () => "tiled" }),
 }));
 vi.mock("../../tile/useTileStore", () => ({
   useTileStore: () => ({ isActiveTile: () => false, activate: () => {} }),

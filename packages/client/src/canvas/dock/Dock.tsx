@@ -250,7 +250,7 @@ const Dock: Component<{
    *  co-extensive — a handle can't render on a dock that isn't host-capped, nor
    *  vice versa. */
   const isResizableDock = (): boolean =>
-    posture.mode() === "maximized" && dockMode() === "cards";
+    posture.layout() === "maximized" && dockMode() === "cards";
 
   // Live drag-in-progress width — NOT persisted. Every `pointermove` during a
   // drag would otherwise call `setDockCardsWidth`, which writes straight
@@ -336,7 +336,7 @@ const Dock: Component<{
       data-testid="dock"
       ref={asideEl}
       data-mode={dockMode()}
-      data-maximized={posture.mode() === "maximized" ? "" : undefined}
+      data-maximized={posture.layout() === "maximized" ? "" : undefined}
       class="flex flex-col select-none overflow-hidden bg-surface-1"
       classList={{
         // Tiled: absolute float inside the canvas; positions over
@@ -346,8 +346,8 @@ const Dock: Component<{
         // background (see base class) so canvas tiles don't bleed
         // through the seams between rows or behind the rounded corners.
         "absolute z-30 top-6 left-4 rounded-2xl shadow-2xl shadow-black/40":
-          posture.mode() === "tiled",
-        "max-h-[calc(100vh-14rem)]": posture.mode() === "tiled",
+          posture.layout() === "tiled",
+        "max-h-[calc(100vh-14rem)]": posture.layout() === "tiled",
         // Maximized: real left-panel flex sibling of the canvas. The
         // canvas takes the remaining space via `flex-1` next to us
         // (see TerminalCanvas). Full canvas height comes from the
@@ -355,7 +355,7 @@ const Dock: Component<{
         // `align-items`); a right-edge separator reads as a hard
         // panel boundary rather than a floating card.
         "relative shrink-0 h-full border-r border-edge":
-          posture.mode() === "maximized",
+          posture.layout() === "maximized",
       }}
       style={{ width: `${effectiveDockWidth()}px` }}
     >

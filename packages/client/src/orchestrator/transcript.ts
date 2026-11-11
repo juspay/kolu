@@ -13,10 +13,11 @@
  *  that appended refinements would scatter one conversation across its own
  *  timeline. */
 
-import type {
-  OrchestratorFrame,
-  OrchestratorRow,
-  OrchestratorSayingSchema,
+import {
+  appendedText,
+  type OrchestratorFrame,
+  type OrchestratorRow,
+  type OrchestratorSayingSchema,
 } from "@kolu/padi-client/orchestrator";
 
 type Saying = typeof OrchestratorSayingSchema.Type;
@@ -31,14 +32,11 @@ export interface TranscriptState {
 
 export const EMPTY_TRANSCRIPT: TranscriptState = { seq: 0, rows: [] };
 
-/** Splice one piece of streamed prose into the row it belongs to.
- *
- *  `at` is the offset the piece starts at, and it is AUTHORITATIVE: a producer
- *  that re-sent a piece (a frame delivered twice) lands at an offset already
- *  covered, and truncating to `at` before appending makes the re-send a no-op
- *  instead of a stutter. The one case the data cannot repair is a piece that
- *  starts PAST the end — a frame went missing — so it is reported rather than
- *  padded with invented characters; the next snapshot is what actually fixes it. */
+/** Splice one piece of streamed prose into the row it belongs to. The offset
+ *  arithmetic is `appendedText`, shared with padi's fold. The one case the data
+ *  cannot repair is a piece that starts PAST the end — a frame went missing —
+ *  so it is reported here rather than passed over in silence; the next snapshot
+ *  is what actually fixes it. */
 function appendSaying(
   rows: readonly OrchestratorRow[],
   saying: Saying,
@@ -73,7 +71,7 @@ function appendSaying(
   const next = rows.slice();
   next[index] = {
     ...row,
-    text: current.slice(0, Math.min(saying.at, current.length)) + saying.text,
+    text: appendedText(current, saying.at, saying.text),
   };
   return next;
 }

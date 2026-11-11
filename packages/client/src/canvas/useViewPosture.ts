@@ -2,16 +2,16 @@
  *  `canvasMaximized`. Canvas readers (ChromeBar, TerminalCanvas, Dock,
  *  RightPanel) import this hook instead of reaching into
  *  `useTerminalStore`, so a future enum upgrade (PiP, per-tile maximize)
- *  can grow `mode()`'s discriminant without rippling across every reader.
+ *  can grow `layout()`'s discriminant without rippling across every reader.
  *
- *  Scope is deliberately narrow: only `mode` (the state) and `toggle`
- *  (the single writer). Per-reader derivations like "show minimap" or
- *  "workspace-switcher opacity" stay at the reader — naming hook
+ *  Scope is deliberately narrow: two questions (`layout`, `posture`) and
+ *  `toggle` (the single writer). Per-reader derivations like "show minimap"
+ *  or "workspace-switcher opacity" stay at the reader — naming hook
  *  outputs after reader-specific behaviors would couple this interface
  *  to their internals.
  *
  *  Form factor is a separate axis (`layoutMode`, media queries) and the
- *  *posture state* (`mode`, `canMaximize`) stays canvas-focused: which view to
+ *  *posture state* (`layout`, `canMaximize`) stays canvas-focused: which view to
  *  mount — the touch panes (`MobileTileView` / `CompactTileView`) vs the canvas
  *  (`TerminalCanvas`) — is decided one level up in App.tsx — different change
  *  frequency, different reactivity source, different blast radius. The one
@@ -50,7 +50,7 @@ export function useViewPosture() {
   const tileStore = useTileStore();
   /** "Maximize is meaningful" — there is a tile to maximize. With zero tiles
    *  the canvas is the empty/restore screen, which has no tile. The single
-   *  source of truth for this sub-fact, shared by `mode()`'s guard below and
+   *  source of truth for this sub-fact, shared by `layout()`'s guard below and
    *  exposed to readers (ChromeBar) via `canMaximize`. Keyed off the TILE
    *  count, so a future sleeping-only workspace stays maximizable. */
   const canMaximize = (): boolean => tileStore.tileCount() > 0;
@@ -71,7 +71,7 @@ export function useViewPosture() {
    *
    *  The write guard: a no-op without a spatial canvas (any non-desktop layout
    *  — phone or compact — where the canvas isn't mounted) or with zero
-   *  terminals (the same `canMaximize` predicate `mode()` reads and the
+   *  terminals (the same `canMaximize` predicate `layout()` reads and the
    *  affordances gate on). Gating here — not in each caller — keeps a
    *  non-desktop hardware-keyboard press from silently flipping the persisted
    *  per-host posture signal with no visible effect: the safety lives in the
@@ -84,47 +84,46 @@ export function useViewPosture() {
     }
   };
   return {
-    /** Current canvas-display mode. `"maximized"` requires a tile to
-     *  maximize (see `canMaximize`): with zero terminals the posture is
-     *  always `"tiled"` regardless of the persisted per-host posture
-     *  signal. This is a derivation, not a mutation — the per-host posture
-     *  signal is left intact so it re-applies the moment a terminal
-     *  returns. It also keeps the empty-canvas Dock (mounted by App.tsx,
-     *  see `Dock.tsx`) in its only reachable posture, instead of taking
-     *  the maximized flush-sidebar classes inside a non-flex host and
-     *  pushing the welcome card off-screen.
+    /** How the chrome LAYS OUT — the question every canvas reader is actually
+     *  asking. `"maximized"` is one flush tile with the dock and the right
+     *  panel as real sidebars; `"tiled"` is the freeform canvas with both
+     *  floating over it. It is NOT "which posture did the user choose": that
+     *  is `posture()` below, and a reader who takes this one for it gets a
+     *  label promising a posture nobody is in.
      *
-     *  ORCHESTRATOR MODE READS AS MAXIMIZED, and that is this seam earning
-     *  its keep rather than a special case: the peek pane shows exactly one
-     *  tile, flush, with the dock as a real left sidebar — which is the
-     *  maximized posture under another name. Deriving it here means the
-     *  canvas, the dock and the minimap each get it without a second axis to
-     *  consult, and the per-host posture bit underneath is untouched, so
-     *  leaving the mode lands on whichever posture the user actually chose.
-     *  A WRITE still goes to that bit alone (`toggle` below), which is why
-     *  the two call sites that must flip it read `canvasMaximized()` raw. */
-    mode: (): ViewPostureMode =>
+     *  Two things fold in here that the chosen posture knows nothing about.
+     *  With zero tiles the layout is always `"tiled"` (see `canMaximize`) — a
+     *  derivation, not a mutation, so the persisted per-host bit re-applies
+     *  the moment a terminal returns, and the empty-canvas Dock (mounted by
+     *  App.tsx, see `Dock.tsx`) stays in its only reachable layout instead of
+     *  taking the flush-sidebar classes inside a non-flex host and pushing the
+     *  welcome card off-screen. And ORCHESTRATOR MODE LAYS OUT AS MAXIMIZED,
+     *  which is this seam earning its keep rather than a special case: the
+     *  peek pane shows exactly one tile, flush, with the dock as a real left
+     *  sidebar — the maximized layout under another name. Deriving it here
+     *  means the canvas, the dock and the minimap each get it without a second
+     *  axis to consult. */
+    layout: (): ViewPostureMode =>
       (store.canvasMaximized() || orchestratorMode()) && canMaximize()
         ? "maximized"
         : "tiled",
     /** Whether maximize is meaningful — a tile exists to maximize.
      *  Readers gate the maximize affordance on this so it never disagrees
-     *  with `mode()`'s own guard. */
+     *  with `layout()`'s own guard. */
     canMaximize,
-    /** The posture BIT alone — what the persisted per-host signal says, with the
-     *  orchestrator's borrowing of `mode()` left out. Two kinds of reader need
-     *  it and both are about the write, not the view: a LABEL that promises
-     *  where a press lands ("Maximize terminal" / "Restore canvas"), and a
-     *  writer deciding whether there is anything to flip. Reading `mode()` for
-     *  either is how the palette came to offer "Restore canvas" for a posture
-     *  the user was not in. */
-    rawMode: (): ViewPostureMode =>
+    /** WHICH POSTURE THE USER CHOSE — the persisted per-host bit alone, with
+     *  the orchestrator's borrowing of the maximized layout left out. Two
+     *  kinds of reader need it and both are about the choice, not the view: a
+     *  LABEL that promises where a press lands ("Maximize terminal" /
+     *  "Restore canvas"), and a writer deciding whether there is anything to
+     *  flip. */
+    posture: (): ViewPostureMode =>
       store.canvasMaximized() && canMaximize() ? "maximized" : "tiled",
     postureTo,
-    /** Flip the posture — `⌘⇧M` and the palette entry. It flips the RAW bit,
-     *  never `mode()`: in orchestrator mode `mode()` already answers
-     *  "maximized", so toggling off it would leave the bit where it was and the
-     *  chord would do nothing anybody could see. */
+    /** Flip the posture — `⌘⇧M` and the palette entry. It flips the CHOSEN
+     *  posture, never the layout: in orchestrator mode `layout()` already
+     *  answers "maximized", so toggling off it would leave the bit where it
+     *  was and the chord would do nothing anybody could see. */
     toggle: (): void => postureTo(!store.canvasMaximized()),
   } as const;
 }

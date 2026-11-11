@@ -13,7 +13,7 @@
  *  as one continuous top rail across the workspace. The band is a NEUTRAL chrome
  *  surface (no host/PWA hue tint) — per-host colour lives on the tabs, so the
  *  active tab's own hue stands out instead of blending into a same-hue band.
- *  `posture.mode()` no longer changes the bar's positioning; it only drives
+ *  `posture.layout()` no longer changes the bar's positioning; it only drives
  *  the `data-maximized` marker. The maximize/restore affordance is one segment
  *  of the three-way `ModeControl` now (canvas · maximized · orchestrator).
  *
@@ -54,7 +54,7 @@ const ChromeBar: Component<{
   // True when the terminal is maximized. The header is full-width docked in
   // BOTH postures now (see the module comment), so this drives only the
   // `data-maximized` marker.
-  const docked = createMemo(() => posture.mode() === "maximized");
+  const docked = createMemo(() => posture.layout() === "maximized");
 
   return (
     <header

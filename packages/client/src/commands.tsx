@@ -502,9 +502,9 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           // zero terminals). The label describes the action a select
           // performs, so when already maximized it reads "Restore canvas",
           // never "Maximize terminal" — same wording as the ChromeBar
-          // affordance. It reads the RAW posture bit, not `mode()`: in
-          // orchestrator mode `mode()` answers "maximized" (the peek pane is
-          // that posture by another name), and labelling off it offered
+          // affordance. It reads the posture the user CHOSE, not `layout()`:
+          // in orchestrator mode the layout answers "maximized" (the peek pane
+          // is that posture by another name), and labelling off it offered
           // "Restore canvas" for a posture the user was not in — while the
           // select itself leaves the mode and flips the bit underneath.
           // Carries the keybind chip so the palette advertises the
@@ -513,7 +513,7 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
             ? [
                 actionPaletteCommand("toggleCanvasPosture", deps, {
                   section: "canvas",
-                  name: posturedActionLabel(posture.rawMode()),
+                  name: posturedActionLabel(posture.posture()),
                 }),
               ]
             : []),

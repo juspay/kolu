@@ -70,19 +70,18 @@ export function completionIntent(
   }
 }
 
-/** The QUESTION the open menu is answering: the trigger and the letters typed
- *  after it, both menus in one string. `@` with nothing after it is a real
- *  question (list every terminal), so it spells itself `"@"` and a caret that
- *  sits in no token at all spells itself `""` — two different states that must
- *  not collapse onto each other. The NUL keeps the two fields apart; nobody
- *  types one. */
+/** The QUESTION the open menu is answering: its trigger and the letters typed
+ *  after it. At most ONE menu is open — a token starts with `@` or with `/`,
+ *  never both. `@` with nothing after it is a real question (list every
+ *  terminal), so it spells itself `"@"`, and a caret in no token at all spells
+ *  itself `""` — two states that must not collapse onto each other. */
 export function completionQuestion(
   mention: TokenQuery | null,
   command: TokenQuery | null,
 ): string {
-  const asking = mention === null ? "" : `@${mention.query}`;
-  const commanding = command === null ? "" : `/${command.query}`;
-  return `${asking}\u0000${commanding}`;
+  if (mention !== null) return `@${mention.query}`;
+  if (command !== null) return `/${command.query}`;
+  return "";
 }
 
 /** The highlighted row, and the one rule that moves it without a keypress: a

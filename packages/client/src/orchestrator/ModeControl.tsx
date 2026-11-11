@@ -32,14 +32,14 @@ const segmentClass =
   "flex items-center gap-1.5 px-2 py-1 font-mono text-[0.65rem] font-semibold cursor-pointer transition-colors";
 
 const ModeControl: Component = () => {
-  const posture = useViewPosture();
+  const view = useViewPosture();
   useOrchestratorFacts();
 
   const asks = () => orchestratorStateOf(encActiveHost()).openAsks.length;
   const mode = (): "canvas" | "maximized" | "orchestrator" =>
     orchestratorMode()
       ? "orchestrator"
-      : posture.mode() === "maximized"
+      : view.posture() === "maximized"
         ? "maximized"
         : "canvas";
 
@@ -58,7 +58,7 @@ const ModeControl: Component = () => {
             "text-accent bg-accent/12": mode() === "canvas",
             "text-fg-3 hover:text-fg": mode() !== "canvas",
           }}
-          onClick={() => posture.postureTo(false)}
+          onClick={() => view.postureTo(false)}
         >
           {/* GLYPH AND WORD, both. Three unlabelled marks in a row is a rebus:
               nothing in `▦ ▢ ◆` says which is the conversation, and the one
@@ -78,11 +78,11 @@ const ModeControl: Component = () => {
           classList={{
             "text-accent bg-accent/12": mode() === "maximized",
             "text-fg-3 hover:text-fg":
-              mode() !== "maximized" && posture.canMaximize(),
-            "text-fg-3/40 cursor-not-allowed": !posture.canMaximize(),
+              mode() !== "maximized" && view.canMaximize(),
+            "text-fg-3/40 cursor-not-allowed": !view.canMaximize(),
           }}
-          disabled={!posture.canMaximize()}
-          onClick={() => posture.postureTo(true)}
+          disabled={!view.canMaximize()}
+          onClick={() => view.postureTo(true)}
         >
           ▢ maximized
         </button>

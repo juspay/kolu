@@ -2,10 +2,11 @@
  *
  *  Two shapes, and which one a row gets is the harness's decision, not this
  *  component's: a call it positively recognised as the `kolu` MCP server's
- *  carries a structured reading and gets a card that can name the terminal and
- *  open it; everything else gets the generic card built from the agent's own
- *  title and the folded JSON. The mapping lives in `./toolCard`, pure, so the
- *  cases are pinned by unit tests rather than by reading markup.
+ *  carries a structured `kolu` reading and gets a card that can name the
+ *  terminal and open it; everything else gets the generic card built from the
+ *  agent's own title and the folded JSON. That reading IS the card vocabulary,
+ *  so the markup switches on it directly; `./toolCard` holds only the two
+ *  derivations the markup cannot read off the row, and the clock.
  *
  *  The live clock (`· 47s`) appears only on a call that is RUNNING and only once
  *  the wait is worth watching — see `runningFor`. It is derived from the row's
@@ -14,11 +15,11 @@
 
 import type { OrchestratorToolRow } from "@kolu/padi-client/orchestrator";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createMemo, Show } from "solid-js";
+import { type Component, Show } from "solid-js";
 import { useDockFocus } from "../canvas/dock/useDockFocus";
 import { getClockNow } from "../time/clock";
 import OrchestratorDiffs from "./OrchestratorDiffs";
-import { runningFor, toolCard } from "./toolCard";
+import { runningFor, sentInput, waitedFor } from "./toolCard";
 
 const STATUS_MARK: Record<OrchestratorToolRow["status"], string> = {
   pending: "·",
@@ -39,7 +40,7 @@ const OrchestratorToolCard: Component<{ row: OrchestratorToolRow }> = (
 ) => {
   const focus = useDockFocus();
   const now = getClockNow();
-  const card = createMemo(() => toolCard(props.row));
+
   /** READ THE CLOCK ONLY WHILE THE CALL IS RUNNING. `now()` is the app's one
    *  1 s tick, and a transcript holds every tool call a conversation ever made:
    *  reading it unconditionally subscribed every finished card to a signal that
@@ -48,13 +49,10 @@ const OrchestratorToolCard: Component<{ row: OrchestratorToolRow }> = (
    *  read, so a settled card holds no subscription at all. */
   const clock = () =>
     props.row.status === "in_progress" ? runningFor(props.row, now()) : null;
-  /** The terminal a card is ABOUT, when it is about one. Every kolu-aware arm
-   *  carries the id; the generic card is a call we could not name, so there is
-   *  no terminal to open and nothing to guess at. */
-  const subject = (): TerminalId | null => {
-    const c = card();
-    return c.kind === "generic" ? null : c.terminalId;
-  };
+  /** The terminal a card is ABOUT, when it is about one. Every kolu reading
+   *  carries the id; a call we could not name has no terminal to open and
+   *  nothing to guess at. */
+  const subject = (): TerminalId | null => props.row.kolu?.terminalId ?? null;
 
   const openTile = (id: TerminalId | null) => (
     <Show when={id}>
@@ -96,7 +94,7 @@ const OrchestratorToolCard: Component<{ row: OrchestratorToolRow }> = (
   return (
     <div
       data-testid="orchestrator-tool-card"
-      data-tool-kind={card().kind}
+      data-tool-kind={props.row.kolu?.kind ?? "generic"}
       data-status={props.row.status}
       class="grid grid-cols-[auto_1fr_auto] items-center gap-x-2.5 gap-y-1.5 rounded-lg border border-edge bg-surface-1 px-2.5 py-1.5 text-xs"
     >
@@ -105,16 +103,18 @@ const OrchestratorToolCard: Component<{ row: OrchestratorToolRow }> = (
       </span>
       <span class="min-w-0 truncate">
         {(() => {
-          const c = card();
-          switch (c.kind) {
+          const call = props.row.kolu;
+          if (call === undefined)
+            return <span class="text-fg">{props.row.text}</span>;
+          switch (call.kind) {
             case "create":
               return (
                 <>
-                  → <b class="font-semibold">{c.name ?? "terminal"}</b>
-                  <Show when={c.cwd}>
+                  → <b class="font-semibold">{call.name ?? "terminal"}</b>
+                  <Show when={call.cwd}>
                     {(cwd) => <span class="text-fg-2"> · {cwd()}</span>}
                   </Show>
-                  <Show when={c.agent}>
+                  <Show when={call.agent}>
                     {(agent) => (
                       <span class="font-mono text-fg-2"> · {agent()}</span>
                     )}
@@ -124,8 +124,8 @@ const OrchestratorToolCard: Component<{ row: OrchestratorToolRow }> = (
             case "sendInput":
               return (
                 <>
-                  <b class="font-semibold">{c.name ?? "terminal"}</b>
-                  <Show when={c.sent}>
+                  <b class="font-semibold">{call.name ?? "terminal"}</b>
+                  <Show when={sentInput(call)}>
                     {(sent) => (
                       <span class="font-mono text-fg-2">
                         {" "}
@@ -141,11 +141,11 @@ const OrchestratorToolCard: Component<{ row: OrchestratorToolRow }> = (
             case "settle":
               return (
                 <>
-                  <b class="font-semibold">{c.name ?? "terminal"}</b>
-                  <Show when={c.state}>
+                  <b class="font-semibold">{call.name ?? "terminal"}</b>
+                  <Show when={call.state}>
                     {(state) => <span class="text-alert"> · {state()}</span>}
                   </Show>
-                  <Show when={c.waited}>
+                  <Show when={waitedFor(call.elapsedMs)}>
                     {(waited) => (
                       <span class="text-fg-2"> after {waited()}</span>
                     )}
@@ -155,19 +155,17 @@ const OrchestratorToolCard: Component<{ row: OrchestratorToolRow }> = (
             case "screen":
               return (
                 <>
-                  <b class="font-semibold">{c.name ?? "terminal"}</b>
+                  <b class="font-semibold">{call.name ?? "terminal"}</b>
                   <span class="text-fg-2"> · screen</span>
                 </>
               );
             case "kill":
               return (
                 <>
-                  <b class="font-semibold">{c.name ?? "terminal"}</b>
+                  <b class="font-semibold">{call.name ?? "terminal"}</b>
                   <span class="text-fg-2"> · killed</span>
                 </>
               );
-            case "generic":
-              return <span class="text-fg">{c.title}</span>;
           }
         })()}
       </span>
@@ -221,11 +219,12 @@ const OrchestratorToolCard: Component<{ row: OrchestratorToolRow }> = (
         </div>
       </Show>
       {(() => {
-        const c = card();
-        if (c.kind === "settle")
-          return folded("▸ last lines (screenTail)", c.screenTail);
-        if (c.kind === "screen") return folded("▸ screen", c.snapshot);
-        if (c.kind === "generic") return folded("▸ call", c.detail);
+        const call = props.row.kolu;
+        if (call === undefined)
+          return folded("▸ call", props.row.detail ?? null);
+        if (call.kind === "settle")
+          return folded("▸ last lines (screenTail)", call.screenTail);
+        if (call.kind === "screen") return folded("▸ screen", call.snapshot);
         return null;
       })()}
       <Show when={props.row.progress}>

@@ -20,9 +20,13 @@ import {
   type OrchestratorAskRow,
   YES_NO,
 } from "@kolu/padi-client/orchestrator";
-import { type Component, createMemo, For, Show } from "solid-js";
+import { type Component, createMemo, For, Match, Show, Switch } from "solid-js";
 import { askDraft, forgetAskDraft, setAskDraft } from "./drafts";
 import { useOrchestrator } from "./useOrchestrator";
+
+/** One option chip. The SELECTED state is layered on through `classList`, so
+ *  the shape of a chip is written once and only the two colours branch. */
+const OPTION_CLASS = "rounded-md border px-2.5 py-1 text-fg cursor-pointer";
 
 const OrchestratorAsk: Component<{ row: OrchestratorAskRow }> = (props) => {
   const orch = useOrchestrator();
@@ -35,6 +39,10 @@ const OrchestratorAsk: Component<{ row: OrchestratorAskRow }> = (props) => {
   );
   const otherFor = (key: string) =>
     ask().fields.find((field) => field.attachedTo === key);
+  /** Is this value in the draft for this field — the one predicate every
+   *  option chip asks, of itself, to colour and mark itself. */
+  const picked = (key: string, value: string): boolean =>
+    askDraft(props.row.id, key).includes(value);
 
   const answers = (): AskAnswer[] =>
     ask()
@@ -113,109 +121,92 @@ const OrchestratorAsk: Component<{ row: OrchestratorAskRow }> = (props) => {
               <Show when={field.hint}>
                 {(hint) => <p class="text-fg-3 text-[0.7rem]">{hint()}</p>}
               </Show>
-              <Show
-                when={field.kind === "choice" || field.kind === "choices"}
+              <Switch
                 fallback={
-                  <Show
-                    when={field.kind === "boolean"}
-                    fallback={
-                      <input
-                        type={
-                          field.kind === "number" || field.kind === "integer"
-                            ? "number"
-                            : "text"
-                        }
-                        data-testid="orchestrator-ask-input"
-                        data-field={field.key}
-                        value={askDraft(props.row.id, field.key)[0] ?? ""}
-                        class="mt-1 w-full rounded-md border border-edge-bright bg-surface-0 px-2 py-1 text-fg outline-none focus:border-accent"
-                        onInput={(event) =>
-                          setAskDraft(
-                            props.row.id,
-                            field.key,
-                            event.currentTarget.value === ""
-                              ? []
-                              : [event.currentTarget.value],
-                          )
-                        }
-                      />
+                  <input
+                    type={
+                      field.kind === "number" || field.kind === "integer"
+                        ? "number"
+                        : "text"
                     }
-                  >
-                    <div class="mt-1.5 flex gap-1.5">
-                      <For each={[YES_NO.yes, YES_NO.no]}>
-                        {(value) => (
+                    data-testid="orchestrator-ask-input"
+                    data-field={field.key}
+                    value={askDraft(props.row.id, field.key)[0] ?? ""}
+                    class="mt-1 w-full rounded-md border border-edge-bright bg-surface-0 px-2 py-1 text-fg outline-none focus:border-accent"
+                    onInput={(event) =>
+                      setAskDraft(
+                        props.row.id,
+                        field.key,
+                        event.currentTarget.value === ""
+                          ? []
+                          : [event.currentTarget.value],
+                      )
+                    }
+                  />
+                }
+              >
+                <Match
+                  when={field.kind === "choice" || field.kind === "choices"}
+                >
+                  <div class="mt-1.5 flex flex-wrap gap-1.5">
+                    <For each={field.choices}>
+                      {(choice) => {
+                        const on = () => picked(field.key, choice.value);
+                        return (
+                          <button
+                            type="button"
+                            data-testid="orchestrator-ask-option"
+                            data-field={field.key}
+                            data-value={choice.value}
+                            data-active={on() ? "" : undefined}
+                            title={choice.hint ?? undefined}
+                            class={OPTION_CLASS}
+                            classList={{
+                              "border-accent bg-accent/15": on(),
+                              "border-edge-bright bg-surface-2": !on(),
+                            }}
+                            onClick={() =>
+                              pick(
+                                field.key,
+                                choice.value,
+                                field.kind === "choices",
+                              )
+                            }
+                          >
+                            {choice.label}
+                          </button>
+                        );
+                      }}
+                    </For>
+                  </div>
+                </Match>
+                <Match when={field.kind === "boolean"}>
+                  <div class="mt-1.5 flex gap-1.5">
+                    <For each={[YES_NO.yes, YES_NO.no]}>
+                      {(value) => {
+                        const on = () => picked(field.key, value);
+                        return (
                           <button
                             type="button"
                             data-testid="orchestrator-ask-option"
                             data-field={field.key}
                             data-value={value}
-                            data-active={
-                              askDraft(props.row.id, field.key).includes(value)
-                                ? ""
-                                : undefined
-                            }
-                            class="rounded-md border px-2.5 py-1 cursor-pointer"
+                            data-active={on() ? "" : undefined}
+                            class={OPTION_CLASS}
                             classList={{
-                              "border-accent bg-accent/15 text-fg": askDraft(
-                                props.row.id,
-                                field.key,
-                              ).includes(value),
-                              "border-edge-bright bg-surface-2 text-fg":
-                                !askDraft(props.row.id, field.key).includes(
-                                  value,
-                                ),
+                              "border-accent bg-accent/15": on(),
+                              "border-edge-bright bg-surface-2": !on(),
                             }}
                             onClick={() => pick(field.key, value, false)}
                           >
                             {value === YES_NO.yes ? "Yes" : "No"}
                           </button>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-                }
-              >
-                <div class="mt-1.5 flex flex-wrap gap-1.5">
-                  <For each={field.choices}>
-                    {(choice) => (
-                      <button
-                        type="button"
-                        data-testid="orchestrator-ask-option"
-                        data-field={field.key}
-                        data-value={choice.value}
-                        data-active={
-                          askDraft(props.row.id, field.key).includes(
-                            choice.value,
-                          )
-                            ? ""
-                            : undefined
-                        }
-                        title={choice.hint ?? undefined}
-                        class="rounded-md border px-2.5 py-1 cursor-pointer"
-                        classList={{
-                          "border-accent bg-accent/15 text-fg": askDraft(
-                            props.row.id,
-                            field.key,
-                          ).includes(choice.value),
-                          "border-edge-bright bg-surface-2 text-fg": !askDraft(
-                            props.row.id,
-                            field.key,
-                          ).includes(choice.value),
-                        }}
-                        onClick={() =>
-                          pick(
-                            field.key,
-                            choice.value,
-                            field.kind === "choices",
-                          )
-                        }
-                      >
-                        {choice.label}
-                      </button>
-                    )}
-                  </For>
-                </div>
-              </Show>
+                        );
+                      }}
+                    </For>
+                  </div>
+                </Match>
+              </Switch>
               {/* The CLI's per-question "Other" box, drawn inside the block it
                   extends because that is the question it answers. */}
               <Show when={otherFor(field.key)}>

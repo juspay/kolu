@@ -441,7 +441,11 @@ const TerminalCanvas: Component<{
   ): JSX.Element {
     const active = () => tileStore.isActiveTile(tileId);
     const mode = (): CanvasTileMode =>
-      posture.mode() === "tiled" ? "tiled" : active() ? "maximized" : "covered";
+      posture.layout() === "tiled"
+        ? "tiled"
+        : active()
+          ? "maximized"
+          : "covered";
     return (
       <Show when={store.getDisplayInfo(terminalId)}>
         {(info) => (
@@ -582,11 +586,11 @@ const TerminalCanvas: Component<{
               {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
                *  since there's nothing spatial to summarize. */}
               <div
-                classList={{ hidden: posture.mode() !== "tiled" }}
-                inert={posture.mode() !== "tiled"}
+                classList={{ hidden: posture.layout() !== "tiled" }}
+                inert={posture.layout() !== "tiled"}
               >
                 <CanvasMinimap
-                  shown={posture.mode() === "tiled"}
+                  shown={posture.layout() === "tiled"}
                   tileIds={props.tileIds}
                   getLayout={layoutOf}
                   onSelect={props.onSelect}

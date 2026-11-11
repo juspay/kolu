@@ -17,11 +17,13 @@ import { getClockNow } from "../time/clock";
 import { formatElapsedShort } from "../time/duration";
 import Tip from "../ui/Tip";
 
-// The three standings a row can actually hold. There is no `missing`: a
-// server kolu could not reach does not get a red row, it refuses the whole
-// conversation (padi's `OrchestratorUnavailable`), because an orchestrator
-// that cannot reach the fleet is not a degraded orchestrator.
-const STANDING_CLASS: Record<string, string> = {
+// The three standings a row can hold, keyed by the union so a fourth one added
+// to the schema fails the typecheck here rather than painting unstyled. There
+// is no `missing`: a server kolu could not reach does not get a red row, it
+// refuses the whole conversation (padi's `OrchestratorUnavailable`), because an
+// orchestrator that cannot reach the fleet is not a degraded orchestrator.
+type Standing = OrchestratorState["servers"][number]["standing"];
+const STANDING_CLASS: Record<Standing, string> = {
   connected: "text-ok",
   handed: "text-fg-2",
   unattached: "text-attention",
@@ -56,7 +58,7 @@ const OrchestratorStrip: Component<{
                 data-testid="orchestrator-server"
                 data-server={server.name}
                 data-standing={server.standing}
-                class={`font-semibold ${STANDING_CLASS[server.standing] ?? "text-fg-2"}`}
+                class={`font-semibold ${STANDING_CLASS[server.standing]}`}
               >
                 {server.name}
                 {server.standing === "connected" ? " ✓" : ""}
