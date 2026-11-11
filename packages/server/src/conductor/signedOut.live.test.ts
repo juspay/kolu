@@ -75,7 +75,18 @@ const waitFor = async (
   throw new Error(`${why}: ${JSON.stringify(harness.state().signIn)}`);
 };
 
-describe.skipIf(!process.env.KOLU_ACP_AGENT)(
+/** THE GATE, and why it is not merely "is the adapter baked".
+ *
+ *  This suite drives the REAL adapter against the REAL `claude`, which reaches
+ *  claude.com to mint a login URL. `KOLU_ACP_AGENT` is baked on every box that
+ *  can build kolu — CI included — so gating on it alone put a test that needs
+ *  the network into a lane that does not have it, and the first thing that
+ *  broke was CI rather than the code. An explicit opt-in is the honest gate: a
+ *  person (or a lane) that WANTS the live pair says so, and everywhere else
+ *  this is skipped rather than failing for the environment it was handed. */
+const LIVE = process.env.KOLU_ACP_LIVE === "1" && process.env.KOLU_ACP_AGENT;
+
+describe.skipIf(!LIVE)(
   "the pinned adapter and the pinned CLI, with nobody signed in",
   () => {
     let home = "";
