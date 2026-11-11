@@ -20,10 +20,11 @@ export { composerText, setComposerText };
  *  Published here rather than kept inside the composer because TWO components
  *  decide one thing with it: the composer closes its menu on `Escape`, and the
  *  pane leaves the mode on `Escape` — and exactly one of those may happen per
- *  press. The pane's listener runs in the CAPTURE phase (it has to: with focus
- *  in a terminal, xterm claims `Escape` and it never bubbles to the window),
- *  so a bubble-phase `stopPropagation` in the composer cannot reach it. A fact
- *  both can read settles the order without either listening for the other.
+ *  press. The pane watches for the key in the CAPTURE phase wherever it would
+ *  otherwise be eaten (inside a terminal, xterm claims `Escape` for the program
+ *  in the PTY and it never bubbles), so a bubble-phase `stopPropagation` in the
+ *  composer cannot reach it. A fact both can read settles the order without
+ *  either listening for the other.
  */
 const [completionOpen, setCompletionOpen] = createSignal(false);
 

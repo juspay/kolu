@@ -16,33 +16,35 @@ import type { TerminalId } from "kolu-common/surface";
  *  tests drive it without building a whole `TerminalMetadata`. */
 export interface FleetRowFacts {
   readonly id: TerminalId;
-  readonly bucket: string;
-  readonly asking: boolean;
 }
 
 export interface FleetView<R extends FleetRowFacts> {
   readonly rows: readonly R[];
-  /** The fleet's terminals blocked on a human, in row order — what `N needs
-   *  you ›` counts and what pressing it walks. */
+  /** The fleet's terminals blocked on a human, in row order — what `N asking`
+   *  counts and what `N needs you ›` walks. */
   readonly needsYou: readonly TerminalId[];
   readonly working: number;
 }
 
 /** Fold the ranked rows of a fleet into what the section header and the rows
- *  need. `awaitingIds` is the urgency cell's own list, intersected here rather
- *  than re-derived from each row: the host computes that partition once, and a
- *  second opinion about who is blocked is exactly the disagreement the shared
- *  attention frame exists to prevent. */
+ *  need. Both counts are INTERSECTIONS with the host's own attention frame
+ *  (`byClass.asking`, `byClass.working`) rather than anything re-derived from a
+ *  row: the host computes that partition once, every pip in the section paints
+ *  from it, and a header counting a second opinion is exactly the disagreement
+ *  — a `2 working` over three moving pips — the shared attention frame exists to
+ *  prevent. The dock's ranking buckets are an ORDER, and order is not colour. */
 export function fleetView<R extends FleetRowFacts>(
   ranked: readonly R[],
-  awaitingIds: readonly TerminalId[],
+  askingIds: readonly TerminalId[],
+  workingIds: readonly TerminalId[],
 ): FleetView<R> {
-  const awaiting = new Set<TerminalId>(awaitingIds);
+  const asking = new Set<TerminalId>(askingIds);
+  const busy = new Set<TerminalId>(workingIds);
   const needsYou: TerminalId[] = [];
   let working = 0;
   for (const row of ranked) {
-    if (awaiting.has(row.id)) needsYou.push(row.id);
-    if (row.bucket === "working") working += 1;
+    if (asking.has(row.id)) needsYou.push(row.id);
+    if (busy.has(row.id)) working += 1;
   }
   return { rows: ranked, needsYou, working };
 }

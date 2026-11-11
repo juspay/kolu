@@ -196,7 +196,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-chrome-maximize",
-    text: `${formatKeybind(ACTIONS.toggleCanvasPosture.keybind)} (or the maximize toggle in the header, or ${formatKeybind(ACTIONS.commandPalette.keybind)} → "${posturedActionLabel("tiled")}" / "${posturedActionLabel("maximized")}") switches between the tiled canvas and maximized mode.`,
+    text: `${formatKeybind(ACTIONS.toggleCanvasPosture.keybind)} (or the ▢ maximized segment in the header's mode control, or ${formatKeybind(ACTIONS.commandPalette.keybind)} → "${posturedActionLabel("tiled")}" / "${posturedActionLabel("maximized")}") switches between the tiled canvas and maximized mode.`,
     doc: "canvas",
   },
   {

@@ -121,4 +121,20 @@ describe("applyFrame", () => {
     );
     expect(state.rows[0]).toMatchObject({ text: "Hello" });
   });
+
+  it("applies removes before the upserts that re-mint the same id", () => {
+    // The canonical order is removes → upserts → appends (stated on
+    // `OrchestratorFrameSchema`, obeyed by padi's fold too). A frame that
+    // retires a row and re-states it — an ask settled and asked again — must
+    // end with the row, not without it.
+    const base = applyFrame(
+      EMPTY_TRANSCRIPT,
+      snapshot([agentRow("a", 1, "old")]),
+    );
+    const after = applyFrame(
+      base,
+      delta({ removes: ["a"], upserts: [agentRow("a", 1, "new")] }),
+    );
+    expect(after.rows).toEqual([agentRow("a", 1, "new")]);
+  });
 });

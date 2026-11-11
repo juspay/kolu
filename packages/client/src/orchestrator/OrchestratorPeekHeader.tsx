@@ -8,18 +8,19 @@
  *  buffer is thrown away, and the PTY sees one resize — the real one, because
  *  the visible pane genuinely changed width.
  *
- *  `open maximized ›` leaves the mode with this terminal filling the workspace:
- *  the posture underneath is set to maximized first, so the exit lands on the
- *  terminal you were watching rather than back on the canvas you left. */
+ *  `open maximized ›` leaves the mode with this terminal filling the workspace,
+ *  and it asks for that through the one posture writer (`postureTo`) rather
+ *  than flipping the bit itself: the writer leaves the orchestrator and lands
+ *  on maximized together, so the exit shows the terminal you were watching
+ *  rather than the canvas you left. */
 
 import { type Component, Show } from "solid-js";
-import { useTerminalStore } from "../terminal/useTerminalStore";
-import { exitOrchestratorMode } from "./useOrchestratorMode";
+import { useViewPosture } from "../canvas/useViewPosture";
 
 const OrchestratorPeekHeader: Component<{ name: string | undefined }> = (
   props,
 ) => {
-  const store = useTerminalStore();
+  const posture = useViewPosture();
 
   return (
     <header class="flex items-center gap-2.5 px-3 py-1.5 bg-surface-1 border-b border-edge font-mono text-[0.6rem] font-extrabold uppercase tracking-[0.12em] text-fg-3">
@@ -39,13 +40,7 @@ const OrchestratorPeekHeader: Component<{ name: string | undefined }> = (
           type="button"
           data-testid="orchestrator-peek-open-maximized"
           class="ml-auto font-sans text-[0.7rem] font-semibold normal-case tracking-normal text-accent cursor-pointer hover:underline"
-          onClick={() => {
-            // The RAW posture bit, not `useViewPosture().mode()` — that reads
-            // "maximized" already while this mode is on, so asking it would
-            // never flip the bit the exit lands on.
-            if (!store.canvasMaximized()) store.toggleCanvasMaximized();
-            exitOrchestratorMode();
-          }}
+          onClick={() => posture.postureTo(true)}
         >
           open maximized ›
         </button>

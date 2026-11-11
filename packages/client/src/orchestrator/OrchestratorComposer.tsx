@@ -20,10 +20,12 @@ import {
   createMemo,
   createSignal,
   For,
+  on,
   onCleanup,
   Show,
 } from "solid-js";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { completionIntent } from "./completion";
 import { composerText, setCompletionOpen, setComposerText } from "./drafts";
 import {
   completeToken,
@@ -89,12 +91,57 @@ const OrchestratorComposer: Component<{
   onCleanup(() => setCompletionOpen(false));
   const armed = createMemo(() => resolveMentions(composerText(), candidates()));
 
+  /** The highlighted row. At most ONE menu is open at a time — a token starts
+   *  with `@` or with `/`, never both — so one index serves whichever is
+   *  showing. */
+  const [selected, setSelected] = createSignal(0);
+  const menuCount = () =>
+    mentionMatches().length > 0
+      ? mentionMatches().length
+      : commandMatches().length;
+  // A different list is a different question: the highlight goes back to the
+  // top rather than staying on an index that now names something else. Typing
+  // one more letter must not arm a completion you never looked at.
+  createEffect(
+    on([mentionMatches, commandMatches], () => {
+      setSelected(0);
+    }),
+  );
+
   const write = (text: string, position: number): void => {
     setComposerText(text);
     setCaret(position);
     box.value = text;
     box.setSelectionRange(position, position);
     box.focus();
+  };
+
+  /** Complete the token under the caret from one row of whichever menu is
+   *  open. The mouse and the keyboard land here together, so a click and a Tab
+   *  cannot drift apart. */
+  const accept = (index: number): void => {
+    const mentions = mentionMatches();
+    if (mentions.length > 0) {
+      const candidate = mentions[index];
+      const token = mentionToken();
+      if (candidate === undefined || token === null) return;
+      const next = completeToken(composerText(), token, "@", candidate.name);
+      write(next.text, next.caret);
+      return;
+    }
+    const command = commandMatches()[index];
+    const token = commandToken();
+    if (command === undefined || token === null) return;
+    const next = completeToken(composerText(), token, "/", command.name);
+    write(next.text, next.caret);
+  };
+
+  /** Keep the highlighted row on screen — the menu scrolls at six or so rows,
+   *  and a selection you cannot see is a selection you cannot trust. */
+  const revealWhenSelected = (el: HTMLElement, mine: () => boolean): void => {
+    createEffect(() => {
+      if (mine()) el.scrollIntoView({ block: "nearest" });
+    });
   };
 
   const send = (): void => {
@@ -115,23 +162,21 @@ const OrchestratorComposer: Component<{
           class="absolute left-3 right-3 bottom-full mb-1 max-h-60 overflow-y-auto rounded-lg border border-edge-bright bg-surface-1 shadow-lg shadow-black/40 p-1.5"
         >
           <For each={mentionMatches()}>
-            {(candidate) => (
+            {(candidate, index) => (
               <button
+                ref={(el) =>
+                  revealWhenSelected(el, () => index() === selected())
+                }
                 type="button"
                 data-testid="orchestrator-mention-row"
                 data-terminal-id={candidate.terminalId}
+                data-selected={index() === selected() ? "" : undefined}
                 class="w-full flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer"
-                onClick={() => {
-                  const token = mentionToken();
-                  if (token === null) return;
-                  const next = completeToken(
-                    composerText(),
-                    token,
-                    "@",
-                    candidate.name,
-                  );
-                  write(next.text, next.caret);
-                }}
+                classList={{ "bg-surface-2": index() === selected() }}
+                // Hover moves the highlight so the mouse and the keyboard never
+                // disagree about which row Enter would take.
+                onPointerEnter={() => setSelected(index())}
+                onClick={() => accept(index())}
               >
                 <span class="font-semibold text-fg">{candidate.name}</span>
                 <Show when={candidate.repo}>
@@ -164,23 +209,19 @@ const OrchestratorComposer: Component<{
           class="absolute left-3 right-3 bottom-full mb-1 max-h-60 overflow-y-auto rounded-lg border border-edge-bright bg-surface-1 shadow-lg shadow-black/40 p-1.5"
         >
           <For each={commandMatches()}>
-            {(command) => (
+            {(command, index) => (
               <button
+                ref={(el) =>
+                  revealWhenSelected(el, () => index() === selected())
+                }
                 type="button"
                 data-testid="orchestrator-command-row"
                 data-command={command.name}
+                data-selected={index() === selected() ? "" : undefined}
                 class="w-full flex items-baseline gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer"
-                onClick={() => {
-                  const token = commandToken();
-                  if (token === null) return;
-                  const next = completeToken(
-                    composerText(),
-                    token,
-                    "/",
-                    command.name,
-                  );
-                  write(next.text, next.caret);
-                }}
+                classList={{ "bg-surface-2": index() === selected() }}
+                onPointerEnter={() => setSelected(index())}
+                onClick={() => accept(index())}
               >
                 <span class="font-mono font-semibold text-fg">
                   /{command.name}
@@ -227,18 +268,41 @@ const OrchestratorComposer: Component<{
         onClick={(event) => setCaret(event.currentTarget.selectionStart)}
         onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
         onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            // Close a completion menu without leaving the mode — the chord that
-            // leaves is the same key, so the menu has to claim it first.
-            if (mentionMatches().length > 0 || commandMatches().length > 0) {
+          const intent = completionIntent(
+            event.key,
+            event.shiftKey,
+            menuCount(),
+            selected(),
+          );
+          switch (intent.kind) {
+            case "move":
+              // The arrows belong to the menu while it is open — without the
+              // preventDefault they would also drag the caret through the text
+              // under it.
+              event.preventDefault();
+              setSelected(intent.index);
+              return;
+            case "accept":
+              // Tab must not move focus out of the box, and Enter must not
+              // send: the key completed a token, and that is the whole of what
+              // it did.
+              event.preventDefault();
+              accept(intent.index);
+              return;
+            case "close":
+              // Close the menu without leaving the mode — the chord that leaves
+              // is the same key, so the menu claims it first. A caret of -1 is
+              // outside every token, which is what closes it.
               event.stopPropagation();
               setCaret(-1);
-            }
-            return;
+              return;
+            case "send":
+              event.preventDefault();
+              send();
+              return;
+            case "pass":
+              return;
           }
-          if (event.key !== "Enter" || event.shiftKey) return;
-          event.preventDefault();
-          send();
         }}
       />
       <div class="mt-2 flex items-center gap-2.5 font-mono text-[0.65rem] text-fg-3">

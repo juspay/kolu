@@ -80,7 +80,10 @@ function appendSaying(
 
 /** Insert or replace one row, keeping the list ordered by `seq`. A row's `seq`
  *  is stable for its lifetime, so a refinement lands exactly where the original
- *  did and the binary position search below cannot drift. */
+ *  did: the scan below finds the row by id first, and only a genuinely new row
+ *  walks for its `seq` position. A linear walk, not a bisection — a transcript
+ *  is a few hundred rows and a new row almost always belongs at the end, which
+ *  the walk reaches in one pass over a list the renderer iterates anyway. */
 function upsert(
   rows: readonly OrchestratorRow[],
   row: OrchestratorRow,
@@ -109,12 +112,17 @@ export function applyFrame(
       rows: [...frame.rows].sort((a, b) => a.seq - b.seq),
     };
   }
+  // REMOVES → UPSERTS → APPENDS, the order stated on `OrchestratorFrameSchema`
+  // and obeyed by padi's own fold of the same frame. It is the only order that
+  // reads a frame as "this is what the conversation is now": a row the producer
+  // retired and re-minted in one frame (an ask settled and re-asked) survives,
+  // and a piece of prose can address a row the same frame just created.
   let rows = prev.rows;
-  for (const row of frame.upserts) rows = upsert(rows, row);
   if (frame.removes.length > 0) {
     const gone = new Set(frame.removes);
     rows = rows.filter((row) => !gone.has(row.id));
   }
+  for (const row of frame.upserts) rows = upsert(rows, row);
   for (const saying of frame.appends) rows = appendSaying(rows, saying);
   return { seq: frame.seq, rows };
 }

@@ -40,7 +40,14 @@ const OrchestratorToolCard: Component<{ row: OrchestratorToolRow }> = (
   const focus = useDockFocus();
   const now = getClockNow();
   const card = createMemo(() => toolCard(props.row));
-  const clock = () => runningFor(props.row, now());
+  /** READ THE CLOCK ONLY WHILE THE CALL IS RUNNING. `now()` is the app's one
+   *  1 s tick, and a transcript holds every tool call a conversation ever made:
+   *  reading it unconditionally subscribed every finished card to a signal that
+   *  invalidates once a second, so a long session re-ran hundreds of memos for
+   *  a number that cannot change. The status check short-circuits before the
+   *  read, so a settled card holds no subscription at all. */
+  const clock = () =>
+    props.row.status === "in_progress" ? runningFor(props.row, now()) : null;
   /** The terminal a card is ABOUT, when it is about one. Every kolu-aware arm
    *  carries the id; the generic card is a call we could not name, so there is
    *  no terminal to open and nothing to guess at. */

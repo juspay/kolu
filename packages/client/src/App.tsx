@@ -707,7 +707,10 @@ const App: Component = () => {
                           renderSidePane={
                             orchestratorMode()
                               ? () => (
-                                  <OrchestratorPane class="flex-[1.15] border-r border-edge" />
+                                  <OrchestratorPane
+                                    class="border-r border-edge"
+                                    grip="right"
+                                  />
                                 )
                               : undefined
                           }
@@ -786,7 +789,7 @@ const App: Component = () => {
             orchestratorMode() && isDesktop() && mode().kind !== "workspace"
           }
         >
-          <OrchestratorPane class="w-[28rem] shrink-0 border-l border-edge" />
+          <OrchestratorPane class="border-l border-edge" grip="left" />
         </Show>
       </div>
       {/* Below the breakpoint the mode is a full-screen sheet — there is no

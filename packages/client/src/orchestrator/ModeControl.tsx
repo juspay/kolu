@@ -16,7 +16,6 @@ import { type Component, Show } from "solid-js";
 import { useViewPosture } from "../canvas/useViewPosture";
 import { ACTIONS } from "../input/actions";
 import { formatKeybind } from "../input/keyboard";
-import { useTerminalStore } from "../terminal/useTerminalStore";
 import Tip from "../ui/Tip";
 import { encActiveHost } from "../wire";
 import {
@@ -34,7 +33,6 @@ const segmentClass =
 
 const ModeControl: Component = () => {
   const posture = useViewPosture();
-  const store = useTerminalStore();
   useOrchestratorFacts();
 
   const asks = () => orchestratorStateOf(encActiveHost()).openAsks.length;
@@ -44,15 +42,6 @@ const ModeControl: Component = () => {
       : posture.mode() === "maximized"
         ? "maximized"
         : "canvas";
-
-  /** Land on one of the two postures, leaving the orchestrator if it is on.
-   *  The posture bit is read RAW: `posture.mode()` answers "maximized" while
-   *  orchestrator mode is on (the peek pane is that posture by another name),
-   *  so asking it here would flip the wrong way on the way out. */
-  const posturedTo = (maximized: boolean): void => {
-    exitOrchestratorMode();
-    if (store.canvasMaximized() !== maximized) posture.toggle();
-  };
 
   return (
     <div
@@ -69,9 +58,13 @@ const ModeControl: Component = () => {
             "text-accent bg-accent/12": mode() === "canvas",
             "text-fg-3 hover:text-fg": mode() !== "canvas",
           }}
-          onClick={() => posturedTo(false)}
+          onClick={() => posture.postureTo(false)}
         >
-          ▦
+          {/* GLYPH AND WORD, both. Three unlabelled marks in a row is a rebus:
+              nothing in `▦ ▢ ◆` says which is the conversation, and the one
+              that matters most here is the one a person has never seen before.
+              The word is what makes the control readable on first sight. */}
+          ▦ canvas
         </button>
       </Tip>
       <Tip
@@ -89,9 +82,9 @@ const ModeControl: Component = () => {
             "text-fg-3/40 cursor-not-allowed": !posture.canMaximize(),
           }}
           disabled={!posture.canMaximize()}
-          onClick={() => posturedTo(true)}
+          onClick={() => posture.postureTo(true)}
         >
-          ▢
+          ▢ maximized
         </button>
       </Tip>
       <Tip
@@ -112,7 +105,7 @@ const ModeControl: Component = () => {
               : enterOrchestratorMode()
           }
         >
-          ◆
+          ◆ orchestrator
           {/* ABSENT at zero, never a `0` — a badge that renders its own silence
               is one every reader has to parse before ignoring. */}
           <Show when={asks() > 0}>

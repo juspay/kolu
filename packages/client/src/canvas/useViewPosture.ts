@@ -21,7 +21,10 @@
  *  below). Tracked: kolu#628. */
 
 import { supportsSpatialCanvas } from "../capabilities";
-import { orchestratorMode } from "../orchestrator/useOrchestratorMode";
+import {
+  exitOrchestratorMode,
+  orchestratorMode,
+} from "../orchestrator/useOrchestratorMode";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileStore } from "../tile/useTileStore";
 
@@ -51,6 +54,30 @@ export function useViewPosture() {
    *  exposed to readers (ChromeBar) via `canMaximize`. Keyed off the TILE
    *  count, so a future sleeping-only workspace stays maximizable. */
   const canMaximize = (): boolean => tileStore.tileCount() > 0;
+  /** Land on one of the two postures — THE single posture writer, and the one
+   *  place that knows the orchestrator is laid over them.
+   *
+   *  Leaving the orchestrator FIRST is what makes the write visible. The mode
+   *  reads as `maximized` while it is on, so a write that only touched the bit
+   *  underneath changed a posture nobody could see — and silently moved where
+   *  `Esc` would land you later. Exiting happens whether or not the bit then
+   *  moves, because with zero tiles there is no posture to flip but there is
+   *  still a conversation to leave.
+   *
+   *  The write guard: a no-op without a spatial canvas (any non-desktop layout
+   *  — phone or compact — where the canvas isn't mounted) or with zero
+   *  terminals (the same `canMaximize` predicate `mode()` reads and the
+   *  affordances gate on). Gating here — not in each caller — keeps a
+   *  non-desktop hardware-keyboard press from silently flipping the persisted
+   *  per-host posture signal with no visible effect: the safety lives in the
+   *  receptacle. */
+  const postureTo = (maximized: boolean): void => {
+    if (!supportsSpatialCanvas()) return;
+    if (orchestratorMode()) exitOrchestratorMode();
+    if (canMaximize() && store.canvasMaximized() !== maximized) {
+      store.toggleCanvasMaximized();
+    }
+  };
   return {
     /** Current canvas-display mode. `"maximized"` requires a tile to
      *  maximize (see `canMaximize`): with zero terminals the posture is
@@ -79,18 +106,20 @@ export function useViewPosture() {
      *  Readers gate the maximize affordance on this so it never disagrees
      *  with `mode()`'s own guard. */
     canMaximize,
-    /** Toggle between tiled canvas and maximized. Single writer, and the
-     *  write guard: a no-op without a spatial canvas (any non-desktop layout —
-     *  phone or compact — where the canvas isn't mounted) or with zero
-     *  terminals (same `canMaximize` predicate as `mode()`'s read guard and the
-     *  affordance guard). Gating both surfaces here — not just the keyboard
-     *  caller — keeps a non-desktop hardware-keyboard press from silently
-     *  flipping the persisted per-host posture signal with no visible
-     *  effect: the safety lives in the receptacle, not in each caller. */
-    toggle: (): void => {
-      if (supportsSpatialCanvas() && canMaximize()) {
-        store.toggleCanvasMaximized();
-      }
-    },
+    /** The posture BIT alone — what the persisted per-host signal says, with the
+     *  orchestrator's borrowing of `mode()` left out. Two kinds of reader need
+     *  it and both are about the write, not the view: a LABEL that promises
+     *  where a press lands ("Maximize terminal" / "Restore canvas"), and a
+     *  writer deciding whether there is anything to flip. Reading `mode()` for
+     *  either is how the palette came to offer "Restore canvas" for a posture
+     *  the user was not in. */
+    rawMode: (): ViewPostureMode =>
+      store.canvasMaximized() && canMaximize() ? "maximized" : "tiled",
+    postureTo,
+    /** Flip the posture — `⌘⇧M` and the palette entry. It flips the RAW bit,
+     *  never `mode()`: in orchestrator mode `mode()` already answers
+     *  "maximized", so toggling off it would leave the bit where it was and the
+     *  chord would do nothing anybody could see. */
+    toggle: (): void => postureTo(!store.canvasMaximized()),
   } as const;
 }

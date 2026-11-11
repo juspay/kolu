@@ -63,7 +63,10 @@ import {
   orchestratorStateOf,
   useOrchestratorFacts,
 } from "../orchestrator/useOrchestratorFacts";
-import { enterOrchestratorMode } from "../orchestrator/useOrchestratorMode";
+import {
+  enterOrchestratorMode,
+  orchestratorMode,
+} from "../orchestrator/useOrchestratorMode";
 import { runAction } from "../runAction";
 import type { TerminalSubject } from "../terminal/terminalSubject";
 import { nextAfter } from "../ui/nextAfter";
@@ -214,13 +217,29 @@ export function useAttention(deps: AttentionDeps): {
       console.error("useAttention: orchestrator delivery failed", err);
     }
   };
+  /** "Seen with your eyes", one level up from a terminal. `watched` above asks
+   *  whether the tile receiving input is the one that needs you; a
+   *  conversation's questions belong to a HOST, so the same idea reads: this
+   *  host is the active one, its panel is on screen, and the page has focus.
+   *  Without it, a question you watched arrive — typed the prompt, saw the ask
+   *  appear — rang the sound and raised an OS popup for something already in
+   *  front of you, which is the one way an attention channel teaches people to
+   *  ignore it. */
+  const conversationWatched = (encHost: string): boolean =>
+    isActiveHost(decodeHostKey(encHost)) &&
+    orchestratorMode() &&
+    document.hasFocus();
   createEffect(() => {
     for (const encHost of orchestratorHosts()) {
       const open = orchestratorStateOf(encHost).openAsks.length;
       const before = askedBefore.get(encHost);
+      // The baseline moves whether or not we deliver: an ask you watched
+      // arrive is SEEN, so the next rise is the next episode, not this one
+      // re-fired the moment you look away.
       askedBefore.set(encHost, open);
       if (before === undefined || open <= before) continue;
       if (!alertsEnabled()) continue;
+      if (conversationWatched(encHost)) continue;
       deliverAsks(encHost, open);
     }
   });

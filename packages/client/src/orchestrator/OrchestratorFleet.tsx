@@ -13,9 +13,10 @@
 
 import { DockRow as DockRowView } from "@kolu/solid-dockrow";
 import type { DockRowBucket } from "@kolu/solid-dockrow/rowValues";
+import { Key } from "@solid-primitives/keyed";
 import type { TerminalId } from "kolu-common/surface";
-import { type Component, createMemo, For, Show } from "solid-js";
-import { hostAskingIds } from "../attention/attentionMarks";
+import { type Component, createMemo, Show } from "solid-js";
+import { hostFrame } from "../attention/attentionMarks";
 import { useAttentionFacts } from "../attention/useAttentionFacts";
 import { createDockRowData } from "../canvas/dock/dockRowData";
 import { rankDockRows } from "../canvas/dock/dockRowRanking";
@@ -44,9 +45,14 @@ const OrchestratorFleet: Component<{
       store.getPaneTree,
     ),
   );
-  const view = createMemo(() =>
-    fleetView(ranked(), hostAskingIds(encActiveHost())),
-  );
+  const view = createMemo(() => {
+    // ONE read of the host's frame for both counts — the partition is computed
+    // on the host and shipped whole, so taking `asking` from it and `working`
+    // from somewhere else is how a header comes to disagree with the pips it
+    // sits above.
+    const frame = hostFrame(encActiveHost());
+    return fleetView(ranked(), frame.byClass.asking, frame.byClass.working);
+  });
 
   return (
     <Show when={view().rows.length > 0}>
@@ -56,7 +62,7 @@ const OrchestratorFleet: Component<{
       >
         <div class="flex items-center px-1.5 pb-1">
           <span class="font-mono text-[0.6rem] uppercase tracking-[0.12em] text-fg-3">
-            Fleet · {view().rows.length} · {view().working} working
+            Fleet · {view().working} working · {view().needsYou.length} asking
           </span>
           <Show when={view().needsYou.length > 0}>
             <button
@@ -74,17 +80,22 @@ const OrchestratorFleet: Component<{
             </button>
           </Show>
         </div>
-        <For each={view().rows}>
+        {/* KEYED BY ID. `rankDockRows` mints fresh row objects on every
+            metadata tick, so a reference-keyed list would dispose and rebuild
+            every `FleetRow` — its `createDockRowData`, its StatePip memo, the
+            whole `DockRow` — once a second. The dock itself keys by id for the
+            same reason. */}
+        <Key each={view().rows} by="id">
           {(row) => (
             <FleetRow
-              id={row.id}
-              bucket={row.bucket}
-              pip={row.pip}
-              recencyAt={row.ts}
+              id={row().id}
+              bucket={row().bucket}
+              pip={row().pip}
+              recencyAt={row().ts}
               onSelect={focus}
             />
           )}
-        </For>
+        </Key>
       </section>
     </Show>
   );

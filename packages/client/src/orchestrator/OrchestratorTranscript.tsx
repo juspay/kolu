@@ -13,6 +13,7 @@
 
 import type { OrchestratorRow } from "@kolu/padi-client/orchestrator";
 import { Markdown } from "@kolu/solid-markdown";
+import { Key } from "@solid-primitives/keyed";
 import {
   type Component,
   createEffect,
@@ -73,7 +74,16 @@ const OrchestratorTranscript: Component<{
       <Show when={props.pending && props.rows.length === 0}>
         <p class="text-fg-3 text-xs">Opening the conversation…</p>
       </Show>
-      <For each={props.rows}>{(row) => <TranscriptRow row={row} />}</For>
+      {/* KEYED BY ROW ID, and that is the difference between a live
+          conversation and an unusable one. The reducer replaces a row OBJECT on
+          every chunk and every tool update, so a reference-keyed list rebuilds
+          the `Markdown` subtree per chunk and the card per update — which
+          collapses an open `<details>`, loses `OrchestratorDiffs`' expansion and
+          throws away the caret inside a half-filled ask. The id is stable for
+          the row's life; the subtree survives with it. */}
+      <Key each={props.rows} by="id">
+        {(row) => <TranscriptRow row={row()} />}
+      </Key>
     </div>
   );
 };
