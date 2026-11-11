@@ -407,9 +407,33 @@ let
     pname = "kolu-typecheck";
   };
 
-  kolu = pkgs.stdenv.mkDerivation {
-    pname = "kolu";
-    inherit version src;
+  # ── node_modules, keyed on the LOCKFILE instead of the commit ──────────────
+  #
+  # `kolu` used to be the source tree with the installed dependency tree inside
+  # it: a 312 MB store path (565 MB closure) whose hash moves with every commit,
+  # so every CI push sent the whole of node_modules to the cache again. Measured
+  # on the production bucket (`kolu-r2`): 13.9 GB in the `kolu-2.2.0` group,
+  # nearly all of it the same dependencies re-stored under a new name because a
+  # `.ts` file one directory over had changed. The tree is 41 MB now.
+  #
+  # The install is a function of the MANIFESTS, not of the source, so it is its
+  # own derivation — the split odu took at juspay/odu#175 and olai at
+  # juspay/olai#693, in pnpm flavour. Its source (`workspace.depsSrc`) is
+  # exactly what `pnpm install --offline --frozen-lockfile` reads; its output is
+  # what pnpm wrote. ONE store path per lockfile, and `kolu` below is left
+  # holding only the source a commit actually changed.
+  #
+  # The node-gyp rebuild of node-pty and the trim of its build output live here
+  # for the same reason: both are decided by the lockfile, so the per-commit
+  # derivation should not pay for them.
+  #
+  # NOT pruned: `vite`, `typescript`, `tailwindcss` and the rest of the build
+  # toolchain stay, because the client bundle is built against this tree. What
+  # the app SHIPS is `koluRuntimeDeps` below.
+  koluDeps = pkgs.stdenv.mkDerivation {
+    pname = "kolu-deps";
+    inherit version pnpmDeps;
+    src = workspace.depsSrc;
 
     nativeBuildInputs = [
       pkgs.nodejs
@@ -420,66 +444,60 @@ let
       pkgs.pkg-config
     ];
 
-    inherit pnpmDeps;
-
-    # TEST-ONLY contract-version skew (see the function arg). A no-op unless
-    # `contractVersionOverride` is set; then the daemon's single source-constant
-    # version is rewritten so both the server and the kaval it spawns speak it.
-    postPatch = pkgs.lib.optionalString (contractVersionOverride != null) ''
-      sed -i 's|PTY_HOST_CONTRACT_VERSION = "[^"]*"|PTY_HOST_CONTRACT_VERSION = "${contractVersionOverride}"|' \
-        packages/kaval/src/ptyHostSurface.ts
-      grep -q 'PTY_HOST_CONTRACT_VERSION = "${contractVersionOverride}"' \
-        packages/kaval/src/ptyHostSurface.ts \
-        || { echo "contractVersionOverride: PTY_HOST_CONTRACT_VERSION constant not found — update default.nix" >&2; exit 1; }
-    '';
-
-    # The fixupPhase (strip, patchShebangs, patchELF) traverses the entire
-    # output tree (~395MB of node_modules). For a Node.js app this is pure
-    # overhead: shebangs are already patched by pnpmConfigHook, and the
-    # only native binary (node-pty .node) is correctly linked by node-gyp.
-    dontFixup = true;
-
     env = {
       npm_config_nodedir = pkgs.nodejs;
-      NIX_NODEJS_BUILDNPMPACKAGE = "1";
-      KOLU_COMMIT_HASH = koluCommitPlaceholder;
-    } // koluEnv;
+      # No `-rpath $out/lib` on what this derivation links. stdenv adds that
+      # self-rpath by default (`_addRpathPrefix`), and node-gyp's pty.node is
+      # then STAMPED with this derivation's own store path — a directory
+      # kolu-deps never creates, and, once `kolu-runtime-deps` copies the addon,
+      # a reference that drags the whole unpruned tree into the runtime closure.
+      # The prune would have saved nothing: a dead rpath entry would have made
+      # every user download `typescript` and `vite` anyway.
+      NIX_NO_SELF_RPATH = "1";
+    };
 
-    # Workspace typecheck is a REQUIRED input, not a parallel lane. Kolu runs
-    # TypeScript at runtime (tsx); Vite only transpiles. Without this, a green
-    # store path can boot-loop on a missing export (juspay/kolu#1049 class).
-    # `${typecheck}` forces the gate before any vite/node-gyp work; the empty
-    # path is the success token from pnpm-typecheck.nix.
+    # The fixupPhase (strip, patchShebangs, patchELF) would traverse the entire
+    # dependency tree. For a Node.js app that is pure overhead: pnpmConfigHook
+    # already patched the shebangs, and node-gyp links the one native addon
+    # (node-pty's pty.node) correctly.
+    dontFixup = true;
+
     buildPhase = ''
       runHook preBuild
-      test -e ${typecheck}
       pushd node_modules/.pnpm/node-pty@*/node_modules/node-pty
       node-gyp rebuild
       popd
-      ln -sfn $KOLU_FONTS_DIR packages/client/public/fonts
-      pnpm --filter kolu-client build
       runHook postBuild
     '';
 
+    # TWO DIRECTORIES, and both are install output. `$out/node_modules` is what
+    # pnpm wrote at the root — none of the manifests this derivation was handed,
+    # because they are already in the lockfile's hash.
+    #
+    # `$out/workspaces/<member path>/node_modules` is the second thing pnpm
+    # wrote: pnpm's isolated layout gives every workspace member its own farm of
+    # symlinks beside its manifest. Kept beside node_modules rather than inside
+    # it, and under the member's FULL path (`packages/integrations/anyagent`,
+    # `odu/run-client`), because that path is where the `../../../` hops inside
+    # the farm are true.
+    #
+    # The links this leaves pointing at `../../packages/<member>` are workspace
+    # links, and they dangle here on purpose: they land on real source once
+    # `kolu` replays them into the build tree.
+    #
+    # ONE difference from the install this used to do inside the source tree,
+    # and it is the only one — the two trees were compared entry by entry (443
+    # `.pnpm` instances, every member farm, identical): a workspace package
+    # that declares a `bin` gets no `.bin/<name>` shim in its dependents'
+    # farms, because pnpm writes a shim only when the target FILE is there and
+    # this install has manifests, not sources. Today that is `@kolu/padi`'s
+    # `padi`, in four farms, and nothing reads them: the daemon is spawned as
+    # `${padi}/bin/padi` through the wrapper's KOLU_PADI_BIN, and a working
+    # tree gets its shims from `just install`.
     installPhase = ''
       runHook preInstall
 
-      # Strip build-only packages and artifacts BEFORE copying to $out.
-      rm -rf packages/client/src packages/client/node_modules
       pushd node_modules/.pnpm
-      # NOTE: esbuild is kept because @kolu/artifact-sdk bundles the in-iframe
-      # SDK script at runtime.
-      rm -rf typescript@* \
-             @typescript+typescript-* \
-             lightningcss* rollup@* @rollup* rolldown@* @rolldown* \
-             vitest@* @vitest* \
-             vite@* vitefu@* vite-plugin-* @tailwindcss* tailwindcss@* \
-             @babel* babel-plugin-* \
-             concurrently@* rxjs@* happy-dom@* \
-             es-toolkit@* \
-             es-abstract@* caniuse-lite@* browserslist@* update-browserslist-db@* \
-             @types+* type-fest@* csstype@* \
-             core-js-compat@* regexpu-core@* regjsparser@* terser@*
       local pty
       pty=$(echo node-pty@*/node_modules/node-pty)
       local ptyInstance="''${pty%/node_modules/node-pty}"
@@ -512,7 +530,180 @@ let
              "$ptyInstance"/node-addon-api@* "$ptyInstance/node_modules/node-addon-api"
       popd
 
+      mkdir -p $out
+      cp -a node_modules $out/node_modules
+      # Every member farm, by its path in the tree. `-prune` on the root
+      # node_modules keeps the package-instance farms inside `.pnpm` out of it;
+      # a farm's own entries are symlinks, which `-type d` does not match.
+      while IFS= read -r -d "" farm; do
+        local member="''${farm#./}"
+        member="''${member%/node_modules}"
+        mkdir -p "$out/workspaces/$member"
+        cp -a "$farm" "$out/workspaces/$member/node_modules"
+      done < <(find . -path ./node_modules -prune -o -type d -name node_modules -print0 -prune)
+
+      runHook postInstall
+    '';
+  };
+
+  # WHAT THE APP SHIPS: the same tree with the build-only packages taken out.
+  #
+  # A SECOND lockfile-keyed derivation rather than a filter applied while `kolu`
+  # mirrors, because a Nix reference is a WHOLE store path: a `kolu` that linked
+  # single entries out of `koluDeps` would still carry all of `koluDeps` in its
+  # closure, handing every user the 169 MB of `typescript`, `vite`, `vitest`,
+  # `@babel` and `@types` this list removes. Pruned into its own path, the
+  # runtime closure stays what it was before the split (the measurement that
+  # made the prune worth doing is `docs/nix-build-closure-size-ralph-report.md`,
+  # cycles 4-6) — and being decided by the lockfile too, it is stored once per
+  # lockfile rather than once per commit.
+  koluRuntimeDeps = pkgs.runCommand "kolu-runtime-deps-${version}" { } ''
+    mkdir -p $out
+    # node_modules ONLY: the member farms are copied into the build tree from
+    # `koluDeps` and ride the tree into `$out`, so a second copy of them here
+    # would be a directory with no reader.
+    cp -a ${koluDeps}/node_modules $out/node_modules
+    chmod -R u+w $out
+
+    cd $out/node_modules/.pnpm
+    # NOTE: esbuild is kept because @kolu/artifact-sdk bundles the in-iframe
+    # SDK script at runtime.
+    rm -rf typescript@* \
+           @typescript+typescript-* \
+           lightningcss* rollup@* @rollup* rolldown@* @rolldown* \
+           vitest@* @vitest* \
+           vite@* vitefu@* vite-plugin-* @tailwindcss* tailwindcss@* \
+           @babel* babel-plugin-* \
+           concurrently@* rxjs@* happy-dom@* \
+           es-toolkit@* \
+           es-abstract@* caniuse-lite@* browserslist@* update-browserslist-db@* \
+           @types+* type-fest@* csstype@* \
+           core-js-compat@* regexpu-core@* regjsparser@* terser@*
+  '';
+
+  # Replay a `kolu-deps` output's node_modules into a tree as LINKS, so the
+  # dependency bytes stay in the one store path that holds them. Three kinds of
+  # entry, three answers — the shape odu's `mirror()` settled on:
+  #
+  #   a symlink      — replayed VERBATIM. Every one pnpm writes is relative, and
+  #                    the tree it means is THIS one: `.pnpm/<instance>/…` lands
+  #                    on the reference this same loop makes, and a
+  #                    `workspace:` link on real source in the tree.
+  #   a scope (`@…`) — recursed into, because `@kolu` holds workspace links and
+  #                    `@effect` holds dependency links and only the entries
+  #                    themselves know which.
+  #   anything else  — linked BY REFERENCE into the store: `.pnpm` (where the
+  #                    whole dependency tree lives), `.bin`, and pnpm's own
+  #                    `.modules.yaml` state files.
+  #
+  # Node resolves a module from its REALPATH (no `--preserve-symlinks`), so a
+  # dependency reached through one of these links resolves ITS dependencies
+  # inside the deps derivation, where the rest of the instance tree is.
+  mirrorNodeModules = depsOut: dest: ''
+    shopt -s dotglob nullglob
+    mirrorNodeModulesDir() {
+      local from=$1 to=$2 path name
+      mkdir -p "$to"
+      for path in "$from"/*; do
+        name=''${path##*/}
+        if [ -L "$path" ]; then
+          cp -P "$path" "$to/$name"
+        elif [ -d "$path" ] && [ "''${name#@}" != "$name" ]; then
+          mirrorNodeModulesDir "$path" "$to/$name"
+        else
+          ln -s "$path" "$to/$name"
+        fi
+      done
+    }
+    mirrorNodeModulesDir ${depsOut}/node_modules ${dest}/node_modules
+  '';
+
+  # And each member's own farm beside its manifest, where the `../../../` hops
+  # inside it are true again. A farm is symlinks only, so this copies no
+  # dependency bytes — and it has to be a COPY rather than a link: a member's
+  # `node_modules` is where vite writes its cache, and where `kolu` deletes the
+  # client's farm on the way out. The farms are the same in both deps
+  # derivations (pnpm wrote them once), so this runs ONCE, in the build tree,
+  # and rides the copy into `$out`.
+  copyMemberFarms = depsOut: ''
+    for member in $(cd ${depsOut}/workspaces && find . -type d -name node_modules -prune | sed 's|^\./||; s|/node_modules$||'); do
+      mkdir -p "$member"
+      cp -a "${depsOut}/workspaces/$member/node_modules" "$member/node_modules"
+      chmod -R u+w "$member/node_modules"
+    done
+  '';
+
+  # The source tree, runnable — the fileset plus a node_modules that POINTS AT
+  # the deps derivations rather than containing them. A commit's worth of
+  # difference is now a few megabytes of source and a tree of symlinks.
+  #
+  # It builds against `koluDeps` (the toolchain is there) and SHIPS
+  # `koluRuntimeDeps` (the build-only packages are not), which is why the mirror
+  # runs twice: once into the build tree, once into `$out`.
+  kolu = pkgs.stdenv.mkDerivation {
+    pname = "kolu";
+    inherit version src;
+
+    nativeBuildInputs = [
+      pkgs.nodejs
+      pkgs.pnpm-build
+    ];
+
+    # TEST-ONLY contract-version skew (see the function arg). A no-op unless
+    # `contractVersionOverride` is set; then the daemon's single source-constant
+    # version is rewritten so both the server and the kaval it spawns speak it.
+    postPatch = pkgs.lib.optionalString (contractVersionOverride != null) ''
+      sed -i 's|PTY_HOST_CONTRACT_VERSION = "[^"]*"|PTY_HOST_CONTRACT_VERSION = "${contractVersionOverride}"|' \
+        packages/kaval/src/ptyHostSurface.ts
+      grep -q 'PTY_HOST_CONTRACT_VERSION = "${contractVersionOverride}"' \
+        packages/kaval/src/ptyHostSurface.ts \
+        || { echo "contractVersionOverride: PTY_HOST_CONTRACT_VERSION constant not found — update default.nix" >&2; exit 1; }
+    '';
+
+    # There is no `pnpm install` here any more — the node_modules this tree runs
+    # against is mirrored in from `koluDeps` — so nothing to configure.
+    dontConfigure = true;
+
+    # The fixupPhase would traverse the whole output tree for a Node.js app that
+    # has no shebangs or native binaries of its own left to patch: the deps
+    # derivation owns both.
+    dontFixup = true;
+
+    env = {
+      KOLU_COMMIT_HASH = koluCommitPlaceholder;
+    } // koluEnv;
+
+    # Workspace typecheck is a REQUIRED input, not a parallel lane. Kolu runs
+    # TypeScript at runtime (tsx); Vite only transpiles. Without this, a green
+    # store path can boot-loop on a missing export (juspay/kolu#1049 class).
+    # `${typecheck}` forces the gate before any vite work; the empty path is the
+    # success token from pnpm-typecheck.nix.
+    buildPhase = ''
+      runHook preBuild
+      test -e ${typecheck}
+      ${mirrorNodeModules koluDeps "."}
+      ${copyMemberFarms koluDeps}
+      ln -sfn $KOLU_FONTS_DIR packages/client/public/fonts
+      pnpm --filter kolu-client build
+      runHook postBuild
+    '';
+
+    installPhase = ''
+      runHook preInstall
+
+      # Strip build-only sources BEFORE copying to $out. The client's bundle is
+      # built; its sources and its own farm are not shipped.
+      rm -rf packages/client/src packages/client/node_modules
+      # The build tree's root mirror points at the FULL deps and `$out`'s must
+      # not, so it is dropped here and replayed below against the pruned tree.
+      # Both are symlink farms — this moves no dependency bytes. The member
+      # farms ride the copy: they are identical in either deps derivation, and
+      # their links into a pruned `.pnpm` entry dangle exactly as they did when
+      # the prune ran inside this derivation.
+      rm -rf node_modules
+
       cp -r . $out
+      ${mirrorNodeModules koluRuntimeDeps "$out"}
 
       runHook postInstall
     '';
@@ -1129,6 +1320,14 @@ let
 in
 {
   inherit agentFlakeSrc agentFlakeEnv default koluBin kaval kaval-tui kolu-rpc padi padi-agent padi-tui koluEnv pnpmDeps typecheck osfacts;
+  # The built workspace tree and the two dependency derivations it is composed
+  # out of, exposed so CI builds them and the run's push lands them in the
+  # cache. That push is the point of the split: `kolu-deps` and
+  # `kolu-runtime-deps` are keyed on the lockfile, so they are sent once and
+  # every later commit substitutes them instead of re-sending node_modules.
+  inherit kolu;
+  kolu-deps = koluDeps;
+  kolu-runtime-deps = koluRuntimeDeps;
   # The local floor of coding agents, exposed so CI builds it and nix-cache.yml
   # pushes it (a `nix run` user then substitutes it rather than compiling).
   agent-distro-bundle = agentDistro.bundle;

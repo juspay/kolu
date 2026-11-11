@@ -285,6 +285,50 @@ let
     '') graftedMembers
   );
 
+  # THE SAME TREE, MANIFESTS ONLY — the source of the `kolu-deps` derivation
+  # (default.nix), which holds the installed node_modules.
+  #
+  # WHY IT EXISTS. `kolu`'s source hash moves with every commit, so when the
+  # installed dependency tree was part of that derivation every CI push sent
+  # the whole tree to the cache again — a 312 MB store path (565 MB closure)
+  # per push, and 13.9 GB of the `kolu-2.2.0` group in the production bucket.
+  # Keyed on the manifests instead, those bytes are stored ONCE per lockfile
+  # and a commit's worth of difference is the source it actually changed.
+  #
+  # So this fileset is exactly what `pnpm install --offline --frozen-lockfile`
+  # READS and not one file more: the root manifest, the lockfile, the workspace
+  # declaration, and every member's `package.json` (the pin-grafted members'
+  # too, grafted below by the same mechanism `src` uses). Add a source file
+  # here and the per-commit churn comes straight back.
+  #
+  # The member manifests are taken from `treeMembers` — the one membership
+  # index — rather than a second glob over `../packages`, so a member that
+  # joins the workspace joins this fileset with no edit. `fileFilter` keeps
+  # nested manifests (a member's `example/` subflake has one, and pnpm's
+  # `packages/**` makes it a member too), which is what today's whole-member
+  # fileset already carries into `src`.
+  depsFileset = lib.fileset.unions ([
+    ../package.json
+    ../pnpm-workspace.yaml
+    ../pnpm-lock.yaml
+  ] ++ lib.mapAttrsToList
+    (_: dir: lib.fileset.fileFilter (f: f.name == "package.json") dir)
+    treeMembers);
+  depsTreeSrc = lib.fileset.toSource {
+    root = ../.;
+    fileset = depsFileset;
+  };
+  depsSrc = pkgs.runCommand "kolu-deps-source" { } (
+    ''
+      cp -r ${depsTreeSrc} $out
+      chmod -R u+w $out
+    ''
+    + lib.concatMapStrings (m: ''
+      mkdir -p "$out/${m.dest}"
+      cp ${m.src}/package.json "$out/${m.dest}/package.json"
+    '') graftedMembers
+  );
+
   pnpmDeps = pkgs.fetchPnpmDeps {
     pname = "kolu";
     inherit version src;
@@ -300,7 +344,7 @@ let
   };
 in
 {
-  inherit version src fileset pnpmDeps identityInputs;
+  inherit version src depsSrc fileset pnpmDeps identityInputs;
 
   # The manifest walk itself, answered by name. `depClosure` has a TS mirror —
   # `declaredDependencyClosure` in `@kolu/daemon-test-gate` — and one walk
