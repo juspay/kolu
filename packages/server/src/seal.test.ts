@@ -478,6 +478,12 @@ function inTerminalDomain(spec: string): boolean {
  *     wrapper sets, so the binder forwards exactly the set padi reads onto the
  *     padi it spawns, and the profile listing reads the same floor path. Names
  *     and a pure reader only — no terminal domain.
+ *   - `/orchestratorBake` — the same shape as `/agentDistroBake` and listed for
+ *     the same reason: the NAMES of the two env vars padi's nix wrapper bakes
+ *     for the orchestrator (the ACP adapter, and the `kolu` binary its MCP
+ *     server runs), so the binder forwards exactly the set padi reads onto the
+ *     padi it spawns rather than keeping a second copy of the spelling. Two
+ *     string constants — no terminal domain, no reader.
  *  A deep `@kolu/padi/src/...` import (bypassing the barrel) or any UNLISTED subpath
  *  fails arm (b). TESTS get a wider door — the full published set — via arm (f). */
 const ALLOWED_PADI = [
@@ -485,6 +491,7 @@ const ALLOWED_PADI = [
   "@kolu/padi/assembly",
   "@kolu/padi/convergence-policy",
   "@kolu/padi/log",
+  "@kolu/padi/orchestratorBake",
   "@kolu/padi/remote-dial",
   "@kolu/padi-client/dial",
   "@kolu/padi-client/surface",
