@@ -98,6 +98,7 @@ let
   # `mkWorkspaceClosure`), so a renamed package or a mis-keyed entry fails every
   # `nix eval` loudly instead of silently orphaning its dependency edges.
   rawMembers = {
+    "@kolu/acp" = ../packages/acp;
     "@kolu/surface" = ../packages/surface;
     "@kolu/surface-map" = ../packages/surface-map;
     "@kolu/surface-cli" = ../packages/surface-cli;

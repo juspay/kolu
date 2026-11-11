@@ -11,6 +11,15 @@
       "workspace": [],
       "external": {}
     },
+    "@kolu/acp": {
+      "dir": "packages/acp",
+      "vendored": true,
+      "workspace": [],
+      "external": {
+        "@agentclientprotocol/sdk": "^1.3.0",
+        "effect": "4.0.0"
+      }
+    },
     "@kolu/agent-distro": {
       "dir": "packages/agent-distro",
       "vendored": true,
