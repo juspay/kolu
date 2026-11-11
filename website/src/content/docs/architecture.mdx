@@ -23,12 +23,16 @@ makes that true, and the one contract that ties it together.
 Four layers, each with one job. The top two are _faces_ — they come and go. The
 bottom two are _daemons_ — [padi](/padi) holds the workspace record, and
 [kaval](/kaval) owns the live PTYs. The arrows are transports: a websocket to the
-browser, a unix socket between the daemons. Kill any layer and everything below
-it keeps running.
+browser, a unix socket between the daemons, ssh out to each other host's padi.
+Kill any layer and everything below it keeps running. kolu-server binds one padi
+per host, and that set is its **host map** — which is also why it is the layer
+that holds [the Orchestrator](/orchestrator): one agent conversation for the
+whole fleet, hanging off the side of the stack as the one child that is not a
+terminal.
 
 <figure class="doc-figure">
   <svg viewBox="0 0 720 412" role="img" aria-labelledby="ax-stack-title">
-    <title id="ax-stack-title">The kolu stack, top to bottom: the PWA client in your browser talks over a websocket to kolu-server (the web shell), which binds padi (the per-host workspace daemon), which owns kaval (the PTY daemon) over a unix socket. The client and kolu-server are faces that come and go; padi and kaval are daemons that survive restarts. kaval holds the live PTYs — zsh, claude, nvim. padi also holds one ACP agent conversation per host, the Orchestrator, which drives those terminals through kolu's own MCP server.</title>
+    <title id="ax-stack-title">The kolu stack, top to bottom: the PWA client in your browser talks over a websocket to kolu-server (the web shell), which binds padi (the per-host workspace daemon), which owns kaval (the PTY daemon) over a unix socket. The client and kolu-server are faces that come and go; padi and kaval are daemons that survive restarts. kaval holds the live PTYs — zsh, claude, nvim. kolu-server also holds the one ACP agent conversation, the Orchestrator: it spawns the claude adapter and hands it kolu's own tools over a loopback HTTP MCP endpoint, which reaches every padi in kolu-server's host map — the local one below it and each remote one over ssh.</title>
     <defs>
       <marker id="ax-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" class="ax-d-arrow"></path>
@@ -43,7 +47,7 @@ it keeps running.
     <text x="86" y="315" text-anchor="middle" class="ax-d-sub2">survive</text>
 
     <path d="M188,207 H700" class="ax-d-socket"></path>
-    <text x="694" y="200" text-anchor="end" class="ax-d-sub2">state lives below the line</text>
+    <text x="694" y="200" text-anchor="end" class="ax-d-sub2">state below the line</text>
 
     <path d="M360,92 V126" class="ax-d-flow" marker-start="url(#ax-arrow)" marker-end="url(#ax-arrow)"></path>
     <text x="374" y="113" class="ax-d-tlabel">websocket</text>
@@ -72,10 +76,22 @@ it keeps running.
     <text x="360" y="348" text-anchor="middle" class="ax-d-daemon-label">kaval</text>
     <text x="360" y="368" text-anchor="middle" class="ax-d-sub">PTY daemon — keeps shells alive</text>
 
-    <text x="628" y="234" text-anchor="middle" class="ax-d-cap">ONE AGENT CHAT</text>
-    <path d="M530,262 H564" class="ax-d-flow" marker-end="url(#ax-arrow)"></path>
-    <rect x="564" y="252" width="132" height="20" rx="6" class="ax-d-pty"></rect>
-    <text x="576" y="266" class="ax-d-pty-text">▸ claude · acp</text>
+    <text x="628" y="106" text-anchor="middle" class="ax-d-cap">ONE AGENT CHAT</text>
+    <text x="628" y="122" text-anchor="middle" class="ax-d-sub2">kolu-server spawns it</text>
+    <path d="M530,142 H564" class="ax-d-flow" marker-start="url(#ax-arrow)" marker-end="url(#ax-arrow)"></path>
+    <rect x="564" y="132" width="132" height="20" rx="6" class="ax-d-pty"></rect>
+    <text x="576" y="146" class="ax-d-pty-text">▸ claude · acp</text>
+    <text x="628" y="168" text-anchor="middle" class="ax-d-sub2">its tools: mcp · loopback</text>
+
+    <text x="628" y="234" text-anchor="middle" class="ax-d-cap">EVERY OTHER HOST</text>
+    <path d="M530,186 H548" class="ax-d-flow"></path>
+    <path d="M548,186 V254 H564" class="ax-d-flow" marker-end="url(#ax-arrow)"></path>
+    <path d="M548,186 V276 H564" class="ax-d-flow" marker-end="url(#ax-arrow)"></path>
+    <text x="554" y="222" class="ax-d-tlabel">ssh</text>
+    <rect x="564" y="244" width="132" height="20" rx="6" class="ax-d-pty"></rect>
+    <text x="576" y="258" class="ax-d-pty-text">▸ padi · prod</text>
+    <rect x="564" y="266" width="132" height="20" rx="6" class="ax-d-pty"></rect>
+    <text x="576" y="280" class="ax-d-pty-text">▸ padi · box-3</text>
 
     <text x="628" y="312" text-anchor="middle" class="ax-d-cap">OWNS THE PTYS</text>
     <path d="M530,354 H556" class="ax-d-flow"></path>
@@ -94,8 +110,8 @@ it keeps running.
 | layer | its one job | killing it does _not_ lose |
 | --- | --- | --- |
 | [`PWA client`](/install-pwa) | the view in your browser — one surface consumer per pane | Reload the tab, switch devices: it re-subscribes. It holds no state to lose. |
-| `kolu-server` | the web shell — HTTP, the PWA, websockets; dials and binds padi | Restart it and no terminal metadata is lost — padi's registry stays warm; the remote-host fleet you added survives too (kolu-server persists its own small membership list as a field in its config store, distinct from the per-terminal state the daemons hold). |
-| [`padi`](/padi) | the per-host workspace daemon — session, awareness, restore, and [the Orchestrator](/orchestrator)'s one agent conversation | Kill it and no terminal state is lost — records live in its folder on disk; PTYs survive in kaval. It re-seeds in seconds, and the conversation is resumed by its own session id. |
+| `kolu-server` | the web shell — HTTP, the PWA, websockets; dials and binds one padi per host, and holds [the Orchestrator](/orchestrator)'s one agent conversation for the whole fleet | Restart it and no terminal metadata is lost — padi's registry stays warm; the remote-host fleet you added survives too (kolu-server persists its own small membership list as a field in its config store, distinct from the per-terminal state the daemons hold). The conversation comes back as well: its transcript lives in kolu-server's own state store and the session is resumed by its id. |
+| [`padi`](/padi) | the per-host workspace daemon — session, awareness, restore | Kill it and no terminal state is lost — records live in its folder on disk; PTYs survive in kaval. It re-seeds in seconds, and the orchestrator's tools reach it again the moment it is back, with nothing reopened above. |
 | [`kaval`](/kaval) | the PTY survivor — owns the shells and their live screens | Kill everything above it and the live shells and scrollback keep running — they live in kaval's memory. |
 
 ## A deploy _adopts_ what's running
@@ -334,6 +350,25 @@ row changing repaints only that row. The shell CLIs are the one exception to the
 websocket: [`kaval-tui`](/kaval) and [`padi-tui`](/padi) reach their daemon over
 its **local unix socket** — same ndjson framing, a different transport.
 
+### A second door, for one local process
+
+The browser's websocket is not the only way into kolu-server. [The
+Orchestrator](/orchestrator)'s agent needs kolu's own tools, and it gets them
+over MCP on a **dedicated loopback listener** of kolu-server's: `127.0.0.1`, an
+ephemeral port, no TLS, serving exactly one endpoint over streamable HTTP. It is
+deliberately not a route on the app listener — that one is TLS-able, bound
+wherever you asked it to bind, and gated for _browsers_ by origin. Entangling
+them would make the browser's origin gate the thing standing between two
+processes on the same machine.
+
+Its gate is a **bearer token**, minted fresh for each kolu-server process,
+required on every request and compared in constant time; the adapter is handed
+it with the endpoint when its session opens. Loopback on its own is not a gate —
+every other process on the box can reach loopback too. And the endpoint is
+**proved before it is named**: kolu-server makes a real request to it before
+opening a conversation against it, so a conversation that could not reach its
+own tools is refused with a sentence naming the URL, rather than opened blind.
+
 <Aside type="caution" title="The RPC surface is unauthenticated — so origin is gated">
   Loopback binding doesn't defend the socket: an attacker's page runs in your own
   browser. So a <strong>same-origin gate</strong> runs before RPC dispatch on both
@@ -345,16 +380,18 @@ its **local unix socket** — same ndjson framing, a different transport.
   the home-manager configuration.
 </Aside>
 
-## Two loops of data flow
+## Three loops of data flow
 
-Two loops drive the system, both over that one websocket. The **terminal I/O
-loop** is the hot path — your keystrokes and the screen. The **metadata loop** is
-side-channel enrichment — the git, PR, agent state, and live output activity that
-light up the dock.
+Three loops drive the system. The **terminal I/O loop** is the hot path — your
+keystrokes and the screen. The **metadata loop** is side-channel enrichment — the
+git, PR, agent state, and live output activity that light up the dock. Both run
+over the browser's one websocket. The **orchestrator loop** is the third, and it
+touches no browser at all: an agent kolu-server spawns, calling kolu's tools back
+into kolu-server, which fans them out over its host map.
 
 <figure class="doc-figure">
-  <svg viewBox="0 0 720 168" role="img" aria-labelledby="ax-flow-title">
-    <title id="ax-flow-title">Two data-flow loops across the four layers. The terminal I/O loop runs both ways through client, kolu-server, padi, and kaval — keystrokes down to the PTY, the screen (a snapshot then live deltas) back up. The metadata loop flows the other way only: kaval feeds padi — its VT taps drive padi's git, PR, and agent sensors, and its resize-excluded meaningful-output edge feeds padi's live-activity fold — and padi pushes the result to the client.</title>
+  <svg viewBox="0 0 720 258" role="img" aria-labelledby="ax-flow-title">
+    <title id="ax-flow-title">Three data-flow loops. The terminal I/O loop runs both ways through client, kolu-server, padi, and kaval — keystrokes down to the PTY, the screen (a snapshot then live deltas) back up. The metadata loop flows the other way only: kaval feeds padi — its VT taps drive padi's git, PR, and agent sensors, and its resize-excluded meaningful-output edge feeds padi's live-activity fold — and padi pushes the result to the client. The orchestrator loop is separate and reaches no browser: kolu-server spawns the claude ACP adapter, which calls kolu's tools back over a loopback HTTP MCP endpoint, and kolu-server serves them from its host map — every padi, local and remote, with each terminal named host slash id.</title>
     <defs>
       <marker id="ax-flow-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" class="ax-d-arrow"></path>
@@ -385,6 +422,27 @@ light up the dock.
 
     <path d="M636,90 V128 H87 V96" class="ax-d-socket" marker-end="url(#ax-flow-arrow)"></path>
     <text x="360" y="150" text-anchor="middle" class="ax-d-tlabel">metadata — kaval → git · PR · agent · live activity (side channel)</text>
+
+    <path d="M12,172 H708" class="ax-d-socket"></path>
+    <text x="360" y="196" text-anchor="middle" class="ax-d-cap">THE ORCHESTRATOR — one chat, every host</text>
+
+    <rect x="12" y="206" width="150" height="44" rx="10" class="ax-d-box"></rect>
+    <text x="87" y="228" text-anchor="middle" class="ax-d-label2">claude</text>
+    <text x="87" y="243" text-anchor="middle" class="ax-d-sub">acp adapter</text>
+
+    <path d="M162,228 H196" class="ax-d-flow" marker-start="url(#ax-flow-arrow)" marker-end="url(#ax-flow-arrow)"></path>
+    <text x="179" y="220" text-anchor="middle" class="ax-d-tlabel">acp</text>
+
+    <rect x="196" y="206" width="150" height="44" rx="10" class="ax-d-box"></rect>
+    <text x="271" y="228" text-anchor="middle" class="ax-d-label2">kolu-server</text>
+    <text x="271" y="243" text-anchor="middle" class="ax-d-sub">fleet mcp · loopback</text>
+
+    <path d="M346,228 H394" class="ax-d-flow" marker-start="url(#ax-flow-arrow)" marker-end="url(#ax-flow-arrow)"></path>
+    <text x="370" y="220" text-anchor="middle" class="ax-d-tlabel">host/id</text>
+
+    <rect x="394" y="206" width="314" height="44" rx="10" class="ax-d-daemon"></rect>
+    <text x="412" y="228" class="ax-d-daemon-label2">the host map</text>
+    <text x="412" y="243" class="ax-d-sub">padi · local — padi · prod — padi · box-3</text>
   </svg>
 </figure>
 
@@ -407,6 +465,17 @@ every PTY byte _and_ every resize — and emits a host-global, resize-excluded
 meaningful-output edge that padi folds into a short live-dot window and serves the
 same way.
 
+**The orchestrator** — kolu-server spawns one ACP adapter (`claude`) and talks
+[the protocol](https://agentclientprotocol.com) to it over stdio. The agent's
+hands point back the other way: it calls kolu's own [MCP tools](/mcp) over the
+loopback endpoint above, and kolu-server answers them out of its host map — so
+`lifecycle_create` on `prod` lands a terminal in that host's padi, and a watch
+opened with no ids merges every host's events into one ordered queue. A terminal
+is named `host/id` on that wire, and a `hosts` resource is the live roster, so a
+machine joining or leaving is a resource update rather than a reopened session.
+Nothing in this loop touches the browser: the pane you read it in is an ordinary
+subscriber to the transcript kolu-server is keeping.
+
 ## The packages
 
 kolu is a pnpm monorepo. The volatility boundaries — which hard problem each piece
@@ -415,16 +484,20 @@ context, or persistence is its own package with the dependency arrow pointing
 _out_. The map, grouped:
 
 - **Faces** — `client` (SolidJS + xterm.js + Tailwind), `server` (the Effect
-  HTTP shell that serves the SPA, the preview route, and the websocket, and binds
-  padi),
+  HTTP shell that serves the SPA, the preview route, and the websocket, binds
+  one padi per host, and hosts [the Orchestrator](/orchestrator) — the ACP
+  conversation, its transcript in the server's own state store, and the loopback
+  MCP listener its agent calls back into),
   `kolu-cli` (the `kolu` binary itself — the composition root that owns
   subcommand dispatch, the padi connect layer, and boots whichever face was
   asked for, plus the terminal verbs `ls`/`create`/`send`/`wait`/`snapshot`/
   `history`/`kill`/`watch`, each a pure padi client, and the `kolu surface`
   face — `surfaceFace.ts` mounts `@kolu/surface-cli`'s projection of the same
-  agent API as argv verbs), and `kolu-mcp` (the
-  `kolu mcp` agent face — `padiSurface` re-exposed to coding agents over MCP,
-  also with no kolu-server behind it; `kolu tui` is reserved for a later face).
+  agent API as argv verbs), and `kolu-mcp` (the agent face, and the one place
+  the exposed tool list is declared: `padiSurface` re-exposed to coding agents
+  over MCP as `kolu mcp`, with no kolu-server behind it, plus the **fleet**
+  projection of that same list over a host map, which kolu-server serves;
+  `kolu tui` is reserved for a later face).
 - **Daemons** — [`padi`](/padi) (the per-host workspace daemon that owns the
   terminal domain and serves `padiSurface`) and [`kaval`](/kaval) (the standalone
   PTY daemon). Each ships a thin shell CLI — `padi-tui`, `kaval-tui`.
@@ -470,7 +543,7 @@ _out_. The map, grouped:
   olai, which speaks the same protocol. `acp-harness` is the volatility
   receptacle beside it: the one package in the tree that SPAWNS an ACP
   subprocess, holds a session, and turns a stream of protocol frames into
-  transcript rows. padi owns one of those per host (see [the
+  transcript rows. kolu-server owns exactly one of them (see [the
   Orchestrator](/orchestrator)); nothing above the harness knows a subprocess
   exists.
 - **Shared UI leaves** — `theme`, `solid-statepip` (the status indicator),

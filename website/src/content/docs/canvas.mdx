@@ -47,14 +47,15 @@ reloads, and switching terminals while maximized — from the dock,
 <kbd>Cmd/Ctrl</kbd> + <kbd>1</kbd>…<kbd>9</kbd>, or cycling — is a pure
 show/hide: no reflow, no repaint, no shell resize.
 
-## Three modes
+## Two postures, and one destination that is neither
 
-The canvas and the maximized posture are two of three. The third is
-[**orchestrator** mode](/orchestrator) (<kbd>⌘⇧O</kbd>): the dock stays as the
-sidebar, the host's one agent chat takes the main pane, and the terminal you
-last clicked is live in a peek pane beside it. <kbd>Esc</kbd> returns you to
-whichever mode you came from. All three are reachable from the segmented
-control in the chrome bar.
+The canvas and the maximized posture are the two postures of a **host** tab,
+and the segmented control in the chrome bar switches between them. Beside the
+host tabs in that same row sits [**`◆ Orchestrator`**](/orchestrator) — not a
+host tab and not a third posture, but kolu's one agent chat, which takes the
+whole window when you select it (<kbd>⌘⇧O</kbd> jumps there and back). Nothing
+of the canvas is shown while it is open; **open tile** on one of the agent's
+tool cards brings you back to the host tab that terminal is on, focused on it.
 
 ## Arranging
 

@@ -64,15 +64,30 @@ repository root **is** the plugin. The directory is included in source archives
 and contains the skill, its reference file, and the MCP configuration; no plugin
 build output is needed.
 
-## kolu's own agent already has it
+## Two faces, one tool table
 
-[The Orchestrator](/orchestrator) — the one chat per host that drives that
-host's terminals — is a consumer of exactly this server. It is handed one
-stdio entry, `kolu mcp` pointed at its own host's daemon, and it reaches that
-host's terminals through the same tools documented below: no private face, no
-second expose map, nothing it can do that an agent you connect yourself
-cannot. If you want to know what the Orchestrator is capable of, this page is
-the answer.
+[The Orchestrator](/orchestrator) — the one chat that drives every terminal on every host — is a consumer of exactly this tool table. It gets no private face and no second expose map: kolu declares the tools **once** and projects them twice.
+
+- **The per-host face is this page.** `kolu mcp` over stdio, serving one host's padi, naming terminals by bare id. It is what an agent running **inside** a terminal uses, what the `.mcp.json` entry below starts, and nothing about it changes.
+- **The fleet face is that same table lifted over every host.** It runs in-process inside kolu-server, and the Orchestrator reaches it over **streamable HTTP on a loopback listener** gated by a bearer token minted fresh for each kolu-server process — no stdio relay, no ssh child per host, and exactly one MCP server entry for the whole life of the conversation, however many hosts come and go underneath it.
+
+What the fleet projection changes is identity, and only identity:
+
+<div class="doc-scroll">
+
+| | per-host face — `kolu mcp` | fleet face — the Orchestrator's |
+| --- | --- | --- |
+| naming a terminal | `3f29…` | `local/3f29…`, `remote:nix@prod/9a1b…` — the host, then the id, read apart at the **last** `/` |
+| `lifecycle_create` | opens one here | takes the host to open on, and answers a fleet reference |
+| the repo tools — `git_getStatus` · `git_getDiff` · `fs_listAll` · `fs_readFile` | a repo path | a repo path **and** the host it is on |
+| `watch_open` with no `ids` | watches this host's terminals | watches the **whole fleet** — and a host that arrives later flows into the subscription already open, with one ordered queue across every machine |
+| live views | `terminals` · `urgency` · `daemonStatus` · `status` · `identity` | `terminals` · `urgency` · **`hosts`** |
+
+</div>
+
+`hosts` is the live roster: which machines kolu knows, what each is called, and whether it is warming, connected or failed *now*. It stands in for the three per-host health views rather than fanning them out — `daemonStatus`, `status` and `identity` are facts about **one** host, and in a fleet they are columns of that roster. A call naming a host that is not connected is **refused by name**, saying which host and what state it is in; it is never answered with an empty list, which an agent would read as "nothing is running there".
+
+Everything else — every tool below, every refusal, the whole allowlist — is one definition serving both. So if you want to know what the Orchestrator is capable of, this page is still the answer.
 
 ## Connect it to your agent
 
