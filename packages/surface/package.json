@@ -35,6 +35,7 @@
     "./server": "./src/server.ts",
     "./subscriptions": "./src/subscriptions.ts",
     "./teardown": "./src/teardown.ts",
+    "./keepAlive": "./src/keepAlive.ts",
     "./time": "./src/time.ts",
     "./ws-origin": "./src/wsOrigin.ts",
     "./solid": "./src/solid/index.ts",

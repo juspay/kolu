@@ -24,7 +24,7 @@
  * or later) fails with `SurfaceStdioTransportClosed{death: "undecodableFrame"}`,
  * and the owner re-dials a fresh one. That holds whether or not a call was in
  * flight. The reasoning, and the Effect behaviour it rests on, are in
- * `undecodableAware` (`./wire.ts`); `stdio.test.ts` measures both shapes. The
+ * `./undecodableFrames.ts`; `stdio.test.ts` measures both shapes. The
  * daemon identity probe separately rejects a malformed FIRST frame.
  *
  * ## No pinger before a proven epoch (juspay/kolu#2101)

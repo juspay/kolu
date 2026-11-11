@@ -84,12 +84,12 @@ export function helpText(escapeChar: string): string {
 function describeError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
   // A dead transport does NOT mean a dead daemon, and this is the one place
-  // kaval-tui says which it was. `death === "keepAliveUnanswered"` is a peer
-  // that stopped answering the link's keep-alive inside its deadline — it may
-  // be alive and merely too busy — so telling the operator it "went away" is
+  // kaval-tui says which it was. `death === "keepAliveUnanswered"` is a link
+  // that read nothing at all from the daemon for over a minute — it may be
+  // alive and merely too busy — so telling the operator it "went away" is
   // precisely the misdiagnosis the framework's field exists to end. Branch on
   // the field, never on the sentence. The framework's own sentence already says
-  // the keep-alive went unanswered, so this arm adds only what kaval-tui knows
+  // what was (not) read, so this arm adds only what kaval-tui knows
   // that the framework does not — what it means for the operator — in the same
   // `<claim> (<message>) — <what to do>` shape as the arm below.
   if (isSurfaceStdioTransportClosed(err) && err.death === "keepAliveUnanswered")

@@ -10,7 +10,7 @@ import { serveOverUnixSocket } from "@kolu/surface/unix-socket";
 import {
   RPC_PING_INTERVAL_MS,
   RPC_PING_TIMEOUT_MS,
-} from "@kolu/surface/links/wire";
+} from "@kolu/surface/keepAlive";
 import { Effect, Fiber } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { isUnspeakableProtocolError } from "./convergence/unspeakable.ts";

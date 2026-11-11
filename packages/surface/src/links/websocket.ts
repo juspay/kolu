@@ -42,7 +42,8 @@ import { SurfaceTransportRetired } from "../errors";
 import { RPC_PING_INTERVAL_MS, RPC_PING_TIMEOUT_MS } from "../keepAlive";
 import type { WireStatus, WireTransport } from "../link";
 import { monotonicNow } from "../time";
-import { openWireLink, undecodableAware, type WireLink } from "./wire";
+import { undecodableAware } from "./undecodableFrames";
+import { openWireLink, type WireLink } from "./wire";
 
 /** Close code the link itself uses when {@link WatchableWire.forceReconnect}
  *  severs a wedged-but-open socket. A NORMAL closure (1000) on purpose: the
@@ -365,9 +366,9 @@ export async function websocketLink(
       retryPolicy: reconnectSchedule(() => retired),
       // The framework's own numbers, not Effect's defaults: the pinger is a
       // BACKSTOP above the wake-aware watchdog (`createLiveSignal`), which is
-      // the authority on this leg (`../keepAlive.ts`, and `duplexWireLink` in
-      // `./wire.ts` for the account). Its death needs no name here: it fails
-      // calls as the same retryable `RpcClientError` as any other close.
+      // the authority on this leg (`../keepAlive.ts` has the account). Its
+      // death needs no name here: it fails calls as the same retryable
+      // `RpcClientError` as any other close.
       pingInterval: RPC_PING_INTERVAL_MS,
       pingTimeout: RPC_PING_TIMEOUT_MS,
     }),
@@ -376,9 +377,9 @@ export async function websocketLink(
       Layer.succeed(Socket.Socket)(socket),
       // An undecodable frame cycles the socket: the calls it failed are
       // `RpcClientError`s the face's fence retries, and they land on a fresh
-      // socket instead of the one whose stream can no longer be trusted (see
-      // `undecodableAware`). The duplex legs END the link for the same reason;
-      // this leg's way of ending a socket is to redial it.
+      // socket instead of the one whose stream can no longer be trusted
+      // (`./undecodableFrames.ts`). The duplex legs END the link for the same
+      // reason; this leg's way of ending a socket is to redial it.
       undecodableAware(severCurrentSocket),
       connectionHooks,
     ]),

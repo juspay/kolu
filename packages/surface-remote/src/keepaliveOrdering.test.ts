@@ -12,10 +12,10 @@
  *   2. **ssh's dead-peer policy** (`SshKeepalive`) — the transport's own death,
  *      30s at its defaults.
  *   3. **The link's keep-alive backstop** — `@kolu/surface` owns it
- *      (`keepAlive.ts`: a ping every 5s, fatal past `RPC_PING_TIMEOUT_MS` = 60s
- *      with no decoded frame, so 60–65s). Canonical account: `duplexWireLink`
- *      in `links/wire.ts`; measured by `links/stdioPingStall.test.ts`. It ends
- *      only a link nothing above has already judged.
+ *      (`keepAlive.ts`, the canonical account: a ping every 5s, fatal past
+ *      `RPC_PING_TIMEOUT_MS` = 60s with no decoded frame, so 60–65s); measured
+ *      by `links/stdioPingStall.test.ts`. It ends only a link nothing above has
+ *      already judged.
  *   4. **The provisioning child-lifetime budget** — group-kills a child that
  *      goes quiet. NOT one number: 30s hard deadline for a quick probe, 120s of
  *      child silence for a required build that DOUBLES per expiry to a last
@@ -40,7 +40,7 @@ import {
 import {
   RPC_PING_FATAL_SILENCE_MS,
   RPC_PING_TIMEOUT_MS,
-} from "@kolu/surface/links/wire";
+} from "@kolu/surface/keepAlive";
 import { CI_KEEPALIVE } from "./controlDir.testutil";
 import {
   DEFAULT_SSH_KEEPALIVE,

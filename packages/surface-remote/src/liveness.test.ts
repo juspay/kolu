@@ -31,7 +31,7 @@ import { stdioLink } from "@kolu/surface/links/stdio";
 import {
   RPC_PING_FATAL_SILENCE_MS,
   RPC_PING_TIMEOUT_MS,
-} from "@kolu/surface/links/wire";
+} from "@kolu/surface/keepAlive";
 import { serveOverStdio } from "@kolu/surface/peer-server";
 import { implementSurface, inMemoryStore } from "@kolu/surface/server";
 import { Schema } from "effect";

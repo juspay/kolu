@@ -1011,13 +1011,13 @@
       "dir": "osfacts-client",
       "pin": {
         "name": "osfacts",
-        "revision": "0af7e8df98423aa3c62e7c43770bd38581ae7e18",
+        "revision": "1b13477b72c24f6feba450720e33d582045382a6",
         "subdir": "client-ts"
       },
       "vendored": true,
       "workspace": [],
       "external": {
-        "effect": "4.0.0"
+        "effect": "4.1.4"
       }
     },
     "padi-tui": {

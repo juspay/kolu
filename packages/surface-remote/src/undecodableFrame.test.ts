@@ -9,7 +9,7 @@
  * was alive), and the liveness probe still answered — so the host showed
  * connected and served nothing until an operator removed and re-added it.
  *
- * Now the link ENDS on the bad line (`undecodableAware`, `@kolu/surface`), so
+ * Now the link ENDS on the bad line (`@kolu/surface`'s `links/undecodableFrames.ts`), so
  * the session's own liveness probe meets a dead transport, force-cycles the
  * child, and the re-serve folds the agent's CURRENT state from the fresh link.
  * Measured here end to end, with the real pieces: `makeSession` +

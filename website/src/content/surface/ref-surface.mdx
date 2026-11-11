@@ -969,17 +969,20 @@ it can go: `packages/surface/src/links/deliveryLanes.ts`.)
 ### The keep-alive is a backstop, not the liveness verdict
 
 Every wire link runs Effect RPC's pinger with the framework's **own** numbers,
-exported from `@kolu/surface/links/wire`: a ping every `RPC_PING_INTERVAL_MS`
+exported from `@kolu/surface/keepAlive`: a ping every `RPC_PING_INTERVAL_MS`
 (5 s), and the link ends once `RPC_PING_TIMEOUT_MS` (60 s) pass with **no frame
 of any kind** decoded from the peer — so a silent link dies 60–65 s in
 (`RPC_PING_FATAL_SILENCE_MS` is the 65 s worst case). No link factory takes a
 timing parameter.
 
-The numbers sit deliberately **above** the liveness checks that know more: the
-framework watchdog (`createLiveSignal` in a browser, `makeSession`'s heartbeat
-on an ssh or same-box arm — 25 s at its defaults, suspension-aware, and on a
-same-box arm consulting a process oracle) and ssh's own dead-peer policy (30 s
-by default). A peer that really exits is reported at once by the OS (EOF) on a
+The numbers sit deliberately **above** the liveness checks that know more:
+the framework watchdog (25 s at its defaults) and ssh's own dead-peer policy
+(30 s by default). Every watchdog is suspension-aware; the rest depends on
+the leg. In a browser, `createLiveSignal` is also wake-aware and
+progress-aware: a probe that times out while frames are still arriving is not
+a verdict. `makeSession`'s heartbeat, on an ssh or same-box arm, does not
+count progress. On a same-box arm it consults a process oracle before it cycles
+anything. A peer that really exits is reported at once by the OS (EOF) on a
 stdio or unix-socket leg. So the pinger only ever ends a link that is alive but
 saying nothing for a minute, after everything above has had its say. On a
 duplex leg that death is `SurfaceStdioTransportClosed` with

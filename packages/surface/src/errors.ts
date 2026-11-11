@@ -91,9 +91,8 @@ export const StdioTransportDeath = Schema.Literals([
    *  exited — or this side may not have been able to read (its own event loop
    *  starved). This is NOT evidence that the peer exited. A local stream
    *  consumer that stops pulling is not a cause: delivery is off the link's
-   *  reader. (The mechanism, the numbers, and why a duplex leg may read that
-   *  timeout this way at all are argued once — in `duplexWireLink` in
-   *  `links/wire.ts`.) */
+   *  reader. (The mechanism, the numbers, and why the backstop sits where it
+   *  does are argued once, in `keepAlive.ts`.) */
   "keepAliveUnanswered",
   /** The peer wrote a line that is not a protocol frame — most often a stray
    *  write to a remote's stdout. The decoder had already lost whatever followed

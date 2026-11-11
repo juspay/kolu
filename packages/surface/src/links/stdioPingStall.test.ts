@@ -10,8 +10,8 @@
  *
  * Why the death can be read as the keep-alive at all, what sets its deadline,
  * and why the link cannot be retried through are argued ONCE, in
- * `duplexWireLink` and `neverReconnect` in `links/wire.ts` (numbers in
- * `keepAlive.ts`). This file measures them rather than restating them:
+ * `keepAlive.ts` (and `neverReconnect` in `links/wire.ts`). This file measures
+ * them rather than restating them:
  *
  *  1. the bytes never stop flowing permanently — the pipes are open at both ends
  *     throughout, and the server answers correctly the instant a stall lifts,
@@ -69,7 +69,7 @@ describe.concurrent("stdio link — a peer that is slow, not dead", () => {
     const w = await wiredThroughStalls();
     expect(await w.add(2, 3)).toBe(5);
 
-    // Hold the wire for a beat — well inside `RPC_PING_INTERVAL_MS` (`wire.ts`),
+    // Hold the wire for a beat — well inside `RPC_PING_INTERVAL_MS` (`keepAlive.ts`),
     // so this is only ever a pause. The assertion after `resume()` is what
     // carries the meaning; the duration only has to be short enough to be
     // unambiguous.

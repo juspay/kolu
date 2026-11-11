@@ -11,10 +11,9 @@
  * fibers alive and handing back the `dispose` that releases it.
  *
  * The machinery here is package-internal. The `@kolu/surface/links/wire`
- * subpath exists for ONE reason: this file is the canonical account of the
- * link's keep-alive, so {@link RPC_PING_INTERVAL_MS} / {@link RPC_PING_TIMEOUT_MS}
- * / {@link RPC_PING_FATAL_SILENCE_MS} are readable by the tests elsewhere that
- * reason about link silence, instead of being transcribed into a local literal.
+ * subpath exists so a consumer that holds a link can name its type
+ * ({@link WireLink}). The keep-alive numbers, and their account, live in
+ * `../keepAlive.ts` under its own subpath.
  *
  * ## What this file deliberately does NOT do
  *
@@ -41,68 +40,15 @@ import {
   Scope,
   Stream,
 } from "effect";
-import { RpcClient, RpcSerialization } from "effect/rpc";
+import { RpcClient } from "effect/rpc";
 import type { Rpc, RpcGroup } from "effect/rpc";
 import { RpcClientError } from "effect/rpc/RpcClientError";
 import { Socket } from "effect/socket";
 import { SurfaceStdioTransportClosed } from "../errors";
-import { rpcSerialization } from "../frameLimit";
-import {
-  RPC_PING_FATAL_SILENCE_MS,
-  RPC_PING_INTERVAL_MS,
-  RPC_PING_TIMEOUT_MS,
-} from "../keepAlive";
+import { RPC_PING_INTERVAL_MS, RPC_PING_TIMEOUT_MS } from "../keepAlive";
 import { brandHalfOpenDispatch, type SurfaceDispatch } from "../link";
 import { decoupleDelivery } from "./deliveryLanes";
-
-/** The keep-alive numbers every leg passes to its pinger. Owned by
- *  `../keepAlive` (the leaflet, which states their derivation) and re-exported
- *  so this subpath's importers keep one import path; the canonical account of
- *  the MECHANISM is `duplexWireLink`'s docstring below. */
-export { RPC_PING_FATAL_SILENCE_MS, RPC_PING_INTERVAL_MS, RPC_PING_TIMEOUT_MS };
-
-/** The ndjson serialization every leg's CLIENT protocol uses — the shared one
- *  (`../frameLimit`), with ONE addition: the leg is told the moment the parser
- *  throws, so it can END the link instead of leaving it half-alive.
- *
- *  A throw is never a per-call event. The parser holds a byte buffer shared by
- *  every request on the wire, and when it throws it discards that buffer, so
- *  whatever followed the bad line in the same read is gone too, and the next
- *  read starts at an unknown offset. Effect then fails every call in flight and
- *  keeps the socket. A wire in that state cannot be trusted with the next frame,
- *  so each leg ends it for real and lets its reconnect path heal (the duplex
- *  legs by ending the stream, the websocket leg by cycling its socket).
- *
- *  BETA-ASSUMPTION(4.1.4): a decode throw from the ndjson parser fails every call in flight but keeps the socket run alive.
- *  In effect@4.1.4 `rpc/RpcSerialization.ts` `makeNdjson` throws
- *  `NdjsonDecodeError` (or `MaxBufferSizeExceeded`) after resetting its
- *  buffer, and `rpc/RpcClient.ts` `makeProtocolSocket`'s `processData` catches
- *  it and broadcasts a `ClientProtocolError` without ending the run. Measured
- *  by `stdio.test.ts` ("a corrupted answer ends the link") and
- *  `websocket.test.ts` ("an undecodable frame cycles the socket"). */
-export function undecodableAware(
-  onUndecodable: () => void,
-): Layer.Layer<RpcSerialization.RpcSerialization> {
-  return Layer.succeed(RpcSerialization.RpcSerialization)(
-    RpcSerialization.RpcSerialization.of({
-      ...rpcSerialization,
-      makeUnsafe: () => {
-        const parser = rpcSerialization.makeUnsafe();
-        return {
-          ...parser,
-          decode: (bytes) => {
-            try {
-              return parser.decode(bytes);
-            } catch (cause) {
-              onUndecodable();
-              throw cause;
-            }
-          },
-        };
-      },
-    }),
-  );
-}
+import { undecodableAware } from "./undecodableFrames";
 
 /** The retry schedule for a link bound to one stream pair: halt on the first
  *  failure. Not a policy knob — a re-dial would re-acquire the SAME dead fds,
@@ -324,37 +270,13 @@ export async function duplexWireLink(opts: {
   let death: "keepAliveUnanswered" | "undecodableFrame" | undefined;
 
   /**
-   * THE KEEP-ALIVE — the canonical account for this repo. `stdioPingStall.test.ts`,
-   * `../keepAlive.ts`, `sshConnector.ts`, `errors.ts` and the surface reference
-   * page each carry a sentence and a pointer here, because this is the code that
-   * sets it and names its death.
-   *
-   * THE MECHANISM. `RpcClient.makeProtocolSocket` runs a pinger: it writes a ping
-   * every `pingInterval`, ANY frame this side decodes from the peer counts as
-   * liveness, and a tick that finds its ping outstanding and no frame for longer
-   * than `pingTimeout` ends the socket run. This link passes both numbers from
-   * `../keepAlive.ts` — a ping every 5s, fatal past 60s of total silence, so the
-   * death lands 60–65s after the last frame.
-   *
-   * WHY SO LONG: the pinger is a BACKSTOP. On this leg a peer that really dies
-   * is reported by the OS (EOF) at once, and on an ssh leg by ssh's own
-   * dead-peer policy (30s at its defaults). What the pinger alone adds is
-   * "alive but silent", and that is the framework watchdog's call
-   * (`../heartbeat.ts`: suspension-aware, and on a same-box arm consulting a
-   * process oracle), which decides at 25s at its defaults. So the backstop sits
-   * above both and only ever ends a link nothing else would. It cannot be
-   * retried through (see {@link neverReconnect}, where that is MEASURED).
-   *
-   * WHAT "UNANSWERED" MEANS — and what it does not. The pinger only counts a
-   * frame once THIS side's read loop decodes it, so silence is a fact about the
-   * reader as much as about the peer: the PEER went quiet without closing the
-   * pipe, or THIS process could not read for a minute. (A local stream consumer
-   * that stops pulling is not a cause: delivery is off the reader, see
-   * `./deliveryLanes.ts`.) So `keepAliveUnanswered` says the WIRE went quiet as
-   * this reader saw it — never proof that the peer exited.
-   *
-   * The death is NAMED by `onPingTimeout`, which Effect runs before it fails a
-   * single call — not by matching the error the pinger raises, which is a
+   * THE KEEP-ALIVE. The numbers, the rule they encode (a backstop above the
+   * watchdog) and the Effect behaviour they rest on are argued once, in
+   * `../keepAlive.ts`; what the death means about the peer is the
+   * `keepAliveUnanswered` literal's own docstring in `../errors.ts`. This leg
+   * does one thing beyond passing the numbers: it NAMES the death through
+   * `onPingTimeout`, which Effect runs before it fails a single call. Matching
+   * the error the pinger raises would not work, because it is a
    * `SocketReadError` like any ordinary read failure.
    */
   const protocol = Layer.effect(RpcClient.Protocol)(
@@ -371,7 +293,7 @@ export async function duplexWireLink(opts: {
       Layer.succeed(Socket.Socket)(socket),
       // An undecodable frame ENDS the link: named first, then the stream is
       // severed, so the in-flight calls Effect fails for the bad line and every
-      // later call read the same death (see `undecodableAware`).
+      // later call read the same death (`./undecodableFrames.ts`).
       undecodableAware(() => {
         death ??= "undecodableFrame";
         if (!opts.duplex.destroyed) opts.duplex.destroy();
@@ -397,7 +319,7 @@ export async function duplexWireLink(opts: {
         case "keepAliveUnanswered":
           return new SurfaceStdioTransportClosed({
             death,
-            reason: `${opts.describe}: the peer stopped answering the keep-alive ping`,
+            reason: `${opts.describe}: nothing was read from the peer for over ${RPC_PING_TIMEOUT_MS / 1_000}s, not even a reply to the keep-alive ping, so the link was ended`,
           });
         case "undecodableFrame":
           return new SurfaceStdioTransportClosed({

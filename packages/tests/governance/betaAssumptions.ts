@@ -123,14 +123,14 @@ export const BETA_ASSUMPTION_SITES: readonly string[] = [
   // and on a stream's own finaliser releasing its queue;
   // streamConsumerStall.test.ts measures all three.
   "packages/surface/src/links/deliveryLanes.ts",
+  // An undecodable frame ENDS the link because Effect fails every call in
+  // flight but keeps the socket run; stdio.test.ts and websocket.test.ts
+  // measure it.
+  "packages/surface/src/links/undecodableFrames.ts",
   // The websocket dial history and open-edge count require onDisconnect on
   // every attempt, including swallowed pre-open failures. The old dispatch
   // epoch fence is gone: stable Effect broadcasts heartbeat failures itself.
   "packages/surface/src/links/websocket.ts",
-  // An undecodable frame ENDS the link because Effect fails every call in
-  // flight but keeps the socket run; stdio.test.ts and websocket.test.ts
-  // measure it. (The keep-alive death is named by `onPingTimeout`, not sniffed.)
-  "packages/surface/src/links/wire.ts",
   "packages/surface/src/mirrorRemoteSurface.ts",
   // The reactor's ENGINE seam (juspay/kolu#2101 G6). Three assumptions live here,
   // one per Atom behavior the bridge's correctness rests on: no implicit batching

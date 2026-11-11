@@ -221,10 +221,9 @@ export interface SshConnectorOptions<S extends SurfaceSpec> {
    *      owns it (`keepAlive.ts`): a ping every 5s, the link ended once 60s pass
    *      with nothing decoded from the peer, and no retry survives it. It sits
    *      above (1) and (2) at their defaults, so it only ends a link they have
-   *      not already judged. Canonical account: `duplexWireLink` in
-   *      `@kolu/surface`'s `links/wire.ts`, measured by
-   *      `links/stdioPingStall.test.ts`. A policy raised past it is inert on a
-   *      CONNECTED link.
+   *      not already judged. Canonical account: `@kolu/surface`'s
+   *      `keepAlive.ts`, measured by `links/stdioPingStall.test.ts`. A policy
+   *      raised past it is inert on a CONNECTED link.
    *   4. **The provisioning child-lifetime budget, which GROUP-KILLS the
    *      child.** ssh keepalives are protocol-level traffic and produce no child
    *      stdout, so they reset none of it. It is not ONE number — it is per
@@ -501,8 +500,8 @@ export function sshConnector<S extends SurfaceSpec>(
     // building one starts Effect RPC's pinger. A remote daemon from a PREVIOUS
     // protocol epoch accepts the splice and then says nothing — it is waiting
     // for a greeting in a protocol we no longer speak — so the pinger ends the
-    // link at its keep-alive backstop (the mechanism is argued in
-    // `duplexWireLink`, `@kolu/surface`'s `links/wire.ts`), the session classifies that
+    // link at its keep-alive backstop (argued in `@kolu/surface`'s
+    // `keepAlive.ts`), the session classifies that
     // as `"network"`, and `"network"` retries forever. That is the incident:
     // every remote host wedged in a permanent loop, with a log line
     // indistinguishable from an unreachable box.
