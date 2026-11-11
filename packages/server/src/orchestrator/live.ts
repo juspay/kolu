@@ -49,9 +49,7 @@ let live: OrchestratorHost | undefined;
  * orchestrator does not trust what this returns: it PROVES the endpoint with a
  * real request before it names it to an agent.
  */
-export function setFleetMcpEndpoint(
-  at: () => FleetMcpEndpoint | null,
-): void {
+export function setFleetMcpEndpoint(at: () => FleetMcpEndpoint | null): void {
   endpoint = at;
 }
 

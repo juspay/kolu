@@ -37,9 +37,7 @@ export function orchestratorTranscriptSource(
       (unwatch) =>
         Effect.sync(() => {
           unwatch();
-          log.debug(
-            "kolu-server: orchestratorTranscript subscription ended",
-          );
+          log.debug("kolu-server: orchestratorTranscript subscription ended");
         }),
     ),
   );

@@ -32,7 +32,9 @@ afterEach(async () => {
 /** A real MCP server with nothing on it — the face is somebody else's subject
  *  (`kolu-mcp`'s fleet tests). What this file needs is a server that completes
  *  a handshake. */
-const bare = async (transport: Transport): Promise<{ close: () => Promise<void> }> => {
+const bare = async (
+  transport: Transport,
+): Promise<{ close: () => Promise<void> }> => {
   const server = new Server(
     { name: "kolu-fleet-test", version: "0.0.0" },
     { capabilities: { resources: {}, tools: {} } },
@@ -54,7 +56,9 @@ const connect = async (url: string, bearer: string | null): Promise<Client> => {
   await client.connect(
     new StreamableHTTPClientTransport(new URL(url), {
       requestInit:
-        bearer === null ? {} : { headers: { Authorization: `Bearer ${bearer}` } },
+        bearer === null
+          ? {}
+          : { headers: { Authorization: `Bearer ${bearer}` } },
     }),
   );
   return client;

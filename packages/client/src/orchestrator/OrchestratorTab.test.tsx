@@ -25,10 +25,7 @@ vi.mock("./useOrchestratorFacts", () => ({
 }));
 
 import OrchestratorTab from "./OrchestratorTab";
-import {
-  exitOrchestratorMode,
-  orchestratorMode,
-} from "./useOrchestratorMode";
+import { exitOrchestratorMode, orchestratorMode } from "./useOrchestratorMode";
 
 let dispose: (() => void) | undefined;
 let root: HTMLElement | undefined;

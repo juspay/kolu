@@ -68,8 +68,9 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     expect(spec.cells?.terminalList).toBeUndefined();
     expect(spec.collections).toBeUndefined();
     expect(spec.events).toBeUndefined();
-    const streams = (surfaces.kolu.spec as { streams?: Record<string, unknown> })
-      .streams;
+    const streams = (
+      surfaces.kolu.spec as { streams?: Record<string, unknown> }
+    ).streams;
     expect(Object.keys(streams ?? {})).toEqual(["orchestratorTranscript"]);
   });
 

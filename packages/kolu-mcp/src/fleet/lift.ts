@@ -436,33 +436,21 @@ function fleetWatchNextTool(
     title: "Wait for the next terminal event",
     description:
       `${KOLU_MCP_TOOLS.watch_next?.description ?? ""} ${FLEET_NOTE} Events from every host arrive in ONE ordered batch under a fleet-wide seq, and a host that leaves reports each terminal it was carrying as "gone".`.trim(),
-    handler: (args, _bundle, signal) =>
-      Effect.tryPromise({
-        try: async (fiberSignal) => {
-          const { name, after, timeoutMs } = args as {
-            readonly name: string;
-            readonly after?: number;
-            readonly timeoutMs?: number;
-          };
-          const outcome = await fleetWatchNext(hosts, registry, {
-            name,
-            after,
-            timeoutMs,
-            signal: signal ?? fiberSignal,
-          });
-          // The subscription NAME rides the envelope's id slot, exactly as the
-          // per-host drain does — for a standing subscription that IS "what was
-          // this wait about".
-          return waitOutcomeJson<FleetWatchMet>(name, outcome, (met) => ({
-            met,
-          }));
-        },
-        // Pass the thrown value THROUGH: a drain against a name nobody opened
-        // refuses with a `ToolFailure` whose detail names it, and the default
-        // would bury that inside an UnknownException the agent reads as a
-        // server bug rather than as "re-open your watch".
-        catch: (err: unknown) => err,
-      }),
+    handler: (args, _bundle, signal) => {
+      const { name, after, timeoutMs } = args as {
+        readonly name: string;
+        readonly after?: number;
+        readonly timeoutMs?: number;
+      };
+      return Effect.map(
+        fleetWatchNext(hosts, registry, { name, after, timeoutMs, signal }),
+        // The subscription NAME rides the envelope's id slot, exactly as the
+        // per-host drain does — for a standing subscription that IS "what was
+        // this wait about".
+        (outcome) =>
+          waitOutcomeJson<FleetWatchMet>(name, outcome, (met) => ({ met })),
+      );
+    },
   };
 }
 

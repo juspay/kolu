@@ -100,6 +100,8 @@ describe("a tool card naming a terminal on another host", () => {
     expect(
       el.querySelector('[data-testid="orchestrator-tool-open-tile"]'),
     ).toBeNull();
-    expect(el.querySelector('[data-testid="orchestrator-tool-host"]')).toBeNull();
+    expect(
+      el.querySelector('[data-testid="orchestrator-tool-host"]'),
+    ).toBeNull();
   });
 });

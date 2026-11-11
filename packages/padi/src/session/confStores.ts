@@ -79,4 +79,3 @@ export function requirePadiActivityFeedStore(): CellStore<ActivityFeed> {
 export function requirePadiLastPairedDaemonStore(): CellStore<PairedDaemon | null> {
   return requireStore(lastPairedDaemonStore, "lastPairedDaemon");
 }
-

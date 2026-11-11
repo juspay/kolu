@@ -128,32 +128,39 @@ export const newFleetWatchRegistry = (): FleetWatchRegistry => new Map();
 /** The current terminal ids of one host — the roster a departure is reported
  *  from. A failure to read is not fatal: the leg keeps the roster it had, which
  *  is strictly better than forgetting who was there. */
-async function readRoster(
+function readRoster(
   padi: PadiSurfaceClient,
-): Promise<readonly TerminalId[]> {
-  return Effect.runPromise(
-    Effect.catchCause(
-      firstFrameOrThrow(
-        padi.surface.terminals.keys(undefined),
-        "fleet watch: a host's terminal keys yielded no snapshot frame.",
-      ),
-      () => Effect.succeed([] as readonly TerminalId[]),
+): Effect.Effect<readonly TerminalId[]> {
+  return Effect.catchCause(
+    firstFrameOrThrow(
+      padi.surface.terminals.keys(undefined),
+      "fleet watch: a host's terminal keys yielded no snapshot frame.",
     ),
+    () => Effect.succeed([] as readonly TerminalId[]),
   );
 }
 
-/** Open (or re-attach) one host's leg. */
-async function openLeg(
+/** Open (or re-attach) one host's leg.
+ *
+ *  `sub.opened` is a THROWING resolver (the per-host face's refusal is a
+ *  `ToolFailure`), so it is lifted with its thrown value passed through rather
+ *  than called inside the generator, where a throw would be a defect and the
+ *  refusal's detail would never reach the agent. */
+function openLeg(
   sub: FleetSubscription,
   host: string,
   padi: PadiSurfaceClient,
-): Promise<void> {
-  const opened = await Effect.runPromise(
-    padi.surface.watch.open(sub.opened(host)),
-  );
-  sub.legs.set(host, {
-    after: opened.acknowledged,
-    roster: await readRoster(padi),
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    const input = yield* Effect.try({
+      try: () => sub.opened(host),
+      catch: (err: unknown) => err,
+    });
+    const opened = yield* padi.surface.watch.open(input);
+    sub.legs.set(host, {
+      after: opened.acknowledged,
+      roster: yield* readRoster(padi),
+    });
   });
 }
 
@@ -192,38 +199,40 @@ function stamp(sub: FleetSubscription): number {
 /** Bring the legs in line with the live fleet: leg the hosts that arrived, say
  *  `gone` for the terminals of the hosts that left, and refresh what each
  *  surviving host was carrying. */
-async function reconcile(
+function reconcile(
   hosts: FleetHosts,
   sub: FleetSubscription,
-): Promise<void> {
-  const want = new Set(wanted(hosts, sub));
-  for (const [host, leg] of [...sub.legs]) {
-    if (want.has(host)) continue;
-    const at = Date.now();
-    push(
-      sub,
-      leg.roster.map((id) => ({
-        seq: stamp(sub),
-        id: fleetTerminalRef(host, id),
-        kind: "gone" as const,
-        at,
-      })),
-    );
-    sub.legs.delete(host);
-  }
-  for (const host of want) {
-    if (sub.legs.has(host)) continue;
-    const padi = hosts.padi(host);
-    if (padi !== null) await openLeg(sub, host, padi);
-  }
-  // Every surviving leg's roster is refreshed here, not at ingest: a terminal
-  // CREATED since the last call emits no settle event of its own, so a roster
-  // refreshed only by events would forget it — and forget to mourn it when its
-  // host leaves.
-  for (const [host, leg] of sub.legs) {
-    const padi = hosts.padi(host);
-    if (padi !== null) leg.roster = await readRoster(padi);
-  }
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    const want = new Set(wanted(hosts, sub));
+    for (const [host, leg] of [...sub.legs]) {
+      if (want.has(host)) continue;
+      const at = Date.now();
+      push(
+        sub,
+        leg.roster.map((id) => ({
+          seq: stamp(sub),
+          id: fleetTerminalRef(host, id),
+          kind: "gone" as const,
+          at,
+        })),
+      );
+      sub.legs.delete(host);
+    }
+    for (const host of want) {
+      if (sub.legs.has(host)) continue;
+      const padi = hosts.padi(host);
+      if (padi !== null) yield* openLeg(sub, host, padi);
+    }
+    // Every surviving leg's roster is refreshed here, not at ingest: a terminal
+    // CREATED since the last call emits no settle event of its own, so a roster
+    // refreshed only by events would forget it — and forget to mourn it when
+    // its host leaves.
+    for (const [host, leg] of sub.legs) {
+      const padi = hosts.padi(host);
+      if (padi !== null) leg.roster = yield* readRoster(padi);
+    }
+  });
 }
 
 /** Ingest one leg's drained batch. */
@@ -261,19 +270,22 @@ function ingest(
  *  (`leg.after`), so a leg with nothing new answers an empty batch and a leg
  *  whose events a parked wait already saw hands them over again — which is what
  *  makes it safe for the park above to be a doorbell rather than a consumer. */
-async function drainLegs(
+function drainLegs(
   hosts: FleetHosts,
   sub: FleetSubscription,
-): Promise<void> {
-  for (const [host, leg] of sub.legs) {
-    const padi = hosts.padi(host);
-    if (padi === null) continue;
-    const drained = await Effect.runPromise(
-      padi.surface.watch.drain({ name: sub.name, after: leg.after }),
-    );
-    if (drained.events.length === 0 && drained.dropped === 0) continue;
-    ingest(sub, host, drained);
-  }
+): Effect.Effect<void, unknown> {
+  return Effect.gen(function* () {
+    for (const [host, leg] of sub.legs) {
+      const padi = hosts.padi(host);
+      if (padi === null) continue;
+      const drained = yield* padi.surface.watch.drain({
+        name: sub.name,
+        after: leg.after,
+      });
+      if (drained.events.length === 0 && drained.dropped === 0) continue;
+      ingest(sub, host, drained);
+    }
+  });
 }
 
 /** What a fleet drain hands back on a `met` — the same payload the per-host
@@ -288,116 +300,154 @@ export interface FleetWatchMet {
 
 export type FleetWatchOutcome = WaitOutcome<FleetWatchMet>;
 
+/** The PARK — the one genuinely Promise-shaped thing in this file, and the
+ *  reason it is lifted rather than composed: `awaitWatchEvents` is padi's
+ *  Promise-and-AbortSignal waiter, and the roster's doorbell is a plain
+ *  callback. It resolves when ANY leg rings, when the fleet changes shape, or
+ *  when `leftMs` elapses.
+ *
+ *  It is only a DOORBELL: the drain that follows reads every leg itself.
+ *  Draining in here would make a batch depend on which host answered first —
+ *  `Promise.race` settles on one, the losers are aborted, and an aborted wait
+ *  acknowledges nothing, so a second host whose events were already queued
+ *  would be left out of a batch it belonged in and appear only on the NEXT
+ *  call. An agent reading that batch sees one machine asking and concludes the
+ *  other is quiet. A drain acknowledges only what the CALLER acknowledged, so
+ *  re-draining the winner costs a round trip and loses nothing. */
+async function ringOnce(
+  hosts: FleetHosts,
+  sub: FleetSubscription,
+  opts: {
+    readonly leftMs: number | undefined;
+    readonly signals: readonly (AbortSignal | undefined)[];
+  },
+): Promise<void> {
+  const park = new AbortController();
+  const stop = (): void => {
+    park.abort();
+  };
+  const offRoster = hosts.subscribe(stop);
+  const outer = opts.signals.filter((one) => one !== undefined);
+  for (const one of outer) one.addEventListener("abort", stop, { once: true });
+  const timer =
+    opts.leftMs === undefined ? undefined : setTimeout(stop, opts.leftMs);
+  try {
+    if (outer.some((one) => one.aborted)) return;
+    const bells = [...sub.legs].flatMap(([host, leg]) => {
+      const padi = hosts.padi(host);
+      return padi === null
+        ? []
+        : [
+            awaitWatchEvents(padi, {
+              name: sub.name,
+              after: leg.after,
+              signal: park.signal,
+            }),
+          ];
+    });
+    if (bells.length === 0) {
+      // A fleet with no legs still waits — on the roster moving or the clock,
+      // which is exactly what a fleet whose last host is warming should do
+      // rather than answering "nothing is happening" instantly, forever.
+      const parked = Promise.withResolvers<void>();
+      park.signal.addEventListener("abort", () => {
+        parked.resolve();
+      });
+      await parked.promise;
+      return;
+    }
+    await Promise.race(bells);
+    park.abort();
+    await Promise.allSettled(bells);
+  } finally {
+    offRoster();
+    for (const one of outer) one.removeEventListener("abort", stop);
+    clearTimeout(timer);
+  }
+}
+
 /** THE merged drain: acknowledge, reconcile, answer what is buffered, else park
- *  until any host rings — or the fleet changes shape, or the clock runs out. */
-export async function fleetWatchNext(
+ *  until any host rings — or the fleet changes shape, or the clock runs out.
+ *
+ *  An EFFECT, not a Promise: every step but the park above is a surface member
+ *  call, so composing them leaves exactly one crossing — the lift inside — and
+ *  the MCP request edge stays the one place this face runs anything (PLAN
+ *  D10/#25). Interruption is the fiber's: a cancelled `tools/call` interrupts
+ *  the park, which aborts every leg's wait, and an aborted wait acknowledges
+ *  nothing. */
+export function fleetWatchNext(
   hosts: FleetHosts,
   registry: FleetWatchRegistry,
   opts: {
     readonly name: string;
     readonly after?: number | undefined;
     readonly timeoutMs?: number | undefined;
-    readonly signal: AbortSignal;
+    /** The FACE's own request signal, when it has one. Fiber interruption
+     *  covers the rest. */
+    readonly signal?: AbortSignal | undefined;
   },
-): Promise<FleetWatchOutcome> {
-  const started = Date.now();
-  const sub = registry.get(opts.name);
-  if (sub === undefined) {
-    throw new ToolFailure(
-      `no fleet watch named ${JSON.stringify(opts.name)} is open — open one with watch_open (the same name reattaches to its queue). A fleet watch lives in this kolu-server process, so a restart of it clears every subscription.`,
-      { kind: "no-such-watch", name: opts.name },
-    );
-  }
-  // The acknowledgement, before anything else: everything at or below `after`
-  // is forgotten, everything above comes again. Until the caller says a number,
-  // nothing leaves this buffer.
-  if (opts.after !== undefined) {
-    const after = opts.after;
-    sub.buffer = sub.buffer.filter((event) => event.seq > after);
-  }
-  const elapsed = (): number => Date.now() - started;
-  const answer = (): FleetWatchOutcome => {
-    const events = [...sub.buffer];
-    const dropped = sub.dropped;
-    sub.dropped = 0;
-    return {
-      kind: "met",
-      events,
-      dropped,
-      // The watermark of what is HELD, so echoing it back acknowledges exactly
-      // this batch. An empty batch echoes the standing watermark (a no-op).
-      ackAfter:
-        events.length === 0 ? sub.nextSeq : events[events.length - 1]!.seq,
-      elapsedMs: elapsed(),
-    };
-  };
-
-  for (;;) {
-    await reconcile(hosts, sub);
-    if (sub.buffer.length > 0) return answer();
-    if (opts.signal.aborted) return { kind: "interrupted" };
-    const left =
-      opts.timeoutMs === undefined ? undefined : opts.timeoutMs - elapsed();
-    if (left !== undefined && left <= 0) {
-      return { kind: "timeout", elapsedMs: elapsed() };
+): Effect.Effect<FleetWatchOutcome, unknown> {
+  return Effect.gen(function* () {
+    const started = Date.now();
+    const sub = registry.get(opts.name);
+    if (sub === undefined) {
+      return yield* Effect.fail(
+        new ToolFailure(
+          `no fleet watch named ${JSON.stringify(opts.name)} is open — open one with watch_open (the same name reattaches to its queue). A fleet watch lives in this kolu-server process, so a restart of it clears every subscription.`,
+          { kind: "no-such-watch", name: opts.name },
+        ),
+      );
     }
-
-    // ONE park, and it is only a DOORBELL: every leg's wait, the roster's own
-    // move, and the clock. Whichever rings, the INGEST below drains every leg
-    // itself.
-    //
-    // Draining in the park would make the batch depend on which host answered
-    // first: `Promise.race` settles on one, the losers are aborted, and an
-    // aborted wait acknowledges nothing — so a second host whose events were
-    // already queued would be left out of a batch it belonged in and only
-    // appear on the NEXT call. An agent reading that batch sees one machine
-    // asking and concludes the other is quiet. A drain acknowledges only what
-    // the CALLER acknowledged, so re-draining the winner costs a round trip and
-    // loses nothing.
-    const park = new AbortController();
-    const stop = (): void => {
-      park.abort();
+    // The acknowledgement, before anything else: everything at or below `after`
+    // is forgotten, everything above comes again. Until the caller says a
+    // number, nothing leaves this buffer.
+    if (opts.after !== undefined) {
+      const after = opts.after;
+      sub.buffer = sub.buffer.filter((event) => event.seq > after);
+    }
+    const elapsed = (): number => Date.now() - started;
+    const answer = (): FleetWatchOutcome => {
+      const events = [...sub.buffer];
+      const dropped = sub.dropped;
+      sub.dropped = 0;
+      return {
+        kind: "met",
+        events,
+        dropped,
+        // The watermark of what is HELD, so echoing it back acknowledges
+        // exactly this batch. An empty batch echoes the standing watermark (a
+        // no-op).
+        ackAfter:
+          events.length === 0 ? sub.nextSeq : events[events.length - 1]!.seq,
+        elapsedMs: elapsed(),
+      };
     };
-    const offRoster = hosts.subscribe(stop);
-    opts.signal.addEventListener("abort", stop, { once: true });
-    const timer = left === undefined ? undefined : setTimeout(stop, left);
-    try {
-      const bells = [...sub.legs].flatMap(([host, leg]) => {
-        const padi = hosts.padi(host);
-        return padi === null
-          ? []
-          : [
-              awaitWatchEvents(padi, {
-                name: sub.name,
-                after: leg.after,
-                signal: park.signal,
-              }),
-            ];
-      });
-      if (bells.length === 0) {
-        // A fleet with no legs still waits — on the roster moving or the clock,
-        // which is exactly what a fleet whose last host is warming should do
-        // rather than answering "nothing is happening" instantly, forever.
-        const parked = Promise.withResolvers<void>();
-        park.signal.addEventListener("abort", () => {
-          parked.resolve();
-        });
-        await parked.promise;
-      } else {
-        await Promise.race(bells);
-        park.abort();
-        await Promise.allSettled(bells);
+
+    for (;;) {
+      yield* reconcile(hosts, sub);
+      if (sub.buffer.length > 0) return answer();
+      if (opts.signal?.aborted === true) {
+        return { kind: "interrupted" } as const;
       }
-    } finally {
-      offRoster();
-      opts.signal.removeEventListener("abort", stop);
-      clearTimeout(timer);
+      const left =
+        opts.timeoutMs === undefined ? undefined : opts.timeoutMs - elapsed();
+      if (left !== undefined && left <= 0) {
+        return { kind: "timeout", elapsedMs: elapsed() } as const;
+      }
+      yield* Effect.tryPromise({
+        try: (fiberSignal) =>
+          ringOnce(hosts, sub, {
+            leftMs: left,
+            signals: [opts.signal, fiberSignal],
+          }),
+        catch: (err: unknown) => err,
+      });
+      // In LEG order — the roster's order, local first — so the fleet seq a
+      // caller acknowledges is assigned by a rule, not by which machine's
+      // packet arrived first.
+      yield* drainLegs(hosts, sub);
     }
-    // In LEG order — the roster's order, local first — so the fleet seq a
-    // caller acknowledges is assigned by a rule, not by which machine's packet
-    // arrived first.
-    await drainLegs(hosts, sub);
-  }
+  });
 }
 
 /** Open (or re-attach to) a fleet subscription. The per-host inputs are the
@@ -453,14 +503,10 @@ export function fleetWatchOpen(
     for (const host of wanted(hosts, live)) {
       if (live.legs.has(host)) continue;
       const padi = yield* requireHost(hosts, host);
-      // `catch` passes the thrown value THROUGH: `spec.opened` refuses a
-      // malformed scope with the per-host face's own `ToolFailure`, and the
-      // default would bury that refusal's detail inside an UnknownException an
-      // agent reads as a server bug.
-      yield* Effect.tryPromise({
-        try: () => openLeg(live, host, padi),
-        catch: (err: unknown) => err,
-      });
+      // `openLeg` carries `spec.opened`'s refusal on the error channel (the
+      // per-host face's own `ToolFailure`, detail intact), so it composes
+      // straight in.
+      yield* openLeg(live, host, padi);
     }
     return {
       name: spec.name,

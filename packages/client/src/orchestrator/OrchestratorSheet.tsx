@@ -49,7 +49,9 @@ const OrchestratorSheet: Component = () => {
             data-testid="orchestrator-sheet"
             class="fixed inset-x-0 bottom-0 top-8 z-50 rounded-t-2xl overflow-hidden border-t border-edge bg-surface-0"
           >
-            <OrchestratorPane class="h-full" />
+            {/* `relative`: the pane carries no positioning of its own, and its
+             *  drop overlay anchors to it. */}
+            <OrchestratorPane class="relative h-full" />
           </Drawer.Content>
         </Drawer.Portal>
       </Drawer>

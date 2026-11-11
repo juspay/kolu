@@ -151,8 +151,7 @@ function handle(message: Message): void {
         asked === "children"
           ? JSON.stringify({
               live: [...queries.values()].filter(
-                (child) =>
-                  child.exitCode === null && child.signalCode === null,
+                (child) => child.exitCode === null && child.signalCode === null,
               ).length,
               closed: ended,
             })

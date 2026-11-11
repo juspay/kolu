@@ -392,11 +392,7 @@ describe("padiSurface contract", () => {
       .filter(([, policy]) => policy === "delta")
       .map(([key]) => key)
       .sort();
-    expect(delta).toEqual([
-      "activity",
-      "terminalAttach",
-      "watchStates",
-    ]);
+    expect(delta).toEqual(["activity", "terminalAttach", "watchStates"]);
     // The delta members are exactly the three the note names; everything else
     // (cells, collections, pulses, procedures, the terminalExit event) is value.
     expect(PADI_FORWARDING_POLICY.activity).toBe("delta");

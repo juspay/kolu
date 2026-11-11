@@ -142,7 +142,15 @@ const OrchestratorPane: Component<{
       ref={bindDrop}
       data-testid="orchestrator-pane"
       data-phase={state().phase}
-      class={`relative flex flex-col min-w-0 min-h-0 bg-surface-0 ${props.class ?? ""}`}
+      // NO positioning of its own. The caller supplies it — `absolute inset-0`
+      // over the workspace on desktop, `relative` inside the touch sheet — and
+      // a `relative` baked in here would WIN over a caller's `absolute`
+      // (Tailwind emits `absolute` before `relative`, so the later rule takes
+      // it), which is exactly how the chat came to lay out as a 500px column
+      // beside the canvas instead of covering it. Every caller must therefore
+      // pass a positioned class: the drop overlay below is `absolute inset-0`
+      // against this element.
+      class={`flex flex-col min-w-0 min-h-0 bg-surface-0 ${props.class ?? ""}`}
     >
       <Show when={dropping()}>
         <div

@@ -540,9 +540,7 @@ describe("one conversation with a real agent", () => {
     // `toEqual` on the whole entry already fails on a stray key, but say the
     // two rules in their own words so the reason survives a future edit: the
     // stdio arm carries NO `type`, the http arm carries one...
-    const [firstOpen = []] = shapes as Array<
-      Array<Record<string, unknown>>
-    >;
+    const [firstOpen = []] = shapes as Array<Array<Record<string, unknown>>>;
     expect(firstOpen.map((entry) => "type" in entry)).toEqual([false, true]);
     // ... and the in-tree discriminant never crosses: `kind` on the wire would
     // be an unknown key on a server the adapter is about to spawn.

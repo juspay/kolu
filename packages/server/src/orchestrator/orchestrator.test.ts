@@ -264,7 +264,10 @@ beforeEach(async () => {
       JSON.stringify({
         jsonrpc: "2.0",
         id: null,
-        error: { code: -32_000, message: "Bad Request: Server not initialized" },
+        error: {
+          code: -32_000,
+          message: "Bad Request: Server not initialized",
+        },
       }),
     );
   });
