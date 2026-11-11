@@ -89,9 +89,12 @@ const ChromeBar: Component<{
         <HostSelectorStrip />
       </div>
 
-      {/* The one special destination in the tab row — pinned at its end, after
-       *  a separator, so it reads as the different kind of thing it is. */}
-      <div class="flex h-8 shrink-0 items-center">
+      {/* The one special destination in the tab row — pinned at its end, where
+       *  the host tabs stop. It is CENTRED in the full header exactly as the
+       *  control cluster below is (`-mt-2 h-10`), not riding the tab baseline:
+       *  it is a pill beside the posture control, and a pill four pixels lower
+       *  than its neighbour reads as something somebody forgot to align. */}
+      <div class="-mt-2 flex h-10 shrink-0 items-center">
         <OrchestratorTab />
       </div>
 

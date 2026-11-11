@@ -90,7 +90,7 @@ const MobileChromeSheet: Component<{
           data-testid="orchestrator-tab"
           data-active={orchestratorMode() ? "" : undefined}
           aria-pressed={orchestratorMode()}
-          class="relative flex min-h-[44px] w-full items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors"
+          class="relative flex min-h-[44px] w-full items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           classList={{
             "border-accent/60 bg-accent/12 text-accent": orchestratorMode(),
             "border-edge bg-surface-2 text-fg-2 active:bg-surface-3":
@@ -103,12 +103,19 @@ const MobileChromeSheet: Component<{
           }}
           aria-label={ACTIONS.toggleOrchestrator.label}
         >
-          <span aria-hidden="true">◆</span>
-          <span class="font-medium">Orchestrator</span>
+          {/* The mark carries the accent at rest here too — one destination,
+              one hue, whichever layout you reach it from. */}
+          <span
+            aria-hidden="true"
+            classList={{ "text-accent": !orchestratorMode() }}
+          >
+            ◆
+          </span>
+          <span>Orchestrator</span>
           <Show when={orchestratorAsksTotal() > 0}>
             <span
               data-testid="orchestrator-badge"
-              class="ml-auto rounded-full bg-alert px-2 font-mono text-[0.68rem] font-bold text-surface-0"
+              class="ml-auto min-w-5 rounded-full bg-alert px-1.5 text-center text-[0.68rem] font-semibold leading-5 text-surface-0"
             >
               {orchestratorAsksTotal()}
             </span>

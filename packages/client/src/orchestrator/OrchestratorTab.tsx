@@ -5,22 +5,41 @@
  *  own hue and a "+" beside its group, because a host is a machine whose
  *  reachability you watch; the orchestrator is one conversation that reaches
  *  every machine, with no connection of its own to report. So this is a PILL,
- *  pinned at the end of the row after a separator: same row, visibly a
- *  different kind of thing — the chrome-bar pill of `orchestrator-ux.html`.
+ *  pinned at the end of the row — same row, visibly a different kind of thing.
  *
  *  It is not a host anywhere else either: no host key, no entry in the host
  *  map, nothing in the host switcher's data model. Selecting it enters
  *  orchestrator mode; selecting any host tab leaves it; `⌘⇧O` does both.
  *
+ *  ## Why it looks like this
+ *
+ *  It reads as chrome, not as a debug control, and every line below is that
+ *  one sentence. The BOX is the shell its neighbour uses
+ *  ({@link CHROME_CONTROL_SHELL}) — same height, same radius, same edge — so
+ *  the two are one visual family however their type differs. The TYPE is the
+ *  chrome's own sans at the chrome's own weight, not the monospace the posture
+ *  segments wear: those are a glyph-and-word pair where the glyph is the
+ *  subject, and this is a name. The ACCENT is the orchestrator's hue the way a
+ *  host's tab wears its host's: the mark carries it at rest, and selecting the
+ *  entry fills the pill with it — the same accent tint the posture control's
+ *  live segment uses, because "this is where you are" is one idea and gets one
+ *  spelling. HOVER is the host tabs' wash, in that hue, for the same reason.
+ *
+ *  There is no separator before it. A divider would be drawing the "not a host
+ *  tab" statement twice: the pill already is that statement, and the row's own
+ *  gap is what ends the tabs.
+ *
  *  Its badge is the violet needs-you count — the questions the one
- *  conversation is blocked on, across every host it has terminals on. ABSENT
- *  at zero, never a `0`: a badge that renders its own silence is one every
- *  reader has to parse before ignoring. */
+ *  conversation is blocked on, across every host it has terminals on. It sits
+ *  on the pill's top-right CORNER rather than inline, so the pill's width does
+ *  not move when a question arrives. ABSENT at zero, never a `0`: a badge that
+ *  renders its own silence is one every reader has to parse before ignoring. */
 
 import { type Component, Show } from "solid-js";
 import { ACTIONS } from "../input/actions";
 import { formatKeybind } from "../input/keyboard";
 import Tip from "../ui/Tip";
+import { CHROME_CONTROL_SHELL } from "./chromeControl";
 import { orchestratorAsksTotal } from "./useOrchestratorFacts";
 import {
   enterOrchestratorMode,
@@ -29,41 +48,44 @@ import {
 } from "./useOrchestratorMode";
 
 const OrchestratorTab: Component = () => (
-  <div class="flex shrink-0 items-center gap-2 pointer-events-auto">
-    {/* The separator IS the "not a host tab" statement, so it is not
-     *  decoration: the host tabs end here and the row's one special
-     *  destination begins. */}
-    <span aria-hidden="true" class="h-4 w-px shrink-0 bg-edge" />
-    <Tip
-      label={`Orchestrator (${formatKeybind(ACTIONS.toggleOrchestrator.keybind)})`}
+  <Tip
+    label={`Orchestrator (${formatKeybind(ACTIONS.toggleOrchestrator.keybind)})`}
+  >
+    <button
+      type="button"
+      data-testid="orchestrator-tab"
+      data-active={orchestratorMode() ? "" : undefined}
+      aria-pressed={orchestratorMode()}
+      class={`${CHROME_CONTROL_SHELL} orchestrator-tab pointer-events-auto relative flex items-center gap-1.5 px-2.5 text-[0.78rem] font-medium leading-none cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50`}
+      classList={{
+        "border-accent/60 bg-accent/12 text-accent": orchestratorMode(),
+        "text-fg-2 hover:text-fg": !orchestratorMode(),
+      }}
+      onClick={() =>
+        orchestratorMode() ? exitOrchestratorMode() : enterOrchestratorMode()
+      }
     >
-      <button
-        type="button"
-        data-testid="orchestrator-tab"
-        data-active={orchestratorMode() ? "" : undefined}
-        aria-pressed={orchestratorMode()}
-        class="relative flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 font-mono text-[0.65rem] font-semibold cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
-        classList={{
-          "border-accent/60 bg-accent/12 text-accent": orchestratorMode(),
-          "border-edge text-fg-3 hover:bg-surface-2 hover:text-fg":
-            !orchestratorMode(),
-        }}
-        onClick={() =>
-          orchestratorMode() ? exitOrchestratorMode() : enterOrchestratorMode()
-        }
+      {/* The MARK carries the hue at rest, which is how a host tab wears its
+          host's: colour says which destination this is before the word is
+          read. Selected, the pill is accent throughout and the mark simply
+          inherits it. */}
+      <span
+        aria-hidden="true"
+        classList={{ "text-accent": !orchestratorMode() }}
       >
-        ◆ Orchestrator
-        <Show when={orchestratorAsksTotal() > 0}>
-          <span
-            data-testid="orchestrator-badge"
-            class="absolute -top-1 -right-1 rounded-full bg-alert px-1.5 font-mono text-[0.6rem] font-bold text-surface-0"
-          >
-            {orchestratorAsksTotal()}
-          </span>
-        </Show>
-      </button>
-    </Tip>
-  </div>
+        ◆
+      </span>
+      Orchestrator
+      <Show when={orchestratorAsksTotal() > 0}>
+        <span
+          data-testid="orchestrator-badge"
+          class="absolute -top-1.5 -right-1.5 min-w-4 rounded-full bg-alert px-1 text-center text-[0.6rem] font-semibold leading-4 text-surface-0"
+        >
+          {orchestratorAsksTotal()}
+        </span>
+      </Show>
+    </button>
+  </Tip>
 );
 
 export default OrchestratorTab;

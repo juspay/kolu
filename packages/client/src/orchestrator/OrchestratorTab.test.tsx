@@ -61,7 +61,11 @@ const entryOf = (el: HTMLElement): HTMLElement => {
 describe("the orchestrator's chrome-bar entry", () => {
   it("is present, and wears none of the host-tab chrome", () => {
     const entry = entryOf(mount());
-    expect(entry.textContent).toContain("◆ Orchestrator");
+    // The mark is its own element (it carries the accent at rest), so the
+    // gap between it and the word is the pill's flex gap rather than a space
+    // in the text — assert the two parts, not the concatenation.
+    expect(entry.textContent).toContain("◆");
+    expect(entry.textContent).toContain("Orchestrator");
     // Not a host: no key to address it by, and nothing a host-switcher data
     // model could pick it up as.
     expect(entry.dataset.host).toBeUndefined();

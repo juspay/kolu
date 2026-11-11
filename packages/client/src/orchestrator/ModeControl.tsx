@@ -13,6 +13,7 @@ import { useViewPosture } from "../canvas/useViewPosture";
 import { ACTIONS } from "../input/actions";
 import { formatKeybind } from "../input/keyboard";
 import Tip from "../ui/Tip";
+import { CHROME_CONTROL_SHELL } from "./chromeControl";
 
 const segmentClass =
   "flex items-center gap-1.5 px-2 py-1 font-mono text-[0.65rem] font-semibold cursor-pointer transition-colors";
@@ -29,7 +30,7 @@ const ModeControl: Component = () => {
   return (
     <div
       data-testid="mode-control"
-      class="flex items-stretch rounded-lg border border-edge overflow-hidden"
+      class={`${CHROME_CONTROL_SHELL} flex items-stretch overflow-hidden`}
     >
       <Tip label="Canvas">
         <button
