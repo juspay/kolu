@@ -220,12 +220,14 @@ describe("the manifest", () => {
     // because a second door to the same word is a door somebody eventually
     // uses.
     expect(Object.keys(face).sort()).toEqual([
+      "AUTH_STATUS_METHOD",
       "PERMISSION_FIELD",
       "Refused",
       "contentOf",
       "diffsOf",
       "formOf",
       "hostOf",
+      "identityIn",
       "nativeActivity",
       "permissionFormOf",
       "relativeTo",
@@ -241,6 +243,8 @@ describe("the manifest", () => {
       "AskField",
       "AskLink",
       "AskOutcome",
+      "AuthAccount",
+      "AuthStatus",
       "FileDiff",
       "Usage",
       "YES_NO",
@@ -258,7 +262,12 @@ describe("the manifest", () => {
    *
    * Every other member's `[]` is what says nothing else opens any of them.
    */
-  const MAY: Readonly<Record<string, ReadonlyArray<string>>> = {};
+  const MAY: Readonly<Record<string, ReadonlyArray<string>>> = {
+    // padi's browser-safe contract half declares the orchestrator's members in
+    // the protocol's own vocabulary rather than re-spelling it: the wire door
+    // and nothing else.
+    "padi-client": ["@kolu/acp/wire"],
+  };
 
   test("who may import which half is a table, and the harness is the only row with all of them", () => {
     const imported = new Map<string, ReadonlySet<string>>(

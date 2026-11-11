@@ -201,3 +201,49 @@ export const Usage = Schema.Struct({
   size: Schema.Int,
 });
 export type Usage = typeof Usage.Type;
+
+/**
+ * The account fields an agent may state about the identity it is signed in as.
+ *
+ * All three are optional on the wire and `null` here: an adapter fills what its
+ * own probe could read, and a missing organization is not a claim that there is
+ * none. The panel draws the email when there is one and leaves the rest to the
+ * line's `title`.
+ */
+export const AuthAccount = Schema.Struct({
+  email: Schema.NullOr(Schema.String),
+  organization: Schema.NullOr(Schema.String),
+  /** The vendor's own plan string, not normalized — "max" from Claude,
+   *  "plus" from Codex. */
+  plan: Schema.NullOr(Schema.String),
+});
+export type AuthAccount = typeof AuthAccount.Type;
+
+/**
+ * WHO the agent process is signed in as, as the agent itself reports it.
+ *
+ * `_auth/status_update`'s payload, projected to the four facts a reader acts
+ * on. The protocol's `vendor` corner is deliberately not here: it is
+ * vendor-namespaced extras and nothing in this panel draws one.
+ *
+ * `label` is the agent's OWN ready-to-draw string ("Claude Max", "ChatGPT
+ * Plus", "Anthropic API key") and it is the one field that is always present.
+ * `detail` is its optional second line — a key source, a gateway host — and
+ * the panel falls back to `account.email` where there is no detail.
+ *
+ * `kind` is `null` for a kind this build has no word for. That is the tolerant
+ * direction: the protocol may grow a sixth kind, and a client that dropped the
+ * whole payload would have shown "not reported" — which means something else
+ * entirely — where the agent had said who it was. A KNOWN logged-out state is
+ * `kind: "none"` with its label, and an agent that says nothing at all leaves
+ * the whole value `null` (`ChatState.identity`).
+ */
+export const AuthStatus = Schema.Struct({
+  kind: Schema.NullOr(
+    Schema.Literals(["account", "api_key", "gateway", "external", "none"]),
+  ),
+  label: Schema.String,
+  detail: Schema.NullOr(Schema.String),
+  account: Schema.NullOr(AuthAccount),
+});
+export type AuthStatus = typeof AuthStatus.Type;
