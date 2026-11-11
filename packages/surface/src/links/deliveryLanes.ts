@@ -4,46 +4,38 @@
  * not on ours. This header is the canonical account; everything else that
  * mentions the hazard points here.
  *
- * THE HAZARD (effect@4.0.0, `rpc/RpcClient.ts`). Every stream on a link shares
+ * THE HAZARD (effect@4.1.4, `rpc/RpcClient.ts`). Every stream on a link shares
  * one socket reader. `makeProtocolSocket`'s read loop hands each decoded response
  * to the client strictly in sequence, and the client delivers a stream `Chunk`
  * with `Queue.offerAll` into that stream's BOUNDED queue (16) — then sends the
  * `Ack`. So a consumer that stops pulling fills its queue, the offer suspends,
- * and the READER suspends with it: no other stream, no unary answer, and no
- * `Pong` is read until that one consumer moves, and Effect's pinger ends the
- * link 5–10 s later with the peer healthy throughout. Worse, a consumer torn
- * down while full leaves the offer parked on an orphaned queue — Effect's
- * interrupt finaliser deletes the entry and tells the server, but never releases
- * the queue — so the reader is gone for good.
+ * and the READER suspends with it: no other stream, no unary answer and no
+ * frame of any kind is read until that one consumer moves, and Effect's pinger
+ * ends the link 5–10 s later with the peer healthy throughout.
  *
- * THE WORKAROUND, in two halves:
+ * THE WORKAROUND. {@link decoupleDelivery} wraps the client `Protocol` so each
+ * request's responses drain through their own in-order LANE and the reader moves
+ * on at once. The `Ack` still goes out only after the offer lands, so per-stream
+ * backpressure is unchanged: a stalled consumer holds up its own stream, its
+ * sender waits, and it resumes where it left off.
  *
- *  - {@link decoupleDelivery} wraps the client `Protocol` so each request's
- *    responses drain through their own in-order LANE and the reader moves on at
- *    once. The `Ack` still goes out only after the offer lands, so per-stream
- *    backpressure is unchanged: a stalled consumer holds up its own stream, its
- *    sender waits, and it resumes where it left off.
- *  - {@link releasedOnEnd} shuts a stream's queue down when its subscription
- *    ends, which resumes an offer parked on it, so no lane outlives its consumer.
+ * DELETE THIS MODULE when Effect's client stops delivering on its reader. Its
+ * one call site is the protocol wrap in `openWireLink` (`./wire.ts`).
+ * `streamConsumerStall.test.ts` is the measure either way.
  *
- * DELETE THIS MODULE when Effect's client stops delivering on its reader (or
- * releases a stream's queue in the request finaliser). Its two call sites are in
- * `openWireLink` (`./wire.ts`): the protocol wrap at build, and the stream
- * dispatch — which then returns `client(tag, payload)` again, and `FlatDispatch`
- * drops its `options`. `streamConsumerStall.test.ts` is the measure either way.
- *
- * BETA-ASSUMPTION(4.0.0): a stream Chunk is the only response whose delivery waits on a consumer, and a failed delivery has already been written as its request's Exit.
- * In effect@4.0.0 `RpcClient.make`'s `write` offers a `Chunk` into the stream's
- * bounded queue and Acks after; `Exit` ends a queue or resumes a call;
- * `Defect`/`ClientProtocolError` fail entries. The `run` handler wraps a chunk's
- * decode-and-offer in `Effect.onError` that writes the request's `Exit` before
- * the failure re-raises, and `asQueue: true` registers the request's interrupt
- * finaliser on the Scope it runs in and hands back the queue. A regression in
- * any of it brings back the starved reader, a stream that loses frames, or a
- * delivery failure that never reaches its consumer — each a case in
- * `streamConsumerStall.test.ts`.
+ * BETA-ASSUMPTION(4.1.4): a stream Chunk is the only response whose delivery waits on a consumer, a delivery fails only when interrupted, and a stream's own finaliser shuts its queue down.
+ * In effect@4.1.4 `RpcClient.make`'s `write` offers a `Chunk` into the stream's
+ * bounded queue and Acks after (not when the offer was dropped); `Exit` ends a
+ * queue or resumes a call; `Defect`/`ClientProtocolError` fail entries. The
+ * `run` handler writes an undecodable chunk as its request's `Exit` and then
+ * swallows the failure, re-raising only an interrupt. `onStreamRequest`'s scope
+ * finaliser calls `Queue.shutdownUnsafe`, which resumes an offer parked on the
+ * queue — so a lane never outlives its consumer without help from here. A
+ * regression in any of it brings back the starved reader, a stream that loses
+ * frames, a lane parked on a torn-down consumer, or a delivery failure that
+ * never reaches its consumer — each a case in `streamConsumerStall.test.ts`.
  */
-import { Effect, Queue, type Scope, Stream } from "effect";
+import { Effect, type Scope } from "effect";
 import type { RpcClient } from "effect/rpc";
 import type { FromServerEncoded } from "effect/rpc/RpcMessage";
 
@@ -89,15 +81,9 @@ export function decoupleDelivery(
             }
           }
         }).pipe(
-          // The failure and interrupt paths, where the request is already
-          // over: the lane goes too, so later frames for it queue behind nobody.
+          // The interrupt path (the link's scope closing mid-delivery): the
+          // lane goes too, so later frames for it queue behind nobody.
           Effect.onError(() => Effect.sync(() => lanes.delete(requestId))),
-          // A delivery that FAILS (a chunk the client cannot decode) has
-          // already reached its consumer as the request's own `Exit` (the
-          // BETA-ASSUMPTION above). Re-raising it would only fail this detached
-          // fiber, where nobody observes it, so one undecodable chunk costs its
-          // own stream, never the link.
-          Effect.exit,
         );
       return inner.run(clientId, (message) => {
         if (message._tag !== "Chunk" && message._tag !== "Exit") {
@@ -117,19 +103,4 @@ export function decoupleDelivery(
       });
     },
   };
-}
-
-/** A stream over the queue `openQueue` hands back (the client's `asQueue`
- *  call), whose subscription SHUTS THAT QUEUE DOWN when it ends — completion,
- *  failure, or an interrupted consumer. Shutting down resumes an offer parked
- *  on it, so a torn-down consumer never leaves its lane parked. Effect's own
- *  interrupt finaliser is registered on the same scope and runs after this one. */
-export function releasedOnEnd(
-  openQueue: Effect.Effect<Queue.Queue<unknown, unknown>, never, Scope.Scope>,
-): Effect.Effect<Stream.Stream<unknown, unknown>, never, Scope.Scope> {
-  return Effect.gen(function* () {
-    const queue = yield* openQueue;
-    yield* Effect.addFinalizer(() => Queue.shutdown(queue));
-    return Stream.fromQueue(queue);
-  });
 }

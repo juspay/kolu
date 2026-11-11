@@ -65,12 +65,12 @@
     "vitest": "^5.0.3"
   },
   "dependencies": {
-    "@effect/platform-browser": "4.0.0",
-    "@effect/platform-node": "4.0.0",
+    "@effect/platform-browser": "4.1.4",
+    "@effect/platform-node": "4.1.4",
     "@kolu/log": "workspace:*",
     "@solid-primitives/rootless": "^1.5.3",
     "@solid-primitives/scheduled": "^1.5.3",
-    "effect": "4.0.0",
+    "effect": "4.1.4",
     "solid-js": "^1.9.0"
   }
 }

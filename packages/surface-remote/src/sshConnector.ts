@@ -211,11 +211,12 @@ export interface SshConnectorOptions<S extends SurfaceSpec> {
    *  **What it does NOT buy — because it is only ONE of four independent bounds
    *  on how long a link may be silent, and it is the LOOSEST of them:**
    *
-   *   1. **Effect RPC's own pinger, on a connected link — 5–10s, NOT a knob.**
-   *      `RpcClient.makeProtocolSocket` pings every 5s and ends the socket the
-   *      moment a tick finds the previous ping unanswered. No option exposes that
-   *      cadence and no retry survives it. Canonical account: the docstring at
-   *      `@kolu/surface`'s `links/wire.ts` (`neverReconnect`), measured by
+   *   1. **Effect RPC's own pinger, on a connected link — 5–10s of no frame.**
+   *      `RpcClient.makeProtocolSocket` pings every 5s and ends the socket once
+   *      a tick finds its ping outstanding and no frame from the peer for
+   *      longer than 5s — Effect's defaults, which this stack does not set — and
+   *      no retry survives it. Canonical account: the docstring at
+   *      `@kolu/surface`'s `links/wire.ts` (`keepAliveWentUnanswered`), measured by
    *      `links/stdioPingStall.test.ts`. This is the bound that actually ends a
    *      connected link, and nothing here can move it.
    *   2. **`makeSession`'s heartbeat — ≈25s at its defaults, tunable via

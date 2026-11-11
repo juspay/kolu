@@ -14,7 +14,7 @@
  *
  * Attaching an `RpcClient` to that peer is not merely useless, it is actively
  * harmful: Effect RPC's protocol socket starts a pinger the moment it is built,
- * the pinger kills the link after two unanswered pings, and the death arrives as
+ * the pinger kills a peer that says nothing within two ping intervals, and the death arrives as
  * an ordinary transport error indistinguishable from an unreachable host. That
  * is the juspay/kolu#2101 production incident — every remote host wedged in a
  * permanent connect loop, because "the peer is from another epoch" was reported

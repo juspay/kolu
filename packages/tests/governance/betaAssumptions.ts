@@ -115,8 +115,9 @@ export const BETA_ASSUMPTION_SITES: readonly string[] = [
   "packages/surface-daemon-supervisor/src/probeDaemonIdentity.ts",
   "packages/surface/src/frameLimit.ts",
   // The delivery-lane workaround for Effect RPC's reader rests on which
-  // responses wait on a consumer and on a failed delivery already being its
-  // request's Exit; streamConsumerStall.test.ts measures both.
+  // responses wait on a consumer, on a delivery failing only when interrupted,
+  // and on a stream's own finaliser releasing its queue;
+  // streamConsumerStall.test.ts measures all three.
   "packages/surface/src/links/deliveryLanes.ts",
   // The websocket dial history and open-edge count require onDisconnect on
   // every attempt, including swallowed pre-open failures. The old dispatch

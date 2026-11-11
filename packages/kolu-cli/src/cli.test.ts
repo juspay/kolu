@@ -122,7 +122,7 @@ describe("kolu command tree", () => {
       // A version pin with teeth. `Flag.Boolean` used to parse an absent flag
       // as `false`; rc.110 made it FAIL as a missing required flag instead
       // (Effect-TS/effect#7296) — still the behaviour at the current pin,
-      // `effect@4.0.0` — which turned every plain
+      // `effect@4.1.4` — which turned every plain
       // `kolu ls` / `kolu create` / `kolu web` into a usage error until each
       // switch spelled its `false` out loud. The refusal below is reachable
       // ONLY after the flags resolved, so seeing it means `--json` was absent

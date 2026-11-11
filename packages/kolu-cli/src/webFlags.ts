@@ -60,7 +60,7 @@ export const webFlags = {
   // rc.110 a bare `Flag.Boolean` FAILS when absent rather than parsing as
   // `false` (Effect-TS/effect#7296), so without it `kolu web` would refuse to
   // boot unless the operator wrote `--tls` and `--verbose` every time. Still
-  // true at `effect@4.0.0`, re-read off `Flag.Boolean` at the pin.
+  // true at `effect@4.1.4`, re-read off `Flag.Boolean` at the pin.
   tls: Flag.Boolean("tls").pipe(
     Flag.withDescription(
       "Enable HTTPS with auto-generated self-signed certificate",

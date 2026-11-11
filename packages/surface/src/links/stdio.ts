@@ -19,16 +19,20 @@
  *
  * On the SERVER side (the subprocess) any stray write to stdout corrupts the
  * frame stream. `serveOverStdio` redirects `console.log` to stderr when it owns
- * stdout. BETA-ASSUMPTION(4.0.0): malformed ndjson lines are silently dropped, even when they replace an in-flight answer.
- * Evidence: effect/src/rpc/RpcSerialization.ts makeNdjson catches JSON.parse
- * errors and emits no message. The shared serialization means this applies to
+ * stdout. BETA-ASSUMPTION(4.1.4): a malformed ndjson line fails every call then in flight on the link, and the link itself stays up.
+ * Evidence: effect@4.1.4 src/rpc/RpcSerialization.ts makeNdjson throws
+ * NdjsonDecodeError on a line JSON.parse rejects (discarding the rest of that
+ * read), and RpcClient.ts makeProtocolSocket's processData turns the throw into
+ * a ClientProtocolError ("Error decoding message") broadcast to every entry —
+ * without ending the socket run. The shared serialization means this applies to
  * every ndjson wire link, not only stdio. In stdio.test.ts, "a corrupted answer
- * parks its call while valid replies and heartbeats keep flowing" corrupts a
- * real Exit: the call remains pending beyond the fatal-silence window, while
- * Pongs and another call still succeed. There is no per-call replay or deadline
- * here, so it can remain pending until interruption or a later transport death.
- * A stray line followed by an intact answer is harmless. No corruption workaround
- * is applied here; the daemon identity probe separately rejects its first frame.
+ * fails the call in flight, and the link keeps serving" corrupts a real Exit:
+ * the call fails with `SurfaceStdioTransportClosed` (`death: "streamEnded"`,
+ * the reason naming the decode error — `openWireLink` reads every
+ * RpcClientError as the transport's), and a later call on the same link
+ * answers. A stray line with no call in flight fails nothing. No corruption
+ * workaround is applied here; the daemon identity probe separately rejects its
+ * first frame.
  *
  * ## No pinger before a proven epoch (juspay/kolu#2101)
  *

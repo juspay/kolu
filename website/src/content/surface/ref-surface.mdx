@@ -1036,7 +1036,7 @@ The consumer is [`connectSurfaces`' `redial`](/surface/ref-surface-app#a-roster-
 
 ### Failure and re-subscription across re-dials
 
-Effect 4.0 broadcasts failures from established sockets, including heartbeat
+Effect broadcasts failures from established sockets, including heartbeat
 silence (`SocketReadError` with a `ping timeout` cause). Registered calls fail
 before the next socket opens. The [retry fence](#the-face-and-its-retry-fence-kolusurfaceclient)
 re-subscribes streams once on the new wire; an unfenced unary receives the error.
@@ -1879,12 +1879,12 @@ so neither tag is ever an app error.
 
 ### The wire's frame cap (`@kolu/surface/frame-limit`)
 
-Effect 4.0.0 silently drops malformed JSON lines on every ndjson link. A stray
-line does not prevent later valid messages from arriving. If a malformed line
-replaces a call's answer, that call remains pending while other calls and
-heartbeats continue; there is no per-call replay or deadline at this layer.
-Interruption or a later transport failure ends the pending call. The daemon
-identity probe separately rejects a malformed first frame.
+A malformed JSON line on an ndjson link fails every call then in flight on that
+link — on a stdio or unix-socket leg as `SurfaceStdioTransportClosed` with
+`death: "streamEnded"` and the decode error in its `reason` — while the link
+itself stays up and later calls answer. A stray line with no call in flight
+fails nothing. The daemon identity probe separately rejects a malformed first
+frame.
 
 Every link's ndjson serialization is built here, from one owned constant, rather
 than from Effect's default. The default and this value are the same 16 MiB — the
@@ -1919,7 +1919,7 @@ Two consequences a member author owns:
 - `1009` must stay OUT of any `isTerminalClose` set — it is recoverable, and
   halting the retry schedule on it would strand the tab with no subscriptions.
 
-The close-on-exceed semantics carry a `BETA-ASSUMPTION(4.0.0)` marker
+The close-on-exceed semantics carry a `BETA-ASSUMPTION` marker stamped with the pinned Effect version
 (governed by `packages/tests/governance/betaAssumptions.ts`), so an Effect bump
 must re-measure them before it can land.
 
@@ -1983,10 +1983,9 @@ are ack-gated, so at most one part is in flight; 256 KiB drains in ~2 s at a
 1 Mbit/s floor plus a ~0.5 s ack round trip — comfortably inside the 5 s ping
 interval. The bound is **per stream**: a reconnect re-subscribes every collection
 at once, so up to K parts (K = the collections whose snapshot exceeds the budget)
-can share the socket, and the pong queues behind all K. K is small — a snapshot
-is a single frame unless it exceeds the budget, and the incident is one such
-collection — but K large snapshots resuming together on a very slow link can
-still delay the pong; a per-connection part gate is the follow-up. The split and
+can share the socket, and the pong queues behind all K. That does not endanger
+the link: Effect's pinger counts every decoded frame as liveness, and the parts
+land one at a time, each within one part's drain. The split and
 the reassembly both live beside the wire's frame budget (in the package's
 `collectionDeltasFraming` module).
 

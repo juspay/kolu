@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "anyagent": "workspace:*",
-    "effect": "4.0.0",
+    "effect": "4.1.4",
     "kolu-claude-code": "workspace:*",
     "kolu-codex": "workspace:*",
     "kolu-grok": "workspace:*",

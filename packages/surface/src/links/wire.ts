@@ -36,7 +36,6 @@ import {
   Effect,
   Exit,
   Layer,
-  type Queue,
   Result,
   Schedule,
   Scope,
@@ -50,7 +49,7 @@ import { Socket } from "effect/socket";
 import { SurfaceStdioTransportClosed } from "../errors";
 import { RPC_PING_FATAL_SILENCE_MS, RPC_PING_INTERVAL_MS } from "../keepAlive";
 import { brandHalfOpenDispatch, type SurfaceDispatch } from "../link";
-import { decoupleDelivery, releasedOnEnd } from "./deliveryLanes";
+import { decoupleDelivery } from "./deliveryLanes";
 
 /** How often `RpcClient.makeProtocolSocket`'s own pinger writes a ping, and the
  *  worst-case silence it tolerates before ending the socket run — Effect's
@@ -107,8 +106,7 @@ export function isRpcClientError(error: unknown): error is RpcClientError {
 type FlatDispatch = (
   tag: string,
   payload: unknown,
-  options?: { readonly asQueue?: boolean },
-  // biome-ignore lint/suspicious/noExplicitAny: the return is Effect for a unary tag and Stream for a streaming one (or, with `asQueue`, a scoped Effect of the stream's Queue) — a distinction only the spec knows, which is exactly why `SurfaceDispatch` splits `unary` from `stream` at this seam.
+  // biome-ignore lint/suspicious/noExplicitAny: the return is Effect for a unary tag and Stream for a streaming one — a distinction only the spec knows, which is exactly why `SurfaceDispatch` splits `unary` from `stream` at this seam.
 ) => any;
 
 /** Build a wire link over `protocol`.
@@ -166,8 +164,8 @@ export async function openWireLink(opts: {
       Effect.onError(() => Scope.close(scope, Exit.void)),
     ),
   );
-  const client: FlatDispatch = (tag, payload, options) =>
-    typedClient(tag, payload as never, options);
+  const client: FlatDispatch = (tag, payload) =>
+    typedClient(tag, payload as never);
 
   let disposed = false;
 
@@ -211,20 +209,10 @@ export async function openWireLink(opts: {
     stream: (tag: string, payload: unknown) =>
       Stream.unwrap(
         Effect.suspend(
-          (): Effect.Effect<
-            Stream.Stream<unknown, unknown>,
-            never,
-            Scope.Scope
-          > =>
+          (): Effect.Effect<Stream.Stream<unknown, unknown>> =>
             disposed
               ? Effect.succeed(Stream.fail(opts.disposedError()))
-              : releasedOnEnd(
-                  client(tag, payload, { asQueue: true }) as Effect.Effect<
-                    Queue.Queue<unknown, unknown>,
-                    never,
-                    Scope.Scope
-                  >,
-                ),
+              : Effect.succeed(client(tag, payload)),
         ),
       ).pipe(Stream.catchCause((cause) => Stream.failCause(rescue(cause)))),
   });
@@ -297,33 +285,36 @@ export async function duplexWireLink(opts: {
    * pointer here, because this is the only code that acts on the fact.
    *
    * THE MECHANISM. `RpcClient.makeProtocolSocket` runs a pinger of its own:
-   * `makePinger` writes a ping every 5s and ends the socket run the moment a
-   * tick finds the previous ping unanswered — so 5–10s of silence is fatal, and
-   * the cadence is not a knob (`makeProtocolSocket` exposes no option for it).
+   * `makePinger` writes a ping every 5s, and ANY frame this side decodes from
+   * the peer counts as liveness (not only the `Pong`). A tick that finds its
+   * previous ping still outstanding and no frame for longer than the timeout
+   * ends the socket run — so 5–10s with no frame at all is fatal. Those are
+   * Effect's defaults (`pingInterval` 5s, `pingTimeout` = the interval); this
+   * repo sets neither, nor `onPingTimeout`.
    * `heartbeat.ts`, this framework's own watchdog, is suspension-aware and would
    * have deferred; it never gets a vote, because the lower deadline always wins.
-   * We cannot move that deadline, and we cannot retry through it (see
+   * We do not move that deadline, and we cannot retry through it (see
    * {@link neverReconnect}, where that is MEASURED). Naming the death correctly
    * is what is left.
    *
-   * WHAT "UNANSWERED" MEANS — and what it does not. The pinger only sees a
-   * `Pong` when THIS side's read loop reaches it, so a missing answer is a fact
-   * about the reader as much as about the peer. Three things can produce it:
+   * WHAT "UNANSWERED" MEANS — and what it does not. The pinger only counts a
+   * frame once THIS side's read loop decodes it, so silence is a fact about the
+   * reader as much as about the peer. Three things can produce it:
    *
    *   - the PEER went quiet — too busy to answer (a box at load 67), or gone
    *     silent without closing the pipe;
-   *   - THIS process could not read the answer in time — its own event loop
-   *     starved past the window;
-   *   - (no longer) a local STREAM CONSUMER that stopped pulling — Effect's
-   *     reader used to park on its full queue with the `Pong` unread behind it;
-   *     delivery is now off the reader (the account is `./deliveryLanes.ts`).
+   *   - THIS process could not read in time — its own event loop starved past
+   *     the window;
+   *   - (not here) a local STREAM CONSUMER that stopped pulling — Effect's
+   *     reader parks on its full queue with every later frame unread; this link
+   *     takes delivery off the reader (the account is `./deliveryLanes.ts`).
    *
    * So `keepAliveUnanswered` says the WIRE went quiet as this reader saw it: the
    * peer, or this side's ability to read it — never proof that the peer exited.
    *
-   * BETA-ASSUMPTION(4.0.0): the RPC pinger fails with SocketReadError whose cause is Error("ping timeout").
-   * In Effect 4.0.0, src/rpc/RpcClient.ts
-   * races the read loop with the pinger and broadcasts its SocketReadError.
+   * BETA-ASSUMPTION(4.1.4): the RPC pinger fails with SocketReadError whose cause is Error("ping timeout").
+   * In effect@4.1.4, `rpc/RpcClient.ts` `makeProtocolSocket` races the read
+   * loop with the pinger and broadcasts its SocketReadError.
    * NodeSocket.fromDuplex also wraps ordinary read failures in SocketReadError,
    * so the tag alone cannot distinguish a missed heartbeat. The upstream cause
    * message is now part of this classification contract, measured by

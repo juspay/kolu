@@ -4,7 +4,7 @@
  *
  * The defect (olai's transcript): a collection's `deltas` snapshot is ONE frame
  * carrying the whole set, and on a slow link the server is still pushing it when
- * Effect's pinger's next tick finds its previous ping unanswered — so the socket
+ * Effect's pinger finds its ping outstanding and no frame decoded for a whole interval — so the socket
  * dies, the link redials, the whole snapshot is re-sent, forever. Every other
  * subscription multiplexed on that socket queues behind the big frame too.
  *
@@ -21,7 +21,7 @@
  *
  * The pinger is deliberately NOT faked: the snapshot is delivered slowly enough
  * to outlast Effect's ping interval, so a regression that re-sent it as one frame
- * would starve the pong and kill this link before the assertions run.
+ * would leave nothing decoded past the fatal window and kill this link before the assertions run.
  */
 
 import { PassThrough } from "node:stream";
@@ -74,13 +74,13 @@ type V = { text: string };
 /** How many entries the snapshot carries, and how long each value is: chosen so
  *  an UNCHUNKED snapshot would outlast `RPC_PING_FATAL_SILENCE_MS` at
  *  {@link BYTES_PER_SECOND} — ~3 MiB / 250 KiB/s ≈ 12 s > the 10 s fatal window,
- *  so a single-frame snapshot would starve the pong and kill the link before the
+ *  so a single-frame snapshot would leave nothing decoded past it and kill the link before the
  *  assertions ran. That is what makes this test FAIL without the split. */
 const ENTRIES = 3_000;
 const TEXT = "x".repeat(1_000);
 /** A tether-ish rate: one 256 KiB chunk drains in ~1s, the whole ~3 MiB snapshot
- *  in ~12 s — past the 10 s fatal window, so an unchunked frame would starve the
- *  pong and kill the link. */
+ *  in ~12 s — past the 10 s fatal window, so an unchunked frame would leave
+ *  nothing decoded past it and kill the link. */
 const BYTES_PER_SECOND = 250 * 1024;
 
 const surface = defineSurface({

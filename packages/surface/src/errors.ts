@@ -83,13 +83,14 @@ export class SurfaceTransportRetired extends Schema.TaggedError<SurfaceTransport
  *  same fact about the PEER, and reading `keepAliveUnanswered` as `streamEnded`
  *  is the misdiagnosis kolu#2101 cost an incident on. */
 export const StdioTransportDeath = Schema.Literals([
-  /** The transport's keep-alive went unanswered inside its deadline, AS THIS
-   *  SIDE'S READER SAW IT. The peer may still be ALIVE and merely too busy to
-   *  answer — a box under load, not a box that exited — or this side may not
-   *  have been able to read the answer (its own event loop starved). This is NOT
-   *  evidence that the peer exited. A local stream consumer that stops pulling
-   *  used to be a third cause and no longer is: delivery is off the link's
-   *  reader, so that consumer holds up only its own stream. (The mechanism, and
+  /** Nothing arrived from the peer inside the transport's keep-alive deadline —
+   *  not the ping's answer, not any other frame — AS THIS SIDE'S READER SAW IT.
+   *  The peer may still be ALIVE and merely too busy to answer — a box under
+   *  load, not a box that exited — or this side may not have been able to read
+   *  (its own event loop starved). This is NOT evidence that the peer exited. A
+   *  local stream consumer that stops pulling is not a cause: delivery is off
+   *  the link's reader, so that consumer holds up only its own stream. (The
+   *  mechanism, and
    *  why a duplex leg may read that timeout this way at all, is argued once — in
    *  `keepAliveWentUnanswered` in `links/wire.ts`.) */
   "keepAliveUnanswered",

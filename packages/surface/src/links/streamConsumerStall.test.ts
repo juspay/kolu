@@ -15,8 +15,8 @@
  *     per-request lane is only bounded by the ack.
  *
  * Real time for A and B, for the reason `stdioPingStall.test.ts` gives: the
- * pinger's cadence is hardcoded in Effect, so there is no clock to fake without
- * faking the thing under test. "Answers" is bounded by `ANSWER_WITHIN_MS` rather
+ * pinger runs on Effect's own clock at its default cadence, so there is no clock
+ * to fake without faking the thing under test. "Answers" is bounded by `ANSWER_WITHIN_MS` rather
  * than awaited bare, because the failure being guarded against is a call that
  * never answers.
  */

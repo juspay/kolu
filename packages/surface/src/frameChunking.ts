@@ -84,18 +84,20 @@ import { RPC_PING_INTERVAL_MS } from "./keepAlive.ts";
  *  is the 16 MiB backstop, far too large to answer "will this frame starve the
  *  link's own keep-alive while it drains?". Effect's pinger (see
  *  `./keepAlive.ts`) writes a ping every {@link RPC_PING_INTERVAL_MS} and ends the
- *  socket run the moment a tick finds the previous ping unanswered — so a frame
- *  the server is still pushing when the next tick fires can take the whole
- *  connection down, and every subscription multiplexed onto that socket with it.
+ *  socket run when a tick finds its ping outstanding and no frame DECODED for
+ *  longer than that interval — and a frame counts only once it has fully
+ *  arrived. So a frame the server is still pushing when that tick fires can take
+ *  the whole connection down, and every subscription multiplexed onto that
+ *  socket with it.
  *  A frame that is legal by the size cap can therefore still be FATAL by time.
  *
  *  A subscription's frames are ACK-GATED (`RpcServer.streamEffect` waits for the
  *  client's ack before the next Chunk), so at most ONE chunk is ever in flight:
- *  the transport buffer never holds a backlog of this stream, and a pong written
- *  while a chunk drains queues behind that one chunk and no more. The bound that
- *  matters is therefore "time to drain ONE chunk", and it must sit comfortably
- *  inside the ping interval — not the 10s fatal window — so the pong always beats
- *  the next tick:
+ *  the transport buffer never holds a backlog of this stream, and the next frame
+ *  to decode — the chunk itself, or a pong written behind it — is at most one
+ *  chunk away. The bound that matters is therefore "time to drain ONE chunk",
+ *  and it must sit comfortably inside the ping interval — not the 10s fatal
+ *  window — so a frame always lands before the next tick:
  *
  *     budget  = floor_bandwidth × (RPC_PING_INTERVAL_MS / safety)
  *
@@ -121,17 +123,13 @@ import { RPC_PING_INTERVAL_MS } from "./keepAlive.ts";
  *  Ack-gating bounds ONE stream to a single part in flight, but a reconnect
  *  re-subscribes every collection on the socket at once, so up to K parts can sit
  *  on the wire together (K = the collections whose snapshot exceeds this budget),
- *  and the pong queues behind all K rather than one. K is small in practice: a
- *  collection's snapshot is a SINGLE frame unless it exceeds the budget, and the
- *  incident this exists for is one such collection (a long transcript, K = 1 →
- *  ~2s at the 1 Mbit/s floor). Stated honestly: K large snapshots resuming
- *  together on a 1 Mbit/s link can delay the pong past the ping interval — the
- *  per-stream bound does not become a per-CONNECTION one, and a connection-level
- *  part gate (one part in flight per socket) is the follow-up. It is deferred
- *  rather than denied because a handler cannot see its connection, and the
- *  alternative — a budget small enough that K of them still fit — multiplies the
- *  ack round trips on EVERY transfer to buy headroom for a case the measured
- *  incident never reaches. */
+ *  and the pong queues behind all K rather than one. That does not threaten
+ *  the link: Effect's pinger counts EVERY decoded frame as liveness, and the K
+ *  parts land one at a time, each within one chunk's drain (~2s at the 1 Mbit/s
+ *  floor), so the wire is never silent for a whole interval while they drain.
+ *  The per-stream bound is therefore enough; a connection-level part gate (one
+ *  part in flight per socket) would only shorten how long a SMALL frame waits
+ *  behind them, not keep the link alive. */
 export const RPC_STREAM_CHUNK_BYTES = 256 * 1024;
 
 /** What everything on the frame OTHER than the base64 payload is budgeted at:

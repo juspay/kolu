@@ -6,8 +6,8 @@
  * after we had declared it dead. juspay/kolu#2101 had already burned an incident
  * on the same reading — a log line "indistinguishable from an unreachable box".
  *
- * Why the death can be read as the keep-alive at all, why the deadline is not a
- * knob, and why the link cannot be retried through are argued ONCE, in
+ * Why the death can be read as the keep-alive at all, what sets its deadline,
+ * and why the link cannot be retried through are argued ONCE, in
  * `keepAliveWentUnanswered` and `neverReconnect` in `links/wire.ts`. This file
  * measures them rather than restating them.
  *
@@ -21,7 +21,7 @@
  *     `death` — rather than claiming the peer exited, which is the part this
  *     repo can actually fix.
  *
- * Real time, deliberately: the pinger's cadence is hardcoded in Effect, so there
+ * Real time, deliberately: the pinger runs on Effect's own clock, so there
  * is no clock to fake without faking the thing under test. But the file never
  * SLEEPS past the deadline: it parks a call on the corked wire and awaits that
  * call's own rejection, which settles at the real death. A sleep would be a

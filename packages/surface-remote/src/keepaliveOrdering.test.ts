@@ -5,11 +5,12 @@
  *
  * There are FOUR independent bounds, and `SshKeepalive` is only the last:
  *
- *   1. **Effect RPC's own pinger** — fatal the moment a tick finds the previous
- *      ping unanswered, so `RPC_PING_FATAL_SILENCE_MS` of silence ends a
- *      CONNECTED link. NOT a knob. Canonical account: the docstring beside
- *      `neverReconnect` in `@kolu/surface`'s `links/wire.ts`, which is also
- *      where those two constants are declared; measured by
+ *   1. **Effect RPC's own pinger** — fatal once a tick finds its ping
+ *      outstanding and no frame for longer than the interval, so
+ *      `RPC_PING_FATAL_SILENCE_MS` of silence ends a CONNECTED link. Effect's
+ *      defaults; this stack sets no ping option. Canonical account:
+ *      `keepAliveWentUnanswered` in `@kolu/surface`'s `links/wire.ts` (the two
+ *      constants live in its `keepAlive.ts`); measured by
  *      `links/stdioPingStall.test.ts`.
  *   2. **`makeSession`'s heartbeat** — ≈25s at its defaults, tunable via
  *      `MakeSessionOptions.liveness`. At its defaults and at every RAISED tuning

@@ -21,13 +21,13 @@
  *     there learning nothing, for as long as the dials keep failing.
  *
  *  3. **An established socket's ping timeout fails every registered call.**
- *     Stable Effect broadcasts SocketReadError(Error("ping timeout")); it no
- *     longer swallows this as a dial failure. A fenced stream re-subscribes
+ *     Effect broadcasts SocketReadError(Error("ping timeout")); it does not
+ *     swallow this as a dial failure. A fenced stream re-subscribes
  *     once, and an unfenced unary fails before the next socket opens.
  *
  * A genuinely open wire with a stalled upstream still owes a first frame:
  * reattachingStream.ts bounds that silence separately.
- * This file is the measuring law for that module's `BETA-ASSUMPTION(4.0.0)`
+ * This file is the measuring law for that module's `BETA-ASSUMPTION(4.1.4)`
  * marker AND for `websocket.ts`'s — bump the pin, re-run this file, re-stamp.
  */
 
@@ -367,7 +367,7 @@ describe("re-dial law 1 — a CLOSE fails registered entries, so the fence re-dr
 });
 
 describe("re-dial law 2 — a pre-open DIAL FAILURE is swallowed, so a registered stream learns nothing", () => {
-  it("BETA-ASSUMPTION(4.0.0): repeated SocketOpenError re-dials never fail an in-flight stream", async () => {
+  it("BETA-ASSUMPTION(4.1.4): repeated SocketOpenError re-dials never fail an in-flight stream", async () => {
     // `retryTransientErrors: true` (websocketLink) makes RpcClient's `tapCause`
     // return early for a `SocketOpenError` WITHOUT broadcasting
     // `ClientProtocolError` — and that broadcast is the only thing that fails
@@ -423,7 +423,7 @@ describe("re-dial law 2 — a pre-open DIAL FAILURE is swallowed, so a registere
     await link.dispose();
   });
 
-  it("BETA-ASSUMPTION(4.0.0): every swallowed attempt still publishes a connecting → closed pair", async () => {
+  it("BETA-ASSUMPTION(4.1.4): every swallowed attempt still publishes a connecting → closed pair", async () => {
     // The OBSERVABILITY the fix rests on. `Effect.ensuring(hooks.onDisconnect)`
     // wraps the whole attempt in `RpcClient.makeProtocolSocket`, OUTSIDE the
     // `tapCause` that swallows a `SocketOpenError` — so an attempt whose failure
@@ -464,7 +464,8 @@ describe("re-dial law 2 — a pre-open DIAL FAILURE is swallowed, so a registere
 describe("re-dial law 3 — heartbeat failure and one re-subscription", () => {
   /** How long to allow for the protocol to notice a socket that died silently:
    *  the pinger writes a ping every 5s and opens its timeout latch on the next
-   *  tick that got no pong, so ~10s. These fixtures exercise the real timeout. */
+   *  tick that finds that ping outstanding and no frame for over 5s, so ~10s.
+   *  These fixtures exercise the real timeout. */
   const PING_TIMEOUT_WINDOW_MS = 25_000;
 
   it("THE FIELD SHAPE: a silently-dead socket's parked subscription re-drives on the next open, with no server-side action", {
@@ -662,7 +663,7 @@ describe("re-dial law 3 — heartbeat failure and one re-subscription", () => {
     );
 
     // The request is on socket #1. Nothing will ever answer it: this socket has
-    // no peer, so the pinger gets no pong either.
+    // no peer, so the pinger hears no frame either.
     await expect
       .poll(() => requestsOn(first, ASK_TAG), { timeout: 5_000 })
       .toBe(1);

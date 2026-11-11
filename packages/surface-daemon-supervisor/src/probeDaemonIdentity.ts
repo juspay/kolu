@@ -39,16 +39,20 @@ const CONTROL_CORE_HELLO_TIMEOUT_MS = 30_000;
  *   a daemon that is merely SLOW — one whose `hello` handler is blocked, or
  *   whose event loop stalled — has still demonstrably spoken within 5 s. Any
  *   bound above that cannot mistake slowness for silence.
- * - **Ceiling (~10 s).** Two ping intervals with no pong and that same protocol
- *   kills the connection itself, with a `SocketOpenError` the leg reports as an
- *   ordinary transport death. Past ~10 s there is nothing left to classify: the
+ * - **Ceiling (~10 s).** A peer that sends no frame at all is killed by that
+ *   same protocol on the second ping tick — its first ping still outstanding
+ *   and nothing heard for longer than the 5 s interval — with a
+ *   `SocketReadError("ping timeout")` the leg reports as an ordinary transport
+ *   death. Past ~10 s there is nothing left to classify: the
  *   outcome degrades to `probe-failed`, which is exactly the measured failure
  *   this trigger exists to fix (a real previous-release kaval, silent, refused
  *   instead of recycled).
  *
- * BETA-ASSUMPTION(4.0.0): the RPC socket protocol pings every 5 s and kills the connection after two ping intervals with no pong (~10 s).
- *   Re-read in effect@4.0.0 src/rpc/RpcClient.ts makePinger; measured by
- *   surface/links/stdioPingStall.test.ts and probeDaemonIdentity.test.ts.
+ * BETA-ASSUMPTION(4.1.4): the RPC socket protocol pings every 5 s, a server answers Pong below its handlers, and a peer silent for two ping intervals (~10 s) is disconnected.
+ *   Re-read in effect@4.1.4 src/rpc/RpcClient.ts makePinger (default
+ *   pingInterval 5 s, pingTimeout = the interval, any decoded frame counts as
+ *   liveness; this stack sets neither) and RpcServer.ts's `Ping` → `constPong`;
+ *   measured by surface/links/stdioPingStall.test.ts and probeDaemonIdentity.test.ts.
  *   Both numbers are protocol BEHAVIOR — nothing in the type system holds them
  *   — and the 8 s is derived from them, so a bump that moves either turns this
  *   value from the generous middle into a floor breach or a dead trigger.
@@ -312,47 +316,29 @@ function openControlCore(
       if (framingSettled) return;
       const publishUnspeakable = (cause: unknown): void => {
         framingSettled = true;
-        // Upstream re-entrancy bug: NodeSocket.onReadable checks waiter, then
-        // readAvailable emits this data callback; synchronous publication can
-        // dispose the reader and clear waiter before onReadable calls resume.
-        // Removing this deferral makes probeDaemonIdentity.test.ts's
-        // "classifies an undecodable first frame as unspeakable" fail the run
-        // with uncaught TypeError: resume is not a function (despite its assertion
-        // passing). The microtask lets the synchronous read finish first.
-        // Source: @effect/platform-node-shared/src/NodeSocket.ts:194-200.
-        // https://github.com/Effect-TS/effect/blob/effect%404.0.0/packages/platform/node-shared/src/NodeSocket.ts#L194-L200
-        queueMicrotask(() => {
-          Deferred.doneUnsafe(
-            framing,
-            Effect.succeed(
-              new UnspeakableProtocolError({
-                socketPath,
-                evidence: {
-                  trigger: "undecodable-frame",
-                  frame: frameExcerpt(chunk),
-                },
-                cause,
-              }),
-            ),
-          );
-        });
+        Deferred.doneUnsafe(
+          framing,
+          Effect.succeed(
+            new UnspeakableProtocolError({
+              socketPath,
+              evidence: {
+                trigger: "undecodable-frame",
+                frame: frameExcerpt(chunk),
+              },
+              cause,
+            }),
+          ),
+        );
       };
       try {
-        // Feed only the first frame: a later valid line in the same chunk must
-        // not conceal a malformed first line silently dropped by stable ndjson.
+        // Feed only the first frame: the verdict is about the peer's FIRST
+        // line, so a later line in the same chunk must not decide it.
         const newline = chunk.indexOf(10);
         const first = newline === -1 ? chunk : chunk.subarray(0, newline + 1);
-        const decoded = parser.decode(first);
-        const rejectedFirstLine = newline !== -1 && decoded.length === 0;
-        if (rejectedFirstLine) {
-          publishUnspeakable(
-            new Error("Effect ndjson rejected the first complete frame"),
-          );
-        } else if (decoded.length > 0) {
-          framingSettled = true;
-        }
+        if (parser.decode(first).length > 0) framingSettled = true;
       } catch (cause) {
-        // MaxBufferSizeExceeded remains a thrown parser failure.
+        // The ndjson parser THROWS on an undecodable line (NdjsonDecodeError)
+        // and on an oversized one (MaxBufferSizeExceeded).
         publishUnspeakable(cause);
       }
     };
