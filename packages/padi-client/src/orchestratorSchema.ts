@@ -300,6 +300,21 @@ export const OrchestratorSayingSchema = Schema.Struct({
   text: Schema.String,
 });
 
+/** The OFFSET RULE, written once for both folds.
+ *
+ *  `at` is AUTHORITATIVE: a piece that was delivered twice starts at an offset
+ *  the row already covers, and truncating to `at` before appending makes the
+ *  re-send a no-op instead of a stutter. A piece that starts PAST the end — a
+ *  frame went missing — is appended at the end rather than padded with invented
+ *  characters; the next snapshot is what fixes that. Two readers doing this
+ *  arithmetic two ways is two different transcripts, and one of them is the one
+ *  padi writes to disk. */
+export const appendedText = (
+  current: string,
+  at: number,
+  text: string,
+): string => current.slice(0, Math.min(at, current.length)) + text;
+
 /**
  * SNAPSHOT-THEN-DELTAS, explicitly discriminated.
  *
@@ -402,8 +417,7 @@ export const OrchestratorOptionSchema = Schema.Struct({
   ),
 });
 
-/** A slash command the agent advertises. `/login` is kolu's own word and is
- *  listed beside these ONLY for an agent that offered a way in. */
+/** A slash command the agent advertises. */
 export const OrchestratorCommandSchema = Schema.Struct({
   name: Schema.String,
   description: Schema.NullOr(Schema.String),

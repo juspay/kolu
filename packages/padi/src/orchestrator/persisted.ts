@@ -56,7 +56,13 @@ import { Result, Schema } from "effect";
  *  draw. Re-validated where it is READ ({@link readPersistedOrchestrator}),
  *  exactly as `getPersistedHosts` re-validates the server's `hosts` key: a
  *  parseable-but-invalid value is REFUSED loud, never normalized away and
- *  never collapsed to an empty conversation. */
+ *  never collapsed to an empty conversation.
+ *
+ *  `rows` is the WIRE row on the `padiSurface` ladder, read back off a file on
+ *  the `PADI_STATE_SCHEMA_VERSION` one — so the first NON-ADDITIVE change to
+ *  `OrchestratorRowSchema` owes that ladder a 1.5.0 rung DROPPING
+ *  `orchestrator.rows` ({@link ROW_CAP} bounds what is lost); nothing else can
+ *  repair a file this schema no longer decodes. */
 export const PersistedOrchestratorSchema = Schema.Struct({
   sessionId: Schema.NullOr(Schema.String),
   cwd: Schema.String,
@@ -115,13 +121,12 @@ export function readPersistedOrchestrator(
 export function persistedFrom(
   state: OrchestratorState,
   rows: ReadonlyArray<OrchestratorRow>,
-  cap = ROW_CAP,
 ): PersistedOrchestrator {
   return {
     sessionId: state.sessionId,
     cwd: state.cwd,
     model: state.model?.id ?? null,
-    rows: rows.length > cap ? rows.slice(rows.length - cap) : rows,
+    rows: rows.length > ROW_CAP ? rows.slice(rows.length - ROW_CAP) : rows,
     fleet: state.fleet,
   };
 }

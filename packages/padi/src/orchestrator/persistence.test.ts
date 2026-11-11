@@ -130,7 +130,6 @@ function hostOver(root: string): {
             state: {
               ...DEFAULT_ORCHESTRATOR_STATE,
               phase: "offline",
-              cwd: HOME,
               sessionId: null,
             },
           });
@@ -162,7 +161,6 @@ describe("the conversation survives a restart", () => {
       state: {
         ...DEFAULT_ORCHESTRATOR_STATE,
         phase: "idle",
-        cwd: HOME,
         sessionId: "sess-live",
         fleet: [FLEET_ID],
       },

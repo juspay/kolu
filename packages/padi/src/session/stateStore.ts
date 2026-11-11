@@ -93,7 +93,9 @@ const backfillSavedSessionIn = (store: Conf<PadiPersistedState>): void => {
  *    advances the version, and a silent addition with no rung would leave
  *    `PADI_STATE_SCHEMA_VERSION` describing a shape the file does not have
  *    (`dev/skills/state/SKILL.md`). A no-op rung is the honest spelling of
- *    "this era costs an existing file nothing".
+ *    "this era costs an existing file nothing". Its `rows` are the WIRE rows, so
+ *    the first NON-ADDITIVE change to `OrchestratorRowSchema` owes this ladder a
+ *    `1.5.0` rung that DROPS `orchestrator.rows` — the 400-row cap bounds it.
  *
  *  The SESSION half of the first three rungs is one function
  *  (`backfillSavedSessionIn`), by the recorded decision above; only 1.3.0's own

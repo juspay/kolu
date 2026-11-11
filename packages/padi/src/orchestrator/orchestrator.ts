@@ -65,10 +65,10 @@ import {
   type HarnessOptions,
   HarnessRefused,
   HarnessUnavailable,
-  teachingLines,
 } from "@kolu/acp-harness";
 import { KOLU_MCP_ARGS, PADI_SOCKET_ENV } from "@kolu/detect";
 import {
+  appendedText,
   DEFAULT_ORCHESTRATOR_STATE,
   type OrchestratorFrame,
   OrchestratorRefused,
@@ -85,6 +85,7 @@ import {
   type PersistedOrchestrator,
   readPersistedOrchestrator,
 } from "./persisted.ts";
+import { teachingLines } from "./teaching.ts";
 
 /** What a reader of the transcript stream is handed, in order: one snapshot,
  *  then deltas, for as long as it is subscribed. */
@@ -190,13 +191,13 @@ const PERSIST_THROTTLE_MS = 1_000;
  *
  *  The handle that can stop the child exists only once the whole open has
  *  landed, and an open that is a `session/load` may sit on the wire for the
- *  harness's own two-minute deadline — so a teardown that awaited it outright
- *  would hang a drain, an upgrade or a SIGTERM for two minutes over a
- *  conversation nobody is watching. The STOP itself is not bounded by this:
- *  it is issued on a continuation of that same promise, so a harness that
- *  lands late is stopped when it does. Five seconds because what this window
- *  actually covers — a `spawn`, an `initialize` and a session request — is
- *  sub-second work on any machine that is not already wedged. */
+ *  harness's own load deadline — so a teardown that awaited it outright would
+ *  hang a drain, an upgrade or a SIGTERM over a conversation nobody is
+ *  watching. The STOP itself is not bounded by this: it is issued on a
+ *  continuation of that same promise, so a harness that lands late is stopped
+ *  when it does. Five seconds because what this window actually covers — a
+ *  `spawn`, an `initialize` and a session request — is sub-second work on any
+ *  machine that is not already wedged. */
 const STOP_IN_FLIGHT_MS = 5_000;
 
 /** The sentence behind a thrown thing. The harness's two refusals and padi's
@@ -226,8 +227,12 @@ export function startOrchestratorHost(
   });
   const absent: NotHere | null = "why" in seating ? seating : null;
 
-  let state: OrchestratorState = {
-    ...DEFAULT_ORCHESTRATOR_STATE,
+  /** The three fields PADI is the author of — whether the adapter is seated on
+   *  this machine, what the agent is called, and the directory this
+   *  conversation is in — known here at boot from the engine and the home this
+   *  daemon was started with. Folded back over every state the harness reports,
+   *  so each has exactly ONE author. */
+  const padiAuthored = {
     install:
       absent === null
         ? { kind: "installed" }
@@ -239,6 +244,11 @@ export function startOrchestratorHost(
           },
     agentName: ENGINE.name,
     cwd: home,
+  } satisfies Pick<OrchestratorState, "install" | "agentName" | "cwd">;
+
+  let state: OrchestratorState = {
+    ...DEFAULT_ORCHESTRATOR_STATE,
+    ...padiAuthored,
   };
 
   // The transcript as a MAP, written in place. The frames that move it are
@@ -376,7 +386,10 @@ export function startOrchestratorHost(
     for (const saying of change.appends) {
       const row = byId.get(saying.of);
       if (row !== undefined && "text" in row) {
-        byId.set(saying.of, { ...row, text: row.text + saying.text });
+        byId.set(saying.of, {
+          ...row,
+          text: appendedText(row.text, saying.at, saying.text),
+        });
       }
     }
     rowsCache = null;
@@ -460,7 +473,6 @@ export function startOrchestratorHost(
     let begun: Promise<Harness>;
     try {
       begun = spawn({
-        agentName: ENGINE.name,
         leg: ENGINE.leg,
         adapter: seating as Exclude<typeof seating, NotHere>,
         cwd: home,
@@ -494,7 +506,7 @@ export function startOrchestratorHost(
             // resumed. What the file must hold is the conversation as it stood
             // when the daemon let go of it.
             if (disposed) return;
-            state = change.state;
+            state = { ...change.state, ...padiAuthored };
             publishState();
             schedulePersist();
             return;
@@ -611,8 +623,8 @@ export function startOrchestratorHost(
         //
         // What is bounded is how long the shutdown STANDS THERE for it. The
         // handle only exists once the whole open has landed, and an open that
-        // is a `session/load` sits on the wire for the harness's own 120 s —
-        // so an outright await makes a drain or an upgrade hang two minutes on
+        // is a `session/load` sits on the wire for the harness's own load
+        // deadline — so an outright await makes a drain or an upgrade hang on
         // a conversation nobody is watching.
         const late = pending.then(stopQuietly, () => {});
         const deadline = Promise.withResolvers<void>();

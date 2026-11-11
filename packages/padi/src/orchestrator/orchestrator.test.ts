@@ -24,12 +24,16 @@
  *    agent has not answered, and stops the child anyway.
  */
 
-import type { Harness, HarnessChange, HarnessOptions } from "@kolu/acp-harness";
+import type {
+  Harness,
+  HarnessChange,
+  HarnessOptions,
+  HarnessState,
+} from "@kolu/acp-harness";
 import {
   DEFAULT_ORCHESTRATOR_STATE,
   type OrchestratorFrame,
   type OrchestratorRow,
-  type OrchestratorState,
 } from "@kolu/padi-client/surface";
 import type { CellStore } from "@kolu/surface/server";
 import type { Logger } from "pino";
@@ -90,10 +94,9 @@ function fakeSpawner(): {
   const spawn = async (options: HarnessOptions): Promise<Harness> => {
     let alive = true;
     let stops = 0;
-    let state: OrchestratorState = {
+    let state: HarnessState = {
       ...DEFAULT_ORCHESTRATOR_STATE,
       phase: "idle",
-      cwd: options.cwd,
       // The real harness seeds its `Fleet` from what the caller remembered and
       // publishes `[...fleet.ids()]`, so what it says about the fleet is what
       // it was handed until a tool call adds to it.
@@ -259,6 +262,37 @@ describe("the transcript a reader is handed", () => {
     });
 
     expect(seen.map((f) => f.kind)).toEqual(["snapshot", "delta", "delta"]);
+    const after: OrchestratorFrame[] = [];
+    r.host.watch((frame) => after.push(frame));
+    const snapshot = after[0];
+    if (snapshot?.kind !== "snapshot") throw new Error("expected a snapshot");
+    expect(snapshot.rows).toEqual([row("a", 1, "one and two")]);
+  });
+
+  it("takes `at` as AUTHORITATIVE, so a re-sent piece does not stutter", async () => {
+    const r = rig();
+    r.host.watch(() => {});
+    await r.host.prompt("hello", []);
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    agent.push({
+      kind: "rows",
+      upserts: [row("a", 1, "one")],
+      removes: [],
+      appends: [],
+    });
+    // The SAME piece twice — a frame delivered to this fold a second time.
+    // padi's map is what the record is written from, so a fold that ignored
+    // `at` would leave a doubled fragment on disk that no reader ever saw.
+    const saying: HarnessChange = {
+      kind: "rows",
+      upserts: [],
+      removes: [],
+      appends: [{ of: "a", at: 3, text: " and two" }],
+    };
+    agent.push(saying);
+    agent.push(saying);
+
     const after: OrchestratorFrame[] = [];
     r.host.watch((frame) => after.push(frame));
     const snapshot = after[0];
@@ -579,7 +613,6 @@ describe("teardown (B2)", () => {
       state: {
         ...DEFAULT_ORCHESTRATOR_STATE,
         phase: "idle",
-        cwd: HOME,
         sessionId: "s-1",
       },
     });
