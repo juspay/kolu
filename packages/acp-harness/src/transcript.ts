@@ -17,7 +17,7 @@
  * back off.
  *
  * It is a keyed, ordered set rather than a list, because that is what the wire
- * member is ({@link @kolu/padi-client/orchestrator}'s `OrchestratorFrame`): a
+ * member is ({@link kolu-common/orchestrator}'s `OrchestratorFrame`): a
  * collection served snapshot-then-deltas, so a row that changes is one upsert
  * on its own key and a late-joining tab gets the whole thing in one frame. The
  * `seq` on each row keeps the ORDER independent of the delivery.
@@ -273,7 +273,7 @@ export class Transcript {
    * break. {@link divider}'s rule is about what a reader sees, and a reader
    * sees the caller's rows and this instance's together — so a respawned
    * harness that knew only its own empty map minted a second `— NEW SESSION
-   * —` beside padi's, once per replacement.
+   * —` beside the caller's, once per replacement.
    */
   constructor(from = 0, now: () => number = Date.now, endsWithDivider = false) {
     this.#seq = from;
@@ -361,7 +361,7 @@ export class Transcript {
    * empty map there is nothing here to compare against, so the seed answers
    * for it: a harness that replaced a dead one, asked for a new session
    * before anything was said, would otherwise mint a break beside the one
-   * padi is already holding.
+   * the caller is already holding.
    */
   divider(text: string): {
     readonly key: string | null;

@@ -18,6 +18,7 @@
  * guess, and never an exception inside a protocol callback.
  */
 
+import { fleetTerminalRef, splitFleetTerminalRef } from "kolu-mcp/fleetRef";
 import type { OrchestratorKoluCall } from "./rows.ts";
 
 /** The tools the loop IS, by the names the `kolu` MCP face registers them
@@ -61,6 +62,32 @@ const objectAt = (value: unknown, key: string): unknown => {
   return key in value ? (value as Record<string, unknown>)[key] : null;
 };
 
+/** WHO a call is about, as the FLEET spells it: a terminal is `host/id` now,
+ *  one conversation covering every host.
+ *
+ *  The host key of a remote can itself contain a `/`, so a ref is split at the
+ *  LAST one — by the fleet's own splitter ({@link splitFleetTerminalRef}),
+ *  which is the single place in the tree that knows the grammar.
+ *
+ *  The NON-THROWING half of that grammar, deliberately: a tool call's args are
+ *  whatever the model wrote, and an adapter sends them before the model has
+ *  finished writing them, so a half-written ref must read as an absent host
+ *  rather than throw inside a protocol callback (this module's standing rule).
+ *
+ *  `lifecycle_create` is the one call that names its host in its OWN `host`
+ *  field — it has no terminal yet to carry one — and learns the terminal from
+ *  its answer, which is already a ref. */
+const whoOf = (
+  input: unknown,
+  answer: unknown,
+): { host: string | null; terminalId: string | null } => {
+  const ref =
+    stringAt(input, "id", "terminalId") ?? stringAt(answer, "id", "terminalId");
+  const split = ref === null ? null : splitFleetTerminalRef(ref);
+  if (split === null) return { host: stringAt(input, "host"), terminalId: ref };
+  return { host: split.host, terminalId: split.id };
+};
+
 /**
  * One kolu call, read out of its input and its structured answer.
  *
@@ -82,17 +109,18 @@ export const koluCallOf = (
 ): OrchestratorKoluCall | null => {
   const kind = READINGS[tool];
   if (kind === undefined) return null;
-  // The id is on the INPUT for every call that acts on an existing terminal and
-  // on the ANSWER for the one that makes a new one, so both are read and the
-  // input wins — a `create` has none to contradict.
-  const terminalId =
-    stringAt(input, "id", "terminalId") ?? stringAt(answer, "id", "terminalId");
+  // The ref is on the INPUT for every call that acts on an existing terminal
+  // and on the ANSWER for the one that makes a new one, so both are read and
+  // the input wins — a `create` has none to contradict. `whoOf` splits it into
+  // the pair a card draws: which host, which terminal.
+  const { host, terminalId } = whoOf(input, answer);
   const name = stringAt(input, "name");
   switch (kind) {
     case "create":
       return {
         kind,
         terminalId,
+        host,
         name,
         cwd: stringAt(input, "cwd", "directory"),
         agent: stringAt(input, "agent"),
@@ -103,16 +131,18 @@ export const koluCallOf = (
       return {
         kind,
         terminalId,
+        host,
         name,
         text: stringAt(input, "text"),
         key: stringAt(input, "key"),
       };
     case "kill":
-      return { kind, terminalId, name };
+      return { kind, terminalId, host, name };
     case "screen":
       return {
         kind,
         terminalId,
+        host,
         name,
         snapshot:
           typeof answer === "string" ? answer : stringAt(answer, "text"),
@@ -125,6 +155,7 @@ export const koluCallOf = (
       return {
         kind,
         terminalId,
+        host,
         name,
         state: stringAt(met, "agent", "fired") ?? stringAt(answer, "result"),
         elapsedMs: numberAt(met, "elapsedMs") ?? numberAt(answer, "elapsedMs"),
@@ -167,16 +198,18 @@ export const refineKoluCall = (
 };
 
 /**
- * THE FLEET, in first-touch order.
+ * THE FLEET, in first-touch order — as REFS, `host/id`.
  *
  * Membership and nothing else: every terminal this conversation has CREATED or
- * SENT INPUT TO. Live state for each is read from padi's `terminals`
- * collection, never remembered here, because a mirror is a second source of
- * truth that goes stale the moment somebody resizes a tile.
+ * SENT INPUT TO, on whichever host it lives. Live state for each is read from
+ * that host's `terminals` collection, never remembered here, because a mirror
+ * is a second source of truth that goes stale the moment somebody resizes a
+ * tile.
  *
- * Reading and waiting do NOT join it, which is the line this draws: a `watch_next`
- * over the whole fleet names every terminal on the host, and an orchestrator
- * that once looked at somebody else's terminal has not taken it over.
+ * Reading and waiting do NOT join it, which is the line this draws: a
+ * `watch_next` over the whole fleet names every terminal on every host, and an
+ * orchestrator that once looked at somebody else's terminal has not taken it
+ * over.
  */
 export class Fleet {
   #order: Array<string>;
@@ -196,12 +229,18 @@ export class Fleet {
   }
 
   /** Whether this call put a new terminal in. Answered so the caller can
-   *  publish state only when something actually moved. */
+   *  publish state only when something actually moved.
+   *
+   *  BOTH HALVES OR NOTHING: a member is a ref, and a call whose args were
+   *  still half-written (no host, or no terminal) names nothing anybody could
+   *  open. It is dropped rather than remembered as a bare id the fleet grammar
+   *  has no row for — the refining frame that completes the call puts it in. */
   touch(call: OrchestratorKoluCall): boolean {
     if (call.kind !== "create" && call.kind !== "sendInput") return false;
-    const id = call.terminalId;
-    if (id === null || this.#order.includes(id)) return false;
-    this.#order.push(id);
+    if (call.host === null || call.terminalId === null) return false;
+    const ref = fleetTerminalRef(call.host, call.terminalId);
+    if (this.#order.includes(ref)) return false;
+    this.#order.push(ref);
     return true;
   }
 

@@ -1,8 +1,8 @@
 /**
  * THE CONTRACT'S WORDS, imported once.
  *
- * Every row, frame and state shape this package writes is declared by padi's
- * browser-safe contract half (`@kolu/padi-client/orchestrator`) and NOT here:
+ * Every row, frame and state shape this package writes is declared by the
+ * browser-safe contract half (`kolu-common/orchestrator`) and NOT here:
  * the harness is the WRITER of that contract, not a second author of it. This
  * module exists so the rest of the package names those types through one door —
  * a file that grows a shape of its own is immediately visible as the wrong
@@ -13,9 +13,9 @@
  * ones that do not are spelled `typeof …Schema.Type` HERE, once. The schema
  * consts are imported `import type`, which means the declaration is read and no
  * schema value — and no `effect` runtime — enters this package's closure
- * through this door: the harness validates nothing, because padi encodes what
- * it publishes and a second validation would be a second place for the two to
- * disagree.
+ * through this door: the harness validates nothing, because the host that
+ * publishes these rows encodes them, and a second validation would be a second
+ * place for the two to disagree.
  */
 
 import type {
@@ -32,7 +32,7 @@ import type {
   OrchestratorSpawnedSchema,
   OrchestratorToolStatusSchema,
   OrchestratorWatchingSchema,
-} from "@kolu/padi-client/orchestrator";
+} from "kolu-common/orchestrator";
 
 export type {
   OrchestratorAskRow,
@@ -44,7 +44,7 @@ export type {
   OrchestratorState,
   OrchestratorToolRow,
   OrchestratorUserRow,
-} from "@kolu/padi-client/orchestrator";
+} from "kolu-common/orchestrator";
 
 export type OrchestratorArmed = typeof OrchestratorArmedSchema.Type;
 export type OrchestratorAttachment = typeof OrchestratorAttachmentSchema.Type;

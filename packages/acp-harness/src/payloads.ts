@@ -347,20 +347,56 @@ export const terminalAuthIn = (
   return { command: corner.command, args, env };
 };
 
-/** What a session is handed, as ACP's `mcpServers`. The one place the
- *  protocol's shape for a stdio server is spelled: every server an orchestrator
- *  gets is somebody else's program on this host, `kolu mcp` first among them. */
+/** What a session is handed, as ACP's `mcpServers` — the one place the
+ *  protocol's shape for an MCP server is spelled.
+ *
+ *  TWO arms, and the difference on the wire is one key. ACP's `McpServer` is a
+ *  union discriminated by `type`, where the STDIO arm is the one WITHOUT the
+ *  discriminant: `claude-agent-acp` 0.81.2 (the adapter `KOLU_ACP_AGENT` names)
+ *  reads an entry with `type: "http"`/`"sse"` as a remote server, an entry with
+ *  NO `type` key as a stdio server, and SILENTLY DROPS an entry carrying
+ *  `type: "stdio"` (`dist/acp-agent.js:6536-6558` — measured, not inferred). So
+ *  the http arm must emit `type` and the stdio arm must not emit it at all; a
+ *  tidying pass that "completes" the union by adding `type: "stdio"` here would
+ *  hand the orchestrator a session with no hands and no error.
+ *
+ *  The caller's own discriminant is `kind`, never `type`, precisely so the
+ *  in-tree field and the wire field cannot be confused for each other. */
 export const mcpServersOf = (
-  stdio: ReadonlyArray<{
-    readonly name: string;
-    readonly command: string;
-    readonly args: ReadonlyArray<string>;
-    readonly env: Readonly<Record<string, string>>;
-  }>,
+  servers: ReadonlyArray<
+    | {
+        readonly kind: "stdio";
+        readonly name: string;
+        readonly command: string;
+        readonly args: ReadonlyArray<string>;
+        readonly env: Readonly<Record<string, string>>;
+      }
+    | {
+        readonly kind: "http";
+        readonly name: string;
+        readonly url: string;
+        readonly headers: Readonly<Record<string, string>>;
+      }
+  >,
 ): ReadonlyArray<McpServer> =>
-  stdio.map((one) => ({
-    name: one.name,
-    command: one.command,
-    args: [...one.args],
-    env: Object.entries(one.env).map(([name, value]) => ({ name, value })),
-  }));
+  servers.map((one) =>
+    one.kind === "http"
+      ? {
+          type: "http" as const,
+          name: one.name,
+          url: one.url,
+          headers: Object.entries(one.headers).map(([name, value]) => ({
+            name,
+            value,
+          })),
+        }
+      : {
+          name: one.name,
+          command: one.command,
+          args: [...one.args],
+          env: Object.entries(one.env).map(([name, value]) => ({
+            name,
+            value,
+          })),
+        },
+  );

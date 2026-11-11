@@ -129,14 +129,35 @@ import { type Turn, Turns } from "./turns.ts";
 
 // ── what a caller hands over, and what it gets back ────────────────────
 
-/** One MCP server to hand this conversation, as a program on this host. Every
- *  server an orchestrator gets is stdio — `kolu mcp` first among them — because
- *  padi runs on the host whose terminals these are. */
+/** One MCP server to hand this conversation as a PROGRAM on this host —
+ *  somebody else's binary, spoken to over its stdin/stdout.
+ *
+ *  `kind` is the IN-TREE discriminant and never reaches the wire: ACP's stdio
+ *  arm is the one with no `type` key at all, and an entry that carries
+ *  `type: "stdio"` is silently dropped by the pinned adapter. `mcpServersOf`
+ *  owns that translation and states the measurement. */
 export interface StdioServer {
+  readonly kind: "stdio";
   readonly name: string;
   readonly command: string;
   readonly args: ReadonlyArray<string>;
   readonly env: Readonly<Record<string, string>>;
+}
+
+/** One MCP server to hand this conversation as an HTTP ENDPOINT — a server
+ *  somebody is already running, reached over streamable HTTP rather than
+ *  spawned.
+ *
+ *  This is how kolu hands over the FLEET: one face, in kolu-server's own
+ *  process, covering every host's terminals. A stdio server could only ever be
+ *  a program on ONE machine, which is the shape the fleet grew out of.
+ *  `headers` is where its bearer token rides — the endpoint is on loopback,
+ *  and loopback is not a gate. */
+export interface HttpServer {
+  readonly kind: "http";
+  readonly name: string;
+  readonly url: string;
+  readonly headers: Readonly<Record<string, string>>;
 }
 
 export interface HarnessOptions {
@@ -146,9 +167,13 @@ export interface HarnessOptions {
   /** What to spawn to reach it, with the environment the engine asked for and
    *  the environment it must not see. */
   readonly adapter: Adapter;
-  /** `$HOME` of this padi's host: the directory the conversation works in. */
+  /** `$HOME` of the machine hosting this conversation: the directory it works
+   *  in. */
   readonly cwd: string;
-  readonly mcpServers: ReadonlyArray<StdioServer>;
+  /** What this conversation's hands are. Each is either a program to spawn on
+   *  this machine or an HTTP endpoint already serving — kolu hands exactly one
+   *  of the second kind, its fleet face. */
+  readonly mcpServers: ReadonlyArray<StdioServer | HttpServer>;
   /** The standing prompt's lines, which ride under the first message of every
    *  session. The WORDS are the caller's — they name kolu's own MCP verbs, and
    *  this package knows no tool but the protocol's. */
@@ -323,6 +348,11 @@ const BOOT_TIMEOUT = 30_000;
 /** A load is not small: the agent re-opens a conversation and replays every
  *  message in it before it answers. Its own, longer deadline. */
 const LOAD_TIMEOUT = 120_000;
+/** How long the agent gets to END the conversation being left
+ *  ({@link startHarness}'s `release`). Bounded and its own: a close is a
+ *  cancel plus a subprocess teardown rather than a model call, and the person
+ *  waiting on it is the one who just pressed NEW CONVERSATION. */
+const CLOSE_TIMEOUT = 10_000;
 /** How much of a sign-in's output is kept. A process that printed a book is not
  *  one a person is reading. */
 const SIGN_IN_CAP = 64 * 1024;
@@ -498,16 +528,18 @@ export const startHarness = async (
    * news that arrives later — the agent's own account of which of these
    * servers it actually reached ({@link reported}).
    *
-   * `where` is the absolute command we handed over, and it is on the row from
-   * the start: "kolu is missing" is a sentence nobody can act on without the
-   * path that was tried.
+   * `where` is WHERE WE SENT IT and it is on the row from the start: "kolu is
+   * missing" is a sentence nobody can act on without the place that was tried.
+   * For a program that is the absolute command; for an HTTP server it is the
+   * URL — the token beside it stays out of the row, because a row is something
+   * a person reads on screen.
    */
   let servers: ReadonlyArray<OrchestratorServer> = options.mcpServers.map(
     (server) => ({
       name: server.name,
       standing: "handed" as const,
       said: null,
-      where: server.command,
+      where: server.kind === "http" ? server.url : server.command,
     }),
   );
   /** The URL elicitations this conversation is waiting on, by the agent's own
@@ -1372,6 +1404,54 @@ export const startHarness = async (
     enter(made.sessionId);
   };
 
+  /**
+   * END THE CONVERSATION BEING LEFT, at the agent — ACP's `session/close`.
+   *
+   * MEASURED, against the pinned Claude adapter 0.81.2: a session's work runs
+   * in its own SDK `query()`, and `query()` SPAWNS A `claude` CLI the moment
+   * the session is made (`dist/acp-agent.js`, the `session/create …
+   * phase=prepare-query` leg). Nothing ever ends that CLI except
+   * `session/close` — which cancels the turn, ends the input stream and calls
+   * `query.close()`, terminating the subprocess — or the connection dying,
+   * whose `dispose()` runs that same teardown over every session still held.
+   * So a client that opens a second conversation on one adapter and never
+   * closes the first leaves the first CLI running for the life of the
+   * process: one `session/new`, one `claude`, for ever. Counted on this box
+   * with two `session/new` calls down one adapter: two live `claude`
+   * children, and one once this close goes between them. A production padi
+   * was found holding five, at ~35% CPU each.
+   *
+   * BEFORE the new open rather than after it, for two reasons. A host must
+   * never carry two agent CLIs for one panel — the second one is the whole
+   * cost this prevents. And an open that FAILS would otherwise leave the old
+   * conversation running with nothing on this side able to reach it:
+   * `activeSession` is already null by then, and the only thing that ever
+   * enters an id again is a resume at startup.
+   *
+   * WHAT IT DOES NOT DO is forget the conversation. Closing a session ends
+   * its process; the agent's stored transcript is untouched (ACP spells
+   * forgetting `session/delete`), which is what makes a later resume of the
+   * id padi persisted still a resume.
+   *
+   * SWALLOWED, and no row. There is no capability to read first — ACP
+   * advertises `loadSession`, `session/list`, `session/delete` and not this —
+   * so an agent without it answers "method not found", and a refusal to end a
+   * conversation nobody is in is not a reason to refuse a person the new one
+   * they asked for, nor a sentence anybody could act on. It is logged,
+   * because the thing it leaves behind is a process.
+   */
+  const release = async (sessionId: string | null): Promise<void> => {
+    if (sessionId === null) return;
+    try {
+      await request(methods.agent.session.close, { sessionId }, CLOSE_TIMEOUT);
+    } catch (cause) {
+      log.warn(
+        { session: sessionId, why: messageOf(cause) },
+        "the conversation we left could not be closed; the agent may still be holding it",
+      );
+    }
+  };
+
   const load = async (id: string): Promise<void> => {
     // THIS conversation is the one we are coming back to: leftover frames from
     // a previous visit are now news about this one, and the replay that follows
@@ -1799,6 +1879,9 @@ export const startHarness = async (
   };
 
   const newSession = async (): Promise<void> => {
+    // THE ONE BEING LEFT, named while it still is: {@link leaving} reads
+    // `activeSession` and the line after it nulls it.
+    const left = activeSession;
     // BEFORE the break, so every question is settled on the row it is drawn on
     // rather than after that row has been cleared away.
     leaving();
@@ -1811,6 +1894,9 @@ export const startHarness = async (
     // and everything after it sorts below what is already there.
     const mark = transcript.divider("new session");
     report(mark.change);
+    // ... and the conversation just left is ENDED at the agent before the next
+    // one is opened, rather than left running beside it ({@link release}).
+    await release(left);
     try {
       await fresh();
     } catch (cause) {

@@ -26,6 +26,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import {
   type Harness,
   type HarnessChange,
+  type HarnessOptions,
   HarnessRefused,
   type HarnessState,
   startHarness,
@@ -159,6 +160,7 @@ const open = async (
     fleet?: ReadonlyArray<string>;
     model?: string | null;
     leg?: Leg;
+    mcpServers?: HarnessOptions["mcpServers"];
   } = {},
 ): Promise<Running> => {
   const rows = new Map<string, OrchestratorRow>();
@@ -186,7 +188,9 @@ const open = async (
       args: [path.join(FIXTURES, fixture)],
     },
     cwd: process.cwd(),
-    mcpServers: [{ name: "kolu", command: "/bin/true", args: [], env: {} }],
+    mcpServers: extra.mcpServers ?? [
+      { kind: "stdio", name: "kolu", command: "/bin/true", args: [], env: {} },
+    ],
     teaching: TEACHING,
     log: silent,
     resume: extra.resume ?? null,
@@ -436,22 +440,29 @@ describe("one conversation with a real agent", () => {
     expect(running.harness.state().watching).toEqual([]);
   });
 
-  test("a kolu call is read onto the row, and the terminal joins the fleet", async () => {
+  test("a kolu call is read onto the row as host + terminal, and the terminal joins the fleet", async () => {
     const running = await open("agent.ts");
     await running.harness.prompt("kolu", [], []);
     await settled(running, "the turn never ended");
 
     const call = running.rows().find((row) => row.kind === "tool");
     expect(call?.kind === "tool" ? call.server : null).toBe("kolu");
+    // THE REF IS SPLIT on the way onto the row: a card draws which host and
+    // which terminal, and the host key of a remote carries its own `:` and may
+    // carry a `/`, which is why the split is at the LAST one and belongs to
+    // the fleet's own grammar rather than to this reader.
     expect(call?.kind === "tool" ? call.kolu : null).toEqual({
       kind: "create",
       terminalId: "7f3e0a91-0000-4000-8000-000000000000",
+      host: "remote:prod",
       name: "fix-parser",
       cwd: null,
       agent: "claude",
     });
+    // ... and the fleet remembers the whole REF, because one conversation
+    // covers every host and a bare id names nothing on its own.
     expect(running.harness.state().fleet).toEqual([
-      "7f3e0a91-0000-4000-8000-000000000000",
+      "remote:prod/7f3e0a91-0000-4000-8000-000000000000",
     ]);
   });
 
@@ -482,6 +493,60 @@ describe("one conversation with a real agent", () => {
     expect(await asked(resumed, "servers")).toEqual([["kolu"]]);
     expect(await asked(resumed, "meta")).toEqual([RAW.openMeta]);
     expect(resumed.harness.state().sessionId).toBe("sess-1");
+  });
+
+  test("both MCP arms reach the wire in the shapes the adapter reads", async () => {
+    // THE ONE KEY THE ADAPTER BRANCHES ON. `claude-agent-acp` 0.81.2
+    // (`dist/acp-agent.js:6536-6558`) makes an entry with `type: "http"` an
+    // HTTP server, an entry with NO `type` key a stdio server, and SILENTLY
+    // DROPS one carrying `type: "stdio"`. So this asserts the ABSENCE of the
+    // key on the stdio arm as hard as its presence on the http arm: a harness
+    // that "completed" the union would hand the orchestrator a session with no
+    // hands and no error anywhere.
+    const running = await open("agent.ts", {
+      mcpServers: [
+        {
+          kind: "stdio",
+          name: "kolu",
+          command: "/bin/true",
+          args: ["mcp"],
+          env: { PADI_SOCKET: "/tmp/padi.sock" },
+        },
+        {
+          kind: "http",
+          name: "kolu-fleet",
+          url: "http://127.0.0.1:45121/mcp",
+          headers: { Authorization: "Bearer deadbeef" },
+        },
+      ],
+    });
+    const shapes = await asked(running, "serverShapes");
+    expect(shapes).toEqual([
+      [
+        {
+          name: "kolu",
+          command: "/bin/true",
+          args: ["mcp"],
+          env: [{ name: "PADI_SOCKET", value: "/tmp/padi.sock" }],
+        },
+        {
+          type: "http",
+          name: "kolu-fleet",
+          url: "http://127.0.0.1:45121/mcp",
+          headers: [{ name: "Authorization", value: "Bearer deadbeef" }],
+        },
+      ],
+    ]);
+    // `toEqual` on the whole entry already fails on a stray key, but say the
+    // two rules in their own words so the reason survives a future edit: the
+    // stdio arm carries NO `type`, the http arm carries one...
+    const [firstOpen = []] = shapes as Array<
+      Array<Record<string, unknown>>
+    >;
+    expect(firstOpen.map((entry) => "type" in entry)).toEqual([false, true]);
+    // ... and the in-tree discriminant never crosses: `kind` on the wire would
+    // be an unknown key on a server the adapter is about to spawn.
+    expect(firstOpen.map((entry) => "kind" in entry)).toEqual([false, false]);
   });
 });
 
@@ -676,7 +741,7 @@ describe("a conversation padi already holds the rows of", () => {
     // empty would publish an empty fleet on its first breath and the caller
     // would write that emptiness back over its own record, so a resumed
     // conversation would forget every terminal it had been working with.
-    const remembered = ["a1b2c3d4-0000-4000-8000-000000000000"];
+    const remembered = ["local/a1b2c3d4-0000-4000-8000-000000000000"];
     const running = await open("agent.ts", {
       resume: "sess-1",
       resumedSeq: 12,
@@ -693,7 +758,7 @@ describe("a conversation padi already holds the rows of", () => {
     // than replacing it.
     expect(running.harness.state().fleet).toEqual([
       ...remembered,
-      "7f3e0a91-0000-4000-8000-000000000000",
+      "remote:prod/7f3e0a91-0000-4000-8000-000000000000",
     ]);
   });
 });
@@ -827,6 +892,53 @@ describe("the settings a conversation advertises", () => {
       "default",
     ]);
     expect(running.harness.state().model?.id).toBe("sonnet");
+  });
+
+  test("the picker the real adapter sent keeps every row, the new model included", async () => {
+    // THE PAYLOAD IS A RECORDING, not a shape this file invented: one live
+    // session's `configOptions` off the pinned adapter, pasted into
+    // `fixtures/agent.ts` as `RECORDED`. What made it worth recording is
+    // `claude-fable-5-2` — a model the orchestrator's picker did not offer
+    // while the adapter drove the CLI bundled in the Claude Agent SDK, whose
+    // own picker has five rows and no Fable 5.2 at all. The fix was the floor
+    // (`nix/packages/acp-adapter.nix` now drives agent-distro's `claude`), and
+    // this is the half of it that can be asserted without a real CLI: nothing
+    // between the wire and the panel drops a row because it does not
+    // recognise its id.
+    const running = await open("agent.ts");
+    await running.harness.prompt("recorded", [], []);
+    await settled(running, "the turn never ended");
+    const model = running.harness
+      .state()
+      .options.find((one) => one.id === "model");
+    expect(model?.kind).toBe("model");
+    // Every row the recording carries, in its order — a count rather than one
+    // `toContain`, because a reading that offered only the ids it knew would
+    // pass the narrower assertion and still be the bug.
+    expect(model?.choices).toHaveLength(14);
+    expect(
+      model?.choices.find((one) => one.value === "claude-fable-5-2"),
+    ).toEqual({
+      value: "claude-fable-5-2",
+      label: "Fable 5.2",
+      hint: "For your toughest challenges",
+    });
+    // ... and the header NAMES it rather than printing the id back, off the
+    // same payload: the live model the agent forwards is the new row.
+    expect(running.harness.state().model).toEqual({
+      id: "claude-fable-5-2",
+      name: "Fable 5.2",
+      window: 200_000,
+    });
+    // The rows beside it survive the recording's own shapes — `_meta` on every
+    // mode row, six effort levels, and a `fast` the real adapter sends as a
+    // SELECT rather than as the boolean this fixture's own settings send.
+    expect(running.harness.state().options.map((one) => one.id)).toEqual([
+      "model",
+      "mode",
+      "effort",
+      "fast",
+    ]);
   });
 
   test("a switch goes out as a boolean, not as the word for one", async () => {
@@ -1066,6 +1178,35 @@ describe("the break that says the agent's memory was reset", () => {
     await settled(running, "the second turn never ended");
     await running.harness.newSession();
     expect(dividers(running)).toHaveLength(2);
+  });
+
+  test("the conversation being left is closed at the agent, not just dropped", async () => {
+    // AN AGENT THAT HOLDS A PROCESS PER CONVERSATION, which is what the pinned
+    // Claude adapter is: its SDK `query()` spawns a `claude` CLI when the
+    // session is made and nothing but `session/close` ever ends it. The
+    // fixture's children are real forks, so `live` below is a count of
+    // processes rather than of bookkeeping.
+    const running = await open("subprocess-agent.ts");
+
+    // TWO CONSECUTIVE PROMPTS LEAVE EXACTLY ONE. A turn is not a session: the
+    // conversation's process is spawned once, at the open, and the second
+    // prompt rides the one that is already there.
+    await running.harness.prompt("hello", [], []);
+    await settled(running, "the first turn never ended");
+    await running.harness.prompt("hello", [], []);
+    await settled(running, "the second turn never ended");
+    expect(await asked(running, "children")).toEqual({ live: 1, closed: [] });
+
+    // ... and a SECOND conversation REPLACES the first rather than stacking on
+    // it: the id just left is named in a `session/close`, and the process it
+    // was holding is gone before the new one is opened. Without that close the
+    // count here was two — and five on the padi where this was found, one per
+    // `— NEW SESSION —` anybody had ever pressed, at ~35% CPU each.
+    await running.harness.newSession();
+    expect(await asked(running, "children")).toEqual({
+      live: 1,
+      closed: ["sess-1"],
+    });
   });
 
   test("a break for a conversation that would not open comes back out", async () => {

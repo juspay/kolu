@@ -39,10 +39,15 @@
  *   groups       — a `config_option_update` whose model picker sorts its rows
  *                  under HEADINGS, which ACP allows and this adapter does not
  *                  send: only the leaves are values anybody can pick
+ *   recorded     — the `config_option_update` the pinned adapter REALLY sent,
+ *                  recorded off a live session, and one of the agent's own
+ *                  forwarded messages naming a model only that payload offers
  *
- * Five more turns say back what this process was TOLD, which is the only way a
+ * Six more turns say back what this process was TOLD, which is the only way a
  * test can ask the one thing that knows: `servers` says the server names every
- * open was handed, `meta` the `_meta` each open carried, `modes` the permission
+ * open was handed and `serverShapes` those entries verbatim (the stdio/http
+ * arm is a key's presence, not a name), `meta` the `_meta` each open carried,
+ * `modes` the permission
  * modes that were asked for, `prompts` the bodies of the prompts that have
  * arrived, and `blocks` their CONTENT BLOCKS — whether an attachment really
  * crossed the pipe as an `image`, a `resource` or a `resource_link` is a
@@ -115,6 +120,13 @@ let fast = false;
 
 /** The server names handed to each open, in the order the opens happened. */
 const handed: Array<ReadonlyArray<string>> = [];
+/** ... and the ENTRIES themselves, verbatim. The names alone cannot see the
+ *  one thing the wire shape turns on: a stdio entry must carry NO `type` key
+ *  and an http entry must carry `type: "http"`, because the pinned adapter
+ *  reads the arm off the key's presence and silently drops an entry that
+ *  carries `type: "stdio"`. A test that only counted names would stay green
+ *  while the orchestrator lost its hands. */
+const handedRaw: Array<ReadonlyArray<unknown>> = [];
 /** ... and the `_meta` each open carried, same order. */
 const metas: Array<unknown> = [];
 /** ... and every permission mode asked for, as `[session, mode]`. */
@@ -251,6 +263,174 @@ const configOptions = () => [
   },
 ];
 
+/**
+ * THE PICKER THE REAL ADAPTER REALLY SENDS — one live session's
+ * `configOptions`, recorded off the wire (`initialize` + `session/new` against
+ * the pinned adapter, driving agent-distro's own `claude`) and pasted here
+ * UNEDITED.
+ *
+ * It is recorded rather than written because the shapes in it are nobody's
+ * invention: `_meta` on the mode rows, an `effort` row with six levels, a
+ * `fast` row that is a SELECT of on/off rather than the boolean the settings
+ * above send, and a model picker whose fourteen rows mix aliases
+ * (`opus`, `fable`) with dated API ids. The row that matters is
+ * `claude-fable-5-2`: the adapter used to drive the CLI bundled in the Claude
+ * Agent SDK, whose picker had five rows and no Fable 5.2 in it at all, so a
+ * model the machine's own terminals offered could not be chosen in the
+ * orchestrator — and the missing row read as a reading that dropped what it
+ * did not recognise. This payload is what proves that reading keeps it.
+ */
+const RECORDED = [
+  {
+    id: "mode",
+    name: "Mode",
+    description: "Session permission mode",
+    category: "mode",
+    type: "select",
+    currentValue: "default",
+    options: [
+      {
+        value: "default",
+        name: "Manual",
+        description: "Always ask before making changes",
+        _meta: { kind: "standard" },
+      },
+      {
+        value: "acceptEdits",
+        name: "Accept edits",
+        description: "Automatically accept all file edits",
+        _meta: { kind: "standard" },
+      },
+      {
+        value: "plan",
+        name: "Plan",
+        description: "Create a plan before making changes",
+        _meta: { kind: "plan" },
+      },
+      {
+        value: "auto",
+        name: "Auto",
+        description: "Claude handles permission decisions",
+        _meta: { kind: "auto_review" },
+      },
+      {
+        value: "bypassPermissions",
+        name: "Bypass permissions",
+        description: "Accepts all permissions",
+        _meta: { kind: "full_access" },
+      },
+    ],
+  },
+  {
+    id: "model",
+    name: "Model",
+    description: "AI model to use",
+    category: "model",
+    type: "select",
+    currentValue: "default",
+    options: [
+      {
+        value: "default",
+        name: "Default (recommended)",
+        description: "Opus 5.5",
+      },
+      {
+        value: "opus",
+        name: "Opus 5.5",
+        description: "For complex work and everyday tasks",
+      },
+      {
+        value: "claude-fable-5-2",
+        name: "Fable 5.2",
+        description: "For your toughest challenges",
+      },
+      {
+        value: "sonnet",
+        name: "Sonnet 5.5",
+        description: "Most efficient for simpler tasks",
+      },
+      {
+        value: "haiku",
+        name: "Haiku 5.5",
+        description: "Fastest for quick answers",
+      },
+      {
+        value: "fable",
+        name: "Fable 5.1",
+        description: "Most capable for your hardest and longest-running tasks",
+      },
+      {
+        value: "claude-haiku-4-5-20251001",
+        name: "Haiku 4.5",
+        description: "Fastest for quick answers",
+      },
+      {
+        value: "claude-sonnet-5",
+        name: "Sonnet 5",
+        description: "Efficient for routine tasks",
+      },
+      {
+        value: "claude-opus-5",
+        name: "Opus 5",
+        description: "Best for everyday, complex tasks",
+      },
+      {
+        value: "claude-fable-5",
+        name: "Fable 5",
+        description: "Most capable for your hardest and longest-running tasks",
+      },
+      {
+        value: "claude-opus-4-8",
+        name: "Opus 4.8",
+        description: "Best for everyday, complex tasks",
+      },
+      {
+        value: "claude-opus-4-7",
+        name: "Opus 4.7",
+        description: "Best for everyday, complex tasks",
+      },
+      {
+        value: "claude-opus-4-6",
+        name: "Opus 4.6",
+        description: "Best for everyday, complex tasks",
+      },
+      {
+        value: "claude-sonnet-4-6",
+        name: "Sonnet 4.6",
+        description: "Efficient for routine tasks",
+      },
+    ],
+  },
+  {
+    id: "effort",
+    name: "Effort",
+    description: "Available effort levels for this model",
+    category: "thought_level",
+    type: "select",
+    currentValue: "default",
+    options: [
+      { value: "default", name: "Default" },
+      { value: "low", name: "Low" },
+      { value: "medium", name: "Medium" },
+      { value: "high", name: "High" },
+      { value: "xhigh", name: "Xhigh" },
+      { value: "max", name: "Max" },
+    ],
+  },
+  {
+    id: "fast",
+    name: "Fast mode",
+    description: "Faster responses on supported models",
+    category: "model_config",
+    type: "select",
+    currentValue: "off",
+    options: [
+      { value: "on", name: "On" },
+      { value: "off", name: "Off" },
+    ],
+  },
+];
+
 function handle(message: Message): void {
   switch (message.method) {
     case "initialize":
@@ -275,6 +455,7 @@ function handle(message: Message): void {
       handed.push(
         (message.params?.mcpServers ?? []).map((one) => one.name ?? ""),
       );
+      handedRaw.push(message.params?.mcpServers ?? []);
       metas.push(message.params?._meta ?? null);
       respond(message.id, {
         sessionId: session,
@@ -287,6 +468,7 @@ function handle(message: Message): void {
       handed.push(
         (message.params?.mcpServers ?? []).map((one) => one.name ?? ""),
       );
+      handedRaw.push(message.params?.mcpServers ?? []);
       metas.push(message.params?._meta ?? null);
       // A LOAD REPLAYS, then answers — and what it replays is TWO unlike
       // things down one stream. These two frames are the conversation this
@@ -381,6 +563,15 @@ function handle(message: Message): void {
       model = message.params.value;
       respond(message.id, { configOptions: configOptions() });
       return;
+    case "session/close":
+      // A CONVERSATION ENDED, which every agent that holds anything per
+      // session has to be told — the pinned adapter holds a `claude` CLI, and
+      // a client that opened a second conversation without this left the
+      // first one running for the life of the process. This fixture holds
+      // nothing, so answering is all there is to do; the subprocess that has
+      // to die is `subprocess-agent.ts`'s, where the count is the assertion.
+      respond(message.id, {});
+      return;
     case "session/cancel":
       if (openTurn !== null) {
         finish(openTurn, "cancelled");
@@ -423,6 +614,13 @@ function turn(message: Message): void {
     // that knows, answering the only question a test can ask it through the
     // harness's own door.
     says(JSON.stringify(handed));
+    finish(message.id, "end_turn");
+    return;
+  }
+  if (text === "serverShapes") {
+    // ... and the same opens as WHOLE ENTRIES, so a test can read the one key
+    // the adapter's arm selection turns on.
+    says(JSON.stringify(handedRaw));
     finish(message.id, "end_turn");
     return;
   }
@@ -480,6 +678,26 @@ function turn(message: Message): void {
       ],
     });
     says("grouped");
+    finish(message.id, "end_turn");
+    return;
+  }
+  if (text === "recorded") {
+    // THE REAL PICKER, pushed whole (see `RECORDED`), and then one of the
+    // agent's own forwarded messages naming a model only that payload offers.
+    // Both halves in one turn because they are one question: the rows a person
+    // is offered and the name the header draws are read off the SAME payload,
+    // and a model that survives into the picker but comes back out of the
+    // header as a raw id is still a conversation nobody can read.
+    update(session, {
+      sessionUpdate: "config_option_update",
+      configOptions: RECORDED,
+    });
+    write({
+      jsonrpc: "2.0",
+      method: "_test/raw",
+      params: { model: "claude-fable-5-2" },
+    });
+    says("recorded");
     finish(message.id, "end_turn");
     return;
   }
@@ -574,11 +792,17 @@ function turn(message: Message): void {
       title: "mcp__kolu__lifecycle_create",
       status: "completed",
       rawInput: {
+        // THE FLEET GRAMMAR: `lifecycle_create` names the HOST it is creating
+        // on (it has no terminal yet to carry one) and answers a REF.
+        host: "remote:prod",
         placement: { kind: "toplevel" },
         name: "fix-parser",
         agent: "claude",
       },
-      rawOutput: { id: "7f3e0a91-0000-4000-8000-000000000000", pid: 42 },
+      rawOutput: {
+        id: "remote:prod/7f3e0a91-0000-4000-8000-000000000000",
+        pid: 42,
+      },
       _meta: { name: "mcp__kolu__lifecycle_create" },
     });
     finish(message.id, "end_turn");

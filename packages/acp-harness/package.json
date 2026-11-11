@@ -7,7 +7,7 @@
   "sideEffects": false,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "//exports": "ONE door. Everything this package owns is reachable through `startHarness` and the row/state types the contract already declares in `@kolu/padi-client/orchestrator`; a second subpath would be a second way to reach a subprocess, and there is exactly one subprocess.",
+  "//exports": "ONE door. Everything this package owns is reachable through `startHarness` and the row/state types the contract already declares in `kolu-common/orchestrator`; a second subpath would be a second way to reach a subprocess, and there is exactly one subprocess.",
   "exports": {
     ".": "./src/index.ts"
   },
@@ -16,11 +16,12 @@
     "typecheck": "tsc --noEmit",
     "test:daemon": "vitest run"
   },
-  "//dependencies": "THE ONE PACKAGE IN THIS TREE THAT RUNS THE PROTOCOL, so the SDK is a RUNTIME dependency here and a type-only one in `@kolu/acp` (`packages/acp/src/manifest.test.ts` holds both halves). `@kolu/padi-client` is imported for the row and state TYPES alone — the harness writes padi's contract and never reaches for padi itself.",
+  "//dependencies": "THE ONE PACKAGE IN THIS TREE THAT RUNS THE PROTOCOL, so the SDK is a RUNTIME dependency here and a type-only one in `@kolu/acp` (`packages/acp/src/manifest.test.ts` holds both halves). `kolu-common` is imported for the row and state TYPES alone — the harness writes that contract and never reaches for a daemon itself. `kolu-mcp` is reached ONLY at its `/fleetRef` leaf, which is the one definition of the `host/id` grammar a kolu call's args are written in; that subpath deliberately carries no MCP SDK and no padi-client, so the manifest above stays true.",
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.3.0",
     "@kolu/acp": "workspace:*",
-    "@kolu/padi-client": "workspace:*"
+    "kolu-common": "workspace:*",
+    "kolu-mcp": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
