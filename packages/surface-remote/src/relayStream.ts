@@ -61,7 +61,6 @@ import {
 import {
   isDeadTransportError,
   isSurfaceRelayTransportLost,
-  isSurfaceStreamStalled,
   SurfaceRelayTransportLost,
   SurfaceUpstreamRefused,
 } from "@kolu/surface/errors";
@@ -286,11 +285,6 @@ function requireUpstream<Cl, I, F>(
  *     the downstream; wait (via the holder's `changed`) for the next spawn and
  *     REBIND. Replaying a value across a hiccup is harmless, so the browser's
  *     subscription survives an upstream respawn.
- *   - a **stalled-consumer drop** (`SurfaceStreamStalled`: the link is fine and
- *     dropped only this stream, because THIS relay's downstream stopped taking
- *     frames): REBIND to the same live client at once. Waiting on `changed`
- *     would wait for a spawn a live link never brings — the stranding the drop
- *     must not cause.
  *   - a **clean END** (the upstream stream completed WITHOUT failing): the SOURCE
  *     ended THIS input's stream on purpose (`terminalExit` is a `value`-classified
  *     event that yields once then closes) or any value stream that legitimately
@@ -404,16 +398,6 @@ export function holdOpenStreamCore<Cl, I, F>(
             Stream.catch((err: unknown) =>
               Stream.unwrap(
                 Effect.gen(function* () {
-                  // NOT a blip: the link is fine and dropped only THIS stream,
-                  // because this relay's own downstream stopped taking frames.
-                  // No spawn is coming to wake a wait, so rebind to the SAME
-                  // live client now — a value replays harmlessly.
-                  if (isSurfaceStreamStalled(err)) {
-                    log(
-                      `${member}: upstream dropped this stream for a stalled consumer — re-subscribing on the same link`,
-                    );
-                    return bind();
-                  }
                   log(
                     `${member}: upstream link blip — awaiting next spawn: ${errorText(err)}`,
                   );
@@ -585,16 +569,6 @@ export function failThroughStreamCore<Cl, I, F>(
             ),
           ),
           Stream.catch((err: unknown) => {
-            // A stalled-consumer drop is the link telling THIS relay that its
-            // downstream stopped taking frames. Hand it on unchanged: it is the
-            // retryable end the downstream fence re-subscribes on, and the
-            // truthful one — no link died.
-            if (isSurfaceStreamStalled(err)) {
-              log(
-                `${member}: upstream dropped this stream for a stalled consumer — ending downstream (retryable)`,
-              );
-              return Stream.fail(err);
-            }
             // An APPLICATION error the agent deliberately raised (a declared,
             // tagged failure) is NOT a middle-hop transport loss — surface it
             // UNCHANGED so it crosses with its `_tag` preserved and stays

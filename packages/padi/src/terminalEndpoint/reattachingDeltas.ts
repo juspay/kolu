@@ -8,9 +8,7 @@
  * 4.0 that drop was indistinguishable on the wire from a PTY exit, so the web
  * tier ended the stream and the client froze its scrollback as if the terminal
  * had died. The host now emits a typed `overflow` control frame as the stream's
- * last frame; here we read it as "re-attach for a fresh snapshot". The padi↔kaval
- * link says the same thing one hop nearer when padi itself stops taking frames —
- * it drops the attach with `SurfaceStreamStalled` — and that is read the same way.
+ * last frame; here we read it as "re-attach for a fresh snapshot".
  *
  * Since kolu#2101 an end WITHOUT that frame is no longer trusted either: the only
  * plain end that means "the PTY exited" is the one a re-open confirms with
@@ -29,7 +27,6 @@
  */
 
 import { hasTag } from "@kolu/padi-client/surface";
-import { isSurfaceStreamStalled } from "@kolu/surface/errors";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PtyHostDataMsg } from "kaval";
 import { PtyNotFound } from "kaval";
@@ -283,26 +280,15 @@ export async function* reattachingDeltas(
   for (;;) {
     let overflowed = false;
     let delivered = false;
-    try {
-      // `cur` is an AsyncIterator, not AsyncIterable — wrap it so `for await`
-      // can consume the already-advanced iterator (its snapshot was read by
-      // `open`).
-      for await (const msg of { [Symbol.asyncIterator]: () => cur }) {
-        delivered = true;
-        if (msg.kind === "overflow") {
-          overflowed = true;
-          break;
-        }
-        yield { kind: "delta", data: msg.data };
+    // `cur` is an AsyncIterator, not AsyncIterable — wrap it so `for await` can
+    // consume the already-advanced iterator (its snapshot was read by `open`).
+    for await (const msg of { [Symbol.asyncIterator]: () => cur }) {
+      delivered = true;
+      if (msg.kind === "overflow") {
+        overflowed = true;
+        break;
       }
-    } catch (err) {
-      // The padi↔kaval LINK dropped this attach because WE stopped taking its
-      // frames (`SurfaceStreamStalled` — our own consumer, padi's downstream,
-      // stalled). The same fact as kaval's `overflow` frame, said one hop
-      // nearer: we fell behind on a live PTY. Re-attach for a fresh snapshot
-      // rather than failing the attach a level up; anything else propagates.
-      if (!isSurfaceStreamStalled(err)) throw err;
-      overflowed = true;
+      yield { kind: "delta", data: msg.data };
     }
     let pause = REATTACH_PAUSE_MS;
     if (overflowed) {

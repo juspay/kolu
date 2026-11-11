@@ -954,32 +954,24 @@ out of live state) fails that dial as an ordinary `SocketOpenError`, so the
 reconnect schedule backs off and asks again. It does not kill the link — a link
 that stopped dialling would sit `connecting` forever with nothing logged.
 
-### A stalled stream consumer costs one stream, never the link
+### A stalled stream consumer holds up only its own stream
 
 Every stream on a wire link shares **one socket reader**, and Effect RPC's
 reader delivers a stream chunk by offering it into that stream's bounded
 buffer. Left alone, one consumer that stops pulling parks the reader: no other
 stream, no unary answer and no keep-alive `Pong` is read, and Effect's pinger
-ends a link whose peer is healthy (`keepAliveUnanswered`). A consumer torn down
-while full used to leave the reader parked for good.
+ends a link whose peer is healthy (`keepAliveUnanswered`); a consumer torn down
+while full leaves the reader parked for good.
 
 Every wire link (`websocketLink`, `stdioLink`, `socketDuplexLink`,
-`unixSocketLink`) takes delivery **off the reader**: each request's responses
-drain through their own in-order lane, so the reader always moves on. Per-stream
-backpressure is unchanged — the `Ack` that paces the server still goes out only
-once the consumer has room — and a lane holds at most one in-flight chunk.
-
-A consumer that then takes **nothing** for `STREAM_CONSUMER_STALL_MS`
-(`@kolu/surface/links/wire`, 5 s) while a chunk waits on it is judged stalled:
-the link throws its buffered frames away, tells the server to stop, and ends
-**that stream** with `SurfaceStreamStalled`. The drop lands 1×–1.5× that window
-after the last take; it is judged across two consecutive watchdog ticks, so a
-blocked event loop cannot drop a consumer that takes as soon as it runs. The
-retry fence re-subscribes on it, and every streaming member opens on a fresh
-snapshot, so a consumer that comes back loses nothing. Consumers that
-re-subscribe on their own do the same in place: `mirrorRemoteSurface` re-opens
-the member (never a fault, never a rejected `done`), and a hold-open relay
-rebinds to the same live client (`@kolu/surface-remote`).
+`unixSocketLink`) therefore takes delivery **off the reader**: each request's
+responses drain through their own in-order lane, so the reader always moves on.
+Backpressure is unchanged — a stream's `Ack` goes out only once its consumer
+has room, so a stalled consumer's sender simply waits, and the consumer resumes
+where it left off with nothing dropped. A subscription that ends (completes,
+fails, or is interrupted) shuts its buffer down, releasing any delivery parked
+on it. A lane is bounded only because the peer waits for each `Ack`, so a client
+protocol without acks is **refused** when the link is built.
 
 ### A wire that follows its generations — `followingWire`
 
@@ -1474,7 +1466,7 @@ this schedule. Pre-open retries leave calls pending until the first connection.
 | `UnaryEffect<I,O,E>` | the unary leaf — `(encoded input) => Effect<O, E \| SurfaceCallFailure>`, lazy, interruptible, composable |
 | `SurfaceCallFailure` | what a call can fail with that no spec declared: Effect RPC's `RpcClientError` plus the framework's own `SurfaceError` vocabulary. Defects are deliberately NOT in it — an undeclared throw stays an `Effect.die` |
 | `isTransportError(err)` | positive test for Effect RPC's `RpcClientError` — matched structurally on `_tag`, so it survives a second `effect` copy or a relay hop |
-| `shouldRetryStreamError(err)` | the shared fence: retry a transport error, plus the two retryable ends (`SurfaceRelayTransportLost`, `SurfaceStreamStalled`); never a declared error, never a dead transport |
+| `shouldRetryStreamError(err)` | the shared fence: retry a transport error, plus the one retryable relay end; never a declared error, never a dead transport |
 | `STREAM_RETRY` · `STREAM_RETRY_DELAY_MS` | the schedule (spaced 1s, forever, gated on the fence) |
 | `fenceStream(stream, { label?, onRetry? })` | apply the fence to a raw stream |
 | `StreamFenceOptions` | that options bag — `label` (the name the [liveness registry](#per-subscription-liveness) records) and `onRetry` |
@@ -1553,16 +1545,15 @@ intact.
 | --- | --- | --- |
 | `SurfaceTransportRetired` | the server retired this browser socket (a stale tab, close `4001`). Carries `death: RetiredTransportDeath` — see [the `death` field](#the-stdio-readiness-gate--kolusurfacelinksreadiness) | never — terminal by construction |
 | `SurfaceStdioTransportClosed` | a stdio / unix-socket leg closed; the owner re-dials for a **new** link. Carries `death: StdioTransportDeath` — see [the `death` field](#the-stdio-readiness-gate--kolusurfacelinksreadiness) | never |
-| `SurfaceRelayTransportLost` | a re-serve relay's **middle-hop** upstream drop the parent will heal | **yes** |
-| `SurfaceStreamStalled` | the link is fine and dropped **this one stream** because its consumer took nothing for `STREAM_CONSUMER_STALL_MS` while a delivery waited on it — see [a stalled stream consumer](#a-stalled-stream-consumer-costs-one-stream-never-the-link) | **yes** — a re-subscribe opens on a fresh snapshot |
+| `SurfaceRelayTransportLost` | a re-serve relay's **middle-hop** upstream drop the parent will heal | **yes** — the one retryable framework error |
 | `MapKeyNonCanonical` · `MapKeyUnknown` · `MapEntryFailed` | the keyed-map rejections (see [`@kolu/surface-map`](/surface/ref-surface-map)) | never |
 
-`SurfaceErrorSchema` is the closed union of all seven — what a relay decodes
+`SurfaceErrorSchema` is the closed union of all six — what a relay decodes
 against, rather than a per-call guess — and `SurfaceError` its decoded type. The
 predicates beside them are **type guards**, so a call site narrows instead of
 re-checking `_tag` by hand: `isSurfaceError`, `isDeadTransportError` (the two
 permanently-dead tags), `isSurfaceTransportRetired`,
-`isSurfaceStdioTransportClosed`, `isSurfaceRelayTransportLost`, `isSurfaceStreamStalled`.
+`isSurfaceStdioTransportClosed`, `isSurfaceRelayTransportLost`.
 
 **`SurfaceUpstreamRefused` is the one framework error that is NOT in that
 union**, because it is raised as a **defect**: the upstream answered and this

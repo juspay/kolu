@@ -1,6 +1,5 @@
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import type { PtyHostDataMsg } from "kaval";
-import { SurfaceStreamStalled } from "@kolu/surface/errors";
 import { PtyNotFound } from "kaval";
 import { describe, expect, it } from "vitest";
 import type { TerminalAttachFrame } from "../endpoint.ts";
@@ -180,32 +179,6 @@ describe("reattachingDeltas", () => {
     expect(topLines(out)).toEqual([undefined, 42, undefined]);
     // Two asks: the overflow re-attach, then the liveness question the second
     // leg's plain end raises — answered "the PTY is gone", which ends the stream.
-    expect(opened).toBe(2);
-  });
-
-  it("re-attaches when the kaval LINK drops the attach for a stalled consumer, exactly as on `overflow`", async () => {
-    // The link judged padi's consumer stalled and ended this attach with the
-    // named drop. Same fact as kaval's `overflow` frame — we fell behind on a
-    // live PTY — so it re-attaches for a fresh snapshot instead of failing the
-    // attach a level up.
-    let next = 0;
-    const initial: AsyncIterator<PtyHostDataMsg> = {
-      next: () =>
-        next++ === 0
-          ? Promise.resolve({ done: false, value: delta("before") })
-          : Promise.reject(new SurfaceStreamStalled({ reason: "stalled" })),
-    };
-    let opened = 0;
-    const open = (): Promise<OpenedAttach> => {
-      if (opened++ > 0) return ptyGone();
-      return Promise.resolve({
-        snapshot: "FRESH",
-        topLine: 7,
-        iter: framesIter([delta("after")]),
-      });
-    };
-    const out = await collect(reattachingDeltas(open, initial, ctx));
-    expect(data(out)).toEqual(["before", `${TERMINAL_RESET}FRESH`, "after"]);
     expect(opened).toBe(2);
   });
 

@@ -87,7 +87,6 @@ import {
   MapKeyUnknown,
   SurfaceRelayTransportLost,
   SurfaceStdioTransportClosed,
-  SurfaceStreamStalled,
 } from "@kolu/surface/errors";
 import { Schema } from "effect";
 import { Rpc, RpcGroup } from "effect/rpc";
@@ -410,19 +409,11 @@ const ForwardedTransportDeathSchema = Schema.Union([
 ]);
 
 /** Everything the FRAMEWORK itself can put on a folded member's error channel: the
- *  map's own rejections ({@link MapRejectionSchema}), the transport deaths its
- *  forward relays ({@link ForwardedTransportDeathSchema}), and the per-stream drop
- *  it relays when a stream's consumer stalled ({@link SurfaceStreamStalled}).
- *
- *  The drop is NOT a transport death — the entry's link is fine, only that one
- *  stream was dropped — so it sits beside those rather than among them. It has to
- *  be DECLARED for the same reason they are: undeclared, the retryable end would
- *  reach the browser as an opaque encoding defect the fence never retries, and the
- *  stream would stay dead instead of re-subscribing. */
+ *  map's own rejections ({@link MapRejectionSchema}) plus the transport deaths its
+ *  forward relays ({@link ForwardedTransportDeathSchema}). */
 const FoldedFrameworkErrorSchema = Schema.Union([
   MapRejectionSchema,
   ForwardedTransportDeathSchema,
-  SurfaceStreamStalled,
 ]);
 
 // ── Key-fold schema builders (mirror @kolu/surface/define, +mapKey) ─────

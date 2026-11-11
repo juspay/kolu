@@ -47,11 +47,7 @@ import {
   surfaceTag,
   type WireSchemaAny,
 } from "./define";
-import {
-  isSurfaceRelayTransportLost,
-  isSurfaceStreamStalled,
-  type SurfaceError,
-} from "./errors";
+import { isSurfaceRelayTransportLost, type SurfaceError } from "./errors";
 import { reassembleCollectionDeltas } from "./collectionDeltasFraming";
 import { IDENTITY_NAMESPACE, IDENTITY_VERB } from "./identity";
 import type { SurfaceDispatch } from "./link";
@@ -85,11 +81,9 @@ export function isTransportError(error: unknown): boolean {
 }
 
 /** The retry policy shared across transports — the direct port of the oRPC-era
- *  `shouldNotRetryORPCError`: retry a TRANSPORT error and the two named RETRYABLE
- *  ends, forever — {@link isSurfaceRelayTransportLost} (a re-serve's transient
- *  upstream drop the parent will heal) and {@link isSurfaceStreamStalled} (this
- *  one stream was dropped because its consumer stopped taking frames; the link is
- *  fine). NEVER retry anything else:
+ *  `shouldNotRetryORPCError`: retry a TRANSPORT error, and the ONE named RETRYABLE
+ *  relay end ({@link isSurfaceRelayTransportLost} — a re-serve's transient upstream
+ *  drop the parent will heal), forever. NEVER retry anything else:
  *
  *   - a DECLARED (D4) procedure error is an application-level failure the server
  *     chose to raise; retrying just repeats it;
@@ -101,11 +95,7 @@ export function isTransportError(error: unknown): boolean {
  * Named once so the per-subscription fence below and any link-level policy can't
  * drift apart. */
 export function shouldRetryStreamError(error: unknown): boolean {
-  return (
-    isTransportError(error) ||
-    isSurfaceRelayTransportLost(error) ||
-    isSurfaceStreamStalled(error)
-  );
+  return isTransportError(error) || isSurfaceRelayTransportLost(error);
 }
 
 /** The fixed inter-attempt delay. oRPC's `retryDelay: (o) => o.lastEventRetry ?? 1000`

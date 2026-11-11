@@ -33,7 +33,6 @@ import {
   MapKeyUnknown,
   SurfaceRelayTransportLost,
   SurfaceStdioTransportClosed,
-  SurfaceStreamStalled,
 } from "@kolu/surface/errors";
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import { directDispatch } from "@kolu/surface/links/direct";
@@ -300,16 +299,6 @@ describe("a DEAD entry link's transport death crosses the map hop typed (not fla
       error: () => new SurfaceRelayTransportLost({ reason: "upstream gone" }),
       ctor: SurfaceRelayTransportLost,
       tag: "SurfaceRelayTransportLost",
-    },
-    {
-      // Not a death — one stream dropped for a stalled consumer — but it rides
-      // the same declared channel (stream and unary members share `foldedError`),
-      // and undeclared it would cross as a defect the fence never retries.
-      what: "a stream dropped because its consumer stalled",
-      error: () =>
-        new SurfaceStreamStalled({ reason: "consumer took nothing" }),
-      ctor: SurfaceStreamStalled,
-      tag: "SurfaceStreamStalled",
     },
   ])("arrives as the same tagged error over a real wire — $what", async ({
     error,

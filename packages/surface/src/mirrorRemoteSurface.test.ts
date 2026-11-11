@@ -16,9 +16,8 @@
  */
 
 import { Effect, Schema, Stream } from "effect";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { type CollectionDeltasMsg, defineSurface } from "./define";
-import { SurfaceStreamStalled } from "./errors";
 import {
   ClientSurfaceMismatchError,
   type MirrorFault,
@@ -314,48 +313,6 @@ describe("mirrorRemoteSurface", () => {
     expect(faults[0]?.scope).toBe("member");
     expect(faults[0]?.label).toContain("ticks");
     expect((faults[0]?.err as Error).message).toBe("boom");
-  });
-
-  it("RE-SUBSCRIBES a member the link dropped for a stalled consumer — not a fault, not a dead mirror", async () => {
-    // The drop says the LINK is fine and only this subscription ended. Read as a
-    // fault, `done` would reject and the pump would wait for a new spawn that a
-    // live link never brings — the member stranded. Instead the member opens
-    // again and its fresh snapshot replaces the fold.
-    let opens = 0;
-    const ended = Promise.withResolvers<void>();
-    const client = {
-      surface: {
-        count: {
-          get: () => {
-            opens += 1;
-            return opens === 1
-              ? Stream.concat(
-                  emit(1),
-                  Stream.fail(new SurfaceStreamStalled({ reason: "stalled" })),
-                )
-              : seq(
-                  emit(2),
-                  park(() => ended.promise),
-                );
-          },
-        },
-      },
-    };
-    const frames: number[] = [];
-    const faults: MirrorFault[] = [];
-    const logs: string[] = [];
-    const mirror = mirrorRemoteSurface(
-      testSurface,
-      asClient(client),
-      { cells: { count: (v) => frames.push(v) } },
-      { onFault: (f) => faults.push(f), log: (l) => logs.push(l) },
-    );
-    await vi.waitFor(() => expect(frames).toEqual([1, 2]));
-    ended.resolve();
-    await mirror.done;
-    expect(opens).toBe(2);
-    expect(faults).toEqual([]);
-    expect(logs.some((l) => l.includes("count cell"))).toBe(true);
   });
 
   it("a per-key upstream fault stays KEY-LOCAL but is LOUD — the host's mirror keeps running", async () => {
