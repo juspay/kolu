@@ -530,7 +530,7 @@
       "dir": "odu/run-client",
       "pin": {
         "name": "odu",
-        "revision": "0e4f727ca491a1094254447b97225cfba0015592",
+        "revision": "21dacad800a1f9a188bcd3aaacae24b27e6abbbf",
         "subdir": "packages/run-client"
       },
       "vendored": true,
@@ -538,14 +538,14 @@
         "@kolu/surface"
       ],
       "external": {
-        "effect": "4.0.0"
+        "effect": "4.1.4"
       }
     },
     "@odu/run-history": {
       "dir": "odu/run-history",
       "pin": {
         "name": "odu",
-        "revision": "0e4f727ca491a1094254447b97225cfba0015592",
+        "revision": "21dacad800a1f9a188bcd3aaacae24b27e6abbbf",
         "subdir": "packages/run-history"
       },
       "vendored": true,
@@ -553,14 +553,14 @@
         "@odu/run-client"
       ],
       "external": {
-        "effect": "4.0.0"
+        "effect": "4.1.4"
       }
     },
     "@odu/service-client": {
       "dir": "odu/service-client",
       "pin": {
         "name": "odu",
-        "revision": "0e4f727ca491a1094254447b97225cfba0015592",
+        "revision": "21dacad800a1f9a188bcd3aaacae24b27e6abbbf",
         "subdir": "packages/service-client"
       },
       "vendored": true,
@@ -572,7 +572,7 @@
         "@odu/run-history"
       ],
       "external": {
-        "effect": "4.0.0"
+        "effect": "4.1.4"
       }
     },
     "anyagent": {
