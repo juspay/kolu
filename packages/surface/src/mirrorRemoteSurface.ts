@@ -66,6 +66,14 @@
  * | F4 | collection keys loop (`mirrorCollection`) | as F1/F2, or a per-key SINK failure via `sinkFailed` | as F1/F2 | as F1/F2 |
  * | F5 | per-key value pump (`mirrorCollection`, one per live key) | that key's upstream stream faults | `onFault{scope:"key"}` — `done` UNAFFECTED | KEY-LOCAL by design (one key must not kill a host), which is precisely why it must be LOUD: the key is permanently unmirrored |
  * | — | any of the above | `signal` aborted / interrupted | nothing | teardown is not a failure (silent by design) |
+ * | — | any upstream stream of the above | dropped with `SurfaceStreamStalled` (the link judged THIS consumer stalled) | `log` | NOT a fault: the link is fine, so the member is RE-SUBSCRIBED in place — its fresh snapshot replaces the fold — rather than reported as a dead mirror the pump would wait on a new spawn to replace |
+ *
+ * That last row is defensive by construction. Every sink here is a SYNCHRONOUS
+ * in-process fold, and the link's stall watchdog (`STREAM_CONSUMER_STALL_MS`,
+ * `links/wire.ts`) cannot drop a consumer that takes as soon as it runs. If one
+ * ever does stall — a sink that blocks the event loop for a whole watchdog tick —
+ * treating the drop as a fault would strand the member: the pump answers a
+ * rejected `done` by waiting for the NEXT spawn, and a live link never brings one.
  *
  * Two rows were MUTE before G5 and are the incident's shape: F1 resolved `done`
  * CLEAN after logging one prose line, and F5 logged the same way — both through an
@@ -74,7 +82,7 @@
  * wires at ERROR level.
  */
 
-import { Cause, Deferred, Effect, Exit, Fiber, Stream } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Schedule, Stream } from "effect";
 import type { StreamingProcedure } from "./client";
 import type {
   CollectionDeltasMsg,
@@ -86,6 +94,7 @@ import type {
   WireSchemaAny,
 } from "./define";
 import { collectionHasDeltas } from "./define";
+import { isSurfaceStreamStalled } from "./errors";
 import type { SurfaceClientLike } from "./project";
 
 // ── ClientSurfaceMismatchError ──────────────────────────────────────────
@@ -415,6 +424,31 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
 ): MirroredSurface<S> {
   const { signal: callerSignal } = opts;
   const onFault = opts.onFault ?? ((): void => {});
+  const log = opts.log ?? ((): void => {});
+  /** Every upstream subscription this mirror opens, re-subscribed IN PLACE when
+   *  the link drops it for a stalled consumer (the audit table's last row): a
+   *  member's fresh snapshot replaces its fold, and the drop never reaches
+   *  `done` as a dead mirror. Lazy, so the client verb is still CALLED on the
+   *  subscription fiber (see {@link subscribeStream}). */
+  const resubscribingOnStall =
+    <A>(label: string, open: () => Stream.Stream<A, unknown>) =>
+    (): Stream.Stream<A, unknown> =>
+      Stream.suspend(open).pipe(
+        Stream.tapError((err) =>
+          isSurfaceStreamStalled(err)
+            ? Effect.sync(() =>
+                log(
+                  `${label}: the link dropped this subscription for a stalled consumer — re-subscribing for a fresh snapshot`,
+                ),
+              )
+            : Effect.void,
+        ),
+        Stream.retry(
+          Schedule.while(Schedule.forever, ({ input }) =>
+            isSurfaceStreamStalled(input),
+          ),
+        ),
+      );
   // The mirror's OWN unwind latch, downstream of the caller's `signal`. Two
   // triggers, one teardown: the caller aborting (as before), or ANY subscription
   // failing (juspay/kolu#2101 G5).
@@ -500,7 +534,13 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
       if (!onValue) continue;
       const entry = requireEntry(ns, key, "cell");
       starts.push(() =>
-        subscribeStream(entry, {}, onValue, signal, onFault, `${key} cell`),
+        subscribeStream(
+          resubscribingOnStall(`${key} cell`, () => entry.get({})),
+          onValue,
+          signal,
+          onFault,
+          `${key} cell`,
+        ),
       );
     }
 
@@ -543,7 +583,9 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
             label: `${key} collection`,
             onFault,
             signal,
-            deltas: () => deltasFn(undefined),
+            deltas: resubscribingOnStall(`${key} collection`, () =>
+              deltasFn(undefined),
+            ),
             onUpsert: colSink.upsert,
             onRemove: colSink.remove,
             initialKeys: colSink.initialKeys,
@@ -566,8 +608,13 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
           label: `${key} collection`,
           onFault,
           signal,
-          keys: () => keysFn(undefined),
-          get: (k: unknown) => perKeyEntry.get({ key: k }),
+          keys: resubscribingOnStall(`${key} collection keys`, () =>
+            keysFn(undefined),
+          ),
+          get: (k: unknown) =>
+            resubscribingOnStall(`${key} collection key ${String(k)}`, () =>
+              perKeyEntry.get({ key: k }),
+            )(),
           onUpsert: colSink.upsert,
           onRemove: colSink.remove,
           initialKeys: colSink.initialKeys,
@@ -584,8 +631,7 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
       const entry = requireEntry(ns, key, "stream");
       starts.push(() =>
         subscribeStream(
-          entry,
-          s.input,
+          resubscribingOnStall(`${key} stream`, () => entry.get(s.input)),
           s.onFrame,
           signal,
           onFault,
@@ -599,8 +645,7 @@ export function mirrorRemoteSurface<S extends SurfaceSpec>(
       const entry = requireEntry(ns, key, "event");
       starts.push(() =>
         subscribeStream(
-          entry,
-          e.input,
+          resubscribingOnStall(`${key} event`, () => entry.get(e.input)),
           e.onFrame,
           signal,
           onFault,
@@ -744,12 +789,11 @@ function applySink(fold: () => void): Effect.Effect<void, SinkError> {
   });
 }
 
-/** Subscribe a single `get(input)` stream and push each frame into `onFrame`.
+/** Subscribe a single upstream stream and push each frame into `onFrame`.
  *  The shared loop behind cell, stream, and event sinks; the upstream-blip /
  *  sink-failure / teardown-silence rules are {@link runSubscription}'s. */
 function subscribeStream(
-  entry: EntryClient,
-  input: unknown,
+  open: () => Stream.Stream<unknown, unknown>,
   onFrame: (frame: unknown) => void,
   signal: AbortSignal | undefined,
   onFault: (fault: MirrorFault) => void,
@@ -761,9 +805,8 @@ function subscribeStream(
     // SYNCHRONOUSLY (a plain-object stub built from the wrong surface) would
     // otherwise throw straight out of `mirrorRemoteSurface(...)` — contradicting
     // this file's own contract that every streaming failure arrives on `done`.
-    Stream.runForEach(
-      Stream.suspend(() => entry.get(input)),
-      (frame) => applySink(() => onFrame(frame)),
+    Stream.runForEach(Stream.suspend(open), (frame) =>
+      applySink(() => onFrame(frame)),
     ),
     signal,
     onFault,
@@ -783,7 +826,9 @@ function subscribeStream(
  *    from a prior spawn via `initialKeys`, or held from this stream's own earlier
  *    deltas — that the snapshot does NOT re-assert has departed, and is removed
  *    (no ghost row; survivors are re-upserted, no empty flash). One deltas stream
- *    yields exactly one snapshot (its first frame), so this fires once per spawn.
+ *    yields exactly one snapshot (its first frame), so this fires once per spawn —
+ *    and once more per in-place re-subscribe after a stalled-consumer drop, which
+ *    reconciles the same way because `present` outlives the re-subscribe.
  *  - a `delta` frame applies its `upserts` then its `removes` incrementally.
  *
  *  A throw from a sink callback (`onUpsert`/`onRemove`) or from `initialKeys` is a
@@ -822,8 +867,8 @@ function mirrorCollectionDeltas<K, V>(opts: {
               opts.onUpsert(k, v);
             }
             // Reconcile: a key present before this snapshot that it does not
-            // re-assert has departed (carry-over pruning + a mid-life resubscribe
-            // never occurs on one stream, so this is the fresh-spawn reconcile).
+            // re-assert has departed — the carry-over cache on a fresh spawn, or
+            // this stream's own keys after an in-place re-subscribe.
             for (const k of present) if (!next.has(k)) opts.onRemove(k);
             present = next;
             return;

@@ -83,10 +83,14 @@ export class SurfaceTransportRetired extends Schema.TaggedError<SurfaceTransport
  *  same fact about the PEER, and reading `keepAliveUnanswered` as `streamEnded`
  *  is the misdiagnosis kolu#2101 cost an incident on. */
 export const StdioTransportDeath = Schema.Literals([
-  /** The peer stopped answering the transport's keep-alive inside its deadline.
-   *  It may still be ALIVE and merely too busy to answer — a box under load, not
-   *  a box that exited. This is NOT evidence that it exited. (The mechanism, and
-   *  why a duplex leg may read that timeout this way at all, is argued once — in
+  /** The transport's keep-alive went unanswered inside its deadline, AS THIS
+   *  SIDE'S READER SAW IT. The peer may still be ALIVE and merely too busy to
+   *  answer — a box under load, not a box that exited — or this side may not
+   *  have been able to read the answer (its own event loop starved). This is NOT
+   *  evidence that the peer exited. A stalled local stream consumer used to be a
+   *  third cause and no longer is: the link drops that one stream instead
+   *  ({@link SurfaceStreamStalled}). (The mechanism, and why a duplex leg may
+   *  read that timeout this way at all, is argued once — in
    *  `keepAliveWentUnanswered` in `links/wire.ts`.) */
   "keepAliveUnanswered",
   /** The subprocess or socket the link rode is gone: the stream ended or the
@@ -125,7 +129,8 @@ export class SurfaceStdioTransportClosed extends Schema.TaggedError<SurfaceStdio
   }
 }
 
-/** The ONE RETRYABLE framework error. A re-serving parent's fail-through relay ends
+/** A RETRYABLE framework error — one of the two the retry fence re-subscribes on
+ *  (the other is {@link SurfaceStreamStalled}). A re-serving parent's fail-through relay ends
  *  its downstream stream with this when its UPSTREAM link to the agent is lost (no
  *  live upstream at subscribe, or a mid-stream link death), so the consumer
  *  re-subscribes end-to-end and a fresh snapshot leads the new stream. It is the
@@ -140,6 +145,32 @@ export class SurfaceRelayTransportLost extends Schema.TaggedError<SurfaceRelayTr
 )("SurfaceRelayTransportLost", { reason: Schema.String }) {
   override get message(): string {
     return `surface relay transport lost: ${this.reason}`;
+  }
+}
+
+/** The second RETRYABLE framework error, and the one that is NOT about a
+ *  transport: the link is healthy, and THIS ONE STREAM was dropped because its
+ *  consumer stopped taking frames while a delivery waited on it.
+ *
+ *  Every stream on a wire link shares one socket reader, and Effect RPC's reader
+ *  will park on a stream whose bounded buffer is full — so one consumer that stops
+ *  pulling would otherwise starve every other call on the link, the keep-alive
+ *  answer included, and the link would die of an unanswered ping with the peer
+ *  healthy throughout. `openWireLink` (`links/wire.ts`) takes that delivery off
+ *  the reader and, when the consumer has taken nothing for
+ *  `STREAM_CONSUMER_STALL_MS`, throws the buffered frames away, tells the server
+ *  to stop, and ends the stream with this.
+ *
+ *  RETRYABLE because every streaming member is snapshot-then-deltas by contract:
+ *  a re-subscribe opens with a fresh snapshot, so nothing the drop discarded is
+ *  lost to a consumer that comes back. It crosses a relay hop by `_tag` like the
+ *  other framework errors, so a parent whose own downstream stalled hands the end
+ *  on, and the consumer at the far end re-subscribes end-to-end. */
+export class SurfaceStreamStalled extends Schema.TaggedError<SurfaceStreamStalled>(
+  "@kolu/surface/SurfaceStreamStalled",
+)("SurfaceStreamStalled", { reason: Schema.String }) {
+  override get message(): string {
+    return `surface stream dropped: ${this.reason}`;
   }
 }
 
@@ -245,6 +276,7 @@ export const SurfaceErrorSchema = Schema.Union([
   SurfaceTransportRetired,
   SurfaceStdioTransportClosed,
   SurfaceRelayTransportLost,
+  SurfaceStreamStalled,
   MapKeyNonCanonical,
   MapKeyUnknown,
   MapEntryFailed,
@@ -266,6 +298,7 @@ export function isSurfaceError(error: unknown): error is SurfaceError {
     error instanceof SurfaceTransportRetired ||
     error instanceof SurfaceStdioTransportClosed ||
     error instanceof SurfaceRelayTransportLost ||
+    error instanceof SurfaceStreamStalled ||
     error instanceof MapKeyNonCanonical ||
     error instanceof MapKeyUnknown ||
     error instanceof MapEntryFailed
@@ -317,6 +350,17 @@ export function isSurfaceRelayTransportLost(
   error: unknown,
 ): error is SurfaceRelayTransportLost {
   return error instanceof SurfaceRelayTransportLost;
+}
+
+/** Is `error` the per-stream drop for a STALLED consumer — the link is healthy and
+ *  only this subscription ended? Retryable: a re-subscribe opens with a fresh
+ *  snapshot. A consumer that re-subscribes on its own (a mirror, a hold-open
+ *  relay, padi's re-attach loop) does so on this, in place, without treating the
+ *  link as dead. */
+export function isSurfaceStreamStalled(
+  error: unknown,
+): error is SurfaceStreamStalled {
+  return error instanceof SurfaceStreamStalled;
 }
 
 /** Is `error` the STANDING refusal — the upstream answered and this build cannot

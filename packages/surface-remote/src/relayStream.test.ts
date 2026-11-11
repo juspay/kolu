@@ -22,6 +22,7 @@ import {
   MapKeyUnknown,
   SurfaceRelayTransportLost,
   SurfaceStdioTransportClosed,
+  SurfaceStreamStalled,
 } from "@kolu/surface/errors";
 import { Cause, Effect, Exit, Stream } from "effect";
 import { describe, expect, it } from "vitest";
@@ -407,6 +408,34 @@ describe("relayHoldOpenStream (value)", () => {
     expect(run.frames).toEqual([1, 2]); // held open across the drop, replayed after rebind
 
     // The ONLY exit is the downstream tearing down.
+    run.stop();
+  });
+
+  it("re-subscribes on the SAME live client when the link drops the stream for a stalled consumer — never waits for a respawn", async () => {
+    // The link is fine; only this stream was dropped because the relay's own
+    // downstream stopped taking frames. A live link brings no next spawn, so a
+    // relay that waited on `changed` here would hold the subscriber forever.
+    const first = controllable<number>();
+    const second = controllable<number>();
+    let opens = 0;
+    const holder = observableHolder<PulseClient>();
+    holder.current = {
+      surface: {
+        s: { get: () => (opens++ === 0 ? first.stream : second.stream) },
+      },
+    };
+    const relay = relayHoldOpenStream(POLICY, "pulse", holder, selectPulse);
+    const run = drain(relay({ repo: "r" }));
+
+    first.push(1);
+    await run.waitFrames(1);
+    first.fail(new SurfaceStreamStalled({ reason: "consumer stalled" }));
+    await delay();
+    second.push(2);
+    await run.waitFrames(2);
+    expect(run.frames).toEqual([1, 2]);
+    expect(opens).toBe(2);
+    expect(run.error).toBeNull();
     run.stop();
   });
 

@@ -389,6 +389,11 @@ which drives kaval. Shell output flows back as an **attach stream** — a screen
 snapshot followed by live deltas, partitioned so nothing is lost or double-painted.
 kaval's headless mirror parses the VT sequences server-side, so a late-joining
 client gets ~4 KB of serialized screen state instead of replaying the raw buffer.
+Each hop's connection carries every terminal's stream at once, so a stream nobody
+is reading must not hold the others up: when a hop's reader of one attach stream
+stops taking frames for a few seconds, that one feed is thrown away and closed —
+the connection and every other terminal keep flowing — and the terminal fetches
+a fresh snapshot when it is shown again.
 
 **Metadata** (dashed) — every per-terminal sensor lives in padi's awareness
 producer. A CWD change (OSC 7) wakes the git sensor (branch, remote), which wakes

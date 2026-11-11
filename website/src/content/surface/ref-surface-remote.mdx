@@ -221,9 +221,11 @@ own liveness watchdog owns the half-open case.
 
 `reServeSurface`'s `policy` (`Record<member, "value" | "delta">`) splits members:
 a `value` member (cell, collection, value pulse) is held open and **replayed**
-across an upstream drop; a `delta` member (byte or liveness stream) **fails
+across an upstream drop — and, when the link drops just that stream for a
+stalled consumer (`SurfaceStreamStalled`), re-subscribed on the same live client
+rather than held for a spawn a live link never brings; a `delta` member (byte or liveness stream) **fails
 through** — a **mid-stream** upstream drop ends the downstream stream with
-`SurfaceRelayTransportLost` (`@kolu/surface/errors`), the **one retryable**
+`SurfaceRelayTransportLost` (`@kolu/surface/errors`), a **retryable**
 framework error the shared retry fence accepts — so the client re-subscribes
 end-to-end and a snapshot only ever leads a fresh stream. A subscribe **before**
 any live spawn is up **waits** for the next spawn (same pre-connect arm as

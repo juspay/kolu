@@ -32,9 +32,11 @@ import type { Duplex } from "node:stream";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import {
   Cause,
+  Context,
   Effect,
   Exit,
   Layer,
+  Queue,
   Result,
   Schedule,
   Scope,
@@ -42,10 +44,11 @@ import {
 } from "effect";
 import type { Rpc, RpcGroup } from "effect/rpc";
 import { RpcClient } from "effect/rpc";
+import type { FromServerEncoded } from "effect/rpc/RpcMessage";
 import { rpcSerializationLayer } from "../frameLimit";
 import { RpcClientError } from "effect/rpc/RpcClientError";
 import { Socket } from "effect/socket";
-import { SurfaceStdioTransportClosed } from "../errors";
+import { SurfaceStdioTransportClosed, SurfaceStreamStalled } from "../errors";
 import { RPC_PING_FATAL_SILENCE_MS, RPC_PING_INTERVAL_MS } from "../keepAlive";
 import { brandHalfOpenDispatch, type SurfaceDispatch } from "../link";
 
@@ -104,8 +107,125 @@ export function isRpcClientError(error: unknown): error is RpcClientError {
 type FlatDispatch = (
   tag: string,
   payload: unknown,
-  // biome-ignore lint/suspicious/noExplicitAny: the return is Effect for a unary tag and Stream for a streaming one — a distinction only the spec knows, which is exactly why `SurfaceDispatch` splits `unary` from `stream` at this seam.
+  options?: { readonly asQueue?: boolean },
+  // biome-ignore lint/suspicious/noExplicitAny: the return is Effect for a unary tag and Stream for a streaming one (or, with `asQueue`, a scoped Effect of the stream's Queue) — a distinction only the spec knows, which is exactly why `SurfaceDispatch` splits `unary` from `stream` at this seam.
 ) => any;
+
+/** How long a stream's consumer may take NOTHING while a delivery waits on it
+ *  before {@link openWireLink} drops that one stream with
+ *  {@link SurfaceStreamStalled}. Ours, not Effect's.
+ *
+ *  WHY A DEADLINE AT ALL. Delivery is off the shared reader (see
+ *  {@link decoupleDelivery}), so a stalled consumer no longer costs the LINK
+ *  anything — but it still holds its stream: the server waits on an `Ack` that
+ *  never comes, and the parked chunk sits in memory. "Nobody is picking this up"
+ *  is answered by throwing it away and closing the feed; a consumer that comes
+ *  back re-subscribes and opens on a fresh snapshot (snapshot-then-deltas is
+ *  every streaming member's contract).
+ *
+ *  WHY THIS NUMBER. It is {@link RPC_PING_INTERVAL_MS}, the shortest stall that
+ *  could already end the WHOLE link before delivery was decoupled (Effect's
+ *  pinger: 5–10 s). So no consumer that kept its stream before loses it sooner
+ *  now; the difference is that one stall costs one stream instead of every call
+ *  on the link.
+ *
+ *  HOW IT IS JUDGED. A watchdog ticks every half of this and drops the stream
+ *  only after TWO consecutive ticks saw no take while a delivery was parked on
+ *  the stream's queue — so a drop lands between 1× and 1.5× this after the last
+ *  take. Two ticks rather than one elapsed-time check is what makes a blocked
+ *  EVENT LOOP (a GC pause, a box at load 67) unable to drop a healthy consumer:
+ *  the overdue tick fires first, and the consumer gets a whole tick of running
+ *  time to take before the second one judges it. A consumer that folds frames
+ *  synchronously (a mirror's sink, padi's taps) therefore cannot be dropped at
+ *  all — it takes as soon as it runs. */
+export const STREAM_CONSUMER_STALL_MS = RPC_PING_INTERVAL_MS;
+
+/** The watchdog cadence: two empty ticks make a stall (see
+ *  {@link STREAM_CONSUMER_STALL_MS}). */
+const STALL_TICK_MS = STREAM_CONSUMER_STALL_MS / 2;
+
+/** Wrap a client `Protocol` so that delivering a response NEVER blocks the
+ *  socket reader.
+ *
+ *  THE HAZARD (effect@4.0.0, `RpcClient.ts`). `makeProtocolSocket`'s read loop
+ *  hands each decoded response to the client strictly in sequence, and the
+ *  client delivers a stream `Chunk` with `Queue.offerAll` into that stream's
+ *  BOUNDED queue (16) — then sends the `Ack`. So a consumer that stops pulling
+ *  fills its queue, the offer suspends, and the READER suspends with it: no other
+ *  stream, no unary answer, and no `Pong` is read until that one consumer moves.
+ *  Effect's pinger then ends the link 5–10 s later with the peer healthy
+ *  throughout. Worse, a consumer that is torn down while full leaves the offer
+ *  parked on an orphaned queue — Effect's interrupt finaliser deletes the entry
+ *  and tells the server, but never releases the queue — so the reader is gone
+ *  for good.
+ *
+ *  THE FIX. Each request's `Chunk`/`Exit` responses are handed to a per-request
+ *  LANE — an in-order mailbox drained by its own fiber in the link's scope — and
+ *  the reader moves on at once. Order within a request is preserved (one lane,
+ *  one drainer); the `Ack` still goes out only after the offer lands, so
+ *  per-stream BACKPRESSURE is unchanged and a lane holds at most the one chunk
+ *  the server sends before waiting for that `Ack` (plus the `Exit` behind it).
+ *  What a lane must not do is outlive its consumer, and that is
+ *  {@link openWireLink}'s stream dispatch's job: it shuts the queue down when
+ *  the subscription ends, which resumes a parked offer.
+ *
+ *  An `Exit` with no lane ahead of it, and every non-request response (`Defect`,
+ *  `ClientProtocolError`), is delivered INLINE: those end a queue or resume a
+ *  waiting call and never wait on a consumer.
+ *
+ *  BETA-ASSUMPTION(4.0.0): a stream Chunk is the only response whose delivery waits on a consumer, and a scoped asQueue request ends with its Scope.
+ *  In effect@4.0.0 `RpcClient.make`'s `write` offers a `Chunk` into the
+ *  stream's bounded queue and Acks after; `Exit` ends a queue or resumes a
+ *  call; `Defect`/`ClientProtocolError` fail entries. `asQueue: true` registers
+ *  the request's interrupt finaliser on the Scope it runs in and hands back the
+ *  queue, which {@link openWireLink} reads `state` off (`Open`, `offers`) to
+ *  judge a stall. `streamConsumerStall.test.ts` measures the whole contract: a
+ *  regression in any of it brings back the starved reader. */
+function decoupleDelivery(
+  inner: RpcClient.Protocol["Service"],
+  scope: Scope.Scope,
+): RpcClient.Protocol["Service"] {
+  return {
+    ...inner,
+    run: (clientId, deliver) => {
+      const lanes = new Map<string | number, Array<FromServerEncoded>>();
+      const drain = (requestId: string | number, lane: FromServerEncoded[]) =>
+        Effect.gen(function* () {
+          // The head stays IN the lane while it is delivered, so a response that
+          // arrives meanwhile queues behind it instead of opening a second lane.
+          while (lane.length > 0) {
+            yield* deliver(lane[0] as FromServerEncoded);
+            lane.shift();
+          }
+          lanes.delete(requestId);
+        });
+      return inner.run(clientId, (message) => {
+        if (message._tag !== "Chunk" && message._tag !== "Exit") {
+          return deliver(message);
+        }
+        const lane = lanes.get(message.requestId);
+        if (lane !== undefined) {
+          lane.push(message);
+          return Effect.void;
+        }
+        if (message._tag === "Exit") return deliver(message);
+        const fresh: FromServerEncoded[] = [message];
+        lanes.set(message.requestId, fresh);
+        return Effect.asVoid(
+          Effect.forkIn(
+            // The same containment Effect wraps around the delivery fn it hands
+            // the protocol (`RpcClient.make`'s `run(...)`): a delivery cannot
+            // fail by construction — its decode and offer failures are already
+            // written into the request's own exit — so this only keeps an
+            // impossible one from vanishing into a detached fiber.
+            Effect.catchCause(drain(message.requestId, fresh), Effect.logError),
+            scope,
+          ),
+        );
+      });
+    },
+  };
+}
 
 /** Build a wire link over `protocol`.
  *
@@ -144,16 +264,94 @@ export async function openWireLink(opts: {
   const typedClient = await Effect.runPromise(
     Effect.gen(function* () {
       const context = yield* Layer.build(opts.protocol);
+      // Every leg's protocol is wrapped HERE, at the one seam they all cross,
+      // so no leg can be built with a reader that a consumer can block.
+      const decoupled = decoupleDelivery(
+        Context.get(context, RpcClient.Protocol),
+        scope,
+      );
       return yield* Effect.provideContext(
         RpcClient.make(opts.group, { flatten: true }),
-        context,
+        Context.add(context, RpcClient.Protocol, decoupled),
       );
     }).pipe(Scope.provide(scope)),
   );
-  const client: FlatDispatch = (tag, payload) =>
-    typedClient(tag, payload as never);
+  const client: FlatDispatch = (tag, payload, options) =>
+    typedClient(tag, payload as never, options);
 
   let disposed = false;
+
+  /** Open one stream over the client, WATCHED: a consumer that takes nothing
+   *  for {@link STREAM_CONSUMER_STALL_MS} while a delivery waits on it gets
+   *  {@link SurfaceStreamStalled} instead of holding the stream forever.
+   *
+   *  The request runs in a CHILD scope of the subscription's, so the watchdog
+   *  can end the request — Effect's finaliser deletes the entry and sends the
+   *  server its `Interrupt` — while the stalled consumer is still parked
+   *  somewhere it cannot be reached. The subscription's own end (completion,
+   *  failure, or an interrupted consumer) shuts the queue down first, which
+   *  RESUMES an offer parked on it: that is what keeps an interrupted consumer
+   *  from leaving a lane parked on an orphaned queue. */
+  const watchedStream = (
+    tag: string,
+    payload: unknown,
+  ): Effect.Effect<Stream.Stream<unknown, unknown>, never, Scope.Scope> =>
+    Effect.gen(function* () {
+      const subscription = yield* Effect.scope;
+      const request = yield* Scope.fork(subscription);
+      const queue: Queue.Queue<unknown, unknown> = yield* Scope.provide(
+        client(tag, payload, { asQueue: true }) as Effect.Effect<
+          Queue.Queue<unknown, unknown>,
+          never,
+          Scope.Scope
+        >,
+        request,
+      );
+      yield* Scope.addFinalizer(subscription, Queue.shutdown(queue));
+      let takes = 0;
+      yield* Effect.forkIn(
+        Effect.gen(function* () {
+          let seen = takes;
+          let idleTicks = 0;
+          for (;;) {
+            yield* Effect.sleep(STALL_TICK_MS);
+            // A delivery is PARKED when the buffer is full and a chunk waits to
+            // get in — the one condition under which a quiet consumer holds
+            // anything up. An ended queue (`Closing`: the server finished, the
+            // consumer has not drained the tail) holds nothing up, so it is
+            // never judged.
+            const parked =
+              queue.state._tag === "Open" && queue.state.offers.size > 0;
+            if (takes !== seen || !parked) {
+              seen = takes;
+              idleTicks = 0;
+              continue;
+            }
+            if (++idleTicks < 2) continue;
+            // Fail FIRST so the shutdown keeps this exit rather than minting an
+            // interrupt, then shut down: the buffered frames are thrown away and
+            // the parked delivery resumes. Closing the request tells the server.
+            Queue.failCauseUnsafe(
+              queue,
+              Cause.fail(
+                new SurfaceStreamStalled({
+                  reason: `"${tag}": the consumer took nothing for ${STREAM_CONSUMER_STALL_MS}ms while a delivery waited on it — this stream is dropped so the link's other calls keep flowing; re-subscribe for a fresh snapshot`,
+                }),
+              ),
+            );
+            Queue.shutdownUnsafe(queue);
+            return yield* Scope.close(request, Exit.void);
+          }
+        }),
+        subscription,
+      );
+      return Stream.fromQueue(queue).pipe(
+        Stream.mapArray((frames) => {
+          takes++;
+          return frames;
+        }),
+      );
+    });
 
   /** Translate a call's cause into the leg's vocabulary. Three kinds arrive
    *  here and exactly one is ours:
@@ -195,10 +393,14 @@ export async function openWireLink(opts: {
     stream: (tag: string, payload: unknown) =>
       Stream.unwrap(
         Effect.suspend(
-          (): Effect.Effect<Stream.Stream<unknown, unknown>> =>
+          (): Effect.Effect<
+            Stream.Stream<unknown, unknown>,
+            never,
+            Scope.Scope
+          > =>
             disposed
               ? Effect.succeed(Stream.fail(opts.disposedError()))
-              : Effect.succeed(client(tag, payload)),
+              : watchedStream(tag, payload),
         ),
       ).pipe(Stream.catchCause((cause) => Stream.failCause(rescue(cause)))),
   });
@@ -264,11 +466,11 @@ export async function duplexWireLink(opts: {
   );
 
   /**
-   * Did this link die because the PEER WENT QUIET, rather than because the pipe
-   * broke? This docstring is the CANONICAL account of Effect's pinger for this
-   * repo — `stdioPingStall.test.ts`, `sshConnector.ts`, `errors.ts` and the
-   * surface reference page each carry one sentence and a pointer here, because
-   * this is the only code that acts on the fact.
+   * Did this link die because its keep-alive went UNANSWERED, rather than
+   * because the pipe broke? This docstring is the CANONICAL account of Effect's
+   * pinger for this repo — `stdioPingStall.test.ts`, `sshConnector.ts`,
+   * `errors.ts` and the surface reference page each carry one sentence and a
+   * pointer here, because this is the only code that acts on the fact.
    *
    * THE MECHANISM. `RpcClient.makeProtocolSocket` runs a pinger of its own:
    * `makePinger` writes a ping every 5s and ends the socket run the moment a
@@ -279,6 +481,28 @@ export async function duplexWireLink(opts: {
    * We cannot move that deadline, and we cannot retry through it (see
    * {@link neverReconnect}, where that is MEASURED). Naming the death correctly
    * is what is left.
+   *
+   * WHAT "UNANSWERED" MEANS — and what it does not. The pinger only sees a
+   * `Pong` when THIS side's read loop reaches it, so a missing answer is a fact
+   * about the reader as much as about the peer. Three things can produce it:
+   *
+   *   - the PEER went quiet — too busy to answer (a box at load 67), or gone
+   *     silent without closing the pipe;
+   *   - THIS process could not read the answer in time — its own event loop
+   *     starved past the window;
+   *   - (no longer) one of this link's STREAM CONSUMERS stopped pulling. Effect's
+   *     reader delivers a stream chunk by offering into that stream's bounded
+   *     queue, and used to park there until the consumer moved, with the `Pong`
+   *     unread behind it — a healthy peer declared dead because one local
+   *     subscriber stalled, and, if that subscriber was then torn down, a reader
+   *     parked forever on its orphaned queue. {@link decoupleDelivery} takes
+   *     delivery off the reader and {@link STREAM_CONSUMER_STALL_MS} drops the
+   *     stalled stream alone (`SurfaceStreamStalled`), so a local consumer can no
+   *     longer cause this death (`streamConsumerStall.test.ts` measures both
+   *     shapes).
+   *
+   * So `keepAliveUnanswered` says the WIRE went quiet as this reader saw it: the
+   * peer, or this side's ability to read it — never proof that the peer exited.
    *
    * BETA-ASSUMPTION(4.0.0): the RPC pinger fails with SocketReadError whose cause is Error("ping timeout").
    * In Effect 4.0.0, src/rpc/RpcClient.ts

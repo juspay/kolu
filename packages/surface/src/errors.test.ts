@@ -21,6 +21,7 @@ import {
   messageOf,
   isSurfaceRelayTransportLost,
   isSurfaceStdioTransportClosed,
+  isSurfaceStreamStalled,
   isSurfaceTransportRetired,
   MapEntryFailed,
   MapKeyNonCanonical,
@@ -28,6 +29,7 @@ import {
   SurfaceErrorSchema,
   SurfaceRelayTransportLost,
   SurfaceStdioTransportClosed,
+  SurfaceStreamStalled,
   SurfaceTransportRetired,
 } from "./errors";
 
@@ -51,6 +53,7 @@ const SAMPLES = [
     death: "keepAliveUnanswered",
   }),
   new SurfaceRelayTransportLost({ reason: "upstream padi died mid-stream" }),
+  new SurfaceStreamStalled({ reason: "the consumer took nothing" }),
   new MapKeyNonCanonical({ wireKey: "Host1", canonicalKey: "host1" }),
   new MapKeyUnknown({ mapKey: "host9" }),
   new MapEntryFailed({ mapKey: "host2", failure: '{"kind":"unreachable"}' }),
@@ -71,6 +74,7 @@ describe("surface error vocabulary", () => {
       "SurfaceStdioTransportClosed",
       "SurfaceStdioTransportClosed",
       "SurfaceRelayTransportLost",
+      "SurfaceStreamStalled",
       "MapKeyNonCanonical",
       "MapKeyUnknown",
       "MapEntryFailed",
@@ -169,13 +173,18 @@ describe("surface error predicates", () => {
     ]);
   });
 
-  it("the retryable relay loss is NOT a dead transport", () => {
+  it("the retryable ends are NOT dead transports", () => {
     // The whole retry fence rests on this split: a dead transport must never be
     // retried (retrying re-presents the same corpse — the reconnect storm), and
-    // the relay's transient loss must always be (the parent will heal it).
+    // the relay's transient loss and a stalled consumer's dropped stream must
+    // always be (the parent will heal it; the link is fine).
     const lost = new SurfaceRelayTransportLost({ reason: "x" });
+    const stalled = new SurfaceStreamStalled({ reason: "x" });
     expect(isDeadTransportError(lost)).toBe(false);
     expect(isSurfaceRelayTransportLost(lost)).toBe(true);
+    expect(isDeadTransportError(stalled)).toBe(false);
+    expect(isSurfaceRelayTransportLost(stalled)).toBe(false);
+    expect(isSurfaceStreamStalled(stalled)).toBe(true);
   });
 
   it("the narrow predicates match their one tag only", () => {
