@@ -63,6 +63,7 @@ import type {
 import {
   EMPTY_FLEET_URGENCY,
   type FleetHost,
+  type FleetTerminal,
   type FleetUrgency,
   fleetSurface,
 } from "./fleetSurface.ts";
@@ -261,6 +262,34 @@ function onNamedHost<I extends { readonly host: string }>(
   }));
 }
 
+/** padi's record, as a FLEET row: the host it came from, its own reference,
+ *  and its parent's.
+ *
+ *  The lift happens here rather than at the host because padi is answering
+ *  about its own machine, where a bare id is unambiguous. It is the MERGE that
+ *  makes identity ambiguous, so the merge is what owes every row its host —
+ *  the same rule `terminals.keys` and the urgency fold already follow, applied
+ *  to the one member that hands back a record instead of a list.
+ *
+ *  `as FleetTerminal`: the padi record is a three-arm union and TypeScript
+ *  widens a spread of one to its own arm's shape, so the three overridden
+ *  fields cannot be proven to land on the arm they came from. The schema one
+ *  file over is the real check, and it is per-arm for exactly this reason. */
+function fleetTerminalRow(
+  host: string,
+  id: string,
+  record: PadiTerminal,
+): FleetTerminal {
+  return {
+    ...record,
+    host,
+    id: fleetTerminalRef(host, id),
+    ...(record.parentId === undefined
+      ? {}
+      : { parentId: fleetTerminalRef(host, record.parentId) }),
+  } as FleetTerminal;
+}
+
 /** The whole face. */
 export function fleetClientFace(
   hosts: FleetHosts,
@@ -274,8 +303,10 @@ export function fleetClientFace(
           Stream.unwrap(
             Effect.map(
               requireTerminal(hosts, input.key),
-              ({ id, padi }): Stream.Stream<PadiTerminal, unknown> =>
-                padi.surface.terminals.get({ key: id }),
+              ({ host, id, padi }): Stream.Stream<FleetTerminal, unknown> =>
+                Stream.map(padi.surface.terminals.get({ key: id }), (record) =>
+                  fleetTerminalRow(host, id, record),
+                ),
             ),
           ),
       },
@@ -329,7 +360,7 @@ export function fleetClientFace(
       },
       watch: {
         close: (input: { name: string }) =>
-          fleetWatchClose(hosts, registry, input.name),
+          fleetWatchClose(registry, input.name),
       },
     },
   };

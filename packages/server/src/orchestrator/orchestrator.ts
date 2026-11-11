@@ -101,7 +101,9 @@ import {
   OrchestratorUnavailable,
 } from "kolu-common/orchestratorErrors";
 import type { CellStore } from "@kolu/surface/server";
+import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
 import type { Logger } from "pino";
+import { serverVersion } from "../hostname.ts";
 import {
   persistedFrom,
   type PersistedOrchestrator,
@@ -299,36 +301,61 @@ const noAnswerAt = (url: string, cause: string): string =>
 const refusedAt = (url: string, status: number): string =>
   `This kolu's orchestrator was refused by this kolu's fleet MCP face: ${url} answered ${status} to the token this process minted. The agent would be refused the same way and carry on without the fleet's terminals, so the conversation is refused instead.`;
 
-/** Does the fleet endpoint ANSWER, to the credential we are about to hand
- *  over? Resolves if so, refuses with the whole sentence if not.
+/** The sentence a kolu whose own endpoint is listening and will not SERVE
+ *  says. A third defect with a third lead: the door is open, the gate let us
+ *  through, and no session came back — a face that is wedged, or a door whose
+ *  one session has already been given away. */
+const notServingAt = (url: string, what: string): string =>
+  `This kolu's orchestrator could not open a session on this kolu's fleet MCP face: ${url} is listening and accepted the token this process minted, but ${what}. The agent's MCP client would be turned away the same way and the conversation would run with no hands, so it is refused instead.`;
+
+/** Will the fleet endpoint SERVE THIS CALLER? Resolves if so, refuses with the
+ *  whole sentence if not.
  *
- *  ONE REAL REQUEST, not a reachability guess: a JSON-RPC `ping` carrying the
- *  bearer token, which is the shape of the very first thing the adapter's MCP
- *  client will send. The endpoint answers it `400` ("not initialized") rather
- *  than `200`, and that is a PASS on purpose — what is being proved is that
- *  something is speaking MCP at that URL and that the gate let us through, not
- *  that a session was opened. Proving it by opening one would leave an
- *  abandoned session behind on every bring-up.
+ *  ONE REAL HANDSHAKE, not a reachability guess and not a liveness ping: the
+ *  `initialize` the adapter's own MCP client sends as its first word, carrying
+ *  the bearer token this process is about to hand over. What has to be proved
+ *  is "I will serve you", and nothing weaker says it — a `400` is what a
+ *  listening streamable-HTTP endpoint answers whether it is about to open a
+ *  session or has already given its one away, so passing on any HTTP answer
+ *  would wave through exactly the failure a proof-before-handover exists to
+ *  catch. A SESSION ID in the answer is the one thing only a door that minted
+ *  a transport and connected a face behind it can produce.
  *
- *  `401`/`403` are a refusal of their own, because those two say the gate
- *  REJECTED us — the one failure a person could otherwise mistake for a
- *  working endpoint.
+ *  THE PROBE CLOSES ITS OWN SESSION (`DELETE`, the protocol's own
+ *  termination), so proving the face works does not leave an abandoned face
+ *  holding fleet subscriptions behind every bring-up.
  *
  *  NO DEADLINE, and that is not an oversight: the listener is in THIS process.
  *  A request that never comes back means this process's own event loop is
  *  wedged, and a timer running on that same wedged loop could not fire to tell
  *  anybody. A second clock here could only ever be wrong. */
-const answeringAt = async (at: FleetMcpEndpoint): Promise<void> => {
+const answeringAt = async (
+  at: FleetMcpEndpoint,
+  log: Logger,
+): Promise<void> => {
+  const authorization = `Bearer ${at.token}`;
   let answer: Response;
   try {
     answer = await fetch(at.url, {
       method: "POST",
       headers: {
-        authorization: `Bearer ${at.token}`,
+        authorization,
         "content-type": "application/json",
         accept: "application/json, text/event-stream",
       },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: LATEST_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: {
+            name: "kolu-orchestrator-probe",
+            version: serverVersion,
+          },
+        },
+      }),
     });
   } catch (cause) {
     throw new OrchestratorUnavailable({
@@ -338,14 +365,48 @@ const answeringAt = async (at: FleetMcpEndpoint): Promise<void> => {
       ),
     });
   }
-  // The body is never read — what was asked is whether the door opens — but it
-  // is cancelled rather than dropped, so the probe holds no socket open behind
-  // the conversation it was clearing the way for.
+  // The body is never read — the session id rides the headers, and the
+  // `initialize` RESULT is the agent's business, not ours — but it is
+  // cancelled rather than dropped, so the probe holds no SSE stream open
+  // behind the conversation it was clearing the way for.
   await answer.body?.cancel();
   if (answer.status === 401 || answer.status === 403) {
     throw new OrchestratorUnavailable({
       why: refusedAt(at.url, answer.status),
     });
+  }
+  if (!answer.ok) {
+    throw new OrchestratorUnavailable({
+      why: notServingAt(
+        at.url,
+        `it answered ${answer.status} to an \`initialize\``,
+      ),
+    });
+  }
+  const session = answer.headers.get("mcp-session-id");
+  if (session === null) {
+    throw new OrchestratorUnavailable({
+      why: notServingAt(
+        at.url,
+        "it answered the `initialize` without opening a session",
+      ),
+    });
+  }
+  // The probe's session, ended by the probe. A teardown that fails is NOT a
+  // reason to refuse the conversation — the face answered, which is the whole
+  // of what was being proved — but it is not swallowed either: a session this
+  // process opened and could not close is a face holding fleet subscriptions
+  // nobody will ever read, and this line is where it shows up.
+  try {
+    await fetch(at.url, {
+      method: "DELETE",
+      headers: { authorization, "mcp-session-id": session },
+    }).then((ended) => ended.body?.cancel());
+  } catch (cause) {
+    log.warn(
+      { err: cause, url: at.url, session },
+      "orchestrator: could not close the session its fleet-MCP proof opened",
+    );
   }
 };
 
@@ -827,16 +888,17 @@ export function startOrchestratorHost(
    *  thirty seconds later inside an agent that has already decided to do
    *  without us.
    *
-   *  What the proof establishes is that something is SPEAKING MCP at that URL
-   *  and that it accepts this process's token — the first two things the
-   *  adapter's client will find out, found out first by the server that is
-   *  about to claim they work. It does not prove the fleet is healthy; a host
-   *  that is unreachable is the fleet face's own business to refuse by name,
-   *  per host, as it is asked. */
+   *  What the proof establishes is that the URL accepts this process's token
+   *  and OPENS A SESSION to it — the first three things the adapter's client
+   *  will find out, found out first by the server that is about to claim they
+   *  work. A door that is listening and will not serve this caller is the
+   *  failure that matters most, because it is the one that looks like health.
+   *  It does not prove the fleet is healthy; a host that is unreachable is the
+   *  fleet face's own business to refuse by name, per host, as it is asked. */
   const provenFleetServer = async (): Promise<HttpServer> => {
     const at = fleetMcp();
     if (at === null) throw new OrchestratorUnavailable({ why: NO_FLEET_MCP });
-    await answeringAt(at);
+    await answeringAt(at, log);
     return {
       kind: "http",
       name: "kolu",

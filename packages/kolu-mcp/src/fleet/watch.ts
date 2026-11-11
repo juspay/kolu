@@ -30,15 +30,29 @@
  *   which happens on every `watch_next` AND the moment kolu-server's roster
  *   moves (the park wakes on `hosts.subscribe`). An agent blocked in
  *   `watch_next` sees a new machine's terminals without re-opening anything.
- * - **Leaving** — the terminals it was carrying emit `gone`, and then the leg
- *   drops. This is the same reasoning padi's own `gone` carries one level down:
- *   a supervisor waiting on a worker that no longer exists must be TOLD, because
- *   silence reads exactly like a calm workspace. A host going away takes every
- *   one of its workers with it, so the fleet owes that sentence for each.
+ * - **Leaving** — a host that leaves the host MAP takes every one of its
+ *   workers with it, so the terminals it was carrying emit `gone` and then the
+ *   leg drops. This is the same reasoning padi's own `gone` carries one level
+ *   down: a supervisor waiting on a worker that no longer exists must be TOLD,
+ *   because silence reads exactly like a calm workspace.
+ * - **Disconnecting is NOT leaving** — an ssh blip, a remote padi restart, a
+ *   host still warming: the host is still a member, its terminals are still
+ *   there, and its leg is PARKED (the cursor and the roster kept) until it
+ *   answers again, at which point the leg is re-opened and what padi buffered
+ *   while the link was down is drained. Emitting `gone` for that would be a
+ *   lie in the one word the standing prompt teaches as "dead" — and nothing
+ *   would ever announce the return. Membership, and only membership, is what
+ *   `gone` is about.
  * - **"Watch all" fails open** — a subscription with no `ids` legs every
  *   connected host, now and later. That is the per-host rule ("a list you forget
  *   to update goes blind to a lane nobody added") lifted one level: a fleet list
- *   you forget to update goes blind to a MACHINE nobody added.
+ *   you forget to update goes blind to a MACHINE nobody added. It also means ONE
+ *   sick host may not fail the fleet's drain: a host whose `watch.open` keeps
+ *   rejecting is skipped for this round, retried on the next, and reported as a
+ *   GAP in the answer — because a `watch_next` that fails outright leaves the
+ *   agent with nothing from the machines that were perfectly healthy. A host the
+ *   caller NAMED in `ids` is the opposite case and still fails hard: it asked
+ *   about that lane, so a watch that cannot cover it is not a watch it wanted.
  */
 
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
@@ -55,10 +69,11 @@ import {
 import { awaitWatchEvents } from "@kolu/padi-client/watch";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import type { WaitOutcome } from "@kolu/surface/wait";
-import { ToolFailure } from "@kolu/surface-mcp/tools";
+import { messageOf, ToolFailure } from "@kolu/surface-mcp/tools";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect } from "effect";
-import { connectedHosts, type FleetHosts, requireHost } from "./hosts.ts";
+import type { FleetHostState } from "./fleetSurface.ts";
+import { type FleetHosts, requireHost } from "./hosts.ts";
 import { fleetTerminalRef } from "./ref.ts";
 
 /** padi's event with its ids re-qualified — distributive over the union, so a
@@ -91,7 +106,9 @@ type FleetWatchScope =
       readonly byHost: ReadonlyMap<string, TerminalId[]>;
     };
 
-/** One host's leg of a fleet subscription. */
+/** One host's leg of a fleet subscription. A leg OUTLIVES the link it was
+ *  opened over: it is this subscription's record of a host it watches, not a
+ *  handle on a connection. */
 interface WatchLeg {
   /** The highest per-host seq this face has INGESTED — what the next drain
    *  acknowledges to padi. */
@@ -99,6 +116,18 @@ interface WatchLeg {
   /** That host's terminals as last read — what `gone` is emitted FOR when the
    *  host leaves, since by then there is nobody left to ask. */
   roster: readonly TerminalId[];
+  /** The client this leg's cursor was opened OVER, or null while the host is
+   *  not answering.
+   *
+   *  Identity, not a boolean, because the disconnect is often never observed:
+   *  a host that dropped and came back between two `watch_next` calls hands
+   *  back a DIFFERENT client, and the padi behind it may be a fresh process
+   *  whose queue never heard this subscription's name — a drain against that
+   *  is a `WatchSubscriptionNotFound` that fails the whole fleet's call. So a
+   *  leg is re-opened whenever the link it was opened over is not the link the
+   *  host map holds now, and the re-open's `acknowledged` is padi's own
+   *  watermark: a surviving queue hands over exactly what was missed. */
+  padi: PadiSurfaceClient | null;
 }
 
 /** One fleet subscription. `scope` and `opened` are MUTABLE because a re-open
@@ -113,6 +142,11 @@ interface FleetSubscription {
    *  legs were. */
   opened: (host: string) => PadiWatchOpenInput;
   readonly legs: Map<string, WatchLeg>;
+  /** Hosts whose leg could not be OPENED, and what the refusal said. Only the
+   *  `all` scope ever has entries (a named host fails the call instead): they
+   *  are retried on every reconcile and reported as gaps, so one sick machine
+   *  costs its own lane and not the fleet's. */
+  readonly unreachable: Map<string, string>;
   buffer: FleetWatchEvent[];
   nextSeq: number;
   dropped: number;
@@ -145,7 +179,13 @@ function readRoster(
  *  `sub.opened` is a THROWING resolver (the per-host face's refusal is a
  *  `ToolFailure`), so it is lifted with its thrown value passed through rather
  *  than called inside the generator, where a throw would be a defect and the
- *  refusal's detail would never reach the agent. */
+ *  refusal's detail would never reach the agent.
+ *
+ *  The cursor comes from padi's answer on EVERY open, including a re-open of a
+ *  parked leg: padi keeps a re-attached subscription's watermark and starts a
+ *  fresh one at its current sequence, so taking `acknowledged` is what makes a
+ *  reconnect hand over what was buffered during the outage without replaying a
+ *  restarted daemon's unrelated history. */
 function openLeg(
   sub: FleetSubscription,
   host: string,
@@ -160,18 +200,24 @@ function openLeg(
     sub.legs.set(host, {
       after: opened.acknowledged,
       roster: yield* readRoster(padi),
+      padi,
     });
+    sub.unreachable.delete(host);
   });
 }
 
-/** Which hosts this subscription WANTS a leg on right now — connected, and
- *  (when the scope names ids) carrying at least one of them. */
-function wanted(hosts: FleetHosts, sub: FleetSubscription): readonly string[] {
-  const live = connectedHosts(hosts);
+/** Which hosts this subscription is ABOUT — MEMBERSHIP, not reachability.
+ *
+ *  Deliberately `hosts.keys()` and not {@link connectedHosts}: a host that is
+ *  merely disconnected is still a host this watch covers, and the difference
+ *  between the two lists is the difference between parking a leg and declaring
+ *  every terminal on that machine dead. */
+function watched(hosts: FleetHosts, sub: FleetSubscription): readonly string[] {
   const scope = sub.scope;
+  const members = hosts.keys();
   return scope.kind === "all"
-    ? live
-    : live.filter((host) => scope.byHost.has(host));
+    ? members
+    : members.filter((host) => scope.byHost.has(host));
 }
 
 /** Append events, dropping the oldest past the cap. */
@@ -196,17 +242,41 @@ function stamp(sub: FleetSubscription): number {
   return sub.nextSeq;
 }
 
-/** Bring the legs in line with the live fleet: leg the hosts that arrived, say
- *  `gone` for the terminals of the hosts that left, and refresh what each
- *  surviving host was carrying. */
+/** Attach one host's leg, under the rule its SCOPE decides.
+ *
+ *  A host the caller NAMED in `ids` fails the call: it asked about that lane,
+ *  and a watch silently missing exactly the lane it was opened for is the
+ *  blindness this face exists to prevent. A host nobody named — "watch all" —
+ *  is recorded and skipped instead, because failing there would hand the agent
+ *  nothing at all from every machine that is perfectly healthy. The record is
+ *  retried on the next reconcile and reported as a gap in the meantime. */
+function attachLeg(
+  sub: FleetSubscription,
+  host: string,
+  padi: PadiSurfaceClient,
+): Effect.Effect<void, unknown> {
+  const opening = openLeg(sub, host, padi);
+  return sub.scope.kind === "ids"
+    ? opening
+    : Effect.catch(opening, (err: unknown) =>
+        Effect.sync(() => {
+          sub.unreachable.set(host, messageOf(err));
+        }),
+      );
+}
+
+/** Bring the legs in line with the live fleet: leg the hosts that arrived or
+ *  came back, say `gone` for the terminals of the hosts that LEFT the host map,
+ *  park the leg of a host that merely stopped answering, and refresh what each
+ *  attached host is carrying. */
 function reconcile(
   hosts: FleetHosts,
   sub: FleetSubscription,
 ): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
-    const want = new Set(wanted(hosts, sub));
+    const members = new Set(watched(hosts, sub));
     for (const [host, leg] of [...sub.legs]) {
-      if (want.has(host)) continue;
+      if (members.has(host)) continue;
       const at = Date.now();
       push(
         sub,
@@ -218,19 +288,33 @@ function reconcile(
         })),
       );
       sub.legs.delete(host);
+      sub.unreachable.delete(host);
     }
-    for (const host of want) {
-      if (sub.legs.has(host)) continue;
+    for (const host of members) {
       const padi = hosts.padi(host);
-      if (padi !== null) yield* openLeg(sub, host, padi);
-    }
-    // Every surviving leg's roster is refreshed here, not at ingest: a terminal
-    // CREATED since the last call emits no settle event of its own, so a roster
-    // refreshed only by events would forget it — and forget to mourn it when
-    // its host leaves.
-    for (const [host, leg] of sub.legs) {
-      const padi = hosts.padi(host);
-      if (padi !== null) leg.roster = yield* readRoster(padi);
+      const leg = sub.legs.get(host);
+      if (padi === null) {
+        // PARKED, not gone. The cursor and the roster are kept, so the return
+        // re-opens from padi's own watermark and a real departure later still
+        // knows which terminals to mourn.
+        if (leg !== undefined) leg.padi = null;
+        continue;
+      }
+      // A leg opened over a link the host map no longer holds is re-opened:
+      // see {@link WatchLeg.padi}. This also covers the disconnect nobody saw,
+      // because the two calls either side of it observe different clients.
+      if (leg === undefined || leg.padi !== padi) {
+        // Parked FIRST: a re-open that fails must not leave this leg draining
+        // and parking over a link the host map has already replaced.
+        if (leg !== undefined) leg.padi = null;
+        yield* attachLeg(sub, host, padi);
+        continue;
+      }
+      // Every attached leg's roster is refreshed here, not at ingest: a
+      // terminal CREATED since the last call emits no settle event of its own,
+      // so a roster refreshed only by events would forget it — and forget to
+      // mourn it when its host leaves.
+      leg.roster = yield* readRoster(padi);
     }
   });
 }
@@ -269,19 +353,34 @@ function ingest(
  *  A drain acknowledges only what this face has already ingested
  *  (`leg.after`), so a leg with nothing new answers an empty batch and a leg
  *  whose events a parked wait already saw hands them over again — which is what
- *  makes it safe for the park above to be a doorbell rather than a consumer. */
-function drainLegs(
-  hosts: FleetHosts,
-  sub: FleetSubscription,
-): Effect.Effect<void, unknown> {
+ *  makes it safe for the park above to be a doorbell rather than a consumer.
+ *
+ *  A leg that REFUSES is handled under the same rule {@link attachLeg} applies,
+ *  because it is the same question one verb later. The reachable case is a padi
+ *  that restarted under a mirror that never dropped: the link is the same
+ *  object, so nothing re-opened, and the queue this cursor names is gone
+ *  (`WatchSubscriptionNotFound`). Parking the leg makes the next reconcile
+ *  re-open it — the recovery a reconnect already takes — where failing here
+ *  would blind every other host over one machine's restart. */
+function drainLegs(sub: FleetSubscription): Effect.Effect<void, unknown> {
   return Effect.gen(function* () {
     for (const [host, leg] of sub.legs) {
-      const padi = hosts.padi(host);
+      // Over the leg's OWN link, and skipped when it has none: a parked host
+      // is not answering, and the client the host map holds now may be one
+      // this cursor was never opened over. The reconcile re-opens; this never
+      // guesses.
+      const padi = leg.padi;
       if (padi === null) continue;
-      const drained = yield* padi.surface.watch.drain({
-        name: sub.name,
-        after: leg.after,
-      });
+      const drained = yield* Effect.catch(
+        padi.surface.watch.drain({ name: sub.name, after: leg.after }),
+        (err: unknown) => {
+          if (sub.scope.kind === "ids") return Effect.fail(err);
+          leg.padi = null;
+          sub.unreachable.set(host, messageOf(err));
+          return Effect.succeed(null);
+        },
+      );
+      if (drained === null) continue;
       if (drained.events.length === 0 && drained.dropped === 0) continue;
       ingest(sub, host, drained);
     }
@@ -299,6 +398,65 @@ export interface FleetWatchMet {
 }
 
 export type FleetWatchOutcome = WaitOutcome<FleetWatchMet>;
+
+/** A host this subscription COVERS but did not hear from — the blind spot,
+ *  named.
+ *
+ *  It exists because the two honest answers to "that machine is quiet" are not
+ *  the same answer: a host whose link is down contributes no events and a host
+ *  that is healthy and idle contributes no events, and an agent reading one
+ *  batch cannot tell them apart. `gone` would be a lie (the terminals are
+ *  still there), silence would be worse (a supervisor concludes the work
+ *  finished), so the fleet says which hosts it could not reach and why. */
+export interface FleetWatchGap {
+  readonly host: string;
+  /** `not-connected` — the link is down or still warming, the leg is parked
+   *  and will drain what it missed on reconnect. `watch-refused` — the host IS
+   *  answering but turned the subscription itself down (the open rejected, or
+   *  the drain found no such queue); its leg is retried every round. */
+  readonly kind: "not-connected" | "watch-refused";
+  readonly state: FleetHostState;
+  readonly why: string;
+}
+
+/** A fleet drain's whole answer: the outcome, and the blind spots it was taken
+ *  over. Two fields rather than one more arm on {@link WaitOutcome}, because a
+ *  gap is orthogonal to every arm — a timeout over a fleet with an unreachable
+ *  host is exactly as worth reporting as a met batch is. */
+export interface FleetWatchAnswer {
+  readonly outcome: FleetWatchOutcome;
+  readonly gaps: readonly FleetWatchGap[];
+}
+
+/** The gaps as they stand right now. Read at ANSWER time, not accumulated:
+ *  "which hosts is this batch missing" is a question about the fleet as it is,
+ *  and a host that came back before the answer left is no longer a gap. */
+function gapsOf(
+  hosts: FleetHosts,
+  sub: FleetSubscription,
+): readonly FleetWatchGap[] {
+  const gaps: FleetWatchGap[] = [];
+  for (const host of watched(hosts, sub)) {
+    const refused = sub.unreachable.get(host);
+    const state = hosts.state(host);
+    if (refused !== undefined) {
+      gaps.push({
+        host,
+        kind: "watch-refused",
+        state,
+        why: `${host} refused the watch: ${refused}. It is retried on every watch_next; nothing from it is in this batch.`,
+      });
+    } else if (hosts.padi(host) === null) {
+      gaps.push({
+        host,
+        kind: "not-connected",
+        state,
+        why: `${host} is ${state} — its terminals are PARKED, not gone. This watch re-opens its leg and drains what it missed the moment it answers again.`,
+      });
+    }
+  }
+  return gaps;
+}
 
 /** The PARK — the one genuinely Promise-shaped thing in this file, and the
  *  reason it is lifted rather than composed: `awaitWatchEvents` is padi's
@@ -333,8 +491,10 @@ async function ringOnce(
     opts.leftMs === undefined ? undefined : setTimeout(stop, opts.leftMs);
   try {
     if (outer.some((one) => one.aborted)) return;
-    const bells = [...sub.legs].flatMap(([host, leg]) => {
-      const padi = hosts.padi(host);
+    const bells = [...sub.legs.values()].flatMap((leg) => {
+      // A parked leg has no doorbell to listen at. The roster subscription
+      // above is what wakes this park when its host comes back.
+      const padi = leg.padi;
       return padi === null
         ? []
         : [
@@ -386,7 +546,7 @@ export function fleetWatchNext(
      *  covers the rest. */
     readonly signal?: AbortSignal | undefined;
   },
-): Effect.Effect<FleetWatchOutcome, unknown> {
+): Effect.Effect<FleetWatchAnswer, unknown> {
   return Effect.gen(function* () {
     const started = Date.now();
     const sub = registry.get(opts.name);
@@ -406,6 +566,12 @@ export function fleetWatchNext(
       sub.buffer = sub.buffer.filter((event) => event.seq > after);
     }
     const elapsed = (): number => Date.now() - started;
+    // Every arm answers through here, so no outcome can forget to say which
+    // hosts it did not hear from.
+    const done = (outcome: FleetWatchOutcome): FleetWatchAnswer => ({
+      outcome,
+      gaps: gapsOf(hosts, sub),
+    });
     const answer = (): FleetWatchOutcome => {
       const events = [...sub.buffer];
       const dropped = sub.dropped;
@@ -425,14 +591,14 @@ export function fleetWatchNext(
 
     for (;;) {
       yield* reconcile(hosts, sub);
-      if (sub.buffer.length > 0) return answer();
+      if (sub.buffer.length > 0) return done(answer());
       if (opts.signal?.aborted === true) {
-        return { kind: "interrupted" } as const;
+        return done({ kind: "interrupted" });
       }
       const left =
         opts.timeoutMs === undefined ? undefined : opts.timeoutMs - elapsed();
       if (left !== undefined && left <= 0) {
-        return { kind: "timeout", elapsedMs: elapsed() } as const;
+        return done({ kind: "timeout", elapsedMs: elapsed() });
       }
       yield* Effect.tryPromise({
         try: (fiberSignal) =>
@@ -445,7 +611,7 @@ export function fleetWatchNext(
       // In LEG order — the roster's order, local first — so the fleet seq a
       // caller acknowledges is assigned by a rule, not by which machine's
       // packet arrived first.
-      yield* drainLegs(hosts, sub);
+      yield* drainLegs(sub);
     }
   });
 }
@@ -456,10 +622,12 @@ export function fleetWatchNext(
  *
  *  A subscription that NAMES terminals is checked host by host first: an id on
  *  a host that is not connected is refused BY NAME, rather than quietly
- *  producing a watch that is blind to exactly the lane the caller asked about.
- *  A subscription that names none ("watch all") legs whatever is connected and
- *  picks up the rest as they arrive — there is nothing to refuse, because the
- *  caller named no host. */
+ *  producing a watch that is blind to exactly the lane the caller asked about,
+ *  and a named host that then refuses the subscription fails the call for the
+ *  same reason. A subscription that names none ("watch all") legs whatever is
+ *  connected and picks up the rest as they arrive — there is nothing to refuse,
+ *  because the caller named no host, so a machine that is down or refusing is
+ *  reported as a GAP and retried on every drain. */
 export function fleetWatchOpen(
   hosts: FleetHosts,
   registry: FleetWatchRegistry,
@@ -469,7 +637,12 @@ export function fleetWatchOpen(
     readonly opened: (host: string) => PadiWatchOpenInput;
   },
 ): Effect.Effect<
-  { name: string; hosts: string[]; reattached: boolean },
+  {
+    name: string;
+    hosts: string[];
+    reattached: boolean;
+    gaps: readonly FleetWatchGap[];
+  },
   unknown
 > {
   return Effect.gen(function* () {
@@ -490,6 +663,7 @@ export function fleetWatchOpen(
         scope: spec.scope,
         opened: spec.opened,
         legs: new Map(),
+        unreachable: new Map(),
         buffer: [],
         nextSeq: 0,
         dropped: 0,
@@ -500,18 +674,24 @@ export function fleetWatchOpen(
       live = existing;
     }
     registry.set(spec.name, live);
-    for (const host of wanted(hosts, live)) {
-      if (live.legs.has(host)) continue;
-      const padi = yield* requireHost(hosts, host);
-      // `openLeg` carries `spec.opened`'s refusal on the error channel (the
-      // per-host face's own `ToolFailure`, detail intact), so it composes
-      // straight in.
-      yield* openLeg(live, host, padi);
+    for (const host of watched(hosts, live)) {
+      const legged = live.legs.get(host)?.padi;
+      const padi = hosts.padi(host);
+      // A disconnected host is not legged and not refused: under `ids` the
+      // check above has already refused it, so reaching here means nobody
+      // named it. The gap says so, and the first reconcile legs it when it
+      // answers.
+      if (padi === null || legged === padi) continue;
+      // `attachLeg` carries `spec.opened`'s refusal on the error channel (the
+      // per-host face's own `ToolFailure`, detail intact) for a scope that
+      // NAMED this host, and records it as a gap for one that did not.
+      yield* attachLeg(live, host, padi);
     }
     return {
       name: spec.name,
       hosts: [...live.legs.keys()],
       reattached: existing !== undefined,
+      gaps: gapsOf(hosts, live),
     };
   });
 }
@@ -519,9 +699,11 @@ export function fleetWatchOpen(
 /** Close every leg of a fleet subscription, and forget it. Refuses an unknown
  *  name with padi's OWN declared error — "there was no such subscription" is
  *  exactly the answer that class exists to keep distinguishable from "there was
- *  nothing to report". */
+ *  nothing to report".
+ *
+ *  It needs no host map: a leg carries the link it was opened over, which is
+ *  the only one that can close what this subscription opened. */
 export function fleetWatchClose(
-  hosts: FleetHosts,
   registry: FleetWatchRegistry,
   name: string,
 ): Effect.Effect<Record<string, never>, WatchSubscriptionNotFound> {
@@ -538,15 +720,16 @@ export function fleetWatchClose(
     registry.delete(name);
     return Effect.as(
       Effect.forEach(
-        [...sub.legs.keys()],
-        (host) => {
-          const padi = hosts.padi(host);
-          // A host that has already left has nothing to close, and saying so
-          // would make a clean close fail for a reason the caller cannot act
-          // on. Its leg is simply dropped with the subscription.
-          return padi === null
+        [...sub.legs.values()],
+        (leg) => {
+          // A host that has already left, or is not answering, has nothing to
+          // close — and saying so would make a clean close fail for a reason
+          // the caller cannot act on. Its leg is simply dropped with the
+          // subscription. The close goes over the link the leg was opened on,
+          // never a newer one that never heard the name.
+          return leg.padi === null
             ? Effect.void
-            : Effect.ignore(padi.surface.watch.close({ name }));
+            : Effect.ignore(leg.padi.surface.watch.close({ name }));
         },
         { discard: true },
       ),

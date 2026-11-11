@@ -68,8 +68,15 @@ function cell<T>(initial: T) {
   };
 }
 
-const terminalRecord = (id: TerminalId, title: string): PadiTerminal =>
-  ({ id, state: "active", title }) as unknown as PadiTerminal;
+/** What padi serves as a terminal record — and it carries NO `id`: on a face
+ *  that serves one machine the collection KEY is the identity, which is
+ *  precisely why the fleet face has to put an addressable one on the row. */
+const terminalRecord = (title: string, parentId?: TerminalId): PadiTerminal =>
+  ({
+    state: "active",
+    title,
+    ...(parentId === undefined ? {} : { parentId }),
+  }) as unknown as PadiTerminal;
 
 const EMPTY_URGENCY: PadiUrgency = {
   awaitingIds: [],
@@ -81,11 +88,22 @@ const EMPTY_URGENCY: PadiUrgency = {
 interface FakePadi {
   readonly client: PadiSurfaceClient;
   readonly calls: string[];
-  add(id: TerminalId, title: string): void;
+  add(id: TerminalId, title: string, parentId?: TerminalId): void;
   remove(id: TerminalId): void;
   /** Queue a settle event and ring the pulse, as padi's registry would. */
   fire(id: TerminalId, kind: "asking" | "finished" | "gone"): void;
   setUrgency(next: PadiUrgency): void;
+  /** Make this padi REFUSE every `watch.open` — a host that is answering but
+   *  cannot carry a subscription (a padi mid-restart, a registry at its cap).
+   *  `null` restores it. */
+  refuseWatchOpen(why: string | null): void;
+  /** Make `lifecycle.sendInput` fail — how a create stops PARTWAY with a real
+   *  terminal already on the canvas. */
+  refuseSendInput(why: string | null): void;
+  /** Drop every subscription this padi holds, keeping the client — a padi
+   *  that RESTARTED under a mirror that never dropped, so nothing upstream
+   *  observed a disconnect and the next drain finds no such queue. */
+  forgetWatches(): void;
   readonly openedWatches: string[];
   readonly closedWatches: string[];
 }
@@ -93,7 +111,7 @@ interface FakePadi {
 function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
   const calls: string[] = [];
   const records = new Map<TerminalId, PadiTerminal>(
-    seeded.map((id) => [id, terminalRecord(id, `${host} ${id.slice(0, 4)}`)]),
+    seeded.map((id) => [id, terminalRecord(`${host} ${id.slice(0, 4)}`)]),
   );
   const keys = cell<TerminalId[]>([...records.keys()]);
   const urgency = cell<PadiUrgency>(EMPTY_URGENCY);
@@ -101,8 +119,11 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
   const queue: PadiWatchEvent[] = [];
   const openedWatches: string[] = [];
   const closedWatches: string[] = [];
-  const open = new Set<string>();
+  /** Open subscription names → the watermark each has acknowledged. */
+  const open = new Map<string, number>();
   let seq = 0;
+  let watchOpenRefusal: string | null = null;
+  let sendInputRefusal: string | null = null;
 
   const client = {
     surface: {
@@ -147,8 +168,11 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
             return { id: input.id, pid: 42 };
           }),
         sendInput: (input: unknown) =>
-          Effect.sync(() => {
+          Effect.suspend(() => {
             calls.push(`lifecycle.sendInput:${JSON.stringify(input)}`);
+            return sendInputRefusal === null
+              ? Effect.void
+              : Effect.fail(new Error(sendInputRefusal));
           }),
       },
       git: {
@@ -159,24 +183,39 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
           }),
       },
       watch: {
+        // padi's own rule, because the fleet leans on it: a FRESH subscription
+        // starts acknowledged at the daemon's current sequence (it reports what
+        // happens next), and a RE-ATTACH keeps the watermark it had — which is
+        // what makes a reconnect hand over what was queued while the link was
+        // down instead of skipping it.
         open: (input: { name: string }) =>
-          Effect.sync(() => {
+          Effect.suspend(() => {
             openedWatches.push(input.name);
-            const reattached = open.has(input.name);
-            open.add(input.name);
-            return { name: input.name, acknowledged: seq, reattached };
+            if (watchOpenRefusal !== null) {
+              return Effect.fail(new Error(watchOpenRefusal));
+            }
+            const held = open.get(input.name);
+            const acknowledged = held ?? seq;
+            open.set(input.name, acknowledged);
+            return Effect.succeed({
+              name: input.name,
+              acknowledged,
+              reattached: held !== undefined,
+            });
           }),
         drain: (input: { name: string; after?: number }) =>
           Effect.suspend(() => {
-            if (!open.has(input.name)) {
+            const held = open.get(input.name);
+            if (held === undefined) {
               return Effect.fail(
                 new WatchSubscriptionNotFound({
                   name: input.name,
-                  known: [...open],
+                  known: [...open.keys()],
                 }),
               );
             }
-            const after = input.after ?? 0;
+            const after = input.after ?? held;
+            open.set(input.name, after);
             const events = queue.filter((event) => event.seq > after);
             return Effect.succeed({
               events,
@@ -190,7 +229,7 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
               return Effect.fail(
                 new WatchSubscriptionNotFound({
                   name: input.name,
-                  known: [...open],
+                  known: [...open.keys()],
                 }),
               );
             }
@@ -208,8 +247,8 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
     calls,
     openedWatches,
     closedWatches,
-    add(id, title) {
-      records.set(id, terminalRecord(id, title));
+    add(id, title, parentId) {
+      records.set(id, terminalRecord(title, parentId));
       keys.set([...records.keys()]);
     },
     remove(id) {
@@ -223,6 +262,17 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
     },
     setUrgency(next) {
       urgency.set(next);
+    },
+    refuseWatchOpen(why) {
+      watchOpenRefusal = why;
+    },
+    refuseSendInput(why) {
+      sendInputRefusal = why;
+    },
+    forgetWatches() {
+      open.clear();
+      queue.length = 0;
+      seq = 0;
     },
   };
 }
@@ -336,8 +386,11 @@ describe("the fleet face over two hosts", () => {
     ]);
   });
 
-  it("a terminal record is read from the host that owns it", async () => {
-    const { fleet } = twoHosts();
+  it("a terminal record is read from the host that owns it, and SAYS so", async () => {
+    const { beta, fleet } = twoHosts();
+    // A split living inside another terminal on the same host — the one place
+    // a record carries a second id of its own.
+    beta.add(BETA_1, "box worker", ALPHA_1);
     const mcp = await servedFleet(fleet.hosts);
     // The id segment is percent-encoded: a fleet reference carries a slash, and
     // the adapter addresses a collection item by SEGMENT.
@@ -345,9 +398,19 @@ describe("the fleet face over two hosts", () => {
       await mcp.readResource({
         uri: `surface://collections/terminals/${encodeURIComponent(`remote:box/${BETA_1}`)}`,
       }),
-    ) as { id: string; title: string };
-    expect(record.id).toBe(BETA_1);
-    expect(record.title).toContain("remote:box");
+    ) as { id: string; parentId: string; host: string; title: string };
+    expect(record.title).toBe("box worker");
+    // Every id on the row is one the TOOLS on this face accept. A bare `id`
+    // here is a row an agent reads and cannot act on: `lifecycle_kill` refuses
+    // it as "not a fleet terminal reference".
+    expect(record.id).toBe(`remote:box/${BETA_1}`);
+    expect(record.parentId).toBe(`remote:box/${ALPHA_1}`);
+    expect(record.host).toBe("remote:box");
+    const killed = await mcp.callTool({
+      name: "lifecycle_kill",
+      arguments: { id: record.id },
+    });
+    expect(killed.isError ?? false, JSON.stringify(killed.content)).toBe(false);
   });
 
   it("`hosts` is the live roster, with each padi's build facts as columns", async () => {
@@ -428,6 +491,35 @@ describe("the fleet face over two hosts", () => {
     expect(beta.calls).toHaveLength(1);
   });
 
+  it("a create that stops PARTWAY names the survivor at a reference another tool accepts", async () => {
+    const { beta, fleet } = twoHosts();
+    beta.refuseSendInput("the pty went away mid-write");
+    const mcp = await servedFleet(fleet.hosts);
+    const res = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: {
+        host: "remote:box",
+        placement: { kind: "toplevel" },
+        run: "pnpm test",
+      },
+    });
+    expect(res.isError).toBe(true);
+    // The terminal EXISTS on box. An id the agent cannot pass back is an
+    // orphan it was told about and cannot remove.
+    expect(res.structuredContent).toMatchObject({
+      kind: "stopped-partway",
+      landed: { id: `remote:box/${BETA_1}` },
+    });
+    // The prose the model actually reads carries the same reference.
+    expect(JSON.stringify(res.content)).toContain(`remote:box/${BETA_1}`);
+    const killed = await mcp.callTool({
+      name: "lifecycle_kill",
+      arguments: { id: `remote:box/${BETA_1}` },
+    });
+    expect(killed.isError ?? false, JSON.stringify(killed.content)).toBe(false);
+    expect(beta.calls).toContain(`lifecycle.kill:${BETA_1}`);
+  });
+
   it("refuses a cross-host parent instead of flattening the hierarchy", async () => {
     const { fleet } = twoHosts();
     const mcp = await servedFleet(fleet.hosts);
@@ -503,6 +595,15 @@ describe("the fleet watch", () => {
     return mcp;
   }
 
+  /** A host the fleet watch could not hear from this round, as it reaches the
+   *  caller. */
+  interface Gap {
+    readonly host: string;
+    readonly kind: string;
+    readonly state: string;
+    readonly why: string;
+  }
+
   interface Drained {
     readonly id: string;
     readonly result: string;
@@ -510,6 +611,7 @@ describe("the fleet watch", () => {
       readonly events: readonly { id: string; kind: string; seq: number }[];
       readonly ackAfter: number;
     };
+    readonly gaps?: readonly Gap[];
   }
 
   const drain = async (
@@ -613,6 +715,192 @@ describe("the fleet watch", () => {
       [`remote:box/${BETA_1}`, "gone"],
       [`remote:box/${ALPHA_2}`, "gone"],
     ]);
+  });
+
+  it("a host that DISCONNECTS is PARKED, not mourned — and drains what it missed when it returns", async () => {
+    const alpha = fakePadi("local", [ALPHA_1]);
+    const beta = fakePadi("remote:box", [BETA_1]);
+    const fleet = fakeFleet([
+      { key: "local", display: "this machine", padi: alpha },
+      { key: "remote:box", display: "box", padi: beta },
+    ]);
+    const mcp = await servedFleet(fleet.hosts);
+    await mcp.callTool({ name: "watch_open", arguments: { name: "fleet" } });
+
+    // An ssh blip, or a remote padi restarting: kolu-server's mirror loses the
+    // client while the host stays in the map. Its terminals are still there.
+    fleet.setState("remote:box", "warming");
+    // ...and something DOES happen on it while the link is down.
+    beta.fire(BETA_1, "asking");
+
+    const quiet = await drain(mcp, { name: "fleet", timeoutMs: 150 });
+    expect(quiet.result).toBe("timeout");
+    // Not one `gone` — that word is what the standing prompt teaches as "dead",
+    // and nothing would ever announce the return.
+    expect(quiet.met?.events ?? []).toEqual([]);
+    // The silence is not left to be read as a calm machine, either.
+    expect(quiet.gaps).toMatchObject([
+      { host: "remote:box", kind: "not-connected", state: "warming" },
+    ]);
+
+    fleet.join("remote:box", "box", beta);
+
+    const batch = await drain(mcp, { name: "fleet", timeoutMs: 2000 });
+    // The event queued DURING the outage arrives: the leg was re-opened at the
+    // watermark padi kept, not at whatever that daemon's sequence had reached.
+    expect(batch.met?.events.map((e) => [e.id, e.kind])).toEqual([
+      [`remote:box/${BETA_1}`, "asking"],
+    ]);
+    expect(batch.gaps).toBeUndefined();
+    // RE-OPENED, not merely re-drained: the padi that answers again may be a
+    // fresh process that never heard the name, and a drain against that fails
+    // the whole fleet's `watch_next`.
+    expect(beta.openedWatches).toEqual(["fleet", "fleet"]);
+  });
+
+  it("under `watch all`, a host whose watch.open keeps failing costs its own lane and not the fleet's", async () => {
+    const alpha = fakePadi("local", [ALPHA_1]);
+    const beta = fakePadi("remote:box", [BETA_1]);
+    beta.refuseWatchOpen("the watch registry is at its cap");
+    const fleet = fakeFleet([
+      { key: "local", display: "this machine", padi: alpha },
+      { key: "remote:box", display: "box", padi: beta },
+    ]);
+    const mcp = await servedFleet(fleet.hosts);
+
+    const opened = await mcp.callTool({
+      name: "watch_open",
+      arguments: { name: "fleet" },
+    });
+    expect(opened.isError ?? false, JSON.stringify(opened.content)).toBe(false);
+    expect(opened.structuredContent).toMatchObject({
+      hosts: ["local"],
+      gaps: [{ host: "remote:box", kind: "watch-refused" }],
+    });
+
+    alpha.fire(ALPHA_1, "asking");
+    const batch = await drain(mcp, { name: "fleet", timeoutMs: 2000 });
+    // The healthy machine still reports. A `watch_next` that failed outright
+    // would leave the agent with nothing from it.
+    expect(batch.met?.events.map((e) => e.id)).toEqual([`local/${ALPHA_1}`]);
+    // And the sick one is DATA, not silence — with the host's own refusal in it.
+    expect(batch.gaps).toMatchObject([
+      { host: "remote:box", kind: "watch-refused", state: "connected" },
+    ]);
+    expect(batch.gaps?.[0]?.why).toContain("the watch registry is at its cap");
+    // Retried every round rather than written off.
+    expect(beta.openedWatches.length).toBeGreaterThan(1);
+
+    // ...and when it recovers, the next round legs it onto the subscription
+    // that is already open — the caller re-opens nothing.
+    beta.refuseWatchOpen(null);
+    const legged = await drain(mcp, {
+      name: "fleet",
+      after: batch.met?.ackAfter,
+      timeoutMs: 150,
+    });
+    expect(legged.result).toBe("timeout");
+    expect(legged.gaps).toBeUndefined();
+
+    beta.fire(BETA_1, "finished");
+    const after = await drain(mcp, { name: "fleet", timeoutMs: 2000 });
+    expect(after.met?.events.map((e) => e.id)).toEqual([
+      `remote:box/${BETA_1}`,
+    ]);
+    expect(after.gaps).toBeUndefined();
+  });
+
+  it("a padi that RESTARTS under a live link re-legs itself instead of failing the fleet's drain", async () => {
+    const alpha = fakePadi("local", [ALPHA_1]);
+    const beta = fakePadi("remote:box", [BETA_1]);
+    const fleet = fakeFleet([
+      { key: "local", display: "this machine", padi: alpha },
+      { key: "remote:box", display: "box", padi: beta },
+    ]);
+    const mcp = await servedFleet(fleet.hosts);
+    await mcp.callTool({ name: "watch_open", arguments: { name: "fleet" } });
+
+    // kolu-server's mirror absorbs the restart, so the fleet face never saw a
+    // disconnect — it is holding a cursor into a queue that no longer exists.
+    beta.forgetWatches();
+    alpha.fire(ALPHA_1, "asking");
+
+    const batch = await drain(mcp, { name: "fleet", timeoutMs: 2000 });
+    // The healthy host still reports: one machine's restart is not the
+    // fleet's failure, which is what a bare `WatchSubscriptionNotFound` out of
+    // the merged drain would have made it.
+    expect(batch.met?.events.map((e) => e.id)).toEqual([`local/${ALPHA_1}`]);
+    expect(beta.openedWatches).toEqual(["fleet", "fleet"]);
+
+    // ...and the re-legged host is an ordinary member again.
+    beta.fire(BETA_1, "finished");
+    const after = await drain(mcp, {
+      name: "fleet",
+      after: batch.met?.ackAfter,
+      timeoutMs: 2000,
+    });
+    expect(after.met?.events.map((e) => e.id)).toEqual([
+      `remote:box/${BETA_1}`,
+    ]);
+  });
+
+  it("a host the caller NAMED fails the open outright, rather than watching blind", async () => {
+    const alpha = fakePadi("local", [ALPHA_1]);
+    const beta = fakePadi("remote:box", [BETA_1]);
+    beta.refuseWatchOpen("the watch registry is at its cap");
+    const fleet = fakeFleet([
+      { key: "local", display: "this machine", padi: alpha },
+      { key: "remote:box", display: "box", padi: beta },
+    ]);
+    const mcp = await servedFleet(fleet.hosts);
+    const res = await mcp.callTool({
+      name: "watch_open",
+      arguments: {
+        name: "fleet",
+        ids: [`local/${ALPHA_1}`, `remote:box/${BETA_1}`],
+      },
+    });
+    expect(res.isError).toBe(true);
+    expect(JSON.stringify(res.content)).toContain(
+      "the watch registry is at its cap",
+    );
+  });
+
+  it("a NAMED host that comes back REFUSING fails the drain, instead of dropping the lane", async () => {
+    const alpha = fakePadi("local", [ALPHA_1]);
+    const beta = fakePadi("remote:box", [BETA_1]);
+    const fleet = fakeFleet([
+      { key: "local", display: "this machine", padi: alpha },
+      { key: "remote:box", display: "box", padi: beta },
+    ]);
+    const mcp = await servedFleet(fleet.hosts);
+    const opened = await mcp.callTool({
+      name: "watch_open",
+      arguments: {
+        name: "fleet",
+        ids: [`local/${ALPHA_1}`, `remote:box/${BETA_1}`],
+      },
+    });
+    expect(opened.isError ?? false).toBe(false);
+
+    // It drops, and the padi that comes back is a FRESH process — a different
+    // client, which never heard this subscription's name — and it refuses the
+    // re-open. The caller asked about that terminal by name, so a watch that
+    // cannot cover it is not the watch it opened, and carrying on quietly is
+    // the blindness this rule exists to refuse.
+    fleet.setState("remote:box", "warming");
+    const restarted = fakePadi("remote:box", [BETA_1]);
+    restarted.refuseWatchOpen("the watch registry is at its cap");
+    fleet.join("remote:box", "box", restarted);
+
+    const res = await mcp.callTool({
+      name: "watch_next",
+      arguments: { name: "fleet", timeoutMs: 2000 },
+    });
+    expect(res.isError).toBe(true);
+    expect(JSON.stringify(res.content)).toContain(
+      "the watch registry is at its cap",
+    );
   });
 
   it("watch_close closes every per-host leg", async () => {

@@ -594,25 +594,34 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // degrade into: a failure here throws out of `bootKoluWeb` naming itself,
   // rather than leaving the endpoint null and an orchestrator quietly
   // handless.
+  //
+  // ONE host port, a face PER SESSION. The door mints a transport for each MCP
+  // client that initializes (`fleet/mcpEndpoint.ts` argues why: a stateful
+  // transport serves exactly one), so `serve` runs once per session — but the
+  // host map is this process's, not a client's, and building a second one per
+  // session would re-dial nothing and re-cache everything, handing each face
+  // its own copy of a per-mirror padi client this boot has already paid for.
+  const fleetHosts = fleetHostsOver({
+    pool,
+    reServeFor,
+    // The local host's display name, as the host tab shows it: this machine by
+    // its hostname, a remote by its ssh target. An agent holding three hosts
+    // at once cannot do anything with "local".
+    localName: serverHostname,
+  });
   const fleetMcp = await startFleetMcpEndpoint({
     log,
     serve: (transport) =>
       serveKoluFleetMcp({
-        hosts: fleetHostsOver({
-          pool,
-          reServeFor,
-          // The local host's display name, as the host tab shows it: this
-          // machine by its hostname, a remote by its ssh target. An agent
-          // holding three hosts at once cannot do anything with "local".
-          localName: serverHostname,
-        }),
+        hosts: fleetHosts,
         transport,
         serverInfo: { name: "kolu-fleet", version: serverVersion },
       }),
   });
-  // The orchestrator PROVES this endpoint with a real request before it names
-  // it to an agent (the discipline padi's socket probe already had), so what
-  // it is handed is a reading, not a promise.
+  // The orchestrator PROVES this endpoint before it names it to an agent — the
+  // same `initialize` the adapter's client will send, answered with a session
+  // (the discipline padi's socket probe already had) — so what it is handed is
+  // a reading, not a promise.
   setFleetMcpEndpoint(() => ({ url: fleetMcp.url, token: fleetMcp.token }));
 
   // ── SR8.a: serve kolu-server's OWN surface HERE, after padiSession ───────

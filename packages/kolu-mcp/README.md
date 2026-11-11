@@ -150,7 +150,9 @@ fleet `identity`/`status`/`daemonStatus`: they are per-host facts, so they are
 columns of `hosts` rather than three fleet-wide readings of a per-host thing.
 Addressing one terminal percent-encodes the reference —
 `surface://collections/terminals/local%2F3f1c…` — since the adapter addresses a
-collection item by URI segment.
+collection item by URI segment. Each row carries its own `host` and its `id` /
+`parentId` as fleet references, so a record you read is one you can act on
+without remembering the key it arrived under.
 
 **Tools.** The same fifteen names, with the host in the arguments:
 `lifecycle_create` takes a `host` (create on the machine the repo lives on) and
@@ -171,10 +173,20 @@ including hosts that connect later; with `ids` it groups them by host and legs
 each one under the same name. `watch_next` merges every host's queue into one
 ordered batch under a **fleet-assigned** `seq`, so `after` is that number and
 never a host's own. A host that ARRIVES while the watch is open joins it without
-anything being reopened; a host that LEAVES reports each terminal it was
-carrying as `gone` and then drops out. `watch_close` closes every leg.
+anything being reopened; a host that LEAVES the fleet reports each terminal it
+was carrying as `gone` and then drops out. `watch_close` closes every leg.
 `ignoreSelf` is not offered here: the fleet face runs in kolu-server, whose
 caller is in no terminal, so there is no self to mute — use `ignoreIds`.
+
+**Disconnecting is not leaving.** An ssh blip, a padi restart, a host still
+warming: that host is still a member and its terminals are still there, so its
+leg is *parked* rather than mourned — re-opened, and drained of what padi
+buffered, the moment it answers again. It is named in the answer's `gaps`
+instead, beside any host that is connected but keeps refusing the subscription:
+that one is skipped for the round and retried on the next, so one sick machine
+cannot fail a drain over the healthy ones. A host you NAMED in `ids` is the
+opposite case and fails the call — you asked about that lane, so a watch that
+cannot cover it is not the watch you opened.
 
 **The port kolu-server implements** is `FleetHosts` (`keys` · `display` ·
 `padi` · `state` · `subscribe`). The face holds no host map of its own: a second

@@ -59,6 +59,7 @@ import { type FleetHosts, requireHost, requireTerminal } from "./hosts.ts";
 import { fleetTerminalRef, splitFleetTerminalRef } from "./ref.ts";
 import { FleetHostKeySchema, FleetTerminalRefSchema } from "./refSchema.ts";
 import {
+  type FleetWatchGap,
   type FleetWatchMet,
   type FleetWatchRegistry,
   fleetWatchNext,
@@ -84,8 +85,8 @@ const FleetPlacementSchema = Schema.Union([
 ]).annotate({ message: PLACEMENT_REQUIRED, description: PLACEMENT_REQUIRED });
 
 /** One lifted tool's whole id grammar: the input an agent is advertised, where
- *  the HOST comes from, which other arguments carry a reference, and which
- *  answer keys carry a bare id.
+ *  the HOST comes from, which other arguments carry a reference, which answer
+ *  keys carry a bare id — and which keys of a REFUSAL do.
  *
  *  `from` is the routing rule: `{ ref }` names an argument holding a fleet
  *  reference (bared on the way in), `{ host: true }` the explicit `host` key
@@ -99,6 +100,12 @@ interface FleetLift {
   readonly from: { readonly ref: string } | { readonly host: true };
   readonly refs: readonly string[];
   readonly answers: readonly string[];
+  /** Dotted paths into a {@link ToolFailure}'s detail that name a terminal the
+   *  call CREATED before it stopped. A refusal is the one answer whose ids
+   *  matter most — `stopped-partway` exists so an agent can kill what landed —
+   *  and a bare id there is refused by the very tool it names ("not a fleet
+   *  terminal reference"), leaving an orphan nothing can address. */
+  readonly refusals: readonly string[];
 }
 
 /** THE id grammar of the fleet face, in one place. Each input is the per-host
@@ -118,6 +125,7 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     from: { host: true },
     refs: ["placement.parentId"],
     answers: ["id"],
+    refusals: ["landed.id"],
   },
   lifecycle_sendInput: {
     input: Schema.Struct({
@@ -127,6 +135,7 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     from: { ref: "id" },
     refs: [],
     answers: [],
+    refusals: [],
   },
   screen_text: {
     input: Schema.Struct({
@@ -136,6 +145,7 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     from: { ref: "id" },
     refs: [],
     answers: [],
+    refusals: [],
   },
   screen_image: {
     input: Schema.Struct({
@@ -145,6 +155,7 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     from: { ref: "id" },
     refs: [],
     answers: [],
+    refusals: [],
   },
   wait_outputSettled: {
     input: Schema.Struct({
@@ -154,6 +165,7 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     from: { ref: "id" },
     refs: [],
     answers: ["id"],
+    refusals: [],
   },
   wait_agentState: {
     input: Schema.Struct({
@@ -163,6 +175,7 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     from: { ref: "id" },
     refs: [],
     answers: ["id"],
+    refusals: [],
   },
 };
 
@@ -258,7 +271,7 @@ function route(
   });
 }
 
-/** Step 3 — put the host back on every id the answer carries. */
+/** Step 3 — put the host back on every id a SUCCESSFUL answer carries. */
 function requalify(
   answer: unknown,
   keys: readonly string[],
@@ -277,6 +290,36 @@ function requalify(
   return out;
 }
 
+/** Step 3's other half — the ids a REFUSAL carries.
+ *
+ *  A tool that stops partway has created something real and names it so the
+ *  agent can act on it (`stopped-partway`'s `landed.id` — "lifecycle_kill ends
+ *  it"). On this face that id is addressed as `<host>/<id>`, so leaving the
+ *  bare one in the refusal hands the agent the one reference `lifecycle_kill`
+ *  refuses — an orphan terminal nothing can name. The PROSE is rewritten
+ *  beside the data because the sentence is what the model reads.
+ *
+ *  Only a {@link ToolFailure} is touched: it is the one failure whose shape the
+ *  raiser declared, and rewriting fields of an arbitrary thrown value would be
+ *  guessing. */
+function requalifyRefusal(
+  error: unknown,
+  paths: readonly string[],
+  host: string,
+): unknown {
+  if (paths.length === 0 || !(error instanceof ToolFailure)) return error;
+  let detail: Record<string, unknown> = error.detail;
+  let message = error.message;
+  for (const path of paths) {
+    const value = atPath(detail, path);
+    if (typeof value !== "string") continue;
+    const ref = fleetTerminalRef(host, value);
+    detail = withPath(detail, path, ref);
+    message = message.replaceAll(value, ref);
+  }
+  return detail === error.detail ? error : new ToolFailure(message, detail);
+}
+
 /** One per-host tool, over the fleet. */
 function lifted(
   hosts: FleetHosts,
@@ -291,13 +334,17 @@ function lifted(
       Effect.flatMap(
         route(hosts, lift, args as Record<string, unknown>),
         (call) =>
-          Effect.map(
-            // The per-host handler is handed the ROOTED BUNDLE shape it reads
-            // its client out of (`padiOf`): padi as the core, no siblings —
-            // the same degenerate bundle `kolu mcp` dials, so the handler
-            // cannot tell which face invoked it.
-            tool.handler(call.bare, { core: call.padi }, signal),
-            (answer) => requalify(answer, lift.answers, call.host),
+          Effect.mapError(
+            Effect.map(
+              // The per-host handler is handed the ROOTED BUNDLE shape it reads
+              // its client out of (`padiOf`): padi as the core, no siblings —
+              // the same degenerate bundle `kolu mcp` dials, so the handler
+              // cannot tell which face invoked it.
+              tool.handler(call.bare, { core: call.padi }, signal),
+              (answer) => requalify(answer, lift.answers, call.host),
+            ),
+            (error: unknown) =>
+              requalifyRefusal(error, lift.refusals, call.host),
           ),
       ),
   };
@@ -361,7 +408,7 @@ function fleetWatchOpenTool(
     mutates: true,
     title: "Open a fleet watch",
     description:
-      `${KOLU_MCP_TOOLS.watch_open?.description ?? ""} ${FLEET_NOTE} One name covers every host: a host that connects later joins this subscription on its own, and a host that goes away reports each terminal it was carrying as "gone" before it leaves.`.trim(),
+      `${KOLU_MCP_TOOLS.watch_open?.description ?? ""} ${FLEET_NOTE} One name covers every host: a host that connects later joins this subscription on its own, and a host that LEAVES the fleet reports each terminal it was carrying as "gone" before it goes. A host that is merely down or refusing is neither legged nor mourned — it is listed in \`gaps\`, retried on every watch_next, and drains what it missed when it answers.`.trim(),
     handler: (args, _bundle, _signal) =>
       Effect.suspend(() => {
         const { ids, ignoreIds, ...base } = args as Omit<
@@ -404,24 +451,38 @@ function fleetWatchOpenTool(
                 );
               }
             }
-            return fleetWatchOpen(hosts, registry, {
-              name: base.name,
-              scope:
-                watched === undefined
-                  ? { kind: "all" }
-                  : { kind: "ids", byHost: watched },
-              opened: (host) => {
-                const parsed = resolved(host);
-                if (parsed.kind === "error") {
-                  throw new ToolFailure(parsed.message, parsed.detail);
-                }
-                return parsed.value;
-              },
-            });
+            return Effect.map(
+              fleetWatchOpen(hosts, registry, {
+                name: base.name,
+                scope:
+                  watched === undefined
+                    ? { kind: "all" }
+                    : { kind: "ids", byHost: watched },
+                opened: (host) => {
+                  const parsed = resolved(host);
+                  if (parsed.kind === "error") {
+                    throw new ToolFailure(parsed.message, parsed.detail);
+                  }
+                  return parsed.value;
+                },
+              }),
+              withGaps,
+            );
           }),
         );
       }),
   };
+}
+
+/** A watch answer's blind spots, on the wire — present only when there ARE
+ *  any. An empty `gaps: []` on every frame is a field a reader learns to skip,
+ *  which is exactly the wrong habit for the one field that says "this batch is
+ *  missing a machine". */
+function withGaps<T extends { readonly gaps: readonly FleetWatchGap[] }>(
+  answer: T,
+): Record<string, unknown> {
+  const { gaps, ...rest } = answer;
+  return gaps.length === 0 ? { ...rest } : { ...rest, gaps };
 }
 
 /** `watch_next`, over the fleet — the merged drain. The cursor an agent echoes
@@ -435,7 +496,7 @@ function fleetWatchNextTool(
     mutates: false,
     title: "Wait for the next terminal event",
     description:
-      `${KOLU_MCP_TOOLS.watch_next?.description ?? ""} ${FLEET_NOTE} Events from every host arrive in ONE ordered batch under a fleet-wide seq, and a host that leaves reports each terminal it was carrying as "gone".`.trim(),
+      `${KOLU_MCP_TOOLS.watch_next?.description ?? ""} ${FLEET_NOTE} Events from every host arrive in ONE ordered batch under a fleet-wide seq, and a host that leaves the fleet reports each terminal it was carrying as "gone". A host that merely stopped answering is NOT gone: it is listed in \`gaps\`, and its events arrive when it reconnects.`.trim(),
     handler: (args, _bundle, signal) => {
       const { name, after, timeoutMs } = args as {
         readonly name: string;
@@ -447,8 +508,13 @@ function fleetWatchNextTool(
         // The subscription NAME rides the envelope's id slot, exactly as the
         // per-host drain does — for a standing subscription that IS "what was
         // this wait about".
-        (outcome) =>
-          waitOutcomeJson<FleetWatchMet>(name, outcome, (met) => ({ met })),
+        ({ outcome, gaps }) =>
+          withGaps({
+            ...waitOutcomeJson<FleetWatchMet>(name, outcome, (met) => ({
+              met,
+            })),
+            gaps,
+          }),
       );
     },
   };

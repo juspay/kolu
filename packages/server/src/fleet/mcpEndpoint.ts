@@ -1,7 +1,7 @@
 /**
  * The fleet MCP door — a dedicated loopback HTTP listener whose ONLY route is
- * `/mcp`, serving kolu's fleet-wide MCP face to the one ACP adapter this
- * process spawns.
+ * `/mcp`, serving kolu's fleet-wide MCP face to the ACP adapters this process
+ * spawns.
  *
  * WHY ITS OWN DOOR, and not a route on the app listener. The app listener is
  * the BROWSER's: it is TLS-able, it binds wherever the operator asked
@@ -30,6 +30,21 @@
  * `resources/updated` notifications — a host arriving, a terminal appearing —
  * ride the standalone GET SSE stream, which only exists for a session the
  * server can name. Stateless mode would silently drop every one of them.
+ *
+ * ONE TRANSPORT AND ONE FACE PER SESSION, which is what being stateful costs.
+ * A stateful transport answers exactly one `initialize` and refuses every
+ * later one with `400 Invalid Request: Server already initialized`. So a door
+ * that minted a single transport at boot would serve the FIRST MCP client it
+ * ever saw and nobody else: an adapter that crashes and respawns — the very
+ * case the orchestrator's corpse arm exists for — opens a fresh client, is
+ * refused, and the replacement conversation runs with no hands for the life of
+ * kolu-server. This door therefore routes on `Mcp-Session-Id`: a request
+ * carrying one is handed to that session's transport, and a request carrying
+ * none may only be an `initialize`, which mints a new transport, a new face
+ * behind it, and a new session id. Each face gets its own watch registry for
+ * free, which is what `serveKoluFleetMcp` already argues for — two clients are
+ * two fleets, and a shared registry would let one close the other's watch by
+ * name.
  */
 
 import {
@@ -47,11 +62,27 @@ import {
 import type { AddressInfo } from "node:net";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 
 /** The one path this listener answers. Anything else is a 404 — there is no
  *  index, no health route and no second verb, because the only client is an
  *  MCP adapter that was handed this exact URL. */
 const MCP_PATH = "/mcp";
+
+/** The header the streamable-HTTP transport mints on `initialize` and the
+ *  client echoes on everything after it. It is this door's routing key. */
+const SESSION_HEADER = "mcp-session-id";
+
+/** The widest body this door will read ITSELF.
+ *
+ *  Every other request's body is read by the session's own transport, under
+ *  the SDK's own bound. The one body read here is the handshake — because the
+ *  door has to see `initialize` to know a session is being opened at all — and
+ *  a handshake is a protocol version, a capabilities object and a client name.
+ *  64 KiB is two orders of magnitude of headroom over that, and the bound is
+ *  what stops an authenticated caller from making this process hold an
+ *  unbounded buffer before any session exists to account for it. */
+const MAX_HANDSHAKE_BYTES = 64 * 1024;
 
 /** Where the fleet face is listening and the credential to reach it — exactly
  *  what the orchestrator puts on its session's one `http` MCP server. */
@@ -60,16 +91,17 @@ export interface FleetMcpEndpoint {
   readonly url: string;
   /** The per-process bearer token, as `Authorization: Bearer <token>`. */
   readonly token: string;
-  /** Stop serving: close the MCP server (and with it the transport), then the
-   *  listener and every socket still on it. Idempotent. */
+  /** Stop serving: close every live session's MCP server (and with it its
+   *  transport), then the listener and every socket still on it. Idempotent. */
   close(): Promise<void>;
 }
 
 export interface FleetMcpEndpointOptions {
-  /** Build + connect the MCP server over the transport this door owns. The
-   *  door knows nothing about kolu's fleet — the composition root passes
-   *  `serveKoluFleetMcp` bound to its `FleetHosts`, and this module stays a
-   *  door. */
+  /** Build + connect an MCP server over a transport this door owns. Called
+   *  ONCE PER SESSION — see the module header: a stateful transport serves one
+   *  client, so a second client is a second face. The door knows nothing about
+   *  kolu's fleet — the composition root passes `serveKoluFleetMcp` bound to
+   *  its `FleetHosts`, and this module stays a door. */
   serve: (transport: Transport) => Promise<{ close: () => Promise<void> }>;
   /** Narration sink. A refused request is logged at WARN: on a single-user
    *  machine it means something other than this process's own adapter is
@@ -101,9 +133,97 @@ function bearerOf(req: IncomingMessage): string | null {
   return match?.[1] ?? null;
 }
 
-/** Start the fleet MCP door. Resolves once the listener is bound and the MCP
- *  server is connected to its transport — so a caller that has this value can
- *  hand the URL out knowing a request to it will be answered.
+/** A refusal in the shape an MCP client can read. The SDK's own transport
+ *  answers its refusals as JSON-RPC errors rather than bare status lines, and
+ *  the ones this door answers before any transport exists have to look the
+ *  same — a client that gets a naked `400` here reports a transport fault
+ *  instead of the sentence that says what was wrong. */
+function rpcError(
+  res: ServerResponse,
+  status: number,
+  code: number,
+  message: string,
+): void {
+  res
+    .writeHead(status, { "content-type": "application/json" })
+    .end(
+      JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null }),
+    );
+}
+
+/** The handshake body, read by the door because only the door can see whether
+ *  a session is being opened. Every outcome is a JSON-RPC refusal rather than
+ *  a throw: these are the client's mistakes, not this process's. */
+type HandshakeBody =
+  | { readonly ok: true; readonly value: unknown }
+  | {
+      readonly ok: false;
+      readonly status: number;
+      readonly code: number;
+      readonly message: string;
+    };
+
+async function handshakeBody(req: IncomingMessage): Promise<HandshakeBody> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  try {
+    for await (const chunk of req) {
+      const piece = chunk as Buffer;
+      size += piece.byteLength;
+      if (size > MAX_HANDSHAKE_BYTES) {
+        return {
+          ok: false,
+          status: 413,
+          code: -32_000,
+          message: `Payload Too Large: an initialize request may not exceed ${MAX_HANDSHAKE_BYTES} bytes`,
+        };
+      }
+      chunks.push(piece);
+    }
+  } catch (cause) {
+    return {
+      ok: false,
+      status: 400,
+      code: -32_700,
+      message: `Parse error: the request body ended early (${cause instanceof Error ? cause.message : String(cause)})`,
+    };
+  }
+  try {
+    return {
+      ok: true,
+      value: JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown,
+    };
+  } catch {
+    return {
+      ok: false,
+      status: 400,
+      code: -32_700,
+      message: "Parse error: Invalid JSON",
+    };
+  }
+}
+
+/** One client's MCP session: the transport it talks to and the face served
+ *  over that transport. The two die together — a transport whose server is
+ *  gone answers every request with silence, and a face whose transport is gone
+ *  holds fleet subscriptions for a reader that will never come back. */
+interface LiveSession {
+  readonly transport: StreamableHTTPServerTransport;
+  /** The served face, from the instant `serve` resolves — which is before the
+   *  transport is handed its first request, so every session the map can name
+   *  has one. */
+  served: { close: () => Promise<void> } | null;
+  /** Set the instant teardown begins, BEFORE anything is closed: closing the
+   *  face closes the transport, whose `onclose` lands straight back here, and
+   *  this flag is what makes that re-entry a no-op instead of a recursion. */
+  ending: boolean;
+  /** The one teardown, so a `close()` can await what an `onclose` started. */
+  ended: Promise<void>;
+}
+
+/** Start the fleet MCP door. Resolves once the listener is bound — so a caller
+ *  that has this value can hand the URL out knowing a request to it will be
+ *  answered.
  *
  *  A listen failure REJECTS rather than degrading: an orchestrator with no
  *  hands is not a degraded orchestrator, and the boot that called this decides
@@ -113,12 +233,81 @@ export async function startFleetMcpEndpoint(
 ): Promise<FleetMcpEndpoint> {
   const token = randomBytes(32).toString("hex");
 
-  const transport = new StreamableHTTPServerTransport({
-    // STATEFUL — see the module doc: the `updated` notifications ride the
-    // standalone GET SSE stream, which needs a named session.
-    sessionIdGenerator: () => randomUUID(),
-  });
-  const served = await opts.serve(transport);
+  /** Live sessions by the id their transport minted. Registered from the
+   *  transport's own `onsessioninitialized`, dropped on its `onclose`. */
+  const sessions = new Map<string, LiveSession>();
+
+  const forget = (session: LiveSession): Promise<void> => {
+    if (session.ending) return session.ended;
+    session.ending = true;
+    const id = session.transport.sessionId;
+    if (id !== undefined) sessions.delete(id);
+    session.ended = (async () => {
+      try {
+        await session.served?.close();
+      } catch (err) {
+        // A face that will not shut down must not take the door's teardown —
+        // or the process's — down with it; this line is the whole of the lead.
+        opts.log.error(
+          { err, session: id },
+          "fleet mcp: a session's face faulted while closing",
+        );
+      }
+    })();
+    return session.ended;
+  };
+
+  /** The first request of a conversation: mint a transport, serve a face over
+   *  it, and let the transport answer the handshake that brought us here. */
+  const openSession = async (
+    req: IncomingMessage,
+    res: ServerResponse,
+    handshake: unknown,
+  ): Promise<void> => {
+    const session: LiveSession = {
+      transport: new StreamableHTTPServerTransport({
+        // STATEFUL — see the module doc: the `updated` notifications ride the
+        // standalone GET SSE stream, which needs a named session.
+        sessionIdGenerator: () => randomUUID(),
+        // Registered from the transport's OWN callback, which fires INSIDE the
+        // handshake it is answering. Registering after `handleRequest` settled
+        // would be too late: a client sends `notifications/initialized` the
+        // moment it reads the answer, and on an SSE answer `handleRequest`
+        // does not settle until that stream ends.
+        onsessioninitialized: (id) => {
+          sessions.set(id, session);
+        },
+      }),
+      served: null,
+      ending: false,
+      ended: Promise.resolve(),
+    };
+    // BEFORE `serve`: `Protocol.connect` CHAINS onto whatever `onclose` is
+    // already here, so this runs beside the server's own. Setting it after
+    // would REPLACE the server's and the MCP server would never learn its
+    // transport had gone.
+    session.transport.onclose = () => {
+      void forget(session);
+    };
+    session.served = await opts.serve(session.transport);
+    await session.transport.handleRequest(req, res, handshake);
+  };
+
+  /** A fault in the transport is this process's defect, not the caller's, and
+   *  it must not reach the process-wide `unhandledRejection` boundary and take
+   *  kolu down over one request. */
+  const faulted =
+    (res: ServerResponse) =>
+    (err: unknown): void => {
+      opts.log.error({ err }, "fleet mcp: request handling faulted");
+      if (!res.headersSent) {
+        res
+          .writeHead(500, { "content-type": "text/plain" })
+          .end("internal error\n");
+      } else {
+        res.end();
+      }
+    };
 
   const server: Server = createServer(
     (req: IncomingMessage, res: ServerResponse) => {
@@ -143,20 +332,54 @@ export async function startFleetMcpEndpoint(
           .end("unauthorized\n");
         return;
       }
-      // The transport reads the body itself (no pre-parse). Its own faults are
-      // answered on the response it was given; a rejection here would be a
-      // defect in the transport, and it must not reach the process-wide
-      // `unhandledRejection` boundary and take kolu down over one request.
-      void transport.handleRequest(req, res).catch((err: unknown) => {
-        opts.log.error({ err }, "fleet mcp: request handling faulted");
-        if (!res.headersSent) {
-          res
-            .writeHead(500, { "content-type": "text/plain" })
-            .end("internal error\n");
-        } else {
-          res.end();
+
+      // A named session owns the request. A header sent TWICE arrives as an
+      // array, which is not an id this door ever minted — it falls through to
+      // the handshake arm and is refused there, rather than being guessed at.
+      const named = req.headers[SESSION_HEADER];
+      if (typeof named === "string") {
+        const session = sessions.get(named);
+        if (session === undefined) {
+          // `404` is the word the SDK's transport uses for a session it does
+          // not hold, and an MCP client's rule on it is to initialize again —
+          // which this door will now answer, instead of refusing forever.
+          rpcError(res, 404, -32_001, "Session not found");
+          return;
         }
-      });
+        // The transport reads the body itself here (no pre-parse): only the
+        // handshake is this door's to read.
+        void session.transport.handleRequest(req, res).catch(faulted(res));
+        return;
+      }
+
+      // No session named, so the only thing this may be is the handshake that
+      // opens one.
+      if (req.method !== "POST") {
+        rpcError(
+          res,
+          400,
+          -32_000,
+          "Bad Request: Mcp-Session-Id header is required",
+        );
+        return;
+      }
+      void (async () => {
+        const body = await handshakeBody(req);
+        if (!body.ok) {
+          rpcError(res, body.status, body.code, body.message);
+          return;
+        }
+        if (!isInitializeRequest(body.value)) {
+          rpcError(
+            res,
+            400,
+            -32_000,
+            "Bad Request: Mcp-Session-Id header is required",
+          );
+          return;
+        }
+        await openSession(req, res, body.value);
+      })().catch(faulted(res));
     },
   );
 
@@ -188,9 +411,9 @@ export async function startFleetMcpEndpoint(
       // Idempotent by memoizing the first teardown: a second caller awaits the
       // same close rather than closing a closed server (which errors).
       closed ??= (async () => {
-        // The MCP server first — it owns the transport, and closing the
-        // transport is what ends the SSE streams still holding sockets open.
-        await served.close();
+        // Every live session first — each owns an MCP server, and closing that
+        // is what ends the SSE streams still holding sockets open.
+        await Promise.all([...sessions.values()].map((one) => forget(one)));
         const done = Promise.withResolvers<void>();
         server.close(() => done.resolve());
         // Without this, an adapter that is still holding its GET stream keeps

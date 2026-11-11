@@ -32,9 +32,11 @@
 
 import {
   FsGitReadErrorSchema,
+  PadiActiveTerminalSchema,
+  PadiParkedTerminalSchema,
   PadiScreenHistoryInputSchema,
   PadiScreenHistoryOutputSchema,
-  PadiTerminalSchema,
+  PadiSleepingTerminalSchema,
   type PadiUrgencySchema,
   PadiWatchNameInputSchema,
   PtyHostIdentitySchema,
@@ -127,6 +129,47 @@ export const FleetHostSchema = Schema.Struct({
 });
 export type FleetHost = typeof FleetHostSchema.Type;
 
+/** One padi terminal record, at fleet identity. The ONE place this surface
+ *  re-types a record rather than a reference, and it does it per ARM so the
+ *  `active | sleeping | parked` discriminant padi publishes survives the lift.
+ *
+ *  Three fields, each for a failure:
+ *
+ *  - `id` — padi's record carries none at all (the collection KEY is the id,
+ *    and on one host that is identity enough). A fleet row that inherited that
+ *    silence would be a record an agent has to remember the key of; it reads
+ *    the row, hands `record.id` to a tool, and is told `undefined` is not a
+ *    fleet terminal reference.
+ *  - `parentId` — padi's own, which is BARE. Passed to `lifecycle_create`'s
+ *    `child-of` placement it is refused by the grammar; worse, a reader that
+ *    matched it against the `id` of a row from another host would read two
+ *    machines' hierarchies as one.
+ *  - `host` — padi declares the axis (`PadiHostAxisSchema`) and leaves it unset
+ *    precisely so this projection can fill it. Required here: on a fleet face
+ *    "which machine is this terminal on" has an answer for every row, and an
+ *    optional one would invite a reader to treat `undefined` as `local`. */
+const FLEET_IDENTITY_FIELDS = {
+  id: FleetTerminalRefSchema,
+  parentId: Schema.optionalKey(FleetTerminalRefSchema),
+  host: FleetHostKeySchema,
+};
+
+export const FleetTerminalSchema = Schema.Union([
+  Schema.Struct({
+    ...PadiActiveTerminalSchema.fields,
+    ...FLEET_IDENTITY_FIELDS,
+  }),
+  Schema.Struct({
+    ...PadiSleepingTerminalSchema.fields,
+    ...FLEET_IDENTITY_FIELDS,
+  }),
+  Schema.Struct({
+    ...PadiParkedTerminalSchema.fields,
+    ...FLEET_IDENTITY_FIELDS,
+  }),
+]);
+export type FleetTerminal = typeof FleetTerminalSchema.Type;
+
 /** `screen.history` over the fleet: padi's own input, addressed by reference. */
 export const FleetScreenHistoryInputSchema = Schema.Struct({
   ...PadiScreenHistoryInputSchema.fields,
@@ -164,10 +207,12 @@ export const fleetSurface = defineSurface({
     },
   },
   collections: {
-    /** Every terminal on every connected host, keyed by fleet reference. */
+    /** Every terminal on every connected host, keyed by fleet reference — and
+     *  each row says which host it is on and what its own reference is, so a
+     *  record read here is callable without the key it arrived under. */
     terminals: {
       keySchema: FleetTerminalRefSchema,
-      schema: PadiTerminalSchema,
+      schema: FleetTerminalSchema,
       verbs: ["keys", "get"],
     },
     /** The live roster — and it CHANGES under a reader: hosts arrive and leave

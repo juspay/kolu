@@ -29,15 +29,25 @@ export interface FleetHosts {
   keys(): readonly string[];
   /** What a person calls this host. */
   display(key: string): string;
-  /** That host's padi client, or null while it is not connected. */
+  /** That host's padi client, or null while it is not connected.
+   *
+   *  The VALUE is the link, and the fleet watch compares it by identity: a
+   *  host that dropped and came back between two calls answers with a
+   *  different client, which is how a leg learns that the padi behind it may
+   *  never have heard its subscription. */
   padi(key: string): PadiSurfaceClient | null;
   state(key: string): FleetHostState;
   /** Membership or reachability moved. */
   subscribe(cb: () => void): () => void;
 }
 
-/** The connected subset, in the port's own order — what every fleet-wide fold
- *  (the terminal union, the urgency merge, "watch all") is taken over.
+/** The connected subset, in the port's own order — what every fleet-wide FOLD
+ *  (the terminal union, the urgency merge) is taken over.
+ *
+ *  A fold, and not the watch: a fold answers a question about right now, so a
+ *  host that is not answering is simply not in it, whereas a standing
+ *  subscription is about a host over TIME and parks its leg instead (it reads
+ *  `keys()` and asks `padi()` per host for exactly that reason — `watch.ts`).
  *
  *  `padi() !== null` is the test, not `state()`: the client is the thing a call
  *  actually needs, so a roster that says `connected` while the client is gone

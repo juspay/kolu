@@ -31,7 +31,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { createServer, type Server } from "node:http";
+import { createServer, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -55,9 +55,14 @@ import {
 } from "@kolu/surface/frame-chunking";
 import { exceedsFrameLimit } from "@kolu/surface/frame-limit";
 import type { CellStore } from "@kolu/surface/server";
+import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AGENT_ENV } from "@kolu/acp/engine";
+import {
+  type FleetMcpEndpoint as LiveFleetMcpEndpoint,
+  startFleetMcpEndpoint,
+} from "../fleet/mcpEndpoint.ts";
 import {
   type FleetMcpEndpoint,
   type OrchestratorHost,
@@ -236,60 +241,57 @@ function rig(
 
 const SAVED_AGENT = process.env[AGENT_ENV];
 
-/** AN ENDPOINT THAT ANSWERS, because the host now proves the fleet MCP face
- *  before it hands the URL to an agent — and the proof is a real request, so
- *  there is nothing to stub. Every test that brings a conversation up
- *  therefore exercises the proof as well as what it was written for.
+/** THE REAL DOOR, because the host now proves the fleet MCP face before it
+ *  hands the URL to an agent — and the proof is a real `initialize`, so there
+ *  is nothing to stub. Every test that brings a conversation up therefore
+ *  exercises the proof as well as what it was written for.
  *
- *  It answers `400` with the transport's own "not initialized" body, which is
- *  exactly what the real streamable-HTTP endpoint answers a `ping` that opened
- *  no session — so a proof that started demanding `200` would fail here first.
- *  A request without the bearer token gets `401`, because the gate is half of
- *  what the proof is proving. */
-let liveEndpoint: FleetMcpEndpoint;
-let listener: Server;
+ *  Hand-rolling a listener that imitates the transport was the earlier shape
+ *  and it is exactly the drift to avoid: the imitation answered `400` and the
+ *  proof passed on it, so a door that could no longer serve anybody looked
+ *  identical to a healthy one. Standing the proof on `startFleetMcpEndpoint`
+ *  means the two halves of this boot cannot disagree in a test and agree in
+ *  production. */
+let liveEndpoint: LiveFleetMcpEndpoint;
+
+/** Every face that door served, and whether it was closed again. The proof
+ *  opens a REAL session — nothing weaker says "I will serve you" — so it owes
+ *  that session a termination; one that leaked would leave a fleet face
+ *  holding subscriptions behind every single bring-up. */
+let fleetFaces: Array<{ closed: boolean }> = [];
 
 beforeEach(async () => {
   // The adapter is BAKED, so a seated engine is the normal case; nothing is
   // executed here because `spawn` is injected.
   process.env[AGENT_ENV] = "/nix/store/fake-acp-adapter";
-  const token = "0123456789abcdef";
-  listener = createServer((req, res) => {
-    if (req.headers.authorization !== `Bearer ${token}`) {
-      res.writeHead(401).end();
-      return;
-    }
-    res.writeHead(400, { "content-type": "application/json" });
-    res.end(
-      JSON.stringify({
-        jsonrpc: "2.0",
-        id: null,
-        error: {
-          code: -32_000,
-          message: "Bad Request: Server not initialized",
+  fleetFaces = [];
+  liveEndpoint = await startFleetMcpEndpoint({
+    log: { info: () => {}, warn: () => {}, error: () => {} },
+    serve: async (transport) => {
+      // A bare MCP server: the fleet's own members are `kolu-mcp`'s subject.
+      // What the proof needs is a face that completes a handshake.
+      const mcp = new McpServer(
+        { name: "kolu-fleet", version: "0.0.0" },
+        { capabilities: { resources: {}, tools: {} } },
+      );
+      await mcp.connect(transport);
+      const face = { closed: false };
+      fleetFaces.push(face);
+      return {
+        close: async () => {
+          face.closed = true;
+          await mcp.close();
         },
-      }),
-    );
+      };
+    },
   });
-  const up = Promise.withResolvers<void>();
-  listener.listen(0, "127.0.0.1", up.resolve);
-  await up.promise;
-  const bound = listener.address();
-  if (bound === null || typeof bound === "string") {
-    throw new Error("the fleet endpoint fixture did not bind a TCP port");
-  }
-  liveEndpoint = { url: `http://127.0.0.1:${bound.port}/mcp`, token };
 });
 
 afterEach(async () => {
   vi.useRealTimers();
   if (SAVED_AGENT === undefined) delete process.env[AGENT_ENV];
   else process.env[AGENT_ENV] = SAVED_AGENT;
-  const down = Promise.withResolvers<void>();
-  listener.close(() => {
-    down.resolve();
-  });
-  await down.promise;
+  await liveEndpoint.close();
 });
 
 describe("the transcript a reader is handed", () => {
@@ -526,6 +528,111 @@ describe("a bring-up that did not get there (M2)", () => {
     );
     expect(r.spawns).toHaveLength(0);
     expect(r.host.state().refusal).toContain("401");
+  });
+
+  it("refuses an endpoint that is LISTENING and will not SERVE it", async () => {
+    // The arm a proof that passed on any HTTP answer could not see, and the
+    // one that actually happens: `400 Invalid Request: Server already
+    // initialized` is what a streamable-HTTP door holding a single transport
+    // answers every client after the first, so an adapter respawn met exactly
+    // this — and the old probe, which read any answer as proof, handed the URL
+    // over anyway and the replacement conversation ran with no hands.
+    const listening = async (
+      answer: (res: ServerResponse) => void,
+    ): Promise<{ at: FleetMcpEndpoint; stop: () => Promise<void> }> => {
+      const listener: Server = createServer((req, res) => {
+        if (req.headers.authorization !== "Bearer the-token") {
+          res.writeHead(401).end();
+          return;
+        }
+        answer(res);
+      });
+      const up = Promise.withResolvers<void>();
+      listener.listen(0, "127.0.0.1", up.resolve);
+      await up.promise;
+      const bound = listener.address();
+      if (bound === null || typeof bound === "string") {
+        throw new Error("the fixture listener did not bind a TCP port");
+      }
+      return {
+        at: {
+          url: `http://127.0.0.1:${bound.port}/mcp`,
+          token: "the-token",
+        },
+        stop: async () => {
+          const down = Promise.withResolvers<void>();
+          listener.close(() => down.resolve());
+          listener.closeAllConnections();
+          await down.promise;
+        },
+      };
+    };
+
+    const busy = await listening((res) => {
+      res.writeHead(400, { "content-type": "application/json" }).end(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: null,
+          error: {
+            code: -32_600,
+            message: "Invalid Request: Server already initialized",
+          },
+        }),
+      );
+    });
+    try {
+      const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, busy.at);
+      await expect(r.host.prompt("hello", [], [])).rejects.toThrow(
+        /could not open a session on this kolu's fleet MCP face/,
+      );
+      expect(r.spawns).toHaveLength(0);
+      expect(r.host.state().refusal).toContain("400");
+      expect(r.host.state().refusal).toContain(busy.at.url);
+    } finally {
+      await busy.stop();
+    }
+
+    // The subtler half: a `200` with no session id. Something answered, the
+    // gate let us in, and no session exists — an agent's client would send its
+    // next request with no `Mcp-Session-Id` and be refused from then on.
+    const sessionless = await listening((res) => {
+      res
+        .writeHead(200, { "content-type": "text/event-stream" })
+        .end("event: message\ndata: {}\n\n");
+    });
+    try {
+      const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, sessionless.at);
+      await expect(r.host.prompt("hello", [], [])).rejects.toThrow(
+        /without opening a session/,
+      );
+      expect(r.spawns).toHaveLength(0);
+    } finally {
+      await sessionless.stop();
+    }
+  });
+
+  it("closes the session its proof opened, and spawns with the proven URL", async () => {
+    const r = rig();
+    await r.host.prompt("hello", [], []);
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    expect(agent.options.mcpServers).toEqual([
+      {
+        kind: "http",
+        name: "kolu",
+        url: liveEndpoint.url,
+        headers: { Authorization: `Bearer ${liveEndpoint.token}` },
+      },
+    ]);
+
+    // ONE face, and it is shut: the proof opened a real session because
+    // nothing weaker proves the door will serve one, and it terminated that
+    // session behind itself. A proof that leaked would leave a fleet face
+    // holding subscriptions after every bring-up this process ever does.
+    expect(fleetFaces).toHaveLength(1);
+    await vi.waitFor(() => {
+      expect(fleetFaces[0]?.closed).toBe(true);
+    });
   });
 
   it("reaches a READER, who has nothing to catch", async () => {

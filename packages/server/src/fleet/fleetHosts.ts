@@ -34,11 +34,8 @@ import type { padiSurface } from "@kolu/padi-client/surface";
 import { directDispatch } from "@kolu/surface/links/direct";
 import type { RemotePool, ReServedSurface } from "@kolu/surface-remote";
 import { decodeHostKey, type HostKey } from "kolu-common/hostKey";
-import type { FleetHosts } from "kolu-mcp";
+import type { FleetHostState, FleetHosts } from "kolu-mcp";
 import type { PadiSession } from "../padi/padiSession.ts";
-
-/** The three words the fleet's `hosts` resource publishes. */
-type FleetHostState = "warming" | "connected" | "failed";
 
 /** Fold a session's connection frame to the fleet's coarse word. `connected`
  *  is honest liveness (`currentState().phase`, the session's own rule); a

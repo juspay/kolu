@@ -20,7 +20,6 @@
  */
 
 import { mkdirSync, readFileSync, rmSync } from "node:fs";
-import { createServer, type Server } from "node:http";
 import { dirname, join } from "node:path";
 import type { Harness, HarnessChange, HarnessOptions } from "@kolu/acp-harness";
 import {
@@ -29,13 +28,17 @@ import {
   type OrchestratorRow,
 } from "kolu-common/orchestrator";
 import { confStore } from "@kolu/surface/server";
+import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { Schema } from "effect";
 import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AGENT_ENV } from "@kolu/acp/engine";
+import {
+  type FleetMcpEndpoint as LiveFleetMcpEndpoint,
+  startFleetMcpEndpoint,
+} from "../fleet/mcpEndpoint.ts";
 import { decodeStateBackup, store } from "../state.ts";
 import {
-  type FleetMcpEndpoint,
   type OrchestratorHost,
   startOrchestratorHost,
 } from "./orchestrator.ts";
@@ -80,32 +83,29 @@ const orchestratorStore = confStore<PersistedOrchestrator>(
   "orchestrator",
 );
 
-/** AN ENDPOINT THAT ANSWERS: the host proves the fleet MCP face before it
- *  hands the URL to an agent, and the proof is a real request. */
-let liveEndpoint: FleetMcpEndpoint;
-let listener: Server;
+/** AN ENDPOINT THAT ANSWERS, and the REAL one: the host proves the fleet MCP
+ *  face before it hands the URL to an agent, and the proof is a real
+ *  `initialize`. A listener imitating the transport would have to imitate a
+ *  session too, and an imitation that drifted would make this file pass over a
+ *  door that could no longer serve anybody. */
+let liveEndpoint: LiveFleetMcpEndpoint;
 const SAVED_AGENT = process.env[AGENT_ENV];
 
 beforeEach(async () => {
   orchestratorStore.set(EMPTY_PERSISTED_ORCHESTRATOR);
   rmSync(join(stateRoot, "orchestrator"), { recursive: true, force: true });
   process.env[AGENT_ENV] = "/nix/store/fake-acp-adapter";
-  const token = "0123456789abcdef";
-  listener = createServer((req, res) => {
-    if (req.headers.authorization !== `Bearer ${token}`) {
-      res.writeHead(401).end();
-      return;
-    }
-    res.writeHead(400).end();
+  liveEndpoint = await startFleetMcpEndpoint({
+    log: { info: () => {}, warn: () => {}, error: () => {} },
+    serve: async (transport) => {
+      const mcp = new McpServer(
+        { name: "kolu-fleet", version: "0.0.0" },
+        { capabilities: { resources: {}, tools: {} } },
+      );
+      await mcp.connect(transport);
+      return { close: () => mcp.close() };
+    },
   });
-  const up = Promise.withResolvers<void>();
-  listener.listen(0, "127.0.0.1", up.resolve);
-  await up.promise;
-  const bound = listener.address();
-  if (bound === null || typeof bound === "string") {
-    throw new Error("the fleet endpoint fixture did not bind a TCP port");
-  }
-  liveEndpoint = { url: `http://127.0.0.1:${bound.port}/mcp`, token };
 });
 
 afterEach(async () => {
@@ -113,11 +113,7 @@ afterEach(async () => {
   else process.env[AGENT_ENV] = SAVED_AGENT;
   orchestratorStore.set(EMPTY_PERSISTED_ORCHESTRATOR);
   rmSync(join(stateRoot, "orchestrator"), { recursive: true, force: true });
-  const down = Promise.withResolvers<void>();
-  listener.close(() => {
-    down.resolve();
-  });
-  await down.promise;
+  await liveEndpoint.close();
 });
 
 /** A host over the REAL conf store, with the conversation itself stubbed — the

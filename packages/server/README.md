@@ -49,13 +49,24 @@ route on the app listener: that one is TLS-able, bound wherever the user asked,
 and origin-gated for browsers, and entangling the two would make the browser's
 origin gate the thing standing between two local processes.
 
+**One transport and one face per session**, which is what being stateful costs.
+A stateful transport answers exactly one `initialize` and refuses every later
+one, so a door holding a single transport would serve the first MCP client it
+ever saw and nobody else — an adapter that crashes and respawns would get a
+conversation with no hands for the life of the server. The door routes on
+`Mcp-Session-Id`, mints a transport and a face for each `initialize`, and drops
+both when the session closes. Each face gets its own watch registry, which is
+what two clients should have: two fleets.
+
 **The gate is a bearer token**, minted per process and compared with
 `timingSafeEqual`; the adapter is handed it in its session's MCP server entry.
 Loopback alone is not a gate — every other process on the box can reach it. And
-the endpoint is **proved before it is named**: the orchestrator makes a real
-request to it before opening a conversation, so an endpoint that is not
-answering refuses the conversation with a sentence naming the URL, rather than
-handing the agent a server it will mark failed for the life of the session.
+the endpoint is **proved before it is named**: the orchestrator sends the same
+`initialize` the adapter's client will send and demands a session back, then
+terminates that session behind itself. An endpoint that is not listening, that
+rejects the token, or that is listening and will not serve this caller refuses
+the conversation with a sentence naming the URL, rather than handing the agent
+a server it will mark failed for the life of the session.
 
 **Hosts come and go without a seam.** ACP fixes the MCP server list at
 `session/new`, so the conversation is opened against one URL and keeps it
