@@ -956,22 +956,15 @@ that stopped dialling would sit `connecting` forever with nothing logged.
 
 ### A stalled stream consumer holds up only its own stream
 
-Every stream on a wire link shares **one socket reader**, and Effect RPC's
-reader delivers a stream chunk by offering it into that stream's bounded
-buffer. Left alone, one consumer that stops pulling parks the reader: no other
-stream, no unary answer and no keep-alive `Pong` is read, and Effect's pinger
-ends a link whose peer is healthy (`keepAliveUnanswered`); a consumer torn down
-while full leaves the reader parked for good.
-
 Every wire link (`websocketLink`, `stdioLink`, `socketDuplexLink`,
-`unixSocketLink`) therefore takes delivery **off the reader**: each request's
-responses drain through their own in-order lane, so the reader always moves on.
-Backpressure is unchanged — a stream's `Ack` goes out only once its consumer
-has room, so a stalled consumer's sender simply waits, and the consumer resumes
-where it left off with nothing dropped. A subscription that ends (completes,
-fails, or is interrupted) shuts its buffer down, releasing any delivery parked
-on it. A lane is bounded only because the peer waits for each `Ack`, so a client
-protocol without acks is **refused** when the link is built.
+`unixSocketLink`) delivers stream responses **off its socket reader**, so a
+consumer that stops pulling holds up only its own stream: other streams, unary
+calls and the keep-alive keep flowing, the stalled stream's sender waits on its
+withheld `Ack`, and the consumer resumes where it left off with nothing dropped.
+A subscription that ends — completes, fails, or is interrupted — releases its
+buffer. That delivery is bounded only by the `Ack`, so a client protocol without
+acks is **refused** when the link is built. (Why Effect RPC needs this, and when
+it can go: `packages/surface/src/links/deliveryLanes.ts`.)
 
 ### A wire that follows its generations — `followingWire`
 

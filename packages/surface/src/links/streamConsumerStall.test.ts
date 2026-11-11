@@ -1,15 +1,7 @@
 /**
  * One STALLED stream consumer must hold up its own stream — never the link.
- *
- * Every stream on a wire link shares one socket reader, and Effect RPC's reader
- * delivers a stream chunk by offering into that stream's bounded queue. Before
- * `openWireLink` took delivery off the reader (`decoupleDelivery`, `wire.ts`), a
- * consumer that stopped pulling parked the READER on its full queue: no unary
- * answer, no other stream and no keep-alive `Pong` was read, and Effect's pinger
- * killed a link whose peer was healthy throughout. A consumer torn down while
- * full left the reader parked on the orphaned queue for good. Production paid
- * for it as a remote host "disconnecting" every few minutes, each drop
- * re-attaching every terminal.
+ * The hazard and the workaround are argued once, in `./deliveryLanes.ts`; this
+ * file measures them.
  *
  * Measured here against the real loopback-wired stdio link:
  *

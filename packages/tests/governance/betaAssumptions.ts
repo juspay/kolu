@@ -114,6 +114,10 @@ export const BETA_ASSUMPTION_SITES: readonly string[] = [
   "packages/padi-client/src/vocab.ts",
   "packages/surface-daemon-supervisor/src/probeDaemonIdentity.ts",
   "packages/surface/src/frameLimit.ts",
+  // The delivery-lane workaround for Effect RPC's reader rests on which
+  // responses wait on a consumer and on a failed delivery already being its
+  // request's Exit; streamConsumerStall.test.ts measures both.
+  "packages/surface/src/links/deliveryLanes.ts",
   // The websocket dial history and open-edge count require onDisconnect on
   // every attempt, including swallowed pre-open failures. The old dispatch
   // epoch fence is gone: stable Effect broadcasts heartbeat failures itself.
