@@ -7,15 +7,21 @@
  * none of them is a fact about a subprocess. The protocol itself is proven in
  * `@kolu/acp-harness`'s own two-process suite.
  *
- * The four it pins, each a defect this file watched land:
+ * What it pins, each a defect this file watched land:
  *  - SNAPSHOT-THEN-DELTAS: the first frame a reader gets is a full snapshot,
  *    delivered SYNCHRONOUSLY, so a delta can never arrive first.
  *  - THE RESTART FENCE: a restart restores padi's rows and tells the new
  *    conversation where to start counting (`resumedSeq`), so a resumed
- *    transcript is not two copies of itself.
+ *    transcript is not two copies of itself — and so does a REPLACEMENT
+ *    adapter, which is spawned over rows padi is still holding.
  *  - A FAILED BRING-UP IS SAID OUT LOUD: the panel shows a refusal rather than
- *    an idle-looking composer.
+ *    an idle-looking composer — an unreadable record included.
  *  - A DEAD ADAPTER IS REPLACED, rather than refusing for the daemon's life.
+ *  - A TEARDOWN LEAVES THE RECORD RESUMABLE: the session id and the fleet are
+ *    on disk beside the rows, and the stop's own last breath — which says the
+ *    session is gone — is not written over them.
+ *  - A TEARDOWN IS NOT A WAIT: a drain does not stand there for an open the
+ *    agent has not answered, and stops the child anyway.
  */
 
 import type { Harness, HarnessChange, HarnessOptions } from "@kolu/acp-harness";
@@ -63,11 +69,15 @@ const row = (id: string, seq: number, text = id): OrchestratorRow => ({
 });
 
 /** The conversation this host spawned, as the TEST drives it: the options it
- *  was handed, a way to report movement, and a way to die the way a child that
+ *  was handed, a way to report movement, a way to take the first breath a real
+ *  harness takes at the end of its open, and a way to die the way a child that
  *  exited does. */
 interface Spawned {
   readonly options: HarnessOptions;
   readonly push: (change: HarnessChange) => void;
+  /** What `startHarness` does on its last line: publish the state it opened
+   *  with — the seeded fleet included. */
+  readonly opened: () => void;
   readonly die: () => void;
   readonly stops: () => number;
 }
@@ -83,6 +93,11 @@ function fakeSpawner(): {
     let state: OrchestratorState = {
       ...DEFAULT_ORCHESTRATOR_STATE,
       phase: "idle",
+      cwd: options.cwd,
+      // The real harness seeds its `Fleet` from what the caller remembered and
+      // publishes `[...fleet.ids()]`, so what it says about the fleet is what
+      // it was handed until a tool call adds to it.
+      fleet: [...(options.fleet ?? [])],
     };
     const harness: Harness = {
       state: () => state,
@@ -99,6 +114,11 @@ function fakeSpawner(): {
       stop: async () => {
         stops += 1;
         alive = false;
+        // THE LAST BREATH, modelled because it is the thing that bites: a real
+        // `stop()` lets the session go and publishes one final state saying
+        // so, and padi persists what it is told.
+        state = { ...state, phase: "offline", sessionId: null };
+        options.onChange({ kind: "state", state });
       },
     };
     spawns.push({
@@ -106,6 +126,9 @@ function fakeSpawner(): {
       push: (change) => {
         if (change.kind === "state") state = change.state;
         options.onChange(change);
+      },
+      opened: () => {
+        options.onChange({ kind: "state", state });
       },
       die: () => {
         alive = false;
@@ -385,6 +408,47 @@ describe("a dead adapter (M3)", () => {
     expect(first.stops()).toBe(1);
   });
 
+  it("fences the REPLACEMENT on the rows padi still holds (R2)", async () => {
+    // A fresh state-root: nothing was restored, so a fence taken at the
+    // restore is zero forever.
+    const r = rig();
+    await r.host.prompt("first", []);
+    const first = r.spawns[0];
+    if (first === undefined) throw new Error("the host spawned nothing");
+    expect(first.options.resumedSeq).toBe(0);
+    first.push({
+      kind: "rows",
+      upserts: [row("user:1", 1, "ask"), row("agent:2", 2, "answer")],
+      removes: [],
+      appends: [],
+    });
+
+    first.die();
+    await r.host.newSession();
+    const second = r.spawns[1];
+    if (second === undefined) throw new Error("the corpse was not replaced");
+    // The rows are padi's, not the dead harness's: a replacement told to count
+    // from zero mints `user:1` and `agent:2` a second time and overwrites them
+    // by id, and the transcript loses the conversation it is displaying.
+    expect(second.options.resumedSeq).toBe(2);
+
+    second.push({
+      kind: "rows",
+      upserts: [row("user:3", 3, "again")],
+      removes: [],
+      appends: [],
+    });
+    const seen: OrchestratorFrame[] = [];
+    r.host.watch((frame) => seen.push(frame));
+    const snapshot = seen[0];
+    if (snapshot?.kind !== "snapshot") throw new Error("expected a snapshot");
+    expect(snapshot.rows.map((one) => one.id)).toEqual([
+      "user:1",
+      "agent:2",
+      "user:3",
+    ]);
+  });
+
   it("keeps a LIVING adapter, however many verbs arrive", async () => {
     const r = rig();
     await r.host.prompt("first", []);
@@ -505,11 +569,127 @@ describe("teardown (B2)", () => {
     expect(spawns[0]?.stops()).toBe(1);
   });
 
+  it("keeps the SESSION in the record it flushes (R1)", async () => {
+    const r = rig();
+    await r.host.prompt("hello", []);
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    agent.push({
+      kind: "state",
+      state: {
+        ...DEFAULT_ORCHESTRATOR_STATE,
+        phase: "idle",
+        cwd: HOME,
+        sessionId: "s-1",
+      },
+    });
+    agent.push({
+      kind: "rows",
+      upserts: [row("a", 1)],
+      removes: [],
+      appends: [],
+    });
+
+    await r.host.dispose();
+    // The stop's own last breath nulls the session, and padi persists what it
+    // is told — so without the guard every drain and every upgrade writes a
+    // transcript beside `sessionId: null`, and the next padi restores the rows
+    // into a conversation it opens FRESH. The rows and the session go to disk
+    // together or the resume is a lie.
+    expect(r.value().sessionId).toBe("s-1");
+    expect(r.value().rows.map((one) => one.id)).toEqual(["a"]);
+  });
+
+  it("does not stand there for an open that is still on the wire (R7)", async () => {
+    vi.useFakeTimers();
+    const { spawn, spawns } = fakeSpawner();
+    const held = Promise.withResolvers<void>();
+    const backing = countingStore(EMPTY_PERSISTED_ORCHESTRATOR);
+    const host = startOrchestratorHost({
+      log,
+      home: HOME,
+      hostName: HOST,
+      socketPath: () => "/run/padi.sock",
+      store: backing.store,
+      storePath: () => "/state/config.json",
+      spawn: async (options) => {
+        // A `session/load` the agent has not answered: the harness's own
+        // deadline for one is two minutes.
+        await held.promise;
+        return spawn(options);
+      },
+    });
+    const sent = host.prompt("hello", []);
+    let settled = false;
+    const stopped = host.dispose().then(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    // A drain, an upgrade or a SIGTERM is not waiting out a replay nobody is
+    // watching.
+    expect(settled).toBe(true);
+    await stopped;
+
+    // …and the child is still stopped when it finally lands, because the stop
+    // rides the same promise rather than the wait.
+    held.resolve();
+    await sent.catch(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+    expect(spawns[0]?.stops()).toBe(1);
+  });
+
   it("refuses new work once it has stopped", async () => {
     const r = rig();
     await r.host.dispose();
     await expect(r.host.prompt("hello", [])).rejects.toThrow(
       /no longer accepting work/,
     );
+  });
+});
+
+describe("the remembered fleet survives the resume (R3)", () => {
+  const fleet = ["11111111-1111-4111-8111-111111111111"];
+
+  it("is handed to the conversation and not published away under it", async () => {
+    const r = rig({
+      sessionId: "sess-1",
+      cwd: HOME,
+      model: null,
+      rows: [row("old-1", 1)],
+      fleet,
+    });
+    await r.host.prompt("still here?", []);
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    // Membership otherwise accrues only from tool-call frames, and a resumed
+    // conversation's frames are the replay the harness drops — so a harness
+    // that was not handed this starts empty.
+    expect(agent.options.fleet).toEqual(fleet);
+
+    // The first breath of the open, which is a WHOLE state: whatever it says
+    // about the fleet replaces what padi was serving, and padi writes it.
+    agent.opened();
+    expect(r.host.state().fleet).toEqual(fleet);
+    await r.host.dispose();
+    expect(r.value().fleet).toEqual(fleet);
+  });
+});
+
+describe("a record that parses but is wrong (R8)", () => {
+  it("says the refusal where a READER is looking, as well as throwing", () => {
+    // A row with no `kind` — the shape a hand-edit or a rolled-back binary
+    // leaves behind. The read runs on the `watch` edge, outside the bring-up's
+    // own refusal arm.
+    const r = rig({
+      ...EMPTY_PERSISTED_ORCHESTRATOR,
+      cwd: HOME,
+      rows: [{ id: "a", seq: 1, since: "2026-01-01T00:00:00.000Z" }],
+    } as unknown as PersistedOrchestrator);
+    expect(() => r.host.watch(() => {})).toThrow(/does not match schema/);
+    // Without this the cell still said `refusal: null`, and a person holding
+    // an unreadable state-root got an idle-looking panel with a live composer
+    // under it instead of the name of the file to fix.
+    expect(r.host.state().phase).toBe("offline");
+    expect(r.host.state().refusal).toContain("/state/config.json");
   });
 });

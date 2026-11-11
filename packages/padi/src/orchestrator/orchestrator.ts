@@ -186,6 +186,19 @@ const NO_SOCKET =
  *  terminal layout is not, so it is the cheaper thing to trail. */
 const PERSIST_THROTTLE_MS = 1_000;
 
+/** How long a teardown STANDS THERE for a bring-up that is still in flight.
+ *
+ *  The handle that can stop the child exists only once the whole open has
+ *  landed, and an open that is a `session/load` may sit on the wire for the
+ *  harness's own two-minute deadline — so a teardown that awaited it outright
+ *  would hang a drain, an upgrade or a SIGTERM for two minutes over a
+ *  conversation nobody is watching. The STOP itself is not bounded by this:
+ *  it is issued on a continuation of that same promise, so a harness that
+ *  lands late is stopped when it does. Five seconds because what this window
+ *  actually covers — a `spawn`, an `initialize` and a session request — is
+ *  sub-second work on any machine that is not already wedged. */
+const STOP_IN_FLIGHT_MS = 5_000;
+
 /** The sentence behind a thrown thing. The harness's two refusals and padi's
  *  two wire errors all carry a WHOLE SENTENCE in `why`, and that is the half a
  *  reader is shown; a plain `Error` has only its message. */
@@ -250,12 +263,10 @@ export function startOrchestratorHost(
   // make the file the authority over a live conversation that has moved past
   // it.
   let read = false;
-  /** The session id the agent is asked to replay, the ordering number its
-   *  fresh counters must start above, and the model a person CHOSE. All three
-   *  stay at their empty value until the record has been read, and for a
+  /** The session id the agent is asked to replay and the model a person CHOSE.
+   *  Both stay at their empty value until the record has been read, and for a
    *  state-root with nothing to resume they stay there. */
   let resume: string | null = null;
-  let resumedSeq = 0;
   let chosenModel: string | null = null;
 
   const publishState = (): void => {
@@ -264,7 +275,20 @@ export function startOrchestratorHost(
 
   const remembered = (): void => {
     if (read) return;
-    const record = readPersistedOrchestrator(store, storePath());
+    let record: PersistedOrchestrator;
+    try {
+      record = readPersistedOrchestrator(store, storePath());
+    } catch (err) {
+      // This read happens on edges OUTSIDE `live()`'s refusal arm — a `watch`,
+      // whose sink cannot be thrown at, and the first procedure call, before
+      // there is a spawn to fail. Left to itself the schema's crash would
+      // cross as an undeclared error while the cell still said `refusal:
+      // null`: an idle-looking panel over a state-root nobody can read. Said
+      // in the cell AND rethrown — the reader sees the sentence naming the
+      // file, and the caller that CAN hear it still fails fast.
+      sayRefusal(err);
+      throw err;
+    }
     // Marked read only once the record HAS been read: a refusal that left this
     // set would be a crash the first reader saw and every later one silently
     // did not, which is the fail-fast stance inverted.
@@ -280,10 +304,7 @@ export function startOrchestratorHost(
     // The agent re-asserts its own default over a resumed conversation, so a
     // choice kolu saw is the half that loses unless it is handed back.
     chosenModel = record.model;
-    for (const row of record.rows) {
-      byId.set(row.id, row);
-      if (row.seq > resumedSeq) resumedSeq = row.seq;
-    }
+    for (const row of record.rows) byId.set(row.id, row);
     rowsCache = null;
     state = { ...state, sessionId: record.sessionId, fleet: record.fleet };
     publishState();
@@ -447,12 +468,32 @@ export function startOrchestratorHost(
         teaching: teachingLines(hostName),
         log,
         resume,
-        // The restart fence (see the module doc): the agent's fresh counters
-        // start above everything padi already holds.
-        resumedSeq,
+        // THE RESTART FENCE (see the module doc), taken HERE rather than at the
+        // restore, because the restore is not the only spawn: a replacement
+        // adapter comes up over everything the dead one minted as well as
+        // everything the file restored, and a fence frozen at restore time
+        // would hand it a number it has already passed — `user:1` and
+        // `agent:2` minted a second time, overwriting by id the rows padi is
+        // still holding. `rows()` is sorted by `seq`, so its last is the
+        // highest one that exists.
+        resumedSeq: rows().at(-1)?.seq ?? 0,
+        // The terminals this conversation was working with. Membership
+        // otherwise accrues only from tool-call frames, and a resumed
+        // conversation's frames are the replay the harness drops — so without
+        // this seed the first publish would carry an empty fleet, and padi
+        // would write that emptiness back over its own record.
+        fleet: state.fleet,
         model: chosenModel,
         onChange: (change) => {
           if (change.kind === "state") {
+            // A TEARDOWN'S LAST BREATH IS NOT NEWS. `stop()` nulls the live
+            // session and publishes one final state saying so, and padi
+            // persists what it is told — so a drain or an upgrade would write
+            // `sessionId: null` beside the rows it just kept, and the next
+            // padi would restore the transcript into a conversation it never
+            // resumed. What the file must hold is the conversation as it stood
+            // when the daemon let go of it.
+            if (disposed) return;
             state = change.state;
             publishState();
             schedulePersist();
@@ -503,6 +544,16 @@ export function startOrchestratorHost(
     }
   };
 
+  /** Stop a child and carry on. A teardown that threw here would skip the
+   *  flush that follows it, and the record is what the next padi reads. */
+  const stopQuietly = async (agent: Harness): Promise<void> => {
+    try {
+      await agent.stop();
+    } catch (err: unknown) {
+      log.warn({ err }, "padi: the orchestrator's agent did not stop cleanly");
+    }
+  };
+
   // The cell is NOT published here: `buildPadiSurfaceDeps` runs BEFORE
   // `daemonMain` sets padi's surface ctx, so a write at construction would
   // reach a proxy with nothing behind it. The cell is SEEDED from `state()`
@@ -546,26 +597,33 @@ export function startOrchestratorHost(
     dispose: async () => {
       disposed = true;
       sinks.clear();
-      // A bring-up IN FLIGHT is the orphan this await exists for: the child is
-      // spawned `detached`, so a dispose that only looked at `harness` would
-      // leave an adapter — and its `claude`, and its `kolu mcp` — running
-      // under a daemon that no longer exists.
       const pending = starting;
-      const running =
-        harness ?? (pending === null ? null : await pending.catch(() => null));
+      const running = harness;
       harness = null;
-      if (running !== null) {
-        try {
-          await running.stop();
-        } catch (err: unknown) {
-          log.warn(
-            { err },
-            "padi: the orchestrator's agent did not stop cleanly",
-          );
-        }
+      if (running !== null) await stopQuietly(running);
+      else if (pending !== null) {
+        // A bring-up IN FLIGHT is the orphan this arm exists for: the child is
+        // spawned `detached`, so a teardown that only looked at `harness`
+        // would leave an adapter — and its `claude`, and its `kolu mcp` —
+        // running under a daemon that no longer exists. The stop is ISSUED
+        // unconditionally, on a continuation of the same promise, so a harness
+        // that arrives late is still stopped.
+        //
+        // What is bounded is how long the shutdown STANDS THERE for it. The
+        // handle only exists once the whole open has landed, and an open that
+        // is a `session/load` sits on the wire for the harness's own 120 s —
+        // so an outright await makes a drain or an upgrade hang two minutes on
+        // a conversation nobody is watching.
+        const late = pending.then(stopQuietly, () => {});
+        const deadline = Promise.withResolvers<void>();
+        // Unref'd: a shutdown waiting on a child must not itself be the reason
+        // this process stays up.
+        setTimeout(deadline.resolve, STOP_IN_FLIGHT_MS).unref();
+        await Promise.race([late, deadline.promise]);
       }
       // AFTER the stop, so whatever the stop itself wrote into the transcript
-      // is in the file the next padi reads.
+      // is in the file the next padi reads — and with the session the daemon
+      // was in, because the stop's own final state is ignored above.
       flushPersist();
     },
   };

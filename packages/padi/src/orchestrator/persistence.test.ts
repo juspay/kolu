@@ -3,7 +3,8 @@
  *
  * Three things, and each is a different kind of promise:
  *  - a ROUND TRIP: a conversation written by one host comes back whole to the
- *    next one, through the same `Conf` the saved session rides;
+ *    next one — its rows, the session it IS and the fleet it was working with
+ *    — through the same `Conf` the saved session rides;
  *  - the 1.4.0 MIGRATION RUNG: a state-root written before the orchestrator
  *    existed opens, answers the empty record and carries today's version;
  *  - FAIL-LOUD: a parseable-but-wrong record refuses by name instead of being
@@ -43,6 +44,10 @@ import {
 } from "./persisted.ts";
 
 const HOME = "/home/tester";
+
+/** One terminal this conversation was working with — a terminal id is a uuid
+ *  on the wire, and the record keeps it verbatim. */
+const FLEET_ID = "11111111-1111-4111-8111-111111111111";
 
 const log = {
   debug() {},
@@ -85,6 +90,11 @@ function hostOver(root: string): {
   host: OrchestratorHost;
   push: () => (change: HarnessChange) => void;
   resumedSeq: () => number | undefined;
+  /** What the NEXT conversation is asked to replay, and the terminals it is
+   *  told this one was working with — the two halves of a resume that only the
+   *  file can carry across a restart. */
+  resume: () => string | null | undefined;
+  fleet: () => ReadonlyArray<string> | undefined;
 } {
   const stores = requirePadiStateStores(root);
   let onChange: ((change: HarnessChange) => void) | undefined;
@@ -111,7 +121,20 @@ function hostOver(root: string): {
         signInCancel: async () => false,
         setOption: async () => {},
         newSession: async () => {},
-        stop: async () => {},
+        stop: async () => {
+          // A real `stop()` lets the session go and publishes one final state
+          // saying so. Modelled because this file is where it bites: the flush
+          // that follows writes the bytes the next padi reads.
+          opts.onChange({
+            kind: "state",
+            state: {
+              ...DEFAULT_ORCHESTRATOR_STATE,
+              phase: "offline",
+              cwd: HOME,
+              sessionId: null,
+            },
+          });
+        },
       };
       return harness;
     },
@@ -123,13 +146,27 @@ function hostOver(root: string): {
       return onChange;
     },
     resumedSeq: () => options?.resumedSeq,
+    resume: () => options?.resume,
+    fleet: () => options?.fleet,
   };
 }
 
 describe("the conversation survives a restart", () => {
-  it("round-trips the transcript through padi's own `config.json`", async () => {
+  it("round-trips the transcript, the session and the fleet through padi's own `config.json`", async () => {
     const first = hostOver(stateRoot);
     await first.host.prompt("hello", []);
+    // What the open publishes: the conversation this IS, and the terminals it
+    // is working with. Both are the agent's to forget and padi's to keep.
+    first.push()({
+      kind: "state",
+      state: {
+        ...DEFAULT_ORCHESTRATOR_STATE,
+        phase: "idle",
+        cwd: HOME,
+        sessionId: "sess-live",
+        fleet: [FLEET_ID],
+      },
+    });
     first.push()({
       kind: "rows",
       upserts: [row("a", 1, "one"), row("b", 2, "two")],
@@ -160,6 +197,11 @@ describe("the conversation survives a restart", () => {
       row("a", 1, "one"),
       row("b", 2, "two and a half"),
     ]);
+    // The teardown's own last breath says the session is gone — it is a stop,
+    // not a conversation ending — and a record that believed it would hand the
+    // next padi a transcript with nothing to resume it into.
+    expect(onDisk.sessionId).toBe("sess-live");
+    expect(onDisk.fleet).toEqual([FLEET_ID]);
 
     const second = hostOver(stateRoot);
     const seen: OrchestratorFrame[] = [];
@@ -174,6 +216,11 @@ describe("the conversation survives a restart", () => {
     // and the fence tells the resumed conversation to count from past them.
     await second.host.prompt("still here?", []);
     expect(second.resumedSeq()).toBe(2);
+    // The conversation the next padi comes back INTO, and the terminals it
+    // comes back knowing about. Without both it restores a transcript and then
+    // opens a stranger underneath it.
+    expect(second.resume()).toBe("sess-live");
+    expect(second.fleet()).toEqual([FLEET_ID]);
     await second.host.dispose();
   });
 });

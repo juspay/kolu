@@ -831,12 +831,21 @@ Four decisions worth knowing:
   wrote about itself, none of which the agent has. What makes the two survivable
   side by side is `resumedSeq` — the harness mints its ids and ordering numbers
   starting above the highest one padi already holds, so a resumed conversation
-  cannot become two copies of itself. What is NOT restored is anything that was
+  cannot become two copies of itself. That number is taken at the SPAWN, from
+  the rows padi is holding then, because a restore is not the only bring-up: a
+  dead adapter's replacement comes up over everything the corpse minted too,
+  and a fence frozen at the restore would let it mint those ids a second time.
+  The remembered FLEET is handed back the same way — membership otherwise
+  accrues only from tool calls, whose frames are the replay that was just
+  dropped, so a harness that was not told would publish an empty fleet and padi
+  would write that over its own record. What is NOT restored is anything that was
   a fact about a subprocess that no longer exists: the phase, the usage, a turn
   in flight, a half-finished sign-in. `src/orchestrator/persisted.ts` argues
   each of the five fields it keeps, and re-validates the record where it reads
   it — a parseable-but-wrong `orchestrator` key refuses by name rather than
-  restoring a transcript with holes in it.
+  restoring a transcript with holes in it, and says that sentence in the cell
+  as well as to its caller, because the reader that tripped it may be a
+  subscription nothing can be thrown at.
 - **The record is written on a throttle.** It lives in the same `config.json`
   as the saved session, and a streaming answer is one row and six hundred
   frames; the write is leading-edge with a one-second window, and the shutdown
@@ -847,7 +856,13 @@ Four decisions worth knowing:
   drain, an upgrade or a SIGTERM runs the serve scope's finalizer, which awaits
   the child's stop before the socket closes; without it every restart would
   leave an adapter, its `claude` and its `kolu mcp` behind and spawn a second
-  set beside them.
+  set beside them. A bring-up still in flight is stopped on its own
+  continuation rather than waited out: the handle exists only once the open has
+  landed, and an open that is a `session/load` has two minutes to answer, which
+  is not how long a drain may hold. The stop's own last breath — the state that
+  says the session is gone — is the one thing padi does NOT persist: the record
+  must hold the conversation as it stood when the daemon let go of it, or the
+  next padi restores the transcript and opens a stranger underneath it.
 
 ## What padi knows nothing about
 
