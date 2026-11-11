@@ -70,7 +70,8 @@ import { surface } from "../ui/Surface";
 import { forwardsForHost } from "../forwards/useForwards";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { useServerIdentity } from "../useServerIdentity";
-import { activeHost, padiMap, setActiveHost } from "../wire";
+import { activeHost, padiMap } from "../wire";
+import { selectHostTab } from "./selectHostTab";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import {
@@ -270,9 +271,9 @@ const HostChip: Component<{
             "text-fg-2 hover:text-fg": !isActive() && !down(),
             "text-fg-3": down(),
           },
-          onClick: () => {
-            if (!isActive()) setActiveHost(props.host);
-          },
+          // Picking a host tab is also how you LEAVE the orchestrator, which
+          // is why the already-active tab is not a no-op — see `selectHostTab`.
+          onClick: () => selectHostTab(props.host),
           title: `${name()} — ${glance().title}${activeSuffix()}`,
         }}
         status={
@@ -322,7 +323,7 @@ const HostSwitcherRow: Component<{
   const statusDot = () => chipStatusDot(host, state(), kaval());
   const marks = hostMarks(props.hostKey);
   const pickHost = () => {
-    if (!isActive()) setActiveHost(host);
+    selectHostTab(host);
     props.onPicked();
   };
 

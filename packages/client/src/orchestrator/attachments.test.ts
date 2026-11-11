@@ -5,7 +5,7 @@ import { MIB } from "@kolu/byte-units";
 import {
   ATTACHMENT_BYTE_CAP,
   PROMPT_ATTACHMENT_BYTE_CAP,
-} from "@kolu/padi-client/orchestrator";
+} from "kolu-common/orchestrator";
 import { describe, expect, it } from "vitest";
 import {
   attachmentRefusal,

@@ -62,9 +62,10 @@ export interface ActionContext {
    *  orchestrator everywhere, which is the one thing a hardware keyboard on a
    *  phone can act on. */
   toggleCanvasPosture: () => void;
-  /** Flip the workspace into (or out of) the orchestrator — the third view
-   *  axis, layered over the posture rather than replacing it, so leaving lands
-   *  back on whichever posture the user was in. */
+  /** Select the orchestrator's entry in the tab row, or go back to the host
+   *  tab you were on. A round trip: the host tab's selection is a separate
+   *  value and is never touched, so the second press lands where the first
+   *  one left. */
   toggleOrchestrator: () => void;
   toggleRecordingPause: () => void;
 }

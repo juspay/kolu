@@ -18,7 +18,7 @@ import {
   type OrchestratorFrame,
   type OrchestratorRow,
   type OrchestratorSayingSchema,
-} from "@kolu/padi-client/orchestrator";
+} from "kolu-common/orchestrator";
 
 type Saying = typeof OrchestratorSayingSchema.Type;
 

@@ -17,7 +17,7 @@
 import type {
   OrchestratorKoluCall,
   OrchestratorToolRow,
-} from "@kolu/padi-client/orchestrator";
+} from "kolu-common/orchestrator";
 // `formatElapsedShort`, not the vocabulary's `dualPhrase`: the ladder's minute
 // tier has no finer unit, so a 2m14s wait would read "2m" — and the number a
 // reader is checking against a timeout is exactly the one that would be gone.

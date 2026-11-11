@@ -1,8 +1,10 @@
 /** ChromeBar — the always-visible workspace chrome band.
  *
  *  Left → right: quiet Kolu mark, host tab strip (primary multi-host
- *  nav; Padi/Kaval dual marks ride each host tab), global control
- *  cluster (recorder, maximize, dock, inspector, settings, command palette).
+ *  nav; Padi/Kaval dual marks ride each host tab), the `◆ Orchestrator`
+ *  entry that closes that row (same row, not a host tab — see
+ *  `OrchestratorTab`), global control cluster (recorder, view mode,
+ *  dock, inspector, settings, command palette).
  *  The live-terminal navigator lives on the dock at the canvas's left edge
  *  (#903) — not here.
  *
@@ -15,7 +17,8 @@
  *  active tab's own hue stands out instead of blending into a same-hue band.
  *  `posture.layout()` no longer changes the bar's positioning; it only drives
  *  the `data-maximized` marker. The maximize/restore affordance is one segment
- *  of the three-way `ModeControl` now (canvas · maximized · orchestrator).
+ *  of the two-way `ModeControl` (canvas · maximized), which describes the HOST
+ *  TAB underneath and nothing else.
  *
  *  Mobile uses a different chrome surface — a pull-down sheet — see
  *  `MobileChromeSheet` and `MobileTileView`. */
@@ -27,6 +30,7 @@ import HostSelectorStrip from "./host/HostSelectorStrip";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import ModeControl from "./orchestrator/ModeControl";
+import OrchestratorTab from "./orchestrator/OrchestratorTab";
 import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
@@ -85,6 +89,12 @@ const ChromeBar: Component<{
         <HostSelectorStrip />
       </div>
 
+      {/* The one special destination in the tab row — pinned at its end, after
+       *  a separator, so it reads as the different kind of thing it is. */}
+      <div class="flex h-8 shrink-0 items-center">
+        <OrchestratorTab />
+      </div>
+
       {/* Control cluster: recorder → view mode → dock → inspector → settings
        *  → ⌘K. Buttons share the chrome icon hover/focus language.
        *  These are TOOLBAR icons, not tab-row marks, so they sit vertically
@@ -93,10 +103,10 @@ const ChromeBar: Component<{
        *  `pt-2` and spans the whole 40px so `items-center` lands them dead
        *  centre.
        *
-       *  The lone maximize toggle became the three-way `ModeControl`: canvas,
-       *  maximized and orchestrator are mutually exclusive views, and two
-       *  separate toggles would let a person spell a state the layout does
-       *  not have. */}
+       *  The lone maximize toggle became the two-way `ModeControl`: canvas and
+       *  maximized are mutually exclusive views of the host tab underneath,
+       *  and two separate toggles would let a person spell a state the layout
+       *  does not have. */}
       <div class="-mt-2 flex h-10 items-center gap-2 shrink-0">
         <RecordButton />
         <ModeControl />

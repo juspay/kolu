@@ -9,14 +9,23 @@
  *  can be renamed or killed while the box sits unsent, and the one moment the
  *  reference has to be true is the moment it is sent. */
 
-import type { OrchestratorMention } from "@kolu/padi-client/orchestrator";
+import type { OrchestratorMention } from "kolu-common/orchestrator";
 import type { TerminalId } from "kolu-common/surface";
 
-/** One terminal as the `@` menu offers it: what to type, and the three facts
- *  that tell two `fix-parser`s apart (what it is working on, where, how it is
- *  doing). */
+/** One terminal as the `@` menu offers it: what to type, which HOST it is on,
+ *  and the three facts that tell two `fix-parser`s apart (what it is working
+ *  on, where, how it is doing).
+ *
+ *  The host is not decoration. One conversation reaches every machine, so a
+ *  bare terminal id is ambiguous on this wire — the reference the agent is
+ *  handed is `host/id`, joined by kolu-server from the two halves this carries
+ *  separately (`OrchestratorMentionSchema`). A candidate without its host is a
+ *  mention that could name the wrong terminal on a two-host fleet. */
 export interface MentionCandidate {
   readonly terminalId: TerminalId;
+  /** The ENCODED host key (`local` / `remote:<target>`) the terminal lives
+   *  on — the half that makes the id unambiguous across the fleet. */
+  readonly host: string;
   /** The terminal's own name — the word that follows `@`. Never contains
    *  whitespace; the fleet's names are branch/intent keys. */
   readonly name: string;
@@ -106,7 +115,14 @@ export function completeToken(
  *
  *  A name that matches nothing is left as ordinary prose: the agent still reads
  *  the words, and inventing a reference to a terminal that is not there would be
- *  worse than saying nothing structured about it. */
+ *  worse than saying nothing structured about it.
+ *
+ *  A name that two hosts both carry resolves to the FIRST candidate offered,
+ *  which is the fleet list's own order — most recently active first. The
+ *  alternative is to resolve it to nothing, and a reference dropped because
+ *  two machines happened to name a branch the same way is the worse failure:
+ *  the host rides on the mention, so the chip says which one it took and the
+ *  person can see it before they send. */
 export function resolveMentions(
   text: string,
   candidates: readonly MentionCandidate[],
@@ -126,6 +142,7 @@ export function resolveMentions(
     seen.add(name);
     out.push({
       terminalId: candidate.terminalId,
+      host: candidate.host,
       name: candidate.name,
       intent: candidate.intent,
       cwd: candidate.cwd,

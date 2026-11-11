@@ -18,7 +18,7 @@ import {
   attachmentTooBig,
   PROMPT_ATTACHMENT_BYTE_CAP,
   promptAttachmentsTooBig,
-} from "@kolu/padi-client/orchestrator";
+} from "kolu-common/orchestrator";
 
 /** Does this attachment draw as a picture? The same `image/*` test padi uses to
  *  pick the ACP `image` content block, so the chip and the block agree about

@@ -12,7 +12,7 @@
  *  review of it: the box opens to a few lines and expands on a press, so a turn
  *  that rewrote six files stays readable. */
 
-import type { FileDiff } from "@kolu/padi-client/orchestrator";
+import type { FileDiff } from "kolu-common/orchestrator";
 import { CodeView, textDiffItem } from "@kolu/solid-pierre";
 import { type Component, createMemo, createSignal, For } from "solid-js";
 import { toast } from "solid-sonner";

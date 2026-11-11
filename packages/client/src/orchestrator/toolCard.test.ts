@@ -13,6 +13,7 @@ const sent = (text: string | null, key: string | null) =>
   sentInput({
     kind: "sendInput",
     terminalId: TERMINAL,
+    host: "local",
     name: "fix-parser",
     text,
     key,

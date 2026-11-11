@@ -59,8 +59,6 @@ import { notify } from "../attentionNotify";
 import { hostLabel } from "../host/hostChipTone";
 import {
   orchestratorAsksTotal,
-  orchestratorHosts,
-  orchestratorStateOf,
   useOrchestratorFacts,
 } from "../orchestrator/useOrchestratorFacts";
 import {
@@ -189,59 +187,51 @@ export function useAttention(deps: AttentionDeps): {
    *
    *  A conversation blocked on a question is `asking` in exactly the sense the
    *  frame already means it — the only difference is that the thing blocked is
-   *  a host's conversation rather than a terminal, so there is no id to focus
-   *  and the envelope carries the host alone. It fires the SAME sound and the
-   *  SAME notification seam (there is one `Audio`, one `Notification` and one
-   *  `setAppBadge` in this client, and this is not a second of any of them),
-   *  and it counts into the same badge below.
+   *  THE conversation rather than a terminal, so there is no id to focus and
+   *  no host to carry: one conversation covers the whole fleet. It fires the
+   *  SAME sound and the SAME notification seam (there is one `Audio`, one
+   *  `Notification` and one `setAppBadge` in this client, and this is not a
+   *  second of any of them), and it counts into the same badge below.
    *
-   *  Attention is a TRANSITION, not a discovery: the first count seen for a
-   *  host is a baseline, and only a RISE fires — reloading a tab onto a
-   *  conversation that has been waiting for an hour must not ring. */
-  const askedBefore = new Map<string, number>();
-  const deliverAsks = (encHost: string, open: number): void => {
+   *  Attention is a TRANSITION, not a discovery: the first count seen is a
+   *  baseline, and only a RISE fires — reloading a tab onto a conversation
+   *  that has been waiting for an hour must not ring. */
+  let askedBefore: number | undefined;
+  const deliverAsks = (open: number): void => {
     try {
       playSound();
-      const host = decodeHostKey(encHost);
       void notify.show({
-        tag: `${encHost}/orchestrator`,
-        title: `The orchestrator on ${hostLabel(host)} needs you`,
+        tag: "orchestrator",
+        title: "The orchestrator needs you",
         body:
           open === 1
             ? "One question is waiting"
             : `${open} questions are waiting`,
         icon: "/favicon.svg",
-        data: { kind: "orchestrator", host: encHost },
+        data: { kind: "orchestrator" },
       });
     } catch (err) {
       console.error("useAttention: orchestrator delivery failed", err);
     }
   };
-  /** "Seen with your eyes", one level up from a terminal. `watched` above asks
-   *  whether the tile receiving input is the one that needs you; a
-   *  conversation's questions belong to a HOST, so the same idea reads: this
-   *  host is the active one, its panel is on screen, and the page has focus.
-   *  Without it, a question you watched arrive — typed the prompt, saw the ask
-   *  appear — rang the sound and raised an OS popup for something already in
-   *  front of you, which is the one way an attention channel teaches people to
-   *  ignore it. */
-  const conversationWatched = (encHost: string): boolean =>
-    isActiveHost(decodeHostKey(encHost)) &&
-    orchestratorMode() &&
-    document.hasFocus();
   createEffect(() => {
-    for (const encHost of orchestratorHosts()) {
-      const open = orchestratorStateOf(encHost).openAsks.length;
-      const before = askedBefore.get(encHost);
-      // The baseline moves whether or not we deliver: an ask you watched
-      // arrive is SEEN, so the next rise is the next episode, not this one
-      // re-fired the moment you look away.
-      askedBefore.set(encHost, open);
-      if (before === undefined || open <= before) continue;
-      if (!alertsEnabled()) continue;
-      if (conversationWatched(encHost)) continue;
-      deliverAsks(encHost, open);
-    }
+    const open = orchestratorAsksTotal();
+    const before = askedBefore;
+    // The baseline moves whether or not we deliver: an ask you watched arrive
+    // is SEEN, so the next rise is the next episode, not this one re-fired the
+    // moment you look away.
+    askedBefore = open;
+    if (before === undefined || open <= before) return;
+    if (!alertsEnabled()) return;
+    // "Seen with your eyes", one level up from a terminal. `watched` above
+    // asks whether the tile receiving input is the one that needs you; the
+    // conversation's questions are in front of you when its entry is the
+    // selected one and the page has focus. Without this, a question you
+    // watched arrive — typed the prompt, saw the ask appear — rang the sound
+    // and raised an OS popup for something already on screen, which is the one
+    // way an attention channel teaches people to ignore it.
+    if (orchestratorMode() && document.hasFocus()) return;
+    deliverAsks(open);
   });
 
   // The detect→fire ENGINE (`attentionCore`) — unit-tested off the wire. It owns
@@ -369,10 +359,9 @@ export function useAttention(deps: AttentionDeps): {
           setActiveHost(decodeHostKey(host));
           deps.activate(id);
         })
-        .with({ kind: "orchestrator" }, ({ host }) => {
-          // No terminal to focus — the question belongs to the conversation,
-          // so the click switches host and opens the panel it is waiting in.
-          setActiveHost(decodeHostKey(host));
+        .with({ kind: "orchestrator" }, () => {
+          // No terminal to focus and no host to switch to — the question
+          // belongs to the one conversation, so the click just opens it.
           enterOrchestratorMode();
         })
         .exhaustive(),

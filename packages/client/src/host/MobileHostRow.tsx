@@ -35,7 +35,9 @@ import {
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import { hostMarks } from "../attention/attentionMarks";
 import DocLink from "../ui/DocLink";
-import { padiMap, setActiveHost } from "../wire";
+import { padiMap } from "../wire";
+import { orchestratorMode } from "../orchestrator/useOrchestratorMode";
+import { selectHostTab } from "./selectHostTab";
 import { runAction } from "../runAction";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
@@ -109,14 +111,14 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
       title={`${hostLabel(props.host)} — ${glance().title}`}
       // A no-op tap on the already-active chip must not re-write `activeHost`
       // with a new-reference-but-equal key (it would re-notify every
-      // `useEntry(activeHost)` consumer for nothing) — guard on `isActive()`,
-      // the same canonical-string comparison the desktop strip uses. The guard
-      // also covers `onSwitch`: closing the sheet is the "after a switch"
-      // gesture, so a no-op tap on the current host leaves the sheet OPEN (it
-      // isn't a switch) rather than dismissing it out from under the user.
+      // `useEntry(activeHost)` consumer for nothing) — `selectHostTab` owns
+      // that guard. The tap is only a no-op HERE when the chip is already the
+      // selected entry in the row: tapping the active host while the
+      // orchestrator is on screen is how a person asks to go back to it, so
+      // that tap must still run (and still close the sheet).
       onClick={() => {
-        if (isActive()) return;
-        setActiveHost(props.host);
+        if (isActive() && !orchestratorMode()) return;
+        selectHostTab(props.host);
         props.onSwitch();
       }}
     >

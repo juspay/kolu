@@ -12,9 +12,8 @@
  *  widget. */
 
 import { formatBytes } from "@kolu/byte-units";
-import type { OrchestratorState } from "@kolu/padi-client/orchestrator";
-import { activeArm } from "@kolu/padi-client/surface";
-import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
+import { decodeHostKey } from "kolu-common/hostKey";
+import type { OrchestratorState } from "kolu-common/orchestrator";
 import {
   type Component,
   createEffect,
@@ -25,7 +24,9 @@ import {
   Show,
 } from "solid-js";
 import { toast } from "solid-sonner";
-import { useTerminalStore } from "../terminal/useTerminalStore";
+import { hostLabel } from "../host/hostChipTone";
+import { useFleetTerminalIndex } from "../palette/fleetTerminals";
+import { fleetMentionCandidates } from "./mentionCandidates";
 import { attachPastedFiles, reattachComposerFiles } from "./attachFiles";
 import {
   completionIntent,
@@ -69,29 +70,16 @@ const OrchestratorComposer: Component<{
   state: OrchestratorState;
 }> = (props) => {
   const orch = useOrchestrator();
-  const store = useTerminalStore();
+  const fleet = useFleetTerminalIndex();
   const [caret, setCaret] = createSignal(0);
   let box!: HTMLTextAreaElement;
 
-  /** Every terminal on this host, as the `@` menu offers it. The fleet is not
-   *  the list: a person naming a terminal the conversation has never touched is
-   *  exactly how it gets told about one. */
+  /** Every terminal on EVERY host, as the `@` menu offers it. The
+   *  conversation's own fleet is not the list: a person naming a terminal it
+   *  has never touched is exactly how it gets told about one, and the terminal
+   *  they mean is as often on the host they are not looking at. */
   const candidates = createMemo<MentionCandidate[]>(() =>
-    store.terminalIds().flatMap((id) => {
-      const meta = store.getMetadata(id);
-      if (meta === undefined) return [];
-      const info = store.getDisplayInfo(id);
-      return [
-        {
-          terminalId: id,
-          name: info?.key.label ?? cwdBasename(meta.cwd),
-          intent: meta.intent?.split("\n")[0] ?? null,
-          cwd: meta.cwd,
-          repo: info?.key.group ?? null,
-          state: activeArm(meta)?.agent?.state ?? null,
-        },
-      ];
-    }),
+    fleetMentionCandidates(fleet()),
   );
 
   const mentionToken = () => tokenQueryAt(composerText(), caret(), "@");
@@ -223,6 +211,7 @@ const OrchestratorComposer: Component<{
                 type="button"
                 data-testid="orchestrator-mention-row"
                 data-terminal-id={candidate.terminalId}
+                data-host={candidate.host}
                 data-selected={index() === selected() ? "" : undefined}
                 class="w-full flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer"
                 classList={{ "bg-surface-2": index() === selected() }}
@@ -232,6 +221,16 @@ const OrchestratorComposer: Component<{
                 onClick={() => accept(index())}
               >
                 <span class="font-semibold text-fg">{candidate.name}</span>
+                {/* WHICH MACHINE. Two hosts can both carry a `main`, and the
+                    name alone would offer a person a choice they cannot read.
+                    It leads the quiet columns because it is the thing that
+                    tells otherwise identical rows apart. */}
+                <span
+                  data-testid="orchestrator-mention-host"
+                  class="font-mono text-[0.6rem] uppercase tracking-[0.1em] text-accent"
+                >
+                  {hostLabel(decodeHostKey(candidate.host))}
+                </span>
                 <Show when={candidate.repo}>
                   {(repo) => (
                     <span class="font-mono text-[0.6rem] uppercase tracking-[0.1em] text-fg-3">
@@ -295,13 +294,22 @@ const OrchestratorComposer: Component<{
                 type="button"
                 data-testid="orchestrator-mention-chip"
                 data-terminal-id={mention.terminalId}
+                data-host={mention.host}
                 title={mention.intent ?? mention.cwd ?? undefined}
                 class="rounded-full bg-accent/15 px-2 py-px font-mono text-[0.68rem] font-semibold text-accent cursor-pointer"
                 onClick={() =>
                   write(dropMention(composerText(), mention.name), 0)
                 }
               >
-                @{mention.name} ×
+                {/* The host rides ON the chip — what is sent is `host/id`, and
+                    a chip that showed only the name would hide which of two
+                    machines the question is about. */}
+                @{mention.name}
+                <span class="font-normal text-accent/70">
+                  {" "}
+                  · {hostLabel(decodeHostKey(mention.host))}
+                </span>{" "}
+                ×
               </button>
             )}
           </For>

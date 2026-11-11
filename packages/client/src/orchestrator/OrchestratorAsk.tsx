@@ -19,7 +19,7 @@ import {
   type AskAnswer,
   type OrchestratorAskRow,
   YES_NO,
-} from "@kolu/padi-client/orchestrator";
+} from "kolu-common/orchestrator";
 import { type Component, createMemo, For, Match, Show, Switch } from "solid-js";
 import { askDraft, forgetAskDraft, setAskDraft } from "./drafts";
 import { useOrchestrator } from "./useOrchestrator";

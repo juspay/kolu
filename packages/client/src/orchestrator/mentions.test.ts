@@ -14,8 +14,13 @@ import {
   tokenQueryAt,
 } from "./mentions";
 
-const terminal = (name: string, id: string): MentionCandidate => ({
+const terminal = (
+  name: string,
+  id: string,
+  host = "local",
+): MentionCandidate => ({
   terminalId: id as TerminalId,
+  host,
   name,
   intent: `${name} intent`,
   cwd: `/repo/${name}`,
@@ -107,6 +112,21 @@ describe("resolveMentions", () => {
       terminalId: fleet[2]?.terminalId,
       cwd: "/repo/odu-cache",
     });
+  });
+
+  it("carries the HOST each terminal is on — the other half of `host/id`", () => {
+    // A fleet where the warmer `main` is the remote one: the reference that
+    // goes out must name THAT machine, or kolu-server joins the id to the
+    // wrong half and the agent types into a terminal nobody meant.
+    const crossHost = [
+      terminal("main", "44444444-4444-4444-8444-444444444444", "remote:zest"),
+      terminal("fix-docs", "22222222-2222-4222-8222-222222222222"),
+    ];
+    const mentions = resolveMentions("@main and @fix-docs", crossHost);
+    expect(mentions.map((m) => [m.name, m.host])).toEqual([
+      ["main", "remote:zest"],
+      ["fix-docs", "local"],
+    ]);
   });
 
   it("leaves a name nothing answers to as ordinary prose", () => {

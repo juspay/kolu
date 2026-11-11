@@ -55,12 +55,13 @@ export function useViewPosture() {
    *  count, so a future sleeping-only workspace stays maximizable. */
   const canMaximize = (): boolean => tileStore.tileCount() > 0;
   /** Land on one of the two postures — THE single posture writer, and the one
-   *  place that knows the orchestrator is laid over them.
+   *  place that knows the orchestrator sits beside them.
    *
-   *  Leaving the orchestrator FIRST is what makes the write visible. The mode
-   *  reads as `maximized` while it is on, so a write that only touched the bit
-   *  underneath changed a posture nobody could see — and silently moved where
-   *  `Esc` would land you later.
+   *  Leaving the orchestrator FIRST is what makes the write visible. The two
+   *  segments describe a HOST TAB's canvas, so pressing either while the
+   *  conversation is on screen is a request for that canvas — and a write
+   *  whose result stayed hidden behind the chat would be a control that lied
+   *  about where it lands.
    *
    *  It happens before the write guard below, not inside it, and that ordering
    *  is the behaviour: `⌘⇧M` on a phone must still leave the conversation. The
@@ -84,46 +85,31 @@ export function useViewPosture() {
     }
   };
   return {
-    /** How the chrome LAYS OUT — the question every canvas reader is actually
-     *  asking. `"maximized"` is one flush tile with the dock and the right
-     *  panel as real sidebars; `"tiled"` is the freeform canvas with both
-     *  floating over it. It is NOT "which posture did the user choose": that
-     *  is `posture()` below, and a reader who takes this one for it gets a
-     *  label promising a posture nobody is in.
+    /** How the chrome LAYS OUT, which is also WHICH POSTURE THE USER CHOSE —
+     *  the two were one question again the moment the orchestrator stopped
+     *  borrowing the maximized layout. `"maximized"` is one flush tile with
+     *  the dock and the right panel as real sidebars; `"tiled"` is the
+     *  freeform canvas with both floating over it.
      *
-     *  Two things fold in here that the chosen posture knows nothing about.
-     *  With zero tiles the layout is always `"tiled"` (see `canMaximize`) — a
+     *  One thing folds in here that the persisted bit knows nothing about:
+     *  with zero tiles the layout is always `"tiled"` (see `canMaximize`) — a
      *  derivation, not a mutation, so the persisted per-host bit re-applies
      *  the moment a terminal returns, and the empty-canvas Dock (mounted by
      *  App.tsx, see `Dock.tsx`) stays in its only reachable layout instead of
      *  taking the flush-sidebar classes inside a non-flex host and pushing the
-     *  welcome card off-screen. And ORCHESTRATOR MODE LAYS OUT AS MAXIMIZED,
-     *  which is this seam earning its keep rather than a special case: the
-     *  peek pane shows exactly one tile, flush, with the dock as a real left
-     *  sidebar — the maximized layout under another name. Deriving it here
-     *  means the canvas, the dock and the minimap each get it without a second
-     *  axis to consult. */
+     *  welcome card off-screen. The ORCHESTRATOR folds in NOTHING: it is a
+     *  destination beside the host tabs rather than a posture of one, so the
+     *  canvas under the chat stays in the layout its host was left in. */
     layout: (): ViewPostureMode =>
-      (store.canvasMaximized() || orchestratorMode()) && canMaximize()
-        ? "maximized"
-        : "tiled",
+      store.canvasMaximized() && canMaximize() ? "maximized" : "tiled",
     /** Whether maximize is meaningful — a tile exists to maximize.
      *  Readers gate the maximize affordance on this so it never disagrees
      *  with `layout()`'s own guard. */
     canMaximize,
-    /** WHICH POSTURE THE USER CHOSE — the persisted per-host bit alone, with
-     *  the orchestrator's borrowing of the maximized layout left out. Two
-     *  kinds of reader need it and both are about the choice, not the view: a
-     *  LABEL that promises where a press lands ("Maximize terminal" /
-     *  "Restore canvas"), and a writer deciding whether there is anything to
-     *  flip. */
-    posture: (): ViewPostureMode =>
-      store.canvasMaximized() && canMaximize() ? "maximized" : "tiled",
     postureTo,
-    /** Flip the posture — `⌘⇧M` and the palette entry. It flips the CHOSEN
-     *  posture, never the layout: in orchestrator mode `layout()` already
-     *  answers "maximized", so toggling off it would leave the bit where it
-     *  was and the chord would do nothing anybody could see. */
+    /** Flip the posture — `⌘⇧M` and the palette entry. It writes through
+     *  `postureTo`, so a press made while the conversation is on screen leaves
+     *  it and lands on the canvas it just asked for. */
     toggle: (): void => postureTo(!store.canvasMaximized()),
   } as const;
 }

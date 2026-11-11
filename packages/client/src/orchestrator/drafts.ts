@@ -7,7 +7,7 @@
  *  mode flip, a host switch, and a scroll — it does not survive a reload, which
  *  is the honest boundary for text the server was never told about. */
 
-import type { OrchestratorAttachment } from "@kolu/padi-client/orchestrator";
+import type { OrchestratorAttachment } from "kolu-common/orchestrator";
 import { createSignal } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { armedMentionText } from "./mentions";

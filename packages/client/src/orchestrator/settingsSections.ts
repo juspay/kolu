@@ -12,7 +12,7 @@
  *  kept, with the model lifted to the front. Nothing else is reordered,
  *  renamed, or filled in — the words stay the adapter's. */
 
-import type { OrchestratorState } from "@kolu/padi-client/orchestrator";
+import type { OrchestratorState } from "kolu-common/orchestrator";
 
 /** One adapter-advertised setting, as the wire sends it. */
 export type SettingsOption = OrchestratorState["options"][number];

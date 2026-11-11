@@ -13,10 +13,13 @@
  *  own `startedAt` stamp, so a reloaded tab shows the same number as the tab
  *  beside it instead of starting a stopwatch of its own. */
 
-import type { OrchestratorToolRow } from "@kolu/padi-client/orchestrator";
+import { decodeHostKey } from "kolu-common/hostKey";
+import type { OrchestratorToolRow } from "kolu-common/orchestrator";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
 import { useDockFocus } from "../canvas/dock/useDockFocus";
+import { hostLabel } from "../host/hostChipTone";
+import { selectHostTab } from "../host/selectHostTab";
 import { getClockNow } from "../time/clock";
 import OrchestratorDiffs from "./OrchestratorDiffs";
 import { runningFor, sentInput, waitedFor } from "./toolCard";
@@ -49,20 +52,37 @@ const OrchestratorToolCard: Component<{ row: OrchestratorToolRow }> = (
    *  read, so a settled card holds no subscription at all. */
   const clock = () =>
     props.row.status === "in_progress" ? runningFor(props.row, now()) : null;
-  /** The terminal a card is ABOUT, when it is about one. Every kolu reading
-   *  carries the id; a call we could not name has no terminal to open and
-   *  nothing to guess at. */
-  const subject = (): TerminalId | null => props.row.kolu?.terminalId ?? null;
+  /** The terminal a card is ABOUT, when it is about one — BOTH halves of its
+   *  identity. Every kolu reading carries the id and the host it is on (the
+   *  two sides of the `host/id` the agent spoke); a call we could not resolve
+   *  carries neither, and has nothing to open and nothing to guess at. */
+  const subject = (): { host: string; id: TerminalId } | null => {
+    const call = props.row.kolu;
+    if (call === undefined || call.terminalId === null || call.host === null) {
+      return null;
+    }
+    return { host: call.host, id: call.terminalId };
+  };
 
-  const openTile = (id: TerminalId | null) => (
-    <Show when={id}>
-      {(terminalId) => (
+  /** Go to it. The terminal may be on a machine whose tab is not the selected
+   *  one, so this is a TAB SWITCH and then a focus — `selectHostTab` leaves
+   *  the conversation and lands on that host's canvas in whatever posture it
+   *  was left in (maximized stays maximized), and the focus lands on the tile
+   *  there. The same two steps, in the same order, a palette row or a
+   *  notification click takes. */
+  const openTile = (at: { host: string; id: TerminalId } | null) => (
+    <Show when={at}>
+      {(target) => (
         <button
           type="button"
           data-testid="orchestrator-tool-open-tile"
-          data-terminal-id={terminalId()}
+          data-terminal-id={target().id}
+          data-host={target().host}
           class="text-[0.7rem] font-semibold text-accent hover:underline cursor-pointer shrink-0"
-          onClick={() => focus(terminalId())}
+          onClick={() => {
+            selectHostTab(decodeHostKey(target().host));
+            focus(target().id);
+          }}
         >
           open tile
         </button>
@@ -95,6 +115,7 @@ const OrchestratorToolCard: Component<{ row: OrchestratorToolRow }> = (
     <div
       data-testid="orchestrator-tool-card"
       data-tool-kind={props.row.kolu?.kind ?? "generic"}
+      data-host={props.row.kolu?.host ?? undefined}
       data-status={props.row.status}
       class="grid grid-cols-[auto_1fr_auto] items-center gap-x-2.5 gap-y-1.5 rounded-lg border border-edge bg-surface-1 px-2.5 py-1.5 text-xs"
     >
@@ -102,6 +123,20 @@ const OrchestratorToolCard: Component<{ row: OrchestratorToolRow }> = (
         {props.row.tool ?? props.row.server ?? "tool"}
       </span>
       <span class="min-w-0 truncate">
+        {/* WHICH MACHINE, first. One conversation drives terminals on every
+            host, so `fix-parser` alone does not say where the agent typed —
+            and the card's own "open tile" goes to a different tab depending
+            on the answer. */}
+        <Show when={props.row.kolu?.host}>
+          {(host) => (
+            <span
+              data-testid="orchestrator-tool-host"
+              class="mr-1.5 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-accent"
+            >
+              {hostLabel(decodeHostKey(host()))}
+            </span>
+          )}
+        </Show>
         {(() => {
           const call = props.row.kolu;
           if (call === undefined)

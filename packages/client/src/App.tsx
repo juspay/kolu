@@ -62,7 +62,6 @@ import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
 import MobilePullChrome from "./MobilePullChrome";
 import OrchestratorPane from "./orchestrator/OrchestratorPane";
-import OrchestratorPeekHeader from "./orchestrator/OrchestratorPeekHeader";
 import OrchestratorSheet from "./orchestrator/OrchestratorSheet";
 import { orchestratorMode } from "./orchestrator/useOrchestratorMode";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
@@ -134,15 +133,6 @@ const App: Component = () => {
   // terminal behind RightPanel / theme / screenshot).
   const tileStore = useTileStore();
 
-  /** What the peek pane is showing — the ACTIVE tile, because that is what the
-   *  canvas shows in its single-tile posture and peeking is that posture. One
-   *  derivation, so the header's name and the terminal under it can never name
-   *  two different tiles. */
-  const peekName = (): string | undefined => {
-    const id = store.activeId();
-    return id === null ? undefined : store.getDisplayInfo(id)?.key.label;
-  };
-
   const {
     committedThemeName,
     setPreviewThemeName,
@@ -154,16 +144,8 @@ const App: Component = () => {
   } = useThemeManager();
 
   const rightPanel = useRightPanel();
-  /** The right panel is COLLAPSED (never unmounted) in orchestrator mode: the
-   *  peek is terminal-only — Code and Inspector are a different question from
-   *  the one the conversation is asking — and collapsing rather than
-   *  unmounting is what keeps the Code tab's selection and Pierre's tree
-   *  expansion across a mode round-trip. The user's own `collapsed` bit is
-   *  untouched, so leaving the mode restores whatever they had open. */
-  const panelCollapsed = (): boolean =>
-    orchestratorMode() || rightPanel.collapsed();
   const rightPanelSizes = controlledSizes(() =>
-    panelCollapsed()
+    rightPanel.collapsed()
       ? [1, 0]
       : [1 - rightPanel.panelSize(), rightPanel.panelSize()],
   );
@@ -698,40 +680,9 @@ const App: Component = () => {
                           )}
                           renderTileBar={(id) => <TileTip id={id} />}
                           renderTileBody={outlet}
-                          // The three orchestrator-mode slots. Supplying them
-                          // conditionally mounts the pane and the peek header
-                          // without touching the dock or the viewport, which
-                          // is the whole point: entering the mode must not
-                          // cost an xterm buffer, a stream re-attach or a
-                          // dock preview.
-                          renderSidePane={
-                            orchestratorMode()
-                              ? () => (
-                                  <OrchestratorPane
-                                    class="border-r border-edge"
-                                    grip="right"
-                                  />
-                                )
-                              : undefined
-                          }
-                          renderViewportHeader={
-                            orchestratorMode()
-                              ? () => (
-                                  <OrchestratorPeekHeader name={peekName()} />
-                                )
-                              : undefined
-                          }
-                          viewportTestId={
-                            orchestratorMode() ? "orchestrator-peek" : undefined
-                          }
-                          viewportSubject={
-                            orchestratorMode()
-                              ? (store.activeId() ?? undefined)
-                              : undefined
-                          }
                         />
                       </Resizable.Panel>
-                      <Show when={!panelCollapsed()}>
+                      <Show when={!rightPanel.collapsed()}>
                         <Resizable.Handle
                           data-testid="right-panel-handle"
                           startIntersection={false}
@@ -754,7 +705,7 @@ const App: Component = () => {
                         as="div"
                         class="min-w-0 min-h-0 overflow-hidden"
                         classList={{
-                          "border-l border-edge": !panelCollapsed(),
+                          "border-l border-edge": !rightPanel.collapsed(),
                         }}
                         minSize={0.1}
                       >
@@ -767,7 +718,7 @@ const App: Component = () => {
                           onThemeClick={() =>
                             commandPalette.openGroup("Set theme")
                           }
-                          visible={!panelCollapsed()}
+                          visible={!rightPanel.collapsed()}
                         />
                       </Resizable.Panel>
                     </Resizable>
@@ -777,19 +728,20 @@ const App: Component = () => {
             </WorkspaceTerminals>
           </Match>
         </Switch>
-        {/* Orchestrator mode over a canvas surface that is NOT the workspace —
-         *  an empty workspace, a connecting or a down host. There is no
-         *  viewport to peek into and no tile to maximize, so the conversation
-         *  takes the right edge beside whatever surface the `<Switch>` chose.
-         *  The workspace arm mounts it INSIDE the canvas instead (as the middle
-         *  of dock · chat · peek), so the two are mutually exclusive and the
-         *  pane is never mounted twice. */}
-        <Show
-          when={
-            orchestratorMode() && isDesktop() && mode().kind !== "workspace"
-          }
-        >
-          <OrchestratorPane class="border-l border-edge" grip="left" />
+        {/* THE ORCHESTRATOR, when its entry in the chrome bar is the selected
+         *  one: the conversation fills everything below the bar — no dock, no
+         *  canvas, no peek, no inspector. It covers the workspace rather than
+         *  replacing it in the `<Switch>` above, and that is load-bearing: a
+         *  person reading the chat for a minute must not pay an xterm
+         *  teardown, a stream re-attach and a dock rebuild for the round trip
+         *  back to their terminals. Everything underneath stays mounted,
+         *  attached and exactly as they left it.
+         *
+         *  `z-[45]` sits above everything the canvas wrapper holds — the
+         *  floating dock (`z-30`) and a maximized tile (`z-40`) — and below
+         *  the chrome bar (`z-50`) that carries the entry you leave by. */}
+        <Show when={orchestratorMode() && isDesktop()}>
+          <OrchestratorPane class="absolute inset-0 z-[45]" />
         </Show>
       </div>
       {/* Below the breakpoint the mode is a full-screen sheet — there is no

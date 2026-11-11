@@ -15,7 +15,7 @@
  *  agent's description underneath takes the truncation, because a mode called
  *  `Ac…` beside a full sentence is a panel that spent its room on the gloss. */
 
-import type { OrchestratorState } from "@kolu/padi-client/orchestrator";
+import type { OrchestratorState } from "kolu-common/orchestrator";
 import { type Component, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { surface } from "../ui/Surface";

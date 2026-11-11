@@ -1,8 +1,11 @@
-/** The ACTIVE host's conversation: what it is doing, and the eight things a
- *  person can ask of it.
+/** The conversation: what it is doing, and the eight things a person can ask
+ *  of it.
  *
- *  The cell is read through the pool-wide mirror (`useOrchestratorFacts`) rather
- *  than opened again here — the badge already needs every host, and a second
+ *  ONE conversation, hosted by kolu-server, whose hands reach every host — so
+ *  every verb here is a kolu-surface procedure, never the active host's padi.
+ *
+ *  The cell is read through the shared mirror (`useOrchestratorFacts`) rather
+ *  than opened again here — the badge already reads it, and a second
  *  subscription to the same member is a second frame to disagree with.
  *
  *  Every verb is a REQUEST of a conversation, which is why the cell beside them
@@ -26,17 +29,14 @@ import type {
   OrchestratorAttachment,
   OrchestratorMention,
   OrchestratorState,
-} from "@kolu/padi-client/orchestrator";
+} from "kolu-common/orchestrator";
 import { Effect } from "effect";
-import { type Accessor, createMemo } from "solid-js";
+import type { Accessor } from "solid-js";
 import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { runAction } from "../runAction";
-import { activePadiRpc, encActiveHost } from "../wire";
-import {
-  orchestratorStateOf,
-  useOrchestratorFacts,
-} from "./useOrchestratorFacts";
+import { app } from "../wire";
+import { useOrchestratorFacts } from "./useOrchestratorFacts";
 
 /** Render a failure for a toast, keeping the server's own sentence — a declared
  *  refusal carries its `why` as its `message`, so this never flattens it to a
@@ -72,10 +72,9 @@ export interface Orchestrator {
 }
 
 export const useOrchestrator = createSharedRoot<Orchestrator>(() => {
-  // Instantiating the mirror here is what guarantees the active host's cell is
-  // subscribed even on a screen that draws no badge.
-  useOrchestratorFacts();
-  const state = createMemo(() => orchestratorStateOf(encActiveHost()));
+  // The mirror IS the state here — reading it through the shared root is what
+  // guarantees the cell is subscribed even on a screen that draws no badge.
+  const state = useOrchestratorFacts();
 
   /** The common edge: run a verb and report whatever went wrong with it. These
    *  verbs have no row to carry a refusal, so the toast is the whole report;
@@ -107,7 +106,7 @@ export const useOrchestrator = createSharedRoot<Orchestrator>(() => {
     prompt: (text, mentions, attachments, settled) =>
       runAction(
         "orchestrator prompt",
-        activePadiRpc.orchestrator
+        app.procedures.orchestrator
           .prompt({
             text,
             mentions: [...mentions],
@@ -131,11 +130,11 @@ export const useOrchestrator = createSharedRoot<Orchestrator>(() => {
           ),
       ),
     cancel: () =>
-      ask("Could not stop the turn", activePadiRpc.orchestrator.cancel({})),
+      ask("Could not stop the turn", app.procedures.orchestrator.cancel({})),
     answer: (askId, answers) =>
       ask(
         "Could not answer",
-        activePadiRpc.orchestrator.answer({
+        app.procedures.orchestrator.answer({
           askId,
           answers: answers === null ? null : [...answers],
         }),
@@ -148,7 +147,7 @@ export const useOrchestrator = createSharedRoot<Orchestrator>(() => {
     signIn: (method) =>
       ask(
         "Sign-in failed",
-        activePadiRpc.orchestrator.signIn({ method }),
+        app.procedures.orchestrator.signIn({ method }),
         (result) => {
           if (result.outcome === "signed-in") toast.success("Signed in");
           if (result.outcome === "failed")
@@ -158,22 +157,22 @@ export const useOrchestrator = createSharedRoot<Orchestrator>(() => {
     signInInput: (text) =>
       ask(
         "Could not send that",
-        activePadiRpc.orchestrator.signInInput({ text }),
+        app.procedures.orchestrator.signInInput({ text }),
       ),
     signInCancel: () =>
       ask(
         "Could not cancel sign-in",
-        activePadiRpc.orchestrator.signInCancel({}),
+        app.procedures.orchestrator.signInCancel({}),
       ),
     setOption: (id, value) =>
       ask(
         "The agent kept its setting",
-        activePadiRpc.orchestrator.setOption({ id, value }),
+        app.procedures.orchestrator.setOption({ id, value }),
       ),
     newSession: () =>
       ask(
         "Could not start a new session",
-        activePadiRpc.orchestrator.newSession({}),
+        app.procedures.orchestrator.newSession({}),
       ),
   };
 });

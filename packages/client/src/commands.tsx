@@ -502,18 +502,13 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
           // zero terminals). The label describes the action a select
           // performs, so when already maximized it reads "Restore canvas",
           // never "Maximize terminal" — same wording as the ChromeBar
-          // affordance. It reads the posture the user CHOSE, not `layout()`:
-          // in orchestrator mode the layout answers "maximized" (the peek pane
-          // is that posture by another name), and labelling off it offered
-          // "Restore canvas" for a posture the user was not in — while the
-          // select itself leaves the mode and flips the bit underneath.
-          // Carries the keybind chip so the palette advertises the
-          // Mod+Shift+M shortcut from one source of truth.
+          // affordance. Carries the keybind chip so the palette advertises
+          // the Mod+Shift+M shortcut from one source of truth.
           ...(posture.canMaximize()
             ? [
                 actionPaletteCommand("toggleCanvasPosture", deps, {
                   section: "canvas",
-                  name: posturedActionLabel(posture.posture()),
+                  name: posturedActionLabel(posture.layout()),
                 }),
               ]
             : []),
@@ -554,14 +549,14 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       : []),
     actionPaletteCommand("toggleDock", deps, { section: "ui" }),
     // The orchestrator, through the SAME registry entry the chord and the
-    // chrome-bar segment read, so the palette's shortcut chip has one source.
-    // Ungated: the mode is reachable on an empty workspace and on a host whose
-    // conversation has not started — the panel says which of those it is, and
-    // a command that hides itself is a feature nobody discovers.
+    // chrome-bar entry read, so the palette's shortcut chip has one source.
+    // Ungated: the conversation is reachable on an empty workspace and before
+    // it has started — the panel says which of those it is, and a command
+    // that hides itself is a feature nobody discovers.
     actionPaletteCommand("toggleOrchestrator", deps, {
       section: "ui",
       name: orchestratorMode() ? "Leave the orchestrator" : "Orchestrator",
-      description: "One conversation per host that drives its terminals",
+      description: "One conversation that drives the terminals on every host",
     }),
     // The tile tip shows only where ambient tips do (desktop), so the size
     // switch is offered only there.

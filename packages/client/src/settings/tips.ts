@@ -73,7 +73,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-orchestrator",
-    text: `${formatKeybind(ACTIONS.toggleOrchestrator.keybind)} opens the orchestrator — one conversation per machine that creates terminals, briefs the agents in them, watches them and answers their questions; the dock becomes its fleet and the terminal you last clicked stays live beside the chat`,
+    text: `${formatKeybind(ACTIONS.toggleOrchestrator.keybind)} opens the orchestrator — one conversation, across every host, that creates terminals, briefs the agents in them, watches them and answers their questions; its ◆ entry sits at the end of the tab row, and a tool card's "open tile" takes you to the terminal it names, wherever it lives`,
     doc: "orchestrator",
   },
   {

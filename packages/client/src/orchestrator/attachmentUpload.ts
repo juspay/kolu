@@ -36,7 +36,7 @@ import {
 } from "@kolu/surface/frame-chunking";
 import { Effect } from "effect";
 import { oversizedFrameRefusal } from "../terminal/pasteDelivery";
-import { activePadiRpc } from "../wire";
+import { app } from "../wire";
 import type { ReadFile } from "./attachments";
 
 /** What padi wrote, and where. */
@@ -105,7 +105,9 @@ export function uploadAttachment(deps: {
   });
 }
 
-/** The production edge: the same upload, against this host's padi. */
+/** The production edge: the same upload, against kolu-server — the one host of
+ *  the one conversation, so the bytes land beside the transcript that will
+ *  name them. */
 export function sendAttachment(
   read: ReadFile,
 ): Effect.Effect<WrittenAttachment, unknown> {
@@ -114,6 +116,6 @@ export function sendAttachment(
     name: read.name,
     mimeType: read.mimeType,
     base64: read.base64,
-    attach: (args) => activePadiRpc.orchestrator.attach(args),
+    attach: (args) => app.procedures.orchestrator.attach(args),
   });
 }

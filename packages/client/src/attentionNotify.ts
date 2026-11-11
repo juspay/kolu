@@ -29,10 +29,10 @@ const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
 export type AttentionClick =
   | { kind: "terminal"; host: string; terminalId: TerminalId }
   | { kind: "host"; host: string; id: TerminalId }
-  /** A question the HOST'S ORCHESTRATOR is waiting on — it belongs to the
-   *  conversation, not to any one terminal, so it carries no terminal id and
-   *  the click lands on the host's panel rather than on a tile. */
-  | { kind: "orchestrator"; host: string };
+  /** A question THE ORCHESTRATOR is waiting on. One conversation covers every
+   *  host, so this arm carries neither a terminal id nor a host key — the
+   *  click opens the conversation and nothing else. */
+  | { kind: "orchestrator" };
 
 /** Validate a click envelope the framework relays (a live postMessage or a
  *  cold-start URL param). A stale notification from before an app upgrade, or a
@@ -45,12 +45,10 @@ function parseAttentionClick(data: unknown): AttentionClick | undefined {
   if (typeof data !== "object" || data === null) return undefined;
   const d = data as Record<string, unknown>;
   if (d.kind === "orchestrator") {
-    // The one arm with nothing but a host: validate it and stop, rather than
-    // falling into the shared terminal-id check below and dropping every
-    // orchestrator envelope for lacking an id it never had.
-    return typeof d.host === "string" && isEncodedHostKey(d.host)
-      ? { kind: "orchestrator", host: d.host }
-      : undefined;
+    // The one arm with nothing in it at all: answer it here rather than
+    // falling into the shared host/terminal-id check below, which would drop
+    // every orchestrator envelope for lacking fields it never had.
+    return { kind: "orchestrator" };
   }
   if (d.kind !== "terminal" && d.kind !== "host") return undefined;
   // BOTH variants carry the same two facts, so validate them ONCE: a canonical

@@ -12,7 +12,7 @@
  *  back — that is the one behaviour that makes a live transcript unusable. */
 
 import { formatBytes } from "@kolu/byte-units";
-import type { OrchestratorRow } from "@kolu/padi-client/orchestrator";
+import type { OrchestratorRow } from "kolu-common/orchestrator";
 import { Markdown } from "@kolu/solid-markdown";
 import { Key } from "@solid-primitives/keyed";
 import {

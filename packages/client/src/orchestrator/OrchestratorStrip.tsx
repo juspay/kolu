@@ -11,7 +11,7 @@
  *  own thing instead of borrowing it. A `missing` server is a probe's no that
  *  the agent cannot overwrite, so it carries the prober's sentence verbatim. */
 
-import type { OrchestratorState } from "@kolu/padi-client/orchestrator";
+import type { OrchestratorState } from "kolu-common/orchestrator";
 import { type Component, For, Show } from "solid-js";
 import { getClockNow } from "../time/clock";
 import { formatElapsedShort } from "../time/duration";

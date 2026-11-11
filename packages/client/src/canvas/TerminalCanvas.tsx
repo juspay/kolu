@@ -104,21 +104,6 @@ const TerminalCanvas: Component<{
    *  every focus change — reads happen inside the returned JSX's props
    *  (fine-grained reactivity), not around the render-prop effect. */
   renderTileBody: (id: TileId, active: () => boolean) => JSX.Element;
-  /** A pane mounted between the dock and the canvas viewport — the
-   *  orchestrator's conversation, and the reason it is a SLOT rather than a
-   *  sibling of this whole component: the dock, the chat and the peeked
-   *  terminal must be three columns of ONE flex row, and the dock and the
-   *  viewport are both mounted here. Absent in every other mode, so nothing
-   *  renders. */
-  renderSidePane?: () => JSX.Element;
-  /** A strip above the viewport — the peek pane's header. The viewport element
-   *  itself is created ONCE and never re-parented: a header that appeared by
-   *  wrapping the viewport would re-create it, and every tile with it. */
-  renderViewportHeader?: () => JSX.Element;
-  /** e2e handles for the viewport COLUMN, supplied by whoever is framing it
-   *  (the orchestrator's peek). Attributes, so toggling them moves no DOM. */
-  viewportTestId?: string;
-  viewportSubject?: TileId;
 }> = (props) => {
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
@@ -505,23 +490,11 @@ const TerminalCanvas: Component<{
           onOpenWorkspaceSearch={props.onOpenWorkspaceSearch}
           onCreate={props.onCreate}
         />
-        {/* The orchestrator's pane, when it is on: a real flex sibling between
-         *  the dock and the viewport, so the three columns share one row and
-         *  neither the dock nor a single tile is re-mounted to make room. */}
-        <Show when={props.renderSidePane}>{(render) => render()()}</Show>
-        {/* The viewport COLUMN. Always this shape — a header slot above a
-         *  viewport that fills the rest — so the canvas element below is
-         *  created once for the life of the workspace: re-parenting it to grow
-         *  a header would re-create every tile under it, and with them every
-         *  xterm buffer and every attach. */}
-        <div
-          class="flex-1 min-w-0 min-h-0 flex flex-col"
-          data-testid={props.viewportTestId}
-          data-terminal-id={props.viewportSubject}
-        >
-          <Show when={props.renderViewportHeader}>
-            {(render) => render()()}
-          </Show>
+        {/* The viewport COLUMN. One shape, always — so the canvas element
+         *  below is created once for the life of the workspace: re-parenting
+         *  it would re-create every tile under it, and with them every xterm
+         *  buffer and every attach. */}
+        <div class="flex-1 min-w-0 min-h-0 flex flex-col">
           <div
             ref={(el) => viewport.setContainerRef(el, isWheelTargetTerminal)}
             data-testid="canvas-container"

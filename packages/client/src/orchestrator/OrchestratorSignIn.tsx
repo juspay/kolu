@@ -12,7 +12,7 @@
  *  rather than starting a second process — the host owns that rule; this row
  *  just keeps the button pressable so attaching is possible at all. */
 
-import type { OrchestratorState } from "@kolu/padi-client/orchestrator";
+import type { OrchestratorState } from "kolu-common/orchestrator";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { useOrchestrator } from "./useOrchestrator";

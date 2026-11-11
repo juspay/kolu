@@ -22,10 +22,7 @@ import MobileHostRow from "./host/MobileHostRow";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import { daemonTransportLive, serverDot } from "./kaval/useDaemonStatus";
-import {
-  orchestratorStateOf,
-  useOrchestratorFacts,
-} from "./orchestrator/useOrchestratorFacts";
+import { orchestratorAsksTotal } from "./orchestrator/useOrchestratorFacts";
 import {
   enterOrchestratorMode,
   orchestratorMode,
@@ -37,7 +34,6 @@ import { setSettingsOpen, settingsOpen } from "./settings/useSettingsOpen";
 import { InspectorToggleIcon, SettingsIcon } from "./ui/Icons";
 import Kbd from "./ui/Kbd";
 import { clientStale, StaleBadge } from "./ui/StaleBadge";
-import { encActiveHost } from "./wire";
 
 const MobileChromeSheet: Component<{
   status: WsStatus;
@@ -51,9 +47,6 @@ const MobileChromeSheet: Component<{
   const rightPanel = useRightPanel();
   const pwa = useSurfaceApp();
   let settingsTriggerRef!: HTMLButtonElement;
-  useOrchestratorFacts();
-  const orchestratorAsks = (): number =>
-    orchestratorStateOf(encActiveHost()).openAsks.length;
 
   return (
     <div data-testid="mobile-chrome-sheet" class="flex flex-col">
@@ -84,6 +77,44 @@ const MobileChromeSheet: Component<{
        *  desktop `HostSelectorStrip` is `isDesktop()`-gated, so this is the
        *  ONLY host chrome the touch layout has. */}
       <MobileHostRow onSwitch={props.onClose} />
+
+      {/* The orchestrator, BESIDE the hosts rather than among them: it is the
+       *  touch layout's one entry to the conversation, and it is not a host —
+       *  no status dot, no hue, nothing in the row above. Selecting it shows
+       *  the chat full-screen (a sheet, `OrchestratorSheet`), which is why
+       *  there is nothing more to lay out here than the door and the count of
+       *  questions waiting behind it. */}
+      <div class="border-b border-edge/50 px-3 py-2">
+        <button
+          type="button"
+          data-testid="orchestrator-tab"
+          data-active={orchestratorMode() ? "" : undefined}
+          aria-pressed={orchestratorMode()}
+          class="relative flex min-h-[44px] w-full items-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors"
+          classList={{
+            "border-accent/60 bg-accent/12 text-accent": orchestratorMode(),
+            "border-edge bg-surface-2 text-fg-2 active:bg-surface-3":
+              !orchestratorMode(),
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => {
+            enterOrchestratorMode();
+            props.onClose();
+          }}
+          aria-label={ACTIONS.toggleOrchestrator.label}
+        >
+          <span aria-hidden="true">◆</span>
+          <span class="font-medium">Orchestrator</span>
+          <Show when={orchestratorAsksTotal() > 0}>
+            <span
+              data-testid="orchestrator-badge"
+              class="ml-auto rounded-full bg-alert px-2 font-mono text-[0.68rem] font-bold text-surface-0"
+            >
+              {orchestratorAsksTotal()}
+            </span>
+          </Show>
+        </button>
+      </div>
 
       {/* Client out of sync with the server — the actionable mobile form of the
        *  desktop rail's `≠ srv` signal: a one-tap reload onto the deployed build
@@ -142,32 +173,6 @@ const MobileChromeSheet: Component<{
             triggerRef={settingsTriggerRef}
           />
         </div>
-        {/* The orchestrator, as the touch layout's one entry to it: the mode
-         *  itself is a full-screen sheet, so there is nothing to lay out here
-         *  beyond the door and the count of questions waiting behind it. */}
-        <button
-          type="button"
-          data-testid="mode-orchestrator"
-          data-active={orchestratorMode() ? "" : undefined}
-          class="relative h-9 w-9 flex items-center justify-center text-fg-2 bg-surface-2 rounded-lg border border-edge active:bg-surface-3"
-          classList={{ "bg-surface-3 text-accent": orchestratorMode() }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => {
-            enterOrchestratorMode();
-            props.onClose();
-          }}
-          aria-label={ACTIONS.toggleOrchestrator.label}
-        >
-          ◆
-          <Show when={orchestratorAsks() > 0}>
-            <span
-              data-testid="orchestrator-badge"
-              class="absolute -top-1 -right-1 rounded-full bg-alert px-1.5 font-mono text-[0.6rem] font-bold text-surface-0"
-            >
-              {orchestratorAsks()}
-            </span>
-          </Show>
-        </button>
         <button
           type="button"
           data-testid="inspector-toggle"

@@ -5,7 +5,7 @@
 import type {
   OrchestratorFrame,
   OrchestratorRow,
-} from "@kolu/padi-client/orchestrator";
+} from "kolu-common/orchestrator";
 import { describe, expect, it } from "vitest";
 import { applyFrame, EMPTY_TRANSCRIPT } from "./transcript";
 

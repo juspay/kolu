@@ -7,7 +7,7 @@
  *  while meaning quite different amounts of work left. The denominator is the
  *  half you act on. */
 
-import type { OrchestratorState } from "@kolu/padi-client/orchestrator";
+import type { OrchestratorState } from "kolu-common/orchestrator";
 import { type Component, createSignal, Show } from "solid-js";
 import Tip from "../ui/Tip";
 import OrchestratorSettings from "./OrchestratorSettings";
