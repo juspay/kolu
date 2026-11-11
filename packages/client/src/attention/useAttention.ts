@@ -54,8 +54,21 @@ import {
 import "kolu-common/test-hooks";
 import { Effect, Semaphore } from "effect";
 import { createEffect, mapArray, onCleanup } from "solid-js";
+import { match } from "ts-pattern";
+import { notify } from "../attentionNotify";
+import { hostLabel } from "../host/hostChipTone";
+import {
+  orchestratorAsksTotal,
+  orchestratorHosts,
+  orchestratorStateOf,
+  useOrchestratorFacts,
+} from "../orchestrator/useOrchestratorFacts";
+import { enterOrchestratorMode } from "../orchestrator/useOrchestratorMode";
+import { runAction } from "../runAction";
+import type { TerminalSubject } from "../terminal/terminalSubject";
+import { nextAfter } from "../ui/nextAfter";
+import { activeHost, preferences, setActiveHost } from "../wire";
 import { createAttentionCore } from "./attentionCore";
-import { isTerminalWatched } from "./attentionWatched";
 import {
   hostAskingIds,
   hostFrame,
@@ -64,14 +77,8 @@ import {
   writeHostMarks,
 } from "./attentionMarks";
 import { registerAttentionJump } from "./attentionNav";
-import { runAction } from "../runAction";
+import { isTerminalWatched } from "./attentionWatched";
 import { useAttentionFacts } from "./useAttentionFacts";
-import { nextAfter } from "../ui/nextAfter";
-import { match } from "ts-pattern";
-import { notify } from "../attentionNotify";
-import { hostLabel } from "../host/hostChipTone";
-import type { TerminalSubject } from "../terminal/terminalSubject";
-import { activeHost, preferences, setActiveHost } from "../wire";
 
 /** What the active host can tell us about its terminals — the rich notification
  *  copy, the dock unread write, and the e2e simulate targets. Background hosts
@@ -175,6 +182,49 @@ export function useAttention(deps: AttentionDeps): {
     }
   }
 
+  /** THE ORCHESTRATOR'S ASKS, through the same channel and nothing else.
+   *
+   *  A conversation blocked on a question is `asking` in exactly the sense the
+   *  frame already means it — the only difference is that the thing blocked is
+   *  a host's conversation rather than a terminal, so there is no id to focus
+   *  and the envelope carries the host alone. It fires the SAME sound and the
+   *  SAME notification seam (there is one `Audio`, one `Notification` and one
+   *  `setAppBadge` in this client, and this is not a second of any of them),
+   *  and it counts into the same badge below.
+   *
+   *  Attention is a TRANSITION, not a discovery: the first count seen for a
+   *  host is a baseline, and only a RISE fires — reloading a tab onto a
+   *  conversation that has been waiting for an hour must not ring. */
+  const askedBefore = new Map<string, number>();
+  const deliverAsks = (encHost: string, open: number): void => {
+    try {
+      playSound();
+      const host = decodeHostKey(encHost);
+      void notify.show({
+        tag: `${encHost}/orchestrator`,
+        title: `The orchestrator on ${hostLabel(host)} needs you`,
+        body:
+          open === 1
+            ? "One question is waiting"
+            : `${open} questions are waiting`,
+        icon: "/favicon.svg",
+        data: { kind: "orchestrator", host: encHost },
+      });
+    } catch (err) {
+      console.error("useAttention: orchestrator delivery failed", err);
+    }
+  };
+  createEffect(() => {
+    for (const encHost of orchestratorHosts()) {
+      const open = orchestratorStateOf(encHost).openAsks.length;
+      const before = askedBefore.get(encHost);
+      askedBefore.set(encHost, open);
+      if (before === undefined || open <= before) continue;
+      if (!alertsEnabled()) continue;
+      deliverAsks(encHost, open);
+    }
+  });
+
   // The detect→fire ENGINE (`attentionCore`) — unit-tested off the wire. It owns
   // the per-host prev-frame, the fire-once latch, and the unseen-finished sets;
   // we hand it the wire-facing side-effects. Hooks take the ENCODED host string
@@ -197,6 +247,9 @@ export function useAttention(deps: AttentionDeps): {
   // even when no surface has read a pip yet, because attention must reach you
   // on a host you are not looking at. This module is a CONSUMER of that mirror.
   useAttentionFacts();
+  // …and the ORCHESTRATOR mirror, for the same reason: a conversation blocked
+  // on a host nobody is looking at is exactly the one that has to reach you.
+  useOrchestratorFacts();
 
   // Feed every host's attention frame to the engine, off the marks store. One
   // owner per marked host (so a host leaving the pool disposes its engine state
@@ -263,7 +316,10 @@ export function useAttention(deps: AttentionDeps): {
       paintBadge(0);
       return;
     }
-    paintBadge(liveAskingTotal());
+    // Σ asking over LIVE hosts, PLUS the conversations waiting on a question.
+    // One number on the icon, because there is one OS slot and a person
+    // counting two badges has to add them anyway.
+    paintBadge(liveAskingTotal() + orchestratorAsksTotal());
   });
 
   // The violet-capsule JUMP verb (see `attentionNav`): switch to the host, then
@@ -293,6 +349,12 @@ export function useAttention(deps: AttentionDeps): {
         .with({ kind: "host" }, ({ host, id }) => {
           setActiveHost(decodeHostKey(host));
           deps.activate(id);
+        })
+        .with({ kind: "orchestrator" }, ({ host }) => {
+          // No terminal to focus — the question belongs to the conversation,
+          // so the click switches host and opens the panel it is waiting in.
+          setActiveHost(decodeHostKey(host));
+          enterOrchestratorMode();
         })
         .exhaustive(),
     ),

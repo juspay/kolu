@@ -23,8 +23,8 @@
 
 import {
   type Adapter,
-  adapterFrom,
   AGENT_ENV,
+  adapterFrom,
   type NotHere,
   type Registering,
 } from "@kolu/acp/engine";

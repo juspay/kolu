@@ -18,10 +18,18 @@
 
 import { useSurfaceApp } from "@kolu/surface-app/solid";
 import { type Component, Show } from "solid-js";
+import MobileHostRow from "./host/MobileHostRow";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
-import MobileHostRow from "./host/MobileHostRow";
 import { daemonTransportLive, serverDot } from "./kaval/useDaemonStatus";
+import {
+  orchestratorStateOf,
+  useOrchestratorFacts,
+} from "./orchestrator/useOrchestratorFacts";
+import {
+  enterOrchestratorMode,
+  orchestratorMode,
+} from "./orchestrator/useOrchestratorMode";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
@@ -29,6 +37,7 @@ import { setSettingsOpen, settingsOpen } from "./settings/useSettingsOpen";
 import { InspectorToggleIcon, SettingsIcon } from "./ui/Icons";
 import Kbd from "./ui/Kbd";
 import { clientStale, StaleBadge } from "./ui/StaleBadge";
+import { encActiveHost } from "./wire";
 
 const MobileChromeSheet: Component<{
   status: WsStatus;
@@ -42,6 +51,9 @@ const MobileChromeSheet: Component<{
   const rightPanel = useRightPanel();
   const pwa = useSurfaceApp();
   let settingsTriggerRef!: HTMLButtonElement;
+  useOrchestratorFacts();
+  const orchestratorAsks = (): number =>
+    orchestratorStateOf(encActiveHost()).openAsks.length;
 
   return (
     <div data-testid="mobile-chrome-sheet" class="flex flex-col">
@@ -130,6 +142,32 @@ const MobileChromeSheet: Component<{
             triggerRef={settingsTriggerRef}
           />
         </div>
+        {/* The orchestrator, as the touch layout's one entry to it: the mode
+         *  itself is a full-screen sheet, so there is nothing to lay out here
+         *  beyond the door and the count of questions waiting behind it. */}
+        <button
+          type="button"
+          data-testid="mode-orchestrator"
+          data-active={orchestratorMode() ? "" : undefined}
+          class="relative h-9 w-9 flex items-center justify-center text-fg-2 bg-surface-2 rounded-lg border border-edge active:bg-surface-3"
+          classList={{ "bg-surface-3 text-accent": orchestratorMode() }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => {
+            enterOrchestratorMode();
+            props.onClose();
+          }}
+          aria-label={ACTIONS.toggleOrchestrator.label}
+        >
+          ◆
+          <Show when={orchestratorAsks() > 0}>
+            <span
+              data-testid="orchestrator-badge"
+              class="absolute -top-1 -right-1 rounded-full bg-alert px-1.5 font-mono text-[0.6rem] font-bold text-surface-0"
+            >
+              {orchestratorAsks()}
+            </span>
+          </Show>
+        </button>
         <button
           type="button"
           data-testid="inspector-toggle"

@@ -40,8 +40,8 @@ import {
   type Background,
   type Leg,
   type ListedFacts,
-  mcpCallBy,
   type Meta,
+  mcpCallBy,
   type Reported,
   type Spawn,
   type TaskNotice,
@@ -203,7 +203,7 @@ export const spawnedIn = (meta: Meta, input: unknown): Spawn | null => {
   // THE FLAG IS THE ONLY THING THAT OPENS THIS DOOR. Everything below is read
   // off a frame the adapter itself said was an Agent call, and a frame that
   // does not say so is answered `null` however suggestively it is shaped.
-  if (claudeIn(meta)?.["subagent"] !== true) return null;
+  if (claudeIn(meta)?.subagent !== true) return null;
   // ... and then the kind, off the `Agent` tool's own arguments. `rawInput` is
   // the tool's payload rather than the adapter's word, which is exactly why it
   // may not be read on its own: `subagent_type` is a name ONE tool gives one of
@@ -336,7 +336,7 @@ export const taskNotificationIn = (
  * moment it started, which is the losing direction this bet is safe in.
  */
 export const backgroundTaskIn = (meta: Meta): Background | null => {
-  const said = claudeIn(meta)?.["backgroundTask"];
+  const said = claudeIn(meta)?.backgroundTask;
   if (typeof said !== "object" || said === null) return null;
   const task = said as { readonly [field: string]: unknown };
   const id = wordIn(task, "taskId");
@@ -472,7 +472,7 @@ const wordIn = (
 export const listedIn = (meta: Meta): ListedFacts | null => {
   const said = claudeIn(meta);
   const supersededBy = wordIn(said, "supersededBy");
-  const count = said?.["messageCount"];
+  const count = said?.messageCount;
   // The count is one the adapter reports or it is NOTHING at all: a fraction
   // like 3.5 is forfeited with the same weight as a string — a row drawing
   // `3.5 messages` is the stamp announcing a reader that trusted anything with
@@ -509,9 +509,8 @@ export const listedIn = (meta: Meta): ListedFacts | null => {
  * in.
  */
 export const QUEUES_WHEN_BUSY = (initialized: unknown): boolean =>
-  claudeIn(metaOf(fieldIn(initialized, "agentCapabilities")))?.[
-    "promptQueueing"
-  ] === true;
+  claudeIn(metaOf(fieldIn(initialized, "agentCapabilities")))
+    ?.promptQueueing === true;
 
 // ── steering a turn that is already running ────────────────────────────
 
@@ -560,7 +559,7 @@ export const STEER_METHOD = "_session/steering";
  */
 export const STEERING_ADVERTISED = (initialized: unknown): boolean =>
   (
-    metaOf(initialized)?.["steering"] as
+    metaOf(initialized)?.steering as
       | { readonly supported?: unknown }
       | undefined
   )?.supported === true;
@@ -655,7 +654,7 @@ export const SDK_MESSAGE = "_claude/sdkMessage";
  * around the protocol it speaks.
  */
 export const liveModelIn = (params: unknown): string | null => {
-  const model = initIn(params)?.["model"];
+  const model = initIn(params)?.model;
   return typeof model === "string" && model !== "" ? model : null;
 };
 
@@ -699,7 +698,7 @@ export const liveModelIn = (params: unknown): string | null => {
 export const liveServersIn = (
   params: unknown,
 ): ReadonlyArray<Reported> | null => {
-  const servers = initIn(params)?.["mcp_servers"];
+  const servers = initIn(params)?.mcp_servers;
   if (!Array.isArray(servers)) return null;
   return servers.flatMap((entry): ReadonlyArray<Reported> => {
     const shape = entry as {
@@ -736,8 +735,7 @@ const initIn = (
   const message = (params as { readonly message?: unknown } | null)?.message;
   if (typeof message !== "object" || message === null) return undefined;
   const shape = message as { readonly [key: string]: unknown };
-  if (shape["type"] !== "system" || shape["subtype"] !== "init")
-    return undefined;
+  if (shape.type !== "system" || shape.subtype !== "init") return undefined;
   return shape;
 };
 
@@ -762,8 +760,8 @@ const initIn = (
  */
 export const provisionalTitleIn = (update: unknown): boolean => {
   const frame = record(update);
-  if (frame?.["sessionUpdate"] !== "tool_call") return false;
-  const input = record(frame["rawInput"]);
+  if (frame?.sessionUpdate !== "tool_call") return false;
+  const input = record(frame.rawInput);
   return input !== undefined && Object.keys(input).length === 0;
 };
 
@@ -796,7 +794,9 @@ const refusalIn = (
     /^surface-mcp: `[^`]+` was refused \((usage|not-found|validation|busy)\): ([\s\S]+)$/.exec(
       text,
     );
-  return refusal ? { kind: refusal[1] ?? "", reason: refusal[2] ?? "" } : undefined;
+  return refusal
+    ? { kind: refusal[1] ?? "", reason: refusal[2] ?? "" }
+    : undefined;
 };
 
 /**
@@ -815,7 +815,7 @@ export const replyIn = (
     typeof rawOutput === "string"
       ? rawOutput
       : Array.isArray(rawOutput)
-        ? rawOutput.find((block) => record(block)?.["type"] === "text")?.text
+        ? rawOutput.find((block) => record(block)?.type === "text")?.text
         : undefined;
   if (typeof text !== "string") return undefined;
   try {

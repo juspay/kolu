@@ -539,6 +539,9 @@ importers:
 
   packages/integrations/agents:
     dependencies:
+      '@kolu/acp':
+        specifier: workspace:*
+        version: link:../../acp
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
@@ -1298,9 +1301,6 @@ importers:
       kolu-agents:
         specifier: workspace:*
         version: link:../integrations/agents
-      kolu-claude-code:
-        specifier: workspace:*
-        version: link:../integrations/claude-code
       kolu-git:
         specifier: workspace:*
         version: link:../integrations/git

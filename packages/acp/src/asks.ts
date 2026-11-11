@@ -83,7 +83,17 @@ import {
  * never here, which is the whole seam.
  */
 export class Refused {
-  constructor(readonly reason: string) {}
+  // A plain field and an explicit assignment, NOT a `readonly` constructor
+  // parameter property: a parameter property is the one TypeScript form that
+  // ERASING type-strippers refuse outright — node's own
+  // `--experimental-strip-types`, which is how this tree spawns a bare `.ts`
+  // file, emits an error rather than code. This package is vendored into other
+  // repos as raw TypeScript, so "which runtimes can load it" is part of its
+  // contract and not a style question.
+  readonly reason: string;
+  constructor(reason: string) {
+    this.reason = reason;
+  }
 }
 
 /** A form to put in front of a person: what the agent said it needs, the

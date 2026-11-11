@@ -9,7 +9,7 @@
  */
 
 import assert from "node:assert";
-import { Then, When } from "@cucumber/cucumber";
+import { Given, Then, When } from "@cucumber/cucumber";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
@@ -26,6 +26,7 @@ const FLEET_ROW = '[data-testid="orchestrator-fleet-row"]';
 const ASK = '[data-testid="orchestrator-ask"]';
 const PEEK = '[data-testid="orchestrator-peek"]';
 const DOCK = '[data-testid="dock"]';
+const NEW_SESSION = '[data-testid="orchestrator-new-session"]';
 const USER_MARK = '[data-testid="orchestrator-user-mark"]';
 
 /** The mode's own chord, as `input/actions.ts` spells it: `modifier: "app"`,
@@ -66,8 +67,27 @@ async function waitForCount(
   );
 }
 
+/** IDEMPOTENT, because the mode is persisted per device: a reload comes back
+ *  in it, and a step that clicked the segment unconditionally would toggle the
+ *  mode OFF exactly in the scenario that reloads. */
+async function waitForAtLeastOne(
+  world: KoluWorld,
+  selector: string,
+): Promise<void> {
+  await pollFor({
+    observe: () => world.page.locator(selector).count(),
+    isDone: (seen) => seen > 0,
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (_last, elapsedMs) =>
+      new Error(`nothing matched ${selector} after ${elapsedMs}ms`),
+  });
+}
+
 async function enterOrchestrator(world: KoluWorld): Promise<void> {
-  await world.page.locator(SEGMENT).click();
+  const segment = world.page.locator(SEGMENT);
+  await segment.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  if ((await segment.getAttribute("data-active")) === null)
+    await segment.click();
   await world.page
     .locator(PANE)
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -88,6 +108,24 @@ When("I press the orchestrator shortcut", async function (this: KoluWorld) {
 When("I enter orchestrator mode", async function (this: KoluWorld) {
   await enterOrchestrator(this);
 });
+
+Given(
+  "the orchestrator is on a fresh conversation",
+  async function (this: KoluWorld) {
+    await enterOrchestrator(this);
+    await this.page.locator(NEW_SESSION).click();
+    // A fresh session is open once the conversation is idle again and the
+    // divider has landed — waiting on the divider rather than on a timer is
+    // what makes this an arrangement rather than a hope.
+    await waitForAtLeastOne(this, `${ROW}[data-row-kind="divider"]`);
+    await waitForValue(
+      "orchestrator phase after a new session",
+      async () =>
+        (await this.page.locator(PANE).getAttribute("data-phase")) ?? "absent",
+      "idle",
+    );
+  },
+);
 
 When(
   "I send the orchestrator the prompt {string}",
@@ -196,12 +234,14 @@ Then(
 );
 
 Then(
-  "the orchestrator transcript should show a {string} row saying {string}",
+  "the orchestrator transcript should show a row of kind {string} saying {string}",
   async function (this: KoluWorld, kind: string, text: string) {
-    await waitForCount(
+    // PRESENCE, not a count: one conversation outlives a `— new session —`
+    // divider, so a scenario asserting "exactly one agent row ever said this"
+    // would be asserting something about the scenarios before it.
+    await waitForAtLeastOne(
       this,
       `${TRANSCRIPT} ${ROW}[data-row-kind="${kind}"]:has-text(${JSON.stringify(text)})`,
-      1,
     );
   },
 );
@@ -209,17 +249,16 @@ Then(
 Then(
   "the orchestrator transcript should show a {string} tool card",
   async function (this: KoluWorld, toolKind: string) {
-    await waitForCount(this, `${TOOL_CARD}[data-tool-kind="${toolKind}"]`, 1);
+    await waitForAtLeastOne(this, `${TOOL_CARD}[data-tool-kind="${toolKind}"]`);
   },
 );
 
 Then(
   "that tool card should name the terminal {string}",
   async function (this: KoluWorld, name: string) {
-    await waitForCount(
+    await waitForAtLeastOne(
       this,
       `${TOOL_CARD}:has-text(${JSON.stringify(name)})`,
-      1,
     );
   },
 );
@@ -227,10 +266,9 @@ Then(
 Then(
   "that tool card should offer to open its tile",
   async function (this: KoluWorld) {
-    await waitForCount(
+    await waitForAtLeastOne(
       this,
       `${TOOL_CARD} [data-testid="orchestrator-tool-open-tile"]`,
-      1,
     );
   },
 );
@@ -269,9 +307,9 @@ Then("the orchestrator should not be asking", async function (this: KoluWorld) {
 });
 
 Then(
-  "the orchestrator fleet should list {int} terminal",
-  async function (this: KoluWorld, count: number) {
-    await waitForCount(this, FLEET_ROW, count);
+  "the orchestrator fleet should list the terminal",
+  async function (this: KoluWorld) {
+    await waitForAtLeastOne(this, FLEET_ROW);
   },
 );
 
@@ -296,6 +334,24 @@ Then(
 Then(
   "the orchestrator transcript should mark a user row {string}",
   async function (this: KoluWorld, mark: string) {
+    let inventoryAtTimeout = "(not observed)";
+    // On timeout, quote what the transcript ACTUALLY holds — the row kinds and
+    // the marks that are there. "No row was marked refused" names a symptom;
+    // "the rows are user, notice and nothing is marked" names the cause.
+    const inventory = async (): Promise<string> =>
+      (
+        await this.page.locator(ROW).evaluateAll((rows) =>
+          rows.map((row) => {
+            const kind = row.getAttribute("data-row-kind");
+            const seen = row.querySelector(
+              '[data-testid="orchestrator-user-mark"]',
+            );
+            return seen === null
+              ? kind
+              : `${kind}(${seen.getAttribute("data-mark")})`;
+          }),
+        )
+      ).join(", ");
     await pollFor({
       observe: () =>
         this.page.locator(`${USER_MARK}[data-mark="${mark}"]`).count(),
@@ -303,8 +359,11 @@ Then(
       timeoutMs: POLL_TIMEOUT,
       onTimeout: (_last, elapsedMs) =>
         new Error(
-          `no user row was marked ${JSON.stringify(mark)} after ${elapsedMs}ms`,
+          `no user row was marked ${JSON.stringify(mark)} after ${elapsedMs}ms; the transcript holds: ${inventoryAtTimeout}`,
         ),
+      onTick: async () => {
+        inventoryAtTimeout = await inventory();
+      },
     });
   },
 );

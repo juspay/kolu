@@ -278,6 +278,11 @@ describe("the manifest", () => {
     // the protocol's own vocabulary rather than re-spelling it: the wire door
     // and nothing else.
     "padi-client": ["@kolu/acp/wire"],
+    // The agent REGISTRY is where per-agent knowledge is folded, so the ACP
+    // engine a host's orchestrator runs is registered there too — a daemon
+    // that named one agent directly would be the defect
+    // `agentDepFence.test.ts` exists to refuse.
+    "integrations/agents": ["@kolu/acp/engine"],
     // padi HOSTS the conversation, so it reads the ENGINE door alone: the
     // integration's `Registering` — its name, its leg, and whether this host
     // has the adapter at all. The protocol's own payloads never reach padi;

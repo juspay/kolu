@@ -54,20 +54,6 @@
  */
 
 import {
-  AUTH_STATUS_METHOD,
-  type Form,
-  formOf,
-  identityIn,
-  PERMISSION_FIELD,
-  permissionFormOf,
-  Refused,
-  diffsOf,
-  urlOf,
-  usageIn,
-} from "@kolu/acp";
-import type { Adapter, Leg, Spawn } from "@kolu/acp/engine";
-import type { AskAnswer, AskLink, AuthStatus, Usage } from "@kolu/acp/wire";
-import {
   client as acpClient,
   type ClientConnection,
   CreateElicitationRequest,
@@ -75,8 +61,8 @@ import {
   type InitializeResponse,
   type LoadSessionResponse,
   methods,
-  type NewSessionResponse,
   type NewSessionRequest,
+  type NewSessionResponse,
   type PromptResponse,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
@@ -84,9 +70,23 @@ import {
   type SessionNotification,
   type SetSessionConfigOptionResponse,
 } from "@agentclientprotocol/sdk";
-import { type Child, childEnvOf, start as startChild } from "./child.ts";
+import {
+  AUTH_STATUS_METHOD,
+  diffsOf,
+  type Form,
+  formOf,
+  identityIn,
+  PERMISSION_FIELD,
+  permissionFormOf,
+  Refused,
+  urlOf,
+  usageIn,
+} from "@kolu/acp";
+import type { Adapter, Leg, Spawn } from "@kolu/acp/engine";
+import type { AskAnswer, AskLink, AuthStatus, Usage } from "@kolu/acp/wire";
 import { Calls } from "./calls.ts";
-import { Fleet, koluCallOf } from "./kolu.ts";
+import { type Child, childEnvOf, start as startChild } from "./child.ts";
+import { Fleet, koluCallOf, refineKoluCall } from "./kolu.ts";
 import {
   authOf,
   completionIdOf,
@@ -105,6 +105,7 @@ import { streamOver } from "./pipes.ts";
 import { AnswerRefused, Questions } from "./questions.ts";
 import type {
   OrchestratorCommand,
+  OrchestratorKoluCall,
   OrchestratorMention,
   OrchestratorModel,
   OrchestratorOption,
@@ -310,6 +311,11 @@ export const startHarness = async (
   const turns = new Turns();
   const calls = new Calls(leg);
   const fleet = new Fleet();
+  /** The accumulated kolu reading per call id — see `refineKoluCall`. Cleared
+   *  with the conversation, for the reason `Calls.forget` gives: a call id is
+   *  only ever looked up inside the session that minted it, and a daemon meant
+   *  to run for weeks must not keep every call it ever saw. */
+  const koluReadings = new Map<string, OrchestratorKoluCall>();
   const questions = new Questions((id, outcome) => {
     report(transcript.settleAsk(id, outcome));
     publish();
@@ -343,7 +349,7 @@ export const startHarness = async (
   /** The MCP servers this conversation was handed, by name — read by the
    *  permission handler and by nothing else. */
   const given = options.mcpServers.map((server) => server.name);
-  let servers: ReadonlyArray<OrchestratorServer> = given.map((name) => ({
+  const servers: ReadonlyArray<OrchestratorServer> = given.map((name) => ({
     name,
     standing: "handed" as const,
     said: null,
@@ -609,7 +615,7 @@ export const startHarness = async (
     // A CANCEL ALREADY ASKED FOR THIS ONE'S END, so the page is answered away
     // rather than drawn: the row the cancel took down must not come back
     // because the agent got as far as sending its card.
-    if (running !== null && running.stopping) return { action: "decline" };
+    if (running?.stopping) return { action: "decline" };
     const link = form.link;
     if (running === null || running.write !== null || link === null) {
       undrawable("the agent sent a link for something that is not a sign-in");
@@ -816,10 +822,24 @@ export const startHarness = async (
     // where the leg matched this agent's own spelling against a server WE
     // handed over, so a kolu reading is minted for a kolu tool and for nothing
     // that merely looks like one.
-    const kolu =
-      call === null
-        ? null
-        : koluCallOf(call.tool, update.rawInput, update.rawOutput);
+    // THE ANSWER THROUGH THE LEG. An MCP server's reply reaches this adapter
+    // as the TEXT of a content block — `kolu mcp` answers JSON, so `rawOutput`
+    // arrives as a JSON STRING and not an object — and which corner of a frame
+    // an agent puts its structured answer in is exactly the question a leg
+    // exists to answer. Reading `rawOutput` directly left every `create` card
+    // nameless and the fleet empty against the real adapter.
+    const answer = leg.replyIn(update.rawOutput) ?? update.rawOutput;
+    const seen =
+      call === null ? null : koluCallOf(call.tool, update.rawInput, answer);
+    // ACCUMULATED, not per-frame: the arming frame carries the input and the
+    // settling frame carries the answer, so a card built from either alone is
+    // missing the half the other had. `refineKoluCall` keeps whichever frame
+    // said something, because a frame refines and never retracts.
+    const kolu = refineKoluCall(
+      koluReadings.get(update.toolCallId) ?? null,
+      seen,
+    );
+    if (kolu !== null) koluReadings.set(update.toolCallId, kolu);
     if (kolu !== null && fleet.touch(kolu)) publish();
     const armed = leg.backgroundTask(update._meta);
     report(
@@ -894,7 +914,7 @@ export const startHarness = async (
         id: option.id,
         name: option.name,
         description: option.description ?? null,
-        value: valueOf(option),
+        value: optionValueOf(option),
         choices,
       };
       if (leg.models !== null && option.id === leg.models.config) picker = row;
@@ -920,7 +940,7 @@ export const startHarness = async (
           };
   };
 
-  const valueOf = (option: SessionConfigOption): string | null => {
+  const optionValueOf = (option: SessionConfigOption): string | null => {
     if (!("currentValue" in option)) return null;
     const value = (option as { currentValue?: unknown }).currentValue;
     if (typeof value === "string") return value;
@@ -1024,6 +1044,7 @@ export const startHarness = async (
     questions.withdrawAll();
     calls.forget();
     fleet.clear();
+    koluReadings.clear();
     // ... and the doubled-prologue arm with the rest: it names a chunk the
     // session BEING LEFT announced, and an arm whose banner never landed would
     // otherwise spend the life of the process waiting to eat the first chunk of

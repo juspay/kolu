@@ -112,7 +112,6 @@
         "anyforge",
         "kaval",
         "kolu-agents",
-        "kolu-claude-code",
         "kolu-git",
         "kolu-github",
         "kolu-io",
@@ -674,6 +673,7 @@
       "dir": "packages/integrations/agents",
       "vendored": true,
       "workspace": [
+        "@kolu/acp",
         "anyagent",
         "kolu-claude-code",
         "kolu-codex",

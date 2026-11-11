@@ -12,8 +12,6 @@
  *  agent indicator, screenshot, split toggle) lives on the tile title bar via
  *  `canvas/TileTitleActions`. The header is intentionally minimal. */
 
-import { WorkspaceTerminals } from "./terminal/WorkspaceTerminals";
-
 import Resizable from "@corvu/resizable";
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
 import { createPwaInstall } from "@kolu/solid-pwa-install";
@@ -30,9 +28,9 @@ import {
 } from "solid-js";
 import { Toaster } from "solid-sonner";
 import AboutDialog from "./AboutDialog";
+import TileTip from "./agents/TileTip";
 import { useAttention } from "./attention/useAttention";
 import ChromeBar from "./ChromeBar";
-import HostDiagnosticsHost from "./host/HostDiagnosticsHost";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import CompactTileView from "./CompactTileView";
@@ -40,7 +38,6 @@ import Dock from "./canvas/dock/Dock";
 import { useDockFocus } from "./canvas/dock/useDockFocus";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
 import TerminalCanvas from "./canvas/TerminalCanvas";
-import TileTip from "./agents/TileTip";
 import TileTitleActions from "./canvas/TileTitleActions";
 import { useCanvasArrange } from "./canvas/useCanvasArrange";
 import { createCommands } from "./commands";
@@ -51,6 +48,7 @@ import ExportSessionDialog, {
 } from "./ExportSessionDialog";
 import BootStalledCanvas from "./host/BootStalledCanvas";
 import { ConnectCanvas } from "./host/ConnectCanvas";
+import HostDiagnosticsHost from "./host/HostDiagnosticsHost";
 import HostDownCanvas from "./host/HostDownCanvas";
 import { hostHue, hostLabel } from "./host/hostChipTone";
 import { savedSession as serverSavedSession } from "./hostScope/activeWire";
@@ -63,6 +61,10 @@ import DegradedCanvas from "./kaval/DegradedCanvas";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
 import MobilePullChrome from "./MobilePullChrome";
+import OrchestratorPane from "./orchestrator/OrchestratorPane";
+import OrchestratorPeekHeader from "./orchestrator/OrchestratorPeekHeader";
+import OrchestratorSheet from "./orchestrator/OrchestratorSheet";
+import { orchestratorMode } from "./orchestrator/useOrchestratorMode";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import WebcamOverlay from "./recorder/WebcamOverlay";
@@ -81,6 +83,7 @@ import { useTips } from "./settings/useTips";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import { useTerminals } from "./terminal/useTerminals";
+import { WorkspaceTerminals } from "./terminal/WorkspaceTerminals";
 import { useTileStore } from "./tile/useTileStore";
 import { controlledSizes, realSizes } from "./ui/corvuResizable";
 import { refocusTerminal } from "./ui/ModalDialog";
@@ -131,6 +134,15 @@ const App: Component = () => {
   // terminal behind RightPanel / theme / screenshot).
   const tileStore = useTileStore();
 
+  /** What the peek pane is showing — the ACTIVE tile, because that is what the
+   *  canvas shows in its single-tile posture and peeking is that posture. One
+   *  derivation, so the header's name and the terminal under it can never name
+   *  two different tiles. */
+  const peekName = (): string | undefined => {
+    const id = store.activeId();
+    return id === null ? undefined : store.getDisplayInfo(id)?.key.label;
+  };
+
   const {
     committedThemeName,
     setPreviewThemeName,
@@ -142,8 +154,16 @@ const App: Component = () => {
   } = useThemeManager();
 
   const rightPanel = useRightPanel();
+  /** The right panel is COLLAPSED (never unmounted) in orchestrator mode: the
+   *  peek is terminal-only — Code and Inspector are a different question from
+   *  the one the conversation is asking — and collapsing rather than
+   *  unmounting is what keeps the Code tab's selection and Pierre's tree
+   *  expansion across a mode round-trip. The user's own `collapsed` bit is
+   *  untouched, so leaving the mode restores whatever they had open. */
+  const panelCollapsed = (): boolean =>
+    orchestratorMode() || rightPanel.collapsed();
   const rightPanelSizes = controlledSizes(() =>
-    rightPanel.collapsed()
+    panelCollapsed()
       ? [1, 0]
       : [1 - rightPanel.panelSize(), rightPanel.panelSize()],
   );
@@ -678,9 +698,37 @@ const App: Component = () => {
                           )}
                           renderTileBar={(id) => <TileTip id={id} />}
                           renderTileBody={outlet}
+                          // The three orchestrator-mode slots. Supplying them
+                          // conditionally mounts the pane and the peek header
+                          // without touching the dock or the viewport, which
+                          // is the whole point: entering the mode must not
+                          // cost an xterm buffer, a stream re-attach or a
+                          // dock preview.
+                          renderSidePane={
+                            orchestratorMode()
+                              ? () => (
+                                  <OrchestratorPane class="flex-[1.15] border-r border-edge" />
+                                )
+                              : undefined
+                          }
+                          renderViewportHeader={
+                            orchestratorMode()
+                              ? () => (
+                                  <OrchestratorPeekHeader name={peekName()} />
+                                )
+                              : undefined
+                          }
+                          viewportTestId={
+                            orchestratorMode() ? "orchestrator-peek" : undefined
+                          }
+                          viewportSubject={
+                            orchestratorMode()
+                              ? (store.activeId() ?? undefined)
+                              : undefined
+                          }
                         />
                       </Resizable.Panel>
-                      <Show when={!rightPanel.collapsed()}>
+                      <Show when={!panelCollapsed()}>
                         <Resizable.Handle
                           data-testid="right-panel-handle"
                           startIntersection={false}
@@ -703,7 +751,7 @@ const App: Component = () => {
                         as="div"
                         class="min-w-0 min-h-0 overflow-hidden"
                         classList={{
-                          "border-l border-edge": !rightPanel.collapsed(),
+                          "border-l border-edge": !panelCollapsed(),
                         }}
                         minSize={0.1}
                       >
@@ -716,7 +764,7 @@ const App: Component = () => {
                           onThemeClick={() =>
                             commandPalette.openGroup("Set theme")
                           }
-                          visible={!rightPanel.collapsed()}
+                          visible={!panelCollapsed()}
                         />
                       </Resizable.Panel>
                     </Resizable>
@@ -726,7 +774,26 @@ const App: Component = () => {
             </WorkspaceTerminals>
           </Match>
         </Switch>
+        {/* Orchestrator mode over a canvas surface that is NOT the workspace —
+         *  an empty workspace, a connecting or a down host. There is no
+         *  viewport to peek into and no tile to maximize, so the conversation
+         *  takes the right edge beside whatever surface the `<Switch>` chose.
+         *  The workspace arm mounts it INSIDE the canvas instead (as the middle
+         *  of dock · chat · peek), so the two are mutually exclusive and the
+         *  pane is never mounted twice. */}
+        <Show
+          when={
+            orchestratorMode() && isDesktop() && mode().kind !== "workspace"
+          }
+        >
+          <OrchestratorPane class="w-[28rem] shrink-0 border-l border-edge" />
+        </Show>
       </div>
+      {/* Below the breakpoint the mode is a full-screen sheet — there is no
+       *  canvas to lay three columns over. */}
+      <Show when={!isDesktop()}>
+        <OrchestratorSheet />
+      </Show>
       <IntentEditorDialog
         open={intentEditor.open()}
         title={intentEditor.title()}

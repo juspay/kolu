@@ -39,7 +39,7 @@
  * sentence and every procedure refuses with it.
  */
 
-import { ENGINE } from "kolu-claude-code/acp";
+import { ORCHESTRATOR_ENGINE as ENGINE } from "kolu-agents/acp";
 import type { NotHere } from "@kolu/acp/engine";
 import {
   type Harness,

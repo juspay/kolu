@@ -72,6 +72,11 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: `${formatKeybind(ACTIONS.toggleSubPanel.keybind)} splits your terminal into a bottom pane`,
   },
   {
+    id: "amb-orchestrator",
+    text: `${formatKeybind(ACTIONS.toggleOrchestrator.keybind)} opens the orchestrator — one conversation per machine that creates terminals, briefs the agents in them, watches them and answers their questions; the dock becomes its fleet and the terminal you last clicked stays live beside the chat`,
+    doc: "orchestrator",
+  },
+  {
     id: "amb-host-map",
     text: `Set KOLU_PADI_HOST=localhost,you@box to work across machines — a host strip appears in the top bar; click a host to switch the whole canvas to it live (no reload), each tab carrying that machine's whole attention summary, and ${formatKeybind(ACTIONS.openHostSwitcher.keybind)} then Enter hops back to the machine you came from`,
     doc: "remote-hosts",

@@ -11,12 +11,13 @@ import { useDockOrder } from "./canvas/dock/useDockOrder";
 import { useViewPosture } from "./canvas/useViewPosture";
 import { showsWorkspaceSwitcher } from "./capabilities";
 import type { ActionContext } from "./input/actions";
+import { toggleOrchestratorMode } from "./orchestrator/useOrchestratorMode";
 import { HOSTS_GROUP_NAME } from "./palette/hostsGroup";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import { useRecorder } from "./recorder/useRecorder";
-import { runAction } from "./runAction";
 import { useRightPanel } from "./right-panel/useRightPanel";
+import { runAction } from "./runAction";
 import { shortcutsHelp } from "./ShortcutsHelp";
 import { screenshotTerminal } from "./screenshotTerminal";
 import { useSubPanel } from "./terminal/useSubPanel";
@@ -89,6 +90,7 @@ export function useActionContext(): ActionContext {
     toggleRightPanel: rightPanel.togglePanel,
     toggleDock: toggleRailCards,
     toggleCanvasPosture: posture.toggle,
+    toggleOrchestrator: toggleOrchestratorMode,
     // Lazy `useRecorder()` defers recorder init to the first toggle, not boot.
     toggleRecordingPause: () => useRecorder().togglePause(),
   };

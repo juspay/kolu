@@ -21,6 +21,7 @@
  *  below). Tracked: kolu#628. */
 
 import { supportsSpatialCanvas } from "../capabilities";
+import { orchestratorMode } from "../orchestrator/useOrchestratorMode";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { useTileStore } from "../tile/useTileStore";
 
@@ -59,9 +60,21 @@ export function useViewPosture() {
      *  returns. It also keeps the empty-canvas Dock (mounted by App.tsx,
      *  see `Dock.tsx`) in its only reachable posture, instead of taking
      *  the maximized flush-sidebar classes inside a non-flex host and
-     *  pushing the welcome card off-screen. */
+     *  pushing the welcome card off-screen.
+     *
+     *  ORCHESTRATOR MODE READS AS MAXIMIZED, and that is this seam earning
+     *  its keep rather than a special case: the peek pane shows exactly one
+     *  tile, flush, with the dock as a real left sidebar — which is the
+     *  maximized posture under another name. Deriving it here means the
+     *  canvas, the dock and the minimap each get it without a second axis to
+     *  consult, and the per-host posture bit underneath is untouched, so
+     *  leaving the mode lands on whichever posture the user actually chose.
+     *  A WRITE still goes to that bit alone (`toggle` below), which is why
+     *  the two call sites that must flip it read `canvasMaximized()` raw. */
     mode: (): ViewPostureMode =>
-      store.canvasMaximized() && canMaximize() ? "maximized" : "tiled",
+      (store.canvasMaximized() || orchestratorMode()) && canMaximize()
+        ? "maximized"
+        : "tiled",
     /** Whether maximize is meaningful — a tile exists to maximize.
      *  Readers gate the maximize affordance on this so it never disagrees
      *  with `mode()`'s own guard. */

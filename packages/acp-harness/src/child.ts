@@ -25,11 +25,7 @@
  * and whether a dead one should be restarted (the harness's next verb boots).
  */
 
-import {
-  type ChildProcess,
-  spawn,
-  type StdioOptions,
-} from "node:child_process";
+import { type StdioOptions, spawn } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 
 /** How long SIGTERM gets before SIGKILL. Long enough for an adapter that

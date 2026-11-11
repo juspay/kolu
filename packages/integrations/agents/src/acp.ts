@@ -1,0 +1,38 @@
+/**
+ * WHICH AGENTS SPEAK THE AGENT CLIENT PROTOCOL — the registry's ACP half.
+ *
+ * Every other per-agent fact in kolu is folded here rather than reached for by
+ * name, and the orchestrator's engine is no exception: `@kolu/padi` hosts one
+ * ACP conversation per host, and a padi that imported `kolu-claude-code`
+ * directly would have re-braided the per-agent knowledge this package exists
+ * to de-complect. `packages/tests/governance/agentDepFence.test.ts` holds that
+ * red — a daemon naming an agent is the defect, and this file is the fix
+ * rather than an exemption.
+ *
+ * ONE ENGINE TODAY, and the shape is the ruling rather than a placeholder. The
+ * `Registering` contract (`@kolu/acp/engine`) already says everything a second
+ * agent would need to say — its name, the leg that reads its wire, how to seat
+ * it on a host, and the channel its standing prompt rides — so a codex or an
+ * opencode that grows an ACP adapter joins by adding a row to {@link ACP_ENGINES},
+ * and nothing above here learns its name.
+ */
+
+import type { Registering } from "@kolu/acp/engine";
+import { ENGINE as CLAUDE_CODE } from "kolu-claude-code/acp";
+
+/** Every agent kolu can hold an ACP conversation with, by the registry's own
+ *  agent kind. */
+export const ACP_ENGINES: Readonly<Record<string, Registering>> = {
+  "claude-code": CLAUDE_CODE,
+};
+
+/**
+ * The engine a host's orchestrator runs.
+ *
+ * A CONSTANT rather than a setting, deliberately: the adapter it names is
+ * baked into kolu's closure (`KOLU_ACP_AGENT`), one per build, and an engine
+ * knob would be a choice a person could make that the binary cannot honour.
+ * When a second adapter is pinned, this becomes a reading of whatever the
+ * build actually carries — still not a knob.
+ */
+export const ORCHESTRATOR_ENGINE: Registering = CLAUDE_CODE;

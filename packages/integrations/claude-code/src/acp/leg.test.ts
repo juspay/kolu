@@ -28,11 +28,11 @@ import {
   OPEN_SESSION_META,
   parentToolUseIn,
   QUEUES_WHEN_BUSY,
-  spawnedIn,
-  spelling,
   STEER_METHOD,
   STEER_WHEN_IDLE,
   STEERING_ADVERTISED,
+  spawnedIn,
+  spelling,
   steerTaken,
   taskNotificationIn,
   toolNameIn,
@@ -95,9 +95,9 @@ const wrapped = (result: {
 
 describe("which permissions are answered without asking", () => {
   test("a call to a server we handed this session is allowed", () => {
-    expect(allowedWithoutAsking("mcp__kolu__screen_text", GIVEN, TOOL_CALL)).toBe(
-      "allow",
-    );
+    expect(
+      allowedWithoutAsking("mcp__kolu__screen_text", GIVEN, TOOL_CALL),
+    ).toBe("allow");
     expect(
       allowedWithoutAsking("mcp__alpha__terminal_read", GIVEN, TOOL_CALL),
     ).toBe("allow");
@@ -150,7 +150,9 @@ describe("which permissions are answered without asking", () => {
 
   test("an agent that names its MCP tools some other way asks a person", () => {
     // The bet on the adapter's naming, losing in the direction it can afford.
-    expect(allowedWithoutAsking("kolu/send_input", GIVEN, TOOL_CALL)).toBeNull();
+    expect(
+      allowedWithoutAsking("kolu/send_input", GIVEN, TOOL_CALL),
+    ).toBeNull();
     expect(allowedWithoutAsking("screen_text", GIVEN, TOOL_CALL)).toBeNull();
   });
 
@@ -168,7 +170,9 @@ describe("which permissions are answered without asking", () => {
     expect(
       allowedWithoutAsking("mcp__kolu__screen_text", GIVEN, refusals),
     ).toBeNull();
-    expect(allowedWithoutAsking("mcp__kolu__screen_text", GIVEN, [])).toBeNull();
+    expect(
+      allowedWithoutAsking("mcp__kolu__screen_text", GIVEN, []),
+    ).toBeNull();
   });
 
   test("the allow is the allow-flavoured one, not the first one", () => {
@@ -188,9 +192,9 @@ describe("which tool a call is", () => {
     // What a `tool_call` announcement looks like: the permission request that
     // follows it says "Ready to code?" or a display title, and this is the
     // question the answer turns on.
-    expect(toolNameIn({ claudeCode: { toolName: "mcp__kolu__screen_text" } })).toBe(
-      "mcp__kolu__screen_text",
-    );
+    expect(
+      toolNameIn({ claudeCode: { toolName: "mcp__kolu__screen_text" } }),
+    ).toBe("mcp__kolu__screen_text");
     expect(toolNameIn({ claudeCode: { toolName: "ExitPlanMode" } })).toBe(
       "ExitPlanMode",
     );
@@ -344,9 +348,9 @@ describe("steering a turn that is already running", () => {
   test("nothing was running, so the caller still has the message", () => {
     // The opt-in's whole purpose. Read as taken, this would be the one message
     // in the conversation that exists on screen and nowhere else.
-    expect(steerTaken({ outcome: "promptRequired", reason: "noRunningTurn" })).toBe(
-      false,
-    );
+    expect(
+      steerTaken({ outcome: "promptRequired", reason: "noRunningTurn" }),
+    ).toBe(false);
   });
 
   test("an outcome nobody here knows is NOT taken", () => {
@@ -717,7 +721,10 @@ describe("which call armed a background task", () => {
     // registered is what this reads.
     expect(
       backgroundTaskIn({
-        claudeCode: { toolName: "Monitor", toolResponse: { taskId: "bu13xz2ie" } },
+        claudeCode: {
+          toolName: "Monitor",
+          toolResponse: { taskId: "bu13xz2ie" },
+        },
       }),
     ).toBeNull();
   });
@@ -751,12 +758,18 @@ describe("which model a turn is running on", () => {
     // message of some other subtype: all say nothing about which model is
     // running, and a field lifted out of one would be a guess.
     expect(
-      liveModelIn({ message: { type: "result", subtype: "success", model: "x" } }),
+      liveModelIn({
+        message: { type: "result", subtype: "success", model: "x" },
+      }),
     ).toBeNull();
     expect(
-      liveModelIn({ message: { type: "system", subtype: "compact", model: "x" } }),
+      liveModelIn({
+        message: { type: "system", subtype: "compact", model: "x" },
+      }),
     ).toBeNull();
-    expect(liveModelIn({ message: { type: "assistant", model: "x" } })).toBeNull();
+    expect(
+      liveModelIn({ message: { type: "assistant", model: "x" } }),
+    ).toBeNull();
   });
 
   test("a message that says nothing readable leaves the model alone", () => {
@@ -833,19 +846,23 @@ describe("which of this conversation's servers the agent attached", () => {
     ).toEqual([
       { name: "alpha", attached: false, said: "needs-auth" },
       { name: "deepwiki", attached: false, said: "failed" },
-      { name: "later", attached: false, said: "a word no version has sent yet" },
+      {
+        name: "later",
+        attached: false,
+        said: "a word no version has sent yet",
+      },
     ]);
   });
 
   test("the match is the whole word, so a longer one is not a connection", () => {
     // The same narrowing the tool-name prefix gets, for the same reason: a
     // status that merely starts with the word is not the word.
-    expect(liveServersIn(init([{ name: "kolu", status: "connected-ish" }]))).toEqual(
-      [{ name: "kolu", attached: false, said: "connected-ish" }],
-    );
-    expect(liveServersIn(init([{ name: "kolu", status: "Connected" }]))).toEqual([
-      { name: "kolu", attached: false, said: "Connected" },
-    ]);
+    expect(
+      liveServersIn(init([{ name: "kolu", status: "connected-ish" }])),
+    ).toEqual([{ name: "kolu", attached: false, said: "connected-ish" }]);
+    expect(
+      liveServersIn(init([{ name: "kolu", status: "Connected" }])),
+    ).toEqual([{ name: "kolu", attached: false, said: "Connected" }]);
   });
 
   test("what we asked to be forwarded is what is read", () => {
@@ -923,15 +940,21 @@ describe("the leg", () => {
     // Reading it as a name — which a leg on a wire where it IS one does — would
     // answer for a call nothing has named, which is the one direction this file
     // may not fail in.
-    expect(CLAUDE.toolNameIn({ claudeCode: { toolName: "Bash" } })).toBe("Bash");
+    expect(CLAUDE.toolNameIn({ claudeCode: { toolName: "Bash" } })).toBe(
+      "Bash",
+    );
     expect(CLAUDE.toolNameOf("Bash:0")).toBeNull();
   });
 
   test("answers about a background task the same way it answers about a spawn", () => {
     expect(
-      CLAUDE.backgroundTask({ claudeCode: { backgroundTask: { taskId: "t1" } } }),
+      CLAUDE.backgroundTask({
+        claudeCode: { backgroundTask: { taskId: "t1" } },
+      }),
     ).toEqual({ task: "t1" });
-    expect(CLAUDE.backgroundTask({ claudeCode: { toolName: "Bash" } })).toBeNull();
+    expect(
+      CLAUDE.backgroundTask({ claudeCode: { toolName: "Bash" } }),
+    ).toBeNull();
   });
 
   test("a task-notification is not a person speaking", () => {
@@ -956,7 +979,9 @@ describe("the leg", () => {
       }),
     ).toEqual({ onto: null });
     expect(
-      taskNotificationIn("hello", { claudeCode: { origin: { kind: "human" } } }),
+      taskNotificationIn("hello", {
+        claudeCode: { origin: { kind: "human" } },
+      }),
     ).toBeNull();
     expect(taskNotificationIn("hello", undefined)).toBeNull();
     // A person who pasted the wrapper is still a person: origin human wins, and
@@ -964,7 +989,9 @@ describe("the leg", () => {
     expect(
       taskNotificationIn(xml, { claudeCode: { origin: { kind: "human" } } }),
     ).toBeNull();
-    expect(taskNotificationIn(`see this:\n${xml}\nthanks`, undefined)).toBeNull();
+    expect(
+      taskNotificationIn(`see this:\n${xml}\nthanks`, undefined),
+    ).toBeNull();
     expect(taskNotificationIn(`${xml}\ntrailing`, undefined)).toBeNull();
     expect(CLAUDE.taskNotification(xml, undefined)?.onto?.toolUseId).toBe(
       "toolu_014mD8gkPSCXNL6gF11GK7hv",

@@ -135,6 +135,38 @@ export const koluCallOf = (
 };
 
 /**
+ * TWO READINGS OF ONE CALL, folded — because a frame refines and never
+ * retracts.
+ *
+ * The adapter does not send a call's input and its answer on the same frame:
+ * the arming `tool_call` carries `rawInput` and no result, and the settling
+ * `tool_call_update` carries `rawOutput` and no input. So each frame's reading
+ * knows half of what the card needs, and a card drawn from the LAST frame
+ * alone would say nothing at all about a `lifecycle_create` — no name, no
+ * directory, and no terminal to open — which is exactly what a real round
+ * against the pinned adapter produced before this existed.
+ *
+ * Field-wise, keeping whichever reading HAS something: `null` is "no frame has
+ * said yet", so a later frame's silence cannot take an earlier frame's word
+ * back. A reading of a different KIND replaces rather than merges — the two
+ * are not about the same thing, and the only way to see one is a call id
+ * reused for a different tool, where the newer frame is the truth.
+ */
+export const refineKoluCall = (
+  before: OrchestratorKoluCall | null,
+  next: OrchestratorKoluCall | null,
+): OrchestratorKoluCall | null => {
+  if (before === null) return next;
+  if (next === null) return before;
+  if (before.kind !== next.kind) return next;
+  const merged: Record<string, unknown> = { ...before };
+  for (const [key, value] of Object.entries(next)) {
+    if (value !== null) merged[key] = value;
+  }
+  return merged as unknown as OrchestratorKoluCall;
+};
+
+/**
  * THE FLEET, in first-touch order.
  *
  * Membership and nothing else: every terminal this conversation has CREATED or

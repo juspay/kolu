@@ -8,8 +8,8 @@
  * mock able to express those races would be the harness written twice.
  */
 
-import { allowingOurs, type Leg, mcpCallBy } from "@kolu/acp/engine";
 import path from "node:path";
+import { allowingOurs, type Leg, mcpCallBy } from "@kolu/acp/engine";
 import { describe, expect, test } from "vitest";
 import {
   type Harness,

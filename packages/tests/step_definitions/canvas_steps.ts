@@ -1518,9 +1518,23 @@ Then("no canvas tile should be maximized", async function (this: KoluWorld) {
 When(
   "I click the chrome-bar maximize toggle",
   async function (this: KoluWorld) {
-    const button = this.page.locator('[data-testid="maximize-toggle"]');
-    await button.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await button.click();
+    // The lone maximize/restore BUTTON became one segment of the three-way
+    // `canvas · maximized · orchestrator` control when orchestrator mode
+    // landed, and a segment is not a toggle: clicking `maximized` while
+    // already maximized is a no-op, which is right for a segmented control and
+    // wrong for a step whose scenario says "switches BETWEEN". So the step
+    // presses the OTHER segment — the gesture it always meant, now that the
+    // widget spells the two postures separately.
+    const maximized = this.page.locator('[data-testid="mode-maximized"]');
+    await maximized.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const already = (await maximized.getAttribute("data-active")) !== null;
+    await this.page
+      .locator(
+        already
+          ? '[data-testid="mode-canvas"]'
+          : '[data-testid="mode-maximized"]',
+      )
+      .click();
     await this.waitForFrame();
   },
 );

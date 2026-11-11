@@ -28,7 +28,11 @@ const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
  *  encoded host key the click switches to before focusing. */
 export type AttentionClick =
   | { kind: "terminal"; host: string; terminalId: TerminalId }
-  | { kind: "host"; host: string; id: TerminalId };
+  | { kind: "host"; host: string; id: TerminalId }
+  /** A question the HOST'S ORCHESTRATOR is waiting on — it belongs to the
+   *  conversation, not to any one terminal, so it carries no terminal id and
+   *  the click lands on the host's panel rather than on a tile. */
+  | { kind: "orchestrator"; host: string };
 
 /** Validate a click envelope the framework relays (a live postMessage or a
  *  cold-start URL param). A stale notification from before an app upgrade, or a
@@ -40,6 +44,14 @@ export type AttentionClick =
 function parseAttentionClick(data: unknown): AttentionClick | undefined {
   if (typeof data !== "object" || data === null) return undefined;
   const d = data as Record<string, unknown>;
+  if (d.kind === "orchestrator") {
+    // The one arm with nothing but a host: validate it and stop, rather than
+    // falling into the shared terminal-id check below and dropping every
+    // orchestrator envelope for lacking an id it never had.
+    return typeof d.host === "string" && isEncodedHostKey(d.host)
+      ? { kind: "orchestrator", host: d.host }
+      : undefined;
+  }
   if (d.kind !== "terminal" && d.kind !== "host") return undefined;
   // BOTH variants carry the same two facts, so validate them ONCE: a canonical
   // encoded `host` (the click switches to it — else `decodeHostKey` throws at

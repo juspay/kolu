@@ -13,7 +13,13 @@
  *  tile `id` and its `host` (the agents-staleness check reads that host's
  *  status). Extracted from App.tsx per kolu#626. */
 
+import {
+  agentRestartAction,
+  agentRestartReady,
+  agentStalenessOf,
+} from "@kolu/agent-distro/status";
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
+import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
 import AgentProfileChip, { type ChipRestart } from "../agents/AgentProfileChip";
@@ -22,12 +28,9 @@ import {
   agentsWhere,
   hostAgentStatusOf,
 } from "../agents/useAgentDistro";
-import {
-  agentRestartAction,
-  agentRestartReady,
-  agentStalenessOf,
-} from "@kolu/agent-distro/status";
 import { ACTIONS } from "../input/actions";
+import { armComposerMention } from "../orchestrator/drafts";
+import { enterOrchestratorMode } from "../orchestrator/useOrchestratorMode";
 import { useRightPanel } from "../right-panel/useRightPanel";
 import { runAction, runActionPromise, type UiAction } from "../runAction";
 import { screenshotTerminal } from "../screenshotTerminal";
@@ -49,7 +52,6 @@ import {
 import Tip from "../ui/Tip";
 import { useCommandPalette } from "../useCommandPalette";
 import { useThemeManager } from "../useThemeManager";
-import type { HostKey } from "kolu-common/hostKey";
 
 /** Tile chrome buttons share this affordance. Theme pill is wider — it shows
  *  the theme name. Other buttons are square. */
@@ -266,6 +268,29 @@ const TileTitleActions: Component<{
             aria-label={ACTIONS.findInTerminal.label}
           >
             <SearchIcon />
+          </button>
+        </Tip>
+        <Tip label="Ask the Orchestrator about this">
+          <button
+            type="button"
+            data-testid="tile-ask-orchestrator"
+            class={`${TILE_BUTTON_CLASS} w-7`}
+            style={{ color: "var(--color-fg-3, currentColor)" }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) =>
+              onTile(e, () => {
+                // ARM, then open: the composer's text is a singleton that
+                // outlives the pane, so the mention is in the box by the time
+                // the conversation is on screen — and whatever was already
+                // half-typed there is kept, because arming is an addition.
+                const name = store.getDisplayInfo(props.id)?.key.label;
+                if (name !== undefined) armComposerMention(name);
+                enterOrchestratorMode();
+              })
+            }
+            aria-label="Ask the Orchestrator about this"
+          >
+            ◆
           </button>
         </Tip>
         <button

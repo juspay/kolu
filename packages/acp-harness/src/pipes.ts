@@ -9,8 +9,8 @@
  * helper whose behaviour we would be assuming is not exactness.
  */
 
-import { ndJsonStream, type Stream } from "@agentclientprotocol/sdk";
 import type { Readable, Writable } from "node:stream";
+import { ndJsonStream, type Stream } from "@agentclientprotocol/sdk";
 
 /** Messages in and out of a spawned child. Throws for a child spawned without
  *  pipes, which is a caller's mistake rather than a subprocess's. */

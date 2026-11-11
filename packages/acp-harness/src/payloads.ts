@@ -10,7 +10,6 @@
  * (`@kolu/acp/engine`) and is deliberately not here.
  */
 
-import { relativeTo } from "@kolu/acp";
 import {
   type AuthMethodTerminal,
   type ContentBlock,
@@ -20,6 +19,7 @@ import {
   type ToolCallContent,
   type ToolCallLocation,
 } from "@agentclientprotocol/sdk";
+import { relativeTo } from "@kolu/acp";
 import type { OrchestratorAuthMethod } from "./rows.ts";
 
 /**

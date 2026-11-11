@@ -51,7 +51,6 @@
     "effect": "catalog:",
     "kaval": "workspace:*",
     "kolu-agents": "workspace:*",
-    "kolu-claude-code": "workspace:*",
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",
     "kolu-io": "workspace:*",

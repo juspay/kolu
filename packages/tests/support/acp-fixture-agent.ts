@@ -55,10 +55,10 @@ const update = (frame: unknown): void => {
 /** A request this end makes OF the client — the one direction a scripted agent
  *  needs, for the elicitation that stops a turn. */
 let nextRequestId = 1;
-const pendingAsks = new Map<number, () => void>();
+const pendingAsks = new Map<string, () => void>();
 const askClient = (params: unknown, onAnswered: () => void): void => {
   const id = nextRequestId++;
-  pendingAsks.set(id, onAnswered);
+  pendingAsks.set(String(id), onAnswered);
   write({ jsonrpc: "2.0", id, method: "elicitation/create", params });
 };
 
@@ -191,10 +191,15 @@ process.stdin.on("data", (chunk: string) => {
     const message = JSON.parse(line) as Incoming;
     // An ANSWER to the elicitation this end asked — the only reply the fixture
     // reads, and what releases the turn that was waiting on a person.
-    if (message.method === undefined && typeof message.id === "number") {
-      const release = pendingAsks.get(message.id);
+    // An ANSWER to the elicitation this end asked. Keyed by the id as a
+    // STRING: JSON-RPC allows a string or a number, the SDK is free to echo
+    // either, and a map keyed by number silently misses a string echo — which
+    // leaves the turn waiting forever and every later prompt `queued` behind
+    // it, in a scenario that looks like it is about something else entirely.
+    if (message.method === undefined && message.id !== undefined) {
+      const release = pendingAsks.get(String(message.id));
       if (release !== undefined) {
-        pendingAsks.delete(message.id);
+        pendingAsks.delete(String(message.id));
         release();
       }
       continue;

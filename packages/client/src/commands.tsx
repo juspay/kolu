@@ -1,20 +1,21 @@
 /** Command palette registry — declarative list of all app-level actions. */
 
+import AgentDistroLogo from "@kolu/agent-distro/solid";
+import { AGENTS_CHECK_NOW } from "@kolu/agent-distro/status";
 import {
   activeArm,
   type RecentAgent,
   sleepingArm,
 } from "@kolu/padi-client/surface";
+import { agentLaunchLine } from "kolu-agents/vocab";
 import type { HostKey } from "kolu-common/hostKey";
 import { isValidWorktreeName, WORKTREE_NAME_MESSAGE } from "kolu-git/schemas";
 import { randomName } from "memorable-names";
 import type { Accessor, Component } from "solid-js";
 import { createMemo } from "solid-js";
 import { availableThemes } from "terminal-themes";
-import AgentDistroLogo from "@kolu/agent-distro/solid";
-import { AGENTS_CHECK_NOW } from "@kolu/agent-distro/status";
-import { agentDistroListing, checkAgentsNow } from "./agents/useAgentDistro";
 import { aboutDialog } from "./AboutDialog";
+import { agentDistroListing, checkAgentsNow } from "./agents/useAgentDistro";
 import type {
   PaletteAction,
   PaletteCommand,
@@ -34,7 +35,6 @@ import {
   forwardFromPalette,
   forwardInputError,
 } from "./forwards/forwardFromPalette";
-import { agentLaunchLine } from "kolu-agents/vocab";
 import { recentAgents, recentRepos } from "./hostScope/activeWire";
 import {
   ACTIONS,
@@ -44,6 +44,7 @@ import {
 import { offerRestartVerb } from "./kaval/daemonPresentation";
 import { restartDaemon } from "./kaval/useDaemonRestart";
 import { activeKavalPresence } from "./kaval/useDaemonStatus";
+import { orchestratorMode } from "./orchestrator/useOrchestratorMode";
 import {
   hostRootActions,
   terminalHostGroups,
@@ -547,6 +548,16 @@ export function createCommands(deps: CommandDeps): Accessor<PaletteCommand[]> {
       ? [actionPaletteCommand("toggleRightPanel", deps, { section: "ui" })]
       : []),
     actionPaletteCommand("toggleDock", deps, { section: "ui" }),
+    // The orchestrator, through the SAME registry entry the chord and the
+    // chrome-bar segment read, so the palette's shortcut chip has one source.
+    // Ungated: the mode is reachable on an empty workspace and on a host whose
+    // conversation has not started — the panel says which of those it is, and
+    // a command that hides itself is a feature nobody discovers.
+    actionPaletteCommand("toggleOrchestrator", deps, {
+      section: "ui",
+      name: orchestratorMode() ? "Leave the orchestrator" : "Orchestrator",
+      description: "One conversation per host that drives its terminals",
+    }),
     // The tile tip shows only where ambient tips do (desktop), so the size
     // switch is offered only there.
     ...(showsAmbientTips()

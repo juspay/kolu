@@ -60,6 +60,10 @@ export interface ActionContext {
    *  off the spatial canvas (mobile / narrow) or with zero terminals — so
    *  the keybind needs no extra guard. */
   toggleCanvasPosture: () => void;
+  /** Flip the workspace into (or out of) the orchestrator — the third view
+   *  axis, layered over the posture rather than replacing it, so leaving lands
+   *  back on whichever posture the user was in. */
+  toggleOrchestrator: () => void;
   toggleRecordingPause: () => void;
 }
 
@@ -363,6 +367,17 @@ const _ACTIONS = {
     // `prohibitedKeybinds.ts` (Ctrl+B, Ctrl+J).
     keybind: { key: "M", code: "KeyM", modifier: "cmdOrCtrl", shift: true },
     handler: (ctx) => ctx.toggleCanvasPosture(),
+  },
+  toggleOrchestrator: {
+    label: "Orchestrator",
+    // `"app"` with an explicit `shift`, NOT `modifier: "cmdOrCtrl"`: that form
+    // resolves to Ctrl+Shift+O off macOS, which `prohibitedKeybinds.ts` holds
+    // for omp's tool-activity toggle inside a kolu PTY. The `app` modifier is
+    // ⌘ on macOS and Super elsewhere, so the chord is ⌘⇧O / Super+Shift+O and
+    // Ctrl+Shift+O keeps reaching the terminal. (⌘⇧M is already the posture
+    // toggle; O is for orchestrator.)
+    keybind: { key: "O", code: "KeyO", modifier: "app", shift: true },
+    handler: (ctx) => ctx.toggleOrchestrator(),
   },
   toggleRecordingPause: {
     label: "Pause / resume recording",

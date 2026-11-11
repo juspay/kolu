@@ -6,13 +6,25 @@ Feature: The Orchestrator
 
   Background:
     Given the terminal is ready
+    # padi holds ONE conversation per host for the life of the daemon, and the
+    # suite's worker shares one padi across every scenario in this file. So a
+    # scenario that inherited the last one's conversation would inherit its
+    # turns too — a question still waiting on an answer leaves every later
+    # prompt `queued` behind it, and the failure surfaces three scenarios away
+    # from its cause. A fresh session is the isolation: the old one is left,
+    # the standing prompt is taught again, and nothing is in flight.
+    And the orchestrator is on a fresh conversation
 
   Scenario: Entering orchestrator mode gives the chat the main pane
     # The mode is a THIRD axis, not an arm of the maximized posture: the dock
     # stays mounted as the sidebar and the chat takes the middle, so this
     # asserts all three regions rather than just the chat's presence.
     When I create a terminal
-    And I press the orchestrator shortcut
+    # The background left us IN the mode; leave first, so the chord is proving
+    # that it enters rather than that it was already there.
+    And I press Escape
+    Then the orchestrator pane should not be visible
+    When I press the orchestrator shortcut
     Then the orchestrator pane should be visible
     And the dock should be a sidebar
     And the orchestrator mode segment should be active
@@ -24,8 +36,8 @@ Feature: The Orchestrator
     When I create a terminal
     And I enter orchestrator mode
     And I send the orchestrator the prompt "say hello"
-    Then the orchestrator transcript should show a "user" row saying "say hello"
-    And the orchestrator transcript should show an "agent" row saying "hello back"
+    Then the orchestrator transcript should show a row of kind "user" saying "say hello"
+    And the orchestrator transcript should show a row of kind "agent" saying "hello back"
     And the orchestrator state chip should read "idle"
     And there should be no page errors
 
@@ -80,7 +92,7 @@ Feature: The Orchestrator
     And I enter orchestrator mode
     And I ask the orchestrator to adopt the terminal
     Then the orchestrator transcript should show a "create" tool card
-    And the orchestrator fleet should list 1 terminal
+    And the orchestrator fleet should list the terminal
     When I click the first orchestrator fleet row
     Then the peek pane should show that terminal
     And there should be no page errors
@@ -92,10 +104,10 @@ Feature: The Orchestrator
     When I create a terminal
     And I enter orchestrator mode
     And I send the orchestrator the prompt "say hello"
-    Then the orchestrator transcript should show an "agent" row saying "hello back"
+    Then the orchestrator transcript should show a row of kind "agent" saying "hello back"
     When I reload the page
     And I enter orchestrator mode
-    Then the orchestrator transcript should show an "agent" row saying "hello back"
+    Then the orchestrator transcript should show a row of kind "agent" saying "hello back"
     And there should be no page errors
 
   Scenario: A message sent while the agent is working is marked queued
@@ -107,7 +119,7 @@ Feature: The Orchestrator
     And I send the orchestrator the prompt "work slowly"
     And I send the orchestrator the prompt "say hello"
     Then the orchestrator transcript should mark a user row "queued"
-    And the orchestrator transcript should show an "agent" row saying "hello back"
+    And the orchestrator transcript should show a row of kind "agent" saying "hello back"
     And the orchestrator transcript should mark no user row "queued"
     And there should be no page errors
 
@@ -120,5 +132,5 @@ Feature: The Orchestrator
     Then the orchestrator transcript should mark a user row "refused"
     And the orchestrator state chip should read "idle"
     When I send the orchestrator the prompt "say hello"
-    Then the orchestrator transcript should show an "agent" row saying "hello back"
+    Then the orchestrator transcript should show a row of kind "agent" saying "hello back"
     And there should be no page errors

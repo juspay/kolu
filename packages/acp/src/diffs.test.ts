@@ -100,7 +100,7 @@ describe("how a path reads", () => {
     // protocol input (`js/polynomial-redos`, CodeQL alert 15). A tenth of a
     // second here would be a finding.
     const started = performance.now();
-    const cwd = "/".repeat(50_000) + "x";
+    const cwd = `${"/".repeat(50_000)}x`;
     expect(relativeTo(cwd, `${ROOT}/plan.md`)).toBe(`${ROOT}/plan.md`);
     expect(performance.now() - started).toBeLessThan(100);
   }, 500);

@@ -13,38 +13,33 @@
  *  as one continuous top rail across the workspace. The band is a NEUTRAL chrome
  *  surface (no host/PWA hue tint) — per-host colour lives on the tabs, so the
  *  active tab's own hue stands out instead of blending into a same-hue band.
- *  `posture.mode()` no longer changes the bar's positioning; it only picks the
- *  maximize/restore affordance and the `data-maximized` marker.
+ *  `posture.mode()` no longer changes the bar's positioning; it only drives
+ *  the `data-maximized` marker. The maximize/restore affordance is one segment
+ *  of the three-way `ModeControl` now (canvas · maximized · orchestrator).
  *
  *  Mobile uses a different chrome surface — a pull-down sheet — see
  *  `MobileChromeSheet` and `MobileTileView`. */
 
-import { type Component, createMemo, Show } from "solid-js";
+import { type Component, createMemo } from "solid-js";
 import { dockExpanded, toggleRailCards } from "./canvas/dock/Dock";
-import { posturedActionLabel, useViewPosture } from "./canvas/useViewPosture";
+import { useViewPosture } from "./canvas/useViewPosture";
 import HostSelectorStrip from "./host/HostSelectorStrip";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
+import ModeControl from "./orchestrator/ModeControl";
 import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
 import SettingsPopover from "./settings/SettingsPopover";
 import { setSettingsOpen, settingsOpen } from "./settings/useSettingsOpen";
-import {
-  DockToggleIcon,
-  InspectorToggleIcon,
-  MaximizeIcon,
-  RestoreIcon,
-  SettingsIcon,
-} from "./ui/Icons";
+import { DockToggleIcon, InspectorToggleIcon, SettingsIcon } from "./ui/Icons";
 import IdentityRail from "./ui/IdentityRail";
 import Kbd from "./ui/Kbd";
 import Tip from "./ui/Tip";
 
 // Shared base for the square icon toggles in the control cluster
-// (maximize, dock, inspector). Active/idle coloring is layered on via
-// each button's own `classList`. Keep ring/size tweaks here so all
-// three toggles stay in lockstep.
+// (dock, inspector). Active/idle coloring is layered on via each button's own
+// `classList`. Keep ring/size tweaks here so both toggles stay in lockstep.
 const toggleBtnClass =
   "pointer-events-auto hidden sm:flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50";
 
@@ -57,19 +52,9 @@ const ChromeBar: Component<{
   let settingsTriggerRef!: HTMLButtonElement;
 
   // True when the terminal is maximized. The header is full-width docked in
-  // BOTH postures now (see the module comment), so this no longer gates
-  // positioning — it only drives the `data-maximized` marker and the
-  // maximize/restore toggle's active state and icon below.
+  // BOTH postures now (see the module comment), so this drives only the
+  // `data-maximized` marker.
   const docked = createMemo(() => posture.mode() === "maximized");
-
-  // Gate the maximize affordance on a tile existing (posture's single
-  // source of truth) so the button never disagrees with `mode()`'s guard.
-  const canMaximize = posture.canMaximize;
-
-  // The maximize toggle's affordance describes the action a click performs,
-  // so both the tooltip and the aria-label read from one source and can't
-  // drift out of sync with the posture.
-  const maximizeLabel = createMemo(() => posturedActionLabel(posture.mode()));
 
   return (
     <header
@@ -100,39 +85,21 @@ const ChromeBar: Component<{
         <HostSelectorStrip />
       </div>
 
-      {/* Control cluster: recorder → maximize → dock → inspector → settings
+      {/* Control cluster: recorder → view mode → dock → inspector → settings
        *  → ⌘K. Buttons share the chrome icon hover/focus language.
        *  These are TOOLBAR icons, not tab-row marks, so they sit vertically
        *  CENTERED in the full header (symmetric top/bottom padding) rather
        *  than riding the tab baseline. `-mt-2 h-10` cancels the header's
        *  `pt-2` and spans the whole 40px so `items-center` lands them dead
-       *  centre. */}
+       *  centre.
+       *
+       *  The lone maximize toggle became the three-way `ModeControl`: canvas,
+       *  maximized and orchestrator are mutually exclusive views, and two
+       *  separate toggles would let a person spell a state the layout does
+       *  not have. */}
       <div class="-mt-2 flex h-10 items-center gap-2 shrink-0">
         <RecordButton />
-        <Tip label={maximizeLabel()}>
-          <button
-            type="button"
-            data-testid="maximize-toggle"
-            class={toggleBtnClass}
-            classList={{
-              "bg-surface-2 text-fg": docked(),
-              "text-fg-3 hover:bg-surface-2 hover:text-fg":
-                !docked() && canMaximize(),
-              "text-fg-3/40 cursor-not-allowed": !canMaximize(),
-            }}
-            data-active={docked() ? "" : undefined}
-            disabled={!canMaximize()}
-            onClick={() => posture.toggle()}
-            aria-label={maximizeLabel()}
-          >
-            <Show
-              when={docked()}
-              fallback={<MaximizeIcon class="w-3.5 h-3.5" />}
-            >
-              <RestoreIcon class="w-3.5 h-3.5" />
-            </Show>
-          </button>
-        </Tip>
+        <ModeControl />
         <Tip
           label={`Toggle dock (${formatKeybind(ACTIONS.toggleDock.keybind)})`}
         >

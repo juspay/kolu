@@ -21,7 +21,7 @@ export {
   HarnessRefused,
   HarnessUnavailable,
   type SignedIn,
-  startHarness,
   type StdioServer,
+  startHarness,
 } from "./harness.ts";
 export { teachingLines } from "./teaching.ts";
