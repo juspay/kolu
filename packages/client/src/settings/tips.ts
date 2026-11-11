@@ -26,6 +26,14 @@ export const CONTEXTUAL_TIPS = {
     text: "Drag a repo's header to move the whole section; drag a branch cluster by any of its rows inside the repo. Your arrangement is sticky, per host, and never moves what you didn't drag",
     doc: "dock",
   },
+  /** The moment the host strip holds two REMOTE tabs — the first case where
+   *  dragging one changes anything (one remote beside the pinned local tab has
+   *  nowhere to go). */
+  hostRearrange: {
+    id: "host-rearrange",
+    text: "Drag a host tab to re-order the strip. Your arrangement is saved on the server, so every browser and device shows it; the local tab stays pinned first",
+    doc: "remote-hosts",
+  },
   /** The moment a repo card holds two live rows — the first case where nesting
    *  one under the other is a thing you could want. */
   dockRehome: {

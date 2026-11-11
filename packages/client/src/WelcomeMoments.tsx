@@ -37,7 +37,7 @@ import {
   agentProfilesNow,
   hostAgentStatusOf,
 } from "./agents/useAgentDistro";
-import { useHostMembers } from "./host/useHostMembers";
+import { hostKeys } from "./wire";
 import { ACTIONS, advertisedNewTerminalKey } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import { shortcutsHelp } from "./ShortcutsHelp";
@@ -335,7 +335,6 @@ const WelcomeMoments: Component<{
   onBeforeOpenPalette?: () => void;
 }> = (props) => {
   const app = useSurfaceApp();
-  const hosts = useHostMembers();
   const actions = useActionContext();
   const commandPalette = useCommandPalette();
   // Auto-detected, per-browser install steps — used when no one-click prompt is
@@ -387,7 +386,7 @@ const WelcomeMoments: Component<{
       chooseAgentsDismissed: agentsStepDismissed(),
       pinDone: pinState() === "installed",
       reachDone: location.protocol === "https:",
-      hostsDone: hosts().length > 1,
+      hostsDone: hostKeys().length > 1,
     }),
   );
 

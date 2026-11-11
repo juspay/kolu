@@ -16,6 +16,7 @@ import {
   migratePreferences_1_40_0,
   migratePreferences_1_41_0,
   migratePreferences_1_42_0,
+  migratePreferences_1_43_0,
   store,
 } from "./state.ts";
 
@@ -319,23 +320,26 @@ describe("migratePreferences_1_42_0 — Juspay leaves the stack: it is opt-in", 
 describe("the CHAINED preference ladder (a pre-1.30 blob walking every rung)", () => {
   /** The rungs that read the `preferences` blob, in ladder order. 1.31.0 /
    *  1.33.0 / 1.35.0 / 1.36.0 never touch it (key strip, `hosts` seed, no-op,
-   *  `viewerMode` seed), so these eight (1.37.0 seeds `agentDistro`, 1.38.0 turns
+   *  `viewerMode` seed), so these nine (1.37.0 seeds `agentDistro`, 1.38.0 turns
    *  an Off one into "never chosen", 1.39.0 seeds `tipBarCollapsed`, 1.40.0
    *  seeds `agentProfilesRecent`, 1.41.0 turns `profile` into `profiles`,
-   *  1.42.0 takes Juspay's reference out of a stack that reached 1.41.0) ARE
+   *  1.42.0 takes Juspay's reference out of a stack that reached 1.41.0,
+   *  1.43.0 seeds `hostOrder`) ARE
    *  the whole walk a pre-1.30 file
    *  makes. Testing each rung in isolation cannot catch a cross-rung defect:
    *  1.32.0 spreads today's `DEFAULT_PREFERENCES` into the record, which hands
    *  1.34.0 an `attentionAlerts` the user never chose. */
   const walkLadder = (blob: Record<string, unknown>) =>
-    migratePreferences_1_42_0(
-      migratePreferences_1_41_0(
-        migratePreferences_1_40_0(
-          migratePreferences_1_39_0(
-            migratePreferences_1_38_0(
-              migratePreferences_1_37_0(
-                migratePreferences_1_34_0(
-                  migratePreferences_1_32_0(migratePreferences_1_30_0(blob)),
+    migratePreferences_1_43_0(
+      migratePreferences_1_42_0(
+        migratePreferences_1_41_0(
+          migratePreferences_1_40_0(
+            migratePreferences_1_39_0(
+              migratePreferences_1_38_0(
+                migratePreferences_1_37_0(
+                  migratePreferences_1_34_0(
+                    migratePreferences_1_32_0(migratePreferences_1_30_0(blob)),
+                  ),
                 ),
               ),
             ),
@@ -372,6 +376,17 @@ describe("the CHAINED preference ladder (a pre-1.30 blob walking every rung)", (
     const migrated = walkLadder(pre_1_30(true));
     expect(migrated.attentionAlerts).toBe(true);
     expect(migrated).not.toHaveProperty("activityAlerts");
+  });
+
+  it("a pre-1.43 file reaches the strip with NO arrangement — pool order stands", () => {
+    // `hostOrder` is an overlay: an empty one means the strip keeps pool order
+    // with local pinned first, which is exactly what every existing install saw
+    // before the drag gesture existed.
+    expect(walkLadder(pre_1_30()).hostOrder).toEqual([]);
+    // An arrangement already on disk is never re-seeded over.
+    expect(
+      migratePreferences_1_43_0({ hostOrder: ["remote:zest"] }).hostOrder,
+    ).toEqual(["remote:zest"]);
   });
 
   it("a 1.37-era Agents choice walks the agent rungs into the stack", () => {
