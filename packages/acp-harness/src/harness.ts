@@ -172,6 +172,18 @@ export interface HarnessOptions {
    */
   readonly resumedSeq?: number;
   /**
+   * The terminals the caller REMEMBERS this conversation was working with, as
+   * the fleet stood when it was last persisted.
+   *
+   * Membership otherwise accrues only from tool-call frames, and a resumed
+   * conversation's frames are history the caller already holds — so a harness
+   * that started from an empty fleet would publish one on its first breath and
+   * the caller would write that emptiness back over its own record. A resumed
+   * conversation would forget every terminal it had been working with, once,
+   * permanently. Seeded here; new terminals still join as they are touched.
+   */
+  readonly fleet?: ReadonlyArray<string>;
+  /**
    * The model a PERSON chose, as the id it was chosen under — or `null` for a
    * conversation nobody has moved off whatever the agent picks.
    *
@@ -299,6 +311,30 @@ const SIGN_IN_CAP = 64 * 1024;
  *  dump exists for. */
 const STDERR_CAP = 32 * 1024;
 
+/**
+ * THE KINDS THAT RE-TELL WHAT WAS SAID — the only frames a replay is dropped
+ * on the floor for.
+ *
+ * `session/load` sends two unlike things down one stream before it answers:
+ * the conversation's HISTORY, which the caller already holds in a richer form,
+ * and news about the session AS IT IS NOW — which commands it offers, which
+ * settings it is on, how full its context is. Dropping the whole stream drops
+ * the second with the first, and {@link startHarness}'s `leaving` has just
+ * reset exactly those fields: a resumed conversation would spend the rest of
+ * its life with no `/` completion and no context meter, which is the opposite
+ * of what the fence is for. So the partition is BY KIND and it is written
+ * here, named, rather than inline — a kind this client learns to draw later is
+ * then added to a list somebody can read, instead of quietly arriving as news
+ * about a conversation that has not happened yet.
+ */
+const REPLAYED_UPDATES: Readonly<Record<string, true>> = {
+  agent_message_chunk: true,
+  user_message_chunk: true,
+  tool_call: true,
+  tool_call_update: true,
+  plan: true,
+};
+
 /** THE SIGN-IN IN FLIGHT, if there is one — held because the two things that
  *  act on it arrive by different roads: a person's keystroke, and the agent's
  *  own completion notification. One per agent, which is what makes a second
@@ -361,7 +397,7 @@ export const startHarness = async (
   const transcript = new Transcript(options.resumedSeq ?? 0);
   const turns = new Turns();
   const calls = new Calls(leg);
-  const fleet = new Fleet();
+  const fleet = new Fleet(options.fleet ?? []);
   /** The accumulated kolu reading per call id — see `refineKoluCall`. Cleared
    *  with the conversation, for the reason `Calls.forget` gives: a call id is
    *  only ever looked up inside the session that minted it, and a daemon meant
@@ -770,6 +806,12 @@ export const startHarness = async (
   // ── the session stream ───────────────────────────────────────────────
 
   const onUpdate = (notification: SessionNotification): void => {
+    // WHOSE SESSION. A chunk of the conversation that just closed, landing
+    // after the next one opened, is how a new conversation failed to empty: the
+    // panel showed the last turn's words in a conversation nobody had spoken
+    // in.
+    if (fromElsewhere(notification.sessionId, activeSession, closed)) return;
+    const update = notification.update;
     // A REPLAY IS HISTORY SOMEBODY ELSE ALREADY HAS. `session/load` re-emits
     // every message of the conversation before it answers, and the rows the
     // caller restored are strictly richer than that re-emission: they carry
@@ -777,16 +819,15 @@ export const startHarness = async (
     // which no agent's transcript holds. So the replay is counted and dropped,
     // and the persisted rows stand as the record (the harness mints past their
     // `seq`, so nothing after this can collide with one).
-    if (replaying) {
+    //
+    // ONLY the history, though: {@link REPLAYED_UPDATES} says which frames are
+    // the re-telling, and everything else on that stream is this session as it
+    // stands right now — the commands it offers, the settings it is on, how
+    // full its context is — which nobody else can tell us.
+    if (replaying && REPLAYED_UPDATES[update.sessionUpdate] === true) {
       replayed += 1;
       return;
     }
-    // WHOSE SESSION. A chunk of the conversation that just closed, landing
-    // after the next one opened, is how a new conversation failed to empty: the
-    // panel showed the last turn's words in a conversation nobody had spoken
-    // in.
-    if (fromElsewhere(notification.sessionId, activeSession, closed)) return;
-    const update = notification.update;
     switch (update.sessionUpdate) {
       case "agent_message_chunk": {
         const text = textOf(update.content);

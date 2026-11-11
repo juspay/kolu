@@ -13,7 +13,7 @@ const harness = await startHarness({
   agentName, leg, adapter,      // who, how it reads its wire, what to spawn
   cwd, mcpServers, teaching,    // where it works, what it can reach, what it is told
   log, resume,                  // a session id to `session/load`, or null for a fresh one
-  resumedSeq, model,            // the highest `seq` already persisted; the model a person chose
+  resumedSeq, fleet, model,     // the highest `seq` already persisted; the terminals remembered; the model a person chose
   onChange,                     // { kind: "state" } | { kind: "rows", upserts, removes, appends }
 });
 ```
@@ -30,7 +30,8 @@ Each of these is a bug that happened once. They are what the package is.
 
 - **A prompt is ALWAYS a plain `session/prompt`, busy or idle.** The queue is the AGENT'S: a message sent mid-turn goes out immediately and waits there, marked `queued` until it is picked up. Nothing is held on this side — which is also why `cancel` has nothing to throw away.
 - **The permission mode the leg names is asked for after a new session AND after a load**, before the conversation is entered — a mode belongs to the session, so a restored one that never asked is the one where every write becomes a question somebody answers by hand. A refusal is a row, not a failed bring-up, unless the leg says `bypassModeRequired`.
-- **A resumed conversation's replay is DROPPED.** `session/load` re-emits the whole history before it answers; the caller's persisted rows are kept instead, because they carry kolu's own readings (tool cards, notices, the fleet) that no agent's transcript holds. `resumedSeq` is the highest `seq` the caller holds, and every id and `seq` minted here starts after it.
+- **A resumed conversation's HISTORY is dropped; its NEWS is not.** `session/load` re-emits the whole transcript before it answers, and the caller's persisted rows are kept instead, because they carry kolu's own readings (tool cards, notices, the fleet) that no agent's transcript holds. Only the transcript-bearing kinds are dropped, though: an `available_commands_update`, `config_option_update` or `usage_update` on that same stream is the session as it stands NOW, and dropping it left a resumed conversation with no `/` completion and no context meter for the rest of its life. `resumedSeq` is the highest `seq` the caller holds, and every id and `seq` minted here starts after it.
+- **The fleet a resumed conversation comes back with is the caller's.** Membership accrues from tool-call frames alone, and a resumed conversation's frames are the replay — so `fleet` seeds it at construction, and the first publish carries what the caller remembered instead of writing an empty list back over its record. Terminals this visit touches join on top.
 - **A new session KEEPS the transcript.** One conversation ends and another begins in one scroll, with a divider between them — and a `clear` would be a lie to a caller whose copy holds rows this process never minted.
 - **The roster moves only on the AGENT'S own word.** Each server kolu handed over starts `handed`, with `where` as the absolute command; a leg's `rawMessages` report moves it to `connected` or to `unattached` carrying the word the agent used. A server the agent names and nobody handed over adds no row.
 - **Nothing is published after `stop()`.** A turn still on the wire ends a moment later; its rows would be rows the caller persists for a conversation it has already let go. The one frame a shutdown owes a reader is sent by hand.

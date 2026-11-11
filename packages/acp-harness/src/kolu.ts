@@ -179,7 +179,21 @@ export const refineKoluCall = (
  * that once looked at somebody else's terminal has not taken it over.
  */
 export class Fleet {
-  #order: Array<string> = [];
+  #order: Array<string>;
+
+  /**
+   * A RESUMED conversation starts with the fleet its caller remembered. The
+   * frames that would otherwise re-establish membership are the replay, and
+   * the replay is history the caller already holds — so a fleet that could
+   * only accrue would come back empty and be persisted empty.
+   *
+   * De-duplicated on the way in because first-touch order with no repeats is
+   * what every reader of {@link ids} is handed, and a record written by an
+   * older shape must not be able to put the same tile on screen twice.
+   */
+  constructor(remembered: ReadonlyArray<string> = []) {
+    this.#order = [...new Set(remembered)];
+  }
 
   /** Whether this call put a new terminal in. Answered so the caller can
    *  publish state only when something actually moved. */

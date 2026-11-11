@@ -226,8 +226,9 @@ function handle(message: Message): void {
         (message.params?.mcpServers ?? []).map((one) => one.name ?? ""),
       );
       metas.push(message.params?._meta ?? null);
-      // A LOAD REPLAYS, then answers. These two frames are the conversation
-      // this client is coming back to, as the agent remembers it — history the
+      // A LOAD REPLAYS, then answers — and what it replays is TWO unlike
+      // things down one stream. These two frames are the conversation this
+      // client is coming back to, as the agent remembers it: history the
       // client already holds, which is what makes dropping them the point.
       update(session, {
         sessionUpdate: "user_message_chunk",
@@ -236,6 +237,22 @@ function handle(message: Message): void {
       update(session, {
         sessionUpdate: "agent_message_chunk",
         content: { type: "text", text: "the answer you already have" },
+      });
+      // ... and these two are the session AS IT STANDS — the slash commands it
+      // offers and how full its context is. Nobody but this process knows
+      // either, so a client that dropped the whole stream would come back to a
+      // conversation with no completion and no context meter.
+      update(session, {
+        sessionUpdate: "available_commands_update",
+        availableCommands: [
+          { name: "compact", description: "summarise the conversation" },
+          { name: "cost", description: "what this has cost" },
+        ],
+      });
+      update(session, {
+        sessionUpdate: "usage_update",
+        used: 22102,
+        size: 200000,
       });
       respond(message.id, { configOptions: configOptions() });
       return;

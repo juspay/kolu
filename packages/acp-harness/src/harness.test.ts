@@ -148,6 +148,7 @@ const open = async (
   extra: {
     resume?: string | null;
     resumedSeq?: number;
+    fleet?: ReadonlyArray<string>;
     model?: string | null;
     leg?: Leg;
   } = {},
@@ -183,6 +184,7 @@ const open = async (
     log: silent,
     resume: extra.resume ?? null,
     ...(extra.resumedSeq === undefined ? {} : { resumedSeq: extra.resumedSeq }),
+    ...(extra.fleet === undefined ? {} : { fleet: extra.fleet }),
     ...(extra.model === undefined ? {} : { model: extra.model }),
     onChange: fold,
   });
@@ -584,6 +586,53 @@ describe("a conversation padi already holds the rows of", () => {
     // folding the new message into the middle of the old conversation.
     for (const row of rows) expect(row.seq).toBeGreaterThan(12);
     expect(rows.map((row) => row.id)).toEqual(["user:13", "agent:14"]);
+  });
+
+  test("keeps the session's own news while dropping its history", async () => {
+    // The same load replays what the session IS as well as what was said in
+    // it: the slash commands it offers and how full its context is. Those are
+    // facts only this process holds, and leaving the conversation has just
+    // reset both — a fence that dropped them would leave a resumed
+    // conversation with no `/` completion and no context meter for its life.
+    const running = await open("agent.ts", {
+      resume: "sess-1",
+      resumedSeq: 12,
+    });
+
+    expect(running.rows()).toEqual([]);
+    const state = running.harness.state();
+    expect(state.commands).toEqual([
+      { name: "compact", description: "summarise the conversation" },
+      { name: "cost", description: "what this has cost" },
+    ]);
+    expect(state.usage).toEqual({ used: 22102, size: 200000 });
+  });
+
+  test("comes back with the fleet the caller remembered, and adds to it", async () => {
+    // Membership accrues from tool-call frames alone, and a resumed
+    // conversation's frames are the replay — dropped. A harness that started
+    // empty would publish an empty fleet on its first breath and the caller
+    // would write that emptiness back over its own record, so a resumed
+    // conversation would forget every terminal it had been working with.
+    const remembered = ["a1b2c3d4-0000-4000-8000-000000000000"];
+    const running = await open("agent.ts", {
+      resume: "sess-1",
+      resumedSeq: 12,
+      fleet: remembered,
+    });
+
+    // THE FIRST PUBLISH, not merely the state at the end: it is the one the
+    // caller persists, and the one that used to be empty.
+    expect(running.states[0]?.fleet).toEqual(remembered);
+
+    await running.harness.prompt("kolu", []);
+    await settled(running, "the turn never ended");
+    // ... and a terminal this visit touches joins what was remembered rather
+    // than replacing it.
+    expect(running.harness.state().fleet).toEqual([
+      ...remembered,
+      "7f3e0a91-0000-4000-8000-000000000000",
+    ]);
   });
 });
 
