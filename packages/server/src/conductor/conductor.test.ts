@@ -65,18 +65,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AGENT_ENV } from "@kolu/acp/engine";
 import {
   type FleetMcpEndpoint as LiveFleetMcpEndpoint,
+  proveFleetMcpEndpoint,
   startFleetMcpEndpoint,
 } from "../fleet/mcpEndpoint.ts";
 import {
-  type FleetMcpEndpoint,
-  type ConductorHost,
-  startConductorHost,
-  UNSENT_ATTACHMENT_MS,
-} from "./conductor.ts";
-import {
   EMPTY_PERSISTED_CONDUCTOR,
+  UNSENT_ATTACHMENT_MS,
+  startConductorHost,
+  type ConductorHost,
+  type FleetMcpEndpoint,
   type PersistedConductor,
-} from "./persisted.ts";
+} from "kolu-conductor";
 
 const HOME = "/home/tester";
 const HOST = "test-box";
@@ -243,6 +242,11 @@ function rig(
     home: HOME,
     hostName: HOST,
     fleetMcp: () => endpoint,
+    // THE REAL PROOF, pushed in the way the boot pushes it: the package that
+    // owns the conversation does not own the MCP pin, so what it is handed is
+    // the server's own prover — which is why every bring-up below exercises
+    // the real door rather than an imitation of it.
+    proveFleetMcp: proveFleetMcpEndpoint,
     // The served cell, as a sink. Nothing here reads it back — what a reader
     // sees is `host.state()`, which is the same value — so this only has to
     // not throw, the way the real writer does not once the surface is up.
@@ -899,6 +903,7 @@ describe("teardown (B2)", () => {
       home: HOME,
       hostName: HOST,
       fleetMcp: () => liveEndpoint,
+      proveFleetMcp: proveFleetMcpEndpoint,
       publish: () => {},
       store: backing.store,
       storePath: () => "/state/config.json",
@@ -958,6 +963,7 @@ describe("teardown (B2)", () => {
       home: HOME,
       hostName: HOST,
       fleetMcp: () => liveEndpoint,
+      proveFleetMcp: proveFleetMcpEndpoint,
       publish: () => {},
       store: backing.store,
       storePath: () => "/state/config.json",

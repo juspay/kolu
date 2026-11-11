@@ -50,7 +50,7 @@ import {
 import {
   EMPTY_PERSISTED_CONDUCTOR,
   PersistedConductorSchema,
-} from "./conductor/persisted.ts";
+} from "kolu-conductor";
 
 const dirs: string[] = [];
 afterEach(() => {

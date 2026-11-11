@@ -285,10 +285,18 @@ describe("the manifest", () => {
     // that named one agent directly would be the defect
     // `agentDepFence.test.ts` exists to refuse.
     "integrations/agents": ["@kolu/acp/engine"],
-    // kolu-server HOSTS the conversation, so it reads the ENGINE door alone:
-    // the integration's `Registering` — its name, its leg, and whether this
+    // THE CONVERSATION'S OWN PACKAGE reads the ENGINE door alone: the
+    // integration's `Registering` — its name, its leg, and whether this
     // machine has the adapter at all. The protocol's own payloads never reach
-    // it; `@kolu/acp-harness` is the wall between them.
+    // it; `@kolu/acp-harness` is the wall between them. kolu-server, which
+    // merely MOUNTS this package, needs no door of its own.
+    conductor: ["@kolu/acp/engine"],
+    // kolu-server MOUNTS the conversation and does not talk the protocol — but
+    // the composition tests it keeps (the host against the real fleet door and
+    // the real tool registry) name the adapter's env var and the `NotHere` a
+    // machine without it is owed, both of which live behind that same door.
+    // A production file here importing it would be the finding; a test naming
+    // what it stands up is not.
     server: ["@kolu/acp/engine"],
   };
 

@@ -91,12 +91,11 @@ import {
 } from "./memorySampler.ts";
 import { DAEMON_INVENTORY_SAMPLE_INTERVAL_MS } from "./padi/daemonInventory.ts";
 import { FORWARD_REAP_INTERVAL_MS } from "./portForward/forwards.ts";
-import { isConductorDeclaredError } from "kolu-common/conductorErrors";
+import { conductorSurfaceMembers } from "kolu-conductor/surface";
 import {
   liveServerConductor,
   setConductorCellWriter,
 } from "./conductor/live.ts";
-import { conductorTranscriptSource } from "./conductor/transcriptStream.ts";
 import { store } from "./state.ts";
 
 // ── The WIDENING SEAM: kolu-server's served superset group ─────────────────
@@ -325,35 +324,22 @@ export interface StoreCellWriters {
   setViewerMode: (value: ViewerMode) => void;
 }
 
-/** THE CONDUCTOR'S HANDLER BRIDGE — the one place the "declared vs defect"
- *  line is drawn for the nine `conductor` procedures, rather than once per
- *  member.
- *
- *  A value the host raises on purpose (`ConductorUnavailable`,
- *  `ConductorRefused`) is a caller's to branch on, so it rides the Effect
- *  FAILURE channel. Anything else — a state file nobody can read, a bug in the
- *  bookkeeping — is a DEFECT and dies loudly: a conductor that broke in a
- *  way nobody declared should crash, not arrive as a polite sentence in a chat.
- *  The same shape, and the same argument, as padi's `handle`. */
-function askConductor<A, E>(body: () => A | Promise<A>): Effect.Effect<A, E> {
-  return Effect.catch(
-    Effect.tryPromise({
-      try: async () => body(),
-      catch: (err: unknown) => err,
-    }),
-    (err) =>
-      isConductorDeclaredError(err)
-        ? Effect.fail(err as E)
-        : (Effect.die(err) as Effect.Effect<A, E>),
-  );
-}
-
 /** Serve kolu-server's OWN two sibling surfaces (kolu + surfaceApp) on the shared
  *  `@kolu/padi` publisher, wire the runtime's deliberately-fatal `done`, and return the
  *  built router + kolu ctx. `index.ts`'s boot splices the RE-SERVED `padi` sibling into
  *  `.router.surface`; every kolu member is the reactor graph's own writer now (no
  *  ctx-write path). Call exactly once, after `padiSession`. */
 export function implementKoluSurface(deps: KoluSurfaceDeps) {
+  // THE CONDUCTOR'S OWN MEMBERS, from the package that owns the
+  // conversation. kolu-server mounts them; what a verb DOES is a sentence
+  // about the conversation, not about the web server carrying it. The host is
+  // a thunk, not a value: the ACP child is built on its first reader, and the
+  // cell's seed below is one of those readers — holding the host here would
+  // force a subprocess up at boot, which is the one thing that laziness is for.
+  const conductorMembers = conductorSurfaceMembers({
+    host: liveServerConductor,
+    log,
+  });
   // The daemon-inventory read made TOTAL — the guard has ONE home, here beside the cell.
   // `deps.readDaemonInventory` may throw (a discovery fs-walk / session readout), and a
   // poll source's T+0 SEED throw faults the runtime's `done` → `process.exit(1)` (below),
@@ -516,16 +502,14 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       // the REMEMBERED half still unread: the host reads its record on the
       // first reader's edge and publishes it through the writer registered
       // below a moment later, the same way `agentDistroStatus` lands on padi.
-      conductor: { store: inMemoryStore(liveServerConductor().state()) },
+      conductor: { store: inMemoryStore(conductorMembers.state()) },
     },
     streams: {
       // THE CONDUCTOR'S TRANSCRIPT — explicit snapshot-then-deltas. The
       // snapshot is queued synchronously inside the subscribe, so a reader's
       // first frame can never race a delta, and a re-subscribe after a dropped
       // socket re-leads with a fresh one the reducer assigns over.
-      conductorTranscript: {
-        source: () => conductorTranscriptSource(liveServerConductor(), log),
-      },
+      conductorTranscript: { source: () => conductorMembers.transcript() },
     },
     procedures: {
       // Thin by design: each is one call into `forwards.ts`, which owns every rule.
@@ -553,47 +537,7 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       // adapter, no fleet endpoint, or no child) and `ConductorRefused`
       // (the agent said no). Anything else stays a defect and crosses the wire
       // as one.
-      conductor: {
-        prompt: ({ input }) =>
-          askConductor(() =>
-            liveServerConductor().prompt(
-              input.text,
-              input.mentions,
-              input.attachments,
-            ),
-          ),
-        // The chunked upload a prompt's attachments arrive on, ahead of the
-        // prompt that names them — the whole reason no base64 rides a
-        // `prompt` frame. Straight through: the host validates the id, the
-        // continuation path and the per-attachment cap, and says no in the
-        // same two declared errors every other verb here does.
-        attach: ({ input }) =>
-          askConductor(() => liveServerConductor().attach(input)),
-        cancel: () => askConductor(() => liveServerConductor().cancel()),
-        answer: ({ input }) =>
-          askConductor(async () => ({
-            settled: await liveServerConductor().answer(
-              input.askId,
-              input.answers,
-            ),
-          })),
-        signIn: ({ input }) =>
-          askConductor(async () => ({
-            outcome: await liveServerConductor().signIn(input.method),
-          })),
-        signInInput: ({ input }) =>
-          askConductor(() => liveServerConductor().signInInput(input.text)),
-        signInCancel: () =>
-          askConductor(() => liveServerConductor().signInCancel()),
-        setOption: ({ input }) =>
-          askConductor(() =>
-            liveServerConductor().setOption(input.id, input.value),
-          ),
-        newSession: () =>
-          askConductor(() => liveServerConductor().newSession()),
-        clearSession: () =>
-          askConductor(() => liveServerConductor().clearSession()),
-      },
+      conductor: conductorMembers.procedures,
     },
   };
 

@@ -113,7 +113,6 @@ import {
 } from "kolu-common/conductorErrors";
 import type { CellStore } from "@kolu/surface/server";
 import type { Logger } from "pino";
-import { proveFleetMcpEndpoint } from "../fleet/mcpEndpoint.ts";
 import {
   persistedFrom,
   type PersistedConductor,
@@ -241,6 +240,20 @@ export interface ConductorDeps {
    *  inside `session/new` and an endpoint the agent cannot reach is marked
    *  failed for the life of the conversation. */
   readonly fleetMcp: () => FleetMcpEndpoint | null;
+  /** PROVE that endpoint answers — a real request, no timer — returning the
+   *  sentence that says why not, or `null` when it will serve this caller.
+   *
+   *  PUSHED IN, like `spawn`. The proof is one `initialize` routed by a
+   *  session header and ended by a `DELETE`, and those spellings are the MCP
+   *  SDK's: they move when it moves, and the host that OWNS that pin is the
+   *  one that serves the door. This package speaks ACP and would otherwise
+   *  grow an edge to a protocol it never talks. What arrives here is the
+   *  answer, which is all a conversation needs to decide whether it has
+   *  hands. */
+  readonly proveFleetMcp: (
+    at: FleetMcpEndpoint,
+    log: Logger,
+  ) => Promise<string | null>;
   /** Publish the live cell value. Pushed in rather than imported for the
    *  reason `spawn` is: this module owns the conversation, not the surface,
    *  and an import of the served ctx would be a cycle (`surface.ts` builds the
@@ -351,6 +364,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     home,
     hostName,
     fleetMcp,
+    proveFleetMcp,
     publish,
     store,
     storePath,
@@ -799,7 +813,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     if (at === null) throw new ConductorUnavailable({ why: NO_FLEET_MCP });
     // The door reports what it saw; the refusal is this module's to raise —
     // the shape `FleetHosts` already uses for a host that is not answering.
-    const why = await proveFleetMcpEndpoint(at, log);
+    const why = await proveFleetMcp(at, log);
     if (why !== null) throw new ConductorUnavailable({ why });
     return {
       kind: "http",

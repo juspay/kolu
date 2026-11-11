@@ -39,6 +39,7 @@
     "kaval": "workspace:*",
     "kolu-agents": "workspace:*",
     "kolu-common": "workspace:*",
+    "kolu-conductor": "workspace:*",
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",
     "kolu-mcp": "workspace:*",

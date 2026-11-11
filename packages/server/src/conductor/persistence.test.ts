@@ -37,16 +37,18 @@ import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   type FleetMcpEndpoint as LiveFleetMcpEndpoint,
+  proveFleetMcpEndpoint,
   startFleetMcpEndpoint,
 } from "../fleet/mcpEndpoint.ts";
 import { decodeStateBackup, store } from "../state.ts";
-import { type ConductorHost, startConductorHost } from "./conductor.ts";
 import {
   EMPTY_PERSISTED_CONDUCTOR,
-  type PersistedConductor,
   PersistedConductorSchema,
   repointConductorAttachments,
-} from "./persisted.ts";
+  startConductorHost,
+  type ConductorHost,
+  type PersistedConductor,
+} from "kolu-conductor";
 
 const HOME = "/home/tester";
 
@@ -134,6 +136,7 @@ function hostOver(): {
     home: HOME,
     hostName: "test-box",
     fleetMcp: () => liveEndpoint,
+    proveFleetMcp: proveFleetMcpEndpoint,
     publish: () => {},
     store: conductorStore,
     storePath: () => store.path,

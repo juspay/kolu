@@ -849,30 +849,27 @@ Then(
   },
 );
 
-When(
-  "I scroll the conductor transcript up",
-  async function (this: KoluWorld) {
-    const box = await this.page.locator(TRANSCRIPT).boundingBox();
-    assert.ok(box !== null, "the transcript has no box to scroll over");
-    // A REAL WHEEL over the column, not an assignment to `scrollTop`: the
-    // client reads the notch itself (to decide intent before the browser has
-    // moved anything), and a scripted scroll would skip that half.
-    await this.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await this.page.mouse.wheel(0, -600);
-    // Chromium animates the notch, so the view has not arrived when `wheel`
-    // resolves. Wait for it to be demonstrably off the end before anything
-    // asserts about where it stays.
-    await pollFor({
-      observe: () => transcriptGap(this),
-      isDone: (gap) => gap > FOLLOW_SLACK_PX + 1,
-      timeoutMs: POLL_TIMEOUT,
-      onTimeout: (last, elapsedMs) =>
-        new Error(
-          `the wheel left the transcript ${last}px from its end after ${elapsedMs}ms — it never scrolled up`,
-        ),
-    });
-  },
-);
+When("I scroll the conductor transcript up", async function (this: KoluWorld) {
+  const box = await this.page.locator(TRANSCRIPT).boundingBox();
+  assert.ok(box !== null, "the transcript has no box to scroll over");
+  // A REAL WHEEL over the column, not an assignment to `scrollTop`: the
+  // client reads the notch itself (to decide intent before the browser has
+  // moved anything), and a scripted scroll would skip that half.
+  await this.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await this.page.mouse.wheel(0, -600);
+  // Chromium animates the notch, so the view has not arrived when `wheel`
+  // resolves. Wait for it to be demonstrably off the end before anything
+  // asserts about where it stays.
+  await pollFor({
+    observe: () => transcriptGap(this),
+    isDone: (gap) => gap > FOLLOW_SLACK_PX + 1,
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (last, elapsedMs) =>
+      new Error(
+        `the wheel left the transcript ${last}px from its end after ${elapsedMs}ms — it never scrolled up`,
+      ),
+  });
+});
 
 Then(
   "the conductor transcript should stay where the reader left it",
@@ -908,9 +905,6 @@ Then(
   },
 );
 
-When(
-  "I take the way back to the bottom",
-  async function (this: KoluWorld) {
-    await this.page.locator(TO_BOTTOM).click();
-  },
-);
+When("I take the way back to the bottom", async function (this: KoluWorld) {
+  await this.page.locator(TO_BOTTOM).click();
+});

@@ -823,6 +823,20 @@
         "ts-pattern": "^5.9.0"
       }
     },
+    "kolu-conductor": {
+      "dir": "packages/conductor",
+      "workspace": [
+        "@kolu/acp",
+        "@kolu/acp-harness",
+        "@kolu/surface",
+        "kolu-agents",
+        "kolu-common"
+      ],
+      "external": {
+        "effect": "catalog:",
+        "pino": "^10.3.1"
+      }
+    },
     "kolu-git": {
       "dir": "packages/integrations/git",
       "vendored": true,
@@ -967,6 +981,7 @@
         "kaval",
         "kolu-agents",
         "kolu-common",
+        "kolu-conductor",
         "kolu-git",
         "kolu-github",
         "kolu-mcp",

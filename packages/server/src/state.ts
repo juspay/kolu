@@ -42,7 +42,7 @@ import {
   EMPTY_PERSISTED_CONDUCTOR,
   PersistedConductorSchema,
   repointConductorAttachments,
-} from "./conductor/persisted.ts";
+} from "kolu-conductor";
 import {
   DEFAULT_PREFERENCES,
   type Preferences,

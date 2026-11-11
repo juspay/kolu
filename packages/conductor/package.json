@@ -1,0 +1,32 @@
+{
+  "name": "kolu-conductor",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./persisted": "./src/persisted.ts",
+    "./surface": "./src/surface.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@kolu/acp": "workspace:*",
+    "@kolu/acp-harness": "workspace:*",
+    "@kolu/surface": "workspace:*",
+    "effect": "catalog:",
+    "kolu-agents": "workspace:*",
+    "kolu-common": "workspace:*",
+    "pino": "^10.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  },
+  "//scripts": "No test lane of its own, and that is a decision rather than an omission: the Conductor's suites are COMPOSITION tests \u2014 the host against the real fleet MCP door and the real tool registry \u2014 so they live with the composition root in `packages/server`. Stubbing the door to move them is exactly the drift one of those tests was written to stop (an imitation answered 400, the proof passed on it, and a door that could serve nobody looked healthy)."
+}

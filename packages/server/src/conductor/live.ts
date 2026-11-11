@@ -28,9 +28,10 @@ import { store } from "../state.ts";
 import {
   type FleetMcpEndpoint,
   type ConductorHost,
+  type PersistedConductor,
   startConductorHost,
-} from "./conductor.ts";
-import type { PersistedConductor } from "./persisted.ts";
+} from "kolu-conductor";
+import { proveFleetMcpEndpoint } from "../fleet/mcpEndpoint.ts";
 
 /** Where the fleet MCP face is listening, or `null` while it is not. */
 let endpoint: () => FleetMcpEndpoint | null = () => null;
@@ -91,6 +92,12 @@ export function liveServerConductor(): ConductorHost {
     // it quotes back when it reports what it did somewhere else.
     hostName: hostname(),
     fleetMcp: () => endpoint(),
+    // The PROOF is the server's, not the conversation's: it is one MCP
+    // `initialize` routed by a session header, and those spellings move with
+    // the SDK — a pin `kolu-conductor` never talks to. The door that owns it
+    // hands its own prover over here, which is the whole of what the mount
+    // injects on this seam.
+    proveFleetMcp: proveFleetMcpEndpoint,
     publish: (state) => {
       if (writeCell === null) {
         // A publish before the cell exists is a BOOT-ORDER bug, not a state to

@@ -105,4 +105,3 @@ export function applyTranscriptScroll(el: {
 export function transcriptScrollOffset(): number | null {
   return offset();
 }
-
