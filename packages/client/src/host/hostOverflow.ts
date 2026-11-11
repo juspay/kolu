@@ -24,9 +24,10 @@
  */
 
 export type HostFit = {
-  /** The pool's stable order — chips are NEVER reordered by which host is
-   *  active; `order`'s own sequence is the only sequence this module ever
-   *  returns. */
+  /** The GIVEN order — the caller's arranged host list (`orderHostKeys` over
+   *  pool membership and the user's `hostOrder` preference). This module never
+   *  reorders: `order`'s own sequence is the only sequence it returns, and in
+   *  particular which host is ACTIVE never moves a chip. */
   key: string;
   /** The chip's measured rendered width in px (its wrapper's `offsetWidth`,
    *  including padding/border). */
@@ -68,10 +69,10 @@ export function computeVisibleHosts(
 
   const budget = containerWidth - trailingReserve;
 
-  // Greedy PREFIX fit, in POOL order — chips fill front-to-back, stopping at
-  // the first one that would exceed the budget. A prefix (not a scattered
-  // greedy pack) keeps the visible set contiguous, so the strip never shows
-  // a "hole" where an overflowed chip sat between two visible ones.
+  // Greedy PREFIX fit, in the GIVEN (arranged) order — chips fill front-to-back,
+  // stopping at the first one that would exceed the budget. A prefix (not a
+  // scattered greedy pack) keeps the visible set contiguous, so the strip never
+  // shows a "hole" where an overflowed chip sat between two visible ones.
   let used = 0;
   let cut = order.length;
   for (let i = 0; i < order.length; i++) {
@@ -88,9 +89,9 @@ export function computeVisibleHosts(
   // The active host is the header's one MANDATORY chip (see the file header
   // "always visible at every width" invariant) — if the prefix fit dropped
   // it, make room by dropping trailing prefix members (nearest the cut
-  // first) until it fits, then append it. Its OWN pool position is never
-  // used to reorder `visible` — only membership changes, so a later re-widen
-  // restores every dropped chip to its original slot.
+  // first) until it fits, then append it. Its OWN slot in the arrangement is
+  // NEVER used to reorder `visible` — only membership changes, so a later
+  // re-widen restores every dropped chip to its original slot.
   if (!visible.includes(activeKey)) {
     const active = order.find((h) => h.key === activeKey);
     if (active) {
