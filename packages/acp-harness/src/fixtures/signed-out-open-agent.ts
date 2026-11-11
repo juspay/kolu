@@ -28,6 +28,12 @@
  * `--no-status` is the same agent with nothing to SAY about its identity: it
  * pushes no `_auth/status_update` at all, so the only word it ever gives is
  * the refused turn. That is the other door, and it has to work on its own.
+ *
+ * `session/load` is REFUSED here, with `-32002 Resource not found` rather than
+ * `-32000`: a panel that is signed out was signed in once, so it comes back
+ * holding a session id, and on the owner's host that id was one the CLI no
+ * longer had. That refusal is about the ID, and reading it as "the agent is
+ * broken" is what used to kill the adapter the sign-in had to run against.
  */
 
 const write = (value: unknown): void => {
@@ -37,6 +43,7 @@ const write = (value: unknown): void => {
 interface Message {
   readonly id?: unknown;
   readonly method?: string;
+  readonly params?: { readonly sessionId?: string };
 }
 
 /** Whether this run advertises a way in. Off is the honest dead end. */
@@ -112,6 +119,23 @@ process.stdin.on("data", (chunk: string) => {
         jsonrpc: "2.0",
         id: message.id,
         result: { sessionId: "sess-1", configOptions: [] },
+      });
+      continue;
+    }
+    // ... AND THE STALE ID THE OWNER'S HOST ACTUALLY HAD. A signed-out panel
+    // is a panel that was signed in once, so there IS a remembered session id
+    // — and the CLI behind this adapter no longer has it. Refused with the
+    // pinned adapter's own answer, which is a refusal and not a sign-in
+    // request: this agent would open a conversation for anybody, just not
+    // THAT one.
+    if (message.method === "session/load") {
+      write({
+        jsonrpc: "2.0",
+        id: message.id,
+        error: {
+          code: -32002,
+          message: `Resource not found: ${message.params?.sessionId ?? ""}`,
+        },
       });
       continue;
     }

@@ -667,6 +667,42 @@ describe("a dead adapter (M3)", () => {
     expect(first.stops()).toBe(1);
   });
 
+  it("comes back into the conversation the agent is in NOW, not the id the file named", async () => {
+    // A conversation can move on without anybody restarting: somebody asks
+    // for a new session, or the agent refuses the remembered id because its
+    // own store has never heard of it and the harness opens a fresh one in
+    // its place. A replacement adapter handed the BOOT-TIME id would then ask
+    // for a conversation that is gone — a break and a line in the transcript
+    // for every crash — or, worse, one the agent still has, which is a panel
+    // quietly reverting to an older chat.
+    const r = rig({
+      sessionId: "sess-remembered",
+      cwd: HOME,
+      model: null,
+      rows: [],
+      fleet: [],
+    });
+    await r.host.prompt("first", [], []);
+    const first = r.spawns[0];
+    if (first === undefined) throw new Error("the host spawned nothing");
+    expect(first.options.resume).toBe("sess-remembered");
+
+    // What the harness publishes when the open it actually got is a different
+    // conversation from the one it was asked for.
+    first.push({
+      kind: "state",
+      state: {
+        ...DEFAULT_ORCHESTRATOR_STATE,
+        phase: "idle",
+        sessionId: "sess-opened",
+      },
+    });
+
+    first.die();
+    await r.host.newSession();
+    expect(r.spawns[1]?.options.resume).toBe("sess-opened");
+  });
+
   it("fences the REPLACEMENT on the rows we still hold (R2)", async () => {
     // A fresh state-root: nothing was restored, so a fence taken at the
     // restore is zero forever.

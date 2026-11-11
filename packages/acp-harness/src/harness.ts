@@ -515,6 +515,18 @@ export const startHarness = async (
   let usage: Usage | null = null;
   let identity: AuthStatus | null = null;
   let refusal: string | null = null;
+  /**
+   * THE CONVERSATION THIS HARNESS WAS TOLD TO COME BACK TO, for as long as
+   * there is one to come back to.
+   *
+   * Starts as the caller's `resume` and goes null the moment the agent says
+   * it does not know that id ({@link load}) — because the two doors into an
+   * open are the same door ({@link openConversation}), and a sign-in that
+   * succeeds after a refused load would otherwise send the SAME dead id back
+   * down the wire and take the same refusal a second time.
+   */
+  let resumable: string | null =
+    typeof options.resume === "string" ? options.resume : null;
   let commands: ReadonlyArray<OrchestratorCommand> = [];
   let settings: ReadonlyArray<OrchestratorOption> = [];
   let labels: ReadonlyMap<string, string> = new Map();
@@ -1488,6 +1500,37 @@ export const startHarness = async (
     }
   };
 
+  /**
+   * COME BACK TO A CONVERSATION — or, when the agent says there is no such
+   * conversation, open one and SAY SO.
+   *
+   * TWO UNLIKE THINGS ARE SPELLED THE SAME WAY on this wire, and reading them
+   * alike is what killed the adapter. "The agent is broken" is a conversation
+   * the agent cannot open at all; "the id is unknown to this CLI" is a fact
+   * about a string kolu wrote down, in kolu's own file, for a store the agent
+   * has since forgotten (its config dir moved, its history was pruned, a
+   * different `claude` answered). The agent REFUSED, which is the protocol's
+   * own proof that it is there and talking. Killing it over a stale id and
+   * spawning a replacement to read the same id again is a loop with a dead
+   * panel at the end of it — four `the agent exited (code 0)` lines and no
+   * conversation, which is where this came from.
+   *
+   * So a REFUSAL that is not an auth refusal falls through to one
+   * `session/new`, once, and nothing is retried. An AUTH refusal does NOT:
+   * `-32000` says the agent will not open ANY conversation for want of a
+   * signature, and a fresh session asked for in the same breath is the same
+   * refusal again — that one keeps its offer of a sign-in ({@link
+   * refusedOpen}). Anything that is not a refusal at all — a load that never
+   * answered, a pipe that died — is the broken agent, and it goes out of here
+   * the way it always did.
+   *
+   * WHAT THE FALL-THROUGH KEEPS is the transcript: it is kolu's record of the
+   * conversation, not the CLI's, and the rows in it are ours whatever the
+   * agent remembers. What it adds is the one thing a reader cannot see
+   * otherwise — the break where the resumed conversation could not be
+   * ({@link Transcript.divider}, the same mark a `newSession` mints and under
+   * the same rules), and a line carrying the agent's own sentence for why.
+   */
   const load = async (id: string): Promise<void> => {
     // THIS conversation is the one we are coming back to: leftover frames from
     // a previous visit are now news about this one, and the replay that follows
@@ -1496,6 +1539,11 @@ export const startHarness = async (
     replaying = true;
     replayed = 0;
     let loaded: LoadSessionResponse | undefined;
+    /** The agent's own sentence, when the answer was a NO this end can act on
+     *  — read after the `finally` rather than acted on inside it, because the
+     *  session opened instead is not a replay and its frames must not be
+     *  dropped by a flag this `try` has not cleared yet. */
+    let lost: string | null = null;
     try {
       loaded = (await request(
         methods.agent.session.load,
@@ -1505,6 +1553,9 @@ export const startHarness = async (
         { sessionId: id, ...opening() },
         LOAD_TIMEOUT,
       )) as LoadSessionResponse | undefined;
+    } catch (cause) {
+      if (!(cause instanceof HarnessRefused) || cause.auth) throw cause;
+      lost = cause.why;
     } finally {
       replaying = false;
       // ONE LINE FOR THE WHOLE REPLAY, and it is a count rather than a
@@ -1517,11 +1568,45 @@ export const startHarness = async (
         );
       }
     }
+    if (lost !== null) {
+      // NOTHING LEFT TO COME BACK TO: the id is spent, so every later open in
+      // this process — the one a sign-in asks for, above all — is a fresh one
+      // rather than this refusal again.
+      resumable = null;
+      log.warn(
+        { session: id, why: lost },
+        "the remembered conversation is not one this agent has; opening a new one",
+      );
+      await freshInstead(lost);
+      return;
+    }
     prologue = leg.prologueIn(loaded ?? null);
     readSettings(loaded?.configOptions);
     await restoreModel(id);
     await askForBypass(id, loaded?.configOptions);
     enter(id);
+  };
+
+  /** The new conversation a lost one leaves behind, with the break and the
+   *  sentence that account for it.
+   *
+   *  The mark comes BACK OUT if the fresh session will not open either, for
+   *  {@link newSession}'s reason: a break that broke nothing is a rule drawn
+   *  across a transcript where nothing happened, and a retry stacks them. The
+   *  NOTICE stays — the conversation really was not resumed, and that is true
+   *  whatever happens next. */
+  const freshInstead = async (why: string): Promise<void> => {
+    const mark = transcript.divider("new session");
+    report(mark.change);
+    notice(
+      `the previous conversation could not be resumed, so this is a new one: ${why}`,
+    );
+    try {
+      await fresh();
+    } catch (cause) {
+      if (mark.key !== null) report(transcript.withdraw(mark.key));
+      throw cause;
+    }
   };
 
   /**
@@ -1659,9 +1744,15 @@ export const startHarness = async (
 
   /** The conversation this harness was asked for — the one padi named, or a
    *  fresh one. ONE DOOR, because a sign-in that succeeds opens the same
-   *  conversation the refused bring-up was going to. */
+   *  conversation the refused bring-up was going to.
+   *
+   *  {@link resumable} rather than the caller's option, so that a signature
+   *  taken after a load the agent refused opens the conversation it CAN open:
+   *  the id is already known not to be there, and asking for it again would
+   *  make `Sign-in failed` the first thing somebody who has just signed in
+   *  reads. */
   const openConversation = async (): Promise<void> => {
-    if (typeof options.resume === "string") await load(options.resume);
+    if (resumable !== null) await load(resumable);
     else await fresh();
   };
 

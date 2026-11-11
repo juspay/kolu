@@ -53,6 +53,14 @@
  * emits can neither collide with a persisted id nor sort above a persisted
  * row.
  *
+ * The ID that fence sits beside is the conversation the agent is in NOW, not
+ * the one the file named at boot: a conversation moves on when somebody asks
+ * for a new session, and when the agent refuses the remembered id because its
+ * own store has never heard of it and the harness opens a fresh one in its
+ * place. A replacement adapter handed the boot-time id would ask for a
+ * conversation that is gone, or — worse — one the agent still has, which is a
+ * panel quietly reverting to an older chat.
+ *
  * ## Absent is absent
  *
  * The ACP adapter is baked into kolu's closure (`KOLU_ACP_AGENT`), so its
@@ -887,6 +895,18 @@ export function startOrchestratorHost(
             // when the process let go of it.
             if (disposed) return;
             state = { ...change.state, ...serverAuthored };
+            // WHICH CONVERSATION A REPLACEMENT ADAPTER COMES BACK INTO: the
+            // one this agent is in NOW, rather than the id the file named at
+            // boot. A conversation can move on without anybody restarting —
+            // somebody asks for a new session, or the agent refuses the
+            // remembered id because its own store has never heard of it and
+            // the harness opens a fresh one in its place — and a replacement
+            // spawned over the boot-time id would then ask for a conversation
+            // that is either gone (one more break and one more line, every
+            // crash) or STALE, which is a panel quietly reverting to an older
+            // chat. The null is skipped for the reason just above: a
+            // teardown's last breath is a stop, not a conversation ending.
+            if (state.sessionId !== null) resume = state.sessionId;
             publishState();
             schedulePersist();
             return;

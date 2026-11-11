@@ -85,6 +85,19 @@ process.stdin.on("data", (chunk: string) => {
       });
       continue;
     }
+    // A LOAD IS REFUSED FOR THE ID, always: this fixture's store is empty, so
+    // the only honest answer to any session id is that there is no such
+    // conversation. Paired with the `session/new` above it, that is both
+    // halves of one bring-up — the id is gone AND nobody is signed in — which
+    // is the case where the break a fall-through mints has to come back out.
+    if (message.method === "session/load") {
+      write({
+        jsonrpc: "2.0",
+        id: message.id,
+        error: { code: -32002, message: "Resource not found" },
+      });
+      continue;
+    }
     // The permission mode a leg asks for on every open. Answered rather than
     // ignored: a request nobody replies to is a bring-up that hangs until the
     // boot deadline, which is a worse test failure than any assertion.

@@ -59,6 +59,12 @@
  * is confirmed, and a leg that asks for another gets the refusal that must not
  * be fatal. `session/set_config_option` refuses a STRING for the boolean
  * setting, exactly as the pinned adapter refuses one.
+ *
+ * `session/load` ANSWERS TO THE ID IT IS ASKED FOR, the way a real store does:
+ * `gone-…` is a conversation this agent does not have (`-32002 Resource not
+ * found: <id>`, the pinned adapter's own refusal for a session id its CLI has
+ * forgotten) and `locked-…` is one it will not open for want of a signature
+ * (`-32000`). Anything else loads.
  */
 
 interface Message {
@@ -462,7 +468,27 @@ function handle(message: Message): void {
         configOptions: configOptions(),
       });
       return;
-    case "session/load":
+    case "session/load": {
+      // WHICH CONVERSATION THIS AGENT ADMITS TO HAVING, chosen by the id the
+      // client asks for — the same trick the turns play with their prompt
+      // text, because a resume's only input IS the id.
+      //
+      // `gone-…` is the one the owner's host hit: a session id kolu wrote
+      // down and this CLI knows nothing about, refused with the pinned
+      // adapter's own answer (`RequestError.resourceNotFound(sessionId)`,
+      // `-32002 Resource not found: <id>`). `locked-…` is the other refusal a
+      // load can take — ACP's `-32000`, nobody is signed in — and the two must
+      // not be read alike: one is a dead id, the other is a dead agent until
+      // somebody signs in.
+      const asked = message.params?.sessionId ?? "";
+      if (asked.startsWith("gone-")) {
+        refuse(message.id, -32002, `Resource not found: ${asked}`);
+        return;
+      }
+      if (asked.startsWith("locked-")) {
+        refuse(message.id, -32000, "Authentication required");
+        return;
+      }
       previous = session === message.params?.sessionId ? previous : session;
       session = message.params?.sessionId ?? session;
       handed.push(
@@ -500,6 +526,7 @@ function handle(message: Message): void {
       });
       respond(message.id, { configOptions: configOptions() });
       return;
+    }
     case "session/set_mode":
       // POSITIVELY: the one mode this fixture has, and a refusal for anything
       // else — the shape a host that cannot have the mode really answers with.

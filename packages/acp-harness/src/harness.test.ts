@@ -233,6 +233,22 @@ const settled = async (running: Running, why: string): Promise<void> => {
   throw new Error(`${why}: still ${running.harness.state().phase}`);
 };
 
+/** The sign-in URL a method PRINTED, parsed — or `null` if it printed none.
+ *
+ *  A test that asked whether the output *contains* an address would be making
+ *  the mistake the thing under test must never make: `https://evil.example/
+ *  ?next=https://example.invalid/oauth` contains it too. Parse, then ask about
+ *  the origin and the path, which is the only question with an answer. */
+const oauthUrlIn = (output: string | null | undefined): URL | null => {
+  const found = (output ?? "").match(/https:\/\/\S+/);
+  if (found === null) return null;
+  try {
+    return new URL(found[0]);
+  } catch {
+    return null;
+  }
+};
+
 /** ... and until the published STATE says something. Polled on the same
  *  deadline, because half of what a sign-in is reaches a reader as state
  *  rather than as the answer to a call: the methods, the output of the command
@@ -789,6 +805,99 @@ describe("a conversation padi already holds the rows of", () => {
   });
 });
 
+describe("a conversation the agent does not have", () => {
+  test("opens a fresh one, once, with a break and a line saying why", async () => {
+    // THE OWNER'S HOST. A session id kolu persisted, a CLI that has never
+    // heard of it, and the adapter's own refusal: `-32002 Resource not
+    // found: <id>`. Read as "the agent is broken" that killed the child and
+    // the orchestrator spawned another to ask the same dead id again — four
+    // `the agent exited (code 0)` lines and no conversation.
+    const running = await open("agent.ts", {
+      resume: "gone-ba0d0775-2692-4460-ad85-61bec0aeb318",
+      resumedSeq: 12,
+    });
+
+    // THE CONVERSATION IS OPEN, on a session this agent really made, and the
+    // process that refused is still the process we are talking to.
+    const state = running.harness.state();
+    expect(state.phase).toBe("idle");
+    expect(state.sessionId).toBe("sess-1");
+    expect(state.refusal).toBeNull();
+    expect(running.harness.alive()).toBe(true);
+
+    // ONE break, and one line carrying the agent's own sentence. The break is
+    // the mark a `newSession` mints, under the same rule — the agent's memory
+    // was reset, which is exactly what happened.
+    expect(dividers(running).map((one) => one.kind)).toEqual(["divider"]);
+    const notices = textOfKind(running, "notice");
+    expect(notices).toEqual([
+      expect.stringContaining("could not be resumed") as unknown as string,
+    ]);
+    expect(notices[0]).toContain(
+      "Resource not found: gone-ba0d0775-2692-4460-ad85-61bec0aeb318",
+    );
+    // Nothing died: the "the agent exited" line is what a torn-down adapter
+    // writes, and there is no torn-down adapter here.
+    expect(notices.join("\n")).not.toContain("the agent exited");
+
+    // EXACTLY ONE OPEN. The fixture records the servers each `session/new`
+    // and each ANSWERED `session/load` was handed, so one entry is one
+    // conversation opened — the refused load pushed none, and nothing asked
+    // twice.
+    expect(await asked(running, "servers")).toEqual([["kolu"]]);
+    // ... and the rows sort above what padi already holds, like any other
+    // open's would.
+    for (const row of running.rows()) expect(row.seq).toBeGreaterThan(12);
+  });
+
+  test("an AUTH refusal on the load is the other thing, and still offers the sign-in", async () => {
+    // `-32000` is not a fact about the id: this agent will not open ANY
+    // conversation until somebody signs in, so a `session/new` asked for in
+    // the same breath is the same refusal again. The child stays, the offer
+    // goes up, and nothing is minted — no break, because nothing was reset.
+    const running = await open("agent.ts", {
+      resume: "locked-sess-1",
+      resumedSeq: 12,
+    });
+
+    const state = running.harness.state();
+    expect(state.phase).toBe("offline");
+    expect(state.sessionId).toBeNull();
+    expect(running.harness.alive()).toBe(true);
+    expect(state.signIn?.why).toContain("Authentication required");
+    expect(state.signIn?.methods.map((one) => one.id)).toEqual([
+      "subscription",
+    ]);
+    expect(dividers(running)).toEqual([]);
+    expect(textOfKind(running, "notice")).toEqual([]);
+  });
+
+  test("a break minted for a fresh session that will not open comes back out", async () => {
+    // BOTH REFUSALS IN ONE BRING-UP: the load is refused for the ID and the
+    // fresh session for the SIGNATURE. The fall-through happened, the open did
+    // not — and a break drawn across a transcript where nothing was reset is
+    // what a retry stacks, four deep, in the owner's screenshot. The line
+    // stays: the conversation really was not resumed.
+    const running = await open("signed-out-agent.ts", { resume: "sess-1" });
+
+    expect(dividers(running)).toEqual([]);
+    expect(textOfKind(running, "notice")).toEqual([
+      expect.stringContaining("could not be resumed") as unknown as string,
+    ]);
+    const state = running.harness.state();
+    expect(state.phase).toBe("offline");
+    expect(running.harness.alive()).toBe(true);
+    expect(state.signIn?.why).toContain("Authentication required");
+
+    // ... and the signature opens the conversation the way it always did —
+    // as a FRESH one, because the id this harness was handed is spent.
+    expect(await running.harness.signIn("subscription")).toBe("signed-in");
+    expect(running.harness.state().sessionId).toBe("sess-1");
+    expect(running.harness.state().phase).toBe("idle");
+    expect(dividers(running)).toEqual([]);
+  });
+});
+
 describe("an agent nobody is signed in to", () => {
   test("keeps the child, says why, and opens the conversation once signed in", async () => {
     // The open is REFUSED and the harness still resolves: the process that
@@ -862,15 +971,20 @@ describe("an agent nobody is signed in to", () => {
     await waitFor(running, (one) => one.signIn !== null, "nothing was offered");
     const signing = running.harness.signIn("console-login");
     // THE URL REACHES THE PANEL as the row's own output, streamed out of the
-    // command the method handed over ...
+    // command the method handed over. Asserted by PARSING what was printed
+    // rather than by looking for the address inside it: a substring test on a
+    // URL is the thing that passes for `https://evil.example/?x=https://…`,
+    // and CodeQL flags it on sight (`js/incomplete-url-substring-sanitization`)
+    // whether or not the string came from a fixture — a test that models a bad
+    // check is still a bad check written down.
     await waitFor(
       running,
-      (one) =>
-        (one.signIn?.attempt?.output ?? "").includes(
-          "https://example.invalid/oauth",
-        ),
+      (one) => oauthUrlIn(one.signIn?.attempt?.output ?? "") !== null,
       "the sign-in printed no URL",
     );
+    const printed = oauthUrlIn(running.harness.state().signIn?.attempt?.output);
+    expect(printed?.origin).toBe("https://example.invalid");
+    expect(printed?.pathname).toBe("/oauth");
     // ... and the code a person reads off that page goes back down its stdin,
     // which is the half of a paste-a-code login that cannot be skipped.
     await running.harness.signInInput("ABCD-1234");
@@ -881,6 +995,45 @@ describe("an agent nobody is signed in to", () => {
     // that query only under `--hide-claude-auth`, which kolu does not pass.
     expect(after.sessionId).toBe("sess-1");
     expect(after.signIn).toBeNull();
+  });
+
+  test("signs in over a conversation the agent no longer has, and opens one", async () => {
+    // THE WHOLE OF THE OWNER'S RUN, in one fixture: a panel that was signed in
+    // once, so padi remembers a session id; a CLI that no longer has it; and
+    // nobody signed in. The reopen a successful sign-in does used to send that
+    // same dead id back down the wire, take the same `Resource not found`, and
+    // reach the person as `Sign-in failed` — over an adapter the harness had
+    // already torn down.
+    const running = await open("signed-out-open-agent.ts", {
+      resume: "ba0d0775-2692-4460-ad85-61bec0aeb318",
+    });
+    // The bring-up's own fall-through: one break, one line, a conversation.
+    expect(running.harness.state().sessionId).toBe("sess-1");
+    expect(dividers(running).length).toBe(1);
+    expect(textOfKind(running, "notice")).toEqual([
+      expect.stringContaining("Resource not found") as unknown as string,
+    ]);
+
+    await waitFor(running, (one) => one.signIn !== null, "nothing was offered");
+    const signing = running.harness.signIn("console-login");
+    await waitFor(
+      running,
+      (one) => oauthUrlIn(one.signIn?.attempt?.output ?? "") !== null,
+      "the sign-in printed no URL",
+    );
+    await running.harness.signInInput("ABCD-1234");
+    expect(await signing).toBe("signed-in");
+
+    // WHAT A NEWLY SIGNED-IN PERSON SEES: a conversation. The reopen asked
+    // for a FRESH session rather than the spent id, so nothing was refused
+    // and nothing new was minted to say so.
+    const after = running.harness.state();
+    expect(after.phase).toBe("idle");
+    expect(after.sessionId).toBe("sess-1");
+    expect(after.signIn).toBeNull();
+    expect(after.refusal).toBeNull();
+    expect(dividers(running).length).toBe(1);
+    expect(textOfKind(running, "notice").length).toBe(1);
   });
 
   test("offers it on a refused TURN, for an agent that never said who it is", async () => {

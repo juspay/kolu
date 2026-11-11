@@ -15,6 +15,13 @@
  * agent had offered nothing. A fixture copied from the measurement keeps the
  * reading honest; only the binaries keep the MEASUREMENT honest.
  *
+ * THE SECOND PROOF IS THE SAME KIND OF THING: how this pair answers a
+ * `session/load` for a session id its CLI does not have. MEASURED here, rather
+ * than assumed — `-32002 Resource not found: <id>` with the adapter still
+ * running, which is a refusal ABOUT THE ID and not a request for a signature,
+ * even with nobody signed in. kolu read the two alike, killed the adapter over
+ * a stale string, and spawned another to ask the same dead id again.
+ *
  * SIGNED OUT BY CONSTRUCTION, never by the state of this machine: the spawn is
  * handed a scratch `$HOME` and a `CLAUDE_CONFIG_DIR` under it, so the CLI reads
  * an empty store whatever the person running the suite is signed into. Nothing
@@ -72,48 +79,60 @@ describe.skipIf(!process.env.KOLU_ACP_AGENT)(
   "the pinned adapter and the pinned CLI, with nobody signed in",
   () => {
     let home = "";
-    let harness: Harness | null = null;
+    /** Every harness this file started — more than one, and a scratch `$HOME`
+     *  with two `claude` children under it is the leak a missed `stop()`
+     *  leaves on the machine running the suite. */
+    const live: Array<Harness> = [];
 
     beforeAll(async () => {
       home = await mkdtemp(path.join(tmpdir(), "kolu-signed-out-"));
     });
 
     afterAll(async () => {
-      await harness?.stop();
+      await Promise.all(live.splice(0, live.length).map((one) => one.stop()));
       await rm(home, { recursive: true, force: true });
     });
+
+    /** The spawn kolu-server makes, with the scratch home merged over it —
+     *  `env` is merged into the spawn and `unset` still strips the five remote
+     *  signals, so what runs here is the real seating and not a second recipe
+     *  written for a test. */
+    const started = async (
+      resume: string | null,
+    ): Promise<{ harness: Harness; configDir: string }> => {
+      const seating = ENGINE.at({
+        env: process.env,
+        cwd: home,
+        found: () => null,
+      });
+      if ("why" in seating) throw new Error(seating.why);
+      const configDir = orchestratorConfigDir(process.env, home);
+      const harness = await startHarness({
+        leg: ENGINE.leg,
+        adapter: {
+          ...(seating as Exclude<typeof seating, NotHere>),
+          env: {
+            ...(seating as Exclude<typeof seating, NotHere>).env,
+            HOME: home,
+            CLAUDE_CONFIG_DIR: configDir,
+          },
+        },
+        cwd: home,
+        configDir,
+        mcpServers: [],
+        teaching: ["[kolu] live test"],
+        log: silent,
+        resume,
+        onChange: () => {},
+      });
+      live.push(harness);
+      return { harness, configDir };
+    };
 
     test(
       "offers a sign-in kolu can run, and runs it as far as the URL",
       async () => {
-        const seating = ENGINE.at({
-          env: process.env,
-          cwd: home,
-          found: () => null,
-        });
-        if ("why" in seating) throw new Error(seating.why);
-        const configDir = orchestratorConfigDir(process.env, home);
-        harness = await startHarness({
-          leg: ENGINE.leg,
-          // THE ENGINE'S OWN SEATING, with the scratch home merged over it —
-          // `env` is merged into the spawn and `unset` still strips the five
-          // remote signals, so what runs here is the spawn kolu-server makes
-          // and not a second recipe written for a test.
-          adapter: {
-            ...(seating as Exclude<typeof seating, NotHere>),
-            env: {
-              ...(seating as Exclude<typeof seating, NotHere>).env,
-              HOME: home,
-              CLAUDE_CONFIG_DIR: configDir,
-            },
-          },
-          cwd: home,
-          configDir,
-          mcpServers: [],
-          teaching: ["[kolu] live test"],
-          log: silent,
-          onChange: () => {},
-        });
+        const { harness, configDir } = await started(null);
 
         // THE OFFER ARRIVES WITHOUT ANY REFUSAL OF THE OPEN: this pair opens
         // the conversation for a signed-out CLI, and `session/new` succeeding
@@ -150,6 +169,57 @@ describe.skipIf(!process.env.KOLU_ACP_AGENT)(
         // code into somebody's real account, which no test may do.
         expect(await harness.signInCancel()).toBe(true);
         expect(await signing).toBe("cancelled");
+      },
+      DEADLINE,
+    );
+
+    test(
+      "opens a fresh conversation when the id padi remembered is not in this CLI's store",
+      async () => {
+        // THE DEFECT THIS PAIR OWNS. kolu persists the agent's session id and
+        // hands it back on the next boot; a CLI reading another store — a new
+        // `CLAUDE_CONFIG_DIR`, a pruned history, a different machine — answers
+        // `-32002 Resource not found: <id>` and goes on running. MEASURED
+        // here, with `claude-agent-acp` 0.81.2 over agent-distro's `claude`:
+        //
+        //   → session/load {"sessionId":"ba0d0775-…"}
+        //   ← {"code":-32002,"message":"Resource not found: ba0d0775-…",
+        //      "data":{"uri":"ba0d0775-…"}}
+        //
+        // Read as a broken agent, that killed the adapter and the orchestrator
+        // spawned another to ask the same dead id again. It is a fact about a
+        // STRING kolu wrote down, so the conversation opens fresh and the
+        // transcript says so.
+        //
+        // SIGNED OUT is the harder half on purpose: this is the state the
+        // owner's panel was in, and the refusal still has to read as the id
+        // rather than as the signature — `-32002`, not `-32000`.
+        const gone = "ba0d0775-2692-4460-ad85-61bec0aeb318";
+        const { harness } = await started(gone);
+
+        // THE ADAPTER IS ALIVE and in a conversation — a different one, which
+        // the agent minted on the `session/new` this fall-through asked for.
+        expect(harness.alive()).toBe(true);
+        const state = harness.state();
+        expect(state.phase).not.toBe("offline");
+        expect(state.sessionId).not.toBeNull();
+        expect(state.sessionId).not.toBe(gone);
+        expect(state.refusal).toBeNull();
+
+        // ... and the two rows that account for it: ONE break where the
+        // resumed conversation could not be, and one line carrying the CLI's
+        // own sentence.
+        const rows = harness.rows();
+        expect(rows.filter((one) => one.kind === "divider").length).toBe(1);
+        const notices = rows
+          .filter((one) => one.kind === "notice")
+          .map((one) => ("text" in one ? one.text : ""));
+        expect(notices.length).toBe(1);
+        expect(notices[0]).toContain("could not be resumed");
+        expect(notices[0]).toContain(`Resource not found: ${gone}`);
+        // Nothing was torn down, so nothing exited: that line is what a dead
+        // adapter writes, and four of them is what this cost before.
+        expect(notices[0]).not.toContain("the agent exited");
       },
       DEADLINE,
     );
