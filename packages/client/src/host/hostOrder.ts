@@ -27,12 +27,10 @@ import { encodeHostKey, type HostKey, LOCAL_HOST } from "kolu-common/hostKey";
 const PINNED_KEY: string = encodeHostKey(LOCAL_HOST);
 
 /** Is this CANONICAL encoded key the pinned tab's? THE one predicate for "this
- *  chip does not take part in the gesture": the local host is the pool's
- *  unremovable default and the always-available escape hatch, so its tab stays
- *  first, is never a sortable (hence neither draggable nor a drop target), and
- *  is never stored in the arrangement. Read it here rather than re-spelling
- *  `kind === "local"` or an inline `encodeHostKey(LOCAL_HOST)` at each site —
- *  two spellings of "pinned" is how the strip and the fold come to disagree. */
+ *  chip does not take part in the gesture" — read it here rather than
+ *  re-spelling `kind === "local"` or an inline `encodeHostKey(LOCAL_HOST)` at
+ *  each site, since two spellings of "pinned" is how the strip and the fold
+ *  come to disagree. */
 export function isPinnedHostKey(key: string): boolean {
   return key === PINNED_KEY;
 }

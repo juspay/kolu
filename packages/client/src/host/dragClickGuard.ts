@@ -2,13 +2,10 @@
  *
  *  A drag ends with `pointerup`, and the browser then fires `click` on whatever
  *  the gesture started on. For a sortable whose node FOLLOWS the pointer that is
- *  the same element `pointerdown` hit, so the click lands — and
- *  `@thisbeyond/solid-dnd@0.7.5` does nothing about it (there is no `click`
- *  handling anywhere in it; its `onPointerUp` only calls `dragEnd()`). On a host
- *  tab, whose whole body is two `<button>`s, that click would switch host
- *  (re-ordering a tab would also activate it) or toggle the diagnostics popover
- *  (if you grabbed the status dot). The browser does NOT drop the click just
- *  because the node moved, so there is nothing to rely on.
+ *  the same element `pointerdown` hit, so the click lands, and nothing in
+ *  `@thisbeyond/solid-dnd@0.7.5` suppresses it (its `onPointerUp` only calls
+ *  `dragEnd()`). On a host tab, whose whole body is two `<button>`s, that click
+ *  switches host or toggles the diagnostics popover.
  *
  *  So: latch when a drag ENDS, and consume the latch from a capture-phase
  *  `click` listener on the chip — before either button's own handler runs.

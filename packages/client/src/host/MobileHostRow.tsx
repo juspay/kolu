@@ -217,7 +217,6 @@ const MobileAddSection: Component<{ onClose: () => void }> = (props) => {
  *  add trigger, and (when open) the in-sheet add section. `onSwitch` closes the
  *  sheet after a switch so the canvas is visible immediately. */
 const MobileHostRow: Component<{ onSwitch: () => void }> = (props) => {
-  const hosts = hostKeys;
   const [addOpen, setAddOpen] = createSignal(false);
 
   return (
@@ -242,7 +241,7 @@ const MobileHostRow: Component<{ onSwitch: () => void }> = (props) => {
           class="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-1"
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <For each={hosts()}>
+          <For each={hostKeys()}>
             {(host) => <MobileHostChip host={host} onSwitch={props.onSwitch} />}
           </For>
         </div>

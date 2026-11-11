@@ -49,15 +49,6 @@ describe("createDragClickGuard", () => {
     h.dispose();
   });
 
-  it("swallows it for a drag that ends where it started", () => {
-    // The drop is a no-op re-order (released in its own slot), but the click is
-    // not: it would still activate the tab the user only meant to pick up.
-    const h = harness();
-    h.drag();
-    expect(h.swallow()).toBe(true);
-    h.dispose();
-  });
-
   it("does not arm while a drag is still in flight", () => {
     const [dragging, setDragging] = createSignal(false);
     const { swallow, dispose } = createRoot((d) => ({

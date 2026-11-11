@@ -523,15 +523,6 @@ const hostScoped = createRoot(() => {
       `Host "${encodeHostKey(departed)}" left the pool — switched to the local host`,
     );
   });
-  // The user's host ARRANGEMENT, lifted into its own memo so an unrelated
-  // preference write cannot recompute the ordered list below. The `preferences`
-  // cell replaces its value object on every patch (a seen tip, a theme), but
-  // `applyPreferencesPatch` spreads the untouched fields THROUGH, so
-  // `hostOrder` keeps its array reference and this memo's value is unchanged —
-  // `createMemo`'s `===` check then stops the propagation here.
-  const hostOrder = createMemo(
-    () => (preferences.value() ?? DEFAULT_PREFERENCES).hostOrder,
-  );
   // The pool membership IN THE USER'S ARRANGEMENT, exposed so the host-switcher
   // palette group can list hosts off the SAME `members` authority this block
   // holds — no second `entries` subscription in the command layer.
@@ -545,8 +536,18 @@ const hostScoped = createRoot(() => {
   // A MEMO, not a plain function: the fold allocates a Map, two filters and an
   // array, and its consumers read it several times per build (`commands.tsx`
   // alone five). One recompute per membership-or-arrangement change, shared.
+  //
+  // An unrelated preference write does NOT recompute it: a cell's value is
+  // merged into a Solid store through `reconcile` (@kolu/surface's one merge
+  // seam, `solid/writeValue.ts`), so reading `.hostOrder` here tracks that
+  // field and nothing else. Measured on a live three-host strip: three
+  // seen-tip writes and a forced reconnect recomputed it zero times, a
+  // `hostOrder` write exactly once.
   const hostKeys = createMemo(() =>
-    orderHostKeys([...members.keys()], hostOrder()),
+    orderHostKeys(
+      [...members.keys()],
+      (preferences.value() ?? DEFAULT_PREFERENCES).hostOrder,
+    ),
   );
   return {
     connection,
@@ -572,9 +573,7 @@ export const requestActivateOnJoin = hostScoped.requestActivateOnJoin;
  *  EVERY surface that lists hosts reads THIS: the chip strip, the "⋯ +N"
  *  overflow menu, the narrow dropdown switcher, the phone host row, the
  *  diagnostics-panel membership guard, the welcome card and the palette's Hosts
- *  rows. There is no second fold to keep in step — the former `useHostMembers`
- *  wrapper is gone, its own `entries.use()` lease having added nothing over the
- *  app-lifetime subscription this root holds.
+ *  rows — there is no second fold to keep in step.
  *
  *  Order is DISPLAY only. Every other consumer keys BY host (`padiMap.entry`,
  *  `mapArray` over encoded keys, membership scans), so a re-order moves chips

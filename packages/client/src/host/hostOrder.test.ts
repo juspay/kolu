@@ -94,34 +94,16 @@ describe("moveHostKey", () => {
     ]);
   });
 
-  it("moves forward as well as back", () => {
-    expect(moveHostKey(all, "remote:a", "remote:c")).toEqual([
-      "remote:b",
-      "remote:c",
-      "remote:a",
-      "remote:d",
-    ]);
-  });
-
-  it("keeps an OVERFLOWED host's relative slot through a drag it took no part in", () => {
-    // `c` and `d` are folded into the "⋯ +N" menu; dragging `b` before `a`
-    // must leave the overflowed pair exactly where they were.
-    expect(moveHostKey(all, "remote:b", "remote:a")).toEqual([
-      "remote:b",
-      "remote:a",
-      "remote:c",
-      "remote:d",
-    ]);
-  });
-
   it("drops onto the TARGET HOST's slot in the arrangement, not the seat it is borrowing", () => {
-    // The active host is kept visible at every width: when it was overflowed,
-    // `computeVisibleHosts` seats it LAST on the strip while its slot in the
+    // The forward move, and the one case where the arrangement and the strip
+    // disagree: the active host is kept visible at every width, so when it was
+    // overflowed `computeVisibleHosts` seats it LAST while its slot in the
     // arrangement stays put (here `d`, seated beside `a`). Dropping `a` onto it
-    // therefore lands `a` at `d`'s index in the arrangement — inside the
-    // overflow — rather than beside `a`'s own visible neighbours. The
-    // arrangement is what the gesture edits; a borrowed seat is a width
-    // accident, not an order the user set.
+    // lands `a` at `d`'s index — inside the overflow — rather than beside `a`'s
+    // own visible neighbours. The arrangement is what the gesture edits; a
+    // borrowed seat is a width accident, not an order the user set. `c`, folded
+    // into the "⋯ +N" menu and party to nothing, keeps its slot either way:
+    // `keys` is the WHOLE re-orderable list, not just the seated chips.
     expect(moveHostKey(all, "remote:a", "remote:d")).toEqual([
       "remote:b",
       "remote:c",

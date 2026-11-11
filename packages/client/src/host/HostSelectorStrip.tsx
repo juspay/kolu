@@ -58,7 +58,6 @@ import {
   type DragEvent,
   SortableProvider,
 } from "@thisbeyond/solid-dnd";
-import { makeEventListener } from "@solid-primitives/event-listener";
 import { createMediaQuery } from "@solid-primitives/media";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
 import {
@@ -73,7 +72,6 @@ import {
   createSignal,
   For,
   onCleanup,
-  onMount,
   Show,
 } from "solid-js";
 import { createStore } from "solid-js/store";
@@ -151,18 +149,14 @@ const HostChip: Component<{
   /** solid-dnd's `createSortable` as a DIRECTIVE, filled by
    *  {@link SortableHostChip} for a RE-ORDERABLE (i.e. non-pinned) chip and left
    *  empty for the pinned one — which is therefore neither draggable nor a drop
-   *  target.
-   *
-   *  The directive form on purpose, not the `ref` + `style={maybeTransformStyle(…)}`
-   *  pair: it registers the node, the activators and the per-frame transform in
-   *  solid-dnd's OWN effects, writing `element.style.transform` directly. This
-   *  chip root therefore carries no spread and no `style` binding, so a drag
-   *  frame cannot wake the state bindings beside it — Solid groups every dynamic
-   *  attribute on one element into ONE effect, so a per-frame `style` sharing
-   *  this element would re-read `isActive()` / `down()` → `glance()` →
-   *  `hostGlance(state(), kaval())` on every pointer move (and, with a spread,
-   *  re-add the activator listeners each frame too, since `dragActivators` mints
-   *  a fresh record per read). */
+   *  target. The directive registers the node, the activators AND the per-frame
+   *  transform in solid-dnd's own effects, writing `element.style.transform`
+   *  directly, which is what lets this chip root carry no spread and no `style`
+   *  binding: Solid groups every dynamic attribute on one element into ONE
+   *  effect, so a per-frame `style` here would re-read `isActive()` / `down()` →
+   *  `glance()` → `hostGlance(state(), kaval())` on every pointer move (and a
+   *  spread would re-add the activator listeners each frame, `dragActivators`
+   *  minting a fresh record per read). */
   drag?: (el: HTMLElement) => void;
   /** Consume the click a finished drag leaves behind — see `dragClickGuard`. */
   swallowClick?: () => boolean;
@@ -205,26 +199,6 @@ const HostChip: Component<{
 
   let chipEl: HTMLDivElement | undefined;
 
-  // A finished drag's trailing `click` would land on whichever of the chip's two
-  // buttons the gesture started on — switching host, or toggling diagnostics.
-  // Swallow it in the CAPTURE phase, before either button's (delegated) handler
-  // runs. `onMount`, not the `ref` callback: Solid runs `ref` before the element
-  // is in the document. Registered unconditionally — the pinned chip has no
-  // guard, so the predicate is absent and nothing is ever swallowed.
-  onMount(() => {
-    if (chipEl === undefined) return;
-    makeEventListener(
-      chipEl,
-      "click",
-      (e) => {
-        if (props.swallowClick?.() !== true) return;
-        e.stopPropagation();
-        e.preventDefault();
-      },
-      { capture: true },
-    );
-  });
-
   // UNIFORM SHAPE: measurable SIZE never depends on `isActive()` — only
   // border/bg/text COLOR, and the drag transform is a translate, so a chip keeps
   // its width while it is being carried. Identity switches; status pip opens
@@ -242,6 +216,19 @@ const HostChip: Component<{
         onCleanup(() => releaseHostDiagnosticsAnchor(el));
       }}
       class="group -mb-px flex items-center shrink-0 text-xs"
+      // A finished drag's trailing `click` lands on whichever of the chip's two
+      // buttons the gesture started on — switching host, or toggling
+      // diagnostics. Swallow it in the CAPTURE phase, before either button's
+      // (delegated) handler runs. The pinned chip passes no guard, so nothing
+      // is ever swallowed there.
+      on:click={{
+        capture: true,
+        handleEvent: (e) => {
+          if (props.swallowClick?.() !== true) return;
+          e.stopPropagation();
+          e.preventDefault();
+        },
+      }}
       data-testid="host-chip"
       data-host={encKey}
       data-active={isActive() ? "" : undefined}
@@ -692,10 +679,9 @@ const HostSelectorStrip: Component = () => {
   // Multi-host chrome is NO LONGER gated on `KOLU_PADI_HOST`: every pool member
   // gets a chip and the "+ add a host" affordance is always present. With no
   // seed the pool is just the local host, so this renders exactly the local
-  // chip + "+". `hostKeys` is the ONE ordered host list (wire.ts) — the
+  // chip + "+". `hostKeys` (wire.ts) is the ONE ordered host list — the
   // app-lifetime `padiMap.entries` membership folded through the `hostOrder`
   // preference, memoised there, so every surface that lists hosts agrees.
-  const renderableHosts = hostKeys;
   const { showTipOnce } = useTips();
 
   // WHICH host's details are open is a module singleton
@@ -735,7 +721,7 @@ const HostSelectorStrip: Component = () => {
   );
 
   const chipFits = createMemo<HostFit[]>(() =>
-    renderableHosts().map((h) => {
+    hostKeys().map((h) => {
       const key = encodeHostKey(h);
       return { key, width: chipWidths[key] ?? FIRST_FRAME_CHIP_WIDTH_GUESS };
     }),
@@ -792,7 +778,7 @@ const HostSelectorStrip: Component = () => {
     if (!droppable || draggable.id === droppable.id) return;
     updatePreferences({
       hostOrder: moveHostKey(
-        reorderableHostKeys(renderableHosts()),
+        reorderableHostKeys(hostKeys()),
         String(draggable.id),
         String(droppable.id),
       ),
@@ -823,7 +809,7 @@ const HostSelectorStrip: Component = () => {
        *  host. Split is keyed on `md` (768px), not `sm` — ChromeBar never
        *  mounts below `sm` (phone chrome). */}
       <div classList={{ hidden: atMd() }} inert={atMd()}>
-        <HostDropdownSwitcher hosts={renderableHosts()} />
+        <HostDropdownSwitcher hosts={hostKeys()} />
       </div>
       <div classList={{ hidden: !atMd() }} inert={!atMd()}>
         {/* The strip's OWN drag context, so a chip drag can never surface to
@@ -884,7 +870,7 @@ const HostSelectorStrip: Component = () => {
         aria-hidden="true"
         class="invisible pointer-events-none absolute left-0 top-0 flex items-center gap-1.5"
       >
-        <For each={renderableHosts()}>
+        <For each={hostKeys()}>
           {(host) => {
             const key = encodeHostKey(host);
             onCleanup(() => setMeasureRefs(key, undefined));

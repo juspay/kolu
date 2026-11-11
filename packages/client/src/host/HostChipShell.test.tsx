@@ -3,22 +3,15 @@
  * A host tab is LIT on first paint — the regression #2263 shipped and a reload
  * made visible.
  *
- * The shell used to take its state as an attribute BAG carrying `classList`
- * and spread it onto an element that also set a static `class`:
- *
- *     <div {...props.tab} class="host-tab …">
- *
- * Solid applies spread props in key order (`assign` → `assignProp`), so
- * `classList` ran first and added `host-tab-active`, and `class` ran next as
- * `node.className = "host-tab …"` and erased it. Worse, Solid REMEMBERS the
- * class as applied, so nothing re-added it until the value flipped false →
- * true: the active tab was unlit until you clicked a different host. The same
- * wipe hit the label button's text tone and `host-tab-idle` / `host-tab-down`.
- *
- * The fix is structural rather than an ordering tweak: the shell takes `active`
- * / `down` as DATA and derives every element's classes in ONE `class`
- * expression, and the bag types forbid `class` / `classList` so a caller cannot
- * reintroduce a second class authority through the spread.
+ * An element whose JSX spread carries `classList` beside a static `class` has
+ * TWO class authorities, and Solid applies spread props in key order: the
+ * `classList` state class lands first, `class` then runs as
+ * `node.className = "…"` and erases it — and Solid remembers the class as
+ * applied, so nothing re-adds it until the value flips false → true (the active
+ * tab stayed unlit until you clicked a different host). So the shell takes
+ * `active` / `down` as DATA and derives every element's classes in ONE `class`
+ * expression, and its bag types forbid `class` / `classList` so a caller cannot
+ * bring a second authority back through the spread.
  *
  * `../useServerIdentity` is mocked (the `HostIdentityLabel` inside the shell
  * reads the machine hostname off it) so the live socket stack never boots —
