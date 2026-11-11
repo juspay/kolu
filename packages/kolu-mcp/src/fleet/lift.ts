@@ -271,26 +271,29 @@ function route(
   });
 }
 
-/** Step 3 — put the host back on every id a SUCCESSFUL answer carries. */
+/** Step 3 — the host, put back on every id at these paths. ONE walk for a
+ *  successful answer and a refusal's detail alike: a flat `out[key]` beside a
+ *  dotted rewrite is two path grammars for one job, and the first nested id in
+ *  an ANSWER would silently go unlifted. */
 function requalify(
-  answer: unknown,
-  keys: readonly string[],
+  value: unknown,
+  paths: readonly string[],
   host: string,
 ): unknown {
-  if (keys.length === 0 || answer === null || typeof answer !== "object") {
-    return answer;
+  if (paths.length === 0 || value === null || typeof value !== "object") {
+    return value;
   }
-  let out = answer as Record<string, unknown>;
-  for (const key of keys) {
-    const value = out[key];
-    if (typeof value === "string") {
-      out = { ...out, [key]: fleetTerminalRef(host, value as TerminalId) };
+  let out = value as Record<string, unknown>;
+  for (const path of paths) {
+    const bare = atPath(out, path);
+    if (typeof bare === "string") {
+      out = withPath(out, path, fleetTerminalRef(host, bare));
     }
   }
   return out;
 }
 
-/** Step 3's other half — the ids a REFUSAL carries.
+/** Step 3 over a REFUSAL — the same rewrite, plus the prose beside it.
  *
  *  A tool that stops partway has created something real and names it so the
  *  agent can act on it (`stopped-partway`'s `landed.id` — "lifecycle_kill ends
@@ -307,17 +310,19 @@ function requalifyRefusal(
   paths: readonly string[],
   host: string,
 ): unknown {
-  if (paths.length === 0 || !(error instanceof ToolFailure)) return error;
-  let detail: Record<string, unknown> = error.detail;
-  let message = error.message;
-  for (const path of paths) {
-    const value = atPath(detail, path);
-    if (typeof value !== "string") continue;
-    const ref = fleetTerminalRef(host, value);
-    detail = withPath(detail, path, ref);
-    message = message.replaceAll(value, ref);
-  }
-  return detail === error.detail ? error : new ToolFailure(message, detail);
+  if (!(error instanceof ToolFailure)) return error;
+  const detail = requalify(error.detail, paths, host) as Record<
+    string,
+    unknown
+  >;
+  if (detail === error.detail) return error;
+  const message = paths.reduce((text, path) => {
+    const bare = atPath(error.detail, path);
+    return typeof bare === "string"
+      ? text.replaceAll(bare, fleetTerminalRef(host, bare))
+      : text;
+  }, error.message);
+  return new ToolFailure(message, detail);
 }
 
 /** One per-host tool, over the fleet. */
@@ -454,10 +459,13 @@ function fleetWatchOpenTool(
             return Effect.map(
               fleetWatchOpen(hosts, registry, {
                 name: base.name,
+                // The HOSTS, not the grouping: which ids go to each is already
+                // the resolver's business one line down, and handing the watch
+                // a second copy would be one fact in two places.
                 scope:
                   watched === undefined
                     ? { kind: "all" }
-                    : { kind: "ids", byHost: watched },
+                    : { kind: "ids", hosts: new Set(watched.keys()) },
                 opened: (host) => {
                   const parsed = resolved(host);
                   if (parsed.kind === "error") {

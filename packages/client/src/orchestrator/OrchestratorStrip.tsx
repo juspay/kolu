@@ -20,7 +20,7 @@ import Tip from "../ui/Tip";
 // The three standings a row can hold, keyed by the union so a fourth one added
 // to the schema fails the typecheck here rather than painting unstyled. There
 // is no `missing`: a server kolu could not reach does not get a red row, it
-// refuses the whole conversation (padi's `OrchestratorUnavailable`), because an
+// refuses the whole conversation (kolu-server's `OrchestratorUnavailable`), because an
 // orchestrator that cannot reach the fleet is not a degraded orchestrator.
 type Standing = OrchestratorState["servers"][number]["standing"];
 const STANDING_CLASS: Record<Standing, string> = {

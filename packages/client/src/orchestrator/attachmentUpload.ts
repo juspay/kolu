@@ -1,4 +1,4 @@
-/** Getting an attachment's BYTES to padi — in pieces, before the prompt that
+/** Getting an attachment's BYTES to kolu-server — in pieces, before the prompt that
  *  names it is sent.
  *
  *  ## Why this is a LOOP and not one call
@@ -15,17 +15,17 @@
  *
  *  So the bytes go up when the file is ATTACHED, split into
  *  `FRAME_CHUNK_BASE64_CHARS`-bounded pieces sent IN ORDER: the first call
- *  creates the file under padi's state root, each later one passes back the
+ *  creates the file under kolu-server's state root, each later one passes back the
  *  path it was handed and appends. The chunks are SEQUENTIAL, not concurrent —
  *  the server appends to one growing file, so two chunks in flight would
  *  interleave their bytes and silently corrupt the upload. Effect's generator
  *  does this by construction: each `yield*` awaits the previous chunk's answer.
  *
  *  The prompt then carries only what the wire contract still has — id, name,
- *  mime, size and the path padi answered with — so a prompt frame is the size
+ *  mime, size and the path kolu-server answered with — so a prompt frame is the size
  *  of its words whatever is attached to it.
  *
- *  `bytes` comes back from padi rather than from `file.size`: the cap is
+ *  `bytes` comes back from kolu-server rather than from `file.size`: the cap is
  *  enforced on what was actually WRITTEN, and a chip that quotes the sender's
  *  claim instead of the server's count is a chip that can disagree with the
  *  file the agent reads. */
@@ -39,7 +39,7 @@ import { oversizedFrameRefusal } from "../terminal/pasteDelivery";
 import { app } from "../wire";
 import type { ReadFile } from "./attachments";
 
-/** What padi wrote, and where. */
+/** What kolu-server wrote, and where. */
 export interface WrittenAttachment {
   readonly path: string;
   readonly bytes: number;

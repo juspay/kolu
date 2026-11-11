@@ -33,7 +33,7 @@ export interface TranscriptState {
 export const EMPTY_TRANSCRIPT: TranscriptState = { seq: 0, rows: [] };
 
 /** Splice one piece of streamed prose into the row it belongs to. The offset
- *  arithmetic is `appendedText`, shared with padi's fold. The one case the data
+ *  arithmetic is `appendedText`, shared with kolu-server's fold. The one case the data
  *  cannot repair is a piece that starts PAST the end — a frame went missing —
  *  so it is reported here rather than passed over in silence; the next snapshot
  *  is what actually fixes it. */
@@ -111,7 +111,7 @@ export function applyFrame(
     };
   }
   // REMOVES → UPSERTS → APPENDS, the order stated on `OrchestratorFrameSchema`
-  // and obeyed by padi's own fold of the same frame. It is the only order that
+  // and obeyed by kolu-server's own fold of the same frame. It is the only order that
   // reads a frame as "this is what the conversation is now": a row the producer
   // retired and re-minted in one frame (an ask settled and re-asked) survives,
   // and a piece of prose can address a row the same frame just created.

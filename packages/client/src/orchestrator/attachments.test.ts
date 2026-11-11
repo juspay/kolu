@@ -70,7 +70,7 @@ describe("attachmentRefusal — the caps, in the wire contract's own words", () 
       { name: "third.png", bytes: 8 * MIB },
       15 * MIB,
     );
-    // The sentence is the one padi refuses with, so it reports the TOTAL
+    // The sentence is the one kolu-server refuses with, so it reports the TOTAL
     // rather than the file — the move it asks for is to drop an attachment,
     // not to shrink this one.
     expect(why).toMatch(/23 MiB/);

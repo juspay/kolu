@@ -243,6 +243,16 @@ export const OrchestratorToolStatusSchema = Schema.Literals([
   "failed",
 ]);
 
+/** WHO the call is about — the one trio every arm carries, hoisted so a sixth
+ *  reading cannot spell it a sixth time and so the three stay nullable
+ *  TOGETHER, which is the rule the union below states. Spread first in
+ *  each arm, in this order, because the emitted field order is the wire's. */
+const CALL_SUBJECT = {
+  terminalId: Schema.NullOr(TerminalIdSchema),
+  host: Schema.NullOr(Schema.String),
+  name: Schema.NullOr(Schema.String),
+};
+
 /**
  * THE KOLU READING of a tool call — the structured half the kolu-aware cards
  * draw from.
@@ -263,17 +273,13 @@ export const OrchestratorToolStatusSchema = Schema.Literals([
 export const OrchestratorKoluCallSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("create"),
-    terminalId: Schema.NullOr(TerminalIdSchema),
-    host: Schema.NullOr(Schema.String),
-    name: Schema.NullOr(Schema.String),
+    ...CALL_SUBJECT,
     cwd: Schema.NullOr(Schema.String),
     agent: Schema.NullOr(Schema.String),
   }),
   Schema.Struct({
     kind: Schema.Literal("sendInput"),
-    terminalId: Schema.NullOr(TerminalIdSchema),
-    host: Schema.NullOr(Schema.String),
-    name: Schema.NullOr(Schema.String),
+    ...CALL_SUBJECT,
     /** Exactly one of the two is present, as the tool itself requires. */
     text: Schema.NullOr(Schema.String),
     key: Schema.NullOr(Schema.String),
@@ -283,25 +289,19 @@ export const OrchestratorKoluCallSchema = Schema.Union([
      *  of waiting, which draw the same card: who, what state, how long, and
      *  the screen tail folded underneath. */
     kind: Schema.Literal("settle"),
-    terminalId: Schema.NullOr(TerminalIdSchema),
-    host: Schema.NullOr(Schema.String),
-    name: Schema.NullOr(Schema.String),
+    ...CALL_SUBJECT,
     state: Schema.NullOr(Schema.String),
     elapsedMs: Schema.NullOr(Schema.Int),
     screenTail: Schema.NullOr(Schema.String),
   }),
   Schema.Struct({
     kind: Schema.Literal("screen"),
-    terminalId: Schema.NullOr(TerminalIdSchema),
-    host: Schema.NullOr(Schema.String),
-    name: Schema.NullOr(Schema.String),
+    ...CALL_SUBJECT,
     snapshot: Schema.NullOr(Schema.String),
   }),
   Schema.Struct({
     kind: Schema.Literal("kill"),
-    terminalId: Schema.NullOr(TerminalIdSchema),
-    host: Schema.NullOr(Schema.String),
-    name: Schema.NullOr(Schema.String),
+    ...CALL_SUBJECT,
   }),
 ]);
 export type OrchestratorKoluCall = typeof OrchestratorKoluCallSchema.Type;

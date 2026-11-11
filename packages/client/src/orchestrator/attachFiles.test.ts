@@ -5,7 +5,7 @@
  *  subject, and what is under test here is everything on either side of it:
  *  that a clipboard carrying a file becomes a chip with that file's name, kind
  *  and size; that a clipboard carrying only words is left to the textarea; that
- *  a chip says it is still going up until padi answers; and that an upload
+ *  a chip says it is still going up until kolu-server answers; and that an upload
  *  which fails takes its chip away rather than leaving one with no file behind
  *  it. */
 
@@ -72,7 +72,7 @@ describe("attachPastedFiles — the clipboard reaching the draft", () => {
       expect(chip?.name).toMatch(/^pasted-\d{6}\.png$/);
       expect(chip?.mimeType).toBe("image/png");
       expect(chip?.bytes).toBe(11);
-      // A path means padi is holding the bytes — the whole of what the prompt
+      // A path means kolu-server is holding the bytes — the whole of what the prompt
       // will carry.
       expect(chip?.path).toBe(
         `/state/orchestrator/attachments/${chip?.id ?? ""}`,
@@ -119,13 +119,13 @@ describe("attachPastedFiles — the clipboard reaching the draft", () => {
         expect.stringContaining("larger than one attachment may be"),
       );
     });
-    // No chip survives a file padi never wrote: one that looked ready would
+    // No chip survives a file kolu-server never wrote: one that looked ready would
     // put a path-less attachment on the next prompt.
     expect(composerAttachments()).toHaveLength(0);
   });
 
   it("puts the bytes back under the same id after a refused prompt", async () => {
-    // padi deletes what a refused prompt named, so the chips that survive a
+    // kolu-server deletes what a refused prompt named, so the chips that survive a
     // refusal have to be re-uploaded or the next Send is refused for a file
     // the person cannot see is gone.
     attachPastedFiles(
@@ -141,7 +141,7 @@ describe("attachPastedFiles — the clipboard reaching the draft", () => {
     await vi.waitFor(() => {
       expect(upload.send).toHaveBeenCalledTimes(2);
     });
-    // The SAME id — padi's create truncates, so the chip keeps pointing at the
+    // The SAME id — kolu-server's create truncates, so the chip keeps pointing at the
     // file it already names.
     expect(upload.send.mock.calls[1]?.[0]).toMatchObject({ id });
     await vi.waitFor(() => {

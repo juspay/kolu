@@ -1,6 +1,6 @@
 /** The pictures THIS BROWSER is holding — the thumbnails no wire carries.
  *
- *  An attachment's bytes go up to padi the moment it is attached and come back
+ *  An attachment's bytes go up to kolu-server the moment it is attached and come back
  *  as a path; nothing on the wire carries a `data:` URL, because a prompt frame
  *  that grows with the file is the 1009 socket close the terminal's paste
  *  already paid for once (`terminal/pasteDelivery.ts` is the write-up). So the

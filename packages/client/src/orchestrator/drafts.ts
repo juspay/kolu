@@ -25,7 +25,7 @@ export { composerText, setComposerText };
  *  no file behind it yet, and a chip that looks ready with nothing behind it is
  *  the worst lie this composer could tell.
  *
- *  `file` is kept until the message is ACCEPTED, because padi deletes what a
+ *  `file` is kept until the message is ACCEPTED, because kolu-server deletes what a
  *  REFUSED prompt named — it leaves no file the transcript does not name. The
  *  chips stay on screen after a refusal, so their bytes have to be puttable
  *  back; the `File` is a handle the browser already holds, not a second copy.
@@ -44,7 +44,7 @@ export interface ComposerAttachment {
  *
  *  Beside the text and for the same reason: the attachment outlives a glance at
  *  the canvas. It does NOT outlive a reload, which is the honest boundary — the
- *  chip is in this signal and nowhere else, and padi's copy of the bytes is
+ *  chip is in this signal and nowhere else, and kolu-server's copy of the bytes is
  *  swept when nothing ever named them. */
 const [composerAttachments, setComposerAttachments] = createSignal<
   readonly ComposerAttachment[]
@@ -126,7 +126,7 @@ export function sendableAttachments():
 }
 
 /** THE HOST NO LONGER HAS THESE. A refused prompt deletes every file it
- *  named — padi leaves no attachment the transcript does not name — so the
+ *  named — kolu-server leaves no attachment the transcript does not name — so the
  *  paths the chips were carrying are now paths to nothing. Saying so is what
  *  keeps the chip honest while its bytes go back up; a chip left holding a
  *  deleted path would make the next Send refuse with "no longer on this

@@ -181,7 +181,7 @@ const OrchestratorComposer: Component<{
     orch.prompt(text, armed(), files, (accepted) => {
       setSending(false);
       if (!accepted) {
-        // padi deletes every file a refused prompt named, so the chips still
+        // kolu-server deletes every file a refused prompt named, so the chips still
         // on screen are chips with nothing behind them. Their bytes go back up
         // now, under the same ids, or the NEXT Send would be refused for
         // something the person can neither see nor fix.

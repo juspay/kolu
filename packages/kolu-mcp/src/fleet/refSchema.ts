@@ -9,8 +9,8 @@
  *
  * The check is the GRAMMAR's own predicate, not a second regexp: a malformed
  * reference is refused by the DECODER at the adapter's one `tools/call` edge,
- * before any handler runs, and the issue it carries is the same sentence
- * {@link parseFleetTerminalRef} would have thrown.
+ * before any handler runs, and the issue it carries is the grammar's own
+ * sentence ({@link notAFleetRef}), which is what every tool's refusal says too.
  */
 
 import { Schema } from "effect";

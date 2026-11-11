@@ -56,6 +56,7 @@ import {
 import { exceedsFrameLimit } from "@kolu/surface/frame-limit";
 import type { CellStore } from "@kolu/surface/server";
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
+import { KOLU_FLEET_EXPOSE, KOLU_MCP_TOOLS } from "kolu-mcp";
 import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AGENT_ENV } from "@kolu/acp/engine";
@@ -729,6 +730,34 @@ describe("the standing prompt (M5)", () => {
     // …and the fleet grammar is TAUGHT, not assumed: one conversation over
     // every host is only usable if `host/id` is the identity on the wire.
     expect(agent.options.teaching.join("\n")).toContain("`host/id`");
+  });
+
+  it("names only verbs the session actually has", async () => {
+    // The prompt is a hand-written copy of names `packages/kolu-mcp` owns and
+    // renames on its own clock, and nothing binds the two. A renamed verb
+    // would leave this conversation quietly instructed to call something the
+    // fleet face no longer serves — which reads to a person as the agent
+    // being wrong rather than the prompt being stale. So the copy is checked
+    // against the registry: every `snake_case` name the words name in
+    // backticks must be a tool the fleet projection mints.
+    const served = new Set([
+      ...Object.keys(KOLU_MCP_TOOLS),
+      ...Object.keys(KOLU_FLEET_EXPOSE)
+        .filter((member) => member.includes("."))
+        .map((member) => member.replace(".", "_")),
+    ]);
+    const r = rig();
+    await r.host.prompt("hello", [], []);
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    const named = new Set(
+      [...agent.options.teaching.join("\n").matchAll(/`([a-z]+_[a-zA-Z]+)`/g)]
+        .map((hit) => hit[1])
+        .filter((name): name is string => name !== undefined),
+    );
+    // A prompt that names no verb at all would pass this vacuously.
+    expect(named.size).toBeGreaterThan(3);
+    expect([...named].filter((name) => !served.has(name))).toEqual([]);
   });
 });
 

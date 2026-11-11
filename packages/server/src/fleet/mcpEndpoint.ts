@@ -45,6 +45,13 @@
  * free, which is what `serveKoluFleetMcp` already argues for — two clients are
  * two fleets, and a shared registry would let one close the other's watch by
  * name.
+ *
+ * AND THE PROOF OF ALL THAT ({@link proveFleetMcpEndpoint}) is here too, for
+ * the reason the rest is: it is one `initialize` against this door, routed by
+ * the same session header and ended by the same `DELETE`. Those spellings are
+ * the MCP SDK's, and they move when it moves — so this file is the whole of
+ * what kolu-server has to re-read on a protocol bump, rather than one half of
+ * it sitting in a module whose other business is ACP.
  */
 
 import {
@@ -62,7 +69,11 @@ import {
 import type { AddressInfo } from "node:net";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
+import {
+  isInitializeRequest,
+  LATEST_PROTOCOL_VERSION,
+} from "@modelcontextprotocol/sdk/types.js";
+import { serverVersion } from "../hostname.ts";
 
 /** The one path this listener answers. Anything else is a 404 — there is no
  *  index, no health route and no second verb, because the only client is an
@@ -96,6 +107,15 @@ export interface FleetMcpEndpoint {
   close(): Promise<void>;
 }
 
+/** The narration this module needs — kolu's three levels, structurally, so a
+ *  caller may hand it a pino logger and a test may hand it three no-ops. Named
+ *  rather than spelled twice, now that the proof below narrates too. */
+export interface FleetMcpLog {
+  info(o: unknown, m?: string): void;
+  warn(o: unknown, m?: string): void;
+  error(o: unknown, m?: string): void;
+}
+
 export interface FleetMcpEndpointOptions {
   /** Build + connect an MCP server over a transport this door owns. Called
    *  ONCE PER SESSION — see the module header: a stateful transport serves one
@@ -106,11 +126,7 @@ export interface FleetMcpEndpointOptions {
   /** Narration sink. A refused request is logged at WARN: on a single-user
    *  machine it means something other than this process's own adapter is
    *  knocking, which is worth a line. */
-  log: {
-    info(o: unknown, m?: string): void;
-    warn(o: unknown, m?: string): void;
-    error(o: unknown, m?: string): void;
-  };
+  log: FleetMcpLog;
 }
 
 /** Constant-time bearer comparison over fixed-width digests. `timingSafeEqual`
@@ -213,12 +229,12 @@ interface LiveSession {
    *  transport is handed its first request, so every session the map can name
    *  has one. */
   served: { close: () => Promise<void> } | null;
-  /** Set the instant teardown begins, BEFORE anything is closed: closing the
-   *  face closes the transport, whose `onclose` lands straight back here, and
-   *  this flag is what makes that re-entry a no-op instead of a recursion. */
-  ending: boolean;
-  /** The one teardown, so a `close()` can await what an `onclose` started. */
-  ended: Promise<void>;
+  /** The ONE teardown, from the instant it begins — `null` until then. It is
+   *  both the re-entry guard and what a later `close()` awaits: closing the
+   *  face closes the transport, whose `onclose` lands straight back in
+   *  `forget`, and a teardown that is already a promise makes that re-entry a
+   *  no-op instead of a recursion. */
+  teardown: Promise<void> | null;
 }
 
 /** Start the fleet MCP door. Resolves once the listener is bound — so a caller
@@ -238,11 +254,14 @@ export async function startFleetMcpEndpoint(
   const sessions = new Map<string, LiveSession>();
 
   const forget = (session: LiveSession): Promise<void> => {
-    if (session.ending) return session.ended;
-    session.ending = true;
+    if (session.teardown !== null) return session.teardown;
     const id = session.transport.sessionId;
     if (id !== undefined) sessions.delete(id);
-    session.ended = (async () => {
+    // DEFERRED BY A MICROTASK so the assignment below lands FIRST: closing the
+    // face closes the transport synchronously, whose `onclose` re-enters here
+    // before any `await` would have yielded, and the field it reads has to be
+    // set by then or the re-entry recurses.
+    session.teardown = Promise.resolve().then(async () => {
       try {
         await session.served?.close();
       } catch (err) {
@@ -253,8 +272,8 @@ export async function startFleetMcpEndpoint(
           "fleet mcp: a session's face faulted while closing",
         );
       }
-    })();
-    return session.ended;
+    });
+    return session.teardown;
   };
 
   /** The first request of a conversation: mint a transport, serve a face over
@@ -279,8 +298,7 @@ export async function startFleetMcpEndpoint(
         },
       }),
       served: null,
-      ending: false,
-      ended: Promise.resolve(),
+      teardown: null,
     };
     // BEFORE `serve`: `Protocol.connect` CHAINS onto whatever `onclose` is
     // already here, so this runs beside the server's own. Setting it after
@@ -424,4 +442,126 @@ export async function startFleetMcpEndpoint(
       return closed;
     },
   };
+}
+
+/** The sentence a kolu whose own fleet endpoint will not answer says. It names
+ *  the URL, because the person who can see this is holding a server whose
+ *  listener and whose orchestrator disagree, and the URL is the whole of the
+ *  lead. */
+const noAnswerAt = (url: string, cause: string): string =>
+  `This kolu's orchestrator cannot reach this kolu's fleet MCP face: nothing answered at ${url} (${cause}). The agent would be handed the same URL, fail to connect, and carry on without the fleet's terminals — so the conversation is refused instead of opened with no hands.`;
+
+/** The sentence a kolu whose own endpoint REFUSED the token says. Separate
+ *  from "nothing answered" because it is a different defect with a different
+ *  lead: something IS listening there and it does not accept the credential
+ *  this process minted, which can only mean the two halves of this boot
+ *  disagree about who they are. */
+const refusedAt = (url: string, status: number): string =>
+  `This kolu's orchestrator was refused by this kolu's fleet MCP face: ${url} answered ${status} to the token this process minted. The agent would be refused the same way and carry on without the fleet's terminals, so the conversation is refused instead.`;
+
+/** The sentence a kolu whose own endpoint is listening and will not SERVE
+ *  says. A third defect with a third lead: the door is open, the gate let us
+ *  through, and no session came back — a face that is wedged, or a door whose
+ *  one session has already been given away. */
+const notServingAt = (url: string, what: string): string =>
+  `This kolu's orchestrator could not open a session on this kolu's fleet MCP face: ${url} is listening and accepted the token this process minted, but ${what}. The agent's MCP client would be turned away the same way and the conversation would run with no hands, so it is refused instead.`;
+
+/** Will this door SERVE THIS CALLER? `null` when it will, the whole sentence
+ *  when it will not.
+ *
+ *  REPORTED, NOT RAISED — the shape `FleetHosts` already uses for a host that
+ *  is not connected: this module answers what it saw and the orchestrator is
+ *  what turns that into its own refusal, so the door never has to know the
+ *  conversation's error vocabulary.
+ *
+ *  ONE REAL HANDSHAKE, not a reachability guess and not a liveness ping: the
+ *  `initialize` the adapter's own MCP client sends as its first word, carrying
+ *  the bearer token this process is about to hand over. What has to be proved
+ *  is "I will serve you", and nothing weaker says it — a `400` is what a
+ *  listening streamable-HTTP endpoint answers whether it is about to open a
+ *  session or has already given its one away, so passing on any HTTP answer
+ *  would wave through exactly the failure a proof-before-handover exists to
+ *  catch. A SESSION ID in the answer is the one thing only a door that minted
+ *  a transport and connected a face behind it can produce.
+ *
+ *  THE PROBE CLOSES ITS OWN SESSION (`DELETE`, the protocol's own
+ *  termination), so proving the face works does not leave an abandoned face
+ *  holding fleet subscriptions behind every bring-up.
+ *
+ *  NO DEADLINE, and that is not an oversight: the listener is in THIS process.
+ *  A request that never comes back means this process's own event loop is
+ *  wedged, and a timer running on that same wedged loop could not fire to tell
+ *  anybody. A second clock here could only ever be wrong. */
+export async function proveFleetMcpEndpoint(
+  at: { readonly url: string; readonly token: string },
+  log: FleetMcpLog,
+): Promise<string | null> {
+  const authorization = `Bearer ${at.token}`;
+  let answer: Response;
+  try {
+    answer = await fetch(at.url, {
+      method: "POST",
+      headers: {
+        authorization,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: LATEST_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: {
+            name: "kolu-orchestrator-probe",
+            version: serverVersion,
+          },
+        },
+      }),
+    });
+  } catch (cause) {
+    return noAnswerAt(
+      at.url,
+      cause instanceof Error ? cause.message : String(cause),
+    );
+  }
+  // The body is never read — the session id rides the headers, and the
+  // `initialize` RESULT is the agent's business, not ours — but it is
+  // cancelled rather than dropped, so the probe holds no SSE stream open
+  // behind the conversation it was clearing the way for.
+  await answer.body?.cancel();
+  if (answer.status === 401 || answer.status === 403) {
+    return refusedAt(at.url, answer.status);
+  }
+  if (!answer.ok) {
+    return notServingAt(
+      at.url,
+      `it answered ${answer.status} to an \`initialize\``,
+    );
+  }
+  const session = answer.headers.get(SESSION_HEADER);
+  if (session === null) {
+    return notServingAt(
+      at.url,
+      "it answered the `initialize` without opening a session",
+    );
+  }
+  // The probe's session, ended by the probe. A teardown that fails is NOT a
+  // reason to refuse the conversation — the face answered, which is the whole
+  // of what was being proved — but it is not swallowed either: a session this
+  // process opened and could not close is a face holding fleet subscriptions
+  // nobody will ever read, and this line is where it shows up.
+  try {
+    await fetch(at.url, {
+      method: "DELETE",
+      headers: { authorization, [SESSION_HEADER]: session },
+    }).then((ended) => ended.body?.cancel());
+  } catch (cause) {
+    log.warn(
+      { err: cause, url: at.url, session },
+      "orchestrator: could not close the session its fleet-MCP proof opened",
+    );
+  }
+  return null;
 }

@@ -41,10 +41,8 @@ export {
 } from "./fleet/fleetSurface.ts";
 export type { FleetHosts } from "./fleet/hosts.ts";
 export {
-  FleetRefMalformed,
   type FleetTerminalRef,
   fleetTerminalRef,
-  parseFleetTerminalRef,
   splitFleetTerminalRef,
 } from "./fleet/ref.ts";
 export {

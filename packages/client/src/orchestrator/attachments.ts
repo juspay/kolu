@@ -7,7 +7,7 @@
  *  blow the cap — are plain functions over plain values, so they are tested
  *  without a composer around them.
  *
- *  The caps are enforced at BOTH ends on purpose. padi is the authority and
+ *  The caps are enforced at BOTH ends on purpose. kolu-server is the authority and
  *  refuses on what it actually wrote; this end refuses with the same
  *  arithmetic at the moment of the paste, because a person who has waited for
  *  a 40 MiB image to encode and travel before being told no has already lost
@@ -20,7 +20,7 @@ import {
   promptAttachmentsTooBig,
 } from "kolu-common/orchestrator";
 
-/** Does this attachment draw as a picture? The same `image/*` test padi uses to
+/** Does this attachment draw as a picture? The same `image/*` test kolu-server uses to
  *  pick the ACP `image` content block, so the chip and the block agree about
  *  what an image is. */
 export function isImageAttachment(attachment: {
@@ -59,7 +59,7 @@ export function pastedAttachments<T extends ClipboardEntry>(
  *
  *  Two refusals, because they are two different problems: one file too big is
  *  a file to shrink, a message too heavy is an attachment to drop. Neither
- *  sentence is written here — both come from the wire contract padi refuses
+ *  sentence is written here — both come from the wire contract kolu-server refuses
  *  with, so the pre-flight refusal and the server's are the same words rather
  *  than two rules a person has to reconcile. */
 export function attachmentRefusal(
@@ -77,7 +77,7 @@ export function attachmentRefusal(
 /** The extension a MIME type implies: the subtype, less any `+suffix`
  *  structure (`image/svg+xml` → `svg`). Derived rather than looked up in a
  *  table, because the only thing this name has to do is be recognisable in a
- *  chip and keep its kind legible to whoever opens the file padi wrote. */
+ *  chip and keep its kind legible to whoever opens the file kolu-server wrote. */
 function extensionOfMime(mimeType: string): string {
   const subtype = mimeType.split("/")[1];
   if (subtype === undefined || subtype === "") return "bin";
@@ -87,7 +87,7 @@ function extensionOfMime(mimeType: string): string {
 /** A name for something PASTED. The browser calls every pasted screenshot
  *  `image.png`, so three of them in one message are three chips with one name
  *  and no way to tell which is which; the stamp is what makes them distinct in
- *  the chip, in the transcript, and in padi's state directory. */
+ *  the chip, in the transcript, and in kolu-server's state directory. */
 export function pastedAttachmentName(mimeType: string, at: Date): string {
   const stamp = [at.getHours(), at.getMinutes(), at.getSeconds()]
     .map((part) => String(part).padStart(2, "0"))
@@ -96,7 +96,7 @@ export function pastedAttachmentName(mimeType: string, at: Date): string {
 }
 
 /** An id unique within this browser's run — which is all the contract asks for
- *  ("stable within the prompt that carried it"), since padi re-keys nothing and
+ *  ("stable within the prompt that carried it"), since kolu-server re-keys nothing and
  *  the row is drawn against the prompt it travelled with.
  *
  *  Deliberately NOT `crypto.randomUUID`: that is a secure-context API, and kolu
@@ -111,22 +111,22 @@ export function mintAttachmentId(): string {
 /** The type an attachment travels under. A file the OS could not type
  *  (`file.type === ""`, common for extensionless files) is
  *  `application/octet-stream`: that IS the type of unknown bytes, and it routes
- *  the attachment to a `resource_link` at padi, which is the right answer for
+ *  the attachment to a `resource_link` at kolu-server, which is the right answer for
  *  something nobody can claim is text. Stated once because the chip is minted
  *  before the read finishes, and a chip whose kind disagreed with the uploaded
- *  file's would be drawing one thing about a file padi was told was another. */
+ *  file's would be drawing one thing about a file kolu-server was told was another. */
 export function mimeTypeOf(file: File): string {
   return file.type === "" ? "application/octet-stream" : file.type;
 }
 
 /** A file this browser has read: what the upload puts on the wire, and what
- *  the chip draws until padi answers. */
+ *  the chip draws until kolu-server answers. */
 export interface ReadFile {
   readonly id: string;
   readonly name: string;
   readonly mimeType: string;
   /** The browser's count. It is what the pre-send cap is judged against; the
-   *  size a chip finally wears is padi's count of what it wrote. */
+   *  size a chip finally wears is kolu-server's count of what it wrote. */
   readonly bytes: number;
   /** The whole `data:` URL — this tab's thumbnail, which no wire carries. */
   readonly dataUrl: string;
@@ -145,7 +145,7 @@ export interface ReadFile {
  *  before this read began.
  *
  *  `id` is passed in rather than minted here, because a file is sometimes read
- *  a SECOND time under the id it already wears: a refused prompt makes padi
+ *  a SECOND time under the id it already wears: a refused prompt makes kolu-server
  *  delete the files it named, so the draft puts its bytes back where they
  *  were. A fresh id there would leave the old chip pointing at nothing. */
 export function readForUpload(

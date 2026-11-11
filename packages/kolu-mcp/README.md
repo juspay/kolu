@@ -137,8 +137,8 @@ the session's MCP server list never changes as machines come and go.
 
 **A terminal is `host/id`.** The host key is kolu-server's (`local`, or
 `remote:<target>`); the separator is the **last** `/`, because a remote target
-may contain one and a terminal id never does. One parser, exported once —
-`parseFleetTerminalRef` / `fleetTerminalRef`, from `kolu-mcp/fleetRef` (a leaf
+may contain one and a terminal id never does. One splitter, exported once —
+`splitFleetTerminalRef` / `fleetTerminalRef`, from `kolu-mcp/fleetRef` (a leaf
 with no imports, so a consumer that must not take the MCP SDK can still split a
 reference). Nothing in the tree splits a fleet reference by hand.
 

@@ -47,7 +47,7 @@ function reason(err: unknown): string {
 
 export interface Orchestrator {
   readonly state: Accessor<OrchestratorState>;
-  /** `attachments` name bytes padi ALREADY HOLDS — each one was uploaded when
+  /** `attachments` name bytes kolu-server ALREADY HOLDS — each one was uploaded when
    *  it was attached and carries the path it was written to, so this frame is
    *  the size of its words however many screenshots rode with it.
    *

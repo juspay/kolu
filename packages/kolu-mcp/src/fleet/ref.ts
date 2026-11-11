@@ -23,10 +23,10 @@
  * package a non-MCP consumer needs: `@kolu/acp-harness` reads a fleet reference
  * out of a tool call and must not grow an edge to the MCP SDK, to padi-client,
  * or to effect to do it — its manifest is deliberately the ACP SDK and
- * `kolu-common`. So the refusal here is a named `Error` subclass rather than
- * `@kolu/surface-mcp`'s `ToolFailure`, and the WIRE schema built on this grammar
- * lives one file over in `./refSchema.ts`, where effect is allowed. Reached as
- * `kolu-mcp/fleetRef`.
+ * `kolu-common`. So the refusal here is a SENTENCE rather than
+ * `@kolu/surface-mcp`'s `ToolFailure` — each face wraps it in its own refusal
+ * type — and the WIRE schema built on this grammar lives one file over in
+ * `./refSchema.ts`, where effect is allowed. Reached as `kolu-mcp/fleetRef`.
  */
 
 /** The one separator between a host key and a terminal id. */
@@ -47,9 +47,11 @@ export function fleetTerminalRef(host: string, id: string): string {
 }
 
 /** The grammar as a PREDICATE-shaped read: the split, or `null` when the string
- *  is not a reference at all. Separate from {@link parseFleetTerminalRef} so a
- *  schema check can ask the question without a throw, and so the two can never
- *  answer it differently. */
+ *  is not a reference at all. NOT a throwing parser, and there is deliberately
+ *  no throwing twin: every reader of a reference — the wire decoder, each
+ *  lifted tool, the harness reading a tool call back — is holding a string an
+ *  AGENT spelled, and an agent's mistake is data to answer rather than a
+ *  control-flow fault to unwind. */
 export function splitFleetTerminalRef(ref: string): FleetTerminalRef | null {
   const at = ref.lastIndexOf(FLEET_REF_SEPARATOR);
   // `at <= 0` covers both "no separator" and a leading one (an empty host key
@@ -58,26 +60,7 @@ export function splitFleetTerminalRef(ref: string): FleetTerminalRef | null {
   return { host: ref.slice(0, at), id: ref.slice(at + 1) };
 }
 
-/** The refusal sentence — one spelling, so the schema's decode issue and the
- *  parser's throw teach the same grammar. */
+/** The refusal sentence — one spelling, so the schema's decode issue and every
+ *  tool's refusal teach the same grammar. */
 export const notAFleetRef = (ref: string): string =>
   `${JSON.stringify(ref)} is not a fleet terminal reference. On this face a terminal is addressed as <host>/<id> — a host key from the \`hosts\` resource, a slash, and the terminal id (e.g. "local/3f1c…"). Read \`surface://collections/terminals\` for the live set.`;
-
-/** A string that is not a reference reached a reader that needs one. Its own
- *  class so a caller can tell "the agent spelled an id wrong" from a transport
- *  failure, which is the distinction a bare `Error` here used to cost. */
-export class FleetRefMalformed extends Error {
-  readonly ref: string;
-  constructor(ref: string) {
-    super(notAFleetRef(ref));
-    this.name = "FleetRefMalformed";
-    this.ref = ref;
-  }
-}
-
-/** Split a reference, or THROW naming the grammar. */
-export function parseFleetTerminalRef(ref: string): FleetTerminalRef {
-  const split = splitFleetTerminalRef(ref);
-  if (split === null) throw new FleetRefMalformed(ref);
-  return split;
-}

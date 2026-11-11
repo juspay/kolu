@@ -237,7 +237,7 @@ function UserRow(props: { row: Extract<OrchestratorRow, { kind: "user" }> }) {
                 class="text-accent hover:underline cursor-pointer"
                 onClick={() =>
                   // The retry carries exactly what the first attempt did: the
-                  // row names files padi is already holding under its state
+                  // row names files kolu-server is already holding under its state
                   // root, so a row minted a moment ago and one restored after
                   // a restart send the same message. Only the thumbnail is
                   // this browser's, and no wire ever carried it.

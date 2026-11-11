@@ -87,24 +87,24 @@ type AtFleetIds<E> = E extends unknown
   : never;
 export type FleetWatchEvent = AtFleetIds<PadiWatchEvent>;
 
-/** How deep ONE host's queue is (padi's `WATCH_BUFFER_LIMIT`). The fleet buffer
- *  is this times the number of legs: a merged queue must be able to hold what
- *  the queues it merges can hand over in one drain, or a two-host fleet would
- *  report drops the hosts never had. Over that, the OLDEST go and the count is
- *  reported — the same policy padi applies, because a silent truncation reads
- *  exactly like a quiet workspace. */
+/** How deep ONE host's queue is assumed to be — padi's DEFAULT depth, which
+ *  this cannot read (the constant is not on padi's exports, and a registry
+ *  takes a per-subscription override anyway, so no number here is ever exactly
+ *  right). The fleet buffer is this times the number of legs: a merged queue
+ *  must be able to hold what the queues it merges can hand over in one drain,
+ *  or a two-host fleet would report drops the hosts never had. Over that, the
+ *  OLDEST go and the count is reported — the same policy padi applies, because
+ *  a silent truncation reads exactly like a quiet workspace. */
 const PER_LEG_BUFFER_LIMIT = 512;
 
 /** What a subscription watches. `all` is the fail-open default; `ids` names
- *  terminals, already grouped by the host that owns them — a host with no named
- *  terminal gets no leg at all, rather than an empty one that would watch
- *  everything. */
+ *  the HOSTS the caller's terminals live on and nothing more — which ids on
+ *  each is `opened`'s business, and a second copy here would be one fact in
+ *  two positions, free to disagree. A host with no named terminal is simply
+ *  not in the set, rather than an empty entry that would watch everything. */
 type FleetWatchScope =
   | { readonly kind: "all" }
-  | {
-      readonly kind: "ids";
-      readonly byHost: ReadonlyMap<string, TerminalId[]>;
-    };
+  | { readonly kind: "ids"; readonly hosts: ReadonlySet<string> };
 
 /** One host's leg of a fleet subscription. A leg OUTLIVES the link it was
  *  opened over: it is this subscription's record of a host it watches, not a
@@ -137,16 +137,16 @@ interface WatchLeg {
 interface FleetSubscription {
   readonly name: string;
   scope: FleetWatchScope;
-  /** The per-host open input, minus the ids (which the scope holds) — so a leg
-   *  opened on a host that arrives LATE is opened with the same knobs the first
-   *  legs were. */
+  /** The per-host open input, ids and all — so a leg opened on a host that
+   *  arrives LATE is opened with the same knobs the first legs were. */
   opened: (host: string) => PadiWatchOpenInput;
   readonly legs: Map<string, WatchLeg>;
-  /** Hosts whose leg could not be OPENED, and what the refusal said. Only the
-   *  `all` scope ever has entries (a named host fails the call instead): they
-   *  are retried on every reconcile and reported as gaps, so one sick machine
-   *  costs its own lane and not the fleet's. */
-  readonly unreachable: Map<string, string>;
+  /** Hosts that ANSWERED and turned the subscription down, and what the
+   *  refusal said — never one that is merely not connected, which is read off
+   *  the host map. Only the `all` scope ever has entries (a named host fails
+   *  the call instead): they are retried on every reconcile and reported as
+   *  gaps, so one sick machine costs its own lane and not the fleet's. */
+  readonly refusals: Map<string, string>;
   buffer: FleetWatchEvent[];
   nextSeq: number;
   dropped: number;
@@ -159,18 +159,19 @@ export type FleetWatchRegistry = Map<string, FleetSubscription>;
 
 export const newFleetWatchRegistry = (): FleetWatchRegistry => new Map();
 
-/** The current terminal ids of one host — the roster a departure is reported
- *  from. A failure to read is not fatal: the leg keeps the roster it had, which
- *  is strictly better than forgetting who was there. */
+/** The current terminal ids of one host, or NULL when the host could not be
+ *  asked — two different facts, so two different values. An empty list that
+ *  meant both would have a link failure silently forget who was on that
+ *  machine, and a later departure would then mourn nobody. */
 function readRoster(
   padi: PadiSurfaceClient,
-): Effect.Effect<readonly TerminalId[]> {
+): Effect.Effect<readonly TerminalId[] | null> {
   return Effect.catchCause(
     firstFrameOrThrow(
       padi.surface.terminals.keys(undefined),
       "fleet watch: a host's terminal keys yielded no snapshot frame.",
     ),
-    () => Effect.succeed([] as readonly TerminalId[]),
+    () => Effect.succeed(null),
   );
 }
 
@@ -199,16 +200,17 @@ function openLeg(
     const opened = yield* padi.surface.watch.open(input);
     sub.legs.set(host, {
       after: opened.acknowledged,
-      roster: yield* readRoster(padi),
+      // A re-open that cannot read the roster keeps the one this leg had.
+      roster: (yield* readRoster(padi)) ?? sub.legs.get(host)?.roster ?? [],
       padi,
     });
-    sub.unreachable.delete(host);
+    sub.refusals.delete(host);
   });
 }
 
 /** Which hosts this subscription is ABOUT — MEMBERSHIP, not reachability.
  *
- *  Deliberately `hosts.keys()` and not {@link connectedHosts}: a host that is
+ *  Deliberately `hosts.keys()` and not the connected subset: a host that is
  *  merely disconnected is still a host this watch covers, and the difference
  *  between the two lists is the difference between parking a leg and declaring
  *  every terminal on that machine dead. */
@@ -217,7 +219,7 @@ function watched(hosts: FleetHosts, sub: FleetSubscription): readonly string[] {
   const members = hosts.keys();
   return scope.kind === "all"
     ? members
-    : members.filter((host) => scope.byHost.has(host));
+    : members.filter((host) => scope.hosts.has(host));
 }
 
 /** Append events, dropping the oldest past the cap. */
@@ -242,7 +244,8 @@ function stamp(sub: FleetSubscription): number {
   return sub.nextSeq;
 }
 
-/** Attach one host's leg, under the rule its SCOPE decides.
+/** The rule a host's refusal is weighed under — stated ONCE, because the open
+ *  and the drain ask the same question one verb apart.
  *
  *  A host the caller NAMED in `ids` fails the call: it asked about that lane,
  *  and a watch silently missing exactly the lane it was opened for is the
@@ -250,19 +253,27 @@ function stamp(sub: FleetSubscription): number {
  *  is recorded and skipped instead, because failing there would hand the agent
  *  nothing at all from every machine that is perfectly healthy. The record is
  *  retried on the next reconcile and reported as a gap in the meantime. */
+function refused(
+  sub: FleetSubscription,
+  host: string,
+  err: unknown,
+): Effect.Effect<void, unknown> {
+  return sub.scope.kind === "ids"
+    ? Effect.fail(err)
+    : Effect.sync(() => {
+        sub.refusals.set(host, messageOf(err));
+      });
+}
+
+/** Attach one host's leg, under {@link refused}. */
 function attachLeg(
   sub: FleetSubscription,
   host: string,
   padi: PadiSurfaceClient,
 ): Effect.Effect<void, unknown> {
-  const opening = openLeg(sub, host, padi);
-  return sub.scope.kind === "ids"
-    ? opening
-    : Effect.catch(opening, (err: unknown) =>
-        Effect.sync(() => {
-          sub.unreachable.set(host, messageOf(err));
-        }),
-      );
+  return Effect.catch(openLeg(sub, host, padi), (err: unknown) =>
+    refused(sub, host, err),
+  );
 }
 
 /** Bring the legs in line with the live fleet: leg the hosts that arrived or
@@ -288,7 +299,7 @@ function reconcile(
         })),
       );
       sub.legs.delete(host);
-      sub.unreachable.delete(host);
+      sub.refusals.delete(host);
     }
     for (const host of members) {
       const padi = hosts.padi(host);
@@ -313,8 +324,9 @@ function reconcile(
       // Every attached leg's roster is refreshed here, not at ingest: a
       // terminal CREATED since the last call emits no settle event of its own,
       // so a roster refreshed only by events would forget it — and forget to
-      // mourn it when its host leaves.
-      leg.roster = yield* readRoster(padi);
+      // mourn it when its host leaves. A host that could not be ASKED keeps
+      // the roster it had, which is strictly better than forgetting it.
+      leg.roster = (yield* readRoster(padi)) ?? leg.roster;
     }
   });
 }
@@ -355,10 +367,10 @@ function ingest(
  *  whose events a parked wait already saw hands them over again — which is what
  *  makes it safe for the park above to be a doorbell rather than a consumer.
  *
- *  A leg that REFUSES is handled under the same rule {@link attachLeg} applies,
- *  because it is the same question one verb later. The reachable case is a padi
- *  that restarted under a mirror that never dropped: the link is the same
- *  object, so nothing re-opened, and the queue this cursor names is gone
+ *  A leg that REFUSES is weighed by {@link refused}, the same rule the open
+ *  applies, because it is the same question one verb later. The reachable case
+ *  is a padi that restarted under a mirror that never dropped: the link is the
+ *  same object, so nothing re-opened, and the queue this cursor names is gone
  *  (`WatchSubscriptionNotFound`). Parking the leg makes the next reconcile
  *  re-open it — the recovery a reconnect already takes — where failing here
  *  would blind every other host over one machine's restart. */
@@ -373,12 +385,17 @@ function drainLegs(sub: FleetSubscription): Effect.Effect<void, unknown> {
       if (padi === null) continue;
       const drained = yield* Effect.catch(
         padi.surface.watch.drain({ name: sub.name, after: leg.after }),
-        (err: unknown) => {
-          if (sub.scope.kind === "ids") return Effect.fail(err);
-          leg.padi = null;
-          sub.unreachable.set(host, messageOf(err));
-          return Effect.succeed(null);
-        },
+        (err: unknown) =>
+          // Parked only once the rule has LET this pass: a named host fails
+          // the whole call instead, and keeps the leg it was opened with.
+          Effect.as(
+            Effect.flatMap(refused(sub, host, err), () =>
+              Effect.sync(() => {
+                leg.padi = null;
+              }),
+            ),
+            null,
+          ),
       );
       if (drained === null) continue;
       if (drained.events.length === 0 && drained.dropped === 0) continue;
@@ -437,14 +454,14 @@ function gapsOf(
 ): readonly FleetWatchGap[] {
   const gaps: FleetWatchGap[] = [];
   for (const host of watched(hosts, sub)) {
-    const refused = sub.unreachable.get(host);
+    const refusal = sub.refusals.get(host);
     const state = hosts.state(host);
-    if (refused !== undefined) {
+    if (refusal !== undefined) {
       gaps.push({
         host,
         kind: "watch-refused",
         state,
-        why: `${host} refused the watch: ${refused}. It is retried on every watch_next; nothing from it is in this batch.`,
+        why: `${host} refused the watch: ${refusal}. It is retried on every watch_next; nothing from it is in this batch.`,
       });
     } else if (hosts.padi(host) === null) {
       gaps.push({
@@ -647,7 +664,7 @@ export function fleetWatchOpen(
 > {
   return Effect.gen(function* () {
     if (spec.scope.kind === "ids") {
-      for (const host of spec.scope.byHost.keys()) {
+      for (const host of spec.scope.hosts) {
         yield* requireHost(hosts, host);
       }
     }
@@ -663,7 +680,7 @@ export function fleetWatchOpen(
         scope: spec.scope,
         opened: spec.opened,
         legs: new Map(),
-        unreachable: new Map(),
+        refusals: new Map(),
         buffer: [],
         nextSeq: 0,
         dropped: 0,
@@ -674,19 +691,13 @@ export function fleetWatchOpen(
       live = existing;
     }
     registry.set(spec.name, live);
-    for (const host of watched(hosts, live)) {
-      const legged = live.legs.get(host)?.padi;
-      const padi = hosts.padi(host);
-      // A disconnected host is not legged and not refused: under `ids` the
-      // check above has already refused it, so reaching here means nobody
-      // named it. The gap says so, and the first reconcile legs it when it
-      // answers.
-      if (padi === null || legged === padi) continue;
-      // `attachLeg` carries `spec.opened`'s refusal on the error channel (the
-      // per-host face's own `ToolFailure`, detail intact) for a scope that
-      // NAMED this host, and records it as a gap for one that did not.
-      yield* attachLeg(live, host, padi);
-    }
+    // THE reconcile, not a second spelling of it: "make the legs match the
+    // scope and the roster" is one rule, and an open is the first time it
+    // runs. A disconnected host is parked rather than refused — under `ids`
+    // the check above already refused it, so reaching here means nobody named
+    // it — and a re-open that NARROWS the scope mourns what it dropped here
+    // rather than one drain later, which is the same answer sooner.
+    yield* reconcile(hosts, live);
     return {
       name: spec.name,
       hosts: [...live.legs.keys()],

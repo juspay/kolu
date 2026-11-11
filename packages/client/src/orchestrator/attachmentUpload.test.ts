@@ -82,7 +82,7 @@ describe("uploadAttachment — bounded frames, in order", () => {
     }
   });
 
-  it("never has two chunks in flight — padi appends to one growing file", async () => {
+  it("never has two chunks in flight — kolu-server appends to one growing file", async () => {
     let inFlight = 0;
     let maxInFlight = 0;
     const attach = vi.fn((_args: AttachArgs) =>

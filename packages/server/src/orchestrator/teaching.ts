@@ -48,7 +48,9 @@
  *
  * AND KOLU'S, not the harness's. The words below spell kolu's OWN MCP verbs —
  * `lifecycle_create`, `wait_agentState` — which `packages/kolu-mcp` owns and
- * renames on its own clock. `@kolu/acp-harness` hides the PROTOCOL and takes
+ * renames on its own clock, which is why `orchestrator.test.ts` checks every
+ * verb these words name against that registry: a hand-copy nothing binds goes
+ * stale silently, and a stale prompt reads as the agent being wrong. `@kolu/acp-harness` hides the PROTOCOL and takes
  * these lines as data (`HarnessOptions.teaching`); a rename it cannot see
  * would otherwise make the package that speaks ACP the one that has to follow
  * kolu's tool names.

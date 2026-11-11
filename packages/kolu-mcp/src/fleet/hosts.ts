@@ -41,48 +41,52 @@ export interface FleetHosts {
   subscribe(cb: () => void): () => void;
 }
 
-/** The connected subset, in the port's own order — what every fleet-wide FOLD
- *  (the terminal union, the urgency merge) is taken over.
+/** MEMBERSHIP alone: this key names a host the fleet holds, or a refusal
+ *  listing the ones it does.
  *
- *  A fold, and not the watch: a fold answers a question about right now, so a
- *  host that is not answering is simply not in it, whereas a standing
- *  subscription is about a host over TIME and parks its leg instead (it reads
- *  `keys()` and asks `padi()` per host for exactly that reason — `watch.ts`).
- *
- *  `padi() !== null` is the test, not `state()`: the client is the thing a call
- *  actually needs, so a roster that says `connected` while the client is gone
- *  would otherwise produce a fold that throws instead of one that is short. */
-export function connectedHosts(hosts: FleetHosts): readonly string[] {
-  return hosts.keys().filter((key) => hosts.padi(key) !== null);
+ *  Its own function because the roster resource needs exactly this half and
+ *  not the other: a host that is not connected still has a row, so asking
+ *  {@link requireHost} there would refuse the very reading the row exists to
+ *  give. Spelled once, so the two readers cannot teach an agent two grammars
+ *  for one mistake. */
+export function requireMember(
+  hosts: FleetHosts,
+  key: string,
+): Effect.Effect<void, ToolFailure> {
+  return Effect.suspend((): Effect.Effect<void, ToolFailure> => {
+    const roster = hosts.keys();
+    if (roster.includes(key)) return Effect.void;
+    return Effect.fail(
+      new ToolFailure(
+        `no host ${JSON.stringify(key)} in this fleet — the fleet is ${roster.map((k) => JSON.stringify(k)).join(", ") || "(empty)"}. Read \`surface://collections/hosts\` for the live roster; it changes while you work.`,
+        { kind: "unknown-host", host: key, fleet: [...roster] },
+      ),
+    );
+  });
 }
 
-/** The padi behind a host key, or a refusal naming the host and its state. */
+/** The padi behind a host key — a member that is ALSO answering — or a refusal
+ *  naming the host and its state. */
 export function requireHost(
   hosts: FleetHosts,
   key: string,
 ): Effect.Effect<PadiSurfaceClient, ToolFailure> {
-  return Effect.suspend((): Effect.Effect<PadiSurfaceClient, ToolFailure> => {
-    const roster = hosts.keys();
-    if (!roster.includes(key)) {
-      return Effect.fail(
-        new ToolFailure(
-          `no host ${JSON.stringify(key)} in this fleet — the fleet is ${roster.map((k) => JSON.stringify(k)).join(", ") || "(empty)"}. Read \`surface://collections/hosts\` for the live roster; it changes while you work.`,
-          { kind: "unknown-host", host: key, fleet: [...roster] },
-        ),
-      );
-    }
-    const padi = hosts.padi(key);
-    if (padi === null) {
-      const state = hosts.state(key);
-      return Effect.fail(
-        new ToolFailure(
-          `host ${JSON.stringify(key)} (${hosts.display(key)}) is ${state}, not connected — this call cannot reach it. ${state === "warming" ? "It is still coming up; read the `hosts` resource again in a moment." : "Its padi is not answering; nothing on it can be read or driven until kolu-server reaches it again."} Nothing was done on any other host.`,
-          { kind: "host-not-connected", host: key, state },
-        ),
-      );
-    }
-    return Effect.succeed(padi);
-  });
+  return Effect.flatMap(
+    requireMember(hosts, key),
+    (): Effect.Effect<PadiSurfaceClient, ToolFailure> => {
+      const padi = hosts.padi(key);
+      if (padi === null) {
+        const state = hosts.state(key);
+        return Effect.fail(
+          new ToolFailure(
+            `host ${JSON.stringify(key)} (${hosts.display(key)}) is ${state}, not connected — this call cannot reach it. ${state === "warming" ? "It is still coming up; read the `hosts` resource again in a moment." : "Its padi is not answering; nothing on it can be read or driven until kolu-server reaches it again."} Nothing was done on any other host.`,
+            { kind: "host-not-connected", host: key, state },
+          ),
+        );
+      }
+      return Effect.succeed(padi);
+    },
+  );
 }
 
 /** One terminal reference, resolved: the split plus the host's live client.

@@ -124,7 +124,7 @@ describe("applyFrame", () => {
 
   it("applies removes before the upserts that re-mint the same id", () => {
     // The canonical order is removes → upserts → appends (stated on
-    // `OrchestratorFrameSchema`, obeyed by padi's fold too). A frame that
+    // `OrchestratorFrameSchema`, obeyed by the host's fold too). A frame that
     // retires a row and re-states it — an ask settled and asked again — must
     // end with the row, not without it.
     const base = applyFrame(

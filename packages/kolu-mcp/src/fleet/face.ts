@@ -49,7 +49,7 @@ import {
   type SurfaceSpec,
 } from "@kolu/surface/define";
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
-import { ToolFailure } from "@kolu/surface-mcp/tools";
+import type { ToolFailure } from "@kolu/surface-mcp/tools";
 import type {
   FsFileInputSchema,
   TerminalId,
@@ -68,9 +68,9 @@ import {
   fleetSurface,
 } from "./fleetSurface.ts";
 import {
-  connectedHosts,
   type FleetHosts,
   requireHost,
+  requireMember,
   requireTerminal,
 } from "./hosts.ts";
 import { fleetTerminalRef } from "./ref.ts";
@@ -118,21 +118,32 @@ function hostRoster(hosts: FleetHosts): Stream.Stream<readonly string[]> {
  *  and it waits only on CONNECTED hosts — one that is not connected is not in
  *  the fold at all, and is refused by name when addressed. After that first
  *  frame every later one is emitted as it arrives.
+ *
+ *  Which hosts those are, and the client each is read through, are decided in
+ *  ONE pass here. `per` is handed the client and asked only which member to
+ *  read: a seam where the caller answered "is this host connected" as well
+ *  would have both sides reaching for `hosts.padi`, and `padi() !== null` is
+ *  the test — the client is what a fold actually reads, so a roster claiming
+ *  `connected` over a client that is gone would make this throw instead of
+ *  answering short. A fold is about RIGHT NOW, which is why an absent host is
+ *  simply not in it; the standing watch parks that host's leg instead, because
+ *  a subscription is about a host over TIME (`watch.ts`).
  */
 function foldHosts<T, F>(
   hosts: FleetHosts,
-  per: (host: string) => Stream.Stream<T, unknown> | null,
+  per: (padi: PadiSurfaceClient) => Stream.Stream<T, unknown>,
   fold: (seen: ReadonlyMap<string, T>, live: readonly string[]) => F,
   empty: F,
 ): Stream.Stream<F, unknown> {
   return Stream.switchMap(hostRoster(hosts), () => {
-    const live = connectedHosts(hosts);
-    const legs = live.flatMap((host) => {
-      const leg = per(host);
-      return leg === null
-        ? []
-        : [Stream.map(leg, (value) => [host, value] as const)];
-    });
+    const live: string[] = [];
+    const legs: Stream.Stream<readonly [string, T], unknown>[] = [];
+    for (const host of hosts.keys()) {
+      const padi = hosts.padi(host);
+      if (padi === null) continue;
+      live.push(host);
+      legs.push(Stream.map(per(padi), (value) => [host, value] as const));
+    }
     if (legs.length === 0) return Stream.make(empty);
     return Stream.mapAccum(
       Stream.mergeAll(legs, { concurrency: "unbounded" }),
@@ -141,7 +152,7 @@ function foldHosts<T, F>(
         seen.set(host, value);
         return [
           seen,
-          seen.size < legs.length ? [] : [fold(seen, live)],
+          seen.size < live.length ? [] : [fold(seen, live)],
         ] as const;
       },
     );
@@ -155,7 +166,7 @@ function fleetTerminalKeys(
 ): Stream.Stream<string[], unknown> {
   return foldHosts<readonly TerminalId[], string[]>(
     hosts,
-    (host) => hosts.padi(host)?.surface.terminals.keys(undefined) ?? null,
+    (padi) => padi.surface.terminals.keys(undefined),
     (seen, live) =>
       live.flatMap((host) =>
         (seen.get(host) ?? []).map((id) => fleetTerminalRef(host, id)),
@@ -169,7 +180,7 @@ function fleetTerminalKeys(
 function fleetUrgency(hosts: FleetHosts): Stream.Stream<FleetUrgency, unknown> {
   return foldHosts<PadiUrgency, FleetUrgency>(
     hosts,
-    (host) => hosts.padi(host)?.surface.urgency.get(undefined) ?? null,
+    (padi) => padi.surface.urgency.get(undefined),
     (seen, live) => {
       const column = (
         pick: (one: PadiUrgency) => readonly TerminalId[],
@@ -198,51 +209,46 @@ function hostRow(
   hosts: FleetHosts,
   key: string,
 ): Effect.Effect<FleetHost, unknown> {
-  return Effect.suspend((): Effect.Effect<FleetHost, unknown> => {
-    if (!hosts.keys().includes(key)) {
-      return Effect.fail(
-        new ToolFailure(
-          `no host ${JSON.stringify(key)} in this fleet. Read \`surface://collections/hosts\` for the live roster.`,
-          { kind: "unknown-host", host: key },
-        ),
+  return Effect.flatMap(
+    requireMember(hosts, key),
+    (): Effect.Effect<FleetHost, unknown> => {
+      const base = {
+        host: key,
+        display: hosts.display(key),
+        state: hosts.state(key),
+      };
+      const padi = hosts.padi(key);
+      if (padi === null) {
+        return Effect.succeed({
+          ...base,
+          commit: null,
+          surfaceVersion: null,
+          startedAt: null,
+        });
+      }
+      return Effect.map(
+        Effect.all([
+          firstFrameOrThrow(
+            padi.surface.identity.get(undefined),
+            `host ${key}: padi identity yielded no snapshot frame — link or protocol failure.`,
+          ),
+          firstFrameOrThrow(
+            padi.surface.status.get(undefined),
+            `host ${key}: padi status yielded no snapshot frame — link or protocol failure.`,
+          ),
+        ]),
+        ([identity, status]) => ({
+          ...base,
+          commit: identity.commit,
+          surfaceVersion: identity.surfaceVersion,
+          startedAt: identity.startedAt,
+          ...(status.expectedKaval === undefined
+            ? {}
+            : { expectedKaval: status.expectedKaval }),
+        }),
       );
-    }
-    const base = {
-      host: key,
-      display: hosts.display(key),
-      state: hosts.state(key),
-    };
-    const padi = hosts.padi(key);
-    if (padi === null) {
-      return Effect.succeed({
-        ...base,
-        commit: null,
-        surfaceVersion: null,
-        startedAt: null,
-      });
-    }
-    return Effect.map(
-      Effect.all([
-        firstFrameOrThrow(
-          padi.surface.identity.get(undefined),
-          `host ${key}: padi identity yielded no snapshot frame — link or protocol failure.`,
-        ),
-        firstFrameOrThrow(
-          padi.surface.status.get(undefined),
-          `host ${key}: padi status yielded no snapshot frame — link or protocol failure.`,
-        ),
-      ]),
-      ([identity, status]) => ({
-        ...base,
-        commit: identity.commit,
-        surfaceVersion: identity.surfaceVersion,
-        startedAt: identity.startedAt,
-        ...(status.expectedKaval === undefined
-          ? {}
-          : { expectedKaval: status.expectedKaval }),
-      }),
-    );
-  });
+    },
+  );
 }
 
 /** The host a repo-scoped verb names, and that host's client. These four verbs
@@ -371,10 +377,7 @@ export function fleetClientFace(
  *  The verb sets come from the FRAMEWORK's own resolvers, not a second reading
  *  of `spec.verbs`, so "which verbs does a cell with `verbs: ["get"]` have" is
  *  answered here exactly as `defineSurface` answered it when it minted them. */
-export function faceGaps(
-  spec: SurfaceSpec,
-  face: SurfaceClientCallable,
-): string[] {
+function faceGaps(spec: SurfaceSpec, face: SurfaceClientCallable): string[] {
   const gaps: string[] = [];
   const need = (member: string, verb: string): void => {
     if (typeof face.surface[member]?.[verb] !== "function") {
