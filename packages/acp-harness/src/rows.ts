@@ -20,6 +20,7 @@
 
 import type {
   OrchestratorArmedSchema,
+  OrchestratorAttachmentSchema,
   OrchestratorAuthMethodSchema,
   OrchestratorCommandSchema,
   OrchestratorModelSchema,
@@ -46,6 +47,7 @@ export type {
 } from "@kolu/padi-client/orchestrator";
 
 export type OrchestratorArmed = typeof OrchestratorArmedSchema.Type;
+export type OrchestratorAttachment = typeof OrchestratorAttachmentSchema.Type;
 export type OrchestratorSpawned = typeof OrchestratorSpawnedSchema.Type;
 export type OrchestratorPlanStep = typeof OrchestratorPlanStepSchema.Type;
 export type OrchestratorSaying = typeof OrchestratorSayingSchema.Type;

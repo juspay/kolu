@@ -108,7 +108,34 @@ export function readPersistedOrchestrator(
       `the remembered orchestrator in ${path} does not match schema (${String(result.failure)}). Fix the \`orchestrator\` key to recover.`,
     );
   }
-  return result.success;
+  const record = result.success;
+  return { ...record, rows: oneDividerPerReset(record.rows) };
+}
+
+/** Collapse every RUN of consecutive dividers to the first of them.
+ *
+ *  A divider means one thing — the agent's memory was reset — so a run of
+ *  four in a row cannot be four resets with nothing between them: it is one
+ *  reset written four times, by however many bring-ups wrote it. The first is
+ *  the one kept, because the reset happened at the first; keeping the last
+ *  would draw the line later than the event it marks.
+ *
+ *  On the READ rather than only at the writer, and deliberately: the records
+ *  already on disk carry the runs, and a fix that only stopped new ones from
+ *  being written would leave every state-root that saw the bug showing them
+ *  forever. `rows` arrives in `seq` order ({@link persistedFrom} writes the
+ *  host's sorted array), so "consecutive" is a neighbour test and not a sort. */
+function oneDividerPerReset(
+  rows: ReadonlyArray<OrchestratorRow>,
+): ReadonlyArray<OrchestratorRow> {
+  const kept: OrchestratorRow[] = [];
+  let previousWasDivider = false;
+  for (const row of rows) {
+    const divider = row.kind === "divider";
+    if (!(divider && previousWasDivider)) kept.push(row);
+    previousWasDivider = divider;
+  }
+  return kept.length === rows.length ? rows : kept;
 }
 
 /** What to write back after the conversation moved.
@@ -126,9 +153,46 @@ export function persistedFrom(
     sessionId: state.sessionId,
     cwd: state.cwd,
     model: state.model?.id ?? null,
-    rows: rows.length > ROW_CAP ? rows.slice(rows.length - ROW_CAP) : rows,
+    rows: withoutAttachmentBytes(
+      rows.length > ROW_CAP ? rows.slice(rows.length - ROW_CAP) : rows,
+    ),
     fleet: state.fleet,
   };
+}
+
+/** The same rows with every attachment's `data:` URL REMOVED.
+ *
+ *  The bytes are already on disk, under the state root, and the agent was
+ *  handed the path to them. A SECOND copy base64'd into `config.json` would
+ *  be read back — in full, on every boot, beside the saved session — to
+ *  redraw a thumbnail nobody is looking at, and a single pasted screenshot
+ *  would be the largest thing in the file. What survives is the chip: the
+ *  name, the size and the path. The thumbnail survives only in the browser
+ *  that sent it, which is the deliberate half of this trade.
+ *
+ *  The array is rebuilt only when there is something to take out of it — a
+ *  transcript nobody attached anything to, which is most of them, is written
+ *  through untouched. */
+function withoutAttachmentBytes(
+  rows: ReadonlyArray<OrchestratorRow>,
+): ReadonlyArray<OrchestratorRow> {
+  const carries = rows.some(
+    (row) =>
+      row.kind === "user" &&
+      row.attachments.some((one) => one.dataUrl !== null),
+  );
+  if (!carries) return rows;
+  return rows.map((row) =>
+    row.kind === "user"
+      ? {
+          ...row,
+          attachments: row.attachments.map((one) => ({
+            ...one,
+            dataUrl: null,
+          })),
+        }
+      : row,
+  );
 }
 
 /** How many transcript rows a state-root keeps.

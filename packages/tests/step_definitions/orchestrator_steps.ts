@@ -374,3 +374,25 @@ Then(
     await waitForCount(this, `${USER_MARK}[data-mark="${mark}"]`, 0);
   },
 );
+
+Then(
+  "the orchestrator roster should show {string} as connected",
+  async function (this: KoluWorld, server: string) {
+    // THE WHOLE FEATURE IN ONE ASSERTION. The orchestrator's hands are kolu's
+    // own MCP server, and the only way to know the agent actually has hold of
+    // them is the agent's own word about it, which arrives at the START OF A
+    // TURN — so this must follow one, never a bare bring-up. Before anything
+    // has been said the row reads `handed`, which is the honest "kolu gave this
+    // over and nobody has reported either way", and an orchestrator that
+    // silently fell back to running shell commands itself would sit at exactly
+    // that.
+    const row = `[data-testid="orchestrator-server"][data-server="${server}"]`;
+    await waitForValue(
+      `${row} standing`,
+      async () =>
+        (await this.page.locator(row).getAttribute("data-standing")) ??
+        "absent",
+      "connected",
+    );
+  },
+);

@@ -7,6 +7,7 @@
  *  mode flip, a host switch, and a scroll — it does not survive a reload, which
  *  is the honest boundary for text the server was never told about. */
 
+import type { OrchestratorAttachment } from "@kolu/padi-client/orchestrator";
 import { createSignal } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { armedMentionText } from "./mentions";
@@ -14,6 +15,42 @@ import { armedMentionText } from "./mentions";
 const [composerText, setComposerText] = createSignal("");
 
 export { composerText, setComposerText };
+
+/** What a person has attached and not yet sent — pasted images, dropped files.
+ *
+ *  Beside the text and for the same reason: the attachment outlives a glance at
+ *  the canvas. It does NOT outlive a reload, which is the honest boundary — the
+ *  bytes are in this signal and nowhere else until the prompt carries them. */
+const [composerAttachments, setComposerAttachments] = createSignal<
+  readonly OrchestratorAttachment[]
+>([]);
+
+export { composerAttachments };
+
+/** Append one read attachment. The order is the order they arrived, so a chip
+ *  row reads the way the person built it. */
+export function addComposerAttachment(
+  attachment: OrchestratorAttachment,
+): void {
+  setComposerAttachments((prev) => [...prev, attachment]);
+}
+
+/** Drop one by id — the chip's ×. */
+export function dropComposerAttachment(id: string): void {
+  setComposerAttachments((prev) => prev.filter((one) => one.id !== id));
+}
+
+/** The message went: the attachments went with it. */
+export function clearComposerAttachments(): void {
+  setComposerAttachments([]);
+}
+
+/** What the draft weighs — the number the per-message cap is measured against,
+ *  read fresh before each admission so two pastes in a row cannot both be
+ *  judged against an empty draft. */
+export function composerAttachmentBytes(): number {
+  return composerAttachments().reduce((sum, one) => sum + one.bytes, 0);
+}
 
 /** Is a completion menu (`@` terminals, `/` commands) open?
  *

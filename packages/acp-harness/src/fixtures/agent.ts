@@ -30,20 +30,30 @@
  *   slow         — a turn held open until a SECOND prompt arrives, so one can
  *                  be queued behind it without anybody timing anything
  *   fail         — a JSON-RPC error, after writing to stderr
+ *   die          — the process EXITS mid-turn, which is an adapter that
+ *                  crashed: no answer, a closed pipe, and a client that has
+ *                  to notice by itself
  *   roster       — one of the agent's own forwarded messages, naming the model
  *                  it is running and what it reached of the servers it was
  *                  handed
+ *   groups       — a `config_option_update` whose model picker sorts its rows
+ *                  under HEADINGS, which ACP allows and this adapter does not
+ *                  send: only the leaves are values anybody can pick
  *
- * Four more turns say back what this process was TOLD, which is the only way a
+ * Five more turns say back what this process was TOLD, which is the only way a
  * test can ask the one thing that knows: `servers` says the server names every
  * open was handed, `meta` the `_meta` each open carried, `modes` the permission
- * modes that were asked for, and `prompts` the bodies of the prompts that have
- * arrived. Through the harness's own door rather than around it.
+ * modes that were asked for, `prompts` the bodies of the prompts that have
+ * arrived, and `blocks` their CONTENT BLOCKS — whether an attachment really
+ * crossed the pipe as an `image`, a `resource` or a `resource_link` is a
+ * question only this end can answer. Through the harness's own door rather
+ * than around it.
  *
  * `session/set_mode` REFUSES anything but `bypassPermissions`, which is how one
  * fixture covers both halves of the bypass rule: the mode a leg really asks for
  * is confirmed, and a leg that asks for another gets the refusal that must not
- * be fatal.
+ * be fatal. `session/set_config_option` refuses a STRING for the boolean
+ * setting, exactly as the pinned adapter refuses one.
  */
 
 interface Message {
@@ -53,8 +63,9 @@ interface Message {
     readonly sessionId?: string;
     readonly modeId?: string;
     readonly configId?: string;
-    readonly value?: string;
-    readonly prompt?: ReadonlyArray<{ readonly text?: string }>;
+    readonly value?: string | boolean;
+    readonly type?: string;
+    readonly prompt?: ReadonlyArray<Record<string, unknown>>;
     readonly mcpServers?: ReadonlyArray<{ readonly name?: string }>;
     readonly _meta?: unknown;
   };
@@ -94,6 +105,14 @@ let previous: string | null = null;
  *  how a client's remembered model is put back after an open. */
 let model = "default";
 
+/** ... and whether this conversation is on FAST MODE, which is the pinned
+ *  adapter's one BOOLEAN setting: no rows to pick from, a `true`/`false`
+ *  `currentValue`, and a `session/set_config_option` that takes a real boolean
+ *  rather than the string `"true"` — refused here exactly as the adapter
+ *  refuses it, because a client that sent the string would otherwise pass a
+ *  test and fail against the thing it is a fixture for. */
+let fast = false;
+
 /** The server names handed to each open, in the order the opens happened. */
 const handed: Array<ReadonlyArray<string>> = [];
 /** ... and the `_meta` each open carried, same order. */
@@ -104,6 +123,11 @@ const modes: Array<ReadonlyArray<string>> = [];
  *  test needs, because "did the standing prompt ride the second turn" is a
  *  question about a string nobody but this process ever sees. */
 const prompts: Array<string> = [];
+/** ... and the CONTENT BLOCKS of every prompt, whole. The bodies above are the
+ *  text and nothing else; an attachment is a block beside it, and whether an
+ *  image arrived as an `image` block with its base64 intact is a question only
+ *  the process at the other end of the pipe can answer. */
+const blocks: Array<unknown> = [];
 
 /** The turn whose prompt is still unanswered, so a cancel can end it. */
 let openTurn: unknown = null;
@@ -166,13 +190,23 @@ process.stdin.on("data", (chunk: string) => {
   }
 });
 
-/** The settings this conversation reports: a model picker whose values are
- *  ALIASES (so the harness's own picker reading is exercised) and a mode
- *  selector, which is the row a confirmed `session/set_mode` has to move. */
+/**
+ * THE SETTINGS THIS CONVERSATION REPORTS — the four the pinned Claude adapter
+ * 0.81.2 really sends, in its own shape.
+ *
+ * A MODEL picker whose values are ALIASES (so the harness's own picker reading
+ * is exercised), a MODE selector, which is the row a confirmed
+ * `session/set_mode` has to move, an EFFORT selector under the adapter's own
+ * `thought_level` category — a select like any other, and the one a panel that
+ * filtered sections by category would silently lose — and FAST MODE, which is
+ * a BOOLEAN: no rows at all, which is what a popover that only knew how to
+ * draw rows rendered as a heading with nothing under it.
+ */
 const configOptions = () => [
   {
     id: "model",
     name: "Model",
+    description: "AI model to use",
     type: "select",
     category: "model",
     currentValue: model,
@@ -193,6 +227,28 @@ const configOptions = () => [
       { value: "bypassPermissions", name: "Bypass permissions" },
     ],
   },
+  {
+    id: "effort",
+    name: "Effort",
+    description: "Available effort levels for this model",
+    type: "select",
+    category: "thought_level",
+    currentValue: "default",
+    options: [
+      { value: "default", name: "Default" },
+      { value: "low", name: "Low" },
+      { value: "medium", name: "Medium" },
+      { value: "high", name: "High" },
+    ],
+  },
+  {
+    id: "fast",
+    name: "Fast mode",
+    description: "Answer quickly, with a smaller model where it will do",
+    type: "boolean",
+    category: "model_config",
+    currentValue: fast,
+  },
 ];
 
 function handle(message: Message): void {
@@ -200,7 +256,13 @@ function handle(message: Message): void {
     case "initialize":
       respond(message.id, {
         protocolVersion: 1,
-        agentCapabilities: { loadSession: true },
+        agentCapabilities: {
+          loadSession: true,
+          // What an attachment is allowed to be, said by the agent — the two
+          // the pinned adapter advertises. A client may send an `image` block
+          // or embed a file's text only because of this line.
+          promptCapabilities: { image: true, embeddedContext: true },
+        },
         authMethods: [
           { id: "subscription", name: "Claude subscription", type: "terminal" },
         ],
@@ -277,6 +339,26 @@ function handle(message: Message): void {
       respond(message.id, {});
       return;
     case "session/set_config_option":
+      // THE BOOLEAN SETTING TAKES A BOOLEAN, which is the pinned adapter's own
+      // refusal: `{type: "boolean", value: true}` and nothing else — the
+      // string `"true"` is `Invalid value for config option fast` there, so a
+      // client that sent one would pass here and fail against the real thing.
+      if (message.params?.configId === "fast") {
+        if (
+          message.params.type !== "boolean" ||
+          typeof message.params.value !== "boolean"
+        ) {
+          refuse(
+            message.id,
+            -32602,
+            `invalid value for config option fast: ${String(message.params.value)}`,
+          );
+          return;
+        }
+        fast = message.params.value;
+        respond(message.id, { configOptions: configOptions() });
+        return;
+      }
       if (message.params?.configId !== "model") {
         refuse(message.id, -32602, "there is no such setting");
         return;
@@ -286,16 +368,17 @@ function handle(message: Message): void {
       // and the client has a refusal to report rather than a confirmation of
       // something that did not happen.
       if (
-        !["default", "sonnet", "haiku"].includes(message.params?.value ?? "")
+        typeof message.params.value !== "string" ||
+        !["default", "sonnet", "haiku"].includes(message.params.value)
       ) {
         refuse(
           message.id,
           -32602,
-          `no model is called \`${message.params?.value ?? ""}\``,
+          `no model is called \`${String(message.params.value ?? "")}\``,
         );
         return;
       }
-      model = message.params?.value ?? model;
+      model = message.params.value;
       respond(message.id, { configOptions: configOptions() });
       return;
     case "session/cancel":
@@ -324,8 +407,10 @@ function turn(message: Message): void {
   // instruction above the words somebody typed, and that instruction is prose
   // about asking, waiting and servers — so a fixture that matched anywhere in
   // the body answered the teaching rather than the turn.
-  const body = message.params?.prompt?.[0]?.text ?? "";
+  const first = message.params?.prompt?.[0];
+  const body = typeof first?.text === "string" ? first.text : "";
   prompts.push(body);
+  blocks.push(message.params?.prompt ?? []);
   const text = body.trimEnd().split("\n").pop() ?? "";
   const says = (said: string): void => {
     update(session, {
@@ -348,6 +433,53 @@ function turn(message: Message): void {
   }
   if (text === "modes") {
     says(JSON.stringify(modes));
+    finish(message.id, "end_turn");
+    return;
+  }
+  if (text === "blocks") {
+    // EVERY BLOCK OF EVERY PROMPT, whole and in order — minus this one, which
+    // is the question rather than the subject. The only record of what
+    // actually crossed the pipe: an `image` block's base64, a `resource`'s
+    // embedded text, a `resource_link`'s absolute path.
+    says(JSON.stringify(blocks.slice(0, -1)));
+    finish(message.id, "end_turn");
+    return;
+  }
+  if (text === "groups") {
+    // A GROUPED SELECT, which ACP allows and the pinned adapter does not send:
+    // a model picker that sorts its aliases under headings is the shape in the
+    // wild, and a client that offered the headings would offer values nobody
+    // can pick. ALL groups and no bare rows, because the protocol's own type
+    // is `Array<option> | Array<group>` and a mixed list is a frame the SDK
+    // refuses before any client sees it.
+    update(session, {
+      sessionUpdate: "config_option_update",
+      configOptions: [
+        {
+          id: "model",
+          name: "Model",
+          type: "select",
+          category: "model",
+          currentValue: "sonnet",
+          options: [
+            {
+              group: "anthropic",
+              name: "Anthropic",
+              options: [
+                { value: "sonnet", name: "Sonnet" },
+                { value: "haiku", name: "Haiku" },
+              ],
+            },
+            {
+              group: "aliases",
+              name: "Whatever the host picks",
+              options: [{ value: "default", name: "Default" }],
+            },
+          ],
+        },
+      ],
+    });
+    says("grouped");
     finish(message.id, "end_turn");
     return;
   }
@@ -455,6 +587,13 @@ function turn(message: Message): void {
   if (text === "slow") {
     slowTurn = message.id;
     return;
+  }
+  if (text === "die") {
+    // THE ADAPTER CRASHES, mid-turn and without an answer — the ending nobody
+    // asked for and the one a client finds out about through a closed pipe
+    // rather than through a reply.
+    process.stderr.write("fixture-agent: gone\n");
+    process.exit(1);
   }
   if (text === "fail") {
     process.stderr.write("fixture-agent: json-rpc boom\n");

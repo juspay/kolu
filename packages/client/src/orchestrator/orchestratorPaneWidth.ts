@@ -9,10 +9,14 @@
  *
  *  PER DEVICE, the `dockCardsWidth` idiom it copies wholesale: a width is a fact
  *  about the screen you are sitting at, not about a host, and it costs no
- *  `Preferences` schema rung. The rendered width is capped in CSS rather than
- *  here (`max-width`), so a window that shrinks under a stored-wide pane leaves
- *  the peek visible and the grip reachable without this module measuring
- *  anything. */
+ *  `Preferences` schema rung.
+ *
+ *  The bounds are MINIMA, not a ratio. The split used to stop at half the row
+ *  (a 760px ceiling here, a `max-width: 60%` at the render), which is exactly
+ *  wrong for how the two halves are read: reading a long answer wants the chat
+ *  to take nearly the whole window, and watching a terminal wants the peek to.
+ *  So each side keeps only what it cannot be used without, and everything
+ *  between the two is free. */
 
 import { persistedPref } from "../persistedPref";
 
@@ -21,18 +25,55 @@ import { persistedPref } from "../persistedPref";
  *  (`28rem`), which is a comfortable column of chat prose. */
 export const PANE_WIDTH_PX = 448;
 
-// Bounds for the user-resizable chat. The floor keeps a tool card's
-// `label · title · time` line and a fleet row legible; the ceiling keeps the
-// conversation from swallowing the terminal it is about. The default sits
-// inside the range.
-const PANE_MIN_WIDTH_PX = 320;
-const PANE_MAX_WIDTH_PX = 760;
+/** The chat's floor: the composer's own minimum. Below this the textarea's
+ *  hint row (`@ terminals · / commands · ⇧⏎ newline · paste or drop a file`)
+ *  wraps and a tool card's `label · title · time` line stops being one line. */
+export const PANE_MIN_WIDTH_PX = 320;
 
-/** Clamp a candidate width into the resize bounds. The drag setter and the
- *  stored-value parse both route through it, so a hand-edited `localStorage`
- *  value cannot escape the range the grip enforces. */
-export function clampOrchestratorPaneWidth(px: number): number {
+/** The peek's floor: about twenty columns of terminal plus the viewport
+ *  header's gutters. Twenty columns is where a wrapped shell prompt still
+ *  tells you what the agent is doing — under that the peek is decoration, and
+ *  a person dragging the chat wide would rather have the pixels. */
+export const PEEK_MIN_WIDTH_PX = 240;
+
+/** The ceiling the STORED number may hold. Not a design bound — the real one
+ *  is the row the pane is drawn in, which this module deliberately does not
+ *  measure — but the width of the widest display anybody runs kolu on. A
+ *  stored number past it is corruption, not a preference, and clamping is a
+ *  kinder answer than discarding the user's width. */
+export const PANE_MAX_WIDTH_PX = 7680;
+
+/** Clamp a candidate width into the bounds the PERSISTED value may hold. The
+ *  stored-value parse and `setOrchestratorPaneWidth` both route through it, so
+ *  a hand-edited `localStorage` value cannot escape the range the grip
+ *  enforces. */
+export function clampStoredPaneWidth(px: number): number {
   return Math.min(PANE_MAX_WIDTH_PX, Math.max(PANE_MIN_WIDTH_PX, px));
+}
+
+/** Clamp a width a DRAG is reaching for, inside a row where the chat and the
+ *  peek share `availablePx` between them.
+ *
+ *  This is where "the chat may take most of the window" is actually decided:
+ *  the ceiling is whatever is left once the peek keeps its twenty columns, so
+ *  on a 1600px row the chat can reach 1360 rather than the old 760. The
+ *  `Math.max` matters on a row too narrow to honour both minima — the chat's
+ *  floor wins there, because a composer you cannot type in is worse than a
+ *  peek you cannot read. */
+export function clampDraggedPaneWidth(px: number, availablePx: number): number {
+  const ceiling = Math.max(PANE_MIN_WIDTH_PX, availablePx - PEEK_MIN_WIDTH_PX);
+  return Math.min(ceiling, Math.max(PANE_MIN_WIDTH_PX, px));
+}
+
+/** The stored value's parse, exported for the same reason `readWithFallback`
+ *  is: the validation contract is worth a test and the test should not need a
+ *  `Storage`. */
+export function parsePaneWidth(raw: string): number {
+  const n: unknown = JSON.parse(raw);
+  if (typeof n !== "number" || !Number.isFinite(n)) {
+    throw new Error(`invalid orchestrator pane width: ${raw}`);
+  }
+  return clampStoredPaneWidth(n);
 }
 
 /** Per-device chat width in pixels. The serializer writes a canonical
@@ -45,13 +86,7 @@ export function clampOrchestratorPaneWidth(px: number): number {
 const [orchestratorPaneWidth, setPaneWidthRaw] = persistedPref<number>({
   name: "kolu-orchestrator-pane-width",
   fallback: PANE_WIDTH_PX,
-  parse: (raw) => {
-    const n: unknown = JSON.parse(raw);
-    if (typeof n !== "number" || !Number.isFinite(n)) {
-      throw new Error(`invalid orchestrator pane width: ${raw}`);
-    }
-    return clampOrchestratorPaneWidth(n);
-  },
+  parse: parsePaneWidth,
   onInvalid: (err, raw) =>
     console.warn(
       `[orchestratorPaneWidth] ignoring invalid stored width ${JSON.stringify(raw)} — falling back to ${PANE_WIDTH_PX}`,
@@ -68,7 +103,7 @@ export { orchestratorPaneWidth };
  *  for both: a no-motion drag commits the unchanged start width, and a
  *  double-click at the default is a no-op. */
 export function setOrchestratorPaneWidth(px: number): void {
-  const next = clampOrchestratorPaneWidth(px);
+  const next = clampStoredPaneWidth(px);
   if (next === orchestratorPaneWidth()) return;
   setPaneWidthRaw(next);
 }

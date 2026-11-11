@@ -23,6 +23,7 @@ import {
 import { toast } from "solid-sonner";
 import { capturePointerGesture } from "../canvas/viewport/capturePointerGesture";
 import { useDialogStack } from "../ui/useDialogStack";
+import { attachDroppedFiles } from "./attachFiles";
 import { completionOpen } from "./drafts";
 import OrchestratorComposer from "./OrchestratorComposer";
 import OrchestratorFleet from "./OrchestratorFleet";
@@ -31,9 +32,11 @@ import OrchestratorSignIn from "./OrchestratorSignIn";
 import OrchestratorStrip from "./OrchestratorStrip";
 import OrchestratorTranscript from "./OrchestratorTranscript";
 import {
-  clampOrchestratorPaneWidth,
+  clampDraggedPaneWidth,
   orchestratorPaneWidth,
+  PANE_MIN_WIDTH_PX,
   PANE_WIDTH_PX,
+  PEEK_MIN_WIDTH_PX,
   setOrchestratorPaneWidth,
 } from "./orchestratorPaneWidth";
 import { useOrchestrator } from "./useOrchestrator";
@@ -132,13 +135,30 @@ const OrchestratorPane: Component<{
     const startWidth = paneEl.getBoundingClientRect().width;
     // A grip on the LEFT edge grows the pane as the pointer moves left.
     const sign = props.grip === "left" ? -1 : 1;
+    // WHAT THE TWO HALVES SHARE. The grip's ceiling is not a fraction of the
+    // row — it is whatever is left once the peek keeps its twenty columns, so
+    // the chat can take nearly the whole window when that is what you are
+    // reading. The other half is the sibling the grip's edge faces: the pane
+    // sits between the dock and the viewport with a `right` grip, and after
+    // the surface it was split from with a `left` one.
+    const neighbour =
+      props.grip === "left"
+        ? paneEl.previousElementSibling
+        : paneEl.nextElementSibling;
+    if (neighbour === null) {
+      throw new Error(
+        "orchestrator pane has a grip but nothing to share the row with",
+      );
+    }
+    const available = startWidth + neighbour.getBoundingClientRect().width;
     abortResize = new AbortController();
     capturePointerGesture(
       {
         onMove: (ev) =>
           setDragWidth(
-            clampOrchestratorPaneWidth(
+            clampDraggedPaneWidth(
               startWidth + sign * (ev.clientX - startX),
+              available,
             ),
           ),
         onEnd: () => {
@@ -180,28 +200,89 @@ const OrchestratorPane: Component<{
       ?.querySelector(`[data-row-id="${CSS.escape(rowId)}"]`)
       ?.scrollIntoView({ block: "center", behavior: "smooth" });
   };
+  // DROPPING A FILE ON THE CONVERSATION attaches it to the next message — the
+  // whole pane is the target, not the textarea, because the box is three lines
+  // at the bottom of a tall column and aiming at it is a game. The affordance
+  // has to be visible while the drag is over it: a drop target you cannot see
+  // is a drop you make twice.
+  const [dropping, setDropping] = createSignal(false);
+  /** Only a drag carrying FILES. A dragged selection or a link is text, and
+   *  text belongs to whatever it is dropped on — taking those over would make
+   *  the pane eat an ordinary drag. A pane with no composer under it (the
+   *  agent is absent, or it refused to open the conversation) takes nothing:
+   *  there would be nowhere for the chip to appear. */
+  const takesDrop = (event: DragEvent): boolean =>
+    (event.dataTransfer?.types.includes("Files") ?? false) &&
+    absent() === undefined &&
+    state().refusal === null;
+  /** Bind the three drag events to the pane itself.
+   *
+   *  Imperative, from the ref, for the same reason the terminal's own drop
+   *  path is: this is a static section, not a control, and the alternative is
+   *  an `onDrop` on a `<section>` that a11y linting rightly objects to — the
+   *  honest fix is to attach the listener, not to give the element a role it
+   *  does not have. */
+  const bindDrop = (el: HTMLElement): void => {
+    makeEventListener(el, "dragover", (event: DragEvent) => {
+      if (!takesDrop(event)) return;
+      // Without the preventDefault the browser refuses the drop and then
+      // NAVIGATES to the file when it lands, taking the whole session with it
+      // — the one failure a file drop must never have.
+      event.preventDefault();
+      if (event.dataTransfer !== null) event.dataTransfer.dropEffect = "copy";
+      setDropping(true);
+    });
+    makeEventListener(el, "dragleave", (event: DragEvent) => {
+      // `dragleave` fires crossing every child boundary too; only a pointer
+      // that has actually left the pane ends the affordance, or it flickers
+      // its way down the transcript.
+      const next = event.relatedTarget as Node | null;
+      if (next !== null && el.contains(next)) return;
+      setDropping(false);
+    });
+    makeEventListener(el, "drop", (event: DragEvent) => {
+      if (!takesDrop(event)) return;
+      event.preventDefault();
+      setDropping(false);
+      attachDroppedFiles([...(event.dataTransfer?.files ?? [])]);
+    });
+  };
 
   return (
     <section
-      ref={paneEl}
+      ref={(el) => {
+        paneEl = el;
+        bindDrop(el);
+      }}
       data-testid="orchestrator-pane"
       data-phase={state().phase}
       class={`relative flex flex-col min-w-0 min-h-0 bg-surface-0 ${props.class ?? ""}`}
-      // The CAP is CSS, not arithmetic: `max-width` keeps the pane under 60% of
-      // whatever row it is in, so a window narrowed under a stored-wide chat
-      // still shows the terminal beside it and still has its grip on screen —
-      // without this component measuring its host. The stored width is
-      // untouched, so the chat re-widens when the window grows back.
+      // The cap at RENDER time is CSS, not arithmetic — this component does
+      // not measure its host. `max-width` leaves the peek its minimum in a row
+      // narrowed under a stored-wide chat, and `flex: 0 1 auto` with the
+      // chat's own floor as `min-width` makes the CHAT give way first when the
+      // row cannot hold both: the peek is `flex-1 min-w-0` and would otherwise
+      // absorb every pixel of the shortfall and vanish. The stored width is
+      // untouched either way, so the chat re-widens when the window grows.
       style={
         props.grip
           ? {
               width: `${dragWidth() ?? orchestratorPaneWidth()}px`,
-              "max-width": "60%",
-              flex: "0 0 auto",
+              "max-width": `calc(100% - ${PEEK_MIN_WIDTH_PX}px)`,
+              "min-width": `${PANE_MIN_WIDTH_PX}px`,
+              flex: "0 1 auto",
             }
           : undefined
       }
     >
+      <Show when={dropping()}>
+        <div
+          data-testid="orchestrator-drop-target"
+          class="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-sm border-2 border-dashed border-accent bg-surface-0/80 font-mono text-[0.7rem] uppercase tracking-[0.12em] text-accent"
+        >
+          Drop to attach
+        </div>
+      </Show>
       <Show when={props.grip}>
         {(grip) => (
           /* biome-ignore lint/a11y/noStaticElementInteractions: pointer-only

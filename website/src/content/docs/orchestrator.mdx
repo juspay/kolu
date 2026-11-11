@@ -95,6 +95,16 @@ Sending while it works is fine: the message goes out immediately and waits **at 
 
 A tile action, **Ask the Orchestrator about this**, enters the mode with that terminal already mentioned.
 
+### Attachments
+
+Paste an image into the composer, or drop a file onto the pane, and it goes up with your message — a chip appears above the box first, so you can see what is attached and take it off again. A screenshot is the obvious case: the agent reads the picture rather than your description of it.
+
+What travels depends on what the agent said it could take. An image goes as an image. A text-like file goes as its text, embedded. Anything else goes as a **link to the path** kolu wrote it to, which the agent reads itself — so a 40 MB binary is a filename on the wire, not forty megabytes. An agent that never advertised the kind you attached gets told no, out loud, rather than quietly handed nothing.
+
+There are two limits — **10 MB per file, 20 MB per message** — and crossing either is a sentence in the composer before anything is sent.
+
+Images are **not** kept in the conversation's record. kolu writes the file into the host's state directory and remembers where; the thumbnail stays on screen in the tab that sent it, and a conversation reopened tomorrow shows the chip with the file's name and size. A transcript is a thing you scroll through for months, and a base64 screenshot in it is a conversation you cannot load.
+
 ## Signing in
 
 An agent with no credential cannot open a conversation or run a turn, and the protocol has one way of saying so. kolu reads it as its own refusal rather than a generic no, because it is the one refusal with something to do about it: the panel puts the agent's own ways of signing in on screen.

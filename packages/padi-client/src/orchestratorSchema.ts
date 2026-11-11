@@ -33,8 +33,9 @@ import {
   Usage,
   YES_NO,
 } from "@kolu/acp/wire";
+import { formatBytes, MIB } from "@kolu/byte-units";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 /** `YES_NO` is a VALUE, not a schema, and it is the one piece of this
  *  vocabulary both ends must spell identically: a boolean answer travels as
@@ -93,6 +94,65 @@ export const OrchestratorDeliverySchema = Schema.Literals([
   "unanswered",
 ]);
 
+/** A FILE THAT CAME WITH A MESSAGE — an image pasted into the composer, a
+ *  log dropped onto the pane.
+ *
+ *  One shape for three lives, which is why the two location fields are both
+ *  nullable rather than split into three schemas. Travelling UP it carries a
+ *  `data:` URL and no `path`: the browser is holding the bytes and padi has
+ *  not written them yet. Coming back DOWN on the row this browser minted it
+ *  carries both, so the chip can draw its own thumbnail without a second
+ *  fetch. Restored from disk after a padi restart it carries NEITHER the
+ *  `dataUrl` (never persisted — base64 in `config.json` would make every read
+ *  of the saved session pay for an image nobody is looking at) nor, for a
+ *  reader in a different browser, anything to draw with but the name and the
+ *  size. That is the deliberate trade: the file is still on the host, under
+ *  `path`, and the agent was already handed it.
+ *
+ *  `bytes` is NOT derived from the `dataUrl` at the reader: it is the one
+ *  field that must still be there when the base64 is gone, because the chip
+ *  draws it and the per-prompt cap refuses on it. */
+export const OrchestratorAttachmentSchema = Schema.Struct({
+  /** Stable within the prompt that carried it. */
+  id: Schema.String,
+  /** What the person called it — a filename, or a minted one for a paste. */
+  name: Schema.String,
+  mimeType: Schema.String,
+  /** Size in bytes, always; the panel draws it and the cap refuses on it. */
+  bytes: Schema.Int,
+  /** A `data:` URL, present ONLY on the prompt travelling up and on the row
+   *  this browser minted. Never persisted, never re-served. */
+  dataUrl: Schema.NullOr(Schema.String),
+  /** Where padi put it under its state root, once it has. Null until then. */
+  path: Schema.NullOr(Schema.String),
+});
+export type OrchestratorAttachment = typeof OrchestratorAttachmentSchema.Type;
+
+/** How big ONE attachment may be, and how big a single prompt's worth may be
+ *  together.
+ *
+ *  Two numbers rather than one because they refuse different mistakes: a
+ *  screenshot of a 5K display is one file worth refusing on its own, and
+ *  thirty small ones are a prompt worth refusing as a whole. The bytes cross
+ *  the wire base64'd inside a procedure argument and land in padi's state
+ *  root, so the ceiling is the daemon's, not the browser's — which is why the
+ *  numbers live on the contract both ends read rather than in either one.
+ *
+ *  The agent is never told about a file that was refused. A silent drop would
+ *  leave a person watching a conversation answer a question about an image it
+ *  was never shown. */
+export const ATTACHMENT_BYTE_CAP = 10 * MIB;
+export const PROMPT_ATTACHMENT_BYTE_CAP = 20 * MIB;
+
+/** The two refusals, spelled ONCE. The composer refuses before it sends and
+ *  padi refuses what reaches it anyway, and a person who sees both must not
+ *  be reading two different rules. */
+export const attachmentTooBig = (name: string, bytes: number): string =>
+  `“${name}” is ${formatBytes(bytes)}, and one attachment may be at most ${formatBytes(ATTACHMENT_BYTE_CAP)}.`;
+
+export const promptAttachmentsTooBig = (bytes: number): string =>
+  `These attachments come to ${formatBytes(bytes)}, and one message may carry at most ${formatBytes(PROMPT_ATTACHMENT_BYTE_CAP)}. Send them across more than one message.`;
+
 /** What a person typed. Never markdown — it is quoted, not rendered. */
 export const OrchestratorUserRowSchema = Schema.Struct({
   ...rowHead,
@@ -107,6 +167,15 @@ export const OrchestratorUserRowSchema = Schema.Struct({
   /** ...and why, on the one refusal with something to do about it: nobody is
    *  signed in. The panel offers the sign-in row rather than a bare retry. */
   auth: Schema.optionalKey(Schema.Literal(true)),
+  /** What rode along with the words. A DECODING DEFAULT rather than an
+   *  optional key, because this row is read back off `config.json` as well as
+   *  off the wire: a transcript persisted before attachments existed has no
+   *  such key, and the alternative to backfilling `[]` is a state-root that
+   *  no longer decodes. The decoded row always carries the array, so no
+   *  reader needs a second spelling for "none". */
+  attachments: Schema.Array(OrchestratorAttachmentSchema).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([])),
+  ),
 });
 
 /** The agent's prose, accumulated. Rendered as markdown. */
@@ -403,6 +472,25 @@ export const OrchestratorModelSchema = Schema.Struct({
  *  values; kolu composes neither. */
 export const OrchestratorOptionSchema = Schema.Struct({
   id: Schema.String,
+  /**
+   * WHICH CONTROL THIS ROW IS, decided by the harness that read the adapter
+   * and never re-derived by the panel.
+   *
+   * `"model"` — the agent's model picker, the row whose id its leg names as
+   * the model config. It is BOTH the header's reading and a control, which is
+   * the distinction this field exists to keep: a panel that recognised the
+   * model row only by consuming it into the header drew every section except
+   * the one a person opened the popover for. Drawn first, because choosing a
+   * model is the thing people come here to do.
+   *
+   * `"boolean"` — an on/off setting (fast mode). It arrives with NO choices,
+   * so a panel that only knows how to draw a list of them renders a heading
+   * with nothing under it; a toggle on one line is the whole control.
+   *
+   * `"choice"` — everything else: reasoning effort, permission mode. A list
+   * of the adapter's own values, one of them current.
+   */
+  kind: Schema.Literals(["model", "choice", "boolean"]),
   name: Schema.String,
   description: Schema.NullOr(Schema.String),
   /** The confirmed value. A refused change leaves this where it was. */
@@ -551,6 +639,15 @@ export const DEFAULT_ORCHESTRATOR_STATE: OrchestratorState = {
 export const OrchestratorPromptInputSchema = Schema.Struct({
   text: Schema.String,
   mentions: Schema.Array(OrchestratorMentionSchema),
+  /** The files that rode with the words, each carrying its `data:` URL — this
+   *  is the ONE hop the bytes travel on, and padi writes them to its state
+   *  root before the agent is told anything. A decoding default so a browser
+   *  served by an earlier build, which omits the key entirely, still sends a
+   *  prompt rather than being refused by the decoder for having nothing to
+   *  attach. */
+  attachments: Schema.Array(OrchestratorAttachmentSchema).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([])),
+  ),
 });
 
 export const OrchestratorPromptOutputSchema = Schema.Struct({

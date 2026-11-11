@@ -77,6 +77,11 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     doc: "orchestrator",
   },
   {
+    id: "amb-orchestrator-attach",
+    text: "Paste a screenshot or drop a file into the orchestrator's composer and it rides along with your message — the agent sees the picture, not your description of it",
+    doc: "orchestrator",
+  },
+  {
     id: "amb-host-map",
     text: `Set KOLU_PADI_HOST=localhost,you@box to work across machines — a host strip appears in the top bar; click a host to switch the whole canvas to it live (no reload), each tab carrying that machine's whole attention summary, and ${formatKeybind(ACTIONS.openHostSwitcher.keybind)} then Enter hops back to the machine you came from`,
     doc: "remote-hosts",

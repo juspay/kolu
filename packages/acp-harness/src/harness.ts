@@ -56,6 +56,7 @@
 import {
   client as acpClient,
   type ClientConnection,
+  type ContentBlock,
   CreateElicitationRequest,
   type CreateElicitationResponse,
   type InitializeResponse,
@@ -111,6 +112,7 @@ import {
 import { streamOver } from "./pipes.ts";
 import { AnswerRefused, Questions } from "./questions.ts";
 import type {
+  OrchestratorAttachment,
   OrchestratorCommand,
   OrchestratorKoluCall,
   OrchestratorMention,
@@ -239,6 +241,7 @@ export interface Harness {
   prompt(
     text: string,
     mentions: ReadonlyArray<OrchestratorMention>,
+    attachments: ReadonlyArray<OrchestratorAttachment>,
   ): Promise<{ rowId: string }>;
   cancel(): Promise<void>;
   answer(
@@ -319,6 +322,14 @@ const SIGN_IN_CAP = 64 * 1024;
  *  JSON-RPC errors, and a turn that failed with nothing else to say is what the
  *  dump exists for. */
 const STDERR_CAP = 32 * 1024;
+/** THE MOST ONE ATTACHMENT MAY WEIGH, and the most a prompt may carry in all.
+ *  Both are refused with a sentence naming the limit rather than trimmed or
+ *  dropped: an image that silently did not travel is a person asking about a
+ *  picture the model never saw, and the only honest versions of "too big" are
+ *  a number and a no. The bytes counted are the ones the row declares, which
+ *  is the number the panel drew beside the chip. */
+const ATTACHMENT_CAP = 10 * 1024 * 1024;
+const PROMPT_CAP = 20 * 1024 * 1024;
 
 /**
  * THE KINDS THAT RE-TELL WHAT WAS SAID — the only frames a replay is dropped
@@ -448,6 +459,19 @@ export const startHarness = async (
   let settings: ReadonlyArray<OrchestratorOption> = [];
   let labels: ReadonlyMap<string, string> = new Map();
   let offered: ReadonlyArray<Offered> = [];
+  /**
+   * WHAT THIS AGENT SAID IT CAN BE SENT, beyond the text every agent takes —
+   * read off `initialize` and nothing else.
+   *
+   * ACP makes an image block and an embedded resource OPT-IN at the agent's
+   * end: an adapter that never advertised `image` is one an image is not legal
+   * to send to, and sending one anyway is a turn that fails somewhere inside
+   * the agent with a sentence nobody wrote for a person. So an attachment the
+   * agent cannot take is refused HERE, naming the capability
+   * ({@link blocksOf}), and both start FALSE because nothing is advertised
+   * before the handshake.
+   */
+  let carries = { image: false, embeddedContext: false };
   let signIn: OrchestratorSignIn | null = null;
   let attempt: Attempt | null = null;
   /** The MCP servers this conversation was handed, by name — read by the
@@ -1042,6 +1066,24 @@ export const startHarness = async (
 
   // ── the settings, and the one of them that is the model ──────────────
 
+  /**
+   * EVERY SETTING THE AGENT OFFERS, and which of them is the model.
+   *
+   * The model row is BOTH THINGS AT ONCE and used to be only one: it is the
+   * reading the header draws its name and its context size from, AND it is the
+   * agent's own model picker. Pulled out into `picker` and left out of
+   * `settings`, it became a header that said "Opus 5.5" over a popover with no
+   * MODEL section in it — the panel offered every setting the agent advertised
+   * except the one a person opens that popover to change. So it goes in BOTH,
+   * marked `model` and published first, because the model is what the brief
+   * and olai's own panel put at the top of that list.
+   *
+   * The MARK is what a drawer needs and cannot work out for itself: a select
+   * is drawn as rows, a boolean as one toggle on one line, and a boolean told
+   * apart by "has no choices" would also catch a select whose rows this end
+   * could not read — which is a heading with nothing under it, which is what
+   * FAST MODE drew.
+   */
   const readSettings = (
     config: ReadonlyArray<SessionConfigOption> | null | undefined,
   ): void => {
@@ -1053,17 +1095,19 @@ export const startHarness = async (
       // value anybody can pick, so only the leaves are offered: a picker drawn
       // with a group in it would be one whose heading is selectable.
       const choices = choicesOf(option);
+      const isModel = leg.models !== null && option.id === leg.models.config;
       const row: OrchestratorOption = {
         id: option.id,
         name: option.name,
         description: option.description ?? null,
         value: optionValueOf(option),
         choices,
+        kind: isModel ? "model" : kindOf(option, choices),
       };
-      if (leg.models !== null && option.id === leg.models.config) picker = row;
+      if (isModel) picker = row;
       else read.push(row);
     }
-    settings = read;
+    settings = picker === null ? read : [picker, ...read];
     if (picker === null) return;
     labels = new Map(
       picker.choices.map((choice) => [choice.value, choice.label]),
@@ -1536,6 +1580,11 @@ export const startHarness = async (
       failedToStart,
     ])) as InitializeResponse;
     offered = methodsIn(initialized, adapter.command, adapter.args);
+    const takes = initialized.agentCapabilities?.promptCapabilities;
+    carries = {
+      image: takes?.image === true,
+      embeddedContext: takes?.embeddedContext === true,
+    };
     await openConversation();
   } catch (cause) {
     // Everything except the signature goes with the subprocess: a conversation
@@ -1583,14 +1632,14 @@ export const startHarness = async (
 
   const runTurn = async (
     ticket: Turn,
-    body: string,
+    blocks: ReadonlyArray<ContentBlock>,
     sessionId: string,
   ): Promise<void> => {
     const from = stderrWritten;
     try {
       const answered = (await request(
         methods.agent.session.prompt,
-        { sessionId, prompt: [{ type: "text", text: body }] },
+        { sessionId, prompt: blocks },
         // A turn is a person waiting on a model: no deadline.
         null,
       )) as PromptResponse;
@@ -1622,28 +1671,49 @@ export const startHarness = async (
     }
   };
 
+  /**
+   * SEND IT, with whatever was attached to it.
+   *
+   * THE BLOCKS ARE BUILT BEFORE THE ROW IS MINTED, which is the whole of the
+   * refusal rule: an attachment this agent cannot be sent, or one over the
+   * cap, throws before anything is drawn — so a person sees their own message
+   * still theirs to send with a sentence saying why, rather than a sent row
+   * whose picture the model never got.
+   *
+   * THE ROW CARRIES WHAT IT WAS HANDED, `dataUrl` and all: the browser that
+   * pasted the image draws its own thumbnail off that row, and padi — which
+   * wrote the bytes out before calling this and owns its own record — is the
+   * one end that strips it before persisting. A harness that emptied the field
+   * here would be deciding what padi may keep.
+   */
   const prompt = async (
     text: string,
     mentions: ReadonlyArray<OrchestratorMention>,
+    attachments: ReadonlyArray<OrchestratorAttachment>,
   ): Promise<{ rowId: string }> => {
     const sessionId = activeSession;
     if (live === null || sessionId === null) {
       throw new HarnessUnavailable("the agent has no session open");
     }
+    const attached = blocksOf(attachments, carries);
     // AT THE AGENT, NEXT IN LINE — this end sent a prompt while a turn of its
     // own was still in flight. kolu's fact about its own conversation, not a
     // queue: the message goes out now, on the wire, exactly as it would have.
     const waiting = turns.busy;
-    const { key, change } = transcript.user(
-      text,
-      mentions.length === 0 ? {} : { mentions },
-    );
+    const { key, change } = transcript.user(text, {
+      ...(mentions.length === 0 ? {} : { mentions }),
+      attachments,
+    });
     report(change);
     if (waiting) report(transcript.queued(key));
     report(transcript.begins());
     const ticket = turns.open(key);
     publish();
-    void runTurn(ticket, bodyOf(text, mentions), sessionId);
+    void runTurn(
+      ticket,
+      [{ type: "text", text: bodyOf(text, mentions) }, ...attached],
+      sessionId,
+    );
     return { rowId: key };
   };
 
@@ -1697,7 +1767,7 @@ export const startHarness = async (
     const answered = (await request(methods.agent.session.setConfigOption, {
       sessionId,
       configId: id,
-      value,
+      ...settingValueOf(id, value),
     })) as SetSessionConfigOptionResponse;
     // A REFUSED CHANGE LEAVES THE VALUE WHERE IT WAS, which is what reading the
     // answer rather than the request buys: the row says what the agent
@@ -1723,10 +1793,18 @@ export const startHarness = async (
     // padi's own and a `clear` would remove ids this harness never minted.
     // The counters are monotonic for the life of the process, so the divider
     // and everything after it sorts below what is already there.
-    report(transcript.add("divider", "new session"));
+    const mark = transcript.divider("new session");
+    report(mark.change);
     try {
       await fresh();
     } catch (cause) {
+      // A BREAK THAT BROKE NOTHING COMES BACK OUT. The divider says one thing
+      // — the agent's memory was reset — and a conversation that would not
+      // open has reset nothing a reader needs told about. Left standing, it is
+      // also what a retry stacks on: the owner's screenshot was four
+      // `— NEW SESSION —` lines with no conversation between them, one per
+      // attempt, over a host whose adapter would not open a session.
+      if (mark.key !== null) report(transcript.withdraw(mark.key));
       // SAID BEFORE IT IS THROWN: a conversation that would not open leaves a
       // panel with a composer and nothing to explain it, and the caller's own
       // error reaches a log rather than this screen.
@@ -1734,6 +1812,35 @@ export const startHarness = async (
       throw cause;
     }
     publish();
+  };
+
+  /**
+   * HOW A SETTING'S NEW VALUE GOES ON THE WIRE, which is two shapes and not
+   * one: `session/set_config_option` carries a select's value as the row's own
+   * id and a BOOLEAN as `{type: "boolean", value: true}` — the pinned Claude
+   * adapter refuses the string `"true"` for its FAST MODE toggle outright
+   * (`Invalid value for config option fast`).
+   *
+   * The string stays padi's whole vocabulary: a wire that carried two value
+   * types would be a second thing for every layer above to get right, and the
+   * one end that knows which settings are booleans is this one — it read the
+   * advertisement.
+   */
+  const settingValueOf = (
+    id: string,
+    value: string,
+  ):
+    | { readonly value: string }
+    | { readonly type: "boolean"; readonly value: boolean } => {
+    const option = settings.find((one) => one.id === id);
+    if (option?.kind !== "boolean") return { value };
+    if (value !== "true" && value !== "false") {
+      throw new HarnessRefused(
+        `\`${option.name}\` is a switch and takes \`true\` or \`false\`, not \`${value}\``,
+        false,
+      );
+    }
+    return { type: "boolean", value: value === "true" };
   };
 
   // ── signing in ───────────────────────────────────────────────────────
@@ -2098,3 +2205,164 @@ const choiceOf = (
     hint: typeof row.description === "string" ? row.description : null,
   };
 };
+
+/**
+ * WHICH CONTROL THIS SETTING IS, for a panel that has to draw it.
+ *
+ * A boolean is the one setting with no rows to offer — ACP's own
+ * `type: "boolean"`, which the pinned Claude adapter sends for FAST MODE
+ * because kolu advertised `session.configOptions.boolean` — and a panel that
+ * guessed from "offers no choices" would draw the same empty heading for a
+ * select whose rows this end could not read. So the VALUE is what decides it:
+ * a boolean `currentValue` and nothing to pick is a switch, and everything
+ * else is a list of rows.
+ */
+const kindOf = (
+  option: SessionConfigOption,
+  choices: ReadonlyArray<unknown>,
+): "choice" | "boolean" =>
+  choices.length === 0 &&
+  "currentValue" in option &&
+  typeof option.currentValue === "boolean"
+    ? "boolean"
+    : "choice";
+
+/**
+ * WHAT A PROMPT'S ATTACHMENTS GO ON THE WIRE AS — one ACP content block each,
+ * chosen by what the file IS and refused when this agent cannot take it.
+ *
+ * Three kinds, because ACP has three and each is opt-in differently: an image
+ * travels as base64 beside its mime type and needs the agent's
+ * `promptCapabilities.image`; a text-like file travels as a `resource` with
+ * its text embedded and needs `embeddedContext`; anything else travels as a
+ * `resource_link` naming the absolute path padi wrote it to, which every agent
+ * must accept and which an agent with a shell can go and read.
+ *
+ * REFUSED, NEVER DROPPED. An attachment the agent did not advertise for is a
+ * sentence naming the capability, and the caps are sentences naming the limit:
+ * a picture that silently did not travel is a person asking a model about an
+ * image it was never shown, and no answer to that is worth one.
+ */
+const blocksOf = (
+  attachments: ReadonlyArray<OrchestratorAttachment>,
+  carries: { readonly image: boolean; readonly embeddedContext: boolean },
+): ReadonlyArray<ContentBlock> => {
+  let total = 0;
+  const blocks: Array<ContentBlock> = [];
+  for (const one of attachments) {
+    if (one.bytes > ATTACHMENT_CAP) {
+      throw new HarnessRefused(
+        `\`${one.name}\` is ${sized(one.bytes)} and the most one attachment` +
+          ` may carry is ${sized(ATTACHMENT_CAP)}`,
+        false,
+      );
+    }
+    total += one.bytes;
+    if (total > PROMPT_CAP) {
+      throw new HarnessRefused(
+        `that is ${sized(total)} of attachments and the most one message may` +
+          ` carry is ${sized(PROMPT_CAP)}`,
+        false,
+      );
+    }
+    blocks.push(blockOf(one, carries));
+  }
+  return blocks;
+};
+
+/** One attachment as the block it belongs in. */
+const blockOf = (
+  one: OrchestratorAttachment,
+  carries: { readonly image: boolean; readonly embeddedContext: boolean },
+): ContentBlock => {
+  const mimeType = essenceOf(one.mimeType);
+  if (mimeType.startsWith("image/")) {
+    if (!carries.image) {
+      throw new HarnessRefused(
+        `this agent did not advertise \`image\` at \`initialize\`, so` +
+          ` \`${one.name}\` cannot be sent to it`,
+        false,
+      );
+    }
+    return { type: "image", data: base64Of(one), mimeType };
+  }
+  if (TEXT_LIKE[mimeType] === true || mimeType.startsWith("text/")) {
+    if (!carries.embeddedContext) {
+      throw new HarnessRefused(
+        `this agent did not advertise \`embeddedContext\` at \`initialize\`,` +
+          ` so the contents of \`${one.name}\` cannot be sent to it`,
+        false,
+      );
+    }
+    return {
+      type: "resource",
+      resource: {
+        uri: uriOf(one),
+        mimeType,
+        text: Buffer.from(base64Of(one), "base64").toString("utf8"),
+      },
+    };
+  }
+  return {
+    type: "resource_link",
+    uri: uriOf(one),
+    name: one.name,
+    mimeType,
+    size: one.bytes,
+  };
+};
+
+/** The mime types that are TEXT without saying `text/` — the three a person
+ *  really drops on a chat window. Everything else keeps its bytes and travels
+ *  as a link: a PDF embedded as "text" is mojibake with a filename on it. */
+const TEXT_LIKE: Readonly<Record<string, true>> = {
+  "application/json": true,
+  "application/xml": true,
+  "application/javascript": true,
+};
+
+/** The type WITHOUT its parameters — a browser hands over
+ *  `text/plain;charset=utf-8`, and a rule that compared the whole string would
+ *  send the commonest text file there is as an opaque link. */
+const essenceOf = (mimeType: string): string =>
+  (mimeType.split(";")[0] ?? mimeType).trim().toLowerCase();
+
+/** THE BYTES, base64 as both the image block and the decode below want them.
+ *
+ *  The `data:` URL the browser minted is the ONE source: padi has written the
+ *  file out by now, but a harness that read the disk copy would be a second
+ *  answer to "what did they attach" for the day the two disagree. An
+ *  attachment that arrives without it is refused rather than sent empty. */
+const base64Of = (one: OrchestratorAttachment): string => {
+  const url = one.dataUrl;
+  const comma = url === null ? -1 : url.indexOf(",");
+  if (url === null || !url.startsWith("data:") || comma === -1) {
+    throw new HarnessRefused(
+      `\`${one.name}\` arrived with no bytes to send`,
+      false,
+    );
+  }
+  const body = url.slice(comma + 1);
+  return url.slice(5, comma).endsWith(";base64")
+    ? body
+    : Buffer.from(decodeURIComponent(body), "utf8").toString("base64");
+};
+
+/** Where the agent can go and find it. A `resource` and a `resource_link` both
+ *  NAME the file — the protocol has no block for either without a uri — and
+ *  the name is padi's own copy under its state root, which is the only path
+ *  that exists on the host the agent is running on. */
+const uriOf = (one: OrchestratorAttachment): string => {
+  if (one.path === null) {
+    throw new HarnessRefused(
+      `\`${one.name}\` has not been written to this host yet, so there is no` +
+        ` file to name`,
+      false,
+    );
+  }
+  return `file://${one.path}`;
+};
+
+/** A size a person reads, for the two refusals that name one. */
+const sized = (bytes: number): string =>
+  `${(bytes / (1024 * 1024)).toFixed(1).replace(/\.0$/, "")} MiB`;

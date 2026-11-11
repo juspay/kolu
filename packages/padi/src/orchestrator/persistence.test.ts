@@ -12,6 +12,7 @@
  */
 
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Harness, HarnessChange, HarnessOptions } from "@kolu/acp-harness";
@@ -65,23 +66,37 @@ const row = (id: string, seq: number, text = id): OrchestratorRow => ({
 });
 
 let stateRoot: string;
+/** A socket that ACCEPTS: the host proves padi's own rendezvous before it
+ *  hands the path to an agent, and a probe is a real `connect()`. */
+let liveSocket: string;
+let listener: Server;
 const SAVED_AGENT = process.env[ACP_AGENT_ENV];
 const SAVED_BIN = process.env[KOLU_MCP_BIN_ENV];
 
-beforeEach(() => {
+beforeEach(async () => {
   stateRoot = mkdtempSync(join(tmpdir(), "padi-orch-"));
   __resetPadiSurfaceCtxForTest();
   setPadiSurfaceCtx(noopPadiSurfaceCtxForTest());
   process.env[ACP_AGENT_ENV] = "/nix/store/fake-acp-adapter";
   process.env[KOLU_MCP_BIN_ENV] = "/nix/store/fake-kolu";
+  liveSocket = join(mkdtempSync(join(tmpdir(), "padi-orch-rv-")), "padi.sock");
+  listener = createServer();
+  const up = Promise.withResolvers<void>();
+  listener.listen(liveSocket, up.resolve);
+  await up.promise;
 });
 
-afterEach(() => {
+afterEach(async () => {
   __resetPadiSurfaceCtxForTest();
   if (SAVED_AGENT === undefined) delete process.env[ACP_AGENT_ENV];
   else process.env[ACP_AGENT_ENV] = SAVED_AGENT;
   if (SAVED_BIN === undefined) delete process.env[KOLU_MCP_BIN_ENV];
   else process.env[KOLU_MCP_BIN_ENV] = SAVED_BIN;
+  const down = Promise.withResolvers<void>();
+  listener.close(() => {
+    down.resolve();
+  });
+  await down.promise;
 });
 
 /** A host over THIS state-root's real conf store, with the conversation itself
@@ -103,9 +118,10 @@ function hostOver(root: string): {
     log,
     home: HOME,
     hostName: "test-box",
-    socketPath: () => "/run/padi.sock",
+    socketPath: () => liveSocket,
     store: stores.orchestrator,
     storePath: () => padiConfigPath(root),
+    stateRoot: root,
     spawn: async (opts) => {
       options = opts;
       onChange = opts.onChange;
@@ -153,7 +169,7 @@ function hostOver(root: string): {
 describe("the conversation survives a restart", () => {
   it("round-trips the transcript, the session and the fleet through padi's own `config.json`", async () => {
     const first = hostOver(stateRoot);
-    await first.host.prompt("hello", []);
+    await first.host.prompt("hello", [], []);
     // What the open publishes: the conversation this IS, and the terminals it
     // is working with. Both are the agent's to forget and padi's to keep.
     first.push()({
@@ -212,7 +228,7 @@ describe("the conversation survives a restart", () => {
     ]);
     // …and the count does not double: the restored rows are the whole of it,
     // and the fence tells the resumed conversation to count from past them.
-    await second.host.prompt("still here?", []);
+    await second.host.prompt("still here?", [], []);
     expect(second.resumedSeq()).toBe(2);
     // The conversation the next padi comes back INTO, and the terminals it
     // comes back knowing about. Without both it restores a transcript and then
@@ -270,5 +286,77 @@ describe("a record that parses but is wrong", () => {
     const host = hostOver(stateRoot).host;
     expect(() => host.watch(() => {})).toThrow(/does not match schema/);
     expect(() => host.watch(() => {})).toThrow(padiConfigPath(stateRoot));
+  });
+});
+
+describe("an attachment's bytes", () => {
+  /** One pixel of PNG, as a browser hands it over. */
+  const PIXEL =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+  it("land in the state root and NEVER in `config.json`", async () => {
+    const first = hostOver(stateRoot);
+    await first.host.prompt(
+      "look at this",
+      [],
+      [
+        {
+          id: "att-1",
+          name: "pixel.png",
+          mimeType: "image/png",
+          bytes: 68,
+          dataUrl: PIXEL,
+          path: null,
+        },
+      ],
+    );
+    // The harness mints the user row; this one stands in for it, carrying the
+    // attachment the way a real one does — base64 and all.
+    first.push()({
+      kind: "rows",
+      upserts: [
+        {
+          id: "user-1",
+          seq: 1,
+          since: "2026-01-01T00:00:00.000Z",
+          kind: "user",
+          text: "look at this",
+          attachments: [
+            {
+              id: "att-1",
+              name: "pixel.png",
+              mimeType: "image/png",
+              bytes: 68,
+              dataUrl: PIXEL,
+              path: join(stateRoot, "orchestrator", "attachments", "att-1"),
+            },
+          ],
+        },
+      ],
+      removes: [],
+      appends: [],
+    });
+    await first.host.dispose();
+
+    // The bytes are on disk, once, as bytes.
+    const written = join(stateRoot, "orchestrator", "attachments", "att-1");
+    expect(readFileSync(written).length).toBe(70);
+    // ...and `config.json` carries the chip without them. A second copy
+    // base64'd into the record would be read back in full on every boot, and a
+    // single pasted screenshot would be the largest thing in the file.
+    const raw = readFileSync(padiConfigPath(stateRoot), "utf8");
+    expect(raw).not.toContain("base64");
+    expect(raw).not.toContain("iVBORw0KGgo");
+    const config = JSON.parse(raw) as {
+      orchestrator: {
+        rows: ReadonlyArray<{
+          attachments?: ReadonlyArray<{ dataUrl: string | null; path: string }>;
+        }>;
+      };
+    };
+    const kept = config.orchestrator.rows[0]?.attachments?.[0];
+    if (kept === undefined) throw new Error("the row lost its attachment");
+    expect(kept.dataUrl).toBeNull();
+    expect(kept.path).toBe(written);
   });
 });

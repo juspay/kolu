@@ -16,6 +16,7 @@
 
 import type {
   AskAnswer,
+  OrchestratorAttachment,
   OrchestratorMention,
   OrchestratorState,
 } from "@kolu/padi-client/orchestrator";
@@ -39,7 +40,13 @@ function reason(err: unknown): string {
 
 export interface Orchestrator {
   readonly state: Accessor<OrchestratorState>;
-  prompt(text: string, mentions: readonly OrchestratorMention[]): void;
+  /** `attachments` carry their own `dataUrl` on the way up — the bytes padi
+   *  writes under its state root and then references by path. */
+  prompt(
+    text: string,
+    mentions: readonly OrchestratorMention[],
+    attachments: readonly OrchestratorAttachment[],
+  ): void;
   cancel(): void;
   /** `answers === null` DECLINES — the agent is told you would not say. */
   answer(askId: string, answers: readonly AskAnswer[] | null): void;
@@ -82,11 +89,15 @@ export const useOrchestrator = createSharedRoot<Orchestrator>(() => {
 
   return {
     state,
-    prompt: (text, mentions) =>
+    prompt: (text, mentions, attachments) =>
       runAction(
         "orchestrator prompt",
         activePadiRpc.orchestrator
-          .prompt({ text, mentions: [...mentions] })
+          .prompt({
+            text,
+            mentions: [...mentions],
+            attachments: [...attachments],
+          })
           .pipe(
             // The agent's no lands on the user row as `delivery: "refused"`,
             // with *send again* where a retry is honest. Toasting it too would

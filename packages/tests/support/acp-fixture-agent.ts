@@ -102,7 +102,35 @@ const enqueue = (run: () => Promise<void>): void => {
   })();
 };
 
+/** WHAT THE CLI SAYS ABOUT THE SERVERS IT WAS HANDED, in the one message kolu's
+ *  Claude leg reads it from — the adapter forwards the CLI's `system`/`init`
+ *  over `_claude/sdkMessage`, and `liveServersIn` reads `mcp_servers` off it.
+ *
+ *  Sent at the START OF EVERY TURN, which is where the real CLI sends it and
+ *  therefore the only moment the roster can ever leave `handed`. A conversation
+ *  nobody has spoken to says `handed` forever, and that is the truth: nothing
+ *  has reported either way.
+ *
+ *  It says `connected` because this fixture IS reachable — padi proves its
+ *  rendezvous before it hands the path over, so a conversation that opened at
+ *  all is one whose kolu server was there. */
+const reportServers = (): void => {
+  write({
+    jsonrpc: "2.0",
+    method: "_claude/sdkMessage",
+    params: {
+      sessionId: SESSION,
+      message: {
+        type: "system",
+        subtype: "init",
+        mcp_servers: [{ name: "kolu", status: "connected" }],
+      },
+    },
+  });
+};
+
 const turn = async (id: unknown, text: string): Promise<void> => {
+  reportServers();
   if (text === "refuse this") {
     refuse(id, "the model said no");
     return;

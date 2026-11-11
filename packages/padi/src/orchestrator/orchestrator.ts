@@ -58,6 +58,10 @@
  * sentence and every procedure refuses with it.
  */
 
+import { existsSync, readdirSync, rmSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import { connect } from "node:net";
+import { join } from "node:path";
 import { ORCHESTRATOR_ENGINE as ENGINE } from "kolu-agents/acp";
 import type { NotHere } from "@kolu/acp/engine";
 import {
@@ -65,16 +69,22 @@ import {
   type HarnessOptions,
   HarnessRefused,
   HarnessUnavailable,
+  type StdioServer,
 } from "@kolu/acp-harness";
 import { KOLU_MCP_ARGS, PADI_SOCKET_ENV } from "@kolu/detect";
 import {
   appendedText,
+  ATTACHMENT_BYTE_CAP,
+  attachmentTooBig,
   DEFAULT_ORCHESTRATOR_STATE,
+  type OrchestratorAttachment,
   type OrchestratorFrame,
   OrchestratorRefused,
   type OrchestratorRow,
   type OrchestratorState,
   OrchestratorUnavailable,
+  PROMPT_ATTACHMENT_BYTE_CAP,
+  promptAttachmentsTooBig,
 } from "@kolu/padi-client/surface";
 import type { CellStore } from "@kolu/surface/server";
 import type { Logger } from "pino";
@@ -110,6 +120,11 @@ export interface OrchestratorHost {
       intent: string | null;
       cwd: string | null;
     }>,
+    /** The files that came with the words, each still carrying the `data:`
+     *  URL the browser minted. They are WRITTEN to this padi's state root
+     *  before the agent hears about them, so what the harness is handed has a
+     *  `path` as well — see {@link storedAttachments}. */
+    attachments: ReadonlyArray<OrchestratorAttachment>,
   ) => Promise<{ rowId: string }>;
   readonly cancel: () => Promise<void>;
   readonly answer: (
@@ -151,6 +166,12 @@ export interface OrchestratorDeps {
   /** The FILE behind `store`, named in the refusal a corrupt record raises —
    *  the one thing a person holding a bad state-root can act on. */
   readonly storePath: () => string;
+  /** The DIRECTORY that file is in — where a prompt's attachments are written
+   *  so the agent can be handed a path to read. A plain string rather than a
+   *  thunk like the two above: those are resolved late (the socket is not
+   *  known until the daemon serves, the config path is derived per read),
+   *  while the state root is the one thing this daemon was started with. */
+  readonly stateRoot: string;
   /** How a conversation is STARTED — `startHarness`, pushed in at assembly.
    *
    *  This module owns the record, the readers and the refusals; it owns no
@@ -211,10 +232,92 @@ const sentenceOf = (err: unknown): string => {
   return err instanceof Error ? err.message : String(err);
 };
 
+/** The sentence a padi whose own socket will not answer says. It names the
+ *  PATH, because the person who can see this is holding a host whose daemon
+ *  and whose rendezvous disagree, and the path is the whole of the lead. */
+const noAnswerAt = (socket: string, cause: string): string =>
+  `This padi's orchestrator cannot reach this padi: nothing answered at ${socket} (${cause}). The agent's \`kolu mcp\` would be handed the same path, fail to connect, and carry on without this host's terminals — so the conversation is refused instead of opened with no hands.`;
+
+/** Does anything ACCEPT at `socket`? Resolves if so, refuses with the whole
+ *  sentence if not. The connection is dropped the instant it lands: what is
+ *  being asked is the question `kolu mcp` is about to ask, not a conversation
+ *  of padi's own.
+ *
+ *  NO DEADLINE, and that is not an oversight. A `connect` to a unix path is
+ *  answered by the kernel: nothing bound there is `ENOENT` and nothing
+ *  listening is `ECONNREFUSED`, both immediately, and a full backlog is
+ *  refused rather than queued. There is no state in which this waits, so a
+ *  timer here would be a second clock that could only ever fire wrongly. */
+const listeningAt = (socket: string): Promise<void> => {
+  const settled = Promise.withResolvers<void>();
+  const probe = connect(socket);
+  probe.once("connect", () => {
+    probe.destroy();
+    settled.resolve();
+  });
+  probe.once("error", (cause: Error) => {
+    probe.destroy();
+    settled.reject(
+      new OrchestratorUnavailable({ why: noAnswerAt(socket, cause.message) }),
+    );
+  });
+  return settled.promise;
+};
+
+/** Where a prompt's files land, under padi's state root.
+ *
+ *  Beside `config.json` rather than inside it: an image is bytes, and bytes
+ *  base64'd into the record would make every read of the saved session — on
+ *  every boot, for every reader — pay for a screenshot nobody is looking at.
+ *  Its own directory under an `orchestrator/` corner so a person can see what
+ *  the conversation is holding, and delete it, without a tool. */
+const ATTACHMENTS_DIR = join("orchestrator", "attachments");
+
+/** An id is the WHOLE filename, so it may be nothing but a filename. A
+ *  browser that sent `../../id_rsa` would otherwise be choosing where this
+ *  daemon writes; leading dots are out too, so neither `.` nor `..` can be
+ *  spelled. Refused rather than sanitized — a name this end had to repair is
+ *  a name the two ends no longer agree on. */
+const SAFE_ATTACHMENT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** What a `data:` URL puts before its payload. */
+const BASE64_MARK = ";base64,";
+
+/** The BYTES behind an attachment, or the sentence saying why there are none.
+ *
+ *  The `bytes` field that arrived with it is a CLAIM, and the cap is enforced
+ *  on what was actually decoded — a browser that understated a file must not
+ *  be the reason a daemon writes one twice the size it refuses. */
+const decodedAttachment = (one: OrchestratorAttachment): Buffer => {
+  if (one.dataUrl === null) {
+    throw new OrchestratorRefused({
+      why: `“${one.name}” arrived with no bytes, so there is nothing to send. An attachment carries its contents on the way up.`,
+      auth: false,
+    });
+  }
+  const mark = one.dataUrl.indexOf(BASE64_MARK);
+  if (!one.dataUrl.startsWith("data:") || mark === -1) {
+    throw new OrchestratorRefused({
+      why: `“${one.name}” did not arrive as a base64 data URL, which is the one encoding an attachment travels in.`,
+      auth: false,
+    });
+  }
+  return Buffer.from(one.dataUrl.slice(mark + BASE64_MARK.length), "base64");
+};
+
 export function startOrchestratorHost(
   deps: OrchestratorDeps,
 ): OrchestratorHost {
-  const { log, home, hostName, socketPath, store, storePath, spawn } = deps;
+  const {
+    log,
+    home,
+    hostName,
+    socketPath,
+    store,
+    storePath,
+    stateRoot,
+    spawn,
+  } = deps;
 
   /** What the integration says about being seated here — the adapter it would
    *  spawn, or the whole sentence a machine without it is owed. Asked ONCE, at
@@ -309,15 +412,115 @@ export function startOrchestratorHost(
     // is the honest answer, and the rows AND the fleet go with the session —
     // a transcript claiming a conversation that is not coming back is a lie,
     // and so is a fleet strip naming the terminals of one.
-    if (record.cwd !== home) return;
-    resume = record.sessionId;
-    // The agent re-asserts its own default over a resumed conversation, so a
-    // choice kolu saw is the half that loses unless it is handed back.
-    chosenModel = record.model;
-    for (const row of record.rows) byId.set(row.id, row);
-    rowsCache = null;
-    state = { ...state, sessionId: record.sessionId, fleet: record.fleet };
-    publishState();
+    if (record.cwd === home) {
+      resume = record.sessionId;
+      // The agent re-asserts its own default over a resumed conversation, so a
+      // choice kolu saw is the half that loses unless it is handed back.
+      chosenModel = record.model;
+      for (const row of record.rows) byId.set(row.id, row);
+      rowsCache = null;
+      state = { ...state, sessionId: record.sessionId, fleet: record.fleet };
+      publishState();
+    }
+    // ... and the files go with them. This is the one edge where the set of
+    // rows can SHRINK — the record was capped at {@link ROW_CAP}, or the home
+    // moved and the whole transcript was let go — so it is the one edge where
+    // a file can be left naming nothing. See {@link sweepAttachments}.
+    sweepAttachments();
+  };
+
+  // ── a prompt's files ────────────────────────────────────────────────────
+
+  const attachmentsDir = (): string => join(stateRoot, ATTACHMENTS_DIR);
+
+  /** Reconcile the attachment directory to the rows that still name a file.
+   *
+   *  THE RULE: a file lives exactly as long as the transcript row it came in
+   *  on. That ties three leaks shut at one seam — a record the row cap
+   *  trimmed, a state-root whose home moved and let the whole transcript go,
+   *  and a daemon that died between writing the bytes and persisting the row
+   *  that names them.
+   *
+   *  It runs on the RESTORE and nowhere else, because that is the only moment
+   *  rows are lost. A `newSession` is not one of them and must not be: the
+   *  divider says the agent's memory was reset, not that the scroll above it
+   *  was thrown away, and the rows above it still draw their chips. Rows
+   *  otherwise only arrive; the only ones a frame REMOVES are the ones the
+   *  harness upserts at a fixed key (the plan, a tool card), which carry no
+   *  files.
+   *
+   *  A sweep that cannot read its own directory is WARNED about rather than
+   *  thrown from: what it would have cost is disk, and refusing to open the
+   *  conversation over that would cost the conversation. */
+  const sweepAttachments = (): void => {
+    const dir = attachmentsDir();
+    if (!existsSync(dir)) return;
+    const named = new Set<string>();
+    for (const row of byId.values()) {
+      if (row.kind !== "user") continue;
+      for (const one of row.attachments) named.add(one.id);
+    }
+    try {
+      for (const name of readdirSync(dir)) {
+        if (!named.has(name)) rmSync(join(dir, name), { force: true });
+      }
+    } catch (err) {
+      log.warn(
+        { err, dir },
+        "padi: the orchestrator could not sweep its attachments",
+      );
+    }
+  };
+
+  /** Write a prompt's files under the state root, and hand back the
+   *  attachments with the PATH they were written to.
+   *
+   *  Before the agent hears a word: the harness turns a text-like file into an
+   *  embedded resource and anything else into a link naming this path, so an
+   *  attachment the agent is told about must already be on disk — a link to a
+   *  file that is still being written is a tool call that fails for a reason
+   *  nobody can see.
+   *
+   *  The caps are checked HERE and not only in the browser. The composer
+   *  refuses first because refusing early is kinder, but this is the end that
+   *  has to live with the bytes, and a cap that only the sender enforces is
+   *  not a cap. */
+  const storedAttachments = async (
+    attachments: ReadonlyArray<OrchestratorAttachment>,
+  ): Promise<ReadonlyArray<OrchestratorAttachment>> => {
+    if (attachments.length === 0) return attachments;
+    const dir = attachmentsDir();
+    await mkdir(dir, { recursive: true });
+    const stored: OrchestratorAttachment[] = [];
+    let total = 0;
+    for (const one of attachments) {
+      if (!SAFE_ATTACHMENT_ID.test(one.id)) {
+        throw new OrchestratorRefused({
+          why: `“${one.name}” came with the id ${JSON.stringify(one.id)}, which is not a name this padi will write a file under.`,
+          auth: false,
+        });
+      }
+      const body = decodedAttachment(one);
+      if (body.byteLength > ATTACHMENT_BYTE_CAP) {
+        throw new OrchestratorRefused({
+          why: attachmentTooBig(one.name, body.byteLength),
+          auth: false,
+        });
+      }
+      total += body.byteLength;
+      if (total > PROMPT_ATTACHMENT_BYTE_CAP) {
+        throw new OrchestratorRefused({
+          why: promptAttachmentsTooBig(total),
+          auth: false,
+        });
+      }
+      const path = join(dir, one.id);
+      await writeFile(path, body);
+      // `bytes` is republished from what was actually written, so the chip, the
+      // cap and the file on disk are three readings of one number.
+      stored.push({ ...one, bytes: body.byteLength, path });
+    }
+    return stored;
   };
 
   // ── the record, written on a throttle ───────────────────────────────────
@@ -404,22 +607,39 @@ export function startOrchestratorHost(
     schedulePersist();
   };
 
-  /** The one stdio MCP server the session is handed. EXACTLY one, by design:
-   *  the conversation's whole job is this host's terminals, and every other
-   *  server on its wire is one the AGENT brought — which is what the roster
-   *  strip's "plus the agent's own" says out loud. */
-  const koluServer = (): {
-    name: string;
-    command: string;
-    args: ReadonlyArray<string>;
-    env: Record<string, string>;
-  } => {
+  /** The one stdio MCP server the session is handed, PROVEN before it is
+   *  handed over. EXACTLY one, by design: the conversation's whole job is this
+   *  host's terminals, and every other server on its wire is one the AGENT
+   *  brought — which is what the roster strip's "plus the agent's own" says
+   *  out loud.
+   *
+   *  WHY THE SOCKET IS PROVED AND NOT JUST NAMED. This hand-over happens ONCE,
+   *  inside `session/new`, and nothing ever revisits it: the agent connects
+   *  the server, and if that connect does not land it marks it failed for the
+   *  life of the conversation and carries on — running shell commands itself
+   *  instead of opening terminals, which is the one failure this whole feature
+   *  exists to prevent. Measured against the pinned adapter on this host: a
+   *  `PADI_SOCKET` naming nothing is `failed` one second in, a socket that
+   *  accepts and never answers is `failed` eleven seconds in, and the agent
+   *  says nothing about either beyond a word on a roster nobody is reading
+   *  yet. So a path that is merely a STRING is not good enough to hand over:
+   *  the refusal belongs here, where it can be said in the panel, rather than
+   *  thirty seconds later inside an agent that has already decided to do
+   *  without us.
+   *
+   *  What the probe proves is that something is LISTENING at that path — the
+   *  first thing `kolu mcp` will do, done first by the daemon that is about to
+   *  claim it works. It does not prove padi is well; a daemon whose loop is
+   *  wedged still accepts into the kernel's backlog, and could not publish a
+   *  refusal about itself anyway. */
+  const provenKoluServer = async (): Promise<StdioServer> => {
     const command = process.env[KOLU_MCP_BIN_ENV];
     if (command === undefined || command === "") {
       throw new OrchestratorUnavailable({ why: NO_KOLU_BIN });
     }
     const socket = socketPath();
     if (socket === null) throw new OrchestratorUnavailable({ why: NO_SOCKET });
+    await listeningAt(socket);
     return {
       name: "kolu",
       command,
@@ -470,13 +690,20 @@ export function startOrchestratorHost(
       });
     }
     remembered();
-    let begun: Promise<Harness>;
-    try {
-      begun = spawn({
+    // THE WHOLE BRING-UP IS ONE PROMISE, assigned to `starting` on the line
+    // after it is made and never awaited before then — so two readers arriving
+    // in the same tick share it rather than spawning two adapters. It has to
+    // be a promise from the first step now that the first step is asking
+    // whether this padi's own socket is being served ({@link
+    // provenKoluServer}): a refusal there is a rejection like any other, which
+    // is why there is no synchronous arm around the options any more.
+    const begun = (async (): Promise<Harness> => {
+      const kolu = await provenKoluServer();
+      return spawn({
         leg: ENGINE.leg,
         adapter: seating as Exclude<typeof seating, NotHere>,
         cwd: home,
-        mcpServers: [koluServer()],
+        mcpServers: [kolu],
         teaching: teachingLines(hostName),
         log,
         resume,
@@ -514,14 +741,7 @@ export function startOrchestratorHost(
           applyRows(change);
         },
       });
-    } catch (err) {
-      // `koluServer()` refuses SYNCHRONOUSLY (no baked binary, no socket yet),
-      // so this arm is not redundant with the rejection arm below: the throw
-      // happens while the options are being built, before there is a promise
-      // to attach to.
-      sayRefusal(err);
-      throw err;
-    }
+    })();
     starting = begun
       .then((started) => {
         harness = started;
@@ -592,11 +812,15 @@ export function startOrchestratorHost(
         sinks.delete(sink);
       };
     },
-    prompt: (text, mentions) =>
-      ask((agent) =>
+    prompt: (text, mentions, attachments) =>
+      ask(async (agent) =>
         agent.prompt(
           text,
           mentions.map((mention) => ({ ...mention })),
+          // The bytes land BEFORE the agent is told anything — a refused
+          // attachment must refuse the whole message, not arrive as a second
+          // sentence under a turn that already went out.
+          await storedAttachments(attachments),
         ),
       ),
     cancel: () => ask((agent) => agent.cancel()),

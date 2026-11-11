@@ -11,6 +11,7 @@
  *  the structured mention is resolved at SEND time rather than carried as a
  *  widget. */
 
+import { formatBytes } from "@kolu/byte-units";
 import type { OrchestratorState } from "@kolu/padi-client/orchestrator";
 import { activeArm } from "@kolu/padi-client/surface";
 import { cwdBasename } from "@kolu/terminal-vocab/terminalKey";
@@ -24,20 +25,29 @@ import {
   Show,
 } from "solid-js";
 import { useTerminalStore } from "../terminal/useTerminalStore";
+import { attachPastedFiles } from "./attachFiles";
+import { thumbnailOf } from "./attachments";
 import {
   completionIntent,
   completionQuestion,
   createCompletionHighlight,
 } from "./completion";
-import { composerText, setCompletionOpen, setComposerText } from "./drafts";
+import {
+  clearComposerAttachments,
+  composerAttachments,
+  composerText,
+  dropComposerAttachment,
+  setCompletionOpen,
+  setComposerText,
+} from "./drafts";
 import {
   completeToken,
   dropMention,
   filterMentions,
   type MentionCandidate,
   resolveMentions,
-  tokenQueryAt,
   type TokenQuery,
+  tokenQueryAt,
 } from "./mentions";
 import { useOrchestrator } from "./useOrchestrator";
 
@@ -153,8 +163,12 @@ const OrchestratorComposer: Component<{
 
   const send = (): void => {
     const text = composerText().trim();
-    if (text === "") return;
-    orch.prompt(text, armed());
+    // An attachment with no words is still a message — "look at this" is the
+    // commonest thing a pasted screenshot means. Only a box with neither is
+    // nothing to send.
+    if (text === "" && composerAttachments().length === 0) return;
+    orch.prompt(text, armed(), composerAttachments());
+    clearComposerAttachments();
     write("", 0);
   };
 
@@ -261,6 +275,54 @@ const OrchestratorComposer: Component<{
           </For>
         </div>
       </Show>
+      <Show when={composerAttachments().length > 0}>
+        <div
+          data-testid="orchestrator-attachments"
+          class="mb-1.5 flex flex-wrap gap-1.5"
+        >
+          <For each={composerAttachments()}>
+            {(attachment) => (
+              <div
+                data-testid="orchestrator-attachment-chip"
+                data-attachment-id={attachment.id}
+                data-mime={attachment.mimeType}
+                title={attachment.name}
+                class="flex max-w-[12rem] items-center gap-1.5 rounded-md border border-edge-bright bg-surface-1 px-1.5 py-1"
+              >
+                <Show
+                  when={thumbnailOf(attachment)}
+                  fallback={
+                    <span class="truncate text-[0.68rem] text-fg">
+                      {attachment.name}
+                    </span>
+                  }
+                >
+                  {(src) => (
+                    <img
+                      data-testid="orchestrator-attachment-thumb"
+                      src={src()}
+                      alt={attachment.name}
+                      class="h-8 w-8 shrink-0 rounded object-cover"
+                    />
+                  )}
+                </Show>
+                <span class="shrink-0 font-mono text-[0.62rem] text-fg-3">
+                  {formatBytes(attachment.bytes)}
+                </span>
+                <button
+                  type="button"
+                  data-testid="orchestrator-attachment-remove"
+                  aria-label={`Remove ${attachment.name}`}
+                  class="shrink-0 text-fg-3 hover:text-fg cursor-pointer"
+                  onClick={() => dropComposerAttachment(attachment.id)}
+                >
+                  ×
+                </button>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
       <textarea
         ref={box}
         data-testid="orchestrator-input"
@@ -271,6 +333,12 @@ const OrchestratorComposer: Component<{
         onInput={(event) => {
           setComposerText(event.currentTarget.value);
           setCaret(event.currentTarget.selectionStart);
+        }}
+        onPaste={(event) => {
+          // A clipboard carrying files is a paste ABOUT those files — take it
+          // over so the browser does not also drop a path (or nothing at all)
+          // into the box. A text paste is left entirely alone.
+          if (attachPastedFiles(event.clipboardData)) event.preventDefault();
         }}
         onClick={(event) => setCaret(event.currentTarget.selectionStart)}
         onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
@@ -318,6 +386,8 @@ const OrchestratorComposer: Component<{
         <span>/ commands</span>
         <span>·</span>
         <span>⇧⏎ newline</span>
+        <span>·</span>
+        <span>paste or drop a file</span>
         <span class="flex-1" />
         <Show when={props.state.phase === "working"}>
           <button

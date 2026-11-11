@@ -801,6 +801,15 @@ stdio server, `kolu mcp` (`KOLU_MCP_BIN`, baked by padi's wrapper) with
 through the documented tool surface and nothing private. Its `cwd` is the host's
 `$HOME`.
 
+**That hand-over is PROVED before it is made.** padi connects to its own
+rendezvous first and refuses the whole conversation if nothing is serving it,
+because the hand-over happens once, inside `session/new`, and nothing ever
+revisits it: an agent whose `kolu mcp` fails to connect marks the server failed
+for the life of the session and carries on running shell commands itself —
+which is the one failure this feature exists to prevent, and is invisible but
+for a grey word on the roster strip. A path that is merely a string is not
+enough to hand over.
+
 **It is hosted here rather than in kolu-server for the reason everything else
 in this package is**: the conversation's subject is this host's terminals, and
 on a remote host there would be nothing for a server-side conversation to reach
@@ -813,7 +822,7 @@ the `orchestratorTranscript` stream (explicit snapshot-then-deltas, forwarded
 `delta`), and the `orchestrator` procedure namespace. The protocol itself is
 `@kolu/acp-harness`'s: padi never spells `session/prompt`.
 
-Four decisions worth knowing:
+Five decisions worth knowing:
 
 - **It starts when somebody looks.** The adapter is a real Claude subprocess,
   and a provisioned host nobody has opened should not be running one. The first
@@ -863,6 +872,25 @@ Four decisions worth knowing:
   says the session is gone — is the one thing padi does NOT persist: the record
   must hold the conversation as it stood when the daemon let go of it, or the
   next padi restores the transcript and opens a stranger underneath it.
+- **A prompt's attachments are FILES, not base64 in the record.** A pasted
+  image or a dropped log travels up inside the `prompt` call as a `data:` URL,
+  and padi writes the bytes to `<state-root>/orchestrator/attachments/<id>`
+  before the agent is told anything — the harness turns a text-like file into
+  an embedded resource and anything else into a link naming that path, so a
+  link to a file still being written would be a tool call that fails for a
+  reason nobody can see. The id is the whole filename and is refused unless it
+  is one (`[A-Za-z0-9][A-Za-z0-9._-]*`); the caps — 10 MiB a file, 20 MiB a
+  message — are enforced on what was DECODED, not on what the sender claimed,
+  and refuse with a sentence rather than dropping a file silently. The
+  persisted row keeps the chip (name · size · path) and never the `dataUrl`: a
+  second copy of the bytes in `config.json` would be read back in full on every
+  boot to redraw a thumbnail nobody is looking at, so after a restart a row
+  draws its name and size and the thumbnail survives only in the browser that
+  sent it. The files are reconciled to the rows that still name them on the
+  RESTORE — the one edge where rows can be lost (the row cap trimmed the
+  record, or `$HOME` moved and the whole transcript went with it). A
+  `newSession` deliberately sweeps nothing: the divider says the agent's memory
+  was reset, not that the scroll above it was thrown away.
 
 ## What padi knows nothing about
 

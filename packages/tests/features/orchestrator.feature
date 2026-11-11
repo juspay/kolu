@@ -41,6 +41,21 @@ Feature: The Orchestrator
     And the orchestrator state chip should read "idle"
     And there should be no page errors
 
+  Scenario: The agent really has hold of kolu's own MCP server
+    # The one failure that looks like success: an agent whose kolu server did
+    # not connect carries on running shell commands itself, and the only sign
+    # is a word on the roster strip nobody is reading. padi proves the socket
+    # before it hands the path over; this is the other end of that — the
+    # AGENT'S own report, which only arrives at the start of a turn, so this
+    # has to follow one. Before anything is said the row reads `handed`, which
+    # is the honest "handed over, nobody has reported either way".
+    When I create a terminal
+    And I enter orchestrator mode
+    And I send the orchestrator the prompt "say hello"
+    Then the orchestrator transcript should show a row of kind "agent" saying "hello back"
+    And the orchestrator roster should show "kolu" as connected
+    And there should be no page errors
+
   Scenario: A kolu tool call is drawn as a card that knows what it means
     # The whole point of the kolu-aware cards: a call to one of OUR tools is
     # read structurally, so the row can name the terminal and offer to open it

@@ -11,6 +11,7 @@
  *  somebody scrolls up to read something, a streaming turn must not yank them
  *  back — that is the one behaviour that makes a live transcript unusable. */
 
+import { formatBytes } from "@kolu/byte-units";
 import type { OrchestratorRow } from "@kolu/padi-client/orchestrator";
 import { Markdown } from "@kolu/solid-markdown";
 import { Key } from "@solid-primitives/keyed";
@@ -22,6 +23,7 @@ import {
   Show,
   Switch,
 } from "solid-js";
+import { thumbnailOf } from "./attachments";
 import OrchestratorAsk from "./OrchestratorAsk";
 import OrchestratorToolCard from "./OrchestratorToolCard";
 import { useOrchestrator } from "./useOrchestrator";
@@ -165,12 +167,57 @@ function UserRow(props: { row: Extract<OrchestratorRow, { kind: "user" }> }) {
    *  double the message. */
   const mark = (): "queued" | "refused" | "unanswered" | undefined =>
     props.row.queued === true ? "queued" : props.row.delivery;
+  // Always an array on the decoded row — the schema defaults it — so there is
+  // no second spelling of "none" to read.
+  const attachments = () => props.row.attachments;
 
   return (
     <>
-      <blockquote class="rounded-[0.75rem_0.75rem_0.2rem_0.75rem] border border-accent/30 bg-accent/15 px-3 py-2 text-[0.82rem] whitespace-pre-wrap m-0">
-        {props.row.text}
-      </blockquote>
+      {/* A pasted image with no words is a whole message — the quote would be
+          an empty bubble above it. */}
+      <Show when={props.row.text !== ""}>
+        <blockquote class="rounded-[0.75rem_0.75rem_0.2rem_0.75rem] border border-accent/30 bg-accent/15 px-3 py-2 text-[0.82rem] whitespace-pre-wrap m-0">
+          {props.row.text}
+        </blockquote>
+      </Show>
+      <Show when={attachments().length > 0}>
+        <div
+          data-testid="orchestrator-row-attachments"
+          class="mt-1 flex flex-wrap justify-end gap-1.5"
+        >
+          <For each={attachments()}>
+            {(attachment) => (
+              <div
+                data-testid="orchestrator-row-attachment"
+                data-attachment-id={attachment.id}
+                data-mime={attachment.mimeType}
+                title={attachment.name}
+                class="flex max-w-[12rem] items-center gap-1.5 rounded-md border border-edge bg-surface-1 px-1.5 py-1"
+              >
+                <Show
+                  when={thumbnailOf(attachment)}
+                  fallback={
+                    <span class="truncate text-[0.68rem] text-fg-2">
+                      {attachment.name}
+                    </span>
+                  }
+                >
+                  {(src) => (
+                    <img
+                      src={src()}
+                      alt={attachment.name}
+                      class="h-10 w-10 shrink-0 rounded object-cover"
+                    />
+                  )}
+                </Show>
+                <span class="shrink-0 font-mono text-[0.62rem] text-fg-3">
+                  {formatBytes(attachment.bytes)}
+                </span>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
       <Show when={mark()}>
         {(what) => (
           <div class="mt-1 flex items-center justify-end gap-2 font-mono text-[0.62rem] text-fg-3">
@@ -189,7 +236,15 @@ function UserRow(props: { row: Extract<OrchestratorRow, { kind: "user" }> }) {
                 data-testid="orchestrator-send-again"
                 class="text-accent hover:underline cursor-pointer"
                 onClick={() =>
-                  orch.prompt(props.row.text, props.row.mentions ?? [])
+                  // The retry carries what the first attempt did. A row this
+                  // browser minted still holds its `dataUrl`; one restored
+                  // after a restart carries only the path padi wrote, which is
+                  // the same file either way.
+                  orch.prompt(
+                    props.row.text,
+                    props.row.mentions ?? [],
+                    attachments(),
+                  )
                 }
               >
                 send again

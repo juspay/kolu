@@ -24,6 +24,16 @@
  *    agent has not answered, and stops the child anyway.
  */
 
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { createServer, type Server } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
   Harness,
   HarnessChange,
@@ -31,7 +41,9 @@ import type {
   HarnessState,
 } from "@kolu/acp-harness";
 import {
+  ATTACHMENT_BYTE_CAP,
   DEFAULT_ORCHESTRATOR_STATE,
+  type OrchestratorAttachment,
   type OrchestratorFrame,
   type OrchestratorRow,
 } from "@kolu/padi-client/surface";
@@ -84,6 +96,9 @@ interface Spawned {
   readonly opened: () => void;
   readonly die: () => void;
   readonly stops: () => number;
+  /** The attachments this conversation was HANDED, per prompt — what padi
+   *  wrote and filled in before the agent was told anything. */
+  readonly handed: () => ReadonlyArray<ReadonlyArray<OrchestratorAttachment>>;
 }
 
 function fakeSpawner(): {
@@ -94,6 +109,7 @@ function fakeSpawner(): {
   const spawn = async (options: HarnessOptions): Promise<Harness> => {
     let alive = true;
     let stops = 0;
+    const handed: ReadonlyArray<OrchestratorAttachment>[] = [];
     let state: HarnessState = {
       ...DEFAULT_ORCHESTRATOR_STATE,
       phase: "idle",
@@ -106,7 +122,10 @@ function fakeSpawner(): {
       state: () => state,
       rows: () => [],
       alive: () => alive,
-      prompt: async () => ({ rowId: "sent" }),
+      prompt: async (_text, _mentions, attachments) => {
+        handed.push(attachments);
+        return { rowId: "sent" };
+      },
       cancel: async () => {},
       answer: async () => true,
       signIn: async () => "signed-in",
@@ -137,6 +156,7 @@ function fakeSpawner(): {
         alive = false;
       },
       stops: () => stops,
+      handed: () => handed,
     });
     return harness;
   };
@@ -182,7 +202,8 @@ interface Rig {
 
 function rig(
   remembered: PersistedOrchestrator = EMPTY_PERSISTED_ORCHESTRATOR,
-  socket: string | null = "/run/padi.sock",
+  socket: string | null = liveSocket,
+  root = "/state",
 ): Rig {
   const { spawn, spawns } = fakeSpawner();
   const backing = countingStore(remembered);
@@ -192,7 +213,8 @@ function rig(
     hostName: HOST,
     socketPath: () => socket,
     store: backing.store,
-    storePath: () => "/state/config.json",
+    storePath: () => join(root, "config.json"),
+    stateRoot: root,
     spawn,
   });
   return {
@@ -207,22 +229,39 @@ function rig(
 const SAVED_AGENT = process.env[ACP_AGENT_ENV];
 const SAVED_BIN = process.env[KOLU_MCP_BIN_ENV];
 
-beforeEach(() => {
+/** A socket that ACCEPTS, because the host now proves padi's rendezvous before
+ *  it hands the path to an agent — and a probe is a real `connect()`, so there
+ *  is nothing to stub. Every test that brings a conversation up therefore
+ *  exercises the proof as well as what it was written for. */
+let liveSocket: string;
+let listener: Server;
+
+beforeEach(async () => {
   __resetPadiSurfaceCtxForTest();
   setPadiSurfaceCtx(noopPadiSurfaceCtxForTest());
   // The adapter is BAKED, so a seated engine is the normal case; nothing is
   // executed here because `spawn` is injected.
   process.env[ACP_AGENT_ENV] = "/nix/store/fake-acp-adapter";
   process.env[KOLU_MCP_BIN_ENV] = "/nix/store/fake-kolu";
+  liveSocket = join(mkdtempSync(join(tmpdir(), "padi-orch-rv-")), "padi.sock");
+  listener = createServer();
+  const up = Promise.withResolvers<void>();
+  listener.listen(liveSocket, up.resolve);
+  await up.promise;
 });
 
-afterEach(() => {
+afterEach(async () => {
   vi.useRealTimers();
   __resetPadiSurfaceCtxForTest();
   if (SAVED_AGENT === undefined) delete process.env[ACP_AGENT_ENV];
   else process.env[ACP_AGENT_ENV] = SAVED_AGENT;
   if (SAVED_BIN === undefined) delete process.env[KOLU_MCP_BIN_ENV];
   else process.env[KOLU_MCP_BIN_ENV] = SAVED_BIN;
+  const down = Promise.withResolvers<void>();
+  listener.close(() => {
+    down.resolve();
+  });
+  await down.promise;
 });
 
 describe("the transcript a reader is handed", () => {
@@ -241,7 +280,7 @@ describe("the transcript a reader is handed", () => {
     const seen: OrchestratorFrame[] = [];
     const r = rig();
     r.host.watch((frame) => seen.push(frame));
-    await r.host.prompt("hello", []);
+    await r.host.prompt("hello", [], []);
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
 
@@ -272,7 +311,7 @@ describe("the transcript a reader is handed", () => {
   it("takes `at` as AUTHORITATIVE, so a re-sent piece does not stutter", async () => {
     const r = rig();
     r.host.watch(() => {});
-    await r.host.prompt("hello", []);
+    await r.host.prompt("hello", [], []);
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
     agent.push({
@@ -327,7 +366,7 @@ describe("the restart fence (B1)", () => {
 
   it("resumes the session and tells the new conversation where to count from", async () => {
     const r = rig(persisted);
-    await r.host.prompt("still here?", []);
+    await r.host.prompt("still here?", [], []);
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
     expect(agent.options.resume).toBe("sess-1");
@@ -347,7 +386,7 @@ describe("the restart fence (B1)", () => {
     // The resumed conversation says ONE new thing. Before the fence, the load
     // replayed the agent's half through a fresh counter and every row landed a
     // second time under a new id.
-    await r.host.prompt("one more", []);
+    await r.host.prompt("one more", [], []);
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
     agent.push({
@@ -403,7 +442,7 @@ describe("the remembered record is read on the first reader's edge (B3)", () => 
     const r = rig();
     r.host.watch(() => {});
     r.host.watch(() => {});
-    await r.host.prompt("hi", []);
+    await r.host.prompt("hi", [], []);
     expect(r.reads()).toBe(1);
   });
 });
@@ -411,26 +450,53 @@ describe("the remembered record is read on the first reader's edge (B3)", () => 
 describe("a bring-up that did not get there (M2)", () => {
   it("publishes the refusal instead of leaving an idle-looking panel", async () => {
     // No socket yet: the conversation cannot be told where this host's
-    // terminals are, and `koluServer()` refuses synchronously.
+    // terminals are, and the bring-up refuses before it spawns anything.
     const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, null);
-    await expect(r.host.prompt("hello", [])).rejects.toThrow();
+    await expect(r.host.prompt("hello", [], [])).rejects.toThrow();
     expect(r.host.state().phase).toBe("offline");
     expect(r.host.state().refusal).toContain("has not published its socket");
   });
 
-  it("reaches a READER, who has nothing to catch", () => {
+  it("refuses a socket NOBODY IS SERVING rather than handing the agent a dead path", async () => {
+    // The failure this exists for: padi records its rendezvous at boot and had
+    // never checked it was being served, so a path that named nothing was
+    // handed over exactly like a good one. The agent's `kolu mcp` then cannot
+    // connect, the agent marks the server failed ONCE inside `session/new` and
+    // never revisits it, and the conversation carries on running shell
+    // commands itself — the one failure this feature exists to prevent, and
+    // invisible but for a grey word on a roster.
+    const r = rig(
+      EMPTY_PERSISTED_ORCHESTRATOR,
+      join(mkdtempSync(join(tmpdir(), "padi-orch-dead-")), "padi.sock"),
+    );
+    await expect(r.host.prompt("hello", [], [])).rejects.toThrow(
+      /cannot reach this padi/,
+    );
+    // Nothing was spawned: an adapter with no hands is not a degraded
+    // orchestrator, it is a chat window.
+    expect(r.spawns).toHaveLength(0);
+    expect(r.host.state().phase).toBe("offline");
+    expect(r.host.state().refusal).toContain("padi.sock");
+  });
+
+  it("reaches a READER, who has nothing to catch", async () => {
     const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, null);
     r.host.watch(() => {});
     // The bring-up a subscription triggers cannot throw at anybody — the cell
-    // is the only place it can be said.
-    expect(r.host.state().refusal).toContain("has not published its socket");
+    // is the only place it can be said. Waited for rather than read straight
+    // off, because the bring-up is one promise from its first step (it begins
+    // by proving padi's rendezvous), so even a refusal it reaches immediately
+    // is published a tick later.
+    await vi.waitFor(() => {
+      expect(r.host.state().refusal).toContain("has not published its socket");
+    });
   });
 });
 
 describe("a dead adapter (M3)", () => {
   it("is stopped, dropped and replaced rather than refusing forever", async () => {
     const r = rig();
-    await r.host.prompt("first", []);
+    await r.host.prompt("first", [], []);
     const first = r.spawns[0];
     if (first === undefined) throw new Error("the host spawned nothing");
 
@@ -446,7 +512,7 @@ describe("a dead adapter (M3)", () => {
     // A fresh state-root: nothing was restored, so a fence taken at the
     // restore is zero forever.
     const r = rig();
-    await r.host.prompt("first", []);
+    await r.host.prompt("first", [], []);
     const first = r.spawns[0];
     if (first === undefined) throw new Error("the host spawned nothing");
     expect(first.options.resumedSeq).toBe(0);
@@ -485,8 +551,8 @@ describe("a dead adapter (M3)", () => {
 
   it("keeps a LIVING adapter, however many verbs arrive", async () => {
     const r = rig();
-    await r.host.prompt("first", []);
-    await r.host.prompt("second", []);
+    await r.host.prompt("first", [], []);
+    await r.host.prompt("second", [], []);
     await r.host.cancel();
     expect(r.spawns).toHaveLength(1);
   });
@@ -495,7 +561,7 @@ describe("a dead adapter (M3)", () => {
 describe("the standing prompt (M5)", () => {
   it("names the HOST, and leaves `$HOME` to be the cwd", async () => {
     const r = rig();
-    await r.host.prompt("hello", []);
+    await r.host.prompt("hello", [], []);
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
     expect(agent.options.cwd).toBe(HOME);
@@ -509,7 +575,7 @@ describe("the record is written on a throttle (M4)", () => {
   it("costs one write per window, not one per streamed frame", async () => {
     vi.useFakeTimers();
     const r = rig();
-    await r.host.prompt("stream at me", []);
+    await r.host.prompt("stream at me", [], []);
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
 
@@ -541,7 +607,7 @@ describe("the record is written on a throttle (M4)", () => {
   it("flushes what the window still owes on dispose", async () => {
     vi.useFakeTimers();
     const r = rig();
-    await r.host.prompt("hello", []);
+    await r.host.prompt("hello", [], []);
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
     agent.push({
@@ -568,7 +634,7 @@ describe("the record is written on a throttle (M4)", () => {
 describe("teardown (B2)", () => {
   it("AWAITS the child's stop", async () => {
     const r = rig();
-    await r.host.prompt("hello", []);
+    await r.host.prompt("hello", [], []);
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
     await r.host.dispose();
@@ -585,15 +651,16 @@ describe("teardown (B2)", () => {
       log,
       home: HOME,
       hostName: HOST,
-      socketPath: () => "/run/padi.sock",
+      socketPath: () => liveSocket,
       store: backing.store,
       storePath: () => "/state/config.json",
+      stateRoot: "/state",
       spawn: async (options) => {
         await held.promise;
         return spawn(options);
       },
     });
-    const sent = host.prompt("hello", []);
+    const sent = host.prompt("hello", [], []);
     const stopped = host.dispose();
     held.resolve();
     await sent.catch(() => {});
@@ -605,7 +672,7 @@ describe("teardown (B2)", () => {
 
   it("keeps the SESSION in the record it flushes (R1)", async () => {
     const r = rig();
-    await r.host.prompt("hello", []);
+    await r.host.prompt("hello", [], []);
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
     agent.push({
@@ -642,9 +709,10 @@ describe("teardown (B2)", () => {
       log,
       home: HOME,
       hostName: HOST,
-      socketPath: () => "/run/padi.sock",
+      socketPath: () => liveSocket,
       store: backing.store,
       storePath: () => "/state/config.json",
+      stateRoot: "/state",
       spawn: async (options) => {
         // A `session/load` the agent has not answered: the harness's own
         // deadline for one is two minutes.
@@ -652,7 +720,7 @@ describe("teardown (B2)", () => {
         return spawn(options);
       },
     });
-    const sent = host.prompt("hello", []);
+    const sent = host.prompt("hello", [], []);
     let settled = false;
     const stopped = host.dispose().then(() => {
       settled = true;
@@ -674,7 +742,7 @@ describe("teardown (B2)", () => {
   it("refuses new work once it has stopped", async () => {
     const r = rig();
     await r.host.dispose();
-    await expect(r.host.prompt("hello", [])).rejects.toThrow(
+    await expect(r.host.prompt("hello", [], [])).rejects.toThrow(
       /no longer accepting work/,
     );
   });
@@ -691,7 +759,7 @@ describe("the remembered fleet survives the resume (R3)", () => {
       rows: [row("old-1", 1)],
       fleet,
     });
-    await r.host.prompt("still here?", []);
+    await r.host.prompt("still here?", [], []);
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
     // Membership otherwise accrues only from tool-call frames, and a resumed
@@ -724,5 +792,152 @@ describe("a record that parses but is wrong (R8)", () => {
     // under it instead of the name of the file to fix.
     expect(r.host.state().phase).toBe("offline");
     expect(r.host.state().refusal).toContain("/state/config.json");
+  });
+});
+
+describe("a prompt's attachments", () => {
+  /** One pixel of PNG, as a browser hands it over. */
+  const PIXEL =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+  const attachment = (
+    over: Partial<OrchestratorAttachment> = {},
+  ): OrchestratorAttachment => ({
+    id: "att-1",
+    name: "pixel.png",
+    mimeType: "image/png",
+    bytes: 68,
+    dataUrl: PIXEL,
+    path: null,
+    ...over,
+  });
+
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "padi-orch-att-"));
+  });
+
+  it("writes the bytes under the state root and hands the agent the path", async () => {
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
+    await r.host.prompt("look at this", [], [attachment()]);
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+
+    const [first] = agent.handed();
+    const one = first?.[0];
+    if (one === undefined) throw new Error("nothing was handed over");
+    // The PATH is what a `resource_link` names, and the file is there BEFORE
+    // the agent is told about it — a link to a file still being written is a
+    // tool call that fails for a reason nobody can see.
+    expect(one.path).toBe(join(root, "orchestrator", "attachments", "att-1"));
+    expect(readFileSync(one.path as string).length).toBe(70);
+    // ...and the base64 is still ON the value the harness gets: it is the only
+    // byte source an ACP `image` block has.
+    expect(one.dataUrl).toBe(PIXEL);
+    // `bytes` is republished from what was actually written, never carried
+    // over from the sender's claim.
+    expect(one.bytes).toBe(70);
+  });
+
+  it("refuses a file bigger than the cap, by what was DECODED rather than by what was claimed", async () => {
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
+    const big = Buffer.alloc(ATTACHMENT_BYTE_CAP + 1).toString("base64");
+    await expect(
+      r.host.prompt(
+        "here",
+        [],
+        [
+          attachment({
+            name: "huge.bin",
+            mimeType: "application/octet-stream",
+            // The claim is a lie, and the cap is enforced on the bytes.
+            bytes: 1,
+            dataUrl: `data:application/octet-stream;base64,${big}`,
+          }),
+        ],
+      ),
+    ).rejects.toThrow(/at most 10 MiB/);
+    expect(readdirSync(join(root, "orchestrator", "attachments"))).toEqual([]);
+  });
+
+  it("refuses an id that is not a filename, rather than writing where it says", async () => {
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
+    await expect(
+      r.host.prompt("here", [], [attachment({ id: "../../escaped" })]),
+    ).rejects.toThrow(/not a name this padi will write a file under/);
+  });
+
+  it("sweeps files the restored transcript no longer names", async () => {
+    // A state-root whose record kept ONE row naming ONE attachment, and two
+    // files on disk: the record's row cap trimmed the row the second came in
+    // on, and nothing else will ever mention it again.
+    const dir = join(root, "orchestrator", "attachments");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "att-1"), "kept");
+    writeFileSync(join(dir, "att-2"), "orphan");
+    const r = rig(
+      {
+        sessionId: "sess-1",
+        cwd: HOME,
+        model: null,
+        rows: [
+          {
+            id: "user-1",
+            seq: 1,
+            since: "2026-01-01T00:00:00.000Z",
+            kind: "user",
+            text: "look",
+            attachments: [
+              {
+                id: "att-1",
+                name: "pixel.png",
+                mimeType: "image/png",
+                bytes: 68,
+                dataUrl: null,
+                path: join(dir, "att-1"),
+              },
+            ],
+          },
+        ],
+        fleet: [],
+      },
+      liveSocket,
+      root,
+    );
+    r.host.watch(() => {});
+    expect(readdirSync(dir)).toEqual(["att-1"]);
+  });
+});
+
+describe("a run of NEW SESSION dividers", () => {
+  const divider = (id: string, seq: number): OrchestratorRow => ({
+    id,
+    seq,
+    since: "2026-01-01T00:00:00.000Z",
+    kind: "divider",
+    text: "new session",
+  });
+
+  it("restores as ONE — a run of them is one reset, however it got written", () => {
+    const r = rig({
+      sessionId: "sess-1",
+      cwd: HOME,
+      model: null,
+      rows: [
+        row("agent-1", 1, "you're welcome"),
+        divider("div-1", 2),
+        divider("div-2", 3),
+        divider("div-3", 4),
+        divider("div-4", 5),
+      ],
+      fleet: [],
+    });
+    const seen: OrchestratorFrame[] = [];
+    r.host.watch((frame) => seen.push(frame));
+    const snapshot = seen[0];
+    if (snapshot?.kind !== "snapshot") throw new Error("no snapshot");
+    // The FIRST of the run is the one kept: the reset happened there, and a
+    // rule that kept the last would draw the line later than the event.
+    expect(snapshot.rows.map((one) => one.id)).toEqual(["agent-1", "div-1"]);
   });
 });

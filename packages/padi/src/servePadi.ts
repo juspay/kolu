@@ -421,6 +421,7 @@ export function buildPadiSurfaceDeps(deps: {
       set: (v) => requirePadiOrchestratorStore().set(v),
     },
     storePath: () => padiConfigPath(stateRoot),
+    stateRoot,
     // The composition root is the one place that knows BOTH that a
     // conversation is an ACP subprocess and that padi is what hosts it.
     spawn: startHarness,
@@ -1344,7 +1345,9 @@ export function buildPadiSurfaceDeps(deps: {
       // no). Anything else stays a defect and crosses the wire as one.
       orchestrator: {
         prompt: ({ input }) =>
-          handle(() => orchestrator.prompt(input.text, input.mentions)),
+          handle(() =>
+            orchestrator.prompt(input.text, input.mentions, input.attachments),
+          ),
         cancel: () => handle(() => orchestrator.cancel()),
         answer: ({ input }) =>
           handle(async () => ({

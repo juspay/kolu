@@ -331,6 +331,39 @@ export class Transcript {
     return this.#row("user", text, extra);
   }
 
+  /**
+   * THE BREAK BETWEEN TWO CONVERSATIONS — the row that says the agent's memory
+   * was reset, and says nothing else.
+   *
+   * ANSWERS WITH ITS KEY because the break is minted BEFORE the next
+   * conversation is open — so that the new one's own rows sort under it — and
+   * an open that then fails has reset nothing a reader needs told: the caller
+   * takes the mark back out again ({@link withdraw}).
+   *
+   * A SECOND BREAK WITH NOTHING BETWEEN IS NOT MINTED. Two of them in a row
+   * say exactly what one says, and the stack of them is what a caller retrying
+   * a refused open leaves behind: the owner's screenshot was four
+   * `— NEW SESSION —` lines with no conversation between them.
+   */
+  divider(text: string): {
+    readonly key: string | null;
+    readonly change: Change;
+  } {
+    const last = [...this.#rows.values()].at(-1);
+    if (last?.kind === "divider") return { key: null, change: EMPTY };
+    return this.#row("divider", text, {});
+  }
+
+  /** Take a row back out, for the ONE row that can turn out to have meant
+   *  nothing: a break minted for a conversation that then would not open.
+   *  Nothing else is ever withdrawn — a row a reader has already seen is the
+   *  record, and a transcript that erases its own history is one nobody can
+   *  trust about the rest of it. */
+  withdraw(key: string): Change {
+    if (!this.#rows.delete(key)) return EMPTY;
+    return { ...EMPTY, removes: [key] };
+  }
+
   /** That message is WAITING ITS TURN at the agent — it went out while a turn
    *  was still running and nothing has started on it. Not a {@link
    *  OrchestratorDeliverySchema} value, because a queued message has not FAILED

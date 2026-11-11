@@ -9538,6 +9538,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "07e015b927819511da67e68abf856c95264de5b6"
+    },
+    {
+      "revisionId": "revision-6d05e7646e06aafa97da",
+      "scenarioKey": "scenario-490d14356d1deb6422fd",
+      "feature": "features/orchestrator.feature",
+      "scenario": "The agent really has hold of kolu's own MCP server",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "073290917cadd6ae7dc430d5ba7639b4b19795d8449f670ff43ddd3fbed36e37",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "08a1132112479994bcdb528697f78eca452caaab"
     }
   ]
 }

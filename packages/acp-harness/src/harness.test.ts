@@ -28,7 +28,7 @@ import {
   type HarnessState,
   startHarness,
 } from "./harness.ts";
-import type { OrchestratorRow } from "./rows.ts";
+import type { OrchestratorAttachment, OrchestratorRow } from "./rows.ts";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures");
 
@@ -226,16 +226,50 @@ const textOfKind = (
  *  `meta`, `modes` and `prompts` turns, which report what this process was
  *  TOLD. The last agent row is the answer, parsed. */
 const asked = async (running: Running, about: string): Promise<unknown> => {
-  await running.harness.prompt(about, []);
+  await running.harness.prompt(about, [], []);
   await settled(running, `the \`${about}\` turn never ended`);
   const said = textOfKind(running, "agent");
   return JSON.parse(said[said.length - 1] ?? "null");
 };
 
+/** A real 1×1 PNG, base64 as a browser hands one over — small enough to read
+ *  and intact enough to assert on: what a test is asking is whether the bytes
+ *  that crossed the pipe are the bytes that were pasted. */
+const PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+/** One pasted image, as padi hands it over: the browser's `data:` URL and the
+ *  path padi has already written the bytes to under its own state root. */
+const picture = (
+  over: Partial<OrchestratorAttachment> = {},
+): OrchestratorAttachment => ({
+  id: "att-1",
+  name: "shot.png",
+  mimeType: "image/png",
+  bytes: 68,
+  dataUrl: `data:image/png;base64,${PNG}`,
+  path: "/state/orchestrator/attachments/att-1",
+  ...over,
+});
+
+/** Wait until the subprocess is gone — the `die` turn answers nothing, so the
+ *  only word a client gets about it is its own closed pipe. */
+const dead = async (running: Running): Promise<void> => {
+  const until = Date.now() + 10_000;
+  while (Date.now() < until) {
+    if (!running.harness.alive()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("the agent never died");
+};
+
+const dividers = (running: Running): ReadonlyArray<OrchestratorRow> =>
+  running.rows().filter((one) => one.kind === "divider");
+
 describe("one conversation with a real agent", () => {
   test("a prompt goes out and the answer comes back as one growing row", async () => {
     const running = await open("agent.ts");
-    const { rowId } = await running.harness.prompt("hello", []);
+    const { rowId } = await running.harness.prompt("hello", [], []);
     await settled(running, "the turn never ended");
 
     const rows = running.rows();
@@ -253,9 +287,9 @@ describe("one conversation with a real agent", () => {
 
   test("the standing prompt rides the FIRST message and no later one", async () => {
     const running = await open("agent.ts");
-    await running.harness.prompt("hello", []);
+    await running.harness.prompt("hello", [], []);
     await settled(running, "the first turn never ended");
-    await running.harness.prompt("hello", []);
+    await running.harness.prompt("hello", [], []);
     await settled(running, "the second turn never ended");
     // What a PERSON typed is what the row says, both times: the teaching rides
     // the wire, not the transcript's record of what they said.
@@ -279,17 +313,17 @@ describe("one conversation with a real agent", () => {
     // is the only thing standing between that chunk and the panel.
     await running.harness.newSession();
     expect(running.harness.state().sessionId).toBe("sess-2");
-    await running.harness.prompt("stale", []);
+    await running.harness.prompt("stale", [], []);
     await settled(running, "the turn never ended");
     expect(textOfKind(running, "agent")).toEqual(["live"]);
   });
 
   test("a new session keeps the history, with a divider between them", async () => {
     const running = await open("agent.ts");
-    await running.harness.prompt("hello", []);
+    await running.harness.prompt("hello", [], []);
     await settled(running, "the first turn never ended");
     await running.harness.newSession();
-    await running.harness.prompt("hello", []);
+    await running.harness.prompt("hello", [], []);
     await settled(running, "the second turn never ended");
 
     // ONE transcript, two conversations: what was said before the break is
@@ -308,7 +342,7 @@ describe("one conversation with a real agent", () => {
 
   test("a cancel settles the question the turn was holding, withdrawn", async () => {
     const running = await open("agent.ts");
-    await running.harness.prompt("ask", []);
+    await running.harness.prompt("ask", [], []);
     const until = Date.now() + 10_000;
     while (
       running.harness.state().openAsks.length === 0 &&
@@ -341,8 +375,8 @@ describe("one conversation with a real agent", () => {
     // The fixture holds `slow` open until a SECOND prompt arrives, so the
     // queue is exercised by the thing that exercises it rather than by a
     // timer: a race this test cannot lose is one it also cannot lie about.
-    const first = await running.harness.prompt("slow", []);
-    const second = await running.harness.prompt("hello", []);
+    const first = await running.harness.prompt("slow", [], []);
+    const second = await running.harness.prompt("hello", [], []);
     const queued = running.rows().find((row) => row.id === second.rowId);
     expect(queued?.kind === "user" ? queued.queued : undefined).toBe(true);
     expect(first.rowId).not.toBe(second.rowId);
@@ -354,7 +388,7 @@ describe("one conversation with a real agent", () => {
 
   test("a background task outlives its turn and its death lands as a notice", async () => {
     const running = await open("agent.ts");
-    await running.harness.prompt("background", []);
+    await running.harness.prompt("background", [], []);
     await settled(running, "the arming turn never ended");
 
     // The turn is over and the row is NOT stranded: outliving its turn is the
@@ -369,7 +403,7 @@ describe("one conversation with a real agent", () => {
       "watch the build",
     ]);
 
-    await running.harness.prompt("reap", []);
+    await running.harness.prompt("reap", [], []);
     await settled(running, "the reaping turn never ended");
     expect(textOfKind(running, "notice").join("\n")).toContain(
       "ended (completed)",
@@ -379,7 +413,7 @@ describe("one conversation with a real agent", () => {
 
   test("a kolu call is read onto the row, and the terminal joins the fleet", async () => {
     const running = await open("agent.ts");
-    await running.harness.prompt("kolu", []);
+    await running.harness.prompt("kolu", [], []);
     await settled(running, "the turn never ended");
 
     const call = running.rows().find((row) => row.kind === "tool");
@@ -398,7 +432,7 @@ describe("one conversation with a real agent", () => {
 
   test("a turn the agent refuses marks the row refused and leaves the conversation alive", async () => {
     const running = await open("agent.ts");
-    const { rowId } = await running.harness.prompt("fail", []);
+    const { rowId } = await running.harness.prompt("fail", [], []);
     await settled(running, "the failed turn never ended");
     const row = running.rows().find((one) => one.id === rowId);
     expect(row?.kind === "user" ? row.delivery : null).toBe("refused");
@@ -465,7 +499,7 @@ describe("the permission mode a conversation is opened in", () => {
       .options.find((one) => one.id === "mode");
     expect(mode?.value).toBe("default");
     // ... and it is a conversation: the refusal cost nothing but a row.
-    await running.harness.prompt("hello", []);
+    await running.harness.prompt("hello", [], []);
     await settled(running, "the turn never ended");
     expect(textOfKind(running, "agent")).toEqual(["hello back"]);
   });
@@ -530,7 +564,7 @@ describe("the model a person chose", () => {
     // The agent's own forwarded message names what the turn is REALLY running
     // on — the fact the picker cannot carry, because an adapter that handles a
     // model switch inside the CLI it wraps never sees a config change.
-    await running.harness.prompt("roster", []);
+    await running.harness.prompt("roster", [], []);
     await settled(running, "the turn never ended");
     expect(running.harness.state().model).toEqual({
       id: "sonnet",
@@ -549,7 +583,7 @@ describe("the MCP servers this conversation was handed", () => {
       { name: "kolu", standing: "handed", said: null, where: "/bin/true" },
     ]);
 
-    await running.harness.prompt("roster", []);
+    await running.harness.prompt("roster", [], []);
     await settled(running, "the turn never ended");
     // The AGENT said it reached this one, so the row moves and carries the
     // word it used. `ghost` is a server the agent named and nobody handed
@@ -577,7 +611,7 @@ describe("a conversation padi already holds the rows of", () => {
     });
     expect(running.rows()).toEqual([]);
 
-    await running.harness.prompt("hello", []);
+    await running.harness.prompt("hello", [], []);
     await settled(running, "the turn never ended");
     const rows = running.rows();
     expect(rows.map((row) => ("text" in row ? row.text : ""))).toEqual([
@@ -628,7 +662,7 @@ describe("a conversation padi already holds the rows of", () => {
     // caller persists, and the one that used to be empty.
     expect(running.states[0]?.fleet).toEqual(remembered);
 
-    await running.harness.prompt("kolu", []);
+    await running.harness.prompt("kolu", [], []);
     await settled(running, "the turn never ended");
     // ... and a terminal this visit touches joins what was remembered rather
     // than replacing it.
@@ -710,5 +744,283 @@ describe("a bring-up nothing can be done about", () => {
     const last = states[states.length - 1];
     expect(last?.phase).toBe("offline");
     expect(last?.refusal).toContain("could not start the agent");
+  });
+});
+
+describe("the settings a conversation advertises", () => {
+  test("offers every one of them, with the model FIRST and marked", async () => {
+    // The four the pinned adapter really sends. The MODEL row used to be
+    // pulled out of this list and kept only for the header's reading, which is
+    // how a panel came to say "Opus 5.5" over a popover with MODE, EFFORT and
+    // FAST MODE in it and no way to change the model at all.
+    const running = await open("agent.ts");
+    const options = running.harness.state().options;
+    expect(options.map((one) => [one.id, one.kind])).toEqual([
+      ["model", "model"],
+      ["mode", "choice"],
+      ["effort", "choice"],
+      ["fast", "boolean"],
+    ]);
+    // ... and it is still the row the header reads its name and its size off.
+    expect(running.harness.state().model).toEqual({
+      id: "default",
+      name: "Default",
+      window: 200_000,
+    });
+    expect(options[0]?.choices.map((one) => one.value)).toEqual([
+      "default",
+      "sonnet",
+      "haiku",
+    ]);
+    // A BOOLEAN OFFERS NO ROWS — its value is the whole control, which is what
+    // a popover that only knew how to draw rows rendered as a heading with
+    // nothing under it.
+    expect(options.find((one) => one.id === "fast")).toMatchObject({
+      value: "false",
+      choices: [],
+    });
+    // The effort row keeps its own rows and its own description: a panel that
+    // filtered by category would have lost it with the model.
+    expect(options.find((one) => one.id === "effort")?.choices).toHaveLength(4);
+  });
+
+  test("a grouped picker offers its leaves and not its headings", async () => {
+    const running = await open("agent.ts");
+    await running.harness.prompt("groups", [], []);
+    await settled(running, "the turn never ended");
+    // ACP lets a select sort its rows under HEADINGS, and a heading is not a
+    // value anybody can pick: a picker drawn with them in offers choices this
+    // end could not send back, and one that dropped the grouped rows would be
+    // missing most of its models.
+    const model = running.harness
+      .state()
+      .options.find((one) => one.id === "model");
+    expect(model?.kind).toBe("model");
+    expect(model?.choices.map((one) => one.value)).toEqual([
+      "sonnet",
+      "haiku",
+      "default",
+    ]);
+    expect(running.harness.state().model?.id).toBe("sonnet");
+  });
+
+  test("a switch goes out as a boolean, not as the word for one", async () => {
+    // `session/set_config_option` carries a select's value as the row's own id
+    // and a boolean as `{type: "boolean", value: true}`; the pinned adapter
+    // refuses the string `"true"` outright. padi's wire stays strings — this
+    // end is the one that read the advertisement and knows which is which.
+    const running = await open("agent.ts");
+    await running.harness.setOption("fast", "true");
+    expect(
+      running.harness.state().options.find((one) => one.id === "fast")?.value,
+    ).toBe("true");
+    // ... and a word that is neither is refused HERE, before the wire.
+    await expect(
+      running.harness.setOption("fast", "maybe"),
+    ).rejects.toMatchObject({
+      name: "HarnessRefused",
+      why: expect.stringContaining("takes `true` or `false`"),
+    });
+  });
+});
+
+describe("what a prompt can carry besides words", () => {
+  test("an image arrives as an `image` block with its bytes intact", async () => {
+    const running = await open("agent.ts");
+    await running.harness.prompt("look at this", [], [picture()]);
+    await settled(running, "the turn never ended");
+
+    // WHAT CROSSED THE PIPE, asked of the only process that knows.
+    const [sent] = (await asked(running, "blocks")) as ReadonlyArray<
+      ReadonlyArray<Record<string, unknown>>
+    >;
+    expect(sent?.[0]).toMatchObject({ type: "text" });
+    expect(sent?.[1]).toEqual({
+      type: "image",
+      data: PNG,
+      mimeType: "image/png",
+    });
+
+    // ... and the row a reader draws carries the attachment it was handed,
+    // whole: the browser that pasted the image draws its own thumbnail off
+    // this row, and padi — which wrote the bytes out before calling and owns
+    // its own record — is the end that strips the `dataUrl` before persisting.
+    const row = running.rows().find((one) => one.kind === "user");
+    expect(row?.kind === "user" ? row.attachments : null).toEqual([picture()]);
+  });
+
+  test("a text file arrives as a `resource` with its text embedded", async () => {
+    const running = await open("agent.ts");
+    await running.harness.prompt(
+      "read this",
+      [],
+      [
+        {
+          id: "att-2",
+          name: "notes.txt",
+          // WITH ITS PARAMETERS, which is how a browser hands one over: a rule
+          // that compared the whole string would send the commonest text file
+          // there is as an opaque link.
+          mimeType: "text/plain;charset=utf-8",
+          bytes: 11,
+          dataUrl: `data:text/plain;base64,${Buffer.from("hello there").toString("base64")}`,
+          path: "/state/orchestrator/attachments/att-2",
+        },
+      ],
+    );
+    await settled(running, "the turn never ended");
+    const [sent] = (await asked(running, "blocks")) as ReadonlyArray<
+      ReadonlyArray<Record<string, unknown>>
+    >;
+    expect(sent?.[1]).toEqual({
+      type: "resource",
+      resource: {
+        uri: "file:///state/orchestrator/attachments/att-2",
+        mimeType: "text/plain",
+        text: "hello there",
+      },
+    });
+  });
+
+  test("anything else arrives as a `resource_link` naming the path padi wrote", async () => {
+    const running = await open("agent.ts");
+    await running.harness.prompt(
+      "and this",
+      [],
+      [
+        {
+          id: "att-3",
+          name: "report.pdf",
+          mimeType: "application/pdf",
+          bytes: 2048,
+          dataUrl: null,
+          path: "/state/orchestrator/attachments/att-3",
+        },
+      ],
+    );
+    await settled(running, "the turn never ended");
+    const [sent] = (await asked(running, "blocks")) as ReadonlyArray<
+      ReadonlyArray<Record<string, unknown>>
+    >;
+    // The ABSOLUTE path on the host the agent is running on, which is the only
+    // one that exists for it: an agent with a shell can go and read it, and
+    // every agent must accept the block whether it can or not.
+    expect(sent?.[1]).toEqual({
+      type: "resource_link",
+      uri: "file:///state/orchestrator/attachments/att-3",
+      name: "report.pdf",
+      mimeType: "application/pdf",
+      size: 2048,
+    });
+  });
+
+  test("an image an agent never advertised for is refused with a sentence", async () => {
+    // ACP makes the image block opt-in at the AGENT's end. Sending one anyway
+    // is a turn that fails somewhere inside the agent with a sentence nobody
+    // wrote for a person; the refusal names the capability instead.
+    const running = await open("text-only-agent.ts");
+    await expect(
+      running.harness.prompt("look at this", [], [picture()]),
+    ).rejects.toMatchObject({
+      name: "HarnessRefused",
+      why: expect.stringContaining("`image`"),
+    });
+    // NOTHING WAS DRAWN and nothing went out: a person's message is still
+    // theirs to send, with a sentence saying why.
+    expect(running.rows()).toEqual([]);
+    await running.harness.prompt("hello", [], []);
+    await settled(running, "the turn never ended");
+    expect(textOfKind(running, "agent")).toEqual(["text is all I take"]);
+  });
+
+  test("too much is refused with a sentence naming the limit", async () => {
+    const running = await open("agent.ts");
+    await expect(
+      running.harness.prompt(
+        "huge",
+        [],
+        [picture({ bytes: 11 * 1024 * 1024 })],
+      ),
+    ).rejects.toMatchObject({
+      name: "HarnessRefused",
+      why: expect.stringContaining("10 MiB"),
+    });
+    // ... and the whole message has a limit of its own, which three legal
+    // attachments can pass.
+    await expect(
+      running.harness.prompt(
+        "huge",
+        [],
+        [
+          picture({ id: "a", bytes: 9 * 1024 * 1024 }),
+          picture({ id: "b", bytes: 9 * 1024 * 1024 }),
+          picture({ id: "c", bytes: 9 * 1024 * 1024 }),
+        ],
+      ),
+    ).rejects.toMatchObject({
+      name: "HarnessRefused",
+      why: expect.stringContaining("20 MiB"),
+    });
+    expect(running.rows()).toEqual([]);
+  });
+});
+
+describe("the break that says the agent's memory was reset", () => {
+  test("a death and the harness that replaces it mint none", async () => {
+    const first = await open("agent.ts");
+    await first.harness.prompt("hello", [], []);
+    await settled(first, "the first turn never ended");
+    // The adapter crashes mid-turn, which is the ending nobody asked for.
+    await first.harness.prompt("die", [], []);
+    await dead(first);
+    expect(first.rows().filter((one) => one.kind === "divider")).toEqual([]);
+
+    // ... and padi's answer to a corpse: a REPLACEMENT over the rows it is
+    // still holding, resuming the conversation the dead one was in. Nothing
+    // about either is a reset of the agent's memory, and a divider that said
+    // so would be a lie told once per crash.
+    const second = await open("agent.ts", {
+      resume: "sess-1",
+      resumedSeq: 12,
+    });
+    await second.harness.prompt("hello", [], []);
+    await settled(second, "the turn never ended");
+    expect(second.rows().filter((one) => one.kind === "divider")).toEqual([]);
+  });
+
+  test("`newSession` mints exactly one, however many times it is asked", async () => {
+    const running = await open("agent.ts");
+    await running.harness.prompt("hello", [], []);
+    await settled(running, "the first turn never ended");
+    // FOUR, which is what the owner's screenshot had: a caller retrying a verb
+    // nobody pressed twice, and four `— NEW SESSION —` lines with no
+    // conversation between them. A second break says exactly what the first
+    // one says.
+    await running.harness.newSession();
+    await running.harness.newSession();
+    await running.harness.newSession();
+    await running.harness.newSession();
+    expect(dividers(running)).toHaveLength(1);
+
+    // ... and once something has been said, a break means something again.
+    await running.harness.prompt("hello", [], []);
+    await settled(running, "the second turn never ended");
+    await running.harness.newSession();
+    expect(dividers(running)).toHaveLength(2);
+  });
+
+  test("a break for a conversation that would not open comes back out", async () => {
+    const running = await open("agent.ts");
+    await running.harness.prompt("hello", [], []);
+    await settled(running, "the first turn never ended");
+    await running.harness.prompt("die", [], []);
+    await dead(running);
+    // The verb was asked for and the conversation did not open, so the agent's
+    // memory was not reset into anything: the mark is withdrawn rather than
+    // left standing for the next attempt to stack on.
+    await expect(running.harness.newSession()).rejects.toMatchObject({
+      name: "HarnessUnavailable",
+    });
+    expect(dividers(running)).toEqual([]);
   });
 });
