@@ -484,6 +484,16 @@ let
     # The links this leaves pointing at `../../packages/<member>` are workspace
     # links, and they dangle here on purpose: they land on real source once
     # `kolu` replays them into the build tree.
+    #
+    # ONE difference from the install this used to do inside the source tree,
+    # and it is the only one — the two trees were compared entry by entry (443
+    # `.pnpm` instances, every member farm, identical): a workspace package
+    # that declares a `bin` gets no `.bin/<name>` shim in its dependents'
+    # farms, because pnpm writes a shim only when the target FILE is there and
+    # this install has manifests, not sources. Today that is `@kolu/padi`'s
+    # `padi`, in four farms, and nothing reads them: the daemon is spawned as
+    # `${padi}/bin/padi` through the wrapper's KOLU_PADI_BIN, and a working
+    # tree gets its shims from `just install`.
     installPhase = ''
       runHook preInstall
 
