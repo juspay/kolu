@@ -1,22 +1,22 @@
 /**
- * padi's half of the Orchestrator — the bookkeeping, without an adapter.
+ * kolu-server's half of the Orchestrator — the bookkeeping, without an adapter.
  *
  * Everything here runs against an injected `spawn` (`OrchestratorDeps.spawn`),
  * which is the whole reason that arrow exists: the facts under test are what
- * padi REMEMBERS, what it hands a reader, what it writes to disk and when, and
- * none of them is a fact about a subprocess. The protocol itself is proven in
- * `@kolu/acp-harness`'s own two-process suite.
+ * kolu-server REMEMBERS, what it hands a reader, what it writes to disk and
+ * when, and none of them is a fact about a subprocess. The protocol itself is
+ * proven in `@kolu/acp-harness`'s own two-process suite.
  *
  * What it pins, each a defect this file watched land:
  *  - SNAPSHOT-THEN-DELTAS: the first frame a reader gets is a full snapshot,
  *    delivered SYNCHRONOUSLY, so a delta can never arrive first.
- *  - THE RESTART FENCE: a restart restores padi's rows and tells the new
+ *  - THE RESTART FENCE: a restart restores our rows and tells the new
  *    conversation where to start counting (`resumedSeq`), so a resumed
  *    transcript is not two copies of itself — and so does a REPLACEMENT
- *    adapter, which is spawned over rows padi is still holding.
+ *    adapter, which is spawned over rows we are still holding.
  *  - A FAILED BRING-UP IS SAID OUT LOUD: the panel shows a refusal rather than
  *    an idle-looking composer — an unreadable record included.
- *  - A DEAD ADAPTER IS REPLACED, rather than refusing for the daemon's life.
+ *  - A DEAD ADAPTER IS REPLACED, rather than refusing for the process's life.
  *  - A TEARDOWN LEAVES THE RECORD RESUMABLE: the session id and the fleet are
  *    on disk beside the rows, and the stop's own last breath — which says the
  *    session is gone — is not written over them.
@@ -31,7 +31,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs";
-import { createServer, type Server } from "node:net";
+import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -47,7 +47,7 @@ import {
   type OrchestratorFrame,
   type OrchestratorRow,
   PROMPT_ATTACHMENT_BYTE_CAP,
-} from "@kolu/padi-client/surface";
+} from "kolu-common/orchestrator";
 import {
   chunkBase64,
   FRAME_CHUNK_BYTES,
@@ -57,13 +57,9 @@ import { exceedsFrameLimit } from "@kolu/surface/frame-limit";
 import type { CellStore } from "@kolu/surface/server";
 import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AGENT_ENV } from "@kolu/acp/engine";
 import {
-  __resetPadiSurfaceCtxForTest,
-  noopPadiSurfaceCtxForTest,
-  setPadiSurfaceCtx,
-} from "../padiSurfaceCtx.ts";
-import { ACP_AGENT_ENV, KOLU_MCP_BIN_ENV } from "./bake.ts";
-import {
+  type FleetMcpEndpoint,
   type OrchestratorHost,
   startOrchestratorHost,
   UNSENT_ATTACHMENT_MS,
@@ -104,7 +100,7 @@ interface Spawned {
   readonly opened: () => void;
   readonly die: () => void;
   readonly stops: () => number;
-  /** The attachments this conversation was HANDED, per prompt — what padi
+  /** The attachments this conversation was HANDED, per prompt — what kolu-server
    *  wrote and filled in before the agent was told anything. */
   readonly handed: () => ReadonlyArray<ReadonlyArray<OrchestratorAttachment>>;
 }
@@ -146,7 +142,7 @@ function fakeSpawner(): {
         alive = false;
         // THE LAST BREATH, modelled because it is the thing that bites: a real
         // `stop()` lets the session go and publishes one final state saying
-        // so, and padi persists what it is told.
+        // so, and kolu-server persists what it is told.
         state = { ...state, phase: "offline", sessionId: null };
         options.onChange({ kind: "state", state });
       },
@@ -172,8 +168,8 @@ function fakeSpawner(): {
 }
 
 /** The conf-backed record, as a counted in-memory store — `reads` is what the
- *  eager-read blocker (every padi unit test crashing in
- *  `buildPadiSurfaceDeps`) is pinned against, `writes` is what the throttle is. */
+ *  eager-read blocker (a construction that read the store before the boot
+ *  had one) is pinned against, `writes` is what the throttle is. */
 function countingStore(initial: PersistedOrchestrator): {
   store: CellStore<PersistedOrchestrator>;
   reads: () => number;
@@ -210,7 +206,7 @@ interface Rig {
 
 function rig(
   remembered: PersistedOrchestrator = EMPTY_PERSISTED_ORCHESTRATOR,
-  socket: string | null = liveSocket,
+  endpoint: FleetMcpEndpoint | null = liveEndpoint,
   root = "/state",
 ): Rig {
   const { spawn, spawns } = fakeSpawner();
@@ -219,7 +215,11 @@ function rig(
     log,
     home: HOME,
     hostName: HOST,
-    socketPath: () => socket,
+    fleetMcp: () => endpoint,
+    // The served cell, as a sink. Nothing here reads it back — what a reader
+    // sees is `host.state()`, which is the same value — so this only has to
+    // not throw, the way the real writer does not once the surface is up.
+    publish: () => {},
     store: backing.store,
     storePath: () => join(root, "config.json"),
     stateRoot: root,
@@ -234,37 +234,54 @@ function rig(
   };
 }
 
-const SAVED_AGENT = process.env[ACP_AGENT_ENV];
-const SAVED_BIN = process.env[KOLU_MCP_BIN_ENV];
+const SAVED_AGENT = process.env[AGENT_ENV];
 
-/** A socket that ACCEPTS, because the host now proves padi's rendezvous before
- *  it hands the path to an agent — and a probe is a real `connect()`, so there
- *  is nothing to stub. Every test that brings a conversation up therefore
- *  exercises the proof as well as what it was written for. */
-let liveSocket: string;
+/** AN ENDPOINT THAT ANSWERS, because the host now proves the fleet MCP face
+ *  before it hands the URL to an agent — and the proof is a real request, so
+ *  there is nothing to stub. Every test that brings a conversation up
+ *  therefore exercises the proof as well as what it was written for.
+ *
+ *  It answers `400` with the transport's own "not initialized" body, which is
+ *  exactly what the real streamable-HTTP endpoint answers a `ping` that opened
+ *  no session — so a proof that started demanding `200` would fail here first.
+ *  A request without the bearer token gets `401`, because the gate is half of
+ *  what the proof is proving. */
+let liveEndpoint: FleetMcpEndpoint;
 let listener: Server;
 
 beforeEach(async () => {
-  __resetPadiSurfaceCtxForTest();
-  setPadiSurfaceCtx(noopPadiSurfaceCtxForTest());
   // The adapter is BAKED, so a seated engine is the normal case; nothing is
   // executed here because `spawn` is injected.
-  process.env[ACP_AGENT_ENV] = "/nix/store/fake-acp-adapter";
-  process.env[KOLU_MCP_BIN_ENV] = "/nix/store/fake-kolu";
-  liveSocket = join(mkdtempSync(join(tmpdir(), "padi-orch-rv-")), "padi.sock");
-  listener = createServer();
+  process.env[AGENT_ENV] = "/nix/store/fake-acp-adapter";
+  const token = "0123456789abcdef";
+  listener = createServer((req, res) => {
+    if (req.headers.authorization !== `Bearer ${token}`) {
+      res.writeHead(401).end();
+      return;
+    }
+    res.writeHead(400, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32_000, message: "Bad Request: Server not initialized" },
+      }),
+    );
+  });
   const up = Promise.withResolvers<void>();
-  listener.listen(liveSocket, up.resolve);
+  listener.listen(0, "127.0.0.1", up.resolve);
   await up.promise;
+  const bound = listener.address();
+  if (bound === null || typeof bound === "string") {
+    throw new Error("the fleet endpoint fixture did not bind a TCP port");
+  }
+  liveEndpoint = { url: `http://127.0.0.1:${bound.port}/mcp`, token };
 });
 
 afterEach(async () => {
   vi.useRealTimers();
-  __resetPadiSurfaceCtxForTest();
-  if (SAVED_AGENT === undefined) delete process.env[ACP_AGENT_ENV];
-  else process.env[ACP_AGENT_ENV] = SAVED_AGENT;
-  if (SAVED_BIN === undefined) delete process.env[KOLU_MCP_BIN_ENV];
-  else process.env[KOLU_MCP_BIN_ENV] = SAVED_BIN;
+  if (SAVED_AGENT === undefined) delete process.env[AGENT_ENV];
+  else process.env[AGENT_ENV] = SAVED_AGENT;
   const down = Promise.withResolvers<void>();
   listener.close(() => {
     down.resolve();
@@ -329,7 +346,7 @@ describe("the transcript a reader is handed", () => {
       appends: [],
     });
     // The SAME piece twice — a frame delivered to this fold a second time.
-    // padi's map is what the record is written from, so a fold that ignored
+    // our map is what the record is written from, so a fold that ignored
     // `at` would leave a doubled fragment on disk that no reader ever saw.
     const saying: HarnessChange = {
       kind: "rows",
@@ -378,7 +395,7 @@ describe("the restart fence (B1)", () => {
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
     expect(agent.options.resume).toBe("sess-1");
-    // The highest `seq` padi already holds. Anything the new process mints
+    // The highest `seq` we already hold. Anything the new process mints
     // sorts after it and cannot collide with a persisted id.
     expect(agent.options.resumedSeq).toBe(3);
   });
@@ -437,9 +454,9 @@ describe("the restart fence (B1)", () => {
 describe("the remembered record is read on the first reader's edge (B3)", () => {
   it("touches the store NOT AT ALL at construction", () => {
     const r = rig();
-    // `buildPadiSurfaceDeps` runs before padi's boot injects the conf store —
-    // and never injects it at all in a unit test — so a read here is a crash
-    // in every test that assembles padi's surface.
+    // The host is built before the surface exists — and there is no surface at
+    // all in a unit test — so a read here is a crash in every test that
+    // assembles kolu-server's surface.
     expect(r.reads()).toBe(0);
     // Including the serve-time cell seed, which reads this.
     expect(r.host.state().phase).toBe("offline");
@@ -457,34 +474,55 @@ describe("the remembered record is read on the first reader's edge (B3)", () => 
 
 describe("a bring-up that did not get there (M2)", () => {
   it("publishes the refusal instead of leaving an idle-looking panel", async () => {
-    // No socket yet: the conversation cannot be told where this host's
+    // No endpoint yet: the conversation cannot be told where the fleet's
     // terminals are, and the bring-up refuses before it spawns anything.
     const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, null);
     await expect(r.host.prompt("hello", [], [])).rejects.toThrow();
     expect(r.host.state().phase).toBe("offline");
-    expect(r.host.state().refusal).toContain("has not published its socket");
+    expect(r.host.state().refusal).toContain(
+      "has not published its fleet MCP endpoint",
+    );
   });
 
-  it("refuses a socket NOBODY IS SERVING rather than handing the agent a dead path", async () => {
-    // The failure this exists for: padi records its rendezvous at boot and had
-    // never checked it was being served, so a path that named nothing was
-    // handed over exactly like a good one. The agent's `kolu mcp` then cannot
-    // connect, the agent marks the server failed ONCE inside `session/new` and
-    // never revisits it, and the conversation carries on running shell
-    // commands itself — the one failure this feature exists to prevent, and
-    // invisible but for a grey word on a roster.
-    const r = rig(
-      EMPTY_PERSISTED_ORCHESTRATOR,
-      join(mkdtempSync(join(tmpdir(), "padi-orch-dead-")), "padi.sock"),
-    );
+  it("refuses an endpoint NOBODY IS SERVING rather than handing the agent a dead URL", async () => {
+    // The failure this exists for: the orchestrator took its endpoint on faith
+    // and had never checked it was being served, so a URL that answered
+    // nothing was handed over exactly like a good one. The agent's MCP client
+    // then cannot connect, the agent marks the server failed ONCE inside
+    // `session/new` and never revisits it, and the conversation carries on
+    // running shell commands itself — the one failure this feature exists to
+    // prevent, and invisible but for a grey word on a roster.
+    //
+    // Port 1 on loopback: privileged, bound by nothing, so the connect is
+    // refused by the kernel rather than by a timeout.
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, {
+      url: "http://127.0.0.1:1/mcp",
+      token: "unused",
+    });
     await expect(r.host.prompt("hello", [], [])).rejects.toThrow(
-      /cannot reach this padi/,
+      /cannot reach this kolu's fleet MCP face/,
     );
     // Nothing was spawned: an adapter with no hands is not a degraded
     // orchestrator, it is a chat window.
     expect(r.spawns).toHaveLength(0);
     expect(r.host.state().phase).toBe("offline");
-    expect(r.host.state().refusal).toContain("padi.sock");
+    expect(r.host.state().refusal).toContain("http://127.0.0.1:1/mcp");
+  });
+
+  it("refuses an endpoint that REJECTS the token rather than opening with no hands", async () => {
+    // The other half of the proof, and the one a reachability check would
+    // miss: something IS listening, and it will not let this process in. An
+    // agent handed those headers is refused the same way and carries on
+    // without the fleet.
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, {
+      ...liveEndpoint,
+      token: "not-the-token-this-process-minted",
+    });
+    await expect(r.host.prompt("hello", [], [])).rejects.toThrow(
+      /was refused by this kolu's fleet MCP face/,
+    );
+    expect(r.spawns).toHaveLength(0);
+    expect(r.host.state().refusal).toContain("401");
   });
 
   it("reaches a READER, who has nothing to catch", async () => {
@@ -493,10 +531,12 @@ describe("a bring-up that did not get there (M2)", () => {
     // The bring-up a subscription triggers cannot throw at anybody — the cell
     // is the only place it can be said. Waited for rather than read straight
     // off, because the bring-up is one promise from its first step (it begins
-    // by proving padi's rendezvous), so even a refusal it reaches immediately
+    // by proving the fleet endpoint), so even a refusal it reaches immediately
     // is published a tick later.
     await vi.waitFor(() => {
-      expect(r.host.state().refusal).toContain("has not published its socket");
+      expect(r.host.state().refusal).toContain(
+        "has not published its fleet MCP endpoint",
+      );
     });
   });
 });
@@ -516,7 +556,7 @@ describe("a dead adapter (M3)", () => {
     expect(first.stops()).toBe(1);
   });
 
-  it("fences the REPLACEMENT on the rows padi still holds (R2)", async () => {
+  it("fences the REPLACEMENT on the rows we still hold (R2)", async () => {
     // A fresh state-root: nothing was restored, so a fence taken at the
     // restore is zero forever.
     const r = rig();
@@ -535,7 +575,7 @@ describe("a dead adapter (M3)", () => {
     await r.host.newSession();
     const second = r.spawns[1];
     if (second === undefined) throw new Error("the corpse was not replaced");
-    // The rows are padi's, not the dead harness's: a replacement told to count
+    // The rows are ours, not the dead harness's: a replacement told to count
     // from zero mints `user:1` and `agent:2` a second time and overwrites them
     // by id, and the transcript loses the conversation it is displaying.
     expect(second.options.resumedSeq).toBe(2);
@@ -573,9 +613,12 @@ describe("the standing prompt (M5)", () => {
     const agent = r.spawns[0];
     if (agent === undefined) throw new Error("the host spawned nothing");
     expect(agent.options.cwd).toBe(HOME);
-    expect(agent.options.teaching[0]).toContain(`orchestrator on ${HOST}`);
+    expect(agent.options.teaching[0]).toContain(`You run on ${HOST}`);
     // The old defect, stated as a negative: a directory is not a machine.
-    expect(agent.options.teaching[0]).not.toContain(`orchestrator on ${HOME}`);
+    expect(agent.options.teaching[0]).not.toContain(HOME);
+    // …and the fleet grammar is TAUGHT, not assumed: one conversation over
+    // every host is only usable if `host/id` is the identity on the wire.
+    expect(agent.options.teaching.join("\n")).toContain("`host/id`");
   });
 });
 
@@ -659,7 +702,8 @@ describe("teardown (B2)", () => {
       log,
       home: HOME,
       hostName: HOST,
-      socketPath: () => liveSocket,
+      fleetMcp: () => liveEndpoint,
+      publish: () => {},
       store: backing.store,
       storePath: () => "/state/config.json",
       stateRoot: "/state",
@@ -674,7 +718,7 @@ describe("teardown (B2)", () => {
     await sent.catch(() => {});
     await stopped;
     // The orphan this await exists for: without it the child is spawned after
-    // the daemon decided to stop and nothing ever reaches it.
+    // the process decided to stop and nothing ever reaches it.
     expect(spawns[0]?.stops()).toBe(1);
   });
 
@@ -699,9 +743,9 @@ describe("teardown (B2)", () => {
     });
 
     await r.host.dispose();
-    // The stop's own last breath nulls the session, and padi persists what it
+    // The stop's own last breath nulls the session, and we persist what it
     // is told — so without the guard every drain and every upgrade writes a
-    // transcript beside `sessionId: null`, and the next padi restores the rows
+    // transcript beside `sessionId: null`, and the next boot restores the rows
     // into a conversation it opens FRESH. The rows and the session go to disk
     // together or the resume is a lie.
     expect(r.value().sessionId).toBe("s-1");
@@ -717,7 +761,8 @@ describe("teardown (B2)", () => {
       log,
       home: HOME,
       hostName: HOST,
-      socketPath: () => liveSocket,
+      fleetMcp: () => liveEndpoint,
+      publish: () => {},
       store: backing.store,
       storePath: () => "/state/config.json",
       stateRoot: "/state",
@@ -757,7 +802,7 @@ describe("teardown (B2)", () => {
 });
 
 describe("the remembered fleet survives the resume (R3)", () => {
-  const fleet = ["11111111-1111-4111-8111-111111111111"];
+  const fleet = ["local/11111111-1111-4111-8111-111111111111"];
 
   it("is handed to the conversation and not published away under it", async () => {
     const r = rig({
@@ -776,7 +821,7 @@ describe("the remembered fleet survives the resume (R3)", () => {
     expect(agent.options.fleet).toEqual(fleet);
 
     // The first breath of the open, which is a WHOLE state: whatever it says
-    // about the fleet replaces what padi was serving, and padi writes it.
+    // about the fleet replaces what we were serving, and we write it.
     agent.opened();
     expect(r.host.state().fleet).toEqual(fleet);
     await r.host.dispose();
@@ -809,7 +854,7 @@ describe("a prompt's attachments", () => {
   const PIXEL =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
-  /** The chip a prompt carries: a name, a size and the path padi answered
+  /** The chip a prompt carries: a name, a size and the path kolu-server answered
    *  with. The bytes went up separately, chunk by chunk. */
   const chip = (
     over: Partial<OrchestratorAttachment> = {},
@@ -825,7 +870,7 @@ describe("a prompt's attachments", () => {
   let root: string;
   let dir: string;
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), "padi-orch-att-"));
+    root = mkdtempSync(join(tmpdir(), "kolu-orch-att-"));
     dir = join(root, "orchestrator", "attachments");
   });
 
@@ -835,7 +880,7 @@ describe("a prompt's attachments", () => {
     // 1009 and takes every subscription in the tab with it. So the test is
     // not only that the file round-trips, but that no single call it took to
     // get here would have busted the cap.
-    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveEndpoint, root);
     const whole = Buffer.alloc(FRAME_CHUNK_BYTES + 4096, 7);
     const pieces = chunkBase64(whole.toString("base64"));
     expect(pieces.length).toBeGreaterThan(1);
@@ -873,7 +918,7 @@ describe("a prompt's attachments", () => {
   });
 
   it("refuses an id that is not a filename, rather than writing where it says", () => {
-    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveEndpoint, root);
     expect(() =>
       r.host.attach({
         id: "../../escaped",
@@ -881,11 +926,11 @@ describe("a prompt's attachments", () => {
         mimeType: "text/plain",
         data: PIXEL,
       }),
-    ).toThrow(/not a name this padi will write a file under/);
+    ).toThrow(/not a name this server will write a file under/);
   });
 
   it("refuses an `appendTo` that points outside the attachments directory", () => {
-    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveEndpoint, root);
     r.host.attach({
       id: "att-1",
       name: "pixel.png",
@@ -909,7 +954,7 @@ describe("a prompt's attachments", () => {
   });
 
   it("refuses a file that grows past the per-attachment cap AS IT IS WRITTEN", () => {
-    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveEndpoint, root);
     // Each half is legal on its own; together they are one byte over. The
     // cap has to be enforced on the FILE as it grows, or an unlimited upload
     // goes through as an unlimited number of legal chunks.
@@ -937,7 +982,7 @@ describe("a prompt's attachments", () => {
   });
 
   it("refuses a MESSAGE whose files come to more than the per-prompt cap", async () => {
-    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveEndpoint, root);
     // Three files, each well under the per-attachment cap, that come to more
     // than one message may carry.
     const third = Buffer.alloc(
@@ -959,7 +1004,7 @@ describe("a prompt's attachments", () => {
   });
 
   it("refuses a message naming a file this host no longer holds", async () => {
-    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveEndpoint, root);
     await expect(
       r.host.prompt("look", [], [chip({ id: "never-uploaded" })]),
     ).rejects.toThrow(/no longer on this host/);
@@ -989,7 +1034,7 @@ describe("a prompt's attachments", () => {
         ],
         fleet: [],
       },
-      liveSocket,
+      liveEndpoint,
       root,
     );
     r.host.watch(() => {});
@@ -997,7 +1042,7 @@ describe("a prompt's attachments", () => {
   });
 
   it("a REFUSED prompt leaves no file the transcript does not name", async () => {
-    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveEndpoint, root);
     const sent = ["att-1", "att-2"].map((id) => {
       const answer = r.host.attach({
         id,
@@ -1019,15 +1064,15 @@ describe("a prompt's attachments", () => {
       r.host.prompt("look", [], [...sent, chip({ id: "gone" })]),
     ).rejects.toThrow(/no longer on this host/);
     // The bytes of a message that never went do not sit in the state root
-    // waiting for a daemon restart to notice them.
+    // waiting for a server restart to notice them.
     expect(readdirSync(dir)).toEqual(["att-3"]);
   });
 
   it("does not keep an upload nobody ever sent", () => {
-    // Only `Date` is faked: the bring-up below is a real socket probe, and a
+    // Only `Date` is faked: the bring-up below is a real HTTP request, and a
     // frozen event loop would hang it.
     vi.useFakeTimers({ toFake: ["Date"] });
-    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveSocket, root);
+    const r = rig(EMPTY_PERSISTED_ORCHESTRATOR, liveEndpoint, root);
     r.host.attach({
       id: "att-1",
       name: "att-1.png",
@@ -1083,9 +1128,9 @@ describe("a run of NEW SESSION dividers", () => {
   it("tells a fresh conversation its last row is ALREADY a divider", async () => {
     // THE DEFECT: `Transcript.divider()` refuses a second consecutive divider
     // by looking at the rows IT minted, and a respawn builds a fresh one — so
-    // a `newSession` straight after would mint a rule beside padi's last row,
+    // a `newSession` straight after would mint a rule beside our last row,
     // which is already a rule, and the panel would draw two for one reset
-    // until the next daemon read collapsed them. The seed crosses the same
+    // until the next boot read collapsed them. The seed crosses the same
     // seam `resumedSeq` does.
     const r = rig({
       sessionId: "sess-1",
@@ -1100,7 +1145,7 @@ describe("a run of NEW SESSION dividers", () => {
     if (first === undefined) throw new Error("the host spawned nothing");
     expect(first.options.resumedEndsWithDivider).toBe(true);
 
-    // ...and a REPLACEMENT is told the same thing, read off the rows padi is
+    // ...and a REPLACEMENT is told the same thing, read off the rows we are
     // still holding rather than off the record it booted from.
     first.die();
     await r.host.newSession();

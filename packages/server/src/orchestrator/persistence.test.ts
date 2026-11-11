@@ -1,54 +1,60 @@
 /**
- * THE RECORD — padi's `orchestrator` key, through the real `config.json`.
+ * THE RECORD — kolu-server's `orchestrator` key, through the real `config.json`.
  *
- * Three things, and each is a different kind of promise:
- *  - a ROUND TRIP: a conversation written by one host comes back whole to the
- *    next one — its rows, the session it IS and the fleet it was working with
- *    — through the same `Conf` the saved session rides;
- *  - the 1.4.0 MIGRATION RUNG: a state-root written before the orchestrator
- *    existed opens, answers the empty record and carries today's version;
+ * Four things, and each is a different kind of promise:
+ *  - a ROUND TRIP: a conversation written by one process comes back whole to
+ *    the next one — its rows, the session it IS and the fleet it was working
+ *    with — through the same `Conf` the host map and the preferences ride;
+ *  - the 1.43.0 MIGRATION RUNG: a state file written before the orchestrator
+ *    moved here opens and answers the empty record, walked through the REAL
+ *    ladder rather than a re-implementation of it;
  *  - FAIL-LOUD: a parseable-but-wrong record refuses by name instead of being
- *    normalized into a transcript with holes in it.
+ *    normalized into a transcript with holes in it;
+ *  - the BYTES of an attachment land beside the file, never inside it.
+ *
+ * The store is kolu-server's own module singleton, under the test harness's
+ * ephemeral `KOLU_STATE_DIR` (`test:daemon` sets it) — the same thing
+ * `hostPersistence.test.ts` does with the `hosts` key, and for the same
+ * reason: what is under test is the FILE, so a parallel `Conf` built here
+ * would prove something about a store nothing ships.
  */
 
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { createServer, type Server } from "node:net";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:http";
+import { dirname, join } from "node:path";
 import type { Harness, HarnessChange, HarnessOptions } from "@kolu/acp-harness";
 import {
   DEFAULT_ORCHESTRATOR_STATE,
   type OrchestratorFrame,
   type OrchestratorRow,
-} from "@kolu/padi-client/surface";
+} from "kolu-common/orchestrator";
+import { confStore } from "@kolu/surface/server";
 import { Schema } from "effect";
 import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { AGENT_ENV } from "@kolu/acp/engine";
+import { decodeStateBackup, store } from "../state.ts";
 import {
-  __resetPadiSurfaceCtxForTest,
-  noopPadiSurfaceCtxForTest,
-  setPadiSurfaceCtx,
-} from "../padiSurfaceCtx.ts";
-import {
-  PADI_STATE_SCHEMA_VERSION,
-  padiConfigPath,
-  requirePadiStateStores,
-} from "../session/stateStore.ts";
-import { ACP_AGENT_ENV, KOLU_MCP_BIN_ENV } from "./bake.ts";
-import {
+  type FleetMcpEndpoint,
   type OrchestratorHost,
   startOrchestratorHost,
 } from "./orchestrator.ts";
 import {
   EMPTY_PERSISTED_ORCHESTRATOR,
+  type PersistedOrchestrator,
   PersistedOrchestratorSchema,
 } from "./persisted.ts";
 
 const HOME = "/home/tester";
 
-/** One terminal this conversation was working with — a terminal id is a uuid
- *  on the wire, and the record keeps it verbatim. */
-const FLEET_ID = "11111111-1111-4111-8111-111111111111";
+/** One terminal this conversation was working with — a FLEET REF, because one
+ *  conversation reaches every host and the half before the slash is what says
+ *  which. The record keeps it verbatim. */
+const FLEET_REF = "local/11111111-1111-4111-8111-111111111111";
+
+/** The version this file's ladder pin names. A literal, deliberately: a pin
+ *  read off the constant it is pinning asserts nothing. */
+const STATE_SCHEMA_VERSION = "1.43.0";
 
 const log = {
   debug() {},
@@ -65,33 +71,48 @@ const row = (id: string, seq: number, text = id): OrchestratorRow => ({
   text,
 });
 
-let stateRoot: string;
-/** A socket that ACCEPTS: the host proves padi's own rendezvous before it
- *  hands the path to an agent, and a probe is a real `connect()`. */
-let liveSocket: string;
+/** kolu-server's state root — where `config.json` is, and where the
+ *  orchestrator's attachments go. Taken off the store rather than off the env
+ *  for the reason `live.ts` takes it there: two readings of one root. */
+const stateRoot = dirname(store.path);
+const orchestratorStore = confStore<PersistedOrchestrator>(
+  store,
+  "orchestrator",
+);
+
+/** AN ENDPOINT THAT ANSWERS: the host proves the fleet MCP face before it
+ *  hands the URL to an agent, and the proof is a real request. */
+let liveEndpoint: FleetMcpEndpoint;
 let listener: Server;
-const SAVED_AGENT = process.env[ACP_AGENT_ENV];
-const SAVED_BIN = process.env[KOLU_MCP_BIN_ENV];
+const SAVED_AGENT = process.env[AGENT_ENV];
 
 beforeEach(async () => {
-  stateRoot = mkdtempSync(join(tmpdir(), "padi-orch-"));
-  __resetPadiSurfaceCtxForTest();
-  setPadiSurfaceCtx(noopPadiSurfaceCtxForTest());
-  process.env[ACP_AGENT_ENV] = "/nix/store/fake-acp-adapter";
-  process.env[KOLU_MCP_BIN_ENV] = "/nix/store/fake-kolu";
-  liveSocket = join(mkdtempSync(join(tmpdir(), "padi-orch-rv-")), "padi.sock");
-  listener = createServer();
+  orchestratorStore.set(EMPTY_PERSISTED_ORCHESTRATOR);
+  rmSync(join(stateRoot, "orchestrator"), { recursive: true, force: true });
+  process.env[AGENT_ENV] = "/nix/store/fake-acp-adapter";
+  const token = "0123456789abcdef";
+  listener = createServer((req, res) => {
+    if (req.headers.authorization !== `Bearer ${token}`) {
+      res.writeHead(401).end();
+      return;
+    }
+    res.writeHead(400).end();
+  });
   const up = Promise.withResolvers<void>();
-  listener.listen(liveSocket, up.resolve);
+  listener.listen(0, "127.0.0.1", up.resolve);
   await up.promise;
+  const bound = listener.address();
+  if (bound === null || typeof bound === "string") {
+    throw new Error("the fleet endpoint fixture did not bind a TCP port");
+  }
+  liveEndpoint = { url: `http://127.0.0.1:${bound.port}/mcp`, token };
 });
 
 afterEach(async () => {
-  __resetPadiSurfaceCtxForTest();
-  if (SAVED_AGENT === undefined) delete process.env[ACP_AGENT_ENV];
-  else process.env[ACP_AGENT_ENV] = SAVED_AGENT;
-  if (SAVED_BIN === undefined) delete process.env[KOLU_MCP_BIN_ENV];
-  else process.env[KOLU_MCP_BIN_ENV] = SAVED_BIN;
+  if (SAVED_AGENT === undefined) delete process.env[AGENT_ENV];
+  else process.env[AGENT_ENV] = SAVED_AGENT;
+  orchestratorStore.set(EMPTY_PERSISTED_ORCHESTRATOR);
+  rmSync(join(stateRoot, "orchestrator"), { recursive: true, force: true });
   const down = Promise.withResolvers<void>();
   listener.close(() => {
     down.resolve();
@@ -99,9 +120,9 @@ afterEach(async () => {
   await down.promise;
 });
 
-/** A host over THIS state-root's real conf store, with the conversation itself
- *  stubbed — the subject here is the file, not the protocol. */
-function hostOver(root: string): {
+/** A host over the REAL conf store, with the conversation itself stubbed — the
+ *  subject here is the file, not the protocol. */
+function hostOver(): {
   host: OrchestratorHost;
   push: () => (change: HarnessChange) => void;
   resumedSeq: () => number | undefined;
@@ -111,17 +132,17 @@ function hostOver(root: string): {
   resume: () => string | null | undefined;
   fleet: () => ReadonlyArray<string> | undefined;
 } {
-  const stores = requirePadiStateStores(root);
   let onChange: ((change: HarnessChange) => void) | undefined;
   let options: HarnessOptions | undefined;
   const host = startOrchestratorHost({
     log,
     home: HOME,
     hostName: "test-box",
-    socketPath: () => liveSocket,
-    store: stores.orchestrator,
-    storePath: () => padiConfigPath(root),
-    stateRoot: root,
+    fleetMcp: () => liveEndpoint,
+    publish: () => {},
+    store: orchestratorStore,
+    storePath: () => store.path,
+    stateRoot,
     spawn: async (opts) => {
       options = opts;
       onChange = opts.onChange;
@@ -140,7 +161,7 @@ function hostOver(root: string): {
         stop: async () => {
           // A real `stop()` lets the session go and publishes one final state
           // saying so. Modelled because this file is where it bites: the flush
-          // that follows writes the bytes the next padi reads.
+          // that follows writes the bytes the next boot reads.
           opts.onChange({
             kind: "state",
             state: {
@@ -167,18 +188,18 @@ function hostOver(root: string): {
 }
 
 describe("the conversation survives a restart", () => {
-  it("round-trips the transcript, the session and the fleet through padi's own `config.json`", async () => {
-    const first = hostOver(stateRoot);
+  it("round-trips the transcript, the session and the fleet through kolu-server's own `config.json`", async () => {
+    const first = hostOver();
     await first.host.prompt("hello", [], []);
     // What the open publishes: the conversation this IS, and the terminals it
-    // is working with. Both are the agent's to forget and padi's to keep.
+    // is working with. Both are the agent's to forget and ours to keep.
     first.push()({
       kind: "state",
       state: {
         ...DEFAULT_ORCHESTRATOR_STATE,
         phase: "idle",
         sessionId: "sess-live",
-        fleet: [FLEET_ID],
+        fleet: [FLEET_REF],
       },
     });
     first.push()({
@@ -196,14 +217,12 @@ describe("the conversation survives a restart", () => {
     // The flush the shutdown runs — everything the throttle still owes.
     await first.host.dispose();
 
-    // The BYTES, read back the way the next padi reads them: through the
+    // The BYTES, read back the way the next boot reads them: through the
     // record's own schema, so "it round-trips" means "it round-trips as a
     // value this code would accept", not "the JSON looked about right".
-    const file: unknown = JSON.parse(
-      readFileSync(padiConfigPath(stateRoot), "utf8"),
-    );
+    const file: unknown = JSON.parse(readFileSync(store.path, "utf8"));
     if (typeof file !== "object" || file === null || !("orchestrator" in file))
-      throw new Error("padi's state-root kept no orchestrator record");
+      throw new Error("kolu-server's state kept no orchestrator record");
     const onDisk = Schema.decodeUnknownSync(PersistedOrchestratorSchema)(
       file.orchestrator,
     );
@@ -213,11 +232,11 @@ describe("the conversation survives a restart", () => {
     ]);
     // The teardown's own last breath says the session is gone — it is a stop,
     // not a conversation ending — and a record that believed it would hand the
-    // next padi a transcript with nothing to resume it into.
+    // next boot a transcript with nothing to resume it into.
     expect(onDisk.sessionId).toBe("sess-live");
-    expect(onDisk.fleet).toEqual([FLEET_ID]);
+    expect(onDisk.fleet).toEqual([FLEET_REF]);
 
-    const second = hostOver(stateRoot);
+    const second = hostOver();
     const seen: OrchestratorFrame[] = [];
     second.host.watch((frame) => seen.push(frame));
     const snapshot = seen[0];
@@ -230,62 +249,70 @@ describe("the conversation survives a restart", () => {
     // and the fence tells the resumed conversation to count from past them.
     await second.host.prompt("still here?", [], []);
     expect(second.resumedSeq()).toBe(2);
-    // The conversation the next padi comes back INTO, and the terminals it
+    // The conversation the next boot comes back INTO, and the terminals it
     // comes back knowing about. Without both it restores a transcript and then
     // opens a stranger underneath it.
     expect(second.resume()).toBe("sess-live");
-    expect(second.fleet()).toEqual([FLEET_ID]);
+    expect(second.fleet()).toEqual([FLEET_REF]);
     await second.host.dispose();
   });
 });
 
-describe("the 1.4.0 rung", () => {
-  it("costs a pre-orchestrator state-root nothing, and carries the version", () => {
-    writeFileSync(
-      padiConfigPath(stateRoot),
-      JSON.stringify({
-        session: null,
-        activityFeed: { recentRepos: [], recentAgents: [] },
-        lastPairedDaemon: null,
-        importedLegacyConfig: true,
-        __internal__: { migrations: { version: "1.3.0" } },
-      }),
-    );
-    const stores = requirePadiStateStores(stateRoot);
-    // A file written before the orchestrator existed has no `orchestrator` key
-    // at all; `Conf`'s defaults answer it, which is exactly why the rung is a
-    // no-op rather than a backfill.
-    expect(stores.orchestrator.get()).toEqual(EMPTY_PERSISTED_ORCHESTRATOR);
-    const after = JSON.parse(
-      readFileSync(padiConfigPath(stateRoot), "utf8"),
-    ) as { __internal__: { migrations: { version: string } } };
-    expect(after.__internal__.migrations.version).toBe(
-      PADI_STATE_SCHEMA_VERSION,
-    );
+describe("the 1.43.0 rung", () => {
+  it("costs a pre-orchestrator state file nothing, and carries the version", () => {
+    // A 1.42-era file: everything kolu-server persisted before the orchestrator
+    // moved here, and no `orchestrator` key at all. Walked through the REAL
+    // ladder (`decodeStateBackup` builds a scratch store with the shipped
+    // `CONF_MIGRATIONS`), so this proves the rung rather than a copy of it.
+    const legacy: unknown = {
+      preferences: (
+        JSON.parse(readFileSync(store.path, "utf8")) as {
+          preferences: unknown;
+        }
+      ).preferences,
+      hosts: [],
+      viewerMode: "dark",
+      __internal__: { migrations: { version: "1.42.0" } },
+    };
+    const migrated = decodeStateBackup(legacy, "1.42-era");
+    // The rung SEEDS; it does not import. padi's own 1.5.0 rung deletes the
+    // matching key on each host, and nothing is carried across — that record
+    // was written by another process against another `$HOME`.
+    expect(migrated.orchestrator).toEqual(EMPTY_PERSISTED_ORCHESTRATOR);
+
+    // …and the live store carries today's version, so a file this build wrote
+    // says which ladder position it is at.
+    orchestratorStore.set(EMPTY_PERSISTED_ORCHESTRATOR);
+    const after = JSON.parse(readFileSync(store.path, "utf8")) as {
+      __internal__: { migrations: { version: string } };
+    };
+    expect(after.__internal__.migrations.version).toBe(STATE_SCHEMA_VERSION);
   });
 });
 
 describe("a record that parses but is wrong", () => {
   it("REFUSES by name rather than restoring a transcript with holes in it", () => {
-    requirePadiStateStores(stateRoot);
-    const config = JSON.parse(
-      readFileSync(padiConfigPath(stateRoot), "utf8"),
-    ) as Record<string, unknown>;
     // A row with no `kind` — the shape a hand-edit, a half-written file or a
     // rolled-back binary leaves behind. `confStore` casts, so without the
     // re-validation this reaches the panel as a row nothing can draw.
-    config.orchestrator = {
+    //
+    // Written through the store rather than onto the bytes, because the live
+    // `Conf` is already open over this file and would overwrite a behind-its-
+    // back edit; the cast is the point of the test — the store does no
+    // decoding, which is exactly what `readPersistedOrchestrator` repairs.
+    orchestratorStore.set({
       sessionId: null,
       cwd: HOME,
       model: null,
-      rows: [{ id: "a", seq: 1, since: "2026-01-01T00:00:00.000Z" }],
+      rows: [
+        { id: "a", seq: 1, since: "2026-01-01T00:00:00.000Z" },
+      ] as unknown as PersistedOrchestrator["rows"],
       fleet: [],
-    };
-    writeFileSync(padiConfigPath(stateRoot), JSON.stringify(config));
+    });
 
-    const host = hostOver(stateRoot).host;
+    const host = hostOver().host;
     expect(() => host.watch(() => {})).toThrow(/does not match schema/);
-    expect(() => host.watch(() => {})).toThrow(padiConfigPath(stateRoot));
+    expect(() => host.watch(() => {})).toThrow(store.path);
   });
 });
 
@@ -297,7 +324,8 @@ describe("an attachment's bytes", () => {
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
   it("land in the state root and NEVER in `config.json`", async () => {
-    const first = hostOver(stateRoot);
+    mkdirSync(stateRoot, { recursive: true });
+    const first = hostOver();
     const written = first.host.attach({
       id: "att-1",
       name: "pixel.png",
@@ -336,7 +364,7 @@ describe("an attachment's bytes", () => {
     // ...and `config.json` carries the chip and nothing else. A copy of the
     // base64 in the record would be read back in full on every boot, and a
     // single pasted screenshot would be the largest thing in the file.
-    const raw = readFileSync(padiConfigPath(stateRoot), "utf8");
+    const raw = readFileSync(store.path, "utf8");
     expect(raw).not.toContain("base64");
     expect(raw).not.toContain("iVBORw0KGgo");
     const config = JSON.parse(raw) as {

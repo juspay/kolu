@@ -1,7 +1,6 @@
 /**
  * Padi-side holders for the conf-backed cell stores the terminal domain writes —
- * `session`, `activityFeed`, `lastPairedDaemon`, and the orchestrator's
- * resumable record.
+ * `session`, `activityFeed` and `lastPairedDaemon`.
  *
  * Post-W2.2 padi owns its OWN `Conf` under its state-root. padi's own boot
  * (`daemonMain` → `openPadiStateStores`) builds those `confStore`-backed stores
@@ -20,7 +19,6 @@
 import type { ActivityFeed, SavedSession } from "@kolu/padi-client/surface";
 import type { CellStore } from "@kolu/surface/server";
 import type { PairedDaemon } from "./pairedDaemon.ts";
-import type { PersistedOrchestrator } from "../orchestrator/persisted.ts";
 
 /** The injected `session` conf store, or `undefined` until boot sets it. */
 let sessionStore: CellStore<SavedSession | null> | undefined;
@@ -30,9 +28,6 @@ let activityFeedStore: CellStore<ActivityFeed> | undefined;
 
 /** The injected `lastPairedDaemon` conf store, or `undefined` until boot sets it. */
 let lastPairedDaemonStore: CellStore<PairedDaemon | null> | undefined;
-
-/** The injected `orchestrator` conf store, or `undefined` until boot sets it. */
-let orchestratorStore: CellStore<PersistedOrchestrator> | undefined;
 
 /** Set the `session` conf store. Called once at padi's own boot (`daemonMain`),
  *  before any serve / reconcile path reads it. */
@@ -54,14 +49,6 @@ export function setPadiLastPairedDaemonStore(
   store: CellStore<PairedDaemon | null>,
 ): void {
   lastPairedDaemonStore = store;
-}
-
-/** Set the `orchestrator` conf store. Called once at padi's own boot
- *  (`daemonMain`), before the orchestrator reads what it should resume. */
-export function setPadiOrchestratorStore(
-  store: CellStore<PersistedOrchestrator>,
-): void {
-  orchestratorStore = store;
 }
 
 /** Fail-fast reader for a boot-injected store: return it, or crash loudly if a
@@ -93,8 +80,3 @@ export function requirePadiLastPairedDaemonStore(): CellStore<PairedDaemon | nul
   return requireStore(lastPairedDaemonStore, "lastPairedDaemon");
 }
 
-/** The injected `orchestrator` store, or a loud crash if a read beat the
- *  boot-time set. */
-export function requirePadiOrchestratorStore(): CellStore<PersistedOrchestrator> {
-  return requireStore(orchestratorStore, "orchestrator");
-}

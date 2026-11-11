@@ -91,6 +91,12 @@ import {
 } from "./memorySampler.ts";
 import { DAEMON_INVENTORY_SAMPLE_INTERVAL_MS } from "./padi/daemonInventory.ts";
 import { FORWARD_REAP_INTERVAL_MS } from "./portForward/forwards.ts";
+import { isOrchestratorDeclaredError } from "kolu-common/orchestratorErrors";
+import {
+  liveServerOrchestrator,
+  setOrchestratorCellWriter,
+} from "./orchestrator/live.ts";
+import { orchestratorTranscriptSource } from "./orchestrator/transcriptStream.ts";
 import { store } from "./state.ts";
 
 // ── The WIDENING SEAM: kolu-server's served superset group ─────────────────
@@ -319,6 +325,31 @@ export interface StoreCellWriters {
   setViewerMode: (value: ViewerMode) => void;
 }
 
+/** THE ORCHESTRATOR'S HANDLER BRIDGE — the one place the "declared vs defect"
+ *  line is drawn for the nine `orchestrator` procedures, rather than once per
+ *  member.
+ *
+ *  A value the host raises on purpose (`OrchestratorUnavailable`,
+ *  `OrchestratorRefused`) is a caller's to branch on, so it rides the Effect
+ *  FAILURE channel. Anything else — a state file nobody can read, a bug in the
+ *  bookkeeping — is a DEFECT and dies loudly: an orchestrator that broke in a
+ *  way nobody declared should crash, not arrive as a polite sentence in a chat.
+ *  The same shape, and the same argument, as padi's `handle`. */
+function askOrchestrator<A, E>(
+  body: () => A | Promise<A>,
+): Effect.Effect<A, E> {
+  return Effect.catch(
+    Effect.tryPromise({
+      try: async () => body(),
+      catch: (err: unknown) => err,
+    }),
+    (err) =>
+      isOrchestratorDeclaredError(err)
+        ? Effect.fail(err as E)
+        : (Effect.die(err) as Effect.Effect<A, E>),
+  );
+}
+
 /** Serve kolu-server's OWN two sibling surfaces (kolu + surfaceApp) on the shared
  *  `@kolu/padi` publisher, wire the runtime's deliberately-fatal `done`, and return the
  *  built router + kolu ctx. `index.ts`'s boot splices the RE-SERVED `padi` sibling into
@@ -482,6 +513,22 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
           install: everyMsOr(FORWARD_REAP_INTERVAL_MS, deps.forwards.onChange),
         }),
       ),
+      // KOLU'S ONE CONVERSATION. Seeded from the host's own first reading —
+      // `offline`, with this agent's name and this machine's `$HOME`, and with
+      // the REMEMBERED half still unread: the host reads its record on the
+      // first reader's edge and publishes it through the writer registered
+      // below a moment later, the same way `agentDistroStatus` lands on padi.
+      orchestrator: { store: inMemoryStore(liveServerOrchestrator().state()) },
+    },
+    streams: {
+      // THE ORCHESTRATOR'S TRANSCRIPT — explicit snapshot-then-deltas. The
+      // snapshot is queued synchronously inside the subscribe, so a reader's
+      // first frame can never race a delta, and a re-subscribe after a dropped
+      // socket re-leads with a fresh one the reducer assigns over.
+      orchestratorTranscript: {
+        source: () =>
+          orchestratorTranscriptSource(liveServerOrchestrator(), log),
+      },
     },
     procedures: {
       // Thin by design: each is one call into `forwards.ts`, which owns every rule.
@@ -502,6 +549,53 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       agentDistro: {
         deliver: ({ input }) =>
           Effect.sync(() => deps.deliverAgents(input.host)),
+      },
+      // TALKING TO KOLU'S CONVERSATION. Every verb routes through the host's
+      // one seam, which translates the harness's two refusals into the two
+      // DECLARED errors a caller branches on — `OrchestratorUnavailable` (no
+      // adapter, no fleet endpoint, or no child) and `OrchestratorRefused`
+      // (the agent said no). Anything else stays a defect and crosses the wire
+      // as one.
+      orchestrator: {
+        prompt: ({ input }) =>
+          askOrchestrator(() =>
+            liveServerOrchestrator().prompt(
+              input.text,
+              input.mentions,
+              input.attachments,
+            ),
+          ),
+        // The chunked upload a prompt's attachments arrive on, ahead of the
+        // prompt that names them — the whole reason no base64 rides a
+        // `prompt` frame. Straight through: the host validates the id, the
+        // continuation path and the per-attachment cap, and says no in the
+        // same two declared errors every other verb here does.
+        attach: ({ input }) =>
+          askOrchestrator(() => liveServerOrchestrator().attach(input)),
+        cancel: () => askOrchestrator(() => liveServerOrchestrator().cancel()),
+        answer: ({ input }) =>
+          askOrchestrator(async () => ({
+            settled: await liveServerOrchestrator().answer(
+              input.askId,
+              input.answers,
+            ),
+          })),
+        signIn: ({ input }) =>
+          askOrchestrator(async () => ({
+            outcome: await liveServerOrchestrator().signIn(input.method),
+          })),
+        signInInput: ({ input }) =>
+          askOrchestrator(() =>
+            liveServerOrchestrator().signInInput(input.text),
+          ),
+        signInCancel: () =>
+          askOrchestrator(() => liveServerOrchestrator().signInCancel()),
+        setOption: ({ input }) =>
+          askOrchestrator(() =>
+            liveServerOrchestrator().setOption(input.id, input.value),
+          ),
+        newSession: () =>
+          askOrchestrator(() => liveServerOrchestrator().newSession()),
       },
     },
   };
@@ -575,6 +669,16 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       kolu: koluDeps,
     },
   );
+
+  // THE ORCHESTRATOR'S WRITE PATH, registered exactly once and right here —
+  // the first line after the ctx exists. The host publishes every movement of
+  // the conversation through it; before this line it has nothing to publish
+  // through, which is why `liveServerOrchestrator()` above only SEEDS the cell
+  // from a value it already holds and the host refuses a publish that beats
+  // this registration rather than swallowing one.
+  setOrchestratorCellWriter((state) => {
+    koluSurfaces.ctx.kolu.cells.orchestrator.set(state);
+  });
 
   // Observe the surface runtime's `done` and route it into kolu-server's EXISTING
   // deliberately-fatal fault policy (the same disposition a floated cell-connector

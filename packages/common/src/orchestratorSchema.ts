@@ -1,21 +1,31 @@
 /**
- * THE ORCHESTRATOR'S WIRE VOCABULARY — one conversation per host, as data.
+ * THE ORCHESTRATOR'S WIRE VOCABULARY — one conversation over every host, as data.
  *
- * padi holds one ACP conversation per state-root (the "Orchestrator"): a Claude
- * session whose hands are kolu's own MCP face, which creates, briefs, watches
- * and answers the agents in that host's terminals. What that conversation IS —
- * its phase, its model, its transcript rows — travels the `padiSurface` to
- * every reader, local and remote, and this module is where those shapes are
- * declared.
+ * kolu-server holds ONE ACP conversation (the "Orchestrator"): a Claude session
+ * whose hands are kolu's own MCP face lifted over the host map, which creates,
+ * briefs, watches and answers the agents in the terminals of every host kolu
+ * knows. What that conversation IS — its phase, its model, its transcript rows
+ * — travels `koluSurface` to every reader, and this module is where those
+ * shapes are declared.
  *
- * WHY HERE. `@kolu/padi-client` is the browser-safe half of padi's contract, so
- * a shape a browser draws belongs in it. The protocol's own vocabulary — the
- * ask fields, the file diff, the usage pair — is NOT re-declared: it is
- * imported from `@kolu/acp/wire`, because the package that speaks the foreign
- * thing owns its words, and a second declaration of `AskField` is a second
- * thing to keep in step. That import is the one reason this file names ACP at
- * all; nothing here reads a protocol payload (that is `@kolu/acp-harness`'s
- * job) and nothing here touches `node:`.
+ * WHY HERE. `kolu-common` is the shared browser-safe half of kolu-server's
+ * contract, and kolu-server is what hosts the conversation, so the shapes a
+ * browser draws of it belong beside `koluSurface`. The protocol's own
+ * vocabulary — the ask fields, the file diff, the usage pair — is NOT
+ * re-declared: it is imported from `@kolu/acp/wire`, because the package that
+ * speaks the foreign thing owns its words, and a second declaration of
+ * `AskField` is a second thing to keep in step. That import is the one reason
+ * this file names ACP at all; nothing here reads a protocol payload (that is
+ * `@kolu/acp-harness`'s job) and nothing here touches `node:`.
+ *
+ * A TERMINAL IS NAMED `host/id`. One conversation reaches every host, so a
+ * bare terminal id is ambiguous on this wire: a FLEET REF is the encoded host
+ * key, a `/`, and the terminal id (`@kolu/kolu-mcp`'s `fleetTerminalRef`,
+ * parsed at the LAST `/` because a remote target may contain one). The rows
+ * that name a terminal carry the two halves SEPARATELY — `terminalId` keeps
+ * its UUID brand and `host` rides beside it — so a card can switch to the
+ * host before it focuses the tile; only `OrchestratorState.fleet`, which is
+ * pure membership, carries the joined ref.
  *
  * WHAT A ROW IS. A transcript row is keyed and UPSERTED, never appended twice:
  * a tool call arrives as `pending` and is refined by later frames, so the panel
@@ -69,11 +79,20 @@ const rowHead = {
  *  was sent, resolved against the fleet at that moment.
  *
  *  A row of the conversation rather than a fact the browser keeps: what was
- *  sent is what padi put here, so a reload still says which terminal the
- *  question was about, and the prompt that reached the agent carried exactly
- *  these fields as its structured reference block. */
+ *  sent is what kolu-server put here, so a reload still says which terminal
+ *  the question was about, and the prompt that reached the agent carried
+ *  exactly these fields as its structured reference block.
+ *
+ *  THE TWO HALVES OF THE IDENTITY ARE SEPARATE. `terminalId` stays the branded
+ *  UUID a padi mints and `host` is the encoded host key it lives on; the
+ *  server joins them into the `host/id` the agent is told. Re-typing
+ *  `terminalId` to a ref string would unbrand every persisted user row for a
+ *  fact that is only ever needed joined at one seam. */
 export const OrchestratorMentionSchema = Schema.Struct({
   terminalId: TerminalIdSchema,
+  /** Which host the terminal is on, encoded (`local` / `remote:<target>`) —
+   *  the half that makes the id unambiguous on a fleet-wide wire. */
+  host: Schema.String,
   /** The terminal's own name at send time — the word the human typed after
    *  `@`, kept verbatim so the chip and the prompt say the same thing. */
   name: Schema.String,
@@ -99,16 +118,16 @@ export const OrchestratorDeliverySchema = Schema.Literals([
  *
  *  IT CARRIES NO BYTES, and that is the whole shape. The file is uploaded
  *  first, in frame-sized pieces, by {@link OrchestratorAttachInputSchema};
- *  what rides the prompt and the row afterwards is a REFERENCE to what padi
- *  wrote. Base64 on the prompt frame is what this shape exists to prevent: a
- *  policy-legal 12 MiB of attachments is ~16.4 MiB encoded, the RPC decoder
- *  does not fail an oversized frame but CLOSES THE SOCKET with 1009, and that
- *  takes every subscription in the tab with it — the incident, and the chunked
- *  answer to it, are written up at the top of
+ *  what rides the prompt and the row afterwards is a REFERENCE to what
+ *  kolu-server wrote. Base64 on the prompt frame is what this shape exists to
+ *  prevent: a policy-legal 12 MiB of attachments is ~16.4 MiB encoded, the
+ *  RPC decoder does not fail an oversized frame but CLOSES THE SOCKET with
+ *  1009, and that takes every subscription in the tab with it — the incident,
+ *  and the chunked answer to it, are written up at the top of
  *  `packages/client/src/terminal/pasteDelivery.ts`.
  *
  *  ONE SHAPE FOR EVERY LIFE, which is the second thing it buys. A row minted
- *  this session and a row restored from disk after a padi restart are the
+ *  this session and a row restored from disk after a kolu-server restart are the
  *  same value, so "send again" on an hour-old message reads the same file the
  *  first send did. The thumbnail is the only thing that does not survive, and
  *  it was never on this wire: the browser keeps its own picture for the rows
@@ -119,12 +138,12 @@ export const OrchestratorDeliverySchema = Schema.Literals([
 export const OrchestratorAttachmentSchema = Schema.Struct({
   /** Stable within the prompt that carried it, and also the FILENAME under
    *  the attachments directory — so it is a plain name or it is refused; see
-   *  padi's `SAFE_ATTACHMENT_ID`. */
+   *  kolu-server's `SAFE_ATTACHMENT_ID`. */
   id: Schema.String,
   /** What the person called it — a filename, or a minted one for a paste. */
   name: Schema.String,
   mimeType: Schema.String,
-  /** Size on disk, as padi measured it; the chip draws it and the per-prompt
+  /** Size on disk, as kolu-server measured it; the chip draws it and the per-prompt
    *  cap refuses on it. */
   bytes: Schema.Int,
   /** Absolute, under `<stateRoot>/orchestrator/attachments/`. The agent is
@@ -139,7 +158,7 @@ export type OrchestratorAttachment = typeof OrchestratorAttachmentSchema.Type;
  *  Two numbers rather than one because they refuse different mistakes: a
  *  screenshot of a 5K display is one file worth refusing on its own, and
  *  thirty small ones are a prompt worth refusing as a whole. The bytes land
- *  in padi's state root, so the ceiling is the daemon's, not the browser's —
+ *  in kolu-server's state root, so the ceiling is the server's, not the browser's —
  *  which is why the numbers live on the contract both ends read rather than
  *  in either one. They are POLICY caps on a file, deliberately unrelated to
  *  the wire's frame cap: the upload is chunked, so how big an attachment may
@@ -152,7 +171,7 @@ export const ATTACHMENT_BYTE_CAP = 10 * MIB;
 export const PROMPT_ATTACHMENT_BYTE_CAP = 20 * MIB;
 
 /** The two refusals, spelled ONCE. The composer refuses before it sends and
- *  padi refuses what reaches it anyway, and a person who sees both must not
+ *  kolu-server refuses what reaches it anyway, and a person who sees both must not
  *  be reading two different rules. */
 export const attachmentTooBig = (name: string, bytes: number): string =>
   `“${name}” is ${formatBytes(bytes)}, and one attachment may be at most ${formatBytes(ATTACHMENT_BYTE_CAP)}.`;
@@ -160,9 +179,9 @@ export const attachmentTooBig = (name: string, bytes: number): string =>
 export const promptAttachmentsTooBig = (bytes: number): string =>
   `These attachments come to ${formatBytes(bytes)}, and one message may carry at most ${formatBytes(PROMPT_ATTACHMENT_BYTE_CAP)}. Send them across more than one message.`;
 
-/** What a prompt naming a file padi no longer holds is told. Reachable: an
- *  upload abandoned long enough to be swept, or a composer left open across a
- *  padi restart. Said rather than silently dropped — a message that arrived
+/** What a prompt naming a file kolu-server no longer holds is told. Reachable:
+ *  an upload abandoned long enough to be swept, or a composer left open across
+ *  a kolu-server restart. Said rather than silently dropped — a message that arrived
  *  without the screenshot it was about is worse than one that did not go. */
 export const attachmentGone = (name: string): string =>
   `“${name}” is no longer on this host, so the message was not sent. Attach it again.`;
@@ -234,11 +253,18 @@ export const OrchestratorToolStatusSchema = Schema.Literals([
  * harness ONLY for a call it positively recognises as belonging to the `kolu`
  * MCP server we handed the session — a tool it cannot name gets no reading and
  * the generic card, which is the direction this is safe to fail in.
+ *
+ * EVERY ARM CARRIES `host` BESIDE `terminalId`, split out of the `host/id` the
+ * fleet face spoke, because the two are used for different things: the host
+ * decides which canvas the card's "open tile" switches to, the id decides
+ * which tile it then focuses. Both are nullable together — a call the harness
+ * read but whose ref it could not resolve says so rather than guessing a host.
  */
 export const OrchestratorKoluCallSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("create"),
     terminalId: Schema.NullOr(TerminalIdSchema),
+    host: Schema.NullOr(Schema.String),
     name: Schema.NullOr(Schema.String),
     cwd: Schema.NullOr(Schema.String),
     agent: Schema.NullOr(Schema.String),
@@ -246,6 +272,7 @@ export const OrchestratorKoluCallSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("sendInput"),
     terminalId: Schema.NullOr(TerminalIdSchema),
+    host: Schema.NullOr(Schema.String),
     name: Schema.NullOr(Schema.String),
     /** Exactly one of the two is present, as the tool itself requires. */
     text: Schema.NullOr(Schema.String),
@@ -257,6 +284,7 @@ export const OrchestratorKoluCallSchema = Schema.Union([
      *  the screen tail folded underneath. */
     kind: Schema.Literal("settle"),
     terminalId: Schema.NullOr(TerminalIdSchema),
+    host: Schema.NullOr(Schema.String),
     name: Schema.NullOr(Schema.String),
     state: Schema.NullOr(Schema.String),
     elapsedMs: Schema.NullOr(Schema.Int),
@@ -265,12 +293,14 @@ export const OrchestratorKoluCallSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("screen"),
     terminalId: Schema.NullOr(TerminalIdSchema),
+    host: Schema.NullOr(Schema.String),
     name: Schema.NullOr(Schema.String),
     snapshot: Schema.NullOr(Schema.String),
   }),
   Schema.Struct({
     kind: Schema.Literal("kill"),
     terminalId: Schema.NullOr(TerminalIdSchema),
+    host: Schema.NullOr(Schema.String),
     name: Schema.NullOr(Schema.String),
   }),
 ]);
@@ -391,7 +421,7 @@ export const OrchestratorSayingSchema = Schema.Struct({
  *  frame went missing — is appended at the end rather than padded with invented
  *  characters; the next snapshot is what fixes that. Two readers doing this
  *  arithmetic two ways is two different transcripts, and one of them is the one
- *  padi writes to disk. */
+ *  kolu-server writes to disk. */
 export const appendedText = (
   current: string,
   at: number,
@@ -407,7 +437,7 @@ export const appendedText = (
  * an already-populated map would double every row — which is exactly why the
  * discriminant is on the wire rather than agreed by convention.
  *
- * A delta is folded in ONE order, and both folds (padi's `applyRows`, the
+ * A delta is folded in ONE order, and both folds (the server's `applyRows`, the
  * client's `transcript.ts`) obey it: **removes, then upserts, then appends.**
  * The order is load-bearing in both directions. Removes first means a frame
  * that drops a row and re-upserts the same id is a REPLACEMENT rather than a
@@ -535,8 +565,8 @@ export const OrchestratorCommandSchema = Schema.Struct({
  *
  *  THERE IS NO `missing`, and its absence is the fail-fast rule showing
  *  through. A fourth standing would mean "kolu's own MCP server could not be
- *  found, carry on without it" — but padi refuses the whole conversation when
- *  `KOLU_MCP_BIN` is unset or the socket is not there yet
+ *  found, carry on without it" — but kolu-server refuses the whole
+ *  conversation when the fleet MCP endpoint is not answering
  *  (`OrchestratorUnavailable`), because an orchestrator that cannot reach the
  *  fleet is not a degraded orchestrator, it is a chat window. So no row can
  *  ever reach that standing, and a value nothing can mint is a case the panel
@@ -594,7 +624,8 @@ export const OrchestratorStateSchema = Schema.Struct({
   /** What the agent is called — "Claude Code". The panel never spells it. */
   agentName: Schema.String,
   sessionId: Schema.NullOr(Schema.String),
-  /** `$HOME` of this padi's host: the directory the conversation works in. */
+  /** `$HOME` of the machine kolu-server runs on: the directory the
+   *  conversation works in. */
   cwd: Schema.String,
   model: Schema.NullOr(OrchestratorModelSchema),
   /** The agent's own number, newest wins. `null` means the agent reported
@@ -609,10 +640,12 @@ export const OrchestratorStateSchema = Schema.Struct({
    *  this list's length — no separate count on the wire, because a count that
    *  can disagree is a second source of truth. */
   openAsks: Schema.Array(Schema.String),
-  /** Every terminal this orchestrator has created or sent input to. Live
-   *  state for each is read from the `terminals` collection, never remembered
-   *  here — this is membership, not a mirror. */
-  fleet: Schema.Array(TerminalIdSchema),
+  /** Every terminal this orchestrator has created or sent input to, as FLEET
+   *  REFS (`<encodedHostKey>/<terminalId>`) — one conversation spans every
+   *  host, so a bare id here would name two terminals on a two-host fleet.
+   *  Live state for each is read from that host's `terminals` collection,
+   *  never remembered here — this is membership, not a mirror. */
+  fleet: Schema.Array(Schema.String),
   signIn: Schema.NullOr(OrchestratorSignInSchema),
   /** WHO the agent process is signed in as, as the agent itself reports it
    *  (`_auth/status_update`). CONNECTION-scoped, not session-scoped: it
@@ -654,8 +687,8 @@ export const OrchestratorPromptInputSchema = Schema.Struct({
   text: Schema.String,
   mentions: Schema.Array(OrchestratorMentionSchema),
   /** The files that ride with the words — NAMES, not bytes. Each was already
-   *  uploaded by `orchestrator.attach`, so what padi does here is look each
-   *  one up under its own attachments directory, measure it, and hand the
+   *  uploaded by `orchestrator.attach`, so what kolu-server does here is look
+   *  each one up under its own attachments directory, measure it, and hand the
    *  agent a path. A decoding default so a browser served by an earlier
    *  build, which omits the key entirely, still sends a prompt rather than
    *  being refused by the decoder for having nothing to attach. */
@@ -680,12 +713,12 @@ export const OrchestratorPromptOutputSchema = Schema.Struct({
  *  `@kolu/surface/frame-limit`) — the same arithmetic a terminal paste rides,
  *  derived once and never twice.
  *
- *  STRICTLY SEQUENTIAL. padi appends to one growing file, so two chunks of
- *  the same attachment in flight at once interleave and corrupt it silently;
+ *  STRICTLY SEQUENTIAL. kolu-server appends to one growing file, so two chunks
+ *  of the same attachment in flight at once interleave and corrupt it silently;
  *  a sender awaits each call before making the next. */
 export const OrchestratorAttachInputSchema = Schema.Struct({
-  /** The attachment id, which is also the filename padi writes under — so it
-   *  must be a plain name, and `..` is refused rather than repaired. */
+  /** The attachment id, which is also the filename kolu-server writes under —
+   *  so it must be a plain name, and `..` is refused rather than repaired. */
   id: Schema.String,
   /** What the person called it. Carried per chunk because it is what the
    *  refusals are said about, and a refusal naming an id is not a sentence. */

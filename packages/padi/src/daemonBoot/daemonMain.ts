@@ -85,7 +85,7 @@ import {
   setSpawnServerVersion,
 } from "../ptyHost/index.ts";
 import { publisher } from "../publisher.ts";
-import { buildPadiSurfaceDeps, disposePadiOrchestrator } from "../servePadi.ts";
+import { buildPadiSurfaceDeps } from "../servePadi.ts";
 import {
   captureFinalSession,
   initAutosaveGate,
@@ -93,7 +93,6 @@ import {
 import {
   setPadiActivityFeedStore,
   setPadiLastPairedDaemonStore,
-  setPadiOrchestratorStore,
   setPadiSessionStore,
 } from "../session/confStores.ts";
 import { importLegacyConfigOnce } from "../session/importLegacy.ts";
@@ -276,7 +275,6 @@ function openStateStores(stateRoot: string, log: Logger): { opened: true } {
   setPadiSessionStore(stores.session);
   setPadiActivityFeedStore(stores.activityFeed);
   setPadiLastPairedDaemonStore(stores.lastPairedDaemon);
-  setPadiOrchestratorStore(stores.orchestrator);
   return { opened: true };
 }
 
@@ -472,18 +470,6 @@ function serveDaemonSurfaces(params: {
     group: padiDaemonGroup,
     handlers: { ...runtime.handlers, ...odu.handlers },
     close: async () => {
-      // THE ACP CHILD FIRST. It is spawned `detached` — deliberately, so a
-      // crashing padi cannot take a conversation's subprocess down with it by
-      // accident — which means nothing else in this teardown reaches it. A
-      // drain, an upgrade or a SIGTERM that skipped this would leave the
-      // adapter, the `claude` under it and its `kolu mcp` running under a
-      // daemon that no longer exists, and the next padi would spawn a second
-      // set beside them. It runs HERE rather than beside the signal edge's
-      // `captureFinalSession` because this finalizer is scoped: it fires on
-      // every way this tenure can end, including a boot step that failed after
-      // the surface was already serving. The same call writes the
-      // conversation's last rows, which is this domain's twin of that capture.
-      await disposePadiOrchestrator();
       await odu.close();
       await runtime.close();
     },

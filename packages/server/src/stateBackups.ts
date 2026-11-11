@@ -96,10 +96,19 @@ export interface RestoreServerStateBackupDeps {
  *  A new key on the persisted shape breaks THIS line until it gets one —
  *  otherwise a "restore" would silently leave that key at its live value while
  *  telling the user it succeeded, which is the exact silent-overwrite class the
- *  ring exists to prevent. */
+ *  ring exists to prevent.
+ *
+ *  `orchestrator` is the ONE deliberate exception, and it is excluded rather
+ *  than given a path because it CANNOT have one that means anything: the live
+ *  conversation is the authority for that key while this process runs, and a
+ *  record written underneath it is overwritten by the host's own throttled
+ *  write within the second. The ring's promise is about user data a bad write
+ *  can eat — the fleet, the preferences — and a transcript is neither: the
+ *  agent replays its own half on `session/load`, and kolu's half is on screen
+ *  in front of the person pressing restore. */
 type UnrestoredPersistedKey = Exclude<
   keyof DecodedStateBackup,
-  "preferences" | "viewerMode" | "hosts"
+  "preferences" | "viewerMode" | "hosts" | "orchestrator"
 >;
 const _everyPersistedKeyRestored: [UnrestoredPersistedKey] extends [never]
   ? true

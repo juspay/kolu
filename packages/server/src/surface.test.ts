@@ -45,13 +45,18 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     // `agentDistroListing` (the harnesses THIS kolu's build's agent-distro
     // package brings, read once off the floor — a build fact, not a host's),
     // and `agentProfiles` (whether each profile of the Agents setting builds,
-    // as kolu-server's delivery finds when it locks and builds them HERE).
-    // No collections, no events.
+    // as kolu-server's delivery finds when it locks and builds them HERE),
+    // and `orchestrator` (kolu's ONE supervising conversation — hosted HERE
+    // because its hands reach every host at once, where a padi can only see
+    // its own terminals; what it drives is terminals, but the member is a
+    // conversation this process owns). No collections, no events; the one
+    // STREAM is that conversation's transcript.
     expect(Object.keys(spec.cells ?? {}).sort()).toEqual([
       "agentDistroListing",
       "agentProfiles",
       "daemonInventory",
       "forwards",
+      "orchestrator",
       "padiLink",
       "preferences",
       "processMemory",
@@ -63,6 +68,9 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     expect(spec.cells?.terminalList).toBeUndefined();
     expect(spec.collections).toBeUndefined();
     expect(spec.events).toBeUndefined();
+    const streams = (surfaces.kolu.spec as { streams?: Record<string, unknown> })
+      .streams;
+    expect(Object.keys(streams ?? {})).toEqual(["orchestratorTranscript"]);
   });
 
   it("koluSurface's only procedures move the forward map and deliver agents", () => {
@@ -78,6 +86,7 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     expect(Object.keys(spec.procedures ?? {})).toEqual([
       "forwards",
       "agentDistro",
+      "orchestrator",
     ]);
     expect(Object.keys(spec.procedures?.forwards ?? {}).sort()).toEqual([
       "cancel",
@@ -85,6 +94,19 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     ]);
     expect(Object.keys(spec.procedures?.agentDistro ?? {})).toEqual([
       "deliver",
+    ]);
+    // The nine verbs that ASK the one conversation for something. The cell
+    // beside them is read-only, which is why every write is here.
+    expect(Object.keys(spec.procedures?.orchestrator ?? {})).toEqual([
+      "prompt",
+      "attach",
+      "cancel",
+      "answer",
+      "signIn",
+      "signInInput",
+      "signInCancel",
+      "setOption",
+      "newSession",
     ]);
   });
 });

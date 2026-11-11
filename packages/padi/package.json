@@ -10,7 +10,6 @@
   },
   "exports": {
     "./agentDistroBake": "./src/agentDistro/bake.ts",
-    "./orchestratorBake": "./src/orchestrator/bake.ts",
     "./assembly": "./src/assembly.ts",
     "./buildId": "./src/daemonBoot/buildId.ts",
     "./containingTerminal": "./src/containingTerminal.ts",
@@ -31,8 +30,6 @@
   },
   "dependencies": {
     "@effect/platform-node": "catalog:",
-    "@kolu/acp": "workspace:*",
-    "@kolu/acp-harness": "workspace:*",
     "@kolu/detect": "workspace:*",
     "@juspay/agent-distro": "workspace:*",
     "@kolu/agent-distro": "workspace:*",

@@ -1,38 +1,41 @@
 /**
- * THIS HOST'S ONE CONVERSATION — padi's half of the Orchestrator.
+ * KOLU'S ONE CONVERSATION — the Orchestrator, hosted by kolu-server.
  *
- * padi owns exactly one ACP conversation per state-root: it spawns the adapter,
- * holds the session, keeps the transcript, persists enough of it to come back,
- * and serves the whole of it as `padiSurface`'s `orchestrator` cell, the
- * `orchestratorTranscript` stream and the `orchestrator` procedures. Because
- * kolu-server re-serves `padiSurface` per host and every hop is spec-walked, a
- * remote host's orchestrator reaches a browser with no server code at all.
+ * kolu-server owns exactly one ACP conversation: it spawns the adapter, holds
+ * the session, keeps the transcript, persists enough of it to come back, and
+ * serves the whole of it as `koluSurface`'s `orchestrator` cell, the
+ * `orchestratorTranscript` stream and the `orchestrator` procedures.
  *
- * ## Why padi and not kolu-server
+ * ## Why kolu-server and not padi
  *
- * The conversation's hands are this host's terminals. Its MCP server is a
- * `kolu mcp` pointed at THIS padi's socket, its `cwd` is THIS host's `$HOME`,
- * and the agents it supervises are the PTYs this padi's kaval owns. Hosting it
- * anywhere else would mean a conversation reaching across a wire to touch the
- * one thing padi exists to own — and on a remote host there would be nothing
- * for it to reach with.
+ * The conversation's hands are EVERY host's terminals. A supervisor that could
+ * only see the box it happens to run on is not a supervisor of a fleet: it
+ * would have to be started once per host, taught once per host, and watched
+ * once per host, and no one of its copies could ever answer "which agent needs
+ * me". kolu-server is the one process that already mirrors every padi over
+ * ssh, so it is the only place a single conversation can reach all of them.
+ * Its hands are the FLEET MCP FACE — kolu's own MCP expose map lifted over the
+ * host map, served in-process on a loopback listener — and every terminal it
+ * names is `host/id`.
+ *
+ * padi, in exchange, goes back to knowing only its own terminals.
  *
  * ## It starts when somebody looks
  *
- * The adapter is a real Claude subprocess, and a padi on a box nobody has
- * opened should not be running one. So the conversation is brought up by the
- * first READER — the first transcript subscription or the first procedure call
- * — and then kept for the daemon's life. That is not a lazy-init convenience:
- * it is what makes a fleet of provisioned-but-idle hosts cost nothing, while a
- * host somebody actually opens has its conversation back (with `session/load`)
- * before they have finished reading the first screen.
+ * The adapter is a real Claude subprocess, and a kolu nobody has opened should
+ * not be running one. So the conversation is brought up by the first READER —
+ * the first transcript subscription or the first procedure call — and then
+ * kept for the process's life. That is not a lazy-init convenience: it is what
+ * makes a server nobody is watching cost nothing, while a server somebody
+ * actually opens has its conversation back (with `session/load`) before they
+ * have finished reading the first screen.
  *
  * The REMEMBERED record is read on that same edge, not at construction. This
- * module is built by `buildPadiSurfaceDeps`, which runs before padi's boot has
- * injected the conf store (and never injects it at all in unit tests), so a
- * read at construction would be a crash in every test that assembles the
- * surface. Nothing is lost by waiting: the first reader is the first moment
- * the record can be shown to anybody.
+ * module is built by the first caller of `live.ts`, which may run before the
+ * surface ctx exists (and never has a ctx at all in a unit test), so a read at
+ * construction would be a crash in every test that assembles the surface.
+ * Nothing is lost by waiting: the first reader is the first moment the record
+ * can be shown to anybody.
  *
  * The persisted rows are served BEFORE the agent is up, which is why the
  * stream's first snapshot never waits on a handshake: a restart shows the
@@ -40,22 +43,24 @@
  *
  * ## The restart fence
  *
- * padi's rows are AUTHORITATIVE across a restart, and the agent's replay is
- * not. `session/load` replays the agent's own messages, but a kolu transcript
- * is more than that — the kolu-aware tool cards, the background-task lanes,
- * the notices this panel wrote about itself — so dropping what padi holds in
- * favour of the replay would lose the richer half. What makes the two
- * survivable side by side is `resumedSeq`: the harness mints its ids and
- * ordering numbers STARTING AFTER the highest one padi already holds, so a
- * row the new process emits can neither collide with a persisted id nor sort
- * above a persisted row.
+ * Our rows are AUTHORITATIVE across a restart, and the agent's replay is not.
+ * `session/load` replays the agent's own messages, but a kolu transcript is
+ * more than that — the kolu-aware tool cards, the background-task lanes, the
+ * notices this panel wrote about itself — so dropping what we hold in favour
+ * of the replay would lose the richer half. What makes the two survivable side
+ * by side is `resumedSeq`: the harness mints its ids and ordering numbers
+ * STARTING AFTER the highest one we already hold, so a row the new process
+ * emits can neither collide with a persisted id nor sort above a persisted
+ * row.
  *
  * ## Absent is absent
  *
  * The ACP adapter is baked into kolu's closure (`KOLU_ACP_AGENT`), so its
  * absence is a broken build rather than a configuration a person chose. There
  * is no fallback path and no knob: the cell carries the integration's own
- * sentence and every procedure refuses with it.
+ * sentence and every procedure refuses with it. The fleet MCP endpoint is
+ * held to the same rule, and proved rather than trusted — see
+ * {@link OrchestratorDeps.fleetMcp}.
  */
 
 import {
@@ -68,7 +73,6 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { connect } from "node:net";
 import { basename, join, sep } from "node:path";
 import { ORCHESTRATOR_ENGINE as ENGINE } from "kolu-agents/acp";
 import type { NotHere } from "@kolu/acp/engine";
@@ -77,9 +81,8 @@ import {
   type HarnessOptions,
   HarnessRefused,
   HarnessUnavailable,
-  type StdioServer,
+  type HttpServer,
 } from "@kolu/acp-harness";
-import { KOLU_MCP_ARGS, PADI_SOCKET_ENV } from "@kolu/detect";
 import {
   appendedText,
   ATTACHMENT_BYTE_CAP,
@@ -88,17 +91,17 @@ import {
   DEFAULT_ORCHESTRATOR_STATE,
   type OrchestratorAttachment,
   type OrchestratorFrame,
-  OrchestratorRefused,
   type OrchestratorRow,
   type OrchestratorState,
-  OrchestratorUnavailable,
   PROMPT_ATTACHMENT_BYTE_CAP,
   promptAttachmentsTooBig,
-} from "@kolu/padi-client/surface";
+} from "kolu-common/orchestrator";
+import {
+  OrchestratorRefused,
+  OrchestratorUnavailable,
+} from "kolu-common/orchestratorErrors";
 import type { CellStore } from "@kolu/surface/server";
 import type { Logger } from "pino";
-import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
-import { KOLU_MCP_BIN_ENV } from "./bake.ts";
 import {
   persistedFrom,
   type PersistedOrchestrator,
@@ -123,15 +126,20 @@ export interface OrchestratorHost {
   readonly watch: (sink: OrchestratorFrameSink) => () => void;
   readonly prompt: (
     text: string,
+    /** The terminals the message was ABOUT. `host` is the encoded host key
+     *  and `terminalId` the id on that host; the harness joins them into the
+     *  `host/id` the agent is told, which is the only name a fleet-wide
+     *  conversation can act on. */
     mentions: ReadonlyArray<{
       terminalId: string;
+      host: string;
       name: string;
       intent: string | null;
       cwd: string | null;
     }>,
     /** The files that came with the words, by NAME — each was uploaded ahead
      *  of this call by {@link OrchestratorHost.attach} and is already on disk
-     *  under this padi's state root. What the harness is handed is the same
+     *  under kolu-server's state root. What the harness is handed is the same
      *  shape with `bytes` and `path` re-read from the file; see
      *  {@link namedAttachments}. */
     attachments: ReadonlyArray<OrchestratorAttachment>,
@@ -166,36 +174,61 @@ export interface OrchestratorHost {
   readonly signInCancel: () => Promise<boolean>;
   readonly setOption: (id: string, value: string) => Promise<void>;
   readonly newSession: () => Promise<void>;
-  /** Daemon-lifetime teardown: stop the child, write the record, drop the
-   *  readers. AWAITED by padi's shutdown, because the adapter is spawned
+  /** Process-lifetime teardown: stop the child, write the record, drop the
+   *  readers. AWAITED by kolu-server's shutdown, because the adapter is spawned
    *  `detached` — a teardown that only fired the stop would leave the adapter,
-   *  its `claude` and its `kolu mcp` running after the daemon that owns them
+   *  its `claude` and its MCP client running after the server that owns them
    *  is gone. */
   readonly dispose: () => Promise<void>;
 }
 
+/** WHERE THE FLEET MCP FACE IS LISTENING, and the credential that opens it.
+ *
+ *  A loopback URL alone is not an address a conversation can be handed: every
+ *  other process on this box can reach 127.0.0.1, so the listener is gated by
+ *  a bearer token minted per process, and the two travel together or neither
+ *  is useful. */
+export interface FleetMcpEndpoint {
+  readonly url: string;
+  readonly token: string;
+}
+
 export interface OrchestratorDeps {
   readonly log: Logger;
-  /** `$HOME` of this padi's host — the directory the conversation works in,
-   *  and what makes a stored session findable when it is resumed. */
+  /** `$HOME` of the machine kolu-server runs on — the directory the
+   *  conversation works in, and what makes a stored session findable when it
+   *  is resumed. */
   readonly home: string;
   /** What this machine is CALLED. The standing prompt says "you are kolu's
-   *  orchestrator on <this>", and a directory is not an answer to that: an
-   *  agent told it runs on `/home/srid` has been told the one fact it cannot
-   *  use when it reports where it did something. */
+   *  orchestrator, running on <this>", and a directory is not an answer to
+   *  that: an agent told it runs on `/home/srid` has been told the one fact it
+   *  cannot use when it reports where it did something. */
   readonly hostName: string;
-  /** This padi's served socket, stamped into the `kolu mcp` child's
-   *  environment so the conversation's hands reach THIS padi flag-free. */
-  readonly socketPath: () => string | null;
+  /** WHERE THE FLEET'S HANDS ARE — the in-process MCP endpoint and its token,
+   *  or `null` while the listener is not up.
+   *
+   *  A THUNK, because the listener is started by the boot that owns it and
+   *  this module may be constructed before that line runs; reading it per
+   *  bring-up is what lets the first reader arrive in either order. The value
+   *  is not merely NAMED when it is found: it is PROVED with a real request
+   *  (see {@link provenFleetServer}), because this hand-over happens once
+   *  inside `session/new` and an endpoint the agent cannot reach is marked
+   *  failed for the life of the conversation. */
+  readonly fleetMcp: () => FleetMcpEndpoint | null;
+  /** Publish the live cell value. Pushed in rather than imported for the
+   *  reason `spawn` is: this module owns the conversation, not the surface,
+   *  and an import of the served ctx would be a cycle (`surface.ts` builds the
+   *  cell that seeds itself from this host's first reading). */
+  readonly publish: (state: OrchestratorState) => void;
   readonly store: CellStore<PersistedOrchestrator>;
   /** The FILE behind `store`, named in the refusal a corrupt record raises —
    *  the one thing a person holding a bad state-root can act on. */
   readonly storePath: () => string;
   /** The DIRECTORY that file is in — where a prompt's attachments are written
    *  so the agent can be handed a path to read. A plain string rather than a
-   *  thunk like the two above: those are resolved late (the socket is not
-   *  known until the daemon serves, the config path is derived per read),
-   *  while the state root is the one thing this daemon was started with. */
+   *  thunk like the two above: those are resolved late (the endpoint is not
+   *  known until the listener binds, the config path is derived per read),
+   *  while the state root is the one thing this process was started with. */
   readonly stateRoot: string;
   /** How a conversation is STARTED — `startHarness`, pushed in at assembly.
    *
@@ -207,27 +240,21 @@ export interface OrchestratorDeps {
   readonly spawn: (options: HarnessOptions) => Promise<Harness>;
 }
 
-/** The sentence a build that lost its baked `kolu` says. It names the variable
- *  because the only person who can see this is somebody holding a kolu that
- *  was assembled wrong, and the variable is the whole of the lead. */
-const NO_KOLU_BIN =
-  "This kolu was built without KOLU_MCP_BIN, so the orchestrator has no way to hand its agent this host's terminals. The binary is baked by padi's own wrapper; a build that lost it is a packaging defect, not a setting.";
-
-/** The sentence a padi that has not finished booting its socket says. It is a
- *  real window — the orchestrator can be reached the instant the surface
- *  serves, and `setPadiServeSocketPath` runs a few lines later — so it is
- *  stated rather than papered over with a retry loop that would hide a boot
- *  that genuinely never got there. */
-const NO_SOCKET =
-  "This padi has not published its socket yet, so the orchestrator cannot tell its agent where this host's terminals are. Try again once the daemon has finished starting.";
+/** The sentence a kolu-server whose fleet listener is not up yet says. It is a
+ *  real window — the orchestrator is reachable the instant the surface serves,
+ *  and the listener binds a few lines later — so it is stated rather than
+ *  papered over with a retry loop that would hide a boot that genuinely never
+ *  got there. */
+const NO_FLEET_MCP =
+  "This kolu has not published its fleet MCP endpoint yet, so the orchestrator cannot tell its agent where the fleet's terminals are. Try again once the server has finished starting.";
 
 /** How long a burst of transcript movement may go unwritten.
  *
  *  A streaming answer is one row and six hundred frames, and the record lives
- *  in `config.json` BESIDE the saved session — so a write per frame rewrote
- *  the session blob (and every row's `screenTail` snapshot) at the agent's
- *  output cadence. Leading-edge: the first movement is durable immediately,
- *  and a burst then costs one write a second instead of six hundred. An order
+ *  in `config.json` BESIDE the host map and the preferences — so a write per
+ *  frame rewrote the whole of kolu's state at the agent's output cadence.
+ *  Leading-edge: the first movement is durable immediately, and a burst then
+ *  costs one write a second instead of six hundred. An order
  *  of magnitude above the session trace's 500 ms throttle on purpose — a
  *  transcript row is reconstructible from the agent's own replay in a way a
  *  terminal layout is not, so it is the cheaper thing to trail. */
@@ -246,8 +273,8 @@ const PERSIST_THROTTLE_MS = 1_000;
  *  machine that is not already wedged. */
 const STOP_IN_FLIGHT_MS = 5_000;
 
-/** The sentence behind a thrown thing. The harness's two refusals and padi's
- *  two wire errors all carry a WHOLE SENTENCE in `why`, and that is the half a
+/** The sentence behind a thrown thing. The harness's two refusals and the two
+ *  wire errors all carry a WHOLE SENTENCE in `why`, and that is the half a
  *  reader is shown; a plain `Error` has only its message. */
 const sentenceOf = (err: unknown): string => {
   if (typeof err === "object" && err !== null && "why" in err) {
@@ -257,42 +284,75 @@ const sentenceOf = (err: unknown): string => {
   return err instanceof Error ? err.message : String(err);
 };
 
-/** The sentence a padi whose own socket will not answer says. It names the
- *  PATH, because the person who can see this is holding a host whose daemon
- *  and whose rendezvous disagree, and the path is the whole of the lead. */
-const noAnswerAt = (socket: string, cause: string): string =>
-  `This padi's orchestrator cannot reach this padi: nothing answered at ${socket} (${cause}). The agent's \`kolu mcp\` would be handed the same path, fail to connect, and carry on without this host's terminals — so the conversation is refused instead of opened with no hands.`;
+/** The sentence a kolu whose own fleet endpoint will not answer says. It names
+ *  the URL, because the person who can see this is holding a server whose
+ *  listener and whose orchestrator disagree, and the URL is the whole of the
+ *  lead. */
+const noAnswerAt = (url: string, cause: string): string =>
+  `This kolu's orchestrator cannot reach this kolu's fleet MCP face: nothing answered at ${url} (${cause}). The agent would be handed the same URL, fail to connect, and carry on without the fleet's terminals — so the conversation is refused instead of opened with no hands.`;
 
-/** Does anything ACCEPT at `socket`? Resolves if so, refuses with the whole
- *  sentence if not. The connection is dropped the instant it lands: what is
- *  being asked is the question `kolu mcp` is about to ask, not a conversation
- *  of padi's own.
+/** The sentence a kolu whose own endpoint REFUSED the token says. Separate
+ *  from "nothing answered" because it is a different defect with a different
+ *  lead: something IS listening there and it does not accept the credential
+ *  this process minted, which can only mean the two halves of this boot
+ *  disagree about who they are. */
+const refusedAt = (url: string, status: number): string =>
+  `This kolu's orchestrator was refused by this kolu's fleet MCP face: ${url} answered ${status} to the token this process minted. The agent would be refused the same way and carry on without the fleet's terminals, so the conversation is refused instead.`;
+
+/** Does the fleet endpoint ANSWER, to the credential we are about to hand
+ *  over? Resolves if so, refuses with the whole sentence if not.
  *
- *  NO DEADLINE, and that is not an oversight. A `connect` to a unix path is
- *  answered by the kernel: nothing bound there is `ENOENT` and nothing
- *  listening is `ECONNREFUSED`, both immediately, and a full backlog is
- *  refused rather than queued. There is no state in which this waits, so a
- *  timer here would be a second clock that could only ever fire wrongly. */
-const listeningAt = (socket: string): Promise<void> => {
-  const settled = Promise.withResolvers<void>();
-  const probe = connect(socket);
-  probe.once("connect", () => {
-    probe.destroy();
-    settled.resolve();
-  });
-  probe.once("error", (cause: Error) => {
-    probe.destroy();
-    settled.reject(
-      new OrchestratorUnavailable({ why: noAnswerAt(socket, cause.message) }),
-    );
-  });
-  return settled.promise;
+ *  ONE REAL REQUEST, not a reachability guess: a JSON-RPC `ping` carrying the
+ *  bearer token, which is the shape of the very first thing the adapter's MCP
+ *  client will send. The endpoint answers it `400` ("not initialized") rather
+ *  than `200`, and that is a PASS on purpose — what is being proved is that
+ *  something is speaking MCP at that URL and that the gate let us through, not
+ *  that a session was opened. Proving it by opening one would leave an
+ *  abandoned session behind on every bring-up.
+ *
+ *  `401`/`403` are a refusal of their own, because those two say the gate
+ *  REJECTED us — the one failure a person could otherwise mistake for a
+ *  working endpoint.
+ *
+ *  NO DEADLINE, and that is not an oversight: the listener is in THIS process.
+ *  A request that never comes back means this process's own event loop is
+ *  wedged, and a timer running on that same wedged loop could not fire to tell
+ *  anybody. A second clock here could only ever be wrong. */
+const answeringAt = async (at: FleetMcpEndpoint): Promise<void> => {
+  let answer: Response;
+  try {
+    answer = await fetch(at.url, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${at.token}`,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+    });
+  } catch (cause) {
+    throw new OrchestratorUnavailable({
+      why: noAnswerAt(
+        at.url,
+        cause instanceof Error ? cause.message : String(cause),
+      ),
+    });
+  }
+  // The body is never read — what was asked is whether the door opens — but it
+  // is cancelled rather than dropped, so the probe holds no socket open behind
+  // the conversation it was clearing the way for.
+  await answer.body?.cancel();
+  if (answer.status === 401 || answer.status === 403) {
+    throw new OrchestratorUnavailable({
+      why: refusedAt(at.url, answer.status),
+    });
+  }
 };
 
-/** Where a prompt's files land, under padi's state root.
+/** Where a prompt's files land, under kolu-server's state root.
  *
  *  Beside `config.json` rather than inside it: an image is bytes, and bytes
- *  base64'd into the record would make every read of the saved session — on
+ *  base64'd into the record would make every read of the state file — on
  *  every boot, for every reader — pay for a screenshot nobody is looking at.
  *  Its own directory under an `orchestrator/` corner so a person can see what
  *  the conversation is holding, and delete it, without a tool. */
@@ -300,7 +360,7 @@ const ATTACHMENTS_DIR = join("orchestrator", "attachments");
 
 /** An id is the WHOLE filename, so it may be nothing but a filename. A
  *  browser that sent `../../id_rsa` would otherwise be choosing where this
- *  daemon writes; leading dots are out too, so neither `.` nor `..` can be
+ *  server writes; leading dots are out too, so neither `.` nor `..` can be
  *  spelled. Refused rather than sanitized — a name this end had to repair is
  *  a name the two ends no longer agree on. */
 const SAFE_ATTACHMENT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -316,7 +376,7 @@ const SAFE_ATTACHMENT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
  *  files and never send any of them, and nothing would ever name them.
  *
  *  What makes the directory grow is also what cleans it: the sweep runs on
- *  every upload that CREATES a file, so a daemon nobody is pasting into holds
+ *  every upload that CREATES a file, so a server nobody is pasting into holds
  *  whatever it holds, and one that is pasted into reaps as it goes.
  *
  *  Exported so the test drives the window rather than re-spelling it: a
@@ -331,7 +391,8 @@ export function startOrchestratorHost(
     log,
     home,
     hostName,
-    socketPath,
+    fleetMcp,
+    publish,
     store,
     storePath,
     stateRoot,
@@ -341,7 +402,7 @@ export function startOrchestratorHost(
   /** What the integration says about being seated here — the adapter it would
    *  spawn, or the whole sentence a machine without it is owed. Asked ONCE, at
    *  boot: `KOLU_ACP_AGENT` is baked, so it cannot change under a running
-   *  daemon, and re-probing per call would be pretending it could. */
+   *  server, and re-probing per call would be pretending it could. */
   const seating = ENGINE.at({
     env: process.env,
     cwd: home,
@@ -349,12 +410,12 @@ export function startOrchestratorHost(
   });
   const absent: NotHere | null = "why" in seating ? seating : null;
 
-  /** The three fields PADI is the author of — whether the adapter is seated on
-   *  this machine, what the agent is called, and the directory this
+  /** The three fields THIS SERVER is the author of — whether the adapter is
+   *  seated on this machine, what the agent is called, and the directory this
    *  conversation is in — known here at boot from the engine and the home this
-   *  daemon was started with. Folded back over every state the harness reports,
-   *  so each has exactly ONE author. */
-  const padiAuthored = {
+   *  process was started with. Folded back over every state the harness
+   *  reports, so each has exactly ONE author. */
+  const serverAuthored = {
     install:
       absent === null
         ? { kind: "installed" }
@@ -370,7 +431,7 @@ export function startOrchestratorHost(
 
   let state: OrchestratorState = {
     ...DEFAULT_ORCHESTRATOR_STATE,
-    ...padiAuthored,
+    ...serverAuthored,
   };
 
   // The transcript as a MAP, written in place. The frames that move it are
@@ -402,7 +463,7 @@ export function startOrchestratorHost(
   let chosenModel: string | null = null;
 
   const publishState = (): void => {
-    padiSurfaceCtx.cells.orchestrator.set(state);
+    publish(state);
   };
 
   const remembered = (): void => {
@@ -452,7 +513,7 @@ export function startOrchestratorHost(
 
   const attachmentsDir = (): string => join(stateRoot, ATTACHMENTS_DIR);
 
-  /** The uploads this daemon has taken that no row names YET — id to the
+  /** The uploads this server has taken that no row names YET — id to the
    *  moment the last chunk of it landed. An upload in progress is in here
    *  from its first chunk, which is what stops the sweep below from deleting
    *  a file out from under the chunk that is about to extend it. */
@@ -464,13 +525,13 @@ export function startOrchestratorHost(
    *  THE RULE: a file lives exactly as long as the transcript row it came in
    *  on. That ties four leaks shut at one seam — a record the row cap
    *  trimmed, a state-root whose home moved and let the whole transcript go,
-   *  a daemon that died between writing the bytes and persisting the row that
+   *  a server that died between writing the bytes and persisting the row that
    *  names them, and a prompt that was REFUSED after its files had been
    *  uploaded.
    *
    *  The one exception is an upload younger than {@link
    *  UNSENT_ATTACHMENT_MS}: it has no row because nobody has pressed Send
-   *  yet, and deleting it would be this daemon reaping a file while a person
+   *  yet, and deleting it would be this server reaping a file while a person
    *  is still typing the sentence it goes with.
    *
    *  It runs on the RESTORE (the moment rows are LOST), on every upload that
@@ -512,7 +573,7 @@ export function startOrchestratorHost(
     } catch (err) {
       log.warn(
         { err, dir },
-        "padi: the orchestrator could not sweep its attachments",
+        "kolu-server: the orchestrator could not sweep its attachments",
       );
     }
   };
@@ -547,7 +608,7 @@ export function startOrchestratorHost(
   }): { path: string; bytes: number } => {
     if (!SAFE_ATTACHMENT_ID.test(chunk.id)) {
       throw new OrchestratorRefused({
-        why: `“${chunk.name}” came with the id ${JSON.stringify(chunk.id)}, which is not a name this padi will write a file under.`,
+        why: `“${chunk.name}” came with the id ${JSON.stringify(chunk.id)}, which is not a name this server will write a file under.`,
         auth: false,
       });
     }
@@ -589,7 +650,7 @@ export function startOrchestratorHost(
       path = real;
     }
     // Measured from the FILE, after the write: the cap is enforced on what
-    // this daemon actually holds, never on a chunk count or on what the
+    // this server actually holds, never on a chunk count or on what the
     // sender said it was sending. Per chunk rather than at the end, because
     // an upload that is refused only once it is finished has already cost the
     // disk it was refused for.
@@ -613,7 +674,7 @@ export function startOrchestratorHost(
    *  Nothing is written here — the bytes arrived chunk by chunk through
    *  {@link attachChunk}, and what a prompt carries is a name. The `path` the
    *  caller sent is not read at all: the file is looked up by ID under this
-   *  daemon's own directory, so a path from the wire cannot choose what the
+   *  server's own directory, so a path from the wire cannot choose what the
    *  agent is handed, and `bytes` is re-read from the file so the chip, the
    *  cap and the thing on disk are three readings of one number.
    *
@@ -632,7 +693,7 @@ export function startOrchestratorHost(
     for (const one of attachments) {
       if (!SAFE_ATTACHMENT_ID.test(one.id)) {
         throw new OrchestratorRefused({
-          why: `“${one.name}” came with the id ${JSON.stringify(one.id)}, which is not a name this padi will write a file under.`,
+          why: `“${one.name}” came with the id ${JSON.stringify(one.id)}, which is not a name this server will write a file under.`,
           auth: false,
         });
       }
@@ -683,12 +744,12 @@ export function startOrchestratorHost(
       if (persistDue) writeRecord();
     }, PERSIST_THROTTLE_MS - since);
     // A pending write must never be the reason this process stays up: the
-    // record is a convenience for the NEXT padi, and `dispose` flushes it.
+    // record is a convenience for the NEXT kolu-server, and `dispose` flushes it.
     persistTimer.unref();
   };
 
   /** Write whatever the throttle still owes the file, now. The one caller is
-   *  `dispose` — a daemon that stopped mid-window would otherwise lose the
+   *  `dispose` — a server that stopped mid-window would otherwise lose the
    *  tail of the conversation it just finished having. */
   const flushPersist = (): void => {
     if (persistTimer !== undefined) {
@@ -741,44 +802,46 @@ export function startOrchestratorHost(
     schedulePersist();
   };
 
-  /** The one stdio MCP server the session is handed, PROVEN before it is
-   *  handed over. EXACTLY one, by design: the conversation's whole job is this
-   *  host's terminals, and every other server on its wire is one the AGENT
-   *  brought — which is what the roster strip's "plus the agent's own" says
-   *  out loud.
+  /** The one MCP server the session is handed, PROVEN before it is handed
+   *  over. EXACTLY one, by design: the conversation's whole job is the fleet's
+   *  terminals, and every other server on its wire is one the AGENT brought —
+   *  which is what the roster strip's "plus the agent's own" says out loud.
    *
-   *  WHY THE SOCKET IS PROVED AND NOT JUST NAMED. This hand-over happens ONCE,
-   *  inside `session/new`, and nothing ever revisits it: the agent connects
-   *  the server, and if that connect does not land it marks it failed for the
-   *  life of the conversation and carries on — running shell commands itself
-   *  instead of opening terminals, which is the one failure this whole feature
-   *  exists to prevent. Measured against the pinned adapter on this host: a
-   *  `PADI_SOCKET` naming nothing is `failed` one second in, a socket that
-   *  accepts and never answers is `failed` eleven seconds in, and the agent
-   *  says nothing about either beyond a word on a roster nobody is reading
-   *  yet. So a path that is merely a STRING is not good enough to hand over:
-   *  the refusal belongs here, where it can be said in the panel, rather than
+   *  It is an HTTP server rather than a stdio child, and that is the whole
+   *  point of the fleet face: the hands are IN THIS PROCESS, over a loopback
+   *  listener, so there is no relay subprocess per host and no ssh child
+   *  beside the adapter. A host that arrives or leaves while the conversation
+   *  runs flows through the one URL the session was opened with.
+   *
+   *  WHY THE ENDPOINT IS PROVED AND NOT JUST NAMED. This hand-over happens
+   *  ONCE, inside `session/new`, and nothing ever revisits it: the agent
+   *  connects the server, and if that connect does not land it marks it failed
+   *  for the life of the conversation and carries on — running shell commands
+   *  itself instead of opening terminals, which is the one failure this whole
+   *  feature exists to prevent. Measured against the pinned adapter on this
+   *  host: a server naming nothing is `failed` one second in, one that accepts
+   *  and never answers is `failed` eleven seconds in, and the agent says
+   *  nothing about either beyond a word on a roster nobody is reading yet. So
+   *  a URL that is merely a STRING is not good enough to hand over: the
+   *  refusal belongs here, where it can be said in the panel, rather than
    *  thirty seconds later inside an agent that has already decided to do
    *  without us.
    *
-   *  What the probe proves is that something is LISTENING at that path — the
-   *  first thing `kolu mcp` will do, done first by the daemon that is about to
-   *  claim it works. It does not prove padi is well; a daemon whose loop is
-   *  wedged still accepts into the kernel's backlog, and could not publish a
-   *  refusal about itself anyway. */
-  const provenKoluServer = async (): Promise<StdioServer> => {
-    const command = process.env[KOLU_MCP_BIN_ENV];
-    if (command === undefined || command === "") {
-      throw new OrchestratorUnavailable({ why: NO_KOLU_BIN });
-    }
-    const socket = socketPath();
-    if (socket === null) throw new OrchestratorUnavailable({ why: NO_SOCKET });
-    await listeningAt(socket);
+   *  What the proof establishes is that something is SPEAKING MCP at that URL
+   *  and that it accepts this process's token — the first two things the
+   *  adapter's client will find out, found out first by the server that is
+   *  about to claim they work. It does not prove the fleet is healthy; a host
+   *  that is unreachable is the fleet face's own business to refuse by name,
+   *  per host, as it is asked. */
+  const provenFleetServer = async (): Promise<HttpServer> => {
+    const at = fleetMcp();
+    if (at === null) throw new OrchestratorUnavailable({ why: NO_FLEET_MCP });
+    await answeringAt(at);
     return {
+      kind: "http",
       name: "kolu",
-      command,
-      args: [...KOLU_MCP_ARGS],
-      env: { [PADI_SOCKET_ENV]: socket },
+      url: at.url,
+      headers: { Authorization: `Bearer ${at.token}` },
     };
   };
 
@@ -804,7 +867,7 @@ export function startOrchestratorHost(
       // A CORPSE is absent, not present-and-broken. The child exited (the
       // agent crashed, somebody killed it, the machine ran out of memory) and
       // every verb — `newSession` included — would otherwise refuse for the
-      // life of the daemon with nothing a person could do about it. The stop
+      // life of the process with nothing a person could do about it. The stop
       // is fired rather than awaited so this stays synchronous up to the
       // `starting` assignment below: a second caller arriving mid-await would
       // see no harness and no bring-up in flight, and spawn a second adapter.
@@ -812,7 +875,7 @@ export function startOrchestratorHost(
       void running.stop().catch((err: unknown) => {
         log.warn(
           { err },
-          "padi: the orchestrator's dead agent did not clean up",
+          "kolu-server: the orchestrator's dead agent did not clean up",
         );
       });
     }
@@ -820,7 +883,7 @@ export function startOrchestratorHost(
     if (absent !== null) throw new OrchestratorUnavailable({ why: absent.why });
     if (disposed) {
       throw new OrchestratorUnavailable({
-        why: "This padi is shutting down, so its orchestrator is no longer accepting work.",
+        why: "This kolu is shutting down, so its orchestrator is no longer accepting work.",
       });
     }
     remembered();
@@ -828,11 +891,11 @@ export function startOrchestratorHost(
     // after it is made and never awaited before then — so two readers arriving
     // in the same tick share it rather than spawning two adapters. It has to
     // be a promise from the first step now that the first step is asking
-    // whether this padi's own socket is being served ({@link
-    // provenKoluServer}): a refusal there is a rejection like any other, which
+    // whether this kolu's own fleet MCP face is answering ({@link
+    // provenFleetServer}): a refusal there is a rejection like any other, which
     // is why there is no synchronous arm around the options any more.
     const begun = (async (): Promise<Harness> => {
-      const kolu = await provenKoluServer();
+      const kolu = await provenFleetServer();
       return spawn({
         leg: ENGINE.leg,
         adapter: seating as Exclude<typeof seating, NotHere>,
@@ -846,7 +909,7 @@ export function startOrchestratorHost(
         // adapter comes up over everything the dead one minted as well as
         // everything the file restored, and a fence frozen at restore time
         // would hand it a number it has already passed — `user:1` and
-        // `agent:2` minted a second time, overwriting by id the rows padi is
+        // `agent:2` minted a second time, overwriting by id the rows we are
         // still holding. `rows()` is sorted by `seq`, so its last is the
         // highest one that exists.
         resumedSeq: rows().at(-1)?.seq ?? 0,
@@ -854,28 +917,28 @@ export function startOrchestratorHost(
         // A replacement harness builds a FRESH transcript, whose
         // "no two dividers in a row" guard can only see the rows IT minted —
         // so a `newSession` taken straight after a respawn would mint a
-        // divider beside padi's last row, which is already one, and the
-        // panel would draw two rules for one reset until the next daemon
+        // divider beside our last row, which is already one, and the
+        // panel would draw two rules for one reset until the next boot
         // read collapsed them.
         resumedEndsWithDivider: rows().at(-1)?.kind === "divider",
         // The terminals this conversation was working with. Membership
         // otherwise accrues only from tool-call frames, and a resumed
         // conversation's frames are the replay the harness drops — so without
-        // this seed the first publish would carry an empty fleet, and padi
-        // would write that emptiness back over its own record.
+        // this seed the first publish would carry an empty fleet, and we
+        // would write that emptiness back over our own record.
         fleet: state.fleet,
         model: chosenModel,
         onChange: (change) => {
           if (change.kind === "state") {
             // A TEARDOWN'S LAST BREATH IS NOT NEWS. `stop()` nulls the live
-            // session and publishes one final state saying so, and padi
-            // persists what it is told — so a drain or an upgrade would write
+            // session and publishes one final state saying so, and we persist
+            // what we are told — so a drain or an upgrade would write
             // `sessionId: null` beside the rows it just kept, and the next
-            // padi would restore the transcript into a conversation it never
+            // boot would restore the transcript into a conversation it never
             // resumed. What the file must hold is the conversation as it stood
-            // when the daemon let go of it.
+            // when the process let go of it.
             if (disposed) return;
-            state = { ...change.state, ...padiAuthored };
+            state = { ...change.state, ...serverAuthored };
             publishState();
             schedulePersist();
             return;
@@ -919,19 +982,22 @@ export function startOrchestratorHost(
   };
 
   /** Stop a child and carry on. A teardown that threw here would skip the
-   *  flush that follows it, and the record is what the next padi reads. */
+   *  flush that follows it, and the record is what the next boot reads. */
   const stopQuietly = async (agent: Harness): Promise<void> => {
     try {
       await agent.stop();
     } catch (err: unknown) {
-      log.warn({ err }, "padi: the orchestrator's agent did not stop cleanly");
+      log.warn(
+        { err },
+        "kolu-server: the orchestrator's agent did not stop cleanly",
+      );
     }
   };
 
-  // The cell is NOT published here: `buildPadiSurfaceDeps` runs BEFORE
-  // `daemonMain` sets padi's surface ctx, so a write at construction would
-  // reach a proxy with nothing behind it. The cell is SEEDED from `state()`
-  // instead, and every later movement publishes through the ctx.
+  // The cell is NOT published here: this host may be constructed BEFORE
+  // `surface.ts` has registered the cell writer, so a write at construction
+  // would reach a seam with nothing behind it. The cell is SEEDED from
+  // `state()` instead, and every later movement publishes through `publish`.
 
   return {
     state: () => state,
@@ -948,7 +1014,10 @@ export function startOrchestratorHost(
       // publishes the refusal into the cell, which is where a reader that is
       // already watching will see it.
       void live().catch((err: unknown) => {
-        log.warn({ err }, "padi: the orchestrator could not be brought up");
+        log.warn(
+          { err },
+          "kolu-server: the orchestrator could not be brought up",
+        );
       });
       return () => {
         sinks.delete(sink);
@@ -988,7 +1057,7 @@ export function startOrchestratorHost(
       }
     },
     // No `live()`: uploading a file must not spawn an agent. The bytes are
-    // this daemon's own bookkeeping, and a person who pastes an image into a
+    // this server's own bookkeeping, and a person who pastes an image into a
     // panel they then close should not have started a Claude for it.
     attach: attachChunk,
     cancel: () => ask((agent) => agent.cancel()),
@@ -1008,8 +1077,8 @@ export function startOrchestratorHost(
       else if (pending !== null) {
         // A bring-up IN FLIGHT is the orphan this arm exists for: the child is
         // spawned `detached`, so a teardown that only looked at `harness`
-        // would leave an adapter — and its `claude`, and its `kolu mcp` —
-        // running under a daemon that no longer exists. The stop is ISSUED
+        // would leave an adapter — and its `claude`, and its MCP client —
+        // running under a server that no longer exists. The stop is ISSUED
         // unconditionally, on a continuation of the same promise, so a harness
         // that arrives late is still stopped.
         //
@@ -1026,7 +1095,7 @@ export function startOrchestratorHost(
         await Promise.race([late, deadline.promise]);
       }
       // AFTER the stop, so whatever the stop itself wrote into the transcript
-      // is in the file the next padi reads — and with the session the daemon
+      // is in the file the next boot reads — and with the session the process
       // was in, because the stop's own final state is ignored above.
       flushPersist();
     },

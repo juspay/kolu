@@ -139,9 +139,12 @@ importers:
       '@kolu/acp':
         specifier: workspace:*
         version: link:../acp
-      '@kolu/padi-client':
+      kolu-common:
         specifier: workspace:*
-        version: link:../padi-client
+        version: link:../common
+      kolu-mcp:
+        specifier: workspace:*
+        version: link:../kolu-mcp
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -425,6 +428,9 @@ importers:
 
   packages/common:
     dependencies:
+      '@kolu/acp':
+        specifier: workspace:*
+        version: link:../acp
       '@kolu/agent-distro':
         specifier: workspace:*
         version: link:../agent-distro
@@ -1241,12 +1247,6 @@ importers:
       '@juspay/agent-distro':
         specifier: workspace:*
         version: link:../../juspay/agent-distro
-      '@kolu/acp':
-        specifier: workspace:*
-        version: link:../acp
-      '@kolu/acp-harness':
-        specifier: workspace:*
-        version: link:../acp-harness
       '@kolu/agent-distro':
         specifier: workspace:*
         version: link:../agent-distro
@@ -1371,9 +1371,6 @@ importers:
 
   packages/padi-client:
     dependencies:
-      '@kolu/acp':
-        specifier: workspace:*
-        version: link:../acp
       '@kolu/agent-distro':
         specifier: workspace:*
         version: link:../agent-distro
@@ -1521,6 +1518,12 @@ importers:
       '@juspay/agent-distro':
         specifier: workspace:*
         version: link:../../juspay/agent-distro
+      '@kolu/acp':
+        specifier: workspace:*
+        version: link:../acp
+      '@kolu/acp-harness':
+        specifier: workspace:*
+        version: link:../acp-harness
       '@kolu/agent-distro':
         specifier: workspace:*
         version: link:../agent-distro
@@ -1569,6 +1572,9 @@ importers:
       '@kolu/url-shape':
         specifier: workspace:*
         version: link:../url-shape
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.31.0
+        version: 1.32.1(zod@4.6.7)
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent
@@ -1596,6 +1602,9 @@ importers:
       kolu-github:
         specifier: workspace:*
         version: link:../integrations/github
+      kolu-mcp:
+        specifier: workspace:*
+        version: link:../kolu-mcp
       kolu-pty:
         specifier: workspace:*
         version: link:../integrations/pty

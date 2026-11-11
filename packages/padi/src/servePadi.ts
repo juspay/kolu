@@ -18,7 +18,6 @@
  */
 
 import { rmSync } from "node:fs";
-import { homedir, hostname } from "node:os";
 import {
   DEFAULT_PADI_VERSION,
   isPadiDeclaredError,
@@ -93,17 +92,10 @@ import {
   newTerminalPolicyStore,
   resolveNewTerminalTheme,
 } from "./newTerminalTheme.ts";
-import { startHarness } from "@kolu/acp-harness";
-import {
-  type OrchestratorHost,
-  startOrchestratorHost,
-} from "./orchestrator/orchestrator.ts";
-import { orchestratorTranscriptSource } from "./orchestrator/transcriptStream.ts";
 import { readPreview } from "./preview.ts";
 import {
   onDaemonStatusChange,
   readDaemonStatus,
-  getPadiServeSocketPath,
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
 import { recycleLocalKaval } from "./ptyHost/restartLocal.ts";
@@ -112,7 +104,6 @@ import { renderScreenImage } from "./screenImage.ts";
 import { cancelPendingAutosave } from "./session/autosaveGate.ts";
 import {
   requirePadiActivityFeedStore,
-  requirePadiOrchestratorStore,
   requirePadiSessionStore,
 } from "./session/confStores.ts";
 import { resumableTerminalIds } from "./session/resumable.ts";
@@ -125,7 +116,6 @@ import {
   listPadiStateBackups,
   restorePadiStateBackup,
 } from "./session/stateBackups.ts";
-import { padiConfigPath } from "./session/stateStore.ts";
 import {
   getActiveTerminal,
   getTerminal,
@@ -289,23 +279,6 @@ const scopeRefused = (message: string, idField: "id" | "ids"): Error =>
  *  is a closure inside the same function body, holding the value lexically. */
 let disposeStanding: (() => void) | undefined;
 
-/** THIS HOST'S CONVERSATION, reachable by the daemon's shutdown.
- *
- *  `disposeStanding` above is the REBUILD lifetime and is synchronous; stopping
- *  an ACP adapter is not. The child is spawned `detached`, so the stop has to
- *  be AWAITED by whoever is ending the process — otherwise a drain, an upgrade
- *  or a SIGTERM orphans the adapter, the `claude` under it and its `kolu mcp`.
- *  Module-scoped because the assembler is a function and its teardown twin runs
- *  from `daemonMain`, which holds no handle on what that function built. */
-let liveOrchestrator: OrchestratorHost | undefined;
-
-/** Stop this host's conversation and write what it was saying. Idempotent: a
- *  second call (the rebuild path raced a real shutdown) stops an already
- *  stopped child, which is a no-op in the harness too. */
-export async function disposePadiOrchestrator(): Promise<void> {
-  await liveOrchestrator?.dispose();
-}
-
 /** Assemble the FULL `padiSurface` server deps (minus `channel`). Every member
  *  gets a functional read/procedure/source handler AND a live write path (the padi
  *  ctx `surface.ts` registers drives the collection/cell publishes). The
@@ -400,39 +373,6 @@ export function buildPadiSurfaceDeps(deps: {
   const unsubscribeSettle = settleEvents.onFrame((events) =>
     watchRegistry.acceptSettle(events),
   );
-  // THIS HOST'S CONVERSATION. Built here, with everything else that outlives
-  // this function, so a servePadi rebuild in tests disposes the prior one
-  // rather than leaving a second Claude subprocess attached to a dead daemon.
-  // Nothing is spawned yet: the adapter comes up when the first reader looks.
-  const orchestrator = startOrchestratorHost({
-    log,
-    // The conversation works in the HOST's home directory, not in padi's cwd:
-    // it is the directory a person's repositories are under, and it is what
-    // makes a stored session findable when it is resumed.
-    home: homedir(),
-    // …and it is seated on a MACHINE, which is what the standing prompt names.
-    // The two are different facts and the conversation needs both: a directory
-    // is where it works, a host is where it IS — and "where it is" is the half
-    // it quotes back when it reports what it did.
-    hostName: hostname(),
-    socketPath: () => getPadiServeSocketPath() ?? null,
-    store: {
-      get: () => requirePadiOrchestratorStore().get(),
-      set: (v) => requirePadiOrchestratorStore().set(v),
-    },
-    storePath: () => padiConfigPath(stateRoot),
-    stateRoot,
-    // The composition root is the one place that knows BOTH that a
-    // conversation is an ACP subprocess and that padi is what hosts it.
-    spawn: startHarness,
-  });
-  // The daemon's shutdown reaches the adapter through here (`daemonMain`'s
-  // `serveDaemonSurfaces.close`), because the child is spawned `detached`: a
-  // drain, an upgrade or a SIGTERM that did not stop it would leave the
-  // adapter, its `claude` and its `kolu mcp` running with nothing on the other
-  // end. Module-scoped for the same reason the socket path is — the one
-  // assembler is a function, and its shutdown twin is reached by name.
-  liveOrchestrator = orchestrator;
   disposeStanding = () => {
     unsubscribeSettle();
     watchRegistry.dispose();
@@ -440,11 +380,6 @@ export function buildPadiSurfaceDeps(deps: {
     settleEvents.dispose();
     watchEdges.dispose();
     finish.dispose();
-    // A REBUILD (tests only) cannot await — `disposeStanding` is the
-    // synchronous half of this lifetime. The daemon's real teardown awaits
-    // `disposePadiOrchestrator` below; here the stop is fired so the prior
-    // build's child is on its way out before the next one looks.
-    void orchestrator.dispose();
   };
 
   // The padi memory / host-inventory poll cells fire on their fixed cadence AND the
@@ -678,14 +613,6 @@ export function buildPadiSurfaceDeps(deps: {
           set: (v) => requirePadiActivityFeedStore().set(v),
         },
       },
-      // THIS HOST'S ONE CONVERSATION. Seeded from the host's own first reading
-      // — `offline`, with this agent's name and this host's `$HOME`, and with
-      // the REMEMBERED half still unread: the conf store is injected after this
-      // deps object is built (padi's boot order, and never at all in a unit
-      // test), so the host reads its record on the first reader's edge and
-      // publishes it through padi's ctx a moment later, the same way
-      // `agentDistroStatus` lands.
-      orchestrator: { store: inMemoryStore(orchestrator.state()) },
     },
 
     collections: {
@@ -779,13 +706,6 @@ export function buildPadiSurfaceDeps(deps: {
           streamFromAbortableSource((signal) =>
             attachFrames(id, resizeTo, signal),
           ),
-      },
-      // THE ORCHESTRATOR'S TRANSCRIPT — explicit snapshot-then-deltas. The
-      // snapshot is queued synchronously inside the subscribe, so a reader's
-      // first frame can never race a delta, and a re-subscribe after a dropped
-      // socket re-leads with a fresh one the reducer assigns over.
-      orchestratorTranscript: {
-        source: () => orchestratorTranscriptSource(orchestrator, log),
       },
     },
 
@@ -1336,39 +1256,6 @@ export function buildPadiSurfaceDeps(deps: {
         list: () => handle(() => listPadiStateBackups(stateRoot)),
         restore: ({ input }) =>
           handle(() => restorePadiStateBackup(stateRoot, input)),
-      },
-
-      // TALKING TO THIS HOST'S CONVERSATION. Every verb routes through the
-      // host's one seam, which translates the harness's two refusals into the
-      // two DECLARED errors a caller branches on — `OrchestratorUnavailable`
-      // (no adapter, or no child) and `OrchestratorRefused` (the agent said
-      // no). Anything else stays a defect and crosses the wire as one.
-      orchestrator: {
-        prompt: ({ input }) =>
-          handle(() =>
-            orchestrator.prompt(input.text, input.mentions, input.attachments),
-          ),
-        // The chunked upload a prompt's attachments arrive on, ahead of the
-        // prompt that names them — the whole reason no base64 rides a
-        // `prompt` frame. Straight through: the host validates the id, the
-        // continuation path and the per-attachment cap, and says no in the
-        // same two declared errors every other verb here does.
-        attach: ({ input }) => handle(() => orchestrator.attach(input)),
-        cancel: () => handle(() => orchestrator.cancel()),
-        answer: ({ input }) =>
-          handle(async () => ({
-            settled: await orchestrator.answer(input.askId, input.answers),
-          })),
-        signIn: ({ input }) =>
-          handle(async () => ({
-            outcome: await orchestrator.signIn(input.method),
-          })),
-        signInInput: ({ input }) =>
-          handle(() => orchestrator.signInInput(input.text)),
-        signInCancel: () => handle(() => orchestrator.signInCancel()),
-        setOption: ({ input }) =>
-          handle(() => orchestrator.setOption(input.id, input.value)),
-        newSession: () => handle(() => orchestrator.newSession()),
       },
     },
   };

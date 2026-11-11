@@ -791,119 +791,6 @@ contract a function of the host it happened to reach. The schemas are odu's own
 (`@odu/service-client`, grafted from the npins `odu` pin — see
 [`@kolu/padi-client`](../padi-client)'s README for the graft).
 
-## The orchestrator — padi's one child that is not kaval
-
-padi owns exactly ONE ACP conversation per state-root (`src/orchestrator/`), and
-it is the only long-lived child this daemon spawns besides its kaval. The
-conversation's hands are kolu's own MCP face: padi hands the session exactly one
-stdio server, `kolu mcp` (`KOLU_MCP_BIN`, baked by padi's wrapper) with
-`PADI_SOCKET` pointed at THIS padi, so the agent reaches this host's terminals
-through the documented tool surface and nothing private. Its `cwd` is the host's
-`$HOME`.
-
-**That hand-over is PROVED before it is made.** padi connects to its own
-rendezvous first and refuses the whole conversation if nothing is serving it,
-because the hand-over happens once, inside `session/new`, and nothing ever
-revisits it: an agent whose `kolu mcp` fails to connect marks the server failed
-for the life of the session and carries on running shell commands itself —
-which is the one failure this feature exists to prevent, and is invisible but
-for a grey word on the roster strip. A path that is merely a string is not
-enough to hand over.
-
-**It is hosted here rather than in kolu-server for the reason everything else
-in this package is**: the conversation's subject is this host's terminals, and
-on a remote host there would be nothing for a server-side conversation to reach
-with. Because `padiSurface` is re-served per host and every hop is spec-walked,
-a remote orchestrator reaches a browser with no server code at all.
-
-Three members carry it — the `orchestrator` cell (phase · model · usage ·
-options · roster · what is still out · open asks · fleet · sign-in · identity),
-the `orchestratorTranscript` stream (explicit snapshot-then-deltas, forwarded
-`delta`), and the `orchestrator` procedure namespace. The protocol itself is
-`@kolu/acp-harness`'s: padi never spells `session/prompt`.
-
-Five decisions worth knowing:
-
-- **It starts when somebody looks.** The adapter is a real Claude subprocess,
-  and a provisioned host nobody has opened should not be running one. The first
-  transcript subscription or the first procedure call brings it up; after that
-  it is kept for the daemon's life. That same first look is when the REMEMBERED
-  record is read — `buildPadiSurfaceDeps` runs before padi's boot has injected
-  the conf store, so a read at assembly would be a crash rather than a restore.
-  The persisted rows are served BEFORE the agent is up, so a restart shows the
-  conversation you were in and the live agent arrives underneath it.
-- **Resume is the normal path, and padi's copy is the authoritative one.** padi
-  drains on upgrade, so `session/load` by the stored id — with the model the
-  person chose re-applied — is what a restart does. The agent replays its own
-  messages on that load and padi DROPS the replay: a kolu transcript also holds
-  the kolu-aware tool cards, the background-task lanes and the notices the panel
-  wrote about itself, none of which the agent has. What makes the two survivable
-  side by side is `resumedSeq` — the harness mints its ids and ordering numbers
-  starting above the highest one padi already holds, so a resumed conversation
-  cannot become two copies of itself. That number is taken at the SPAWN, from
-  the rows padi is holding then, because a restore is not the only bring-up: a
-  dead adapter's replacement comes up over everything the corpse minted too,
-  and a fence frozen at the restore would let it mint those ids a second time.
-  The remembered FLEET is handed back the same way — membership otherwise
-  accrues only from tool calls, whose frames are the replay that was just
-  dropped, so a harness that was not told would publish an empty fleet and padi
-  would write that over its own record. What is NOT restored is anything that was
-  a fact about a subprocess that no longer exists: the phase, the usage, a turn
-  in flight, a half-finished sign-in. `src/orchestrator/persisted.ts` argues
-  each of the five fields it keeps, and re-validates the record where it reads
-  it — a parseable-but-wrong `orchestrator` key refuses by name rather than
-  restoring a transcript with holes in it, and says that sentence in the cell
-  as well as to its caller, because the reader that tripped it may be a
-  subscription nothing can be thrown at.
-- **The record is written on a throttle.** It lives in the same `config.json`
-  as the saved session, and a streaming answer is one row and six hundred
-  frames; the write is leading-edge with a one-second window, and the shutdown
-  flushes whatever the window still owes.
-- **padi's shutdown stops the conversation.** The adapter is spawned `detached`
-  — deliberately, so a crashing padi cannot take a conversation's subprocess
-  with it by accident — which means nothing but an explicit stop reaches it. A
-  drain, an upgrade or a SIGTERM runs the serve scope's finalizer, which awaits
-  the child's stop before the socket closes; without it every restart would
-  leave an adapter, its `claude` and its `kolu mcp` behind and spawn a second
-  set beside them. A bring-up still in flight is stopped on its own
-  continuation rather than waited out: the handle exists only once the open has
-  landed, and an open that is a `session/load` has two minutes to answer, which
-  is not how long a drain may hold. The stop's own last breath — the state that
-  says the session is gone — is the one thing padi does NOT persist: the record
-  must hold the conversation as it stood when the daemon let go of it, or the
-  next padi restores the transcript and opens a stranger underneath it.
-- **A prompt's attachments are FILES, and the bytes never ride the prompt.** A
-  pasted image or a dropped log goes up FIRST, through `orchestrator.attach`,
-  in frame-sized base64 pieces: the first call creates
-  `<state-root>/orchestrator/attachments/<id>`, each later one hands back the
-  path it was given and appends. That shape is not a nicety — the whole base64
-  on one `prompt` frame busts the RPC decoder's 16 MiB cap, which does not fail
-  the call but closes the socket with 1009 and takes every subscription in the
-  tab with it (the incident is written up in
-  `packages/client/src/terminal/pasteDelivery.ts`, whose chunking this reuses).
-  The upload is sequential per attachment: padi appends to one growing file,
-  and two chunks in flight interleave. The id is the whole filename and is
-  refused unless it is one (`[A-Za-z0-9][A-Za-z0-9._-]*`); an `appendTo` that
-  resolves outside the attachments directory is refused rather than written;
-  the caps — 10 MiB a file as it is appended, 20 MiB a message summed over what
-  it names — are enforced on the BYTES PADI HOLDS, measured from the file,
-  never on what the sender claimed. What the prompt then carries is a chip:
-  name · size · path, with the size re-read from disk and the path recomputed
-  from the id, so a path from the wire can never choose what the agent is
-  handed. A live row and a restored row are therefore the same value — which is
-  what makes "send again" on an hour-old message read the same file — and the
-  thumbnail, which never crossed this wire at all, survives only in the browser
-  that drew it.
-- **A file lives exactly as long as the row that names it.** The attachments
-  directory is reconciled to the transcript on the RESTORE (where rows are
-  lost: the row cap trimmed the record, or `$HOME` moved and the whole
-  transcript went with it), on every upload that CREATES a file (where the
-  directory grows), and after a prompt that was REFUSED — whose files were
-  uploaded for a message that will now never exist, so they go with it. The one
-  exception is an upload younger than an hour: it has no row because nobody has
-  pressed Send yet. A `newSession` deliberately sweeps nothing: the divider says
-  the agent's memory was reset, not that the scroll above it was thrown away.
-
 ## What padi knows nothing about
 
 Location is structure, so the boundary is defined as much by what padi refuses to
@@ -913,6 +800,15 @@ reach for as by what it owns:
   points strictly OUT. The few facts the server knows about itself are INJECTED at
   boot (`setKoluServerProcessId` · `setSpawnServerVersion`), never imported, so no
   edge ever points back in.
+- **The orchestrator.** The ACP conversation kolu drives its terminals from is
+  kolu-server's, not padi's: ONE conversation for the whole fleet, whose hands
+  are the kolu MCP tool list lifted over kolu-server's host map, reaching each
+  host through the padi client it already holds. padi therefore spawns no child
+  but its kaval, bakes no adapter or MCP binary into its wrapper, and carries
+  no transcript — the record lives in kolu-server's state store. A padi that
+  kept writing one would be a second, divergent copy of a conversation it does
+  not host. What padi owes the fleet face is exactly `padiSurface`, which it
+  already serves to every other client.
 - **The app logger.** padi has its OWN identity-free pino logger (`./log.ts`): it
   mirrors kolu-server's level/format but does not import the server's
   `hostname.ts` identity base, so the arrow is `@kolu/padi → pino`, never back into

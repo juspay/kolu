@@ -158,7 +158,6 @@ resolvability rather than to a manifest declaration it does not own.
 | entry | what it is | browser-safe |
 | --- | --- | --- |
 | `./surface` | `padiSurface` — the Effect Schema contract, the per-member forwarding policy (`value` = hold-open vs `delta` = fail-through), the frozen control-core sibling, and the whole terminal vocabulary it speaks (records, errors, chrome, policy and transcript-export schemas), re-exported from this one entry. It also declares the **odu sibling** padi re-serves at `surface/odu/*` — `oduCarriedSurface` (odu's own two member declarations, never a narrowed copy), its own `ODU_FORWARDING_POLICY`, and the composed `padiServedSurfaces` — see the graft note above | ✅ |
-| `./orchestrator` | THE ORCHESTRATOR'S WIRE VOCABULARY — the transcript row union (`user`/`agent`/`plan`/`tool`/`ask`/`notice`/`divider`), the explicitly-discriminated `OrchestratorFrame` (`snapshot` \| `delta`), the `OrchestratorState` the cell carries, the structured `OrchestratorKoluCall` reading of a kolu MCP call, and the procedure I/O. `./surface` re-exports all of it, so there is one door; this entry exists for a consumer that wants the shapes without the whole contract. The PROTOCOL'S own words — `AskField`, `AskLink`, `AskAnswer`, `FileDiff`, `Usage`, `AuthStatus` — are not re-declared here: they are imported from **`@kolu/acp/wire`** and re-exported, because the package that speaks the foreign thing owns its words and a second declaration is a second thing to keep in step. That import is why `@kolu/acp` is in this package's hydrate closure | ✅ |
 | `./attention` | the ATTENTION FOLD over two of that contract's members — the `urgency` cell's class lists and the `activity` stream's live set, folded into `TerminalAttention { klass, live }` and its per-host / per-scope siblings (`frameByClass`, `frameClassOf`, `hostActiveIds`, `scopeAttention`). Pure: what padi's partition MEANS, shipped with the feeds so a consumer reads them rather than reinventing the reading | ✅ |
 | `./attach` | the `terminalAttach` CONSUMER CONTRACT — `snapshotAnswersGrid` (a snapshot is only valid at the grid it was asked for), `snapshotGridMoved` / `snapshotGrid` (the SERVED grid, contract 5.5) and `isSnapshotFrame`, plus the four rules the schemas do not state: what stales a grid (including another client attaching at its own size, last-attach-wins on a shared pty — and rule 2c, that a foreign resize AFTER your snapshot sends no frame at all, so the pty's live grid is watched on the RECORD instead), that a clean end is not an exit, and that silence needs a deadline. The frames themselves are `TerminalAttachFrame`, on `./surface` | ✅ |
 | `./dial` | `connectPadi` — dial a socket, handshake the frozen control core, gate the surface version (`assertPadiSurfaceCompatible`), and hand back both typed faces over one dispatch (`padiClientOver`, `scopePadiSurface`). `dialPadiHello` is the ungated half, for a caller that wants to read `hello` and judge for itself | ❌ `node:net` |
@@ -170,6 +169,16 @@ resolvability rather than to a manifest declaration it does not own.
 | `./terminalId` | how a user NAMES a terminal — `resolveTerminalId` (any unique prefix, case-folded, exact-wins, an empty query refused) and its `ResolveResult`. Generic over the caller's own id type, and the file imports NOTHING — not even `import type` — because the consumer that asked for it resolves prefixes inside the package its browser bundles | ✅ |
 | `./screenTail` | `tailLines` — the last N lines of a rendered screen, trailing blank viewport dropped first. The fold over `screen.text`'s REPLY, so it lives beside that reply's schema. Also import-free | ✅ |
 | `./upload` | what may be dropped onto a terminal and how big it may be — `MAX_UPLOAD_BYTES`, the extension allowlist, `rejectionFor`. The gate a sender applies before encoding is the gate padi applies before writing, so the two cannot drift | ✅ |
+
+**The orchestrator's wire vocabulary is no longer here.** It used to be the
+`./orchestrator` entry, back when padi hosted the ACP conversation. kolu-server
+hosts it now — ONE conversation covering every host, rather than one per daemon
+— so the schemas moved with it, into `@kolu/common` beside `koluSurface`, and
+`padiSurface` lost the `orchestrator` cell, the `orchestratorTranscript` stream
+and the `orchestrator` procedures. The contract olai and drishti vendor is
+smaller for it: a padi contract declaring members about an agent padi does not
+run would be teaching its consumers something false about the daemon they
+dialled.
 
 ## What stayed in `@kolu/padi`
 

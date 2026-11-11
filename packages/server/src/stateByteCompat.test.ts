@@ -46,6 +46,10 @@ import {
   migratePreferences_1_40_0,
   migratePreferences_1_41_0,
 } from "./state.ts";
+import {
+  EMPTY_PERSISTED_ORCHESTRATOR,
+  PersistedOrchestratorSchema,
+} from "./orchestrator/persisted.ts";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -61,12 +65,13 @@ function makeStore(): Conf<Record<string, unknown>> {
   dirs.push(dir);
   return new Conf<Record<string, unknown>>({
     cwd: dir,
-    projectVersion: "1.41.0",
+    projectVersion: "1.43.0",
     configFileMode: 0o600,
     defaults: {
       preferences: DEFAULT_PREFERENCES,
       hosts: [],
       viewerMode: "dark",
+      orchestrator: EMPTY_PERSISTED_ORCHESTRATOR,
     },
   });
 }
@@ -100,12 +105,19 @@ describe("the persisted state file — aggregate bytes", () => {
 \t\t"tipBarCollapsed": false
 \t},
 \t"hosts": [],
-\t"viewerMode": "dark"
+\t"viewerMode": "dark",
+\t"orchestrator": {
+\t\t"sessionId": null,
+\t\t"cwd": "",
+\t\t"model": null,
+\t\t"rows": [],
+\t\t"fleet": []
+\t}
 }`,
     );
   });
 
-  it("a POPULATED state round-trips byte-for-byte through the three domain schemas", () => {
+  it("a POPULATED state round-trips byte-for-byte through the four domain schemas", () => {
     const store = makeStore();
     store.set("preferences", {
       ...DEFAULT_PREFERENCES,
@@ -116,6 +128,26 @@ describe("the persisted state file — aggregate bytes", () => {
     });
     store.set("hosts", ["remote:zest", "remote:srid@box"]);
     store.set("viewerMode", "light");
+    // A conversation with something in it: the two halves of a resume (the
+    // session and the fleet it was working with), a chosen model, and a row
+    // carrying the fields every transcript row has. The fleet entry is a
+    // FLEET REF — one conversation spans every host, so a bare id would be
+    // the one shape this record must never go back to.
+    store.set("orchestrator", {
+      sessionId: "sess-live",
+      cwd: "/home/tester",
+      model: "claude-sonnet-4",
+      rows: [
+        {
+          id: "a",
+          seq: 1,
+          since: "2026-01-01T00:00:00.000Z",
+          kind: "agent",
+          text: "one",
+        },
+      ],
+      fleet: ["local/11111111-1111-4111-8111-111111111111"],
+    });
 
     const onDisk = JSON.parse(readFileSync(store.path, "utf8")) as Record<
       string,
@@ -128,6 +160,7 @@ describe("the persisted state file — aggregate bytes", () => {
       ["preferences", PreferencesSchema],
       ["hosts", PersistedHostsSchema],
       ["viewerMode", ViewerModeSchema],
+      ["orchestrator", PersistedOrchestratorSchema],
     ] as const) {
       const decoded = Schema.decodeUnknownSync(schema)(onDisk[key]);
       expect(JSON.stringify(Schema.encodeUnknownSync(schema)(decoded))).toBe(
@@ -138,6 +171,13 @@ describe("the persisted state file — aggregate bytes", () => {
       '["remote:zest","remote:srid@box"]',
     );
     expect(JSON.stringify(onDisk.viewerMode)).toBe('"light"');
+    // The record's own bytes, pinned: a row is a flat object with its kind on
+    // it, and the fleet is a list of `host/id` strings.
+    expect(JSON.stringify(onDisk.orchestrator)).toBe(
+      '{"sessionId":"sess-live","cwd":"/home/tester","model":"claude-sonnet-4",' +
+        '"rows":[{"id":"a","seq":1,"since":"2026-01-01T00:00:00.000Z","kind":"agent","text":"one"}],' +
+        '"fleet":["local/11111111-1111-4111-8111-111111111111"]}',
+    );
   });
 
   it("REJECTS a store whose preferences lost a required field", () => {

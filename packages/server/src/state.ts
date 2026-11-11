@@ -38,6 +38,10 @@ import Conf from "conf";
 import { Result, Schema } from "effect";
 import { PersistedHostsSchema } from "kolu-common/hostKey";
 import {
+  EMPTY_PERSISTED_ORCHESTRATOR,
+  PersistedOrchestratorSchema,
+} from "./orchestrator/persisted.ts";
+import {
   DEFAULT_PREFERENCES,
   type Preferences,
   PreferencesSchema,
@@ -291,12 +295,18 @@ export function migratePreferences_1_34_0(
  *  hand-corrupted list fails loud, never silently normalized. `viewerMode` is the LAST
  *  reading a browser reported of its OS light/dark leaning — remembered so a headless
  *  face (MCP, CLI) creating a terminal on a server no browser has dialled yet still
- *  resolves an "auto" shuffle against a real answer. Adding a new domain key
- *  requires a migration entry below. */
+ *  resolves an "auto" shuffle against a real answer. `orchestrator` is the ONE
+ *  conversation's resumable half — the session id, the directory it was opened
+ *  in, the model a person chose, the transcript's tail and the fleet it
+ *  touched. It is never a served cell (the `orchestrator` cell is assembled
+ *  from the LIVE agent); this is only what a restart has to start from, and it
+ *  lives here because kolu-server HOSTS the conversation. Adding a new domain
+ *  key requires a migration entry below. */
 const PersistedStateSchema = Schema.Struct({
   preferences: PreferencesSchema,
   hosts: PersistedHostsSchema,
   viewerMode: ViewerModeSchema,
+  orchestrator: PersistedOrchestratorSchema,
 });
 
 /** The DECODED disk shape. Effect's `Struct.Type` is deep-`readonly`; `Conf` is
@@ -347,7 +357,7 @@ function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.42.0";
+const SCHEMA_VERSION = "1.43.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -461,6 +471,10 @@ const CONF_DEFAULTS: PersistedState = {
   // resolves an "auto" shuffle exactly as a default install does. The 1.36.0
   // migration seeds it onto an existing file for the same on-disk-shape reason.
   viewerMode: "dark",
+  // The ONE conversation, empty. A fresh install has nothing to resume; the
+  // 1.43.0 migration seeds this onto an existing file for the same
+  // on-disk-shape reason the two keys above give.
+  orchestrator: EMPTY_PERSISTED_ORCHESTRATOR,
 };
 
 /** The migration ladder — hoisted so {@link decodeStateBackup}'s scratch
@@ -920,6 +934,28 @@ const CONF_MIGRATIONS = {
         store.get("preferences") as Record<string, unknown>,
       ) as unknown as Preferences,
     );
+  },
+  // The ORCHESTRATOR moves in. kolu-server hosts kolu's one supervising
+  // conversation now — one conversation over every host, rather than one per
+  // padi — so the resumable half of it (session id, cwd, chosen model, the
+  // transcript's tail, the fleet it touched) is a key on THIS store. Seed the
+  // empty record onto an existing file so its on-disk shape matches
+  // `PersistedStateSchema` exactly; conf's `defaults` already merges it on
+  // read, so this honours the "persisted-shape change ⇒ ladder step" rule
+  // (dev/skills/state/SKILL.md) rather than adding behaviour.
+  //
+  // IT SEEDS, IT DOES NOT IMPORT. padi's own `1.5.0` rung DELETES the matching
+  // key from each host's state-root, and nothing is carried across: that
+  // record was written by a different process, against a different `$HOME` and
+  // a different MCP server, so a session id copied here would be one this
+  // conversation cannot load and a transcript copied here would claim a
+  // conversation that is not coming back. padi's orchestrator never shipped in
+  // a release, so the only transcripts this declines to inherit are ones a
+  // development build wrote.
+  "1.43.0": (store: Conf<PersistedState>) => {
+    if (!store.has("orchestrator")) {
+      store.set("orchestrator", EMPTY_PERSISTED_ORCHESTRATOR);
+    }
   },
 };
 

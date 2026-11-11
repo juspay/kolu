@@ -18,7 +18,7 @@
  * mid-history into a map that already holds those rows.
  */
 
-import type { OrchestratorFrame } from "@kolu/padi-client/surface";
+import type { OrchestratorFrame } from "kolu-common/orchestrator";
 import { Effect, Queue, Stream } from "effect";
 import type { Logger } from "pino";
 import type { OrchestratorHost } from "./orchestrator.ts";
@@ -37,7 +37,9 @@ export function orchestratorTranscriptSource(
       (unwatch) =>
         Effect.sync(() => {
           unwatch();
-          log.debug("padi: orchestratorTranscript subscription ended");
+          log.debug(
+            "kolu-server: orchestratorTranscript subscription ended",
+          );
         }),
     ),
   );
