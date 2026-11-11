@@ -783,6 +783,16 @@ function composeE2eServerEnv(): Record<string, string> {
  *  server respawns a worker makes). */
 const agentDistroFixture = agentDistroFixtureEnv();
 
+/** The scripted ACP agent the orchestrator's scenarios run against. An
+ *  absolute path, never a bare name: a production kolu BAKES this variable
+ *  with a store path, and the one thing a from-source e2e must not do is
+ *  depend on whatever the PTY's PATH happens to resolve
+ *  (`skill://e2e-testing`'s third rule). */
+const acpFixtureAgent = path.resolve(
+  import.meta.dirname,
+  "acp-fixture-agent.ts",
+);
+
 async function startServerChild(koluServer: string): Promise<void> {
   // Refuse a destructive ssh-leg bind BEFORE spawning the child — the spawn itself is
   // destructive, so the ack cannot wait until after (P2/F1).
@@ -899,6 +909,19 @@ async function startServerChild(koluServer: string): Promise<void> {
           ...(process.env.KOLU_E2E_PADI_HOST_SEED
             ? { KOLU_PADI_HOST: process.env.KOLU_E2E_PADI_HOST_SEED }
             : {}),
+          // THE ORCHESTRATOR'S ADAPTER. A nix-built kolu BAKES both of these
+          // onto padi's wrapper; a from-source e2e run has no wrapper, so the
+          // server forwards whatever it was given (padiBinding's
+          // `ORCHESTRATOR_BAKE_ENVS` loop). `KOLU_ACP_AGENT` is the scripted
+          // ACP agent in `support/`, run through this node — the orchestrator
+          // the browser talks to is a real subprocess speaking the real
+          // protocol, not a stubbed store. `KOLU_MCP_BIN` is the same `kolu`
+          // binary the harness just spawned the server from: the fixture never
+          // calls a kolu tool, but the harness builds the session's one MCP
+          // server entry before it opens, and a path that is not there is an
+          // honest refusal rather than a thing to work around.
+          KOLU_ACP_AGENT: `${process.execPath} ${acpFixtureAgent}`,
+          KOLU_MCP_BIN: koluServer,
         },
       },
     );

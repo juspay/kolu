@@ -31,10 +31,17 @@ import {
   AuthStatus,
   FileDiff,
   Usage,
+  YES_NO,
 } from "@kolu/acp/wire";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { Schema } from "effect";
 
+/** `YES_NO` is a VALUE, not a schema, and it is the one piece of this
+ *  vocabulary both ends must spell identically: a boolean answer travels as
+ *  the string `"true"` or `"false"`, and a panel that invented its own
+ *  spelling would send the agent an answer it refuses. It rides here with the
+ *  schemas so a consumer that has the contract has the agreement too — a
+ *  browser never needs `@kolu/acp` itself. */
 export {
   AskAnswer,
   AskField,
@@ -43,6 +50,7 @@ export {
   AuthStatus,
   FileDiff,
   Usage,
+  YES_NO,
 };
 
 // ── The rows ──────────────────────────────────────────────────────────────

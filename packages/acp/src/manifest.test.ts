@@ -210,7 +210,7 @@ describe("the manifest", () => {
     const speaking = [...tree.keys()].filter((pkg) =>
       sources(pkg).some((source) => source.specifiers.some(isSdk)),
     );
-    expect(speaking.sort()).toEqual(["acp"]);
+    expect(speaking.sort()).toEqual(["acp", "acp-harness"]);
   });
 
   test("what may cross is enumerated: the export lists are closed and disjoint", () => {
@@ -263,10 +263,26 @@ describe("the manifest", () => {
    * Every other member's `[]` is what says nothing else opens any of them.
    */
   const MAY: Readonly<Record<string, ReadonlyArray<string>>> = {
+    // THE ONLY ROW WITH ALL THREE, and that is what the harness IS: it runs
+    // the protocol, so it reads the projections (`.`), spells the leg and the
+    // adapter it was handed (`./engine`), and writes the vocabulary padi's
+    // contract carries (`./wire`).
+    "acp-harness": ["@kolu/acp", "@kolu/acp/engine", "@kolu/acp/wire"],
+    // An agent's integration registers its engine through `./engine` and reads
+    // nothing else: the leg's own signatures, the adapter it spawns, and the
+    // `NotHere` a machine without it is owed all live there. The projections
+    // are the harness's to run, and the wire's words are the surface's to
+    // carry.
+    "integrations/claude-code": ["@kolu/acp/engine"],
     // padi's browser-safe contract half declares the orchestrator's members in
     // the protocol's own vocabulary rather than re-spelling it: the wire door
     // and nothing else.
     "padi-client": ["@kolu/acp/wire"],
+    // padi HOSTS the conversation, so it reads the ENGINE door alone: the
+    // integration's `Registering` — its name, its leg, and whether this host
+    // has the adapter at all. The protocol's own payloads never reach padi;
+    // `@kolu/acp-harness` is the wall between them.
+    padi: ["@kolu/acp/engine"],
   };
 
   test("who may import which half is a table, and the harness is the only row with all of them", () => {

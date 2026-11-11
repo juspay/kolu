@@ -48,10 +48,7 @@ import {
   startHarness,
   teachingLines,
 } from "@kolu/acp-harness";
-import {
-  KOLU_MCP_ARGS,
-  PADI_SOCKET_ENV,
-} from "@kolu/detect";
+import { KOLU_MCP_ARGS, PADI_SOCKET_ENV } from "@kolu/detect";
 import {
   DEFAULT_ORCHESTRATOR_STATE,
   type OrchestratorFrame,
@@ -63,6 +60,7 @@ import {
 import type { CellStore } from "@kolu/surface/server";
 import type { Logger } from "pino";
 import { padiSurfaceCtx } from "../padiSurfaceCtx.ts";
+import { KOLU_MCP_BIN_ENV } from "./bake.ts";
 import { persistedFrom, type PersistedOrchestrator } from "./persisted.ts";
 
 /** What a reader of the transcript stream is handed, in order: one snapshot,
@@ -130,7 +128,9 @@ const NO_KOLU_BIN =
 const NO_SOCKET =
   "This padi has not published its socket yet, so the orchestrator cannot tell its agent where this host's terminals are. Try again once the daemon has finished starting.";
 
-export function startOrchestratorHost(deps: OrchestratorDeps): OrchestratorHost {
+export function startOrchestratorHost(
+  deps: OrchestratorDeps,
+): OrchestratorHost {
   const { log, home, socketPath, store } = deps;
 
   // What a restart starts from. Read ONCE: the record is this module's to
@@ -234,7 +234,7 @@ export function startOrchestratorHost(deps: OrchestratorDeps): OrchestratorHost 
     args: ReadonlyArray<string>;
     env: Record<string, string>;
   } => {
-    const command = process.env.KOLU_MCP_BIN;
+    const command = process.env[KOLU_MCP_BIN_ENV];
     if (command === undefined || command === "") {
       throw new OrchestratorUnavailable({ why: NO_KOLU_BIN });
     }
@@ -350,7 +350,10 @@ export function startOrchestratorHost(deps: OrchestratorDeps): OrchestratorHost 
       const running = harness;
       harness = null;
       void running?.stop().catch((err: unknown) => {
-        log.warn({ err }, "padi: the orchestrator's agent did not stop cleanly");
+        log.warn(
+          { err },
+          "padi: the orchestrator's agent did not stop cleanly",
+        );
       });
     },
   };

@@ -388,7 +388,7 @@ export function buildPadiSurfaceDeps(deps: {
     // it is the directory a person's repositories are under, and it is what
     // makes a stored session findable when it is resumed.
     home: homedir(),
-    socketPath: () => getPadiServeSocketPath(),
+    socketPath: () => getPadiServeSocketPath() ?? null,
     store: {
       get: () => requirePadiOrchestratorStore().get(),
       set: (v) => requirePadiOrchestratorStore().set(v),

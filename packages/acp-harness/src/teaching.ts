@@ -1,0 +1,62 @@
+/**
+ * WHAT KOLU'S ORCHESTRATOR IS TOLD, ONCE — AND HOW IT ARRIVES.
+ *
+ * ## THE CHANNEL: a first-turn preamble, and not a system prompt
+ *
+ * ACP has no system prompt. `session/new` carries a cwd and a list of MCP
+ * servers and nothing else a client may put words in, so there is no field to
+ * put this in on any wire kolu talks to; getting one would mean patching a
+ * pinned adapter, and the feature would then be absent on every other engine —
+ * exactly the shape this repo refuses, because a capability silently missing
+ * cannot be told apart from one that is broken.
+ *
+ * So it rides the FIRST MESSAGE of the session, and the three consequences are
+ * the argument for it. It is IN THE TRANSCRIPT, where a person can read what
+ * their orchestrator was told, rather than being a thing that happened to
+ * somebody else's process. It costs a turn only where there is one: a host
+ * nobody talks to spends nothing, and the lines go out with the words rather
+ * than as a turn of their own. And it survives a `/clear` by construction,
+ * because "has this session been taught" is written down per SESSION — a new
+ * session is untaught, which is right, since the whole point is that the
+ * transcript is not what carries the contract.
+ *
+ * ## The words, and what they deliberately do not say
+ *
+ * PROSE AN AGENT READS, not a bullet spec. The loop is named as a loop because
+ * that is how it is done, and the one place exactness is worth more than flow —
+ * the settle call's own arguments — is spelled out, because an agent that waits
+ * on the wrong state waits forever and an agent that polls a screen burns a
+ * turn per look.
+ *
+ * NO TOOL CATALOGUE. Which verbs are reachable is a property of the MCP server
+ * this session was handed, and an instruction naming a call the session does
+ * not have would be teaching a contract it cannot keep. The five tools named
+ * below are the ones the loop IS; everything else the server offers the agent
+ * finds the ordinary way.
+ *
+ * PURE, over the host's name, so what an orchestrator is told is decided in a
+ * unit test rather than by starting one. VERSIONED WITH THE BINARY and re-sent
+ * on every new session, so one deploy means one contract on every host.
+ */
+
+/** THE ONE PLACE `[kolu] ` IS SPELLED: sentences in, the lines that ride under
+ *  the first message out. One shape however many things ride the seam. */
+const lines = (sentences: ReadonlyArray<string>): ReadonlyArray<string> =>
+  sentences.map((sentence) => `[kolu] ${sentence}`);
+
+/**
+ * The standing prompt for the orchestrator on one host.
+ *
+ * @param host the machine this conversation's terminals are on, as kolu names
+ *   it — said in the first line because every tool call below acts there and
+ *   nowhere else.
+ */
+export const teachingLines = (host: string): ReadonlyArray<string> =>
+  lines([
+    `You are kolu's orchestrator on ${host}. You do not do the work yourself: you run the coding agents living in this host's terminals, and the \`kolu\` MCP server attached to this session is how you reach them — it is the only way, and everything it offers acts on ${host}.`,
+    'The loop for one agent is always the same four moves. Open a terminal with `lifecycle_create` (it needs a `placement`: `{"kind":"toplevel"}` for a tile of its own). Send the brief as text with `lifecycle_sendInput`. Send the Enter key as a SEPARATE `lifecycle_sendInput` call, because text and a key never travel together and an agent that was typed at but never submitted will sit there forever. Then debrief: `wait_agentState` until the agent is `awaiting,waiting`, with `settledMs: 15000` and `screenTail: 40`, which gives you both the fact that it stopped and the last of what it said. Read a screen with `screen_text` only when the tail was not enough.',
+    "Supervising several is the same loop with one waiting call instead of many: `watch_open` once over the fleet — omit the id list, so a lane you forget to add cannot go unwatched — and then `watch_next`, which blocks until some terminal needs you and hands back everything that accumulated while you were away. Never poll a screen in a spin; the waiting calls are what keep a dozen agents cheap.",
+    "Questions flow UP. An agent that stops to ask something reaches you, and most of what it asks is yours to answer out of the brief you wrote it — answer it and let it carry on. Surface to the human only the decisions that are genuinely theirs: a tradeoff nobody told you how to make, a destructive step, a brief that turns out to have been wrong. When you do, say which terminal it is about and what you would do.",
+    "Briefs go through FILES, not through long pastes. Write the specification to a file and tell the agent the path; a terminal takes text one keystroke at a time and a thousand-line paste is both slow and lossy. The same goes the other way: ask for the result in a file you can read rather than on a screen you have to scroll.",
+    "You have no memory of your own here beyond this conversation. What is worth keeping belongs in a file on this host, where the next conversation can read it.",
+  ]);

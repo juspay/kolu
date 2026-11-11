@@ -20,6 +20,17 @@
         "effect": "4.0.0"
       }
     },
+    "@kolu/acp-harness": {
+      "dir": "packages/acp-harness",
+      "workspace": [
+        "@kolu/acp",
+        "@kolu/padi-client"
+      ],
+      "external": {
+        "@agentclientprotocol/sdk": "^1.3.0",
+        "effect": "catalog:"
+      }
+    },
     "@kolu/agent-distro": {
       "dir": "packages/agent-distro",
       "vendored": true,
@@ -85,7 +96,10 @@
       "dir": "packages/padi",
       "workspace": [
         "@juspay/agent-distro",
+        "@kolu/acp",
+        "@kolu/acp-harness",
         "@kolu/agent-distro",
+        "@kolu/detect",
         "@kolu/padi-client",
         "@kolu/serve-dir",
         "@kolu/surface",
@@ -98,6 +112,7 @@
         "anyforge",
         "kaval",
         "kolu-agents",
+        "kolu-claude-code",
         "kolu-git",
         "kolu-github",
         "kolu-io",
@@ -124,6 +139,7 @@
       "dir": "packages/padi-client",
       "vendored": true,
       "workspace": [
+        "@kolu/acp",
         "@kolu/agent-distro",
         "@kolu/byte-units",
         "@kolu/surface",
@@ -647,6 +663,13 @@
         "effect": "catalog:"
       }
     },
+    "kolu-acp-claude": {
+      "dir": "packages/integrations/claude-code/acp/shim",
+      "workspace": [],
+      "external": {
+        "@agentclientprotocol/claude-agent-acp": "0.81.2"
+      }
+    },
     "kolu-agents": {
       "dir": "packages/integrations/agents",
       "vendored": true,
@@ -669,6 +692,7 @@
       "dir": "packages/integrations/claude-code",
       "vendored": true,
       "workspace": [
+        "@kolu/acp",
         "anyagent",
         "kolu-io",
         "kolu-shared",
