@@ -274,20 +274,22 @@ describe("the manifest", () => {
     // are the harness's to run, and the wire's words are the surface's to
     // carry.
     "integrations/claude-code": ["@kolu/acp/engine"],
-    // padi's browser-safe contract half declares the orchestrator's members in
+    // kolu's browser-safe contract half declares the orchestrator's members in
     // the protocol's own vocabulary rather than re-spelling it: the wire door
-    // and nothing else.
-    "padi-client": ["@kolu/acp/wire"],
+    // and nothing else. It was `padi-client`'s row until the conversation
+    // stopped being a host's and became kolu-server's — the orchestrator's
+    // vocabulary moved with its home.
+    common: ["@kolu/acp/wire"],
     // The agent REGISTRY is where per-agent knowledge is folded, so the ACP
-    // engine a host's orchestrator runs is registered there too — a daemon
+    // engine the orchestrator runs is registered there too — a daemon
     // that named one agent directly would be the defect
     // `agentDepFence.test.ts` exists to refuse.
     "integrations/agents": ["@kolu/acp/engine"],
-    // padi HOSTS the conversation, so it reads the ENGINE door alone: the
-    // integration's `Registering` — its name, its leg, and whether this host
-    // has the adapter at all. The protocol's own payloads never reach padi;
-    // `@kolu/acp-harness` is the wall between them.
-    padi: ["@kolu/acp/engine"],
+    // kolu-server HOSTS the conversation, so it reads the ENGINE door alone:
+    // the integration's `Registering` — its name, its leg, and whether this
+    // machine has the adapter at all. The protocol's own payloads never reach
+    // it; `@kolu/acp-harness` is the wall between them.
+    server: ["@kolu/acp/engine"],
   };
 
   test("who may import which half is a table, and the harness is the only row with all of them", () => {
