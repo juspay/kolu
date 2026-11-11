@@ -307,3 +307,31 @@ Feature: The Conductor
     When I send the conductor the prompt "say hello"
     Then the conductor transcript should show a row of kind "agent" saying "hello back"
     And there should be no page errors
+
+  Scenario: The transcript follows the conversation, and lets go when you read
+    # THE RULE IS THE SCROLLBACK'S, and a chat obeys it or is unusable. The
+    # fixture streams thirty chunks, a paragraph at a time — several pane-fuls
+    # — and the view has to be at the end when they stop, which it can only be
+    # by having followed every one of them. A rule that asks the container
+    # "are you at the end?" AFTER drawing a chunk fails here on the first
+    # paragraph taller than its slack: the column grew under a view that did
+    # not move, so the honest measurement says "scrolled up" about content
+    # that landed a millisecond ago, and the answer runs off the bottom.
+    #
+    # THE OTHER HALF IS THE READER'S. Once somebody scrolls up to read
+    # something, nothing may drag them back — so the view stays exactly where
+    # the wheel left it, and the way back is OFFERED (the terminal's own pill,
+    # the same affordance in both places) rather than taken for them.
+    When I create a terminal
+    And I enter conductor mode
+    And I send the conductor the prompt "say a lot"
+    Then the conductor transcript should show a row of kind "agent" saying "line 30"
+    And the conductor transcript should be scrolled to the bottom
+    And the conductor should not offer the way back to the bottom
+    When I scroll the conductor transcript up
+    Then the conductor transcript should stay where the reader left it
+    And the conductor should offer the way back to the bottom
+    When I take the way back to the bottom
+    Then the conductor transcript should be scrolled to the bottom
+    And the conductor should not offer the way back to the bottom
+    And there should be no page errors

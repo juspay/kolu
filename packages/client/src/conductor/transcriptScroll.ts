@@ -11,9 +11,20 @@
  *
  *  The rule itself is the terminal scrollback's, not a second one:
  *  `xterm-kit/src/solid/scrollLock.ts` follows new output only while the
- *  viewport is AT the end, and leaves it alone once somebody scrolled up. Here
- *  that single predicate — {@link atEnd} — decides both what to remember and
- *  whether a new frame may pin the view, so the two can never disagree. */
+ *  viewport is AT the end, and leaves it alone once somebody scrolled up.
+ *
+ *  AND "FOLLOWING" IS THE SAME FACT AS "WHERE THE READER IS", not a second one
+ *  measured from the element. A follow rule that asks `atEnd(container)` after
+ *  a chunk has already been drawn is asking about the CHUNK: the column just
+ *  grew under a view that did not move, so the gap is the new content's height
+ *  and the honest answer is "scrolled up" — about content that landed a
+ *  millisecond ago. That is why the transcript stopped following. The question
+ *  it means to ask is what the READER last did, which is exactly what this
+ *  module already holds: `null` IS pinned. So the predicate is asked of a live
+ *  element only when the reader themself moved it, and every frame after that
+ *  reads the remembered answer. */
+
+import { createSignal } from "solid-js";
 
 /** How close to the bottom still counts as "following", in pixels. A couple of
  *  lines of slack, so a half-scrolled wheel notch does not unpin the view. */
@@ -28,9 +39,9 @@ export interface ScrollMetrics {
   readonly clientHeight: number;
 }
 
-/** Is the view at the end? The one predicate — asked of a live element to
- *  decide whether a new frame may pin it, and asked again at scroll time to
- *  decide what to remember. */
+/** Is the view at the end? Asked ONLY of a movement the reader made — at
+ *  `scroll` time, to decide what to remember — never after a frame drew new
+ *  rows, where the gap it measures is the new content rather than an intent. */
 export function atEnd(el: ScrollMetrics): boolean {
   return (
     el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_SLACK_PX + 1
@@ -41,14 +52,44 @@ export function atEnd(el: ScrollMetrics): boolean {
  *  not the same as a pixel value either: the column grows between mounts, so a
  *  reader who was at the end must land at the NEW end, not at the old end's
  *  coordinate. It is also the opening state — a conversation you have never
- *  scrolled opens at its newest line. */
-let offset: number | null = null;
+ *  scrolled opens at its newest line.
+ *
+ *  A SIGNAL, because the pill reads it: "not pinned" is precisely when the
+ *  reader is owed a way back to the end, and a plain `let` would leave that
+ *  button stale. */
+const [offset, setOffset] = createSignal<number | null>(null);
+
+/** Is the view following the conversation? The one question the render path
+ *  asks — never the element, which by then is describing the new content. */
+export function transcriptPinned(): boolean {
+  return offset() === null;
+}
 
 /** The view moved: record where the reader is now. Called from the container's
  *  own `scroll`, which fires for a wheel, a drag, a keypress and our own pin
- *  alike — so there is no path that moves the view without this seeing it. */
+ *  alike — so there is no path that moves the view without this seeing it. Our
+ *  own pin lands at the end and therefore re-states `null`, which is what it
+ *  meant. */
 export function rememberTranscriptScroll(el: ScrollMetrics): void {
-  offset = atEnd(el) ? null : el.scrollTop;
+  setOffset(atEnd(el) ? null : el.scrollTop);
+}
+
+/** The reader asked to go up, BEFORE the view has moved — a wheel notch, which
+ *  the browser reports to us before it scrolls and dispatches `scroll`. The
+ *  failure this prevents: a chunk landing in the same frame as that notch pins
+ *  the view back to the end, and the `scroll` event that follows then measures
+ *  the end and re-states `null` — the reader is dragged back and cannot get
+ *  away. The `scroll` that follows corrects the pixel; this only decides that
+ *  we are no longer following. */
+export function unpinTranscript(el: ScrollMetrics): void {
+  if (offset() === null) setOffset(el.scrollTop);
+}
+
+/** Follow the end again — the pill, a sent message, and a conversation that was
+ *  replaced wholesale (whose remembered offset means nothing) all want exactly
+ *  this, so it is one writer and not three. */
+export function pinTranscript(): void {
+  setOffset(null);
 }
 
 /** Put a freshly mounted container back where the reader left it — or at the
@@ -57,16 +98,11 @@ export function applyTranscriptScroll(el: {
   scrollTop: number;
   readonly scrollHeight: number;
 }): void {
-  el.scrollTop = offset ?? el.scrollHeight;
+  el.scrollTop = offset() ?? el.scrollHeight;
 }
 
 /** What is remembered, for tests and for nothing else. */
 export function transcriptScrollOffset(): number | null {
-  return offset;
+  return offset();
 }
 
-/** Back to the opening state. Tests reset with it; a new session uses it, since
- *  the offset of a transcript that was replaced wholesale means nothing. */
-export function forgetTranscriptScroll(): void {
-  offset = null;
-}

@@ -53,6 +53,7 @@ import {
   tokenQueryAt,
 } from "./mentions";
 import { thumbnailOf } from "./thumbnails";
+import { pinTranscript } from "./transcriptScroll";
 import { useConductor } from "./useConductor";
 
 /** A menu is OPEN when its trigger has a token under the caret and rows to
@@ -188,6 +189,10 @@ const ConductorComposer: Component<{
         reattachComposerFiles();
         return;
       }
+      // SENDING IS ASKING TO WATCH. Whatever the reader had scrolled up to
+      // read, they have just spoken — so the answer, which starts arriving in
+      // the next frames, must be the thing on screen.
+      pinTranscript();
       clearComposerAttachments();
       write("", 0);
     });

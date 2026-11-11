@@ -443,6 +443,33 @@ const turn = async (id: unknown, text: string): Promise<void> => {
     endTurn(id);
     return;
   }
+
+  if (text === "say a lot") {
+    // A TURN LONGER THAN THE PANE, chunk by chunk, a frame or so apart — the
+    // shape a real model streams in, and the only shape in which a follow rule
+    // can be seen to work: a single frame carrying the whole answer would land
+    // the view at the end whether anything followed anything or not.
+    //
+    // EACH CHUNK IS THREE PARAGRAPHS, which is not decoration. A chunk that
+    // grows the column by LESS than the transcript's follow slack (48px) is
+    // one a broken rule survives — it measures the container after drawing and
+    // still finds itself within slack of the end. The defect only shows for a
+    // chunk taller than that, which is most of what a model actually says.
+    for (let line = 1; line <= 30; line += 1) {
+      update({
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: `line ${line}\n\nthe agent keeps talking (${line})\n\nand keeps talking (${line})\n\n`,
+        },
+      });
+      const tick = Promise.withResolvers<void>();
+      setTimeout(tick.resolve, 40);
+      await tick.promise;
+    }
+    endTurn(id);
+    return;
+  }
   update({
     sessionUpdate: "agent_message_chunk",
     content: { type: "text", text: "hello back" },

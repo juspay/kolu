@@ -815,3 +815,102 @@ Then("the chrome bar should fit the window", async function (this: KoluWorld) {
     `the chrome bar's members and its own padding come to ${Math.round(seated + bar.chrome)}px in a ${bar.client}px row — the host strip's budget is not the row's leftover, so the tab fold is computing against room something else is using\n${report}`,
   );
 });
+
+/** The terminal's own pill, reused by the conversation: "you are not
+ *  following, here is the way back". Scoped under the pane — the same testid
+ *  belongs to the scrollback's copy on a host tab. */
+const TO_BOTTOM = `${PANE} [data-testid="scroll-to-bottom"]`;
+
+/** The client's own `FOLLOW_SLACK_PX`, which is the number the rule under test
+ *  uses. A transcript within a couple of lines of the end IS following; the
+ *  failure this file is about leaves it hundreds of pixels short. */
+const FOLLOW_SLACK_PX = 48;
+
+/** How far the transcript's last pixel is below the bottom of its view. Zero
+ *  (or a line or two) means it is following the conversation. */
+async function transcriptGap(world: KoluWorld): Promise<number> {
+  return await world.page
+    .locator(TRANSCRIPT)
+    .evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+}
+
+Then(
+  "the conductor transcript should be scrolled to the bottom",
+  async function (this: KoluWorld) {
+    await pollFor({
+      observe: () => transcriptGap(this),
+      isDone: (gap) => gap <= FOLLOW_SLACK_PX + 1,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `the transcript is ${last}px below its view after ${elapsedMs}ms — it stopped following the conversation, so the agent is talking off the bottom of the pane`,
+        ),
+    });
+  },
+);
+
+When(
+  "I scroll the conductor transcript up",
+  async function (this: KoluWorld) {
+    const box = await this.page.locator(TRANSCRIPT).boundingBox();
+    assert.ok(box !== null, "the transcript has no box to scroll over");
+    // A REAL WHEEL over the column, not an assignment to `scrollTop`: the
+    // client reads the notch itself (to decide intent before the browser has
+    // moved anything), and a scripted scroll would skip that half.
+    await this.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await this.page.mouse.wheel(0, -600);
+    // Chromium animates the notch, so the view has not arrived when `wheel`
+    // resolves. Wait for it to be demonstrably off the end before anything
+    // asserts about where it stays.
+    await pollFor({
+      observe: () => transcriptGap(this),
+      isDone: (gap) => gap > FOLLOW_SLACK_PX + 1,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `the wheel left the transcript ${last}px from its end after ${elapsedMs}ms — it never scrolled up`,
+        ),
+    });
+  },
+);
+
+Then(
+  "the conductor transcript should stay where the reader left it",
+  async function (this: KoluWorld) {
+    const top = async () =>
+      await this.page.locator(TRANSCRIPT).evaluate((el) => el.scrollTop);
+    const before = await top();
+    const settled = Promise.withResolvers<void>();
+    setTimeout(settled.resolve, 750);
+    await settled.promise;
+    const after = await top();
+    assert.equal(
+      after,
+      before,
+      `the transcript moved from ${before} to ${after} on its own — a reader who scrolled up to read something was dragged back`,
+    );
+  },
+);
+
+Then(
+  "the conductor should offer the way back to the bottom",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(TO_BOTTOM)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the conductor should not offer the way back to the bottom",
+  async function (this: KoluWorld) {
+    await waitForCount(this, TO_BOTTOM, 0);
+  },
+);
+
+When(
+  "I take the way back to the bottom",
+  async function (this: KoluWorld) {
+    await this.page.locator(TO_BOTTOM).click();
+  },
+);

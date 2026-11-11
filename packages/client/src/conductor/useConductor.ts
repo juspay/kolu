@@ -36,7 +36,7 @@ import { toast } from "solid-sonner";
 import { createSharedRoot } from "../createSharedRoot";
 import { runAction } from "../runAction";
 import { app } from "../wire";
-import { forgetTranscriptScroll } from "./transcriptScroll";
+import { pinTranscript } from "./transcriptScroll";
 import { useConductorFacts } from "./useConductorFacts";
 
 /** Render a failure for a toast, keeping the server's own sentence — a declared
@@ -182,7 +182,7 @@ export const useConductor = createSharedRoot<Conductor>(() => {
       // The transcript this offset described is about to be replaced
       // wholesale; a pixel from the old conversation would land the new one
       // mid-air (or, clamped against two rows, back at the top).
-      forgetTranscriptScroll();
+      pinTranscript();
       ask(
         "Could not start a new session",
         app.procedures.conductor.newSession({}),
@@ -191,7 +191,7 @@ export const useConductor = createSharedRoot<Conductor>(() => {
     clearSession: () => {
       // Same reason, harder: there will be NO rows to clamp a remembered
       // offset against.
-      forgetTranscriptScroll();
+      pinTranscript();
       ask(
         "Could not start a new session",
         app.procedures.conductor.clearSession({}),

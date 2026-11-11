@@ -7,12 +7,15 @@
  *  it is replaced wholesale on every update; a tool call is a card because it
  *  has a status that moves.
  *
- *  Scroll follows the conversation only while the reader is AT the bottom. Once
- *  somebody scrolls up to read something, a streaming turn must not yank them
- *  back — that is the one behaviour that makes a live transcript unusable. The
- *  same rule decides where a fresh mount lands, and `transcriptScroll.ts` holds
- *  it: this component is re-created on every activation of the entry, so where
- *  the reader is cannot live here. */
+ *  Scroll follows the conversation only while the reader is FOLLOWING it, and
+ *  that is a fact about the reader — held in `transcriptScroll.ts`, decided by
+ *  their own scrolling — never a measurement taken off the container after new
+ *  rows have been drawn into it. Once somebody scrolls up to read something, a
+ *  streaming turn must not yank them back (the one behaviour that makes a live
+ *  transcript unusable); the way back is OFFERED, as the terminal's own
+ *  `ScrollToBottom` pill. The same fact decides where a fresh mount lands,
+ *  which is why it cannot live here: this component is re-created on every
+ *  activation of the entry. */
 
 import { formatBytes } from "@kolu/byte-units";
 import type { ConductorRow } from "kolu-common/conductor";
@@ -22,20 +25,25 @@ import {
   type Component,
   createEffect,
   createMemo,
+  createSignal,
   For,
   Match,
+  on,
   onMount,
   Show,
   Switch,
 } from "solid-js";
+import ScrollToBottom from "../terminal/ScrollToBottom";
 import ConductorAsk from "./ConductorAsk";
 import ConductorToolCard from "./ConductorToolCard";
 import { thumbnailOf } from "./thumbnails";
 import { foldNoticeRuns } from "./transcript";
 import {
   applyTranscriptScroll,
-  atEnd,
+  pinTranscript,
   rememberTranscriptScroll,
+  transcriptPinned,
+  unpinTranscript,
 } from "./transcriptScroll";
 import { useConductor } from "./useConductor";
 
@@ -61,64 +69,115 @@ const ConductorTranscript: Component<{
   // would correctly read as "scrolled far up" and refuse to move).
   onMount(() => applyTranscriptScroll(scroller));
 
-  createEffect(() => {
-    // Depend on the row count AND the last row's text, so a streaming
-    // paragraph keeps the view pinned rather than only new rows doing it.
+  /** New rows arrived while the reader was away from the end — what makes the
+   *  pill's ring, so it says "there is something new down there" rather than
+   *  only "you are not at the bottom". */
+  const [unseen, setUnseen] = createSignal(false);
+
+  /** What a frame may change: how many rows there are and how long the last
+   *  one's text is. The text matters as much as the count — a streaming
+   *  paragraph grows one row for a whole turn, and following only new rows
+   *  would leave the view a paragraph behind. */
+  const signature = createMemo(() => {
     const rows = props.rows;
-    void rows.length;
     const last = rows[rows.length - 1];
-    void (last !== undefined && last.kind !== "plan" ? last.text : "");
-    if (scroller === undefined) return;
-    if (!placed) {
-      applyTranscriptScroll(scroller);
-      placed = scroller.scrollHeight > scroller.clientHeight;
-      return;
-    }
-    if (atEnd(scroller)) scroller.scrollTop = scroller.scrollHeight;
+    return `${rows.length}:${last === undefined || last.kind === "plan" ? 0 : last.text.length}`;
   });
 
+  createEffect(
+    // `on`, so the body's reads of the ELEMENT are not dependencies and the
+    // deps are exactly these two: what was drawn, and whether the reader is
+    // following. The pin is a dep because the pill and a sent message re-pin
+    // with no row arriving, and the view must move then too.
+    on([signature, transcriptPinned], ([drawn, pinned], prev) => {
+      if (!placed) {
+        applyTranscriptScroll(scroller);
+        placed = scroller.scrollHeight > scroller.clientHeight;
+        return;
+      }
+      // NOT `atEnd(scroller)`. The rows are already in the column by now, so
+      // that measurement answers about the chunk that just landed, not about
+      // the reader — which is precisely how the transcript stopped following.
+      if (pinned) {
+        scroller.scrollTop = scroller.scrollHeight;
+        setUnseen(false);
+        return;
+      }
+      if (prev !== undefined && prev[0] !== drawn) setUnseen(true);
+    }),
+  );
+
   return (
-    <div
-      data-testid="conductor-transcript"
-      ref={(el) => {
-        scroller = el;
-        props.containerRef(el);
-      }}
-      // Every way the view can move ends here — wheel, drag, keyboard, and the
-      // pin above — so there is no path that leaves the remembered position
-      // behind. Recording on unmount instead would read a detached element,
-      // whose scrollTop browsers are free to have already reset.
-      onScroll={(event) => rememberTranscriptScroll(event.currentTarget)}
-      // `min-w-0` + `overflow-x-hidden`: this column is a flex child of the
-      // pane, and a flex child floors at its CONTENT unless told otherwise —
-      // one card holding an unbroken line would make the column, and then the
-      // document, as wide as that line. The hidden axis is the backstop: a row
-      // that overflows anyway is clipped here instead of reaching the page.
-      class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden flex flex-col gap-2.5 px-4 py-3"
-    >
-      <Show when={props.error}>
-        {(err) => (
-          <p
-            data-testid="conductor-transcript-error"
-            class="text-danger text-xs"
-          >
-            The transcript stopped: {err().message}
-          </p>
-        )}
-      </Show>
-      <Show when={props.pending && props.rows.length === 0}>
-        <p class="text-fg-3 text-xs">Opening the conversation…</p>
-      </Show>
-      {/* KEYED BY ROW ID, and that is the difference between a live
-          conversation and an unusable one. The reducer replaces a row OBJECT on
-          every chunk and every tool update, so a reference-keyed list rebuilds
-          the `Markdown` subtree per chunk and the card per update — which
-          collapses an open `<details>`, loses `ConductorDiffs`' expansion and
-          throws away the caret inside a half-filled ask. The id is stable for
-          the row's life; the subtree survives with it. */}
-      <Key each={entries()} by={(entry) => entry.row.id}>
-        {(entry) => <TranscriptRow row={entry().row} repeat={entry().repeat} />}
-      </Key>
+    // The scroller's POSITIONED parent, and that is all it is for: the pill is
+    // `absolute`, and anchored to the scroller itself it would scroll away with
+    // the conversation, while anchored to the pane it would sit over the
+    // composer.
+    <div class="relative flex-1 min-h-0 min-w-0 flex flex-col">
+      <div
+        data-testid="conductor-transcript"
+        ref={(el) => {
+          scroller = el;
+          props.containerRef(el);
+        }}
+        // Every way the view can move ends here — wheel, drag, keyboard, and
+        // the pin above — so there is no path that leaves the remembered
+        // position behind. Recording on unmount instead would read a detached
+        // element, whose scrollTop browsers are free to have already reset.
+        onScroll={(event) => rememberTranscriptScroll(event.currentTarget)}
+        // A wheel notch UP, read before the browser has moved anything. The
+        // `scroll` above is dispatched a frame later, by which time a chunk
+        // may have re-pinned the view — and that event would then measure the
+        // end and call the reader "following", so the reader fights the
+        // transcript and loses. This decides the intent; `scroll` still
+        // corrects the pixel.
+        onWheel={(event) => {
+          if (event.deltaY < 0) unpinTranscript(event.currentTarget);
+        }}
+        // `min-w-0` + `overflow-x-hidden`: this column is a flex child of the
+        // pane, and a flex child floors at its CONTENT unless told otherwise —
+        // one card holding an unbroken line would make the column, and then
+        // the document, as wide as that line. The hidden axis is the backstop:
+        // a row that overflows anyway is clipped here instead of reaching the
+        // page.
+        class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden flex flex-col gap-2.5 px-4 py-3"
+      >
+        <Show when={props.error}>
+          {(err) => (
+            <p
+              data-testid="conductor-transcript-error"
+              class="text-danger text-xs"
+            >
+              The transcript stopped: {err().message}
+            </p>
+          )}
+        </Show>
+        <Show when={props.pending && props.rows.length === 0}>
+          <p class="text-fg-3 text-xs">Opening the conversation…</p>
+        </Show>
+        {/* KEYED BY ROW ID, and that is the difference between a live
+            conversation and an unusable one. The reducer replaces a row OBJECT
+            on every chunk and every tool update, so a reference-keyed list
+            rebuilds the `Markdown` subtree per chunk and the card per update —
+            which collapses an open `<details>`, loses `ConductorDiffs`'
+            expansion and throws away the caret inside a half-filled ask. The id
+            is stable for the row's life; the subtree survives with it. */}
+        <Key each={entries()} by={(entry) => entry.row.id}>
+          {(entry) => (
+            <TranscriptRow row={entry().row} repeat={entry().repeat} />
+          )}
+        </Key>
+      </div>
+      {/* THE TERMINAL'S OWN PILL, not a second one that looks like it: the
+          affordance for "you are not following, here is the way back" already
+          exists and a reader meets it in both places. The press writes the ONE
+          fact and nothing else — the effect above moves the view, exactly as it
+          does for an arriving row, so there is no second path to the end that
+          could disagree with the first. */}
+      <ScrollToBottom
+        visible={!transcriptPinned()}
+        active={unseen()}
+        onClick={pinTranscript}
+      />
     </div>
   );
 };
