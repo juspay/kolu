@@ -106,8 +106,15 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
    *  content — so a body that ever stopped being a scroll container (as the
    *  `<pre>`'s `overflow-auto` makes it) would push the card, the transcript
    *  and the document wider in one step. The containment must not depend on
-   *  which overflow value the next edit happens to leave here. */
-  const folded = (summary: string, body: string | null) => (
+   *  which overflow value the next edit happens to leave here.
+   *
+   *  `print` is the one thing the three bodies do NOT share. A call's own
+   *  payload is a document this card renders, so printing it folded is the
+   *  card doing its job. A screen tail or a snapshot is EVIDENCE — the
+   *  characters a terminal actually put on screen — and a terminal whose last
+   *  lines happen to be a JSON document would come back reformatted, which is
+   *  the card editing what it was shown instead of showing it. */
+  const folded = (summary: string, body: string | null, print: boolean) => (
     <Show when={body}>
       {(text) => (
         <details class="col-span-full min-w-0">
@@ -118,7 +125,7 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
             data-testid="conductor-tool-detail"
             class="mt-1.5 max-h-64 overflow-auto rounded-md bg-surface-0 px-2.5 py-2 font-mono text-[0.65rem] leading-relaxed whitespace-pre-wrap wrap-anywhere text-fg-2"
           >
-            {foldJson(text())}
+            {print ? foldJson(text()) : text()}
           </pre>
         </details>
       )}
@@ -276,10 +283,11 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
       {(() => {
         const call = props.row.kolu;
         if (call === undefined)
-          return folded("▸ call", props.row.detail ?? null);
+          return folded("▸ call", props.row.detail ?? null, true);
         if (call.kind === "settle")
-          return folded("▸ last lines (screenTail)", call.screenTail);
-        if (call.kind === "screen") return folded("▸ screen", call.snapshot);
+          return folded("▸ last lines (screenTail)", call.screenTail, false);
+        if (call.kind === "screen")
+          return folded("▸ screen", call.snapshot, false);
         return null;
       })()}
       <Show when={props.row.progress}>
