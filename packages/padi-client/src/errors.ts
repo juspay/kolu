@@ -307,6 +307,43 @@ export class GitFailed extends Schema.TaggedError<GitFailed>("padi/GitFailed")(
   }
 }
 
+// ── The orchestrator ──────────────────────────────────────────────────────
+
+/** There is no conversation to talk to on this host — the ACP adapter is not
+ *  installed in this padi's closure, or the subprocess is not up.
+ *
+ *  Not a degradation anything works around: the adapter is BAKED, so this is
+ *  either a build that lost it or a child that died, and both want the panel's
+ *  hard "not installed" face with the sentence whoever found out wrote. `why`
+ *  is that whole sentence, carried verbatim — nothing composes around it. */
+export class OrchestratorUnavailable extends Schema.TaggedError<OrchestratorUnavailable>(
+  "padi/OrchestratorUnavailable",
+)("OrchestratorUnavailable", { why: Schema.String }) {
+  override get message(): string {
+    return this.why;
+  }
+}
+
+/** The AGENT said no — to the turn, to the session, to the option change.
+ *
+ *  A turn the agent refuses is a turn that ENDED, not an agent that has gone:
+ *  the conversation stays ready and the next message goes to the same agent.
+ *  So this is its own tag rather than an arm of {@link OrchestratorUnavailable},
+ *  and the panel draws the agent's own words with a retry that asks for the
+ *  same thing that was refused. `auth` marks the one refusal with something
+ *  else to do about it — nobody is signed in — which is what turns the row
+ *  into the sign-in door instead of a bare *send again*. */
+export class OrchestratorRefused extends Schema.TaggedError<OrchestratorRefused>(
+  "padi/OrchestratorRefused",
+)("OrchestratorRefused", {
+  why: Schema.String,
+  auth: Schema.Boolean,
+}) {
+  override get message(): string {
+    return this.why;
+  }
+}
+
 // ── Declared unions, per member family ────────────────────────────────────
 //
 // A `ProcedureSpec.error` is ONE schema, so each family's union is named once
@@ -340,6 +377,8 @@ const PADI_ERROR_CLASSES = [
   WorktreeBaseBranchMissing,
   WorktreeNameCollision,
   GitFailed,
+  OrchestratorUnavailable,
+  OrchestratorRefused,
 ] as const;
 
 /** The whole padi error vocabulary, as one closed union — the value a consumer

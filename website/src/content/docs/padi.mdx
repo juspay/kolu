@@ -153,7 +153,17 @@ face.
     whether a terminal's agent is working, waiting, or asking for you, folded
     into one live surface.
   </Card>
+  <Card title="the orchestrator">
+    one ACP conversation per host — the agent that drives the rest. padi spawns
+    its adapter, holds its session, keeps its transcript, and serves the whole
+    of it as surface members. See [the Orchestrator](/orchestrator).
+  </Card>
 </CardGrid>
+
+The orchestrator is the one place padi owns a child that is not kaval. It is
+brought up by the first reader rather than at boot — a provisioned host nobody
+has opened runs no agent — and it is resumed by its own session id after a
+restart, which is the normal path because padi drains on upgrade.
 
 ## The thin shell face — `padi-tui`
 

@@ -100,6 +100,7 @@ const DECLARED_ALLOWED = new Set([
   // in kolu's contract-with-upstream package; its manifest is `effect` plus
   // `solid-js` (for the logo component), both already in the framework tier.
   "@kolu/agent-distro",
+  "@kolu/acp",
   // agent-distro's own pure vocabulary (its listing, history-line and versions
   // readers) that `@kolu/agent-distro` builds on — GRAFTED from the npins
   // `agent-distro` pin into `juspay/agent-distro`, never committed, like the
@@ -202,9 +203,17 @@ const DECLARED_ALLOWED = new Set([
  *  leaf module, so a consumer's `tsc` compiles one interface rather than the
  *  package's fs/spawn graph. It costs a hydrating consumer nothing new: the
  *  directory was already in `DECLARED_ALLOWED`. */
+/** `@kolu/acp` is the protocol's own vocabulary — the ask fields, the file
+ *  diff, the usage pair the orchestrator's members carry. It is a LEAF
+ *  (`effect` plus the protocol SDK's TYPES, no workspace sibling at all), so a
+ *  hydrating consumer copies one more directory and installs one more npm
+ *  package it can skip at runtime. It is here rather than re-declared in this
+ *  package for the reason every `@kolu/acp` note gives: the package that speaks
+ *  the foreign thing owns its words. */
 const IMPORTED_ALLOWED = new Set([
   // Reached through `@kolu/agent-distro`'s schemas (see DECLARED_ALLOWED).
   "@juspay/agent-distro",
+  "@kolu/acp",
   "@kolu/agent-distro",
   "@kolu/byte-units",
   "@kolu/log",
@@ -307,6 +316,7 @@ const HYDRATE_CLOSURE = declaredDependencyClosure({
  *    these four lines; nothing else here moves.
  */
 const EXPECTED_EXTERNALS = [
+  "@agentclientprotocol/sdk",
   "@anthropic-ai/claude-agent-sdk",
   "@effect/platform-browser",
   "@effect/platform-node",

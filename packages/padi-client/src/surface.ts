@@ -125,6 +125,8 @@ import type { ClientErrorPolicy } from "./clientPolicy.ts";
 import {
   FsGitReadErrorSchema,
   KavalContractSkew,
+  OrchestratorRefused,
+  OrchestratorUnavailable,
   PreviewTooLarge,
   ScratchWriteRejected,
   TerminalNotFound,
@@ -134,6 +136,20 @@ import {
   WatchSubscriptionNotFound,
   WorktreeCreateErrorSchema,
 } from "./errors.ts";
+import {
+  DEFAULT_ORCHESTRATOR_STATE,
+  OrchestratorAnswerInputSchema,
+  OrchestratorAnswerOutputSchema,
+  OrchestratorEmptySchema,
+  OrchestratorFrameSchema,
+  OrchestratorPromptInputSchema,
+  OrchestratorPromptOutputSchema,
+  OrchestratorSetOptionInputSchema,
+  OrchestratorSignInInputSchema,
+  OrchestratorSignInOutputSchema,
+  OrchestratorStateSchema,
+  OrchestratorTextInputSchema,
+} from "./orchestratorSchema.ts";
 import {
   DEFAULT_NEW_TERMINAL_POLICY,
   NewTerminalPolicySchema,
@@ -203,6 +219,14 @@ export * from "./vocab.ts";
 // `Transcript` / `TranscriptSchema` / `TranscriptHtmlMode` arrived through a
 // second. A consumer should not have to know which half it wants.
 export * from "./transcriptSchema.ts";
+// The ORCHESTRATOR's wire vocabulary — the transcript row union, the state
+// cell's shape, and the procedure I/O. Same entry as everything else
+// `padiSurface` speaks, for the reason the transcript note above gives: a
+// consumer should not have to know which half it wants. The protocol's OWN
+// words ride through it too (`AskField`, `FileDiff`, `Usage` are re-exported
+// from `@kolu/acp/wire`), because the package that speaks ACP owns them and a
+// second declaration is a second thing to keep in step.
+export * from "./orchestratorSchema.ts";
 
 // ── Version ─────────────────────────────────────────────────────────────
 
@@ -610,8 +634,18 @@ export * from "./transcriptSchema.ts";
  *  stack (`name`, `description`, `source`). The `agentDistroResolved` cell is
  *  GONE: kolu-server resolves a profile when it builds it, so a host has
  *  nothing to ask. A major because a member was removed and no arm decodes
- *  across the change. */
-export const PADI_SURFACE_VERSION = "7.0";
+ *  across the change.
+ *
+ *  7.1 (additive · minor) — THE ORCHESTRATOR. One ACP conversation per host,
+ *  as three new members: the `orchestrator` cell (phase · model · usage ·
+ *  options · commands · MCP roster · what is still out · open asks · fleet ·
+ *  sign-in · refusal), the `orchestratorTranscript` stream (explicit
+ *  snapshot-then-deltas over the transcript rows), and the `orchestrator`
+ *  procedure namespace (`prompt` · `cancel` · `answer` · `signIn` ·
+ *  `signInInput` · `signInCancel` · `setOption` · `newSession`). Cell and
+ *  namespace merge onto one wire node, the `session` shape. Purely additive:
+ *  an older client decodes every member it already knew. */
+export const PADI_SURFACE_VERSION = "7.1";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -2165,6 +2199,25 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
         },
       },
     },
+    /** THE ORCHESTRATOR — this host's one ACP conversation, as a value.
+     *
+     *  padi holds one Claude session per state-root whose hands are kolu's own
+     *  MCP face, and this cell is everything about it that is not a transcript
+     *  row: the phase chip, the model and its context meter, the adapter's
+     *  advertised options and commands, the MCP roster, what is still out, the
+     *  open asks (whose COUNT is the chrome-bar badge — derived from the list,
+     *  never a second number on the wire), the fleet it has touched, and the
+     *  sign-in state. Read-only on the client: every write goes through the
+     *  `orchestrator` procedure namespace, because a conversation is a thing
+     *  you ask rather than a value you set. */
+    orchestrator: {
+      schema: OrchestratorStateSchema,
+      default: DEFAULT_ORCHESTRATOR_STATE,
+      verbs: ["get"],
+      client: {
+        onError: { kind: "hostToast", label: "orchestrator" },
+      },
+    },
   },
   collections: {
     /** The composed terminal record — `authored ⋈ snapshot`, one writer, keyed
@@ -2247,6 +2300,14 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       // `topLine` seed for the client's scrollback-backfill cursor. Mirrors
       // kaval's own `TerminalDataMsg` union one hop up (see `TerminalAttachFrame`).
       outputSchema: PadiTerminalAttachFrameSchema,
+    },
+    /** The orchestrator's transcript — an EXPLICITLY discriminated
+     *  snapshot-then-deltas feed. DELTA/fail-through: the snapshot is only ever
+     *  the first frame of a FRESH stream, and a replayed one spliced into a
+     *  live stream would double every row a reducer had already upserted. */
+    orchestratorTranscript: {
+      inputSchema: Schema.Struct({}),
+      outputSchema: OrchestratorFrameSchema,
     },
   },
   events: {
@@ -2544,6 +2605,58 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       // reads.
       restore: { input: PadiBackupsRestoreInputSchema },
     },
+    /** Talking to this host's orchestrator. Every one of these is a REQUEST of
+     *  a conversation rather than a write of a value, which is why the cell
+     *  beside them is read-only.
+     *
+     *  `prompt` never refuses for being busy: the queue is the AGENT'S, so a
+     *  message sent mid-turn goes out immediately as a plain `session/prompt`
+     *  and waits there — nothing is held on this side, which is also why
+     *  `cancel` has nothing to throw away. */
+    orchestrator: {
+      prompt: {
+        input: OrchestratorPromptInputSchema,
+        output: OrchestratorPromptOutputSchema,
+        error: Schema.Union([OrchestratorUnavailable, OrchestratorRefused]),
+      },
+      cancel: {
+        input: OrchestratorEmptySchema,
+        error: Schema.Union([OrchestratorUnavailable, OrchestratorRefused]),
+      },
+      /** Settle one ask. `answers: null` DECLINES it. */
+      answer: {
+        input: OrchestratorAnswerInputSchema,
+        output: OrchestratorAnswerOutputSchema,
+        error: Schema.Union([OrchestratorUnavailable]),
+      },
+      signIn: {
+        input: OrchestratorSignInInputSchema,
+        output: OrchestratorSignInOutputSchema,
+        error: Schema.Union([OrchestratorUnavailable, OrchestratorRefused]),
+      },
+      /** One line into a running `terminal`-kind sign-in — the code box. */
+      signInInput: {
+        input: OrchestratorTextInputSchema,
+        error: Schema.Union([OrchestratorUnavailable]),
+      },
+      signInCancel: {
+        input: OrchestratorEmptySchema,
+        error: Schema.Union([OrchestratorUnavailable]),
+      },
+      /** Change one adapter-advertised option (the model included — it is just
+       *  the option whose id the agent's leg names). A refusal leaves the
+       *  confirmed value where it was. */
+      setOption: {
+        input: OrchestratorSetOptionInputSchema,
+        error: Schema.Union([OrchestratorUnavailable, OrchestratorRefused]),
+      },
+      /** Start a fresh conversation: the old one is left, the transcript gains
+       *  a `— new session —` divider, and the standing prompt is taught again. */
+      newSession: {
+        input: OrchestratorEmptySchema,
+        error: Schema.Union([OrchestratorUnavailable, OrchestratorRefused]),
+      },
+    },
   },
 });
 
@@ -2601,6 +2714,10 @@ export const PADI_FORWARDING_POLICY = {
   subscribeRepoChange: "value",
   subscribeFileChange: "value",
   terminalAttach: "delta",
+  // The transcript's first frame is an explicit `snapshot` a reducer assigns
+  // over its accumulator, so a replayed one spliced into a live stream would
+  // double every row it had already upserted.
+  orchestratorTranscript: "delta",
   // events
   terminalExit: "value",
   // procedure namespaces
@@ -2617,6 +2734,9 @@ export const PADI_FORWARDING_POLICY = {
   // merged onto one wire node — this single entry annotates the merged member.
   session: "value",
   backups: "value",
+  // `orchestrator` is a cell (get) AND a procedure namespace (prompt/cancel/…)
+  // merged onto one wire node, the same shape as `session` above.
+  orchestrator: "value",
 } as const satisfies Record<string, ForwardingPolicy>;
 
 /** Every top-level member key `padiSurface` declares — the union of cell,

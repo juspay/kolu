@@ -93,6 +93,7 @@ import {
 import {
   setPadiActivityFeedStore,
   setPadiLastPairedDaemonStore,
+  setPadiOrchestratorStore,
   setPadiSessionStore,
 } from "../session/confStores.ts";
 import { importLegacyConfigOnce } from "../session/importLegacy.ts";
@@ -275,6 +276,7 @@ function openStateStores(stateRoot: string, log: Logger): { opened: true } {
   setPadiSessionStore(stores.session);
   setPadiActivityFeedStore(stores.activityFeed);
   setPadiLastPairedDaemonStore(stores.lastPairedDaemon);
+  setPadiOrchestratorStore(stores.orchestrator);
   return { opened: true };
 }
 

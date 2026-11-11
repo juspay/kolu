@@ -62,6 +62,9 @@ Read the full [Philosophy](https://kolu.dev/philosophy).
   welcome card asks until agents are on, and Settings → Agents sets it any time.
 - **[Agent attention](https://kolu.dev/agent-detection)** — see which agents are
   working, finished, or waiting for you.
+- **[The Orchestrator](https://kolu.dev/orchestrator)** — one chat per host
+  that drives every terminal on it: it opens them, writes their briefs, waits
+  for them to settle, and brings you only the decisions that are yours.
 - **[Durable sessions](https://kolu.dev/sessions)** — keep shells and agents
   alive across tab closes, server restarts, and redeploys.
 - **[From another device](https://kolu.dev/remote-access) and

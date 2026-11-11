@@ -43,4 +43,12 @@ in
   # wrapper — the drift that made every live test throw when the bake was
   # wrapper-only.
   KOLU_OSFACTS_BIN = "${osfacts}/bin/osfacts";
+  # Claude Code's ACP adapter (nix/packages/acp-adapter.nix) — the binary padi
+  # spawns for a host's orchestrator conversation. Same footing as
+  # KOLU_GH_BIN / KOLU_OSFACTS_BIN: a required absolute path baked by Nix, with
+  # no PATH search and no `npx` fallback — an orchestrator that resolved some
+  # ambient adapter would speak a protocol version this build never proved.
+  # padi's wrapper bakes this value too (default.nix), which is also what pulls
+  # the adapter into the closure `nix copy` ships to a remote host.
+  KOLU_ACP_AGENT = "${pkgs.kolu-acp-adapter}/bin/claude-agent-acp";
 }

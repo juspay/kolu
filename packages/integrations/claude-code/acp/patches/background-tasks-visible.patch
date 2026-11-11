@@ -1,0 +1,602 @@
+--- a/dist/acp-agent.js
++++ b/dist/acp-agent.js
+@@ -2124,6 +2124,234 @@
+                     .catch((error) => this.logger.error(`Session ${params.sessionId}: failed to publish terminal async task state ${context}`, error)),
+             ]);
+         };
++        /**
++         * olai patch (background-tasks-visible) — the four helpers that put a
++         * BACKGROUND TASK's own life onto the tool call that armed it.
++         *
++         * PR #941 does this for async Agent/Task launches only ("background Bash
++         * retain their existing behavior", by its own summary). Everything below
++         * is that approach generalised to every task the harness registers: a
++         * Monitor, a `Bash(run_in_background)`, an async Agent. The correlation is
++         * the harness's own `task_started.tool_use_id` rather than #941's
++         * structured-result read, with that read kept as the fallback for a
++         * runtime whose `task_started` carries no tool use.
++         */
++        const backgroundTaskMeta = (record, extra) => ({
++            taskId: record.taskId,
++            ...(record.taskType === undefined ? {} : { taskType: record.taskType }),
++            ...(record.description === undefined ? {} : { description: record.description }),
++            ...extra,
++        });
++        const registerBackgroundTask = (taskId, toolUseId, taskType, description) => {
++            if (!taskId || !toolUseId) {
++                return undefined;
++            }
++            const record = session.backgroundTasks.get(taskId) ?? { taskId, toolUseId, launched: false };
++            record.toolUseId = toolUseId;
++            if (taskType !== undefined) {
++                record.taskType = taskType;
++            }
++            if (description !== undefined) {
++                record.description = description;
++            }
++            session.backgroundTasks.set(taskId, record);
++            return record;
++        };
++        const forgetBackgroundTask = (record) => {
++            session.backgroundTasks.delete(record.taskId);
++            session.emittedToolCalls.delete(record.toolUseId);
++            delete session.toolUseCache[record.toolUseId];
++        };
++        /**
++         * olai patch (background-tasks-visible) — A TASK'S SECOND LIFE, which is
++         * an agent's: a subagent that has reported can be sent MORE WORK.
++         *
++         * The harness wakes it with a `SendMessage` and starts the SAME task
++         * again, naming on `task_started` the call that WOKE it rather than the
++         * call that spawned it — while everything the agent then does goes on
++         * being stamped with the spawning call (`parent_tool_use_id`). So to a
++         * client this is one agent, with one face, doing more work; and until
++         * this ran, that face was the one thing the wire never said was alive
++         * again. The spawning call completed at the first report and nothing
++         * afterwards reopened it, so a client had a running agent it could not
++         * draw and no way to learn otherwise: the resume's own bookends name a
++         * call that is already over (a `SendMessage` completes at delivery,
++         * seconds before the work it delivered).
++         *
++         * So the SPAWNING call is reopened, and the two bookends below close it
++         * again — the same call, going round a second time. Never the waking
++         * call: a resume is not a second agent, and a second face for one agent
++         * is a strip that counts two of everybody.
++         *
++         * NOTHING IS SAID HERE ABOUT ARMING, which is the one thing this must
++         * not restate. `backgroundTask` is what a LAUNCH says about itself — a
++         * task was registered, of this kind, with this description — and a
++         * resume registers nothing: the task running again is the one the launch
++         * already named. So the reopen carries the status and no more, and
++         * `settleBackgroundTask` drops the stamp for a call that got here, which
++         * leaves a client's reading of the launch exactly as true as the launch
++         * made it.
++         *
++         * The other direction — a beat reopening a call that has finished for
++         * good — is what `tool_progress` guards against by dropping ids that
++         * have left `emittedToolCalls`. This is the case that guard is not
++         * about: the harness has SAID the task started again.
++         */
++        const reopenBackgroundTask = async (taskId, toolUseId, taskType, description) => {
++            if (!taskId || !toolUseId) {
++                return false;
++            }
++            const origin = session.taskOrigins.get(taskId);
++            if (origin === undefined) {
++                // A FIRST LIFE — every task, the first time the harness names it.
++                // Remember which call it belongs to, and leave it to the ordinary
++                // arming path, which is the only thing that may put a launch on
++                // the wire. `armed` is what that path answers, below.
++                session.taskOrigins.set(taskId, { toolUseId, armed: false });
++                return false;
++            }
++            if (origin.toolUseId === toolUseId) {
++                return false;
++            }
++            const record = registerBackgroundTask(taskId, origin.toolUseId, taskType, description);
++            if (record === undefined) {
++                return false;
++            }
++            // LAUNCHED, because nothing will arm this call a second time: what
++            // arms one is a tool RESULT carrying an acknowledgement, and this
++            // call answered its own an outing ago. A record left unlaunched
++            // would hold its own ending forever (the hold below) and the call
++            // would never close.
++            record.launched = true;
++            record.settled = false;
++            record.terminal = undefined;
++            // WHETHER THIS OUTING'S ENDING IS THE HARNESS'S TO REPORT is the
++            // LAUNCH's answer and never the resume's, which is the whole of what
++            // `quiet` carries. An asynchronous `Agent` launch told the client it
++            // had armed a task, so every ending of that task is news the same way
++            // — including this one, and including the sentence that refines it.
++            // A synchronous one told the client nothing, and a resume is not the
++            // moment to start: it would make a subagent's second return louder
++            // than its first, which is the same asymmetry from the other side.
++            //
++            // NOT A GUESS ABOUT THE TOOL: it is read off what this adapter
++            // actually said about the launch (`armed` on the origin, set below at
++            // the only place a launch's own settle can be emitted).
++            record.quiet = origin.armed !== true;
++            const toolUse = session.toolUseCache[record.toolUseId];
++            // The client is being told about this call again, which is what that
++            // set means. It is dropped at every settle, so an agent on its third
++            // outing arrives here with nothing but its id — which is enough,
++            // since a client names a row at the first frame that carries a title
++            // and no later one moves it.
++            session.emittedToolCalls.add(record.toolUseId);
++            await sendUpdate({
++                sessionId: params.sessionId,
++                update: {
++                    _meta: {
++                        claudeCode: {
++                            ...(toolUse ? { toolName: toolUse.name } : {}),
++                        },
++                    },
++                    toolCallId: record.toolUseId,
++                    sessionUpdate: "tool_call_update",
++                    status: "in_progress",
++                },
++            });
++            return true;
++        };
++        /** A task reached a terminal state: close the call that armed it, in the
++         *  harness's own word for what happened (ACP folds killed/stopped into
++         *  `failed`, so the provider's word rides `_meta` beside it) and with its
++         *  own summary — which is where a background shell's EXIT CODE is. The
++         *  two bookends arrive in one batch and only the `task_updated` patch is
++         *  guaranteed, so the patch SETTLES and the notification that follows
++         *  REFINES the same call with the summary. */
++        const settleBackgroundTask = async (taskId, status, summary) => {
++            const record = session.backgroundTasks.get(taskId);
++            if (!record) {
++                return;
++            }
++            if (!record.launched) {
++                // The bookend raced ahead of the result that arms the call in the
++                // client: hold it rather than close a call nobody has been told is
++                // running. Replayed the moment the arming result is forwarded.
++                //
++                // MERGED, NEVER REPLACED, because BOTH bookends can beat that
++                // result and only one of them carries the sentence. The
++                // guaranteed `task_updated` has no summary and the
++                // `task_notification` beside it has the one with the exit code
++                // in it, so a hold that took the last write would settle a
++                // background shell that exited 3 with no mention of the 3 — the
++                // one fact this whole path exists to deliver. Same rule the
++                // transcript applies when the sentence lands a beat late on a
++                // live call: refine, do not re-state.
++                record.terminal = {
++                    status,
++                    summary: summary ?? record.terminal?.summary,
++                };
++                return;
++            }
++            if (record.settled && summary === undefined) {
++                return;
++            }
++            const toolUse = session.toolUseCache[record.toolUseId];
++            // THE LAUNCH ARMED THIS CALL, and getting here is the proof of it:
++            // only a record the arming acknowledgement marked `launched` reaches
++            // this line on a FIRST life. Remembered on the origin because the
++            // record does not outlive the settle, and it is what a later resume
++            // asks to decide how loudly its own outing may end. Never marked from
++            // a reopened record — that one's `launched` is the reopen's own doing
++            // — or a third outing would speak on the strength of the second.
++            const armedOrigin = session.taskOrigins.get(taskId);
++            if (armedOrigin !== undefined && record.quiet !== true) {
++                armedOrigin.armed = true;
++            }
++            await sendUpdate({
++                sessionId: params.sessionId,
++                update: {
++                    _meta: {
++                        claudeCode: {
++                            ...(toolUse ? { toolName: toolUse.name } : {}),
++                            taskStatus: status,
++                            // olai patch (background-tasks-visible): AN ENDING IS
++                            // AN ENDING. The reopen says nothing about arming —
++                            // a resume registers no new task — but the settle of
++                            // a reopened call is not a launch being restated, it
++                            // is this outing finishing, and a client that draws a
++                            // task's death from this stamp would otherwise hear
++                            // about the first outing's and never about the
++                            // second's. It is also what lets the sentence that
++                            // lands a beat later REFINE that death rather than
++                            // arrive with nowhere to go.
++                            //
++                            // `quiet` is the one exception and it is the launch's
++                            // own (see `reopenBackgroundTask`): a synchronous
++                            // subagent never announced a task to the client, so
++                            // its resumed outing does not announce one either.
++                            ...(record.quiet === true ? {} : {
++                                backgroundTask: backgroundTaskMeta(record, {
++                                    status,
++                                    ...(summary === undefined ? {} : { summary }),
++                                }),
++                            }),
++                        },
++                    },
++                    toolCallId: record.toolUseId,
++                    sessionUpdate: "tool_call_update",
++                    status: status === "completed" ? "completed" : "failed",
++                    ...(summary === undefined
++                        ? {}
++                        : { content: [{ type: "content", content: { type: "text", text: summary } }] }),
++                },
++            });
++            if (summary === undefined) {
++                record.settled = true;
++            }
++            else {
++                forgetBackgroundTask(record);
++            }
++        };
+         let pendingWorkerShutdown = false;
+         const isCurrentConsumer = () => this.sessions[params.sessionId] === session;
+         const sessionFailures = new SessionFailureController({
+@@ -3342,6 +3570,20 @@
+                                     parentToolUseId: message.tool_use_id,
+                                     isSubagent: !!message.subagent_type,
+                                 });
++                                // olai patch (background-tasks-visible): remember the same
++                                // pair for the CLIENT's sake — this is the frame that names
++                                // the task's kind and the description it was armed with, and
++                                // the call it names stays open until the task settles.
++                                //
++                                // ... unless the harness is starting a task it has started
++                                // BEFORE, which is a subagent being sent more work: that
++                                // reopens the call the agent was SPAWNED by rather than
++                                // registering the task under the call that woke it
++                                // (`reopenBackgroundTask` says why one agent may only ever
++                                // have one face).
++                                if (!(await reopenBackgroundTask(message.task_id, message.tool_use_id, message.task_type, message.description))) {
++                                    registerBackgroundTask(message.task_id, message.tool_use_id, message.task_type, message.description);
++                                }
+                                 await subagents.taskStarted({
+                                     taskId: message.task_id,
+                                     toolUseId: message.tool_use_id,
+@@ -3364,6 +3606,10 @@
+                                 }
+                                 break;
+                             case "task_notification":
++                                // olai patch (background-tasks-visible): ... and the call
++                                // that armed it closes, carrying this notification's own
++                                // summary (a background shell's exit code lives there).
++                                await settleBackgroundTask(message.task_id, message.status, message.summary);
+                                 // The task settled — no further tool calls can originate
+                                 // from it, so its registry entry can be dropped.
+                                 await subagents.finishTask(message.task_id, message.status, sendUpdate, message.tool_use_id);
+@@ -3387,6 +3633,10 @@
+                                 if (message.patch.status === "completed" ||
+                                     message.patch.status === "failed" ||
+                                     message.patch.status === "killed") {
++                                    // olai patch (background-tasks-visible): the guaranteed
++                                    // half of the settle. It carries no summary, so the
++                                    // notification beside it refines the same call.
++                                    await settleBackgroundTask(message.task_id, message.patch.status, message.patch.error);
+                                     await subagents.finishTask(message.task_id, message.patch.status, sendUpdate);
+                                     session.liveBackgroundTasks.delete(message.task_id);
+                                 }
+@@ -3581,6 +3831,35 @@
+                                         }
+                                     }
+                                 }
++                                // olai patch (background-tasks-visible): the level is also
++                                // what BOUNDS the record above, in the two ways a record can
++                                // stop being about anything. Never a settle in itself: the
++                                // level carries no status, and closing a call on an absence
++                                // would invent the one fact this feature exists to report.
++                                for (const [taskId, record] of session.backgroundTasks) {
++                                    if (message.tasks.some((task) => task.task_id === taskId)) {
++                                        continue;
++                                    }
++                                    if (record.settled) {
++                                        // Armed, closed, and gone from the universe: the call's
++                                        // own cache goes with it.
++                                        forgetBackgroundTask(record);
++                                    }
++                                    else if (!record.launched && record.terminal === undefined) {
++                                        // Never a background call at all — a SYNCHRONOUS
++                                        // subagent registers a task and then answers the
++                                        // ordinary way. Only the record is dropped: its
++                                        // tool_use cache entry belongs to a call whose own
++                                        // result has not arrived yet, and taking that away
++                                        // would leave the client resolving a call the adapter
++                                        // can no longer name.
++                                        session.backgroundTasks.delete(taskId);
++                                    }
++                                    // ... and a record HOLDING A TERMINAL is left alone
++                                    // however absent it is: its ending arrived before the
++                                    // result that arms the call, and dropping it here is
++                                    // exactly how a call would be left running forever.
++                                }
+                                 break;
+                             default:
+                                 unreachable(message, this.logger);
+@@ -4556,6 +4835,18 @@
+                         else {
+                             content = message.message.content;
+                         }
++                        // olai patch (background-tasks-visible): a task-notification
++                        // is not a person speaking. File the report on the spawning
++                        // call; never forward the XML as user_message_chunk.
++                        if (message.type === "user") {
++                            const notice = taskNotificationUpdate(params.sessionId, message);
++                            if (notice) {
++                                if (notice.update) {
++                                    await sendUpdate(notice);
++                                }
++                                break;
++                            }
++                        }
+                         const acceptedPlanToolUseId = observeExitPlanToolResults(message, content, session);
+                         let backgroundBashTask;
+                         if (message.type === "user") {
+@@ -4570,6 +4861,10 @@
+                             taskState: session.taskState,
+                             emittedToolCalls: session.emittedToolCalls,
+                             messageId: messageIdForGrouping(message),
++                            // olai patch (background-tasks-visible): the two records above,
++                            // so a result that only says a task was ARMED leaves its call
++                            // running in the client instead of completing it at launch.
++                            backgroundTasks: session.backgroundTasks,
+                             toolUseResult: message.type === "user" ? message.tool_use_result : undefined,
+                             // On the wire since CLI 2.1.216 but not in SDKUserMessage's
+                             // type, hence the cast. Validated by parseToolResultMeta.
+@@ -4583,6 +4878,21 @@
+                             // meta and are excluded there.
+                             await sendUpdate(backgroundedBashToolCall(acceptedPlanToolResult(notification, acceptedPlanToolUseId), backgroundBashTask, asyncTasks.enabled));
+                         }
++                        // olai patch (background-tasks-visible): a task that settled before
++                        // its own arming result reached the client is closed now the client
++                        // knows the call — a terminal for a call nobody has been told is
++                        // running would be a status out of order.
++                        if (session.backgroundTasks.size !== 0) {
++                            // The copy is the settle's, not the loop's: settling
++                            // deletes from the map being walked.
++                            for (const record of [...session.backgroundTasks.values()]) {
++                                if (record.launched && record.terminal !== undefined) {
++                                    const terminal = record.terminal;
++                                    record.terminal = undefined;
++                                    await settleBackgroundTask(record.taskId, terminal.status, terminal.summary);
++                                }
++                            }
++                        }
+                         break;
+                     }
+                     case "tool_progress": {
+@@ -5399,6 +5709,17 @@
+                     continue;
+                 }
+             }
++            // olai patch (background-tasks-visible): same as the live consumer —
++            // a task-notification is not a person speaking, on load as well as live.
++            if (message.type === "user") {
++                const notice = taskNotificationUpdate(sessionId, message);
++                if (notice) {
++                    if (notice.update) {
++                        await this.client.sessionUpdate(notice);
++                    }
++                    continue;
++                }
++            }
+             for (const notification of toAcpNotifications(
+             // @ts-expect-error - untyped in SDK but we handle all of these
+             content, 
+@@ -6740,6 +7061,21 @@
+                 emittedToolCalls: new Set(),
+                 eagerToolCallSessions: new Map(),
+                 liveBackgroundTasks: new Map(),
++                // olai patch (background-tasks-visible): the tasks whose ARMING call is
++                // still open in the client, keyed by task id. `liveBackgroundTasks`
++                // above is the adapter's
++                // own attribution registry and is pruned on the settle bookends; these
++                // outlive it, because the client has to be TOLD about the settle.
++                backgroundTasks: new Map(),
++                // ... and which call each task BELONGS to, for as long as the session
++                // does — the one thing here that must not be pruned at a settle,
++                // because it is what says a task starting again is an old call going
++                // round again rather than a new one (`reopenBackgroundTask`), and
++                // whether that call's LAUNCH announced a task to the client, which is
++                // how loudly a later outing of it may end. One task id, one tool use
++                // id and one flag per task the session ever started, which is the
++                // order of memory `toolUseCache` keeps per call.
++                taskOrigins: new Map(),
+                 nativeSubagentsByTaskId: new Map(),
+                 nativeSubagentTaskIdByToolUseId: new Map(),
+                 nativeSubagentParentByToolUseId: new Map(),
+@@ -7618,6 +7954,98 @@
+     };
+ }
+ /**
++ * olai patch (background-tasks-visible): a harness-injected task-notification
++ * is not a person speaking.
++ *
++ * The discriminator is `origin.kind === "task-notification"`. The wrapper is
++ * a fallback ONLY when origin is missing, and only when the trimmed payload
++ * starts and ends with the tags. A human prompt is stamped `origin: human`
++ * and is never this, even if they pasted the XML.
++ *
++ * Returns null if this is ordinary user speech (forward as usual). Returns
++ * `{ update: null }` to swallow a notification that names no spawning call.
++ * Otherwise a `tool_call_update` that files the `<result>` under that call
++ * as `_meta.claudeCode.backgroundTask.report` — the same stamp the ending
++ * already uses.
++ */
++export function taskNotificationUpdate(sessionId, message) {
++    if (message.type !== "user") {
++        return null;
++    }
++    const origin = message.origin?.kind;
++    const raw = message.message?.content;
++    const text = typeof raw === "string"
++        ? raw
++        : Array.isArray(raw)
++            ? raw.map((block) => typeof block?.text === "string" ? block.text : "").join("")
++            : "";
++    const xml = typeof text === "string" ? text.trim() : "";
++    const wrapped = xml.startsWith("<task-notification>") &&
++        xml.endsWith("</task-notification>");
++    if (origin !== "task-notification" && !(origin === undefined && wrapped)) {
++        return null;
++    }
++    const toolUseId = (xml.match(/<tool-use-id>([^<]*)<\/tool-use-id>/) || [])[1];
++    const taskId = (xml.match(/<task-id>([^<]*)<\/task-id>/) || [])[1];
++    const resultMatch = xml.match(/<result>([\s\S]*)<\/result>/);
++    const result = resultMatch ? resultMatch[1] : "";
++    if (typeof toolUseId !== "string" || toolUseId.trim() === "" ||
++        typeof taskId !== "string" || taskId.trim() === "") {
++        return { sessionId, update: null };
++    }
++    return {
++        sessionId,
++        update: {
++            sessionUpdate: "tool_call_update",
++            toolCallId: toolUseId.trim(),
++            _meta: { claudeCode: { backgroundTask: { taskId: taskId.trim(), report: result } } },
++        },
++    };
++}
++/**
++ * olai patch (background-tasks-visible): the task a tool result only
++ * ACKNOWLEDGES the launch of, or `undefined` for an ordinary result.
++ *
++ * The FALLBACK for a runtime whose `task_started` names no tool use; the
++ * ordinary correlation is that frame's own `tool_use_id`. Read the way PR #941
++ * reads its async-Agent acknowledgement, under the same discipline: the tool's
++ * own structured answer is trusted ONLY when the cached tool name says which
++ * tool answered, so a similarly shaped output from some other tool — an MCP
++ * server free to answer with a `taskId` of its own — can never arm a call.
++ *
++ *   - `Monitor` answers `{ taskId, timeoutMs, persistent }` (the SDK's
++ *     `MonitorOutput`);
++ *   - `Bash(run_in_background)` answers `{ backgroundTaskId, … }`;
++ *   - `Agent`/`Task` launched asynchronously answer
++ *     `{ status: "async_launched", agentId }` — which is #941's own subject.
++ */
++function backgroundLaunchIn(chunk, toolUseResult, toolUseCache) {
++    if ("is_error" in chunk && chunk.is_error) {
++        return undefined;
++    }
++    const acknowledgement = BACKGROUND_LAUNCHES[toolUseCache[chunk.tool_use_id]?.name];
++    if (acknowledgement === undefined || typeof toolUseResult !== "object" || toolUseResult === null) {
++        return undefined;
++    }
++    const id = acknowledgement(toolUseResult);
++    return typeof id === "string" && id.length > 0 ? id : undefined;
++}
++
++/** ... and the table it reads, so a tool that learns to launch in the
++ *  background is a LINE here rather than a branch — and so that what the gate
++ *  actually is stays legible: a tool this table does not name keeps the
++ *  lifecycle it has always had (complete at launch), which is the unpatched
++ *  behaviour and the safe direction to fail in. */
++const BACKGROUND_LAUNCHES = {
++    Monitor: (answered) => answered.taskId,
++    Bash: (answered) => answered.backgroundTaskId,
++    // #941's own subject, and the one whose answer says WHICH launch it was: a
++    // synchronous subagent answers ordinarily and arms nothing.
++    Agent: (answered) => (answered.status === "async_launched" ? answered.agentId : undefined),
++    Task: (answered) => (answered.status === "async_launched" ? answered.agentId : undefined),
++};
++
++/**
+  * Convert an SDKAssistantMessage (Claude) to a SessionNotification (ACP).
+  * Only handles text, image, and thinking chunks for now.
+  */
+@@ -7806,7 +8234,26 @@
+             case "text_editor_code_execution_tool_result":
+             case "mcp_tool_result": {
+                 const wasEmitted = options?.emittedToolCalls?.has(chunk.tool_use_id) === true;
+-                options?.emittedToolCalls?.delete(chunk.tool_use_id);
++                // olai patch (background-tasks-visible): which task this result only
++                // ACKNOWLEDGES the arming of, if any. The call stays emitted and
++                // cached until that task settles — everything the harness says about
++                // it afterwards is said about this call. ARMING IS PROVEN BY THE
++                // ACKNOWLEDGEMENT and never by the task/call pairing alone, so a
++                // synchronous subagent — which registers a task and then answers
++                // ordinarily — keeps the lifecycle it has always had.
++                const armedTask = backgroundLaunchIn(chunk, toolUseResult, toolUseCache);
++                if (armedTask === undefined) {
++                    options?.emittedToolCalls?.delete(chunk.tool_use_id);
++                    // ... and a task whose call ends the ORDINARY way was never a
++                    // background one: a SYNCHRONOUS subagent registers a task too, and
++                    // its own result is what closes it. Drop the record so nothing is
++                    // held open for a call that has just settled.
++                    for (const [taskId, record] of options?.backgroundTasks ?? []) {
++                        if (record.toolUseId === chunk.tool_use_id) {
++                            options?.backgroundTasks?.delete(taskId);
++                        }
++                    }
++                }
+                 completeHookCallback(chunk.tool_use_id);
+                 // Why this is_error result carries harness prose instead of tool
+                 // output (user-rejected / interrupted / …), when the SDK said so.
+@@ -7815,6 +8262,66 @@
+                 // carry `toolName`, which is unknown there).
+                 const nonExecution = toolResultMeta?.get(chunk.tool_use_id);
+                 const toolUse = toolUseCache[chunk.tool_use_id];
++                if (armedTask !== undefined) {
++                    // olai patch (background-tasks-visible): the call is ARMED, not
++                    // over. The launch's own output still rides the update — it is
++                    // what the tool answered — but the status is what the harness
++                    // will say next, and until it does, this call is running.
++                    let record = options?.backgroundTasks?.get(armedTask);
++                    if (record === undefined && options?.backgroundTasks !== undefined) {
++                        // No `task_started` named this call (a runtime that omits the
++                        // tool use on that frame): the acknowledgement alone keeps the
++                        // call open, and the kind and description simply go unsaid.
++                        record = { taskId: armedTask, toolUseId: chunk.tool_use_id, launched: false };
++                        options.backgroundTasks.set(armedTask, record);
++                    }
++                    if (record !== undefined) {
++                        record.launched = true;
++                    }
++                    const armedMeta = {
++                        taskId: armedTask,
++                        ...(record?.taskType === undefined ? {} : { taskType: record.taskType }),
++                        ...(record?.description === undefined ? {} : { description: record.description }),
++                    };
++                    if (toolUse) {
++                        const { _meta: armedToolMeta, ...armedUpdate } = toolUpdateFromToolResult(chunk, toolUse, supportsTerminalOutput, toolUseResult);
++                        output.push({
++                            sessionId,
++                            update: {
++                                _meta: {
++                                    ...armedToolMeta,
++                                    claudeCode: {
++                                        toolName: toolUse.name,
++                                        ...(nonExecution ?? {}),
++                                        ...(options?.parentToolUseId ? { parentToolUseId: options.parentToolUseId } : {}),
++                                        backgroundTask: armedMeta,
++                                    },
++                                },
++                                toolCallId: chunk.tool_use_id,
++                                sessionUpdate: "tool_call_update",
++                                status: "in_progress",
++                                rawOutput: chunk.content,
++                                ...armedUpdate,
++                            },
++                        });
++                    }
++                    else if (wasEmitted) {
++                        // The tool_use never reached the cache (a cancelled turn dropped
++                        // the assistant message that carried it) but the client has the
++                        // call: say the one true thing about it rather than nothing.
++                        output.push({
++                            sessionId,
++                            update: {
++                                _meta: { claudeCode: { backgroundTask: armedMeta } },
++                                toolCallId: chunk.tool_use_id,
++                                sessionUpdate: "tool_call_update",
++                                status: "in_progress",
++                                rawOutput: chunk.content,
++                            },
++                        });
++                    }
++                    break;
++                }
+                 if (!toolUse) {
+                     // The permission flow may have surfaced this tool_call even though
+                     // its tool_use never reached the cache (e.g. the assistant message

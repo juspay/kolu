@@ -64,6 +64,16 @@ repository root **is** the plugin. The directory is included in source archives
 and contains the skill, its reference file, and the MCP configuration; no plugin
 build output is needed.
 
+## kolu's own agent already has it
+
+[The Orchestrator](/orchestrator) — the one chat per host that drives that
+host's terminals — is a consumer of exactly this server. It is handed one
+stdio entry, `kolu mcp` pointed at its own host's daemon, and it reaches that
+host's terminals through the same tools documented below: no private face, no
+second expose map, nothing it can do that an agent you connect yourself
+cannot. If you want to know what the Orchestrator is capable of, this page is
+the answer.
+
 ## Connect it to your agent
 
 <Steps>

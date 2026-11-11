@@ -10,4 +10,9 @@ final: _prev:
   kolu-snapshot-fonts = final.callPackage ./packages/fonts/snapshot.nix { };
   # The pnpm every Nix builder must run (reporter wrapped). See ./pnpm.nix.
   pnpm-build = final.callPackage ./pnpm.nix { };
+  # Claude Code's ACP adapter, pinned — the agent padi's orchestrator spawns.
+  # A leaf like the fonts: `nix/env.nix` reads it into `koluEnv` as
+  # KOLU_ACP_AGENT, so the build, the devShell and padi's wrapper name ONE
+  # store path. See ./packages/acp-adapter.nix.
+  kolu-acp-adapter = final.callPackage ./packages/acp-adapter.nix { };
 }

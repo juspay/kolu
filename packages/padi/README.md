@@ -791,6 +791,43 @@ contract a function of the host it happened to reach. The schemas are odu's own
 (`@odu/service-client`, grafted from the npins `odu` pin — see
 [`@kolu/padi-client`](../padi-client)'s README for the graft).
 
+## The orchestrator — padi's one child that is not kaval
+
+padi owns exactly ONE ACP conversation per state-root (`src/orchestrator/`), and
+it is the only long-lived child this daemon spawns besides its kaval. The
+conversation's hands are kolu's own MCP face: padi hands the session exactly one
+stdio server, `kolu mcp` (`KOLU_MCP_BIN`, baked by padi's wrapper) with
+`PADI_SOCKET` pointed at THIS padi, so the agent reaches this host's terminals
+through the documented tool surface and nothing private. Its `cwd` is the host's
+`$HOME`.
+
+**It is hosted here rather than in kolu-server for the reason everything else
+in this package is**: the conversation's subject is this host's terminals, and
+on a remote host there would be nothing for a server-side conversation to reach
+with. Because `padiSurface` is re-served per host and every hop is spec-walked,
+a remote orchestrator reaches a browser with no server code at all.
+
+Three members carry it — the `orchestrator` cell (phase · model · usage ·
+options · roster · what is still out · open asks · fleet · sign-in · identity),
+the `orchestratorTranscript` stream (explicit snapshot-then-deltas, forwarded
+`delta`), and the `orchestrator` procedure namespace. The protocol itself is
+`@kolu/acp-harness`'s: padi never spells `session/prompt`.
+
+Two decisions worth knowing:
+
+- **It starts when somebody looks.** The adapter is a real Claude subprocess,
+  and a provisioned host nobody has opened should not be running one. The first
+  transcript subscription or the first procedure call brings it up; after that
+  it is kept for the daemon's life. The persisted rows are served BEFORE the
+  agent is up, so a restart shows the conversation you were in and the live
+  agent arrives underneath it.
+- **Resume is the normal path.** padi drains on upgrade, so `session/load` by
+  the stored id — with the model the person chose re-applied — is what a
+  restart does. What is NOT restored is anything that was a fact about a
+  subprocess that no longer exists: the phase, the usage, a turn in flight, a
+  half-finished sign-in. `src/orchestrator/persisted.ts` argues each of the
+  five fields it keeps.
+
 ## What padi knows nothing about
 
 Location is structure, so the boundary is defined as much by what padi refuses to

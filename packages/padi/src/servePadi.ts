@@ -18,6 +18,7 @@
  */
 
 import { rmSync } from "node:fs";
+import { homedir } from "node:os";
 import {
   DEFAULT_PADI_VERSION,
   isPadiDeclaredError,
@@ -92,10 +93,13 @@ import {
   newTerminalPolicyStore,
   resolveNewTerminalTheme,
 } from "./newTerminalTheme.ts";
+import { startOrchestratorHost } from "./orchestrator/orchestrator.ts";
+import { orchestratorTranscriptSource } from "./orchestrator/transcriptStream.ts";
 import { readPreview } from "./preview.ts";
 import {
   onDaemonStatusChange,
   readDaemonStatus,
+  getPadiServeSocketPath,
   readDaemonStatuses,
 } from "./ptyHost/daemonStatus.ts";
 import { recycleLocalKaval } from "./ptyHost/restartLocal.ts";
@@ -104,6 +108,7 @@ import { renderScreenImage } from "./screenImage.ts";
 import { cancelPendingAutosave } from "./session/autosaveGate.ts";
 import {
   requirePadiActivityFeedStore,
+  requirePadiOrchestratorStore,
   requirePadiSessionStore,
 } from "./session/confStores.ts";
 import { resumableTerminalIds } from "./session/resumable.ts";
@@ -373,6 +378,22 @@ export function buildPadiSurfaceDeps(deps: {
   const unsubscribeSettle = settleEvents.onFrame((events) =>
     watchRegistry.acceptSettle(events),
   );
+  // THIS HOST'S CONVERSATION. Built here, with everything else that outlives
+  // this function, so a servePadi rebuild in tests disposes the prior one
+  // rather than leaving a second Claude subprocess attached to a dead daemon.
+  // Nothing is spawned yet: the adapter comes up when the first reader looks.
+  const orchestrator = startOrchestratorHost({
+    log,
+    // The conversation works in the HOST's home directory, not in padi's cwd:
+    // it is the directory a person's repositories are under, and it is what
+    // makes a stored session findable when it is resumed.
+    home: homedir(),
+    socketPath: () => getPadiServeSocketPath(),
+    store: {
+      get: () => requirePadiOrchestratorStore().get(),
+      set: (v) => requirePadiOrchestratorStore().set(v),
+    },
+  });
   disposeStanding = () => {
     unsubscribeSettle();
     watchRegistry.dispose();
@@ -380,6 +401,7 @@ export function buildPadiSurfaceDeps(deps: {
     settleEvents.dispose();
     watchEdges.dispose();
     finish.dispose();
+    orchestrator.dispose();
   };
 
   // The padi memory / host-inventory poll cells fire on their fixed cadence AND the
@@ -613,6 +635,12 @@ export function buildPadiSurfaceDeps(deps: {
           set: (v) => requirePadiActivityFeedStore().set(v),
         },
       },
+      // THIS HOST'S ONE CONVERSATION. Seeded from the host's own first reading
+      // — which, before the adapter is up, is the persisted model and fleet
+      // under an `offline` phase, i.e. the truth rather than a blank. Every
+      // later movement is published through padi's ctx by the host module, the
+      // same way `agentDistroStatus` is.
+      orchestrator: { store: inMemoryStore(orchestrator.state()) },
     },
 
     collections: {
@@ -706,6 +734,13 @@ export function buildPadiSurfaceDeps(deps: {
           streamFromAbortableSource((signal) =>
             attachFrames(id, resizeTo, signal),
           ),
+      },
+      // THE ORCHESTRATOR'S TRANSCRIPT — explicit snapshot-then-deltas. The
+      // snapshot is queued synchronously inside the subscribe, so a reader's
+      // first frame can never race a delta, and a re-subscribe after a dropped
+      // socket re-leads with a fresh one the reducer assigns over.
+      orchestratorTranscript: {
+        source: () => orchestratorTranscriptSource(orchestrator, log),
       },
     },
 
@@ -1256,6 +1291,31 @@ export function buildPadiSurfaceDeps(deps: {
         list: () => handle(() => listPadiStateBackups(stateRoot)),
         restore: ({ input }) =>
           handle(() => restorePadiStateBackup(stateRoot, input)),
+      },
+
+      // TALKING TO THIS HOST'S CONVERSATION. Every verb routes through the
+      // host's one seam, which translates the harness's two refusals into the
+      // two DECLARED errors a caller branches on — `OrchestratorUnavailable`
+      // (no adapter, or no child) and `OrchestratorRefused` (the agent said
+      // no). Anything else stays a defect and crosses the wire as one.
+      orchestrator: {
+        prompt: ({ input }) =>
+          handle(() => orchestrator.prompt(input.text, input.mentions)),
+        cancel: () => handle(() => orchestrator.cancel()),
+        answer: ({ input }) =>
+          handle(async () => ({
+            settled: await orchestrator.answer(input.askId, input.answers),
+          })),
+        signIn: ({ input }) =>
+          handle(async () => ({
+            outcome: await orchestrator.signIn(input.method),
+          })),
+        signInInput: ({ input }) =>
+          handle(() => orchestrator.signInInput(input.text)),
+        signInCancel: () => handle(() => orchestrator.signInCancel()),
+        setOption: ({ input }) =>
+          handle(() => orchestrator.setOption(input.id, input.value)),
+        newSession: () => handle(() => orchestrator.newSession()),
       },
     },
   };

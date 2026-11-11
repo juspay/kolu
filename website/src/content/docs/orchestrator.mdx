@@ -1,0 +1,130 @@
+---
+title: The Orchestrator
+description: "One chat per host that drives every terminal on it. An agent with kolu's own tools in its hands — it opens terminals, writes the briefs, waits for the agents to settle, answers what it can, and brings you only the decisions that are yours."
+order: 52
+section: "Agents & Attention"
+koluHero:
+  eyebrow: a chat, not a terminal
+  headline: |
+    Talk to one agent.
+    It runs {the fleet}.
+---
+
+import Aside from "../../components/docs/Aside.astro";
+import Card from "../../components/docs/Card.astro";
+import CardGrid from "../../components/docs/CardGrid.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+
+The [agent-fleets](/agent-fleets) pattern needs a coordinator, and until now the coordinator was a terminal: you opened one, typed instructions into a CLI agent, and that agent used kolu's commands to drive the others. It works — kolu was built that way — but the thing you talk to all day was a PTY, with a PTY's shape: scrollback you scroll, output you read, no idea which of its questions were waiting for you.
+
+The **Orchestrator** is that coordinator as a chat. One per host. You talk to it; it creates, briefs, watches and answers the agents in that host's terminals.
+
+## What it is
+
+A single conversation with Claude, held by [padi](/padi) — the daemon that already owns the host's terminals — and spoken over the [Agent Client Protocol](https://agentclientprotocol.com). Its **hands are kolu's own MCP face**: the same `kolu mcp` server [you can point any agent at](/mcp), pointed at the padi that is holding the conversation. So it opens terminals, types into them, waits for them to settle, reads their screens and kills them, through exactly the tools documented on the [MCP page](/mcp) — nothing special, nothing private.
+
+<Aside type="note" title="one host, one orchestrator">
+  Each host tab has its own. An orchestrator on host `A` deals only with `A`'s terminals — there is no cross-host orchestration, and a question about another host is a question for that host's orchestrator.
+</Aside>
+
+## A third view mode
+
+kolu had two postures: the freeform **canvas** and **maximized**. There is now a third mode, and the Orchestrator lives in it rather than in a panel — because a panel competes with the canvas for the same pixels and loses, and the orchestrator's subject is the whole fleet.
+
+Press <kbd>⌘⇧O</kbd> (<kbd>Super+Shift+O</kbd> off a Mac), or use the segmented `canvas · maximized · orchestrator` control in the chrome bar. <kbd>Esc</kbd> returns you to whichever mode you came from. The mode persists, the way the maximized posture does.
+
+<CardGrid>
+  <Card title="Dock, as the sidebar">
+    The same fleet list the maximized posture shows — because the Dock already _is_ the fleet view.
+  </Card>
+  <Card title="Chat, as the main pane">
+    The conversation gets the width. This is the thing you are actually doing.
+  </Card>
+  <Card title="Peek, on the right">
+    The terminal you last clicked, live. Click a Dock row, a fleet row, or **open tile** on one of the agent's own tool cards, and it appears here — the same terminal, not a copy. **open maximized ›** takes you to it in maximized mode.
+  </Card>
+</CardGrid>
+
+In canvas and maximized modes the Orchestrator has **no panel at all** — only its entry in the chrome bar, carrying a violet badge: how many of its questions are waiting for you. Those questions are a [needs-you](/notifications) source like any other, so they chime, raise a system notification and count toward the app badge through the same machinery a blocked terminal does. A turn merely _ending_ is silent; being asked something is not.
+
+Below the mobile breakpoint the mode is a full-screen sheet.
+
+## The conversation
+
+### The header
+
+The agent's name, and then the facts you steer by:
+
+- a **state chip** — rust while it is working, violet when it is asking you something, quiet otherwise;
+- **who it is signed in as**, when the agent says — "Claude Max", an API key, a gateway. Silence here is not the same as logged out: an agent that does not report its identity shows nothing, and one that reports it is logged out says so;
+- the **model**, pressable for the session settings;
+- a **context meter**, `148k/1M`. A fraction rather than a percentage, because the window is not a constant — 200k and 1M are both ordinary, and "2%" would read identically in both and mean quite different amounts of work left.
+
+### Session settings
+
+Pressing the model opens the adapter's own settings: the models it offers (with their window sizes), reasoning effort, permission mode, and whatever else it advertises. The controls use the **adapter's** names and values — kolu composes none of them. A change the agent refuses leaves the confirmed value where it was, and says why.
+
+The model you choose **survives a restart**. That is a fix rather than a given: the agent re-asserts its own default over a resumed conversation, so kolu records the switch and re-applies it when the conversation comes back.
+
+### The strip
+
+Above the scroll, and never carried away by it:
+
+- the **tool servers** this conversation has. `kolu ✓` when the agent has reported the server attached, plus a note that the agent brought its own. When the kolu server is missing, the strip says so with the reason and the path, rather than leaving you to discover it from an agent that cannot do anything;
+- **background tasks still running** — a `run_in_background` shell, a monitor, an async subagent — with a live clock. These outlive the turn that started them, which is the whole point of them;
+- **subagents out**, pressable to open their shelf.
+
+### The fleet
+
+The terminals this orchestrator has created or sent input to, drawn with the same rows the Dock uses — pip, state, intent, recency — and read **live from padi**, never from the agent's memory of them. `N needs you ›` counts the ones blocked on a human. Clicking a row peeks it.
+
+### The transcript
+
+What you typed sits quoted. What the agent answers is rendered as markdown. Between them:
+
+- a **plan card** when the agent sends one, replaced whole on each update;
+- **tool cards**. Anything kolu cannot name gets a generic card. Anything that is one of kolu's own tools gets a card that knows what it means: `lifecycle_create` shows the name, the directory and the agent, with an **open tile** that opens it; `lifecycle_sendInput` shows the target and what was sent; the three ways of waiting show the state, how long it took, and the last lines of the screen folded underneath; `screen_text` shows the snapshot. A call that is still running carries a clock;
+- **file diffs**, trimmed, one box per hunk, click to expand;
+- **asks** — a permission request the agent was not allowed to answer for itself, a question it needs you to settle, a page it needs you to visit — as a form in the flow. Nothing times out. Dismissing one is an answer too: the agent is told you would not say, never handed a choice you did not make.
+
+### The composer
+
+It never locks. `@` completes this host's terminals into a chip — and the message that goes out carries a structured reference to each one, so the agent gets the terminal's id and intent rather than a name it has to guess at. `/` completes the agent's own commands. <kbd>⇧⏎</kbd> is a newline, <kbd>⏎</kbd> sends, **Stop** cancels the turn in flight.
+
+Sending while it works is fine: the message goes out immediately and waits **at the agent**, marked _queued_ until it is picked up. Nothing is held on kolu's side, which is also why **Stop** has nothing to throw away — anything queued behind the turn you stopped survives and runs next.
+
+A tile action, **Ask the Orchestrator about this**, enters the mode with that terminal already mentioned.
+
+## Signing in
+
+An agent with no credential cannot open a conversation or run a turn, and the protocol has one way of saying so. kolu reads it as its own refusal rather than a generic no, because it is the one refusal with something to do about it: the panel puts the agent's own ways of signing in on screen.
+
+Claude hands over a command for kolu to run. kolu spawns it in the session's directory, streams its output with the URLs clickable, and gives you one line to type the code into; exit 0 is the whole of success. A message that was refused for want of a signature comes back to the composer and is sent again once you are in.
+
+There is deliberately **no API-key box**. Where a credential typed into a form would live, how it would be stored and whether it would ever be shown again is a feature with its own argument to make; until it is made, the button is not drawn.
+
+## What it knows how to do
+
+Every new conversation starts with one standing instruction — visible in the transcript, because the protocol has no system prompt and kolu would rather you could read what your agent was told than not. It says, in short: you are kolu's orchestrator on this host; the `kolu` server is how you reach its terminals; the loop is **create → send the text → let it settle → press Enter → debrief**; supervise several at once with a standing watch; the agents' questions come up to you, and you bring the human only the decisions that are theirs; briefs go through files rather than long pastes.
+
+It is re-taught on every new session, and it is versioned with the binary — so two hosts' orchestrators are given the same law.
+
+## When it comes back
+
+padi drains on upgrade, so a restart is the normal path rather than a crash. The conversation comes back: the session is resumed by its own id, the transcript is what it was, and the model you put it on is re-applied. What does not come back is anything that was a fact about a subprocess that no longer exists — a turn in flight, a sign-in half done — because a restored one would be a lie with a timestamp on it.
+
+<LinkCard
+  title="Agent Fleets"
+  href="/agent-fleets"
+  description="The pattern the Orchestrator is a face for — one driver, many agents, questions routed up."
+/>
+<LinkCard
+  title="MCP"
+  href="/mcp"
+  description="The tools the Orchestrator's hands are. The same server you can point any agent at."
+/>
+<LinkCard
+  title="padi"
+  href="/padi"
+  description="The per-host daemon that holds the conversation, and everything else about a host."
+/>

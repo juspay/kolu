@@ -63,7 +63,7 @@ describe("padiSurface contract", () => {
     expect(padiSurface.tagPrefix).toBe("surface/");
   });
 
-  it("is version 7.0 — the current major — DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("is version 7.1 — the current major — DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1–1.3 were additive minors over 1.0 (recycleKaval, hostInventory, identity).
     // 2.0 was the first MAJOR: (a) it ADDED the per-terminal right-panel `collapsed`
     // field (the panel follows the terminal, #959) — a major because an older client's
@@ -147,7 +147,10 @@ describe("padiSurface contract", () => {
     // package and the built profiles, and the `agentDistroResolved` cell is
     // GONE (kolu-server resolves a profile when it builds it). A member was
     // removed and no arm decodes across the change, so it is a major.
-    expect(PADI_SURFACE_VERSION).toBe("7.0");
+    // 7.1 adds the orchestrator: one ACP conversation per host, as a cell, a
+    // snapshot-then-deltas transcript stream and a procedure namespace. Purely
+    // additive — every member an older client knew still decodes — so a minor.
+    expect(PADI_SURFACE_VERSION).toBe("7.1");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -209,6 +212,7 @@ describe("padiSurface contract", () => {
       "processMemory",
       "activityFeed",
       "session",
+      "orchestrator",
     ]);
     expect(Object.keys(spec.collections ?? {})).toEqual([
       "terminals",
@@ -221,6 +225,7 @@ describe("padiSurface contract", () => {
       "subscribeRepoChange",
       "subscribeFileChange",
       "terminalAttach",
+      "orchestratorTranscript",
     ]);
     expect(Object.keys(spec.events ?? {})).toEqual(["terminalExit"]);
     expect(Object.keys(spec.procedures ?? {})).toEqual([
@@ -236,6 +241,7 @@ describe("padiSurface contract", () => {
       "agentDistro",
       "session",
       "backups",
+      "orchestrator",
     ]);
   });
 
@@ -387,13 +393,18 @@ describe("padiSurface contract", () => {
     expect(tags).toContain("surface/padi/terminals/keys");
   });
 
-  it("value = hold-open vs delta = fail-through — the three streams whose first frame is a fresh snapshot", () => {
+  it("value = hold-open vs delta = fail-through — the four streams whose first frame is a fresh snapshot", () => {
     const delta = Object.entries(PADI_FORWARDING_POLICY)
       .filter(([, policy]) => policy === "delta")
       .map(([key]) => key)
       .sort();
-    expect(delta).toEqual(["activity", "terminalAttach", "watchStates"]);
-    // The delta members are exactly the three the note names; everything else
+    expect(delta).toEqual([
+      "activity",
+      "orchestratorTranscript",
+      "terminalAttach",
+      "watchStates",
+    ]);
+    // The delta members are exactly the four the note names; everything else
     // (cells, collections, pulses, procedures, the terminalExit event) is value.
     expect(PADI_FORWARDING_POLICY.activity).toBe("delta");
     expect(PADI_FORWARDING_POLICY.terminalAttach).toBe("delta");
@@ -666,6 +677,19 @@ describe("the declared error vocabulary (PLAN D4)", () => {
         "lifecycle.recycleKaval",
         "lifecycle.restart",
         "lifecycle.wake",
+        // Every orchestrator verb can be refused — by the ADAPTER being absent
+        // (`OrchestratorUnavailable`) or by the AGENT saying no
+        // (`OrchestratorRefused`), which are different things a caller acts on
+        // differently. `answer`, `signInInput` and `signInCancel` are talking
+        // to a question already on screen, so only the first can apply.
+        "orchestrator.answer",
+        "orchestrator.cancel",
+        "orchestrator.newSession",
+        "orchestrator.prompt",
+        "orchestrator.setOption",
+        "orchestrator.signIn",
+        "orchestrator.signInCancel",
+        "orchestrator.signInInput",
         "preview.read",
         "screen.history",
         "screen.image",

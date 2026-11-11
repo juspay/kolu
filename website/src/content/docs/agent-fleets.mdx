@@ -39,7 +39,7 @@ The pattern has three roles, and the point of it is the top one.
     Set the intent and merge the results. You don't watch ten agents; you can't. You talk to **one** agent — the coordinator — and review the pull requests that come out.
   </Card>
   <Card title="The coordinator">
-    One agent in one terminal. It breaks the work into briefs, spawns an implementing agent per brief, watches each one, verifies what they claim, and answers their questions. It is the single door that work passes through.
+    One agent. It breaks the work into briefs, spawns an implementing agent per brief, watches each one, verifies what they claim, and answers their questions. It is the single door that work passes through. It can be an agent in a terminal, driving the others with the `kolu` command — or it can be [**the Orchestrator**](/orchestrator), the same role as a chat.
   </Card>
   <Card title="The fleet">
     One implementing agent per task, each in its **own worktree** so they can't step on each other. They do the work, open PRs, and route anything they're unsure about back _up_ to the coordinator — never to you.
@@ -47,6 +47,8 @@ The pattern has three roles, and the point of it is the top one.
 </CardGrid>
 
 The reason to add a coordinator at all is **span of attention**. A person can drive one agent well and three agents badly; past a handful, you spend all your time context-switching and none of it thinking. A coordinator doesn't get tired of switching. It holds the state of every agent it spawned, notices the moment one needs input, and only surfaces to you when a PR is ready or a decision is genuinely yours. You trade keystrokes for review.
+
+**The coordinator can be a chat.** Everything below describes the pattern with a coordinator sitting in a terminal, driving the others with the `kolu` command — which is how kolu itself was built, and still the way to run it from a shell or a script. [The Orchestrator](/orchestrator) is that same role with a conversation in front of it: one per host, the same tools in its hands, and a panel that tells you which of its questions are waiting for you. Read this page for the shape; read that one for the face.
 
 ## The loop: create, prompt, wait, read
 

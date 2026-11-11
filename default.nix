@@ -820,6 +820,26 @@ let
       --run ${pkgs.lib.escapeShellArg (diagRunHook "kaval-")}
   '';
 
+  # The `kolu` a padi hands its orchestrator's ACP session as the one stdio MCP
+  # server (`kolu mcp`, with PADI_SOCKET set per spawn by the caller). A SECOND
+  # wrapper rather than `koluBin`: that one bakes KOLU_PADI_BIN, so reaching
+  # for it from padi's own wrapper would close a Nix cycle. It therefore
+  # carries only what `kolu mcp` needs — the entry, the commit hash a CLI
+  # reports, and node on PATH. No client dist, no agent floor, no toolchain:
+  # this wrapper is not something a person runs.
+  koluMcpBin = pkgs.runCommand "kolu-mcp-bin"
+    {
+      nativeBuildInputs = [ pkgs.makeWrapper ];
+      meta.mainProgram = "kolu";
+    } ''
+    mkdir -p $out/bin
+    makeWrapper ${runtimeNode}/bin/node $out/bin/kolu \
+      --add-flags "--import ${runtimeTsxLoader}" \
+      --add-flags "${kolu}/packages/kolu-cli/src/main.ts" \
+      --set KOLU_COMMIT_HASH "${commitHash}" \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode ]}
+  '';
+
   # padi (W2.2): the per-host terminal-workspace daemon — the layer above kaval.
   # It supervises the host's kaval (owning its PTYs), composes the terminal
   # registry, folds awareness on the host's clock, persists the session under its
@@ -846,6 +866,15 @@ let
   # KOLU_PADI_STATE_DIR: see exportPadiStateDirRun. This wrapper (the binary
   # kolu ships and remotes provision) supplies the production path so remote
   # `padi --stdio` needs no `--state-root` on the argv.
+  #
+  # The ORCHESTRATOR's two baked paths. padi hosts one ACP conversation per
+  # host, so it needs the adapter binary (KOLU_ACP_AGENT, read from koluEnv so
+  # the devShell and the package name one store path) and the `kolu` whose
+  # `mcp` face is the only MCP server that session is given (KOLU_MCP_BIN —
+  # `koluMcpBin` above, not `koluBin`, which would close a cycle). Both are
+  # required values the orchestrator crashes loudly without, and baking them
+  # here is also what puts the adapter in the closure `nix copy` ships to a
+  # remote host: a host gets no npm and no network.
   padi = pkgs.runCommand "padi"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -861,6 +890,8 @@ let
       --set KOLU_GH_BIN "${koluEnv.KOLU_GH_BIN}" \
       ${osfactsBakeArg} \
       ${snapshotFontsBakeArg} \
+      --set KOLU_ACP_AGENT "${koluEnv.KOLU_ACP_AGENT}" \
+      --set KOLU_MCP_BIN "${koluMcpBin}/bin/kolu" \
       --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.gitMinimal pkgs.gh ]} \
       --run '${exportPadiStateDirRun}' \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "padi-")}
@@ -1105,4 +1136,9 @@ in
   # The local floor of coding agents, exposed so CI builds it and nix-cache.yml
   # pushes it (a `nix run` user then substitutes it rather than compiling).
   agent-distro-bundle = agentDistro.bundle;
+  # Claude Code's ACP adapter (nix/packages/acp-adapter.nix), exposed so CI
+  # builds it and the cache carries it: it is a fixed-output npm fetch plus two
+  # patches, and a host that had to realise it from scratch would need the
+  # network padi's whole arrangement exists to avoid.
+  acp-adapter = pkgs.kolu-acp-adapter;
 }

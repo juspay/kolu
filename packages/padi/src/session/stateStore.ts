@@ -28,20 +28,29 @@ import {
 } from "kolu-shared/state-backup";
 import { log } from "../log.ts";
 import type { PairedDaemon } from "./pairedDaemon.ts";
+import {
+  EMPTY_PERSISTED_ORCHESTRATOR,
+  type PersistedOrchestrator,
+} from "../orchestrator/persisted.ts";
 
-/** padi's on-disk shape — the three keys padi owns under its state-root, plus the
+/** padi's on-disk shape — the keys padi owns under its state-root, plus the
  *  one-shot import marker. */
 interface PadiPersistedState {
   session: SavedSession | null;
   activityFeed: ActivityFeed;
   lastPairedDaemon: PairedDaemon | null;
+  /** This host's one ACP conversation, enough of it to resume — see
+   *  `../orchestrator/persisted.ts` for what is here and what deliberately is
+   *  not. Never a served cell: the `orchestrator` cell is assembled from the
+   *  LIVE agent, and this is only what a restart has to start from. */
+  orchestrator: PersistedOrchestrator;
   /** Set true once the legacy kolu-config import has run (exactly-once guard). An
    *  internal flag, never a served cell. */
   importedLegacyConfig: boolean;
 }
 
 /** padi's state schema version — the last step of {@link PADI_STATE_MIGRATIONS}. */
-export const PADI_STATE_SCHEMA_VERSION = "1.3.0";
+export const PADI_STATE_SCHEMA_VERSION = "1.4.0";
 
 /** The SESSION half of the ladder — ONE function behind three rungs. Every
  *  schema-era bump since 1.1.0 is expressed by the idempotent, presence-keyed
@@ -77,9 +86,18 @@ const backfillSavedSessionIn = (store: Conf<PadiPersistedState>): void => {
  *    is cleared: its old rows carried a captured `command` and cannot be
  *    converted, so it starts empty and refills from live detection. `recentRepos`
  *    is untouched by this rung.
+ *  - `1.4.0`: the ORCHESTRATOR arrives — one ACP conversation per state-root.
+ *    A file written before it has no `orchestrator` key at all, and `Conf`'s
+ *    `defaults` already answer an absent key with the empty record, so this
+ *    rung writes NOTHING. It is here because the ladder is how a schema change
+ *    advances the version, and a silent addition with no rung would leave
+ *    `PADI_STATE_SCHEMA_VERSION` describing a shape the file does not have
+ *    (`dev/skills/state/SKILL.md`). A no-op rung is the honest spelling of
+ *    "this era costs an existing file nothing".
  *
- *  The SESSION half of all three rungs is one function (`backfillSavedSessionIn`),
- *  by the recorded decision above; only 1.3.0's own era is spelled here. */
+ *  The SESSION half of the first three rungs is one function
+ *  (`backfillSavedSessionIn`), by the recorded decision above; only 1.3.0's own
+ *  era is spelled here. */
 const PADI_STATE_MIGRATIONS: Record<
   string,
   (store: Conf<PadiPersistedState>) => void
@@ -99,6 +117,7 @@ const PADI_STATE_MIGRATIONS: Record<
     if (feed.recentAgents.length > 0)
       store.set("activityFeed", { ...feed, recentAgents: [] });
   },
+  "1.4.0": () => {},
 };
 
 /** The three `CellStore`s padi injects at boot, plus the underlying `Conf` (which
@@ -107,6 +126,11 @@ export interface PadiStateStores {
   session: CellStore<SavedSession | null>;
   activityFeed: CellStore<ActivityFeed>;
   lastPairedDaemon: CellStore<PairedDaemon | null>;
+  /** This host's resumable conversation. A plain `CellStore` like the rest,
+   *  even though no SERVED cell is backed by it: the orchestrator module reads
+   *  it at boot and writes it as the conversation moves, and going through the
+   *  same adapter as every other key keeps one way of touching this file. */
+  orchestrator: CellStore<PersistedOrchestrator>;
   /** The raw store — the state-root Conf, exposed so the one-shot import can seed
    *  keys directly (and so a boot can inspect emptiness before importing). */
   conf: PadiConf;
@@ -252,6 +276,7 @@ export function openPadiStateStores(stateRoot: string): PadiStateStoreOpen {
       session: null,
       activityFeed: { recentRepos: [], recentAgents: [] },
       lastPairedDaemon: null,
+      orchestrator: EMPTY_PERSISTED_ORCHESTRATOR,
       importedLegacyConfig: false,
     },
     // Conf persists `projectVersion` only when migrations are enabled; the
@@ -268,6 +293,7 @@ export function openPadiStateStores(stateRoot: string): PadiStateStoreOpen {
         conf,
         "lastPairedDaemon",
       ),
+      orchestrator: confStore<PersistedOrchestrator>(conf, "orchestrator"),
       conf,
       ring,
     },

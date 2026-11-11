@@ -28,7 +28,7 @@ it keeps running.
 
 <figure class="doc-figure">
   <svg viewBox="0 0 720 412" role="img" aria-labelledby="ax-stack-title">
-    <title id="ax-stack-title">The kolu stack, top to bottom: the PWA client in your browser talks over a websocket to kolu-server (the web shell), which binds padi (the per-host workspace daemon), which owns kaval (the PTY daemon) over a unix socket. The client and kolu-server are faces that come and go; padi and kaval are daemons that survive restarts. kaval holds the live PTYs — zsh, claude, nvim.</title>
+    <title id="ax-stack-title">The kolu stack, top to bottom: the PWA client in your browser talks over a websocket to kolu-server (the web shell), which binds padi (the per-host workspace daemon), which owns kaval (the PTY daemon) over a unix socket. The client and kolu-server are faces that come and go; padi and kaval are daemons that survive restarts. kaval holds the live PTYs — zsh, claude, nvim. padi also holds one ACP agent conversation per host, the Orchestrator, which drives those terminals through kolu's own MCP server.</title>
     <defs>
       <marker id="ax-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" class="ax-d-arrow"></path>
@@ -72,6 +72,11 @@ it keeps running.
     <text x="360" y="348" text-anchor="middle" class="ax-d-daemon-label">kaval</text>
     <text x="360" y="368" text-anchor="middle" class="ax-d-sub">PTY daemon — keeps shells alive</text>
 
+    <text x="628" y="234" text-anchor="middle" class="ax-d-cap">ONE AGENT CHAT</text>
+    <path d="M530,262 H564" class="ax-d-flow" marker-end="url(#ax-arrow)"></path>
+    <rect x="564" y="252" width="132" height="20" rx="6" class="ax-d-pty"></rect>
+    <text x="576" y="266" class="ax-d-pty-text">▸ claude · acp</text>
+
     <text x="628" y="312" text-anchor="middle" class="ax-d-cap">OWNS THE PTYS</text>
     <path d="M530,354 H556" class="ax-d-flow"></path>
     <path d="M548,354 V332 H564" class="ax-d-flow" marker-end="url(#ax-arrow)"></path>
@@ -90,7 +95,7 @@ it keeps running.
 | --- | --- | --- |
 | [`PWA client`](/install-pwa) | the view in your browser — one surface consumer per pane | Reload the tab, switch devices: it re-subscribes. It holds no state to lose. |
 | `kolu-server` | the web shell — HTTP, the PWA, websockets; dials and binds padi | Restart it and no terminal metadata is lost — padi's registry stays warm; the remote-host fleet you added survives too (kolu-server persists its own small membership list as a field in its config store, distinct from the per-terminal state the daemons hold). |
-| [`padi`](/padi) | the per-host workspace daemon — session, awareness, restore | Kill it and no terminal state is lost — records live in its folder on disk; PTYs survive in kaval. It re-seeds in seconds. |
+| [`padi`](/padi) | the per-host workspace daemon — session, awareness, restore, and [the Orchestrator](/orchestrator)'s one agent conversation | Kill it and no terminal state is lost — records live in its folder on disk; PTYs survive in kaval. It re-seeds in seconds, and the conversation is resumed by its own session id. |
 | [`kaval`](/kaval) | the PTY survivor — owns the shells and their live screens | Kill everything above it and the live shells and scrollback keep running — they live in kaval's memory. |
 
 ## A deploy _adopts_ what's running
@@ -456,6 +461,18 @@ _out_. The map, grouped:
   agent-agnostic kernel — owns the contracts and algorithms while naming no
   agent. `github` sits behind the forge-agnostic `anyforge` kernel; `git`
   covers pure git operations.
+- **The agent protocol** — `acp` is the [Agent Client
+  Protocol](https://agentclientprotocol.com)'s vocabulary and the pure
+  projections over its payloads: the ask shapes a person answers, the file
+  diff, the context-usage pair, and what one agent's wire MEANS (its `Leg`).
+  A leaf by construction — `effect` plus the protocol SDK's types, no kolu
+  sibling at all, machine-checked — which is also what makes it vendorable by
+  olai, which speaks the same protocol. `acp-harness` is the volatility
+  receptacle beside it: the one package in the tree that SPAWNS an ACP
+  subprocess, holds a session, and turns a stream of protocol frames into
+  transcript rows. padi owns one of those per host (see [the
+  Orchestrator](/orchestrator)); nothing above the harness knows a subprocess
+  exists.
 - **Shared UI leaves** — `theme`, `solid-statepip` (the status indicator),
   `solid-dockrow` (the whole Dock terminal row the indicator sits in — pip,
   annotation, status words, recency, PR badge and attention wash, so a fleet
