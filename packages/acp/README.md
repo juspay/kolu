@@ -22,6 +22,17 @@ This is a LEAF that speaks ACP and nothing of kolu: no `@kolu/*` import. A paylo
 
 What may cross the boundary is machine-checked rather than agreed by comment: `src/manifest.test.ts` enumerates the package's imports (only `effect` and the SDK's types), its closed export list, where the SDK may be imported at all, and who may open which of the three doors.
 
+## This vocabulary is SHARED, and shared means append-only
+
+kolu is not the only reader of this package. [olai](https://github.com/juspay/olai) vendors it as raw TypeScript through its `nix/consumer.nix`, and olai's chat plugin reads parts of it kolu's own orchestrator never touches — `nativeActivity`, `terminalMetaIn`, `Steering`, `Leg.steering`, `Leg.queues`. So **`@kolu/acp` is kept a SUPERSET of olai master's `packages/acp`**: kolu may add, kolu may not take away.
+
+That makes "ported surface with no consumer, delete it" — the right rule everywhere else in this tree, and the rule `@kolu/acp-harness` follows — **wrong here**, and it has already been got wrong once: three modules and five `Leg` members went out as dead code, and nothing in this repository went red, because nothing in this repository called them. A type-level contract whose consumer is in another repository has no compiler watching it.
+
+So it has a test instead. `src/sharedVocabulary.json` records every exported name and every `readonly` member; `src/sharedVocabulary.test.ts` asserts each is still there. It is a **floor, not a fence**: adding is free and silent, removing or renaming fails. Two consequences worth stating:
+
+- **A new REQUIRED member is a removal in disguise** — it breaks every leg written before it existed. Declare it optional and read an absent one as the honest nothing (`ModelReading.windowIn`).
+- **A genuine removal is a two-repository change.** Land it in olai first, then drop the ledger row here with that PR named in the commit. Editing the ledger to make a red test green is the one move this file exists to stop.
+
 ## Why an ENGINE'S shape lives here
 
 `./engine` is the shared contract between one agent's integration package (`@kolu/claude-code`'s `./acp` entry) and the harness that seats it. `Registering.at(where)` returns an `Adapter` or `NotHere`, never an unexplained null. This package owns both data shapes and is the only door onto them: an engine with multiple prerequisites supplies the reason for the one that is missing.

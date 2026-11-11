@@ -1,0 +1,173 @@
+{
+  "activity.ts": {
+    "exports": ["ActivityNotification", "ActivityUpdate", "nativeActivity"],
+    "members": [
+      "description",
+      "id",
+      "kind",
+      "name",
+      "session",
+      "state",
+      "summary",
+      "task",
+      "tool",
+      "update"
+    ]
+  },
+  "asks.ts": {
+    "exports": [
+      "Form",
+      "PERMISSION_FIELD",
+      "Refused",
+      "contentOf",
+      "formOf",
+      "hostOf",
+      "permissionFormOf",
+      "urlOf"
+    ],
+    "members": [
+      "_meta",
+      "description",
+      "enum",
+      "fields",
+      "items",
+      "link",
+      "message",
+      "oneOf",
+      "reason",
+      "title",
+      "toolCall",
+      "type"
+    ]
+  },
+  "diffs.ts": {
+    "exports": ["diffsOf", "relativeTo"],
+    "members": []
+  },
+  "engine.ts": {
+    "exports": [
+      "AGENT_ENV",
+      "Adapter",
+      "Engine",
+      "NotHere",
+      "PromptChannel",
+      "Registering",
+      "Where",
+      "adapterFrom"
+    ],
+    "members": [
+      "args",
+      "at",
+      "command",
+      "cwd",
+      "env",
+      "found",
+      "id",
+      "leg",
+      "name",
+      "prompt",
+      "unset",
+      "where",
+      "why"
+    ]
+  },
+  "identity.ts": {
+    "exports": ["AUTH_STATUS_METHOD", "identityIn"],
+    "members": []
+  },
+  "index.ts": {
+    "exports": [],
+    "members": []
+  },
+  "leg.ts": {
+    "exports": [
+      "Background",
+      "Leg",
+      "ListedFacts",
+      "MCPFrame",
+      "Meta",
+      "ModelReading",
+      "RawMessages",
+      "Reported",
+      "Spawn",
+      "Steering",
+      "TaskNotice",
+      "allowingOurs",
+      "mcpCallBy",
+      "namedExactly"
+    ],
+    "members": [
+      "_meta",
+      "advertised",
+      "allowedWithoutAsking",
+      "attached",
+      "backgroundTask",
+      "bypassMode",
+      "bypassModeRequired",
+      "config",
+      "description",
+      "ended",
+      "kind",
+      "listedIn",
+      "mcpCall",
+      "messageCount",
+      "meta",
+      "method",
+      "modelIn",
+      "models",
+      "name",
+      "nameIn",
+      "nativeActivity",
+      "onto",
+      "openMeta",
+      "parentToolUse",
+      "prologueIn",
+      "provisionalTitle",
+      "queues",
+      "rawInput",
+      "rawMessages",
+      "replyIn",
+      "report",
+      "said",
+      "serversIn",
+      "serversInUpdate",
+      "spawned",
+      "spelling",
+      "steering",
+      "supersededBy",
+      "taken",
+      "task",
+      "taskNotification",
+      "terminalOutput",
+      "timeout",
+      "title",
+      "toolNameIn",
+      "toolNameOf",
+      "toolUseId",
+      "windowIn"
+    ]
+  },
+  "terminal.ts": {
+    "exports": ["TerminalUpdate", "terminalMetaIn"],
+    "members": ["code", "id", "kind", "signal"]
+  },
+  "usage.ts": {
+    "exports": ["usageIn"],
+    "members": ["size", "used"]
+  },
+  "wire.ts": {
+    "exports": [
+      "AskAnswer",
+      "AskChoice",
+      "AskField",
+      "AskLink",
+      "AskOutcome",
+      "AuthAccount",
+      "AuthStatus",
+      "FileDiff",
+      "Usage",
+      "YES_NO"
+    ],
+    "members": []
+  }
+}

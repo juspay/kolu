@@ -1031,8 +1031,11 @@ export const startHarness = async (
     // A `window` of `null` is a REFUSAL rather than a failure: a leg's table
     // answers for the models its picker names and for nothing else, and naming
     // one five times the real size in the line you would read to decide
-    // whether to compact is worse than naming nothing.
-    window: leg.models?.windowIn(labels, id) ?? null,
+    // whether to compact is worse than naming nothing. A leg that declares no
+    // `windowIn` at all reads the same way — `@kolu/acp` is shared vocabulary
+    // and the member is optional precisely so a leg written before it existed
+    // stays legal.
+    window: leg.models?.windowIn?.(labels, id) ?? null,
   });
 
   const optionValueOf = (option: SessionConfigOption): string | null => {

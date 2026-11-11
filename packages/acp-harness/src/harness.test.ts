@@ -105,6 +105,12 @@ const leg: Leg = {
   prologueIn: () => null,
   bypassMode: "bypassPermissions",
   bypassModeRequired: false,
+  // The two the harness does not read and the fixture's agent does not offer.
+  // They are on `Leg` because `@kolu/acp` is a SHARED vocabulary — olai's own
+  // panel steers and promises a queue — and a kolu leg answers them with the
+  // honest nothing of an agent that advertises neither.
+  steering: null,
+  queues: () => false,
   rawMessages: RAW,
   models: {
     config: "model",
