@@ -1,22 +1,21 @@
 /** What rides along with a prompt — an image pasted into the box, a file
  *  dropped on the pane — and the rules that decide whether it may.
  *
- *  Policy only: no store, no toast, no DOM beyond the `FileReader` that turns a
- *  `File` into the `data:` URL the wire carries. The decisions a person can
- *  trip over — which clipboard entries are attachments at all, and whether one
- *  more would blow the cap — are plain functions over plain values, so they are
- *  tested without a composer around them.
+ *  Policy only: no store, no toast, no wire, no DOM beyond the `FileReader`
+ *  that turns a `File` into base64. The decisions a person can trip over —
+ *  which clipboard entries are attachments at all, and whether one more would
+ *  blow the cap — are plain functions over plain values, so they are tested
+ *  without a composer around them.
  *
  *  The caps are enforced at BOTH ends on purpose. padi is the authority and
- *  refuses with a sentence; this end refuses with the same arithmetic at the
- *  moment of the paste, because a person who has waited for a 40 MiB image to
- *  encode and travel before being told no has already lost the thing the cap
- *  was meant to save them. */
+ *  refuses on what it actually wrote; this end refuses with the same
+ *  arithmetic at the moment of the paste, because a person who has waited for
+ *  a 40 MiB image to encode and travel before being told no has already lost
+ *  the thing the cap was meant to save them. */
 
 import {
   ATTACHMENT_BYTE_CAP,
   attachmentTooBig,
-  type OrchestratorAttachment,
   PROMPT_ATTACHMENT_BYTE_CAP,
   promptAttachmentsTooBig,
 } from "@kolu/padi-client/orchestrator";
@@ -28,23 +27,6 @@ export function isImageAttachment(attachment: {
   readonly mimeType: string;
 }): boolean {
   return attachment.mimeType.startsWith("image/");
-}
-
-/** The picture a chip draws, or nothing.
- *
- *  Nothing is the NORMAL case for a row restored after a padi restart: the
- *  base64 is never persisted (padi keeps the bytes under its state root and
- *  the row keeps a path), so a chip with a name and a size is the honest face
- *  of an image this browser no longer holds — and a far better one than a
- *  broken-image glyph. Both the composer's chips and the transcript's draw
- *  from here, so the two cannot disagree about when a thumbnail exists. */
-export function thumbnailOf(attachment: {
-  readonly mimeType: string;
-  readonly dataUrl: string | null;
-}): string | undefined {
-  return isImageAttachment(attachment) && attachment.dataUrl !== null
-    ? attachment.dataUrl
-    : undefined;
 }
 
 /** A clipboard entry as the paste rule sees it — the two fields of
@@ -126,23 +108,52 @@ export function mintAttachmentId(): string {
   return `att-${Date.now().toString(36)}-${minted}`;
 }
 
-/** Read a file into the shape the wire takes.
+/** The type an attachment travels under. A file the OS could not type
+ *  (`file.type === ""`, common for extensionless files) is
+ *  `application/octet-stream`: that IS the type of unknown bytes, and it routes
+ *  the attachment to a `resource_link` at padi, which is the right answer for
+ *  something nobody can claim is text. Stated once because the chip is minted
+ *  before the read finishes, and a chip whose kind disagreed with the uploaded
+ *  file's would be drawing one thing about a file padi was told was another. */
+export function mimeTypeOf(file: File): string {
+  return file.type === "" ? "application/octet-stream" : file.type;
+}
+
+/** A file this browser has read: what the upload puts on the wire, and what
+ *  the chip draws until padi answers. */
+export interface ReadFile {
+  readonly id: string;
+  readonly name: string;
+  readonly mimeType: string;
+  /** The browser's count. It is what the pre-send cap is judged against; the
+   *  size a chip finally wears is padi's count of what it wrote. */
+  readonly bytes: number;
+  /** The whole `data:` URL — this tab's thumbnail, which no wire carries. */
+  readonly dataUrl: string;
+  /** The payload after the `,` — the base64 the chunked upload sends. */
+  readonly base64: string;
+}
+
+/** Read a file into the two things that are wanted of it.
  *
  *  `readAsDataURL` rather than a hand-rolled base64 of an `ArrayBuffer`: the
- *  `data:` URL is what both consumers want — the chip puts it straight in an
- *  `<img src>`, and padi splits the base64 off it for the ACP `image` block —
- *  so encoding it twice in two places is the thing to avoid.
+ *  browser's own encoder is the one that cannot disagree with itself, and the
+ *  `data:` URL is already what the thumbnail wants — so the base64 is SPLIT
+ *  off it rather than produced a second time.
  *
- *  A file the OS could not type (`file.type === ""`, common for extensionless
- *  files) is `application/octet-stream`: that IS the type of unknown bytes, and
- *  it routes the attachment to a `resource_link` at padi, which is the right
- *  answer for something nobody can claim is text. */
-export function readAttachment(
+ *  The type comes from {@link mimeTypeOf}, which the chip was minted with
+ *  before this read began.
+ *
+ *  `id` is passed in rather than minted here, because a file is sometimes read
+ *  a SECOND time under the id it already wears: a refused prompt makes padi
+ *  delete the files it named, so the draft puts its bytes back where they
+ *  were. A fresh id there would leave the old chip pointing at nothing. */
+export function readForUpload(
   file: File,
   name: string,
-): Promise<OrchestratorAttachment> {
-  const { promise, resolve, reject } =
-    Promise.withResolvers<OrchestratorAttachment>();
+  id: string,
+): Promise<ReadFile> {
+  const { promise, resolve, reject } = Promise.withResolvers<ReadFile>();
   const reader = new FileReader();
   reader.onerror = () =>
     reject(reader.error ?? new Error(`could not read "${name}"`));
@@ -152,13 +163,22 @@ export function readAttachment(
       reject(new Error(`"${name}" did not read as a data URL`));
       return;
     }
+    // A `data:` URL is `data:<mime>;base64,<payload>`. No comma means the
+    // reader handed back something that is not one, and uploading the whole
+    // string as if it were base64 would write a file of garbage padi would
+    // happily hand the agent — so it fails here instead.
+    const mark = dataUrl.indexOf(",");
+    if (!dataUrl.startsWith("data:") || mark === -1) {
+      reject(new Error(`"${name}" did not read as a base64 data URL`));
+      return;
+    }
     resolve({
-      id: mintAttachmentId(),
+      id,
       name,
-      mimeType: file.type === "" ? "application/octet-stream" : file.type,
+      mimeType: mimeTypeOf(file),
       bytes: file.size,
       dataUrl,
-      path: null,
+      base64: dataUrl.slice(mark + 1),
     });
   };
   reader.readAsDataURL(file);

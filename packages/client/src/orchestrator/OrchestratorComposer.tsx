@@ -24,9 +24,9 @@ import {
   onCleanup,
   Show,
 } from "solid-js";
+import { toast } from "solid-sonner";
 import { useTerminalStore } from "../terminal/useTerminalStore";
-import { attachPastedFiles } from "./attachFiles";
-import { thumbnailOf } from "./attachments";
+import { attachPastedFiles, reattachComposerFiles } from "./attachFiles";
 import {
   completionIntent,
   completionQuestion,
@@ -37,6 +37,7 @@ import {
   composerAttachments,
   composerText,
   dropComposerAttachment,
+  sendableAttachments,
   setCompletionOpen,
   setComposerText,
 } from "./drafts";
@@ -49,6 +50,7 @@ import {
   type TokenQuery,
   tokenQueryAt,
 } from "./mentions";
+import { thumbnailOf } from "./thumbnails";
 import { useOrchestrator } from "./useOrchestrator";
 
 /** A menu is OPEN when its trigger has a token under the caret and rows to
@@ -161,15 +163,45 @@ const OrchestratorComposer: Component<{
     });
   };
 
+  /** A send already on the wire. The box never locks — you may keep typing —
+   *  but a second Enter while the first prompt is still unanswered would send
+   *  the same words twice, which is what clearing-on-press used to prevent for
+   *  free. Now that nothing is cleared until the send is accepted, this is
+   *  what prevents it. */
+  const [sending, setSending] = createSignal(false);
+
   const send = (): void => {
+    if (sending()) return;
     const text = composerText().trim();
     // An attachment with no words is still a message — "look at this" is the
     // commonest thing a pasted screenshot means. Only a box with neither is
     // nothing to send.
     if (text === "" && composerAttachments().length === 0) return;
-    orch.prompt(text, armed(), composerAttachments());
-    clearComposerAttachments();
-    write("", 0);
+    const files = sendableAttachments();
+    if (files === null) {
+      toast.error(
+        "One of those files is still uploading — give it a moment and send again.",
+      );
+      return;
+    }
+    setSending(true);
+    // NOTHING IS CLEARED UNTIL THE SEND IS ACCEPTED. An attachment this agent
+    // cannot be sent, or a message over the cap, is refused before any row
+    // exists — so a composer that had already emptied itself would have thrown
+    // the message away with nothing on screen left holding it.
+    orch.prompt(text, armed(), files, (accepted) => {
+      setSending(false);
+      if (!accepted) {
+        // padi deletes every file a refused prompt named, so the chips still
+        // on screen are chips with nothing behind them. Their bytes go back up
+        // now, under the same ids, or the NEXT Send would be refused for
+        // something the person can neither see nor fix.
+        reattachComposerFiles();
+        return;
+      }
+      clearComposerAttachments();
+      write("", 0);
+    });
   };
 
   return (
@@ -286,8 +318,14 @@ const OrchestratorComposer: Component<{
                 data-testid="orchestrator-attachment-chip"
                 data-attachment-id={attachment.id}
                 data-mime={attachment.mimeType}
+                // The bytes are still going up. The chip says so in its own
+                // words AND in an attribute, because a person needs the
+                // sentence and a test needs the fact.
+                data-uploading={attachment.path === null ? "" : undefined}
+                aria-busy={attachment.path === null ? "true" : undefined}
                 title={attachment.name}
                 class="flex max-w-[12rem] items-center gap-1.5 rounded-md border border-edge-bright bg-surface-1 px-1.5 py-1"
+                classList={{ "opacity-60": attachment.path === null }}
               >
                 <Show
                   when={thumbnailOf(attachment)}
@@ -306,9 +344,21 @@ const OrchestratorComposer: Component<{
                     />
                   )}
                 </Show>
-                <span class="shrink-0 font-mono text-[0.62rem] text-fg-3">
-                  {formatBytes(attachment.bytes)}
-                </span>
+                <Show
+                  when={attachment.path === null}
+                  fallback={
+                    <span class="shrink-0 font-mono text-[0.62rem] text-fg-3">
+                      {formatBytes(attachment.bytes)}
+                    </span>
+                  }
+                >
+                  <span
+                    data-testid="orchestrator-attachment-uploading"
+                    class="shrink-0 font-mono text-[0.62rem] text-fg-3"
+                  >
+                    uploading…
+                  </span>
+                </Show>
                 <button
                   type="button"
                   data-testid="orchestrator-attachment-remove"

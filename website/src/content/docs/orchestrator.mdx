@@ -101,9 +101,9 @@ Paste an image into the composer, or drop a file onto the pane, and it goes up w
 
 What travels depends on what the agent said it could take. An image goes as an image. A text-like file goes as its text, embedded. Anything else goes as a **link to the path** kolu wrote it to, which the agent reads itself — so a 40 MB binary is a filename on the wire, not forty megabytes. An agent that never advertised the kind you attached gets told no, out loud, rather than quietly handed nothing.
 
-There are two limits — **10 MB per file, 20 MB per message** — and crossing either is a sentence in the composer before anything is sent.
+There are two limits — **10 MiB per file, 20 MiB per message** — and crossing either is a sentence in the composer before anything is sent.
 
-Images are **not** kept in the conversation's record. kolu writes the file into the host's state directory and remembers where; the thumbnail stays on screen in the tab that sent it, and a conversation reopened tomorrow shows the chip with the file's name and size. A transcript is a thing you scroll through for months, and a base64 screenshot in it is a conversation you cannot load.
+A file goes up **as it is attached**, in pieces, and the message that follows carries only its name and where it landed — the bytes never ride the message itself, because one oversized message would take the whole tab's connection down with it. Nothing is kept in the conversation's record either: kolu writes the file into the host's state directory and remembers where, so the thumbnail stays on screen in the tab that sent it and a conversation reopened tomorrow shows the chip with the file's name and size. A transcript is a thing you scroll through for months, and a base64 screenshot in it is a conversation you cannot load.
 
 ## Signing in
 

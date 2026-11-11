@@ -11,8 +11,8 @@ import {
   attachmentRefusal,
   pastedAttachmentName,
   pastedAttachments,
-  thumbnailOf,
 } from "./attachments";
+import { forgetThumbnail, rememberThumbnail, thumbnailOf } from "./thumbnails";
 
 describe("pastedAttachments — what a paste carried", () => {
   it("takes the files and leaves the strings", () => {
@@ -106,24 +106,32 @@ describe("pastedAttachmentName — telling three screenshots apart", () => {
 });
 
 describe("thumbnailOf — what a chip can actually draw", () => {
-  it("draws the image this browser still holds", () => {
-    expect(
-      thumbnailOf({
-        mimeType: "image/png",
-        dataUrl: "data:image/png;base64,x",
-      }),
-    ).toBe("data:image/png;base64,x");
+  it("draws the image this browser read itself", () => {
+    rememberThumbnail(
+      { id: "att-1", mimeType: "image/png" },
+      "data:image/png;base64,x",
+    );
+    expect(thumbnailOf({ id: "att-1" })).toBe("data:image/png;base64,x");
   });
 
-  it("draws nothing for a row restored without its bytes", () => {
-    expect(
-      thumbnailOf({ mimeType: "image/png", dataUrl: null }),
-    ).toBeUndefined();
+  it("draws nothing for a row this browser never minted — the restored case", () => {
+    expect(thumbnailOf({ id: "att-from-another-tab" })).toBeUndefined();
   });
 
-  it("draws nothing for a file that was never an image", () => {
-    expect(
-      thumbnailOf({ mimeType: "application/pdf", dataUrl: "data:…" }),
-    ).toBeUndefined();
+  it("holds nothing for a file that was never an image", () => {
+    rememberThumbnail(
+      { id: "att-pdf", mimeType: "application/pdf" },
+      "data:application/pdf;base64,x",
+    );
+    expect(thumbnailOf({ id: "att-pdf" })).toBeUndefined();
+  });
+
+  it("lets go when the chip never became a row", () => {
+    rememberThumbnail(
+      { id: "att-dropped", mimeType: "image/png" },
+      "data:image/png;base64,x",
+    );
+    forgetThumbnail("att-dropped");
+    expect(thumbnailOf({ id: "att-dropped" })).toBeUndefined();
   });
 });

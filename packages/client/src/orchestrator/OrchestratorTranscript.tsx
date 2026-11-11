@@ -23,9 +23,9 @@ import {
   Show,
   Switch,
 } from "solid-js";
-import { thumbnailOf } from "./attachments";
 import OrchestratorAsk from "./OrchestratorAsk";
 import OrchestratorToolCard from "./OrchestratorToolCard";
+import { thumbnailOf } from "./thumbnails";
 import { useOrchestrator } from "./useOrchestrator";
 
 /** How close to the bottom still counts as "following", in pixels. A couple of
@@ -236,10 +236,11 @@ function UserRow(props: { row: Extract<OrchestratorRow, { kind: "user" }> }) {
                 data-testid="orchestrator-send-again"
                 class="text-accent hover:underline cursor-pointer"
                 onClick={() =>
-                  // The retry carries what the first attempt did. A row this
-                  // browser minted still holds its `dataUrl`; one restored
-                  // after a restart carries only the path padi wrote, which is
-                  // the same file either way.
+                  // The retry carries exactly what the first attempt did: the
+                  // row names files padi is already holding under its state
+                  // root, so a row minted a moment ago and one restored after
+                  // a restart send the same message. Only the thumbnail is
+                  // this browser's, and no wire ever carried it.
                   orch.prompt(
                     props.row.text,
                     props.row.mentions ?? [],

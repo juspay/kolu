@@ -6,13 +6,20 @@
  *  subscription to the same member is a second frame to disagree with.
  *
  *  Every verb is a REQUEST of a conversation, which is why the cell beside them
- *  is read-only, and why the refusals are not all alike. `OrchestratorRefused`
- *  is the agent saying no to this one thing; the conversation is still there and
- *  the transcript row says so in the agent's own words, so the prompt path
- *  deliberately does NOT toast it — the row is the report, and a toast beside it
- *  is the same sentence twice. `OrchestratorUnavailable` is the adapter not
- *  being there at all; that one is a toast, because nothing on screen otherwise
- *  explains why the press did nothing. */
+ *  is read-only, and why the refusals are not all alike.
+ *  `OrchestratorUnavailable` is the adapter not being there at all; that one is
+ *  a toast, because nothing on screen otherwise explains why the press did
+ *  nothing.
+ *
+ *  `OrchestratorRefused` is a no — and WHICH no decides where it lands. The
+ *  agent's no to a turn is not this call's failure at all: `prompt` answers
+ *  with its row id and the turn runs behind it, so an agent that refuses marks
+ *  that row `delivery: "refused"` with *send again* beside it and nothing here
+ *  ever sees an error. Every refusal that DOES come back through `prompt` was
+ *  raised before any row existed — an attachment this agent cannot be sent, a
+ *  message over the cap — so it has no row to land on and a toast is its only
+ *  face. That is why `prompt` no longer swallows the tag: a swallowed refusal
+ *  with no row is a message that vanished. */
 
 import type {
   AskAnswer,
@@ -40,12 +47,19 @@ function reason(err: unknown): string {
 
 export interface Orchestrator {
   readonly state: Accessor<OrchestratorState>;
-  /** `attachments` carry their own `dataUrl` on the way up — the bytes padi
-   *  writes under its state root and then references by path. */
+  /** `attachments` name bytes padi ALREADY HOLDS — each one was uploaded when
+   *  it was attached and carries the path it was written to, so this frame is
+   *  the size of its words however many screenshots rode with it.
+   *
+   *  `settled` is told whether the message was ACCEPTED. The composer keeps
+   *  the words and the chips until it hears `true`, because a refusal raised
+   *  before the row exists leaves nothing on screen to hold them — the *send
+   *  again* button has no such second chance to offer, so it passes none. */
   prompt(
     text: string,
     mentions: readonly OrchestratorMention[],
     attachments: readonly OrchestratorAttachment[],
+    settled?: (accepted: boolean) => void,
   ): void;
   cancel(): void;
   /** `answers === null` DECLINES — the agent is told you would not say. */
@@ -63,8 +77,9 @@ export const useOrchestrator = createSharedRoot<Orchestrator>(() => {
   useOrchestratorFacts();
   const state = createMemo(() => orchestratorStateOf(encActiveHost()));
 
-  /** The common edge: run a verb, and report anything that is not the agent's
-   *  own refusal. `label` names the ask, so the toast says which one failed. */
+  /** The common edge: run a verb and report whatever went wrong with it. These
+   *  verbs have no row to carry a refusal, so the toast is the whole report;
+   *  `label` names the ask, so it says which one failed. */
   const ask = <A>(
     label: string,
     effect: Effect.Effect<A, unknown>,
@@ -89,7 +104,7 @@ export const useOrchestrator = createSharedRoot<Orchestrator>(() => {
 
   return {
     state,
-    prompt: (text, mentions, attachments) =>
+    prompt: (text, mentions, attachments, settled) =>
       runAction(
         "orchestrator prompt",
         activePadiRpc.orchestrator
@@ -99,13 +114,18 @@ export const useOrchestrator = createSharedRoot<Orchestrator>(() => {
             attachments: [...attachments],
           })
           .pipe(
-            // The agent's no lands on the user row as `delivery: "refused"`,
-            // with *send again* where a retry is honest. Toasting it too would
-            // report one refusal in two places.
-            Effect.catchTag("OrchestratorRefused", () => Effect.void),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                settled?.(true);
+              }),
+            ),
+            // EVERY failure this call can see happened before a row existed —
+            // the module header has the argument — so the toast is the only
+            // report there is, and the composer is told to keep what it has.
             Effect.catch((err: unknown) =>
               Effect.sync(() => {
                 toast.error(`Could not send: ${reason(err)}`);
+                settled?.(false);
               }),
             ),
           ),
