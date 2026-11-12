@@ -29,6 +29,7 @@ import { getClockNow } from "../time/clock";
 import ConductorDiffs from "./ConductorDiffs";
 import ConductorLook from "./ConductorLook";
 import {
+  agentLineSubject,
   callSubject,
   foldJson,
   runningFor,
@@ -252,11 +253,7 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
       {/* THE AGENT LINE: a create card that names its terminal is where the
           conversation said an agent was started, so it says how that agent is
           doing and offers a Look at its screen. */}
-      <Show
-        when={
-          props.row.kolu?.kind === "create" ? callSubject(props.row.kolu) : null
-        }
-      >
+      <Show when={agentLineSubject(props.row)}>
         {(at) => (
           <ConductorLook rowId={props.row.id} host={at().host} id={at().id} />
         )}

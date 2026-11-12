@@ -212,8 +212,8 @@ const entryOf = (item: TranscriptItem) =>
 /** A run of the Conductor's tool calls, folded. A plain `<details>`, CLOSED
  *  until somebody opens it, and owned by the DOM: the list keys it by the prose
  *  that closes it, so the element — and whether it is open — survives every update
- *  to the calls inside it. The strip's reveal opens it from outside
- *  (`revealTranscriptRow`), which is why it carries its own test id. */
+ *  to the calls inside it. The strip's reveal opens it from outside, as the
+ *  row's `<details>` ancestor (`revealTranscriptRow`). */
 function TranscriptFold(props: { rows: readonly ConductorToolRow[] }) {
   const count = () => props.rows.length;
   return (

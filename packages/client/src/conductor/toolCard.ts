@@ -28,8 +28,7 @@ import type { TerminalId } from "kolu-common/surface";
  *  identity. Every kolu reading carries the id and the host it is on (the two
  *  sides of the `host/id` the agent spoke); a call nobody could resolve carries
  *  neither, and has nothing to open, nothing to look at and nothing to guess
- *  at. The card's "open tile" and Look read it, and so does the transcript's
- *  fold, which keeps a create card that names a terminal in the flow. */
+ *  at. The card's "open tile" reads it, and so does `agentLineSubject`. */
 export function callSubject(
   call: ConductorKoluCall | undefined,
 ): { readonly host: string; readonly id: TerminalId } | null {
@@ -37,6 +36,15 @@ export function callSubject(
     return null;
   }
   return { host: call.host, id: call.terminalId };
+}
+
+/** The terminal an AGENT LINE is about — a `create` card that names one. The
+ *  card draws its status and Look for it, and the transcript keeps it out of
+ *  the fold for the same reason: one question, asked in one place. */
+export function agentLineSubject(
+  row: ConductorToolRow,
+): { readonly host: string; readonly id: TerminalId } | null {
+  return row.kolu?.kind === "create" ? callSubject(row.kolu) : null;
 }
 
 /** What went in: typed text, or one named key. Exactly one, as the tool itself

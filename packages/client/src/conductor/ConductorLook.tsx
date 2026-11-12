@@ -52,11 +52,14 @@ import { fleetTerminalStanding } from "../palette/fleetTerminals";
 import { runOwnedAction } from "../runAction";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
-import { stateLabels, stateTones } from "../ui/agentDisplay";
+import {
+  type AgentStateTone,
+  stateLabels,
+  stateTones,
+} from "../ui/agentDisplay";
 import { padiRpcOf } from "../wire";
 
-/** How much of the screen Look shows — the same tail the Conductor's own
- *  debrief reads (`screenTail: 40`), so a person sees what the agent saw. */
+/** How much of the screen Look shows. */
 export const LOOK_LINES = 40;
 
 /** How often an open, visible Look re-reads its terminal. */
@@ -69,7 +72,7 @@ const [opened, setOpened] = createStore<Record<string, true | undefined>>({});
 /** The dot's paint, per agent tone — the same families the dock pip and the
  *  Inspector's status card use: rust working, violet needs-you, violet at half
  *  strength for an agent that has finished its turn. */
-const DOT: Record<"busy" | "alert" | "alert-linger" | "none", string> = {
+const DOT: Record<AgentStateTone | "none", string> = {
   busy: "bg-busy animate-pulse motion-reduce:animate-none",
   alert: "bg-alert",
   "alert-linger": "bg-alert/50",
@@ -95,13 +98,16 @@ const ConductorLook: Component<{
   const standing = createMemo(() =>
     fleetTerminalStanding(props.host, props.id),
   );
-  /** Is there a live screen to look at? Only an ACTIVE terminal has one: a
-   *  sleeping terminal is in the roster but `screen.text` cannot read it, so
-   *  "asleep" is a status with nothing behind it — like "terminal gone". */
-  const lookable = createMemo(() => {
+  /** The terminal's live arm, when it has one — the ONE read of the standing
+   *  both the words and the Look button derive from. Only an ACTIVE terminal
+   *  has a screen: a sleeping one is in the roster but `screen.text` cannot
+   *  read it, so "asleep" is a status with nothing behind it — like "terminal
+   *  gone". */
+  const live = createMemo(() => {
     const now = standing();
-    return now.kind === "here" && activeArm(now.meta) !== undefined;
+    return now.kind === "here" ? activeArm(now.meta) : undefined;
   });
+  const lookable = () => live() !== undefined;
   const { showTipOnce } = useTips();
   // The first agent line with something to look at is the moment Look is
   // worth announcing; `showTipOnce` keeps it to once per browser.
@@ -123,10 +129,10 @@ const ConductorLook: Component<{
           doing: null,
         };
       case "here": {
-        const live = activeArm(now.meta);
-        if (live === undefined)
+        const arm = live();
+        if (arm === undefined)
           return { tone: "none", state: "asleep", doing: null };
-        const agent = live.agent;
+        const agent = arm.agent;
         if (agent !== null) {
           return {
             tone: stateTones[agent.state],
@@ -134,7 +140,7 @@ const ConductorLook: Component<{
             doing: agent.summary,
           };
         }
-        const front = live.foreground;
+        const front = arm.foreground;
         return {
           tone: "none",
           state: "no agent",

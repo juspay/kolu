@@ -12,6 +12,9 @@ How to edit it:
   - Every kolu tool named in backticks (`lifecycle_create`, …) must be a tool
     the fleet MCP face serves — `packages/server/src/conductor/conductor.test.ts`
     checks it.
+  - The paragraphs that predate the waterfall are pinned, byte for byte, in
+    `packages/server/src/conductor/teaching.test.ts`; rewording one means
+    updating that test's fixture in the same change.
   - This comment is not sent.
 -->
 

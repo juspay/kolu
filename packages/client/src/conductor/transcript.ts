@@ -27,7 +27,7 @@ import {
   type ConductorSayingSchema,
   type ConductorToolRow,
 } from "kolu-common/conductor";
-import { callSubject } from "./toolCard";
+import { agentLineSubject } from "./toolCard";
 
 type Saying = typeof ConductorSayingSchema.Type;
 
@@ -200,11 +200,11 @@ export type TranscriptItem =
  *     at its row;
  *   - a create card that names its terminal is the agent line — its status
  *     and its Look are the point of drawing it. */
-export function staysInFlow(row: ConductorToolRow): boolean {
+function staysInFlow(row: ConductorToolRow): boolean {
   if (row.status === "pending" || row.status === "in_progress") return true;
   if (row.status === "failed" || row.stranded === true) return true;
   if (row.armed !== undefined && row.armed.ended === null) return true;
-  return row.kolu?.kind === "create" && callSubject(row.kolu) !== null;
+  return agentLineSubject(row) !== null;
 }
 
 /** Fold the machinery out of the way: a RUN of tool rows that the Conductor's
@@ -240,15 +240,15 @@ export function foldToolRuns(
       run.push(entry);
       continue;
     }
-    const folded =
-      kind === "agent"
-        ? run.flatMap((one) =>
-            one.row.kind === "tool" && !staysInFlow(one.row) ? [one.row] : [],
-          )
-        : [];
+    // The ONE question, asked of each row of the run: does it go into the fold
+    // this row closes? Only prose closes a fold, so after a message or a
+    // divider the answer is no for every row.
+    const foldable = (row: ConductorRow): row is ConductorToolRow =>
+      kind === "agent" && row.kind === "tool" && !staysInFlow(row);
+    const folded = run.map((one) => one.row).filter(foldable);
     let placed = folded.length === 0;
     for (const one of run) {
-      if (one.row.kind === "tool" && folded.includes(one.row)) {
+      if (foldable(one.row)) {
         if (!placed) {
           items.push({
             kind: "fold",

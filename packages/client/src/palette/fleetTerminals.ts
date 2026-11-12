@@ -145,7 +145,9 @@ type PerHostHandle = {
  *
  *  Four answers, because "not in the list" means three different things and
  *  only one of them is that the terminal is gone:
- *   - `here`        — listed, with its record.
+ *   - `here`        — listed, with its record — padi's own, so its time stamps
+ *                     are on that host's clock (the switcher's rows reproject
+ *                     theirs; nothing reading a standing needs to).
  *   - `gone`        — the host's list arrived and this id is not in it, or its
  *                     record is a parked restore card (the terminal ended).
  *   - `loading`     — the host is warming up, or its list or this record has
