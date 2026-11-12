@@ -25,7 +25,7 @@ gauntlet round is mid-commit — it races the index.
 `platforms=["x86_64-linux"]` — never trust a machine-local default: a platform
 you don't name **silently drops**, and an unpinned run picks up whatever
 `hosts.json` happens to list. A linux green IS the green this repo gates on;
-master's required-status set is linux-only.
+the odu half of master's required-status set (the ruleset) is linux-only.
 
 **Never run `aarch64-darwin` unless the user asks for it in THIS
 conversation.** Not "to be safe", not because a change looks platform-shaped.
