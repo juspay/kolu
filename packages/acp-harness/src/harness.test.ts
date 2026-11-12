@@ -499,7 +499,7 @@ describe("one conversation with a real agent", () => {
       terminalId: "7f3e0a91-0000-4000-8000-000000000000",
       host: "remote:prod",
       name: "fix-parser",
-      cwd: null,
+      cwd: "/home/u/kolu/.worktrees/fix-parser",
       agent: "claude",
     });
     // ... and the fleet remembers the whole REF, because one conversation

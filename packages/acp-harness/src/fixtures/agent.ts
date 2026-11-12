@@ -820,15 +820,23 @@ function turn(message: Message): void {
       status: "completed",
       rawInput: {
         // THE FLEET GRAMMAR: `lifecycle_create` names the HOST it is creating
-        // on (it has no terminal yet to carry one) and answers a REF.
+        // on (it has no terminal yet to carry one) and answers a REF. The
+        // rest is the tool's own argument set: a worktree cut from a repo,
+        // and a command typed at the first prompt.
         host: "remote:prod",
         placement: { kind: "toplevel" },
-        name: "fix-parser",
-        agent: "claude",
+        repo: "/home/u/kolu",
+        worktree: "fix-parser",
+        run: "claude",
       },
       rawOutput: {
         id: "remote:prod/7f3e0a91-0000-4000-8000-000000000000",
         pid: 42,
+        worktree: {
+          path: "/home/u/kolu/.worktrees/fix-parser",
+          branch: "fix-parser",
+        },
+        ran: "claude",
       },
       _meta: { name: "mcp__kolu__lifecycle_create" },
     });

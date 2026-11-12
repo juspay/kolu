@@ -323,7 +323,9 @@ const turn = async (id: unknown, text: string): Promise<void> => {
     // has exactly one padi, so that host is `local` — but the shape is the
     // fleet's, which is what the card reads to say which machine the agent
     // typed on and which tab its *open tile* goes to. A bare id here would
-    // leave the card hostless and nothing to open.
+    // leave the card hostless and nothing to open. The rest is the tool's own
+    // argument set: the canvas label (`intent`) the card names it by, and the
+    // command typed at its first prompt (`run`).
     update({
       sessionUpdate: "tool_call",
       toolCallId: "call-create",
@@ -331,10 +333,11 @@ const turn = async (id: unknown, text: string): Promise<void> => {
       kind: "other",
       status: "in_progress",
       rawInput: {
-        name: "fix-parser",
-        cwd: "/tmp/kolu-e2e",
-        agent: "claude",
         host: "local",
+        placement: { kind: "toplevel" },
+        cwd: "/tmp/kolu-e2e",
+        intent: "fix-parser",
+        run: "claude",
       },
       _meta: { claudeCode: { toolName: "mcp__kolu__lifecycle_create" } },
     });

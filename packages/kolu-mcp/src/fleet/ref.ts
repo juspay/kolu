@@ -21,12 +21,13 @@
  *
  * **A LEAF with no imports at all.** The grammar is the one piece of this
  * package a non-MCP consumer needs: `@kolu/acp-harness` reads a fleet reference
- * out of a tool call and must not grow an edge to the MCP SDK, to padi-client,
- * or to effect to do it — its manifest is deliberately the ACP SDK and
- * `kolu-common`. So the refusal here is a SENTENCE rather than
+ * out of a tool call and must not grow an edge to the MCP SDK or to
+ * padi-client to do it. So the refusal here is a SENTENCE rather than
  * `@kolu/surface-mcp`'s `ToolFailure` — each face wraps it in its own refusal
  * type — and the WIRE schema built on this grammar lives one file over in
  * `./refSchema.ts`, where effect is allowed. Reached as `kolu-mcp/fleetRef`.
+ * The grammar does not check that the id half is a terminal id; a reader that
+ * needs one asks `@kolu/terminal-vocab/terminalId`'s `isTerminalId`.
  */
 
 /** The one separator between a host key and a terminal id. */

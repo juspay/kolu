@@ -126,7 +126,7 @@ export function parkSavedSession(): void {
  *
  *  Validates the wire id against `TerminalIdSchema` at this boundary (the contract
  *  doc assigns id validation to kolu-server — ptyHostSurface.ts:36) so
- *  `adoptLocalOrphan` receives a branded `TerminalId`, not a re-cast raw string. A
+ *  `adoptLocalOrphan` receives a validated `TerminalId`, not a re-cast raw string. A
  *  malformed (non-UUID) id is FAIL-CLOSED — the live PTY is KILLED
  *  (`reapUnrepresentablePty`), never left running hidden (F1): every real client
  *  mints a UUID (`crypto.randomUUID()` — kolu-server and kaval-tui alike), so a

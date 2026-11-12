@@ -9,6 +9,7 @@
   "types": "./src/schema.ts",
   "exports": {
     "./schema": "./src/schema.ts",
+    "./terminalId": "./src/terminalId.ts",
     "./ports": "./src/ports.ts",
     "./agentProjection": "./src/agentProjection.ts",
     "./dash": "./src/dash.ts",
