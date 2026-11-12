@@ -1,11 +1,12 @@
 /** The conductor, whole: the conversation as a pane.
  *
- *  CHAT ONLY. Header, the strip (tool-server roster, background tasks,
- *  subagents), the transcript, the composer — no Dock, no fleet list, no peek
- *  pane, no canvas. The entry in the chrome bar is a DESTINATION, not a layer
- *  over the workspace: a person who selected it is reading a conversation, and
- *  the terminals it talks about are reached by switching to the host tab they
- *  live on (which every tool card offers, in one press).
+ *  THE CHAT. Header, the strip (tool-server roster, background tasks,
+ *  subagents), the transcript, the composer — no Dock, no fleet list, no
+ *  canvas. The entry in the chrome bar is a DESTINATION, not a layer over the
+ *  workspace: a person who selected it is reading a conversation. An agent the
+ *  conversation started is checked from inside it — the create card's status
+ *  line and its Look at the terminal's screen — and reached on the host tab it
+ *  lives on (which every tool card offers, in one press).
  *
  *  Mounted only while the conductor entry is selected (desktop) or the
  *  sheet is open (touch), and it owns the transcript subscription for exactly
@@ -33,6 +34,7 @@ import ConductorTranscript from "./ConductorTranscript";
 import { useConductor } from "./useConductor";
 import { exitConductorMode } from "./useConductorMode";
 import { createConductorTranscript } from "./useConductorTranscript";
+import { revealTranscriptRow } from "./transcriptScroll";
 
 const ConductorPane: Component<{
   class?: string;
@@ -85,9 +87,7 @@ const ConductorPane: Component<{
   });
 
   const reveal = (rowId: string): void => {
-    transcriptEl
-      ?.querySelector(`[data-row-id="${CSS.escape(rowId)}"]`)
-      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+    if (transcriptEl !== undefined) revealTranscriptRow(transcriptEl, rowId);
   };
   // DROPPING A FILE ON THE CONVERSATION attaches it to the next message — the
   // whole pane is the target, not the textarea, because the box is three lines

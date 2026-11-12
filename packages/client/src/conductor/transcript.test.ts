@@ -2,9 +2,19 @@
  *  not double rows), a delta refines in place, and a streamed append splices at
  *  the offset the writer stamped. */
 
-import type { ConductorFrame, ConductorRow } from "kolu-common/conductor";
+import type {
+  ConductorFrame,
+  ConductorRow,
+  ConductorToolRow,
+} from "kolu-common/conductor";
 import { describe, expect, it } from "vitest";
-import { applyFrame, EMPTY_TRANSCRIPT, foldNoticeRuns } from "./transcript";
+import {
+  applyFrame,
+  EMPTY_TRANSCRIPT,
+  foldNoticeRuns,
+  foldToolRuns,
+  type TranscriptItem,
+} from "./transcript";
 
 const agentRow = (id: string, seq: number, text: string): ConductorRow => ({
   id,
@@ -179,5 +189,162 @@ describe("foldNoticeRuns", () => {
       agentRow("d", 4, "same"),
     ]);
     expect(entries.map((e) => e.repeat)).toEqual([1, 1, 1, 1]);
+  });
+});
+
+describe("foldToolRuns", () => {
+  const SINCE = "2026-01-01T00:00:00.000Z";
+  const TERMINAL = "11111111-1111-4111-8111-111111111111";
+  const tool = (
+    id: string,
+    seq: number,
+    extra: Partial<ConductorToolRow> = {},
+  ): ConductorRow =>
+    ({
+      id,
+      seq,
+      since: SINCE,
+      kind: "tool",
+      text: id,
+      status: "completed",
+      ...extra,
+    }) as ConductorToolRow;
+  const user = (id: string, seq: number): ConductorRow => ({
+    id,
+    seq,
+    since: SINCE,
+    kind: "user",
+    text: "hi",
+    attachments: [],
+  });
+  const notice = (id: string, seq: number): ConductorRow => ({
+    id,
+    seq,
+    since: SINCE,
+    kind: "notice",
+    text: "something happened",
+  });
+  /** What the panel draws, as `id` for a row and `[ids]` for a fold. */
+  const drawn = (rows: ConductorRow[]): (string | string[])[] =>
+    foldToolRuns(foldNoticeRuns(rows)).map((item: TranscriptItem) =>
+      item.kind === "fold" ? item.rows.map((row) => row.id) : item.entry.row.id,
+    );
+
+  it("folds the calls between two pieces of prose into ONE fold", () => {
+    expect(
+      drawn([
+        agentRow("a", 1, "Looking."),
+        tool("t1", 2),
+        tool("t2", 3),
+        tool("t3", 4),
+        agentRow("b", 5, "Found it."),
+      ]),
+    ).toEqual(["a", ["t1", "t2", "t3"], "b"]);
+  });
+
+  it("leaves calls with no closing prose in the flow — the turn is still going", () => {
+    expect(
+      drawn([agentRow("a", 1, "Looking."), tool("t1", 2), tool("t2", 3)]),
+    ).toEqual(["a", "t1", "t2"]);
+  });
+
+  it("never folds across what the human typed, or before the first prose", () => {
+    expect(
+      drawn([
+        user("u0", 0),
+        tool("t0", 1),
+        agentRow("a", 2, "Looking."),
+        tool("t1", 3),
+        user("u1", 4),
+        tool("t2", 5),
+        agentRow("b", 6, "Done."),
+      ]),
+    ).toEqual(["u0", "t0", "a", "t1", "u1", "t2", "b"]);
+  });
+
+  it("keeps what a reader would lose in the flow, and folds the rest around it", () => {
+    const rows = [
+      agentRow("a", 1, "Starting the planner."),
+      tool("done", 2),
+      tool("running", 3, { status: "in_progress" }),
+      tool("pending", 4, { status: "pending" }),
+      tool("failed", 5, { status: "failed" }),
+      tool("stranded", 6, { stranded: true }),
+      tool("task-out", 7, {
+        armed: { task: "t", description: null, ended: null, report: null },
+      }),
+      tool("task-over", 8, {
+        armed: {
+          task: "t",
+          description: null,
+          ended: "completed",
+          report: null,
+        },
+      }),
+      tool("agent-line", 9, {
+        kolu: {
+          kind: "create",
+          terminalId: TERMINAL as never,
+          host: "local",
+          name: "planner",
+          cwd: null,
+          agent: null,
+        },
+      }),
+      tool("create-no-terminal", 10, {
+        kolu: {
+          kind: "create",
+          terminalId: null,
+          host: null,
+          name: "planner",
+          cwd: null,
+          agent: null,
+        },
+      }),
+      notice("n", 11),
+      agentRow("b", 12, "It is up."),
+    ];
+    expect(drawn(rows)).toEqual([
+      "a",
+      ["done", "task-over", "create-no-terminal"],
+      "running",
+      "pending",
+      "failed",
+      "stranded",
+      "task-out",
+      "agent-line",
+      "n",
+      "b",
+    ]);
+  });
+
+  it("draws no fold when every call in the run stays in the flow", () => {
+    expect(
+      drawn([
+        agentRow("a", 1, "Trying."),
+        tool("failed", 2, { status: "failed" }),
+        agentRow("b", 3, "That failed."),
+      ]),
+    ).toEqual(["a", "failed", "b"]);
+  });
+
+  it("keeps the fold's key while a running call settles into it", () => {
+    const keyOf = (rows: ConductorRow[]) =>
+      foldToolRuns(foldNoticeRuns(rows)).find((item) => item.kind === "fold")
+        ?.key;
+    const before = keyOf([
+      agentRow("a", 1, "Working."),
+      tool("t1", 2, { status: "in_progress" }),
+      tool("t2", 3),
+      agentRow("b", 4, "Done."),
+    ]);
+    const after = keyOf([
+      agentRow("a", 1, "Working."),
+      tool("t1", 2),
+      tool("t2", 3),
+      agentRow("b", 4, "Done."),
+    ]);
+    expect(before).toBeDefined();
+    expect(after).toBe(before);
   });
 });

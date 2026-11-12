@@ -100,3 +100,18 @@ export function applyTranscriptScroll(el: {
 }): void {
   el.scrollTop = offset() ?? el.scrollHeight;
 }
+
+/** Bring one row into view — the strip's "reveal this row". A row the
+ *  transcript has folded into a "Details" is drawn inside a closed
+ *  `<details>`, where it has no box to scroll to, so the fold holding it is
+ *  opened first. Scoped to the transcript's own container: another mounted
+ *  copy of the pane must not receive this one's reveal. */
+export function revealTranscriptRow(container: Element, rowId: string): void {
+  const row = container.querySelector(`[data-row-id="${CSS.escape(rowId)}"]`);
+  if (row === null) return;
+  const fold = row.closest<HTMLDetailsElement>(
+    '[data-testid="conductor-fold"]',
+  );
+  if (fold !== null) fold.open = true;
+  row.scrollIntoView({ block: "center", behavior: "smooth" });
+}

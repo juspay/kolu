@@ -11,14 +11,23 @@
  *  Rows are kept in `seq` order rather than arrival order: a delta may refine a
  *  row minted long ago (a tool call completing, a plan replaced), and a reader
  *  that appended refinements would scatter one conversation across its own
- *  timeline. */
+ *  timeline.
+ *
+ *  The READER RULES live here too, beside the rows they read: a run of
+ *  identical notices draws as one (`foldNoticeRuns`), and the tool calls
+ *  between two things the Conductor said fold into one "Details"
+ *  (`foldToolRuns`). Both are pure, so what the panel draws is decided in a
+ *  unit test, and neither rewrites a row — `Copy transcript` still reads them
+ *  all. */
 
 import {
   appendedText,
   type ConductorFrame,
   type ConductorRow,
   type ConductorSayingSchema,
+  type ConductorToolRow,
 } from "kolu-common/conductor";
+import { callSubject } from "./toolCard";
 
 type Saying = typeof ConductorSayingSchema.Type;
 
@@ -162,6 +171,103 @@ export function foldNoticeRuns(
     entries.push({ row, repeat: 1 });
   }
   return entries;
+}
+
+/** One thing the transcript DRAWS, in order: an entry (a row, a notice run
+ *  already folded to one), or a FOLD — a closed "Details" holding the tool
+ *  calls a stretch of the Conductor's work made between two things it said.
+ *  `key` is what the list is keyed by: a row's own id, and for a fold the id
+ *  of the prose it follows, which stays put however many calls join it. */
+export type TranscriptItem =
+  | {
+      readonly kind: "entry";
+      readonly key: string;
+      readonly entry: TranscriptEntry;
+    }
+  | {
+      readonly kind: "fold";
+      readonly key: string;
+      readonly rows: readonly ConductorToolRow[];
+    };
+
+/** Does this tool call stay IN THE FLOW rather than joining a fold? Each arm
+ *  is something a reader would lose by having to open a disclosure for it:
+ *   - a call still RUNNING keeps its clock where it can be seen, and joins the
+ *     fold the moment it settles;
+ *   - a FAILED or STRANDED call is news, never machinery;
+ *   - a BACKGROUND TASK still out is live work, and the strip's reveal points
+ *     at its row;
+ *   - a create card that names its terminal is the agent line — its status
+ *     and its Look are the point of drawing it. */
+export function staysInFlow(row: ConductorToolRow): boolean {
+  if (row.status === "pending" || row.status === "in_progress") return true;
+  if (row.status === "failed" || row.stranded === true) return true;
+  if (row.armed !== undefined && row.armed.ended === null) return true;
+  return row.kolu?.kind === "create" && callSubject(row.kolu) !== null;
+}
+
+/** Fold the machinery out of the way: a RUN of tool rows between two pieces
+ *  of the Conductor's prose becomes ONE closed "Details" carrying its count,
+ *  so the conversation reads as the sentences it is.
+ *
+ *  A run is everything between two `agent` rows. What a person typed and a
+ *  session divider BREAK it — the stretch is then not between two things the
+ *  Conductor said, and nothing may be folded across a message of yours. Rows
+ *  inside a run that are not plain tool calls (a question, the plan card, a
+ *  notice) and calls that {@link staysInFlow} keep their own place in the
+ *  flow; the fold takes the place of the FIRST call it holds.
+ *
+ *  A run with no closing prose yet does not fold: the turn is still going, or
+ *  ended without a word, and in either case those calls are the latest thing
+ *  on screen. They fold the moment the Conductor speaks again. */
+export function foldToolRuns(
+  entries: readonly TranscriptEntry[],
+): readonly TranscriptItem[] {
+  const items: TranscriptItem[] = [];
+  const asItem = (entry: TranscriptEntry): TranscriptItem => ({
+    kind: "entry",
+    key: entry.row.id,
+    entry,
+  });
+  /** The prose that opened the current run, or `null` when the run did not
+   *  start at prose (the top, or after something the human typed). */
+  let opener: ConductorRow | null = null;
+  let run: TranscriptEntry[] = [];
+
+  for (const entry of entries) {
+    const kind = entry.row.kind;
+    if (kind !== "agent" && kind !== "user" && kind !== "divider") {
+      run.push(entry);
+      continue;
+    }
+    if (kind === "agent" && opener !== null) {
+      const folded = run.flatMap((one) =>
+        one.row.kind === "tool" && !staysInFlow(one.row) ? [one.row] : [],
+      );
+      let placed = folded.length === 0;
+      for (const one of run) {
+        if (one.row.kind === "tool" && folded.includes(one.row)) {
+          if (!placed) {
+            items.push({
+              kind: "fold",
+              key: `fold:${opener.id}`,
+              rows: folded,
+            });
+            placed = true;
+          }
+          continue;
+        }
+        items.push(asItem(one));
+      }
+    } else {
+      items.push(...run.map(asItem));
+    }
+    items.push(asItem(entry));
+    opener = kind === "agent" ? entry.row : null;
+    run = [];
+  }
+  items.push(...run.map(asItem));
+  return items;
 }
 
 /** ONE ROW as plain text — what the header menu's `Copy transcript` puts on
