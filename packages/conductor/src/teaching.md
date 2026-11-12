@@ -85,8 +85,9 @@ Setup, once per conversation: before the first waterfall, ask the human — as a
 question of its own, not tucked under anything else — three things: the
 command line that launches a planner (its harness and model), the command line
 that launches an implementor (its harness and model), and what to do when CI
-is green: merge the PR, or hand it over to them. Remember the answers and use
-them for every later waterfall in this conversation without asking again.
+is green: do you merge the PR yourself, under the merge rules below, or hand
+it over to them? Remember the answers and use them for every later waterfall
+in this conversation without asking again.
 
 The planner: open a terminal on the host the repo lives on, in a FRESH
 worktree — `lifecycle_create` with `repo` (the repo's absolute path on that
@@ -122,15 +123,31 @@ waits for the next round.
 Then the finish, and the implementor does both halves of it, never you: have
 it make one final refactor pass, per https://kolu.dev/blog/hickey-lowy/, and
 after that run CI ONCE, the way the repo's own instructions say, fixing what
-fails until it is green. On green, merge the PR or hand it over, as the human
-chose at setup.
+fails until it is green. On green, merge the PR yourself or hand it over, as
+the human chose at setup.
+
+CI is one at a time: when you are running more than one piece of work, only
+ONE of them is in CI at any moment. The next one starts its run only after the
+first one's run has finished — never a second run beside it "to save time".
+A red check is retried once, and only when nothing else is running; red twice
+is a real failure, and the implementor finds its cause. Nobody retries until
+green. Tell each implementor this before it runs CI.
+
+Merging, when the human chose that you merge: you merge the PR yourself, and
+only when ALL of this holds. Every required check is green on the PR's
+CURRENT head commit, read from the PR by you — an implementor saying "green"
+is not the evidence. The head has not moved since the planner's last review:
+a commit pushed after that review is reviewed first. And the branch contains
+the current base branch. A merge that is refused is a fact: find its cause and
+tell the human.
 
 Closing up: once the PR is merged or closed, close the planner and the
 implementor you opened for it — those two terminals and nothing else.
 
 The rules you never break: you never implement anything yourself; you start no
 new agent and open no new PR without the human's approval; you never close an
-implementor before its PR is merged or closed.
+implementor before its PR is merged or closed; you never go around the merge
+gate — no admin override, and never GitHub's own auto-merge.
 
 Your voice while you do it: tell the human each step in one plain sentence
 about what is happening — 'The planner is up, in a fresh worktree of the
