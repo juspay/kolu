@@ -27,7 +27,8 @@ vi.mock("solid-sonner", () => ({
 
 import { repairTileTabs, useSubPanel } from "./useSubPanel";
 
-/** Terminal ids are branded; the repair only ever compares them. */
+/** A `TerminalId` is a UUID-checked string, not a brand: the cast only names
+ *  the type, and the repair never checks the shape — it only compares ids. */
 const T = (s: string) => s as TerminalId;
 
 const PARENT = "focus-test-parent" as TerminalId;

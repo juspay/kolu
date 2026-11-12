@@ -93,7 +93,7 @@ export interface InventoryAdoption {
  *  does the adopting — so the routing is unit-testable without the registry or
  *  the daemon. This is the boundary the contract doc names: a raw inventory id is
  *  validated against `TerminalIdSchema` here, so `isTracked` / `adoptLocalOrphan`
- *  downstream receive an already-branded `TerminalId` rather than re-casting a
+ *  downstream receive an already-validated `TerminalId` rather than re-casting a
  *  raw string. A malformed (non-UUID) out-of-band id is routed to `onInvalid`
  *  (which fails closed — kills the unrepresentable PTY — F1), never adopted.
  *  `snapshot`/`created` adopt the UNKNOWN entries; a tracked id is kolu's own
@@ -126,7 +126,7 @@ export function inventoryAdoptions(
 /** Validate each entry's wire id against `TerminalIdSchema` (the inventory
  *  boundary the contract doc assigns to kolu-server), route the unparseable ones
  *  to `onInvalid` (which fails closed — F1), and keep the untracked rest paired
- *  with their branded id. */
+ *  with their validated id. */
 function adoptableEntries(
   entries: readonly PtyHostListEntry[],
   isTracked: (id: TerminalId) => boolean,
@@ -214,7 +214,7 @@ const isTrackedById = (id: TerminalId): boolean =>
 
 /** A malformed (non-UUID) out-of-band id never reaches the registry or
  *  `adoptLocalOrphan`: the inventory boundary validates against `TerminalIdSchema`
- *  rather than branding an unvalidated string (the contract doc's "consumer
+ *  rather than casting an unvalidated string (the contract doc's "consumer
  *  validates at its boundary"). But it does NOT merely log-and-drop (F1) — a
  *  dropped id is a live PTY kolu can neither show nor kill, a hidden process. So
  *  it FAILS CLOSED through the shared policy: kill the unrepresentable PTY, the

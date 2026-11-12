@@ -67,7 +67,7 @@ describe("inventoryAdoptions — what a live inventory frame tells kolu to adopt
   it("routes a frame entry whose id fails TerminalIdSchema to onInvalid — never adopted (F1)", () => {
     // A malformed (non-UUID) out-of-band id is reported to `onInvalid` and
     // excluded from the adoptions, so it never reaches `adoptLocalInventoryOrphan`
-    // as a branded id. The production `onInvalid` FAILS CLOSED — it kills the
+    // as a validated id. The production `onInvalid` FAILS CLOSED — it kills the
     // unrepresentable PTY (`reapUnrepresentablePty`) rather than leaving a live
     // process kolu can neither show nor kill — but at this pure boundary the
     // contract is just "invalid id → onInvalid, excluded from adoptions."
