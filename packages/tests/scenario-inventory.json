@@ -9898,6 +9898,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "da5f1d2a1fbf28f3be33bed0c9bc7e510d7fa867"
+    },
+    {
+      "revisionId": "revision-18e78b62fde161b7e085",
+      "scenarioKey": "scenario-bc167b1613e07ab431b7",
+      "feature": "features/conductor.feature",
+      "scenario": "Look reads the agent's screen from inside the chat",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d0d3861ddb4cc71eca9099356118e6985dd3836c27663b2edbf9348568314c8c",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8af35f326551bfc6d2962a00d27d8b9927567bb6"
+    },
+    {
+      "revisionId": "revision-34e2c31a5a20bce6b931",
+      "scenarioKey": "scenario-f40015d5d6a23535db8a",
+      "feature": "features/conductor.feature",
+      "scenario": "The calls a turn makes before the Conductor speaks fold into Details",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "ebe794a47b871063d889512c852a0292ef09699e4bba0e5a3398227d2770e513",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8af35f326551bfc6d2962a00d27d8b9927567bb6"
     }
   ]
 }
