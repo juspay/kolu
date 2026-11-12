@@ -2,10 +2,14 @@
  * The padi→kaval SCREEN-READ seam — `screen.text` / `screen.history` forwarded
  * onto kaval's wire.
  *
- * Both of padi's screen reads are pure FORWARDERS: `servePadi`'s handlers hand
- * `input.startLine` / `input.endLine` / `input.before` / `input.epoch` straight
- * to the terminal handle, and every one of those is `Schema.optionalKey` on BOTH
- * wires — so an omitted key arrives at the forwarder as a plain `undefined`.
+ * Two of padi's screen-read paths are pure FORWARDERS: `screen.text`'s RANGE
+ * read hands `input.startLine` / `input.endLine` straight to the terminal
+ * handle, and `screen.history` does the same with `input.before` /
+ * `input.epoch`. Every one of those is `Schema.optionalKey` on BOTH wires — so
+ * an omitted key arrives at the forwarder as a plain `undefined`. (The third
+ * path, `screen.text { tail }`, does not forward its input: `readScreenTail`
+ * turns it into window reads of its own, always a definite `tailLines`, which
+ * the last pin below covers as the `tail` extent.)
  * kaval's client face DECODES its input (`packages/surface/src/client.ts` —
  * `Schema.decodeUnknownSync` at the edge), and `optionalKey` accepts an ABSENT
  * key while REJECTING a present-`undefined` one, where zod's `.optional()` took

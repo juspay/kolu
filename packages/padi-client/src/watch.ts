@@ -30,7 +30,7 @@ import {
 } from "@kolu/surface/wait";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
-import { Effect, Stream } from "effect";
+import { Effect, Schema, Stream } from "effect";
 import type { PadiSurfaceClient } from "./dial.ts";
 import { isTerminalNotFound, isWatchSubscriptionNotFound } from "./errors.ts";
 import {
@@ -39,6 +39,7 @@ import {
   type PadiWatchEvent,
   type PadiWatchStatesInput,
   padiSurface,
+  ScreenTextTailSchema,
 } from "./surface.ts";
 import { activeAgent } from "./terminalVocab.ts";
 
@@ -1163,11 +1164,12 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
   },
 ): Promise<MetOf<C>> {
   const { id, condition, settledMs, screenTail } = opts;
-  // Checked before anything subscribes: a tail padi would refuse at the decode
-  // must not cost a wait that runs to its met and only then reads `closed`.
+  // Checked before anything subscribes, through the SAME schema the wire field
+  // decodes with: a tail padi would refuse must not cost a wait that runs to
+  // its met and only then reads `closed`.
   if (
     screenTail !== undefined &&
-    !(Number.isInteger(screenTail) && screenTail > 0)
+    !Schema.is(ScreenTextTailSchema)(screenTail)
   ) {
     throw new RangeError(
       `screenTail must be a positive whole number of lines, got ${screenTail}.`,

@@ -14,6 +14,7 @@ import {
   PadiPreviewReadInputSchema,
   PadiPreviewReadOutputSchema,
   PadiStatusSchema,
+  PadiScreenTextInputSchema,
   PadiTerminalSchema,
   PadiUrgencySchema,
   PadiVersionSchema,
@@ -931,5 +932,30 @@ describe("the two optional-key spellings on this wire, in BYTES (#17 audit)", ()
         `{"kind":"delta","data":"${ID}"}`,
       );
     });
+  });
+});
+
+describe("PadiScreenTextInputSchema — one bound, never two", () => {
+  const id = "11111111-1111-4111-8111-111111111111";
+
+  it("refuses `tail` beside either line bound — no precedence picks one", () => {
+    expect(
+      accepts(PadiScreenTextInputSchema, { id, tail: 5, startLine: 0 }),
+    ).toBe(false);
+    expect(
+      accepts(PadiScreenTextInputSchema, { id, tail: 5, endLine: 9 }),
+    ).toBe(false);
+  });
+
+  it("refuses a tail of zero lines", () => {
+    expect(accepts(PadiScreenTextInputSchema, { id, tail: 0 })).toBe(false);
+  });
+
+  it("decodes a tail alone, a range alone, and no bound at all", () => {
+    expect(accepts(PadiScreenTextInputSchema, { id, tail: 1 })).toBe(true);
+    expect(
+      accepts(PadiScreenTextInputSchema, { id, startLine: 2, endLine: 9 }),
+    ).toBe(true);
+    expect(accepts(PadiScreenTextInputSchema, { id })).toBe(true);
   });
 });

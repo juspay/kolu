@@ -1085,6 +1085,11 @@ export const PadiTerminalIdInputSchema = Schema.Struct({
  *  a re-derivation per member that can drift. */
 const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0));
 
+/** What a legal `screen.text` `tail` is — a whole count of lines, at least one.
+ *  ONE spelling, read by the wire field below AND by the wait engine's guard
+ *  (`./watch`), so the engine can never pass a tail padi refuses at the decode. */
+export const ScreenTextTailSchema = PositiveInt;
+
 /** A whole non-negative count/index — the `z.number().int().nonnegative()` of
  *  this wire (line cursors, scrollback extents).
  *
@@ -1700,7 +1705,7 @@ export const PadiScreenTextInputSchema = Schema.Struct({
   /** Last line to capture (exclusive). Defaults to buffer length. */
   endLine: Schema.optionalKey(NonNegativeInt),
   /** The last N rendered lines, trailing blank rows dropped first. */
-  tail: Schema.optionalKey(PositiveInt),
+  tail: Schema.optionalKey(ScreenTextTailSchema),
 }).check(
   Schema.makeFilter((input) =>
     input.tail !== undefined &&
