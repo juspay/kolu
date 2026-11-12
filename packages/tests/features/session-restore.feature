@@ -92,7 +92,7 @@ Feature: Session restore
   # opts out. Regression: the client used to filter `!parentId` out of the resume
   # opt-in, so a split's agent was never resumed and its restoreTarget was wiped.
   #
-  # The launch line may carry an env-assignment prefix (an orchestrator's
+  # The launch line may carry an env-assignment prefix (a conductor's
   # `AI_PROFILE=… opencode`): the prefix is part of the remembered command, so
   # the split still resumes — WITH the same prefix. Regression: such a split
   # used to come back as a bare shell, its launch line unrecognized.

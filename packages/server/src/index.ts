@@ -47,7 +47,14 @@ import {
   type PadiEntryFailure,
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
+import { serveKoluFleetMcp } from "kolu-mcp";
 import type { KoluBootFlags } from "./bootFlags.ts";
+import { fleetHostsOver } from "./fleet/fleetHosts.ts";
+import { startFleetMcpEndpoint } from "./fleet/mcpEndpoint.ts";
+import {
+  disposeServerConductor,
+  setFleetMcpEndpoint,
+} from "./conductor/live.ts";
 import { healthRouteLayer } from "./healthRoute.ts";
 import { serverHostname, serverProcessId, serverVersion } from "./hostname.ts";
 import { getPersistedHosts, savePoolMembership } from "./hostPersistence.ts";
@@ -175,11 +182,29 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // NO on-exit scratch cleanup here anymore: the per-process scratch dir moved into
   // the padi process (padi owns `ensureKoluRoot`/`shutdownCleanup` under its
   // state-root), so kolu-server has nothing to wipe.
+  //
+  // THE ACP CHILD FIRST, and this is why the handler is async now. The
+  // conductor's adapter is spawned `detached` — deliberately, so a crashing
+  // kolu-server cannot take a conversation's subprocess down by accident —
+  // which means nothing ELSE in this teardown reaches it. A SIGTERM that
+  // skipped `disposeServerConductor` would leave the adapter and the
+  // `claude` under it running with nothing on the other end, and the next boot
+  // would spawn a second set beside them. (The same ordering padi's
+  // `serveDaemonSurfaces.close` had, carried over with the hosting.)
+  let shuttingDown = false;
   for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
     process.on(sig, () => {
+      // A second signal while the first teardown is in flight must not start a
+      // second one — the dispose is idempotent, but a double `process.exit`
+      // would cut the first one off mid-write.
+      if (shuttingDown) return;
+      shuttingDown = true;
       log.info({ signal: sig }, "shutting down");
-      releaseLocalSupervisor?.();
-      process.exit(0);
+      void (async () => {
+        await disposeServerConductor();
+        releaseLocalSupervisor?.();
+        process.exit(0);
+      })();
     });
   }
   process.on("uncaughtException", (err) => {
@@ -554,6 +579,56 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       isConnected: (c) => c.phase === "connected",
     },
   });
+
+  // ── The FLEET MCP face, and the door it is served through ────────────────
+  //
+  // ONE conversation for the whole fleet, hosted here. Its hands are the kolu
+  // MCP expose map lifted over the host map just built above — every terminal
+  // on every host, `host/id` on the wire — served in-process over streamable
+  // HTTP on a loopback listener of its own (`fleet/mcpEndpoint.ts` argues why
+  // its own door and not a route on the app listener below).
+  //
+  // AWAITED, and before anything can ask for the conductor. Binding a
+  // loopback socket is immediate and bounded — unlike a padi dial, which is
+  // why THOSE are fail-open — so there is no window to defend and nothing to
+  // degrade into: a failure here throws out of `bootKoluWeb` naming itself,
+  // rather than leaving the endpoint null and a conductor quietly
+  // handless.
+  //
+  // ONE host port, a face PER SESSION. The door mints a transport for each MCP
+  // client that initializes (`fleet/mcpEndpoint.ts` argues why: a stateful
+  // transport serves exactly one), so `serve` runs once per session — but the
+  // host map is this process's, not a client's, and building a second one per
+  // session would re-dial nothing and re-cache everything, handing each face
+  // its own copy of a per-session padi client this boot has already paid for.
+  const fleetHosts = fleetHostsOver({
+    pool,
+    // THE SERVED MAP ITSELF — `padiMap` above, the same `{ group, handlers }`
+    // pair spliced into the app's wire and reached by the browser's socket.
+    // The fleet face dials it in process, so the agent and the operator read
+    // one surface at one set of tags; handing this port the re-serve cache
+    // instead is what made the agent's face and this process's runtime two
+    // different surfaces (`fleet/fleetHosts.ts` tells that story).
+    padiMap,
+    // The local host's display name, as the host tab shows it: this machine by
+    // its hostname, a remote by its ssh target. An agent holding three hosts
+    // at once cannot do anything with "local".
+    localName: serverHostname,
+  });
+  const fleetMcp = await startFleetMcpEndpoint({
+    log,
+    serve: (transport) =>
+      serveKoluFleetMcp({
+        hosts: fleetHosts,
+        transport,
+        serverInfo: { name: "kolu-fleet", version: serverVersion },
+      }),
+  });
+  // The conductor PROVES this endpoint before it names it to an agent — the
+  // same `initialize` the adapter's client will send, answered with a session
+  // (the discipline padi's socket probe already had) — so what it is handed is
+  // a reading, not a promise.
+  setFleetMcpEndpoint(() => ({ url: fleetMcp.url, token: fleetMcp.token }));
 
   // ── SR8.a: serve kolu-server's OWN surface HERE, after padiSession ───────
   //

@@ -669,9 +669,18 @@ let
     # derivation owns both.
     dontFixup = true;
 
-    env = {
-      KOLU_COMMIT_HASH = koluCommitPlaceholder;
-    } // koluEnv;
+    # EVERY SHARED VAR EXCEPT THE ADAPTER. Nothing at build time spawns the
+    # Conductor's ACP adapter — it is a runtime fact of the wrapper a person
+    # runs — and naming it here is not free: `KOLU_ACP_AGENT` resolves
+    # `pkgs.kolu-acp-adapter`, which drives agent-distro's floor `claude`,
+    # whose own `package.nix` `fetchTarball`s UPSTREAM'S locked nixpkgs at EVAL
+    # time. That turned a `nix eval` of `padi-agent` into a download, and the
+    # one machine that evaluates it with no network is the one that matters:
+    # `offline-provision`'s binder resolving a host's daemon spent its 900s
+    # retrying `github.com` and the dial never landed.
+    env = builtins.removeAttrs
+      ({ KOLU_COMMIT_HASH = koluCommitPlaceholder; } // koluEnv)
+      [ "KOLU_ACP_AGENT" ];
 
     # Workspace typecheck is a REQUIRED input, not a parallel lane. Kolu runs
     # TypeScript at runtime (tsx); Vite only transpiles. Without this, a green
@@ -794,6 +803,16 @@ let
   # currency nudge; the padi pair lets the binder compare the exact daemon it
   # would spawn (#1670) while preserving readBakedIdentity's both-or-neither
   # invariant. Both equal the identities baked into their corresponding bins.
+  #
+  # KOLU_ACP_AGENT is NOT baked here, though this is the binary that spawns the
+  # adapter — see `mkKoluWrapper`, which bakes it only on the LOCAL arm. This
+  # derivation is shared: `koluRemote` wraps it too, and `koluRemote` is a
+  # member of `padi-agent`, the closure every remote host is provisioned with.
+  # A reference here therefore shipped the ACP adapter and agent-distro's
+  # `claude` to every remote — and to every adoption VM, whose 1 GB guests then
+  # OOMed and whose offline provisioning timed out shipping a closure that had
+  # no business being that large. The Conductor runs in kolu-server, on the
+  # machine a person is looking at; a remote host hosts no conversation.
   koluBin = pkgs.runCommand "kolu-bin"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -866,9 +885,19 @@ let
   # proof below pins both halves.
   #
   # `floor` — whether this wrapper also bakes the agents' local floor (every
-  # profile, ~2 GB) and the delivery kolu-server runs. The wrapper a user runs
-  # (`default`) does; the `kolu` CLI that rides `padi-agent` onto a REMOTE host
-  # must not — kolu-server delivers every host's agents.
+  # profile, ~2 GB), the delivery kolu-server runs, AND the Conductor's ACP
+  # adapter. The wrapper a user runs (`default`) does; the `kolu` CLI that
+  # rides `padi-agent` onto a REMOTE host must not — kolu-server delivers every
+  # host's agents, and hosts the one conversation itself.
+  #
+  # KOLU_ACP_AGENT is `--set-default`, NOT `--set`, and the difference is a
+  # test lane that silently tests nothing: the e2e harness points it at a
+  # scripted fixture adapter (`packages/tests/support/hooks.ts`) and the e2e
+  # lane runs this very wrapper (`justfile`), so a `--set` overwrote the fixture
+  # and drove the real pinned adapter against a real `claude` — green or red
+  # for reasons the fixture never stated. `--set-default` keeps the bake as the
+  # value nothing else supplies, which is every production path: nobody exports
+  # this name.
   mkKoluWrapper = { floor }: pkgs.runCommand "kolu"
     {
       nativeBuildInputs = [ pkgs.makeWrapper pkgs.jq ];
@@ -878,7 +907,7 @@ let
       ''
         mkdir -p $out/bin
         makeWrapper ${koluBin}/bin/kolu $out/bin/kolu \
-          --set KOLU_AGENT_TOOLS_PATH "$out/bin:${koluAgentTools}/bin" \
+          --set KOLU_AGENT_TOOLS_PATH "$out/bin:${koluAgentTools}/bin" ${pkgs.lib.optionalString floor ''--set-default KOLU_ACP_AGENT "${koluEnv.KOLU_ACP_AGENT}"''} \
           ${agentDistro.bakeArgs { inherit floor; }} \
           --run 'export KOLU_STATE_DIR="''${KOLU_STATE_DIR:-''${XDG_CONFIG_HOME:-$HOME/.config}/kolu}"; ${exportPadiStateDirRun}'
 
@@ -1037,6 +1066,16 @@ let
   # KOLU_PADI_STATE_DIR: see exportPadiStateDirRun. This wrapper (the binary
   # kolu ships and remotes provision) supplies the production path so remote
   # `padi --stdio` needs no `--state-root` on the argv.
+  #
+  # NO CONDUCTOR BAKE HERE, and that absence is the change: padi no longer
+  # hosts a conversation. kolu-server does, once, for every host — so the ACP
+  # adapter (KOLU_ACP_AGENT) is baked onto `koluBin` instead, and the `kolu`
+  # whose `mcp` face a session was handed (KOLU_MCP_BIN, with its own
+  # cycle-avoiding `koluMcpBin` wrapper) is gone entirely: the fleet face is
+  # served in-process by kolu-server over loopback HTTP, so there is no second
+  # binary to name. The visible consequence is in the CLOSURE — the adapter
+  # left padi's, so a remote host `nix copy` no longer ships it. A remote padi
+  # serves its own terminals and nothing else.
   padi = pkgs.runCommand "padi"
     {
       nativeBuildInputs = [ pkgs.makeWrapper ];
@@ -1278,6 +1317,30 @@ let
         fi
       done
 
+      # ── NO CONDUCTOR OUT HERE ─────────────────────────────────────────────
+      # The ACP adapter must not ride this closure. kolu-server hosts the one
+      # conversation, on the machine a person is looking at; a remote host
+      # hosts none, so an adapter reference here is pure freight — and it was
+      # not cheap freight. Baked on the SHARED `koluBin` (which `koluRemote`
+      # wraps), it put the adapter and agent-distro's `claude` into every
+      # closure a host is provisioned with: the adoption VMs then OOMed their
+      # 1 GB guests and `offline-provision` timed out shipping it.
+      #
+      # Asserted on the COMPOSED env — the same sourcing the proofs above use —
+      # because a bake is exactly how it got here, and on the wrapper text too,
+      # so a reference that is not an env var is caught as well.
+      if [ -n "''${KOLU_ACP_AGENT:-}" ]; then
+        echo "FAIL: padi-agent's composed env bakes KOLU_ACP_AGENT=$KOLU_ACP_AGENT" >&2
+        echo "— the Conductor's ACP adapter is being shipped to every remote host." >&2
+        echo "Bake it on the LOCAL wrapper only (mkKoluWrapper's \`floor\` arm)." >&2
+        exit 1
+      fi
+      if grep -l KOLU_ACP_AGENT $out/bin/* 2>/dev/null | grep -q .; then
+        echo "FAIL: a wrapper in padi-agent names KOLU_ACP_AGENT:" >&2
+        grep -l KOLU_ACP_AGENT $out/bin/* >&2
+        exit 1
+      fi
+
       # The agent-distro bake a remote padi resolves — and, by design, NO floor.
       ${agentDistro.proof { floor = false; }}
     '';
@@ -1304,4 +1367,9 @@ in
   # The local floor of coding agents, exposed so CI builds it and nix-cache.yml
   # pushes it (a `nix run` user then substitutes it rather than compiling).
   agent-distro-bundle = agentDistro.bundle;
+  # Claude Code's ACP adapter (nix/packages/acp-adapter.nix), exposed so CI
+  # builds it and the cache carries it: it is a fixed-output npm fetch plus two
+  # patches, and a host that had to realise it from scratch would need the
+  # network padi's whole arrangement exists to avoid.
+  acp-adapter = pkgs.kolu-acp-adapter;
 }

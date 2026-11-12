@@ -45,11 +45,16 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     // `agentDistroListing` (the harnesses THIS kolu's build's agent-distro
     // package brings, read once off the floor — a build fact, not a host's),
     // and `agentProfiles` (whether each profile of the Agents setting builds,
-    // as kolu-server's delivery finds when it locks and builds them HERE).
-    // No collections, no events.
+    // as kolu-server's delivery finds when it locks and builds them HERE),
+    // and `conductor` (kolu's ONE supervising conversation — hosted HERE
+    // because its hands reach every host at once, where a padi can only see
+    // its own terminals; what it drives is terminals, but the member is a
+    // conversation this process owns). No collections, no events; the one
+    // STREAM is that conversation's transcript.
     expect(Object.keys(spec.cells ?? {}).sort()).toEqual([
       "agentDistroListing",
       "agentProfiles",
+      "conductor",
       "daemonInventory",
       "forwards",
       "padiLink",
@@ -63,6 +68,10 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     expect(spec.cells?.terminalList).toBeUndefined();
     expect(spec.collections).toBeUndefined();
     expect(spec.events).toBeUndefined();
+    const streams = (
+      surfaces.kolu.spec as { streams?: Record<string, unknown> }
+    ).streams;
+    expect(Object.keys(streams ?? {})).toEqual(["conductorTranscript"]);
   });
 
   it("koluSurface's only procedures move the forward map and deliver agents", () => {
@@ -78,6 +87,7 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     expect(Object.keys(spec.procedures ?? {})).toEqual([
       "forwards",
       "agentDistro",
+      "conductor",
     ]);
     expect(Object.keys(spec.procedures?.forwards ?? {}).sort()).toEqual([
       "cancel",
@@ -85,6 +95,20 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     ]);
     expect(Object.keys(spec.procedures?.agentDistro ?? {})).toEqual([
       "deliver",
+    ]);
+    // The ten verbs that ASK the one conversation for something. The cell
+    // beside them is read-only, which is why every write is here.
+    expect(Object.keys(spec.procedures?.conductor ?? {})).toEqual([
+      "prompt",
+      "attach",
+      "cancel",
+      "answer",
+      "signIn",
+      "signInInput",
+      "signInCancel",
+      "setOption",
+      "newSession",
+      "clearSession",
     ]);
   });
 });

@@ -400,6 +400,21 @@ Feature: Canvas workspace
     Then the command palette should not be visible
     And there should be no page errors
 
+  # A maximized tile with a split is the shape that caught a regression: the
+  # page itself started scrolling vertically, because a wrapper on the shared
+  # layout chain had become a scroll container. The workspace's layers all size
+  # to the viewport — only the panes inside them scroll — so the document's own
+  # height is the invariant, and it is asserted in both postures.
+  Scenario: Neither posture lets the page itself scroll
+    Given I create a terminal
+    Then the page should not scroll
+    When I split terminal 1
+    Then the page should not scroll
+    When I double-click the title bar of canvas tile 1
+    Then canvas tile 1 should be maximized
+    And the page should not scroll
+    And there should be no page errors
+
   Scenario: Double-clicking the title bar maximizes the tile
     Given I create a terminal
     Then there should be 2 canvas tiles

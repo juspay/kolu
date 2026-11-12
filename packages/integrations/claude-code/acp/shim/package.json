@@ -1,0 +1,14 @@
+{
+  "name": "kolu-acp-claude",
+  "version": "0.1.0",
+  "private": true,
+  "description": "claude's ACP adapter shim",
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "@agentclientprotocol/claude-agent-acp": "0.81.2"
+  },
+  "//overrides": "GHSA-6qxp-vccf-f47h: @anthropic-ai/claude-agent-sdk (peer of @agentclientprotocol/claude-agent-acp) declares @modelcontextprotocol/sdk ^1.29.0, which resolves to a version before 1.31.0. This override forces the patched line rather than adding a phantom direct dependency.",
+  "overrides": {
+    "@modelcontextprotocol/sdk": "^1.32.1"
+  }
+}

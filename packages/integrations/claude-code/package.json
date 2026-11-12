@@ -7,9 +7,11 @@
   "sideEffects": false,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
+  "//acp": "The Claude Code ACP ENGINE rides a door of its own (`./acp`) — the leg that reads this adapter's wire, the probe that seats it on a host, and the sentence a host without it is owed. It shares no graph with the rest of this package: padi imports it to register the engine, and nothing it reaches touches the transcript machinery `.` is made of. The note lives OUTSIDE `exports`: a key there that does not start with `.` is read as a CONDITION, and mixing conditions with subpaths makes Node refuse the whole map — which silently broke `kolu-claude-code/schemas` for every consumer.",
   "exports": {
     ".": "./src/index.ts",
-    "./schemas": "./src/schemas.ts"
+    "./schemas": "./src/schemas.ts",
+    "./acp": "./src/acp/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -17,6 +19,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.96",
+    "@kolu/acp": "workspace:*",
     "anyagent": "workspace:*",
     "effect": "4.0.0",
     "kolu-io": "workspace:*",

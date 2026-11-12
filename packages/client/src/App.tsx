@@ -12,8 +12,6 @@
  *  agent indicator, screenshot, split toggle) lives on the tile title bar via
  *  `canvas/TileTitleActions`. The header is intentionally minimal. */
 
-import { WorkspaceTerminals } from "./terminal/WorkspaceTerminals";
-
 import Resizable from "@corvu/resizable";
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
 import { createPwaInstall } from "@kolu/solid-pwa-install";
@@ -30,9 +28,9 @@ import {
 } from "solid-js";
 import { Toaster } from "solid-sonner";
 import AboutDialog from "./AboutDialog";
+import TileTip from "./agents/TileTip";
 import { useAttention } from "./attention/useAttention";
 import ChromeBar from "./ChromeBar";
-import HostDiagnosticsHost from "./host/HostDiagnosticsHost";
 import CloseConfirm, { type CloseConfirmTarget } from "./CloseConfirm";
 import CommandPalette from "./CommandPalette";
 import CompactTileView from "./CompactTileView";
@@ -40,7 +38,6 @@ import Dock from "./canvas/dock/Dock";
 import { useDockFocus } from "./canvas/dock/useDockFocus";
 import { useDockOrder } from "./canvas/dock/useDockOrder";
 import TerminalCanvas from "./canvas/TerminalCanvas";
-import TileTip from "./agents/TileTip";
 import TileTitleActions from "./canvas/TileTitleActions";
 import { useCanvasArrange } from "./canvas/useCanvasArrange";
 import { createCommands } from "./commands";
@@ -51,6 +48,7 @@ import ExportSessionDialog, {
 } from "./ExportSessionDialog";
 import BootStalledCanvas from "./host/BootStalledCanvas";
 import { ConnectCanvas } from "./host/ConnectCanvas";
+import HostDiagnosticsHost from "./host/HostDiagnosticsHost";
 import HostDownCanvas from "./host/HostDownCanvas";
 import { hostHue, hostLabel } from "./host/hostChipTone";
 import { savedSession as serverSavedSession } from "./hostScope/activeWire";
@@ -63,6 +61,9 @@ import DegradedCanvas from "./kaval/DegradedCanvas";
 import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
 import MobilePullChrome from "./MobilePullChrome";
+import ConductorPane from "./conductor/ConductorPane";
+import ConductorSheet from "./conductor/ConductorSheet";
+import { conductorMode } from "./conductor/useConductorMode";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import WebcamOverlay from "./recorder/WebcamOverlay";
@@ -81,6 +82,7 @@ import { useTips } from "./settings/useTips";
 import TerminalContent from "./terminal/TerminalContent";
 import TerminalMeta from "./terminal/TerminalMeta";
 import { useTerminals } from "./terminal/useTerminals";
+import { WorkspaceTerminals } from "./terminal/WorkspaceTerminals";
 import { useTileStore } from "./tile/useTileStore";
 import { controlledSizes, realSizes } from "./ui/corvuResizable";
 import { refocusTerminal } from "./ui/ModalDialog";
@@ -121,7 +123,7 @@ const App: Component = () => {
     terminalIds: store.terminalIds,
     activeAgentState: (id) => activeArm(store.getMetadata(id))?.agent?.state,
   });
-  // Deep links: a `#/…` URL (bookmark, orchestrator tag, PWA launch) commands the
+  // Deep links: a `#/…` URL (bookmark, conductor tag, PWA launch) commands the
   // view onto a host / terminal / file / settings — through the SAME view actions,
   // view-only by law. See `useDeepLinks`.
   useDeepLinks();
@@ -726,7 +728,27 @@ const App: Component = () => {
             </WorkspaceTerminals>
           </Match>
         </Switch>
+        {/* THE CONDUCTOR, when its entry in the chrome bar is the selected
+         *  one: the conversation fills everything below the bar — no dock, no
+         *  canvas, no peek, no inspector. It covers the workspace rather than
+         *  replacing it in the `<Switch>` above, and that is load-bearing: a
+         *  person reading the chat for a minute must not pay an xterm
+         *  teardown, a stream re-attach and a dock rebuild for the round trip
+         *  back to their terminals. Everything underneath stays mounted,
+         *  attached and exactly as they left it.
+         *
+         *  `z-[45]` sits above everything the canvas wrapper holds — the
+         *  floating dock (`z-30`) and a maximized tile (`z-40`) — and below
+         *  the chrome bar (`z-50`) that carries the entry you leave by. */}
+        <Show when={conductorMode() && isDesktop()}>
+          <ConductorPane class="absolute inset-0 z-[45]" />
+        </Show>
       </div>
+      {/* Below the breakpoint the mode is a full-screen sheet — there is no
+       *  canvas to lay three columns over. */}
+      <Show when={!isDesktop()}>
+        <ConductorSheet />
+      </Show>
       <IntentEditorDialog
         open={intentEditor.open()}
         title={intentEditor.title()}

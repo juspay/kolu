@@ -201,6 +201,24 @@ const WEB_SHELL_FILES = [
   // in `index.ts`'s graph imports either.
   "wireCall",
   "wireCallMain",
+  // ── the conductor's MOUNT (packages/server/src/conductor/) ──
+  // kolu's ONE supervising conversation lives in `kolu-conductor` now — the
+  // host, the record, the standing prompt and the surface members are that
+  // package's, and the dependency arrow points out of this one. What stays
+  // here is the COMPOSITION ROOT: the file that knows what is server-owned
+  // and pushes it in (the conf store and the state directory, the fleet
+  // endpoint and the prover that speaks the MCP pin, the cell writer, this
+  // machine's name, the spawn). Web-shell code by this seal's own test: it
+  // runs no terminal domain, and every terminal the conversation touches it
+  // touches through a padi client, over the wire, like any other consumer.
+  "conductor/live",
+  // ── the fleet MCP face's server side (packages/server/src/fleet/) ──
+  // The loopback listener the conductor's agent reaches the fleet through,
+  // and kolu-server's implementation of `@kolu/kolu-mcp`'s `FleetHosts` port
+  // over the host map. Shell code: a socket in THIS process and a projection of
+  // the pool the shell already owns.
+  "fleet/fleetHosts",
+  "fleet/mcpEndpoint",
 ].sort();
 
 /** Terminal-domain modules that MUST NOT reappear under `packages/server/src` —
@@ -293,6 +311,25 @@ function padiSrcFilesAll(): string[] {
       .filter((f) => f.endsWith(".ts"))
       .map((f) => resolve(root, f)),
   );
+}
+
+/** THE CONDUCTOR'S PACKAGE — kolu's one supervising conversation, carved out
+ *  of this one at the owner's call so that "a face kolu mounts" is a package
+ *  rather than a wing of the web server (the `kolu-mcp` precedent). The wall
+ *  needs holding in BOTH directions and neither direction is the other's
+ *  mirror: forward, kolu-server may only reach it through its published doors;
+ *  reverse, it must never reach back in — a package that imports its own
+ *  mounter is not a package, it is a file in a trench coat. */
+const CONDUCTOR_SRC = resolve(SRC, "..", "..", "conductor", "src");
+const CONDUCTOR_PKG = resolve(CONDUCTOR_SRC, "..", "package.json");
+
+/** Every `.ts` under it, tests included — a test that imports the app is still
+ *  a reverse edge. */
+function conductorSrcFiles(): string[] {
+  return readdirSync(CONDUCTOR_SRC, { recursive: true })
+    .map((f) => String(f).split(sep).join("/"))
+    .filter((f) => f.endsWith(".ts"))
+    .map((f) => resolve(CONDUCTOR_SRC, f));
 }
 
 const PACKAGES_DIR = resolve(PADI_SRC, "..", "..");
@@ -733,6 +770,74 @@ describe("packages/server package-boundary seal (W1.R7)", () => {
         "or a re-export (`export { koluSurface } from …` / `export * from " +
         '"kolu-common/surface"`). padi serves its OWN padiSurface ctx and OWNS the ' +
         "terminal vocabulary now (arm e); it never reaches back into the app surface.",
+    ).toEqual([]);
+  });
+
+  it("(g) the conductor package never reaches back into kolu-server", () => {
+    // THE REVERSE WALL, and the one the extraction is for. `kolu-conductor`
+    // owns the conversation; kolu-server mounts it and pushes in everything
+    // server-owned (the conf store, the state directory, the fleet endpoint
+    // and its prover, the cell writer, this machine's name, the spawn). An
+    // import of `kolu-server` — or a reach into its `src/` — would invert that
+    // arrow and the mount would stop being a mount.
+    const files = conductorSrcFiles();
+    // Non-vacuous: a wrong path would make this pass trivially.
+    expect(files.length).toBeGreaterThan(0);
+    const offenders: string[] = [];
+    for (const file of files) {
+      for (const spec of importsOf(file)) {
+        if (
+          spec === "kolu-server" ||
+          spec.startsWith("kolu-server/") ||
+          spec.includes("server/src/")
+        ) {
+          offenders.push(
+            `${file.replace(CONDUCTOR_SRC, "kolu-conductor/src")}: ${spec}`,
+          );
+        }
+      }
+    }
+    expect(
+      offenders,
+      "a kolu-conductor src file imports kolu-server. The arrow points OUT: " +
+        "what the conversation needs from the server is PUSHED IN at the mount " +
+        "(packages/server/src/conductor/live.ts), never pulled.",
+    ).toEqual([]);
+    // …and the manifest says the same thing, so the wall cannot be crossed by
+    // adding a dependency and an import in one commit.
+    expect(
+      declaredDeps(CONDUCTOR_PKG).filter((d) => d === "kolu-server"),
+      "kolu-conductor's package.json declares kolu-server — the mount is the " +
+        "server's edge to the package, not the package's to the server.",
+    ).toEqual([]);
+  });
+
+  it("(g) kolu-server reaches the conductor only through its published doors", () => {
+    // THE FORWARD WALL. The package publishes `.`, `./persisted` and
+    // `./surface`; a deep `kolu-conductor/src/...` would make its internals
+    // this server's business again, which is the whole thing the carve-out
+    // undid.
+    const published = new Set(
+      Object.keys(
+        JSON.parse(readFileSync(CONDUCTOR_PKG, "utf8")).exports ?? {},
+      ).map((e) =>
+        e === "." ? "kolu-conductor" : `kolu-conductor/${e.slice(2)}`,
+      ),
+    );
+    const offenders: string[] = [];
+    for (const relative of serverSrcTsFiles()) {
+      const file = resolve(SRC, relative);
+      for (const spec of importsOf(file)) {
+        if (!spec.startsWith("kolu-conductor")) continue;
+        if (!published.has(spec)) {
+          offenders.push(`server/src/${relative}: ${spec}`);
+        }
+      }
+    }
+    expect(
+      offenders,
+      `kolu-server imports a kolu-conductor path that is not published (${[...published].join(", ")}). ` +
+        "Reach the package through its doors; a deep import is a dependency on its insides.",
     ).toEqual([]);
   });
 

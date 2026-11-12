@@ -54,8 +54,22 @@ import {
 import "kolu-common/test-hooks";
 import { Effect, Semaphore } from "effect";
 import { createEffect, mapArray, onCleanup } from "solid-js";
+import { match } from "ts-pattern";
+import { notify } from "../attentionNotify";
+import { hostLabel } from "../host/hostChipTone";
+import {
+  conductorAsksTotal,
+  useConductorFacts,
+} from "../conductor/useConductorFacts";
+import {
+  enterConductorMode,
+  conductorMode,
+} from "../conductor/useConductorMode";
+import { runAction } from "../runAction";
+import type { TerminalSubject } from "../terminal/terminalSubject";
+import { nextAfter } from "../ui/nextAfter";
+import { activeHost, preferences, setActiveHost } from "../wire";
 import { createAttentionCore } from "./attentionCore";
-import { isTerminalWatched } from "./attentionWatched";
 import {
   hostAskingIds,
   hostFrame,
@@ -64,14 +78,8 @@ import {
   writeHostMarks,
 } from "./attentionMarks";
 import { registerAttentionJump } from "./attentionNav";
-import { runAction } from "../runAction";
+import { isTerminalWatched } from "./attentionWatched";
 import { useAttentionFacts } from "./useAttentionFacts";
-import { nextAfter } from "../ui/nextAfter";
-import { match } from "ts-pattern";
-import { notify } from "../attentionNotify";
-import { hostLabel } from "../host/hostChipTone";
-import type { TerminalSubject } from "../terminal/terminalSubject";
-import { activeHost, preferences, setActiveHost } from "../wire";
 
 /** What the active host can tell us about its terminals — the rich notification
  *  copy, the dock unread write, and the e2e simulate targets. Background hosts
@@ -175,6 +183,57 @@ export function useAttention(deps: AttentionDeps): {
     }
   }
 
+  /** THE CONDUCTOR'S ASKS, through the same channel and nothing else.
+   *
+   *  A conversation blocked on a question is `asking` in exactly the sense the
+   *  frame already means it — the only difference is that the thing blocked is
+   *  THE conversation rather than a terminal, so there is no id to focus and
+   *  no host to carry: one conversation covers the whole fleet. It fires the
+   *  SAME sound and the SAME notification seam (there is one `Audio`, one
+   *  `Notification` and one `setAppBadge` in this client, and this is not a
+   *  second of any of them), and it counts into the same badge below.
+   *
+   *  Attention is a TRANSITION, not a discovery: the first count seen is a
+   *  baseline, and only a RISE fires — reloading a tab onto a conversation
+   *  that has been waiting for an hour must not ring. */
+  let askedBefore: number | undefined;
+  const deliverAsks = (open: number): void => {
+    try {
+      playSound();
+      void notify.show({
+        tag: "conductor",
+        title: "The conductor needs you",
+        body:
+          open === 1
+            ? "One question is waiting"
+            : `${open} questions are waiting`,
+        icon: "/favicon.svg",
+        data: { kind: "conductor" },
+      });
+    } catch (err) {
+      console.error("useAttention: conductor delivery failed", err);
+    }
+  };
+  createEffect(() => {
+    const open = conductorAsksTotal();
+    const before = askedBefore;
+    // The baseline moves whether or not we deliver: an ask you watched arrive
+    // is SEEN, so the next rise is the next episode, not this one re-fired the
+    // moment you look away.
+    askedBefore = open;
+    if (before === undefined || open <= before) return;
+    if (!alertsEnabled()) return;
+    // "Seen with your eyes", one level up from a terminal. `watched` above
+    // asks whether the tile receiving input is the one that needs you; the
+    // conversation's questions are in front of you when its entry is the
+    // selected one and the page has focus. Without this, a question you
+    // watched arrive — typed the prompt, saw the ask appear — rang the sound
+    // and raised an OS popup for something already on screen, which is the one
+    // way an attention channel teaches people to ignore it.
+    if (conductorMode() && document.hasFocus()) return;
+    deliverAsks(open);
+  });
+
   // The detect→fire ENGINE (`attentionCore`) — unit-tested off the wire. It owns
   // the per-host prev-frame, the fire-once latch, and the unseen-finished sets;
   // we hand it the wire-facing side-effects. Hooks take the ENCODED host string
@@ -197,6 +256,9 @@ export function useAttention(deps: AttentionDeps): {
   // even when no surface has read a pip yet, because attention must reach you
   // on a host you are not looking at. This module is a CONSUMER of that mirror.
   useAttentionFacts();
+  // …and the CONDUCTOR mirror, for the same reason: a conversation blocked
+  // on a host nobody is looking at is exactly the one that has to reach you.
+  useConductorFacts();
 
   // Feed every host's attention frame to the engine, off the marks store. One
   // owner per marked host (so a host leaving the pool disposes its engine state
@@ -263,7 +325,10 @@ export function useAttention(deps: AttentionDeps): {
       paintBadge(0);
       return;
     }
-    paintBadge(liveAskingTotal());
+    // Σ asking over LIVE hosts, PLUS the conversations waiting on a question.
+    // One number on the icon, because there is one OS slot and a person
+    // counting two badges has to add them anyway.
+    paintBadge(liveAskingTotal() + conductorAsksTotal());
   });
 
   // The violet-capsule JUMP verb (see `attentionNav`): switch to the host, then
@@ -293,6 +358,11 @@ export function useAttention(deps: AttentionDeps): {
         .with({ kind: "host" }, ({ host, id }) => {
           setActiveHost(decodeHostKey(host));
           deps.activate(id);
+        })
+        .with({ kind: "conductor" }, () => {
+          // No terminal to focus and no host to switch to — the question
+          // belongs to the one conversation, so the click just opens it.
+          enterConductorMode();
         })
         .exhaustive(),
     ),

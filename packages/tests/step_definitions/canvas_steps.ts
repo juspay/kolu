@@ -1518,9 +1518,24 @@ Then("no canvas tile should be maximized", async function (this: KoluWorld) {
 When(
   "I click the chrome-bar maximize toggle",
   async function (this: KoluWorld) {
-    const button = this.page.locator('[data-testid="maximize-toggle"]');
-    await button.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-    await button.click();
+    // The lone maximize/restore BUTTON became one segment of the two-way
+    // `canvas · maximized` control (the conductor is its own entry in the
+    // tab row, never a view mode), and a segment is not a toggle: clicking
+    // `maximized` while
+    // already maximized is a no-op, which is right for a segmented control and
+    // wrong for a step whose scenario says "switches BETWEEN". So the step
+    // presses the OTHER segment — the gesture it always meant, now that the
+    // widget spells the two postures separately.
+    const maximized = this.page.locator('[data-testid="mode-maximized"]');
+    await maximized.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const already = (await maximized.getAttribute("data-active")) !== null;
+    await this.page
+      .locator(
+        already
+          ? '[data-testid="mode-canvas"]'
+          : '[data-testid="mode-maximized"]',
+      )
+      .click();
     await this.waitForFrame();
   },
 );
@@ -1662,3 +1677,47 @@ Then(
     );
   },
 );
+
+/** THE PAGE ITSELF NEVER SCROLLS.
+ *
+ *  kolu's root is `height: var(--app-h, 100dvh)` and every layer under it is a
+ *  flex child that must size to the viewport; the workspace's own scrolling
+ *  belongs to the panes INSIDE it (the dock's list, a transcript, a terminal's
+ *  scrollback). A document that scrolls means some layer stopped floating at
+ *  its content — a missing `min-h-0`, or a wrapper that became a scroll
+ *  container because `overflow-x: hidden` beside an unset `overflow-y`
+ *  computes to `overflow-y: auto`.
+ *
+ *  The offenders are reported, not just the number: "the page scrolls" is not
+ *  actionable, and the element whose box runs past the viewport is. */
+Then("the page should not scroll", async function (this: KoluWorld) {
+  const seen = await this.page.evaluate(() => {
+    const root = document.documentElement;
+    const past: string[] = [];
+    for (const el of Array.from(document.querySelectorAll("*"))) {
+      const box = el.getBoundingClientRect();
+      if (box.height > 40 && box.bottom > window.innerHeight + 2) {
+        past.push(
+          `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 70)} bottom=${Math.round(box.bottom)}`,
+        );
+      }
+    }
+    return {
+      scrollHeight: root.scrollHeight,
+      clientHeight: root.clientHeight,
+      scrollWidth: root.scrollWidth,
+      clientWidth: root.clientWidth,
+      past: past.slice(0, 5),
+    };
+  });
+  assert.equal(
+    seen.scrollHeight,
+    seen.clientHeight,
+    `the document is ${seen.scrollHeight}px tall in a ${seen.clientHeight}px window — ${seen.past.join(" · ") || "no single element runs past the fold, so the overflow is a wrapper's own box"}`,
+  );
+  assert.equal(
+    seen.scrollWidth,
+    seen.clientWidth,
+    `the document is ${seen.scrollWidth}px wide in a ${seen.clientWidth}px window`,
+  );
+});

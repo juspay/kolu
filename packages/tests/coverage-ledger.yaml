@@ -3511,3 +3511,245 @@ retirements:
       file: packages/tests/features/session-restore.feature
       symbol: "Scenario: Restore card surfaces resumable agents behind a global resume toggle"
       test: The renamed scenario still asserts the resume toggle and the per-terminal agent lines; it now plants structured restore targets instead of captured commands.
+  - id: revise-9e52cad41649090598e9
+    revisionId: revision-9e52cad41649090598e9
+    action: revised
+    status: landed
+    promise: Entering the conductor gives the conversation the main pane
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-037b2229805e950035c4]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: Entering the conductor gives the chat the whole workspace"
+      test: Same chord, same enter-and-leave journey. Two steps changed because the surfaces they named stopped existing - the mode control's third segment is now the chrome bar's own entry, and the dock is no longer mounted beside the chat (the view is chat only), so "the dock should be a sidebar" asserted a layout the product deliberately deleted. The survivor measures the pane's own box instead, which is the honest form of the same promise.
+  - id: revise-38206b3222619ff37c70
+    revisionId: revision-38206b3222619ff37c70
+    action: revised
+    status: landed
+    promise: A question the agent asks is answered from the transcript and counted on the badge
+    defectSurface: [conductor, attention-alerts]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-2ceb530d1e89061648f2]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: A question the agent asks is answered from the transcript"
+      test: Identical elicitation round trip and identical badge arithmetic; only where the badge is READ moved, from the deleted `mode-conductor` segment to the `conductor-tab` entry that replaced it. The count, the answer and the come-off-at-zero rule are unchanged.
+  - id: revise-f6aacaa497187c947b76
+    revisionId: revision-f6aacaa497187c947b76
+    action: revised
+    status: landed
+    promise: An unanswered question is counted where the conductor has no pane
+    defectSurface: [conductor, attention-alerts]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-892646fe7d7ab987fc33]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: An unanswered question is a needs-you source from the tab row"
+      test: The same claim with its name corrected — the conductor is no longer a view MODE that canvas and maximized sit beside, so "in canvas mode" named a thing the product does not have. Leaving the conversation for a host tab is the same state the old wording meant, and the badge is still read with the pane unmounted.
+  - id: revise-9dfd9e5c62cf86fb1f40
+    revisionId: revision-9dfd9e5c62cf86fb1f40
+    action: revised
+    status: landed
+    promise: A terminal the conductor touched can be reached from the conversation
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-a523c7611706b48540cb]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: A tool card names the host it acted on, and opens that tile"
+      test: The fleet list and the peek pane this revision clicked through are DELETED with the one-conversation cutover — the view is chat only, and a terminal is reached by switching to the host tab it lives on. No coverage is orphaned, because the surviving scenario makes the same journey through the affordance that replaced them, pressing the tool card's "open tile" and asserting the conversation is left and that terminal's tile is the focused one.
+
+  # ── ORCHESTRATOR → CONDUCTOR (#2350) ──────────────────────────────────────
+  # The feature was renamed, so every scenario in this file was renamed with
+  # it: the steps name `conductor-*` test ids, `◆ Conductor` labels and the
+  # `/conductor` doc page. Not one PROMISE moved. Each row below retires the
+  # revision that spelled the old word and names the survivor that spells the
+  # new one, scenario for scenario — the body hash changed because the
+  # vocabulary did, and nothing else.
+  - id: revise-a52d0ecace17458462d9
+    revisionId: revision-a52d0ecace17458462d9
+    action: revised
+    status: landed
+    promise: A kolu tool call is drawn as a card that knows what it means
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-0027db5b2a4c0f7da48e]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: A kolu tool call is drawn as a card that knows what it means"
+      test: Same journey, same assertions; the tool-card test ids it reads were renamed from `orchestrator-*` to `conductor-*` with the feature.
+  - id: revise-92a17e1263298b1949f9
+    revisionId: revision-92a17e1263298b1949f9
+    action: revised
+    status: landed
+    promise: A message sent while the agent is working is marked queued
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-64bcd5effd3e47ca803b]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: A message sent while the agent is working is marked queued"
+      test: Identical queueing round trip; only the composer and row test ids it names were renamed with the feature.
+  - id: revise-c09045f6b3924ce718d8
+    revisionId: revision-c09045f6b3924ce718d8
+    action: revised
+    status: landed
+    promise: A prompt round trip draws the agent's answer
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-cbb87cd8f78cfc96f063]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: A prompt round trip draws the agent's answer"
+      test: The same prompt-and-answer round trip through the same fixture agent; the steps spell the renamed entry and the renamed transcript test ids.
+  - id: revise-4223b74892f6085a3dda
+    revisionId: revision-4223b74892f6085a3dda
+    action: revised
+    status: landed
+    promise: An agent that refuses the turn leaves the conversation ready
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-e18922e436e8e1b8a4e7]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: An agent that refuses the turn leaves the conversation ready"
+      test: The same refusal and the same ready-again composer; the refusal row's test id was renamed with the feature.
+  - id: revise-f11c067d0344d246b5df
+    revisionId: revision-f11c067d0344d246b5df
+    action: revised
+    status: landed
+    promise: An unrecognised tool gets the generic card, never a kolu one
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-bf83cd06690548a9061c]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: An unrecognised tool gets the generic card, never a kolu one"
+      test: The same negative claim about an unknown tool name; only the card test ids it reads were renamed with the feature.
+  - id: revise-2c63575bd25adc023a69
+    revisionId: revision-2c63575bd25adc023a69
+    action: revised
+    status: landed
+    promise: The transcript comes back after a reload
+    defectSurface: [conductor, session-restore]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-fda4f73801aaec97ac3d]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: The transcript comes back after a reload"
+      test: The same reload and the same restored rows, through the same persisted record — which this PR MIGRATES rather than drops, so the claim is if anything stronger than when it was written.
+  - id: revise-6d05e7646e06aafa97da
+    revisionId: revision-6d05e7646e06aafa97da
+    action: revised
+    status: landed
+    promise: The agent really has hold of kolu's own MCP server
+    defectSurface: [conductor, mcp]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-dfc6530bce870f85d617]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: The agent really has hold of kolu's own MCP server"
+      test: The same loopback MCP face, the same tool list; the MCP vocabulary is deliberately untouched by the rename and the steps differ only in the entry they open.
+  - id: revise-cc25a6338729d5a31b5e
+    revisionId: revision-cc25a6338729d5a31b5e
+    action: revised
+    status: landed
+    promise: A pasted image rides the message as an attachment
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-3cfd611fac0fb16f497d]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: A pasted image rides the message as an attachment"
+      test: The same paste, the same chip and the same bytes beside the record; the attachment test ids and the on-disk directory were renamed with the feature.
+  - id: revise-1b37af1f846b515ac92f
+    revisionId: revision-1b37af1f846b515ac92f
+    action: revised
+    status: landed
+    promise: A question the agent asks is answered from the transcript
+    defectSurface: [conductor, attention-alerts]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-2ceb530d1e89061648f2]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: A question the agent asks is answered from the transcript"
+      test: Identical elicitation round trip and identical badge arithmetic; the ask and badge test ids were renamed with the feature.
+  - id: revise-a34c7a8165e860b824c1
+    revisionId: revision-a34c7a8165e860b824c1
+    action: revised
+    status: landed
+    promise: A tool card names the host it acted on, and opens that tile
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-a523c7611706b48540cb]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: A tool card names the host it acted on, and opens that tile"
+      test: The same open-tile journey off the same card; the card's host and open-tile test ids were renamed with the feature.
+  - id: revise-889b840830609ad8212b
+    revisionId: revision-889b840830609ad8212b
+    action: revised
+    status: landed
+    promise: An unanswered question is a needs-you source from the tab row
+    defectSurface: [conductor, attention-alerts]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-892646fe7d7ab987fc33]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: An unanswered question is a needs-you source from the tab row"
+      test: The same badge read with the pane unmounted; only the tab-row entry's test id and label were renamed with the feature.
+  - id: revise-bda94bd6c2bb3a7c5305
+    revisionId: revision-bda94bd6c2bb3a7c5305
+    action: revised
+    status: landed
+    promise: Entering the orchestrator gives the chat the whole workspace
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-037b2229805e950035c4]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: Entering the conductor gives the chat the whole workspace"
+      test: The same chord, the same enter-and-leave journey and the same pane measurement. The scenario's own title carried the feature's old name, so the rename reaches the sentence as well as the steps.
+  - id: revise-4c2ed93f1ef9b0f21b9d
+    revisionId: revision-4c2ed93f1ef9b0f21b9d
+    action: revised
+    status: landed
+    promise: The orchestrator entry is a destination, not a host
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-e5451c12f0c4b78e7ddc]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: The conductor entry is a destination, not a host"
+      test: The same claim that the entry is not in the host map and never becomes the active host; the title and the entry's label carried the old name and now carry the new one.
+  - id: revise-0d1ed16ba5857ebf027c
+    revisionId: revision-0d1ed16ba5857ebf027c
+    action: revised
+    status: landed
+    promise: The agent reads this fleet's terminals through kolu's own MCP face
+    defectSurface: [conductor, mcp]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-7f6cf1dd0bc7ac3ebdcc]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: The agent reads this fleet's terminals through kolu's own MCP face"
+      test: The same fleet read over the same loopback face; the MCP tool and resource names are deliberately unchanged and the steps differ only in the entry they open.

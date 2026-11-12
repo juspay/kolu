@@ -388,7 +388,12 @@ describe("padi's own migration ladder", () => {
       session: { terminals: Record<string, unknown>[] };
       __internal__: { migrations: { version: string } };
     };
-    expect(onDisk.__internal__.migrations.version).toBe("1.3.0");
+    // The ladder always runs to its LAST rung, so this is the schema version
+    // of the day rather than the era this rung belongs to — hardcoding a
+    // number here just means the next rung breaks a test about an older one.
+    expect(onDisk.__internal__.migrations.version).toBe(
+      PADI_STATE_SCHEMA_VERSION,
+    );
     expect(onDisk.session.terminals[0]).not.toHaveProperty("agents");
   });
 

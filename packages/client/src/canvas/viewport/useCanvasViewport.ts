@@ -1,4 +1,4 @@
-/** Canvas viewport orchestrator — singleton state that wires together
+/** Canvas viewport conductor — singleton state that wires together
  *  gesture input, transform math, and CSS coordinate generation.
  *
  *  Consumers import only this module. The three internal modules

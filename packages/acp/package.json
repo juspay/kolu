@@ -1,0 +1,30 @@
+{
+  "name": "@kolu/acp",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "//exports": "Three entries, DISJOINT. `./wire` is the vocabulary WITHOUT the payload readers — the ask and diff shapes travel kolu's wire, so the surface declaration that carries an orchestrator's transcript imports them from here. The main entry is the projections over the protocol's own payloads, which only `@kolu/acp-harness` has any business reading; it does not re-offer the wire shapes, because everyone who wants those has them on `./wire` and a second door to the same word is a door somebody eventually uses. `./engine` is the third and it is a door for a DIFFERENT reader: what one AGENT INTEGRATION hands over — the leg that reads its wire, the adapter that starts it, the sentence for a machine that has not installed it.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./wire": "./src/wire.ts",
+    "./engine": "./src/engine.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
+  },
+  "//dependencies": "A LEAF that speaks ACP: `effect` for the schemas the wire half is declared in, and the protocol SDK for the payload TYPES the projections read — type-only imports, so no zod and no runtime SDK code enters this package's closure (the subprocess that runs the protocol lives in `@kolu/acp-harness`, which is where the SDK's runtime and its zod peer stay declared). No @kolu/* sibling, deliberately: the domain's words must not enter — this package refuses in its own `Refused`, and the harness translates at the seam. Machine-checked by src/manifest.test.ts, not remembered. The versions are LITERAL rather than `catalog:` because olai vendors this directory and installs its manifest from its own workspace, where kolu's catalog does not exist (see packages/tests/governance/vendorEntries.ts).",
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^1.3.0",
+    "effect": "4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}

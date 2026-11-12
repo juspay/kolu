@@ -800,6 +800,15 @@ reach for as by what it owns:
   points strictly OUT. The few facts the server knows about itself are INJECTED at
   boot (`setKoluServerProcessId` · `setSpawnServerVersion`), never imported, so no
   edge ever points back in.
+- **The conductor.** The ACP conversation kolu drives its terminals from is
+  kolu-server's, not padi's: ONE conversation for the whole fleet, whose hands
+  are the kolu MCP tool list lifted over kolu-server's host map, reaching each
+  host through the padi client it already holds. padi therefore spawns no child
+  but its kaval, bakes no adapter or MCP binary into its wrapper, and carries
+  no transcript — the record lives in kolu-server's state store. A padi that
+  kept writing one would be a second, divergent copy of a conversation it does
+  not host. What padi owes the fleet face is exactly `padiSurface`, which it
+  already serves to every other client.
 - **The app logger.** padi has its OWN identity-free pino logger (`./log.ts`): it
   mirrors kolu-server's level/format but does not import the server's
   `hostname.ts` identity base, so the arrow is `@kolu/padi → pino`, never back into

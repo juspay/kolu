@@ -98,6 +98,8 @@ let
   # `mkWorkspaceClosure`), so a renamed package or a mis-keyed entry fails every
   # `nix eval` loudly instead of silently orphaning its dependency edges.
   rawMembers = {
+    "@kolu/acp" = ../packages/acp;
+    "@kolu/acp-harness" = ../packages/acp-harness;
     "@kolu/surface" = ../packages/surface;
     "@kolu/surface-map" = ../packages/surface-map;
     "@kolu/surface-cli" = ../packages/surface-cli;
@@ -143,6 +145,7 @@ let
     "kaval" = ../packages/kaval;
     "kaval-tui" = ../packages/kaval-tui;
     "kolu-cli" = ../packages/kolu-cli;
+    "kolu-conductor" = ../packages/conductor;
     "kolu-mcp" = ../packages/kolu-mcp;
     "@kolu/padi" = ../packages/padi;
     "@kolu/padi-client" = ../packages/padi-client;
@@ -336,7 +339,7 @@ let
     pnpm = pkgs.pnpm-build;
     # Platform-independent. `just ci::pnpm-hash-fresh` forces this fetcher to
     # re-execute so a changed lockfile cannot ride a stale binary-cache result.
-    hash = "sha256-ySzJF2fSpE/bbpvmP7YcJMyFhXpDXTtTsvyhGVYQGW4=";
+    hash = "sha256-zBTTEj0pCp026ytp5JTQbs10YENTjSlhXD74e6hPSfs=";
     fetcherVersion = 3;
   };
 in

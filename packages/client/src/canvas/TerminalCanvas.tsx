@@ -426,7 +426,11 @@ const TerminalCanvas: Component<{
   ): JSX.Element {
     const active = () => tileStore.isActiveTile(tileId);
     const mode = (): CanvasTileMode =>
-      posture.mode() === "tiled" ? "tiled" : active() ? "maximized" : "covered";
+      posture.layout() === "tiled"
+        ? "tiled"
+        : active()
+          ? "maximized"
+          : "covered";
     return (
       <Show when={store.getDisplayInfo(terminalId)}>
         {(info) => (
@@ -486,103 +490,109 @@ const TerminalCanvas: Component<{
           onOpenWorkspaceSearch={props.onOpenWorkspaceSearch}
           onCreate={props.onCreate}
         />
-        <div
-          ref={(el) => viewport.setContainerRef(el, isWheelTargetTerminal)}
-          data-testid="canvas-container"
-          data-zoom={viewport.zoom()}
-          data-viewport={viewport.canvasTransform()}
-          class="flex-1 min-w-0 overflow-hidden relative canvas-grid-bg"
-          style={{
-            "background-position": viewport.gridBgPosition(),
-            "background-size": viewport.gridBgSize(),
-          }}
-          // Double-click the bare surface to open the "new terminal" flow —
-          // the same `onCreate` the dock's `+` reaches, so the empty canvas
-          // is itself an affordance for spawning a terminal. Guarded to the
-          // background (`target === currentTarget`): a double-click on a tile's
-          // BODY or on the minimap bubbles up here with `target !== currentTarget`,
-          // and the guard keeps create to the bare surface. (A title-bar
-          // double-click never reaches here — CanvasTile's own dblclick handler
-          // stopPropagation's after it maximizes.)
-          onDblClick={(e) => {
-            if (e.target === e.currentTarget) props.onCreate();
-          }}
-        >
-          {/* All tiles render in one stable list, every render. Pan/zoom
-           *  composes into each tile's own `transform` (CanvasTile), so
-           *  there's no wrapper transform — which means the active tile in
-           *  maximized mode can use `absolute inset-0 z-40` to cover the
-           *  canvas without a containing-block trap. Switching activeId in
-           *  maximized mode reduces to a CSS class reshuffle on already-
-           *  mounted tiles: no Terminal remount, no `document.fonts.load`,
-           *  no stream re-attach, no scrollback replay (#988).
-           *
-           *  `data-viewport` on `canvas-container` carries the pan/zoom-only
-           *  CSS string so tests can observe viewport state independently of
-           *  per-tile transforms (which also fold in layout coords + drag). */}
-          <For each={props.tileIds}>
-            {(id) => {
-              // The one content-kind dispatch: a tile renders by WHAT IT HOLDS,
-              // never by its liveness. `<Switch>` / `<Match when={kind === …}>`
-              // keys each arm on a STABLE boolean (not `match(content())`, which
-              // would re-create the tile subtree every tick), the same
-              // discipline App.tsx's canvas-mode <Switch> relies on. Today the
-              // only kind is `terminal`; PR 2 adds a `sleeping` arm here and
-              // inherits drag / resize / focus / active for free.
-              const content = () => tileStore.contentOf(id);
-              return (
-                <Show when={content()}>
-                  {(c) => (
-                    <Switch>
-                      <Match when={c().kind === "terminal" && c()}>
-                        {(terminal) =>
-                          renderTerminalTile(id, terminal().terminalId)
-                        }
-                      </Match>
-                    </Switch>
-                  )}
-                </Show>
-              );
+        {/* The viewport COLUMN. One shape, always — so the canvas element
+         *  below is created once for the life of the workspace: re-parenting
+         *  it would re-create every tile under it, and with them every xterm
+         *  buffer and every attach. */}
+        <div class="flex-1 min-w-0 min-h-0 flex flex-col">
+          <div
+            ref={(el) => viewport.setContainerRef(el, isWheelTargetTerminal)}
+            data-testid="canvas-container"
+            data-zoom={viewport.zoom()}
+            data-viewport={viewport.canvasTransform()}
+            class="flex-1 min-w-0 overflow-hidden relative canvas-grid-bg"
+            style={{
+              "background-position": viewport.gridBgPosition(),
+              "background-size": viewport.gridBgSize(),
             }}
-          </For>
+            // Double-click the bare surface to open the "new terminal" flow —
+            // the same `onCreate` the dock's `+` reaches, so the empty canvas
+            // is itself an affordance for spawning a terminal. Guarded to the
+            // background (`target === currentTarget`): a double-click on a tile's
+            // BODY or on the minimap bubbles up here with `target !== currentTarget`,
+            // and the guard keeps create to the bare surface. (A title-bar
+            // double-click never reaches here — CanvasTile's own dblclick handler
+            // stopPropagation's after it maximizes.)
+            onDblClick={(e) => {
+              if (e.target === e.currentTarget) props.onCreate();
+            }}
+          >
+            {/* All tiles render in one stable list, every render. Pan/zoom
+             *  composes into each tile's own `transform` (CanvasTile), so
+             *  there's no wrapper transform — which means the active tile in
+             *  maximized mode can use `absolute inset-0 z-40` to cover the
+             *  canvas without a containing-block trap. Switching activeId in
+             *  maximized mode reduces to a CSS class reshuffle on already-
+             *  mounted tiles: no Terminal remount, no `document.fonts.load`,
+             *  no stream re-attach, no scrollback replay (#988).
+             *
+             *  `data-viewport` on `canvas-container` carries the pan/zoom-only
+             *  CSS string so tests can observe viewport state independently of
+             *  per-tile transforms (which also fold in layout coords + drag). */}
+            <For each={props.tileIds}>
+              {(id) => {
+                // The one content-kind dispatch: a tile renders by WHAT IT HOLDS,
+                // never by its liveness. `<Switch>` / `<Match when={kind === …}>`
+                // keys each arm on a STABLE boolean (not `match(content())`, which
+                // would re-create the tile subtree every tick), the same
+                // discipline App.tsx's canvas-mode <Switch> relies on. Today the
+                // only kind is `terminal`; PR 2 adds a `sleeping` arm here and
+                // inherits drag / resize / focus / active for free.
+                const content = () => tileStore.contentOf(id);
+                return (
+                  <Show when={content()}>
+                    {(c) => (
+                      <Switch>
+                        <Match when={c().kind === "terminal" && c()}>
+                          {(terminal) =>
+                            renderTerminalTile(id, terminal().terminalId)
+                          }
+                        </Match>
+                      </Switch>
+                    )}
+                  </Show>
+                );
+              }}
+            </For>
 
-          <Show when={viewport.mounted()}>
-            {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
-             *  since there's nothing spatial to summarize. */}
-            <div
-              classList={{ hidden: posture.mode() !== "tiled" }}
-              inert={posture.mode() !== "tiled"}
-            >
-              <CanvasMinimap
-                shown={posture.mode() === "tiled"}
-                tileIds={props.tileIds}
-                getLayout={layoutOf}
-                onSelect={props.onSelect}
-                onAutoArrange={props.onAutoArrange}
-                onStartTileDrag={(id) => {
-                  const origin = layoutOf(id);
-                  if (!origin) return null;
-                  return {
-                    preview: (dx, dy) =>
-                      setPendingLayout(id, {
-                        ...origin,
-                        x: origin.x + dx,
-                        y: origin.y + dy,
-                      }),
-                    commit: (dx, dy) => {
-                      const next: TileLayout = {
-                        ...origin,
-                        x: viewport.snapToGrid(origin.x + dx),
-                        y: viewport.snapToGrid(origin.y + dy),
-                      };
-                      setPendingLayout(id, next);
-                      props.onLayoutChange(id, next);
-                    },
-                  };
-                }}
-              />
-            </div>
-          </Show>
+            <Show when={viewport.mounted()}>
+              {/* Minimap: spatial dashboard; hides in fullscreen-single-tile mode
+               *  since there's nothing spatial to summarize. */}
+              <div
+                classList={{ hidden: posture.layout() !== "tiled" }}
+                inert={posture.layout() !== "tiled"}
+              >
+                <CanvasMinimap
+                  shown={posture.layout() === "tiled"}
+                  tileIds={props.tileIds}
+                  getLayout={layoutOf}
+                  onSelect={props.onSelect}
+                  onAutoArrange={props.onAutoArrange}
+                  onStartTileDrag={(id) => {
+                    const origin = layoutOf(id);
+                    if (!origin) return null;
+                    return {
+                      preview: (dx, dy) =>
+                        setPendingLayout(id, {
+                          ...origin,
+                          x: origin.x + dx,
+                          y: origin.y + dy,
+                        }),
+                      commit: (dx, dy) => {
+                        const next: TileLayout = {
+                          ...origin,
+                          x: viewport.snapToGrid(origin.x + dx),
+                          y: viewport.snapToGrid(origin.y + dy),
+                        };
+                        setPendingLayout(id, next);
+                        props.onLayoutChange(id, next);
+                      },
+                    };
+                  }}
+                />
+              </div>
+            </Show>
+          </div>
         </div>
       </div>
     </DragDropProvider>

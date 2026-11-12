@@ -31,6 +31,7 @@ export const DOC_SLUGS = [
   "mobile",
   "notifications",
   "operations",
+  "conductor",
   "padi",
   "philosophy",
   "power-features",

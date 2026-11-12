@@ -56,10 +56,17 @@ export interface ActionContext {
   toggleRightPanel: () => void;
   toggleDock: () => void;
   /** Flip the canvas between tiled and maximized posture. Wired to
-   *  `useViewPosture().toggle`, whose own write guard makes it a no-op
-   *  off the spatial canvas (mobile / narrow) or with zero terminals — so
-   *  the keybind needs no extra guard. */
+   *  `useViewPosture().toggle`, whose own write guard makes the POSTURE write
+   *  a no-op off the spatial canvas (mobile / narrow) or with zero terminals —
+   *  so the keybind needs no extra guard. The chord still leaves the
+   *  conductor everywhere, which is the one thing a hardware keyboard on a
+   *  phone can act on. */
   toggleCanvasPosture: () => void;
+  /** Select the conductor's entry in the tab row, or go back to the host
+   *  tab you were on. A round trip: the host tab's selection is a separate
+   *  value and is never touched, so the second press lands where the first
+   *  one left. */
+  toggleConductor: () => void;
   toggleRecordingPause: () => void;
 }
 
@@ -363,6 +370,17 @@ const _ACTIONS = {
     // `prohibitedKeybinds.ts` (Ctrl+B, Ctrl+J).
     keybind: { key: "M", code: "KeyM", modifier: "cmdOrCtrl", shift: true },
     handler: (ctx) => ctx.toggleCanvasPosture(),
+  },
+  toggleConductor: {
+    label: "Conductor",
+    // `"app"` with an explicit `shift`, NOT `modifier: "cmdOrCtrl"`: that form
+    // resolves to Ctrl+Shift+O off macOS, which `prohibitedKeybinds.ts` holds
+    // for omp's tool-activity toggle inside a kolu PTY. The `app` modifier is
+    // ⌘ on macOS and Super elsewhere, so the chord is ⌘⇧O / Super+Shift+O and
+    // Ctrl+Shift+O keeps reaching the terminal. (⌘⇧M is already the posture
+    // toggle; O is for conductor.)
+    keybind: { key: "O", code: "KeyO", modifier: "app", shift: true },
+    handler: (ctx) => ctx.toggleConductor(),
   },
   toggleRecordingPause: {
     label: "Pause / resume recording",

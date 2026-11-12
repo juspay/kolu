@@ -783,6 +783,16 @@ function composeE2eServerEnv(): Record<string, string> {
  *  server respawns a worker makes). */
 const agentDistroFixture = agentDistroFixtureEnv();
 
+/** The scripted ACP agent the conductor's scenarios run against. An
+ *  absolute path, never a bare name: a production kolu BAKES this variable
+ *  with a store path, and the one thing a from-source e2e must not do is
+ *  depend on whatever the PTY's PATH happens to resolve
+ *  (`skill://e2e-testing`'s third rule). */
+const acpFixtureAgent = path.resolve(
+  import.meta.dirname,
+  "acp-fixture-agent.ts",
+);
+
 async function startServerChild(koluServer: string): Promise<void> {
   // Refuse a destructive ssh-leg bind BEFORE spawning the child — the spawn itself is
   // destructive, so the ack cannot wait until after (P2/F1).
@@ -827,7 +837,7 @@ async function startServerChild(koluServer: string): Promise<void> {
         stdio: "pipe",
         env: {
           // Composed from a NAMED base (shared spawn allowlist + devshell/runtime
-          // keys), NOT a wholesale `...process.env` — so an orchestrator's ambient
+          // keys), NOT a wholesale `...process.env` — so a conductor's ambient
           // identity vars (CLAUDE_CODE_*, #1872) that leaked into the harness can't
           // ride into the server → padi → and muddy agent-detection scenarios.
           ...composeE2eServerEnv(),
@@ -899,6 +909,19 @@ async function startServerChild(koluServer: string): Promise<void> {
           ...(process.env.KOLU_E2E_PADI_HOST_SEED
             ? { KOLU_PADI_HOST: process.env.KOLU_E2E_PADI_HOST_SEED }
             : {}),
+          // THE CONDUCTOR'S ADAPTER. kolu-server hosts the one conversation
+          // now, so the nix wrapper that bakes `KOLU_ACP_AGENT` is `koluBin` —
+          // the very binary this harness spawns — and a from-source e2e run has
+          // no wrapper at all, so the value has to arrive here. It is the
+          // scripted ACP agent in `support/`, run through this node: the
+          // conductor the browser talks to is a real subprocess speaking the
+          // real protocol, not a stubbed store. The bake is `--set-default`
+          // precisely so this line wins.
+          //
+          // `KOLU_MCP_BIN` is GONE with the hosting move: the session's one MCP
+          // server is kolu-server's own loopback HTTP face, so there is no
+          // `kolu mcp` child to name and no path to forward.
+          KOLU_ACP_AGENT: `${process.execPath} ${acpFixtureAgent}`,
         },
       },
     );

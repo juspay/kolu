@@ -28,15 +28,21 @@ import {
   copyFileSync,
   existsSync,
   mkdtempSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { openStateBackupRing } from "kolu-shared/state-backup";
 import Conf from "conf";
 import { Result, Schema } from "effect";
 import { PersistedHostsSchema } from "kolu-common/hostKey";
+import {
+  EMPTY_PERSISTED_CONDUCTOR,
+  PersistedConductorSchema,
+  repointConductorAttachments,
+} from "kolu-conductor";
 import {
   DEFAULT_PREFERENCES,
   type Preferences,
@@ -304,12 +310,18 @@ export function migratePreferences_1_34_0(
  *  hand-corrupted list fails loud, never silently normalized. `viewerMode` is the LAST
  *  reading a browser reported of its OS light/dark leaning — remembered so a headless
  *  face (MCP, CLI) creating a terminal on a server no browser has dialled yet still
- *  resolves an "auto" shuffle against a real answer. Adding a new domain key
- *  requires a migration entry below. */
+ *  resolves an "auto" shuffle against a real answer. `conductor` is the ONE
+ *  conversation's resumable half — the session id, the directory it was opened
+ *  in, the model a person chose, the transcript's tail and the fleet it
+ *  touched. It is never a served cell (the `conductor` cell is assembled
+ *  from the LIVE agent); this is only what a restart has to start from, and it
+ *  lives here because kolu-server HOSTS the conversation. Adding a new domain
+ *  key requires a migration entry below. */
 const PersistedStateSchema = Schema.Struct({
   preferences: PreferencesSchema,
   hosts: PersistedHostsSchema,
   viewerMode: ViewerModeSchema,
+  conductor: PersistedConductorSchema,
 });
 
 /** The DECODED disk shape. Effect's `Struct.Type` is deep-`readonly`; `Conf` is
@@ -360,7 +372,7 @@ function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.43.0";
+const SCHEMA_VERSION = "1.45.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -412,6 +424,40 @@ stateBackupRing.snapshot();
  *  Harmless when the key is absent. */
 function deleteLegacyKey(store: Conf<PersistedState>, key: string): void {
   (store as unknown as { delete: (key: string) => void }).delete(key);
+}
+
+/** Move a value off a key that is no longer in `PersistedStateSchema` onto the
+ *  key that replaced it — the conf-ladder idiom for RENAMING one. The source
+ *  key is outside the typed schema, so the raw store is reached the same way
+ *  {@link deleteLegacyKey} reaches it.
+ *
+ *  The value crosses VERBATIM: a rename is not a shape change, and the
+ *  destination's own reader re-validates what it finds (and crashes naming the
+ *  file if it is wrong), so decoding here would only move that check earlier
+ *  and turn a readable record into a failed boot.
+ *
+ *  THE LEGACY KEY'S PRESENCE IS THE WHOLE TEST, and it has to be: `conf`
+ *  merges `defaults` into every read, so the destination always LOOKS
+ *  present and "write it only if absent" would never write at all. It is
+ *  also the right test on its own terms — a file still carrying the old key
+ *  has not walked this rung, so what sits under the new name is either
+ *  nothing or the empty record the previous rung seeded, and the old key is
+ *  the only real conversation on the disk. The legacy key is then deleted, so
+ *  a second walk finds nothing to move and no stale copy is left behind. */
+function renameLegacyKey(
+  store: Conf<PersistedState>,
+  from: string,
+  to: keyof PersistedState & string,
+): void {
+  // The one unchecked step, named: Conf's typed accessors reject `from`
+  // outright, and this is the only reader of a key the schema has retired.
+  const raw = store as unknown as {
+    get: (key: string) => unknown;
+    set: (key: string, value: unknown) => void;
+  };
+  const held = raw.get(from);
+  if (held !== undefined) raw.set(to, held);
+  deleteLegacyKey(store, from);
 }
 
 /** The keys the 1.31.0 BURIAL strips off this store — `session`/`activityFeed`
@@ -474,6 +520,11 @@ const CONF_DEFAULTS: PersistedState = {
   // resolves an "auto" shuffle exactly as a default install does. The 1.36.0
   // migration seeds it onto an existing file for the same on-disk-shape reason.
   viewerMode: "dark",
+  // The ONE conversation, empty. A fresh install has nothing to resume; the
+  // 1.44.0 migration seeds this onto an existing file for the same
+  // on-disk-shape reason the two keys above give, and 1.45.0 carries a record
+  // already written under the conversation's old name across to this key.
+  conductor: EMPTY_PERSISTED_CONDUCTOR,
 };
 
 /** The migration ladder — hoisted so {@link decodeStateBackup}'s scratch
@@ -943,6 +994,87 @@ const CONF_MIGRATIONS = {
       migratePreferences_1_43_0(
         store.get("preferences") as Record<string, unknown>,
       ) as unknown as Preferences,
+    );
+  },
+  // The CONDUCTOR moves in. kolu-server hosts kolu's one supervising
+  // conversation now — one conversation over every host, rather than one per
+  // padi — so the resumable half of it (session id, cwd, chosen model, the
+  // transcript's tail, the fleet it touched) is a key on THIS store. Seed the
+  // empty record onto an existing file so its on-disk shape matches
+  // `PersistedStateSchema` exactly; conf's `defaults` already merges it on
+  // read, so this honours the "persisted-shape change ⇒ ladder step" rule
+  // (dev/skills/state/SKILL.md) rather than adding behaviour.
+  //
+  // IT SEEDS, IT DOES NOT IMPORT. padi's own `1.5.0` rung DELETES the matching
+  // key from each host's state-root, and nothing is carried across: that
+  // record was written by a different process, against a different `$HOME` and
+  // a different MCP server, so a session id copied here would be one this
+  // conversation cannot load and a transcript copied here would claim a
+  // conversation that is not coming back. The conversation padi hosted never
+  // shipped in a release, so the only transcripts this declines to inherit are
+  // ones a development build wrote.
+  //
+  // NUMBERED 1.44.0 rather than 1.43.0: master took that rung for `hostOrder`
+  // while this branch was open, and two rungs with one number is a store that
+  // runs whichever handler the object literal happened to keep.
+  "1.44.0": (store: Conf<PersistedState>) => {
+    if (!store.has("conductor")) {
+      store.set("conductor", EMPTY_PERSISTED_CONDUCTOR);
+    }
+  },
+  // The conversation is RENAMED: it is the Conductor, and the key it persists
+  // under is `conductor`. A store that walked 1.44.0 while this branch was
+  // still calling it the orchestrator holds the SAME record under the old
+  // name, and that record is a real conversation — a session id a person can
+  // still resume, the transcript tail their chat reopens with, the fleet it
+  // touched. So this rung MOVES it rather than reseeding: dropping the old key
+  // and letting `defaults` supply an empty `conductor` would be a rename that
+  // silently ate somebody's chat, which is exactly the failure the ladder
+  // exists to prevent (dev/skills/state/SKILL.md).
+  //
+  // Shape-identical, so the value carries across verbatim — this is a key
+  // rename, not a schema change, and the record it moves is validated by the
+  // same `PersistedConductorSchema` it was written against. The OLD KEY'S
+  // PRESENCE is what decides: a file that still has it has not walked this
+  // rung, so what sits under the new name is nothing, or the empty record
+  // 1.44.0 seeded — never a conversation worth keeping over this one. The old
+  // key is deleted afterwards, so the file does not keep a stale copy of a
+  // conversation nothing reads.
+  //
+  // THE ATTACHMENTS MOVE WITH IT. The record keeps rows, and a user row may
+  // name a file this server wrote beside `config.json` — under the corner the
+  // conversation is named after. So the corner is renamed in the same step
+  // and the rows are re-pointed at it: leaving the directory behind would
+  // park a person's pasted screenshots where nothing sweeps and nothing
+  // writes, and moving it without re-pointing would leave every chip in the
+  // transcript naming an address that no longer exists. Both corners already
+  // present means a build has been writing to the new one — the files there
+  // are the live set, so the old corner is left alone rather than merged over
+  // it, and the paths stay true to where their bytes actually are.
+  //
+  // A failed move is WARNED about rather than thrown from, on the reasoning
+  // the conductor's own attachment sweep uses: what is at stake is disk, and
+  // refusing to boot over it would cost the conversation. The re-point is
+  // skipped with it, so the record keeps pointing at the bytes that are
+  // really there.
+  "1.45.0": (store: Conf<PersistedState>) => {
+    renameLegacyKey(store, "orchestrator", "conductor");
+    const root = dirname(store.path);
+    const from = join(root, "orchestrator");
+    const to = join(root, "conductor");
+    if (!existsSync(from) || existsSync(to)) return;
+    try {
+      renameSync(from, to);
+    } catch (err) {
+      log.warn(
+        { err, from, to },
+        "kolu-server: the conductor's attachments could not be moved to their new corner",
+      );
+      return;
+    }
+    store.set(
+      "conductor",
+      repointConductorAttachments(store.get("conductor"), from, to),
     );
   },
 };

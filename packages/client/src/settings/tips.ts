@@ -80,6 +80,16 @@ export const AMBIENT_TIPS: readonly Tip[] = [
     text: `${formatKeybind(ACTIONS.toggleSubPanel.keybind)} splits your terminal into a bottom pane`,
   },
   {
+    id: "amb-conductor",
+    text: `${formatKeybind(ACTIONS.toggleConductor.keybind)} opens the conductor — one conversation, across every host, that creates terminals, briefs the agents in them, watches them and answers their questions; its ◆ entry sits at the end of the tab row, and a tool card's "open tile" takes you to the terminal it names, wherever it lives`,
+    doc: "conductor",
+  },
+  {
+    id: "amb-conductor-attach",
+    text: "Paste a screenshot or drop a file into the conductor's composer and it rides along with your message — the agent sees the picture, not your description of it",
+    doc: "conductor",
+  },
+  {
     id: "amb-host-map",
     text: `Set KOLU_PADI_HOST=localhost,you@box to work across machines — a host strip appears in the top bar; click a host to switch the whole canvas to it live (no reload), each tab carrying that machine's whole attention summary, and ${formatKeybind(ACTIONS.openHostSwitcher.keybind)} then Enter hops back to the machine you came from`,
     doc: "remote-hosts",
@@ -199,7 +209,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-chrome-maximize",
-    text: `${formatKeybind(ACTIONS.toggleCanvasPosture.keybind)} (or the maximize toggle in the header, or ${formatKeybind(ACTIONS.commandPalette.keybind)} → "${posturedActionLabel("tiled")}" / "${posturedActionLabel("maximized")}") switches between the tiled canvas and maximized mode.`,
+    text: `${formatKeybind(ACTIONS.toggleCanvasPosture.keybind)} (or the ▢ maximized segment in the header's mode control, or ${formatKeybind(ACTIONS.commandPalette.keybind)} → "${posturedActionLabel("tiled")}" / "${posturedActionLabel("maximized")}") switches between the tiled canvas and maximized mode.`,
     doc: "canvas",
   },
   {

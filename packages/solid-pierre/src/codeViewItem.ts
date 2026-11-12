@@ -16,6 +16,14 @@
  *    callback so a malformed header surfaces in the same toast lane as
  *    Pierre's render-time throws — silent swallowing would leave a blank
  *    pane indistinguishable from "no diff for this file".
+ *  - `textDiffItem` is the other direction: an upstream that states a file's
+ *    change as its BEFORE and AFTER text rather than as a patch (the Agent
+ *    Client Protocol's `diff` content block does exactly this) has no unified
+ *    diff to hand `diffItems`. Pierre computes one itself, so the alternative
+ *    would be every such consumer serialising a patch by hand just to have it
+ *    parsed back — and `--- /dev/null` versus an empty old file is exactly
+ *    the kind of detail a hand-rolled serialiser gets wrong for one case in
+ *    ten. A `null` `oldText` is a file that did not exist before.
  *  - `fileItem` packages a filename + body string into Pierre's `FileContents`
  *    shape. */
 
@@ -23,6 +31,7 @@ import {
   type CodeViewDiffItem,
   type CodeViewFileItem,
   type FileDiffMetadata,
+  parseDiffFromFile,
   parsePatchFiles,
 } from "@pierre/diffs";
 import { toError } from "./toError";
@@ -97,3 +106,34 @@ export const fileItem = (
   type: "file",
   file: { name, contents, cacheKey: contentCacheKey(id, contents) },
 });
+
+/** One `CodeViewDiffItem` from a file's before/after TEXT.
+ *
+ *  `throwOnError` is left at Pierre's default rather than forced: the inputs
+ *  here are two strings the agent already sent, so there is no header to be
+ *  malformed — the failure mode `diffItems` guards with `onError` cannot
+ *  arise on this path, and a required callback nobody can trigger is a
+ *  parameter that teaches a reader the wrong thing.
+ *
+ *  The cache key hashes BOTH texts, so an agent that rewrites the same path
+ *  twice in one turn gets two highlight identities instead of a card still
+ *  painting its first snapshot. */
+export const textDiffItem = (
+  id: string,
+  path: string,
+  oldText: string | null,
+  newText: string,
+): CodeViewDiffItem => {
+  const fileDiff = parseDiffFromFile(
+    oldText === null ? null : { name: path, contents: oldText },
+    { name: path, contents: newText },
+  );
+  return {
+    id,
+    type: "diff",
+    fileDiff: {
+      ...fileDiff,
+      cacheKey: contentCacheKey(id, `${oldText ?? ""}\u0000${newText}`),
+    },
+  };
+};

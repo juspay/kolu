@@ -29,7 +29,7 @@ import {
 import { log } from "../log.ts";
 import type { PairedDaemon } from "./pairedDaemon.ts";
 
-/** padi's on-disk shape — the three keys padi owns under its state-root, plus the
+/** padi's on-disk shape — the keys padi owns under its state-root, plus the
  *  one-shot import marker. */
 interface PadiPersistedState {
   session: SavedSession | null;
@@ -41,7 +41,14 @@ interface PadiPersistedState {
 }
 
 /** padi's state schema version — the last step of {@link PADI_STATE_MIGRATIONS}. */
-export const PADI_STATE_SCHEMA_VERSION = "1.3.0";
+export const PADI_STATE_SCHEMA_VERSION = "1.5.0";
+
+/** Delete a key that is no longer in {@link PadiPersistedState} off the raw
+ *  store. Conf's typed `delete` rejects a key outside the current shape — which
+ *  is exactly the key a rung needs to remove — hence the double-cast. Harmless
+ *  when the key is already absent. */
+const deleteRetiredKey = (store: Conf<PadiPersistedState>, key: string): void =>
+  (store as unknown as { delete: (key: string) => void }).delete(key);
 
 /** The SESSION half of the ladder — ONE function behind three rungs. Every
  *  schema-era bump since 1.1.0 is expressed by the idempotent, presence-keyed
@@ -77,9 +84,28 @@ const backfillSavedSessionIn = (store: Conf<PadiPersistedState>): void => {
  *    is cleared: its old rows carried a captured `command` and cannot be
  *    converted, so it starts empty and refills from live detection. `recentRepos`
  *    is untouched by this rung.
+ *  - `1.4.0`: the ORCHESTRATOR arrived — one ACP conversation per state-root.
+ *    A no-op rung: `Conf`'s `defaults` already answered the absent key with the
+ *    empty record, and the rung existed only so the ladder, not a silent
+ *    addition, was what advanced `PADI_STATE_SCHEMA_VERSION`.
+ *  - `1.5.0`: the orchestrator LEAVES. The conversation is hosted by
+ *    kolu-server now — one conversation over every host, not one per padi — so
+ *    padi no longer owns a `orchestrator` key and the rung DELETES it. The key
+ *    is dropped rather than left to rot because a padi that kept writing it
+ *    would be a second, divergent transcript of a conversation it does not
+ *    host, and the next reader could not tell which of the two was the one a
+ *    person had been having.
  *
- *  The SESSION half of all three rungs is one function (`backfillSavedSessionIn`),
- *  by the recorded decision above; only 1.3.0's own era is spelled here. */
+ *    NOTHING IS CARRIED ACROSS. kolu-server seeds its own key empty (its
+ *    `1.43.0` rung); the rows under this one are not copied there. 1.4.0 never
+ *    shipped in a release, so the only transcripts this deletes are ones a
+ *    development build wrote — and a migration that moved a session id into a
+ *    DIFFERENT process's store would be claiming kolu-server can resume a
+ *    conversation whose `cwd` and MCP server were another daemon's.
+ *
+ *  The SESSION half of the first three rungs is one function
+ *  (`backfillSavedSessionIn`), by the recorded decision above; only 1.3.0's own
+ *  era is spelled here. */
 const PADI_STATE_MIGRATIONS: Record<
   string,
   (store: Conf<PadiPersistedState>) => void
@@ -98,6 +124,10 @@ const PADI_STATE_MIGRATIONS: Record<
     const feed = store.get("activityFeed");
     if (feed.recentAgents.length > 0)
       store.set("activityFeed", { ...feed, recentAgents: [] });
+  },
+  "1.4.0": () => {},
+  "1.5.0": (store) => {
+    deleteRetiredKey(store, "orchestrator");
   },
 };
 

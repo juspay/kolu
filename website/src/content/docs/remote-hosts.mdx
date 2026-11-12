@@ -310,6 +310,35 @@ Your own machine's tab is **pinned first** and is not draggable: it is the one
 host that can never leave the pool, and the escape hatch when a remote is down.
 Only remote tabs move, and nothing can be dropped before the local one.
 
+## One conductor, every host
+
+The canvas shows one host at a time; [the Conductor](/conductor) does not.
+There is exactly **one** of those conversations, it runs where kolu-server runs,
+and its tools reach every host in the pool: it opens a terminal on `prod`,
+types into one on your laptop, and watches both in the same subscription. A
+terminal is named `host/id` in that conversation, and the roster of machines is
+a live list the agent reads — add a host mid-turn and its terminals start
+arriving; drop one and the terminals it was carrying report themselves gone.
+Nothing restarts the conversation either way.
+
+Its place in the window says the same thing. The host strip is a row of
+machines; the `◆ Conductor` entry sits in that row **without being one of
+them** — no connection dot, no host hue, no tab chrome — because it is not a
+host and kolu does not model it as one. Selecting it opens the conversation
+(<kbd>⌘⇧O</kbd> does too, and takes you back); selecting any host chip leaves
+it for that machine. While it is open **no host tab is lit**: you are not on a
+machine, and a row that still showed one would be saying you were. Its badge is
+the violet needs-you count summed across every host, not one machine's.
+
+<Aside type="note" title="the supervisor lives where you look">
+  A remote host has **no conductor of its own**. While the machine running
+  kolu-server is off, nothing is supervising that host — its terminals keep
+  running (that is kaval's job and it is unaffected), but there is no agent
+  driving them until kolu-server is back. That is the deliberate trade for one
+  conversation covering the whole fleet rather than one conversation per
+  machine, each blind to the others.
+</Aside>
+
 ## When a host is down
 
 If a host's [padi](/padi) can't bind, its canvas is replaced by a card that names the cause

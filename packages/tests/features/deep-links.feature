@@ -132,7 +132,7 @@ Feature: Deep links — every view addressable by a #/… URL
   Scenario: A deep link clicked inside the Code-tab preview routes the parent app (DL2)
     # The felt proof for the whole bridge→router path: the sandboxed preview
     # can't navigate the parent, so the in-iframe SDK posts the `#/…` hash and
-    # the parent routes it — the orchestrator dashboard's lane pills become
+    # the parent routes it — the conductor dashboard's lane pills become
     # click-to-jump. The previewed HTML names its authoring terminal via its
     # own $KAVAL_TERMINAL_ID, so the pill targets a real terminal id.
     When I create a terminal

@@ -1,6 +1,6 @@
 /**
- * Padi-side holders for the three conf-backed cell stores the terminal domain
- * writes — `session`, `activityFeed`, and `lastPairedDaemon`.
+ * Padi-side holders for the conf-backed cell stores the terminal domain writes —
+ * `session`, `activityFeed` and `lastPairedDaemon`.
  *
  * Post-W2.2 padi owns its OWN `Conf` under its state-root. padi's own boot
  * (`daemonMain` → `openPadiStateStores`) builds those `confStore`-backed stores
