@@ -116,10 +116,10 @@ const MobileChromeSheet: Component<{
               pill's: the corner holds the needs-you count, and the tag is a
               constant rather than something that arrives. */}
           <span
-            data-testid="conductor-beta"
+            data-testid="conductor-alpha"
             class="rounded-sm bg-fg-3/15 px-1 py-px font-mono text-[0.6rem] font-semibold uppercase tracking-[0.08em] text-fg-3"
           >
-            beta
+            alpha
           </span>
           <Show when={conductorAsksTotal() > 0}>
             <span

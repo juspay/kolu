@@ -86,7 +86,7 @@ describe("computeVisibleHosts — overflow", () => {
  *  reports. Measured in the e2e lane (`features/conductor.feature`, the
  *  "minified 5 KB payload" scenario logs the row's geometry at four window
  *  widths): a host tab is 124px, the identity rail 28px, the `◆ Conductor
- *  beta` pill 138px (tag included — it is one measured box), the control
+ *  alpha` pill 145px (tag included — it is one measured box), the control
  *  cluster 397px, and the bar's own padding plus flex gaps 60px.
  *
  *  This is where the five-host fold is proved, because the e2e worker holds
@@ -98,10 +98,10 @@ describe("computeVisibleHosts — five hosts in the real chrome bar", () => {
   const CHIP = 124;
   const ADD_BUTTON_RESERVE = 38;
   const OVERFLOW_TRIGGER_RESERVE = 44;
-  /** The measured `◆ Conductor beta` pill, whole. */
-  const CONDUCTOR = 138;
+  /** The measured `◆ Conductor alpha` pill, whole. */
+  const CONDUCTOR = 145;
   /** The strip's measured width at a given window, from the row's geometry:
-   *  identity (28) + conductor pill (138) + control cluster (397) + the bar's
+   *  identity (28) + conductor pill (145) + control cluster (397) + the bar's
    *  padding and gaps (60) are taken before the strip sees anything. */
   const stripAt = (window: number): number =>
     window - 28 - CONDUCTOR - 397 - 60;
@@ -116,12 +116,12 @@ describe("computeVisibleHosts — five hosts in the real chrome bar", () => {
     );
 
   it("seats every tab in a wide window", () => {
-    // 1920 ⇒ strip 1297 ⇒ budget 1259 against 620px of tabs.
+    // 1920 ⇒ strip 1290 ⇒ budget 1252 against 620px of tabs.
     expect(seating(1920).overflowed).toEqual([]);
   });
 
   it("folds into `⋯ +N` well before the tabs reach the conductor entry", () => {
-    // 1024 ⇒ strip 401 ⇒ budget 363, trigger reserved ⇒ 319 ⇒ two tabs seated.
+    // 1024 ⇒ strip 394 ⇒ budget 356, trigger reserved ⇒ 312 ⇒ two tabs seated.
     expect(seating(1024)).toEqual({
       visible: ["local", "a"],
       overflowed: ["b", "c", "d"],
@@ -141,10 +141,10 @@ describe("computeVisibleHosts — five hosts in the real chrome bar", () => {
   it("takes the Conductor entry's measured width off the budget, so a tab that would reach the pill folds instead", () => {
     // A row that has NOT kept the pill's room clear — the strip's box runs
     // under the entry — reports the overlap as the pinned reserve. 1920 seats
-    // all five with 1259px of budget; take the pill's measured 138 off a strip
+    // all five with 1252px of budget; take the pill's measured 145 off a strip
     // that is only just wide enough and the last tab must go into `⋯ +N`
     // rather than sit where the pill is drawn.
-    const window = 1270; // strip 647 ⇒ budget 609 against 620px of tabs… just short
+    const window = 1270; // strip 640 ⇒ budget 602 against 620px of tabs… just short
     expect(seating(window).visible).toEqual(["local", "a", "b", "c"]);
     expect(seating(window, CONDUCTOR).visible).toEqual(["local", "a", "b"]);
     expect(seating(window, CONDUCTOR).overflowed).toEqual(["c", "d"]);

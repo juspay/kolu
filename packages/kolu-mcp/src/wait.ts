@@ -32,14 +32,13 @@
  * outcome the agent can retry.
  */
 
-// The tail slice is padi's — the same fold `screen_text`'s `tail` and `kolu
-// wait --snapshot` use, so "the last N lines" means one thing on every face.
 import { padiOf } from "./bundleClient.ts";
-import { tailLines } from "@kolu/padi-client/screenTail";
 // The dial kit arrives dynamically, INSIDE the handlers: this module is on the
 // static tree-build path of every `kolu` invocation (the surface face mounts
 // the table), so the waiters' socket/mirror closure may only load at call
 // time. WAIT_STATES has a schema home of its own and belongs here statically.
+// The tail RULE is padi's: `ScreenTextTailSchema` is what its decode accepts.
+import { ScreenTextTailSchema } from "@kolu/padi-client/surface";
 import {
   MAX_TIMER_MS,
   type WaitMet,
@@ -85,16 +84,16 @@ const TimeoutMsSchema = Schema.optionalKey(
 
 /** The `--snapshot` modifier, as an MCP option: how much screen a met carries.
  *
- *  LINES, not a boolean, because the face has to bound the payload anyway — the
- *  engine hands back the WHOLE rendered buffer and slicing it is the caller's
- *  rendering decision (`kolu wait --snapshot N` makes the same one). One number
- *  says both "yes, capture" and "this much", so there is no way to ask for a
- *  screen and forget to bound it. */
+ *  LINES, not a boolean: padi's engine reads the met's screen with
+ *  `screen.text { tail }`, so the count rides the read itself and only those
+ *  lines cross the wire (`kolu wait --snapshot N` asks the same way). One
+ *  number says both "yes, capture" and "this much", so there is no way to ask
+ *  for a screen and forget to bound it. */
 const ScreenTailSchema = Schema.optionalKey(
-  Schema.Number.annotate({
+  ScreenTextTailSchema.annotate({
     description:
       "Also return the terminal's last N rendered lines on the met, read INSIDE this wait — so no second screen_text call can race the terminal between the signal and the read.",
-  }).check(Schema.isInt(), Schema.isGreaterThan(0)),
+  }),
 );
 
 /** Serialize a wait outcome to the tool's JSON frame via the shared
@@ -105,37 +104,15 @@ const ScreenTailSchema = Schema.optionalKey(
  *  layer down, reopened at the wire) — nesting makes it inexpressible for ANY
  *  payload shape. The param stays `WaitMet`-typed for the same reason.
  *
- *  `screenTail` bounds a captured screen to its last N lines. It lives HERE, at
- *  the face's one met→frame projection, rather than in each handler, because it
- *  is one rendering decision about one wire: the engine hands back the WHOLE
- *  rendered buffer by design (bounding it is the caller's call), and both wait
- *  tools bound it identically. The slice is `@kolu/padi-client/screenTail`'s
- *  `tailLines` —
- *  the same fold `screen_text`'s own `tail` and `kolu wait --snapshot` use, so
- *  "the last N lines" means one thing across every face. */
+ *  The met's `screen`, when there is one, is already the last `screenTail`
+ *  lines — padi cut it before it crossed the wire, with the same fold
+ *  `screen_text`'s own `tail` and `kolu wait --snapshot` get — so this
+ *  projection passes it through untouched. */
 export function waitJson<Met extends WaitMet>(
   id: string,
   outcome: WaitOutcome<Met>,
-  screenTail?: number,
 ): Record<string, unknown> {
-  return waitOutcomeJson(id, outcome, (met) => ({
-    met: screenTail === undefined ? met : boundScreen(met, screenTail),
-  }));
-}
-
-/** The met payload with its `screen` cut to the last `tail` lines.
- *
- *  Typed as `object` because `waitOutcomeJson` hands the payload over opaque —
- *  this is the one place that reads a field out of it, so the narrowing is
- *  spelled once, here, rather than by making every met shape re-declare a key
- *  only two of them ever carry. There is no absent-screen arm to invent: the
- *  engine crashes rather than settling a met that asked for a screen without
- *  one, so a payload reaching here with none is a wait that never asked. */
-function boundScreen(met: object, tail: number): object {
-  const screen = (met as { readonly screen?: unknown }).screen;
-  return typeof screen === "string"
-    ? { ...met, screen: tailLines(screen, tail) }
-    : met;
+  return waitOutcomeJson(id, outcome, (met) => ({ met }));
 }
 
 // ── wait_outputSettled ────────────────────────────────────────────────────
@@ -181,14 +158,13 @@ export const waitOutputSettledTool: BespokeTool = {
       const outcome = await awaitOutputSettled(padiOf(client), {
         id,
         idleMs,
-        captureScreen: screenTail !== undefined,
+        screenTail,
         timeoutMs,
         signal: signal ?? fiberSignal,
       });
       return waitJson<{ fired: "idle"; elapsedMs: number; screen?: string }>(
         id,
         outcome,
-        screenTail,
       );
     }),
 };
@@ -237,7 +213,7 @@ export const waitAgentStateTool: BespokeTool = {
         id,
         targets: new Set(until),
         settledMs,
-        captureScreen: screenTail !== undefined,
+        screenTail,
         timeoutMs,
         signal: signal ?? fiberSignal,
       });
@@ -245,6 +221,6 @@ export const waitAgentStateTool: BespokeTool = {
         agent: AgentInfo;
         elapsedMs: number;
         screen?: string;
-      }>(id, outcome, screenTail);
+      }>(id, outcome);
     }),
 };

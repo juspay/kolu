@@ -101,6 +101,7 @@ import {
 import { recycleLocalKaval } from "./ptyHost/restartLocal.ts";
 import { pulseSource } from "./pulseSource.ts";
 import { renderScreenImage } from "./screenImage.ts";
+import { readScreenTail } from "./screenTextTail.ts";
 import { cancelPendingAutosave } from "./session/autosaveGate.ts";
 import {
   requirePadiActivityFeedStore,
@@ -1028,12 +1029,23 @@ export function buildPadiSurfaceDeps(deps: {
         state: ({ input }) =>
           handle(() => requireActiveTerminal(input.id).handle.getScreenState()),
         text: ({ input }) =>
-          handle(() =>
-            requireActiveTerminal(input.id).handle.getScreenText(
-              input.startLine,
-              input.endLine,
-            ),
-          ),
+          handle(() => {
+            const entry = requireActiveTerminal(input.id);
+            const { tail } = input;
+            if (tail === undefined) {
+              return entry.handle.getScreenText(input.startLine, input.endLine);
+            }
+            // The window's slack is the grid's height — the most blank viewport
+            // there can be below the cursor. A terminal no viewer has sized yet
+            // has no grid on its record; it then starts at N and widens, which
+            // costs reads, never the answer (see `readScreenTail`).
+            return readScreenTail(
+              (window) =>
+                entry.handle.getScreenText(undefined, undefined, window),
+              tail,
+              entry.snapshot.grid?.rows ?? 0,
+            );
+          }),
         history: ({ input }) =>
           handle(() =>
             requireActiveTerminal(input.id).handle.getHistory(

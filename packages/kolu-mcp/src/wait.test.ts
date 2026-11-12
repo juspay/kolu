@@ -69,6 +69,7 @@ function fakeClient(
     keys: FakeStream<string[]>;
   },
   screenText?: string,
+  asked: unknown[] = [],
 ): PadiSurfaceClient {
   return {
     surface: {
@@ -76,10 +77,12 @@ function fakeClient(
       terminalExit: { get: () => streams.exit.stream() },
       terminals: { keys: () => streams.keys.stream() },
       screen: {
-        text: () =>
-          screenText === undefined
+        text: (input: unknown) => {
+          asked.push(input);
+          return screenText === undefined
             ? Effect.fail(new Error("screen.text must not be read here"))
-            : Effect.succeed(screenText),
+            : Effect.succeed(screenText);
+        },
       },
     },
   } as unknown as PadiSurfaceClient;
@@ -298,28 +301,28 @@ describe("waitOutputSettledTool — the JSON frame", () => {
     );
   });
 
-  it("PIN: `screenTail` BOUNDS the screen the engine hands back whole", async () => {
-    // The engine captures the entire rendered buffer on purpose — bounding it is
-    // the face's rendering decision, and this face's is `tailLines`, the same
-    // fold `screen_text { tail }` uses. Unbounded, a 40-line ask would put the
-    // whole scrollback on the wire and into the agent's context (kolu#2152).
+  it("PIN: `screenTail` reaches padi's read — the screen crosses the wire already cut", async () => {
+    // Unbounded, a 40-line ask would put the whole scrollback on the wire and
+    // into the agent's context (kolu#2152). The cut is padi's now, so the
+    // number has to REACH the read; the face passes the reply through as is.
     const s = streams();
     s.attach.push(snapshot);
-    const whole = ["line one", "line two", "line three", "", ""].join("\n");
+    const cut = "line two\nline three";
+    const asked: unknown[] = [];
     const result = (await Effect.runPromise(
       waitOutputSettledTool.handler(
         { id: ID, idleMs: 25, screenTail: 2 },
-        bundle(fakeClient(s, whole)),
+        bundle(fakeClient(s, cut, asked)),
         undefined,
       ),
     )) as Record<string, unknown>;
 
-    expect(result).toMatchObject({ id: ID, result: "met" });
-    // The last two CONTENT lines — `tailLines` also drops the trailing blank
-    // rows a rendered buffer ends in, which is why this is not "line three\n\n".
-    expect((result.met as { screen: string }).screen).toBe(
-      "line two\nline three",
-    );
+    expect(result).toMatchObject({
+      id: ID,
+      result: "met",
+      met: { screen: cut },
+    });
+    expect(asked).toEqual([{ id: ID, tail: 2 }]);
   });
 
   it("PIN: no `screenTail` means no `screen` key — the frame every caller already reads", async () => {

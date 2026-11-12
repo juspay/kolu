@@ -262,12 +262,14 @@ loop pays for at 3am.
 `--tail N` is the read that answers "what's on screen": the last N lines with the
 buffer's trailing run of blank rows dropped first (a rendered buffer ends in the
 empty viewport below the cursor, so a naive `snapshot | tail -8` hands you eight
-blank lines). It is deliberately the only bounding knob — there is **no
-`--viewport`**, because padi's wire reports no terminal's grid size, so "the
-viewport" is not a thing this transport can express and approximating it
-client-side would be a silent lie about which lines you are looking at. The same
-shape as the MCP face's `screen_text { tail }`, so the two faces have one
-contract between them. Older-than-the-screen output is `kolu history`'s job.
+blank lines). padi cuts it — `--tail` rides `screen.text` as `tail` — so only
+those N lines cross the link, however long the scrollback. It is deliberately
+the only bounding knob — there is **no `--viewport`**, because `screen.text`
+takes an absolute line window or a tail and neither is "the viewport";
+approximating it client-side would be a silent lie about which lines you are
+looking at. The same shape as the MCP face's `screen_text { tail }`, so the two
+faces have one contract between them. Older-than-the-screen output is
+`kolu history`'s job.
 
 ## `screenshot` — the picture `snapshot` flattens away
 

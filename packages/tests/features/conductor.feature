@@ -211,7 +211,7 @@ Feature: The Conductor
     # `packages/client/src/host/hostOverflow.test.ts`, against the same pure
     # function the strip calls with real measured widths. What IS proved here
     # is the arithmetic's INPUT: the strip's measured width is the row's true
-    # leftover after the identity rail, the `◆ Conductor beta` pill and the
+    # leftover after the identity rail, the `◆ Conductor alpha` pill and the
     # control cluster have taken theirs, which is the premise that fold rests
     # on and the one a second entry in the row could silently break.
     When I resize the viewport to 1024x768

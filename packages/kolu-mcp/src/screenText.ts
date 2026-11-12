@@ -7,9 +7,9 @@
  * The raw procedure's `startLine`/`endLine` window is an absolute-line
  * addressing an agent can't use without already knowing the buffer length, so
  * the bespoke tool exposes `{ id, tail? }`: omitted tail returns the whole
- * rendered text; `tail: N` returns the last N lines. The slice happens here,
- * beside the padi hop (local socket or the ssh pipe) — the expensive wire is
- * MCP-host↔agent, and that carries only the tail.
+ * rendered text; `tail: N` returns the last N lines. The cut is padi's
+ * (`screen.text { tail }`), so only the tail crosses the padi hop (local
+ * socket or the ssh pipe) as well as the MCP-host↔agent one.
  *
  * The arg schema is an Effect Schema. Its per-field blurbs are not decoration:
  * they are what teaches a coding agent that `tail` counts LINES. Two authoring
@@ -44,22 +44,20 @@
  *     field still subject to it.
  */
 
-// The tail slice is padi's — a pure fold over `screen.text`'s own reply shape,
-// shared with `kolu snapshot --tail`, which used to import it from THIS module
-// (a CLI verb reaching sideways into a face's adapter).
 import { padiOf } from "./bundleClient.ts";
-import { tailLines } from "@kolu/padi-client/screenTail";
+// The tail RULE is padi's — its decode is what the value meets.
+import { ScreenTextTailSchema } from "@kolu/padi-client/surface";
 import type { BespokeTool } from "@kolu/surface-mcp/tools";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
-import { Effect, Schema } from "effect";
+import { Schema } from "effect";
 
 export const ScreenTextArgsSchema = Schema.Struct({
   id: TerminalIdSchema,
   tail: Schema.optionalKey(
-    Schema.Number.annotate({
+    ScreenTextTailSchema.annotate({
       description:
         "Return only the last N lines (omit for the whole scrollback).",
-    }).check(Schema.isInt(), Schema.isGreaterThan(0)),
+    }),
   ),
 });
 export type ScreenTextArgs = typeof ScreenTextArgsSchema.Type;
@@ -76,9 +74,8 @@ export const screenTextTool: BespokeTool = {
   // `surface-mcp`'s ONE CallTool edge.
   handler: (args, client) => {
     const { id, tail } = args as ScreenTextArgs;
-    return Effect.map(
-      padiOf(client).surface.screen.text({ id }),
-      (text: string) => (tail === undefined ? text : tailLines(text, tail)),
+    return padiOf(client).surface.screen.text(
+      tail === undefined ? { id } : { id, tail },
     );
   },
 };

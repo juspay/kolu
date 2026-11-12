@@ -167,7 +167,7 @@ resolvability rather than to a manifest declaration it does not own.
 | `./watchDuration` | how a watch face spells an interval and its cap as ONE argument — `parseDuration`, `parseNag` (the `--nag 30m/3` slash), one refusal grammar read by both faces | ✅ |
 | `./terminalVocab` | the pure folds over a terminal record — `activeAgent`, `isWaitState`, `WAIT_STATES` | ✅ |
 | `./terminalId` | how a user NAMES a terminal — `resolveTerminalId` (any unique prefix, case-folded, exact-wins, an empty query refused) and its `ResolveResult`. Generic over the caller's own id type, and the file imports NOTHING — not even `import type` — because the consumer that asked for it resolves prefixes inside the package its browser bundles | ✅ |
-| `./screenTail` | `tailLines` — the last N lines of a rendered screen, trailing blank viewport dropped first. The fold over `screen.text`'s REPLY, so it lives beside that reply's schema. Also import-free | ✅ |
+| `./screenTail` | `tailLines` — the DEFINITION of what `screen.text { tail: N }` answers: the last N lines of the rendered screen, trailing blank viewport dropped first. padi applies it before replying, so kolu's faces receive the tail instead of slicing a scrollback; it stays a published entry because it is that reply's contract and is read outside this repo (olai imports it). Also import-free | ✅ |
 | `./upload` | what may be dropped onto a terminal and how big it may be — `MAX_UPLOAD_BYTES`, the extension allowlist, `rejectionFor`. The gate a sender applies before encoding is the gate padi applies before writing, so the two cannot drift | ✅ |
 
 **The conductor's wire vocabulary is no longer here.** It used to be an entry of
@@ -207,13 +207,15 @@ yet:
 
   One asked, so two of `render`'s folds came across: the id-prefix resolution and
   the screen tail, now `./terminalId` and `./screenTail` above. Neither is
-  formatting — one is padi's ADDRESSING and the other folds its `screen.text`
-  REPLY — and both were being written out again downstream, with the downstream
+  formatting — one is padi's ADDRESSING and the other defines its `screen.text`
+  tail — and both were being written out again downstream, with the downstream
   header naming this manifest as the reason. What stayed behind is the part that
   genuinely is a formatter: the roster table, the columns, `columnify` — and it
   is true rather than aspirational, because `render` does not re-export the two
-  that left. Every face imports them from here. The rest of `render` moves the
-  day someone asks, on the same terms.
+  that left. Faces import `./terminalId` from here; inside this repo
+  `./screenTail`'s caller is now the daemon, which cuts the tail before it
+  crosses the wire — olai still imports it to cut its own. The
+  rest of `render` moves the day someone asks, on the same terms.
 - **`@kolu/padi/containingTerminal`** — "am I running inside a kolu terminal",
   which is a question only something inside one asks. Free to move (it reads one
   env name from `kolu-pty`, already in the closure); it has simply never been

@@ -734,12 +734,12 @@ const HostSelectorStrip: Component = () => {
   // The "+ add a host" affordance is always present now, so its width is always
   // reserved from the chips' fit budget.
   const chipsBudget = createMemo(() => containerWidth() - ADD_BUTTON_RESERVE);
-  /** THE ROW'S OWN TRAILING ENTRY — `◆ Conductor beta`, whole, tag included.
+  /** THE ROW'S OWN TRAILING ENTRY — `◆ Conductor alpha`, whole, tag included.
    *
    *  It shares this row and is not a host: it never folds, so every pixel it
    *  occupies is a pixel the chips must not seat into, or the tabs run into
    *  the pill instead of folding into `⋯ +N`. It is MEASURED off the live
-   *  entry rather than copied from its markup as a constant — the beta tag is
+   *  entry rather than copied from its markup as a constant — the alpha tag is
    *  exactly the part such a copy forgets, and the pill's width changes with
    *  the type it renders.
    *

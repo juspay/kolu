@@ -1,21 +1,19 @@
-/** **The tail of padi's rendered screen — the fold over `screen.text`'s reply.**
+/** **The tail of padi's rendered screen — what `screen.text { tail: N }` means.**
  *
- *  A pure fold, and it belongs beside the schema of the reply it folds
- *  (`PadiScreenTextInputSchema`, `./surface`) rather than in the daemon package,
- *  because the rule it encodes is about padi's ANSWER: the rendered buffer ends
- *  in the empty viewport below the cursor, which carries zero information and
- *  would otherwise BE the tail. `tail: 6` on a fresh shell returned six blank
- *  lines — a real bug, caught on the MCP face.
+ *  The rendered buffer ends in the empty viewport below the cursor, which
+ *  carries zero information and would otherwise BE the tail: `tail: 6` on a
+ *  fresh shell once returned six blank lines — a real bug, caught on the MCP
+ *  face. So "the last N lines" is defined here as a fold over the WHOLE
+ *  rendered text: drop the trailing run of whitespace-only rows first, then
+ *  keep the last N.
  *
- *  It moved out of `@kolu/padi/render` for the reason that package's own README
- *  gave for keeping it there ("move them the day one asks"): a consumer that
- *  dials a padi and keeps the last N lines of a screen had to reach a manifest
- *  naming `columnify`, `kaval` and `node-pty` to do it, so it wrote the three
- *  lines out instead — with its header saying exactly that.
- *
- *  `@kolu/padi/render` does NOT re-export it — kolu's own faces were moved to
- *  import it from here, which is five files in that change. See `render.ts`'s
- *  header for why the compatibility door was refused.
+ *  padi applies it before replying when a caller passes `tail` to `screen.text`
+ *  (`PadiScreenTextInputSchema`, `./surface`), reading a window wider than N
+ *  rather than the scrollback (`@kolu/padi`'s `screenTextTail.ts`). It is a
+ *  published entry rather than a padi-private helper because it is the
+ *  CONTRACT of that reply, and is read as one outside this repository: olai
+ *  imports it to cut its own tail. A test that pins "`tail: N` is
+ *  `tailLines(whole, N)`" reads it from here for the same reason.
  *
  *  This file imports NOTHING; see `./terminalId` for why that is a contract, not an accident. */
 
