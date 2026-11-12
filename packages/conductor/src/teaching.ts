@@ -87,14 +87,36 @@ import { readFileSync } from "node:fs";
 /** The one placeholder the file may use: the machine kolu-server runs on. */
 const HOST = "{{host}}";
 
-/** The prompt file's paragraphs. The leading `<!-- … -->` note is for the
- *  person editing the file and is not sent; a blank line ends a paragraph, and
- *  a paragraph's wrapped lines are joined with single spaces. Throws on a file
- *  with no paragraphs, or on a `{{…}}` placeholder this module does not fill —
- *  an unfilled placeholder would reach the agent verbatim. */
+/** The leading `<!-- … -->` note is for the person editing the file and is not
+ *  sent. Cut by position, not by pattern: only the LEADING note is the
+ *  editor's, and a `<!--` anywhere after it throws rather than reaching the
+ *  agent as prompt text. */
+function withoutNote(source: string): string {
+  const body = source.trimStart();
+  if (!body.startsWith("<!--")) return assertNoNote(source);
+  const end = body.indexOf("-->");
+  if (end === -1) {
+    throw new Error("teaching.md: the leading <!-- note is never closed");
+  }
+  return assertNoNote(body.slice(end + "-->".length));
+}
+
+function assertNoNote(prompt: string): string {
+  if (prompt.includes("<!--")) {
+    throw new Error(
+      "teaching.md: only the leading <!-- note is not sent; move this one there",
+    );
+  }
+  return prompt;
+}
+
+/** The prompt file's paragraphs, with the leading note cut (`withoutNote`); a
+ *  blank line ends a paragraph, and a paragraph's wrapped lines are joined with
+ *  single spaces. Throws on a file with no paragraphs, or on a `{{…}}`
+ *  placeholder this module does not fill — an unfilled placeholder would reach
+ *  the agent verbatim. */
 export function parseTeaching(source: string): ReadonlyArray<string> {
-  const paragraphs = source
-    .replace(/<!--[\s\S]*?-->/g, "")
+  const paragraphs = withoutNote(source)
     .split(/\n[ \t]*\n/)
     .map((block) =>
       block

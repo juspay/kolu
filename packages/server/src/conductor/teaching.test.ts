@@ -53,4 +53,10 @@ describe("parseTeaching", () => {
       /no paragraphs/,
     );
   });
+
+  it("refuses a note after the leading one rather than sending it", () => {
+    expect(() =>
+      parseTeaching("<!-- editor -->\n\nSaid.\n\n<!-- stray -->\n\nAlso said."),
+    ).toThrow(/only the leading <!-- note/);
+  });
 });
