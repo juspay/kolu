@@ -229,12 +229,10 @@ required status checks. They live in two places, and GitHub requires both:
 
 | Where | What | Written by |
 | --- | --- | --- |
-| Repository ruleset | odu's `ci::<recipe>@x86_64-linux` contexts | `odu ci protect` |
+| Repository ruleset | odu's DAG contexts for the gated platform | `odu ci protect` |
 | Classic branch protection | exactly the `.github/workflows/nix-cache.yml` cache-warm contexts | `ci/protect` itself |
 
-The classic list is **replaced** on every run, never appended to, and holds no
-`ci::*` copy. So a re-run changes nothing, and a context the workflow no longer
-posts — a renamed job, a dropped matrix value — leaves the gate instead of
-blocking every merge. The script reads the classic list back and fails unless
-it equals the derived set exactly. `--dry-run` prints both halves without
-touching GitHub; `--contexts-only` prints only the cache-warm half.
+The classic list is replaced on every run, so a re-run changes nothing and a
+context the workflow no longer posts leaves the gate instead of blocking every
+merge. [`ci/protect`](./protect)'s header says why, and what each flag
+prints.

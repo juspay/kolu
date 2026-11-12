@@ -12,13 +12,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import {
-  chmodSync,
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -89,11 +83,9 @@ const sandbox = (classic: readonly string[]) => {
   const classicNow = () =>
     readFileSync(join(dir, "classic"), "utf8").split("\n").filter(Boolean);
   const puts = () =>
-    existsSync(join(dir, "gh.log"))
-      ? readFileSync(join(dir, "gh.log"), "utf8")
-          .split("\n")
-          .filter((l) => l.startsWith("api -X PUT")).length
-      : 0;
+    readFileSync(join(dir, "gh.log"), "utf8")
+      .split("\n")
+      .filter((l) => l.startsWith("api -X PUT")).length;
   return { protect, classicNow, puts };
 };
 

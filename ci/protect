@@ -333,26 +333,25 @@ else
   while IFS= read -r context; do
     gh_args+=(-f "contexts[]=${context}")
   done <<< "$want"
-  # PUT, not POST: this endpoint's PUT REPLACES the list, so a re-run is a
-  # no-op and a context the workflow no longer posts leaves the gate. POST
-  # appends, and 422s on a context already present.
+  # PUT, not POST: this endpoint's PUT replaces the list (the header says why).
   gh api -X PUT "${classic}/contexts" "${gh_args[@]}" > /dev/null \
     || die "could not set the cache-warm contexts on ${repo}@${branch}"
-fi
 
-# The write is an instruction; this is the verdict. Same discipline as
-# nix-cache.yml's own verify step — read the state back rather than trusting a
-# 200 — and the verdict is EQUALITY, not containment: an extra context nothing
-# posts blocks every merge just as surely as a missing one lets a cold cache
-# merge green.
-got="$(classic_contexts)" \
-  || die "could not read back ${repo}@${branch}'s classic required status checks"
-[ "$got" = "$want" ] || die "${repo}@${branch}'s classic required checks are not exactly the ${workflow##*/} contexts.
+  # The write is an instruction; this is the verdict. Same discipline as
+  # nix-cache.yml's own verify step — read the state back rather than trusting
+  # a 200 — and the verdict is EQUALITY, not containment: an extra context
+  # nothing posts blocks every merge just as surely as a missing one lets a
+  # cold cache merge green. (The no-write path above already holds that
+  # verdict: `have` was compared with the same operator.)
+  got="$(classic_contexts)" \
+    || die "could not read back ${repo}@${branch}'s classic required status checks"
+  [ "$got" = "$want" ] || die "${repo}@${branch}'s classic required checks are not exactly the ${workflow##*/} contexts.
 expected:
 $(lines "$want" | sed 's/^/  /')
 GitHub has:
 $(lines "$got" | sed 's/^/  /')
 Re-run this script; if it fails again, the token or a ruleset — not this
 repo — is refusing the write."
+fi
 
 echo "ci/protect: ${repo}@${branch}: the ruleset requires the odu DAG contexts; classic protection requires exactly the $(lines "$want" | wc -l | tr -d ' ') cache-warm contexts"

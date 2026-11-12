@@ -530,22 +530,13 @@ attach:
 # Extra args pass straight through to odu, so `just ci::protect --dry-run`
 # prints the whole set without touching the branch.
 #
-# The two lists live in two places GitHub enforces together. `odu protect`
-# writes the DAG list into the branch's repository RULESET (replacing that
-# ruleset's required-checks rule wholesale) and never touches classic branch
-# protection; it has no extra-context flag, so a cache-warm context added to
-# the ruleset by hand survives only until the next protect. `ci/protect`
-# therefore REPLACES the classic branch protection's required contexts with
-# exactly the cache-warm list on every run — no `ci::*` copy there, so nothing
-# goes stale when a recipe is renamed, and a context the workflow no longer
-# posts is dropped rather than left blocking every merge. A re-run changes
-# nothing. And the cache warm has to be gated, not merely green: when it was
+# The two lists live in two places GitHub enforces together; which goes where,
+# and why the classic list is replaced rather than appended to, is odu's
+# behaviour and lives in `ci/protect`'s header, the one place to update when it
+# moves. The cache warm has to be gated, not merely green: when it was
 # green-but-not-required, a deploy off that commit found no agent closure in
 # the cache and compiled the daemon on the remote host over ssh
-# (juspay/kolu#2101, G7). The script derives those context names by parsing the
-# workflow (a check-run is named `<job-id> (<matrix value>)`), refuses to touch
-# branch protection at all if that shape has drifted, and reads the classic
-# list back to prove it equals the derived set.
+# (juspay/kolu#2101, G7).
 protect *args:
     bash ci/protect {{ args }}
 
