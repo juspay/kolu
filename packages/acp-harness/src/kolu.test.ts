@@ -4,8 +4,8 @@
  * agent wrote, the reading encodes under the row schema it is served and
  * persisted through.
  *
- * Pure, so it rides the unit lane; the rest of this package's suite spawns
- * real agents and rides `test:daemon`.
+ * Pure — it spawns nothing — but it rides this package's one lane,
+ * `test:daemon`, beside the suites that spawn real agents.
  */
 
 import { ConductorToolRowSchema } from "kolu-common/conductor";
