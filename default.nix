@@ -669,9 +669,18 @@ let
     # derivation owns both.
     dontFixup = true;
 
-    env = {
-      KOLU_COMMIT_HASH = koluCommitPlaceholder;
-    } // koluEnv;
+    # EVERY SHARED VAR EXCEPT THE ADAPTER. Nothing at build time spawns the
+    # Conductor's ACP adapter — it is a runtime fact of the wrapper a person
+    # runs — and naming it here is not free: `KOLU_ACP_AGENT` resolves
+    # `pkgs.kolu-acp-adapter`, which drives agent-distro's floor `claude`,
+    # whose own `package.nix` `fetchTarball`s UPSTREAM'S locked nixpkgs at EVAL
+    # time. That turned a `nix eval` of `padi-agent` into a download, and the
+    # one machine that evaluates it with no network is the one that matters:
+    # `offline-provision`'s binder resolving a host's daemon spent its 900s
+    # retrying `github.com` and the dial never landed.
+    env = builtins.removeAttrs
+      ({ KOLU_COMMIT_HASH = koluCommitPlaceholder; } // koluEnv)
+      [ "KOLU_ACP_AGENT" ];
 
     # Workspace typecheck is a REQUIRED input, not a parallel lane. Kolu runs
     # TypeScript at runtime (tsx); Vite only transpiles. Without this, a green
