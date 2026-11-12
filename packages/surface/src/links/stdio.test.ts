@@ -5,7 +5,7 @@
  * Covers: unary request/response (the trivial path), a STREAMING member (the
  * non-trivial path where the protocol interleaves per-frame pushes with
  * concurrent requests), interruption propagation (the consumer stops pulling,
- * the server's stream finalizes), the stdout-is-protocol gotcha (stray malformed lines are dropped, but a corrupted answer parks its call), and every shape of transport death —
+ * the server's stream finalizes), the stdout-is-protocol gotcha (any malformed line ENDS the link with `death: "undecodableFrame"`, in flight or not), and every shape of transport death —
  * each of which must FAIL a call with `SurfaceStdioTransportClosed` rather than
  * hang it or crash the process.
  *
@@ -32,7 +32,6 @@ import {
   writeStdioReadiness,
 } from "./readiness";
 import { stdioLink } from "./stdio";
-import { RPC_PING_FATAL_SILENCE_MS } from "./wire";
 
 /** Greet a bare PassThrough with itself — the minimal honest gate for a test
  *  that never runs a server: the banner really is written and really is read,
@@ -106,7 +105,7 @@ describe("stdio link over loopback", () => {
     await done();
   });
 
-  it("drops a stray malformed stdout line and still answers a later call", async () => {
+  it("a stray malformed stdout line ENDS the link — no half-alive wire", async () => {
     const runtime = buildLoopbackRuntime();
     const pair = createLoopbackPair();
     const serving = serveOverStdio({
@@ -116,8 +115,8 @@ describe("stdio link over loopback", () => {
     });
     // The gate first (a real agent greets before it can corrupt anything), THEN
     // the corruption: a stray non-ndjson line on the wire from the server side —
-    // a log line that escaped to stdout. Stable ndjson drops it; the later
-    // valid response still reaches its call.
+    // a log line that escaped to stdout. The decoder rejects it and drops what
+    // it had buffered with it, so the link is ended rather than trusted.
     const readiness = await greetLoopback(pair);
     pair.server.write.write("«this looks like a pino log line»\n");
 
@@ -127,15 +126,21 @@ describe("stdio link over loopback", () => {
       write: pair.client.write,
       readiness,
     });
-    const winner = await Promise.race([
-      Effect.runPromise(link.dispatch.unary("surface/math/add", { a: 1, b: 1 }))
-        .then(() => "ok" as const)
-        .catch(() => "err" as const),
-      new Promise<"timeout">((resolve) =>
-        setTimeout(() => resolve("timeout"), 2_000),
-      ),
-    ]);
-    expect(winner).toBe("ok");
+    const add = (a: number) =>
+      Effect.runPromise(
+        Effect.flip(link.dispatch.unary("surface/math/add", { a, b: 1 })),
+      );
+    const first = await add(1);
+    expect(first).toBeInstanceOf(SurfaceStdioTransportClosed);
+    expect((first as SurfaceStdioTransportClosed).death).toBe(
+      "undecodableFrame",
+    );
+    // Not a per-call failure: the link is gone, and says why to every caller.
+    const later = await add(2);
+    expect(later).toBeInstanceOf(SurfaceStdioTransportClosed);
+    expect((later as SurfaceStdioTransportClosed).death).toBe(
+      "undecodableFrame",
+    );
 
     await link.dispose();
     pair.client.write.end();
@@ -144,7 +149,7 @@ describe("stdio link over loopback", () => {
     await runtime.close();
   });
 
-  it("a corrupted answer parks its call while valid replies and heartbeats keep flowing", async () => {
+  it("a corrupted answer ends the link: the call in flight and every later call fail as undecodableFrame", async () => {
     const runtime = buildLoopbackRuntime();
     const pair = createLoopbackPair();
     const serving = serveOverStdio({
@@ -155,9 +160,8 @@ describe("stdio link over loopback", () => {
     const readiness = await greetLoopback(pair);
     let buffered = "";
     let corrupted = false;
-    let pongs = 0;
     // Corrupt exactly the first real RPC Exit, not an unrelated stdout line.
-    // Forward all other server frames, including Pong, unchanged.
+    // Forward all other server frames unchanged.
     const inbound = new Transform({
       transform(chunk, _encoding, callback) {
         buffered += chunk.toString();
@@ -166,7 +170,6 @@ describe("stdio link over loopback", () => {
           const line = buffered.slice(0, end);
           buffered = buffered.slice(end + 1);
           const frame = JSON.parse(line);
-          if (frame._tag === "Pong") pongs++;
           if (!corrupted && frame._tag === "Exit") {
             corrupted = true;
             this.push("not a JSON response\n");
@@ -184,25 +187,29 @@ describe("stdio link over loopback", () => {
       write: pair.client.write,
       readiness,
     });
-    const call = Effect.runFork(
-      link.dispatch.unary("surface/math/add", { a: 1, b: 1 }),
+    const call = Effect.runPromise(
+      Effect.flip(link.dispatch.unary("surface/math/add", { a: 1, b: 1 })),
     );
     try {
-      await expect.poll(() => corrupted).toBe(true);
-      // Observe beyond the fatal-silence window: Pong traffic keeps the link
-      // healthy but neither replays nor terminates the call whose Exit was lost.
-      await new Promise((resolve) =>
-        setTimeout(resolve, RPC_PING_FATAL_SILENCE_MS + 500),
+      // The lost Exit does not park its call, and the link does not pretend to
+      // live on: the call in flight fails with the truthful death…
+      const failure = await call;
+      expect(corrupted).toBe(true);
+      expect(failure).toBeInstanceOf(SurfaceStdioTransportClosed);
+      expect((failure as SurfaceStdioTransportClosed).death).toBe(
+        "undecodableFrame",
       );
-      expect(pongs).toBeGreaterThan(0);
-      await expect(
-        Effect.runPromise(
-          link.dispatch.unary("surface/math/add", { a: 2, b: 3 }),
-        ),
-      ).resolves.toBe(5);
-      expect(call.pollUnsafe()).toBeUndefined();
+      // …and so does the next one: there is no state in which calls fail as a
+      // dead transport while the link still answers.
+      const later = await Effect.runPromise(
+        Effect.flip(link.dispatch.unary("surface/math/add", { a: 2, b: 3 })),
+      );
+      expect(later).toBeInstanceOf(SurfaceStdioTransportClosed);
+      expect((later as SurfaceStdioTransportClosed).death).toBe(
+        "undecodableFrame",
+      );
     } finally {
-      await Effect.runPromise(Fiber.interrupt(call));
+      await call.catch(() => undefined);
       await link.dispose();
       pair.client.read.unpipe(inbound);
       inbound.destroy();

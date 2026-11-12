@@ -21,7 +21,7 @@
     "@anthropic-ai/claude-agent-sdk": "^0.2.96",
     "@kolu/acp": "workspace:*",
     "anyagent": "workspace:*",
-    "effect": "4.0.0",
+    "effect": "4.1.4",
     "kolu-io": "workspace:*",
     "kolu-shared": "workspace:*",
     "kolu-transcript-core": "workspace:*",

@@ -80,9 +80,19 @@ describe("the description ANNOTATION reaches the property node", () => {
         ),
       }),
     );
+    // Since effect 4.1, an integer check also emits the SAFE-integer range
+    // (`minimum`/`maximum` = ±`Number.MAX_SAFE_INTEGER`) wherever no tighter
+    // bound replaces it.
     expect(first).toEqual({
       type: "object",
-      properties: { n: { description: "blurb", type: "integer" } },
+      properties: {
+        n: {
+          description: "blurb",
+          type: "integer",
+          minimum: -Number.MAX_SAFE_INTEGER,
+          maximum: Number.MAX_SAFE_INTEGER,
+        },
+      },
       required: ["n"],
     });
 
@@ -98,7 +108,14 @@ describe("the description ANNOTATION reaches the property node", () => {
       ),
     ).toEqual({
       type: "object",
-      properties: { n: { type: "integer", description: "blurb" } },
+      properties: {
+        n: {
+          type: "integer",
+          description: "blurb",
+          minimum: -Number.MAX_SAFE_INTEGER,
+          maximum: Number.MAX_SAFE_INTEGER,
+        },
+      },
       required: ["n"],
     });
   });
@@ -146,6 +163,9 @@ describe("screen_text args → the JSON Schema a host reads", () => {
             description:
               "Return only the last N lines (omit for the whole scrollback).",
             type: "integer",
+            // The safe-integer ceiling `Schema.Int` carries since effect 4.1;
+            // its floor is replaced by the tighter `exclusiveMinimum`.
+            maximum: Number.MAX_SAFE_INTEGER,
             exclusiveMinimum: 0,
           },
         },

@@ -17,7 +17,7 @@
       "workspace": [],
       "external": {
         "@agentclientprotocol/sdk": "^1.3.0",
-        "effect": "4.0.0"
+        "effect": "4.1.4"
       }
     },
     "@kolu/acp-harness": {
@@ -38,7 +38,7 @@
         "@juspay/agent-distro"
       ],
       "external": {
-        "effect": "4.0.0",
+        "effect": "4.1.4",
         "solid-js": "^1.9.0"
       }
     },
@@ -150,7 +150,7 @@
         "kolu-transcript-core"
       ],
       "external": {
-        "effect": "4.0.0"
+        "effect": "4.1.4"
       }
     },
     "@kolu/port-forward": {
@@ -277,11 +277,11 @@
         "@kolu/log"
       ],
       "external": {
-        "@effect/platform-browser": "4.0.0",
-        "@effect/platform-node": "4.0.0",
+        "@effect/platform-browser": "4.1.4",
+        "@effect/platform-node": "4.1.4",
         "@solid-primitives/rootless": "^1.5.3",
         "@solid-primitives/scheduled": "^1.5.3",
-        "effect": "4.0.0",
+        "effect": "4.1.4",
         "solid-js": "^1.9.0"
       }
     },
@@ -293,9 +293,9 @@
         "@kolu/url-shape"
       ],
       "external": {
-        "@effect/platform-browser": "4.0.0",
-        "@effect/platform-node": "4.0.0",
-        "effect": "4.0.0",
+        "@effect/platform-browser": "4.1.4",
+        "@effect/platform-node": "4.1.4",
+        "effect": "4.1.4",
         "solid-js": "^1.9.0",
         "ws": "^8.21.0"
       }
@@ -320,7 +320,7 @@
         "@kolu/surface"
       ],
       "external": {
-        "effect": "4.0.0",
+        "effect": "4.1.4",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -332,8 +332,8 @@
         "@kolu/surface"
       ],
       "external": {
-        "@effect/platform-node": "4.0.0",
-        "effect": "4.0.0",
+        "@effect/platform-node": "4.1.4",
+        "effect": "4.1.4",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -346,8 +346,8 @@
         "osfacts-client"
       ],
       "external": {
-        "@effect/platform-node": "4.0.0",
-        "effect": "4.0.0",
+        "@effect/platform-node": "4.1.4",
+        "effect": "4.1.4",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -457,7 +457,7 @@
       "external": {
         "@solid-primitives/keyed": "^1.5.3",
         "dequal": "^2.0.3",
-        "effect": "4.0.0",
+        "effect": "4.1.4",
         "solid-js": "^1.9.0",
         "ts-pattern": "^5.9.0"
       }
@@ -470,7 +470,7 @@
       ],
       "external": {
         "@modelcontextprotocol/sdk": "^1.31.0",
-        "effect": "4.0.0",
+        "effect": "4.1.4",
         "ts-pattern": "^5.9.0",
         "zod": "^4.6.6"
       }
@@ -486,8 +486,8 @@
         "@kolu/surface-map"
       ],
       "external": {
-        "@effect/platform-node": "4.0.0",
-        "effect": "4.0.0",
+        "@effect/platform-node": "4.1.4",
+        "effect": "4.1.4",
         "neverthrow": "^8.2.0",
         "quick-lru": "^7.3.0",
         "split2": "^4.2.0",
@@ -510,7 +510,7 @@
         "kolu-github"
       ],
       "external": {
-        "effect": "4.0.0",
+        "effect": "4.1.4",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -551,7 +551,7 @@
       "dir": "odu/run-client",
       "pin": {
         "name": "odu",
-        "revision": "0e4f727ca491a1094254447b97225cfba0015592",
+        "revision": "21dacad800a1f9a188bcd3aaacae24b27e6abbbf",
         "subdir": "packages/run-client"
       },
       "vendored": true,
@@ -559,14 +559,14 @@
         "@kolu/surface"
       ],
       "external": {
-        "effect": "4.0.0"
+        "effect": "4.1.4"
       }
     },
     "@odu/run-history": {
       "dir": "odu/run-history",
       "pin": {
         "name": "odu",
-        "revision": "0e4f727ca491a1094254447b97225cfba0015592",
+        "revision": "21dacad800a1f9a188bcd3aaacae24b27e6abbbf",
         "subdir": "packages/run-history"
       },
       "vendored": true,
@@ -574,14 +574,14 @@
         "@odu/run-client"
       ],
       "external": {
-        "effect": "4.0.0"
+        "effect": "4.1.4"
       }
     },
     "@odu/service-client": {
       "dir": "odu/service-client",
       "pin": {
         "name": "odu",
-        "revision": "0e4f727ca491a1094254447b97225cfba0015592",
+        "revision": "21dacad800a1f9a188bcd3aaacae24b27e6abbbf",
         "subdir": "packages/service-client"
       },
       "vendored": true,
@@ -593,7 +593,7 @@
         "@odu/run-history"
       ],
       "external": {
-        "effect": "4.0.0"
+        "effect": "4.1.4"
       }
     },
     "anyagent": {
@@ -606,7 +606,7 @@
         "nonempty"
       ],
       "external": {
-        "effect": "4.0.0",
+        "effect": "4.1.4",
         "string-argv": "^0.3.2"
       }
     },
@@ -617,7 +617,7 @@
         "@kolu/log"
       ],
       "external": {
-        "effect": "4.0.0",
+        "effect": "4.1.4",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -682,7 +682,7 @@
         "kolu-xyne"
       ],
       "external": {
-        "effect": "4.0.0"
+        "effect": "4.1.4"
       }
     },
     "kolu-claude-code": {
@@ -697,7 +697,7 @@
       ],
       "external": {
         "@anthropic-ai/claude-agent-sdk": "^0.2.96",
-        "effect": "4.0.0",
+        "effect": "4.1.4",
         "ts-pattern": "^5.9.0",
         "zod": "^4.6.6"
       }
@@ -796,7 +796,7 @@
         "kolu-transcript-core"
       ],
       "external": {
-        "effect": "4.0.0",
+        "effect": "4.1.4",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -848,7 +848,7 @@
       ],
       "external": {
         "@parcel/watcher": "^2.5.1",
-        "effect": "4.0.0",
+        "effect": "4.1.4",
         "p-limit": "^7.3.1",
         "simple-git": "^4.0.1"
       }
@@ -861,7 +861,7 @@
         "kolu-shared"
       ],
       "external": {
-        "effect": "4.0.0",
+        "effect": "4.1.4",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -875,7 +875,7 @@
         "kolu-transcript-core"
       ],
       "external": {
-        "effect": "4.0.0"
+        "effect": "4.1.4"
       }
     },
     "kolu-io": {
@@ -916,7 +916,7 @@
         "kolu-transcript-core"
       ],
       "external": {
-        "effect": "4.0.0",
+        "effect": "4.1.4",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -929,7 +929,7 @@
         "kolu-transcript-core"
       ],
       "external": {
-        "effect": "4.0.0",
+        "effect": "4.1.4",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -943,7 +943,7 @@
         "kolu-transcript-core"
       ],
       "external": {
-        "effect": "4.0.0",
+        "effect": "4.1.4",
         "ts-pattern": "^5.9.0"
       }
     },
@@ -1018,7 +1018,7 @@
         "@kolu/log"
       ],
       "external": {
-        "effect": "4.0.0"
+        "effect": "4.1.4"
       }
     },
     "kolu-transcript-html": {
@@ -1041,7 +1041,7 @@
         "kolu-transcript-core"
       ],
       "external": {
-        "effect": "4.0.0"
+        "effect": "4.1.4"
       }
     },
     "memorable-names": {
@@ -1062,13 +1062,13 @@
       "dir": "osfacts-client",
       "pin": {
         "name": "osfacts",
-        "revision": "0af7e8df98423aa3c62e7c43770bd38581ae7e18",
+        "revision": "1b13477b72c24f6feba450720e33d582045382a6",
         "subdir": "client-ts"
       },
       "vendored": true,
       "workspace": [],
       "external": {
-        "effect": "4.0.0"
+        "effect": "4.1.4"
       }
     },
     "padi-tui": {

@@ -18,7 +18,7 @@
   "dependencies": {
     "@kolu/log": "workspace:*",
     "@kolu/shell-quote": "workspace:*",
-    "effect": "4.0.0",
+    "effect": "4.1.4",
     "kolu-io": "workspace:*",
     "nonempty": "workspace:*",
     "string-argv": "^0.3.2"

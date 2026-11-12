@@ -35,7 +35,7 @@
     "@odu/service-client": "workspace:*",
     "anyagent": "workspace:*",
     "anyforge": "workspace:*",
-    "effect": "4.0.0",
+    "effect": "4.1.4",
     "kolu-agents": "workspace:*",
     "kolu-git": "workspace:*",
     "kolu-transcript-core": "workspace:*"

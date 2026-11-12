@@ -19,23 +19,20 @@
  *
  * On the SERVER side (the subprocess) any stray write to stdout corrupts the
  * frame stream. `serveOverStdio` redirects `console.log` to stderr when it owns
- * stdout. BETA-ASSUMPTION(4.0.0): malformed ndjson lines are silently dropped, even when they replace an in-flight answer.
- * Evidence: effect/src/rpc/RpcSerialization.ts makeNdjson catches JSON.parse
- * errors and emits no message. The shared serialization means this applies to
- * every ndjson wire link, not only stdio. In stdio.test.ts, "a corrupted answer
- * parks its call while valid replies and heartbeats keep flowing" corrupts a
- * real Exit: the call remains pending beyond the fatal-silence window, while
- * Pongs and another call still succeed. There is no per-call replay or deadline
- * here, so it can remain pending until interruption or a later transport death.
- * A stray line followed by an intact answer is harmless. No corruption workaround
- * is applied here; the daemon identity probe separately rejects its first frame.
+ * stdout. A line that still gets through is not survivable on this link: the
+ * decoder has lost what followed it, so the link ENDS, every call (in flight
+ * or later) fails with `SurfaceStdioTransportClosed{death: "undecodableFrame"}`,
+ * and the owner re-dials a fresh one. That holds whether or not a call was in
+ * flight. The reasoning, and the Effect behaviour it rests on, are in
+ * `./undecodableFrames.ts`; `stdio.test.ts` measures both shapes. The
+ * daemon identity probe separately rejects a malformed FIRST frame.
  *
  * ## No pinger before a proven epoch (juspay/kolu#2101)
  *
  * {@link stdioLink} REQUIRES a `StdioReadinessProof`. Building the protocol
  * layer starts Effect RPC's pinger, and a peer from a previous protocol epoch
- * accepts the pipe and then stays mute — so the pinger kills the link ~10s later
- * with a generic transport error that reads exactly like an unreachable host,
+ * accepts the pipe and then stays mute — so the pinger kills the link at its
+ * backstop with a generic transport error that reads exactly like an unreachable host,
  * and the consumer retries forever. The proof is minted only by
  * `awaitStdioReadiness` reading the peer's own banner, so the blind attach that
  * caused that incident is not a discipline to remember: it does not typecheck,

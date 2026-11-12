@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Then, When } from "@cucumber/cucumber";
 import { shellQuoteArg } from "@kolu/shell-quote";
-import { waitForBufferContains } from "../support/buffer.ts";
+import { ACTIVE_TERMINAL, waitForBufferContains } from "../support/buffer.ts";
 import {
   retireWorldScrollFifo,
   SCROLL_FIFO_DIR_PREFIX,
@@ -64,6 +64,29 @@ When("I note the scroll position", async function (this: KoluWorld) {
     .evaluate((el) => el.scrollTop);
 });
 
+/** Wait until the focused terminal's cursor row reads `expected` (or, with
+ *  `null`, holds anything at all) and return it. At an idle shell that row is
+ *  its prompt. */
+async function cursorRow(
+  world: KoluWorld,
+  expected: string | null,
+): Promise<string> {
+  const handle = await world.page.waitForFunction(
+    ({ sel, want }) => {
+      const term = document.querySelector<HTMLDivElement>(sel)?.__xterm;
+      if (!term) return null;
+      const buf = term.buffer.active;
+      const row =
+        buf.getLine(buf.baseY + buf.cursorY)?.translateToString(true) ?? "";
+      const hit = want === null ? row !== "" : row === want;
+      return hit ? row : null;
+    },
+    { sel: ACTIVE_TERMINAL, want: expected },
+    { timeout: POLL_TIMEOUT, polling: 20 },
+  );
+  return (await handle.jsonValue()) ?? "";
+}
+
 When("I prepare a output trigger", async function (this: KoluWorld) {
   // Create a FIFO so we can inject output without typing (which would clear scroll lock).
   // Put it in an atomically-created private directory: parallel workers cannot
@@ -74,10 +97,15 @@ When("I prepare a output trigger", async function (this: KoluWorld) {
   await writeFile(join(fifoDir, "owner"), String(process.pid));
   this._scrollFifo = fifo;
   const quotedFifo = shellQuoteArg(fifo);
-  await this.terminalRun(`mkfifo ${quotedFifo}`);
-  await this.waitForFrame();
-  await this.terminalRun(`cat ${quotedFifo} &`);
-  await this.waitForFrame();
+  const prompt = await cursorRow(this, null);
+  await this.terminalRunAndWait(`mkfifo ${quotedFifo}`);
+  await this.terminalRunAndWait(`cat ${quotedFifo} & true`);
+  // The shell's own reply to starting `cat` — its job line, then a fresh
+  // prompt — is output as well, and output on a scroll-locked terminal is
+  // activity. Wait until that prompt is back on the cursor row, so the only
+  // output still to come is the trigger's: the scenario's claim is "no
+  // activity until the trigger fires", not "the shell answers within a frame".
+  await cursorRow(this, prompt);
 });
 
 When("I fire the output trigger", async function (this: KoluWorld) {

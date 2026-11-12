@@ -128,7 +128,13 @@ describe("toInputSchema", () => {
     const props = out.properties as Record<string, Record<string, unknown>>;
 
     expect(props.finite).toEqual({ type: "number" });
-    expect(props.whole).toEqual({ type: "integer" });
+    // `isInt()` enforces `Number.isSafeInteger`, and since effect 4.1 the
+    // document says so: the safe-integer range rides the node.
+    expect(props.whole).toEqual({
+      type: "integer",
+      minimum: Number.MIN_SAFE_INTEGER,
+      maximum: Number.MAX_SAFE_INTEGER,
+    });
     expect(props.loose).toEqual({ type: "number" });
     expect(props.bounded).toMatchObject({ type: "number" });
     expect(props.many).toEqual({ type: "array", items: { type: "number" } });
@@ -366,10 +372,10 @@ describe("toInputSchema", () => {
     //   - `strict` spells `{"type":"boolean","default":true}` where zod spelled
     //     `{"default":true,"type":"boolean"}` — key ORDER only, which JSON does
     //     not treat as semantic and no MCP host reads positionally;
-    //   - `whole` is a bare `{"type":"integer"}` where zod additionally emitted
-    //     `minimum`/`maximum` at the safe-integer bounds. `Schema.Int` declares
-    //     integrality and nothing else, and advertising bounds the schema does
-    //     not enforce would be the converter lying on the schema's behalf.
+    //   - `whole` carries `minimum`/`maximum` at the safe-integer bounds, as zod
+    //     did. `Schema.Int`'s `isInt()` decodes with `Number.isSafeInteger`, so
+    //     the bounds are enforced, and since effect 4.1 the converter
+    //     advertises them.
     //
     // Everything else — property order, `required` order, the absence of
     // `additionalProperties` and `$schema` — is byte-identical to the zod era.
@@ -387,7 +393,7 @@ describe("toInputSchema", () => {
     });
 
     expect(JSON.stringify(toInputSchema(wire(schema)))).toBe(
-      '{"type":"object","properties":{"name":{"type":"string"},"strict":{"type":"boolean","default":true},"count":{"type":"number"},"whole":{"type":"integer"},"tags":{"type":"array","items":{"type":"string"}},"mode":{"type":"string","enum":["a","b"]},"note":{"type":"string"},"nested":{"type":"object","properties":{"x":{"type":"number"}},"required":["x"]}},"required":["name","count","whole","tags","mode","nested"]}',
+      '{"type":"object","properties":{"name":{"type":"string"},"strict":{"type":"boolean","default":true},"count":{"type":"number"},"whole":{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991},"tags":{"type":"array","items":{"type":"string"}},"mode":{"type":"string","enum":["a","b"]},"note":{"type":"string"},"nested":{"type":"object","properties":{"x":{"type":"number"}},"required":["x"]}},"required":["name","count","whole","tags","mode","nested"]}',
     );
   });
 });

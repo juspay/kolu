@@ -39,9 +39,10 @@ import type { Rpc, RpcGroup } from "effect/rpc";
 import { RpcClient } from "effect/rpc";
 import { Socket } from "effect/socket";
 import { SurfaceTransportRetired } from "../errors";
-import { rpcSerializationLayer } from "../frameLimit";
+import { RPC_PING_INTERVAL_MS, RPC_PING_TIMEOUT_MS } from "../keepAlive";
 import type { WireStatus, WireTransport } from "../link";
 import { monotonicNow } from "../time";
+import { undecodableAware } from "./undecodableFrames";
 import { openWireLink, type WireLink } from "./wire";
 
 /** Close code the link itself uses when {@link WatchableWire.forceReconnect}
@@ -316,7 +317,7 @@ export async function websocketLink(
   // closed/retired edge stays exactly as observable as before — and it reads the
   // `retired` flag the socket's own `close` listener has already set.
   //
-  // BETA-ASSUMPTION(4.0.0): `onDisconnect` runs on EVERY attempt end, including
+  // BETA-ASSUMPTION(4.1.4): `onDisconnect` runs on EVERY attempt end, including
   // the ones whose failure `retryTransientErrors` then swallows — Effect RPC applies
   // `Effect.ensuring(hooks.onDisconnect)` to the whole attempt, OUTSIDE the `tapCause`
   // that returns early for a `SocketOpenError`. Two things below rest on it and on
@@ -343,6 +344,19 @@ export async function websocketLink(
     }),
   );
 
+  // Sever the socket the protocol currently holds; its run fails with a close,
+  // the schedule re-dials, and the acquire re-evaluates the URL thunk. (Effect's
+  // socket layer exposes no re-dial handle, and interrupting the protocol fiber
+  // would kill the transport rather than recycle it — closing the socket IS the
+  // re-dial, review #4.) A no-op while a re-dial is already in flight: there is
+  // no socket to sever.
+  const severCurrentSocket = (): void => {
+    const ws = currentSocket;
+    if (ws !== undefined && ws.readyState <= 1) {
+      ws.close(FORCE_RECONNECT_CLOSE_CODE);
+    }
+  };
+
   const protocol = Layer.effect(RpcClient.Protocol)(
     RpcClient.makeProtocolSocket({
       // Suppresses the failure broadcast while a socket that never OPENED is
@@ -350,11 +364,23 @@ export async function websocketLink(
       // broadcasts, which is what the face's retry fence needs to see.
       retryTransientErrors: true,
       retryPolicy: reconnectSchedule(() => retired),
+      // The framework's own numbers, not Effect's defaults: the pinger is a
+      // BACKSTOP above the wake-aware watchdog (`createLiveSignal`), which is
+      // the authority on this leg (`../keepAlive.ts` has the account). Its
+      // death needs no name here: it fails calls as the same retryable
+      // `RpcClientError` as any other close.
+      pingInterval: RPC_PING_INTERVAL_MS,
+      pingTimeout: RPC_PING_TIMEOUT_MS,
     }),
   ).pipe(
     Layer.provide([
       Layer.succeed(Socket.Socket)(socket),
-      rpcSerializationLayer,
+      // An undecodable frame cycles the socket: the calls it failed are
+      // `RpcClientError`s the face's fence retries, and they land on a fresh
+      // socket instead of the one whose stream can no longer be trusted
+      // (`./undecodableFrames.ts`). The duplex legs END the link for the same
+      // reason; this leg's way of ending a socket is to redial it.
+      undecodableAware(severCurrentSocket),
       connectionHooks,
     ]),
   );
@@ -410,18 +436,7 @@ export async function websocketLink(
           watchers.delete(cb);
         };
       },
-      // Sever the socket the protocol currently holds; its run fails with a
-      // close, the schedule re-dials, and the acquire re-evaluates the URL
-      // thunk. (Effect's socket layer exposes no re-dial handle, and
-      // interrupting the protocol fiber would kill the transport rather than
-      // recycle it — closing the socket IS the re-dial, review #4.) A no-op
-      // while a re-dial is already in flight: there is no socket to sever.
-      forceReconnect: () => {
-        const ws = currentSocket;
-        if (ws !== undefined && ws.readyState <= 1) {
-          ws.close(FORCE_RECONNECT_CLOSE_CODE);
-        }
-      },
+      forceReconnect: severCurrentSocket,
     },
   };
 }

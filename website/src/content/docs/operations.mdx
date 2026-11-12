@@ -168,6 +168,13 @@ table, and takes it over — on this machine and on each [remote
 host](/remote-hosts). Nothing to run by hand; the story users see is in
 [Troubleshooting](/troubleshooting#how-do-i-update-kolu).
 
+A process holding the socket that the supervisor **cannot** prove is one of its
+own daemons is never signalled. It is refused, and the refusal names the
+holder's pid and command, so you can deal with it by hand. If something holds
+kaval's socket, accepts connections and then says nothing at all, padi takes
+about **90 seconds** to refuse it: three tries, each waiting out a 30-second
+handshake deadline.
+
 Going the other way is manual, and for one reason: **that takeover logic exists
 only in the newer binary.** An older kolu has no code for it. It meets the new
 daemon's socket, fails to speak its protocol, and refuses — so you have to clear

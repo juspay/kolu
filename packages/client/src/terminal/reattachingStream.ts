@@ -171,9 +171,10 @@ const CLEAN_END_REATTACH_BUDGET = 1;
  *  excuses — and the remaining ~18s is the room the unboundable serialization
  *  term gets. Under 25s the deadline PREEMPTS the watchdog it depends on: it
  *  would tear the stream down while the socket cycle that actually repairs a
- *  half-open wire is still in flight. Stable Effect's own ping failure usually
- *  reaches the retry channel earlier (about 10s), within that same upper bound. That inversion — the
- *  belt firing before the braces — is what shipped at 10s.
+ *  half-open wire is still in flight. That inversion — the belt firing before
+ *  the braces — is what shipped at 10s. (The link's own keep-alive is no longer
+ *  part of this sum: it is a backstop at 60–65s of total silence, above the
+ *  watchdog, so the watchdog's 25s is the first structural repair.)
  *
  *  **The bound this buys.** A genuine park is REPAIRED at 45s (the first
  *  re-attach) and SAID OUT LOUD at 90.3s (the second silent open, plus one
@@ -191,9 +192,10 @@ const CLEAN_END_REATTACH_BUDGET = 1;
  *  only strap** (kolu#2101 J1). There are two ways an opened attach can go
  *  silent, and they are covered by different things:
  *
- *   - **The established wire stopped answering.** Effect RPC broadcasts its
- *     heartbeat failure as SocketReadError. The framework fence retries that
- *     failure without spending either terminal re-attach budget.
+ *   - **The established wire stopped answering.** The browser watchdog cycles
+ *     the socket at its verdict (and Effect RPC's keep-alive backstop would
+ *     broadcast a SocketReadError later still); either way the framework fence
+ *     retries that failure without spending either terminal re-attach budget.
  *   - **The wire never moved and the UPSTREAM stalled.** A relay that holds the
  *     stream open while its own source says nothing (padi re-binding, kaval
  *     mid-adopt) produces no re-dial, no epoch edge, and no failure anywhere.
@@ -206,8 +208,8 @@ const CLEAN_END_REATTACH_BUDGET = 1;
  *  race is harmless: both roads end in channel 2, the same re-subscribe, and the
  *  budget below bounds the second one either way.
  *
- *  BETA-ASSUMPTION(4.0.0): pre-open SocketOpenError retries leave registered calls pending, but an established socket's ping timeout fails them.
- *  Stable Effect's src/rpc/RpcClient.ts swallows only SocketOpenError and
+ *  BETA-ASSUMPTION(4.1.4): pre-open SocketOpenError retries leave registered calls pending, but an established socket's ping timeout fails them.
+ *  Effect's src/rpc/RpcClient.ts (`makeProtocolSocket`) swallows only SocketOpenError and
  *  broadcasts the pinger's SocketReadError. Measured by
  *  packages/surface/src/links/socketRedialLaws.test.ts. This deadline still
  *  bounds a stalled upstream that owes a first frame on an otherwise live wire.

@@ -26,14 +26,14 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
-    "@effect/platform-browser": "4.0.0",
+    "@effect/platform-browser": "4.1.4",
     "@kolu/surface": "workspace:*",
     "@kolu/url-shape": "workspace:*",
-    "effect": "4.0.0",
+    "effect": "4.1.4",
     "solid-js": "^1.9.0"
   },
   "peerDependencies": {
-    "@effect/platform-node": "4.0.0",
+    "@effect/platform-node": "4.1.4",
     "ws": "^8.21.0"
   },
   "peerDependenciesMeta": {
@@ -45,7 +45,7 @@
     }
   },
   "devDependencies": {
-    "@effect/platform-node": "4.0.0",
+    "@effect/platform-node": "4.1.4",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.18.1",
     "selfsigned": "^5.5.0",

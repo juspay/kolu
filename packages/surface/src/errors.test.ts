@@ -47,7 +47,8 @@ const SAMPLES = [
   }),
   new SurfaceStdioTransportClosed({ reason: "agent exited" }),
   new SurfaceStdioTransportClosed({
-    reason: "padi on myhost: the peer stopped answering the keep-alive ping",
+    reason:
+      "padi on myhost: nothing was read from the peer for over 60s, not even a reply to the keep-alive ping, so the link was ended",
     death: "keepAliveUnanswered",
   }),
   new SurfaceRelayTransportLost({ reason: "upstream padi died mid-stream" }),

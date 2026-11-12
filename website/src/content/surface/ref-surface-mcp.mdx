@@ -320,7 +320,8 @@ union back to its numeric arm, and special-cases `Schema.Void` / `Schema.Undefin
 so a no-arg tool does not end up demanding `{"value": null}`.
 
 Two authoring laws follow. Prefer **`Schema.Finite` / `Schema.Int`** for an
-MCP-facing numeric — they emit `{"type":"number"}` / `{"type":"integer"}` outright.
+MCP-facing numeric — they emit `{"type":"number"}` / `{"type":"integer"}` outright
+(the integer with the safe-integer `minimum`/`maximum` that `isInt()` enforces).
 And put a **`default` annotation on the encoded-side node**, inside
 `optionalKey`: `withDecodingDefaultKey` is a transformation the encoded document
 cannot see through, so a default declared outside it never reaches the agent.

@@ -452,6 +452,24 @@ which drives kaval. Shell output flows back as an **attach stream** — a screen
 snapshot followed by live deltas, partitioned so nothing is lost or double-painted.
 kaval's headless mirror parses the VT sequences server-side, so a late-joining
 client gets ~4 KB of serialized screen state instead of replaying the raw buffer.
+Each hop's connection carries every terminal's stream at once, so a stream nobody
+is reading must not hold the others up: when one attach stream stops being read,
+only that stream waits — its sender pauses until there is room — while the
+connection and every other terminal keep flowing, and it picks up where it left
+off. (A reader that falls so far behind that kaval's own per-viewer buffer
+overflows is re-attached with a fresh snapshot, as before.)
+
+Who decides that a hop is dead is just as deliberate. Each connection's own
+keep-alive ping is only a **backstop**: it ends a connection that has carried
+nothing at all for a full minute. Where a watchdog guards a hop, it decides
+first. In the browser it is wake-aware and counts any arriving data as
+progress. Between kolu and padi on this machine it checks that padi's process
+is still running before it reconnects anything. On a remote hop it probes the
+far padi, with ssh's own dead-peer check beside it. padi's connection to kaval
+has no watchdog, so there the one-minute backstop is the only bound on
+silence. A busy-but-running daemon on this machine therefore keeps its
+connection; one that exits is noticed at once, because the operating system
+closes the pipe.
 
 **Metadata** (dashed) — every per-terminal sensor lives in padi's awareness
 producer. A CWD change (OSC 7) wakes the git sensor (branch, remote), which wakes

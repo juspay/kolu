@@ -273,6 +273,36 @@ describe("websocketLink — the WatchableWire (#4)", () => {
     await link.dispose();
   });
 
+  it("an undecodable frame cycles the socket: the call it failed is retryable, and the next dial is fresh", async () => {
+    const h = harness();
+    const link = await h.link;
+    const first = await nthSocket(h.dialled, 1);
+    first.open();
+    await expect
+      .poll(() => link.wire.status(), { timeout: 3_000 })
+      .toBe("open");
+
+    const call = Effect.runPromise(
+      Effect.flip(link.dispatch.unary(DOUBLE_TAG, { x: 1 })),
+    );
+    await expect.poll(() => first.sent.length, { timeout: 3_000 }).toBe(1);
+    // A line the decoder cannot read. Its buffer, and whatever followed the
+    // line, are gone, so this socket cannot be trusted with another frame.
+    first.dispatchEvent(
+      new MessageEvent("message", { data: "not a protocol frame\n" }),
+    );
+
+    // The call fails as the face's retry fence expects a socket death to —
+    // an `RpcClientError`, never one of the permanently-dead tags…
+    const failure = (await call) as { _tag?: unknown };
+    expect(failure._tag).toBe("RpcClientError");
+    // …and the socket it rode is closed and replaced, not kept.
+    expect(first.readyState).toBe(3);
+    const second = await nthSocket(h.dialled, 2);
+    expect(second).not.toBe(first);
+    await link.dispose();
+  });
+
   it("counts open EDGES in diagnostics", async () => {
     const h = harness();
     const link = await h.link;

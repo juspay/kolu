@@ -1,35 +1,34 @@
 /**
  * The ORDERING of every bound on "how long may this link be silent" — pinned,
- * because the docs make claims about it, prose drifts, and the last round of
+ * because the docs make claims about it, prose drifts, and an earlier round of
  * those docs got it wrong in a way arithmetic can catch.
  *
- * There are FOUR independent bounds, and `SshKeepalive` is only the last:
+ * There are FOUR independent bounds:
  *
- *   1. **Effect RPC's own pinger** — fatal the moment a tick finds the previous
- *      ping unanswered, so `RPC_PING_FATAL_SILENCE_MS` of silence ends a
- *      CONNECTED link. NOT a knob. Canonical account: the docstring beside
- *      `neverReconnect` in `@kolu/surface`'s `links/wire.ts`, which is also
- *      where those two constants are declared; measured by
- *      `links/stdioPingStall.test.ts`.
- *   2. **`makeSession`'s heartbeat** — ≈25s at its defaults, tunable via
- *      `MakeSessionOptions.liveness`. At its defaults and at every RAISED tuning
- *      it "never gets a vote, because the lower deadline always wins" (`wire.ts`,
- *      verbatim). Tuned BELOW the pinger's 10s it does fire first — `heartbeat.ts`
- *      sets no floor — which is why the test below pins the raised direction.
- *   3. **The provisioning child-lifetime budget** — group-kills a child that
+ *   1. **`makeSession`'s heartbeat** — ≈25s at its defaults, tunable via
+ *      `MakeSessionOptions.liveness`. The LIVENESS AUTHORITY on a connected
+ *      link: suspension-aware, and on a same-box arm consulting a process
+ *      oracle before it cycles anything.
+ *   2. **ssh's dead-peer policy** (`SshKeepalive`) — the transport's own death,
+ *      30s at its defaults.
+ *   3. **The link's keep-alive backstop** — `@kolu/surface` owns it
+ *      (`keepAlive.ts`, the canonical account: a ping every 5s, fatal past
+ *      `RPC_PING_TIMEOUT_MS` = 60s with no decoded frame, so 60–65s); measured
+ *      by `links/stdioPingStall.test.ts`. It ends only a link nothing above has
+ *      already judged.
+ *   4. **The provisioning child-lifetime budget** — group-kills a child that
  *      goes quiet. NOT one number: 30s hard deadline for a quick probe, 120s of
  *      child silence for a required build that DOUBLES per expiry to a last
  *      budgeted 960s, and a fixed 600s for the speculative closure copies. ssh
  *      keepalives are protocol traffic and produce no child stdout, so they
- *      never reset any of them.
- *   4. **ssh's dead-peer policy** (`SshKeepalive`) — the transport's own death.
+ *      never reset any of them. It bounds a child that is not yet a connected
+ *      link, so it does not compete with (1)–(3).
  *
- * The file exists to make the real ordering — pinger < heartbeat < ssh
- * keepalive, with the provisioning budget owning a blip during a build — the
- * thing a regression breaks against. Its previous shape pinned only (2) against
- * (4), which reads as though raising the heartbeat alongside the keepalive buys
- * a connected link something. It does not; (1) is below both. Sibling of
- * `livenessOrdering.test.ts`, which pins the pre-connected backstop the same way.
+ * The file exists to make the real ordering — heartbeat < ssh keepalive <
+ * backstop at the defaults — the thing a regression breaks against, and to say
+ * honestly where it stops holding: a heartbeat TUNED past the backstop gets no
+ * vote, and the backstop decides. Sibling of `livenessOrdering.test.ts`, which
+ * pins the pre-connected backstop the same way.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -38,7 +37,10 @@ import {
   MAX_HEARTBEAT_INTERVAL_MS,
   MAX_HEARTBEAT_TIMEOUT_MS,
 } from "@kolu/surface/heartbeat";
-import { RPC_PING_FATAL_SILENCE_MS } from "@kolu/surface/links/wire";
+import {
+  RPC_PING_FATAL_SILENCE_MS,
+  RPC_PING_TIMEOUT_MS,
+} from "@kolu/surface/keepAlive";
 import { CI_KEEPALIVE } from "./controlDir.testutil";
 import {
   DEFAULT_SSH_KEEPALIVE,
@@ -72,50 +74,61 @@ const defaultHeartbeatMs = heartbeatVerdictMs(
 );
 
 describe("what actually ends a CONNECTED link", () => {
-  it("is Effect's pinger — below the heartbeat and below any ssh keepalive", () => {
-    // The whole ordering, in one line: pinger < heartbeat < ssh keepalive.
-    expect(RPC_PING_FATAL_SILENCE_MS).toBeLessThan(defaultHeartbeatMs);
+  it("is the framework watchdog, then ssh — the keep-alive is a backstop above both", () => {
+    // The whole ordering, in one line: heartbeat < ssh keepalive < backstop.
     expect(defaultHeartbeatMs).toBeLessThan(
       keepaliveVerdictMs(DEFAULT_SSH_KEEPALIVE),
     );
-    // The concrete numbers the docs quote, so a re-tune has to update both.
+    // The backstop's EARLIEST death (just past the timeout) is already above
+    // the slowest default verdict — so neither is ever pre-empted.
+    expect(keepaliveVerdictMs(DEFAULT_SSH_KEEPALIVE)).toBeLessThan(
+      RPC_PING_TIMEOUT_MS,
+    );
+    // The derivation `keepAlive.ts` states: twice the slowest default verdict.
+    expect(RPC_PING_TIMEOUT_MS).toBe(
+      2 *
+        Math.max(defaultHeartbeatMs, keepaliveVerdictMs(DEFAULT_SSH_KEEPALIVE)),
+    );
+    // The concrete numbers the docs quote, so a re-tune has to update all three.
     expect(defaultHeartbeatMs).toBe(25_000);
     expect(keepaliveVerdictMs(DEFAULT_SSH_KEEPALIVE)).toBe(30_000);
+    expect(RPC_PING_FATAL_SILENCE_MS).toBe(65_000);
   });
 
-  it("dominates even the LOOSEST pairing a consumer can express", () => {
-    // Both knobs wound to their ceilings, which is the most a consumer can ask
-    // for. The pinger is still the first verdict, by two orders of magnitude —
-    // which is why the docs must never advise "raise liveness alongside
-    // keepalive to survive a blip". There is no pairing that survives one.
+  it("is the BACKSTOP once the heartbeat is tuned past it — up to the 420s maximum", () => {
+    // Wind the heartbeat to its ceiling. It is still a legal tuning, and on a
+    // connected link it no longer decides anything: total silence ends the link
+    // at the backstop (≤ 65s) long before a 420s verdict. That is the honest
+    // limit of "the watchdog is the authority" — it holds for every tuning
+    // whose verdict lands before the backstop, and no further.
     const loosestHeartbeatMs = heartbeatVerdictMs(
       MAX_HEARTBEAT_INTERVAL_MS,
       MAX_HEARTBEAT_TIMEOUT_MS,
     );
     expect(loosestHeartbeatMs).toBe(420_000);
     expect(RPC_PING_FATAL_SILENCE_MS).toBeLessThan(loosestHeartbeatMs);
+    // The same for the loosest ssh policy a consumer may state: a CONNECTED
+    // link still ends at the backstop; the policy only bounds the transport.
     expect(RPC_PING_FATAL_SILENCE_MS).toBeLessThan(
       MAX_SSH_KEEPALIVE_TOLERANCE_S * 1_000,
     );
   });
 
-  it("leaves the heartbeat with no vote at every RAISED tuning", () => {
-    // The direction that matters, stated as a general fact rather than one
-    // example: raising the heartbeat can only move it further above the pinger's
-    // deadline, so no `liveness` a consumer reaches for in order to tolerate
-    // MORE silence ever gets to decide anything. (Tuned the other way — below
-    // 10s — the heartbeat does fire first; that is tightening, not surviving,
-    // and `heartbeat.ts` sets no floor. `MakeSessionOptions.liveness` is a
+  it("gives the heartbeat the vote at every tuning whose verdict lands before the backstop", () => {
+    // The direction that matters, stated as a general fact: every heartbeat
+    // verdict up to the backstop's earliest death decides first. Past it (the
+    // case above) the backstop does. `MakeSessionOptions.liveness` is a
     // legitimate knob for its own reasons: a cheaper or quieter `system.live`
-    // round-trip, or turning the watchdog off. Never for riding out a blip.)
-    for (const [intervalMs, timeoutMs] of [
-      [DEFAULT_HEARTBEAT_INTERVAL_MS, DEFAULT_HEARTBEAT_TIMEOUT_MS],
-      [60_000, 30_000],
-      [MAX_HEARTBEAT_INTERVAL_MS, MAX_HEARTBEAT_TIMEOUT_MS],
+    // round-trip, a looser verdict for a known-slow host, or turning the
+    // watchdog off.
+    for (const [intervalMs, timeoutMs, decides] of [
+      [DEFAULT_HEARTBEAT_INTERVAL_MS, DEFAULT_HEARTBEAT_TIMEOUT_MS, true],
+      [30_000, 20_000, true],
+      [45_000, 20_000, false],
+      [MAX_HEARTBEAT_INTERVAL_MS, MAX_HEARTBEAT_TIMEOUT_MS, false],
     ] as const) {
       const verdictMs = heartbeatVerdictMs(intervalMs, timeoutMs);
-      expect(verdictMs).toBeGreaterThanOrEqual(defaultHeartbeatMs);
-      expect(RPC_PING_FATAL_SILENCE_MS).toBeLessThan(verdictMs);
+      expect(verdictMs < RPC_PING_TIMEOUT_MS).toBe(decides);
     }
   });
 });

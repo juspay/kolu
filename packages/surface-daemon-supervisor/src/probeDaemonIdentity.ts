@@ -31,32 +31,33 @@ const CONTROL_CORE_HELLO_TIMEOUT_MS = 30_000;
  * accepted our connection may say **nothing at all** before it is classified as
  * not-of-this-epoch.
  *
- * The value is not a free knob — it is pinned between two facts of the protocol
- * we run, both pinned by `probeDaemonIdentity.test.ts`:
+ * The value is not a free knob — it is pinned between two facts of the link we
+ * dial, both owned by `@kolu/surface`'s `keepAlive.ts` and both pinned by
+ * `probeDaemonIdentity.test.ts`:
  *
- * - **Floor (5 s).** Effect's RPC socket protocol pings every 5 s and a peer of
- *   this epoch answers `Pong` from the protocol layer, *below* its handlers. So
- *   a daemon that is merely SLOW — one whose `hello` handler is blocked, or
- *   whose event loop stalled — has still demonstrably spoken within 5 s. Any
- *   bound above that cannot mistake slowness for silence.
- * - **Ceiling (~10 s).** Two ping intervals with no pong and that same protocol
- *   kills the connection itself, with a `SocketOpenError` the leg reports as an
- *   ordinary transport death. Past ~10 s there is nothing left to classify: the
- *   outcome degrades to `probe-failed`, which is exactly the measured failure
- *   this trigger exists to fix (a real previous-release kaval, silent, refused
+ * - **Floor (5 s, `RPC_PING_INTERVAL_MS`).** The link pings every 5 s and a
+ *   peer of this epoch answers `Pong` from the protocol layer, *below* its
+ *   handlers. So a daemon that is merely SLOW — one whose `hello` handler is
+ *   blocked, or whose event loop stalled — has still demonstrably spoken
+ *   within 5 s. Any bound above that cannot mistake slowness for silence.
+ * - **Ceiling (60 s, `RPC_PING_TIMEOUT_MS`).** A peer that sends no frame at
+ *   all is ended by the link's keep-alive backstop, 60–65 s in, as an ordinary
+ *   transport death. Past that there is nothing left to classify: the outcome
+ *   degrades to `probe-failed`, which is exactly the measured failure this
+ *   trigger exists to fix (a real previous-release kaval, silent, refused
  *   instead of recycled).
  *
- * BETA-ASSUMPTION(4.0.0): the RPC socket protocol pings every 5 s and kills the connection after two ping intervals with no pong (~10 s).
- *   Re-read in effect@4.0.0 src/rpc/RpcClient.ts makePinger; measured by
- *   surface/links/stdioPingStall.test.ts and probeDaemonIdentity.test.ts.
- *   Both numbers are protocol BEHAVIOR — nothing in the type system holds them
- *   — and the 8 s is derived from them, so a bump that moves either turns this
- *   value from the generous middle into a floor breach or a dead trigger.
+ * BETA-ASSUMPTION(4.1.4): an Effect RPC server answers a client's Ping with Pong from the protocol layer, below its handlers.
+ *   Re-read in effect@4.1.4 src/rpc/RpcServer.ts (`Ping` → `send(client.id,
+ *   constPong)`, outside any handler fiber); measured by the "a pong is speech"
+ *   case in probeDaemonIdentity.test.ts. It is the one Effect behaviour the
+ *   floor stands on — the numbers themselves are the link's own.
  *
- * 8 s takes the generous end of that band — 3 s of headroom over a slow peer's
- * pong, 2 s of margin under the protocol's own execution. Both timers live in
- * THIS process's event loop and Node fires timers in deadline order, so the
- * ordering is deterministic under load, not a race we hope to win.
+ * 8 s sits 3 s above the floor (a slow peer's first pong) and far under the
+ * ceiling, so a silent previous-epoch peer is classified in 8 s rather than
+ * left to the backstop. Both timers live in THIS process's event loop and Node
+ * fires timers in deadline order, so the ordering is deterministic under load,
+ * not a race we hope to win.
  */
 export const UNSPEAKABLE_SILENCE_MS = 8_000;
 
@@ -312,47 +313,29 @@ function openControlCore(
       if (framingSettled) return;
       const publishUnspeakable = (cause: unknown): void => {
         framingSettled = true;
-        // Upstream re-entrancy bug: NodeSocket.onReadable checks waiter, then
-        // readAvailable emits this data callback; synchronous publication can
-        // dispose the reader and clear waiter before onReadable calls resume.
-        // Removing this deferral makes probeDaemonIdentity.test.ts's
-        // "classifies an undecodable first frame as unspeakable" fail the run
-        // with uncaught TypeError: resume is not a function (despite its assertion
-        // passing). The microtask lets the synchronous read finish first.
-        // Source: @effect/platform-node-shared/src/NodeSocket.ts:194-200.
-        // https://github.com/Effect-TS/effect/blob/effect%404.0.0/packages/platform/node-shared/src/NodeSocket.ts#L194-L200
-        queueMicrotask(() => {
-          Deferred.doneUnsafe(
-            framing,
-            Effect.succeed(
-              new UnspeakableProtocolError({
-                socketPath,
-                evidence: {
-                  trigger: "undecodable-frame",
-                  frame: frameExcerpt(chunk),
-                },
-                cause,
-              }),
-            ),
-          );
-        });
+        Deferred.doneUnsafe(
+          framing,
+          Effect.succeed(
+            new UnspeakableProtocolError({
+              socketPath,
+              evidence: {
+                trigger: "undecodable-frame",
+                frame: frameExcerpt(chunk),
+              },
+              cause,
+            }),
+          ),
+        );
       };
       try {
-        // Feed only the first frame: a later valid line in the same chunk must
-        // not conceal a malformed first line silently dropped by stable ndjson.
+        // Feed only the first frame: the verdict is about the peer's FIRST
+        // line, so a later line in the same chunk must not decide it.
         const newline = chunk.indexOf(10);
         const first = newline === -1 ? chunk : chunk.subarray(0, newline + 1);
-        const decoded = parser.decode(first);
-        const rejectedFirstLine = newline !== -1 && decoded.length === 0;
-        if (rejectedFirstLine) {
-          publishUnspeakable(
-            new Error("Effect ndjson rejected the first complete frame"),
-          );
-        } else if (decoded.length > 0) {
-          framingSettled = true;
-        }
+        if (parser.decode(first).length > 0) framingSettled = true;
       } catch (cause) {
-        // MaxBufferSizeExceeded remains a thrown parser failure.
+        // The ndjson parser THROWS on an undecodable line (NdjsonDecodeError)
+        // and on an oversized one (MaxBufferSizeExceeded).
         publishUnspeakable(cause);
       }
     };

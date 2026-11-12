@@ -21,7 +21,7 @@
  *
  * ## Why the value is what it is
  *
- * `RPC_MAX_FRAME_BYTES` is set to Effect's own 4.0.0 default, 16 MiB, and
+ * `RPC_MAX_FRAME_BYTES` is set to Effect's own default (16 MiB, still so at 4.1.4), and
  * that equality is the POINT rather than a coincidence: passing it explicitly
  * at every site means a future bump that changes the default cannot move
  * kolu's wire silently. The number stops being Effect's and starts being ours.
@@ -34,9 +34,9 @@
  *
  * ## The measurement behind the marker
  *
- * BETA-ASSUMPTION(4.0.0): an ndjson frame over `maxBufferSize` closes the socket with code 1009 rather than failing the single oversized call.
+ * BETA-ASSUMPTION(4.1.4): an ndjson frame over `maxBufferSize` closes the socket with code 1009 rather than failing the single oversized call.
  *
- * Measured against `effect@4.0.0`:
+ * Measured against `effect@4.1.4`:
  *   - `dist/rpc/RpcSerialization.js` — `defaultMaxBufferSize = 16 * 1024 * 1024`,
  *     `isBufferSizeExceeded(size, max) => max !== "unbounded" && size > max`
  *     (strictly greater, so a frame EXACTLY at the cap is accepted).
@@ -86,6 +86,7 @@
  * One budget, in bytes, and no consumer option to move it.
  */
 
+import { Layer } from "effect";
 import { RpcSerialization } from "effect/rpc";
 
 /** The ndjson decode buffer cap, in bytes — 16 MiB. Passed explicitly wherever
@@ -93,13 +94,18 @@ import { RpcSerialization } from "effect/rpc";
  *  accident. See this module's header for the derivation and the beta marker. */
 export const RPC_MAX_FRAME_BYTES = 16 * 1024 * 1024;
 
-/** The ONE ndjson serialization layer for every link leg — client and server,
- *  websocket / unix socket / stdio. Use this instead of
- *  `RpcSerialization.layerNdjson`, whose cap is Effect's default rather than
- *  ours. */
-export const rpcSerializationLayer = RpcSerialization.layerNdjsonWith({
+/** The ONE ndjson serialization for every link leg — client and server,
+ *  websocket / unix socket / stdio. Use this (or {@link rpcSerializationLayer})
+ *  instead of `RpcSerialization.ndjson`, whose cap is Effect's default rather
+ *  than ours. */
+export const rpcSerialization = RpcSerialization.makeNdjson({
   maxBufferSize: RPC_MAX_FRAME_BYTES,
 });
+
+/** {@link rpcSerialization} as the layer a server or protocol is provided. */
+export const rpcSerializationLayer = Layer.succeed(
+  RpcSerialization.RpcSerialization,
+)(rpcSerialization);
 
 /** The WebSocket close code the server sends when an inbound frame busts the
  *  cap — RFC 6455's "message too big". Effect emits it from exactly one place

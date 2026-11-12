@@ -588,7 +588,10 @@ export function createEndpoint<
       : null;
   // How many times the gate-less-squatter recovery re-reads the holder + re-runs the
   // handshake when the holder CHANGES between identify and kill. A bounded backstop
-  // on a flapping holder; a stable holder is decided on the first pass.
+  // on a flapping holder; a stable holder is decided on the first pass. A holder that
+  // accepts and then says NOTHING is unreachable on every pass, so it spends all
+  // three: each ends at the 30s control-core hello deadline (`probeDaemonIdentity`),
+  // which sits below the link's 60s keep-alive backstop, so ~90s before the refusal.
   const RECOVERY_DECISION_ATTEMPTS = 3;
 
   /** Write a `Ref` from synchronous, non-Effect code. The endpoint has four

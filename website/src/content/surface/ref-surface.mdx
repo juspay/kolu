@@ -954,6 +954,42 @@ out of live state) fails that dial as an ordinary `SocketOpenError`, so the
 reconnect schedule backs off and asks again. It does not kill the link — a link
 that stopped dialling would sit `connecting` forever with nothing logged.
 
+### A stalled stream consumer holds up only its own stream
+
+Every wire link (`websocketLink`, `stdioLink`, `socketDuplexLink`,
+`unixSocketLink`) delivers stream responses **off its socket reader**, so a
+consumer that stops pulling holds up only its own stream: other streams, unary
+calls and the keep-alive keep flowing, the stalled stream's sender waits on its
+withheld `Ack`, and the consumer resumes where it left off with nothing dropped.
+A subscription that ends — completes, fails, or is interrupted — releases its
+buffer. That delivery is bounded only by the `Ack`, so a client protocol without
+acks is **refused** when the link is built. (Why Effect RPC needs this, and when
+it can go: `packages/surface/src/links/deliveryLanes.ts`.)
+
+### The keep-alive is a backstop, not the liveness verdict
+
+Every wire link runs Effect RPC's pinger with the framework's **own** numbers,
+exported from `@kolu/surface/keepAlive`: a ping every `RPC_PING_INTERVAL_MS`
+(5 s), and the link ends once `RPC_PING_TIMEOUT_MS` (60 s) pass with **no frame
+of any kind** decoded from the peer — so a silent link dies 60–65 s in
+(`RPC_PING_FATAL_SILENCE_MS` is the 65 s worst case). No link factory takes a
+timing parameter.
+
+The numbers sit deliberately **above** the liveness checks that know more:
+the framework watchdog (25 s at its defaults) and ssh's own dead-peer policy
+(30 s by default). Every watchdog is suspension-aware; the rest depends on
+the leg. In a browser, `createLiveSignal` is also wake-aware and
+progress-aware: a probe that times out while frames are still arriving is not
+a verdict. `makeSession`'s heartbeat, on an ssh or same-box arm, does not
+count progress. On a same-box arm it consults a process oracle before it cycles
+anything. A peer that really exits is reported at once by the OS (EOF) on a
+stdio or unix-socket leg. So the pinger only ever ends a link that is alive but
+saying nothing for a minute, after everything above has had its say. On a
+duplex leg that death is `SurfaceStdioTransportClosed` with
+`death: "keepAliveUnanswered"`, named by Effect's `onPingTimeout` hook; on the
+websocket leg it is the same retryable `RpcClientError` as any other socket
+loss.
+
 ### A wire that follows its generations — `followingWire`
 
 Every other link owns a transport for its whole life: dispose it and the dispatch
@@ -1024,8 +1060,9 @@ The consumer is [`connectSurfaces`' `redial`](/surface/ref-surface-app#a-roster-
 
 ### Failure and re-subscription across re-dials
 
-Effect 4.0 broadcasts failures from established sockets, including heartbeat
-silence (`SocketReadError` with a `ping timeout` cause). Registered calls fail
+Effect broadcasts failures from established sockets, including the keep-alive
+backstop's (`SocketReadError` with a `ping timeout` cause) and a socket the link
+cycles after an undecodable frame. Registered calls fail
 before the next socket opens. The [retry fence](#the-face-and-its-retry-fence-kolusurfaceclient)
 re-subscribes streams once on the new wire; an unfenced unary receives the error.
 No additional epoch fence wraps the WebSocket dispatch.
@@ -1085,17 +1122,17 @@ living peer has from the far end.
 
 `stdioLink` takes a required `readiness: StdioReadinessProof`, and the only way
 to obtain one is to read a peer's `ready` banner off the very stream you are
-about to attach to. Building an RPC protocol starts Effect RPC's pinger; a peer
+about to attach to. Building an RPC protocol starts the link's pinger; a peer
 from a **previous protocol epoch** accepts the pipe and then says nothing, so the
-pinger kills the link ~10s later — and a consumer that reconnects on that
-retries a peer that will never speak, forever. The gate makes that blind attach
-unrepresentable rather than merely discouraged.
+pinger ends the link at its keep-alive backstop — and a consumer that reconnects
+on that retries a peer that will never speak, forever. The gate makes that blind
+attach unrepresentable rather than merely discouraged.
 
 The death itself now says which death it was, as data. **Both** tags
 `isDeadTransportError` unions carry a `death` field, under the same name so the
 union is uniformly branchable: `SurfaceStdioTransportClosed` takes a
-`StdioTransportDeath` — `"keepAliveUnanswered"`, `"streamEnded"` or
-`"disposed"` — and `SurfaceTransportRetired` a `RetiredTransportDeath` —
+`StdioTransportDeath` — `"keepAliveUnanswered"`, `"undecodableFrame"`,
+`"streamEnded"` or `"disposed"` — and `SurfaceTransportRetired` a `RetiredTransportDeath` —
 `"retiredByServer"` or `"disposed"`. A consumer that puts words on a screen
 branches on the field rather than reading `reason`; a duplex leg reports an
 unanswered keep-alive as itself and explicitly declines to claim the peer
@@ -1434,8 +1471,8 @@ another's. `STREAM_RETRY` retries forever on a failure the fence accepts, spaced
 `STREAM_RETRY_DELAY_MS`, re-running the whole stream — so the next frame a
 consumer sees is the member's fresh snapshot.
 
-The fence retries **failures**, so it only covers what fails. Stable Effect
-broadcasts established-socket failures, including missed heartbeats
+The fence retries **failures**, so it only covers what fails. Effect
+broadcasts established-socket failures, including the keep-alive backstop
 ([above](#failure-and-re-subscription-across-re-dials)); those failures trigger
 this schedule. Pre-open retries leave calls pending until the first connection.
 
@@ -1867,12 +1904,15 @@ so neither tag is ever an app error.
 
 ### The wire's frame cap (`@kolu/surface/frame-limit`)
 
-Effect 4.0.0 silently drops malformed JSON lines on every ndjson link. A stray
-line does not prevent later valid messages from arriving. If a malformed line
-replaces a call's answer, that call remains pending while other calls and
-heartbeats continue; there is no per-call replay or deadline at this layer.
-Interruption or a later transport failure ends the pending call. The daemon
-identity probe separately rejects a malformed first frame.
+A malformed JSON line on an ndjson link **ends the link**. The decoder has
+already dropped what was buffered with it, so nothing after that line can be
+trusted: every call then in flight — and every later call — fails, on a stdio
+or unix-socket leg as `SurfaceStdioTransportClosed` with
+`death: "undecodableFrame"`, and the owner re-dials a fresh link. The websocket
+leg cycles its socket instead, and the failed calls are the retryable
+`RpcClientError` the face's fence re-subscribes on the new one. This holds
+whether or not a call was in flight. The daemon identity probe separately
+rejects a malformed first frame.
 
 Every link's ndjson serialization is built here, from one owned constant, rather
 than from Effect's default. The default and this value are the same 16 MiB — the
@@ -1907,7 +1947,7 @@ Two consequences a member author owns:
 - `1009` must stay OUT of any `isTerminalClose` set — it is recoverable, and
   halting the retry schedule on it would strand the tab with no subscriptions.
 
-The close-on-exceed semantics carry a `BETA-ASSUMPTION(4.0.0)` marker
+The close-on-exceed semantics carry a `BETA-ASSUMPTION` marker stamped with the pinned Effect version
 (governed by `packages/tests/governance/betaAssumptions.ts`), so an Effect bump
 must re-measure them before it can land.
 
@@ -1959,24 +1999,27 @@ bytes land on disk — those are the consuming app's (kolu's own live in
 **The framework bounds its OWN frames too — a fancier budget.** A collection's
 batched `deltas` snapshot re-sends the whole set on every subscribe and every
 reconnect, so for a long conversation that one frame is megabytes; on a slow link
-it starves Effect's keep-alive (the ping shares the socket) and the loop never
-ends. The sender no longer lets a `deltas` frame scale with the set: a snapshot
+everything on the socket — every other subscription and the liveness probe's
+answer — queues behind it for as long as it drains. The sender no longer lets a
+`deltas` frame scale with the set: a snapshot
 (or a large coalesced delta) is split into `RPC_STREAM_CHUNK_BYTES` parts at the
 server, each a separate ack-gated frame, and `buildSurfaceFace` reassembles them
 before any consumer sees a frame — `useCollection`, `fold`, `mirrorRemoteSurface`
 and a `SurfaceMap` fold are all transparent. *Why 256 KiB and not the 16 MiB cap:*
 the cap answers "will the decoder reject this?"; the drain budget answers "will
-this frame still be in flight when the next ping fires?". A subscription's frames
-are ack-gated, so at most one part is in flight; 256 KiB drains in ~2 s at a
-1 Mbit/s floor plus a ~0.5 s ack round trip — comfortably inside the 5 s ping
-interval. The bound is **per stream**: a reconnect re-subscribes every collection
-at once, so up to K parts (K = the collections whose snapshot exceeds the budget)
-can share the socket, and the pong queues behind all K. K is small — a snapshot
-is a single frame unless it exceeds the budget, and the incident is one such
-collection — but K large snapshots resuming together on a very slow link can
-still delay the pong; a per-connection part gate is the follow-up. The split and
-the reassembly both live beside the wire's frame budget (in the package's
-`collectionDeltasFraming` module).
+the watchdog's probe answer still be stuck behind this frame when its timeout
+fires?". A subscription's frames are ack-gated, so at most one part is in
+flight; 256 KiB drains in ~2 s at a 1 Mbit/s floor plus a ~0.5 s ack round
+trip — a quarter of the 10 s probe timeout, and far inside the link's 60 s
+keep-alive backstop. The bound is **per stream**: a reconnect re-subscribes
+every collection at once, so up to K parts (K = the collections whose snapshot
+exceeds the budget) can share the socket, and the probe answer queues behind all
+K. The keep-alive is never at risk (every decoded part counts as liveness) and
+neither is the browser watchdog (a part landing after its probe launched voids
+the timeout); the ssh-leg watchdog is not progress-aware, so K ≥ 5 large
+snapshots resuming together at the 1 Mbit/s floor can read as a dead host. The
+split and the reassembly both live beside the wire's frame budget (in the
+package's `collectionDeltasFraming` module).
 
 ## Cross-cutting invariants
 

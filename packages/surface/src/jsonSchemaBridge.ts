@@ -32,7 +32,7 @@
  *      — faithful to the codec, useless to a host, which will happily offer the
  *      agent the string `"NaN"` as a legal argument. The faithful spellings for
  *      an outward-facing numeric are `Schema.Finite` (`{type:"number"}`)
- *      and `Schema.Int` (`{type:"integer"}`); the walk additionally NORMALIZES
+ *      and `Schema.Int` (`{type:"integer"}` plus its safe-integer `minimum`/`maximum`); the walk additionally NORMALIZES
  *      the tolerant union back to its numeric arm, so a spec author who wrote
  *      plain `Schema.Number` cannot ship the union by accident. Normalizing is
  *      safe in one direction only, and this is that direction: it narrows what

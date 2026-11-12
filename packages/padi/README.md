@@ -137,7 +137,11 @@ stopped by signal, the in-process shutdown a drain verb would have asked for, an
 replaced by a daemon of this epoch that seeds from the same state-root on disk. A
 socket squatter that is not provably ours still takes the untouched
 foreign/probe-failed path, so nothing here puts a signal near a process padi
-hasn't proven is its own.
+hasn't proven is its own. A squatter on kaval's socket that accepts and then
+says nothing at all is refused after three recovery passes, each ending at
+the 30 s control-core hello deadline: about 90 s. (Before kolu#2352 the link's
+5–10 s keep-alive ended each pass first, about 30 s in all. The keep-alive is
+now a 60 s backstop, so the hello deadline decides.)
 
 ## W3.1 — the remote binding: padiSurface over ssh
 

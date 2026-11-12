@@ -20,7 +20,7 @@
   "//dependencies": "A LEAF that speaks ACP: `effect` for the schemas the wire half is declared in, and the protocol SDK for the payload TYPES the projections read — type-only imports, so no zod and no runtime SDK code enters this package's closure (the subprocess that runs the protocol lives in `@kolu/acp-harness`, which is where the SDK's runtime and its zod peer stay declared). No @kolu/* sibling, deliberately: the domain's words must not enter — this package refuses in its own `Refused`, and the harness translates at the seam. Machine-checked by src/manifest.test.ts, not remembered. The versions are LITERAL rather than `catalog:` because olai vendors this directory and installs its manifest from its own workspace, where kolu's catalog does not exist (see packages/tests/governance/vendorEntries.ts).",
   "dependencies": {
     "@agentclientprotocol/sdk": "^1.3.0",
-    "effect": "4.0.0"
+    "effect": "4.1.4"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

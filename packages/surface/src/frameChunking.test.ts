@@ -20,8 +20,11 @@ import {
   FRAME_ENVELOPE_BYTES,
   FRAME_PAYLOAD_BUDGET,
   frameBytesFor,
+  RPC_STREAM_CHUNK_BYTES,
 } from "./frameChunking.ts";
 import { exceedsFrameLimit, RPC_MAX_FRAME_BYTES } from "./frameLimit.ts";
+import { DEFAULT_HEARTBEAT_TIMEOUT_MS } from "./heartbeat.ts";
+import { RPC_PING_TIMEOUT_MS } from "./keepAlive.ts";
 
 /** Deterministic pseudo-random bytes — a fixed LCG rather than `Math.random`,
  *  so a failure is reproducible and the properties below are re-runnable. */
@@ -207,5 +210,29 @@ describe("the two expansions, and only those two", () => {
       },
     }).length;
     expect(worstCase).toBeLessThan(FRAME_ENVELOPE_BYTES);
+  });
+});
+
+describe("the stream chunk drains inside every liveness deadline (RPC_STREAM_CHUNK_BYTES)", () => {
+  /** The floor worth serving — a ~1 Mbit/s cellular tether — and the ack round
+   *  trip on the same link, as `frameChunking.ts` states them. */
+  const FLOOR_BYTES_PER_S = 128 * 1024;
+  const ACK_RTT_MS = 500;
+  const drainMs = (RPC_STREAM_CHUNK_BYTES / FLOOR_BYTES_PER_S) * 1_000;
+
+  it("one chunk plus its ack fits the watchdog's probe timeout four times over", () => {
+    expect(drainMs).toBe(2_000);
+    expect(drainMs + ACK_RTT_MS).toBeLessThanOrEqual(
+      DEFAULT_HEARTBEAT_TIMEOUT_MS / 4,
+    );
+    // And the link's own keep-alive is never the deadline that bites.
+    expect(drainMs + ACK_RTT_MS).toBeLessThan(RPC_PING_TIMEOUT_MS / 20);
+  });
+
+  it("K = 4 simultaneous parts is the most a progress-blind probe can wait behind", () => {
+    const maxParts = Math.floor(
+      (DEFAULT_HEARTBEAT_TIMEOUT_MS - ACK_RTT_MS) / drainMs,
+    );
+    expect(maxParts).toBe(4);
   });
 });
