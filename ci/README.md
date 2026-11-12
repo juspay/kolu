@@ -221,3 +221,18 @@ After changing the DAG, inspect the required status contexts:
 ```sh
 just ci::protect --dry-run
 ```
+
+## The merge gate
+
+`just ci::protect` (the [`ci/protect`](./protect) script) sets master's
+required status checks. They live in two places, and GitHub requires both:
+
+| Where | What | Written by |
+| --- | --- | --- |
+| Repository ruleset | odu's DAG contexts for the gated platform | `odu ci protect` |
+| Classic branch protection | exactly the `.github/workflows/nix-cache.yml` cache-warm contexts | `ci/protect` itself |
+
+The classic list is replaced on every run, so a re-run changes nothing and a
+context the workflow no longer posts leaves the gate instead of blocking every
+merge. [`ci/protect`](./protect)'s header says why, and what each flag
+prints.

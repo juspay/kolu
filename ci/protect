@@ -1,20 +1,41 @@
 #!/usr/bin/env bash
 # Set the branch's required status checks to the COMPLETE gate: odu's canonical
 # DAG contexts PLUS the GitHub Actions contexts that guard the binary-cache warm.
+# The two halves live in two different places GitHub enforces together:
+#
+#   ruleset            odu's `<recipe>@<platform>` DAG contexts (odu writes it)
+#   classic protection EXACTLY this file's cache-warm contexts (this script)
 #
 #     ci/protect --dry-run            # print the complete required set
 #     ci/protect --contexts-only      # print only this file's GHA contexts
 #     ci/protect                      # apply it to the default branch
 #     ci/protect --branch some-branch # …to another branch
 #
-# WHY THE APPEND LIVES HERE AND NOT IN A ONE-OFF `gh` CALL
-# -------------------------------------------------------
-# `odu protect` REPLACES `required_status_checks.contexts` with the list its
-# canonical DAG produces. It has no extra-context flag, so anything added
-# out-of-band survives exactly until the next person runs protect — which is
-# the routine way this repo edits the gate. A context enrolled by hand is
-# therefore not enrolled; it is scheduled for silent removal. Putting the
-# append INSIDE the protect path makes "re-running protect drops it" unspellable.
+# WHY TWO HOMES, AND WHY THE CLASSIC LIST IS REPLACED, NEVER APPENDED TO
+# ---------------------------------------------------------------------
+# `odu ci protect` writes the `required_status_checks` rule of the repository
+# RULESET governing the branch, and nothing else — it never touches classic
+# branch protection. That rule is odu's: its PUT replaces the ruleset's rules
+# wholesale with the list its canonical DAG produces, and it has no
+# extra-context flag, so a cache-warm context added to the ruleset by hand
+# survives exactly until the next protect. A merge must satisfy the ruleset AND
+# classic protection, so classic protection is where this script's half goes.
+#
+# And it is REPLACED, every run, with exactly the derived set — never appended
+# to, never a copy of the `ci::*` list. An earlier version POSTed (appended)
+# here, written for an odu that replaced the classic list itself. Once odu moved
+# to the ruleset, nothing reset the classic list any more: the append hit a
+# context already present and GitHub answered 422, and a context whose job no
+# longer existed (`build-and-push (ubuntu-latest)`, after that matrix went
+# darwin-only) stayed required — posted by nothing, it blocked every merge. A
+# replace makes both unspellable: a second run is a no-op, and a renamed job's
+# old context leaves the gate the next time anyone protects. No `ci::*` context
+# belongs in the classic list either: a second copy of the ruleset's list goes
+# stale, the same way, the day a recipe is renamed.
+#
+# Putting this INSIDE the protect path, rather than in a one-off `gh` call, is
+# what makes the gate one command: re-running protect is the routine way this
+# repo edits it, and it always leaves both halves exactly right.
 #
 # WHY THESE CONTEXTS ARE WORTH GATING ON
 # --------------------------------------
@@ -243,9 +264,9 @@ Fix the workflow or teach this parse the new shape — do NOT let protect run
 without these contexts: an unrequired cache push is how a deploy ends up
 compiling the daemon over ssh (juspay/kolu#2101, G7)."
 
-# Derived BEFORE odu touches anything: odu protect replaces the required list,
-# so a parse that dies after it would leave the branch gated on the DAG alone —
-# exactly the state this script exists to prevent.
+# Derived BEFORE anything is written: a workflow this parse cannot read stops
+# the script before odu or GitHub is touched, so a refusal never leaves one half
+# of the gate rewritten and the other half not.
 
 # ── argument reading (pass-through, never consumed) ───────────────────────────
 dry_run=""
@@ -275,8 +296,8 @@ if [ -n "$dry_run" ]; then
   exit 0
 fi
 
-# ── our half: append, then ASK whether it took ───────────────────────────────
-command -v gh > /dev/null || die "gh is required to enrol the cache-warm contexts"
+# ── our half: REPLACE the classic list with exactly the derived set ──────────
+command -v gh > /dev/null || die "gh is required to set the cache-warm contexts"
 
 repo="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
 [ -n "$repo" ] || die "could not resolve owner/repo via gh"
@@ -286,33 +307,51 @@ if [ -z "$branch" ]; then
   [ -n "$branch" ] || die "could not resolve ${repo}'s default branch via gh"
 fi
 
-echo "ci/protect: enrolling the ${workflow##*/} contexts on ${repo}@${branch}:"
-# An ARRAY, not a string: every one of these names contains a space
-# (`build-and-push (macos-latest)`), so an unquoted word-split would post two
-# mangled contexts instead of one real one — and the read-back below would then
-# fail on a branch whose gate had already been replaced.
-gh_args=()
-while IFS= read -r context; do
-  [ -z "$context" ] && continue
-  echo "  + ${context}"
-  gh_args+=(-f "contexts[]=${context}")
-done <<< "$contexts"
+classic="repos/${repo}/branches/${branch}/protection/required_status_checks"
 
-gh api -X POST "repos/${repo}/branches/${branch}/protection/required_status_checks/contexts" \
-  "${gh_args[@]}" > /dev/null \
-  || die "could not append the cache-warm contexts to ${repo}@${branch}"
+# One collation for every list below, so the equality checks and `comm` agree
+# whatever the caller's locale. `want` is deduplicated (GitHub stores a set);
+# `classic_contexts` is not, so a duplicate GitHub somehow returned would show
+# up as a mismatch rather than being folded away.
+lines() { if [ -n "$1" ]; then printf '%s\n' "$1"; fi; }
+want="$(lines "$contexts" | LC_ALL=C sort -u)"
+classic_contexts() { gh api "$classic" -q '.contexts[]' | LC_ALL=C sort; }
 
-# The POST is an instruction; this is the verdict. Same discipline as
-# nix-cache.yml's own verify step — read the state back rather than trusting a
-# 200.
-required="$(gh api "repos/${repo}/branches/${branch}/protection/required_status_checks" -q '.contexts[]')"
-while IFS= read -r context; do
-  [ -z "$context" ] && continue
-  printf '%s\n' "$required" | grep -qxF "$context" \
-    || die "'${context}' is NOT in ${repo}@${branch}'s required contexts after the append.
-The branch is now gated on the odu DAG alone, and a cold cache would merge
-green. Re-run this script; if it fails again, the token or the ruleset — not
-this repo — is refusing the write."
-done <<< "$contexts"
+have="$(classic_contexts)" \
+  || die "could not read ${repo}@${branch}'s classic required status checks"
 
-echo "ci/protect: ${repo}@${branch} requires the odu DAG contexts + $(printf '%s\n' "$contexts" | wc -l | tr -d ' ') cache-warm contexts"
+if [ "$have" = "$want" ]; then
+  echo "ci/protect: ${repo}@${branch}'s classic protection already requires exactly the ${workflow##*/} contexts"
+else
+  echo "ci/protect: setting ${repo}@${branch}'s classic required checks to exactly the ${workflow##*/} contexts:"
+  LC_ALL=C comm -13 <(lines "$have") <(lines "$want") | sed 's/^/  + /'
+  LC_ALL=C comm -23 <(lines "$have") <(lines "$want") | sed 's/^/  - /'
+  # An ARRAY, not a string: every one of these names contains a space
+  # (`build-and-push (macos-latest)`), so an unquoted word-split would send two
+  # mangled contexts instead of one real one.
+  gh_args=()
+  while IFS= read -r context; do
+    gh_args+=(-f "contexts[]=${context}")
+  done <<< "$want"
+  # PUT, not POST: this endpoint's PUT replaces the list (the header says why).
+  gh api -X PUT "${classic}/contexts" "${gh_args[@]}" > /dev/null \
+    || die "could not set the cache-warm contexts on ${repo}@${branch}"
+
+  # The write is an instruction; this is the verdict. Same discipline as
+  # nix-cache.yml's own verify step — read the state back rather than trusting
+  # a 200 — and the verdict is EQUALITY, not containment: an extra context
+  # nothing posts blocks every merge just as surely as a missing one lets a
+  # cold cache merge green. (The no-write path above already holds that
+  # verdict: `have` was compared with the same operator.)
+  got="$(classic_contexts)" \
+    || die "could not read back ${repo}@${branch}'s classic required status checks"
+  [ "$got" = "$want" ] || die "${repo}@${branch}'s classic required checks are not exactly the ${workflow##*/} contexts.
+expected:
+$(lines "$want" | sed 's/^/  /')
+GitHub has:
+$(lines "$got" | sed 's/^/  /')
+Re-run this script; if it fails again, the token or a ruleset — not this
+repo — is refusing the write."
+fi
+
+echo "ci/protect: ${repo}@${branch}: the ruleset requires the odu DAG contexts; classic protection requires exactly the $(lines "$want" | wc -l | tr -d ' ') cache-warm contexts"
