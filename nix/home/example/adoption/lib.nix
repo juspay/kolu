@@ -154,10 +154,32 @@ let
   # not adoption. The default KillMode (control-group) is left as-is on purpose —
   # it is exactly the hazard `systemd-run` escapes; do not add one.
   # `nodeExtra` lets the skew test add its contract-bumped kolu-new user service.
+  #
+  # MEMORY IS PART OF THE FIXTURE, not a tuning knob: nixpkgs' VM default is
+  # 1024 MB and these guests boot with `panic_on_oom`, so a guest that runs out
+  # does not fail an assertion — the kernel panics, the driver's shell pipe
+  # breaks, and the lane reports `BrokenPipeError` from
+  # `test_driver/machine/__init__.py` with nothing about kolu in it.
+  #
+  # kolu-server's closure carries the Conductor's adapter and `claude` since
+  # #2350, and the upgrade VM — which runs TWO generations' worth of processes
+  # — OOM-panicked at the old size. (Distinct from the remote-closure fix in
+  # `default.nix`, which stopped that freight riding out to hosts that host no
+  # conversation; with that in, `adoption-upgrade` still panicked at 1 GB.)
+  # `offline-provision.nix` sizes its two nodes for the same reason.
+  #
+  # It rides in `imports` as an `mkDefault`, NOT in the attrset below, because
+  # `// nodeExtra` is a SHALLOW merge: the reboot test passes its own
+  # `virtualisation.diskImage` / `.fileSystems`, which replaces the whole
+  # `virtualisation` attr and would silently drop a sibling written here — the
+  # one node that needs the memory most losing it without a word. A module is
+  # merged by the module system instead, and `mkDefault` lets a node that knows
+  # it needs more (offline-provision's 6 GB) still say so.
   survivalVmNode = nodeExtra: { ... }: {
     imports = [
       home-manager.nixosModules.home-manager
       nixosModule
+      { virtualisation.memorySize = pkgs.lib.mkDefault 4096; }
     ];
     services.getty.autologinUser = "alice";
     users.users.alice.linger = true;
