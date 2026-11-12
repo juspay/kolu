@@ -9,7 +9,8 @@
  *  (`fleetTerminalStanding`, the same per-host streams the switcher and the `@`
  *  menu read), so it opens no stream of its own: the agent's state, and what
  *  the agent says it is doing. A terminal no longer in that roster says
- *  "terminal gone", and has nothing to look at.
+ *  "terminal gone", and a sleeping one says "asleep": neither has a live screen,
+ *  so neither offers Look.
  *
  *  THE TAIL is what Look opens: the last {@link LOOK_LINES} lines of that
  *  terminal's screen, as read-only text, read with `screen.text { id, tail }`
@@ -94,11 +95,18 @@ const ConductorLook: Component<{
   const standing = createMemo(() =>
     fleetTerminalStanding(props.host, props.id),
   );
+  /** Is there a live screen to look at? Only an ACTIVE terminal has one: a
+   *  sleeping terminal is in the roster but `screen.text` cannot read it, so
+   *  "asleep" is a status with nothing behind it — like "terminal gone". */
+  const lookable = createMemo(() => {
+    const now = standing();
+    return now.kind === "here" && activeArm(now.meta) !== undefined;
+  });
   const { showTipOnce } = useTips();
   // The first agent line with something to look at is the moment Look is
   // worth announcing; `showTipOnce` keeps it to once per browser.
   createEffect(() => {
-    if (standing().kind === "here") showTipOnce(CONTEXTUAL_TIPS.conductorLook);
+    if (lookable()) showTipOnce(CONTEXTUAL_TIPS.conductorLook);
   });
 
   const status = createMemo((): Status => {
@@ -156,7 +164,7 @@ const ConductorLook: Component<{
           <span class="font-semibold text-fg">{status().state}</span>
           <Show when={status().doing}>{(doing) => <> · {doing()}</>}</Show>
         </span>
-        <Show when={standing().kind === "here"}>
+        <Show when={lookable()}>
           <button
             type="button"
             data-testid="conductor-look-toggle"
@@ -168,7 +176,7 @@ const ConductorLook: Component<{
           </button>
         </Show>
       </div>
-      <Show when={open() && standing().kind === "here"}>
+      <Show when={open() && lookable()}>
         <LookTail host={props.host} id={props.id} />
       </Show>
     </div>

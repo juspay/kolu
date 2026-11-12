@@ -162,6 +162,17 @@ describe("an agent line", () => {
     expect(seam.reads).toEqual([]);
   });
 
+  it("offers no Look on a sleeping terminal — there is no live screen to read", async () => {
+    setStanding({ kind: "here", meta: { state: "sleeping" } as never });
+    const el = mount("asleep");
+    await vi.advanceTimersByTimeAsync(LOOK_EVERY_MS * 3);
+    expect(
+      el.querySelector('[data-testid="conductor-look-status"]')?.textContent,
+    ).toBe("asleep");
+    expect(toggle(el)).toBeNull();
+    expect(seam.reads).toEqual([]);
+  });
+
   it("says 'terminal gone' for a terminal the roster no longer has, and offers nothing", async () => {
     const el = mount("gone-later");
     toggle(el)?.click();
