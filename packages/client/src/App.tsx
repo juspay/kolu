@@ -91,6 +91,7 @@ import { useActionContext } from "./useActionContext";
 import { useCommandPalette } from "./useCommandPalette";
 import { useDeepLinks } from "./useDeepLinks";
 import { isDesktop, layoutMode } from "./useMobile";
+import { usePageZoomGuard } from "./usePageZoomGuard";
 import { useServerIdentity } from "./useServerIdentity";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
@@ -179,6 +180,12 @@ const App: Component = () => {
   // Track the soft-keyboard-shrunk visible area on iOS — `--app-h` overrides
   // the root `h-dvh` so the terminal grid refits into the visible region.
   useVisualViewportHeight();
+
+  // A pinch that lands outside the canvas (dock, right panel, chrome bar) is
+  // the browser's to handle unless someone says otherwise — and its answer,
+  // magnifying the page, breaks the window-sized shell. One window listener
+  // says otherwise, everywhere (#2354).
+  usePageZoomGuard();
 
   // One shared install controller drives both the inline welcome moments
   // (EmptyState) and the on-demand WelcomeDialog. The browser captures
@@ -351,11 +358,13 @@ const App: Component = () => {
 
   return (
     <div
+      data-testid="app-root"
       class="relative flex flex-col bg-surface-0 text-fg font-sans"
       style={{
-        // `var(--app-h)` is set by useVisualViewportHeight to the
-        // soft-keyboard-shrunk visible area; `100dvh` is the fallback for
-        // browsers without VisualViewport (or before mount fires).
+        // `var(--app-h)` is set by useVisualViewportHeight to the visible area
+        // in LAYOUT pixels — the soft-keyboard-shrunk height on iOS, the plain
+        // window height everywhere else. `100dvh` is the fallback for browsers
+        // without VisualViewport (or before mount fires).
         height: "var(--app-h, 100dvh)",
         "padding-top": "env(safe-area-inset-top)",
         "padding-bottom": "env(safe-area-inset-bottom)",

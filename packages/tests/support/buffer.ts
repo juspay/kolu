@@ -32,14 +32,14 @@ export function readBufferText(
 
 /** Serializable discriminant for {@link readPerTerminal}: which per-terminal
  *  scalar to project off each inner xterm container. */
-type PerTerminalProbe = "cols" | "fontSize";
+type PerTerminalProbe = "cols" | "rows" | "fontSize";
 
 /**
  * Enumerate the inner terminal containers — those carrying both
  * `data-terminal-id` and `data-font-size` — and project one per-terminal
  * scalar off each, keyed by id. The outer CanvasTile wrapper carries
  * `data-terminal-id` but no `data-font-size`, so it's filtered out (it also
- * never holds the `__xterm` ref). `cols` reads the live xterm grid width via
+ * never holds the `__xterm` ref). `cols` / `rows` read the live xterm grid via
  * the `__xterm` ref attached in Terminal.tsx's onMount; `fontSize` parses the
  * `data-font-size` attribute. The probe is a serializable discriminant rather
  * than a live closure because the body runs inside `page.evaluate`.
@@ -55,9 +55,10 @@ export function readPerTerminal(
     )) {
       const id = n.getAttribute("data-terminal-id");
       if (!id) continue;
-      if (p === "cols") {
-        const term = (n as unknown as { __xterm?: { cols: number } }).__xterm;
-        if (term && typeof term.cols === "number") out[id] = term.cols;
+      if (p === "cols" || p === "rows") {
+        if (!(n instanceof HTMLDivElement)) continue;
+        const term = n.__xterm;
+        if (term) out[id] = p === "cols" ? term.cols : term.rows;
       } else {
         const fs = n.getAttribute("data-font-size");
         if (fs) out[id] = Number.parseFloat(fs);

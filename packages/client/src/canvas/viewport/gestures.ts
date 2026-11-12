@@ -18,14 +18,28 @@ export interface GestureCallbacks {
   onZoom: (factor: number, screenX: number, screenY: number) => void;
 }
 
+/** Per-install policy hooks — the two questions the gesture layer asks its
+ *  caller before acting on a wheel event. */
+export interface GesturePolicy {
+  /** Called on the first event of a wheel gesture; returning true lets the
+   *  target scroll natively (no pan, no preventDefault). */
+  shouldYieldWheel?: (e: WheelEvent) => boolean;
+  /** Called on every Ctrl/Cmd+wheel (pinch). Returning true SWALLOWS the
+   *  gesture: the canvas does not zoom and the browser does not magnify the
+   *  page. Today's one caller returns true while a tile is maximized — the
+   *  canvas is covered, so zooming it would be invisible state drift that only
+   *  shows up when the user restores the canvas (#2354). */
+  shouldSuppressZoom?: () => boolean;
+}
+
 /** Install wheel and pointer-drag gesture listeners on a container element.
  *  Returns a cleanup function that removes all listeners.
  *
- *  `shouldYieldWheel`, if provided, is called on the first event of a wheel
- *  gesture; returning true lets the target scroll natively (no pan, no
- *  preventDefault). Ownership holds until ~150ms of wheel idle so cursor drift
- *  mid-gesture doesn't hand off. Ctrl/Cmd+wheel (zoom) always goes to the
- *  canvas regardless.
+ *  `policy.shouldYieldWheel` decides pan ownership per gesture. Ownership
+ *  holds until ~150ms of wheel idle so cursor drift mid-gesture doesn't hand
+ *  off. Ctrl/Cmd+wheel (zoom) always goes to the canvas regardless — and is
+ *  always `preventDefault`ed, including when `policy.shouldSuppressZoom` says
+ *  to swallow it, so the browser never magnifies the page instead.
  *
  *  Shift held on wheel or primary-button drag forces canvas pan ownership
  *  regardless of target (Figma-style hand tool). Shift ships on every
@@ -40,7 +54,7 @@ export interface GestureCallbacks {
 export function installGestures(
   el: HTMLDivElement,
   callbacks: GestureCallbacks,
-  shouldYieldWheel?: (e: WheelEvent) => boolean,
+  policy: GesturePolicy = {},
 ): () => void {
   const abort = new AbortController();
   const { signal } = abort;
@@ -49,11 +63,12 @@ export function installGestures(
   let wheelOwnerExpiresAt = 0;
 
   const yieldsWheel = (e: WheelEvent): boolean => {
-    if (!shouldYieldWheel) return false;
+    const ask = policy.shouldYieldWheel;
+    if (!ask) return false;
     const now = performance.now();
     if (now >= wheelOwnerExpiresAt) wheelOwner = null;
     if (wheelOwner === null) {
-      wheelOwner = shouldYieldWheel(e) ? "yielded" : "canvas";
+      wheelOwner = ask(e) ? "yielded" : "canvas";
     }
     wheelOwnerExpiresAt = now + WHEEL_IDLE_MS;
     return wheelOwner === "yielded";
@@ -64,8 +79,11 @@ export function installGestures(
     "wheel",
     (e) => {
       if (e.ctrlKey || e.metaKey) {
+        // preventDefault FIRST and unconditionally: whatever we decide to do
+        // with the pinch, the browser must not magnify the page over it.
         e.preventDefault();
         e.stopPropagation();
+        if (policy.shouldSuppressZoom?.()) return;
         const rect = el.getBoundingClientRect();
         const factor = 1 - e.deltaY * ZOOM_SPEED;
         callbacks.onZoom(factor, e.clientX - rect.left, e.clientY - rect.top);
