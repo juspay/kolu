@@ -496,7 +496,12 @@ const TerminalCanvas: Component<{
          *  buffer and every attach. */}
         <div class="flex-1 min-w-0 min-h-0 flex flex-col">
           <div
-            ref={(el) => viewport.setContainerRef(el, isWheelTargetTerminal)}
+            ref={(el) =>
+              viewport.setContainerRef(el, {
+                wheelTargetScrollsItself: isWheelTargetTerminal,
+                covered: () => posture.layout() !== "tiled",
+              })
+            }
             data-testid="canvas-container"
             data-zoom={viewport.zoom()}
             data-viewport={viewport.canvasTransform()}

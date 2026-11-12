@@ -171,6 +171,10 @@ export class KoluWorld extends World {
    *  follow-up `Then the canvas zoom level should have changed` step can
    *  compare. */
   zoomBefore?: number;
+  /** Per-terminal grid dimensions captured by `When I snapshot the terminal
+   *  grid`, so a follow-up step can prove page magnification did NOT refit the
+   *  terminals. */
+  savedTerminalGrid?: Record<string, { cols: number; rows: number }>;
   /** Snapshot of zoom + transform attributes captured by the
    *  `When I save the canvas viewport state` step. */
   savedViewportState?: {

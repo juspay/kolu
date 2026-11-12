@@ -18,14 +18,31 @@ export interface GestureCallbacks {
   onZoom: (factor: number, screenX: number, screenY: number) => void;
 }
 
+/** What the canvas's owner knows and the gesture layer doesn't — two facts,
+ *  read at event time, never cached. The gesture layer decides what to DO with
+ *  them; the caller only answers them. */
+export interface GesturePolicy {
+  /** Is this wheel gesture aimed at something that scrolls itself (a
+   *  terminal)? True lets the target scroll natively — no pan, no
+   *  preventDefault. */
+  wheelTargetScrollsItself: (e: WheelEvent) => boolean;
+  /** Is the canvas covered right now (a maximized tile filling it)? A pinch
+   *  over a covered canvas is swallowed: zooming what nobody can see is
+   *  invisible state drift that surfaces later, when the canvas comes back at
+   *  a scale the user never chose (#2354). Pan still moves the covered canvas
+   *  — a pre-existing behaviour this answer deliberately doesn't touch. */
+  covered: () => boolean;
+}
+
 /** Install wheel and pointer-drag gesture listeners on a container element.
  *  Returns a cleanup function that removes all listeners.
  *
- *  `shouldYieldWheel`, if provided, is called on the first event of a wheel
- *  gesture; returning true lets the target scroll natively (no pan, no
- *  preventDefault). Ownership holds until ~150ms of wheel idle so cursor drift
- *  mid-gesture doesn't hand off. Ctrl/Cmd+wheel (zoom) always goes to the
- *  canvas regardless.
+ *  Pan ownership is decided once per wheel gesture via
+ *  `policy.wheelTargetScrollsItself` and held until ~150ms of wheel idle, so
+ *  cursor drift mid-gesture doesn't hand off. Ctrl/Cmd+wheel (zoom) is the
+ *  canvas's regardless of target, and is always `preventDefault`ed — including
+ *  when `policy.covered` swallows it — so the browser never magnifies the page
+ *  instead.
  *
  *  Shift held on wheel or primary-button drag forces canvas pan ownership
  *  regardless of target (Figma-style hand tool). Shift ships on every
@@ -40,7 +57,7 @@ export interface GestureCallbacks {
 export function installGestures(
   el: HTMLDivElement,
   callbacks: GestureCallbacks,
-  shouldYieldWheel?: (e: WheelEvent) => boolean,
+  policy: GesturePolicy,
 ): () => void {
   const abort = new AbortController();
   const { signal } = abort;
@@ -49,11 +66,10 @@ export function installGestures(
   let wheelOwnerExpiresAt = 0;
 
   const yieldsWheel = (e: WheelEvent): boolean => {
-    if (!shouldYieldWheel) return false;
     const now = performance.now();
     if (now >= wheelOwnerExpiresAt) wheelOwner = null;
     if (wheelOwner === null) {
-      wheelOwner = shouldYieldWheel(e) ? "yielded" : "canvas";
+      wheelOwner = policy.wheelTargetScrollsItself(e) ? "yielded" : "canvas";
     }
     wheelOwnerExpiresAt = now + WHEEL_IDLE_MS;
     return wheelOwner === "yielded";
@@ -64,8 +80,11 @@ export function installGestures(
     "wheel",
     (e) => {
       if (e.ctrlKey || e.metaKey) {
+        // preventDefault FIRST and unconditionally: whatever we decide to do
+        // with the pinch, the browser must not magnify the page over it.
         e.preventDefault();
         e.stopPropagation();
+        if (policy.covered()) return;
         const rect = el.getBoundingClientRect();
         const factor = 1 - e.deltaY * ZOOM_SPEED;
         callbacks.onZoom(factor, e.clientX - rect.left, e.clientY - rect.top);

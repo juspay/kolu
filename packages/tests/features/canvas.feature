@@ -415,6 +415,76 @@ Feature: Canvas workspace
     And the page should not scroll
     And there should be no page errors
 
+  # A trackpad pinch reaches a page as a Ctrl+wheel event. The canvas claims
+  # that event over itself — but a pinch over the dock, the right panel or the
+  # chrome bar used to reach nobody, so Chrome magnified the whole document
+  # (#2354): the shell kept the window's width, `visualViewport.height` shrank
+  # by 1/scale, and every terminal refit into a shorter grid. Nothing in kolu
+  # should ever magnify; the canvas has its own zoom.
+  Scenario: A pinch outside the canvas never magnifies the page
+    Given I create a terminal
+    When I split terminal 1
+    And I double-click the title bar of canvas tile 1
+    Then canvas tile 1 should be maximized
+    When I pinch over the dock
+    Then the page should not be magnified
+    And the page should not scroll
+    And there should be no page errors
+
+  Scenario: A pinch over a maximized tile leaves the canvas underneath it alone
+    # The canvas still claims the gesture while a tile is maximized, and used
+    # to zoom the canvas nobody can see — the user only found out on restore,
+    # when the canvas came back at a different scale.
+    Given I create a terminal
+    When I double-click the title bar of canvas tile 1
+    Then canvas tile 1 should be maximized
+    When I record the canvas zoom level
+    And I pinch over the maximized tile
+    Then the canvas zoom level should not have changed
+    And the page should not be magnified
+    And there should be no page errors
+
+  Scenario: A pinch inside a sandboxed HTML preview never magnifies the page
+    # The preview frame is sandboxed at an opaque origin, and a wheel event
+    # inside it is dispatched to ITS document — the parent window's guard never
+    # sees it, so an unclaimed pinch there magnified the whole top-level page.
+    # The in-iframe artifact-sdk carries the same guard, the way it already
+    # carries the back/forward one.
+    When I run "rm -rf /tmp/kolu-pinch-html && git init /tmp/kolu-pinch-html && cd /tmp/kolu-pinch-html"
+    And I run "printf '<!doctype html><h1>preview</h1>\n' > page.html"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "page.html" in the file browser
+    Then the file preview iframe should be visible
+    When I pinch over the file preview iframe
+    Then the page should not be magnified
+    And there should be no page errors
+
+  Scenario: A magnified page does not shrink the app or refit its terminals
+    # The other half of #2354: however the page got magnified, `--app-h` must
+    # stay the window's height in LAYOUT pixels. Reading `visualViewport.height`
+    # raw made a 1600×813 window into a 1600×625 shell and refit every terminal.
+    When I snapshot the terminal grid
+    And I force page magnification to 1.3
+    Then the app root should fill the window
+    And the terminal grid should match its snapshot
+    And there should be no page errors
+
+  Scenario: A small window does not make the page scroll in any posture
+    # The shape #2354 was first reported as: a window short enough that a
+    # layout minimum could exceed it. Every layer sizes to the viewport, so the
+    # document's own height stays the invariant at 853×480 too.
+    Given I create a terminal
+    When I resize the viewport to 853x480
+    Then the page should not scroll
+    When I split terminal 1
+    Then the page should not scroll
+    When I double-click the title bar of canvas tile 1
+    Then canvas tile 1 should be maximized
+    And the page should not scroll
+    And there should be no page errors
+
   Scenario: Double-clicking the title bar maximizes the tile
     Given I create a terminal
     Then there should be 2 canvas tiles

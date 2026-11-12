@@ -2,10 +2,11 @@
 
 The navigation core of a content browser — the layer *above* a single document that decides **which** document you're looking at and **where its links go**. Rendering one document is [`@kolu/solid-fileview`](../solid-fileview)'s job; this package is the shell that drives it.
 
-The package has two host-agnostic layers:
+The package has three host-agnostic layers:
 
 - **Navigation math** — three pure, framework-free functions that turn a link a user clicked into the next document path. No git, no repos, no DOM, no SolidJS.
 - **History** — `createBrowser`, a small reactive (solid-js) controller that turns a sequence of "navigate here" calls into working **back/forward** over any location type.
+- **[Input facts](#input-facts)** — two framework-free binders that decode a browser gesture once, for every surface that has to agree about it.
 
 A "document path" — or, for `createBrowser`, a "location" — is whatever opaque value *your* host resolves content from: a repo-relative path + git mode, an HTTP path, an ssh target, a doc slug.
 
@@ -154,6 +155,19 @@ browser.canForward(); // → false  (the "guide → api" tail was discarded)
 > **Why `back()` returns the location instead of applying it.** The controller can't render your documents — only your host can. So traversal returns *what to show* and leaves *how to show it* to you. This is exactly the split kolu's Code tab uses: `back()` yields a `{ mode, path }`, and the Code tab re-applies it (sets the mode, re-selects the file, repaints the line highlight).
 
 See [`example/docsite`](example/docsite) for a complete second host — a tiny doc browser — built on `createBrowser` in ~40 lines.
+
+## Input facts
+
+Two binders that are **not** navigation math: they decode a raw browser gesture, and they live here because the surfaces that must agree about one are the same surfaces this package already serves — a host window and the sandboxed preview frame inside it. Both are pure and framework-free (no solid-js, no DOM library) and ship as their own subpath (`@kolu/solid-browser/backForward`, `@kolu/solid-browser/pageZoom`) so an in-iframe bundle can import one without pulling the barrel's reactive stack.
+
+| Export | The question it answers |
+|--------|-------------------------|
+| `attachBackForwardMouse(target, { onBack, onForward })` | "The user pressed the mouse's X1/X2 button — who navigates, the host or the frame?" |
+| `attachPageZoomGuard(window)` | "The user pinched the trackpad — does the *browser* get to magnify the page?" |
+
+`attachPageZoomGuard` answers no, always: it `preventDefault`s every `ctrlKey` wheel in the capture phase, so an app sized to its window cannot be magnified out of that window. A surface that wants the gesture (kolu's canvas zooms on pinch) claims it with its own listener; keyboard zoom (Ctrl +/−/0) is not a wheel event and is untouched.
+
+Each returns a disposer. The reason both exist at all is the **opaque-origin sandbox**: a preview frame's mouse and wheel events are dispatched to *its* document and never reach the parent window, so the frame has to decide the same question itself — with the same rule, not a second copy of it. kolu calls `attachPageZoomGuard` once in `App.tsx` and once in the in-iframe artifact-sdk's `boot()`.
 
 ## What's NOT here (yet) — the roadmap
 

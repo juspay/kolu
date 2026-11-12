@@ -9838,6 +9838,66 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "0d5c398767b1f594c76480846b35e3749082253f"
+    },
+    {
+      "revisionId": "revision-7cc241041a849cd3c444",
+      "scenarioKey": "scenario-c046ab16e242a2bfcfc4",
+      "feature": "features/canvas.feature",
+      "scenario": "A magnified page does not shrink the app or refit its terminals",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "bb3ec46f795695672e3385de928a2cd23c7748348e7d86c8eaa4e580794666c4",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "da5f1d2a1fbf28f3be33bed0c9bc7e510d7fa867"
+    },
+    {
+      "revisionId": "revision-5a0826ed49632701f6b0",
+      "scenarioKey": "scenario-626e9375a1b0372b543d",
+      "feature": "features/canvas.feature",
+      "scenario": "A pinch inside a sandboxed HTML preview never magnifies the page",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "40f4a65b3213d87a712b5bc0fa3b16404fb5c132c7b7509541983ced10ad75e0",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "da5f1d2a1fbf28f3be33bed0c9bc7e510d7fa867"
+    },
+    {
+      "revisionId": "revision-12cae64bef31b1dadc96",
+      "scenarioKey": "scenario-3296d5f756397a496d3a",
+      "feature": "features/canvas.feature",
+      "scenario": "A pinch outside the canvas never magnifies the page",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "357640882f33783b88f29633e540e43ef102ce1334352355ff4d437d4e19a6a1",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "da5f1d2a1fbf28f3be33bed0c9bc7e510d7fa867"
+    },
+    {
+      "revisionId": "revision-198fdad97b81e5d1befd",
+      "scenarioKey": "scenario-105c2a27926ebafda17b",
+      "feature": "features/canvas.feature",
+      "scenario": "A pinch over a maximized tile leaves the canvas underneath it alone",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "9ac488391ecc37585b8e2e20abd952839c3d091ae2273401e673f37a6f919de7",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "da5f1d2a1fbf28f3be33bed0c9bc7e510d7fa867"
+    },
+    {
+      "revisionId": "revision-e9725c757f4e2a9867c8",
+      "scenarioKey": "scenario-5884a47b035f27500e7f",
+      "feature": "features/canvas.feature",
+      "scenario": "A small window does not make the page scroll in any posture",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "f5a692f2a3fa2c278f0d0a0b7fec6a630d93aff09a1ba530b9fd041528977a4a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "da5f1d2a1fbf28f3be33bed0c9bc7e510d7fa867"
     }
   ]
 }

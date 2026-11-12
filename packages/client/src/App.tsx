@@ -14,6 +14,7 @@
 
 import Resizable from "@corvu/resizable";
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
+import { attachPageZoomGuard } from "@kolu/solid-browser";
 import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";
 import { Effect } from "effect";
@@ -23,6 +24,7 @@ import {
   createMemo,
   createSignal,
   Match,
+  onCleanup,
   Show,
   Switch,
 } from "solid-js";
@@ -179,6 +181,12 @@ const App: Component = () => {
   // Track the soft-keyboard-shrunk visible area on iOS — `--app-h` overrides
   // the root `h-dvh` so the terminal grid refits into the visible region.
   useVisualViewportHeight();
+
+  // A pinch anywhere outside the canvas (dock, right panel, chrome bar) would
+  // otherwise be the browser's to answer, and its answer — magnifying the page
+  // — breaks the window-sized shell. The rule and the reasoning live in the
+  // guard itself.
+  onCleanup(attachPageZoomGuard(window));
 
   // One shared install controller drives both the inline welcome moments
   // (EmptyState) and the on-demand WelcomeDialog. The browser captures
@@ -351,11 +359,13 @@ const App: Component = () => {
 
   return (
     <div
+      data-testid="app-root"
       class="relative flex flex-col bg-surface-0 text-fg font-sans"
       style={{
-        // `var(--app-h)` is set by useVisualViewportHeight to the
-        // soft-keyboard-shrunk visible area; `100dvh` is the fallback for
-        // browsers without VisualViewport (or before mount fires).
+        // `var(--app-h)` is set by useVisualViewportHeight to the visible area
+        // in LAYOUT pixels — the soft-keyboard-shrunk height on iOS, the plain
+        // window height everywhere else. `100dvh` is the fallback for browsers
+        // without VisualViewport (or before mount fires).
         height: "var(--app-h, 100dvh)",
         "padding-top": "env(safe-area-inset-top)",
         "padding-bottom": "env(safe-area-inset-bottom)",

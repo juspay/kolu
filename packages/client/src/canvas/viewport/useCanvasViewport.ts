@@ -14,7 +14,7 @@ import {
   gridBgPositionCSS,
   gridBgSizeCSS,
 } from "./coordinates";
-import { installGestures } from "./gestures";
+import { type GesturePolicy, installGestures } from "./gestures";
 import {
   accumulateZoom,
   applyGestureBatch,
@@ -151,13 +151,9 @@ export interface CanvasViewport {
   panX: Accessor<number>;
   panY: Accessor<number>;
   zoom: Accessor<number>;
-  /** Set container ref — installs gesture listeners. `shouldYieldWheel`, if
-   *  provided, lets callers opt specific wheel targets out of canvas pan so
-   *  scrollable tile content (e.g. a terminal) owns its own scroll gesture. */
-  setContainerRef: (
-    el: HTMLDivElement,
-    shouldYieldWheel?: (e: WheelEvent) => boolean,
-  ) => void;
+  /** Set container ref — installs gesture listeners. The caller answers the
+   *  two `GesturePolicy` facts the gesture layer can't see for itself. */
+  setContainerRef: (el: HTMLDivElement, policy: GesturePolicy) => void;
   /** Divide a screen-space delta by zoom for canvas-space positioning. */
   normalizeDelta: (dx: number, dy: number) => { dx: number; dy: number };
   /** Pan so a specific tile is centered. Animates over ~150ms. Cancels on
@@ -201,10 +197,7 @@ export interface CanvasViewport {
   resetZoom: () => void;
 }
 
-function setContainerRef(
-  el: HTMLDivElement,
-  shouldYieldWheel?: (e: WheelEvent) => boolean,
-) {
+function setContainerRef(el: HTMLDivElement, policy: GesturePolicy) {
   cleanupGestures?.();
   discardPendingGesture();
   containerEl = el;
@@ -245,7 +238,7 @@ function setContainerRef(
         scheduleGestureFlush();
       },
     },
-    shouldYieldWheel,
+    policy,
   );
 }
 
