@@ -130,18 +130,21 @@ const idOfCall = (input: unknown, answer: unknown): string | null =>
 
 /** `{id, result, met?, elapsedMs?}` — the envelope every waiting call answers
  *  in. `met` carries the condition that landed; a timeout, `gone` or `closed`
- *  answers without one, and `result` is then the state worth showing. */
-const waited = (answer: unknown, landed: string | null): Said<"settle"> => {
-  const met = objectAt(answer, "met");
-  return {
-    // No waiting call names a terminal: the name a card draws is the
-    // terminal's, and these carry only its ref.
-    name: null,
-    state: landed ?? stringAt(answer, "result"),
-    elapsedMs: numberAt(met, "elapsedMs") ?? numberAt(answer, "elapsedMs"),
-    screenTail: stringAt(met, "screen"),
-  };
-};
+ *  answers without one, and `result` is then the state worth showing. The
+ *  screen tail is NOT the envelope's: two of the three waits can carry one in
+ *  `met`, and a `watch_next` drain never does, so each reader says its own. */
+const waited = (
+  answer: unknown,
+  landed: string | null,
+): Omit<Said<"settle">, "screenTail"> => ({
+  // No waiting call names a terminal: the name a card draws is the
+  // terminal's, and these carry only its ref.
+  name: null,
+  state: landed ?? stringAt(answer, "result"),
+  elapsedMs:
+    numberAt(objectAt(answer, "met"), "elapsedMs") ??
+    numberAt(answer, "elapsedMs"),
+});
 
 /** The ONE terminal a drained `watch_next` batch is about, and its latest
  *  event — or `null` when there is no such terminal: a batch that timed out
@@ -211,19 +214,26 @@ const READINGS: Readonly<Record<string, AnyReading>> = {
     kind: "settle",
     ref: idOfCall,
     // `met: {fired: "idle", elapsedMs, screen?}`.
-    said: (_input, answer) =>
-      waited(answer, stringAt(objectAt(answer, "met"), "fired")),
+    said: (_input, answer) => {
+      const met = objectAt(answer, "met");
+      return {
+        ...waited(answer, stringAt(met, "fired")),
+        screenTail: stringAt(met, "screen"),
+      };
+    },
   },
   wait_agentState: {
     kind: "settle",
     ref: idOfCall,
     // `met: {agent, elapsedMs, screen?}` — `agent` is the whole AgentInfo, and
     // the state worth showing is the one it was caught in.
-    said: (_input, answer) =>
-      waited(
-        answer,
-        stringAt(objectAt(objectAt(answer, "met"), "agent"), "state"),
-      ),
+    said: (_input, answer) => {
+      const met = objectAt(answer, "met");
+      return {
+        ...waited(answer, stringAt(objectAt(met, "agent"), "state")),
+        screenTail: stringAt(met, "screen"),
+      };
+    },
   },
   watch_next: {
     kind: "settle",
