@@ -2,10 +2,10 @@
  * The fleet grammar as WIRE SCHEMAS — the half of `./ref.ts` that costs an
  * effect import.
  *
- * Split from the grammar itself for the reason that file's header states: the
- * parser is reached by `@kolu/acp-harness`, whose manifest carries neither
- * effect nor this package's MCP chain. Everything here is `@kolu/surface` and
- * MCP vocabulary — a decoder, and the blurb an agent reads in `tools/list`.
+ * Split from the grammar itself so `./ref.ts` stays a leaf with no imports at
+ * all, which is what `@kolu/acp-harness` reaches when it reads a ref back out
+ * of a tool call. Everything here is `@kolu/surface` and MCP vocabulary — a
+ * decoder, and the blurb an agent reads in `tools/list`.
  *
  * The check is the GRAMMAR's own predicate, not a second regexp: a malformed
  * reference is refused by the DECODER at the adapter's one `tools/call` edge,

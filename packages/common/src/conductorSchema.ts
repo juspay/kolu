@@ -23,7 +23,7 @@
  * key, a `/`, and the terminal id (`@kolu/kolu-mcp`'s `fleetTerminalRef`,
  * parsed at the LAST `/` because a remote target may contain one). The rows
  * that name a terminal carry the two halves SEPARATELY — `terminalId` keeps
- * its UUID brand and `host` rides beside it — so a card can switch to the
+ * its UUID check and `host` rides beside it — so a card can switch to the
  * host before it focuses the tile; only `ConductorState.fleet`, which is
  * pure membership, carries the joined ref.
  *
@@ -83,11 +83,11 @@ const rowHead = {
  *  the question was about, and the prompt that reached the agent carried
  *  exactly these fields as its structured reference block.
  *
- *  THE TWO HALVES OF THE IDENTITY ARE SEPARATE. `terminalId` stays the branded
- *  UUID a padi mints and `host` is the encoded host key it lives on; the
- *  server joins them into the `host/id` the agent is told. Re-typing
- *  `terminalId` to a ref string would unbrand every persisted user row for a
- *  fact that is only ever needed joined at one seam. */
+ *  THE TWO HALVES OF THE IDENTITY ARE SEPARATE. `terminalId` stays the
+ *  UUID-checked id a padi mints and `host` is the encoded host key it lives
+ *  on; the server joins them into the `host/id` the agent is told. Re-typing
+ *  `terminalId` to a ref string would drop the UUID check from every persisted
+ *  user row for a fact that is only ever needed joined at one seam. */
 export const ConductorMentionSchema = Schema.Struct({
   terminalId: TerminalIdSchema,
   /** Which host the terminal is on, encoded (`local` / `remote:<target>`) —
@@ -244,9 +244,11 @@ export const ConductorToolStatusSchema = Schema.Literals([
 ]);
 
 /** WHO the call is about — the one trio every arm carries, hoisted so a sixth
- *  reading cannot spell it a sixth time and so the three stay nullable
- *  TOGETHER, which is the rule the union below states. Spread first in
- *  each arm, in this order, because the emitted field order is the wire's. */
+ *  reading cannot spell it a sixth time. `terminalId` and `host` are nullable
+ *  TOGETHER, which is the rule the union below states; `name` is the
+ *  terminal's own name and may be known without them (a create still in
+ *  flight). Spread first in each arm, in this order, because the emitted
+ *  field order is the wire's. */
 const CALL_SUBJECT = {
   terminalId: Schema.NullOr(TerminalIdSchema),
   host: Schema.NullOr(Schema.String),
@@ -269,12 +271,22 @@ const CALL_SUBJECT = {
  * decides which canvas the card's "open tile" switches to, the id decides
  * which tile it then focuses. Both are nullable together — a call the harness
  * read but whose ref it could not resolve says so rather than guessing a host.
+ *
+ * `terminalId` IS CHECKED HERE, not by the type: `TerminalIdSchema` is a UUID
+ * check applied when the row is encoded, and TypeScript accepts any string in
+ * its place. A row holding one that fails it does not encode — on the wire or
+ * back off `config.json` — so the harness only ever writes an id that passed
+ * `isTerminalId` first; a ref whose id half is anything else (a `watch_next`
+ * subscription's name, a half-written argument) is read as no terminal.
  */
 export const ConductorKoluCallSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("create"),
     ...CALL_SUBJECT,
+    /** Where it opened: the `cwd` asked for, or the worktree cut for it. */
     cwd: Schema.NullOr(Schema.String),
+    /** The command the create typed at the first prompt (its `run`) —
+     *  `claude`, typically, which is what names the agent it started. */
     agent: Schema.NullOr(Schema.String),
   }),
   Schema.Struct({
@@ -287,9 +299,12 @@ export const ConductorKoluCallSchema = Schema.Union([
   Schema.Struct({
     /** `wait_outputSettled`, `wait_agentState`, `watch_next` — the three ways
      *  of waiting, which draw the same card: who, what state, how long, and
-     *  the screen tail folded underneath. */
+     *  the screen tail folded underneath. A `watch_next` card is about a
+     *  terminal only when every event it drained was about that one. */
     kind: Schema.Literal("settle"),
     ...CALL_SUBJECT,
+    /** What it stopped on: what fired, the agent state it was caught in, or
+     *  the latest event's word — else the wait's own `result` (`timeout`). */
     state: Schema.NullOr(Schema.String),
     elapsedMs: Schema.NullOr(Schema.Int),
     screenTail: Schema.NullOr(Schema.String),

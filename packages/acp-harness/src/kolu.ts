@@ -5,35 +5,71 @@
  *
  * MINTED ONLY FOR A CALL WE POSITIVELY NAME, which is the rule this file exists
  * to keep. A reading is attached when the call was recognised as belonging to
- * the `kolu` MCP server WE handed this session AND its tool is one of the five
- * below; everything else gets no reading and the generic card, which is the
- * direction this is safe to fail in. A card that claimed to be about terminal
- * `7f3e` because a tool name happened to contain `create` would put an "open
- * tile" button on somebody else's terminal.
+ * the `kolu` MCP server WE handed this session AND its tool is one of the
+ * seven below; everything else gets no reading and the generic card, which is
+ * the direction this is safe to fail in. A card that claimed to be about
+ * terminal `7f3e` because a tool name happened to contain `create` would put
+ * an "open tile" button on somebody else's terminal.
  *
  * EVERY FIELD IS NULLABLE and every read is defensive, because an adapter is
  * free to send a call's input before the model has finished writing it (the
  * `rawInput: {}` frame) and to send no structured answer at all. A field this
  * end could not read is `null`, which the card draws as absent — never a
  * guess, and never an exception inside a protocol callback.
+ *
+ * A READING ENCODES, WHATEVER THE AGENT WROTE. Every row this file contributes
+ * to is persisted and served through the contract's row schema, which CHECKS
+ * two of these fields: `terminalId` is a UUID and `elapsedMs` a safe integer.
+ * A value that fails either is not a bad card — it is a transcript that no
+ * longer encodes, on every open and after every restart, which is how a
+ * `watch_next` subscription NAME read as a terminal id took the Conductor
+ * down. So no reader below can set the subject itself (see {@link Reading});
+ * only {@link subjectOf} can, and it applies the wire's own check.
  */
 
+import { isTerminalId } from "@kolu/terminal-vocab/terminalId";
 import { fleetTerminalRef, splitFleetTerminalRef } from "kolu-mcp/fleetRef";
 import type { ConductorKoluCall } from "./rows.ts";
 
-/** The tools the loop IS, by the names the `kolu` MCP face registers them
- *  under. The three ways of WAITING collapse to one reading, because they draw
- *  the same card: who, what state, how long, and the screen tail folded
- *  underneath. */
-const READINGS: Readonly<Record<string, ConductorKoluCall["kind"]>> = {
-  lifecycle_create: "create",
-  lifecycle_sendInput: "sendInput",
-  lifecycle_kill: "kill",
-  wait_outputSettled: "settle",
-  wait_agentState: "settle",
-  watch_next: "settle",
-  screen_text: "screen",
-};
+type Kind = ConductorKoluCall["kind"];
+
+/** WHICH TERMINAL a card is about — both halves of its identity, set together
+ *  or not at all, which is what the contract states and the card relies on:
+ *  it opens a tile only with both. */
+type Subject = Pick<ConductorKoluCall, "terminalId" | "host">;
+
+/** What one tool's reader may say: every field of its arm EXCEPT the subject,
+ *  which it may not even spell — `?: never` rather than a bare `Omit`, because
+ *  an omitted key is only an EXCESS property, and TypeScript does not check
+ *  excess properties on an arrow's returned literal here. Distributive, so
+ *  each kind keeps its own fields. */
+type Said<K extends Kind> = K extends Kind
+  ? Omit<Extract<ConductorKoluCall, { kind: K }>, "kind" | keyof Subject> & {
+      readonly [Field in keyof Subject]?: never;
+    }
+  : never;
+
+/**
+ * HOW ONE TOOL IS READ — and the type that keeps every reader behind the gate.
+ *
+ * A reader says WHERE its tool's subject is (`ref`, the fleet reference
+ * `host/id` as the call spelled it) and what else its card draws (`said`). It
+ * cannot say the subject itself: {@link Said} types `terminalId` and `host`
+ * as `never`, so the only way a string reaches those two fields is through
+ * {@link subjectOf}. A future tool cannot forget the check by writing the
+ * field directly; the compiler refuses the field.
+ *
+ * WHERE THE SUBJECT IS differs per tool, and assuming it is the call's `id`
+ * is the mistake this shape exists to make impossible to repeat: a
+ * `watch_next` call's `id` is its SUBSCRIPTION's name.
+ */
+interface Reading<K extends Kind> {
+  readonly kind: K;
+  readonly ref: (input: unknown, answer: unknown) => string | null;
+  readonly said: (input: unknown, answer: unknown) => Said<K>;
+}
+
+type AnyReading = { [K in Kind]: Reading<K> }[Kind];
 
 const stringAt = (
   value: unknown,
@@ -48,13 +84,16 @@ const stringAt = (
   return null;
 };
 
+/** A whole number of milliseconds, or `null`. SAFE integers only, because
+ *  that is what the wire's `Schema.Int` accepts: `1e300` is finite and rounds
+ *  to itself, and a reading carrying it would not encode. */
 const numberAt = (value: unknown, key: string): number | null => {
   if (typeof value !== "object" || value === null) return null;
   if (!(key in value)) return null;
   const found = (value as Record<string, unknown>)[key];
-  return typeof found === "number" && Number.isFinite(found)
-    ? Math.round(found)
-    : null;
+  if (typeof found !== "number") return null;
+  const whole = Math.round(found);
+  return Number.isSafeInteger(whole) ? whole : null;
 };
 
 const objectAt = (value: unknown, key: string): unknown => {
@@ -62,30 +101,150 @@ const objectAt = (value: unknown, key: string): unknown => {
   return key in value ? (value as Record<string, unknown>)[key] : null;
 };
 
-/** WHO a call is about, as the FLEET spells it: a terminal is `host/id` now,
- *  one conversation covering every host.
+const NO_SUBJECT: Subject = { terminalId: null, host: null };
+
+/** THE GATE: a fleet reference becomes a card's subject only if its id half
+ *  IS a terminal id — {@link isTerminalId}, the very check the row schema
+ *  applies to `terminalId` when the row is encoded, so this and the encoder
+ *  cannot disagree. Anything else is no subject at all, never half of one.
  *
- *  The host key of a remote can itself contain a `/`, so a ref is split at the
- *  LAST one — by the fleet's own splitter ({@link splitFleetTerminalRef}),
- *  which is the single place in the tree that knows the grammar.
- *
- *  The NON-THROWING half of that grammar, deliberately: a tool call's args are
- *  whatever the model wrote, and an adapter sends them before the model has
- *  finished writing them, so a half-written ref must read as an absent host
- *  rather than throw inside a protocol callback (this module's standing rule).
- *
- *  `lifecycle_create` is the one call that names its host in its OWN `host`
- *  field — it has no terminal yet to carry one — and learns the terminal from
- *  its answer, which is already a ref. */
-const whoOf = (
-  input: unknown,
+ *  The ref is split by the fleet's own grammar ({@link splitFleetTerminalRef})
+ *  — at the LAST `/`, because a remote's host key may itself contain one — and
+ *  by its NON-THROWING half, because a tool call's args are whatever the model
+ *  wrote and a half-written ref must read as nothing rather than throw inside
+ *  a protocol callback. A bare id with no host is no subject either: the fleet
+ *  face this session is handed spells every terminal `host/id`, and a card
+ *  that knew the id but not the host would have nowhere to open it. */
+const subjectOf = (ref: string | null): Subject => {
+  if (ref === null) return NO_SUBJECT;
+  const split = splitFleetTerminalRef(ref);
+  if (split === null || !isTerminalId(split.id)) return NO_SUBJECT;
+  return { terminalId: split.id, host: split.host };
+};
+
+/** The terminal a call that names ONE in its `id` is about — on the input,
+ *  and echoed on the answer by the calls whose answer carries it, which is
+ *  the only half the settling frame has. */
+const idOfCall = (input: unknown, answer: unknown): string | null =>
+  stringAt(input, "id") ?? stringAt(answer, "id");
+
+/** `{id, result, met?, elapsedMs?}` — the envelope every waiting call answers
+ *  in. `met` carries the condition that landed; a timeout, `gone` or `closed`
+ *  answers without one, and `result` is then the state worth showing. */
+const waited = (answer: unknown, landed: string | null): Said<"settle"> => {
+  const met = objectAt(answer, "met");
+  return {
+    // No waiting call names a terminal: the name a card draws is the
+    // terminal's, and these carry only its ref.
+    name: null,
+    state: landed ?? stringAt(answer, "result"),
+    elapsedMs: numberAt(met, "elapsedMs") ?? numberAt(answer, "elapsedMs"),
+    screenTail: stringAt(met, "screen"),
+  };
+};
+
+/** The ONE terminal a drained `watch_next` batch is about, and its latest
+ *  event — or `null` when there is no such terminal: a batch that timed out
+ *  carries no events, and one whose events name several terminals is news
+ *  about the fleet, which no single "open tile" can honestly answer. The
+ *  events' `id`s are fleet refs; the subscription name in the envelope's own
+ *  `id` is not a terminal and is never read as one. */
+const soleWatched = (
   answer: unknown,
-): { host: string | null; terminalId: string | null } => {
-  const ref =
-    stringAt(input, "id", "terminalId") ?? stringAt(answer, "id", "terminalId");
-  const split = ref === null ? null : splitFleetTerminalRef(ref);
-  if (split === null) return { host: stringAt(input, "host"), terminalId: ref };
-  return { host: split.host, terminalId: split.id };
+): { ref: string; latest: unknown } | null => {
+  const events = objectAt(objectAt(answer, "met"), "events");
+  if (!Array.isArray(events) || events.length === 0) return null;
+  const refs = new Set(events.map((event) => stringAt(event, "id")));
+  const [ref] = refs;
+  if (refs.size !== 1 || ref === undefined || ref === null) return null;
+  return { ref, latest: events[events.length - 1] };
+};
+
+/** The tools the loop IS, by the names the `kolu` MCP face registers them
+ *  under, each read off the fields that tool really carries. The three ways
+ *  of WAITING collapse to one kind, because they draw the same card: who,
+ *  what state, how long, and the screen tail folded underneath — but each
+ *  says where ITS subject and state are. */
+const READINGS: Readonly<Record<string, AnyReading>> = {
+  lifecycle_create: {
+    kind: "create",
+    // It has no terminal until it answers. The input names the HOST to create
+    // on and, in `placement.parentId`, a DIFFERENT terminal; the answer's `id`
+    // is the new one's ref.
+    ref: (_input, answer) => stringAt(answer, "id"),
+    said: (input, answer) => ({
+      // The canvas label the agent gave it, else the branch it was cut on.
+      name: stringAt(input, "intent", "worktree"),
+      // Where it opened: the directory asked for, or the worktree made for it.
+      cwd:
+        stringAt(input, "cwd") ??
+        stringAt(objectAt(answer, "worktree"), "path"),
+      // The command typed at its first prompt (`run`) — `claude`, typically.
+      agent: stringAt(input, "run") ?? stringAt(answer, "ran"),
+    }),
+  },
+  lifecycle_sendInput: {
+    kind: "sendInput",
+    ref: idOfCall,
+    // Exactly one of the two, as the tool itself requires: text is typed and
+    // a key is a chord, and a call carrying both is one the face refuses.
+    said: (input) => ({
+      name: null,
+      text: stringAt(input, "text"),
+      key: stringAt(input, "key"),
+    }),
+  },
+  lifecycle_kill: {
+    kind: "kill",
+    ref: idOfCall,
+    said: () => ({ name: null }),
+  },
+  screen_text: {
+    kind: "screen",
+    ref: idOfCall,
+    said: (_input, answer) => ({
+      name: null,
+      snapshot: typeof answer === "string" ? answer : stringAt(answer, "text"),
+    }),
+  },
+  wait_outputSettled: {
+    kind: "settle",
+    ref: idOfCall,
+    // `met: {fired: "idle", elapsedMs, screen?}`.
+    said: (_input, answer) =>
+      waited(answer, stringAt(objectAt(answer, "met"), "fired")),
+  },
+  wait_agentState: {
+    kind: "settle",
+    ref: idOfCall,
+    // `met: {agent, elapsedMs, screen?}` — `agent` is the whole AgentInfo, and
+    // the state worth showing is the one it was caught in.
+    said: (_input, answer) =>
+      waited(
+        answer,
+        stringAt(objectAt(objectAt(answer, "met"), "agent"), "state"),
+      ),
+  },
+  watch_next: {
+    kind: "settle",
+    // NOT the call's `id`: that is the subscription's name, on the input as
+    // `name` and echoed in the answer's `id` slot.
+    ref: (_input, answer) => soleWatched(answer)?.ref ?? null,
+    // The latest event's word when the batch is about one terminal — a state
+    // report's bucket (`waiting`) or a settle edge's kind (`finished`) — and
+    // otherwise the envelope's own `result` (`timeout`, `met`). No screen:
+    // a drain carries none.
+    said: (_input, answer) => {
+      const sole = soleWatched(answer);
+      return {
+        ...waited(
+          answer,
+          sole === null ? null : stringAt(sole.latest, "state", "kind"),
+        ),
+        screenTail: null,
+      };
+    },
+  },
 };
 
 /**
@@ -107,62 +266,18 @@ export const koluCallOf = (
   input: unknown,
   answer: unknown,
 ): ConductorKoluCall | null => {
-  const kind = READINGS[tool];
-  if (kind === undefined) return null;
-  // The ref is on the INPUT for every call that acts on an existing terminal
-  // and on the ANSWER for the one that makes a new one, so both are read and
-  // the input wins — a `create` has none to contradict. `whoOf` splits it into
-  // the pair a card draws: which host, which terminal.
-  const { host, terminalId } = whoOf(input, answer);
-  const name = stringAt(input, "name");
-  switch (kind) {
-    case "create":
-      return {
-        kind,
-        terminalId,
-        host,
-        name,
-        cwd: stringAt(input, "cwd", "directory"),
-        agent: stringAt(input, "agent"),
-      };
-    case "sendInput":
-      // Exactly one of the two, as the tool itself requires: text is typed and
-      // a key is a chord, and a call carrying both is one the face refuses.
-      return {
-        kind,
-        terminalId,
-        host,
-        name,
-        text: stringAt(input, "text"),
-        key: stringAt(input, "key"),
-      };
-    case "kill":
-      return { kind, terminalId, host, name };
-    case "screen":
-      return {
-        kind,
-        terminalId,
-        host,
-        name,
-        snapshot:
-          typeof answer === "string" ? answer : stringAt(answer, "text"),
-      };
-    case "settle": {
-      // `{result, met: {agent|fired, elapsedMs, screen}}` — the shape all three
-      // waiting calls answer in. A timeout answers the same envelope without a
-      // `met`, and its own `elapsedMs`, so both are read.
-      const met = objectAt(answer, "met");
-      return {
-        kind,
-        terminalId,
-        host,
-        name,
-        state: stringAt(met, "agent", "fired") ?? stringAt(answer, "result"),
-        elapsedMs: numberAt(met, "elapsedMs") ?? numberAt(answer, "elapsedMs"),
-        screenTail: stringAt(met, "screen"),
-      };
-    }
-  }
+  const reading = READINGS[tool];
+  if (reading === undefined) return null;
+  // The one place a reading's arm is assembled, and the cast it needs: TS
+  // cannot follow `reading.kind` and `reading.said`'s return as the SAME `K`
+  // through the union, but `Reading<K>` binds them, and `Said<K>` plus the
+  // subject plus `kind` is that arm field for field. The subject is spread
+  // LAST, so even a reader cast past `Said` cannot outvote the gate.
+  return {
+    kind: reading.kind,
+    ...reading.said(input, answer),
+    ...subjectOf(reading.ref(input, answer)),
+  } as ConductorKoluCall;
 };
 
 /**

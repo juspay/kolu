@@ -139,6 +139,9 @@ importers:
       '@kolu/acp':
         specifier: workspace:*
         version: link:../acp
+      '@kolu/terminal-vocab':
+        specifier: workspace:*
+        version: link:../terminal-vocab
       kolu-common:
         specifier: workspace:*
         version: link:../common
@@ -149,6 +152,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
+      effect:
+        specifier: 4.1.4
+        version: 4.1.4
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
