@@ -39,7 +39,7 @@ Selecting it opens the conversation; selecting any host tab leaves it for that m
 
 Its badge is a violet count: how many of its questions are waiting for you, summed across every host. Those questions are a [needs-you](/notifications) source like any other, so they chime, raise a system notification and count toward the app badge through the same machinery a blocked terminal does. A turn merely _ending_ is silent; being asked something is not.
 
-**The view is the chat, and for now nothing else** — header, strip, transcript, composer, filling the window. No dock, no canvas, no second pane holding a terminal: the terminals are on the host tabs, one keystroke away, and a half-width copy of one here would be a second place to look at the same thing. The way to a terminal from the conversation is **open tile** on the agent's own tool card, which takes you to that terminal's host tab with the tile focused.
+**The view is the chat** — header, strip, transcript, composer, filling the window. No dock, no canvas, no second pane holding a terminal: the terminals are on the host tabs, one keystroke away, and a half-width copy of one here would be a second place to look at the same thing. What the chat does carry is a way to **check on** an agent without leaving it: the card for each terminal the Conductor opened says how that agent is doing, and **Look** shows the last lines of its screen right there (see [the transcript](#the-transcript)). The way to the terminal itself is **open tile** on that same card, which takes you to the terminal's host tab with the tile focused.
 
 On mobile the Conductor appears in the host sheet beside the hosts, and opens the chat full-screen.
 
@@ -86,8 +86,11 @@ What you typed sits quoted. What the agent answers is rendered as markdown. Betw
 
 - a **plan card** when the agent sends one, replaced whole on each update;
 - **tool cards**. Anything kolu cannot name gets a generic card. Anything that is one of kolu's own tools gets a card that knows what it means, and each one that is about a terminal names the **host** it acted on, since an id alone no longer says which machine: `lifecycle_create` shows the terminal's label (or its worktree branch), the directory and the command it started, and — once the call has answered with the terminal it made, not while it is still running — that terminal's host and an **open tile** that takes you to that host's tab with the tile focused; `lifecycle_sendInput` shows the target and what was sent; the three ways of waiting show the state, how long it took, and the last lines of the screen folded underneath — a `watch_next` is about a terminal only when everything it caught was about that one, and otherwise shows just how the wait ended; `screen_text` shows the snapshot. A call that is still running carries a clock;
+- **the agent line** on a `lifecycle_create` card that names its terminal: one status line — the agent's state and what it says it is doing, read from the terminal list kolu already keeps for every host, so it costs nothing — and a **Look** button. Look opens the last 40 lines of that terminal's screen as read-only text, read from the terminal's own host and refreshed about every two seconds — only while it is open, on screen, and the tab is in front; closed, nothing is fetched. A read that fails says so rather than showing an empty box, Look stays open across updates to the card, and a terminal that has ended says **terminal gone** and offers nothing to look at;
 - **file diffs**, trimmed, one box per hunk, click to expand;
 - **asks** — a permission request the agent was not allowed to answer for itself, a question it needs you to settle, a page it needs you to visit — as a form in the flow. Nothing times out. Dismissing one is an answer too: the agent is told you would not say, never handed a choice you did not make.
+
+The tool calls between two things the Conductor says fold into one closed **Details** that says how many calls it holds, so the conversation reads as the sentences it is — open it to see the cards. Anything you would miss by having to open it stays out in the flow: a call still running (with its clock — it joins the fold once it settles), a call that failed or was left without an answer, a background task still out, the agent line above, and every question, plan, notice and message of yours. Calls the Conductor has not yet followed with a word stay unfolded too: they are the latest thing on screen. **Copy transcript** still copies every call, and pressing a task in the strip opens the fold its row is in.
 
 ### The composer
 
@@ -118,6 +121,17 @@ There is deliberately **no API-key box**. Where a credential typed into a form w
 ## What it knows how to do
 
 Every new conversation starts with one standing instruction — visible in the transcript, because the protocol has no system prompt and kolu would rather you could read what your agent was told than not. It says, in short: you are kolu's conductor, and one conversation covers every host; a terminal is named `host/id`; the `hosts` resource is the live roster of machines and it changes under you; create a terminal on the host the repo lives on; the loop is **create → send the text → let it settle → press Enter → debrief**; supervise several at once with a standing watch; the agents' questions come up to you, and you bring the human only the decisions that are theirs; briefs go through files rather than long pastes.
+
+It also knows **the waterfall** — what it does when you ask for one, or ask it to implement something end to end:
+
+1. **Setup, once per conversation.** It asks you how to launch a planner and an implementor (each a command line: harness and model) and what to do when CI goes green — merge, or hand the PR to you — and remembers the answers for the rest of the conversation.
+2. **Plan.** A planner opens on the repo's host in a fresh worktree. It plans and reviews and never implements; it writes the plan to `.waterfall/plan.md` in that worktree (kept out of git through `.git/info/exclude`) and stops.
+3. **Approve.** The Conductor shows you a short summary and where the full plan is, and asks you to approve it or say what to change; changes go back to the planner until you approve.
+4. **Implement.** Only then: the planner writes a brief to `.waterfall/brief.md`, and an implementor opens as a split of the planner, in the same worktree, pointed at it. It stops when its PR is open. A doubt it stops on is answered from the plan or by the planner; only a decision that is really yours comes to you.
+5. **Review.** The planner reviews the PR by the repo's own guidelines and posts the review; the implementor addresses it; repeat until the planner is satisfied. Something you ask for mid-round waits for the next round.
+6. **Finish.** One final refactor pass ([the Hickey/Löwy pass](/blog/hickey-lowy/)), then CI once, the way the repo says to run it, fixed until green — then merged or handed over, as you chose.
+
+It never implements anything itself, starts no new agent and opens no new PR without your approval, and never closes an implementor before its PR is merged or closed. It tells you each step in one plain sentence, not in tool names.
 
 It is re-taught on every new session, and it is versioned with the binary — so the law never drifts from the tools it describes.
 
