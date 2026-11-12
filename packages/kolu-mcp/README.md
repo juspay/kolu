@@ -28,7 +28,8 @@ default-deny with named, tested denials:
   a human now), and the status story (`status` · `daemonStatus` · `identity` —
   kaval health + padi's own generation, so a daemon restart is *data*, not an
   anomaly);
-- **read-only tools**: `screen_text` (tail-mode snapshot) · `screen_image` (the
+- **read-only tools**: `screen_text` (tail-mode snapshot; padi cuts the tail, so
+  only the asked-for lines leave the daemon) · `screen_image` (the
   same screen as a themed PNG, returned as an MCP image block — reach for it
   when the answer is *visual*: a TUI's layout, a coloured diff, a pass/fail run
   a text dump flattens into indistinguishable characters. `screen_text` stays
@@ -74,7 +75,8 @@ three-call loop a CLI one does: `settledMs` is a CONJUNCT (the met needs the
 condition to hold *and* the output to have been quiet that long — bytes still
 moving keep the wait open), and `screenTail: N` puts the last N screen lines on
 the met, read inside the same wait rather than by a follow-up `screen_text` the
-terminal can move under. `wait_agentState` with `until: ["awaiting","waiting"],
+terminal can move under — with the same padi-side cut `screen_text { tail }`
+gets. `wait_agentState` with `until: ["awaiting","waiting"],
 settledMs: 15000, screenTail: 40` is the `kolu debrief` protocol — named in that
 tool's description rather than shipped as a third composed tool, since over MCP
 it is three JSON keys and a tool costs its whole description in every request.

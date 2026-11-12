@@ -228,7 +228,10 @@ function matchClient(parts: {
    *  condition subscribes them. */
   get?: (key: TerminalId) => Stream.Stream<PadiTerminal, unknown>;
   /** `screen.text`, the read `screenTail` stamps a met with. */
-  screenText?: () => Effect.Effect<string, unknown>;
+  screenText?: (input: {
+    id: TerminalId;
+    tail?: number;
+  }) => Effect.Effect<string, unknown>;
 }): PadiSurfaceClient {
   return {
     surface: {
@@ -253,8 +256,8 @@ function matchClient(parts: {
           Stream.fail(new Error("terminals.get must not be read in this case")),
       },
       screen: {
-        text: () =>
-          parts.screenText?.() ??
+        text: (input: { id: TerminalId; tail?: number }) =>
+          parts.screenText?.(input) ??
           Effect.fail(new Error("screen.text must not be read in this case")),
       },
     },
@@ -664,29 +667,45 @@ describe("awaitTerminalCondition — `--settled`, the quiescence conjunct", () =
   });
 });
 
-describe("awaitTerminalCondition — `captureScreen`, the screen stamp", () => {
-  const screen = "prompt$ run\nall 12 passed\n\n\n\n";
+describe("awaitTerminalCondition — `screenTail`, the screen stamp", () => {
+  const screen = "prompt$ run\nall 12 passed";
 
-  it("stamps the met with the terminal's rendered screen, whole", async () => {
-    // The engine captures; BOUNDING the capture is the face's decision (`kolu
-    // wait --snapshot N` slices with `tailLines`), and it is not even a wire
-    // saving — the read passes no line range, so the buffer already crossed.
+  it("stamps the met with the screen padi cut to the asked tail", async () => {
+    // padi owns the cut (`screen.text { tail }`), so only the tail crosses the
+    // wire: the engine asks for exactly the caller's N and stamps the reply
+    // as it came, without re-slicing it.
     const attach = new FakeSource<AttachFrame>();
     attach.push(snapshot("worker\n"));
+    const asked: unknown[] = [];
     const outcome = await awaitTerminalCondition(
       matchClient({
         attach: () => attach.stream(),
-        screenText: () => Effect.succeed(screen),
+        screenText: (input) => {
+          asked.push(input);
+          return Effect.succeed(screen);
+        },
       }),
       {
         id: T as TerminalId,
         condition: { kind: "idle", idleMs: 40 },
-        captureScreen: true,
+        screenTail: 2,
         timeoutMs: 5000,
         retryAdvice: "re-run the wait",
       },
     );
+    expect(asked).toEqual([{ id: T, tail: 2 }]);
     expect(outcome).toMatchObject({ kind: "met", fired: "idle", screen });
+  });
+
+  it("refuses a tail that is not a positive whole number before subscribing", async () => {
+    await expect(
+      awaitTerminalCondition(matchClient({}), {
+        id: T as TerminalId,
+        condition: { kind: "idle", idleMs: 40 },
+        screenTail: 0,
+        retryAdvice: "re-run the wait",
+      }),
+    ).rejects.toThrow(RangeError);
   });
 
   it("DISCARDS a screen the terminal moved under, and stamps the next quiet one", async () => {
@@ -720,7 +739,7 @@ describe("awaitTerminalCondition — `captureScreen`, the screen stamp", () => {
         id: T as TerminalId,
         condition: { kind: "idle", idleMs: 40 },
         settledMs: 40,
-        captureScreen: true,
+        screenTail: 40,
         timeoutMs: 5000,
         retryAdvice: "re-run the wait",
       },
@@ -744,7 +763,7 @@ describe("awaitTerminalCondition — `captureScreen`, the screen stamp", () => {
       {
         id: T as TerminalId,
         condition: { kind: "idle", idleMs: 40 },
-        captureScreen: true,
+        screenTail: 40,
         timeoutMs: 5000,
         retryAdvice: "re-run the wait",
       },
@@ -784,7 +803,7 @@ describe("awaitTerminalCondition — `captureScreen`, the screen stamp", () => {
         id: T as TerminalId,
         condition: { kind: "idle", idleMs: 20 },
         settledMs: 20,
-        captureScreen: true,
+        screenTail: 40,
         timeoutMs: 5000,
         retryAdvice: "re-run the wait",
       },
@@ -829,7 +848,7 @@ describe("awaitTerminalCondition — `captureScreen`, the screen stamp", () => {
         {
           id: T as TerminalId,
           condition: { kind: "match", pattern: /DONE/ },
-          captureScreen: true,
+          screenTail: 40,
           timeoutMs: 3000,
           retryAdvice: "re-run the wait",
         },
@@ -875,7 +894,7 @@ describe("awaitTerminalCondition — `captureScreen`, the screen stamp", () => {
             kind: "agent",
             targets: new Set(["awaiting", "waiting"]),
           },
-          captureScreen: true,
+          screenTail: 40,
           timeoutMs: 3000,
           retryAdvice: "re-run the wait",
         },
@@ -953,7 +972,7 @@ describe("awaitTerminalCondition — `captureScreen`, the screen stamp", () => {
         id: T as TerminalId,
         condition: { kind: "match", pattern: /DONE/ },
         settledMs: 60_000,
-        captureScreen: true,
+        screenTail: 40,
         timeoutMs: 5000,
         retryAdvice: "re-run the wait",
       },
@@ -1002,7 +1021,7 @@ describe("awaitTerminalCondition — `captureScreen`, the screen stamp", () => {
 // advertises an option that does nothing), and a key the wrapper lets through
 // onto a published wire.
 describe("awaitAgentState / awaitOutputSettled — forwarding, and the wire frames", () => {
-  const screen = "prompt$ run\nall 12 passed\n\n\n\n";
+  const screen = "prompt$ run\nall 12 passed";
 
   it("forwards `settledMs` — bytes still moving keep an already-matching bucket open", async () => {
     // The kolu#2139 failure, reached through the wrapper: the agent's bucket is
@@ -1028,7 +1047,7 @@ describe("awaitAgentState / awaitOutputSettled — forwarding, and the wire fram
     }
   });
 
-  it("forwards `captureScreen`, and the met frame gains `screen` WITHOUT gaining `fired`", async () => {
+  it("forwards `screenTail`, and the met frame gains `screen` WITHOUT gaining `fired`", async () => {
     // `met: {agent, elapsedMs}` is `wait_agentState`'s documented frame. The
     // engine's own met carries a `fired` tag; letting it through here would put
     // it on that wire. `screen` is additive — a reader that never asks for one
@@ -1039,13 +1058,14 @@ describe("awaitAgentState / awaitOutputSettled — forwarding, and the wire fram
     const outcome = await awaitAgentState(
       matchClient({
         attach: () => attach.stream(),
-        screenText: () => Effect.succeed(screen),
+        screenText: ({ tail }) =>
+          tail === 40 ? Effect.succeed(screen) : Effect.die("wrong tail"),
         ...agents.parts,
       }),
       {
         id: T as TerminalId,
         targets: new Set(["awaiting", "waiting"]),
-        captureScreen: true,
+        screenTail: 40,
         timeoutMs: 5000,
       },
     );
@@ -1073,15 +1093,16 @@ describe("awaitAgentState / awaitOutputSettled — forwarding, and the wire fram
     expect(Object.keys(outcome)).not.toContain("screen");
   });
 
-  it("awaitOutputSettled forwards `captureScreen` — the whole buffer, for the face to bound", async () => {
+  it("awaitOutputSettled forwards `screenTail` to padi's read", async () => {
     const attach = new FakeSource<AttachFrame>();
     attach.push(snapshot("worker\n"));
     const outcome = await awaitOutputSettled(
       matchClient({
         attach: () => attach.stream(),
-        screenText: () => Effect.succeed(screen),
+        screenText: ({ tail }) =>
+          tail === 20 ? Effect.succeed(screen) : Effect.die("wrong tail"),
       }),
-      { id: T, idleMs: 40, captureScreen: true, timeoutMs: 5000 },
+      { id: T, idleMs: 40, screenTail: 20, timeoutMs: 5000 },
     );
     expect(outcome).toMatchObject({ kind: "met", fired: "idle", screen });
   });

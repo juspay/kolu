@@ -308,8 +308,9 @@ handful of habits that paid for nothing; each is now a rule rather than a tuning
   block-on-a-terminal-condition engine every face rides. It takes the condition
   as data (`idle` · `match` · `agent`) plus two orthogonal modifiers: a
   `settledMs` **conjunct** (met only once output has also been quiet that long,
-  with a condition that stops holding re-entering the wait) and a `captureScreen`
-  **stamp** (the met carries the terminal's rendered screen, read while the
+  with a condition that stops holding re-entering the wait) and a `screenTail`
+  **stamp** (the met carries the last N lines of the terminal's screen, read
+  with `screen.text { tail }` while the
   wait's own subscriptions are live and discarded-and-retaken if the met
   CANDIDATE moved under the read — narrower than "a byte arrived", which has no
   fixed point). They live here rather than in a driving
@@ -324,7 +325,7 @@ handful of habits that paid for nothing; each is now a rule rather than a tuning
   `settledMs`/`screenTail` options are forwarded *through* those two rather than
   around them, so each wire frame keeps exactly one owner
   ([kolu#2152](https://github.com/juspay/kolu/issues/2152)) —
-  `awaitOutputSettled` deliberately takes only the capture, since a second
+  `awaitOutputSettled` deliberately takes only the stamp, since a second
   quiescence window over an `idle` condition just means quiet-for-max. The
   `match:` form has no wrapper: `kolu wait` is its only consumer and calls the
   engine directly.
@@ -362,14 +363,14 @@ handful of habits that paid for nothing; each is now a rule rather than a tuning
   Both live under `src/cliClient/` — `render.ts` and `read.ts`, and nothing
   else: the wait kit a reader of this paragraph used to be sent here for is
   `@kolu/padi-client/watch`, one package down, and this package has no `./dial`
-  entry to re-export it through (the dial is `@kolu/padi-client/dial`). The
-  tail-mode screen slice
-  went the whole way it was always headed and is now
-  `@kolu/padi-client/screenTail`, a genuinely zero-import leaf: it folds padi's
-  `screen.text` REPLY, so it belongs beside that reply's schema and not behind a
-  manifest naming `columnify` — the same
-  one-cluster-one-directory shape as `terminalEndpoint/` and
-  `terminalWorkspace/`. The pure `terminalVocab.ts` they all fold over sits one
+  entry to re-export it through (the dial is `@kolu/padi-client/dial`) — the
+  same one-cluster-one-directory shape as `terminalEndpoint/` and
+  `terminalWorkspace/`. The tail-mode screen slice went the whole way it was
+  always headed and is now `@kolu/padi-client/screenTail`, a genuinely
+  zero-import leaf: it DEFINES what padi's `screen.text { tail }` answers, so it
+  belongs beside that reply's schema and not behind a manifest naming
+  `columnify`, and the daemon is the only place that applies it (see
+  `screen.text` below). The pure `terminalVocab.ts` they all fold over sits one
   level UP, at the package root: the SERVER speaks it too (supervision-edge
   delivery narrows a supervisor with `activeAgent` before writing into its
   mailbox), and a daemon module reaching into a `cliClient/` directory would
@@ -387,6 +388,26 @@ handful of habits that paid for nothing; each is now a rule rather than a tuning
   vocabulary is CONTRACT (a client states a scope; the daemon's registry reads
   it) while "am I inside a kolu terminal" is a question only something inside one
   asks.
+
+## `screen.text { tail }` — the last N lines, cut daemon-side
+
+`screen.text` answers the rendered buffer as plain text: whole, an absolute
+`startLine`/`endLine` window, or `tail: N` — never a tail beside a line bound,
+which the decode refuses rather than picking one. `tail` is defined as
+`tailLines(whole, N)` (`@kolu/padi-client/screenTail`): the trailing run of
+blank rows (the empty viewport below the cursor) dropped first, then the last N.
+Every tail reader — `kolu snapshot --tail`, the MCP `screen_text { tail }`, and
+the wait kit's `screenTail` stamp — asks for it this way, so a long scrollback
+is no longer shipped to a face only to be thrown away.
+
+The cut has to be padi's, not kaval's: kaval's own `tail` extent counts buffer
+rows, blank viewport included, so forwarding N would hand a fresh shell's caller
+N blank lines. `src/screenTextTail.ts` reads a window of N plus the terminal's
+grid rows from kaval, folds it with `tailLines`, and widens only when the fold
+came up short while the window was still full — to the now-known blank run
+plus N when the window held content, doubling when it was all blank. A terminal
+no viewer has sized yet has no grid on its record and starts at N; the slack
+changes how many reads a call costs, never its answer.
 
 ## `screen.image` — padi is where the picture gets made
 

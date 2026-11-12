@@ -121,7 +121,6 @@
  */
 
 import { formatWaitMet, shortId } from "@kolu/padi/render";
-import { tailLines } from "@kolu/padi-client/screenTail";
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import { PADI_LINK_CLOSED, WAIT_STATES } from "@kolu/padi-client/terminalVocab";
 import {
@@ -343,20 +342,13 @@ function reportOutcome(
   outcome: TerminalConditionOutcome,
   describe: string,
   json: boolean,
-  screenTail: number | undefined,
 ): Effect.Effect<void, CliFailure> {
   return Effect.gen(function* () {
-    // The engine hands back the WHOLE rendered buffer; `--snapshot N` is this
-    // face's rendering decision, so the slice happens here — beside `snapshot`'s
-    // identical one, through the same `tailLines` (which also drops the trailing
-    // blank rows a rendered buffer ends in). The engine asserts the screen is
-    // PRESENT when it was asked for, so there is no absent-screen arm to invent.
-    const rendered: TerminalConditionOutcome =
-      outcome.kind === "met" &&
-      screenTail !== undefined &&
-      outcome.screen !== undefined
-        ? { ...outcome, screen: tailLines(outcome.screen, screenTail) }
-        : outcome;
+    // A met's `screen` is already the last `--snapshot` lines: the engine reads
+    // it with `screen.text { tail }`, and padi cuts it (dropping the trailing
+    // blank rows a rendered buffer ends in) before it crosses the link. The
+    // engine asserts the screen is PRESENT when it was asked for, so there is
+    // no absent-screen arm to invent.
 
     if (json) {
       // The met payload passes through UNCHANGED. `ConditionMet` is already a
@@ -367,22 +359,22 @@ function reportOutcome(
       // genuine per-variant work is `metTrailer`'s, where the switch is
       // load-bearing.
       yield* writeJson(
-        waitOutcomeJson<ConditionMet>(id, rendered, (m) => m),
+        waitOutcomeJson<ConditionMet>(id, outcome, (m) => m),
         "the wait outcome",
       );
     }
 
-    switch (rendered.kind) {
+    switch (outcome.kind) {
       case "met":
         if (!json) {
           // stdout is the SCREEN and nothing else, so `kolu wait … --snapshot 40
           // | grep MARK-` matches the terminal's words — the trailer that names
           // the terminal goes to stderr beside it. Under `--json` the screen is
           // already the frame's `screen` key, so neither is written again.
-          if (rendered.screen !== undefined) {
-            yield* writeOutBlock(rendered.screen, "the screen text");
+          if (outcome.screen !== undefined) {
+            yield* writeOutBlock(outcome.screen, "the screen text");
           }
-          yield* writeErr(metTrailer(id, rendered));
+          yield* writeErr(metTrailer(id, outcome));
         }
         return;
       // The three failing arms pass FACTS; `exit.ts` renders each line beside
@@ -392,7 +384,7 @@ function reportOutcome(
         return yield* Effect.fail(
           waitTimedOut({
             terminal: shortId(id),
-            elapsedMs: rendered.elapsedMs,
+            elapsedMs: outcome.elapsedMs,
             describe,
           }),
         );
@@ -413,7 +405,7 @@ function reportOutcome(
         // padi's shared sentence — `kolu watch` and `settledSnapshot` report the
         // same event, and two of the three used to name a different program to
         // go check on.
-        return yield* Effect.fail(failure(rendered.error ?? PADI_LINK_CLOSED));
+        return yield* Effect.fail(failure(outcome.error ?? PADI_LINK_CLOSED));
     }
   });
 }
@@ -505,12 +497,12 @@ function awaitPlan(
   opts: {
     readonly timeoutMs: number | undefined;
     readonly settledMs: number | undefined;
-    readonly captureScreen: boolean;
+    readonly screenTail: number | undefined;
     readonly signal: AbortSignal;
     readonly invokedAs: string;
   },
 ): Effect.Effect<TerminalConditionOutcome, unknown> {
-  const { timeoutMs, settledMs, captureScreen, signal } = opts;
+  const { timeoutMs, settledMs, screenTail, signal } = opts;
   return Effect.tryPromise({
     try: () =>
       awaitTerminalCondition(client, {
@@ -519,7 +511,7 @@ function awaitPlan(
         signal,
         ...(timeoutMs !== undefined ? { timeoutMs } : {}),
         ...(settledMs !== undefined ? { settledMs } : {}),
-        ...(captureScreen ? { captureScreen } : {}),
+        ...(screenTail !== undefined ? { screenTail } : {}),
         // The verb the USER typed, so a dropped feed under `kolu debrief` does
         // not tell them to re-run a command they never ran.
         retryAdvice: `re-run ${opts.invokedAs}`,
@@ -575,7 +567,7 @@ export function run(
             awaitPlan(conn.client, id, plan, {
               timeoutMs,
               settledMs,
-              captureScreen: screenTail !== undefined,
+              screenTail,
               signal,
               invokedAs,
             }),
@@ -590,7 +582,6 @@ export function run(
       outcome,
       describeWait(plan, settledMs),
       args.json,
-      screenTail,
     );
   });
 }

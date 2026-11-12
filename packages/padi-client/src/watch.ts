@@ -755,7 +755,7 @@ export type ConditionHeld =
   | { readonly fired: "agent"; readonly agent: AgentInfo };
 
 /** What a met carries: the condition's own evidence, how long the wait took —
- *  and, when `captureScreen` was asked for, the terminal's rendered `screen`.
+ *  and, when `screenTail` was asked for, the last lines of the terminal's `screen`.
  *
  *  DERIVED from {@link ConditionHeld} rather than re-declared: the three arms
  *  were spelled twice and had already drifted (one copy `readonly`, the other
@@ -856,7 +856,7 @@ interface FormContext {
   /** Did the caller ask for the met to carry a screen? A form needs this only
    *  to know that a DEAD terminal cannot satisfy such a wait (see the `match`
    *  form's `onTerminalGone`). */
-  readonly captureScreen: boolean;
+  readonly capturesScreen: boolean;
   /** Write the condition's evidence, or `null` while it does not hold. */
   readonly setHeld: (held: ConditionHeld | null) => void;
   /** The condition's current evidence, or `null` while it does not hold. */
@@ -1025,7 +1025,7 @@ function conditionForm(
         // nothing more. Nor is the boundary the gate's doing: the
         // exit-0-becomes-exit-3 step when a capture is added to this one shape
         // is the dead terminal's, and holds with or without it.
-        ...(engine.captureScreen
+        ...(engine.capturesScreen
           ? {}
           : {
               onTerminalGone: () => {
@@ -1105,7 +1105,7 @@ function conditionForm(
  *     composes with every form: `match:DONE` + `settledMs` means "the sentinel
  *     printed and the terminal then went quiet", which is a stronger and equally
  *     meaningful signal.
- *   - **`captureScreen` is an ENRICHMENT of the payload.** The terminal's
+ *   - **`screenTail` is an ENRICHMENT of the payload.** The terminal's
  *     rendered screen is read while the subscriptions are still live and BEFORE
  *     the met settles; if the met CANDIDATE changed while that read was in
  *     flight, the screen it returned is not the screen that settled, so it is
@@ -1142,11 +1142,10 @@ function conditionForm(
  * configuration — a bare agent wait opens no feed to lose — the same way a
  * `--timeout` a wait never hits is still required to be a real number.
  *
- * The `screen` is the WHOLE rendered buffer. Bounding it to N lines is the
- * caller's rendering decision (`kolu wait --snapshot N` slices with
- * `./screenTail`'s `tailLines`), and it is not even a wire saving — this
- * read passes no `startLine`/`endLine`, so the buffer has already crossed the
- * transport before any slice could run.
+ * The `screen` is the last `screenTail` lines, as padi's `screen.text { tail }`
+ * answers them — the blank viewport below the cursor dropped first
+ * (`./screenTail`'s `tailLines` is the definition). padi cuts it, so only those
+ * lines cross the wire and no face has a whole scrollback to slice.
  */
 export async function awaitTerminalCondition<C extends TerminalCondition>(
   client: PadiSurfaceClient,
@@ -1155,15 +1154,25 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
     readonly condition: C;
     /** Report met only once output has ALSO been quiet for this long. */
     readonly settledMs?: number;
-    /** Stamp the met with the terminal's rendered screen. */
-    readonly captureScreen?: boolean;
+    /** Stamp the met with the last N lines of the terminal's rendered screen. */
+    readonly screenTail?: number;
     readonly timeoutMs?: number;
     readonly signal?: AbortSignal;
     /** "retry wait_outputSettled" — the tail of the `closed` sentence. */
     readonly retryAdvice: string;
   },
 ): Promise<MetOf<C>> {
-  const { id, condition, settledMs, captureScreen } = opts;
+  const { id, condition, settledMs, screenTail } = opts;
+  // Checked before anything subscribes: a tail padi would refuse at the decode
+  // must not cost a wait that runs to its met and only then reads `closed`.
+  if (
+    screenTail !== undefined &&
+    !(Number.isInteger(screenTail) && screenTail > 0)
+  ) {
+    throw new RangeError(
+      `screenTail must be a positive whole number of lines, got ${screenTail}.`,
+    );
+  }
   // `runWait` is generic over the met payload and cannot know which ARM this
   // condition dispatches to; the engine does, because each form's `held` is
   // written by exactly one {@link ConditionForm}. So the narrowing is asserted ONCE here,
@@ -1278,9 +1287,9 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
         // retryable `closed` — which would quietly downgrade "the engine is
         // broken" to "try again", the collapse this repo treats as a defect. The
         // catch re-throws this one on sight.
-        if (captureScreen === true && screen === undefined) {
+        if (screenTail !== undefined && screen === undefined) {
           throw new EngineInvariantBroken(
-            `awaitTerminalCondition: ${id} met with captureScreen set but no screen — the engine's own invariant, not an empty terminal.`,
+            `awaitTerminalCondition: ${id} met with screenTail set but no screen — the engine's own invariant, not an empty terminal.`,
           );
         }
         ctx.settle({
@@ -1311,7 +1320,7 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
        * re-enter. See the header for why "bump on every frame" has no fixed
        * point.
        */
-      const stampLoop = async (): Promise<void> => {
+      const stampLoop = async (tail: number): Promise<void> => {
         try {
           while (
             !ctx.signal.aborted &&
@@ -1326,7 +1335,7 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
             // open past the `--timeout` it promises, the unbounded-tail hazard
             // `settleOnLostFeed`'s membership read binds itself against too.
             const text = await Effect.runPromise(
-              client.surface.screen.text({ id }),
+              client.surface.screen.text({ id, tail }),
               { signal: ctx.signal },
             );
             if (ctx.signal.aborted) return;
@@ -1371,12 +1380,12 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
         if (ctx.signal.aborted || candidate.held === null || !candidate.quiet) {
           return;
         }
-        if (captureScreen !== true) {
+        if (screenTail === undefined) {
           settleMet(candidate.held, undefined);
           return;
         }
         if (pendingRead !== undefined) return;
-        pendingRead = stampLoop().finally(() => {
+        pendingRead = stampLoop(screenTail).finally(() => {
           pendingRead = undefined;
         });
       }
@@ -1400,7 +1409,7 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
         client,
         id,
         ctx,
-        captureScreen: captureScreen === true,
+        capturesScreen: screenTail !== undefined,
         setHeld: (held) => update({ held }),
         held: () => candidate.held,
         markQuiet: () => update({ quiet: true }),
@@ -1411,7 +1420,7 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
       // The OUTPUT feed — needed by a form that reads FRAMES to decide the
       // condition, and by the quiescence conjunct whatever the form. An `agent`
       // condition with no conjunct opens none, so the plain agent-state wait
-      // costs exactly what it always cost — and `captureScreen` alone does NOT
+      // costs exactly what it always cost — and `screenTail` alone does NOT
       // open one: with no half for a frame to change, a feed would observe bytes
       // that cannot invalidate anything (see the header's fixed-point note).
       if (form.onFrame !== undefined || settledWindow !== undefined) {
@@ -1516,7 +1525,7 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
 
 /** The outcome of an agent-state wait — the shared {@link WaitOutcome} union
  *  with the met payload this wait stamps: the matched agent, how long the wait
- *  took, and (when `captureScreen` was asked for) the rendered screen. */
+ *  took, and (when `screenTail` was asked for) the screen's last lines. */
 export type AgentStateOutcome = WaitOutcome<{
   agent: AgentInfo;
   elapsedMs: number;
@@ -1549,8 +1558,8 @@ export async function awaitAgentState(
     targets: ReadonlySet<string>;
     /** Report met only once output has ALSO been quiet for this long. */
     settledMs?: number;
-    /** Stamp the met with the terminal's whole rendered screen. */
-    captureScreen?: boolean;
+    /** Stamp the met with the last N lines of the terminal's rendered screen. */
+    screenTail?: number;
     timeoutMs?: number;
     signal?: AbortSignal;
   },
@@ -1559,9 +1568,7 @@ export async function awaitAgentState(
     id: opts.id,
     condition: { kind: "agent", targets: opts.targets } as const,
     ...(opts.settledMs === undefined ? {} : { settledMs: opts.settledMs }),
-    ...(opts.captureScreen === undefined
-      ? {}
-      : { captureScreen: opts.captureScreen }),
+    ...(opts.screenTail === undefined ? {} : { screenTail: opts.screenTail }),
     timeoutMs: opts.timeoutMs,
     signal: opts.signal,
     retryAdvice: "re-run the agent-state wait",
@@ -1579,7 +1586,7 @@ export async function awaitAgentState(
 
 /** The outcome of an output-settled wait — the shared {@link WaitOutcome} union
  *  with the met payload this wait stamps: the idle signal fired, how long the
- *  wait took, and (when `captureScreen` was asked for) the rendered screen. */
+ *  wait took, and (when `screenTail` was asked for) the screen's last lines. */
 export type OutputSettledOutcome = WaitOutcome<{
   fired: "idle";
   elapsedMs: number;
@@ -1589,7 +1596,7 @@ export type OutputSettledOutcome = WaitOutcome<{
 /** Block until terminal `id`'s output has been quiet for `idleMs` — the data
  *  layer of the MCP face's `wait_outputSettled`.
  *
- *  It takes `captureScreen` and NOT `settledMs`: the conjunct is a second
+ *  It takes `screenTail` and NOT `settledMs`: the conjunct is a second
  *  quiescence window, and two of them over one `idle` condition just means
  *  "quiet for max(idleMs, settledMs)" — a knob whose every setting is already
  *  spellable by `idleMs` alone. `kolu wait --until idle:n --settled m` can still
@@ -1600,8 +1607,8 @@ export async function awaitOutputSettled(
   opts: {
     id: string;
     idleMs: number;
-    /** Stamp the met with the terminal's whole rendered screen. */
-    captureScreen?: boolean;
+    /** Stamp the met with the last N lines of the terminal's rendered screen. */
+    screenTail?: number;
     timeoutMs?: number;
     signal?: AbortSignal;
   },
@@ -1609,9 +1616,7 @@ export async function awaitOutputSettled(
   return awaitTerminalCondition(client, {
     id: opts.id,
     condition: { kind: "idle", idleMs: opts.idleMs } as const,
-    ...(opts.captureScreen === undefined
-      ? {}
-      : { captureScreen: opts.captureScreen }),
+    ...(opts.screenTail === undefined ? {} : { screenTail: opts.screenTail }),
     timeoutMs: opts.timeoutMs,
     signal: opts.signal,
     retryAdvice: "retry wait_outputSettled",

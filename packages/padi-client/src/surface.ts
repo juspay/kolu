@@ -614,8 +614,18 @@ export * from "./transcriptSchema.ts";
  *  stack (`name`, `description`, `source`). The `agentDistroResolved` cell is
  *  GONE: kolu-server resolves a profile when it builds it, so a host has
  *  nothing to ask. A major because a member was removed and no arm decodes
- *  across the change. */
-export const PADI_SURFACE_VERSION = "7.0";
+ *  across the change.
+ *
+ *  7.1 (additive · minor) — `screen.text` takes `tail`: the last N rendered
+ *  lines, the blank viewport below the cursor dropped first, cut by padi so
+ *  only the tail crosses the wire (every face used to read the whole
+ *  scrollback and slice it). `tail` beside `startLine`/`endLine` is refused at
+ *  the decode. The minor carries the 5.6 obligation: a 7.0 padi STRIPS the
+ *  unknown key and answers the whole scrollback as if it were the tail — a
+ *  behavioural lie, not a graceful degradation — so a 7.1 face REFUSES a
+ *  surviving 7.0 padi at the gate, and convergence drain-and-respawns the
+ *  straddler. */
+export const PADI_SURFACE_VERSION = "7.1";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -1673,13 +1683,32 @@ export const PadiSetRightPanelInputSchema = Schema.Struct({
   id: TerminalIdSchema,
 });
 
+/** `screen.text` — the terminal's rendered buffer as plain text.
+ *
+ *  Two ways to bound it, and never both: an absolute `startLine`/`endLine`
+ *  window, or `tail` — the last N lines, with the blank viewport below the
+ *  cursor dropped first (`tailLines`, `./screenTail`, is the definition, and
+ *  padi applies it before replying, so only the tail crosses the wire). A
+ *  `tail` beside either line bound is REFUSED at the decode rather than
+ *  resolved by a precedence: a caller that named both asked two questions,
+ *  and answering one of them silently is answering the wrong one. Omit all
+ *  three for the whole scrollback. */
 export const PadiScreenTextInputSchema = Schema.Struct({
   id: TerminalIdSchema,
   /** First line to capture (0-based, inclusive). Defaults to start of scrollback. */
   startLine: Schema.optionalKey(NonNegativeInt),
   /** Last line to capture (exclusive). Defaults to buffer length. */
   endLine: Schema.optionalKey(NonNegativeInt),
-});
+  /** The last N rendered lines, trailing blank rows dropped first. */
+  tail: Schema.optionalKey(PositiveInt),
+}).check(
+  Schema.makeFilter((input) =>
+    input.tail !== undefined &&
+    (input.startLine !== undefined || input.endLine !== undefined)
+      ? "screen.text: `tail` cannot be combined with `startLine`/`endLine` — ask for one bound"
+      : undefined,
+  ),
+);
 
 /** The most rows one `screen.image` will ever render.
  *

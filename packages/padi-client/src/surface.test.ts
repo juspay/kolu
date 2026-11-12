@@ -147,7 +147,11 @@ describe("padiSurface contract", () => {
     // package and the built profiles, and the `agentDistroResolved` cell is
     // GONE (kolu-server resolves a profile when it builds it). A member was
     // removed and no arm decodes across the change, so it is a major.
-    expect(PADI_SURFACE_VERSION).toBe("7.0");
+    // 7.1 gives `screen.text` a `tail`. A 7.0 decoder would strip it and serve
+    // the whole scrollback as the tail, so a 7.1 face refuses a 7.0 padi.
+    expect(PADI_SURFACE_VERSION).toBe("7.1");
+    expect(isContractVersionCompatible("7.0", "7.1")).toBe(false);
+    expect(isContractVersionCompatible("7.1", "7.0")).toBe(true);
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
