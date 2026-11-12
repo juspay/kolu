@@ -42,7 +42,16 @@ it("waits for laid-out dimensions, uses them for centering and zoom, and release
   document.body.append(host);
   const viewport = useCanvasViewport();
   const dispose = render(
-    () => <div ref={(el) => viewport.setContainerRef(el)} />,
+    () => (
+      <div
+        ref={(el) =>
+          viewport.setContainerRef(el, {
+            wheelTargetScrollsItself: () => false,
+            covered: () => false,
+          })
+        }
+      />
+    ),
     host,
   );
   try {

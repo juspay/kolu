@@ -79,6 +79,12 @@ function drainFrames(now: number): void {
 }
 
 const POSE_ORIGIN = { panX: 0, panY: 0, zoom: 1 };
+/** These scenarios drive the camera directly; no wheel ever reaches the
+ *  container, so both policy answers are constant. */
+const NO_GESTURES = {
+  wheelTargetScrollsItself: () => false,
+  covered: () => false,
+};
 
 describe("host-switch camera isolation", () => {
   it("an in-flight pan animation started on host A never writes host B's camera after a switch", async () => {
@@ -88,7 +94,7 @@ describe("host-switch camera isolation", () => {
         const camB = createCamera();
         const viewport = useCanvasViewport();
         const el = document.createElement("div");
-        viewport.setContainerRef(el);
+        viewport.setContainerRef(el, NO_GESTURES);
         await Promise.resolve();
         notifyResize(
           [
@@ -138,7 +144,7 @@ describe("host-switch camera isolation", () => {
         const camB = createCamera();
         const viewport = useCanvasViewport();
         const el = document.createElement("div");
-        viewport.setContainerRef(el);
+        viewport.setContainerRef(el, NO_GESTURES);
 
         // Viewing A: a wheel event enqueues a per-frame gesture flush (rAF).
         activeCam = camA;

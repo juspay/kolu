@@ -1,34 +1,39 @@
-/** The browser's own page magnification, refused once.
+/** The browser's own page magnification, refused once — the single home for
+ *  this rule and for why kolu wants it.
  *
- *  A trackpad pinch is delivered to a page as a `wheel` event carrying
- *  `ctrlKey: true` — the same shape as Ctrl+mouse-wheel, which the browser
- *  cannot distinguish from it. Left alone, either one magnifies the whole
- *  document (`visualViewport.scale > 1`), which is never what an app sized to
- *  the window wants: the layout keeps the window's width, so magnifying it just
- *  pushes the right-hand side and the bottom off screen.
+ *  A trackpad pinch reaches a page as a `wheel` event carrying `ctrlKey: true`,
+ *  the same shape as Ctrl+mouse-wheel, which no browser can tell it apart from.
+ *  Left alone either one magnifies the whole document
+ *  (`visualViewport.scale > 1`), and an app sized to its window never wants
+ *  that: the layout keeps the window's width, so magnifying it only pushes the
+ *  right-hand side and the bottom off screen (#2354).
  *
- *  Pure and framework-free — no solid-js, no DOM library — so the in-iframe
- *  artifact-sdk can import this single module into its sandboxed bundle, the
- *  way it already imports `./backForwardInput`. That matters more here than
- *  elsewhere: a sandboxed frame's wheel events never reach the parent window,
- *  so the frame has to refuse magnification itself, with the same rule. One
- *  module, both sides of the sandbox. */
+ *  Pure and framework-free — no solid-js, no DOM library — like its sibling
+ *  `./backForwardInput`, because the rule has a consumer on each side of a
+ *  sandbox: kolu's own window, and the in-iframe artifact-sdk bundle. A
+ *  sandboxed frame's wheel events are dispatched to ITS document and never
+ *  reach the parent window, so the frame must refuse magnification itself —
+ *  with the same rule, not a second copy of it. */
 
-/** Refuse page magnification on `target` (a `Window`). Listens in the CAPTURE
- *  phase and `preventDefault`s every `ctrlKey` wheel it sees, so no descendant
- *  can reopen the hole by calling `stopPropagation()` without a
- *  `preventDefault()` of its own. Non-passive, which is required for
- *  `preventDefault` on a wheel listener attached to a window.
+/** Refuse page magnification on `target`. Listens in the CAPTURE phase and
+ *  `preventDefault`s every `ctrlKey` wheel it sees, so no descendant can reopen
+ *  the hole by calling `stopPropagation()` without a `preventDefault()` of its
+ *  own. Non-passive, which `preventDefault` on a window-level wheel listener
+ *  requires.
  *
- *  A surface that wants the gesture for itself (a canvas zooming on pinch)
+ *  A surface that wants the gesture for itself (kolu's canvas zooms on pinch)
  *  claims it with its own listener and its own `preventDefault`; this guard
- *  neither knows nor cares, because "the page must not magnify" is true either
+ *  neither knows nor cares, because "the page must not magnify" holds either
  *  way. Keyboard zoom (Ctrl +/−/0) is untouched — it is not a wheel event.
  *
+ *  Scope is the `wheel` gesture of desktop Chrome/Firefox, deliberately: Safari
+ *  reports a pinch as `gesturestart`/`gesturechange` and a touch device pinches
+ *  through `touch-action`, and neither is handled here.
+ *
  *  Returns a disposer that removes the listener. */
-export function attachPageZoomGuard(target: EventTarget): () => void {
-  const onWheel = (e: Event) => {
-    if ((e as WheelEvent).ctrlKey) e.preventDefault();
+export function attachPageZoomGuard(target: Window): () => void {
+  const onWheel = (e: WheelEvent) => {
+    if (e.ctrlKey) e.preventDefault();
   };
   const options = { capture: true, passive: false };
   target.addEventListener("wheel", onWheel, options);

@@ -18,28 +18,31 @@ export interface GestureCallbacks {
   onZoom: (factor: number, screenX: number, screenY: number) => void;
 }
 
-/** Per-install policy hooks — the two questions the gesture layer asks its
- *  caller before acting on a wheel event. */
+/** What the canvas's owner knows and the gesture layer doesn't — two facts,
+ *  read at event time, never cached. The gesture layer decides what to DO with
+ *  them; the caller only answers them. */
 export interface GesturePolicy {
-  /** Called on the first event of a wheel gesture; returning true lets the
-   *  target scroll natively (no pan, no preventDefault). */
-  shouldYieldWheel?: (e: WheelEvent) => boolean;
-  /** Called on every Ctrl/Cmd+wheel (pinch). Returning true SWALLOWS the
-   *  gesture: the canvas does not zoom and the browser does not magnify the
-   *  page. Today's one caller returns true while a tile is maximized — the
-   *  canvas is covered, so zooming it would be invisible state drift that only
-   *  shows up when the user restores the canvas (#2354). */
-  shouldSuppressZoom?: () => boolean;
+  /** Is this wheel gesture aimed at something that scrolls itself (a
+   *  terminal)? True lets the target scroll natively — no pan, no
+   *  preventDefault. */
+  wheelTargetScrollsItself: (e: WheelEvent) => boolean;
+  /** Is the canvas covered right now (a maximized tile filling it)? A pinch
+   *  over a covered canvas is swallowed: zooming what nobody can see is
+   *  invisible state drift that surfaces later, when the canvas comes back at
+   *  a scale the user never chose (#2354). Pan still moves the covered canvas
+   *  — a pre-existing behaviour this answer deliberately doesn't touch. */
+  covered: () => boolean;
 }
 
 /** Install wheel and pointer-drag gesture listeners on a container element.
  *  Returns a cleanup function that removes all listeners.
  *
- *  `policy.shouldYieldWheel` decides pan ownership per gesture. Ownership
- *  holds until ~150ms of wheel idle so cursor drift mid-gesture doesn't hand
- *  off. Ctrl/Cmd+wheel (zoom) always goes to the canvas regardless — and is
- *  always `preventDefault`ed, including when `policy.shouldSuppressZoom` says
- *  to swallow it, so the browser never magnifies the page instead.
+ *  Pan ownership is decided once per wheel gesture via
+ *  `policy.wheelTargetScrollsItself` and held until ~150ms of wheel idle, so
+ *  cursor drift mid-gesture doesn't hand off. Ctrl/Cmd+wheel (zoom) is the
+ *  canvas's regardless of target, and is always `preventDefault`ed — including
+ *  when `policy.covered` swallows it — so the browser never magnifies the page
+ *  instead.
  *
  *  Shift held on wheel or primary-button drag forces canvas pan ownership
  *  regardless of target (Figma-style hand tool). Shift ships on every
@@ -54,7 +57,7 @@ export interface GesturePolicy {
 export function installGestures(
   el: HTMLDivElement,
   callbacks: GestureCallbacks,
-  policy: GesturePolicy = {},
+  policy: GesturePolicy,
 ): () => void {
   const abort = new AbortController();
   const { signal } = abort;
@@ -63,12 +66,10 @@ export function installGestures(
   let wheelOwnerExpiresAt = 0;
 
   const yieldsWheel = (e: WheelEvent): boolean => {
-    const ask = policy.shouldYieldWheel;
-    if (!ask) return false;
     const now = performance.now();
     if (now >= wheelOwnerExpiresAt) wheelOwner = null;
     if (wheelOwner === null) {
-      wheelOwner = ask(e) ? "yielded" : "canvas";
+      wheelOwner = policy.wheelTargetScrollsItself(e) ? "yielded" : "canvas";
     }
     wheelOwnerExpiresAt = now + WHEEL_IDLE_MS;
     return wheelOwner === "yielded";
@@ -83,7 +84,7 @@ export function installGestures(
         // with the pinch, the browser must not magnify the page over it.
         e.preventDefault();
         e.stopPropagation();
-        if (policy.shouldSuppressZoom?.()) return;
+        if (policy.covered()) return;
         const rect = el.getBoundingClientRect();
         const factor = 1 - e.deltaY * ZOOM_SPEED;
         callbacks.onZoom(factor, e.clientX - rect.left, e.clientY - rect.top);

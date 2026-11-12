@@ -498,12 +498,8 @@ const TerminalCanvas: Component<{
           <div
             ref={(el) =>
               viewport.setContainerRef(el, {
-                shouldYieldWheel: isWheelTargetTerminal,
-                // A maximized tile covers the canvas. A pinch over it must move
-                // nothing: not the hidden canvas's zoom (which would only
-                // surface on restore, as a canvas that came back at a different
-                // scale) and not the browser's page magnification (#2354).
-                shouldSuppressZoom: () => posture.layout() !== "tiled",
+                wheelTargetScrollsItself: isWheelTargetTerminal,
+                covered: () => posture.layout() !== "tiled",
               })
             }
             data-testid="canvas-container"

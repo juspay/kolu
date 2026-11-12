@@ -14,6 +14,7 @@
 
 import Resizable from "@corvu/resizable";
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
+import { attachPageZoomGuard } from "@kolu/solid-browser";
 import { createPwaInstall } from "@kolu/solid-pwa-install";
 import { Meta, Title } from "@solidjs/meta";
 import { Effect } from "effect";
@@ -23,6 +24,7 @@ import {
   createMemo,
   createSignal,
   Match,
+  onCleanup,
   Show,
   Switch,
 } from "solid-js";
@@ -91,7 +93,6 @@ import { useActionContext } from "./useActionContext";
 import { useCommandPalette } from "./useCommandPalette";
 import { useDeepLinks } from "./useDeepLinks";
 import { isDesktop, layoutMode } from "./useMobile";
-import { usePageZoomGuard } from "./usePageZoomGuard";
 import { useServerIdentity } from "./useServerIdentity";
 import { useThemeManager } from "./useThemeManager";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
@@ -181,11 +182,11 @@ const App: Component = () => {
   // the root `h-dvh` so the terminal grid refits into the visible region.
   useVisualViewportHeight();
 
-  // A pinch that lands outside the canvas (dock, right panel, chrome bar) is
-  // the browser's to handle unless someone says otherwise — and its answer,
-  // magnifying the page, breaks the window-sized shell. One window listener
-  // says otherwise, everywhere (#2354).
-  usePageZoomGuard();
+  // A pinch anywhere outside the canvas (dock, right panel, chrome bar) would
+  // otherwise be the browser's to answer, and its answer — magnifying the page
+  // — breaks the window-sized shell. The rule and the reasoning live in the
+  // guard itself.
+  onCleanup(attachPageZoomGuard(window));
 
   // One shared install controller drives both the inline welcome moments
   // (EmptyState) and the on-demand WelcomeDialog. The browser captures

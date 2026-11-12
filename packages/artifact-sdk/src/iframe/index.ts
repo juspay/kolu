@@ -244,11 +244,9 @@ function boot(): void {
     onForward: () =>
       postToParent({ type: "kolu-artifact-sdk:history", direction: "forward" }),
   });
-  // A pinch inside this frame is a `wheel` event with `ctrlKey` set, and it is
-  // dispatched to THIS document — it never reaches the parent window, whose
-  // own guard therefore cannot see it. Unclaimed, it magnifies the TOP-LEVEL
-  // page, pushing the workspace's right-hand side off the window (#2354). The
-  // same shared guard, inside the sandbox.
+  // A pinch inside this frame is dispatched to THIS document and never reaches
+  // the parent window, so the frame refuses page magnification itself — the
+  // same shared guard, inside the sandbox (#2354).
   attachPageZoomGuard(window);
   // `location.pathname` lets the parent follow same-frame link navigation:
   // it can't read this frame's URL across the opaque-origin sandbox, so the
