@@ -5,8 +5,13 @@
  *  carries a structured `kolu` reading and gets a card that can name the
  *  terminal and open it; everything else gets the generic card built from the
  *  agent's own title and the folded JSON. That reading IS the card vocabulary,
- *  so the markup switches on it directly; `./toolCard` holds only the two
+ *  so the markup switches on it directly; `./toolCard` holds only the
  *  derivations the markup cannot read off the row, and the clock.
+ *
+ *  A `create` card that names its terminal is the conversation's line about an
+ *  agent, so it carries that agent's status and a Look at its screen
+ *  (`ConductorLook`) under the title — the way to check on it without leaving
+ *  the chat. "open tile" stays the way to go to it.
  *
  *  The live clock (`· 47s`) appears only on a call that is RUNNING and only once
  *  the wait is worth watching — see `runningFor`. It is derived from the row's
@@ -22,7 +27,14 @@ import { hostLabel } from "../host/hostChipTone";
 import { selectHostTab } from "../host/selectHostTab";
 import { getClockNow } from "../time/clock";
 import ConductorDiffs from "./ConductorDiffs";
-import { foldJson, runningFor, sentInput, waitedFor } from "./toolCard";
+import ConductorLook from "./ConductorLook";
+import {
+  callSubject,
+  foldJson,
+  runningFor,
+  sentInput,
+  waitedFor,
+} from "./toolCard";
 
 const STATUS_MARK: Record<ConductorToolRow["status"], string> = {
   pending: "·",
@@ -50,17 +62,6 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
    *  read, so a settled card holds no subscription at all. */
   const clock = () =>
     props.row.status === "in_progress" ? runningFor(props.row, now()) : null;
-  /** The terminal a card is ABOUT, when it is about one — BOTH halves of its
-   *  identity. Every kolu reading carries the id and the host it is on (the
-   *  two sides of the `host/id` the agent spoke); a call we could not resolve
-   *  carries neither, and has nothing to open and nothing to guess at. */
-  const subject = (): { host: string; id: TerminalId } | null => {
-    const call = props.row.kolu;
-    if (call === undefined || call.terminalId === null || call.host === null) {
-      return null;
-    }
-    return { host: call.host, id: call.terminalId };
-  };
 
   /** Go to it. The terminal may be on a machine whose tab is not the selected
    *  one, so this is a TAB SWITCH and then a focus — `selectHostTab` leaves
@@ -243,11 +244,23 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
             </span>
           )}
         </Show>
-        {openTile(subject())}
+        {openTile(callSubject(props.row.kolu))}
         <span class={`font-mono ${STATUS_CLASS[props.row.status]}`}>
           {STATUS_MARK[props.row.status]}
         </span>
       </span>
+      {/* THE AGENT LINE: a create card that names its terminal is where the
+          conversation said an agent was started, so it says how that agent is
+          doing and offers a Look at its screen. */}
+      <Show
+        when={
+          props.row.kolu?.kind === "create" ? callSubject(props.row.kolu) : null
+        }
+      >
+        {(at) => (
+          <ConductorLook rowId={props.row.id} host={at().host} id={at().id} />
+        )}
+      </Show>
       {/* A background task reports its launch and then LIVES — the row stays
           live past the turn that made it, and its ending word (`completed`,
           `killed`, `stopped`) is the harness's own: a monitor you stopped did

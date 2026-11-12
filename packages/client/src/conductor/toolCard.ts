@@ -22,6 +22,22 @@ import type {
 // tier has no finer unit, so a 2m14s wait would read "2m" — and the number a
 // reader is checking against a timeout is exactly the one that would be gone.
 import { formatElapsedShort } from "../time/duration";
+import type { TerminalId } from "kolu-common/surface";
+
+/** The terminal a card is ABOUT, when it is about one — BOTH halves of its
+ *  identity. Every kolu reading carries the id and the host it is on (the two
+ *  sides of the `host/id` the agent spoke); a call nobody could resolve carries
+ *  neither, and has nothing to open, nothing to look at and nothing to guess
+ *  at. The card's "open tile" and Look read it, and so does the transcript's
+ *  fold, which keeps a create card that names a terminal in the flow. */
+export function callSubject(
+  call: ConductorKoluCall | undefined,
+): { readonly host: string; readonly id: TerminalId } | null {
+  if (call === undefined || call.terminalId === null || call.host === null) {
+    return null;
+  }
+  return { host: call.host, id: call.terminalId };
+}
 
 /** What went in: typed text, or one named key. Exactly one, as the tool itself
  *  requires — a call carrying neither is drawn as the bare arrow. */

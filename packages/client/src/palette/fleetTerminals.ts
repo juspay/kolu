@@ -1,4 +1,6 @@
-/** Fleet-wide terminal index for the unified switcher.
+/** Fleet-wide terminal index — the unified switcher's rows, and where any one
+ *  terminal on any host stands (`fleetTerminalStanding`, which the Conductor's
+ *  agent lines read), over ONE set of per-host streams.
  *
  *  The Dock is active-host only. The switcher must also find terminals on
  *  other connected hosts in the padi pool. For every membership host that is
@@ -131,8 +133,34 @@ function reprojectOnHost(
 }
 
 type PerHostHandle = {
+  /** The host's ENCODED key — what a fleet ref's host half spells. */
+  encHost: string;
   rows: Accessor<FleetTerminalRow[]>;
+  standing: (id: TerminalId) => FleetTerminalStanding;
 };
+
+/** Where ONE terminal stands in its host's roster — every terminal, not only
+ *  the switcher's rows: a split, and a row the activity window parks out of the
+ *  switcher, are both still terminals somebody may be asking about.
+ *
+ *  Four answers, because "not in the list" means three different things and
+ *  only one of them is that the terminal is gone:
+ *   - `here`        — listed, with its record.
+ *   - `gone`        — the host's list arrived and this id is not in it, or its
+ *                     record is a parked restore card (the terminal ended).
+ *   - `loading`     — the host is warming up, or its list or this record has
+ *                     not arrived yet; saying "gone" here would be a guess.
+ *   - `unreachable` — the host is down or not in the pool, so nobody can say.
+ */
+export type FleetTerminalStanding =
+  | { readonly kind: "here"; readonly meta: TerminalMetadata }
+  | { readonly kind: "gone" }
+  | { readonly kind: "loading" }
+  | { readonly kind: "unreachable" };
+
+const GONE: FleetTerminalStanding = { kind: "gone" };
+const LOADING: FleetTerminalStanding = { kind: "loading" };
+const UNREACHABLE: FleetTerminalStanding = { kind: "unreachable" };
 
 /** Per-host activity-window threshold for the fleet index — THIS host's
  *  preference. Prefer the live HostScope when born; otherwise the canonical
@@ -143,9 +171,10 @@ function thresholdMsForHost(host: HostKey): number | null {
   return windowOption(readStoredActivityWindow(host)).thresholdMs;
 }
 
-/** App-lifetime fleet index — one shared root so the switcher opens per-host
- *  streams once. */
-export const useFleetTerminalIndex = createSharedRoot(() => {
+/** The per-host roots, app-lifetime — one shared root so every reader of the
+ *  fleet (the switcher's ranked rows, a single terminal's standing) rides the
+ *  SAME per-host streams instead of opening its own. */
+const useFleetHosts = createSharedRoot(() => {
   // Eager per-host roots over the FULL member set (same mapArray shape as
   // useAttention). Each root opens that host's terminal list while connected.
   const roots = mapArray(
@@ -210,13 +239,44 @@ export const useFleetTerminalIndex = createSharedRoot(() => {
         return out;
       });
 
-      return { rows };
+      const standing = (id: TerminalId): FleetTerminalStanding => {
+        if (!connected()) {
+          return entry.state().kind === "warming" ? LOADING : UNREACHABLE;
+        }
+        const listed = terminalKeys();
+        if (listed === undefined) return LOADING;
+        if (!listed.includes(id)) return GONE;
+        const record = terminals.byKey(id)?.();
+        if (record === undefined) return LOADING;
+        return isParked(record) ? GONE : { kind: "here", meta: record };
+      };
+
+      return { encHost, rows, standing };
     },
   );
   // mapArray is lazy until read.
   createComputed(() => void roots());
+  return roots;
+});
 
+/** App-lifetime fleet index — the switcher's ranked rows, over the shared
+ *  per-host roots. */
+export const useFleetTerminalIndex = createSharedRoot(() => {
+  const hosts = useFleetHosts();
   return createMemo((): FleetTerminalRow[] =>
-    rankFleetTerminalRows(roots().flatMap((h) => h.rows())),
+    rankFleetTerminalRows(hosts().flatMap((h) => h.rows())),
   );
 });
+
+/** Where the terminal `id` on `host` (an ENCODED host key, the host half of a
+ *  fleet ref) stands right now — reactive, and read off the same per-host
+ *  mirror the switcher reads, so it opens no stream of its own. A host that is
+ *  not in the pool is `unreachable`: nothing here can vouch for its terminals
+ *  either way. */
+export function fleetTerminalStanding(
+  host: string,
+  id: TerminalId,
+): FleetTerminalStanding {
+  const handle = useFleetHosts()().find((h) => h.encHost === host);
+  return handle === undefined ? UNREACHABLE : handle.standing(id);
+}

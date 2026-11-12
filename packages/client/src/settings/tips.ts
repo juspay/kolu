@@ -72,6 +72,13 @@ export const CONTEXTUAL_TIPS = {
     text: "Restart (↻) gives a terminal and its splits a fresh shell in place — same tile, folder and theme, current agents; with an agent live, the first click asks",
     doc: "tiles",
   },
+  /** The first time the conversation draws a line about an agent it started —
+   *  the moment to say that line can be opened without leaving the chat. */
+  conductorLook: {
+    id: "conductor-look",
+    text: "An agent the Conductor started gets a status line in the chat — press Look on it to read the last lines of its screen right there, refreshed while it stays open",
+    doc: "conductor",
+  },
 } as const satisfies Record<string, Tip>;
 
 export const AMBIENT_TIPS: readonly Tip[] = [
