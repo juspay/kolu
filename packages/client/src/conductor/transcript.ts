@@ -14,8 +14,8 @@
  *  timeline.
  *
  *  The READER RULES live here too, beside the rows they read: a run of
- *  identical notices draws as one (`foldNoticeRuns`), and the tool calls
- *  between two things the Conductor said fold into one "Details"
+ *  identical notices draws as one (`foldNoticeRuns`), and the tool calls the
+ *  Conductor's prose closes fold into one "Details"
  *  (`foldToolRuns`). Both are pure, so what the panel draws is decided in a
  *  unit test, and neither rewrites a row — `Copy transcript` still reads them
  *  all. */
@@ -175,9 +175,10 @@ export function foldNoticeRuns(
 
 /** One thing the transcript DRAWS, in order: an entry (a row, a notice run
  *  already folded to one), or a FOLD — a closed "Details" holding the tool
- *  calls a stretch of the Conductor's work made between two things it said.
- *  `key` is what the list is keyed by: a row's own id, and for a fold the id
- *  of the prose it follows, which stays put however many calls join it. */
+ *  calls a stretch of the Conductor's work made before it next spoke. `key`
+ *  is what the list is keyed by: a row's own id, and for a fold the id of the
+ *  prose that CLOSES it — which exists exactly when the fold does and never
+ *  changes after, however many calls settle into it. */
 export type TranscriptItem =
   | {
       readonly kind: "entry";
@@ -206,20 +207,22 @@ export function staysInFlow(row: ConductorToolRow): boolean {
   return row.kolu?.kind === "create" && callSubject(row.kolu) !== null;
 }
 
-/** Fold the machinery out of the way: a RUN of tool rows between two pieces
- *  of the Conductor's prose becomes ONE closed "Details" carrying its count,
- *  so the conversation reads as the sentences it is.
+/** Fold the machinery out of the way: a RUN of tool rows that the Conductor's
+ *  prose CLOSES becomes ONE closed "Details" carrying its count, so the
+ *  conversation reads as the sentences it is.
  *
- *  A run is everything between two `agent` rows. What a person typed and a
- *  session divider BREAK it — the stretch is then not between two things the
- *  Conductor said, and nothing may be folded across a message of yours. Rows
+ *  A run is everything since the last `agent`, `user` or `divider` row (or the
+ *  top of the transcript) — so a turn that STARTS with tool calls, right after
+ *  the human's message, folds too, once the Conductor says something. What
+ *  opened the run does not matter; what a person typed and a session divider
+ *  still END one, so nothing is ever folded across a message of yours. Rows
  *  inside a run that are not plain tool calls (a question, the plan card, a
  *  notice) and calls that {@link staysInFlow} keep their own place in the
  *  flow; the fold takes the place of the FIRST call it holds.
  *
  *  A run with no closing prose yet does not fold: the turn is still going, or
  *  ended without a word, and in either case those calls are the latest thing
- *  on screen. They fold the moment the Conductor speaks again. */
+ *  on screen. They fold the moment the Conductor speaks. */
 export function foldToolRuns(
   entries: readonly TranscriptEntry[],
 ): readonly TranscriptItem[] {
@@ -229,9 +232,6 @@ export function foldToolRuns(
     key: entry.row.id,
     entry,
   });
-  /** The prose that opened the current run, or `null` when the run did not
-   *  start at prose (the top, or after something the human typed). */
-  let opener: ConductorRow | null = null;
   let run: TranscriptEntry[] = [];
 
   for (const entry of entries) {
@@ -240,30 +240,28 @@ export function foldToolRuns(
       run.push(entry);
       continue;
     }
-    if (kind === "agent" && opener !== null) {
-      const folded = run.flatMap((one) =>
-        one.row.kind === "tool" && !staysInFlow(one.row) ? [one.row] : [],
-      );
-      let placed = folded.length === 0;
-      for (const one of run) {
-        if (one.row.kind === "tool" && folded.includes(one.row)) {
-          if (!placed) {
-            items.push({
-              kind: "fold",
-              key: `fold:${opener.id}`,
-              rows: folded,
-            });
-            placed = true;
-          }
-          continue;
+    const folded =
+      kind === "agent"
+        ? run.flatMap((one) =>
+            one.row.kind === "tool" && !staysInFlow(one.row) ? [one.row] : [],
+          )
+        : [];
+    let placed = folded.length === 0;
+    for (const one of run) {
+      if (one.row.kind === "tool" && folded.includes(one.row)) {
+        if (!placed) {
+          items.push({
+            kind: "fold",
+            key: `fold:${entry.row.id}`,
+            rows: folded,
+          });
+          placed = true;
         }
-        items.push(asItem(one));
+        continue;
       }
-    } else {
-      items.push(...run.map(asItem));
+      items.push(asItem(one));
     }
     items.push(asItem(entry));
-    opener = kind === "agent" ? entry.row : null;
     run = [];
   }
   items.push(...run.map(asItem));

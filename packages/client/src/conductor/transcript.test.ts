@@ -248,18 +248,32 @@ describe("foldToolRuns", () => {
     ).toEqual(["a", "t1", "t2"]);
   });
 
-  it("never folds across what the human typed, or before the first prose", () => {
+  it("folds the calls that open a turn, once the Conductor speaks", () => {
+    // The common shape: the human asks, the Conductor goes straight to work,
+    // and only then says something. Whatever opened the run — a message, the
+    // top of the transcript — the prose that closes it is what folds it.
     expect(
       drawn([
-        user("u0", 0),
-        tool("t0", 1),
-        agentRow("a", 2, "Looking."),
+        tool("t0", 0),
+        agentRow("a", 1, "Looked."),
+        user("u1", 2),
         tool("t1", 3),
-        user("u1", 4),
-        tool("t2", 5),
-        agentRow("b", 6, "Done."),
+        tool("t2", 4),
+        agentRow("b", 5, "Done."),
       ]),
-    ).toEqual(["u0", "t0", "a", "t1", "u1", "t2", "b"]);
+    ).toEqual([["t0"], "a", "u1", ["t1", "t2"], "b"]);
+  });
+
+  it("never folds across what the human typed", () => {
+    expect(
+      drawn([
+        agentRow("a", 1, "Looking."),
+        tool("t1", 2),
+        user("u1", 3),
+        tool("t2", 4),
+        agentRow("b", 5, "Done."),
+      ]),
+    ).toEqual(["a", "t1", "u1", ["t2"], "b"]);
   });
 
   it("keeps what a reader would lose in the flow, and folds the rest around it", () => {
@@ -328,23 +342,23 @@ describe("foldToolRuns", () => {
     ).toEqual(["a", "failed", "b"]);
   });
 
-  it("keeps the fold's key while a running call settles into it", () => {
+  it("keys the fold by the prose that closes it, steady while a call settles in", () => {
     const keyOf = (rows: ConductorRow[]) =>
       foldToolRuns(foldNoticeRuns(rows)).find((item) => item.kind === "fold")
         ?.key;
     const before = keyOf([
-      agentRow("a", 1, "Working."),
-      tool("t1", 2, { status: "in_progress" }),
-      tool("t2", 3),
-      agentRow("b", 4, "Done."),
+      user("u", 0),
+      tool("t1", 1, { status: "in_progress" }),
+      tool("t2", 2),
+      agentRow("b", 3, "Done."),
     ]);
     const after = keyOf([
-      agentRow("a", 1, "Working."),
-      tool("t1", 2),
-      tool("t2", 3),
-      agentRow("b", 4, "Done."),
+      user("u", 0),
+      tool("t1", 1),
+      tool("t2", 2),
+      agentRow("b", 3, "Done."),
     ]);
-    expect(before).toBeDefined();
+    expect(before).toBe("fold:b");
     expect(after).toBe(before);
   });
 });

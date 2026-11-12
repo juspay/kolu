@@ -181,10 +181,11 @@ Feature: The Conductor
     Then that tool card should say its terminal is gone
     And there should be no page errors
 
-  Scenario: The calls between two things the Conductor said fold into Details
-    # A quiet chat: the machinery between two sentences is ONE closed
-    # disclosure that says how many calls it holds, so the conversation reads
-    # as what was said. A failed call is news and is never folded away.
+  Scenario: The calls a turn makes before the Conductor speaks fold into Details
+    # A quiet chat: the machinery the Conductor's prose closes is ONE closed
+    # disclosure that says how many calls it holds — including a turn that
+    # opens with its calls, right after the human's message, which is how most
+    # turns start. A failed call is news and is never folded away.
     When I create a terminal
     And I enter conductor mode
     And I send the conductor the prompt "work quietly"

@@ -17,7 +17,7 @@
  *  which is why it cannot live here: this component is re-created on every
  *  activation of the entry.
  *
- *  The tool calls between two things the Conductor said are folded into one
+ *  The tool calls the Conductor makes before it next speaks are folded into one
  *  closed "Details" (`foldToolRuns`), so the conversation reads as its
  *  sentences; what a reader would lose by folding — a running call, a failure,
  *  the line about an agent — stays in the flow. */
@@ -69,8 +69,8 @@ const ConductorTranscript: Component<{
    *  re-applied until there is something to scroll. */
   let placed = false;
   /** What is DRAWN: a run of identical notices is one row carrying its count
-   *  (`foldNoticeRuns`), never eight copies of one fact; and the tool calls
-   *  between two pieces of prose are one closed "Details" (`foldToolRuns`). */
+   *  (`foldNoticeRuns`), never eight copies of one fact; and the tool calls a
+   *  piece of prose closes are one closed "Details" (`foldToolRuns`). */
   const items = createMemo(() => foldToolRuns(foldNoticeRuns(props.rows)));
 
   // BEFORE the follow effect below, and that order is the fix: declared first,
@@ -170,7 +170,7 @@ const ConductorTranscript: Component<{
             `Markdown` subtree per chunk and the card per update — which
             collapses an open `<details>`, loses `ConductorDiffs`' expansion and
             throws away the caret inside a half-filled ask. A row's key is its
-            id; a fold's is the id of the prose it follows. Both are stable for
+            id; a fold's is the id of the prose that closes it. Both are stable for
             the thing's life, and an item never changes kind under its key. */}
         <Key each={items()} by={(item) => item.key}>
           {(item) => (
@@ -211,7 +211,7 @@ const entryOf = (item: TranscriptItem) =>
 
 /** A run of the Conductor's tool calls, folded. A plain `<details>`, CLOSED
  *  until somebody opens it, and owned by the DOM: the list keys it by the prose
- *  it follows, so the element — and whether it is open — survives every update
+ *  that closes it, so the element — and whether it is open — survives every update
  *  to the calls inside it. The strip's reveal opens it from outside
  *  (`revealTranscriptRow`), which is why it carries its own test id. */
 function TranscriptFold(props: { rows: readonly ConductorToolRow[] }) {

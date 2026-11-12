@@ -34,8 +34,8 @@
  *                      and reads the roster + every host's terminals, then
  *                      says what it read. A kolu whose fleet face cannot reach
  *                      its own hosts answers with the refusal instead.
- *   work quietly     — prose, two calls that succeed and one that fails, then
- *                      prose again: the stretch the chat folds into one
+ *   work quietly     — straight to work: two calls that succeed and one that
+ *                      fails, THEN prose — the turn the chat folds into one
  *                      "Details", with the failure left out in the open
  *
  * Turns are served FIFO and one at a time: `queued` is a fact about the agent's
@@ -450,13 +450,10 @@ const turn = async (id: unknown, text: string): Promise<void> => {
     return;
   }
   if (text === "work quietly") {
-    // TWO PIECES OF PROSE WITH THE MACHINERY BETWEEN THEM — the shape the
-    // transcript folds. The two settled calls go into one closed "Details";
-    // the FAILED one is news and must stay in the flow beside it.
-    update({
-      sessionUpdate: "agent_message_chunk",
-      content: { type: "text", text: "Looking around the repo." },
-    });
+    // A TURN THAT OPENS WITH ITS MACHINERY — the common shape: the human asks,
+    // the agent goes straight to work, and only then says something. The
+    // prose that closes the run is what folds it: the two settled calls go
+    // into one closed "Details"; the FAILED one is news and stays in the flow.
     const call = (id: string, status: string, command: string): void =>
       update({
         sessionUpdate: "tool_call",
