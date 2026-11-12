@@ -21,12 +21,15 @@
  * backpressure is unchanged: a stalled consumer holds up its own stream, its
  * sender waits, and it resumes where it left off.
  *
- * THE COST (measured for kolu#2352, against the same tree with lanes bypassed):
- * one fiber fork per chunk, because a lane a keeping-up consumer drains is
- * empty again after every delivery. That is +4 to +7 µs CPU per 200 B chunk and
- * 17–26% fewer small chunks/s at the link's ceiling; 256 KiB chunks are
- * unchanged. Only Effect's client can avoid it (try the offer, fork only when
- * the queue is full).
+ * THE COST (measured for kolu#2352): one fiber per chunk, because a lane a
+ * keeping-up consumer drains is empty again after every delivery. It is
+ * started on the reader's own stack, so a delivery that does not wait
+ * schedules nothing. A scheduled fork costs a `setTimeout(0)` hop per chunk in
+ * a browser, and measurably slowed terminal output there. Against effect 4.0.0
+ * without lanes it is still about +3 to +4 µs CPU per 200 B chunk and 20–28%
+ * fewer small chunks/s at the link's ceiling; 256 KiB chunks are within 5%.
+ * Only Effect's client can avoid the fiber (try the offer, fork only when the
+ * queue is full).
  *
  * DELETE THIS MODULE when Effect's client stops delivering on its reader. Its
  * one call site is the protocol wrap in `openWireLink` (`./wire.ts`).
@@ -106,8 +109,16 @@ export function decoupleDelivery(
         if (message._tag === "Exit") return deliver(message);
         const fresh: FromServerEncoded[] = [message];
         lanes.set(message.requestId, fresh);
+        // `startImmediately`: the drain runs on the reader's own stack until
+        // it parks. A delivery the consumer's queue has room for completes
+        // right here and empties the lane, with no scheduler task at all (in a
+        // browser that task is a `setTimeout(0)` hop per chunk). A delivery
+        // that has to wait parks THIS fiber, and the reader moves on exactly as
+        // before.
         return Effect.asVoid(
-          Effect.forkIn(drain(message.requestId, fresh), scope),
+          Effect.forkIn(drain(message.requestId, fresh), scope, {
+            startImmediately: true,
+          }),
         );
       });
     },
