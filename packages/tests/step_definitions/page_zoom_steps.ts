@@ -14,7 +14,7 @@
  *  to, and measurably moved nothing. */
 
 import * as assert from "node:assert";
-import { After, Then, When } from "@cucumber/cucumber";
+import { Then, When } from "@cucumber/cucumber";
 import { readPerTerminal } from "../support/buffer.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
@@ -23,6 +23,7 @@ const DOCK_SELECTOR = '[data-testid="dock"]';
 const MAXIMIZED_TILE_SELECTOR =
   '[data-testid="canvas-tile"][data-maximized="true"]';
 const APP_ROOT_SELECTOR = '[data-testid="app-root"]';
+const PREVIEW_IFRAME_SELECTOR = '[data-testid="browse-preview-iframe"]';
 
 /** How far a synthesized pinch spreads — matches the ~1.3 scale a real
  *  two-finger spread over the dock produced on master. */
@@ -68,6 +69,15 @@ When("I pinch over the maximized tile", async function (this: KoluWorld) {
     .first()
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await pinchOver(this, MAXIMIZED_TILE_SELECTOR);
+});
+
+/** A sandboxed preview frame gets the wheel event itself — the parent window
+ *  never sees it — so this is the pinch that proves the in-iframe guard. */
+When("I pinch over the file preview iframe", async function (this: KoluWorld) {
+  await this.page
+    .locator(PREVIEW_IFRAME_SELECTOR)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await pinchOver(this, PREVIEW_IFRAME_SELECTOR);
 });
 
 Then("the page should not be magnified", async function (this: KoluWorld) {
@@ -120,15 +130,27 @@ When(
     } finally {
       await cdp.detach();
     }
-    this.forcedPageMagnification = true;
+    // Poll, don't sleep: the scale lands when the compositor says so, and a
+    // loaded box can take longer than any fixed settle. (The "should not"
+    // assertions keep the fixed settle — there is nothing to poll for there.)
+    await this.page
+      .waitForFunction(
+        (want: number) =>
+          Math.abs((window.visualViewport?.scale ?? 1) - want) < 0.01,
+        factor,
+        { timeout: POLL_TIMEOUT },
+      )
+      .catch(async () => {
+        const scale = await this.page.evaluate(
+          () => window.visualViewport?.scale ?? 1,
+        );
+        assert.fail(
+          `page magnification never took: asked for ${factor}×, the page reports ${scale}×`,
+        );
+      });
+    // The app reacts to the scale change (a `--app-h` write, an xterm refit)
+    // one frame later; let that land before the assertions read it.
     await settle(this);
-    const scale = await this.page.evaluate(
-      () => window.visualViewport?.scale ?? 1,
-    );
-    assert.ok(
-      Math.abs(scale - factor) < 0.01,
-      `page magnification never took: asked for ${factor}×, the page reports ${scale}×`,
-    );
   },
 );
 
@@ -188,16 +210,3 @@ Then(
     }
   },
 );
-
-/** A forced page scale is browser state, not page state: it outlives a
- *  reload, so it is reset for whatever runs next in this browser. */
-After(async function (this: KoluWorld) {
-  if (!this.forcedPageMagnification) return;
-  this.forcedPageMagnification = false;
-  const cdp = await this.page.context().newCDPSession(this.page);
-  try {
-    await cdp.send("Emulation.setPageScaleFactor", { pageScaleFactor: 1 });
-  } finally {
-    await cdp.detach();
-  }
-});

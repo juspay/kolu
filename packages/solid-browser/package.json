@@ -9,7 +9,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./backForward": "./src/backForwardInput.ts"
+    "./backForward": "./src/backForwardInput.ts",
+    "./pageZoom": "./src/pageZoomInput.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

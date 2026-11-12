@@ -175,9 +175,6 @@ export class KoluWorld extends World {
    *  grid`, so a follow-up step can prove page magnification did NOT refit the
    *  terminals. */
   savedTerminalGrid?: Record<string, { cols: number; rows: number }>;
-  /** Set once a scenario forces page magnification over CDP, so the After hook
-   *  resets the page scale for whatever runs next in this browser. */
-  forcedPageMagnification?: boolean;
   /** Snapshot of zoom + transform attributes captured by the
    *  `When I save the canvas viewport state` step. */
   savedViewportState?: {

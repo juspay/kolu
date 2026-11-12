@@ -19,6 +19,7 @@
  *  pushes via `RenderHighlightsMsg`. */
 
 import { attachBackForwardMouse } from "@kolu/solid-browser/backForward";
+import { attachPageZoomGuard } from "@kolu/solid-browser/pageZoom";
 import { match } from "ts-pattern";
 import { applyHighlights } from "../core/applyHighlights";
 import { extractQuote } from "../core/extractQuote";
@@ -243,6 +244,12 @@ function boot(): void {
     onForward: () =>
       postToParent({ type: "kolu-artifact-sdk:history", direction: "forward" }),
   });
+  // A pinch inside this frame is a `wheel` event with `ctrlKey` set, and it is
+  // dispatched to THIS document — it never reaches the parent window, whose
+  // own guard therefore cannot see it. Unclaimed, it magnifies the TOP-LEVEL
+  // page, pushing the workspace's right-hand side off the window (#2354). The
+  // same shared guard, inside the sandbox.
+  attachPageZoomGuard(window);
   // `location.pathname` lets the parent follow same-frame link navigation:
   // it can't read this frame's URL across the opaque-origin sandbox, so the
   // frame reports its own on every boot (initial load + each post-link load).

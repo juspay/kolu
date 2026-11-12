@@ -444,6 +444,23 @@ Feature: Canvas workspace
     And the page should not be magnified
     And there should be no page errors
 
+  Scenario: A pinch inside a sandboxed HTML preview never magnifies the page
+    # The preview frame is sandboxed at an opaque origin, and a wheel event
+    # inside it is dispatched to ITS document — the parent window's guard never
+    # sees it, so an unclaimed pinch there magnified the whole top-level page.
+    # The in-iframe artifact-sdk carries the same guard, the way it already
+    # carries the back/forward one.
+    When I run "rm -rf /tmp/kolu-pinch-html && git init /tmp/kolu-pinch-html && cd /tmp/kolu-pinch-html"
+    And I run "printf '<!doctype html><h1>preview</h1>\n' > page.html"
+    And I run "git add . && git commit -m init"
+    And I click the Code tab
+    And I click the Code tab mode "browse"
+    And I click the file "page.html" in the file browser
+    Then the file preview iframe should be visible
+    When I pinch over the file preview iframe
+    Then the page should not be magnified
+    And there should be no page errors
+
   Scenario: A magnified page does not shrink the app or refit its terminals
     # The other half of #2354: however the page got magnified, `--app-h` must
     # stay the window's height in LAYOUT pixels. Reading `visualViewport.height`
