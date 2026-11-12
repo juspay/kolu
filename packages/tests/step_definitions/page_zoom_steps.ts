@@ -72,11 +72,22 @@ When("I pinch over the maximized tile", async function (this: KoluWorld) {
 });
 
 /** A sandboxed preview frame gets the wheel event itself — the parent window
- *  never sees it — so this is the pinch that proves the in-iframe guard. */
+ *  never sees it — so this is the pinch that proves the in-iframe guard.
+ *
+ *  A visible `<iframe>` is not a booted SDK: the guard is installed by the
+ *  injected script's `boot()`, which is still loading for a moment after the
+ *  frame paints. `boot()` plants `#kolu-artifact-sdk-style` on its first line
+ *  and attaches the guard a few lines later in the same tick, so that element
+ *  is the proof the guard is in place — without it the pinch can land first
+ *  and the scenario fails on a product that is fine. */
 When("I pinch over the file preview iframe", async function (this: KoluWorld) {
   await this.page
     .locator(PREVIEW_IFRAME_SELECTOR)
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await this.page
+    .frameLocator(PREVIEW_IFRAME_SELECTOR)
+    .locator("#kolu-artifact-sdk-style")
+    .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
   await pinchOver(this, PREVIEW_IFRAME_SELECTOR);
 });
 
