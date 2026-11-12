@@ -100,6 +100,13 @@ const DECLARED_ALLOWED = new Set([
   // in kolu's contract-with-upstream package; its manifest is `effect` plus
   // `solid-js` (for the logo component), both already in the framework tier.
   "@kolu/agent-distro",
+  // The ACP protocol's own vocabulary, reached THROUGH `kolu-agents` (the
+  // engine seating this package's agent vocabulary names). Nothing in
+  // `@kolu/padi-client` imports it any more — the orchestrator's wire shapes
+  // moved to `kolu-common` with the hosting — but it is still in the closure a
+  // consumer copies, and a closure member nobody declares is the drift this
+  // list exists to catch.
+  "@kolu/acp",
   // agent-distro's own pure vocabulary (its listing, history-line and versions
   // readers) that `@kolu/agent-distro` builds on — GRAFTED from the npins
   // `agent-distro` pin into `juspay/agent-distro`, never committed, like the
@@ -307,6 +314,7 @@ const HYDRATE_CLOSURE = declaredDependencyClosure({
  *    these four lines; nothing else here moves.
  */
 const EXPECTED_EXTERNALS = [
+  "@agentclientprotocol/sdk",
   "@anthropic-ai/claude-agent-sdk",
   "@effect/platform-browser",
   "@effect/platform-node",

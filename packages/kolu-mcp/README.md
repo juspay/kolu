@@ -1,11 +1,25 @@
 # kolu-mcp
 
-`kolu mcp` — the kolu binary's **agent face**: this host's terminals served to
-a coding agent over [MCP](https://modelcontextprotocol.io) (stdio), as a pure
-`padiSurface` client re-exposed through
-[`@kolu/surface-mcp`](../surface-mcp/README.md). No kolu-server anywhere — the
-package manifest is the graduation fence (padi/surface deps only), so the face
-provably serves agents with padi alone.
+kolu's **agent face**, in two projections of ONE expose map
+([MCP](https://modelcontextprotocol.io) through
+[`@kolu/surface-mcp`](../surface-mcp/README.md)):
+
+- **`kolu mcp` — one host, over stdio.** This host's terminals, as a pure
+  `padiSurface` client. Terminal ids are bare. This is what an agent working
+  *inside* a kolu terminal drives, and no kolu-server is anywhere in it — the
+  package manifest is the graduation fence (padi/surface deps only), so the
+  face provably serves agents with padi alone.
+- **`serveKoluFleetMcp` — every host, inside kolu-server.** The same tool list
+  lifted over kolu-server's host map, where a terminal is `host/id`. This is
+  what the one conductor conversation holds, over a loopback
+  streamable-HTTP transport kolu-server owns. It reaches the hosts through a
+  PORT (`FleetHosts`), never by importing kolu-server, so the fence holds here
+  too.
+
+**The tool list has one definition** (`KOLU_MCP_TOOL_EXPOSE` in `src/expose.ts`,
+spread into both maps): the two faces differ in what a terminal is *called*,
+never in what may be done to one. The rest of this page is the single-host face;
+[the fleet projection](#the-fleet-projection) is at the foot.
 
 What an agent gets is the **ratified v1 expose map** (`src/expose.ts`),
 default-deny with named, tested denials:
@@ -113,6 +127,72 @@ padi says the socket closed rather than by spending a request on it
 `OwnedSurfaceConnection.onClose`). Local socket arm only: `kolu mcp --host`
 (ssh) does not carry the announcement yet, so a remote restart keeps the older
 behaviour.
+
+## The fleet projection
+
+`serveKoluFleetMcp({ hosts, transport, serverInfo })` serves the same verbs over
+**every** host kolu-server knows, in kolu-server's own process. It is what the
+one conductor conversation holds; nothing spawns a `kolu mcp` per host, and
+the session's MCP server list never changes as machines come and go.
+
+**A terminal is `host/id`.** The host key is kolu-server's (`local`, or
+`remote:<target>`); the separator is the **last** `/`, because a remote target
+may contain one and a terminal id never does. One splitter, exported once —
+`splitFleetTerminalRef` / `fleetTerminalRef`, from `kolu-mcp/fleetRef` (a leaf
+with no imports, so a consumer that must not take the MCP SDK can still split a
+reference). Nothing in the tree splits a fleet reference by hand.
+
+**Resources.** `terminals` (every host's roster, host-qualified) · `urgency`
+(who needs someone, fleet-wide) · `hosts` — the live roster, and it *changes
+under you*: name, reachability (`warming` · `connected` · `failed`), padi's
+commit, its surface version and boot time. Those last three are why there is no
+fleet `identity`/`status`/`daemonStatus`: they are per-host facts, so they are
+columns of `hosts` rather than three fleet-wide readings of a per-host thing.
+Addressing one terminal percent-encodes the reference —
+`surface://collections/terminals/local%2F3f1c…` — since the adapter addresses a
+collection item by URI segment. Each row carries its own `host` and its `id` /
+`parentId` as fleet references, so a record you read is one you can act on
+without remembering the key it arrived under.
+
+**Tools.** The same fifteen names, with the host in the arguments:
+`lifecycle_create` takes a `host` (create on the machine the repo lives on) and
+answers a fleet reference; `git_*` / `fs_*` take a `host` beside their
+`repoPath`; everything per-terminal takes a reference. The bespoke tools are
+**lifted, not forked** — the same handlers `kolu mcp` runs, handed one host's
+client with bare ids, with the ids re-qualified in the answer. The whole id
+grammar is one table (`src/fleet/lift.ts`).
+
+**A host that is not connected is refused by name**, never answered with an
+empty list: the refusal says which host and what state it is in, as prose and as
+`structuredContent` (`host-not-connected` · `unknown-host` ·
+`cross-host-reference`). An agent that is told "box is warming" retries; an
+agent handed an empty list concludes the machine is idle.
+
+**One watch, every host.** `watch_open` with no `ids` watches the whole fleet —
+including hosts that connect later; with `ids` it groups them by host and legs
+each one under the same name. `watch_next` merges every host's queue into one
+ordered batch under a **fleet-assigned** `seq`, so `after` is that number and
+never a host's own. A host that ARRIVES while the watch is open joins it without
+anything being reopened; a host that LEAVES the fleet reports each terminal it
+was carrying as `gone` and then drops out. `watch_close` closes every leg.
+`ignoreSelf` is not offered here: the fleet face runs in kolu-server, whose
+caller is in no terminal, so there is no self to mute — use `ignoreIds`.
+
+**Disconnecting is not leaving.** An ssh blip, a padi restart, a host still
+warming: that host is still a member and its terminals are still there, so its
+leg is *parked* rather than mourned — re-opened, and drained of what padi
+buffered, the moment it answers again. It is named in the answer's `gaps`
+instead, beside any host that is connected but keeps refusing the subscription:
+that one is skipped for the round and retried on the next, so one sick machine
+cannot fail a drain over the healthy ones. A host you NAMED in `ids` is the
+opposite case and fails the call — you asked about that lane, so a watch that
+cannot cover it is not the watch you opened.
+
+**The port kolu-server implements** is `FleetHosts` (`keys` · `display` ·
+`padi` · `state` · `subscribe`). The face holds no host map of its own: a second
+copy of kolu-server's mirror is a copy that can be wrong, so every read is
+forwarded to the host that owns the answer and every value is as fresh as the
+host that gave it.
 
 Plan of record: the kolu-cli Atlas note
 ([kolu.dev/atlas/kolu-cli.html](https://kolu.dev/atlas/kolu-cli.html)).

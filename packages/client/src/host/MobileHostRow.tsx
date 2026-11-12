@@ -12,8 +12,9 @@
  *  amber pulse / red), Home glyph for local or hostname for remote, `hostHue`
  *  for the per-host identity accent, and the shared `AttentionTriplet`
  *  (working · needs-you violet · unseen amber) — so a signal means
- *  the same thing on a phone as on a laptop. A tap calls `setActiveHost` (the
- *  identical write the desktop strip makes; W9 makes the switch instant).
+ *  the same thing on a phone as on a laptop. A tap goes through `selectHostTab`
+ *  (the identical write the desktop strip makes, which also leaves the
+ *  conductor if that is what was on screen; W9 makes the switch instant).
  *  Adding a host reuses the shared `addHost` mechanism; only the CONTAINER
  *  differs from desktop — a full-width in-sheet section rather than an
  *  anchored popover (the popover clips at phone width).
@@ -35,7 +36,9 @@ import {
 import { AttentionTriplet } from "@kolu/solid-statepip";
 import { hostMarks } from "../attention/attentionMarks";
 import DocLink from "../ui/DocLink";
-import { hostKeys, padiMap, setActiveHost } from "../wire";
+import { hostKeys, padiMap } from "../wire";
+import { conductorMode } from "../conductor/useConductorMode";
+import { selectHostTab } from "./selectHostTab";
 import { runAction } from "../runAction";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
@@ -108,14 +111,14 @@ const MobileHostChip: Component<{ host: HostKey; onSwitch: () => void }> = (
       title={`${hostLabel(props.host)} — ${glance().title}`}
       // A no-op tap on the already-active chip must not re-write `activeHost`
       // with a new-reference-but-equal key (it would re-notify every
-      // `useEntry(activeHost)` consumer for nothing) — guard on `isActive()`,
-      // the same canonical-string comparison the desktop strip uses. The guard
-      // also covers `onSwitch`: closing the sheet is the "after a switch"
-      // gesture, so a no-op tap on the current host leaves the sheet OPEN (it
-      // isn't a switch) rather than dismissing it out from under the user.
+      // `useEntry(activeHost)` consumer for nothing) — `selectHostTab` owns
+      // that guard. The tap is only a no-op HERE when the chip is already the
+      // selected entry in the row: tapping the active host while the
+      // conductor is on screen is how a person asks to go back to it, so
+      // that tap must still run (and still close the sheet).
       onClick={() => {
-        if (isActive()) return;
-        setActiveHost(props.host);
+        if (isActive() && !conductorMode()) return;
+        selectHostTab(props.host);
         props.onSwitch();
       }}
     >

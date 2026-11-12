@@ -203,6 +203,10 @@ export * from "./vocab.ts";
 // `Transcript` / `TranscriptSchema` / `TranscriptHtmlMode` arrived through a
 // second. A consumer should not have to know which half it wants.
 export * from "./transcriptSchema.ts";
+// The CONDUCTOR's wire vocabulary is NOT here: kolu-server hosts the one
+// conversation now, so `ConductorStateSchema` and its family live beside
+// `koluSurface` in `kolu-common/conductor`. padi serves terminals; what a
+// supervisor says to them is the app's contract, not the daemon's.
 
 // ── Version ─────────────────────────────────────────────────────────────
 

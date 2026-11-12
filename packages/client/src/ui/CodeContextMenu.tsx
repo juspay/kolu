@@ -6,7 +6,7 @@
  *  Items are computed from a `getItems` accessor that reads the current
  *  line selection — items can return null to omit themselves. */
 
-import { runAction } from "../runAction";
+import { writeTextToClipboard } from "@kolu/solid-logtail";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
 import {
@@ -20,7 +20,7 @@ import {
 import { Dynamic, Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { writeTextToClipboard } from "@kolu/solid-logtail";
+import { runAction } from "../runAction";
 import { surface } from "./Surface";
 
 /** Two verbs over the same selection noun: copy a string to the clipboard,
@@ -86,7 +86,13 @@ export const CodeContextMenu: Component<{
     close();
   };
   const onKeydown = (e: KeyboardEvent) => {
-    if (e.key === "Escape") close();
+    if (e.key !== "Escape") return;
+    // CONSUME it — an open menu is the frontmost thing, and the key that
+    // closes it is spent (the shape `SearchBar` and `PrintedUrlCard` use).
+    // Otherwise a window-level `Escape` reader acts on the same press.
+    e.preventDefault();
+    e.stopPropagation();
+    close();
   };
 
   createEffect(() => {

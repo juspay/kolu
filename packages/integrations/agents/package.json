@@ -9,6 +9,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
+    "./acp": "./src/acp.ts",
     "./vocab": "./src/vocab.ts"
   },
   "scripts": {
@@ -16,6 +17,7 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@kolu/acp": "workspace:*",
     "anyagent": "workspace:*",
     "effect": "4.1.4",
     "kolu-claude-code": "workspace:*",

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Typing-echo latency baseline — orchestrator.
+# Typing-echo latency baseline — conductor.
 #
 # Boots a PRIVATE, self-contained nix-built kolu (its own kaval, its own state
 # dir, a throwaway $HOME, an OS-assigned free port), runs the client probe

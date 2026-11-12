@@ -17,7 +17,7 @@ const chips = (widths: Record<string, number>): HostFit[] =>
 describe("computeVisibleHosts — everything fits", () => {
   it("shows every chip, in pool order, when the total width is within budget", () => {
     const order = chips({ local: 80, a: 90, b: 100 });
-    const result = computeVisibleHosts(order, "local", 400, 40);
+    const result = computeVisibleHosts(order, "local", 400, 40, 0);
     expect(result).toEqual({ visible: ["local", "a", "b"], overflowed: [] });
   });
 
@@ -31,12 +31,14 @@ describe("computeVisibleHosts — everything fits", () => {
       "local",
       containerWidth,
       trailingReserve,
+      0,
     );
     const after = computeVisibleHosts(
       order,
       "beta",
       containerWidth,
       trailingReserve,
+      0,
     );
 
     expect(after).toEqual(before);
@@ -49,7 +51,7 @@ describe("computeVisibleHosts — overflow", () => {
     // local(50) + a(50) + b(50) + c(50) = 200, container 140, reserve 40 ⇒
     // budget 100 ⇒ local + a fit (100), b/c overflow.
     const order = chips({ local: 50, a: 50, b: 50, c: 50 });
-    const result = computeVisibleHosts(order, "local", 140, 40);
+    const result = computeVisibleHosts(order, "local", 140, 40, 0);
     expect(result).toEqual({
       visible: ["local", "a"],
       overflowed: ["b", "c"],
@@ -58,8 +60,8 @@ describe("computeVisibleHosts — overflow", () => {
 
   it("PIN: switching between two hosts BOTH already inside the visible prefix still changes nothing", () => {
     const order = chips({ local: 50, a: 50, b: 50, c: 50 });
-    const before = computeVisibleHosts(order, "local", 140, 40);
-    const after = computeVisibleHosts(order, "a", 140, 40);
+    const before = computeVisibleHosts(order, "local", 140, 40, 0);
+    const after = computeVisibleHosts(order, "a", 140, 40, 0);
     expect(after).toEqual(before);
   });
 
@@ -68,14 +70,87 @@ describe("computeVisibleHosts — overflow", () => {
     // is [local, a]; switching active to c (currently overflowed) must pull
     // it in — drop `a` (nearest the cut) to make room, keep `local` first.
     const order = chips({ local: 50, a: 50, b: 50, c: 50 });
-    const result = computeVisibleHosts(order, "c", 140, 40);
+    const result = computeVisibleHosts(order, "c", 140, 40, 0);
     expect(result.visible).toEqual(["local", "c"]);
     expect(result.overflowed).toEqual(["a", "b"]);
   });
 
   it("always keeps the active host visible even when it alone exceeds the reduced budget", () => {
     const order = chips({ local: 30, huge: 300 });
-    const result = computeVisibleHosts(order, "huge", 140, 40);
+    const result = computeVisibleHosts(order, "huge", 140, 40, 0);
     expect(result.visible).toContain("huge");
+  });
+});
+
+/** FIVE HOSTS IN A REAL CHROME BAR, with the widths the browser actually
+ *  reports. Measured in the e2e lane (`features/conductor.feature`, the
+ *  "minified 5 KB payload" scenario logs the row's geometry at four window
+ *  widths): a host tab is 124px, the identity rail 28px, the `◆ Conductor
+ *  beta` pill 138px (tag included — it is one measured box), the control
+ *  cluster 397px, and the bar's own padding plus flex gaps 60px.
+ *
+ *  This is where the five-host fold is proved, because the e2e worker holds
+ *  one padi and its strip never folds; that lane pins the INPUT (the strip's
+ *  measured width really is the row's leftover), and this pins what the
+ *  arithmetic does with it — including what the Conductor entry's reserve
+ *  does to the fold when the row has NOT already kept its room clear. */
+describe("computeVisibleHosts — five hosts in the real chrome bar", () => {
+  const CHIP = 124;
+  const ADD_BUTTON_RESERVE = 38;
+  const OVERFLOW_TRIGGER_RESERVE = 44;
+  /** The measured `◆ Conductor beta` pill, whole. */
+  const CONDUCTOR = 138;
+  /** The strip's measured width at a given window, from the row's geometry:
+   *  identity (28) + conductor pill (138) + control cluster (397) + the bar's
+   *  padding and gaps (60) are taken before the strip sees anything. */
+  const stripAt = (window: number): number =>
+    window - 28 - CONDUCTOR - 397 - 60;
+  const five = chips({ local: CHIP, a: CHIP, b: CHIP, c: CHIP, d: CHIP });
+  const seating = (window: number, pinned = 0) =>
+    computeVisibleHosts(
+      five,
+      "local",
+      stripAt(window) - ADD_BUTTON_RESERVE,
+      OVERFLOW_TRIGGER_RESERVE,
+      pinned,
+    );
+
+  it("seats every tab in a wide window", () => {
+    // 1920 ⇒ strip 1297 ⇒ budget 1259 against 620px of tabs.
+    expect(seating(1920).overflowed).toEqual([]);
+  });
+
+  it("folds into `⋯ +N` well before the tabs reach the conductor entry", () => {
+    // 1024 ⇒ strip 401 ⇒ budget 363, trigger reserved ⇒ 319 ⇒ two tabs seated.
+    expect(seating(1024)).toEqual({
+      visible: ["local", "a"],
+      overflowed: ["b", "c", "d"],
+    });
+    // The seated tabs plus the trigger fit the strip itself — the fold is only
+    // worth anything if what it leaves behind cannot overflow the row.
+    expect(
+      2 * CHIP + OVERFLOW_TRIGGER_RESERVE + ADD_BUTTON_RESERVE,
+    ).toBeLessThanOrEqual(stripAt(1024));
+  });
+
+  it("keeps folding as the window narrows, down to the active tab alone", () => {
+    expect(seating(900).visible).toEqual(["local"]);
+    expect(seating(820).visible).toEqual(["local"]);
+  });
+
+  it("takes the Conductor entry's measured width off the budget, so a tab that would reach the pill folds instead", () => {
+    // A row that has NOT kept the pill's room clear — the strip's box runs
+    // under the entry — reports the overlap as the pinned reserve. 1920 seats
+    // all five with 1259px of budget; take the pill's measured 138 off a strip
+    // that is only just wide enough and the last tab must go into `⋯ +N`
+    // rather than sit where the pill is drawn.
+    const window = 1270; // strip 647 ⇒ budget 609 against 620px of tabs… just short
+    expect(seating(window).visible).toEqual(["local", "a", "b", "c"]);
+    expect(seating(window, CONDUCTOR).visible).toEqual(["local", "a", "b"]);
+    expect(seating(window, CONDUCTOR).overflowed).toEqual(["c", "d"]);
+  });
+
+  it("reserves nothing when there is no such entry in the row", () => {
+    expect(seating(1920, 0)).toEqual(seating(1920));
   });
 });

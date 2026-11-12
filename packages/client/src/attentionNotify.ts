@@ -6,13 +6,16 @@
  *  one permission request, and one tag-keyed multi-window de-dup discipline,
  *  never two hand-rolled copies of the same landmine handling.
  *
- *  The click payload is DISCRIMINATED by `kind` so a per-terminal click and a
- *  cross-host click each route to their own handler and can never cross-deliver
- *  (a `host` payload can never be read as a `terminal` one, or vice versa). BOTH
- *  variants carry the originating `host`: a notification outlives the active-host
- *  selection, so clicking one must switch back to the host it fired FOR before
- *  focusing the terminal — otherwise the id routes against whatever padi happens
- *  to be active, focusing the wrong host's terminal (or nothing). */
+ *  The click payload is DISCRIMINATED by `kind` so a per-terminal click, a
+ *  cross-host click and a conductor question each route to their own
+ *  handler and can never cross-deliver (a `host` payload can never be read as a
+ *  `terminal` one, or vice versa). The two arms that NAME A TERMINAL carry the
+ *  originating `host`: a notification outlives the active-host selection, so
+ *  clicking one must switch back to the host it fired FOR before focusing the
+ *  terminal — otherwise the id routes against whatever padi happens to be
+ *  active, focusing the wrong host's terminal (or nothing). The conductor
+ *  arm carries neither, because one conversation covers every machine: there is
+ *  no host to switch back to and no terminal to focus. */
 
 import { createNotify } from "@kolu/surface-app/notify";
 import { Result, Schema } from "effect";
@@ -28,7 +31,11 @@ const decodeTerminalId = Schema.decodeUnknownResult(TerminalIdSchema);
  *  encoded host key the click switches to before focusing. */
 export type AttentionClick =
   | { kind: "terminal"; host: string; terminalId: TerminalId }
-  | { kind: "host"; host: string; id: TerminalId };
+  | { kind: "host"; host: string; id: TerminalId }
+  /** A question THE CONDUCTOR is waiting on. One conversation covers every
+   *  host, so this arm carries neither a terminal id nor a host key — the
+   *  click opens the conversation and nothing else. */
+  | { kind: "conductor" };
 
 /** Validate a click envelope the framework relays (a live postMessage or a
  *  cold-start URL param). A stale notification from before an app upgrade, or a
@@ -40,6 +47,12 @@ export type AttentionClick =
 function parseAttentionClick(data: unknown): AttentionClick | undefined {
   if (typeof data !== "object" || data === null) return undefined;
   const d = data as Record<string, unknown>;
+  if (d.kind === "conductor") {
+    // The one arm with nothing in it at all: answer it here rather than
+    // falling into the shared host/terminal-id check below, which would drop
+    // every conductor envelope for lacking fields it never had.
+    return { kind: "conductor" };
+  }
   if (d.kind !== "terminal" && d.kind !== "host") return undefined;
   // BOTH variants carry the same two facts, so validate them ONCE: a canonical
   // encoded `host` (the click switches to it — else `decodeHostKey` throws at

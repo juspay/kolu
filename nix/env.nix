@@ -43,4 +43,14 @@ in
   # wrapper — the drift that made every live test throw when the bake was
   # wrapper-only.
   KOLU_OSFACTS_BIN = "${osfacts}/bin/osfacts";
+  # Claude Code's ACP adapter (nix/packages/acp-adapter.nix) — the binary
+  # kolu-server spawns for THE conductor conversation (one, covering every
+  # host). Same footing as KOLU_GH_BIN / KOLU_OSFACTS_BIN: a required absolute
+  # path baked by Nix, with no PATH search and no `npx` fallback — an
+  # conductor that resolved some ambient adapter would speak a protocol
+  # version this build never proved. `koluBin`'s wrapper bakes this value too
+  # (default.nix), which is what pulls the adapter into kolu-server's closure.
+  # A REMOTE host no longer carries it: padi hosts no conversation, so the
+  # adapter left padi's closure with the hosting.
+  KOLU_ACP_AGENT = "${pkgs.kolu-acp-adapter}/bin/claude-agent-acp";
 }

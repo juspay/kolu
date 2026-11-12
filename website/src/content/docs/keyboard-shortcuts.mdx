@@ -1,6 +1,6 @@
 ---
 title: Keyboard Shortcuts
-description: "The complete keyboard reference for kolu: terminal navigation, the palettes and switchers, splits and tabs, zoom, panels, and capture. Mod is Cmd on macOS and Ctrl elsewhere; three chords use Cmd/Super so Ctrl reaches your shell."
+description: "The complete keyboard reference for kolu: terminal navigation, the palettes and switchers, splits and tabs, zoom, panels, and capture. Mod is Cmd on macOS and Ctrl elsewhere; four chords use Cmd/Super so Ctrl reaches your shell."
 order: 46
 section: "The Canvas"
 koluHero:
@@ -15,11 +15,12 @@ The complete set of global shortcuts, from kolu's action registry.
 Press <kbd>Mod</kbd> + <kbd>/</kbd> in the app for the same list as a live
 overlay.
 
-Three chords read <kbd>Cmd</kbd>/<kbd>Super</kbd> instead — the palette, new
-terminal, and find. <kbd>Super</kbd> is the key labelled ⊞ or ✦ next to Alt
-(X11 and Wayland call it Super or Meta; Windows calls it the Windows key), and
-kolu uses it for exactly the chords whose <kbd>Ctrl</kbd> form belongs to
-whatever is running *inside* your terminal — see the note at the end.
+Four chords read <kbd>Cmd</kbd>/<kbd>Super</kbd> instead — the palette, new
+terminal, find, and conductor mode. <kbd>Super</kbd> is the key labelled ⊞
+or ✦ next to Alt (X11 and Wayland call it Super or Meta; Windows calls it the
+Windows key), and kolu uses it for exactly the chords whose <kbd>Ctrl</kbd>
+form belongs to whatever is running *inside* your terminal — see the note at
+the end.
 
 ## Terminals
 
@@ -32,6 +33,7 @@ whatever is running *inside* your terminal — see the note at the end.
 | Previous terminal | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>[</kbd> |
 | Cycle terminals by most-recent use | <kbd>Ctrl</kbd> + <kbd>Tab</kbd> &nbsp;·&nbsp; <kbd>Alt</kbd> + <kbd>Tab</kbd> |
 | Maximize / restore terminal | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>M</kbd> |
+| [Conductor](/conductor) — opens kolu's agent chat; press it again to return to the host tab you were on | <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> |
 
 ## Palettes & switchers
 
@@ -84,14 +86,14 @@ and the scoped grids are covered under [The Switcher](/switcher).
   palette) the chord defers to the browser's native find.
 </Aside>
 
-<Aside type="note" title="Why three chords use Super">
+<Aside type="note" title="Why four chords use Super">
   Every key you press in a terminal is a byte your shell is owed, and
   <kbd>Ctrl</kbd> chords are how a shell receives them.
   <kbd>Ctrl</kbd> + <kbd>K</kbd> deletes to end of line,
   <kbd>Ctrl</kbd> + <kbd>F</kbd> moves the cursor right,
   <kbd>Ctrl</kbd> + <kbd>T</kbd> transposes two characters — and coding agents
   bind them too. An app that claims those chords breaks the tools you opened it
-  to run, so kolu's palette, new-terminal, and find chords sit on
+  to run, so kolu's palette, new-terminal, find, and conductor chords sit on
   <kbd>Cmd</kbd>/<kbd>Super</kbd>, a modifier a terminal program never sees.
   macOS was always fine — <kbd>Cmd</kbd> is already invisible to a PTY — so
   nothing changes there.

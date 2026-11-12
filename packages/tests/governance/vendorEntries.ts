@@ -36,8 +36,14 @@
  *     own catalog instead of xterm's washed-out default. It costs exactly one
  *     more member, `nonempty`, which `@kolu/padi-client`'s closure already
  *     brought.
+ *   - `@kolu/acp` — the Agent Client Protocol's words. olai speaks the same
+ *     protocol and was declaring the ask/diff/usage vocabulary a second time;
+ *     the package that speaks the foreign thing owns its words, so olai vendors
+ *     this one instead. Its closure is itself alone: the manifest declares
+ *     `effect` and the protocol SDK and no workspace sibling at all — a rule
+ *     `packages/acp/src/manifest.test.ts` holds red.
  *
- * The COUNT is not the structure. A fifth would not change what this file is:
+ * The COUNT is not the structure. A sixth would not change what this file is:
  * the split is by where the fact lives, not by how many facts there are. What
  * would change it is a declared entry becoming derivable — and none of these can
  * be, because the deriving evidence lives in a repo kolu does not contain.
@@ -75,6 +81,7 @@ export function vendorEntries(repoRoot: string): string[] {
   names.push("@kolu/solid-dockrow");
   names.push("@kolu/detect");
   names.push("terminal-themes");
+  names.push("@kolu/acp");
   return names.sort();
 }
 

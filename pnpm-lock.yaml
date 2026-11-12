@@ -112,6 +112,50 @@ importers:
         specifier: ^4.1.12
         version: 4.1.12(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.5(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3))
 
+  packages/acp:
+    dependencies:
+      '@agentclientprotocol/sdk':
+        specifier: ^1.3.0
+        version: 1.9.0(zod@4.6.7)
+      effect:
+        specifier: 4.1.4
+        version: 4.1.4
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.3
+        version: 5.0.3(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.5(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3))
+
+  packages/acp-harness:
+    dependencies:
+      '@agentclientprotocol/sdk':
+        specifier: ^1.3.0
+        version: 1.9.0(zod@4.6.7)
+      '@kolu/acp':
+        specifier: workspace:*
+        version: link:../acp
+      kolu-common:
+        specifier: workspace:*
+        version: link:../common
+      kolu-mcp:
+        specifier: workspace:*
+        version: link:../kolu-mcp
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.3
+        version: 5.0.3(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.5(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3))
+
   packages/agent-distro:
     dependencies:
       '@juspay/agent-distro':
@@ -384,6 +428,9 @@ importers:
 
   packages/common:
     dependencies:
+      '@kolu/acp':
+        specifier: workspace:*
+        version: link:../acp
       '@kolu/agent-distro':
         specifier: workspace:*
         version: link:../agent-distro
@@ -429,6 +476,40 @@ importers:
       ts-pattern:
         specifier: ^5.9.0
         version: 5.9.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.19.15
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.3
+        version: 5.0.3(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.5(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3))
+
+  packages/conductor:
+    dependencies:
+      '@kolu/acp':
+        specifier: workspace:*
+        version: link:../acp
+      '@kolu/acp-harness':
+        specifier: workspace:*
+        version: link:../acp-harness
+      '@kolu/surface':
+        specifier: workspace:*
+        version: link:../surface
+      effect:
+        specifier: 4.1.4
+        version: 4.1.4
+      kolu-agents:
+        specifier: workspace:*
+        version: link:../integrations/agents
+      kolu-common:
+        specifier: workspace:*
+        version: link:../common
+      pino:
+        specifier: ^10.3.1
+        version: 10.3.1
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -495,6 +576,9 @@ importers:
 
   packages/integrations/agents:
     dependencies:
+      '@kolu/acp':
+        specifier: workspace:*
+        version: link:../../acp
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
@@ -594,6 +678,9 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: ^0.2.96
         version: 0.2.96(zod@4.6.7)
+      '@kolu/acp':
+        specifier: workspace:*
+        version: link:../../acp
       anyagent:
         specifier: workspace:*
         version: link:../anyagent
@@ -628,6 +715,12 @@ importers:
       vitest:
         specifier: ^5.0.3
         version: 5.0.3(@types/node@22.19.15)(happy-dom@21.0.4)(jsdom@30.0.1)(vite@8.3.5(@types/node@22.19.15)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.48.0)(tsx@4.23.1)(yaml@2.8.3))
+
+  packages/integrations/claude-code/acp/shim:
+    dependencies:
+      '@agentclientprotocol/claude-agent-acp':
+        specifier: 0.81.2
+        version: 0.81.2(@anthropic-ai/sdk@0.91.1(zod@4.6.7))(@modelcontextprotocol/sdk@1.32.1(zod@4.6.7))
 
   packages/integrations/codex:
     dependencies:
@@ -1191,6 +1284,9 @@ importers:
       '@kolu/agent-distro':
         specifier: workspace:*
         version: link:../agent-distro
+      '@kolu/detect':
+        specifier: workspace:*
+        version: link:../detect
       '@kolu/padi-client':
         specifier: workspace:*
         version: link:../padi-client
@@ -1456,6 +1552,12 @@ importers:
       '@juspay/agent-distro':
         specifier: workspace:*
         version: link:../../juspay/agent-distro
+      '@kolu/acp':
+        specifier: workspace:*
+        version: link:../acp
+      '@kolu/acp-harness':
+        specifier: workspace:*
+        version: link:../acp-harness
       '@kolu/agent-distro':
         specifier: workspace:*
         version: link:../agent-distro
@@ -1492,6 +1594,9 @@ importers:
       '@kolu/surface-daemon-supervisor':
         specifier: workspace:*
         version: link:../surface-daemon-supervisor
+      '@kolu/surface-map':
+        specifier: workspace:*
+        version: link:../surface-map
       '@kolu/surface-remote':
         specifier: workspace:*
         version: link:../surface-remote
@@ -1504,6 +1609,9 @@ importers:
       '@kolu/url-shape':
         specifier: workspace:*
         version: link:../url-shape
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.31.0
+        version: 1.32.1(zod@4.6.7)
       anyagent:
         specifier: workspace:*
         version: link:../integrations/anyagent
@@ -1525,12 +1633,18 @@ importers:
       kolu-common:
         specifier: workspace:*
         version: link:../common
+      kolu-conductor:
+        specifier: workspace:*
+        version: link:../conductor
       kolu-git:
         specifier: workspace:*
         version: link:../integrations/git
       kolu-github:
         specifier: workspace:*
         version: link:../integrations/github
+      kolu-mcp:
+        specifier: workspace:*
+        version: link:../kolu-mcp
       kolu-pty:
         specifier: workspace:*
         version: link:../integrations/pty
@@ -1568,9 +1682,6 @@ importers:
       '@kolu/daemon-test-gate':
         specifier: workspace:*
         version: link:../daemon-test-gate
-      '@kolu/surface-map':
-        specifier: workspace:*
-        version: link:../surface-map
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -2769,10 +2880,77 @@ importers:
 
 packages:
 
+  '@agentclientprotocol/claude-agent-acp@0.81.2':
+    resolution: {integrity: sha512-/yvpesq8e6Jv8kl5PHEhwbKRVvzVudXD+ujC0q6PZFmrZK0+xPtiVQYtZIdlUtdhgNKBgBTsGwZkbb2Iw+rbjA==}
+    engines: {node: '>=22'}
+    hasBin: true
+
+  '@agentclientprotocol/sdk@1.5.0':
+    resolution: {integrity: sha512-524jwbB2iYWA+kWWyv9fhKbhU89dH/lu9u5EXwVNmfYzopV8BujCDxByBDZhxRUkB7RWIJzISCnwivdDk+bdVg==}
+    peerDependencies:
+      zod: ^4.6.6
+
+  '@agentclientprotocol/sdk@1.9.0':
+    resolution: {integrity: sha512-saCOTPYBK1iqWqJFAYHXbg3+zCoFXyZZFoqQAwdTWkbrZZPpAETr80QOnYr2l+dzPwL0jpNhn3eDY8MoEIDbUA==}
+    peerDependencies:
+      zod: ^4.6.6
+
+  '@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.280':
+    resolution: {integrity: sha512-Yws14X5g5hgDtF565Tld/+dILAhH9QZpundjKMyO3dFasq9miXZlhU0NwXqwTO2xP0jDjJ54zduIiJwkcfcvGw==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@anthropic-ai/claude-agent-sdk-darwin-x64@0.3.280':
+    resolution: {integrity: sha512-B1eLx/oZ5RL1c3a13nQ4cRUksWyhGcVNS5vbCHnOVu4Pz+dH0moZ+iY8VaE6FvikVAQwFEW6VDU00b6m3tYdsQ==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@anthropic-ai/claude-agent-sdk-linux-arm64-musl@0.3.280':
+    resolution: {integrity: sha512-uDh+Ggjb36l+jcVgaYxSziGHmBSSR3clqvGlQ0Bgc1v5dLF4igwqZ6ZPW/hS9dArG27fislIOetH1waEgIr+GA==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@anthropic-ai/claude-agent-sdk-linux-arm64@0.3.280':
+    resolution: {integrity: sha512-6s96OIvBHT2817hCFLIZ421JBpQnvrmZucpjlWsyCODKmwGsSxiEhlWqK2h5Q7lwS6F7bzeAhqjGvC7FzDl9Rw==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@anthropic-ai/claude-agent-sdk-linux-x64-musl@0.3.280':
+    resolution: {integrity: sha512-IVbIgvi5C0sdLg/p9hpiVvAQ/ikvTKwOOEy5C1aT7w8XLqBgfpJbzzVuk06df1Q0HlILUmf63EKPmq48lbxtqA==}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@anthropic-ai/claude-agent-sdk-linux-x64@0.3.280':
+    resolution: {integrity: sha512-vpPyxYLy+zNc7LwQDWsZf0GZtTYa0PJLxzuv2vK9iV2dG+hrbRNTl35NSKKRR9rMj6RpKz0i2NLyVQ+D4mREgw==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@anthropic-ai/claude-agent-sdk-win32-arm64@0.3.280':
+    resolution: {integrity: sha512-heTflHwciJF+Hrf7v0J53QBzD+9mxN9gt2VVmEJAN0+ejbPcOcqnGGZHvyc9aZUuGh5INN0ECaiL4Fn1X2vXQQ==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@anthropic-ai/claude-agent-sdk-win32-x64@0.3.280':
+    resolution: {integrity: sha512-N+Y1zJb19nx0oPTvzkl/E3ng9AtWGW+K4hySmSHCgYSsgIwfs1YzDj/F5eHDMrxgklTuzFp76TvL3S75z5ge+g==}
+    cpu: [x64]
+    os: [win32]
+
   '@anthropic-ai/claude-agent-sdk@0.2.96':
     resolution: {integrity: sha512-EK2L4xpcWMNRSE7Zr0mjty/LCB4q60FmUjI+Z0ui91sd3xL1BVj6fhoZsfZFb9IYWkA309IIcrDIfvJXD8yNbw==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
+      zod: ^4.6.6
+
+  '@anthropic-ai/claude-agent-sdk@0.3.280':
+    resolution: {integrity: sha512-aIQSTKcCJcOgi125GAGQaNZUYgxbEBQwV2Ac+Utp0+gGUjIEWjTqz4B8kXr9XjkcCTYiRUMTDsXPAUfIcBDjnw==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      '@anthropic-ai/sdk': ^0.91.1
+      '@modelcontextprotocol/sdk': ^1.31.0
       zod: ^4.6.6
 
   '@anthropic-ai/sdk@0.91.1':
@@ -6149,6 +6327,47 @@ packages:
 
 snapshots:
 
+  '@agentclientprotocol/claude-agent-acp@0.81.2(@anthropic-ai/sdk@0.91.1(zod@4.6.7))(@modelcontextprotocol/sdk@1.32.1(zod@4.6.7))':
+    dependencies:
+      '@agentclientprotocol/sdk': 1.5.0(zod@4.6.7)
+      '@anthropic-ai/claude-agent-sdk': 0.3.280(@anthropic-ai/sdk@0.91.1(zod@4.6.7))(@modelcontextprotocol/sdk@1.32.1(zod@4.6.7))(zod@4.6.7)
+      zod: 4.6.7
+    transitivePeerDependencies:
+      - '@anthropic-ai/sdk'
+      - '@modelcontextprotocol/sdk'
+
+  '@agentclientprotocol/sdk@1.5.0(zod@4.6.7)':
+    dependencies:
+      zod: 4.6.7
+
+  '@agentclientprotocol/sdk@1.9.0(zod@4.6.7)':
+    dependencies:
+      zod: 4.6.7
+
+  '@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.280':
+    optional: true
+
+  '@anthropic-ai/claude-agent-sdk-darwin-x64@0.3.280':
+    optional: true
+
+  '@anthropic-ai/claude-agent-sdk-linux-arm64-musl@0.3.280':
+    optional: true
+
+  '@anthropic-ai/claude-agent-sdk-linux-arm64@0.3.280':
+    optional: true
+
+  '@anthropic-ai/claude-agent-sdk-linux-x64-musl@0.3.280':
+    optional: true
+
+  '@anthropic-ai/claude-agent-sdk-linux-x64@0.3.280':
+    optional: true
+
+  '@anthropic-ai/claude-agent-sdk-win32-arm64@0.3.280':
+    optional: true
+
+  '@anthropic-ai/claude-agent-sdk-win32-x64@0.3.280':
+    optional: true
+
   '@anthropic-ai/claude-agent-sdk@0.2.96(zod@4.6.7)':
     dependencies:
       '@anthropic-ai/sdk': 0.91.1(zod@4.6.7)
@@ -6167,6 +6386,21 @@ snapshots:
     transitivePeerDependencies:
       - '@cfworker/json-schema'
       - supports-color
+
+  '@anthropic-ai/claude-agent-sdk@0.3.280(@anthropic-ai/sdk@0.91.1(zod@4.6.7))(@modelcontextprotocol/sdk@1.32.1(zod@4.6.7))(zod@4.6.7)':
+    dependencies:
+      '@anthropic-ai/sdk': 0.91.1(zod@4.6.7)
+      '@modelcontextprotocol/sdk': 1.32.1(zod@4.6.7)
+      zod: 4.6.7
+    optionalDependencies:
+      '@anthropic-ai/claude-agent-sdk-darwin-arm64': 0.3.280
+      '@anthropic-ai/claude-agent-sdk-darwin-x64': 0.3.280
+      '@anthropic-ai/claude-agent-sdk-linux-arm64': 0.3.280
+      '@anthropic-ai/claude-agent-sdk-linux-arm64-musl': 0.3.280
+      '@anthropic-ai/claude-agent-sdk-linux-x64': 0.3.280
+      '@anthropic-ai/claude-agent-sdk-linux-x64-musl': 0.3.280
+      '@anthropic-ai/claude-agent-sdk-win32-arm64': 0.3.280
+      '@anthropic-ai/claude-agent-sdk-win32-x64': 0.3.280
 
   '@anthropic-ai/sdk@0.91.1(zod@4.6.7)':
     dependencies:

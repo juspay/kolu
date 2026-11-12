@@ -7,6 +7,8 @@
   "sideEffects": false,
   "exports": {
     "./surface": "./src/surface.ts",
+    "./conductor": "./src/conductorSchema.ts",
+    "./conductorErrors": "./src/conductorErrors.ts",
     "./surfacesWithPadi": "./src/surfacesWithPadi.ts",
     "./hostKey": "./src/hostKey.ts",
     "./hostHue": "./src/hostHue.ts",
@@ -26,6 +28,7 @@
     "vitest": "^5.0.3"
   },
   "dependencies": {
+    "@kolu/acp": "workspace:*",
     "@kolu/agent-distro": "workspace:*",
     "@kolu/byte-units": "workspace:*",
     "@kolu/padi-client": "workspace:*",

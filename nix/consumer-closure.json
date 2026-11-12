@@ -11,6 +11,26 @@
       "workspace": [],
       "external": {}
     },
+    "@kolu/acp": {
+      "dir": "packages/acp",
+      "vendored": true,
+      "workspace": [],
+      "external": {
+        "@agentclientprotocol/sdk": "^1.3.0",
+        "effect": "4.1.4"
+      }
+    },
+    "@kolu/acp-harness": {
+      "dir": "packages/acp-harness",
+      "workspace": [
+        "@kolu/acp",
+        "kolu-common",
+        "kolu-mcp"
+      ],
+      "external": {
+        "@agentclientprotocol/sdk": "^1.3.0"
+      }
+    },
     "@kolu/agent-distro": {
       "dir": "packages/agent-distro",
       "vendored": true,
@@ -77,6 +97,7 @@
       "workspace": [
         "@juspay/agent-distro",
         "@kolu/agent-distro",
+        "@kolu/detect",
         "@kolu/padi-client",
         "@kolu/serve-dir",
         "@kolu/surface",
@@ -638,10 +659,18 @@
         "effect": "catalog:"
       }
     },
+    "kolu-acp-claude": {
+      "dir": "packages/integrations/claude-code/acp/shim",
+      "workspace": [],
+      "external": {
+        "@agentclientprotocol/claude-agent-acp": "0.81.2"
+      }
+    },
     "kolu-agents": {
       "dir": "packages/integrations/agents",
       "vendored": true,
       "workspace": [
+        "@kolu/acp",
         "anyagent",
         "kolu-claude-code",
         "kolu-codex",
@@ -660,6 +689,7 @@
       "dir": "packages/integrations/claude-code",
       "vendored": true,
       "workspace": [
+        "@kolu/acp",
         "anyagent",
         "kolu-io",
         "kolu-shared",
@@ -773,6 +803,7 @@
     "kolu-common": {
       "dir": "packages/common",
       "workspace": [
+        "@kolu/acp",
         "@kolu/agent-distro",
         "@kolu/byte-units",
         "@kolu/padi-client",
@@ -790,6 +821,20 @@
       "external": {
         "effect": "catalog:",
         "ts-pattern": "^5.9.0"
+      }
+    },
+    "kolu-conductor": {
+      "dir": "packages/conductor",
+      "workspace": [
+        "@kolu/acp",
+        "@kolu/acp-harness",
+        "@kolu/surface",
+        "kolu-agents",
+        "kolu-common"
+      ],
+      "external": {
+        "effect": "catalog:",
+        "pino": "^10.3.1"
       }
     },
     "kolu-git": {
@@ -912,6 +957,8 @@
       "dir": "packages/server",
       "workspace": [
         "@juspay/agent-distro",
+        "@kolu/acp",
+        "@kolu/acp-harness",
         "@kolu/agent-distro",
         "@kolu/artifact-sdk",
         "@kolu/heap-diag",
@@ -924,6 +971,7 @@
         "@kolu/surface-app",
         "@kolu/surface-daemon",
         "@kolu/surface-daemon-supervisor",
+        "@kolu/surface-map",
         "@kolu/surface-remote",
         "@kolu/terminal-protocol",
         "@kolu/terminal-vocab",
@@ -933,8 +981,10 @@
         "kaval",
         "kolu-agents",
         "kolu-common",
+        "kolu-conductor",
         "kolu-git",
         "kolu-github",
+        "kolu-mcp",
         "kolu-pty",
         "kolu-shared",
         "kolu-transcript-html",
@@ -942,6 +992,7 @@
       ],
       "external": {
         "@effect/platform-node": "catalog:",
+        "@modelcontextprotocol/sdk": "^1.31.0",
         "conf": "^15.1.0",
         "effect": "catalog:",
         "pino": "^10.3.1",

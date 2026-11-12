@@ -84,13 +84,8 @@ import { surface } from "../ui/Surface";
 import { forwardsForHost } from "../forwards/useForwards";
 import { type AnchorSide, useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { useServerIdentity } from "../useServerIdentity";
-import {
-  activeHost,
-  hostKeys,
-  padiMap,
-  setActiveHost,
-  updatePreferences,
-} from "../wire";
+import { activeHost, hostKeys, padiMap, updatePreferences } from "../wire";
+import { selectHostTab } from "./selectHostTab";
 import { addHost } from "./addHost";
 import { focusOnMount } from "./focusOnMount";
 import {
@@ -267,9 +262,12 @@ const HostChip: Component<{
           role: "tab",
           "aria-selected": isActive(),
           "data-testid": "host-select",
-          onClick: () => {
-            if (!isActive()) setActiveHost(props.host);
-          },
+          // Picking a host tab is also how you LEAVE the conductor, which
+          // is why the already-active tab is not a no-op — see `selectHostTab`.
+          // No `classList` here: the shell owns every element's one class
+          // expression now (`HostChipShell`), and a bag that carried one would
+          // be the second authority #2351 removed.
+          onClick: () => selectHostTab(props.host),
           title: `${name()} — ${glance().title}${activeSuffix()}`,
         }}
         status={
@@ -335,7 +333,7 @@ const HostSwitcherRow: Component<{
   const statusDot = () => chipStatusDot(host, state(), kaval());
   const marks = hostMarks(props.hostKey);
   const pickHost = () => {
-    if (!isActive()) setActiveHost(host);
+    selectHostTab(host);
     props.onPicked();
   };
 
@@ -665,7 +663,14 @@ const AddHostAffordance: Component = () => {
               onInput={(e) => setDraft(e.currentTarget.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") submit();
-                if (e.key === "Escape") setOpen(false);
+                if (e.key === "Escape") {
+                  // CONSUME the key. A window-level `Escape` reader (the
+                  // conductor pane leaving its mode) acts on an unhandled
+                  // press, so without this one press would close this panel
+                  // AND drop the conversation behind it.
+                  e.preventDefault();
+                  setOpen(false);
+                }
               }}
             />
           </div>
@@ -729,6 +734,35 @@ const HostSelectorStrip: Component = () => {
   // The "+ add a host" affordance is always present now, so its width is always
   // reserved from the chips' fit budget.
   const chipsBudget = createMemo(() => containerWidth() - ADD_BUTTON_RESERVE);
+  /** THE ROW'S OWN TRAILING ENTRY — `◆ Conductor beta`, whole, tag included.
+   *
+   *  It shares this row and is not a host: it never folds, so every pixel it
+   *  occupies is a pixel the chips must not seat into, or the tabs run into
+   *  the pill instead of folding into `⋯ +N`. It is MEASURED off the live
+   *  entry rather than copied from its markup as a constant — the beta tag is
+   *  exactly the part such a copy forgets, and the pill's width changes with
+   *  the type it renders.
+   *
+   *  What is measured is the entry's LEFT EDGE against this strip's box, not
+   *  its bare width, and that is the whole correctness argument: the header
+   *  lays the pill out as a `shrink-0` sibling of this strip, so in the
+   *  ordinary case the row has ALREADY kept its room clear and the reserve is
+   *  zero — subtracting the pill's width again there would fold a tab that
+   *  fits. The number goes positive exactly when the entry sits over this
+   *  strip's box (a pill wider than the leftover, a re-layout that has not
+   *  settled, chrome that pins it over the row), which is the case where a
+   *  seated tab would collide. Re-read whenever the row's geometry moves. */
+  const conductorReserve = createMemo(() => {
+    const width = containerWidth();
+    const strip = containerRef;
+    const entry = document.querySelector<HTMLElement>(
+      '[data-testid="conductor-tab"]',
+    );
+    if (strip === undefined || entry === null) return 0;
+    const clear =
+      entry.getBoundingClientRect().left - strip.getBoundingClientRect().left;
+    return Math.max(0, width - clear);
+  });
   // `hostFit()` returns fresh `{visible, overflowed}` arrays of CANONICAL string
   // keys on every recompute (it re-runs whenever `activeHost()` changes, even
   // when the outcome is identical). Rendering directly off those STRINGS
@@ -746,6 +780,7 @@ const HostSelectorStrip: Component = () => {
       encodeHostKey(activeHost()),
       chipsBudget(),
       OVERFLOW_TRIGGER_RESERVE,
+      conductorReserve(),
     ),
   );
 

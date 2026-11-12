@@ -133,7 +133,15 @@ export function useAnchoredPopover(
     opts.onDismiss();
   });
   createEventListener(docTarget, "keydown", (e) => {
-    if (e.key === "Escape") opts.onDismiss();
+    if (e.key !== "Escape") return;
+    // CONSUME it. An open popover is the frontmost thing on screen, so the key
+    // that dismisses it is spent — the same shape `SearchBar` and
+    // `PrintedUrlCard` already use. Without this a window-level `Escape`
+    // reader (the conductor pane leaving its mode) acts on the same press,
+    // and one press closes two things.
+    e.preventDefault();
+    e.stopPropagation();
+    opts.onDismiss();
   });
 
   // Follow the trigger while open: a scroll ANYWHERE (captured — scroll

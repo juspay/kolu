@@ -1,7 +1,29 @@
 /**
  * The kolu MCP face's v1 expose map — the ratified contract table from the
  * kolu-cli plan (docs/atlas/src/content/atlas/kolu-cli.mdx → "The MCP face"),
- * spelled as `@kolu/surface-mcp`'s default-deny allowlist over `padiSurface`.
+ * spelled as `@kolu/surface-mcp`'s default-deny allowlist, in its TWO
+ * projections: over one host's `padiSurface` ({@link KOLU_MCP_EXPOSE}, what
+ * `kolu mcp` serves) and over the whole fleet's `fleetSurface`
+ * ({@link KOLU_FLEET_EXPOSE}, what kolu-server serves the conductor).
+ *
+ * **The tool list has ONE definition.** {@link KOLU_MCP_TOOL_EXPOSE} holds the
+ * rows and both maps spread it, because the two faces differ in what a terminal
+ * is CALLED, never in what may be done to one. Two lists would be two things to
+ * widen, and the day they disagreed an agent would find a verb on one face that
+ * the other had quietly dropped.
+ *
+ * **The RESOURCE lists differ, on purpose.** `identity` · `status` ·
+ * `daemonStatus` are per-host health facts: fleet-wide there is no single
+ * answer to "what commit is padi?", there are N answers. So on the fleet face
+ * they are COLUMNS of the one `hosts` resource — which is also the live roster,
+ * and the thing an agent must be able to read before it can act on a refusal
+ * naming a host. That resource is a CELL of ROWS (`surface://cells/hosts`), so
+ * "which hosts can I use, and what is each one doing" is ONE read: as a
+ * collection it would have been a key SET, and an agent that could name the
+ * fleet would have had to guess a per-host template URI to learn anything
+ * about a member of it. The stdio face has no `hosts` for the mirror reason: a
+ * face serving one padi has one host, and a roster of one is a row an agent
+ * would have to read to learn what it already knows.
  *
  * **Default deny**: an omitted member is unreachable, full stop. Widening this
  * map is a one-row diff with a review, never a default. The named denials below
@@ -41,18 +63,13 @@
 
 import type { PadiSurfaceSpec } from "@kolu/padi-client/surface";
 import type { ExposeMap } from "@kolu/surface/expose";
+import type { FleetSurfaceSpec } from "./fleet/fleetSurface.ts";
 
-export const KOLU_MCP_EXPOSE = {
-  // ── Resources (subscribable) ─────────────────────────────────────────────
-  /** The live roster — id, title, command, agent kind + state per terminal. */
-  terminals: "resource",
-  /** The awaiting-ids set — which terminals need a human/agent NOW. */
-  urgency: "resource",
-  // The "status" story — daemon/kaval health + generation visibility:
-  daemonStatus: "resource",
-  status: "resource",
-  identity: "resource",
-
+/** The TOOL rows — the seven raw procedures BOTH projections mint, written
+ *  once. Spread into each map below rather than restated in it: what an agent
+ *  may DO is the same on both faces, and a second list is where that stops
+ *  being true. */
+const KOLU_MCP_TOOL_EXPOSE = {
   // ── Read-only tools ──────────────────────────────────────────────────────
   "screen.history": { tool: { mutates: false } },
   "git.getStatus": { tool: { mutates: false } },
@@ -68,13 +85,43 @@ export const KOLU_MCP_EXPOSE = {
 
   // ── Standing settle-event subscriptions ──────────────────────────────────
   // `watch.open` is superseded by the bespoke tool of the same wire name —
-  // it resolves `ignoreSelf` from KAVAL_TERMINAL_ID, which the daemon cannot.
+  // it resolves `ignoreSelf` from KAVAL_TERMINAL_ID, which the daemon cannot
+  // (and which the fleet face answers differently again: see `fleet/lift.ts`).
   /** Drop a subscription and its buffer. */
   "watch.close": { tool: { mutates: true } },
   // `watch.drain` is NOT exposed raw: it never blocks (by design — padi holds no
   // handler open), so an agent handed only that verb would poll. The bespoke
   // `watch_next` tool is the drain, and it parks on the pulse instead.
+} as const;
+
+export const KOLU_MCP_EXPOSE = {
+  // ── Resources (subscribable) ─────────────────────────────────────────────
+  /** The live roster — id, title, command, agent kind + state per terminal. */
+  terminals: "resource",
+  /** The awaiting-ids set — which terminals need a human/agent NOW. */
+  urgency: "resource",
+  // The "status" story — daemon/kaval health + generation visibility:
+  daemonStatus: "resource",
+  status: "resource",
+  identity: "resource",
+
+  ...KOLU_MCP_TOOL_EXPOSE,
 } as const satisfies ExposeMap<PadiSurfaceSpec>;
+
+/** The FLEET projection — the same tools over `fleetSurface`, where a terminal
+ *  is `host/id`. The three per-host health resources are gone and `hosts` is in
+ *  their place; the module doc argues why. */
+export const KOLU_FLEET_EXPOSE = {
+  // ── Resources (subscribable) ─────────────────────────────────────────────
+  /** Every terminal on every connected host, keyed `<host>/<id>`. */
+  terminals: "resource",
+  /** Who needs someone, fleet-wide, at host-qualified ids. */
+  urgency: "resource",
+  /** The live roster, and the per-host health facts as its columns. */
+  hosts: "resource",
+
+  ...KOLU_MCP_TOOL_EXPOSE,
+} as const satisfies ExposeMap<FleetSurfaceSpec>;
 
 /** The NAMED denials — every member deliberately refused in v1, with the
  *  recorded reason. Each is an explicit non-entry, not an oversight; the unit

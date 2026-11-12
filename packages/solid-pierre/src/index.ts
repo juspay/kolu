@@ -19,7 +19,7 @@ export type {
 } from "@pierre/trees";
 export type { CodeViewProps } from "./CodeView";
 export { CodeView, codeViewItemIdAt } from "./CodeView";
-export { diffItems, fileItem } from "./codeViewItem";
+export { diffItems, fileItem, textDiffItem } from "./codeViewItem";
 export type { FileTreeProps } from "./FileTree";
 export { FileTree } from "./FileTree";
 export { rowPathsCss } from "./rowPathsCss";

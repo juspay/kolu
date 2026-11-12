@@ -74,6 +74,30 @@ import { match } from "ts-pattern";
 // keyed by it, so a row can be filtered to a terminal's host without parsing an
 // ssh string. `./hostKey.ts` imports nothing of padi, so this keeps the seal.
 import { HostKeySchema } from "./hostKey.ts";
+// The CONDUCTOR's wire vocabulary — the transcript row union, the state
+// cell's shape, and the procedure I/O — plus the two errors its procedures
+// declare. Their own modules beside this one (they import nothing of kolu, so
+// they can never join a cycle with this file), re-exported below so a consumer
+// reaches them through the `kolu-common/surface` door it already uses.
+import {
+  DEFAULT_CONDUCTOR_STATE,
+  ConductorAnswerInputSchema,
+  ConductorAnswerOutputSchema,
+  ConductorAttachInputSchema,
+  ConductorAttachOutputSchema,
+  ConductorEmptySchema,
+  ConductorFrameSchema,
+  ConductorPromptInputSchema,
+  ConductorPromptOutputSchema,
+  ConductorSetOptionInputSchema,
+  ConductorSignInInputSchema,
+  ConductorSignInOutputSchema,
+  ConductorStateSchema,
+  ConductorTextInputSchema,
+} from "./conductorSchema.ts";
+import { ConductorRefused, ConductorUnavailable } from "./conductorErrors.ts";
+export * from "./conductorSchema.ts";
+export * from "./conductorErrors.ts";
 
 // The host-daemon inventory row TYPES are re-exported from @kolu/padi-client/surface (their
 // home) so existing `kolu-common/surface` importers (the client dialogs) keep resolving
@@ -1125,6 +1149,38 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
       verbs: ["get"],
       client: { onError: { kind: "toast", label: "Port forwards" } },
     },
+    /** THE CONDUCTOR — kolu's one ACP conversation, as a value.
+     *
+     *  kolu-server holds one Claude session whose hands are kolu's own MCP
+     *  face lifted over the host map, and this cell is everything about it
+     *  that is not a transcript row: the phase chip, the model and its context
+     *  meter, the adapter's advertised options and commands, the MCP roster,
+     *  what is still out, the open asks (whose COUNT is the chrome-bar badge —
+     *  derived from the list, never a second number on the wire), the fleet it
+     *  has touched, and the sign-in state. Read-only on the client: every
+     *  write goes through the `conductor` procedure namespace, because a
+     *  conversation is a thing you ask rather than a value you set. */
+    conductor: {
+      schema: ConductorStateSchema,
+      default: DEFAULT_CONDUCTOR_STATE,
+      verbs: ["get"],
+      // A PLAIN toast, not padi's host-qualified one: `koluSurface` is served
+      // by one process and `hostToast` has no host to name here — which is
+      // exactly right for this member, because there is now one conversation
+      // rather than one per host.
+      client: { onError: { kind: "toast", label: "Conductor" } },
+    },
+  },
+
+  streams: {
+    /** The conductor's transcript — an EXPLICITLY discriminated
+     *  snapshot-then-deltas feed. The snapshot is only ever the first frame of
+     *  a FRESH stream, and a replayed one spliced into a live stream would
+     *  double every row a reducer had already upserted. */
+    conductorTranscript: {
+      inputSchema: Schema.Struct({}),
+      outputSchema: ConductorFrameSchema,
+    },
   },
 
   procedures: {
@@ -1157,6 +1213,86 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
        *  are off, or on a kolu built without agents. */
       deliver: {
         input: Schema.Struct({ host: Schema.NullOr(HostKeySchema) }),
+      },
+    },
+    /** Talking to kolu's conductor. Every one of these is a REQUEST of a
+     *  conversation rather than a write of a value, which is why the cell
+     *  beside them is read-only.
+     *
+     *  `prompt` never refuses for being busy: the queue is the AGENT'S, so a
+     *  message sent mid-turn goes out immediately as a plain `session/prompt`
+     *  and waits there — nothing is held on this side, which is also why
+     *  `cancel` has nothing to throw away. */
+    conductor: {
+      prompt: {
+        input: ConductorPromptInputSchema,
+        output: ConductorPromptOutputSchema,
+        error: Schema.Union([ConductorUnavailable, ConductorRefused]),
+      },
+      /** ONE CHUNK of a file on its way up, ahead of the `prompt` that names
+       *  it. Sequential per attachment: the server appends to one growing
+       *  file, so two chunks in flight interleave and corrupt it with nobody
+       *  the wiser. Refusable because every reason to say no here is one a
+       *  person must read — an id that is not a filename, an `appendTo` that
+       *  points outside the attachments directory, or a file that grew past
+       *  the per-attachment cap as it was written. */
+      attach: {
+        input: ConductorAttachInputSchema,
+        output: ConductorAttachOutputSchema,
+        error: Schema.Union([ConductorUnavailable, ConductorRefused]),
+      },
+      cancel: {
+        input: ConductorEmptySchema,
+        error: Schema.Union([ConductorUnavailable, ConductorRefused]),
+      },
+      /** Settle one ask. `answers: null` DECLINES it. Refusable: two tabs
+       *  looking at the same conversation settle the same ask, and the loser
+       *  is told the agent is no longer asking — a server that let that escape
+       *  undeclared would crash a caller doing the ordinary thing. */
+      answer: {
+        input: ConductorAnswerInputSchema,
+        output: ConductorAnswerOutputSchema,
+        error: Schema.Union([ConductorUnavailable, ConductorRefused]),
+      },
+      signIn: {
+        input: ConductorSignInInputSchema,
+        output: ConductorSignInOutputSchema,
+        error: Schema.Union([ConductorUnavailable, ConductorRefused]),
+      },
+      /** One line into a running `terminal`-kind sign-in — the code box.
+       *  Refusable for the same reason `answer` is: the attempt it is typed
+       *  into can have ended between the keystroke and the call. */
+      signInInput: {
+        input: ConductorTextInputSchema,
+        error: Schema.Union([ConductorUnavailable, ConductorRefused]),
+      },
+      signInCancel: {
+        input: ConductorEmptySchema,
+        error: Schema.Union([ConductorUnavailable]),
+      },
+      /** Change one adapter-advertised option (the model included — it is just
+       *  the option whose id the agent's leg names). A refusal leaves the
+       *  confirmed value where it was. */
+      setOption: {
+        input: ConductorSetOptionInputSchema,
+        error: Schema.Union([ConductorUnavailable, ConductorRefused]),
+      },
+      /** Start a fresh conversation OVER the transcript: the old one is left,
+       *  the rows stay, the break gains a `— new session —` divider, and the
+       *  standing prompt is taught again. The *try again* under a refused
+       *  bring-up is what asks for this. */
+      newSession: {
+        input: ConductorEmptySchema,
+        error: Schema.Union([ConductorUnavailable, ConductorRefused]),
+      },
+      /** Start a fresh conversation AND EMPTY IT: the rows, the record, the
+       *  files those rows named and the fleet the conversation remembered all
+       *  go. The header menu's `New session` is the gesture, behind its one
+       *  confirm; being explicit is why it leaves no divider behind — there
+       *  is nothing above the break to divide from. */
+      clearSession: {
+        input: ConductorEmptySchema,
+        error: Schema.Union([ConductorUnavailable, ConductorRefused]),
       },
     },
   },

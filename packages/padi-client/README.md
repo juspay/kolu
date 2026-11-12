@@ -170,6 +170,15 @@ resolvability rather than to a manifest declaration it does not own.
 | `./screenTail` | `tailLines` — the last N lines of a rendered screen, trailing blank viewport dropped first. The fold over `screen.text`'s REPLY, so it lives beside that reply's schema. Also import-free | ✅ |
 | `./upload` | what may be dropped onto a terminal and how big it may be — `MAX_UPLOAD_BYTES`, the extension allowlist, `rejectionFor`. The gate a sender applies before encoding is the gate padi applies before writing, so the two cannot drift | ✅ |
 
+**The conductor's wire vocabulary is no longer here.** It used to be an entry of
+its own, back when padi hosted the ACP conversation. kolu-server hosts it now —
+ONE conversation covering every host, rather than one per daemon — so the
+schemas moved with it, into `@kolu/common` beside `koluSurface`, and
+`padiSurface` lost the conversation's cell, its transcript stream and its
+procedures. The contract olai and drishti vendor is smaller for it: a padi
+contract declaring members about an agent padi does not run would be teaching
+its consumers something false about the daemon they dialled.
+
 ## What stayed in `@kolu/padi`
 
 **The line is HYDRATION COST, not client-vs-daemon.** Plenty of client-side code

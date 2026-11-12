@@ -91,6 +91,11 @@ import {
 } from "./memorySampler.ts";
 import { DAEMON_INVENTORY_SAMPLE_INTERVAL_MS } from "./padi/daemonInventory.ts";
 import { FORWARD_REAP_INTERVAL_MS } from "./portForward/forwards.ts";
+import { conductorSurfaceMembers } from "kolu-conductor/surface";
+import {
+  liveServerConductor,
+  setConductorCellWriter,
+} from "./conductor/live.ts";
 import { store } from "./state.ts";
 
 // ── The WIDENING SEAM: kolu-server's served superset group ─────────────────
@@ -325,6 +330,16 @@ export interface StoreCellWriters {
  *  `.router.surface`; every kolu member is the reactor graph's own writer now (no
  *  ctx-write path). Call exactly once, after `padiSession`. */
 export function implementKoluSurface(deps: KoluSurfaceDeps) {
+  // THE CONDUCTOR'S OWN MEMBERS, from the package that owns the
+  // conversation. kolu-server mounts them; what a verb DOES is a sentence
+  // about the conversation, not about the web server carrying it. The host is
+  // a thunk, not a value: the ACP child is built on its first reader, and the
+  // cell's seed below is one of those readers — holding the host here would
+  // force a subprocess up at boot, which is the one thing that laziness is for.
+  const conductorMembers = conductorSurfaceMembers({
+    host: liveServerConductor,
+    log,
+  });
   // The daemon-inventory read made TOTAL — the guard has ONE home, here beside the cell.
   // `deps.readDaemonInventory` may throw (a discovery fs-walk / session readout), and a
   // poll source's T+0 SEED throw faults the runtime's `done` → `process.exit(1)` (below),
@@ -482,6 +497,19 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
           install: everyMsOr(FORWARD_REAP_INTERVAL_MS, deps.forwards.onChange),
         }),
       ),
+      // KOLU'S ONE CONVERSATION. Seeded from the host's own first reading —
+      // `offline`, with this agent's name and this machine's `$HOME`, and with
+      // the REMEMBERED half still unread: the host reads its record on the
+      // first reader's edge and publishes it through the writer registered
+      // below a moment later, the same way `agentDistroStatus` lands on padi.
+      conductor: { store: inMemoryStore(conductorMembers.state()) },
+    },
+    streams: {
+      // THE CONDUCTOR'S TRANSCRIPT — explicit snapshot-then-deltas. The
+      // snapshot is queued synchronously inside the subscribe, so a reader's
+      // first frame can never race a delta, and a re-subscribe after a dropped
+      // socket re-leads with a fresh one the reducer assigns over.
+      conductorTranscript: { source: () => conductorMembers.transcript() },
     },
     procedures: {
       // Thin by design: each is one call into `forwards.ts`, which owns every rule.
@@ -503,6 +531,13 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
         deliver: ({ input }) =>
           Effect.sync(() => deps.deliverAgents(input.host)),
       },
+      // TALKING TO KOLU'S CONVERSATION. Every verb routes through the host's
+      // one seam, which translates the harness's two refusals into the two
+      // DECLARED errors a caller branches on — `ConductorUnavailable` (no
+      // adapter, no fleet endpoint, or no child) and `ConductorRefused`
+      // (the agent said no). Anything else stays a defect and crosses the wire
+      // as one.
+      conductor: conductorMembers.procedures,
     },
   };
 
@@ -575,6 +610,16 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       kolu: koluDeps,
     },
   );
+
+  // THE CONDUCTOR'S WRITE PATH, registered exactly once and right here —
+  // the first line after the ctx exists. The host publishes every movement of
+  // the conversation through it; before this line it has nothing to publish
+  // through, which is why `liveServerConductor()` above only SEEDS the cell
+  // from a value it already holds and the host refuses a publish that beats
+  // this registration rather than swallowing one.
+  setConductorCellWriter((state) => {
+    koluSurfaces.ctx.kolu.cells.conductor.set(state);
+  });
 
   // Observe the surface runtime's `done` and route it into kolu-server's EXISTING
   // deliberately-fatal fault policy (the same disposition a floated cell-connector

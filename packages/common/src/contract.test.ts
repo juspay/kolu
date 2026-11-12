@@ -67,7 +67,7 @@ describe("the composed surface siblings", () => {
     }
   });
 
-  it("serves kolu's own cells and the forwards procedures at their wire tags", () => {
+  it("serves kolu's own cells, the forwards procedures and the conductor at their wire tags", () => {
     for (const tag of [
       "surface/kolu/preferences/get",
       "surface/kolu/preferences/patch",
@@ -81,6 +81,20 @@ describe("the composed surface siblings", () => {
       "surface/kolu/forwards/get",
       "surface/kolu/forwards/create",
       "surface/kolu/forwards/cancel",
+      // The ONE conversation: a read-only cell, a snapshot-then-deltas
+      // transcript stream, and the ten verbs that ASK it for something.
+      "surface/kolu/conductor/get",
+      "surface/kolu/conductorTranscript/get",
+      "surface/kolu/conductor/prompt",
+      "surface/kolu/conductor/attach",
+      "surface/kolu/conductor/cancel",
+      "surface/kolu/conductor/answer",
+      "surface/kolu/conductor/signIn",
+      "surface/kolu/conductor/signInInput",
+      "surface/kolu/conductor/signInCancel",
+      "surface/kolu/conductor/setOption",
+      "surface/kolu/conductor/newSession",
+      "surface/kolu/conductor/clearSession",
       "surface/surfaceApp/buildInfo/get",
       // The RESTART axis is the framework-reserved member every surface carries —
       // surface-app's duplicate `identity/info` came out with the second process
