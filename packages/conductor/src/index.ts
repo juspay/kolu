@@ -48,5 +48,5 @@ export {
   repointConductorAttachments,
 } from "./persisted.ts";
 export { conductorSurfaceMembers } from "./surface.ts";
-export { teachingLines } from "./teaching.ts";
+export { parseTeaching, teachingLines } from "./teaching.ts";
 export { conductorTranscriptSource } from "./transcriptStream.ts";
