@@ -939,17 +939,16 @@ test("MCP display reads this adapter's announcement and completion", () => {
     ...announced("kolu", "lifecycle_create", { placement: "toplevel" }),
     name: CLAUDE.toolNameOf("kolu_lifecycle_create:1"),
   };
-  expect(CLAUDE.mcpCall(frame, ["kolu"])).toEqual({
-    server: "kolu",
-    tool: "lifecycle_create",
-  });
-  expect(CLAUDE.mcpCall(frame, ["foreign"])).toBeNull();
+  expect(CLAUDE.mcpCall(frame, ["kolu"])).toEqual([
+    { server: "kolu", tool: "lifecycle_create" },
+  ]);
+  expect(CLAUDE.mcpCall(frame, ["foreign"])).toEqual([]);
   expect(
     CLAUDE.mcpCall(
       { title: "bash", rawInput: { server: "kolu", tool: "lifecycle_create" } },
       ["kolu"],
     ),
-  ).toBeNull();
+  ).toEqual([]);
   expect(CLAUDE.replyIn(wrapped(result).rawOutput)).toEqual(reply);
   expect(CLAUDE.replyIn("permission denied")).toBeUndefined();
   expect(CLAUDE.replyIn({ stdout: "foreign tool" })).toBeUndefined();
@@ -972,7 +971,7 @@ test("the first text block is the reply, and only a record is a reply", () => {
   expect(CLAUDE.replyIn({ structuredContent: { id: "t1" } })).toBeUndefined();
   expect(
     CLAUDE.mcpCall({ name: "bash", title: "mcp__kolu__screen_text" }, ["kolu"]),
-  ).toBeNull();
+  ).toEqual([]);
 });
 
 // The SDK stores `tool_result.content` as a string, forwarded unchanged by ACP.

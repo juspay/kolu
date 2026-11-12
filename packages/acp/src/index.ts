@@ -25,7 +25,9 @@
 export {
   type ActivityNotification,
   type ActivityUpdate,
+  type Heard,
   nativeActivity,
+  type NativeActivity,
 } from "./activity.ts";
 export {
   contentOf,

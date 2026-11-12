@@ -46,6 +46,18 @@
 import type { PermissionOption } from "@agentclientprotocol/sdk";
 import type { Duration } from "effect";
 
+import type { NativeActivity } from "./activity.ts";
+
+/** The channel one agent runs its own child sessions and background tasks on,
+ *  re-offered here because a leg DECLARES one and `./engine.ts` is the door an
+ *  integration reaches a leg's vocabulary through. */
+export type {
+  ActivityNotification,
+  ActivityUpdate,
+  Heard,
+  NativeActivity,
+} from "./activity.ts";
+
 /** A `_meta`, as every reader here takes one: an object of unknown fields, or
  *  nothing at all. Spelled once because five signatures below take it. */
 export type Meta = { readonly [key: string]: unknown } | null | undefined;
@@ -132,26 +144,37 @@ export interface RawMessages {
   readonly serversIn: (params: unknown) => ReadonlyArray<Reported> | null;
 }
 
-/** A tool frame as needed for display; programmatic names take precedence. */
+/**
+ * A tool frame as needed for display; programmatic names take precedence.
+ *
+ * `rawOutput` is here because one agent says WHICH tools a call ran only in
+ * the call's own result: opencode 2's Code Mode dispatches every MCP tool
+ * through one `execute`, and the script's `rawInput.code` names them going in
+ * while `rawOutput.metadata.toolCalls` names them coming back. A leg whose
+ * wire announces the tool by name ignores it.
+ */
 export interface MCPFrame {
   readonly title?: string | null | undefined;
   readonly rawInput?: unknown;
+  readonly rawOutput?: unknown;
   readonly _meta?: Meta;
   readonly name?: string | null | undefined;
 }
 
-/** Display only; allowedWithoutAsking remains the approval rule. */
+/** Display only; allowedWithoutAsking remains the approval rule. A wire that
+ *  announces one MCP tool per tool call answers a list of one or an empty
+ *  one. */
 export const mcpCallBy =
   (spelling: (server: string) => string): Leg["mcpCall"] =>
   (frame, servers) => {
     const name = frame.name ?? frame.title;
-    if (name == null) return null;
+    if (name == null) return [];
     for (const server of servers) {
       const prefix = spelling(server);
       if (name.startsWith(prefix) && name.length > prefix.length)
-        return { server, tool: name.slice(prefix.length) };
+        return [{ server, tool: name.slice(prefix.length) }];
     }
-    return null;
+    return [];
   };
 
 /**
@@ -173,6 +196,11 @@ export const mcpCallBy =
  * kolu's own tools on one wire and approve somebody's plan-mode exit on the
  * other. One rule, read off the option's own `kind`, is right on both.
  *
+ * NOT EVERY LEG CAN USE IT. An agent that dispatches every MCP tool through
+ * one builtin — opencode 2's Code Mode — has no tool NAME to match against,
+ * and writes a rule of its own over the frame instead. This stays the rule for
+ * the wires that do name the tool.
+ *
  * @param spelling what this agent calls the tools of the server named
  */
 export const allowingOurs =
@@ -182,11 +210,17 @@ export const allowingOurs =
       tool !== null &&
       given.some((server) => tool.startsWith(spelling(server)));
     if (!ours) return null;
-    return (
-      options.find((option) => option.kind.startsWith("allow"))?.optionId ??
-      null
-    );
+    return allowFlavoured(options);
   };
+
+/** The option that ALLOWS, out of an agent's own list and by its own `kind` —
+ *  or `null` for a request that offers none. Spelled once because every leg's
+ *  rule ends here, and the one thing none of them may do is take the first
+ *  option: the two wires this package speaks order their lists oppositely. */
+export const allowFlavoured = (
+  options: ReadonlyArray<PermissionOption>,
+): string | null =>
+  options.find((option) => option.kind.startsWith("allow"))?.optionId ?? null;
 
 /** What a leg says about a call that SPAWNED an agent — structural rather than
  *  `@kolu/surface`'s `Spawned`, which is what the caller assigns it to:
@@ -314,17 +348,43 @@ export interface Reported {
 export interface Leg {
   /** Adapter prefix before an MCP tool name, or null when carried structurally. */
   readonly spelling: ((server: string) => string) | null;
-  /** DISPLAY ONLY. Match a call against servers handed to this session;
-   * allowedWithoutAsking remains the only approval rule. */
+  /**
+   * DISPLAY ONLY. Which of this client's tools this frame is about — EVERY one
+   * of them, in the order the agent ran them, and empty for a call that is
+   * none of ours. `allowedWithoutAsking` remains the only approval rule.
+   *
+   * A LIST because one frame can be several calls. Most wires announce one
+   * MCP tool per tool call and answer a list of one or none; opencode 2
+   * dispatches every MCP tool through one Code Mode `execute`, and a model
+   * batching three of our calls into one script is the ordinary case rather
+   * than an exotic one. A reader that answered only the first of them would be
+   * naming a row after a third of what it did.
+   *
+   * ALL OF THEM OR NONE: a frame whose calls are not ALL servers this session
+   * was handed answers empty rather than the recognisable part of it.
+   */
   readonly mcpCall: (
     frame: MCPFrame,
     servers: ReadonlyArray<string>,
-  ) => { server: string; tool: string } | null;
-  /** The adapter's structured reply; absent for prose or another output shape. */
-  readonly replyIn: (rawOutput: unknown) => Record<string, unknown> | undefined;
-  /** Native child-session and AIR async-task lifecycle streams. Opt in only
-   * where the adapter implements these versioned extensions. */
-  readonly nativeActivity?: boolean;
+  ) => ReadonlyArray<{ server: string; tool: string }>;
+  /**
+   * The adapter's structured reply; absent for prose or another output shape.
+   *
+   * `content` is the frame's own content blocks, for the agent that puts a
+   * tool's answer there rather than in its output: opencode 2's Code Mode
+   * returns the SCRIPT's value as a text block and keeps `rawOutput` for the
+   * run's bookkeeping. A leg that reads only the output ignores it — a missing
+   * second argument answers `undefined`, which draws no reply, which is the
+   * direction every reader in this file fails in.
+   */
+  readonly replyIn: (
+    rawOutput: unknown,
+    content?: unknown,
+  ) => Record<string, unknown> | undefined;
+  /** Native child-session and async-task lifecycle streams, in this agent's own
+   * spelling — see {@link NativeActivity}. Absent for an agent with no such
+   * channel, which is most of them. */
+  readonly nativeActivity?: NativeActivity;
   /** Connection reports carried by ordinary session updates, where an adapter
    * exposes them. Display only: this must never grant tool permissions. */
   readonly serversInUpdate?: (
@@ -332,6 +392,29 @@ export interface Leg {
   ) => ReadonlyArray<Reported> | null;
   /** Advertise/read the terminal-output metadata extension. */
   readonly terminalOutput?: boolean;
+  /**
+   * WHETHER THIS AGENT'S `terminal` SIGN-IN CAN BE RUN BY THE PANEL AT ALL —
+   * and, when it cannot, THE COMMAND A PERSON IS SHOWN INSTEAD.
+   *
+   * Absent, it can, which is what every leg did: the client spawns the
+   * method's command line over pipes, streams its output into the card and
+   * gives a person one line to type the code back on.
+   *
+   * `byHand` is for an agent whose sign-in is an INTERACTIVE WIZARD — one
+   * that refuses the moment it finds no TTY, so a pipe and a paste box can
+   * never finish it. Nothing is spawned for such a method and no button is
+   * drawn: the card shows the method's label and one command line, composed
+   * of the binary THIS client resolved and these arguments. A button that
+   * cannot finish what it looks like it starts is the one thing this panel
+   * does not draw.
+   *
+   * THE ARGUMENTS ARE THE LEG'S because the wire's are not usable: an agent
+   * that cannot be driven over a pipe tends to spell its by-hand verb
+   * somewhere other than the method it advertises, and the only part of it
+   * this client can supply from the handshake is the program. Why a given
+   * agent needs which words is that leg's to say.
+   */
+  readonly terminalAuth?: { readonly byHand: ReadonlyArray<string> };
   /**
    * Whether the title THIS frame carries is a PLACEHOLDER the adapter has not
    * refined yet — absent for an agent that names a call once and means it.
@@ -364,8 +447,17 @@ export interface Leg {
    * DISPLAY title, and "which tool is this" is what the answer depends on. An
    * agent that answers neither this nor {@link Leg.toolNameOf} leaves every call
    * unnamed, and a call nobody named is a call a person is asked about.
+   *
+   * TWO ARGUMENTS BECAUSE TWO WIRES SAY IT IN TWO PLACES: the pinned Claude
+   * Code adapter writes it into a `_meta` corner, and opencode 2 puts it on
+   * the frame beside the title. The second argument is THE FRAME, verbatim —
+   * WHICH field on it carries the name is the leg's answer and not this
+   * caller's, so a wire that respells the field moves one integration. It is
+   * optional for the reason every reader here is fail-safe: a caller with no
+   * frame to hand passes nothing, the leg answers `null`, and a call nobody
+   * named is a call a person is asked about.
    */
-  readonly toolNameIn: (meta: Meta) => string | null;
+  readonly toolNameIn: (meta: Meta, frame?: unknown) => string | null;
 
   /**
    * ... and out of the CALL ID, for a wire that puts it there.
@@ -392,15 +484,30 @@ export interface Leg {
    * and a leg that matched more loosely than its agent's spelling would be
    * widening the one rule in this package that must not widen.
    *
+   * THE FRAME IS THE FOURTH ARGUMENT, and it exists for the agent whose tool
+   * name is not the whole question. opencode 2 dispatches every MCP tool
+   * through one builtin, so the name a request carries is `execute` for our
+   * tools, a foreign server's, and its own — and WHICH is readable only in the
+   * script the request is about ({@link MCPFrame.rawInput}). A leg that
+   * matches on the name alone ignores it.
+   *
+   * IT IS OPTIONAL AND THAT IS SAFE IN ONE DIRECTION ONLY, which is the
+   * direction it is: a caller that hands no frame leaves a Code-Mode leg
+   * unable to recognise anything, so it recognises nothing, so a person is
+   * asked. Nothing is ever approved by an argument going missing.
+   *
    * @param tool the programmatic name of the tool, or `null` when nothing named
    *   it — a name we do not know is answered by ASKING
    * @param given the MCP servers this conversation was handed, by name
    * @param options the request's own options, in the agent's own order
+   * @param asked the frame the request is ABOUT, for a wire that says which
+   *   tool a call really is somewhere other than its name
    */
   readonly allowedWithoutAsking: (
     tool: string | null,
     given: ReadonlyArray<string>,
     options: ReadonlyArray<PermissionOption>,
+    asked?: MCPFrame,
   ) => string | null;
 
   /** The `Agent`/`Task` call a frame's own call was made INSIDE, or `null` for
@@ -409,9 +516,22 @@ export interface Leg {
    *  direction this can afford. */
   readonly parentToolUse: (meta: Meta) => string | null;
 
-  /** What this frame says about an agent this call STARTED, or `null` for a
-   *  frame that says nothing about one — which is nearly all of them. */
-  readonly spawned: (meta: Meta, input: unknown) => Spawn | null;
+  /**
+   * What this frame says about an agent this call STARTED, or `null` for a
+   * frame that says nothing about one — which is nearly all of them.
+   *
+   * `named` is the frame's own `name` field, for the same reason
+   * {@link Leg.toolNameIn} takes it: a leg that read only the INPUT would
+   * answer for any call whose arguments happened to carry an `agent` or a
+   * `description`, and would draw an ordinary shell command as having sent an
+   * agent out. Positive recognition means recognising the CALL, and on the one
+   * wire whose spawn is a named builtin the name is where that is said.
+   */
+  readonly spawned: (
+    meta: Meta,
+    input: unknown,
+    named?: string | null,
+  ) => Spawn | null;
 
   /** ... and what it says about a BACKGROUND TASK this call armed, or `null`
    *  for a frame that says nothing about one — see {@link Background}. An agent

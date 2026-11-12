@@ -1,11 +1,19 @@
 {
   "activity.ts": {
-    "exports": ["ActivityNotification", "ActivityUpdate", "nativeActivity"],
+    "exports": [
+      "ActivityNotification",
+      "ActivityUpdate",
+      "Heard",
+      "NativeActivity",
+      "nativeActivity"
+    ],
     "members": [
+      "clientMeta",
       "description",
       "id",
       "kind",
       "name",
+      "readIn",
       "session",
       "state",
       "summary",
@@ -92,6 +100,7 @@
       "Spawn",
       "Steering",
       "TaskNotice",
+      "allowFlavoured",
       "allowingOurs",
       "mcpCallBy",
       "namedExactly"
@@ -126,6 +135,7 @@
       "queues",
       "rawInput",
       "rawMessages",
+      "rawOutput",
       "replyIn",
       "report",
       "said",
@@ -138,6 +148,7 @@
       "taken",
       "task",
       "taskNotification",
+      "terminalAuth",
       "terminalOutput",
       "timeout",
       "title",

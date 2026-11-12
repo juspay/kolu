@@ -34,7 +34,7 @@ import type { Leg, Meta } from "@kolu/acp/engine";
  */
 export interface Said {
   /** Compact MCP identity for display; never the frame or its input. */
-  readonly mcp?: NonNullable<ReturnType<Leg["mcpCall"]>>;
+  readonly mcp?: ReturnType<Leg["mcpCall"]>[number];
   /** Which tool it is, programmatically — never the display title. */
   readonly name?: string;
   /** The subagent call it was made INSIDE, by the id it arrived as. */
@@ -79,10 +79,16 @@ export class Calls {
   }
 
   /** Keep only the recognised server/tool identity, never input bodies or
-   *  frames. */
+   *  frames.
+   *
+   *  THE FIRST of what the leg recognised. A leg answers a LIST because one
+   *  frame can be several calls on a wire that dispatches every MCP tool
+   *  through one builtin; the leg this harness runs announces one tool per
+   *  call, so its list is one or none, and a card names the call it is. */
   recognized(id: string, mcp: ReturnType<Leg["mcpCall"]>): void {
-    if (mcp === null) return;
-    this.#said.set(id, { ...this.#said.get(id), mcp });
+    const first = mcp[0];
+    if (first === undefined) return;
+    this.#said.set(id, { ...this.#said.get(id), mcp: first });
   }
 
   /**
