@@ -8,7 +8,7 @@
  * `input.epoch`. Every one of those is `Schema.optionalKey` on BOTH wires — so
  * an omitted key arrives at the forwarder as a plain `undefined`. (The third
  * path, `screen.text { tail }`, does not forward its input: `readScreenTail`
- * turns it into window reads of its own, always a definite `tailLines`, which
+ * turns it into window reads of its own, always a definite `tailRows`, which
  * the last pin below covers as the `tail` extent.)
  * kaval's client face DECODES its input (`packages/surface/src/client.ts` —
  * `Schema.decodeUnknownSync` at the edge), and `optionalKey` accepts an ABSENT

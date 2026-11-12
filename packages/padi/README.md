@@ -363,14 +363,14 @@ handful of habits that paid for nothing; each is now a rule rather than a tuning
   Both live under `src/cliClient/` — `render.ts` and `read.ts`, and nothing
   else: the wait kit a reader of this paragraph used to be sent here for is
   `@kolu/padi-client/watch`, one package down, and this package has no `./dial`
-  entry to re-export it through (the dial is `@kolu/padi-client/dial`) — the
-  same one-cluster-one-directory shape as `terminalEndpoint/` and
-  `terminalWorkspace/`. The tail-mode screen slice went the whole way it was
-  always headed and is now `@kolu/padi-client/screenTail`, a genuinely
-  zero-import leaf: it DEFINES what padi's `screen.text { tail }` answers, so it
-  belongs beside that reply's schema and not behind a manifest naming
-  `columnify`, and the daemon is the only place that applies it (see
-  `screen.text` below). The pure `terminalVocab.ts` they all fold over sits one
+  entry to re-export it through (the dial is `@kolu/padi-client/dial`). The
+  tail-mode screen slice
+  went the whole way it was always headed and is now
+  `@kolu/padi-client/screenTail`, a genuinely zero-import leaf: it folds padi's
+  `screen.text` REPLY, so it belongs beside that reply's schema and not behind a
+  manifest naming `columnify` — the same
+  one-cluster-one-directory shape as `terminalEndpoint/` and
+  `terminalWorkspace/`. The pure `terminalVocab.ts` they all fold over sits one
   level UP, at the package root: the SERVER speaks it too (supervision-edge
   delivery narrows a supervisor with `activeAgent` before writing into its
   mailbox), and a daemon module reaching into a `cliClient/` directory would
@@ -402,12 +402,8 @@ is no longer shipped to a face only to be thrown away.
 
 The cut has to be padi's, not kaval's: kaval's own `tail` extent counts buffer
 rows, blank viewport included, so forwarding N would hand a fresh shell's caller
-N blank lines. `src/screenTextTail.ts` reads a window of N plus the terminal's
-grid rows from kaval, folds it with `tailLines`, and widens only when the fold
-came up short while the window was still full — to the now-known blank run
-plus N when the window held content, doubling when it was all blank. A terminal
-no viewer has sized yet has no grid on its record and starts at N; the slack
-changes how many reads a call costs, never its answer.
+N blank lines. `src/screenTextTail.ts` reads a window wider than N rather than
+the scrollback; its header has the arithmetic.
 
 ## `screen.image` — padi is where the picture gets made
 

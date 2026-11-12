@@ -45,6 +45,8 @@
  */
 
 import { padiOf } from "./bundleClient.ts";
+// The tail RULE is padi's — its decode is what the value meets.
+import { ScreenTextTailSchema } from "@kolu/padi-client/surface";
 import type { BespokeTool } from "@kolu/surface-mcp/tools";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { Schema } from "effect";
@@ -52,10 +54,10 @@ import { Schema } from "effect";
 export const ScreenTextArgsSchema = Schema.Struct({
   id: TerminalIdSchema,
   tail: Schema.optionalKey(
-    Schema.Number.annotate({
+    ScreenTextTailSchema.annotate({
       description:
         "Return only the last N lines (omit for the whole scrollback).",
-    }).check(Schema.isInt(), Schema.isGreaterThan(0)),
+    }),
   ),
 });
 export type ScreenTextArgs = typeof ScreenTextArgsSchema.Type;

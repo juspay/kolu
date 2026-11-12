@@ -64,7 +64,7 @@ describe("padiSurface contract", () => {
     expect(padiSurface.tagPrefix).toBe("surface/");
   });
 
-  it("is version 7.0 — the current major — DEFAULT_PADI_VERSION carries + validates it", () => {
+  it("declares its surface contract version — DEFAULT_PADI_VERSION carries + validates it", () => {
     // 1.1–1.3 were additive minors over 1.0 (recycleKaval, hostInventory, identity).
     // 2.0 was the first MAJOR: (a) it ADDED the per-terminal right-panel `collapsed`
     // field (the panel follows the terminal, #959) — a major because an older client's
@@ -148,11 +148,7 @@ describe("padiSurface contract", () => {
     // package and the built profiles, and the `agentDistroResolved` cell is
     // GONE (kolu-server resolves a profile when it builds it). A member was
     // removed and no arm decodes across the change, so it is a major.
-    // 7.1 gives `screen.text` a `tail`. A 7.0 decoder would strip it and serve
-    // the whole scrollback as the tail, so a 7.1 face refuses a 7.0 padi.
     expect(PADI_SURFACE_VERSION).toBe("7.1");
-    expect(isContractVersionCompatible("7.0", "7.1")).toBe(false);
-    expect(isContractVersionCompatible("7.1", "7.0")).toBe(true);
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -193,6 +189,10 @@ describe("padiSurface contract", () => {
     // Two-digit minors compare as numbers, not strings: 5.10 is after 5.9.
     expect(isContractVersionCompatible("5.9", "5.10")).toBe(false);
     expect(isContractVersionCompatible("5.10", "5.9")).toBe(true);
+    // 7.1 gives `screen.text` a `tail`. A 7.0 decoder would strip it and serve
+    // the whole scrollback as the tail, so a 7.1 face refuses a 7.0 padi.
+    expect(isContractVersionCompatible("7.0", "7.1")).toBe(false);
+    expect(isContractVersionCompatible("7.1", "7.0")).toBe(true);
     // A major bump is mutually incompatible in both directions.
     expect(isContractVersionCompatible("6.0", "5.0")).toBe(false);
     expect(isContractVersionCompatible("5.0", "6.0")).toBe(false);

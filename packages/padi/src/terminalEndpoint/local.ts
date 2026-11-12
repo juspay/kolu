@@ -339,7 +339,7 @@ export class PtyHostTerminalProxy implements TerminalHandle {
   async getScreenText(
     startLine?: number,
     endLine?: number,
-    tailLines?: number,
+    tailRows?: number,
   ): Promise<string> {
     await this.ready;
     // Translate the positional `TerminalHandle` contract into the wire's single
@@ -356,8 +356,8 @@ export class PtyHostTerminalProxy implements TerminalHandle {
     // the caller sent one bound, so spelling the missing half out would throw
     // before the call ever left padi.
     const extent =
-      tailLines !== undefined
-        ? ({ kind: "tail", lines: tailLines } as const)
+      tailRows !== undefined
+        ? ({ kind: "tail", lines: tailRows } as const)
         : startLine === undefined && endLine === undefined
           ? ({ kind: "full" } as const)
           : ({

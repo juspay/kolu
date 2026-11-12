@@ -344,12 +344,6 @@ function reportOutcome(
   json: boolean,
 ): Effect.Effect<void, CliFailure> {
   return Effect.gen(function* () {
-    // A met's `screen` is already the last `--snapshot` lines: the engine reads
-    // it with `screen.text { tail }`, and padi cuts it (dropping the trailing
-    // blank rows a rendered buffer ends in) before it crosses the link. The
-    // engine asserts the screen is PRESENT when it was asked for, so there is
-    // no absent-screen arm to invent.
-
     if (json) {
       // The met payload passes through UNCHANGED. `ConditionMet` is already a
       // closed union with exactly the fields the frame carries, so the

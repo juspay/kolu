@@ -37,6 +37,8 @@ import { padiOf } from "./bundleClient.ts";
 // static tree-build path of every `kolu` invocation (the surface face mounts
 // the table), so the waiters' socket/mirror closure may only load at call
 // time. WAIT_STATES has a schema home of its own and belongs here statically.
+// The tail RULE is padi's: `ScreenTextTailSchema` is what its decode accepts.
+import { ScreenTextTailSchema } from "@kolu/padi-client/surface";
 import {
   MAX_TIMER_MS,
   type WaitMet,
@@ -88,10 +90,10 @@ const TimeoutMsSchema = Schema.optionalKey(
  *  number says both "yes, capture" and "this much", so there is no way to ask
  *  for a screen and forget to bound it. */
 const ScreenTailSchema = Schema.optionalKey(
-  Schema.Number.annotate({
+  ScreenTextTailSchema.annotate({
     description:
       "Also return the terminal's last N rendered lines on the met, read INSIDE this wait — so no second screen_text call can race the terminal between the signal and the read.",
-  }).check(Schema.isInt(), Schema.isGreaterThan(0)),
+  }),
 );
 
 /** Serialize a wait outcome to the tool's JSON frame via the shared
@@ -156,7 +158,7 @@ export const waitOutputSettledTool: BespokeTool = {
       const outcome = await awaitOutputSettled(padiOf(client), {
         id,
         idleMs,
-        ...(screenTail === undefined ? {} : { screenTail }),
+        screenTail,
         timeoutMs,
         signal: signal ?? fiberSignal,
       });
@@ -211,7 +213,7 @@ export const waitAgentStateTool: BespokeTool = {
         id,
         targets: new Set(until),
         settledMs,
-        ...(screenTail === undefined ? {} : { screenTail }),
+        screenTail,
         timeoutMs,
         signal: signal ?? fiberSignal,
       });

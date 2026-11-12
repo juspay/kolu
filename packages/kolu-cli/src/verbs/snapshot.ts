@@ -28,17 +28,9 @@
  * and call it the viewport — a silent lie about which lines you are looking
  * at), the flag is simply absent, and `--tail N` is the whole bounding story.
  * That matches `screen_text{tail}` on the MCP face exactly, so the two faces
- * have one contract between them rather than one-and-a-half.
- *
- * ## Why the tail is padi's
- *
- * `--tail N` is passed to `screen.text` as `tail`, and padi cuts it before
- * replying — so a long-running agent's scrollback no longer crosses the link
- * to be thrown away here. The cut also drops the trailing run of
- * whitespace-only rows a rendered buffer ends in (the empty viewport below the
- * cursor). Without that, `--tail 6` on a fresh shell prints six blank lines — a
- * real bug caught on the MCP side, which is why "the last N lines" has one
- * definition (`@kolu/padi-client/screenTail`) and one place that applies it.
+ * have one contract between them rather than one-and-a-half. `--tail N` rides
+ * `screen.text` as `tail`; padi defines and applies the cut
+ * (`@kolu/padi-client/screenTail`).
  */
 
 import { shortId } from "@kolu/padi/render";

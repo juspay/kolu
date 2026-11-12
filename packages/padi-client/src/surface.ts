@@ -1086,8 +1086,9 @@ export const PadiTerminalIdInputSchema = Schema.Struct({
 const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0));
 
 /** What a legal `screen.text` `tail` is — a whole count of lines, at least one.
- *  ONE spelling, read by the wire field below AND by the wait engine's guard
- *  (`./watch`), so the engine can never pass a tail padi refuses at the decode. */
+ *  ONE spelling: the wire field below, the wait engine's guard (`./watch`) and
+ *  the MCP faces that produce a tail all read it, so none can pass a tail padi
+ *  refuses at the decode. */
 export const ScreenTextTailSchema = PositiveInt;
 
 /** A whole non-negative count/index — the `z.number().int().nonnegative()` of

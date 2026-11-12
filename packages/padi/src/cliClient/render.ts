@@ -67,9 +67,8 @@ import columnify from "columnify";
 // over: `kolu-common/config` declines to re-export `DEFAULT_FONT_SIZE` back
 // through its own heavy manifest and moves the call sites instead. Two answers to
 // one question in one change is the drift; this is the answer. Every face imports
-// `@kolu/padi-client/terminalId` directly. The screen tail no longer has a face
-// importing it at all: padi applies it server-side when `screen.text` is asked
-// for a `tail`, so faces receive the slice rather than cutting it.
+// `@kolu/padi-client/terminalId` directly, and all three already declared that
+// package.
 //
 // `shortId`/`SHORT_ID_LEN` deliberately did NOT go with them. They read as the
 // resolver's other half (`list` prints a short id; any verb takes it back), and

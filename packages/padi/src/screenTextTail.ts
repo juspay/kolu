@@ -10,8 +10,9 @@
  *  What makes it cheap is reading a WINDOW wider than N instead of the whole
  *  buffer: N plus a slack (the terminal's grid rows, which is how much blank
  *  viewport there can be below the cursor), folded with `tailLines`. The
- *  window is exactly enough when it holds N content lines, or when it already
- *  reached the top of the buffer. Otherwise it widens and reads again:
+ *  window is exactly enough when its fold came back with all N lines, or when
+ *  it already reached the top of the buffer. Otherwise it widens and reads
+ *  again:
  *
  *   - the window held SOME content: its trailing blank run is now known in
  *     full, so the next window is that run plus N — one more read;
@@ -23,7 +24,7 @@
  *  output lands between reads. The reply is always one read's fold, never a
  *  splice of two. */
 
-import { contentEnd, tailLines } from "@kolu/padi-client/screenTail";
+import { tailLines } from "@kolu/padi-client/screenTail";
 
 /** The last `tail` lines of a screen, read through `read(window)` — which
  *  returns the last `window` rows of the rendered buffer (fewer when the
@@ -37,9 +38,13 @@ export async function readScreenTail(
   let window = tail + slack;
   for (;;) {
     const text = await read(window);
-    const lines = text.split("\n");
-    const end = contentEnd(lines);
-    if (end >= tail || lines.length < window) return tailLines(text, tail);
-    window = end > 0 ? lines.length - end + tail : window * 2;
+    const answer = tailLines(text, tail);
+    // The fold keeps every row up to the last one with content, capped at
+    // `tail`. So a fold that came up SHORT kept exactly that content extent,
+    // and the rest of the window is the trailing blank run.
+    const kept = answer === "" ? 0 : answer.split("\n").length;
+    const rows = text.split("\n").length;
+    if (kept === tail || rows < window) return answer;
+    window = kept > 0 ? rows - kept + tail : window * 2;
   }
 }
