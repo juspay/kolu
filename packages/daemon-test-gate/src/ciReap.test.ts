@@ -301,6 +301,37 @@ it("reapUncooperative escalates to SIGKILL when the child ignores SIGTERM", asyn
   expect(isReachablePid(pid)).toBe(false);
 });
 
+it("listProcesses reads a process listing larger than Node's 1 MiB default buffer", async () => {
+  // Ten live children with one 120 KB argument each push the listing past
+  // 1 MiB whatever else the host runs — the many-processes shape that broke a
+  // busy CI box. One argument each, because procps caps a listed command line
+  // at 128 KiB; each child also stays under darwin's 1 MiB ARG_MAX, and stays
+  // bash (a builtin `read`, blocked on a stdin pipe held open) so ps keeps
+  // reporting this argv without the loop spinning.
+  const pids: number[] = [];
+  for (let i = 0; i < 10; i++) {
+    const child = spawn(
+      "bash",
+      [
+        "-c",
+        "echo up; while :; do read -r -t 60 || true; done",
+        "x".repeat(120_000),
+      ],
+      { stdio: ["pipe", "pipe", "ignore"] },
+    );
+    const pid = child.pid;
+    if (pid === undefined) throw new Error("wide-argv fixture did not start");
+    children.push(pid);
+    pids.push(pid);
+    await new Promise<void>((resolve, reject) => {
+      child.stdout.once("data", () => resolve());
+      child.once("error", reject);
+    });
+  }
+  const listed = new Set(listProcesses().map((p) => p.pid));
+  for (const pid of pids) expect(listed).toContain(pid);
+});
+
 it("sweepBindPidGoneDaemons reaps a real SIGTERM-deaf child whose bind pid is already dead", async () => {
   const bind = await deadPid();
   // bash -c execs a trailing `sleep`, so the CI-root markers have to live in

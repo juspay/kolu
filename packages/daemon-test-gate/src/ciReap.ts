@@ -138,9 +138,14 @@ export function processListArgs(): string[] {
     : ["-eo", "uid=,pid=,args="];
 }
 
+/** `maxBuffer` is unbounded on purpose: a process listing has no natural size
+ *  — one busy CI box (680 processes, compiler lines of 14 KB each) printed
+ *  2.2 MiB — and Node's 1 MiB default turns that into ENOBUFS, which fails the
+ *  reap on exactly the loaded host it exists for. */
 export function listProcesses(): ListedProc[] {
   const out = execFileSync("ps", processListArgs(), {
     encoding: "utf8",
+    maxBuffer: Number.POSITIVE_INFINITY,
   });
   const rows: ListedProc[] = [];
   for (const line of out.split("\n")) {
@@ -167,8 +172,11 @@ export function readBindPidFromEnviron(pid: number): BindPidRead {
     // No /proc (darwin) or the pid is already gone — fall through to ps.
   }
   try {
+    // One process's argv + environment: unbounded for the same reason as
+    // `listProcesses` (darwin's ARG_MAX alone is the 1 MiB default).
     const out = execFileSync("ps", ["eww", "-p", String(pid)], {
       encoding: "utf8",
+      maxBuffer: Number.POSITIVE_INFINITY,
     });
     const found = parseBindPidFromPsEww(out);
     if (found !== undefined) return { kind: "bound", pid: found };
