@@ -21,6 +21,13 @@
  * backpressure is unchanged: a stalled consumer holds up its own stream, its
  * sender waits, and it resumes where it left off.
  *
+ * THE COST (measured for kolu#2352, against the same tree with lanes bypassed):
+ * one fiber fork per chunk, because a lane a keeping-up consumer drains is
+ * empty again after every delivery. That is +4 to +7 µs CPU per 200 B chunk and
+ * 17–26% fewer small chunks/s at the link's ceiling; 256 KiB chunks are
+ * unchanged. Only Effect's client can avoid it (try the offer, fork only when
+ * the queue is full).
+ *
  * DELETE THIS MODULE when Effect's client stops delivering on its reader. Its
  * one call site is the protocol wrap in `openWireLink` (`./wire.ts`).
  * `streamConsumerStall.test.ts` is the measure either way.
