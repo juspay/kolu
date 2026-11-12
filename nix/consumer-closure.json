@@ -24,6 +24,7 @@
       "dir": "packages/acp-harness",
       "workspace": [
         "@kolu/acp",
+        "@kolu/terminal-vocab",
         "kolu-common",
         "kolu-mcp"
       ],

@@ -997,6 +997,11 @@ export const startHarness = async (
         onToolCall(update);
         return;
       }
+      // `status` is copied, not narrowed like a tool call's `statusOf`: the
+      // SDK parses every `session/update` before this sees it, and a plan
+      // entry whose status is outside its three-word union is SKIPPED there
+      // (`vecSkipError(zPlanEntry)`), and a wider SDK union stops compiling
+      // here — the row's own `Literals` are the same three words.
       case "plan":
         report(
           transcript.plan(

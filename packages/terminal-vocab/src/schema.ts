@@ -47,14 +47,15 @@ import { match, P } from "ts-pattern";
 
 // ── Terminal identity ─────────────────────────────────────────────────
 
-export const TerminalIdSchema = Schema.String.check(Schema.isUUID());
-export type TerminalId = typeof TerminalIdSchema.Type;
-
-/** Is this string a FULL terminal id, rather than a prefix of one? The
- *  predicate half of {@link TerminalIdSchema}, spelled beside it: a caller
- *  asking that question must not have to reach for a decoder that answers a
- *  different one, nor re-derive the shape from the UUID check. */
-export const isTerminalId = Schema.is(TerminalIdSchema);
+// Declared in its own leaf (`./terminalId.ts`, reached as
+// `@kolu/terminal-vocab/terminalId`) so a reader that only asks "is this a
+// terminal id?" need not load this module's whole graph; re-exported here so
+// this stays the schema home every other importer resolves it through.
+export {
+  isTerminalId,
+  type TerminalId,
+  TerminalIdSchema,
+} from "./terminalId.ts";
 
 // ── Client scrollback depth ───────────────────────────────────────────
 
