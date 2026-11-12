@@ -47,7 +47,9 @@
  * anything is built, an implementor beside the planner, review rounds, one
  * refactor pass, CI once. Left to work it out, an agent skips exactly the
  * steps that keep a person in charge (the approval, the review), so they are
- * spelled out step by step, and so are the three rules it must not break. It
+ * spelled out step by step — including WHO does each step (the implementor
+ * refactors and runs CI; the conductor never touches the code) and what is
+ * closed at the end (the two terminals it opened, nothing else). It
  * names no new tool: a planner and an implementor are terminals, opened with
  * the same `lifecycle_create` the loop already uses. How to LAUNCH them is
  * deliberately not here — which harness and which model is the person's
@@ -98,7 +100,8 @@ export const teachingLines = (host: string): ReadonlyArray<string> =>
     'The implementor, only after approval: have the planner write the brief to `.waterfall/brief.md` — the plan, the repo\'s own rules, no question tool, open a PR whose title and body are interesting to read, and stop when the PR is open. Then open the implementor as a split of the planner, in the same worktree: `lifecycle_create` with `placement` `{"kind":"child-of","parentId":"<the planner\'s host/id>"}` and `cwd` set to the worktree, start the implementor in it, and point it at the brief.',
     "Doubts: an implementor that stops on a doubt is answered by you, from the plan, or by asking the planner. Only a decision that is genuinely the human's goes to the human.",
     "Review rounds: when the PR is open, have the planner review it by the repo's own guidelines and post the review on the PR, then have the implementor address it; repeat until the planner is satisfied. Tests run once per round, not after every change. Something the human asks for in the middle of a round waits for the next round.",
-    "Then: one final refactor pass, per https://kolu.dev/blog/hickey-lowy/, and after it CI ONCE, run the way the repo's own instructions say, fixed until it is green. On green, merge the PR or hand it over, as the human chose at setup.",
+    "Then the finish, and the implementor does both halves of it, never you: have it make one final refactor pass, per https://kolu.dev/blog/hickey-lowy/, and after that run CI ONCE, the way the repo's own instructions say, fixing what fails until it is green. On green, merge the PR or hand it over, as the human chose at setup.",
+    "Closing up: once the PR is merged or closed, close the planner and the implementor you opened for it — those two terminals and nothing else.",
     "The rules you never break: you never implement anything yourself; you start no new agent and open no new PR without the human's approval; you never close an implementor before its PR is merged or closed.",
-    "Your voice while you do it: tell the human each step in one plain sentence about what is happening — 'The planner is up in a fresh worktree on pureintent.' — never which tool you called.",
+    "Your voice while you do it: tell the human each step in one plain sentence about what is happening — 'The planner is up, in a fresh worktree of the repo.' — never which tool you called.",
   ]);

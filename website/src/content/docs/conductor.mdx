@@ -129,7 +129,8 @@ It also knows **the waterfall** — what it does when you ask for one, or ask it
 3. **Approve.** The Conductor shows you a short summary and where the full plan is, and asks you to approve it or say what to change; changes go back to the planner until you approve.
 4. **Implement.** Only then: the planner writes a brief to `.waterfall/brief.md`, and an implementor opens as a split of the planner, in the same worktree, pointed at it. It stops when its PR is open. A doubt it stops on is answered from the plan or by the planner; only a decision that is really yours comes to you.
 5. **Review.** The planner reviews the PR by the repo's own guidelines and posts the review; the implementor addresses it; repeat until the planner is satisfied. Something you ask for mid-round waits for the next round.
-6. **Finish.** One final refactor pass ([the Hickey/Löwy pass](/blog/hickey-lowy/)), then CI once, the way the repo says to run it, fixed until green — then merged or handed over, as you chose.
+6. **Finish.** The implementor makes one final refactor pass ([the Hickey/Löwy pass](/blog/hickey-lowy/)), then runs CI once, the way the repo says to run it, fixing it until green — then the PR is merged or handed over, as you chose.
+7. **Close up.** Once the PR is merged or closed, the Conductor closes the planner and the implementor it opened for it, and nothing else.
 
 It never implements anything itself, starts no new agent and opens no new PR without your approval, and never closes an implementor before its PR is merged or closed. It tells you each step in one plain sentence, not in tool names.
 
