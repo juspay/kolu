@@ -68,14 +68,14 @@ const ConductorHeader: Component<{
       </span>
       {/* Said once here, beside the name: the surface you are IN has to say it
           too, or a reader who arrived by ⌘⇧O never passed the chrome-bar tag.
-          Not a phase chip — what it is beta about does not change while the
+          Not a phase chip — what it is alpha about does not change while the
           conversation runs. */}
-      <Tip label="Beta: the shape can still change, and a conversation can be lost across a version">
+      <Tip label="Alpha: the shape can still change, and a conversation can be lost across a version">
         <span
-          data-testid="conductor-beta"
+          data-testid="conductor-alpha"
           class="rounded-sm bg-fg-3/15 px-1 py-px font-mono text-[0.6rem] font-semibold uppercase tracking-[0.08em] text-fg-3"
         >
-          beta
+          alpha
         </span>
       </Tip>
       <span

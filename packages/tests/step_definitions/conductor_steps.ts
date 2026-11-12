@@ -762,7 +762,7 @@ Then(
 
 /** THE CHROME BAR'S OWN ARITHMETIC, measured. The row is a flex line whose
  *  only shrinkable member is the host strip; everything else — the identity
- *  rail, the `◆ Conductor beta` pill, the control cluster — is `shrink-0`. So
+ *  rail, the `◆ Conductor alpha` pill, the control cluster — is `shrink-0`. So
  *  two facts matter and this step pins both: the row FITS the window, and the
  *  strip's own measured width (the budget `computeVisibleHosts` folds tabs
  *  against) is exactly what is LEFT once the others have taken theirs. The
