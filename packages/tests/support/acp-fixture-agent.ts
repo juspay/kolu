@@ -34,6 +34,9 @@
  *                      and reads the roster + every host's terminals, then
  *                      says what it read. A kolu whose fleet face cannot reach
  *                      its own hosts answers with the refusal instead.
+ *   work quietly     — prose, two calls that succeed and one that fails, then
+ *                      prose again: the stretch the chat folds into one
+ *                      "Details", with the failure left out in the open
  *
  * Turns are served FIFO and one at a time: `queued` is a fact about the agent's
  * own queue, so an adapter that answered out of order could not be used to
@@ -443,6 +446,34 @@ const turn = async (id: unknown, text: string): Promise<void> => {
       answered.resolve,
     );
     await answered.promise;
+    endTurn(id);
+    return;
+  }
+  if (text === "work quietly") {
+    // TWO PIECES OF PROSE WITH THE MACHINERY BETWEEN THEM — the shape the
+    // transcript folds. The two settled calls go into one closed "Details";
+    // the FAILED one is news and must stay in the flow beside it.
+    update({
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "Looking around the repo." },
+    });
+    const call = (id: string, status: string, command: string): void =>
+      update({
+        sessionUpdate: "tool_call",
+        toolCallId: id,
+        title: "Bash",
+        kind: "execute",
+        status,
+        rawInput: { command },
+        _meta: { claudeCode: { toolName: "Bash" } },
+      });
+    call("call-quiet-ls", "completed", "ls");
+    call("call-quiet-log", "completed", "git log -1");
+    call("call-quiet-broken", "failed", "false");
+    update({
+      sessionUpdate: "agent_message_chunk",
+      content: { type: "text", text: "Found what I needed." },
+    });
     endTurn(id);
     return;
   }

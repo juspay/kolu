@@ -209,6 +209,23 @@ When(
 );
 
 When(
+  "I ask the conductor to adopt the terminal I am in",
+  async function (this: KoluWorld) {
+    // THE FOCUSED tile, read before the conversation covers the canvas — not
+    // the first id in the DOM, which is whichever terminal happens to be drawn
+    // first. A Look at the wrong terminal shows a real screen that is simply
+    // not the one the scenario typed into.
+    const id = await this.page
+      .locator(`${CANVAS_TILE}[data-active]`)
+      .getAttribute("data-terminal-id", { timeout: POLL_TIMEOUT });
+    assert.ok(id, "no tile is focused, so there is nothing to adopt");
+    this.adoptedTerminalId = id;
+    await enterConductor(this);
+    await sendPrompt(this, `adopt ${id}`);
+  },
+);
+
+When(
   "I answer the conductor's question with {string}",
   async function (this: KoluWorld, value: string) {
     const ask = this.page.locator(ASK).last();
@@ -908,3 +925,158 @@ Then(
 When("I take the way back to the bottom", async function (this: KoluWorld) {
   await this.page.locator(TO_BOTTOM).click();
 });
+
+// ── Look: the agent line on a create card ──
+
+/** The newest create card's agent line — the status, the toggle and the tail
+ *  all live under it. */
+const LOOK = `${TOOL_CARD}[data-tool-kind="create"] [data-testid="conductor-look"]`;
+
+Then(
+  "that tool card should say how its terminal is doing",
+  async function (this: KoluWorld) {
+    // `here` is the roster's own word: the terminal was found in the host's
+    // mirrored list, with its record — which is what the status line reads.
+    await waitForValue(
+      "the agent line's standing",
+      async () =>
+        (await this.page.locator(LOOK).last().getAttribute("data-standing")) ??
+        "absent",
+      "here",
+    );
+    const status =
+      (await this.page
+        .locator(LOOK)
+        .last()
+        .locator('[data-testid="conductor-look-status"]')
+        .textContent()) ?? "";
+    assert.ok(
+      status.trim() !== "",
+      "the agent line says nothing about its terminal",
+    );
+  },
+);
+
+When("I look at that tool card's terminal", async function (this: KoluWorld) {
+  await this.page
+    .locator(LOOK)
+    .last()
+    .locator('[data-testid="conductor-look-toggle"]')
+    .click();
+});
+
+Then(
+  "the look should show {string}",
+  async function (this: KoluWorld, text: string) {
+    // What the tail ACTUALLY says on timeout — "reading the screen…", a
+    // failed read's sentence, or lines without the marker are three different
+    // bugs, and a bare "nothing matched" names none of them.
+    await pollFor({
+      observe: async () =>
+        (
+          (await this.page
+            .locator(`${LOOK} [data-testid="conductor-look-tail"]`)
+            .last()
+            .textContent({ timeout: 1_000 })
+            .catch(() => null)) ?? "(no tail)"
+        )
+          .replace(/\s+/g, " ")
+          .trim(),
+      isDone: (seen) => seen.includes(text),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `the look never showed ${JSON.stringify(text)}; after ${elapsedMs}ms it said ${JSON.stringify(last)}`,
+        ),
+    });
+  },
+);
+
+Then(
+  "that tool card should say its terminal is gone",
+  async function (this: KoluWorld) {
+    await waitForValue(
+      "the agent line's status",
+      async () =>
+        (
+          await this.page
+            .locator(LOOK)
+            .last()
+            .locator('[data-testid="conductor-look-status"]')
+            .textContent()
+        )?.trim() ?? "absent",
+      "terminal gone",
+    );
+    // Nothing to look at: the toggle, and with it every read, is gone too.
+    await waitForCount(
+      this,
+      `${LOOK} [data-testid="conductor-look-toggle"]`,
+      0,
+    );
+    await waitForCount(this, `${LOOK} [data-testid="conductor-look-tail"]`, 0);
+  },
+);
+
+// ── The Details fold ──
+
+const FOLD = `${TRANSCRIPT} [data-testid="conductor-fold"]`;
+
+/** How many of the matches are actually on screen — a closed `<details>`
+ *  keeps its rows in the DOM, so a count alone cannot tell folded from shown. */
+async function visibleCount(
+  world: KoluWorld,
+  selector: string,
+): Promise<number> {
+  return world.page
+    .locator(selector)
+    .evaluateAll((all) => all.filter((el) => el.checkVisibility()).length);
+}
+
+Then(
+  "the conductor transcript should fold {int} tool calls into one closed Details",
+  async function (this: KoluWorld, count: number) {
+    await waitForCount(this, FOLD, 1);
+    const fold = this.page.locator(FOLD);
+    assert.strictEqual(await fold.getAttribute("data-count"), String(count));
+    assert.strictEqual(
+      await fold.evaluate((el) => (el as HTMLDetailsElement).open),
+      false,
+      "the Details fold should start closed",
+    );
+    assert.strictEqual(await visibleCount(this, `${FOLD} ${TOOL_CARD}`), 0);
+  },
+);
+
+Then(
+  "the failed tool call should stay in the flow",
+  async function (this: KoluWorld) {
+    // A DIRECT row of the transcript, not one inside the fold: a failure is
+    // news, and a reader must not have to open anything to see it.
+    await waitForValue(
+      "failed tool cards outside the fold",
+      async () =>
+        String(
+          await visibleCount(
+            this,
+            `${TRANSCRIPT} > ${ROW} ${TOOL_CARD}[data-status="failed"]`,
+          ),
+        ),
+      "1",
+    );
+  },
+);
+
+When("I open the Details fold", async function (this: KoluWorld) {
+  await this.page.locator(`${FOLD} > summary`).click();
+});
+
+Then(
+  "the Details fold should show its {int} tool calls",
+  async function (this: KoluWorld, count: number) {
+    await waitForValue(
+      "tool cards shown inside the open fold",
+      async () => String(await visibleCount(this, `${FOLD} ${TOOL_CARD}`)),
+      String(count),
+    );
+  },
+);

@@ -157,6 +157,44 @@ Feature: The Conductor
     And the adopted terminal should be the focused tile
     And there should be no page errors
 
+  Scenario: Look reads the agent's screen from inside the chat
+    # The create card is the conversation's line about an agent, and Look is
+    # how a person checks on it without leaving the chat: a status line off the
+    # fleet roster, and — opened — the last lines of that terminal's screen,
+    # read from its own host. The marker is COMPUTED by the shell, so the
+    # command line's echo (`$((6*7))`) cannot satisfy it: only output read off
+    # the terminal's screen can.
+    #
+    # The other half is the terminal going away: a terminal no longer in the
+    # roster says so, and offers nothing to look at — no toggle, no tail, so
+    # nothing is read for it.
+    When I create a terminal
+    And I run "echo kolu-look-$((6*7))"
+    And I ask the conductor to adopt the terminal I am in
+    Then the conductor transcript should show a "create" tool card
+    And that tool card should say how its terminal is doing
+    When I look at that tool card's terminal
+    Then the look should show "kolu-look-42"
+    When I press Escape
+    And I close the active terminal via command palette
+    And I enter conductor mode
+    Then that tool card should say its terminal is gone
+    And there should be no page errors
+
+  Scenario: The calls between two things the Conductor said fold into Details
+    # A quiet chat: the machinery between two sentences is ONE closed
+    # disclosure that says how many calls it holds, so the conversation reads
+    # as what was said. A failed call is news and is never folded away.
+    When I create a terminal
+    And I enter conductor mode
+    And I send the conductor the prompt "work quietly"
+    Then the conductor transcript should show a row of kind "agent" saying "Found what I needed."
+    And the conductor transcript should fold 2 tool calls into one closed Details
+    And the failed tool call should stay in the flow
+    When I open the Details fold
+    Then the Details fold should show its 2 tool calls
+    And there should be no page errors
+
   Scenario: An unrecognised tool gets the generic card, never a kolu one
     # The direction this is safe to fail in. A tool the harness cannot
     # positively name as one of the servers WE handed over must not acquire a
