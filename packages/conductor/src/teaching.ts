@@ -129,14 +129,20 @@ export function parseTeaching(source: string): ReadonlyArray<string> {
   if (paragraphs.length === 0) {
     throw new Error("teaching.md: the standing prompt has no paragraphs");
   }
-  for (const [placeholder] of paragraphs
-    .join("\n")
-    .matchAll(/\{\{[^}]*\}\}/g)) {
+  // Each `{{` up to the next `}}` is a placeholder. Scanned by position, never
+  // by a backtracking pattern, and an unclosed `{{` ends the scan: there is no
+  // placeholder after it.
+  const text = paragraphs.join("\n");
+  for (let at = text.indexOf("{{"); at !== -1; ) {
+    const end = text.indexOf("}}", at + 2);
+    if (end === -1) break;
+    const placeholder = text.slice(at, end + 2);
     if (placeholder !== HOST) {
       throw new Error(
         `teaching.md: unknown placeholder ${placeholder} — only ${HOST} is filled in`,
       );
     }
+    at = text.indexOf("{{", end + 2);
   }
   return paragraphs;
 }
