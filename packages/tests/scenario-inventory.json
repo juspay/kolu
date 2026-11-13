@@ -9922,6 +9922,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "8af35f326551bfc6d2962a00d27d8b9927567bb6"
+    },
+    {
+      "revisionId": "revision-0eab55e1aff51efaa073",
+      "scenarioKey": "scenario-a2784d4ccfcd2b6c2a74",
+      "feature": "features/conductor.feature",
+      "scenario": "The calls fold while the Conductor is still working",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "84c8ba0117b54203977d685514b96e6313d3e9101d21bfdc4cee23fcbd53fbd2",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "7e7e2bdc7ab122f941975347a59f652cc649ac87"
     }
   ]
 }

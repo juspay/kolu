@@ -35,8 +35,11 @@
  *                      says what it read. A kolu whose fleet face cannot reach
  *                      its own hosts answers with the refusal instead.
  *   work quietly     — straight to work: two calls that succeed and one that
- *                      fails, THEN prose — the turn the chat folds into one
- *                      "Details", with the failure left out in the open
+ *                      fails, THEN prose — two settled calls in one "Details",
+ *                      with the failure left out in the open
+ *   work in flight   — two calls that settle, then a third held RUNNING for a
+ *                      few seconds before it settles and the agent speaks:
+ *                      the turn the chat folds while it is still working
  *
  * Turns are served FIFO and one at a time: `queued` is a fact about the agent's
  * own queue, so an adapter that answered out of order could not be used to
@@ -449,11 +452,10 @@ const turn = async (id: unknown, text: string): Promise<void> => {
     endTurn(id);
     return;
   }
-  if (text === "work quietly") {
+  if (text === "work quietly" || text === "work in flight") {
     // A TURN THAT OPENS WITH ITS MACHINERY — the common shape: the human asks,
-    // the agent goes straight to work, and only then says something. The
-    // prose that closes the run is what folds it: the two settled calls go
-    // into one closed "Details"; the FAILED one is news and stays in the flow.
+    // the agent goes straight to work, and only then says something. The two
+    // settled calls go into one closed "Details" as they settle.
     const call = (id: string, status: string, command: string): void =>
       update({
         sessionUpdate: "tool_call",
@@ -466,7 +468,23 @@ const turn = async (id: unknown, text: string): Promise<void> => {
       });
     call("call-quiet-ls", "completed", "ls");
     call("call-quiet-log", "completed", "git log -1");
-    call("call-quiet-broken", "failed", "false");
+    if (text === "work quietly") {
+      // The FAILED one is news and stays in the flow.
+      call("call-quiet-broken", "failed", "false");
+    } else {
+      // Still working, nothing said yet: the third call is held open long
+      // enough for a reader to see the fold beside it, and to open that fold
+      // before the prose arrives — so it can be seen to stay the same fold.
+      call("call-quiet-wait", "in_progress", "sleep 6");
+      const held = Promise.withResolvers<void>();
+      setTimeout(held.resolve, 6000);
+      await held.promise;
+      update({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "call-quiet-wait",
+        status: "completed",
+      });
+    }
     update({
       sessionUpdate: "agent_message_chunk",
       content: { type: "text", text: "Found what I needed." },

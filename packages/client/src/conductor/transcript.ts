@@ -14,8 +14,8 @@
  *  timeline.
  *
  *  The READER RULES live here too, beside the rows they read: a run of
- *  identical notices draws as one (`foldNoticeRuns`), and the tool calls the
- *  Conductor's prose closes fold into one "Details"
+ *  identical notices draws as one (`foldNoticeRuns`), and the settled tool
+ *  calls between two boundaries fold into one "Details" as they settle
  *  (`foldToolRuns`). Both are pure, so what the panel draws is decided in a
  *  unit test, and neither rewrites a row — `Copy transcript` still reads them
  *  all. */
@@ -174,11 +174,12 @@ export function foldNoticeRuns(
 }
 
 /** One thing the transcript DRAWS, in order: an entry (a row, a notice run
- *  already folded to one), or a FOLD — a closed "Details" holding the tool
- *  calls a stretch of the Conductor's work made before it next spoke. `key`
- *  is what the list is keyed by: a row's own id, and for a fold the id of the
- *  prose that CLOSES it — which exists exactly when the fold does and never
- *  changes after, however many calls settle into it. */
+ *  already folded to one), or a FOLD — a closed "Details" holding the settled
+ *  tool calls of one stretch of the Conductor's work. `key` is what the list is
+ *  keyed by: a row's own id, and for a fold the id of the boundary that OPENS
+ *  its run ({@link FOLD_AT_TOP} for the top of the transcript) — which exists
+ *  from the run's first call on and never changes after, however many calls
+ *  settle into it and whatever closes it later. */
 export type TranscriptItem =
   | {
       readonly kind: "entry";
@@ -207,22 +208,20 @@ function staysInFlow(row: ConductorToolRow): boolean {
   return agentLineSubject(row) !== null;
 }
 
-/** Fold the machinery out of the way: a RUN of tool rows that the Conductor's
- *  prose CLOSES becomes ONE closed "Details" carrying its count, so the
- *  conversation reads as the sentences it is.
+/** The key of a fold whose run opens the transcript: no row precedes it. */
+const FOLD_AT_TOP = "fold:top";
+
+/** Fold the machinery out of the way AS IT GOES: the settled calls of a RUN of
+ *  tool rows are ONE closed "Details" carrying its count, so the conversation
+ *  reads as the sentences it is — while the Conductor is still working, too.
+ *  The count grows as more calls settle.
  *
- *  A run is everything since the last `agent`, `user` or `divider` row (or the
- *  top of the transcript) — so a turn that STARTS with tool calls, right after
- *  the human's message, folds too, once the Conductor says something. What
- *  opened the run does not matter; what a person typed and a session divider
- *  still END one, so nothing is ever folded across a message of yours. Rows
- *  inside a run that are not plain tool calls (a question, the plan card, a
- *  notice) and calls that {@link staysInFlow} keep their own place in the
- *  flow; the fold takes the place of the FIRST call it holds.
- *
- *  A run with no closing prose yet does not fold: the turn is still going, or
- *  ended without a word, and in either case those calls are the latest thing
- *  on screen. They fold the moment the Conductor speaks. */
+ *  A run is everything between two BOUNDARIES — an `agent`, `user` or
+ *  `divider` row, or the top of the transcript — and nothing folds across
+ *  one, so a fold never swallows a message of yours or outlives a session.
+ *  Rows inside a run that are not plain tool calls (a question, the plan card,
+ *  a notice) and calls that {@link staysInFlow} keep their own place in the
+ *  flow; the fold takes the place of the FIRST call it holds. */
 export function foldToolRuns(
   entries: readonly TranscriptEntry[],
 ): readonly TranscriptItem[] {
@@ -232,7 +231,23 @@ export function foldToolRuns(
     key: entry.row.id,
     entry,
   });
+  const foldable = (row: ConductorRow): row is ConductorToolRow =>
+    row.kind === "tool" && !staysInFlow(row);
   let run: TranscriptEntry[] = [];
+  let key = FOLD_AT_TOP;
+
+  const flush = () => {
+    const folded = run.map((one) => one.row).filter(foldable);
+    let placed = folded.length === 0;
+    for (const one of run) {
+      if (!foldable(one.row)) items.push(asItem(one));
+      else if (!placed) {
+        items.push({ kind: "fold", key, rows: folded });
+        placed = true;
+      }
+    }
+    run = [];
+  };
 
   for (const entry of entries) {
     const kind = entry.row.kind;
@@ -240,31 +255,11 @@ export function foldToolRuns(
       run.push(entry);
       continue;
     }
-    // The ONE question, asked of each row of the run: does it go into the fold
-    // this row closes? Only prose closes a fold, so after a message or a
-    // divider the answer is no for every row.
-    const foldable = (row: ConductorRow): row is ConductorToolRow =>
-      kind === "agent" && row.kind === "tool" && !staysInFlow(row);
-    const folded = run.map((one) => one.row).filter(foldable);
-    let placed = folded.length === 0;
-    for (const one of run) {
-      if (foldable(one.row)) {
-        if (!placed) {
-          items.push({
-            kind: "fold",
-            key: `fold:${entry.row.id}`,
-            rows: folded,
-          });
-          placed = true;
-        }
-        continue;
-      }
-      items.push(asItem(one));
-    }
+    flush();
     items.push(asItem(entry));
-    run = [];
+    key = `fold:${entry.row.id}`;
   }
-  items.push(...run.map(asItem));
+  flush();
   return items;
 }
 

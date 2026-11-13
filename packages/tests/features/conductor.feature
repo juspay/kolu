@@ -182,10 +182,10 @@ Feature: The Conductor
     And there should be no page errors
 
   Scenario: The calls a turn makes before the Conductor speaks fold into Details
-    # A quiet chat: the machinery the Conductor's prose closes is ONE closed
-    # disclosure that says how many calls it holds — including a turn that
-    # opens with its calls, right after the human's message, which is how most
-    # turns start. A failed call is news and is never folded away.
+    # A quiet chat: the settled calls of a run are ONE closed disclosure that
+    # says how many calls it holds — including a turn that opens with its
+    # calls, right after the human's message, which is how most turns start.
+    # A failed call is news and is never folded away.
     When I create a terminal
     And I enter conductor mode
     And I send the conductor the prompt "work quietly"
@@ -194,6 +194,22 @@ Feature: The Conductor
     And the failed tool call should stay in the flow
     When I open the Details fold
     Then the Details fold should show its 2 tool calls
+    And there should be no page errors
+
+  Scenario: The calls fold while the Conductor is still working
+    # A turn can work for minutes before it says a word; what a person sees
+    # meanwhile is one "Details" and the call in flight, not a wall of
+    # finished cards. The fold they open while it works is the same fold —
+    # still open — once the last call settles into it and the prose arrives.
+    When I create a terminal
+    And I enter conductor mode
+    And I send the conductor the prompt "work in flight"
+    Then the conductor transcript should fold 2 tool calls into one closed Details
+    And the running tool call should stay in the flow
+    When I open the Details fold
+    Then the conductor state chip should read "working"
+    And the conductor transcript should show a row of kind "agent" saying "Found what I needed."
+    And the Details fold should still be open, holding 3 tool calls
     And there should be no page errors
 
   Scenario: An unrecognised tool gets the generic card, never a kolu one

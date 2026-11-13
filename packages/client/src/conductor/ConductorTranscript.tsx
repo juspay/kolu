@@ -17,10 +17,11 @@
  *  which is why it cannot live here: this component is re-created on every
  *  activation of the entry.
  *
- *  The tool calls the Conductor makes before it next speaks are folded into one
- *  closed "Details" (`foldToolRuns`), so the conversation reads as its
- *  sentences; what a reader would lose by folding — a running call, a failure,
- *  the line about an agent — stays in the flow. */
+ *  The settled tool calls between two boundaries — prose, a message of yours,
+ *  a divider — are folded into one closed "Details" as they settle
+ *  (`foldToolRuns`), so the conversation reads as its sentences even while the
+ *  Conductor works; what a reader would lose by folding — a running call, a
+ *  failure, the line about an agent — stays in the flow. */
 
 import { formatBytes } from "@kolu/byte-units";
 import type { ConductorRow, ConductorToolRow } from "kolu-common/conductor";
@@ -69,8 +70,8 @@ const ConductorTranscript: Component<{
    *  re-applied until there is something to scroll. */
   let placed = false;
   /** What is DRAWN: a run of identical notices is one row carrying its count
-   *  (`foldNoticeRuns`), never eight copies of one fact; and the tool calls a
-   *  piece of prose closes are one closed "Details" (`foldToolRuns`). */
+   *  (`foldNoticeRuns`), never eight copies of one fact; and the settled tool
+   *  calls of a run are one closed "Details" (`foldToolRuns`). */
   const items = createMemo(() => foldToolRuns(foldNoticeRuns(props.rows)));
 
   // BEFORE the follow effect below, and that order is the fix: declared first,
@@ -170,8 +171,9 @@ const ConductorTranscript: Component<{
             `Markdown` subtree per chunk and the card per update — which
             collapses an open `<details>`, loses `ConductorDiffs`' expansion and
             throws away the caret inside a half-filled ask. A row's key is its
-            id; a fold's is the id of the prose that closes it. Both are stable for
-            the thing's life, and an item never changes kind under its key. */}
+            id; a fold's is the id of the boundary that opens its run. Both are
+            stable for the thing's life, and an item never changes kind under
+            its key. */}
         <Key each={items()} by={(item) => item.key}>
           {(item) => (
             <Switch>
@@ -210,10 +212,11 @@ const entryOf = (item: TranscriptItem) =>
   item.kind === "entry" ? item.entry : undefined;
 
 /** A run of the Conductor's tool calls, folded. A plain `<details>`, CLOSED
- *  until somebody opens it, and owned by the DOM: the list keys it by the prose
- *  that closes it, so the element — and whether it is open — survives every update
- *  to the calls inside it. The strip's reveal opens it from outside, as the
- *  row's `<details>` ancestor (`revealTranscriptRow`). */
+ *  until somebody opens it, and owned by the DOM: the list keys it by the
+ *  boundary that opens its run, so the element — and whether it is open —
+ *  survives every call that joins it and the prose that later closes it. The
+ *  strip's reveal opens it from outside, as the row's `<details>` ancestor
+ *  (`revealTranscriptRow`). */
 function TranscriptFold(props: { rows: readonly ConductorToolRow[] }) {
   const count = () => props.rows.length;
   return (

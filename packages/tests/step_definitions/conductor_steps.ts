@@ -670,6 +670,10 @@ When(
   "I open that tool card's folded payload",
   async function (this: KoluWorld) {
     const card = this.page.locator(TOOL_CARD).last();
+    // A settled call sits in its turn's Details: open that first, the way a
+    // reader does, so the card is measured where they meet it — in the fold.
+    const fold = this.page.locator(FOLD).filter({ has: card });
+    if ((await fold.count()) > 0) await fold.locator("> summary").click();
     await card.locator("summary").last().click();
     await this.page
       .locator(TOOL_DETAIL)
@@ -1035,9 +1039,15 @@ async function visibleCount(
 Then(
   "the conductor transcript should fold {int} tool calls into one closed Details",
   async function (this: KoluWorld, count: number) {
+    // Waited for, not read once: the fold grows as calls settle, so it can be
+    // on screen at a smaller count first.
     await waitForCount(this, FOLD, 1);
     const fold = this.page.locator(FOLD);
-    assert.strictEqual(await fold.getAttribute("data-count"), String(count));
+    await waitForValue(
+      "the Details fold's count",
+      async () => (await fold.getAttribute("data-count")) ?? "absent",
+      String(count),
+    );
     assert.strictEqual(
       await fold.evaluate((el) => (el as HTMLDetailsElement).open),
       false,
@@ -1047,18 +1057,27 @@ Then(
   },
 );
 
+/** The card status each phrase names — a failure is news, a running call keeps
+ *  its clock in view; neither is ever folded away. */
+const IN_FLOW_STATUS: Record<string, string> = {
+  failed: "failed",
+  running: "in_progress",
+};
+
 Then(
-  "the failed tool call should stay in the flow",
-  async function (this: KoluWorld) {
-    // A DIRECT row of the transcript, not one inside the fold: a failure is
-    // news, and a reader must not have to open anything to see it.
+  "the {word} tool call should stay in the flow",
+  async function (this: KoluWorld, which: string) {
+    const status = IN_FLOW_STATUS[which];
+    assert.ok(status !== undefined, `no tool-call status is named "${which}"`);
+    // A DIRECT row of the transcript, not one inside the fold: a reader must
+    // not have to open anything to see it.
     await waitForValue(
-      "failed tool cards outside the fold",
+      `${which} tool cards outside the fold`,
       async () =>
         String(
           await visibleCount(
             this,
-            `${TRANSCRIPT} > ${ROW} ${TOOL_CARD}[data-status="failed"]`,
+            `${TRANSCRIPT} > ${ROW} ${TOOL_CARD}[data-status="${status}"]`,
           ),
         ),
       "1",
@@ -1077,6 +1096,25 @@ Then(
       "tool cards shown inside the open fold",
       async () => String(await visibleCount(this, `${FOLD} ${TOOL_CARD}`)),
       String(count),
+    );
+  },
+);
+
+Then(
+  "the Details fold should still be open, holding {int} tool calls",
+  async function (this: KoluWorld, count: number) {
+    // The same `<details>` element, not a fresh one: a fold re-created when a
+    // call joined it or prose closed it would be back to closed.
+    const fold = this.page.locator(FOLD);
+    await waitForValue(
+      "the Details fold's count",
+      async () => (await fold.getAttribute("data-count")) ?? "absent",
+      String(count),
+    );
+    assert.strictEqual(
+      await fold.evaluate((el) => (el as HTMLDetailsElement).open),
+      true,
+      "the Details fold a person opened should still be open",
     );
   },
 );

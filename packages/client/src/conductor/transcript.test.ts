@@ -242,16 +242,20 @@ describe("foldToolRuns", () => {
     ).toEqual(["a", ["t1", "t2", "t3"], "b"]);
   });
 
-  it("leaves calls with no closing prose in the flow — the turn is still going", () => {
+  it("folds a run's settled calls while the turn is still going, and leaves the running one out", () => {
+    // The Conductor has not said a word yet: what a person sees is ONE
+    // "Details" and the call in flight, not a wall of finished cards.
     expect(
-      drawn([agentRow("a", 1, "Looking."), tool("t1", 2), tool("t2", 3)]),
-    ).toEqual(["a", "t1", "t2"]);
+      drawn([
+        user("u", 0),
+        tool("t1", 1),
+        tool("t2", 2),
+        tool("t3", 3, { status: "in_progress" }),
+      ]),
+    ).toEqual(["u", ["t1", "t2"], "t3"]);
   });
 
-  it("folds the calls that open a turn, once the Conductor speaks", () => {
-    // The common shape: the human asks, the Conductor goes straight to work,
-    // and only then says something. Whatever opened the run — a message, the
-    // top of the transcript — the prose that closes it is what folds it.
+  it("folds the calls that open the transcript, before any boundary", () => {
     expect(
       drawn([
         tool("t0", 0),
@@ -273,7 +277,7 @@ describe("foldToolRuns", () => {
         tool("t2", 4),
         agentRow("b", 5, "Done."),
       ]),
-    ).toEqual(["a", "t1", "u1", ["t2"], "b"]);
+    ).toEqual(["a", ["t1"], "u1", ["t2"], "b"]);
   });
 
   it("keeps what a reader would lose in the flow, and folds the rest around it", () => {
@@ -342,23 +346,24 @@ describe("foldToolRuns", () => {
     ).toEqual(["a", "failed", "b"]);
   });
 
-  it("keys the fold by the prose that closes it, steady while a call settles in", () => {
+  it("keys the fold by the boundary before its run — steady as calls join and when prose closes it", () => {
     const keyOf = (rows: ConductorRow[]) =>
       foldToolRuns(foldNoticeRuns(rows)).find((item) => item.kind === "fold")
         ?.key;
-    const before = keyOf([
+    const working = keyOf([
       user("u", 0),
-      tool("t1", 1, { status: "in_progress" }),
-      tool("t2", 2),
-      agentRow("b", 3, "Done."),
+      tool("t1", 1),
+      tool("t2", 2, { status: "in_progress" }),
     ]);
-    const after = keyOf([
+    const settled = keyOf([user("u", 0), tool("t1", 1), tool("t2", 2)]);
+    const spoken = keyOf([
       user("u", 0),
       tool("t1", 1),
       tool("t2", 2),
       agentRow("b", 3, "Done."),
     ]);
-    expect(before).toBe("fold:b");
-    expect(after).toBe(before);
+    expect(working).toBe("fold:u");
+    expect(settled).toBe(working);
+    expect(spoken).toBe(working);
   });
 });
