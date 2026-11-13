@@ -65,9 +65,10 @@ const OTHER_REF = "remote:prod/22222222-2222-4222-8222-222222222222";
 /** The version this file's ladder pin names. A literal, deliberately: a pin
  *  read off the constant it is pinning asserts nothing. The conductor arrived
  *  at 1.44.0 (master took 1.43.0 for `hostOrder` — see the note on the ladder
- *  entry in `state.ts`), 1.45.0 is the rename of its key, and 1.46.0 is the
- *  watch list joining the record. */
-const STATE_SCHEMA_VERSION = "1.46.0";
+ *  entry in `state.ts`), 1.45.0 is the rename of its key, and 1.47.0 is the
+ *  watch list joining the record (1.46.0 is the number its pre-release builds
+ *  stamped — see that rung). */
+const STATE_SCHEMA_VERSION = "1.47.0";
 
 const log = {
   debug() {},
@@ -434,6 +435,59 @@ describe("the conductor's rungs", () => {
     // anything, and every other fact carries across untouched: this rung is
     // an addition, not a reshape.
     expect(migrated.conductor).toEqual({ ...held, watched: [] });
+  });
+
+  it("complete each entry of a watch list a pre-release build stamped 1.46.0", () => {
+    // A file the watch list's own earlier builds wrote: it HAS a `watched`
+    // key, at the version number those builds bumped to, but its entries
+    // predate `joined`/`spoken`/`ran`. The schema carries no defaults for
+    // them, so without the rung this file is refused on read — and with it,
+    // each entry gains the reading that claims nothing it did not see, while
+    // a fact the file DID record is kept, never overwritten.
+    const held = {
+      sessionId: "sess-held",
+      cwd: HOME,
+      model: null,
+      rows: [row("a", 1, "one")],
+      fleet: [FLEET_REF],
+      watched: [
+        { ref: FLEET_REF, name: "build", agent: "claude", told: "stopped" },
+        {
+          ref: OTHER_REF,
+          name: "",
+          agent: null,
+          told: null,
+          joined: "created-run",
+          spoken: true,
+          ran: true,
+        },
+      ],
+    };
+    const legacy: unknown = {
+      preferences: (
+        JSON.parse(readFileSync(store.path, "utf8")) as {
+          preferences: unknown;
+        }
+      ).preferences,
+      hosts: [],
+      viewerMode: "dark",
+      conductor: held,
+      __internal__: { migrations: { version: "1.46.0" } },
+    };
+    const migrated = decodeStateBackup(legacy, "1.46-pre-release");
+    expect(migrated.conductor.watched).toEqual([
+      {
+        ref: FLEET_REF,
+        name: "build",
+        agent: "claude",
+        told: "stopped",
+        joined: "asked",
+        spoken: false,
+        ran: false,
+      },
+      held.watched[1],
+    ]);
+    expect(migrated.conductor.rows).toEqual(held.rows);
   });
 
   it("re-point a remembered attachment at the corner its bytes moved to", () => {

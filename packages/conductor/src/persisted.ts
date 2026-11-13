@@ -46,7 +46,7 @@ import {
   ConductorWakeLevelSchema,
 } from "kolu-common/conductor";
 import type { CellStore } from "@kolu/surface/server";
-import { Effect, Result, Schema } from "effect";
+import { Result, Schema } from "effect";
 
 /** The record's SHAPE, as a schema rather than as an interface alone.
  *
@@ -88,13 +88,11 @@ export const PersistedConductorSchema = Schema.Struct({
    *  is the held news — a restart re-reads the world instead of replaying a
    *  queue about one that has moved on.
    *
-   *  A DECODING DEFAULT, because this key is read back off a `config.json`
-   *  written before the watch list existed: the ladder's rung seeds it, and
-   *  this is the belt to that brace. The three facts BESIDE the first four
-   *  carry their own defaults for the same reason one rung later — a record
-   *  written before `ready`/`ended` existed names no `joined`, and the
-   *  reading that cannot be wrong about an older entry is `asked`: it is the
-   *  join that claims nothing about a command kolu typed. */
+   *  NO DECODING DEFAULTS, here or on any entry's key: the schema says what
+   *  the file holds, and making an older file hold it is the ladder's job
+   *  (`kolu-server`'s `state.ts`, the 1.47.0 rung — it seeds the key and
+   *  fills an entry's missing `joined`/`spoken`/`ran`). A file the ladder did
+   *  not bring here is refused by name, never read as a guess. */
   watched: Schema.Array(
     Schema.Struct({
       ref: Schema.String,
@@ -104,23 +102,17 @@ export const PersistedConductorSchema = Schema.Struct({
       /** How it came to be watched — `kolu-conductor`'s `WatchJoin`. What
        *  `ended` turns on: only a terminal kolu opened WITH a command can be
        *  said to have finished one. */
-      joined: Schema.Literals(["created", "created-run", "asked"]).pipe(
-        Schema.withDecodingDefaultKey(Effect.succeed("asked" as const)),
-      ),
+      joined: Schema.Literals(["created", "created-run", "asked"]),
       /** Whether the Conductor has said anything to the agent in it. What
        *  `ready` turns on, and therefore worth surviving a restart: an agent
        *  briefed before the restart must not ring as a fresh one after it. */
-      spoken: Schema.Boolean.pipe(
-        Schema.withDecodingDefaultKey(Effect.succeed(false)),
-      ),
+      spoken: Schema.Boolean,
       /** Whether a non-shell foreground was ever seen in it — the other half
        *  of `ended`, and across a restart the only way to know that the
        *  command kolu typed ever started. */
-      ran: Schema.Boolean.pipe(
-        Schema.withDecodingDefaultKey(Effect.succeed(false)),
-      ),
+      ran: Schema.Boolean,
     }),
-  ).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+  ),
 });
 
 /** The record as a value. Derived from the schema rather than declared beside

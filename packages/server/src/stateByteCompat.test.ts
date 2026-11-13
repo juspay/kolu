@@ -66,7 +66,7 @@ function makeStore(): Conf<Record<string, unknown>> {
   dirs.push(dir);
   return new Conf<Record<string, unknown>>({
     cwd: dir,
-    projectVersion: "1.46.0",
+    projectVersion: "1.47.0",
     configFileMode: 0o600,
     defaults: {
       preferences: DEFAULT_PREFERENCES,

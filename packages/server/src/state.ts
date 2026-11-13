@@ -372,7 +372,7 @@ function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.46.0";
+const SCHEMA_VERSION = "1.47.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -1084,20 +1084,37 @@ const CONF_MIGRATIONS = {
   // keeps working, so the key is seeded EMPTY, which is the truth about a
   // conversation that has never watched anything.
   //
+  // Numbered 1.47.0, not the 1.46.0 that follows 1.45.0: builds of the watch
+  // list before its release stamped 1.46.0 on files whose entries carry only
+  // `ref`/`name`/`agent`/`told`. This number walks those files through the
+  // rung too, and the rung completes each entry with the reading that claims
+  // nothing it did not see — `joined: "asked"` (no command kolu typed),
+  // `spoken: false`, `ran: false`. The schema has no defaults of its own: an
+  // entry this rung did not complete is refused on read, by name.
+  //
   // The record is otherwise untouched: the session id, the transcript tail,
   // the fleet and the model a person chose all carry across unchanged, because
   // this is an addition and not a reshape.
-  "1.46.0": (store: Conf<PersistedState>) => {
+  "1.47.0": (store: Conf<PersistedState>) => {
     // Read as an OBJECT rather than as the decoded record: this rung runs
     // against a file written by an older build, whose `conductor` key is
     // exactly the shape the current schema does not yet accept.
     const record = store.get("conductor") as
       | Record<string, unknown>
       | undefined;
-    if (record === undefined || "watched" in record) return;
+    if (record === undefined) return;
+    const watched = record.watched;
+    // A `watched` that is there and is not a list is not an older shape —
+    // it is a broken file, left as it is so the read refuses it by name.
+    if (watched !== undefined && !Array.isArray(watched)) return;
     store.set("conductor", {
       ...record,
-      watched: [],
+      watched: (watched ?? []).map((entry: Record<string, unknown>) => ({
+        joined: "asked",
+        spoken: false,
+        ran: false,
+        ...entry,
+      })),
     } as unknown as PersistedState["conductor"]);
   },
 };
