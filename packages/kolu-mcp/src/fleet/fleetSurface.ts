@@ -7,7 +7,8 @@
  * what a SPEC declares — a resource is a primitive of the served surface, its
  * JSON Schema is the member's own, and the expose map is checked against the
  * spec at boot. A fleet face assembled out of bespoke tools alone could not
- * carry `terminals`/`urgency`/`hosts` as subscribable resources at all.
+ * carry `terminals`/`urgency`/`hosts`/`watched` as subscribable resources at
+ * all.
  *
  * **Every value schema is padi's, imported.** `PadiTerminalSchema`,
  * `GitStatusOutputSchema`, `PadiScreenHistoryOutputSchema` and the declared
@@ -169,6 +170,51 @@ export const FleetTerminalSchema = Schema.Union([
 ]);
 export type FleetTerminal = typeof FleetTerminalSchema.Type;
 
+/** HOW a terminal came to be watched, as a wire value. The literals live HERE
+ *  rather than beside the port that uses them because this file is the one
+ *  both reach ({@link FleetWatchJoin} in `./watchList.ts` takes its type from
+ *  this schema), and a second spelling is how a join the resource can show
+ *  stops being a join a tool can record. */
+export const FleetWatchJoinSchema = Schema.Literals([
+  "created",
+  "created-run",
+  "asked",
+]);
+
+/** ONE TERMINAL THE CONDUCTOR IS BEING WOKEN ABOUT.
+ *
+ *  The watch list is the only state on this face that belongs to the
+ *  CONVERSATION rather than to the fleet, and until this resource existed the
+ *  conversation could move it (`watch_terminal` / `unwatch_terminal`) and
+ *  never read it back. A restarted Conductor therefore knew it was being woken
+ *  by something and could not say what — the observed result is an agent that
+ *  says it is "not certain" and then re-watches terminals that are long gone.
+ *
+ *  `name` and `agent` are the LAST THING KOLU SAW, not a live read: the entry
+ *  keeps them so a terminal can still be described after the host it was on
+ *  stopped answering. `null` means nothing has been read yet — never "it has
+ *  no name" — which is why they are nullable rather than empty strings.
+ *
+ *  `host` / `hostName` / `hostState` are this fleet's reading of the ref's own
+ *  host RIGHT NOW: all three are `null` for a host that is no longer a member
+ *  (and `host` alone for a saved reference that is not a fleet reference at
+ *  all), which is precisely the "can I still reach this?" question a restart
+ *  leaves open. A row whose host is missing is kept, not dropped — it is on
+ *  the list, and `unwatch_terminal` is the only thing left to do with it. */
+export const FleetWatchedSchema = Schema.Struct({
+  ref: Schema.String.annotate({
+    description:
+      "The terminal, as <host>/<id> — the reference every tool on this face takes.",
+  }),
+  host: Schema.NullOr(FleetHostKeySchema),
+  hostName: Schema.NullOr(Schema.String),
+  hostState: Schema.NullOr(FleetHostStateSchema),
+  name: Schema.NullOr(Schema.String),
+  agent: Schema.NullOr(Schema.String),
+  joined: FleetWatchJoinSchema,
+});
+export type FleetWatched = typeof FleetWatchedSchema.Type;
+
 /** `screen.history` over the fleet: padi's own input, addressed by reference. */
 export const FleetScreenHistoryInputSchema = Schema.Struct({
   ...PadiScreenHistoryInputSchema.fields,
@@ -232,6 +278,26 @@ export const fleetSurface = defineSurface({
      *  the pool yet". */
     hosts: {
       schema: Schema.Array(FleetHostSchema),
+      default: [],
+      verbs: ["get"],
+    },
+    /** WHAT THIS CONVERSATION IS WOKEN ABOUT — the Conductor's own watch
+     *  list, as rows ({@link FleetWatchedSchema}).
+     *
+     *  A cell for the same reason `hosts` is: the question is "what am I
+     *  watching, and can I still reach it", and a key set would answer the
+     *  first half of it. It is also the only member here whose value is the
+     *  conversation's rather than the fleet's — the list kolu-server keeps for
+     *  it, reached through the `FleetWatchList` port like every other thing
+     *  this package refuses to hold a copy of.
+     *
+     *  It CHANGES without the Conductor touching it: a watched terminal that
+     *  goes away drops off by itself, and a person can take one off from the
+     *  browser. So it is subscribable, and a reader that holds the
+     *  subscription hears those departures instead of discovering them by
+     *  acting on a terminal that is not there. */
+    watched: {
+      schema: Schema.Array(FleetWatchedSchema),
       default: [],
       verbs: ["get"],
     },

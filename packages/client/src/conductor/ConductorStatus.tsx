@@ -6,9 +6,10 @@
  *  person needs at the moment they are about to speak to it, and all three
  *  live here, in one line, in this order:
  *
- *    1. WHAT IT IS DOING — the phase word (the chip's own vocabulary), what it
- *       is doing (the newest call still out, else its last sentence) and for
- *       how long, ticking, from `busySince`. The dot MOVES while it works:
+ *    1. WHAT IT IS DOING — the phase word (the chip's own vocabulary), what
+ *       the turn in flight is doing (its newest call still out, else what it
+ *       has said in that turn) and for how long, ticking, from `busySince`.
+ *       The dot MOVES while it works:
  *       a readout that cannot be told from a frozen one is the defect this
  *       whole change is about.
  *    2. WATCHING N — the terminals kolu will wake it about. A button, because
@@ -25,7 +26,7 @@ import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { getClockNow } from "../time/clock";
 import Tip from "../ui/Tip";
 import ConductorWatchedPanel from "./ConductorWatchedPanel";
-import { statusReadout } from "./conductorStatus";
+import { statusDetail, statusSince } from "./conductorStatus";
 
 /** The line's ink, by what the conversation is doing — the header chip's own
  *  table, moved with it. `asking` outranks `working` on the wire already (a
@@ -57,8 +58,14 @@ const ConductorStatus: Component<{
   rows: readonly ConductorRow[];
 }> = (props) => {
   const now = getClockNow();
-  const readout = createMemo(() =>
-    statusReadout(props.state, props.rows, now()),
+  // TWO DERIVATIONS, so the 1 s tick moves the one thing it can move. What
+  // the conversation is doing is read off the transcript and the phase; how
+  // long it has been at it is the only part that reads the clock. Folded
+  // together, every tick re-walked the rows and re-made the words beside the
+  // number.
+  const detail = createMemo(() => statusDetail(props.state.phase, props.rows));
+  const since = createMemo(() =>
+    statusSince(props.state.phase, props.state.busySince, now()),
   );
   const [open, setOpen] = createSignal(false);
   const watched = () => props.state.watched.length;
@@ -91,10 +98,10 @@ const ConductorStatus: Component<{
           data-phase={props.state.phase}
           class={`shrink-0 font-semibold ${PHASE_CLASS[props.state.phase]}`}
         >
-          {readout().state}
+          {props.state.phase}
         </span>
-        <Show when={readout().detail}>
-          {(detail) => (
+        <Show when={detail()}>
+          {(words) => (
             <span
               data-testid="conductor-status-detail"
               // `min-w-0` + `truncate`: the detail is the one part of the line
@@ -102,12 +109,12 @@ const ConductorStatus: Component<{
               // gives way first.
               class="min-w-0 flex-1 truncate text-fg-2"
             >
-              {detail()}
+              {words()}
             </span>
           )}
         </Show>
-        <Show when={readout().since}>
-          {(since) => (
+        <Show when={since()}>
+          {(elapsed) => (
             <Tip
               class="flex items-center"
               label="How long this turn has been running"
@@ -116,7 +123,7 @@ const ConductorStatus: Component<{
                 data-testid="conductor-status-since"
                 class="shrink-0 text-fg-3 tabular-nums"
               >
-                {since()}
+                {elapsed()}
               </span>
             </Tip>
           )}

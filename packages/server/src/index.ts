@@ -634,7 +634,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // THE CONDUCTOR'S WATCH LIST, as the fleet face reaches it. The list itself
   // lives with the conversation (it is saved with it, and the Conductor's own
   // `watch_terminal` / `unwatch_terminal` move it); what the face needs is the
-  // four verbs, and kolu-server is what knows that "the conversation" means
+  // five verbs, and kolu-server is what knows that "the conversation" means
   // `liveServerConductor()`. Read through the thunk on every call rather than
   // captured, for the reason every other conductor seam here is: the host is
   // built on its first reader, and a face held at boot would force it up.
@@ -646,8 +646,30 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // `WatchJoin`). `said` is every `agent_say` that landed its keystrokes, for
   // any terminal: the conversation ignores the refs it is not watching, and
   // the face has no business knowing which those are.
+  //
+  // `entries` is the READ — the `watched` resource the Conductor reads its own
+  // list from — and `subscribe` is how that resource hears the list move
+  // without the Conductor calling anything. The subscribers are fired off the
+  // conversation's own published state below, beside the watcher's re-scope.
+  const watchedReaders = new Set<() => void>();
   const watchList: FleetWatchList = {
-    watched: () => liveServerConductor().watched(),
+    entries: () =>
+      liveServerConductor()
+        .watchedTerminals()
+        .map((one) => ({
+          ref: one.ref,
+          // "" is the entry's "nothing has read this terminal yet", and a
+          // reader handed it would be told the terminal is called nothing.
+          name: one.name === "" ? null : one.name,
+          agent: one.agent,
+          joined: one.joined,
+        })),
+    subscribe: (cb) => {
+      watchedReaders.add(cb);
+      return () => {
+        watchedReaders.delete(cb);
+      };
+    },
     watch: (ref, joined) => {
       liveServerConductor().watchTerminal(ref, joined);
     },
@@ -1059,12 +1081,24 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // only when the LIST changed: a state frame lands per turn, per model switch
   // and per sign-in step, and re-walking the fleet for a phase change would be
   // work for nothing.
+  //
+  // The `watched` RESOURCE moves for one more reason than the scope does: a
+  // reading that renames a terminal or finds an agent in it leaves membership
+  // alone and still changes every row an agent reads. So the two have their
+  // own keys — the watcher's over the refs, the resource's over the rows —
+  // and neither wakes for the other's changes.
   let watchedKey = "";
+  let watchedRows = "";
   setConductorStateListener((state) => {
     const key = state.watched.join("\n");
-    if (key === watchedKey) return;
-    watchedKey = key;
-    conductorWatcher?.rescope();
+    if (key !== watchedKey) {
+      watchedKey = key;
+      conductorWatcher?.rescope();
+    }
+    const rows = JSON.stringify(watchList.entries());
+    if (rows === watchedRows) return;
+    watchedRows = rows;
+    for (const tell of watchedReaders) tell();
   });
 
   // The ROOT procedures — kolu-server's own seven, bound as the third served

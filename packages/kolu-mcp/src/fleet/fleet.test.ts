@@ -51,15 +51,20 @@ import { resolveExpose } from "@kolu/surface-mcp";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { ResourceUpdatedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { Effect, Queue, Stream } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { KOLU_FLEET_EXPOSE, KOLU_MCP_EXPOSE } from "../expose.ts";
 import { KOLU_MCP_TOOLS } from "../tools.ts";
 import { FLEET_SETTLE_CAP_MS, KOLU_FLEET_TOOL_NAMES } from "./lift.ts";
 import { fleetSurface } from "./fleetSurface.ts";
 import type { FleetHosts } from "./hosts.ts";
 import { serveKoluFleetMcp } from "./serve.ts";
-import type { FleetWatchJoin, FleetWatchList } from "./watchList.ts";
+import type {
+  FleetWatchEntry,
+  FleetWatchJoin,
+  FleetWatchList,
+} from "./watchList.ts";
 
 const ALPHA_1 = "11111111-1111-4111-8111-111111111111" as TerminalId;
 const ALPHA_2 = "22222222-2222-4222-8222-222222222222" as TerminalId;
@@ -459,35 +464,55 @@ const jsonOf = (result: {
 }): unknown => JSON.parse(String(result.contents[0]?.text));
 
 /** kolu-server's watch list, as a test holds it: add-ordered, idempotent,
- *  in memory, and recording HOW each entry joined plus every terminal the
- *  conductor has spoken to. The real one is persisted with the conversation
- *  and read by the server's watcher — this face only moves it, which is
- *  exactly what these tests are about. */
+ *  in memory, recording HOW each entry joined, every terminal the conductor
+ *  has spoken to, and what the server's watcher last SAW in each one. The real
+ *  one is persisted with the conversation and read by that watcher — this face
+ *  moves it and serves it back, which is exactly what these tests are about. */
 function fakeWatchList(): FleetWatchList & {
   joinOf(ref: string): FleetWatchJoin | undefined;
+  /** The refs on the list, which is what most of these cases assert. */
+  refs(): string[];
+  /** What the SERVER's watcher does between turns: it reads a watched
+   *  terminal and writes back what it found. Nothing on this face does it, and
+   *  the `watched` resource has to show it. */
+  sawIn(ref: string, name: string, agent: string | null): void;
   readonly saids: string[];
 } {
-  const joins = new Map<string, FleetWatchJoin>();
-  const refs: string[] = [];
+  const entries = new Map<string, FleetWatchEntry>();
+  const listeners = new Set<() => void>();
   const saids: string[] = [];
+  const moved = (): void => {
+    for (const one of listeners) one();
+  };
   return {
-    watched: () => [...refs],
+    entries: () => [...entries.values()],
+    subscribe(cb) {
+      listeners.add(cb);
+      return () => {
+        listeners.delete(cb);
+      };
+    },
     watch(ref, joined) {
-      if (refs.includes(ref)) return;
-      refs.push(ref);
-      joins.set(ref, joined);
+      if (entries.has(ref)) return;
+      entries.set(ref, { ref, name: null, agent: null, joined });
+      moved();
     },
     unwatch(ref) {
-      const at = refs.indexOf(ref);
-      if (at < 0) return false;
-      refs.splice(at, 1);
-      joins.delete(ref);
+      if (!entries.delete(ref)) return false;
+      moved();
       return true;
     },
     said(ref) {
       saids.push(ref);
     },
-    joinOf: (ref) => joins.get(ref),
+    joinOf: (ref) => entries.get(ref)?.joined,
+    refs: () => [...entries.keys()],
+    sawIn(ref, name, agent) {
+      const entry = entries.get(ref);
+      if (entry === undefined) return;
+      entries.set(ref, { ...entry, name, agent });
+      moved();
+    },
     saids,
   };
 }
@@ -940,7 +965,7 @@ describe("the conductor's watch list", () => {
     // The FLEET reference, not padi's bare id: the list is read back by tools
     // that only accept `<host>/<id>`, so a bare id here would be an entry
     // nothing on this face can name.
-    expect(watchList.watched()).toEqual([`local/${BETA_1}`]);
+    expect(watchList.refs()).toEqual([`local/${BETA_1}`]);
     // A bare shell: nothing was asked to run in it, so there is no bring-up
     // that can end without an agent.
     expect(watchList.joinOf(`local/${BETA_1}`)).toBe("created");
@@ -992,7 +1017,7 @@ describe("the conductor's watch list", () => {
     // in the list. The conductor is told what landed and can watch it itself.
     expect(res.isError).toBe(true);
     expect(res.structuredContent).toMatchObject({ kind: "stopped-partway" });
-    expect(watchList.watched()).toEqual([]);
+    expect(watchList.refs()).toEqual([]);
   });
 
   it("`watch_terminal` adds a terminal that exists, and answers the list AND what it found", async () => {
@@ -1013,7 +1038,7 @@ describe("the conductor's watch list", () => {
       watching: [`remote:box/${BETA_1}`],
       found: { kind: "agent", agent: "codex", bucket: "working" },
     });
-    expect(watchList.watched()).toEqual([`remote:box/${BETA_1}`]);
+    expect(watchList.refs()).toEqual([`remote:box/${BETA_1}`]);
     expect(watchList.joinOf(`remote:box/${BETA_1}`)).toBe("asked");
   });
 
@@ -1082,7 +1107,7 @@ describe("the conductor's watch list", () => {
     expect(res.structuredContent).toMatchObject({
       kind: "terminal-not-in-roster",
     });
-    expect(watchList.watched()).toEqual([]);
+    expect(watchList.refs()).toEqual([]);
   });
 
   it("refuses a disconnected host BY NAME, and a host nobody has", async () => {
@@ -1107,7 +1132,7 @@ describe("the conductor's watch list", () => {
     });
     expect(stranger.isError).toBe(true);
     expect(stranger.structuredContent).toMatchObject({ kind: "unknown-host" });
-    expect(watchList.watched()).toEqual([]);
+    expect(watchList.refs()).toEqual([]);
   });
 
   it("`unwatch_terminal` removes it, and says plainly when there was nothing to remove", async () => {
@@ -1151,6 +1176,122 @@ describe("the conductor's watch list", () => {
 
     expect(res.isError ?? false).toBe(false);
     expect(res.structuredContent).toEqual({ watching: [], removed: true });
+  });
+
+  it("`watched` reads the list back — every ref, its host as the fleet stands NOW, and the last thing kolu saw in it", async () => {
+    // The failure this resource exists for: a Conductor that had restarted
+    // could move the list and never read it, so it said it was "not certain"
+    // what it was watching and then watched terminals that were long gone.
+    const { beta, fleet } = twoHostFleet();
+    beta.runAgent(BETA_1, "codex", "thinking");
+    const watchList = fakeWatchList();
+    const mcp = await servedFleet(fleet.hosts, watchList);
+    await mcp.callTool({
+      name: "watch_terminal",
+      arguments: { id: `local/${ALPHA_1}` },
+    });
+    await mcp.callTool({
+      name: "watch_terminal",
+      arguments: { id: `remote:box/${BETA_1}` },
+    });
+    // What the server's watcher writes back between turns, and the only place
+    // a name or an agent on this list comes from.
+    watchList.sawIn(`remote:box/${BETA_1}`, "the implementor", "codex");
+
+    expect(
+      jsonOf(await mcp.readResource({ uri: "surface://cells/watched" })),
+    ).toEqual([
+      {
+        ref: `local/${ALPHA_1}`,
+        host: "local",
+        hostName: "this machine",
+        hostState: "connected",
+        // Nothing has read it yet — said as `null` rather than as a terminal
+        // that is called nothing.
+        name: null,
+        agent: null,
+        joined: "asked",
+      },
+      {
+        ref: `remote:box/${BETA_1}`,
+        host: "remote:box",
+        hostName: "box",
+        hostState: "connected",
+        name: "the implementor",
+        agent: "codex",
+        joined: "asked",
+      },
+    ]);
+  });
+
+  it("a row whose host is NOT answering says so, and one whose host has left keeps its row", async () => {
+    // Both halves matter to an agent deciding what it still has: a warming
+    // host is one to wait for, and a host that is gone is one to take off the
+    // list. Dropping the second row would read as a list that never had it.
+    const { fleet } = twoHostFleet();
+    const watchList = fakeWatchList();
+    const mcp = await servedFleet(fleet.hosts, watchList);
+    await mcp.callTool({
+      name: "watch_terminal",
+      arguments: { id: `remote:box/${BETA_1}` },
+    });
+
+    fleet.setState("remote:box", "warming");
+    expect(
+      jsonOf(await mcp.readResource({ uri: "surface://cells/watched" })),
+    ).toMatchObject([{ host: "remote:box", hostState: "warming" }]);
+
+    fleet.leave("remote:box");
+    expect(
+      jsonOf(await mcp.readResource({ uri: "surface://cells/watched" })),
+    ).toEqual([
+      {
+        ref: `remote:box/${BETA_1}`,
+        // Nothing is invented for a host this fleet no longer holds: the ref
+        // is still watched, and there is nothing to reach it through.
+        host: null,
+        hostName: null,
+        hostState: null,
+        name: null,
+        agent: null,
+        joined: "asked",
+      },
+    ]);
+  });
+
+  it("a subscriber hears a move nobody on this face made", async () => {
+    // The list changes under the conversation — a watched terminal goes away,
+    // a person takes one off in the browser — and a conductor that only
+    // learned of it by calling something would act on a terminal that is not
+    // there. The subscription is how it hears instead.
+    const { fleet } = twoHostFleet();
+    const watchList = fakeWatchList();
+    const mcp = await servedFleet(fleet.hosts, watchList);
+    await mcp.callTool({
+      name: "watch_terminal",
+      arguments: { id: `local/${ALPHA_1}` },
+    });
+    const updates: string[] = [];
+    mcp.setNotificationHandler(ResourceUpdatedNotificationSchema, (note) => {
+      updates.push(note.params.uri);
+    });
+    await mcp.subscribeResource({ uri: "surface://cells/watched" });
+    // Whatever subscribing itself announces has landed by the time a round
+    // trip to the same server has: the count below is what the MOVE adds.
+    await mcp.readResource({ uri: "surface://cells/watched" });
+    const before = updates.length;
+
+    // The move this face did NOT make: kolu-server dropping a terminal that
+    // went away.
+    watchList.unwatch(`local/${ALPHA_1}`);
+
+    await vi.waitFor(() => {
+      expect(updates.length).toBeGreaterThan(before);
+    });
+    expect(updates.at(-1)).toBe("surface://cells/watched");
+    expect(
+      jsonOf(await mcp.readResource({ uri: "surface://cells/watched" })),
+    ).toEqual([]);
   });
 });
 
@@ -1205,6 +1346,9 @@ describe("one expose map, two projections", () => {
       "hosts",
       "terminals",
       "urgency",
+      // The one resource the stdio face has no counterpart for: this face
+      // serves one CONVERSATION, and the watch list is that conversation's.
+      "watched",
     ]);
     // ... and `hosts` is a CELL, which is what makes the roster one read: a
     // collection's resource is its key SET plus a per-item template, and an

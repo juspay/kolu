@@ -44,14 +44,15 @@ export interface ServeKoluFleetMcpOptions {
    *  conversation and read by the server's watcher, so a copy held here would
    *  be a second answer to "what is being watched". `lifecycle_create` adds
    *  what it creates; `watch_terminal` / `unwatch_terminal` are the agent's
-   *  own door to it. */
+   *  own door to it, and the `watched` resource is how it reads the list back
+   *  without moving it. */
   watchList: FleetWatchList;
 }
 
 export async function serveKoluFleetMcp(
   opts: ServeKoluFleetMcpOptions,
 ): Promise<{ server: Server; close: () => Promise<void> }> {
-  const client = fleetClientFace(opts.hosts);
+  const client = fleetClientFace(opts.hosts, opts.watchList);
   assertFleetFaceComplete(client);
   return serveSurfaceAsMcp({
     // The degenerate rooted bundle, exactly as the stdio face serves: one core

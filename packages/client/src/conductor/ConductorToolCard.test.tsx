@@ -164,3 +164,71 @@ describe("a failed call", () => {
     );
   });
 });
+
+describe("the payload under a card kolu recognises", () => {
+  const mountRow = (one: ConductorToolRow): HTMLElement => {
+    root = document.createElement("div");
+    document.body.append(root);
+    dispose = render(() => <ConductorToolCard row={one} />, root);
+    return root;
+  };
+
+  /** What a `create` answers: the same facts the card's own words already
+   *  say, in JSON. */
+  const ANSWER = `{"id":"remote:naiveintent/${TERMINAL}","pid":0,"ran":"omp"}`;
+
+  const created = {
+    kind: "tool",
+    id: "row-3",
+    text: "lifecycle_create",
+    status: "completed",
+    tool: "lifecycle_create",
+    server: "kolu",
+    progress: ANSWER,
+    kolu: {
+      kind: "create",
+      terminalId: TERMINAL,
+      host: "remote:naiveintent",
+      name: "planner",
+      cwd: null,
+    },
+  } as unknown as ConductorToolRow;
+
+  it("keeps it behind the disclosure instead of printing it under the words", () => {
+    const el = mountRow(created);
+    // NOTHING raw in the flow: every body on this card is inside a fold.
+    for (const pre of el.querySelectorAll("pre")) {
+      expect(pre.closest("details")).not.toBeNull();
+    }
+    expect(el.querySelector("details summary")?.textContent).toContain(
+      "answer",
+    );
+    // What is left once the fold is taken away is the card's own words — and
+    // the payload is not among them.
+    for (const fold of el.querySelectorAll("details")) fold.remove();
+    expect(el.textContent ?? "").not.toContain('"pid"');
+  });
+
+  it("still has the payload for whoever opens it", () => {
+    const el = mountRow(created);
+    expect(
+      el.querySelector('[data-testid="conductor-tool-detail"]')?.textContent,
+    ).toContain("remote:naiveintent");
+  });
+
+  it("a GENERIC card still prints its content — nothing else on it reads the payload", () => {
+    const el = mountRow({
+      kind: "tool",
+      id: "row-4",
+      text: "Bash",
+      status: "completed",
+      tool: "Bash",
+      progress: "total 4\ndrwxr-xr-x",
+    } as unknown as ConductorToolRow);
+    const loose = [...el.querySelectorAll("pre")].filter(
+      (pre) => pre.closest("details") === null,
+    );
+    expect(loose).toHaveLength(1);
+    expect(loose[0]?.textContent).toContain("drwxr-xr-x");
+  });
+});

@@ -1,12 +1,17 @@
 /** THE ONE STATUS LINE's words — what the conversation is doing, what it is
  *  doing it to, and for how long.
  *
- *  It is derived here rather than in the component because all three are
- *  judgements and not fields: the phase is on the cell, but "what it is doing"
- *  is read off the TRANSCRIPT (the newest call still out, else the last thing
- *  it said) and the duration is counted from `busySince` against a ticking
- *  clock. A component that did this inline would be a component nothing could
- *  pin, and this line is the one place a person looks to answer "is it stuck?".
+ *  TWO DERIVATIONS, not one. What it is doing is read off the TRANSCRIPT (the
+ *  running call of the turn in flight, else what that turn last said); how
+ *  long is counted from `busySince` against a ticking clock. They are
+ *  separate functions because the clock ticks once a second and the
+ *  transcript does not: a single fold would have every tick re-walk the rows
+ *  and re-make the whole readout, for a number beside words that did not
+ *  change.
+ *
+ *  They are derived here rather than in the component because both are
+ *  judgements and not fields, and this line is the one place a person looks
+ *  to answer "is it stuck?".
  *
  *  The STATE WORD is the cell's `phase` verbatim — `idle`, `working`,
  *  `asking`, `starting`, `offline` — because that word was the header chip's
@@ -34,59 +39,72 @@ function headline(text: string): string | null {
     : `${first.slice(0, DETAIL_LIMIT - 1).trimEnd()}…`;
 }
 
-/** WHAT IT IS DOING, from the transcript as it stands: the newest tool call
- *  still out, else the newest thing the agent said. The walk is backwards and
- *  stops at the first of either, so a settled call does not hide the words
- *  under it and a sentence from five minutes ago never outranks a call that is
- *  running now. `null` when the conversation has neither — a turn that has
- *  started and not yet spoken. */
+/** The rows that OPEN a turn, walking back: the human's message, a wake kolu
+ *  sent, or a divider. Everything before one of these belongs to a turn that
+ *  is over, and nothing in a finished turn describes what is happening now. */
+const TURN_OPENERS: Partial<Record<ConductorRow["kind"], true>> = {
+  user: true,
+  wake: true,
+  divider: true,
+};
+
+/** WHAT IT IS DOING, from the turn in flight and nothing else: the newest
+ *  tool call still out, else the newest thing the agent said IN THAT TURN.
+ *  `null` when the turn has neither — a turn that has started and not yet
+ *  spoken, which leaves the line reading `working · 34s`.
+ *
+ *  THE WALK STOPS AT THE TURN BOUNDARY. It used to run to the top of the
+ *  transcript, so a turn whose rows were all settled calls and forms reached
+ *  back across the human's message and reported an answer given two turns ago
+ *  as the thing happening now — a status line that lied while the work it was
+ *  describing was elsewhere. A running call still outranks prose, because a
+ *  sentence the agent finished saying before it made the call is not what it
+ *  is doing. */
 export function conductorDoing(rows: readonly ConductorRow[]): string | null {
+  /** The latest prose of this turn, held while the walk keeps looking for a
+   *  call still out beneath it. */
+  let said: string | null = null;
   for (let i = rows.length - 1; i >= 0; i--) {
     const row = rows[i];
     if (row === undefined) continue;
+    if (TURN_OPENERS[row.kind] === true) break;
     if (
       row.kind === "tool" &&
       (row.status === "pending" || row.status === "in_progress")
     ) {
       return toolLabel(row);
     }
-    if (row.kind === "agent") return headline(row.text);
+    if (row.kind === "agent" && said === null) said = headline(row.text);
   }
-  return null;
+  return said;
 }
 
-/** The status line, as it is drawn. */
-export interface StatusReadout {
-  /** The phase word itself — the chip's vocabulary, unchanged. */
-  readonly state: ConductorState["phase"];
-  /** What it is doing, when it is doing something nameable. */
-  readonly detail: string | null;
-  /** How long the turn in flight has been running (`2m 14s`), from
-   *  `busySince`. `null` while nothing is running, and `null` for a stamp that
-   *  does not parse — an invented duration is worse than none. */
-  readonly since: string | null;
-}
-
-/** Fold the cell and the transcript into the line. `nowMs` is the ticking
- *  clock the caller reads, passed in so this stays pure and a test can place
- *  the instant. */
-export function statusReadout(
-  state: Pick<ConductorState, "phase" | "busySince">,
+/** WHAT IT IS DOING, as the line draws it — `null` when there is nothing to
+ *  name. Only a RUNNING turn has something in flight to name: an idle
+ *  conversation's last sentence is still on screen above the composer, and
+ *  repeating it in the status line would read as work still going on.
+ *
+ *  Depends on the rows and the phase, never on the clock. */
+export function statusDetail(
+  phase: ConductorState["phase"],
   rows: readonly ConductorRow[],
+): string | null {
+  return phase === "working" ? conductorDoing(rows) : null;
+}
+
+/** HOW LONG the turn in flight has been running (`2m 14s`), from `busySince`
+ *  against `nowMs` — the ticking clock, passed in so this stays pure and a
+ *  test can place the instant. `null` while nothing is running, and `null`
+ *  for a stamp that does not parse: an invented duration is worse than none.
+ *
+ *  The one thing on this line the tick may move. */
+export function statusSince(
+  phase: ConductorState["phase"],
+  busySince: string | null,
   nowMs: number,
-): StatusReadout {
-  const running = state.phase === "working" || state.phase === "asking";
-  const at =
-    state.busySince === null ? Number.NaN : Date.parse(state.busySince);
-  return {
-    state: state.phase,
-    // Only a RUNNING turn has something in flight to name. An idle
-    // conversation's last sentence is still on screen above the composer;
-    // repeating it in the status line would read as work still going on.
-    detail: state.phase === "working" ? conductorDoing(rows) : null,
-    since:
-      running && !Number.isNaN(at)
-        ? formatElapsedShort(Math.max(0, nowMs - at))
-        : null,
-  };
+): string | null {
+  if (phase !== "working" && phase !== "asking") return null;
+  const at = busySince === null ? Number.NaN : Date.parse(busySince);
+  if (Number.isNaN(at)) return null;
+  return formatElapsedShort(Math.max(0, nowMs - at));
 }

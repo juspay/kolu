@@ -472,7 +472,7 @@ describe("foldFailureRuns", () => {
             : item.entry.row.id,
     );
 
-  it("says the same failure on six terminals ONCE, with the terminal taken out", () => {
+  it("says the same failure on six terminals ONCE, as a sentence that still reads", () => {
     expect(
       drawn([
         user("u", 0),
@@ -480,7 +480,47 @@ describe("foldFailureRuns", () => {
           unread(`s${i}`, i + 1, `${t}${t}${t}-terminal`),
         ),
       ]),
-    ).toEqual(["u", "screen_text ×6: Terminal not found"]);
+    ).toEqual([
+      "u",
+      // The FIRST reason whole, and a count for the rest — never the stripped
+      // string the six were matched by.
+      "screen_text ×6: Terminal aaa-terminal not found +5 more",
+    ]);
+  });
+
+  it("never draws a reason the id was cut out of — the line would start mid-sentence", () => {
+    // The human's screenshot: `watch_terminal failed 2 times: is not a
+    // terminal on that host`. The id is the first word of this reason, so
+    // stripping it for the comparison left the drawn line headless.
+    const notHere = (id: string, seq: number, terminal: string): ConductorRow =>
+      ({
+        id,
+        seq,
+        since: SINCE,
+        kind: "tool",
+        text: "watch_terminal",
+        status: "failed",
+        tool: "watch_terminal",
+        server: "kolu",
+        progress: `${terminal} is not a terminal on that host`,
+        kolu: {
+          kind: "watch",
+          terminalId: terminal,
+          host: "remote:srid@zest",
+          name: null,
+          watching: true,
+        },
+      }) as unknown as ConductorRow;
+    const lines = drawn([
+      user("u", 0),
+      notHere("f1", 1, "wise-otter"),
+      notHere("f2", 2, "brave-moth"),
+    ]);
+    // Still ONE line for the two: the id is out of the comparison.
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toBe(
+      "watch_terminal ×2: wise-otter is not a terminal on that host +1 more",
+    );
   });
 
   it("is a run as drawn: a settled call that joined a fold drawn earlier does not split it", () => {
@@ -492,7 +532,11 @@ describe("foldFailureRuns", () => {
         settled("ok", 3),
         unread("s2", 4, "t2"),
       ]),
-    ).toEqual(["u", ["look", "ok"], "screen_text ×2: Terminal not found"]);
+    ).toEqual([
+      "u",
+      ["look", "ok"],
+      "screen_text ×2: Terminal t1 not found +1 more",
+    ]);
   });
 
   it("splits on a different reason, a different tool, and anything drawn between", () => {

@@ -177,7 +177,8 @@ with no imports, so a consumer that must not take the MCP SDK can still split a
 reference). Nothing in the tree splits a fleet reference by hand.
 
 **Resources.** `terminals` (every host's roster, host-qualified) · `urgency`
-(who needs someone, fleet-wide) · `hosts` — the live roster, and it *changes
+(who needs someone, fleet-wide) · `watched` (this conversation's own watch
+list, below) · `hosts` — the live roster, and it *changes
 under you*: name, reachability (`warming` · `connected` · `failed`), padi's
 commit, its surface version and boot time. Those last three are why there is no
 fleet `identity`/`status`/`daemonStatus`: they are per-host facts, so they are
@@ -187,6 +188,18 @@ Addressing one terminal percent-encodes the reference —
 collection item by URI segment. Each row carries its own `host` and its `id` /
 `parentId` as fleet references, so a record you read is one you can act on
 without remembering the key it arrived under.
+
+`watched` (`surface://cells/watched`) is the Conductor reading the list it is
+being woken by — one row per watched reference, carrying the last name and
+agent kolu saw in that terminal, how it joined, and the ref's host *as this
+fleet stands now* (`host` / `hostName` / `hostState`, all three `null` for a
+host that is no longer a member). It is the only resource here whose value
+belongs to the conversation rather than to the fleet, and it subscribes: a
+watched terminal that goes away, or one a person removes from the browser,
+reaches a conductor that is not calling anything. Without it a restarted
+Conductor could move the list and never read it — the observed result being an
+agent that says it is "not certain" what it is watching and then re-watches
+terminals that no longer exist.
 
 **Tools — a SUBSET, deliberately.** Per-terminal tools take a reference;
 `lifecycle_create` takes a `host` (create on the machine the repo lives on) and
@@ -220,6 +233,8 @@ bucket, or `no-agent` / `asleep`. That state is also the BASELINE the server
 keeps for an `asked` join, so it is said here precisely because it will never
 arrive as a wake. `unwatch_terminal { id }` answers `{ watching, removed }`,
 consults no roster, and is happy to forget a terminal that has already died.
+Both say the WHOLE list back, so the agent that just moved it does not have to
+read anything to learn what it now holds.
 **A terminal this face CREATES is watched automatically**, at the fleet
 reference `lifecycle_create` answered — the agent never has to ask for news
 about a worker it just started.
@@ -230,7 +245,8 @@ that one can end with the command gone and no agent ever there), and `asked`
 for a terminal that was already running when the conductor asked for it. The
 list itself belongs to kolu-server (it is persisted with the conversation and
 read by the server's watcher); this face reaches it through the
-`FleetWatchList` port (`watched` · `watch` · `unwatch` · `said`), for the same
+`FleetWatchList` port (`entries` · `subscribe` · `watch` · `unwatch` ·
+`said`), for the same
 reason `FleetHosts` is a port. `agent_say` calls `said` once its keys land: the
 conductor has just acted on whatever that terminal was doing, so news held
 about it is stale.

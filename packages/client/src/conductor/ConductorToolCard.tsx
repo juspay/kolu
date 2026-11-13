@@ -350,17 +350,30 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
           return folded("last lines (screenTail)", call.screenTail, false);
         if (call.kind === "screen")
           return folded("screen", call.snapshot, false);
-        return null;
+        // A CARD KOLU RECOGNISED SAYS IT ALL ALREADY. A `create` printed its
+        // answer under its own words as well — `{"id":"remote:naiveintent/…",
+        // "pid":0,…}`, the same facts in JSON beneath the sentence that had
+        // just made them readable. The payload is still here, behind the same
+        // disclosure every other body uses, for whoever wants the wire.
+        return folded("answer", props.row.progress ?? null, true);
       })()}
-      <Show when={props.row.status !== "failed" && props.row.progress}>
+      {/* A GENERIC card's content, live: nothing on this card reads the
+          payload for the reader, so it is drawn. Wrapped and height-capped —
+          the vertical clip is the point, this is a tail and not a transcript
+          — but a horizontal one was a silent loss: an MCP answer arrives here
+          as one minified line and `overflow-hidden` CUT it at the card's
+          edge, so what the agent read was simply gone. `wrap-anywhere` breaks
+          it mid-token instead, which keeps every character on screen and the
+          card at its width. A failed call's content is its reason, drawn
+          above instead. */}
+      <Show
+        when={
+          props.row.kolu === undefined &&
+          props.row.status !== "failed" &&
+          props.row.progress
+        }
+      >
         {(progress) => (
-          // LIVE CONTENT, wrapped and height-capped. The vertical clip is the
-          // point — this is a tail, not a transcript — but a horizontal one
-          // was a silent loss: an MCP answer arrives here as one minified line
-          // and `overflow-hidden` CUT it at the card's edge, so what the agent
-          // read was simply gone. `wrap-anywhere` breaks it mid-token instead,
-          // which keeps every character on screen and the card at its width.
-          // A failed call's content is its reason, drawn above instead.
           <pre class="col-span-full min-w-0 font-mono text-[0.65rem] text-fg-3 whitespace-pre-wrap wrap-anywhere max-h-24 overflow-hidden">
             {progress()}
           </pre>

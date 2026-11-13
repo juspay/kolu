@@ -17,6 +17,14 @@
  * that just watched something should not have to issue a second call to learn
  * what it is now watching, nor a third to learn what it is doing.
  *
+ * READING the list is a RESOURCE, not a third tool: `watched`
+ * (`surface://cells/watched`, rows of {@link ../fleetSurface.ts}'s
+ * `FleetWatchedSchema`), served off this port's {@link
+ * FleetWatchList.entries}. A conversation that could only MOVE the list had to
+ * remember it across restarts, and the observed failure is the one this
+ * resource exists for: a restarted Conductor saying it is "not certain" what
+ * it is watching and then re-watching terminals that no longer exist.
+ *
  * The membership check is deliberate and is not a formality. "Watch this" with
  * a typo'd id, accepted silently, is a conductor that ends its turn believing a
  * worker will wake it and never hears anything again. A refusal naming the
@@ -30,6 +38,7 @@ import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import { Effect, Schema } from "effect";
+import type { FleetWatchJoinSchema } from "./fleetSurface.ts";
 import { type FleetHosts, requireTerminal } from "./hosts.ts";
 import { FleetTerminalRefSchema } from "./refSchema.ts";
 
@@ -45,13 +54,33 @@ import { FleetTerminalRefSchema } from "./refSchema.ts";
  *     first observation is a BASELINE, not news: an idle worker that was idle
  *     before anyone looked must not ring as if it had just stopped. The state
  *     it was found in is in `watch_terminal`'s answer instead. */
-export type FleetWatchJoin = "created" | "created-run" | "asked";
+export type FleetWatchJoin = typeof FleetWatchJoinSchema.Type;
+
+/** One terminal on the list, as a reader outside the conversation is told
+ *  about it. `name` and `agent` are the last thing kolu SAW in that terminal —
+ *  `null` until something has read it, never a stand-in empty string, because
+ *  "nobody has looked yet" and "it is called nothing" are different answers to
+ *  an agent deciding whether a worker is still there. */
+export interface FleetWatchEntry {
+  readonly ref: string;
+  readonly name: string | null;
+  readonly agent: string | null;
+  readonly joined: FleetWatchJoin;
+}
 
 /** The Conductor's watch list, as the fleet face reaches it. kolu-server owns
  *  it — this is only the door. */
 export interface FleetWatchList {
-  /** The watched fleet references, in the order they were added. */
-  watched(): readonly string[];
+  /** Everything on the list, in the order it was added. The ONE read: the
+   *  `watched` resource serves these rows and both tools answer the refs off
+   *  them, so "what is being watched" has a single answer however it is
+   *  asked. */
+  entries(): readonly FleetWatchEntry[];
+  /** The list MOVED — something joined or left it, or what kolu knows about a
+   *  member of it changed. The `watched` resource re-reads on this, which is
+   *  how a terminal that went away reaches a conductor that is not calling
+   *  anything. */
+  subscribe(cb: () => void): () => void;
   /** Watch `ref`, saying how it joined. Idempotent: watching what is already
    *  watched is not an error, keeps the existing entry (its `joined` included)
    *  and must not move it in the order. */
@@ -179,7 +208,7 @@ export function watchTerminalTool(
     mutates: true,
     title: "Watch a terminal",
     description:
-      "Watch this terminal: when its agent stops, asks you something, or the terminal dies, kolu starts a turn and tells you — so you end your turn instead of waiting on it. A terminal you created is watched already. Refused if nothing by that name is there, because a watch on a terminal that does not exist is silence you would read as calm. Answers the whole watch list AND the state the terminal was found in (`found`: the agent and its bucket, or `no-agent` / `asleep`) — that state is the BASELINE, so it will not be reported to you as news; anything after it will.",
+      "Watch this terminal: when its agent stops, asks you something, or the terminal dies, kolu starts a turn and tells you — so you end your turn instead of waiting on it. A terminal you created is watched already. Refused if nothing by that name is there, because a watch on a terminal that does not exist is silence you would read as calm. Answers the whole watch list AND the state the terminal was found in (`found`: the agent and its bucket, or `no-agent` / `asleep`) — that state is the BASELINE, so it will not be reported to you as news; anything after it will. The list with what is known about each terminal is the `watched` resource, readable at any time.",
     handler: (args, _bundle, _signal) => {
       const { id } = args as WatchArgs;
       return Effect.flatMap(requireInRoster(hosts, id), (terminal) =>
@@ -189,7 +218,7 @@ export function watchTerminalTool(
           // second could ring for a change that happened in between while this
           // answer still called it idle.
           watchList.watch(id, "asked");
-          return { watching: watchList.watched(), found };
+          return { watching: watchList.entries().map((one) => one.ref), found };
         }),
       );
     },
@@ -203,7 +232,7 @@ export function unwatchTerminalTool(watchList: FleetWatchList): BespokeTool {
     mutates: true,
     title: "Stop watching a terminal",
     description:
-      "Stop being woken by this terminal — its work is done, or the human asked you to drop it. Answers the whole watch list and whether this reference was in it (removed: false simply means it was not, which is not an error: a terminal that died has already dropped off by itself).",
+      "Stop being woken by this terminal — its work is done, or the human asked you to drop it. Answers the whole watch list and whether this reference was in it (removed: false simply means it was not, which is not an error: a terminal that died has already dropped off by itself). The list with what is known about each terminal is the `watched` resource, readable at any time.",
     // No roster check, deliberately: the common reason to unwatch something is
     // that it is finished or gone, and refusing to forget a terminal because it
     // no longer exists would leave the list unable to shed exactly the entries
@@ -212,7 +241,10 @@ export function unwatchTerminalTool(watchList: FleetWatchList): BespokeTool {
       Effect.sync(() => {
         const { id } = args as WatchArgs;
         const removed = watchList.unwatch(id);
-        return { watching: watchList.watched(), removed };
+        return {
+          watching: watchList.entries().map((one) => one.ref),
+          removed,
+        };
       }),
   };
 }

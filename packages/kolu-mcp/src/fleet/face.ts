@@ -65,10 +65,12 @@ import {
   type FleetHost,
   type FleetTerminal,
   type FleetUrgency,
+  type FleetWatched,
   fleetSurface,
 } from "./fleetSurface.ts";
 import { type FleetHosts, requireHost, requireTerminal } from "./hosts.ts";
-import { fleetTerminalRef } from "./ref.ts";
+import { fleetTerminalRef, splitFleetTerminalRef } from "./ref.ts";
+import type { FleetWatchList } from "./watchList.ts";
 
 // The four repo-scoped verbs take padi's own input, plus a host. Named off the
 // SCHEMAS padi declares them with, so a field added upstream arrives here
@@ -271,6 +273,73 @@ function fleetRoster(
   );
 }
 
+/** THE WATCH LIST, AS ROWS — each entry the conversation is woken by, plus
+ *  this fleet's reading of the host it is on.
+ *
+ *  The two halves come from different owners and that is the whole of this
+ *  function: the ENTRY is kolu-server's (the list is persisted with the
+ *  conversation), and whether its host is still here is the POOL's, read at
+ *  the instant of the read like every other member. A ref whose host has left
+ *  keeps its row with three nulls rather than being dropped — "I am watching
+ *  something I can no longer reach" is the answer, and dropping it would read
+ *  as a list that never had it.
+ *
+ *  Both lookups are synchronous and local: no host is dialled to answer this,
+ *  so a fleet with an unreachable member still answers "what am I watching"
+ *  whole. What a terminal is doing RIGHT NOW is `terminals` and the tools;
+ *  this is the list and nothing more. */
+function watchedRows(
+  hosts: FleetHosts,
+  watchList: FleetWatchList,
+): readonly FleetWatched[] {
+  const fleet = new Set(hosts.keys());
+  return watchList.entries().map((entry) => {
+    const split = splitFleetTerminalRef(entry.ref);
+    const host = split !== null && fleet.has(split.host) ? split.host : null;
+    return {
+      ref: entry.ref,
+      host,
+      hostName: host === null ? null : hosts.display(host),
+      hostState: host === null ? null : hosts.state(host),
+      name: entry.name,
+      agent: entry.agent,
+      joined: entry.joined,
+    };
+  });
+}
+
+/** ... now, and on every move of EITHER half. The list moves without the
+ *  conversation touching it (a watched terminal that goes away drops off, a
+ *  person can take one off from the browser) and so does the roster under it,
+ *  so both are subscribed: a reader holding this resource hears a host leave
+ *  as readily as an unwatch.
+ *
+ *  The current rows go out BEFORE either subscription, for the reason
+ *  {@link hostRoster} states: a resource read takes the first frame, and a
+ *  stream that only spoke on change would hang on a conversation watching
+ *  nothing. */
+function fleetWatched(
+  hosts: FleetHosts,
+  watchList: FleetWatchList,
+): Stream.Stream<readonly FleetWatched[]> {
+  return Stream.callback<readonly FleetWatched[]>((queue) =>
+    Effect.gen(function* () {
+      const push = (): void => {
+        Queue.offerUnsafe(queue, watchedRows(hosts, watchList));
+      };
+      push();
+      const offList = watchList.subscribe(push);
+      const offHosts = hosts.subscribe(push);
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          offList();
+          offHosts();
+        }),
+      );
+    }),
+  );
+}
+
 /** The host a repo-scoped verb names, and that host's client. These four verbs
  *  address a repository rather than a terminal, so the host is a field of their
  *  own rather than something a reference carries. */
@@ -316,8 +385,14 @@ function fleetTerminalRow(
   } as FleetTerminal;
 }
 
-/** The whole face. */
-export function fleetClientFace(hosts: FleetHosts): SurfaceClientCallable {
+/** The whole face. The watch list arrives beside the hosts because one member
+ *  — `watched` — is about the CONVERSATION rather than about the fleet, and
+ *  it is a port for the same reason the host map is: kolu-server owns the
+ *  list, this package only projects it. */
+export function fleetClientFace(
+  hosts: FleetHosts,
+  watchList: FleetWatchList,
+): SurfaceClientCallable {
   return {
     surface: {
       terminals: {
@@ -338,6 +413,11 @@ export function fleetClientFace(hosts: FleetHosts): SurfaceClientCallable {
         // and what is each doing" is the question this resource answers, and a
         // warming host omitted from it reads as a host that is not yours.
         get: () => fleetRoster(hosts),
+      },
+      watched: {
+        // What this conversation is woken by, with each ref's host read as it
+        // stands now — the one member whose value belongs to the conversation.
+        get: () => fleetWatched(hosts, watchList),
       },
       urgency: { get: () => fleetUrgency(hosts) },
       screen: {

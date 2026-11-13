@@ -59,6 +59,7 @@ export {
   spokenTo,
   type WatchEntry,
   type Watched,
+  type WatchedTerminal,
   type WatchJoin,
   type WatchLevel,
   type WatchObservation,

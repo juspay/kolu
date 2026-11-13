@@ -81,11 +81,13 @@ What the fleet projection changes is identity, and only identity:
 | `lifecycle_create` | opens one here | takes the host to open on, and answers a fleet reference |
 | the repo tools — `git_getStatus` · `git_getDiff` · `fs_listAll` · `fs_readFile` | a repo path | a repo path **and** the host it is on |
 | the waits and the watch | `wait_outputSettled` · `wait_agentState` · `watch_open` · `watch_next` · `watch_close`, all as documented below | **not served.** The Conductor never blocks: kolu-server wakes it. It gets `watch_terminal` / `unwatch_terminal` instead, and keeps `wait_outputSettled` **hard-capped at a few seconds** — the settle between typing and Enter, never a way to sit on an agent |
-| live views | `terminals` · `urgency` · `daemonStatus` · `status` · `identity` | `terminals` · `urgency` · **`hosts`** |
+| live views | `terminals` · `urgency` · `daemonStatus` · `status` · `identity` | `terminals` · `urgency` · **`hosts`** · **`watched`** |
 
 </div>
 
 `hosts` is the live roster: which machines kolu knows, what each is called, and whether it is warming, connected or failed *now*. It stands in for the three per-host health views rather than fanning them out — `daemonStatus`, `status` and `identity` are facts about **one** host, and in a fleet they are columns of that roster. A call naming a host that is not connected is **refused by name**, saying which host and what state it is in; it is never answered with an empty list, which an agent would read as "nothing is running there".
+
+`watched` is the Conductor's own watch list, read back: one row per watched terminal — its `host/id`, the last name and agent kolu saw in it, how it got on the list, and the state of the host it is on *now* (all three host columns `null` once that host is no longer a member). It moves the list with `watch_terminal` / `unwatch_terminal` and reads it here, so a conversation that restarted knows what it is being woken by instead of guessing. The resource subscribes, so a watched terminal that goes away — or one a person takes off from the browser — reaches it without a call.
 
 Everything else — every tool below, every refusal, the whole allowlist — is one definition serving both; the single exception is the row above. So if you want to know what the Conductor is capable of, this page is still the answer.
 

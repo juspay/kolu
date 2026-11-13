@@ -127,6 +127,7 @@ import {
   restoredEntry,
   spokenTo,
   type WatchEntry,
+  type WatchedTerminal,
   type WatchJoin,
   type WatchObservation,
   watchEntry,
@@ -175,6 +176,16 @@ export interface ConductorHost {
    *  order they were added. Reads the remembered record if nobody has yet; it
    *  never starts the agent — a list is bookkeeping, not a conversation. */
   readonly watched: () => ReadonlyArray<string>;
+  /** ... and the same list with what kolu last saw in each one: the name, the
+   *  agent and how it joined ({@link WatchedTerminal}).
+   *
+   *  Beside `watched` rather than replacing it because the two have different
+   *  readers: the published state and the watcher scope by REF and would throw
+   *  the rest away, while the fleet face serves these rows to the Conductor
+   *  itself — which, before it could read them, had no way to answer "what am
+   *  I watching" after a restart except by guessing. Reads the remembered
+   *  record on the same terms `watched` does, and starts nothing. */
+  readonly watchedTerminals: () => ReadonlyArray<WatchedTerminal>;
   /** Put one on the list, saying HOW it got there — which is what decides
    *  whether its first reading is news or a baseline, and whether a command
    *  coming back to the prompt means anything ({@link WatchJoin}).
@@ -1339,6 +1350,20 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       // asked for.
       remembered();
       return [...watchList.keys()];
+    },
+    watchedTerminals: () => {
+      // Same read, same restraint as `watched` above — and the fields are
+      // picked rather than the entry spread, so a runtime field added to
+      // `WatchEntry` never reaches a reader outside by accident.
+      remembered();
+      return [...watchList.values()].map(
+        ({ ref, name, agent, joined }): WatchedTerminal => ({
+          ref,
+          name,
+          agent,
+          joined,
+        }),
+      );
     },
     watchTerminal: (ref, joined) => {
       remembered();

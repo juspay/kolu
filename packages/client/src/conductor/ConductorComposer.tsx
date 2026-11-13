@@ -26,6 +26,7 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { hostLabel } from "../host/hostChipTone";
+import { formatKeybind } from "../input/keyboard";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { isDesktop } from "../useMobile";
@@ -55,7 +56,7 @@ import {
   type TokenQuery,
   tokenQueryAt,
 } from "./mentions";
-import { sendsAsSteer, steerOnOffer } from "./steer";
+import { sendsAsSteer, STEER_KEYBIND, steerOnOffer } from "./steer";
 import { thumbnailOf } from "./thumbnails";
 import { pinTranscript } from "./transcriptScroll";
 import { useConductor } from "./useConductor";
@@ -489,7 +490,8 @@ const ConductorComposer: Component<{
             ↯
           </span>
           <span class="min-w-0 truncate">
-            ⌥⏎ steers — your words go into the turn that is running
+            {formatKeybind(STEER_KEYBIND)} steers — your words go into the turn
+            that is running
           </span>
         </div>
       </Show>

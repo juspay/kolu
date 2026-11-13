@@ -23,6 +23,14 @@
  *  is otherwise invisible until a turn ends differently than expected. */
 
 import type { ConductorState } from "kolu-common/conductor";
+import type { Keybind } from "../input/keyboard";
+
+/** The chord itself, as a keybind — so the hint beside Send prints through
+ *  `formatKeybind` like every other shortcut in the app (`Alt+Enter` off
+ *  macOS, `⌥Enter` on it). Written out rather than spelled into the hint:
+ *  the hint used to carry the Mac glyphs literally, so a Linux reader was
+ *  told to press `⌥⏎` while the chip beside it said `Super+K`. */
+export const STEER_KEYBIND: Keybind = { key: "Enter", alt: true };
 
 /** Is steering ON OFFER right now — the state the hint beside Send draws.
  *  Both halves: the conversation steers, and there is a turn in flight to

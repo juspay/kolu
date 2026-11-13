@@ -117,6 +117,20 @@ export interface WatchEntry {
   readonly baselining: boolean;
 }
 
+/** ONE WATCHED TERMINAL, as a reader OUTSIDE the conversation is told about
+ *  it: what the terminal is, never how the bookkeeping stands.
+ *
+ *  `told`, `spoken`, `ran`, `last` and `baselining` stay in {@link
+ *  WatchEntry}. They are how this module decides what rings, they move several
+ *  times per reading, and nothing outside can act on one — a reader handed
+ *  them would be reading the watcher's working memory and drawing conclusions
+ *  from it. What a reader outside is owed is the terminal: which one, what it
+ *  was last seen as, and how it got on the list. */
+export type WatchedTerminal = Pick<
+  WatchEntry,
+  "ref" | "name" | "agent" | "joined"
+>;
+
 /** What a terminal is doing, as the watcher reads it off its host.
  *
  *  A wake level plus the two readings that never ring on their own: `working`

@@ -83,6 +83,71 @@ describe("the waterfall's two modes", () => {
   });
 });
 
+describe("the waterfall's setup questions", () => {
+  const SCRIPT = teachingLines("zest").join("\n");
+
+  it("asks the setup for every waterfall rather than once a conversation", () => {
+    // The defect this guards: the script said setup was "once per
+    // conversation", so a second waterfall in the same chat was asked only
+    // for its mode and the planner was launched on the first one's command
+    // line — a harness and a model the human never chose for this work.
+    expect(SCRIPT).toContain("Setup, for EVERY waterfall");
+    expect(SCRIPT).not.toContain("Setup, once per conversation");
+    expect(SCRIPT).toContain(
+      "there is no setup you do once for the conversation",
+    );
+  });
+
+  it("asks the harness and the model as two questions, not one command line", () => {
+    expect(SCRIPT).toContain("which HARNESS runs the implementor");
+    expect(SCRIPT).toContain("which MODEL that harness runs on");
+    expect(SCRIPT).toContain("as a question of its own");
+    // …and the command line is the Conductor's to assemble from the two.
+    expect(SCRIPT).toContain(
+      "YOU build the command line out of the harness and the model",
+    );
+  });
+
+  it("offers the previous answers first and still asks", () => {
+    expect(SCRIPT).toContain("OFFER IT FIRST");
+    expect(SCRIPT).toContain("never skip the asking because you asked before");
+  });
+
+  it("asks what to do on green CI and the mode in that same one form", () => {
+    expect(SCRIPT).toContain("what to do when CI is green");
+    expect(SCRIPT).toContain("the mode, unless the request already said which");
+    expect(SCRIPT).toContain("in ONE form");
+    expect(SCRIPT).toContain("all of one waterfall's setup in a single form");
+  });
+
+  it("keeps every question optioned, with a box for the human's own answer", () => {
+    // The question tool draws only questions that HAVE options, so a typed
+    // answer still needs them: a question without options is a form the
+    // human never sees.
+    expect(SCRIPT).toContain(
+      "a question tool may draw only questions that have options",
+    );
+    expect(SCRIPT).toContain(
+      "a box beside them for an answer of the human's own",
+    );
+  });
+});
+
+describe("the watch list", () => {
+  const SCRIPT = teachingLines("zest").join("\n");
+
+  it("tells the Conductor to read its own list rather than remember it", () => {
+    // The defect this guards: after a restart it said it was "not certain"
+    // which terminals it watched and then tried to watch two that were gone.
+    // The list is the fleet's, and it is readable.
+    expect(SCRIPT).toContain("`watched` resource");
+    expect(SCRIPT).toContain(
+      "Read it before you act on what you THINK you are",
+    );
+    expect(SCRIPT).toContain("after a restart");
+  });
+});
+
 describe("parseTeaching", () => {
   it("joins a paragraph's wrapped lines and drops the editor's note", () => {
     expect(

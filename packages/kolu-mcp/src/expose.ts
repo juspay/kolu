@@ -31,6 +31,12 @@
  * face serving one padi has one host, and a roster of one is a row an agent
  * would have to read to learn what it already knows.
  *
+ * The fleet face has one resource the stdio face could not have at all:
+ * `watched` (`surface://cells/watched`), the Conductor's own watch list as
+ * rows. It is per-CONVERSATION rather than per-host, and there is exactly one
+ * conversation behind this map; a face serving many clients would be serving
+ * one of them somebody else's list.
+ *
  * **Default deny**: an omitted member is unreachable, full stop. Widening this
  * map is a one-row diff with a review, never a default. The named denials below
  * ({@link KOLU_MCP_DENIED}) are explicit non-entries — each was considered and
@@ -137,6 +143,11 @@ export const KOLU_FLEET_EXPOSE = {
   urgency: "resource",
   /** The live roster, and the per-host health facts as its columns. */
   hosts: "resource",
+  /** What this conversation is woken about — its own watch list, with each
+   *  ref's host as the fleet reads it now. The one resource here whose value
+   *  is the CONVERSATION's: moving the list is two tools, reading it is this,
+   *  and a face that only had the tools left a restarted conductor guessing. */
+  watched: "resource",
 
   ...KOLU_MCP_TOOL_EXPOSE,
 } as const satisfies ExposeMap<FleetSurfaceSpec>;

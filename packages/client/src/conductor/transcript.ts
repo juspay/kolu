@@ -204,8 +204,9 @@ export type TranscriptItem =
       readonly key: string;
       /** The tool, as its cards name it. */
       readonly tool: string;
-      /** The reason they share, with the terminal each one was about taken
-       *  out — the one thing that differs between them. */
+      /** What the line SAYS after the count — the first failure's reason
+       *  whole, plus `+N more` when the others differ from it. A sentence,
+       *  not the stripped string the failures were grouped by. */
       readonly reason: string;
       readonly rows: readonly ConductorToolRow[];
     };
@@ -291,24 +292,27 @@ export function foldToolRuns(
   return items;
 }
 
-/** One failed call that said why, as the run rule compares it. */
+/** One failed call as the run rule handles it: the `key` two failures are the
+ *  SAME failure by, and the `said` a line would draw. */
 interface Failure {
   readonly tool: string;
-  readonly reason: string;
+  /** The reason with the terminal it was about taken out — so "Terminal A not
+   *  found" and "Terminal B not found" match. For COMPARING only: it is a
+   *  sentence with a hole in it, and the hole is often where the sentence
+   *  began ("… is not a terminal on that host"). */
+  readonly key: string;
+  /** The reason WHOLE, exactly as the card says it. */
+  readonly said: string;
   readonly row: ConductorToolRow;
 }
 
-/** What makes two failures THE SAME failure: the tool, and its reason with
- *  the terminal it was about taken out — so "Terminal A not found" and
- *  "Terminal B not found" match. `null` for anything that is not a failed call
- *  that said why. */
 function failureOf(item: TranscriptItem): Failure | null {
   if (item.kind !== "entry" || item.entry.row.kind !== "tool") return null;
   const row = item.entry.row;
   const said = failureReason(row);
   if (said === null) return null;
   const subject = callSubject(row.kolu);
-  const reason = (
+  const key = (
     subject === null
       ? said
       : said
@@ -317,7 +321,25 @@ function failureOf(item: TranscriptItem): Failure | null {
   )
     .replace(/\s+/g, " ")
     .trim();
-  return { tool: toolLabel(row), reason, row };
+  return { tool: toolLabel(row), key, said, row };
+}
+
+/** The sentence the folded line draws, from the failures it stands for: the
+ *  FIRST reason whole, and — when the others are not word for word the same —
+ *  `+N more` for the rest.
+ *
+ *  The two jobs are separate on purpose. Failures are grouped by a reason with
+ *  the terminal id cut out of it, and that string is not a sentence: drawing
+ *  it gave the human `watch_terminal failed 2 times: is not a terminal on
+ *  that host — …`, a line starting mid-clause because the words it began with
+ *  were the id. So the comparison keeps its hole and the line never shows it. */
+function failureSentence(run: readonly Failure[]): string {
+  const [first, ...rest] = run;
+  if (first === undefined) return "";
+  const others = new Set(
+    rest.map((one) => one.said).filter((said) => said !== first.said),
+  ).size;
+  return others === 0 ? first.said : `${first.said} +${others} more`;
 }
 
 /** The same failure IN A ROW draws as one line carrying its count —
@@ -344,7 +366,7 @@ export function foldFailureRuns(
         kind: "failures",
         key: `failures:${first.failure.row.id}`,
         tool: first.failure.tool,
-        reason: first.failure.reason,
+        reason: failureSentence(run.map((one) => one.failure)),
         rows: run.map((one) => one.failure.row),
       });
     }
@@ -358,7 +380,7 @@ export function foldFailureRuns(
       failure === null ||
       last === undefined ||
       failure.tool !== last.tool ||
-      failure.reason !== last.reason
+      failure.key !== last.key
     ) {
       flush();
     }
