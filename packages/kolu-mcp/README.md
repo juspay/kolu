@@ -246,10 +246,12 @@ for a terminal that was already running when the conductor asked for it. The
 list itself belongs to kolu-server (it is persisted with the conversation and
 read by the server's watcher); this face reaches it through the
 `FleetWatchList` port (`entries` · `subscribe` · `watch` · `unwatch` ·
-`said`), for the same
+`said` · `closed`), for the same
 reason `FleetHosts` is a port. `agent_say` calls `said` once its keys land: the
 conductor has just acted on whatever that terminal was doing, so news held
-about it is stale.
+about it is stale. `lifecycle_kill` calls `closed` once the kill lands: a
+terminal the conductor closed leaves the list in silence, with no `gone` wake
+about its own action — closing needs no `unwatch_terminal`.
 
 `agent_say` is on BOTH faces, unchanged except for the reference: the conductor
 says things to the agents it starts without knowing one keystroke of any of

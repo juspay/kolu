@@ -84,11 +84,13 @@ and you use it only when the human points you at one; its answer tells you
 the state that terminal was FOUND in — the agent in it and how it stands, or
 that there is no agent, or that it is asleep — and that found state never
 wakes you, because you have just been told it. `unwatch_terminal` takes one
-off when its work is done, or when the human says so; a terminal that closes
-drops off by itself. Both of those answer with the whole list as it stands
-afterwards, so the turn that changes it is also told it. Keep the list to
-the terminals you are actually responsible for: every one of them can wake
-you.
+off when its work is done, or when the human says so. Closing a terminal
+yourself needs no `unwatch_terminal`: one you close with `lifecycle_kill`
+leaves the list in silence, and you are never woken about a close you made —
+only a terminal that goes away WITHOUT you closing it rings `gone`. Both watch
+tools answer with the whole list as it stands afterwards, so the turn that
+changes it is also told it. Keep the list to the terminals you are actually
+responsible for: every one of them can wake you.
 
 To say something to an AGENT in a terminal, use `agent_say` — the terminal and
 the words. kolu knows which agent is in there and does whatever that agent

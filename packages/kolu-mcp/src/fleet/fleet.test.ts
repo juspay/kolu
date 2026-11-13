@@ -477,10 +477,13 @@ function fakeWatchList(): FleetWatchList & {
    *  the `watched` resource has to show it. */
   sawIn(ref: string, name: string, agent: string | null): void;
   readonly saids: string[];
+  /** Every `closed` the face told the list, in order. */
+  readonly closeds: string[];
 } {
   const entries = new Map<string, FleetWatchEntry>();
   const listeners = new Set<() => void>();
   const saids: string[] = [];
+  const closeds: string[] = [];
   const moved = (): void => {
     for (const one of listeners) one();
   };
@@ -505,6 +508,10 @@ function fakeWatchList(): FleetWatchList & {
     said(ref) {
       saids.push(ref);
     },
+    closed(ref) {
+      closeds.push(ref);
+      if (entries.delete(ref)) moved();
+    },
     joinOf: (ref) => entries.get(ref)?.joined,
     refs: () => [...entries.keys()],
     sawIn(ref, name, agent) {
@@ -514,6 +521,7 @@ function fakeWatchList(): FleetWatchList & {
       moved();
     },
     saids,
+    closeds,
   };
 }
 
@@ -1018,6 +1026,38 @@ describe("the conductor's watch list", () => {
     expect(res.isError).toBe(true);
     expect(res.structuredContent).toMatchObject({ kind: "stopped-partway" });
     expect(watchList.refs()).toEqual([]);
+  });
+
+  it("a kill that LANDS tells the list the Conductor closed it; a refused one tells it nothing", async () => {
+    // The defect this guards: the Conductor closed its planner and
+    // implementor after a merge and was then woken — `… gone · … gone` — about
+    // its own action. The face is where the kill is seen to land, so it is
+    // what says so, at the fleet reference the list is keyed by.
+    const { fleet } = twoHostFleet();
+    const watchList = fakeWatchList();
+    const mcp = await servedFleet(fleet.hosts, watchList);
+    await mcp.callTool({
+      name: "watch_terminal",
+      arguments: { id: `remote:box/${BETA_1}` },
+    });
+
+    const killed = await mcp.callTool({
+      name: "lifecycle_kill",
+      arguments: { id: `remote:box/${BETA_1}` },
+    });
+    expect(killed.isError ?? false, JSON.stringify(killed.content)).toBe(false);
+    expect(watchList.closeds).toEqual([`remote:box/${BETA_1}`]);
+    expect(watchList.refs()).toEqual([]);
+
+    // A kill that never reached padi closed nothing, so the list must not be
+    // told it did: that terminal is still there, still worth a `gone`.
+    fleet.setState("remote:box", "warming");
+    const refused = await mcp.callTool({
+      name: "lifecycle_kill",
+      arguments: { id: `remote:box/${BETA_1}` },
+    });
+    expect(refused.isError).toBe(true);
+    expect(watchList.closeds).toEqual([`remote:box/${BETA_1}`]);
   });
 
   it("`watch_terminal` adds a terminal that exists, and answers the list AND what it found", async () => {

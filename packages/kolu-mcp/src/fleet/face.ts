@@ -427,14 +427,20 @@ export function fleetClientFace(
           ),
       },
       lifecycle: {
+        // A KILL THAT LANDED is one the Conductor caused, and the watch list
+        // is told so (`closed`) — otherwise the `gone` it would ring at the
+        // turn's end is a wake about the Conductor's own action. Told at the
+        // reference padi answered with, re-qualified, which is the spelling
+        // the list is keyed by.
         kill: (input: { id: string }) =>
           Effect.flatMap(
             requireTerminal(hosts, input.id),
             ({ host, id, padi }) =>
-              Effect.map(padi.surface.lifecycle.kill({ id }), (info) => ({
-                ...info,
-                id: fleetTerminalRef(host, info.id),
-              })),
+              Effect.map(padi.surface.lifecycle.kill({ id }), (info) => {
+                const ref = fleetTerminalRef(host, info.id);
+                watchList.closed(ref);
+                return { ...info, id: ref };
+              }),
           ),
       },
       git: {

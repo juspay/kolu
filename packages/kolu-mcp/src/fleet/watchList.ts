@@ -92,6 +92,12 @@ export interface FleetWatchList {
    *  Conductor has now acted on, so the server withdraws it and re-baselines;
    *  a ref that is not watched is simply ignored. */
   said(ref: string): void;
+  /** The Conductor just closed this terminal (`lifecycle_kill` answered). A
+   *  death it caused is not news to it, so the server takes the entry off the
+   *  list in silence and withdraws anything held about it — closing a
+   *  terminal needs no `unwatch_terminal`. A ref that is not watched is
+   *  ignored. */
+  closed(ref: string): void;
 }
 
 /** Why a watch was refused. `not-a-fleet-ref` / `unknown-host` /

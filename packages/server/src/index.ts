@@ -634,7 +634,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // THE CONDUCTOR'S WATCH LIST, as the fleet face reaches it. The list itself
   // lives with the conversation (it is saved with it, and the Conductor's own
   // `watch_terminal` / `unwatch_terminal` move it); what the face needs is the
-  // five verbs, and kolu-server is what knows that "the conversation" means
+  // six verbs, and kolu-server is what knows that "the conversation" means
   // `liveServerConductor()`. Read through the thunk on every call rather than
   // captured, for the reason every other conductor seam here is: the host is
   // built on its first reader, and a face held at boot would force it up.
@@ -645,7 +645,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // whose return to a shell prompt means anything (`kolu-conductor`'s
   // `WatchJoin`). `said` is every `agent_say` that landed its keystrokes, for
   // any terminal: the conversation ignores the refs it is not watching, and
-  // the face has no business knowing which those are.
+  // the face has no business knowing which those are. `closed` is every
+  // `lifecycle_kill` that landed, on the same terms: a terminal the Conductor
+  // closed leaves its list without a `gone` wake about its own action.
   //
   // `entries` is the READ — the `watched` resource the Conductor reads its own
   // list from — and `subscribe` is how that resource hears the list move
@@ -676,6 +678,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     unwatch: (ref) => liveServerConductor().unwatchTerminal(ref),
     said: (ref) => {
       liveServerConductor().saidTo(ref);
+    },
+    closed: (ref) => {
+      liveServerConductor().closedTerminal(ref);
     },
   };
   const fleetMcp = await startFleetMcpEndpoint({

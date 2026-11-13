@@ -1942,6 +1942,60 @@ describe("an agent that has just come up", () => {
   });
 });
 
+describe("a terminal the Conductor closed itself", () => {
+  it("leaves in silence even when its going has already rung", async () => {
+    // The human's session: after a merge the Conductor closed its planner
+    // and implementor, and was then woken — `… gone · … gone` — to spend a
+    // turn explaining that it had done that itself. padi publishes the
+    // removal BEFORE the kill answers, so the watcher sees the terminal go
+    // first: by the time the face says "closed", the entry is already off the
+    // list and its `gone` is waiting for the turn to end.
+    const r = rig();
+    const agent = await busyWatching(r);
+    r.host.observe([seeing(A, "gone")]);
+    await vi.waitFor(() => {
+      expect(r.host.state().held).toEqual([A]);
+    });
+    r.host.closedTerminal(A);
+    expect(r.host.state().held).toEqual([]);
+    expect(r.host.watched()).toEqual([B]);
+    idle(agent);
+    await vi.waitFor(() => {
+      expect(r.host.state().phase).toBe("idle");
+    });
+    expect(agent.wakes()).toEqual([]);
+  });
+
+  it("says nothing about it when the watcher sees it go only afterwards", async () => {
+    const r = rig();
+    const agent = await busyWatching(r);
+    r.host.closedTerminal(A);
+    expect(r.host.watched()).toEqual([B]);
+    // The frame that was in flight across the close: a ref nobody watches.
+    r.host.observe([seeing(A, "gone")]);
+    expect(r.host.state().held).toEqual([]);
+    idle(agent);
+    await vi.waitFor(() => {
+      expect(r.host.state().phase).toBe("idle");
+    });
+    expect(agent.wakes()).toEqual([]);
+  });
+
+  it("still rings for a terminal that went away WITHOUT being closed", async () => {
+    // Only a death the Conductor did not cause is news — closing A says
+    // nothing about B.
+    const r = rig();
+    const agent = await busyWatching(r);
+    r.host.closedTerminal(A);
+    r.host.observe([seeing(A, "gone"), seeing(B, "gone")]);
+    idle(agent);
+    await vi.waitFor(() => {
+      expect(agent.wakes()).toHaveLength(1);
+    });
+    expect(agent.wakes()[0]?.events.map((one) => one.ref)).toEqual([B]);
+  });
+});
+
 describe("a wake that could not be delivered", () => {
   /** The notices in the transcript right now — a `watch` hands back the whole
    *  of it as its snapshot, and the sink is dropped again so this can be

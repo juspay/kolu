@@ -211,6 +211,18 @@ export interface ConductorHost {
    *  turn ends. A ref that is NOT watched is ignored — the fleet face calls
    *  this for every say, and most terminals are nobody's watch. */
   readonly saidTo: (ref: string) => void;
+  /** THE CONDUCTOR JUST CLOSED THIS TERMINAL — `lifecycle_kill` answered.
+   *
+   *  A death it caused is not news to it: the entry leaves the list SILENTLY
+   *  and whatever that terminal was about to say goes with it — `gone`
+   *  included, because padi publishes the removal BEFORE the kill answers, so
+   *  the watcher can have seen the terminal go (dropping the entry and holding
+   *  a `gone` for the turn's end) by the time this is called. That is why it
+   *  withdraws the held news whether or not the entry is still here, and why
+   *  it is a verb of its own rather than `unwatchTerminal`, which answers
+   *  "was it watched" and touches nothing when it was not. A ref nobody
+   *  watched and nothing was held about is ignored. */
+  readonly closedTerminal: (ref: string) => void;
   /**
    * WHAT THE WATCHER SAW, for refs on CONNECTED hosts only.
    *
@@ -1395,6 +1407,14 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       const withdrew = heldNews.withdraw(ref);
       watchList.set(ref, spokenTo(entry));
       if (withdrew) publishState();
+      schedulePersist();
+    },
+    closedTerminal: (ref) => {
+      remembered();
+      const left = watchList.delete(ref);
+      const withdrew = heldNews.withdraw(ref);
+      if (!left && !withdrew) return;
+      publishState();
       schedulePersist();
     },
     unwatchTerminal: (ref) => {
