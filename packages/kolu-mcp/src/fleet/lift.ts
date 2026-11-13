@@ -104,7 +104,11 @@ interface FleetLift {
    *  call CREATED before it stopped. A refusal is the one answer whose ids
    *  matter most — `stopped-partway` exists so an agent can kill what landed —
    *  and a bare id there is refused by the very tool it names ("not a fleet
-   *  terminal reference"), leaving an orphan nothing can address. */
+   *  terminal reference"), leaving an orphan nothing can address. The same
+   *  applies to a refusal that names the terminal it was ABOUT — the
+   *  asleep refusal's `id` (`asleep.ts`): "Terminal t-7 is asleep" tells an
+   *  agent on this face to wake an id no tool here accepts, so that path is
+   *  listed too and the prose is rewritten beside it. */
   readonly refusals: readonly string[];
 }
 
@@ -125,7 +129,7 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     from: { host: true },
     refs: ["placement.parentId"],
     answers: ["id"],
-    refusals: ["landed.id"],
+    refusals: ["landed.id", "id"],
   },
   lifecycle_sendInput: {
     input: Schema.Struct({
@@ -135,7 +139,7 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     from: { ref: "id" },
     refs: [],
     answers: [],
-    refusals: [],
+    refusals: ["id"],
   },
   screen_text: {
     input: Schema.Struct({
@@ -145,7 +149,7 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     from: { ref: "id" },
     refs: [],
     answers: [],
-    refusals: [],
+    refusals: ["id"],
   },
   screen_image: {
     input: Schema.Struct({
@@ -155,7 +159,7 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     from: { ref: "id" },
     refs: [],
     answers: [],
-    refusals: [],
+    refusals: ["id"],
   },
   wait_outputSettled: {
     input: Schema.Struct({
@@ -165,7 +169,7 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     from: { ref: "id" },
     refs: [],
     answers: ["id"],
-    refusals: [],
+    refusals: ["id"],
   },
   wait_agentState: {
     input: Schema.Struct({
@@ -175,7 +179,7 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     from: { ref: "id" },
     refs: [],
     answers: ["id"],
-    refusals: [],
+    refusals: ["id"],
   },
 };
 

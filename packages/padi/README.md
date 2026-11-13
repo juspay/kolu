@@ -405,6 +405,37 @@ rows, blank viewport included, so forwarding N would hand a fresh shell's caller
 N blank lines. `src/screenTextTail.ts` reads a window wider than N rather than
 the scrollback; its header has the arithmetic.
 
+## The active-terminal gate — "no such terminal" vs "it is asleep"
+
+Every per-terminal read and write narrows to the LIVE arm of the registry
+through one function, `requireActiveTerminal`
+(`src/terminal-registry.ts`) — `screen.state`/`text`/`history`/`image`,
+`scratch.write`, `transcript.exportHtml`, and a `child-of` create's parent. It
+refuses with **two** declared errors, and the difference is the whole point:
+
+- `TerminalNotFound { id }` — nothing by that name. It exited, or this padi
+  never had it. A caller drops the id.
+- `TerminalNotActive { id, state }` — the terminal EXISTS and is in the roster;
+  it just has no live PTY, because it is `sleeping` (deliberately slept) or
+  `parked` (a reboot placeholder the restore card offers). A caller wakes it,
+  or skips it and says it is asleep. The `state` rides as data, read off the
+  same registry entry the gate just looked up, so no face has to parse prose.
+
+Until `padiSurface` 7.2 both answered `TerminalNotFound`, so a screen read of a
+terminal the user can see in their dock came back "Terminal <id> not found" —
+and every face repeated it: the MCP tools, `kolu snapshot`, the wait engine. An
+agent told a terminal does not exist drops it; one told it is asleep wakes it.
+
+The two STREAM members are the stated exception. `terminalAttach` /
+`terminalExit` have no error channel to declare either error on, and the
+client's attach loop ENDS on `TerminalNotFound` as its teardown verdict (any
+other failure is retried), so `requireAttachableTerminal` keeps answering
+not-found for a dormant id — a consumer with no error channel gets the verdict
+it can act on. `requireMutableTerminal` (the chrome setters) also keeps
+`TerminalNotFound` for a PARKED record: its refusal is "this record is an
+immutable restore placeholder", not "it is dormant" — a SLEEPING record passes
+it.
+
 ## `screen.image` — padi is where the picture gets made
 
 Beside `screen.text` (characters) padi serves `screen.image`: the terminal

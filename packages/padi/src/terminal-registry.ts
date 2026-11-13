@@ -15,7 +15,7 @@ import type {
   AuthoredSleepingTerminal,
   TerminalInfo,
 } from "@kolu/padi-client/surface";
-import { TerminalNotFound } from "@kolu/padi-client/surface";
+import { TerminalNotActive, TerminalNotFound } from "@kolu/padi-client/surface";
 import type { TerminalId, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import type { TerminalHandle } from "./endpoint.ts";
 
@@ -313,16 +313,28 @@ export function getActiveTerminal(
   return entry?.handle ? entry : undefined;
 }
 
-/** `getActiveTerminal` or throw the typed not-found fault — for handlers where a
- *  missing terminal must surface LOUDLY (e.g. attach, screen reads, file uploads).
- *  A sleeping or absent id is "not found" to them by the same code, since neither
- *  can take the operation. NOTE: the
- *  fire-and-forget stream ops (`resize`, `sendInput`) deliberately do NOT use this —
- *  a late call landing just after a kill is an expected race, so they take the
- *  quiet `getActiveTerminal(input.id)?.handle.x()` path and drop it (#1628). */
+/** `getActiveTerminal` or throw — the ONE active-terminal gate, for handlers
+ *  where a terminal that cannot take the operation must surface LOUDLY (attach,
+ *  screen reads, file uploads, a `child-of` create's parent).
+ *
+ *  It raises TWO declared errors, because "there is no such terminal" and "it
+ *  exists, but it is asleep" are different facts and every face needs to tell
+ *  them apart: an absent id is {@link TerminalNotFound} (drop it); a record in
+ *  the registry's dormant arms is {@link TerminalNotActive} carrying the arm it
+ *  is in (`sleeping` | `parked` — wake it, then read it). Until kolu#2361 both
+ *  answered not-found, so an agent was told a terminal it could see in the
+ *  roster did not exist. The state is read off the SAME entry the gate already
+ *  looked up, so the two answers can never disagree about which arm a record
+ *  is in.
+ *
+ *  NOTE: the fire-and-forget stream ops (`resize`, `sendInput`) deliberately do
+ *  NOT use this — a late call landing just after a kill is an expected race, so
+ *  they take the quiet `getActiveTerminal(input.id)?.handle.x()` path and drop
+ *  it (#1628). */
 export function requireActiveTerminal(id: TerminalId): ActiveTerminalProcess {
-  const entry = getActiveTerminal(id);
+  const entry = terminals.get(id);
   if (!entry) throw terminalNotFound(id);
+  if (!entry.handle) throw terminalNotActive(id, entry.meta.state);
   return entry;
 }
 
@@ -352,7 +364,12 @@ export function requireTerminal(id: TerminalId): TerminalProcess {
  *  The exact sibling of `requireTerminal`, minus the parked arm: it still ACCEPTS
  *  the ACTIVE and SLEEPING arms (a chrome edit — theme / intent / layout — on a
  *  sleeping tile is valid), and rejects PARKED and absent alike with the same
- *  `terminalNotFound` the active-only guard uses for a wrong arm. READ / QUERY
+ *  `terminalNotFound`. It does NOT raise {@link terminalNotActive}, and that is
+ *  deliberate rather than an oversight: this guard's refusal is not "the record
+ *  is dormant" (a SLEEPING record passes it) but "this record is an immutable
+ *  restore placeholder", and the six chrome members declare `TerminalNotFound`
+ *  alone. The gate that narrows to the LIVE arm — `requireActiveTerminal` — is
+ *  the one that owes its callers the dormant/absent distinction. READ / QUERY
  *  paths keep using `requireTerminal` (parked included) — only mutation handlers
  *  take this. */
 export function requireMutableTerminal(id: TerminalId): TerminalProcess {
@@ -368,4 +385,16 @@ export function requireMutableTerminal(id: TerminalId): TerminalProcess {
  *  with its `_tag` and its `id` intact and a caller narrows on it. */
 export function terminalNotFound(id: string): TerminalNotFound {
   return new TerminalNotFound({ id });
+}
+
+/** The terminal-EXISTS-BUT-IS-NOT-LIVE fault as the surface's DECLARED tagged
+ *  error — {@link terminalNotFound}'s sibling, minted in the same one place for
+ *  the same reason. `state` is the registry arm the record is actually in, read
+ *  off the entry by the gate that refused, so a face can say "wake it"
+ *  (sleeping) or "restore the session" (parked) without parsing a sentence. */
+export function terminalNotActive(
+  id: string,
+  state: "sleeping" | "parked",
+): TerminalNotActive {
+  return new TerminalNotActive({ id, state });
 }

@@ -5,8 +5,13 @@
  *  carries a structured `kolu` reading and gets a card that can name the
  *  terminal and open it; everything else gets the generic card built from the
  *  agent's own title and the folded JSON. That reading IS the card vocabulary,
- *  so the markup switches on it directly; `./toolCard` holds only the two
+ *  so the markup switches on it directly; `./toolCard` holds only the
  *  derivations the markup cannot read off the row, and the clock.
+ *
+ *  A `create` card that names its terminal is the conversation's line about an
+ *  agent, so it carries that agent's status and a Look at its screen
+ *  (`ConductorLook`) under the title — the way to check on it without leaving
+ *  the chat. "open tile" stays the way to go to it.
  *
  *  The live clock (`· 47s`) appears only on a call that is RUNNING and only once
  *  the wait is worth watching — see `runningFor`. It is derived from the row's
@@ -21,8 +26,19 @@ import { useDockFocus } from "../canvas/dock/useDockFocus";
 import { hostLabel } from "../host/hostChipTone";
 import { selectHostTab } from "../host/selectHostTab";
 import { getClockNow } from "../time/clock";
+import { isDesktop } from "../useMobile";
 import ConductorDiffs from "./ConductorDiffs";
-import { foldJson, runningFor, sentInput, waitedFor } from "./toolCard";
+import ConductorLook from "./ConductorLook";
+import {
+  agentLineSubject,
+  callSubject,
+  failureReason,
+  foldJson,
+  runningFor,
+  sentInput,
+  toolLabel,
+  waitedFor,
+} from "./toolCard";
 
 const STATUS_MARK: Record<ConductorToolRow["status"], string> = {
   pending: "·",
@@ -50,17 +66,6 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
    *  read, so a settled card holds no subscription at all. */
   const clock = () =>
     props.row.status === "in_progress" ? runningFor(props.row, now()) : null;
-  /** The terminal a card is ABOUT, when it is about one — BOTH halves of its
-   *  identity. Every kolu reading carries the id and the host it is on (the
-   *  two sides of the `host/id` the agent spoke); a call we could not resolve
-   *  carries neither, and has nothing to open and nothing to guess at. */
-  const subject = (): { host: string; id: TerminalId } | null => {
-    const call = props.row.kolu;
-    if (call === undefined || call.terminalId === null || call.host === null) {
-      return null;
-    }
-    return { host: call.host, id: call.terminalId };
-  };
 
   /** Go to it. The terminal may be on a machine whose tab is not the selected
    *  one, so this is a TAB SWITCH and then a focus — `selectHostTab` leaves
@@ -113,13 +118,19 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
    *  card doing its job. A screen tail or a snapshot is EVIDENCE — the
    *  characters a terminal actually put on screen — and a terminal whose last
    *  lines happen to be a JSON document would come back reformatted, which is
-   *  the card editing what it was shown instead of showing it. */
-  const folded = (summary: string, body: string | null, print: boolean) => (
+   *  the card editing what it was shown instead of showing it.
+   *
+   *  ONE ARROW. The browser's own disclosure marker is hidden and the summary
+   *  draws its own, turning with the open state — the named group (`/call`)
+   *  because this `<details>` can sit inside the transcript's fold, and a bare
+   *  `group-open` would answer to THAT one being open. */
+  const folded = (label: string, body: string | null, print: boolean) => (
     <Show when={body}>
       {(text) => (
-        <details class="col-span-full min-w-0">
-          <summary class="font-mono text-[0.65rem] text-fg-3 cursor-pointer">
-            {summary}
+        <details class="group/call col-span-full min-w-0">
+          <summary class="w-fit list-none font-mono text-[0.65rem] text-fg-3 cursor-pointer [&::-webkit-details-marker]:hidden">
+            <span class="group-open/call:hidden">▸</span>
+            <span class="hidden group-open/call:inline">▾</span> {label}
           </summary>
           <pre
             data-testid="conductor-tool-detail"
@@ -131,6 +142,15 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
       )}
     </Show>
   );
+
+  /** Why it failed, when it did: the ONE place a failed card says so. */
+  const reason = () => failureReason(props.row);
+
+  /** The touch layout, where the title row has a phone's width to live in. */
+  const phone = () => !isDesktop();
+  /** The raw tool-name chip: always on a desktop and on a generic card (its
+   *  name IS what the card can say), but not on a phone's kolu card. */
+  const showChip = () => !phone() || props.row.kolu === undefined;
 
   return (
     <div
@@ -144,12 +164,26 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
       // card would size the transcript, and the transcript would size the
       // document. Written here rather than relied on from the parent because
       // the card is the box that must hold a tool's output whatever it is.
-      class="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-1.5 rounded-lg border border-edge bg-surface-1 px-2.5 py-1.5 text-xs"
+      //
+      // ON A PHONE a kolu card drops the raw tool-name chip — the card's own
+      // words already say what happened, and the chip took a third of the row
+      // — so the track it sat in goes too; and the title WRAPS instead of
+      // clipping, so no part of it runs past the screen's edge.
+      class="grid min-w-0 items-center gap-x-2.5 gap-y-1.5 rounded-lg border border-edge bg-surface-1 px-2.5 py-1.5 text-xs"
+      classList={{
+        "grid-cols-[auto_minmax(0,1fr)_auto]": showChip(),
+        "grid-cols-[minmax(0,1fr)_auto]": !showChip(),
+      }}
     >
-      <span class="font-mono text-[0.62rem] font-semibold text-fg-3 bg-surface-2 rounded px-1.5 py-px">
-        {props.row.tool ?? props.row.server ?? "tool"}
-      </span>
-      <span class="min-w-0 truncate">
+      <Show when={showChip()}>
+        <span class="font-mono text-[0.62rem] font-semibold text-fg-3 bg-surface-2 rounded px-1.5 py-px">
+          {toolLabel(props.row)}
+        </span>
+      </Show>
+      <span
+        class="min-w-0"
+        classList={{ truncate: !phone(), "wrap-anywhere": phone() }}
+      >
         {/* WHICH MACHINE, first. One conversation drives terminals on every
             host, so `fix-parser` alone does not say where the agent typed —
             and the card's own "open tile" goes to a different tab depending
@@ -243,11 +277,19 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
             </span>
           )}
         </Show>
-        {openTile(subject())}
+        {openTile(callSubject(props.row.kolu))}
         <span class={`font-mono ${STATUS_CLASS[props.row.status]}`}>
           {STATUS_MARK[props.row.status]}
         </span>
       </span>
+      {/* THE AGENT LINE: a create card that names its terminal is where the
+          conversation said an agent was started, so it says how that agent is
+          doing and offers a Look at its screen. */}
+      <Show when={agentLineSubject(props.row)}>
+        {(at) => (
+          <ConductorLook rowId={props.row.id} host={at().host} id={at().id} />
+        )}
+      </Show>
       {/* A background task reports its launch and then LIVES — the row stays
           live past the turn that made it, and its ending word (`completed`,
           `killed`, `stopped`) is the harness's own: a monitor you stopped did
@@ -284,17 +326,33 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
           its turn ended and it never reported back
         </div>
       </Show>
+      {/* WHY IT FAILED, once, in the danger colour, where a reader looks
+          first. The same words would otherwise have come back twice — as the
+          call's content below, and as a "screen" — so a failed card draws
+          neither of those. */}
+      <Show when={reason()}>
+        {(why) => (
+          <div
+            data-testid="conductor-tool-reason"
+            class="col-span-full min-w-0 font-mono text-[0.68rem] text-danger whitespace-pre-wrap wrap-anywhere"
+          >
+            {why()}
+          </div>
+        )}
+      </Show>
       {(() => {
         const call = props.row.kolu;
         if (call === undefined)
-          return folded("▸ call", props.row.detail ?? null, true);
+          return folded("call", props.row.detail ?? null, true);
+        // A failed wait or read has no screen: what it holds is the error.
+        if (props.row.status === "failed") return null;
         if (call.kind === "settle")
-          return folded("▸ last lines (screenTail)", call.screenTail, false);
+          return folded("last lines (screenTail)", call.screenTail, false);
         if (call.kind === "screen")
-          return folded("▸ screen", call.snapshot, false);
+          return folded("screen", call.snapshot, false);
         return null;
       })()}
-      <Show when={props.row.progress}>
+      <Show when={props.row.status !== "failed" && props.row.progress}>
         {(progress) => (
           // LIVE CONTENT, wrapped and height-capped. The vertical clip is the
           // point — this is a tail, not a transcript — but a horizontal one
@@ -302,6 +360,7 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
           // and `overflow-hidden` CUT it at the card's edge, so what the agent
           // read was simply gone. `wrap-anywhere` breaks it mid-token instead,
           // which keeps every character on screen and the card at its width.
+          // A failed call's content is its reason, drawn above instead.
           <pre class="col-span-full min-w-0 font-mono text-[0.65rem] text-fg-3 whitespace-pre-wrap wrap-anywhere max-h-24 overflow-hidden">
             {progress()}
           </pre>

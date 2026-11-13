@@ -1,0 +1,310 @@
+/** LOOK — the agent a create card started, seen from the chat.
+ *
+ *  A `lifecycle_create` card that names its terminal is the Conductor's line
+ *  about an agent: "the planner is up". This is what turns that line into
+ *  something a person can check without leaving the conversation. Two parts:
+ *
+ *  THE STATUS LINE is always there and costs nothing. It reads the terminal
+ *  out of the fleet roster the client already mirrors for every host
+ *  (`fleetTerminalStanding`, the same per-host streams the switcher and the `@`
+ *  menu read), so it opens no stream of its own: the agent's state, and what
+ *  the agent says it is doing. A terminal no longer in that roster says
+ *  "terminal gone", and a sleeping one says "asleep": neither has a live screen,
+ *  so neither offers Look.
+ *
+ *  THE TAIL is what Look opens: the last {@link LOOK_LINES} lines of that
+ *  terminal's screen, as read-only text, read with `screen.text { id, tail }`
+ *  from the terminal's OWN host and re-read every {@link LOOK_EVERY_MS} ms. It
+ *  reads only while somebody can see it — open, on screen, and in a visible
+ *  tab — because a transcript can hold a dozen agent lines and each one left
+ *  open would otherwise poll a machine forever for a box scrolled out of view.
+ *  Closed, nothing is fetched: the reader is a child that exists only while
+ *  the tail is open, so closing it is what ends the work.
+ *
+ *  WHETHER IT IS OPEN lives outside the card, keyed by the row's id. The
+ *  transcript replaces a row object on every update and a card can be rebuilt
+ *  under it (a fold, a remount of the pane); a person who opened Look on the
+ *  planner expects it still open when they come back to it.
+ *
+ *  A failed read is SHOWN, beside whatever the last good read was — never an
+ *  empty box, which would read as an agent with nothing on its screen. */
+
+import { makeEventListener } from "@solid-primitives/event-listener";
+import { LogTail, type LogLine } from "@kolu/solid-logtail";
+import { toError } from "@kolu/surface/run-stream";
+import { Effect } from "effect";
+import { activeArm } from "@kolu/padi-client/surface";
+import { decodeHostKey } from "kolu-common/hostKey";
+import type { TerminalId } from "kolu-common/surface";
+import {
+  batch,
+  type Component,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
+import { createStore } from "solid-js/store";
+import { toast } from "solid-sonner";
+import { fleetTerminalStanding } from "../palette/fleetTerminals";
+import { runOwnedAction } from "../runAction";
+import { CONTEXTUAL_TIPS } from "../settings/tips";
+import { useTips } from "../settings/useTips";
+import {
+  type AgentStateTone,
+  stateLabels,
+  stateTones,
+} from "../ui/agentDisplay";
+import { padiRpcOf } from "../wire";
+
+/** How much of the screen Look shows. */
+export const LOOK_LINES = 40;
+
+/** How often an open, visible Look re-reads its terminal. */
+export const LOOK_EVERY_MS = 2_000;
+
+/** Which rows have Look open, by row id. Module-level so the answer outlives
+ *  the card that drew it (see the header). */
+const [opened, setOpened] = createStore<Record<string, true | undefined>>({});
+
+/** The dot's paint, per agent tone — the same families the dock pip and the
+ *  Inspector's status card use: rust working, violet needs-you, violet at half
+ *  strength for an agent that has finished its turn. */
+const DOT: Record<AgentStateTone | "none", string> = {
+  busy: "bg-busy animate-pulse motion-reduce:animate-none",
+  alert: "bg-alert",
+  "alert-linger": "bg-alert/50",
+  none: "bg-fg-3",
+};
+
+/** The status line's words: what the terminal is, and what its agent says it
+ *  is doing (when it says anything). */
+interface Status {
+  readonly tone: keyof typeof DOT;
+  readonly state: string;
+  readonly doing: string | null;
+}
+
+const ConductorLook: Component<{
+  /** The transcript row this line belongs to — the key Look's open state is
+   *  remembered under. */
+  rowId: string;
+  /** The ENCODED host key the terminal lives on (`local`, `remote:…`). */
+  host: string;
+  id: TerminalId;
+}> = (props) => {
+  const standing = createMemo(() =>
+    fleetTerminalStanding(props.host, props.id),
+  );
+  /** The terminal's live arm, when it has one — the ONE read of the standing
+   *  both the words and the Look button derive from. Only an ACTIVE terminal
+   *  has a screen: a sleeping one is in the roster but `screen.text` cannot
+   *  read it, so "asleep" is a status with nothing behind it — like "terminal
+   *  gone". */
+  const live = createMemo(() => {
+    const now = standing();
+    return now.kind === "here" ? activeArm(now.meta) : undefined;
+  });
+  const lookable = () => live() !== undefined;
+  const { showTipOnce } = useTips();
+  // The first agent line with something to look at is the moment Look is
+  // worth announcing; `showTipOnce` keeps it to once per browser.
+  createEffect(() => {
+    if (lookable()) showTipOnce(CONTEXTUAL_TIPS.conductorLook);
+  });
+
+  const status = createMemo((): Status => {
+    const now = standing();
+    switch (now.kind) {
+      case "gone":
+        return { tone: "none", state: "terminal gone", doing: null };
+      case "loading":
+        return { tone: "none", state: "finding the terminal…", doing: null };
+      case "unreachable":
+        return {
+          tone: "none",
+          state: "its host is not connected",
+          doing: null,
+        };
+      case "here": {
+        const arm = live();
+        if (arm === undefined)
+          return { tone: "none", state: "asleep", doing: null };
+        const agent = arm.agent;
+        if (agent !== null) {
+          return {
+            tone: stateTones[agent.state],
+            state: stateLabels[agent.state] ?? agent.state,
+            doing: agent.summary,
+          };
+        }
+        const front = arm.foreground;
+        return {
+          tone: "none",
+          state: "no agent",
+          doing:
+            front === null || front.shell
+              ? "at the shell"
+              : `running ${front.name}`,
+        };
+      }
+    }
+  });
+
+  const open = () => opened[props.rowId] === true;
+
+  return (
+    <div
+      data-testid="conductor-look"
+      data-standing={standing().kind}
+      class="col-span-full min-w-0"
+    >
+      <div class="flex min-w-0 items-center gap-2">
+        <span class={`h-2 w-2 shrink-0 rounded-full ${DOT[status().tone]}`} />
+        <span
+          data-testid="conductor-look-status"
+          class="min-w-0 flex-1 truncate text-fg-2"
+        >
+          <span class="font-semibold text-fg">{status().state}</span>
+          <Show when={status().doing}>{(doing) => <> · {doing()}</>}</Show>
+        </span>
+        <Show when={lookable()}>
+          <button
+            type="button"
+            data-testid="conductor-look-toggle"
+            aria-expanded={open()}
+            class="shrink-0 rounded-md border border-edge-bright bg-surface-2 px-2 py-px text-[0.7rem] font-semibold text-accent hover:bg-surface-3 cursor-pointer"
+            onClick={() => setOpened(props.rowId, open() ? undefined : true)}
+          >
+            {open() ? "Hide" : "Look"}
+          </button>
+        </Show>
+      </div>
+      <Show when={open() && lookable()}>
+        <LookTail host={props.host} id={props.id} />
+      </Show>
+    </div>
+  );
+};
+
+/** The open tail, and the reading behind it. Exists only while Look is open on
+ *  a terminal the roster still has — so its owner IS the reading's lifetime. */
+const LookTail: Component<{ host: string; id: TerminalId }> = (props) => {
+  let box!: HTMLDivElement;
+  /** On screen — the transcript scrolls, and an agent line an hour up is not
+   *  being looked at whatever its toggle says. `false` until the observer has
+   *  said otherwise, so nothing is read for a box nobody has seen yet. */
+  const [onScreen, setOnScreen] = createSignal(false);
+  const [tabVisible, setTabVisible] = createSignal(
+    document.visibilityState === "visible",
+  );
+  makeEventListener(document, "visibilitychange", () =>
+    setTabVisible(document.visibilityState === "visible"),
+  );
+  onMount(() => {
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) setOnScreen(entry.isIntersecting);
+    });
+    observer.observe(box);
+    onCleanup(() => observer.disconnect());
+  });
+
+  /** The last good read, or `null` before the first one lands. */
+  const [lines, setLines] = createSignal<readonly LogLine[] | null>(null);
+  /** The last read's failure, cleared by the next read that succeeds. */
+  const [failure, setFailure] = createSignal<string | null>(null);
+
+  createEffect(() => {
+    if (!onScreen() || !tabVisible()) return;
+    const host = decodeHostKey(props.host);
+    const id = props.id;
+    const readOnce = Effect.suspend(() =>
+      padiRpcOf(host).screen.text({ id, tail: LOOK_LINES }),
+    ).pipe(
+      Effect.matchEffect({
+        onSuccess: (text) =>
+          Effect.sync(() =>
+            batch(() => {
+              setLines(
+                text === "" ? [] : text.split("\n").map((line) => ({ line })),
+              );
+              setFailure(null);
+            }),
+          ),
+        onFailure: (err) => Effect.sync(() => setFailure(failureSentence(err))),
+      }),
+    );
+    // Owned by THIS effect run: a re-run (scrolled away, tab hidden) or the
+    // tail closing interrupts the loop, mid-read or mid-sleep.
+    runOwnedAction(
+      "read the terminal's last lines",
+      Effect.forever(
+        readOnce.pipe(Effect.andThen(() => Effect.sleep(LOOK_EVERY_MS))),
+      ),
+    );
+  });
+
+  return (
+    <div ref={box} data-testid="conductor-look-tail" class="mt-1.5 min-w-0">
+      <Show when={failure()}>
+        {(why) => (
+          <p
+            data-testid="conductor-look-error"
+            class="mb-1 font-mono text-[0.65rem] text-danger"
+          >
+            Could not read the screen: {why()}
+          </p>
+        )}
+      </Show>
+      <Show
+        when={lines()}
+        fallback={
+          <Show when={failure() === null}>
+            <p class="font-mono text-[0.65rem] text-fg-3">
+              reading the screen…
+            </p>
+          </Show>
+        }
+      >
+        {(read) => (
+          <Show
+            when={read().length > 0}
+            fallback={
+              <p class="font-mono text-[0.65rem] text-fg-3">
+                the screen is empty
+              </p>
+            }
+          >
+            <LogTail
+              testid="conductor-look-lines"
+              lines={read()}
+              log={read()}
+              class="max-h-60 overflow-y-auto px-2.5 py-2 text-[0.65rem] leading-relaxed"
+              onCopyError={(message) =>
+                toast.error(`Failed to copy the screen: ${message}`)
+              }
+            />
+          </Show>
+        )}
+      </Show>
+      <p class="mt-1 text-[0.62rem] text-fg-3">
+        The last {LOOK_LINES} lines of its screen, as text. Read-only; refreshed
+        every {LOOK_EVERY_MS / 1000} s while open.
+      </p>
+    </div>
+  );
+};
+
+/** A read's failure as the sentence a person reads. A tagged surface error
+ *  with no message of its own is named by its tag rather than shown blank. */
+function failureSentence(err: unknown): string {
+  const error = toError(err);
+  if (error.message !== "") return error.message;
+  return "_tag" in error && typeof error._tag === "string"
+    ? error._tag
+    : "unknown error";
+}
+
+export default ConductorLook;

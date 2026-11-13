@@ -106,10 +106,17 @@ spelling.
 | `1` | a usage error, or the padi link dropped |
 | `2` | `wait` ran out of time — the condition never landed |
 | `3` | `wait`'s terminal exited before reaching the condition |
+| `4` | the terminal is **asleep** (or parked) — it exists, but has no live screen |
 | `130` | interrupted — Ctrl+C (SIGINT) or SIGTERM |
 
-`2` and `3` are deliberately distinct: "still alive but stuck" is retryable,
-"the agent I was driving died" is not.
+`2`, `3` and `4` are deliberately distinct, because a driver recovers from each
+differently: "still alive but stuck" is retryable (`2`), "the agent I was
+driving died" is not (`3`), and "it is fine, it is just not awake" is fixed by
+waking it and running the command again (`4` — `kolu snapshot`, `kolu
+screenshot`, `kolu history`, `kolu wait`/`kolu debrief`, each naming the
+terminal and its state). A sleeping terminal used to come back as `1` carrying
+"Terminal <id> not found", so a script that dropped the id on that code was
+dropping a terminal its user still had.
 
 `SIGINT` and `SIGTERM` are the **only** two signals in that row, because
 `NodeRuntime.runMain` installs handlers for exactly those and turns each into an

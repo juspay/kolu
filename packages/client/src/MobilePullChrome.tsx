@@ -13,12 +13,15 @@
  *  that class uniformly: the handle is reachable while a host comes up, fails,
  *  or has zero terminals, exactly as the desktop host strip always is.
  *
- *  The handle shows the ACTIVE terminal's compact meta when there is one (the
- *  `workspace` case) and a plain "kolu" otherwise — so a not-yet-connected host
- *  reads cleanly without a stale terminal title. */
+ *  The handle names WHERE YOU ARE: the Conductor while it is the current
+ *  place, otherwise the ACTIVE terminal's compact meta when there is one (the
+ *  `workspace` case) and a plain "kolu" otherwise — so a not-yet-connected
+ *  host reads cleanly without a stale terminal title, and the conversation is
+ *  never captioned with a terminal it is not showing. */
 
 import Drawer from "@corvu/drawer";
 import { type Component, Show } from "solid-js";
+import { conductorMode } from "./conductor/useConductorMode";
 import MobileChromeSheet from "./MobileChromeSheet";
 import type { WsStatus } from "./rpc/rpc";
 import { TerminalMetaCompact } from "./terminal/TerminalMeta";
@@ -109,14 +112,27 @@ const MobilePullChrome: Component<{
         <span class="w-16 h-2 rounded-full bg-fg-3/40" aria-hidden="true" />
         <div class="flex items-center gap-2 w-full">
           <Show
-            when={activeRow()}
-            fallback={<span class="text-sm text-fg-2">kolu</span>}
+            when={!conductorMode()}
+            fallback={
+              <span
+                data-testid="mobile-handle-conductor"
+                class="flex items-center gap-1.5 text-sm font-medium text-accent"
+              >
+                <span aria-hidden="true">◆</span>
+                Conductor
+              </span>
+            }
           >
-            {(row) => (
-              <div data-testid="mobile-tile-titlebar" class="flex-1 min-w-0">
-                <TerminalMetaCompact info={row().info} meta={row().meta} />
-              </div>
-            )}
+            <Show
+              when={activeRow()}
+              fallback={<span class="text-sm text-fg-2">kolu</span>}
+            >
+              {(row) => (
+                <div data-testid="mobile-tile-titlebar" class="flex-1 min-w-0">
+                  <TerminalMetaCompact info={row().info} meta={row().meta} />
+                </div>
+              )}
+            </Show>
           </Show>
           {/* At-a-glance "client out of sync with server" catch — the mobile
            *  echo of the desktop rail's `≠ srv` badge, on the always-visible

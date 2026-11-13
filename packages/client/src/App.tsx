@@ -64,7 +64,6 @@ import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
 import MobilePullChrome from "./MobilePullChrome";
 import ConductorPane from "./conductor/ConductorPane";
-import ConductorSheet from "./conductor/ConductorSheet";
 import { conductorMode } from "./conductor/useConductorMode";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
@@ -738,27 +737,28 @@ const App: Component = () => {
             </WorkspaceTerminals>
           </Match>
         </Switch>
-        {/* THE CONDUCTOR, when its entry in the chrome bar is the selected
-         *  one: the conversation fills everything below the bar — no dock, no
-         *  canvas, no peek, no inspector. It covers the workspace rather than
-         *  replacing it in the `<Switch>` above, and that is load-bearing: a
-         *  person reading the chat for a minute must not pay an xterm
-         *  teardown, a stream re-attach and a dock rebuild for the round trip
-         *  back to their terminals. Everything underneath stays mounted,
-         *  attached and exactly as they left it.
+        {/* THE CONDUCTOR, when its tab is the selected one: the conversation
+         *  fills everything below the chrome — no dock, no canvas, no peek, no
+         *  inspector. It covers the workspace rather than replacing it in the
+         *  `<Switch>` above, and that is load-bearing: a person reading the
+         *  chat for a minute must not pay an xterm teardown, a stream re-attach
+         *  and a dock rebuild for the round trip back to their terminals.
+         *  Everything underneath stays mounted, attached and exactly as they
+         *  left it.
+         *
+         *  ONE mount for every layout. On a phone it is the same full-height
+         *  layer under the pull handle — not a sheet over the page — so it owns
+         *  the screen inside the root's safe-area padding, and the handle above
+         *  it opens the chrome sheet (the phone's tab row) exactly as it does
+         *  from a host.
          *
          *  `z-[45]` sits above everything the canvas wrapper holds — the
          *  floating dock (`z-30`) and a maximized tile (`z-40`) — and below
-         *  the chrome bar (`z-50`) that carries the entry you leave by. */}
-        <Show when={conductorMode() && isDesktop()}>
+         *  the chrome (`z-50`) that carries the tab you leave by. */}
+        <Show when={conductorMode()}>
           <ConductorPane class="absolute inset-0 z-[45]" />
         </Show>
       </div>
-      {/* Below the breakpoint the mode is a full-screen sheet — there is no
-       *  canvas to lay three columns over. */}
-      <Show when={!isDesktop()}>
-        <ConductorSheet />
-      </Show>
       <IntentEditorDialog
         open={intentEditor.open()}
         title={intentEditor.title()}

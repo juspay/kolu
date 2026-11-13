@@ -38,6 +38,7 @@ consumer's own theme tokens, and `class` carries the per-surface sizing.
 
 ## Consumers
 
-- `packages/client/` — the connect overlay, the boot-stalled card, and the
-  host-diagnostics popover, plus the app's other copy affordances via
+- `packages/client/` — the connect overlay, the boot-stalled card, the
+  host-diagnostics popover and the Conductor's **Look** (an agent's last screen
+  lines, in the chat), plus the app's other copy affordances via
   `writeTextToClipboard`.

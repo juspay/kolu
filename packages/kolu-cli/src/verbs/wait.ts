@@ -123,6 +123,7 @@
 import { formatWaitMet, shortId } from "@kolu/padi/render";
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import { PADI_LINK_CLOSED, WAIT_STATES } from "@kolu/padi-client/terminalVocab";
+import { terminalNotActiveOf } from "@kolu/padi-client/surface";
 import {
   awaitTerminalCondition,
   type ConditionMet,
@@ -145,6 +146,7 @@ import {
   type CliFailure,
   errorMessage,
   failure,
+  terminalAsleep,
   waitInterrupted,
   waitTerminalGone,
   waitTimedOut,
@@ -483,7 +485,14 @@ export function describeWait(
  *  it takes the scope-bound `signal` that unwinds its subscriptions. Every
  *  optional is passed as an ABSENT key when unset — the house spelling for an
  *  optional argument here (~33 sites), and the one that keeps reading as "not
- *  asked for" rather than "asked for, as undefined". */
+ *  asked for" rather than "asked for, as undefined".
+ *
+ *  A wait on a DORMANT terminal is not an outcome: the engine refuses it up
+ *  front with padi's declared `TerminalNotActive` (kolu#2361), because a
+ *  sleeping terminal has no feed to watch and no bucket to enter, so `gone`
+ *  would be a lie and `timeout` would charge the user their whole window to
+ *  learn nothing. That refusal becomes this binary's own arm — exit 4, "it is
+ *  asleep, wake it" — rather than the generic failure line. */
 function awaitPlan(
   client: PadiSurfaceClient,
   id: TerminalId,
@@ -510,7 +519,16 @@ function awaitPlan(
         // not tell them to re-run a command they never ran.
         retryAdvice: `re-run ${opts.invokedAs}`,
       }),
-    catch: (err) => err,
+    catch: (err) => {
+      const dormant = terminalNotActiveOf(err);
+      return dormant === undefined
+        ? err
+        : terminalAsleep({
+            terminal: shortId(id),
+            state: dormant.state,
+            attempted: "wait for it",
+          });
+    },
   });
 }
 

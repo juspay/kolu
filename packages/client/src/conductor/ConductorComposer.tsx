@@ -26,6 +26,7 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { hostLabel } from "../host/hostChipTone";
+import { isDesktop } from "../useMobile";
 import { useFleetTerminalIndex } from "../palette/fleetTerminals";
 import { fleetMentionCandidates } from "./mentionCandidates";
 import { attachPastedFiles, reattachComposerFiles } from "./attachFiles";
@@ -198,6 +199,46 @@ const ConductorComposer: Component<{
     });
   };
 
+  /** The touch layout — one row: a box that grows with what is typed, and the
+   *  buttons beside it. */
+  const phone = () => !isDesktop();
+  // GROWS WITH THE TEXT on a phone: one line at rest, as tall as what was
+  // typed up to its `max-height`, then it scrolls. Re-measured on every edit,
+  // including a programmatic one (a send clearing it, a completion). An EMPTY
+  // box is left at its one row: a browser counts a wrapping placeholder in
+  // `scrollHeight`, and the box at rest is one line by definition.
+  createEffect(() => {
+    const text = composerText();
+    if (!phone() || text === "") {
+      box.style.height = "";
+      return;
+    }
+    box.style.height = "auto";
+    box.style.height = `${box.scrollHeight}px`;
+  });
+
+  const stopButton = () => (
+    <button
+      type="button"
+      data-testid="conductor-stop"
+      class="shrink-0 whitespace-nowrap rounded-md border border-danger/50 px-2.5 py-1 font-mono text-[0.65rem] text-danger cursor-pointer"
+      onClick={() => orch.cancel()}
+    >
+      ■ Stop
+    </button>
+  );
+  const sendButton = () => (
+    <button
+      type="button"
+      data-testid="conductor-send"
+      class="shrink-0 whitespace-nowrap rounded-md bg-accent px-3 font-mono text-[0.65rem] font-semibold text-surface-0 cursor-pointer"
+      classList={{ "py-1": !phone(), "py-2": phone() }}
+      onClick={send}
+    >
+      {phone() ? "Send" : "Send ↵"}
+    </button>
+  );
+
   return (
     <div
       data-testid="conductor-composer"
@@ -230,40 +271,50 @@ const ConductorComposer: Component<{
                 data-terminal-id={candidate().terminalId}
                 data-host={candidate().host}
                 data-selected={index() === selected() ? "" : undefined}
-                class="w-full flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer"
+                class="w-full min-w-0 flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-surface-2 cursor-pointer"
                 classList={{ "bg-surface-2": index() === selected() }}
                 // Hover moves the highlight so the mouse and the keyboard never
                 // disagree about which row Enter would take.
                 onPointerEnter={() => setSelected(index())}
                 onClick={() => accept(index())}
               >
-                <span class="font-semibold text-fg">{candidate().name}</span>
+                <span class="max-w-[45%] shrink-0 truncate font-semibold text-fg">
+                  {candidate().name}
+                </span>
                 {/* WHICH MACHINE. Two hosts can both carry a `main`, and the
                     name alone would offer a person a choice they cannot read.
                     It leads the quiet columns because it is the thing that
                     tells otherwise identical rows apart. */}
                 <span
                   data-testid="conductor-mention-host"
-                  class="font-mono text-[0.6rem] uppercase tracking-[0.1em] text-accent"
+                  class="shrink-0 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-accent"
                 >
                   {hostLabel(decodeHostKey(candidate().host))}
                 </span>
                 <Show when={candidate().repo}>
                   {(repo) => (
-                    <span class="font-mono text-[0.6rem] uppercase tracking-[0.1em] text-fg-3">
+                    <span class="shrink-0 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-fg-3">
                       {repo()}
                     </span>
                   )}
                 </Show>
-                <Show when={candidate().intent}>
-                  {(intent) => (
-                    <span class="truncate text-fg-2">{intent()}</span>
-                  )}
-                </Show>
-                <Show when={candidate().state}>
-                  {(state) => (
-                    <span class="ml-auto font-mono text-[0.62rem] text-fg-3">
-                      {state()}
+                {/* WHAT DIFFERS. Same-named terminals are ordinary — one repo,
+                    several branches — so each row carries the one thing that
+                    tells it from its neighbours (`mentionDetail`). A directory
+                    is cut from the LEFT: two worktrees of one repo differ at
+                    the end of the path, which a right-hand cut would hide. */}
+                <Show when={candidate().detail}>
+                  {(detail) => (
+                    <span
+                      data-testid="conductor-mention-detail"
+                      data-kind={detail().kind}
+                      class="min-w-0 truncate text-fg-2"
+                      classList={{
+                        "[direction:rtl] text-left font-mono text-[0.62rem]":
+                          detail().kind === "directory",
+                      }}
+                    >
+                      <bdi>{detail().text}</bdi>
                     </span>
                   )}
                 </Show>
@@ -403,91 +454,91 @@ const ConductorComposer: Component<{
           </For>
         </div>
       </Show>
-      <textarea
-        ref={box}
-        data-testid="conductor-input"
-        rows={3}
-        placeholder="Ask the conductor… @ for a terminal, / for a command"
-        class="w-full resize-none rounded-[0.6rem] border border-edge-bright bg-surface-0 px-2.5 py-2 text-[0.82rem] text-fg outline-none focus:border-accent"
-        value={composerText()}
-        onInput={(event) => {
-          setComposerText(event.currentTarget.value);
-          setCaret(event.currentTarget.selectionStart);
-        }}
-        onPaste={(event) => {
-          // A clipboard carrying files is a paste ABOUT those files — take it
-          // over so the browser does not also drop a path (or nothing at all)
-          // into the box. A text paste is left entirely alone.
-          if (attachPastedFiles(event.clipboardData)) event.preventDefault();
-        }}
-        onClick={(event) => setCaret(event.currentTarget.selectionStart)}
-        onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
-        onKeyDown={(event) => {
-          const intent = completionIntent(
-            event.key,
-            event.shiftKey,
-            menuCount(),
-            selected(),
-          );
-          switch (intent.kind) {
-            case "move":
-              // The arrows belong to the menu while it is open — without the
-              // preventDefault they would also drag the caret through the text
-              // under it.
-              event.preventDefault();
-              setSelected(intent.index);
-              return;
-            case "accept":
-              // Tab must not move focus out of the box, and Enter must not
-              // send: the key completed a token, and that is the whole of what
-              // it did.
-              event.preventDefault();
-              accept(intent.index);
-              return;
-            case "close":
-              // Close the menu without leaving the mode — the chord that leaves
-              // is the same key, so the menu claims it first. A caret of -1 is
-              // outside every token, which is what closes it.
-              event.stopPropagation();
-              setCaret(-1);
-              return;
-            case "send":
-              event.preventDefault();
-              send();
-              return;
-            case "pass":
-              return;
+      <div class="flex items-end gap-2">
+        <textarea
+          ref={box}
+          data-testid="conductor-input"
+          rows={phone() ? 1 : 3}
+          placeholder={
+            phone()
+              ? "Ask… @ terminal, / command"
+              : "Ask the conductor… @ for a terminal, / for a command"
           }
-        }}
-      />
-      <div class="mt-2 flex items-center gap-2.5 font-mono text-[0.65rem] text-fg-3">
-        <span>@ terminals</span>
-        <span>·</span>
-        <span>/ commands</span>
-        <span>·</span>
-        <span>⇧⏎ newline</span>
-        <span>·</span>
-        <span>paste or drop a file</span>
-        <span class="flex-1" />
-        <Show when={props.state.phase === "working"}>
-          <button
-            type="button"
-            data-testid="conductor-stop"
-            class="rounded-md border border-danger/50 px-2.5 py-1 text-danger cursor-pointer"
-            onClick={() => orch.cancel()}
-          >
-            ■ Stop
-          </button>
+          class="min-w-0 flex-1 resize-none rounded-[0.6rem] border border-edge-bright bg-surface-0 px-2.5 py-2 text-[0.82rem] text-fg outline-none focus:border-accent"
+          classList={{ "max-h-[40dvh] overflow-y-auto": phone() }}
+          value={composerText()}
+          onInput={(event) => {
+            setComposerText(event.currentTarget.value);
+            setCaret(event.currentTarget.selectionStart);
+          }}
+          onPaste={(event) => {
+            // A clipboard carrying files is a paste ABOUT those files — take it
+            // over so the browser does not also drop a path (or nothing at all)
+            // into the box. A text paste is left entirely alone.
+            if (attachPastedFiles(event.clipboardData)) event.preventDefault();
+          }}
+          onClick={(event) => setCaret(event.currentTarget.selectionStart)}
+          onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
+          onKeyDown={(event) => {
+            const intent = completionIntent(
+              event.key,
+              event.shiftKey,
+              menuCount(),
+              selected(),
+            );
+            switch (intent.kind) {
+              case "move":
+                // The arrows belong to the menu while it is open — without the
+                // preventDefault they would also drag the caret through the
+                // text under it.
+                event.preventDefault();
+                setSelected(intent.index);
+                return;
+              case "accept":
+                // Tab must not move focus out of the box, and Enter must not
+                // send: the key completed a token, and that is the whole of
+                // what it did.
+                event.preventDefault();
+                accept(intent.index);
+                return;
+              case "close":
+                // Close the menu without leaving the mode — the chord that
+                // leaves is the same key, so the menu claims it first. A caret
+                // of -1 is outside every token, which is what closes it.
+                event.stopPropagation();
+                setCaret(-1);
+                return;
+              case "send":
+                event.preventDefault();
+                send();
+                return;
+              case "pass":
+                return;
+            }
+          }}
+        />
+        {/* ON A PHONE the buttons sit beside the one-line box, compact, and
+            there is no hint row: `⇧⏎` and "drop a file" are keyboard-and-mouse
+            advice, and the placeholder already says `@` and `/`. */}
+        <Show when={phone()}>
+          <Show when={props.state.phase === "working"}>{stopButton()}</Show>
+          {sendButton()}
         </Show>
-        <button
-          type="button"
-          data-testid="conductor-send"
-          class="rounded-md bg-accent px-3 py-1 font-semibold text-surface-0 cursor-pointer"
-          onClick={send}
-        >
-          Send ↵
-        </button>
       </div>
+      <Show when={!phone()}>
+        <div class="mt-2 flex items-center gap-2.5 font-mono text-[0.65rem] text-fg-3">
+          <span>@ terminals</span>
+          <span>·</span>
+          <span>/ commands</span>
+          <span>·</span>
+          <span>⇧⏎ newline</span>
+          <span>·</span>
+          <span>paste or drop a file</span>
+          <span class="flex-1" />
+          <Show when={props.state.phase === "working"}>{stopButton()}</Show>
+          {sendButton()}
+        </div>
+      </Show>
     </div>
   );
 };

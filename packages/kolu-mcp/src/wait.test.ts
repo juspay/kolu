@@ -75,7 +75,14 @@ function fakeClient(
     surface: {
       terminalAttach: { get: () => streams.attach.stream() },
       terminalExit: { get: () => streams.exit.stream() },
-      terminals: { keys: () => streams.keys.stream() },
+      terminals: {
+        keys: () => streams.keys.stream(),
+        // The engine reads the RECORD before it subscribes anything, so it can
+        // REFUSE a wait on a dormant terminal instead of waiting on one
+        // (kolu#2361). These cases are all about a LIVE terminal, so the
+        // record says `active`.
+        get: () => Stream.make({ state: "active" }),
+      },
       screen: {
         text: (input: unknown) => {
           asked.push(input);
@@ -217,7 +224,12 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
       surface: {
         terminalAttach: { get: () => Stream.fail(dead) },
         terminalExit: { get: () => Stream.fail(dead) },
-        terminals: { keys: () => Stream.fail(dead) },
+        // Dead on EVERY member the wait touches, the record read included:
+        // the point of this case is that the transport failure propagates.
+        terminals: {
+          keys: () => Stream.fail(dead),
+          get: () => Stream.fail(dead),
+        },
       },
     } as unknown as PadiSurfaceClient;
     await expect(

@@ -42,6 +42,10 @@ const asSwitch = (
 ): Extract<SettingsSection, { control: "switch" }> | null =>
   section.control === "switch" ? section : null;
 
+/** The panel's width in px — `w-[17rem]` — and what the viewport clamp keeps
+ *  on screen. */
+const PANEL_WIDTH = 272;
+
 const ConductorSettings: Component<{
   options: ConductorState["options"];
   triggerRef: HTMLElement;
@@ -55,8 +59,11 @@ const ConductorSettings: Component<{
     open: () => props.open,
     onDismiss: () => props.onOpenChange(false),
     anchor: "bottom-start",
-    panelMinWidth: 240,
+    // The panel's OWN width (`w-[17rem]`), so the viewport clamp keeps its
+    // right edge on screen — a smaller number here let it run off a phone.
+    panelMinWidth: PANEL_WIDTH,
   });
+  const sections = () => settingsSections(props.options);
 
   return (
     <Show when={props.open}>
@@ -64,10 +71,20 @@ const ConductorSettings: Component<{
         <div
           ref={panelRef}
           data-testid="conductor-settings"
-          class={`fixed z-50 ${chrome.class} p-2 w-[17rem] max-h-[70dvh] overflow-y-auto`}
+          class={`fixed z-50 ${chrome.class} p-2 w-[17rem] max-w-[calc(100vw-1rem)] max-h-[70dvh] overflow-y-auto`}
           style={{ ...panelStyle(), ...chrome.style }}
         >
-          <For each={settingsSections(props.options)}>
+          {/* An agent that advertised no settings gets a sentence saying so,
+              never an empty box that reads as a broken panel. */}
+          <Show when={sections().length === 0}>
+            <p
+              data-testid="conductor-settings-empty"
+              class="px-1.5 py-1 text-xs text-fg-3"
+            >
+              This agent has not offered any settings for this conversation.
+            </p>
+          </Show>
+          <For each={sections()}>
             {(section) => (
               <section
                 class="mb-2"

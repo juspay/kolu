@@ -103,3 +103,64 @@ describe("a tool card naming a terminal on another host", () => {
     expect(el.querySelector('[data-testid="conductor-tool-host"]')).toBeNull();
   });
 });
+
+describe("a failed call", () => {
+  /** A `screen_text` on a terminal padi does not hold, as the adapter reports
+   *  it: the tool's words fenced in the call's content, and the same words read
+   *  where the screen would be. */
+  const failedRead = {
+    kind: "tool",
+    id: "row-2",
+    text: "screen_text",
+    status: "failed",
+    tool: "screen_text",
+    server: "kolu",
+    progress: `\`\`\`\nsurface-mcp: Terminal ${TERMINAL} not found\n\`\`\``,
+    kolu: {
+      kind: "screen",
+      terminalId: TERMINAL,
+      host: "local",
+      name: null,
+      snapshot: `surface-mcp: Terminal ${TERMINAL} not found`,
+    },
+  } as unknown as ConductorToolRow;
+
+  const mountRow = (one: ConductorToolRow): HTMLElement => {
+    root = document.createElement("div");
+    document.body.append(root);
+    dispose = render(() => <ConductorToolCard row={one} />, root);
+    return root;
+  };
+
+  it("says why in ONE line — the tool's sentence, without the fence or our brand", () => {
+    const el = mountRow(failedRead);
+    const reasons = el.querySelectorAll(
+      '[data-testid="conductor-tool-reason"]',
+    );
+    expect(reasons).toHaveLength(1);
+    expect(reasons[0]?.textContent).toBe(`Terminal ${TERMINAL} not found`);
+  });
+
+  it("offers no screen, and never says the reason twice", () => {
+    const el = mountRow(failedRead);
+    expect(el.querySelector("details")).toBeNull();
+    const text = el.textContent ?? "";
+    expect(text.split("not found")).toHaveLength(2);
+    expect(text).not.toContain("```");
+  });
+
+  it("a call that did not fail has no reason line, and keeps its screen", () => {
+    const el = mountRow({
+      ...failedRead,
+      status: "completed",
+      progress: undefined,
+      kolu: { ...failedRead.kolu, snapshot: "$ ls" },
+    } as unknown as ConductorToolRow);
+    expect(
+      el.querySelector('[data-testid="conductor-tool-reason"]'),
+    ).toBeNull();
+    expect(el.querySelector("details summary")?.textContent).toContain(
+      "screen",
+    );
+  });
+});

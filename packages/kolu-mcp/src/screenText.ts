@@ -44,6 +44,7 @@
  *     field still subject to it.
  */
 
+import { refusingAsleep } from "./asleep.ts";
 import { padiOf } from "./bundleClient.ts";
 // The tail RULE is padi's — its decode is what the value meets.
 import { ScreenTextTailSchema } from "@kolu/padi-client/surface";
@@ -74,8 +75,14 @@ export const screenTextTool: BespokeTool = {
   // `surface-mcp`'s ONE CallTool edge.
   handler: (args, client) => {
     const { id, tail } = args as ScreenTextArgs;
-    return padiOf(client).surface.screen.text(
-      tail === undefined ? { id } : { id, tail },
+    // `refusingAsleep`: padi answers a DORMANT terminal with the declared
+    // `TerminalNotActive`, which would otherwise reach the agent as prose with
+    // no structured arm (a declared error off a wire hop is not a
+    // `ToolFailure`). Tagged here so "it is asleep, wake it" arrives as data.
+    return refusingAsleep(
+      padiOf(client).surface.screen.text(
+        tail === undefined ? { id } : { id, tail },
+      ),
     );
   },
 };

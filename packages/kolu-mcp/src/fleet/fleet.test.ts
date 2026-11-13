@@ -41,6 +41,7 @@ import {
   type PadiWatchEvent,
   padiSurface,
   padiSurfaceSibling,
+  TerminalNotActive,
   WatchSubscriptionNotFound,
 } from "@kolu/padi-client/surface";
 import { surfaceTag } from "@kolu/surface/define";
@@ -124,6 +125,10 @@ interface FakePadi {
   /** Make `lifecycle.sendInput` fail — how a create stops PARTWAY with a real
    *  terminal already on the canvas. */
   refuseSendInput(why: string | null): void;
+  /** Make this padi's SCREEN READS answer the active-terminal gate's dormant
+   *  refusal — what a terminal that has been put to sleep answers (kolu#2361).
+   *  `null` restores it. */
+  sleep(id: TerminalId | null): void;
   /** Drop every subscription this padi holds, keeping the client — a padi
    *  that RESTARTED under a mirror that never dropped, so nothing upstream
    *  observed a disconnect and the next drain finds no such queue. */
@@ -148,6 +153,8 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
   let seq = 0;
   let watchOpenRefusal: string | null = null;
   let sendInputRefusal: string | null = null;
+  /** The one terminal this padi reports as ASLEEP, if any. */
+  let sleeping: TerminalId | null = null;
 
   /** ONE host's padi, as a HANDLER RECORD at the tags padi's own face dials —
    *  `surfaceTag(padiSurfaceSibling.tagPrefix, member, verb)`, minted by the
@@ -171,9 +178,15 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
       return record === undefined ? Stream.never : Stream.make(record);
     },
     [at("screen", "text")]: (input: { id: TerminalId }) =>
-      Effect.sync(() => {
+      Effect.suspend(() => {
         calls.push(`screen.text:${input.id}`);
-        return `screen of ${host}/${input.id}`;
+        // padi's active-terminal gate: a dormant record is refused by name,
+        // never as "not found" (kolu#2361).
+        return input.id === sleeping
+          ? Effect.fail(
+              new TerminalNotActive({ id: input.id, state: "sleeping" }),
+            )
+          : Effect.succeed(`screen of ${host}/${input.id}`);
       }),
     [at("screen", "history")]: (input: { id: TerminalId; max: number }) =>
       Effect.sync(() => {
@@ -294,6 +307,9 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
     },
     refuseSendInput(why) {
       sendInputRefusal = why;
+    },
+    sleep(id) {
+      sleeping = id;
     },
     forgetWatches() {
       open.clear();
@@ -493,6 +509,31 @@ describe("the fleet face over two hosts", () => {
     expect(res.isError ?? false).toBe(false);
     expect(beta.calls).toEqual([`screen.text:${BETA_1}`]);
     expect(alpha.calls).toEqual([]);
+  });
+
+  it("a SLEEPING terminal is refused by name, with its id re-qualified", async () => {
+    // The refusal an agent on this face actually reads. Two things have to be
+    // true at once: it must say the terminal is ASLEEP (not "not found" — a
+    // terminal it can see in the roster), and the id it names must be the
+    // FLEET reference, in the prose as well as in the data, or the agent is
+    // handed an id every tool on this face refuses.
+    const { beta, fleet } = twoHosts();
+    beta.sleep(BETA_1);
+    const mcp = await servedFleet(fleet.hosts);
+    const res = await mcp.callTool({
+      name: "screen_text",
+      arguments: { id: `remote:box/${BETA_1}` },
+    });
+    expect(res.isError).toBe(true);
+    expect(String((res.content as { text: string }[])[0]?.text)).toContain(
+      `Terminal remote:box/${BETA_1} is asleep — wake it before reading its screen`,
+    );
+    expect(res.structuredContent).toEqual({
+      kind: "terminal-not-active",
+      tag: "TerminalNotActive",
+      id: `remote:box/${BETA_1}`,
+      state: "sleeping",
+    });
   });
 
   it("a lifted answer carries ids back host-qualified", async () => {

@@ -26,7 +26,7 @@ vi.mock("./ConductorDiffs", () => ({ default: () => null }));
 
 import ConductorTranscript from "./ConductorTranscript";
 import type { ConductorRow } from "kolu-common/conductor";
-import { atEnd, pinTranscript } from "./transcriptScroll";
+import { atEnd, pinTranscript, revealTranscriptRow } from "./transcriptScroll";
 
 const VIEWPORT = 200;
 const COLUMN = 1000;
@@ -221,5 +221,46 @@ describe("the transcript's follow rule", () => {
 
     append();
     expect(second.scrollTop).toBe(300);
+  });
+});
+
+describe("the strip's reveal", () => {
+  it("opens the fold that holds the row it was asked for", () => {
+    root = document.createElement("div");
+    document.body.append(root);
+    let scroller!: HTMLDivElement;
+    const at = (id: string, seq: number) => ({
+      id,
+      seq,
+      since: "2026-01-01T00:00:00.000Z",
+    });
+    const rows: readonly ConductorRow[] = [
+      { ...at("a", 1), kind: "agent", text: "Looking." },
+      { ...at("t1", 2), kind: "tool", text: "Bash", status: "completed" },
+      { ...at("t2", 3), kind: "tool", text: "Bash", status: "completed" },
+      { ...at("b", 4), kind: "agent", text: "Found it." },
+    ];
+    dispose = render(
+      () => (
+        <ConductorTranscript
+          rows={rows}
+          pending={false}
+          error={undefined}
+          containerRef={(el) => {
+            scroller = el;
+          }}
+        />
+      ),
+      root,
+    );
+    const fold = scroller.querySelector<HTMLDetailsElement>(
+      '[data-testid="conductor-fold"]',
+    );
+    // Closed, and saying how many it holds.
+    expect(fold?.open).toBe(false);
+    expect(fold?.getAttribute("data-count")).toBe("2");
+
+    revealTranscriptRow(scroller, "t2");
+    expect(fold?.open).toBe(true);
   });
 });

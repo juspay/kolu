@@ -22,6 +22,30 @@ import type {
 // tier has no finer unit, so a 2m14s wait would read "2m" — and the number a
 // reader is checking against a timeout is exactly the one that would be gone.
 import { formatElapsedShort } from "../time/duration";
+import type { TerminalId } from "kolu-common/surface";
+
+/** The terminal a card is ABOUT, when it is about one — BOTH halves of its
+ *  identity. Every kolu reading carries the id and the host it is on (the two
+ *  sides of the `host/id` the agent spoke); a call nobody could resolve carries
+ *  neither, and has nothing to open, nothing to look at and nothing to guess
+ *  at. The card's "open tile" reads it, and so does `agentLineSubject`. */
+export function callSubject(
+  call: ConductorKoluCall | undefined,
+): { readonly host: string; readonly id: TerminalId } | null {
+  if (call === undefined || call.terminalId === null || call.host === null) {
+    return null;
+  }
+  return { host: call.host, id: call.terminalId };
+}
+
+/** The terminal an AGENT LINE is about — a `create` card that names one. The
+ *  card draws its status and Look for it, and the transcript keeps it out of
+ *  the fold for the same reason: one question, asked in one place. */
+export function agentLineSubject(
+  row: ConductorToolRow,
+): { readonly host: string; readonly id: TerminalId } | null {
+  return row.kolu?.kind === "create" ? callSubject(row.kolu) : null;
+}
 
 /** What went in: typed text, or one named key. Exactly one, as the tool itself
  *  requires — a call carrying neither is drawn as the bare arrow. */
@@ -37,6 +61,56 @@ export function sentInput(
  *  elapsed — a wait with no duration is not a wait of zero. */
 export function waitedFor(elapsedMs: number | null): string | null {
   return elapsedMs === null ? null : formatElapsedShort(elapsedMs);
+}
+
+/** The tool's name as a card shows it: the tool, else its server, else the
+ *  bare word — the one spelling a card and a failure run share. */
+export function toolLabel(row: ConductorToolRow): string {
+  return row.tool ?? row.server ?? "tool";
+}
+
+/** The brand our own MCP edge stamps on every error it answers a tool call
+ *  with (`brand` in `packages/surface-mcp/src/tools.ts`). It says which layer
+ *  spoke, not why the call failed, so a reason drops it. Spelled here rather
+ *  than imported: the client does not depend on the MCP adapter, and the
+ *  claude-code leg reads the same literal off the same answers (`leg.ts`). */
+const MCP_BRAND = "surface-mcp: ";
+
+/** A text wrapped in ONE Markdown code fence, unwrapped — the adapter fences
+ *  a tool's error text, and the marks are not part of the sentence. Anything
+ *  else is returned as it is. */
+function unfenced(text: string): string {
+  if (text.length < 6 || !text.startsWith("```") || !text.endsWith("```")) {
+    return text;
+  }
+  const body = text.slice(3, -3);
+  // An opening fence line may carry an info string (```text); drop that line.
+  const lineEnd = body.indexOf("\n");
+  return lineEnd === -1 ? body : body.slice(lineEnd + 1);
+}
+
+/** Why a FAILED call failed, as the one sentence its card shows — `null` for
+ *  a call that did not fail, or failed without saying why.
+ *
+ *  The tool's own words come back as the call's content (`progress`); a kolu
+ *  `screen`/`settle` reading of a failed call holds the same words where a
+ *  screen would be, because the harness reads the answer whatever it is — so
+ *  that is the fallback, and never drawn as a screen. */
+export function failureReason(row: ConductorToolRow): string | null {
+  if (row.status !== "failed") return null;
+  const call = row.kolu;
+  const said =
+    row.progress ??
+    (call?.kind === "screen"
+      ? call.snapshot
+      : call?.kind === "settle"
+        ? call.screenTail
+        : null);
+  if (said === null) return null;
+  let reason = unfenced(said.trim()).trim();
+  if (reason.startsWith(MCP_BRAND)) reason = reason.slice(MCP_BRAND.length);
+  reason = reason.trim();
+  return reason === "" ? null : reason;
 }
 
 /** How deep a payload may nest JSON inside a JSON string before this stops

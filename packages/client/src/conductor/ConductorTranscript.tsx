@@ -15,10 +15,17 @@
  *  transcript unusable); the way back is OFFERED, as the terminal's own
  *  `ScrollToBottom` pill. The same fact decides where a fresh mount lands,
  *  which is why it cannot live here: this component is re-created on every
- *  activation of the entry. */
+ *  activation of the entry.
+ *
+ *  The settled tool calls between two boundaries — prose, a message of yours,
+ *  a divider — are folded into one closed "Details" as they settle
+ *  (`foldToolRuns`), so the conversation reads as its sentences even while the
+ *  Conductor works; what a reader would lose by folding — a running call, a
+ *  failure, the line about an agent — stays in the flow. The same failure in a
+ *  row is said once, with its count (`foldFailureRuns`). */
 
 import { formatBytes } from "@kolu/byte-units";
-import type { ConductorRow } from "kolu-common/conductor";
+import type { ConductorRow, ConductorToolRow } from "kolu-common/conductor";
 import { Markdown } from "@kolu/solid-markdown";
 import { Key } from "@solid-primitives/keyed";
 import {
@@ -37,7 +44,12 @@ import ScrollToBottom from "../terminal/ScrollToBottom";
 import ConductorAsk from "./ConductorAsk";
 import ConductorToolCard from "./ConductorToolCard";
 import { thumbnailOf } from "./thumbnails";
-import { foldNoticeRuns } from "./transcript";
+import {
+  foldFailureRuns,
+  foldNoticeRuns,
+  foldToolRuns,
+  type TranscriptItem,
+} from "./transcript";
 import {
   applyTranscriptScroll,
   pinTranscript,
@@ -60,8 +72,12 @@ const ConductorTranscript: Component<{
    *  re-applied until there is something to scroll. */
   let placed = false;
   /** What is DRAWN: a run of identical notices is one row carrying its count
-   *  (`foldNoticeRuns`), never eight copies of one fact. */
-  const entries = createMemo(() => foldNoticeRuns(props.rows));
+   *  (`foldNoticeRuns`), never eight copies of one fact; the settled tool
+   *  calls of a run are one closed "Details" (`foldToolRuns`); and the same
+   *  failure in a row is one line with its count (`foldFailureRuns`). */
+  const items = createMemo(() =>
+    foldFailureRuns(foldToolRuns(foldNoticeRuns(props.rows))),
+  );
 
   // BEFORE the follow effect below, and that order is the fix: declared first,
   // so Solid runs it first and the first follow check measures a container
@@ -154,16 +170,36 @@ const ConductorTranscript: Component<{
         <Show when={props.pending && props.rows.length === 0}>
           <p class="text-fg-3 text-xs">Opening the conversation…</p>
         </Show>
-        {/* KEYED BY ROW ID, and that is the difference between a live
-            conversation and an unusable one. The reducer replaces a row OBJECT
-            on every chunk and every tool update, so a reference-keyed list
-            rebuilds the `Markdown` subtree per chunk and the card per update —
-            which collapses an open `<details>`, loses `ConductorDiffs`'
-            expansion and throws away the caret inside a half-filled ask. The id
-            is stable for the row's life; the subtree survives with it. */}
-        <Key each={entries()} by={(entry) => entry.row.id}>
-          {(entry) => (
-            <TranscriptRow row={entry().row} repeat={entry().repeat} />
+        {/* KEYED, and that is the difference between a live conversation and
+            an unusable one. The reducer replaces a row OBJECT on every chunk
+            and every tool update, so a reference-keyed list rebuilds the
+            `Markdown` subtree per chunk and the card per update — which
+            collapses an open `<details>`, loses `ConductorDiffs`' expansion and
+            throws away the caret inside a half-filled ask. A row's key is its
+            id; a fold's is the id of the boundary that opens its run. Both are
+            stable for the thing's life, and an item never changes kind under
+            its key. */}
+        <Key each={items()} by={(item) => item.key}>
+          {(item) => (
+            <Switch>
+              <Match when={foldRowsOf(item())}>
+                {(rows) => <TranscriptFold rows={rows()} />}
+              </Match>
+              <Match when={failuresOf(item())}>
+                {(run) => (
+                  <TranscriptFailures
+                    tool={run().tool}
+                    reason={run().reason}
+                    rows={run().rows}
+                  />
+                )}
+              </Match>
+              <Match when={entryOf(item())}>
+                {(entry) => (
+                  <TranscriptRow row={entry().row} repeat={entry().repeat} />
+                )}
+              </Match>
+            </Switch>
           )}
         </Key>
       </div>
@@ -181,6 +217,73 @@ const ConductorTranscript: Component<{
     </div>
   );
 };
+
+/** The arms of an item, narrowed — what lets each `<Match>` hand its child a
+ *  typed accessor instead of re-checking the kind inside it. */
+const foldRowsOf = (item: TranscriptItem) =>
+  item.kind === "fold" ? item.rows : undefined;
+const failuresOf = (item: TranscriptItem) =>
+  item.kind === "failures" ? item : undefined;
+const entryOf = (item: TranscriptItem) =>
+  item.kind === "entry" ? item.entry : undefined;
+
+/** A run of the Conductor's tool calls, folded. A plain `<details>`, CLOSED
+ *  until somebody opens it, and owned by the DOM: the list keys it by the
+ *  boundary that opens its run, so the element — and whether it is open —
+ *  survives every call that joins it and the prose that later closes it. The
+ *  strip's reveal opens it from outside, as the row's `<details>` ancestor
+ *  (`revealTranscriptRow`). */
+function TranscriptFold(props: { rows: readonly ConductorToolRow[] }) {
+  const count = () => props.rows.length;
+  return (
+    <details
+      data-testid="conductor-fold"
+      data-count={count()}
+      class="group min-w-0"
+    >
+      <summary class="w-fit cursor-pointer list-none font-mono text-[0.68rem] text-fg-3 hover:text-fg-2 [&::-webkit-details-marker]:hidden">
+        Details · {count()} {count() === 1 ? "tool call" : "tool calls"}
+        <span class="ml-1 group-open:hidden">›</span>
+        <span class="ml-1 hidden group-open:inline">⌄</span>
+      </summary>
+      <div class="mt-2 flex min-w-0 flex-col gap-2.5 border-l-2 border-edge pl-2.5">
+        <Key each={props.rows} by={(row) => row.id}>
+          {(row) => <TranscriptRow row={row()} repeat={1} />}
+        </Key>
+      </div>
+    </details>
+  );
+}
+
+/** The same failure several times in a row, said ONCE: "screen_text failed
+ *  6 times: …", in the danger colour and in the flow — a failure is news, so
+ *  unlike the Details fold this line is the news itself. It opens to the
+ *  individual cards. Keyed by its first failure, so a seventh joining it keeps
+ *  the element, and whether it is open. */
+function TranscriptFailures(props: {
+  tool: string;
+  reason: string;
+  rows: readonly ConductorToolRow[];
+}) {
+  return (
+    <details
+      data-testid="conductor-failures"
+      data-count={props.rows.length}
+      class="group/failures min-w-0"
+    >
+      <summary class="min-w-0 cursor-pointer list-none font-mono text-[0.68rem] text-danger wrap-anywhere [&::-webkit-details-marker]:hidden">
+        <span class="group-open/failures:hidden">▸</span>
+        <span class="hidden group-open/failures:inline">▾</span> {props.tool}{" "}
+        failed {props.rows.length} times: {props.reason}
+      </summary>
+      <div class="mt-2 flex min-w-0 flex-col gap-2.5 border-l-2 border-danger/40 pl-2.5">
+        <Key each={props.rows} by={(row) => row.id}>
+          {(row) => <TranscriptRow row={row()} repeat={1} />}
+        </Key>
+      </div>
+    </details>
+  );
+}
 
 function TranscriptRow(props: { row: ConductorRow; repeat: number }) {
   return (

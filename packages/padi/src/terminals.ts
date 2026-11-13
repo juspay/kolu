@@ -25,6 +25,7 @@ import {
   type SavedTerminal,
   SavedTerminalSchema,
   type TerminalInfo,
+  TerminalNotActive,
   TerminalParentCycle,
   type TerminalPlacement,
 } from "@kolu/padi-client/surface";
@@ -39,6 +40,7 @@ import {
   getTerminal,
   requireActiveTerminal,
   terminalEntries,
+  terminalNotFound,
 } from "./terminal-registry.ts";
 import {
   beginSleepLocal,
@@ -334,8 +336,9 @@ export async function restartTerminal(
 const restartsInFlight = new Map<TerminalId, Promise<undefined>>();
 
 /** The terminal an ATTACH may open. Ordinarily that is `requireActiveTerminal`:
- *  a sleeping or absent id answers `TerminalNotFound`, which a client's attach
- *  loop reads as "this terminal is gone" and stops.
+ *  a sleeping or absent id is refused, and the refusal is re-worded HERE to the
+ *  one tag a stream consumer can act on — see the `TerminalNotFound` note
+ *  below.
  *
  *  A RESTART is the exception, because its sleeping arm is not a fact about the
  *  terminal — it is the few milliseconds between killing the old PTY and
@@ -346,13 +349,29 @@ const restartsInFlight = new Map<TerminalId, Promise<undefined>>();
  *  would be told the terminal is gone and stop for good, leaving the tile blank
  *  until a reload. So an attach that lands during a restart WAITS for it, then
  *  attaches to the new PTY (or, if the respawn failed, gets the ordinary
- *  answer for a sleeping terminal). */
+ *  answer for a sleeping terminal).
+ *
+ *  **Why a dormant id still answers `TerminalNotFound` here** (kolu#2361). The
+ *  gate now tells "no such terminal" from "it exists but is asleep"
+ *  (`TerminalNotActive`), and every PROCEDURE behind it declares both. A
+ *  `StreamSpec` has no error channel to declare either on, so on `terminalAttach`
+ *  the value crosses as a bare tagged defect and the client's attach loop
+ *  recognises exactly ONE tag as its teardown verdict — `TerminalNotFound` ends
+ *  the loop, anything else is retried every 300ms. Handing it the new tag would
+ *  turn sleeping a tile into a re-attach storm against a terminal that has no
+ *  PTY by definition. The distinction is for callers that can act on it; a
+ *  consumer with no error channel gets the verdict it can act on. */
 export async function requireAttachableTerminal(
   id: TerminalId,
 ): Promise<ActiveTerminalProcess> {
   const pending = restartsInFlight.get(id);
   if (pending !== undefined) await pending;
-  return requireActiveTerminal(id);
+  try {
+    return requireActiveTerminal(id);
+  } catch (err) {
+    if (err instanceof TerminalNotActive) throw terminalNotFound(id);
+    throw err;
+  }
 }
 
 /** Refuse a parent edge that is nonsense in any tree model: self-parent, or an

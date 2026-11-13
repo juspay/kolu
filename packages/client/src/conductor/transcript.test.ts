@@ -2,9 +2,20 @@
  *  not double rows), a delta refines in place, and a streamed append splices at
  *  the offset the writer stamped. */
 
-import type { ConductorFrame, ConductorRow } from "kolu-common/conductor";
+import type {
+  ConductorFrame,
+  ConductorRow,
+  ConductorToolRow,
+} from "kolu-common/conductor";
 import { describe, expect, it } from "vitest";
-import { applyFrame, EMPTY_TRANSCRIPT, foldNoticeRuns } from "./transcript";
+import {
+  applyFrame,
+  EMPTY_TRANSCRIPT,
+  foldFailureRuns,
+  foldNoticeRuns,
+  foldToolRuns,
+  type TranscriptItem,
+} from "./transcript";
 
 const agentRow = (id: string, seq: number, text: string): ConductorRow => ({
   id,
@@ -179,5 +190,302 @@ describe("foldNoticeRuns", () => {
       agentRow("d", 4, "same"),
     ]);
     expect(entries.map((e) => e.repeat)).toEqual([1, 1, 1, 1]);
+  });
+});
+
+describe("foldToolRuns", () => {
+  const SINCE = "2026-01-01T00:00:00.000Z";
+  const TERMINAL = "11111111-1111-4111-8111-111111111111";
+  const tool = (
+    id: string,
+    seq: number,
+    extra: Partial<ConductorToolRow> = {},
+  ): ConductorRow =>
+    ({
+      id,
+      seq,
+      since: SINCE,
+      kind: "tool",
+      text: id,
+      status: "completed",
+      ...extra,
+    }) as ConductorToolRow;
+  const user = (id: string, seq: number): ConductorRow => ({
+    id,
+    seq,
+    since: SINCE,
+    kind: "user",
+    text: "hi",
+    attachments: [],
+  });
+  const notice = (id: string, seq: number): ConductorRow => ({
+    id,
+    seq,
+    since: SINCE,
+    kind: "notice",
+    text: "something happened",
+  });
+  /** What the panel draws, as `id` for a row and `[ids]` for a fold. */
+  const drawn = (rows: ConductorRow[]): (string | string[])[] =>
+    foldToolRuns(foldNoticeRuns(rows)).map((item: TranscriptItem) =>
+      item.kind === "entry"
+        ? item.entry.row.id
+        : item.rows.map((row) => row.id),
+    );
+
+  it("folds the calls between two pieces of prose into ONE fold", () => {
+    expect(
+      drawn([
+        agentRow("a", 1, "Looking."),
+        tool("t1", 2),
+        tool("t2", 3),
+        tool("t3", 4),
+        agentRow("b", 5, "Found it."),
+      ]),
+    ).toEqual(["a", ["t1", "t2", "t3"], "b"]);
+  });
+
+  it("folds a run's settled calls while the turn is still going, and leaves the running one out", () => {
+    // The Conductor has not said a word yet: what a person sees is ONE
+    // "Details" and the call in flight, not a wall of finished cards.
+    expect(
+      drawn([
+        user("u", 0),
+        tool("t1", 1),
+        tool("t2", 2),
+        tool("t3", 3, { status: "in_progress" }),
+      ]),
+    ).toEqual(["u", ["t1", "t2"], "t3"]);
+  });
+
+  it("folds the calls that open the transcript, before any boundary", () => {
+    expect(
+      drawn([
+        tool("t0", 0),
+        agentRow("a", 1, "Looked."),
+        user("u1", 2),
+        tool("t1", 3),
+        tool("t2", 4),
+        agentRow("b", 5, "Done."),
+      ]),
+    ).toEqual([["t0"], "a", "u1", ["t1", "t2"], "b"]);
+  });
+
+  it("never folds across what the human typed", () => {
+    expect(
+      drawn([
+        agentRow("a", 1, "Looking."),
+        tool("t1", 2),
+        user("u1", 3),
+        tool("t2", 4),
+        agentRow("b", 5, "Done."),
+      ]),
+    ).toEqual(["a", ["t1"], "u1", ["t2"], "b"]);
+  });
+
+  it("keeps what a reader would lose in the flow, and folds the rest around it", () => {
+    const rows = [
+      agentRow("a", 1, "Starting the planner."),
+      tool("done", 2),
+      tool("running", 3, { status: "in_progress" }),
+      tool("pending", 4, { status: "pending" }),
+      tool("failed", 5, { status: "failed" }),
+      tool("stranded", 6, { stranded: true }),
+      tool("task-out", 7, {
+        armed: { task: "t", description: null, ended: null, report: null },
+      }),
+      tool("task-over", 8, {
+        armed: {
+          task: "t",
+          description: null,
+          ended: "completed",
+          report: null,
+        },
+      }),
+      tool("agent-line", 9, {
+        kolu: {
+          kind: "create",
+          terminalId: TERMINAL as never,
+          host: "local",
+          name: "planner",
+          cwd: null,
+          agent: null,
+        },
+      }),
+      tool("create-no-terminal", 10, {
+        kolu: {
+          kind: "create",
+          terminalId: null,
+          host: null,
+          name: "planner",
+          cwd: null,
+          agent: null,
+        },
+      }),
+      notice("n", 11),
+      agentRow("b", 12, "It is up."),
+    ];
+    expect(drawn(rows)).toEqual([
+      "a",
+      ["done", "task-over", "create-no-terminal"],
+      "running",
+      "pending",
+      "failed",
+      "stranded",
+      "task-out",
+      "agent-line",
+      "n",
+      "b",
+    ]);
+  });
+
+  it("draws no fold when every call in the run stays in the flow", () => {
+    expect(
+      drawn([
+        agentRow("a", 1, "Trying."),
+        tool("failed", 2, { status: "failed" }),
+        agentRow("b", 3, "That failed."),
+      ]),
+    ).toEqual(["a", "failed", "b"]);
+  });
+
+  it("keys the fold by the boundary before its run — steady as calls join and when prose closes it", () => {
+    const keyOf = (rows: ConductorRow[]) =>
+      foldToolRuns(foldNoticeRuns(rows)).find((item) => item.kind === "fold")
+        ?.key;
+    const working = keyOf([
+      user("u", 0),
+      tool("t1", 1),
+      tool("t2", 2, { status: "in_progress" }),
+    ]);
+    const settled = keyOf([user("u", 0), tool("t1", 1), tool("t2", 2)]);
+    const spoken = keyOf([
+      user("u", 0),
+      tool("t1", 1),
+      tool("t2", 2),
+      agentRow("b", 3, "Done."),
+    ]);
+    expect(working).toBe("fold:u");
+    expect(settled).toBe(working);
+    expect(spoken).toBe(working);
+  });
+});
+
+describe("foldFailureRuns", () => {
+  const SINCE = "2026-01-01T00:00:00.000Z";
+  /** A failed `screen_text` on one terminal, answered the way the MCP edge
+   *  answers a terminal padi does not hold. */
+  const unread = (id: string, seq: number, terminal: string): ConductorRow =>
+    ({
+      id,
+      seq,
+      since: SINCE,
+      kind: "tool",
+      text: "screen_text",
+      status: "failed",
+      tool: "screen_text",
+      server: "kolu",
+      progress: `\`\`\`\nsurface-mcp: Terminal ${terminal} not found\n\`\`\``,
+      kolu: {
+        kind: "screen",
+        terminalId: terminal,
+        host: "remote:srid@zest",
+        name: null,
+        snapshot: `surface-mcp: Terminal ${terminal} not found`,
+      },
+    }) as unknown as ConductorRow;
+  const failed = (
+    id: string,
+    seq: number,
+    tool: string,
+    progress: string,
+  ): ConductorRow =>
+    ({
+      id,
+      seq,
+      since: SINCE,
+      kind: "tool",
+      text: tool,
+      status: "failed",
+      tool,
+      progress,
+    }) as unknown as ConductorRow;
+  const settled = (id: string, seq: number): ConductorRow =>
+    ({
+      id,
+      seq,
+      since: SINCE,
+      kind: "tool",
+      text: id,
+      status: "completed",
+    }) as unknown as ConductorRow;
+  const user = (id: string, seq: number): ConductorRow => ({
+    id,
+    seq,
+    since: SINCE,
+    kind: "user",
+    text: "status?",
+    attachments: [],
+  });
+  const drawn = (rows: ConductorRow[]) =>
+    foldFailureRuns(foldToolRuns(foldNoticeRuns(rows))).map(
+      (item: TranscriptItem) =>
+        item.kind === "failures"
+          ? `${item.tool} ×${item.rows.length}: ${item.reason}`
+          : item.kind === "fold"
+            ? item.rows.map((row) => row.id)
+            : item.entry.row.id,
+    );
+
+  it("says the same failure on six terminals ONCE, with the terminal taken out", () => {
+    expect(
+      drawn([
+        user("u", 0),
+        ...["a", "b", "c", "d", "e", "f"].map((t, i) =>
+          unread(`s${i}`, i + 1, `${t}${t}${t}-terminal`),
+        ),
+      ]),
+    ).toEqual(["u", "screen_text ×6: Terminal not found"]);
+  });
+
+  it("is a run as drawn: a settled call that joined a fold drawn earlier does not split it", () => {
+    expect(
+      drawn([
+        user("u", 0),
+        settled("look", 1),
+        unread("s1", 2, "t1"),
+        settled("ok", 3),
+        unread("s2", 4, "t2"),
+      ]),
+    ).toEqual(["u", ["look", "ok"], "screen_text ×2: Terminal not found"]);
+  });
+
+  it("splits on a different reason, a different tool, and anything drawn between", () => {
+    expect(
+      drawn([
+        user("u", 0),
+        unread("s1", 1, "t1"),
+        failed("x", 2, "screen_text", "the host is not connected"),
+        failed("y", 3, "Bash", "exit 1"),
+        failed("z", 4, "Bash", "exit 1"),
+        user("u2", 5),
+        failed("w", 6, "Bash", "exit 1"),
+      ]),
+    ).toEqual(["u", "s1", "x", "Bash ×2: exit 1", "u2", "w"]);
+  });
+
+  it("keys a run by its first failure, steady as more join it", () => {
+    const keyOf = (count: number) =>
+      foldFailureRuns(
+        foldToolRuns(
+          foldNoticeRuns(
+            Array.from({ length: count }, (_, i) =>
+              unread(`s${i}`, i, `t${i}`),
+            ),
+          ),
+        ),
+      ).find((item) => item.kind === "failures")?.key;
+    expect(keyOf(2)).toBe("failures:s0");
+    expect(keyOf(6)).toBe(keyOf(2));
   });
 });

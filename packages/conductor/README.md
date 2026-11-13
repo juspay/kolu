@@ -12,6 +12,9 @@ Three things make the conversation work and they are all here:
 - **the record** (`./persisted`) — what survives a restart, and the re-validation
   that refuses a transcript with holes in it rather than drawing one;
 - **the standing prompt** — what the agent is told, once, on the first turn.
+  The words are in [`src/teaching.md`](src/teaching.md), one wrapped paragraph
+  per instruction, read when kolu-server starts (a missing or malformed file
+  stops the boot); `teaching.ts` sends each paragraph as one `[kolu] ` line.
 
 The `koluSurface` members a browser subscribes to are here too (`./surface`),
 because an implementation of "what `conductor.prompt` does" belongs with the

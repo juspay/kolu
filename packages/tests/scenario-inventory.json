@@ -9898,6 +9898,78 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "da5f1d2a1fbf28f3be33bed0c9bc7e510d7fa867"
+    },
+    {
+      "revisionId": "revision-18e78b62fde161b7e085",
+      "scenarioKey": "scenario-bc167b1613e07ab431b7",
+      "feature": "features/conductor.feature",
+      "scenario": "Look reads the agent's screen from inside the chat",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d0d3861ddb4cc71eca9099356118e6985dd3836c27663b2edbf9348568314c8c",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8af35f326551bfc6d2962a00d27d8b9927567bb6"
+    },
+    {
+      "revisionId": "revision-34e2c31a5a20bce6b931",
+      "scenarioKey": "scenario-f40015d5d6a23535db8a",
+      "feature": "features/conductor.feature",
+      "scenario": "The calls a turn makes before the Conductor speaks fold into Details",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "ebe794a47b871063d889512c852a0292ef09699e4bba0e5a3398227d2770e513",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8af35f326551bfc6d2962a00d27d8b9927567bb6"
+    },
+    {
+      "revisionId": "revision-0eab55e1aff51efaa073",
+      "scenarioKey": "scenario-a2784d4ccfcd2b6c2a74",
+      "feature": "features/conductor.feature",
+      "scenario": "The calls fold while the Conductor is still working",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "84c8ba0117b54203977d685514b96e6313d3e9101d21bfdc4cee23fcbd53fbd2",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "7e7e2bdc7ab122f941975347a59f652cc649ac87"
+    },
+    {
+      "revisionId": "revision-70f636abf59d8db3fef6",
+      "scenarioKey": "scenario-3c2554a63716b2df4149",
+      "feature": "features/conductor.feature",
+      "scenario": "The Conductor is the first tab, and the only one lit while you are in it",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "521fc74e99b97898f91d2e5ad4c5369feb2fdf8a47d4d57ae2d2136fc217f372",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b96ddde37e3f5480951dd39b9ce81f66616ff4db"
+    },
+    {
+      "revisionId": "revision-95bd10ab0226aee210c6",
+      "scenarioKey": "scenario-672eca80a5874953fc3e",
+      "feature": "features/mobile-conductor.feature",
+      "scenario": "An agent line on a phone stays inside the screen",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "5845a589eee3bcc773b25208df0608afb562b600431e6b50cca70bb52c47e718",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "95b1e01d0563150711889be7c687ddd88ef1577f"
+    },
+    {
+      "revisionId": "revision-95ae40078d9ef7ece112",
+      "scenarioKey": "scenario-28a3ec3c235aefbda939",
+      "feature": "features/mobile-conductor.feature",
+      "scenario": "From the Conductor, the chrome sheet takes you back to a host",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "ef8ee2f106e68f55564737df391b437bb0ca48a43871443778e276fa4f2bc81f",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "95b1e01d0563150711889be7c687ddd88ef1577f"
     }
   ]
 }

@@ -23,6 +23,7 @@
  * `screen_text` documents at length.
  */
 
+import { refusingAsleep } from "./asleep.ts";
 import { padiOf } from "./bundleClient.ts";
 import type { PadiScreenImageOutput } from "@kolu/padi-client/surface";
 import {
@@ -58,13 +59,18 @@ export const screenImageTool: BespokeTool = {
     "A terminal's screen as a PNG image, themed and rendered the way the user sees it — colours, box drawing, highlights and all. Use it when the answer is visual (a TUI's state, a rendered diff, a chart); use screen_text when plain characters will do, since it is much cheaper.",
   handler: (args, client) => {
     const { id, lines } = args as ScreenImageArgs;
-    return padiOf(client).surface.screen.image({
-      id,
-      // SPREAD, never spell: `lines` is `Schema.optionalKey` on padi's wire and
-      // that input is DECODED, so an absent key is accepted where a
-      // present-but-`undefined` one is rejected.
-      ...(lines !== undefined && { lines }),
-    });
+    // Tagged like `screen_text`'s read: a DORMANT terminal is refused by padi's
+    // active-terminal gate, and the refusal reaches the agent as "wake it"
+    // prose PLUS the structured arm (see `asleep.ts`).
+    return refusingAsleep(
+      padiOf(client).surface.screen.image({
+        id,
+        // SPREAD, never spell: `lines` is `Schema.optionalKey` on padi's wire and
+        // that input is DECODED, so an absent key is accepted where a
+        // present-but-`undefined` one is rejected.
+        ...(lines !== undefined && { lines }),
+      }),
+    );
   },
   // The picture is the answer, so it travels as an image block; the caller
   // still gets the dimensions (and the bytes) in the structured arm.

@@ -68,8 +68,9 @@ Three things that make the verbs pleasant to script: **stdout is data** (so
 `id=$(kolu create …)` captures exactly the id, with the human-readable trailer
 on stderr), **ids accept any unique prefix** (`kolu send 3f9c …`), and the
 **exit codes are a contract** — `0` done, `1` a usage or connection error, `2`
-a wait timed out, `3` the terminal exited first, `130` interrupted. Read verbs
-take `--json`.
+a wait timed out, `3` the terminal exited first, `4` the terminal is asleep
+(it still exists — wake it and run the command again), `130` interrupted. Read
+verbs take `--json`.
 
 ### `kolu surface` — the same API as shell verbs
 

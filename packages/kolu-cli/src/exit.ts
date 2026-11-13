@@ -11,7 +11,7 @@
  *   1    a usage error, or the padi link dropped
  *   2    `wait` ran out of time — the condition never landed
  *   3    `wait`'s terminal exited before reaching the condition
- *   130  interrupted (Ctrl+C / SIGTERM / SIGHUP)
+ *   4    the terminal is ASLEEP (or parked) — it exists, but has no live screen
  *
  * This table is the answer of the NATIVE faces (`create`, `watch`, `ls`, …) —
  * NOT of `kolu surface`: one binary now carries TWO matrices, per the ruling in
@@ -220,6 +220,34 @@ export const waitTerminalGone = (facts: {
 }): CliFailure => {
   const reason = `${facts.terminal} exited before reaching ${facts.describe} — its terminal is gone.`;
   return new CliFailure({ reason, stderr: koluLine(reason), code: 3 });
+};
+
+/** The terminal is ASLEEP (or parked) — it exists, it is in `kolu ls`, but it
+ *  has no live PTY, so there is no screen to read and nothing to wait on.
+ *  padi's declared `TerminalNotActive`, worded for a person (kolu#2361).
+ *
+ *  Its own code (4) by this table's own rule: a code exists where a DRIVER
+ *  branches differently. `2` says "still alive, still stuck — wait longer",
+ *  `3` says "it died, give up", and this says "it is fine, it is just not
+ *  awake — wake it and run this again", which is neither. It used to arrive as
+ *  the generic `1` carrying "Terminal <id> not found", which is the lie this
+ *  change removes: a script that dropped the id on `1` was dropping a terminal
+ *  the user still has.
+ *
+ *  There is no `kolu wake`: waking is canvas-owned (padi's `lifecycle.wake` is
+ *  denied to both agent faces), so the line says what is true rather than
+ *  naming a verb this binary does not ship. */
+export const terminalAsleep = (facts: {
+  readonly terminal: string;
+  readonly state: "sleeping" | "parked";
+  /** What the caller was trying to do — "read its screen", "wait for it". */
+  readonly attempted: string;
+}): CliFailure => {
+  const reason =
+    facts.state === "parked"
+      ? `${facts.terminal} is parked — a saved terminal waiting to be restored, with no live screen; restore the session, then ${facts.attempted} again.`
+      : `${facts.terminal} is asleep — wake it in kolu, then ${facts.attempted} again.`;
+  return new CliFailure({ reason, stderr: koluLine(reason), code: 4 });
 };
 
 /** A Ctrl+C (or an external stop) during a `wait` — the conventional 130, and it

@@ -40,6 +40,7 @@ import {
   type PadiUrgencySchema,
   PadiWatchNameInputSchema,
   PtyHostIdentitySchema,
+  TerminalGateErrorSchema,
   TerminalInfoSchema,
   TerminalNotFound,
   WatchSubscriptionNotFound,
@@ -252,7 +253,11 @@ export const fleetSurface = defineSurface({
       history: {
         input: FleetScreenHistoryInputSchema,
         output: PadiScreenHistoryOutputSchema,
-        error: TerminalNotFound,
+        // The two answers padi's active-terminal gate gives, re-declared here
+        // so a dormant terminal's refusal DECODES on this face instead of
+        // arriving as an undeclared failure (the fleet surface re-serves the
+        // per-host member, so it owes the same error channel).
+        error: TerminalGateErrorSchema,
       },
     },
     lifecycle: {

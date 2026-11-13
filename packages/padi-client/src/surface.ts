@@ -127,6 +127,7 @@ import {
   KavalContractSkew,
   PreviewTooLarge,
   ScratchWriteRejected,
+  TerminalGateErrorSchema,
   TerminalNotFound,
   TerminalParentCycle,
   TranscriptNoAgent,
@@ -624,8 +625,30 @@ export * from "./transcriptSchema.ts";
  *  unknown key and answers the whole scrollback as if it were the tail — a
  *  behavioural lie, not a graceful degradation — so a 7.1 face REFUSES a
  *  surviving 7.0 padi at the gate, and convergence drain-and-respawns the
- *  straddler. */
-export const PADI_SURFACE_VERSION = "7.1";
+ *  straddler.
+ *
+ *  7.2 (additive · minor) — the ACTIVE-TERMINAL gate answers TWO errors. A new
+ *  declared `TerminalNotActive` ({@link TerminalNotActive}: `id` + `state`,
+ *  `sleeping | parked`) joins `TerminalNotFound` on every member behind
+ *  `requireActiveTerminal` — `screen.state`/`text`/`history`/`image`,
+ *  `scratch.write`, `transcript.exportHtml` and `lifecycle.create`'s
+ *  `child-of` parent — as {@link TerminalGateErrorSchema}. Until now a
+ *  SLEEPING terminal's screen read answered "Terminal <id> not found", which
+ *  every face repeated: an agent told a terminal it can see in the roster does
+ *  not exist drops it instead of waking it.
+ *
+ *  A WIDENED ERROR CHANNEL is the 5.3 case, not the `resizeTo` case: a 7.1
+ *  consumer's decoder refuses a `TerminalNotActive` frame, so the minor rule is
+ *  what keeps it from ever meeting one (a newer binder against a 7.1 padi
+ *  drains it before consuming its surface; an older binder against a 7.2 padi
+ *  is build-mismatched and drains it first). For the gate-only faces (`kolu`,
+ *  the MCP face — #1313) it is the 5.4/7.1 obligation: a 7.2 face asked to
+ *  read a sleeping terminal must not be answered the old lie by a surviving
+ *  7.1 padi, so it REFUSES one at the gate and convergence respawns the
+ *  straddler. The two STREAM members keep answering `TerminalNotFound` for a
+ *  dormant id — a `StreamSpec` has no error channel to widen, and the client's
+ *  attach loop ends on that tag (`requireAttachableTerminal`). */
+export const PADI_SURFACE_VERSION = "7.2";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -2329,14 +2352,16 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
     lifecycle: {
       // Every create STATES its placement (`PadiCreateInputSchema`) — a tile of
       // its own, or a split of a named parent. The `child-of` arm's parent must
-      // be a LIVE terminal, so `create` carries the same declared not-found as
-      // the per-terminal verbs. A create that states NO placement is refused a
-      // layer earlier, by the input schema itself, and never reaches this error
-      // channel.
+      // be a LIVE terminal, so `create` goes through the same active-terminal
+      // gate the per-terminal verbs do and declares its two answers
+      // ({@link TerminalGateErrorSchema}): no such parent, or a parent that is
+      // asleep/parked (wake it, then split it). A create that states NO
+      // placement is refused a layer earlier, by the input schema itself, and
+      // never reaches this error channel.
       create: {
         input: PadiCreateInputSchema,
         output: TerminalInfoSchema,
-        error: TerminalNotFound,
+        error: TerminalGateErrorSchema,
       },
       kill: {
         input: PadiTerminalIdInputSchema,
@@ -2420,23 +2445,25 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       },
     },
     /** Screen reads — the serialized screen + a scrollback text slice. All
-     *  three narrow to an ACTIVE terminal (a dormant record has no live mirror
-     *  to read), so all three declare {@link TerminalNotFound}. */
+     *  four narrow to an ACTIVE terminal (a dormant record has no live mirror
+     *  to read), so all four declare {@link TerminalGateErrorSchema}: the id
+     *  names nothing ({@link TerminalNotFound}), or it names a record that is
+     *  asleep or parked ({@link TerminalNotActive} — wake it and read again). */
     screen: {
       state: {
         input: PadiTerminalIdInputSchema,
         output: Schema.String,
-        error: TerminalNotFound,
+        error: TerminalGateErrorSchema,
       },
       text: {
         input: PadiScreenTextInputSchema,
         output: Schema.String,
-        error: TerminalNotFound,
+        error: TerminalGateErrorSchema,
       },
       history: {
         input: PadiScreenHistoryInputSchema,
         output: PadiScreenHistoryOutputSchema,
-        error: TerminalNotFound,
+        error: TerminalGateErrorSchema,
       },
       /** The screen as a rendered PNG — the read a face that can SHOW an
        *  image makes (the `screen_image` MCP tool, `kolu screenshot`), where
@@ -2448,7 +2475,7 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       image: {
         input: PadiScreenImageInputSchema,
         output: PadiScreenImageOutputSchema,
-        error: TerminalNotFound,
+        error: TerminalGateErrorSchema,
       },
     },
     /** Filesystem reads scoped to a repo on the serving host. Each declares
@@ -2507,13 +2534,14 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
     },
     /** Byte writes — the scratch write half of paste/upload. The AUTHORITATIVE
      *  upload gate: it needs an ACTIVE terminal to write under
-     *  ({@link TerminalNotFound}) and re-enforces the extension allowlist +
+     *  ({@link TerminalGateErrorSchema} — no such id, or an id whose record is
+     *  asleep/parked) and re-enforces the extension allowlist +
      *  size cap ({@link ScratchWriteRejected}). */
     scratch: {
       write: {
         input: PadiScratchWriteInputSchema,
         output: PadiScratchWriteOutputSchema,
-        error: Schema.Union([TerminalNotFound, ScratchWriteRejected]),
+        error: Schema.Union([TerminalGateErrorSchema, ScratchWriteRejected]),
       },
     },
     /** Byte reads — the iframe binary preview (range-capable, serve-dir-shaped),
@@ -2542,7 +2570,7 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
         input: ExportTranscriptHtmlInputSchema,
         output: ExportTranscriptHtmlOutputSchema,
         error: Schema.Union([
-          TerminalNotFound,
+          TerminalGateErrorSchema,
           TranscriptNoAgent,
           TranscriptNotFound,
         ]),

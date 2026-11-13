@@ -1,7 +1,7 @@
 Feature: The Conductor
   ONE ACP conversation for the whole fleet — hosted by kolu-server, not by any
-  one host's padi — reached from its own `◆ Conductor` entry in the chrome
-  tab row, beside the host tabs and deliberately not one of them. Every
+  one host's padi — reached from its own `◆ Conductor` tab, first in the chrome
+  bar's tab row, drawn like the host tabs and deliberately not one of them. Every
   scenario runs against a scripted ACP adapter the harness points
   `KOLU_ACP_AGENT` at, so the frames the panel draws are frames a real agent
   could have sent — not a stubbed store.
@@ -62,6 +62,29 @@ Feature: The Conductor
     When I press the conductor shortcut
     Then the conductor pane should not be visible
     And the active host tab should be the one I noted
+    And there should be no page errors
+
+  Scenario: The Conductor is the first tab, and the only one lit while you are in it
+    # A place you go is a tab, so the conversation is one: FIRST in the row,
+    # before the hosts. Exactly one tab looks current — in the conversation no
+    # host tab is lit, and the controls that describe a host's canvas (the
+    # posture control, the dock and inspector toggles) are not drawn, because
+    # there is no canvas on screen for them to describe. Back on the host, both
+    # return.
+    When I press Escape
+    Then the conductor pane should not be visible
+    When I create a terminal
+    Then the conductor tab should come first in the tab row
+    And exactly one host tab should look current
+    And the host view controls should be shown
+    When I press the conductor shortcut
+    Then the conductor tab should be active
+    And no host tab should look current
+    And the host view controls should not be shown
+    When I press the conductor shortcut
+    Then the conductor pane should not be visible
+    And exactly one host tab should look current
+    And the host view controls should be shown
     And there should be no page errors
 
   Scenario: A prompt round trip draws the agent's answer
@@ -157,6 +180,61 @@ Feature: The Conductor
     And the adopted terminal should be the focused tile
     And there should be no page errors
 
+  Scenario: Look reads the agent's screen from inside the chat
+    # The create card is the conversation's line about an agent, and Look is
+    # how a person checks on it without leaving the chat: a status line off the
+    # fleet roster, and — opened — the last lines of that terminal's screen,
+    # read from its own host. The marker is COMPUTED by the shell, so the
+    # command line's echo (`$((6*7))`) cannot satisfy it: only output read off
+    # the terminal's screen can.
+    #
+    # The other half is the terminal going away: a terminal no longer in the
+    # roster says so, and offers nothing to look at — no toggle, no tail, so
+    # nothing is read for it.
+    When I create a terminal
+    And I run "echo kolu-look-$((6*7))"
+    And I ask the conductor to adopt the terminal I am in
+    Then the conductor transcript should show a "create" tool card
+    And that tool card should say how its terminal is doing
+    When I look at that tool card's terminal
+    Then the look should show "kolu-look-42"
+    When I press Escape
+    And I close the active terminal via command palette
+    And I enter conductor mode
+    Then that tool card should say its terminal is gone
+    And there should be no page errors
+
+  Scenario: The calls a turn makes before the Conductor speaks fold into Details
+    # A quiet chat: the settled calls of a run are ONE closed disclosure that
+    # says how many calls it holds — including a turn that opens with its
+    # calls, right after the human's message, which is how most turns start.
+    # A failed call is news and is never folded away.
+    When I create a terminal
+    And I enter conductor mode
+    And I send the conductor the prompt "work quietly"
+    Then the conductor transcript should show a row of kind "agent" saying "Found what I needed."
+    And the conductor transcript should fold 2 tool calls into one closed Details
+    And the failed tool call should stay in the flow
+    When I open the Details fold
+    Then the Details fold should show its 2 tool calls
+    And there should be no page errors
+
+  Scenario: The calls fold while the Conductor is still working
+    # A turn can work for minutes before it says a word; what a person sees
+    # meanwhile is one "Details" and the call in flight, not a wall of
+    # finished cards. The fold they open while it works is the same fold —
+    # still open — once the last call settles into it and the prose arrives.
+    When I create a terminal
+    And I enter conductor mode
+    And I send the conductor the prompt "work in flight"
+    Then the conductor transcript should fold 2 tool calls into one closed Details
+    And the running tool call should stay in the flow
+    When I open the Details fold
+    Then the conductor state chip should read "working"
+    And the conductor transcript should show a row of kind "agent" saying "Found what I needed."
+    And the Details fold should still be open, holding 3 tool calls
+    And there should be no page errors
+
   Scenario: An unrecognised tool gets the generic card, never a kolu one
     # The direction this is safe to fail in. A tool the harness cannot
     # positively name as one of the servers WE handed over must not acquire a
@@ -211,9 +289,9 @@ Feature: The Conductor
     # `packages/client/src/host/hostOverflow.test.ts`, against the same pure
     # function the strip calls with real measured widths. What IS proved here
     # is the arithmetic's INPUT: the strip's measured width is the row's true
-    # leftover after the identity rail, the `◆ Conductor alpha` pill and the
-    # control cluster have taken theirs, which is the premise that fold rests
-    # on and the one a second entry in the row could silently break.
+    # leftover after the identity rail, the `◆ Conductor alpha` tab ahead of
+    # it and the control cluster have taken theirs, which is the premise that
+    # fold rests on and the one a new member of the row could silently break.
     When I resize the viewport to 1024x768
     Then that tool card should keep the payload inside it
     And the page should be no wider than the window

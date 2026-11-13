@@ -7,9 +7,9 @@
  *  Nothing here stubs a store, so a step that passes is evidence about the
  *  wire and not about a value somebody put in a signal.
  *
- *  The conversation is reached from its own entry in the chrome tab row — the
- *  `◆ Conductor` pill — never from the view-mode control, which carries
- *  `▦ canvas · ▢ maximized` for host tabs and nothing else.
+ *  The conversation is reached from its own tab — the `◆ Conductor` tab, first
+ *  in the chrome bar's tab row — never from the view-mode control, which
+ *  carries `▦ canvas · ▢ maximized` for host tabs and nothing else.
  */
 
 import assert from "node:assert";
@@ -18,9 +18,13 @@ import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 const PANE = '[data-testid="conductor-pane"]';
-/** The conversation's OWN entry in the tab row — not a host tab, and not a
- *  segment of the mode control (which no longer has one). */
+/** The conversation's OWN tab, first in the tab row — not a host tab, and not
+ *  a segment of the mode control (which no longer has one). */
 const TAB = '[data-testid="conductor-tab"]';
+/** The phone's pull handle — the way into its chrome sheet, the phone's tab
+ *  row. */
+const MOBILE_HANDLE = '[data-testid="mobile-pull-handle"]';
+const MOBILE_SHEET = '[data-testid="mobile-chrome-sheet"]';
 const BADGE = `${TAB} [data-testid="conductor-badge"]`;
 const CHIP = '[data-testid="conductor-phase"]';
 const TRANSCRIPT = '[data-testid="conductor-transcript"]';
@@ -101,14 +105,19 @@ async function waitForAtLeastOne(
 
 /** IDEMPOTENT, because the selected tab is persisted per device: a reload comes
  *  back in the conversation, and a step that pressed the entry unconditionally
- *  would LEAVE it exactly in the scenario that reloads. */
+ *  would LEAVE it exactly in the scenario that reloads.
+ *
+ *  On a PHONE the tab lives in the pull-down chrome sheet, so the handle is
+ *  pulled first — the same two taps a person makes. */
 async function enterConductor(world: KoluWorld): Promise<void> {
+  const pane = world.page.locator(PANE);
+  if (await pane.isVisible()) return;
+  const handle = world.page.locator(MOBILE_HANDLE);
+  if (await handle.isVisible()) await handle.click();
   const tab = world.page.locator(TAB);
   await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   if ((await tab.getAttribute("data-active")) === null) await tab.click();
-  await world.page
-    .locator(PANE)
-    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await pane.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 }
 
 async function sendPrompt(world: KoluWorld, text: string): Promise<void> {
@@ -205,6 +214,23 @@ When(
     );
     this.adoptedTerminalId = ids[0];
     await sendPrompt(this, `adopt ${ids[0]}`);
+  },
+);
+
+When(
+  "I ask the conductor to adopt the terminal I am in",
+  async function (this: KoluWorld) {
+    // THE FOCUSED tile, read before the conversation covers the canvas — not
+    // the first id in the DOM, which is whichever terminal happens to be drawn
+    // first. A Look at the wrong terminal shows a real screen that is simply
+    // not the one the scenario typed into.
+    const id = await this.page
+      .locator(`${CANVAS_TILE}[data-active]`)
+      .getAttribute("data-terminal-id", { timeout: POLL_TIMEOUT });
+    assert.ok(id, "no tile is focused, so there is nothing to adopt");
+    this.adoptedTerminalId = id;
+    await enterConductor(this);
+    await sendPrompt(this, `adopt ${id}`);
   },
 );
 
@@ -348,6 +374,111 @@ Then("no host tab should be the conductor", async function (this: KoluWorld) {
     }
   }
 });
+
+/** How many host tabs are drawn as the CURRENT one — the lit class and the
+ *  `aria-selected` a tab list reads out — across both layouts the strip can
+ *  mount (the chip row, and the narrow range's one-tab switcher). The two must
+ *  agree, so both are counted and the step fails if they do not. The strip's
+ *  hidden measuring twins are `visibility: hidden`, which the visibility check
+ *  is told to honour. */
+async function currentHostTabs(world: KoluWorld): Promise<number> {
+  // One query per fact, each its own browser-side evaluation: a NAMED helper
+  // inside the callback is rewritten by the step loader into a `__name` call
+  // the page has never heard of.
+  const shown = (selector: string) =>
+    world.page
+      .locator(`[data-testid="host-selector-strip"] ${selector}`)
+      .evaluateAll(
+        (all) =>
+          all.filter((el) => el.checkVisibility({ visibilityProperty: true }))
+            .length,
+      );
+  const counts = {
+    lit: await shown(".host-tab-active"),
+    selected: await shown('[role="tab"][aria-selected="true"]'),
+  };
+  assert.ok(
+    counts.lit === counts.selected,
+    `host tabs disagree about which is current: ${JSON.stringify(counts)}`,
+  );
+  return counts.lit;
+}
+
+Then("no host tab should look current", async function (this: KoluWorld) {
+  await waitForValue(
+    "host tabs drawn as current",
+    async () => String(await currentHostTabs(this)),
+    "0",
+  );
+});
+
+Then(
+  "exactly one host tab should look current",
+  async function (this: KoluWorld) {
+    await waitForValue(
+      "host tabs drawn as current",
+      async () => String(await currentHostTabs(this)),
+      "1",
+    );
+  },
+);
+
+Then(
+  "the conductor tab should come first in the tab row",
+  async function (this: KoluWorld) {
+    // By where it is DRAWN, not by markup order: the claim a person checks is
+    // that the tab sits before the hosts, on the same floor as them.
+    const tab = await this.page.locator(TAB).boundingBox();
+    const first = await this.page.locator(HOST_TAB).first().boundingBox();
+    assert.ok(tab !== null && first !== null, "a tab is not on screen");
+    assert.ok(
+      tab.x + tab.width <= first.x,
+      `the conductor tab ends at x=${tab.x + tab.width}, after the first host tab starts at x=${first.x}`,
+    );
+    assert.ok(
+      Math.abs(tab.y + tab.height - (first.y + first.height)) <= 1,
+      `the conductor tab's floor (y=${tab.y + tab.height}) is not the host tabs' (y=${first.y + first.height})`,
+    );
+  },
+);
+
+/** The chrome-bar controls that describe a HOST's canvas. */
+const HOST_VIEW_CONTROLS = ["mode-control", "dock-toggle", "inspector-toggle"];
+
+async function shownHostViewControls(world: KoluWorld): Promise<string[]> {
+  const shown: string[] = [];
+  for (const id of HOST_VIEW_CONTROLS) {
+    if (
+      await world.page
+        .locator(`${CHROME_BAR} [data-testid="${id}"]`)
+        .isVisible()
+    )
+      shown.push(id);
+  }
+  return shown;
+}
+
+Then(
+  "the host view controls should be shown",
+  async function (this: KoluWorld) {
+    await waitForValue(
+      "host view controls shown",
+      async () => (await shownHostViewControls(this)).join(","),
+      HOST_VIEW_CONTROLS.join(","),
+    );
+  },
+);
+
+Then(
+  "the host view controls should not be shown",
+  async function (this: KoluWorld) {
+    await waitForValue(
+      "host view controls shown",
+      async () => (await shownHostViewControls(this)).join(","),
+      "",
+    );
+  },
+);
 
 Then(
   "the conductor tab should show a badge of {int}",
@@ -653,6 +784,10 @@ When(
   "I open that tool card's folded payload",
   async function (this: KoluWorld) {
     const card = this.page.locator(TOOL_CARD).last();
+    // A settled call sits in its turn's Details: open that first, the way a
+    // reader does, so the card is measured where they meet it — in the fold.
+    const fold = this.page.locator(FOLD).filter({ has: card });
+    if ((await fold.count()) > 0) await fold.locator("> summary").click();
     await card.locator("summary").last().click();
     await this.page
       .locator(TOOL_DETAIL)
@@ -762,13 +897,13 @@ Then(
 
 /** THE CHROME BAR'S OWN ARITHMETIC, measured. The row is a flex line whose
  *  only shrinkable member is the host strip; everything else — the identity
- *  rail, the `◆ Conductor alpha` pill, the control cluster — is `shrink-0`. So
- *  two facts matter and this step pins both: the row FITS the window, and the
- *  strip's own measured width (the budget `computeVisibleHosts` folds tabs
- *  against) is exactly what is LEFT once the others have taken theirs. The
- *  second is the premise the fold rests on — a conductor entry that stopped
+ *  rail, the `◆ Conductor alpha` tab ahead of the strip, the control cluster —
+ *  is `shrink-0`. So two facts matter and this step pins both: the row FITS the
+ *  window, and the strip's own measured width (the budget `computeVisibleHosts`
+ *  folds tabs against) is exactly what is LEFT once the others have taken
+ *  theirs. The second is the premise the fold rests on — a member that stopped
  *  being counted would make the strip claim room it does not have and the
- *  tabs would collide with the pill instead of folding. */
+ *  tabs would run into it instead of folding. */
 Then("the chrome bar should fit the window", async function (this: KoluWorld) {
   const bar = await this.page.locator(CHROME_BAR).evaluate((el) => {
     const style = getComputedStyle(el);
@@ -908,3 +1043,258 @@ Then(
 When("I take the way back to the bottom", async function (this: KoluWorld) {
   await this.page.locator(TO_BOTTOM).click();
 });
+
+// ── Look: the agent line on a create card ──
+
+/** The newest create card's agent line — the status, the toggle and the tail
+ *  all live under it. */
+const LOOK = `${TOOL_CARD}[data-tool-kind="create"] [data-testid="conductor-look"]`;
+
+Then(
+  "that tool card should say how its terminal is doing",
+  async function (this: KoluWorld) {
+    // `here` is the roster's own word: the terminal was found in the host's
+    // mirrored list, with its record — which is what the status line reads.
+    await waitForValue(
+      "the agent line's standing",
+      async () =>
+        (await this.page.locator(LOOK).last().getAttribute("data-standing")) ??
+        "absent",
+      "here",
+    );
+    const status =
+      (await this.page
+        .locator(LOOK)
+        .last()
+        .locator('[data-testid="conductor-look-status"]')
+        .textContent()) ?? "";
+    assert.ok(
+      status.trim() !== "",
+      "the agent line says nothing about its terminal",
+    );
+  },
+);
+
+When("I look at that tool card's terminal", async function (this: KoluWorld) {
+  await this.page
+    .locator(LOOK)
+    .last()
+    .locator('[data-testid="conductor-look-toggle"]')
+    .click();
+});
+
+Then(
+  "the look should show {string}",
+  async function (this: KoluWorld, text: string) {
+    // What the tail ACTUALLY says on timeout — "reading the screen…", a
+    // failed read's sentence, or lines without the marker are three different
+    // bugs, and a bare "nothing matched" names none of them.
+    await pollFor({
+      observe: async () =>
+        (
+          (await this.page
+            .locator(`${LOOK} [data-testid="conductor-look-tail"]`)
+            .last()
+            .textContent({ timeout: 1_000 })
+            .catch(() => null)) ?? "(no tail)"
+        )
+          .replace(/\s+/g, " ")
+          .trim(),
+      isDone: (seen) => seen.includes(text),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `the look never showed ${JSON.stringify(text)}; after ${elapsedMs}ms it said ${JSON.stringify(last)}`,
+        ),
+    });
+  },
+);
+
+Then(
+  "that tool card should say its terminal is gone",
+  async function (this: KoluWorld) {
+    await waitForValue(
+      "the agent line's status",
+      async () =>
+        (
+          await this.page
+            .locator(LOOK)
+            .last()
+            .locator('[data-testid="conductor-look-status"]')
+            .textContent()
+        )?.trim() ?? "absent",
+      "terminal gone",
+    );
+    // Nothing to look at: the toggle, and with it every read, is gone too.
+    await waitForCount(
+      this,
+      `${LOOK} [data-testid="conductor-look-toggle"]`,
+      0,
+    );
+    await waitForCount(this, `${LOOK} [data-testid="conductor-look-tail"]`, 0);
+  },
+);
+
+// ── The Details fold ──
+
+const FOLD = `${TRANSCRIPT} [data-testid="conductor-fold"]`;
+
+/** How many of the matches are actually on screen — a closed `<details>`
+ *  keeps its rows in the DOM, so a count alone cannot tell folded from shown. */
+async function visibleCount(
+  world: KoluWorld,
+  selector: string,
+): Promise<number> {
+  return world.page
+    .locator(selector)
+    .evaluateAll((all) => all.filter((el) => el.checkVisibility()).length);
+}
+
+Then(
+  "the conductor transcript should fold {int} tool calls into one closed Details",
+  async function (this: KoluWorld, count: number) {
+    // Waited for, not read once: the fold grows as calls settle, so it can be
+    // on screen at a smaller count first.
+    await waitForCount(this, FOLD, 1);
+    const fold = this.page.locator(FOLD);
+    await waitForValue(
+      "the Details fold's count",
+      async () => (await fold.getAttribute("data-count")) ?? "absent",
+      String(count),
+    );
+    assert.strictEqual(
+      await fold.evaluate((el) => (el as HTMLDetailsElement).open),
+      false,
+      "the Details fold should start closed",
+    );
+    assert.strictEqual(await visibleCount(this, `${FOLD} ${TOOL_CARD}`), 0);
+  },
+);
+
+/** The card status each phrase names — a failure is news, a running call keeps
+ *  its clock in view; neither is ever folded away. */
+const IN_FLOW_STATUS: Record<string, string> = {
+  failed: "failed",
+  running: "in_progress",
+};
+
+Then(
+  "the {word} tool call should stay in the flow",
+  async function (this: KoluWorld, which: string) {
+    const status = IN_FLOW_STATUS[which];
+    assert.ok(status !== undefined, `no tool-call status is named "${which}"`);
+    // A DIRECT row of the transcript, not one inside the fold: a reader must
+    // not have to open anything to see it.
+    await waitForValue(
+      `${which} tool cards outside the fold`,
+      async () =>
+        String(
+          await visibleCount(
+            this,
+            `${TRANSCRIPT} > ${ROW} ${TOOL_CARD}[data-status="${status}"]`,
+          ),
+        ),
+      "1",
+    );
+  },
+);
+
+When("I open the Details fold", async function (this: KoluWorld) {
+  await this.page.locator(`${FOLD} > summary`).click();
+});
+
+Then(
+  "the Details fold should show its {int} tool calls",
+  async function (this: KoluWorld, count: number) {
+    await waitForValue(
+      "tool cards shown inside the open fold",
+      async () => String(await visibleCount(this, `${FOLD} ${TOOL_CARD}`)),
+      String(count),
+    );
+  },
+);
+
+Then(
+  "the Details fold should still be open, holding {int} tool calls",
+  async function (this: KoluWorld, count: number) {
+    // The same `<details>` element, not a fresh one: a fold re-created when a
+    // call joined it or prose closed it would be back to closed.
+    const fold = this.page.locator(FOLD);
+    await waitForValue(
+      "the Details fold's count",
+      async () => (await fold.getAttribute("data-count")) ?? "absent",
+      String(count),
+    );
+    assert.strictEqual(
+      await fold.evaluate((el) => (el as HTMLDetailsElement).open),
+      true,
+      "the Details fold a person opened should still be open",
+    );
+  },
+);
+
+// ── The Conductor on a phone ──
+
+Then(
+  "the mobile chrome sheet should put the conductor first, lit, and no host lit",
+  async function (this: KoluWorld) {
+    // The sheet IS the phone's tab row, so it keeps the row's rules: the
+    // conversation first, and exactly one place lit — the one you are in.
+    const tab = this.page.locator(`${MOBILE_SHEET} ${TAB}`);
+    await waitForValue(
+      "the sheet's conductor entry lit",
+      async () => (await tab.getAttribute("data-active")) ?? "absent",
+      "",
+    );
+    const hosts = this.page.locator(
+      `${MOBILE_SHEET} [data-testid="mobile-host-chip"]`,
+    );
+    const entry = await tab.boundingBox();
+    const firstHost = await hosts.first().boundingBox();
+    assert.ok(entry !== null && firstHost !== null, "the sheet is not drawn");
+    assert.ok(
+      entry.y + entry.height <= firstHost.y,
+      `the conductor entry (y=${entry.y}) is not above the host chips (y=${firstHost.y})`,
+    );
+    assert.equal(
+      await this.page
+        .locator(
+          `${MOBILE_SHEET} [data-testid="mobile-host-chip"][data-active]`,
+        )
+        .count(),
+      0,
+      "a host chip is lit while the conversation is the current place",
+    );
+  },
+);
+
+Then(
+  "nothing on screen should reach past the window's right edge",
+  async function (this: KoluWorld) {
+    // Stricter than "the page is no wider than the window": a span clipped by
+    // an `overflow: hidden` ancestor keeps the document narrow while its own
+    // box runs off the screen — exactly how a phone's agent line used to cut
+    // its title. Every element with a box is measured.
+    const offenders = await this.page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>("body *")]
+        .filter((el) => {
+          const box = el.getBoundingClientRect();
+          return (
+            box.width > 0 &&
+            box.height > 0 &&
+            box.right > window.innerWidth + 0.5
+          );
+        })
+        .slice(0, 5)
+        .map(
+          (el) =>
+            `${el.tagName.toLowerCase()}${el.dataset.testid ? `[data-testid="${el.dataset.testid}"]` : ""} right=${Math.round(el.getBoundingClientRect().right)} "${(el.textContent ?? "").trim().slice(0, 40)}"`,
+        ),
+    );
+    assert.deepEqual(
+      offenders,
+      [],
+      `elements reach past the ${await this.page.evaluate(() => window.innerWidth)}px window:\n${offenders.join("\n")}`,
+    );
+  },
+);
