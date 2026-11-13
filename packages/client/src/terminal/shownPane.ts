@@ -24,10 +24,14 @@
  * open for a hidden pane still costs the host a serialize and the wire every
  * byte the terminal prints. Hiding is cheap to undo: the reveal re-attaches,
  * and the attach's own `resizeTo` restates the grid the pane measured while it
- * was hidden, which is why nothing has to be published in the meantime. The
- * fresh snapshot that attach returns is also the repair for whatever the pane
- * missed — so the reveal resets the screen first and paints once, rather than
- * replaying bytes onto a stale one.
+ * was hidden, which is why nothing has to be published in the meantime — and
+ * why a publish the pane ARMED just before it was hidden is cancelled here
+ * rather than allowed to fire a quarter second later (`publishGrid.ts` owns
+ * the window; this owns when it is no longer owed). The fresh snapshot that
+ * attach returns is also the repair for whatever the pane missed — and it
+ * arrives carrying its own reset (`revealRepaint.ts`), so the old screen stays
+ * up until the new one paints instead of the pane going blank for the whole
+ * round-trip.
  *
  * What a hidden pane is NOT is unobserved: the activity dot is mirrored off
  * padi's `activity` set, which rides the awareness feed rather than this
@@ -49,15 +53,21 @@ export interface ShownPaneDeps {
    *  80×24) and VISIBLE (a user could be reading it)? Both are live signals;
    *  this reads them, it does not remember them. */
   readonly shown: () => boolean;
-  /** Open the attach stream at the pane's current grid, after resetting the
-   *  screen so the fresh snapshot replaces stale bytes rather than painting
-   *  over them. */
+  /** Open the attach stream at the pane's current grid. The screen is NOT
+   *  cleared first: the fresh snapshot carries the reset that replaces the
+   *  stale bytes, so the two land as one write. */
   readonly attach: () => void;
   /** End the live attach: supersede the attempt, interrupt its fiber, cancel
    *  whatever reopen it had pending. Nothing may paint afterwards. */
   readonly detach: () => void;
   /** State a measured grid to the PTY (`publishGrid.ts` owns when it lands). */
   readonly publish: (grid: TerminalGrid) => void;
+  /** Drop a publish that has not landed yet. A hidden pane states no grid, and
+   *  a settle window armed moments before the hide would otherwise make that
+   *  untrue for a quarter second — resizing a shared PTY for a pane nobody is
+   *  looking at, which is the whole bug this gate exists for. Nothing is lost:
+   *  the reveal's attach restates the grid in its `resizeTo`. */
+  readonly cancelPublish: () => void;
 }
 
 export interface ShownPane {
@@ -79,7 +89,10 @@ export function createShownPane(deps: ShownPaneDeps): ShownPane {
       if (shown === attached) return;
       attached = shown;
       if (shown) deps.attach();
-      else deps.detach();
+      else {
+        deps.cancelPublish();
+        deps.detach();
+      }
     },
     measured(grid: TerminalGrid) {
       if (!deps.shown()) return;

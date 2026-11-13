@@ -276,12 +276,31 @@ describe("createGridPublisher", () => {
     ]);
   });
 
-  it("publishes nothing after dispose — a tile torn down mid-drag", async () => {
+  it("publishes nothing after cancel — a tile torn down, or hidden, mid-drag", async () => {
+    // Both callers say the same thing: this measurement is no longer owed to
+    // the PTY. A tile that is gone must not resize one a quarter second later,
+    // and a pane the user just hid must not resize one for a screen nobody is
+    // looking at (`shownPane.ts` — the reveal's attach restates the grid).
     const h = harness();
     h.publisher.publish({ cols: 132, rows: 43 });
-    h.publisher.dispose();
+    h.publisher.cancel();
     await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS * 4);
     expect(h.resize).not.toHaveBeenCalled();
+  });
+
+  it("a cancel drops the pending publish, not the publisher", async () => {
+    // Hiding is not a teardown: the same pane is revealed again, re-fits and
+    // must publish normally. A cancel that left the publisher dead would turn
+    // one tile switch into a pane whose size the PTY never hears again.
+    const h = harness();
+    h.publisher.publish({ cols: 132, rows: 43 });
+    h.publisher.cancel();
+    await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS * 4);
+
+    h.publisher.publish({ cols: 100, rows: 30 });
+    await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS);
+    expect(h.resize.mock.calls).toEqual([[{ cols: 100, rows: 30 }]]);
+    expect(h.ptyGrid()).toBe("100×30");
   });
 
   // ── The suppressed publish is never re-fired (kolu#2101 K4) ─────────────

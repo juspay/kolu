@@ -94,6 +94,7 @@ import {
   REATTACH_BACKOFF_MS,
   StaleSnapshotGrid,
 } from "./reattachingStream";
+import { createRevealRepaint } from "./revealRepaint";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
 import { createShownPane } from "./shownPane";
@@ -362,7 +363,7 @@ const Terminal: Component<{
       staleGridReopenTimer = null;
       // A pane torn down mid-drag must not resize its PTY a quarter second
       // later, when the settle window it armed closes over a tile that is gone.
-      gridPublisher.dispose();
+      gridPublisher.cancel();
       unregisterTerminalRefs(props.terminalId);
       disposeDiagnostics?.();
       disposeDiagnostics = null;
@@ -561,21 +562,36 @@ const Terminal: Component<{
     // `attention/useAttentionFacts`), so the client no longer needs a snapshot-vs-delta
     // boundary here: the backfill controller keys off the frame's own
     // `kind === "snapshot"` discriminator below.
-    // Reset xterm + the scroll lock so the NEXT stream's first frame (a fresh
-    // snapshot) replaces stale bytes without double-painting. Shared by the inner
-    // `onRetry` (a transparent STREAM_RETRY re-subscribe on a transport blip) and
+    // Make the pane ready for the NEXT stream's first frame (a fresh snapshot),
+    // so it replaces stale bytes without double-painting. Used by the inner
+    // `onRetry` (a transparent STREAM_RETRY re-subscribe on a transport blip),
     // the outer re-attach (a mid-chain padi death STREAM_RETRY won't retry —
-    // done-criterion (c)).
-    const resetForFreshSnapshot = () => {
+    // done-criterion (c)), and the reveal.
+    //
+    // TWO halves, because the reveal may use only one of them. CLEARING is the
+    // half nobody can see: the write pipeline, the scroll lock and the backfill
+    // cursor, all of which describe bytes that are about to be superseded.
+    const clearForFreshSnapshot = () => {
       // Drop write-pipeline pending (coalesce + scroll-lock) WITHOUT writing —
-      // a flush would re-paint pre-reset chunks onto the cleared screen.
+      // a flush would re-paint pre-reset chunks onto the snapshot that replaces
+      // them. First, because `terminal.reset()` clears the screen buffer only:
+      // a chunk already queued in xterm parses after it (`internals.ts`).
       h.clearPendingOutput();
-      handle()?.terminal?.reset();
       h.scrollLock.reset("drop");
       // Forget the backfill cursor: the next frame is a fresh snapshot that
       // re-seeds it (below). Fetching against the old cursor would splice onto
-      // the terminal we just reset.
+      // a buffer the snapshot has since replaced.
       backfill?.reset();
+    };
+    // …and BLANKING, which is visible, and therefore only for the ends that
+    // have NO snapshot in hand: a transport re-subscribe (`onRetry`) and a
+    // stale-grid reopen, both of which are getting rid of bytes the pane must
+    // stop looking at, with the replacement a round trip away. A reveal is not
+    // one of those — it blanks nothing, and its snapshot carries its own reset
+    // instead (`revealRepaint.ts`).
+    const resetForFreshSnapshot = () => {
+      clearForFreshSnapshot();
+      handle()?.terminal?.reset();
     };
     // The attach stream may open only while this pane is SHOWN — measured AND
     // visible — and it ENDS the moment the pane stops being either.
@@ -601,19 +617,25 @@ const Terminal: Component<{
     // hidden pane's measurement is not lost, is `shownPane.ts`'s; what stays
     // here is the live facts and the two acts.
     const shown = () => h.grid() !== null && props.visible;
+    const revealRepaint = createRevealRepaint();
     const shownPane = createShownPane({
       shown,
       attach: () => {
-        // Every open starts from a clean screen, because every open is answered
-        // with a fresh snapshot: a reveal would otherwise paint it on top of
-        // whatever the pane still held from the attach its last hide ended. The
-        // first open resets a terminal that is already empty, which costs
-        // nothing and buys one rule instead of two.
-        resetForFreshSnapshot();
+        // Every open is answered with a fresh snapshot, so everything the pane
+        // still holds from the attach its last hide ended has to go — but the
+        // SCREEN is not cleared here. It stays up until the snapshot that
+        // replaces it arrives, which is what makes a tile switch instant
+        // instead of a flash of black for the length of a round trip; the reset
+        // rides the snapshot frame instead (`revealRepaint.ts`). The first open
+        // of a pane takes the same road, onto an empty terminal, where the
+        // reset paints nothing — one rule instead of two.
+        clearForFreshSnapshot();
+        revealRepaint.armReveal();
         openAttachStream();
       },
       detach: closeAttachStream,
       publish: gridPublisher.publish,
+      cancelPublish: gridPublisher.cancel,
     });
     createEffect(on(shown, () => shownPane.observe()));
 
@@ -715,6 +737,11 @@ const Terminal: Component<{
        *  the thunk on every open, read by the snapshot frame that answers it — so
        *  an attempt and the grid it is only valid for are one thing, not two. */
       let requestedGrid: TerminalGrid | null = null;
+      /** Does THIS attempt's first snapshot have to repaint from scratch? One
+       *  shot, spent by the frame that uses it — true for the open a reveal
+       *  made, whose screen was deliberately left standing, and false for every
+       *  other open, which blanked the screen itself. See `revealRepaint.ts`. */
+      const takeRepaint = revealRepaint.openAttempt();
 
       /** Live = still the current attempt AND not torn down. `isCurrent()` alone
        *  stays true forever when no successor opens, so an unmounted pane's
@@ -946,19 +973,30 @@ const Terminal: Component<{
           // fetch fires until a real user scroll-up. The committer rides the write
           // callback, which scroll-lock preserves across a buffered flush — so the
           // seed can't be lost while the user is scrolled up.
+          //
+          // Two things can make this frame a REPAINT rather than a paint. padi's
+          // overflow re-attach already sends `TERMINAL_RESET + snapshot` as one
+          // frame; a REVEAL-opened attach owes its first snapshot the same shape,
+          // because the hide deliberately left the old screen standing so that
+          // this frame could replace it in a single write instead of the pane
+          // going blank for the round trip (`revealRepaint.ts`). The one-shot is
+          // spent HERE, past the refusal above — a snapshot that is never painted
+          // leaves the mark standing for the frame that is.
+          const ownReset =
+            isSnapshotFrame(frame) && frame.data.startsWith(TERMINAL_RESET);
+          const addReset = isSnapshotFrame(frame) && takeRepaint() && !ownReset;
           const commitSeed = isSnapshotFrame(frame)
             ? backfill?.consumeSnapshotFrame(
                 frame.topLine,
                 frame.reflowEpoch,
-                // An overflow re-attach snapshot's data LEADS with a RIS
-                // (`TERMINAL_RESET + snapshot`); the initial attach does not. The
-                // controller's esc handler pauses on THIS frame's own leading RIS
-                // too, so the controller must know it's coming: the seam captures
+                // The controller's esc handler pauses on THIS frame's own leading
+                // RIS too, so the controller must know one is coming — whether the
+                // host sent it or the reveal prepended it below: the seam captures
                 // the committer's baseline one generation-bump BEFORE that RIS and
                 // PREDICTS it, so the frame's own reset doesn't read as an
                 // invalidation that revokes this frame's re-seed — otherwise
                 // backfill pauses forever after a re-attach (F11).
-                frame.data.startsWith(TERMINAL_RESET),
+                ownReset || addReset,
               )
             : undefined;
           // A consumed snapshot frame carries its OWN seed seam (with a per-frame
@@ -968,9 +1006,11 @@ const Terminal: Component<{
           // otherwise steal its seed. The controller mints the seam bytes
           // (`commitSeed.seam`); prepended ONLY when a controller actually consumed
           // the frame, so the seam and the controller's pending-seed FIFO stay 1:1.
-          const data = commitSeed
-            ? `${commitSeed.seam}${frame.data}`
-            : frame.data;
+          // The seam stays AHEAD of the reveal's RIS for exactly the reason the
+          // prediction above works: it must parse one bump before the reset it
+          // predicts, never after it.
+          const body = addReset ? `${TERMINAL_RESET}${frame.data}` : frame.data;
+          const data = commitSeed ? `${commitSeed.seam}${body}` : body;
           if (handle()) {
             // The live-activity dot is no longer lit from this attach sink — it
             // mirrors padi's `activity` set (kaval's resize-excluded edge) off the
@@ -1078,9 +1118,13 @@ const Terminal: Component<{
      *  {@link REATTACH_BACKOFF_MS} timer would resurrect the loop a third of a
      *  second after the pane went dark.
      *
-     *  The screen is left alone: hiding a pane must not blank it, and the reveal
-     *  resets it immediately before re-attaching, so the stale bytes live only
-     *  where nobody is looking at them. */
+     *  The screen is left alone: hiding a pane must not blank it, and revealing
+     *  it must not either — the stale bytes stay where nobody is looking at
+     *  them until the reveal's own snapshot arrives and replaces them in one
+     *  write (`revealRepaint.ts`).
+     *
+     *  The pane's PENDING PUBLISH goes, though, and it goes through the gate
+     *  (`shownPane.ts`), which owns what hiding costs. */
     function closeAttachStream() {
       supersedeAttempt?.();
       supersedeAttempt = null;

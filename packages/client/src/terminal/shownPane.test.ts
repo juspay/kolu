@@ -22,6 +22,8 @@ function harness(init?: { grid?: TerminalGrid | null; visible?: boolean }) {
   const attachedAt: (TerminalGrid | null)[] = [];
   const published: TerminalGrid[] = [];
   let detaches = 0;
+  /** Pending publishes dropped — what hiding costs a half-stated grid. */
+  let cancels = 0;
   const pane = createShownPane({
     shown: () => grid !== null && visible,
     attach: () => attachedAt.push(grid),
@@ -29,6 +31,9 @@ function harness(init?: { grid?: TerminalGrid | null; visible?: boolean }) {
       detaches += 1;
     },
     publish: (g) => published.push(g),
+    cancelPublish: () => {
+      cancels += 1;
+    },
   });
   return {
     /** The pane measured its box (a first fit, a re-fit, a disposal). */
@@ -46,6 +51,7 @@ function harness(init?: { grid?: TerminalGrid | null; visible?: boolean }) {
     attachedAt,
     published,
     detaches: () => detaches,
+    cancels: () => cancels,
   };
 }
 
@@ -101,6 +107,24 @@ describe("the shown-pane gate", () => {
     h.show(false);
     h.measure({ cols: 120, rows: 40 });
     expect(h.published).toHaveLength(2);
+  });
+
+  it("hiding CANCELS a publish that has not landed yet", () => {
+    // `measured` reads `shown()` the moment the grid moves, but the publish it
+    // states waits out a settle window (`publishGrid.ts`, 250ms) — so a pane
+    // hidden inside that window would resize a shared PTY a quarter second
+    // after it stopped being readable, which is the exact cost this gate
+    // exists to refuse. Nothing is lost: the reveal's attach carries the grid
+    // in its own `resizeTo`.
+    const h = harness({ visible: true });
+    h.measure({ cols: 132, rows: 43 });
+    expect(h.published).toEqual([{ cols: 132, rows: 43 }]);
+    expect(h.cancels()).toBe(0);
+    h.show(false);
+    expect(h.cancels()).toBe(1);
+    // …and the reveal cancels nothing — it STATES a grid, through the attach.
+    h.show(true);
+    expect(h.cancels()).toBe(1);
   });
 
   it("acts on CHANGES only, however often it is asked", () => {

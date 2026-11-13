@@ -176,16 +176,20 @@ export interface GridPublisher {
   publish: (size: TerminalGrid) => void;
   /** Restate the latched grid, if any. Safe to run on every host-state tick. */
   republishSuppressed: () => void;
-  /** Cancel a pending settle — the pane's teardown. A tile torn down mid-drag
-   *  must not resize a PTY a quarter second after it is gone. */
-  dispose: () => void;
+  /** Drop a publish that has not landed yet — the pane's teardown, and the
+   *  pane being HIDDEN (`shownPane.ts`). Both say the same thing: this
+   *  measurement is no longer owed to the PTY. A tile torn down mid-drag must
+   *  not resize a PTY a quarter second after it is gone, and a pane hidden
+   *  mid-drag must not resize one for a screen nobody is looking at — the
+   *  reveal's attach restates the grid in its `resizeTo`. */
+  cancel: () => void;
 }
 
 /** {@link PublishGridDeps} plus the edge a DEFERRED publish runs at.
  *
  *  The settle fires on a timer, off the pane's call stack, so there is no Solid
  *  owner left to run under — `runOwnedAction` would throw, and the pane's own
- *  teardown route to a pending publish is {@link GridPublisher.dispose}, not an
+ *  teardown route to a pending publish is {@link GridPublisher.cancel}, not an
  *  owned fiber. Injected rather than imported so the policy stays drivable with
  *  no reactive owner at all. */
 export interface GridPublisherDeps extends PublishGridDeps {
@@ -241,5 +245,5 @@ export function createGridPublisher(deps: GridPublisherDeps): GridPublisher {
     fire(owed);
   };
 
-  return { publish, republishSuppressed, dispose: cancel };
+  return { publish, republishSuppressed, cancel };
 }
