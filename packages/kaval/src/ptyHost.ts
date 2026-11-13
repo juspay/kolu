@@ -680,8 +680,8 @@ interface Entry {
   anchor: MirrorAnchor;
   cwd: string;
   title: string;
-  /** Wall-clock of the last chunk this PTY wrote — the fact the resize window
-   *  reads to decide whether a burst is still in flight. */
+  /** Wall-clock of the last chunk this PTY wrote — the inventory row's idle
+   *  proxy. */
   lastActivity: number;
   /** Length (UTF-16 code units) of the most recent BOUNDED snapshot serialized
    *  for this PTY — the derived half of the data fan-out's byte budget (see
@@ -814,9 +814,8 @@ const ACTIVITY_EDGE_THROTTLE_MS = 200;
  *  are unit-testable without a real PTY or a wall clock.
  *
  *  `inResizeWindow` is the WINDOW ITSELF, not a second deadline computed beside
- *  it: the window already decides when a repaint stops being a repaint, and it
- *  extends while a burst is still arriving, so a separate mute timestamp would
- *  go stale exactly in the case the extension exists for. */
+ *  it: the window already decides when a repaint stops being a repaint, and one
+ *  answer cannot disagree with itself. */
 export function shouldEmitActivityEdge(
   now: number,
   inResizeWindow: boolean,
@@ -1328,9 +1327,7 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     entry.disposables.push(
       proc.onData((data: string) => {
         const now = Date.now();
-        // Stamped on ARRIVAL, before the parse: the resize window asks of it
-        // "is a burst still in flight right now?", which is a question about
-        // the program's writing — the raw stream answers it first.
+        // Stamped on arrival, before the parse.
         entry.lastActivity = now;
         // Meaningful-output edge — the resize-aware activity signal every consumer
         // reads. Repaint excluded + throttled (see `shouldEmitActivityEdge`); the

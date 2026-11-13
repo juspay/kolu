@@ -4,10 +4,8 @@
  *
  * The resize exclusion reads the resize WINDOW (a boolean — is one open) rather
  * than a mute deadline of its own: the window is kaval's single answer to "is
- * this output the resize's repaint?", and it moves (it extends while a burst is
- * still arriving), so a second timestamp computed beside it could only go stale
- * in exactly the case the extension exists for. See `ptyHost.ts`'s
- * `RESIZE_WINDOW_MS`.
+ * this output the resize's repaint?", and one answer cannot disagree with
+ * itself. See `ptyHost.ts`'s `RESIZE_WINDOW_MS`.
  */
 
 import { describe, expect, it } from "vitest";

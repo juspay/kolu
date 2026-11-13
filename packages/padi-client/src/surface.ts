@@ -1134,6 +1134,15 @@ export const EndpointGridSchema = Schema.Struct({
   rows: PositiveInt,
 });
 
+/** The whole vocabulary of an attach's `cause`, as a list so the one hop that
+ *  reads it (kolu-server's attach telemetry) can walk the causes rather than
+ *  test for one literal and silently fold every later addition into `attach`.
+ *  The wire schema below is minted from it, so the two cannot drift. */
+export const ATTACH_CAUSES = ["attach", "foreign"] as const;
+
+/** Why an attach opened, as the client names it. */
+export type AttachCause = (typeof ATTACH_CAUSES)[number];
+
 /** Attach input: the terminal, plus — optionally — a grid to RESIZE it to
  *  first.
  *
@@ -1241,7 +1250,7 @@ export const PadiTerminalAttachInputSchema = Schema.Struct({
   // `optionalKey`, never `optional`, for the grid's own reason: an attach that
   // names no cause omits the key, and no peer ever sends an explicit
   // `undefined` here.
-  cause: Schema.optionalKey(Schema.Literals(["attach", "foreign"])),
+  cause: Schema.optionalKey(Schema.Literals(ATTACH_CAUSES)),
 });
 
 /** One frame of the per-subscriber terminal byte stream.

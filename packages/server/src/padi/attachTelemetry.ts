@@ -48,17 +48,13 @@
  * question this file exists for: how many bytes did viewing cost. It cannot
  * simply be promoted: a host switch tears down every tile, so one `info` line
  * per attachment would print twenty of them per switch. So the ENDS fold the
- * way the opens do — attachments ending within {@link ATTACH_BURST_QUIET_MS}
- * of each other are one group, reported as ONE `info` line, `terminal attach:
- * ends`, once the group goes quiet or at {@link ATTACH_BURST_CAP_MS}, so a
- * teardown that never settles is still reported. That line carries the totals
- * an operator asks for — how many attachments ended, over how many terminals,
- * the characters they opened with and forwarded, the skip-aheads they took,
- * the resizes behind them and how long they lived — and the per-attachment
- * line stays at `debug` for the breakdown, exactly as the per-attach
- * first-frame line sits under the burst line. One grouping idea, two
- * groupings: the ends reuse the burst's own quiet/cap constants and its
- * arm/close shape rather than inventing a second timer discipline.
+ * way the opens do, through the same grouping ({@link Group}): one `info`
+ * line, `terminal attach: ends`, carrying the totals an operator asks for —
+ * how many attachments ended, over how many terminals, the characters they
+ * opened with and forwarded, the skip-aheads they took, the resizes behind
+ * them and how long they lived — while the per-attachment line stays at
+ * `debug` for the breakdown, exactly as the per-attach first-frame line sits
+ * under the burst line.
  *
  * DID VIEWING RESIZE ANYTHING. A `terminalAttach` subscribe MAY carry a
  * `resizeTo`, and that resizes the PTY: looking at a terminal can reshape it,
@@ -88,7 +84,11 @@
  */
 
 import type { Logger } from "@kolu/log";
-import { type PadiSurfaceSpec, padiSurface } from "@kolu/padi-client/surface";
+import {
+  ATTACH_CAUSES,
+  type PadiSurfaceSpec,
+  padiSurface,
+} from "@kolu/padi-client/surface";
 import { surfaceTag } from "@kolu/surface/define";
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import { Cause, Effect, type Exit, Stream } from "effect";
@@ -186,13 +186,14 @@ interface Grid {
   rows: number;
 }
 
-/** Who asked a PTY to change shape. `attach` and `foreign` are the two readings
- *  of one wire event — a `terminalAttach` subscribe carrying `resizeTo` — told
- *  apart by the attach input's `cause` key; `publish` is a `lifecycle.resize`
- *  call, a pane publishing its grid on purpose rather than as a side effect of
- *  being looked at. Spelled as a LIST so the summing a line does can walk the
- *  causes rather than name three of them and quietly miss a fourth. */
-const RESIZE_CAUSES = ["attach", "foreign", "publish"] as const;
+/** Who asked a PTY to change shape: the wire's own attach causes — `attach` (an
+ *  ordinary open) and `foreign` (the same open, re-asserted by the client's
+ *  foreign-grid watcher), told apart by the attach input's `cause` key — plus
+ *  `publish`, a `lifecycle.resize` call, a pane publishing its grid on purpose
+ *  rather than as a side effect of being looked at. Built FROM the contract's
+ *  list rather than typed out beside it, so a cause the client learns to send
+ *  gets its own row here instead of silently folding into `attach`. */
+const RESIZE_CAUSES = [...ATTACH_CAUSES, "publish"] as const;
 
 type ResizeCause = (typeof RESIZE_CAUSES)[number];
 
@@ -229,28 +230,32 @@ interface AttachRecord {
   endedBy: "end" | "failure" | "interrupt" | undefined;
 }
 
-interface Burst {
+/** One grouping: events that happened within `quietMs` of each other, reported
+ *  as one line once the group goes quiet — or at `capMs`, so a group that never
+ *  settles is still reported. Both of this file's groupings are this one: the
+ *  opens (a host switch's attaches) and the ends (its teardown). They differ in
+ *  what they report and in ONE condition — a burst also waits for every attach
+ *  in it to have answered, which {@link Grouping.ready} asks and the ends leave
+ *  unset, an end being an answer already. */
+interface Group<T> {
   startedAt: number;
-  lastOpenedAt: number;
-  attaches: AttachRecord[];
-  /** Real resizes this host saw while the burst was open, by cause. */
-  resizes: ResizeTally;
-  /** Set once no attach has opened for `quietMs`. */
+  /** When the most recent item joined — the group's own span, which is what
+   *  tells one host switch from a trickle that merely never went quiet. */
+  lastAt: number;
+  items: T[];
+  /** Set once nothing has joined for `quietMs`. */
   quiet: boolean;
   quietTimer: ReturnType<typeof setTimeout> | undefined;
   capTimer: ReturnType<typeof setTimeout>;
 }
 
-/** Attachments that ENDED within `quietMs` of each other, folded the way
- *  {@link Burst} folds opens. No `quiet` flag and no "has everyone answered"
- *  question: an end is already an answer, so the group closes on quiet alone —
- *  the same two timers, one condition fewer. */
-interface EndGroup {
-  startedAt: number;
-  lastEndedAt: number;
-  ended: AttachRecord[];
-  quietTimer: ReturnType<typeof setTimeout> | undefined;
-  capTimer: ReturnType<typeof setTimeout>;
+interface Grouping<T> {
+  /** Is a group live? */
+  open(): boolean;
+  /** Fold an event in, opening a group if this is the first. */
+  add(item: T): void;
+  /** Something an item was waited on for has arrived — re-ask `ready`. */
+  settled(): void;
 }
 
 /** A `setTimeout` that never holds the process open. Both groupings arm their
@@ -309,14 +314,17 @@ const gridIn = (value: unknown): Grid | undefined => {
     : undefined;
 };
 
-/** Which cause an attach's `resizeTo` counts under. The client marks a
- *  foreign-grid re-assert with `cause: "foreign"`; everything else reads as the
- *  ordinary open it is indistinguishable from — including a peer that strips
- *  the optional key, which is every client older than the contract that added
- *  it. That degradation is the whole reason the key needs no version bump. */
+/** Which cause an attach's `resizeTo` counts under: whatever the client NAMED,
+ *  as long as the contract's own list ({@link ATTACH_CAUSES}) knows the word —
+ *  so a cause added to the wire tomorrow gets its own row here instead of
+ *  folding silently into `attach`. Anything else reads as the ordinary open it
+ *  is indistinguishable from, including a peer that strips the optional key,
+ *  which is every client older than the contract that added it. That
+ *  degradation is the whole reason the key needs no version bump. */
 const attachCauseOf = (payload: unknown): ResizeCause => {
   if (typeof payload === "object" && payload !== null && "cause" in payload) {
-    if (payload.cause === "foreign") return "foreign";
+    const named = ATTACH_CAUSES.find((c) => c === payload.cause);
+    if (named !== undefined) return named;
   }
   return "attach";
 };
@@ -343,8 +351,50 @@ export function withAttachTelemetry(
   const now = opts.now ?? Date.now;
   const quietMs = opts.quietMs ?? ATTACH_BURST_QUIET_MS;
   const capMs = opts.capMs ?? ATTACH_BURST_CAP_MS;
-  let burst: Burst | undefined;
-  let ends: EndGroup | undefined;
+  /** The one grouping discipline, instantiated twice (see {@link Group}). */
+  const createGrouping = <T>(o: {
+    ready?: (items: readonly T[]) => boolean;
+    report: (g: Group<T>, why: "quiet" | "cap") => void;
+  }): Grouping<T> => {
+    let group: Group<T> | undefined;
+    const close = (why: "quiet" | "cap"): void => {
+      if (group === undefined) return;
+      const done = group;
+      group = undefined;
+      clearTimeout(done.quietTimer);
+      clearTimeout(done.capTimer);
+      o.report(done, why);
+    };
+    const settled = (): void => {
+      if (group === undefined || !group.quiet) return;
+      if (o.ready?.(group.items) ?? true) close("quiet");
+    };
+    return {
+      open: () => group !== undefined,
+      add(item: T) {
+        const t = now();
+        group ??= {
+          startedAt: t,
+          lastAt: t,
+          items: [],
+          quiet: false,
+          quietTimer: undefined,
+          capTimer: idleTimeout(() => close("cap"), capMs),
+        };
+        const g = group;
+        g.items.push(item);
+        g.lastAt = t;
+        g.quiet = false;
+        clearTimeout(g.quietTimer);
+        g.quietTimer = idleTimeout(() => {
+          g.quietTimer = undefined;
+          g.quiet = true;
+          settled();
+        }, quietMs);
+      },
+      settled,
+    };
+  };
   /** Per-terminal last-asked grid and resize counters, bounded by
    *  {@link MAX_TRACKED_TERMINALS}. */
   const terminals = new Map<string, TerminalResizes>();
@@ -387,28 +437,35 @@ export function withAttachTelemetry(
     // A resize with no burst open — a pane publishing its grid while nobody is
     // attaching — is counted for the terminal and rides its next end line. The
     // burst line reports its own window and stays honest about the rest.
-    if (burst !== undefined) burst.resizes[cause] += 1;
+    if (bursts.open()) burstResizes[cause] += 1;
   };
 
-  const report = (b: Burst, why: "answered" | "cap"): void => {
+  /** Real PTY resizes this host saw while the LIVE burst was open, by cause.
+   *  Beside the grouping rather than inside it: it counts what happened during
+   *  a group's span rather than what joined it, and a new burst can only open
+   *  after the current one has reported. */
+  let burstResizes = noTally();
+
+  const report = (b: Group<AttachRecord>, why: "quiet" | "cap"): void => {
     const t = now();
-    const firstFrames = b.attaches.filter((a) => a.firstFrameAt !== undefined);
+    const attaches = b.items;
+    const firstFrames = attaches.filter((a) => a.firstFrameAt !== undefined);
     const snapshots = firstFrames.filter(
       (a) => a.firstFrameKind === "snapshot",
     );
-    const unanswered = b.attaches.filter((a) => !answered(a));
-    const endedBeforeFrame = b.attaches.filter(
+    const unanswered = attaches.filter((a) => !answered(a));
+    const endedBeforeFrame = attaches.filter(
       (a) => a.firstFrameAt === undefined && a.endedAt !== undefined,
     );
     const line = {
       host: opts.host,
-      attaches: b.attaches.length,
-      terminals: new Set(b.attaches.map((a) => a.terminalId)).size,
+      attaches: attaches.length,
+      terminals: new Set(attaches.map((a) => a.terminalId)).size,
       snapshots: snapshots.length,
       snapshotChars: snapshots.reduce((n, a) => n + a.snapshotChars, 0),
       /** Real PTY resizes this host saw while the burst was open, by cause —
        *  the "did viewing resize anything" half of the line. */
-      resizes: { ...b.resizes },
+      resizes: { ...burstResizes },
       firstFrameMs: quantiles(
         firstFrames.map((a) => (a.firstFrameAt as number) - a.openedAt),
       ),
@@ -420,47 +477,26 @@ export function withAttachTelemetry(
       endedBeforeFrame: endedBeforeFrame.filter((a) => a.endedBy === "end")
         .length,
       unanswered: unanswered.length,
-      openedOverMs: b.lastOpenedAt - b.startedAt,
+      openedOverMs: b.lastAt - b.startedAt,
       settledMs:
         why === "cap"
           ? null
           : Math.max(
               0,
-              ...b.attaches.map(
+              ...attaches.map(
                 (a) => (a.firstFrameAt ?? a.endedAt ?? t) - b.startedAt,
               ),
             ),
       reportedAfterMs: t - b.startedAt,
-      why,
+      // A burst's quiet close is reported as `answered`, which is what it means
+      // here: this group waits for every attach in it to have answered too.
+      why: why === "cap" ? "cap" : "answered",
     };
-    (b.attaches.length > 1 ? opts.log.info : opts.log.debug).call(
+    (attaches.length > 1 ? opts.log.info : opts.log.debug).call(
       opts.log,
       line,
       "terminal attach burst",
     );
-  };
-
-  const close = (why: "answered" | "cap"): void => {
-    if (burst === undefined) return;
-    const b = burst;
-    burst = undefined;
-    if (b.quietTimer !== undefined) clearTimeout(b.quietTimer);
-    clearTimeout(b.capTimer);
-    report(b, why);
-  };
-
-  const maybeClose = (): void => {
-    if (burst === undefined || !burst.quiet) return;
-    if (burst.attaches.every(answered)) close("answered");
-  };
-
-  const armQuiet = (b: Burst): void => {
-    if (b.quietTimer !== undefined) clearTimeout(b.quietTimer);
-    b.quietTimer = idleTimeout(() => {
-      b.quietTimer = undefined;
-      b.quiet = true;
-      maybeClose();
-    }, quietMs);
   };
 
   /** The resize tally a group of ends reports: the terminals' own cumulative
@@ -478,30 +514,29 @@ export function withAttachTelemetry(
     return total;
   };
 
-  const reportEnds = (g: EndGroup, why: "quiet" | "cap"): void => {
+  const reportEnds = (g: Group<AttachRecord>, why: "quiet" | "cap"): void => {
     const t = now();
     opts.log.info(
       {
         host: opts.host,
-        ends: g.ended.length,
-        terminals: new Set(g.ended.map((a) => a.terminalId)).size,
+        ends: g.items.length,
+        terminals: new Set(g.items.map((a) => a.terminalId)).size,
         /** What viewing COST — the question this line is `info` for: the
          *  screens these attachments opened with, plus the output they
          *  forwarded afterwards, in the same UTF-16 code units throughout. */
-        snapshotChars: g.ended.reduce((n, a) => n + a.snapshotChars, 0),
-        deltaChars: g.ended.reduce((n, a) => n + a.deltaChars, 0),
-        skipAheads: g.ended.reduce(
+        snapshotChars: g.items.reduce((n, a) => n + a.snapshotChars, 0),
+        deltaChars: g.items.reduce((n, a) => n + a.deltaChars, 0),
+        skipAheads: g.items.reduce(
           (n, a) => n + Math.max(0, a.snapshots - 1),
           0,
         ),
-        resizes: endedResizes(g.ended),
+        resizes: endedResizes(g.items),
         livedMs: quantiles(
-          g.ended.map((a) => (a.endedAt as number) - a.openedAt),
+          g.items.map((a) => (a.endedAt as number) - a.openedAt),
         ),
         /** How long the teardown itself took to let go of all of them — the
-         *  ends' reading of the burst line's `openedOverMs`, and what tells one
-         *  host switch from a trickle that merely never went quiet. */
-        endedOverMs: g.lastEndedAt - g.startedAt,
+         *  ends' reading of the burst line's `openedOverMs`. */
+        endedOverMs: g.lastAt - g.startedAt,
         reportedAfterMs: t - g.startedAt,
         why,
       },
@@ -509,52 +544,20 @@ export function withAttachTelemetry(
     );
   };
 
-  const closeEnds = (why: "quiet" | "cap"): void => {
-    if (ends === undefined) return;
-    const g = ends;
-    ends = undefined;
-    clearTimeout(g.quietTimer);
-    clearTimeout(g.capTimer);
-    reportEnds(g, why);
-  };
-
-  /** Fold one ended attachment into the open group, opening one if this is the
-   *  first — {@link open}'s shape for the other end of an attachment's life. */
-  const noteEnd = (rec: AttachRecord): void => {
-    const t = now();
-    if (ends === undefined) {
-      ends = {
-        startedAt: t,
-        lastEndedAt: t,
-        ended: [],
-        quietTimer: undefined,
-        capTimer: idleTimeout(() => closeEnds("cap"), capMs),
-      };
-    }
-    const g = ends;
-    g.ended.push(rec);
-    g.lastEndedAt = t;
-    clearTimeout(g.quietTimer);
-    g.quietTimer = idleTimeout(() => {
-      g.quietTimer = undefined;
-      closeEnds("quiet");
-    }, quietMs);
-  };
+  /** The two groupings, which are the same grouping (see {@link Group}): a
+   *  burst of opens, which also waits for every attach in it to have answered,
+   *  and the ends, where an end IS the answer. */
+  const bursts = createGrouping<AttachRecord>({
+    ready: (attaches) => attaches.every(answered),
+    report,
+  });
+  const ends = createGrouping<AttachRecord>({ report: reportEnds });
 
   const open = (payload: unknown): AttachRecord => {
     const t = now();
-    if (burst === undefined) {
-      burst = {
-        startedAt: t,
-        lastOpenedAt: t,
-        attaches: [],
-        resizes: noTally(),
-        quiet: false,
-        quietTimer: undefined,
-        capTimer: idleTimeout(() => close("cap"), capMs),
-      };
-    }
-    const b = burst;
+    // A burst about to OPEN starts its resize tally at zero; one already open
+    // keeps counting into the line it will report.
+    if (!bursts.open()) burstResizes = noTally();
     const terminalId = terminalIdOf(payload);
     const resizes = terminalResizes(terminalId);
     const rec: AttachRecord = {
@@ -569,10 +572,7 @@ export function withAttachTelemetry(
       endedAt: undefined,
       endedBy: undefined,
     };
-    b.attaches.push(rec);
-    b.lastOpenedAt = t;
-    b.quiet = false;
-    armQuiet(b);
+    bursts.add(rec);
     // The grid is noted only AFTER the burst exists, so an attach that opens
     // one is counted on the line that burst goes on to report. An attach
     // carrying no `resizeTo` is an observe-only viewer: it asks for nothing, so
@@ -606,7 +606,7 @@ export function withAttachTelemetry(
       },
       "terminal attach: first frame",
     );
-    maybeClose();
+    bursts.settled();
   };
 
   const onExit = (
@@ -639,8 +639,8 @@ export function withAttachTelemetry(
       },
       "terminal attach: end",
     );
-    noteEnd(rec);
-    maybeClose();
+    ends.add(rec);
+    bursts.settled();
   };
 
   return {

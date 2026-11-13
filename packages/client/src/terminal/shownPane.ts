@@ -24,13 +24,10 @@
  * open for a hidden pane still costs the host a serialize and the wire every
  * byte the terminal prints. Hiding is cheap to undo: the reveal re-attaches,
  * and the attach's own `resizeTo` restates the grid the pane measured while it
- * was hidden, which is why nothing has to be published in the meantime — and
- * why a publish the pane ARMED just before it was hidden is cancelled here
- * rather than allowed to fire a quarter second later (`publishGrid.ts` owns
- * the window; this owns when it is no longer owed). The fresh snapshot that
- * attach returns is also the repair for whatever the pane missed — and it
- * arrives carrying its own reset (`revealRepaint.ts`), so the old screen stays
- * up until the new one paints instead of the pane going blank for the whole
+ * was hidden, which is why nothing has to be published in the meantime. The
+ * fresh snapshot that attach returns is also the repair for whatever the pane
+ * missed — and it arrives carrying its own reset, so the old screen stays up
+ * until the new one paints instead of the pane going blank for the whole
  * round-trip.
  *
  * What a hidden pane is NOT is unobserved: the activity dot is mirrored off
@@ -62,11 +59,9 @@ export interface ShownPaneDeps {
   readonly detach: () => void;
   /** State a measured grid to the PTY (`publishGrid.ts` owns when it lands). */
   readonly publish: (grid: TerminalGrid) => void;
-  /** Drop a publish that has not landed yet. A hidden pane states no grid, and
-   *  a settle window armed moments before the hide would otherwise make that
-   *  untrue for a quarter second — resizing a shared PTY for a pane nobody is
-   *  looking at, which is the whole bug this gate exists for. Nothing is lost:
-   *  the reveal's attach restates the grid in its `resizeTo`. */
+  /** Drop a publish that has not landed yet — a hidden pane states no grid.
+   *  `publishGrid.ts` owns the window and what dropping it costs; this owns
+   *  when it is no longer owed. */
   readonly cancelPublish: () => void;
 }
 
@@ -74,9 +69,7 @@ export interface ShownPane {
   /** Re-read `shown()` and act on a CHANGE. Idempotent: safe on every tick of
    *  either fact the predicate reads. */
   observe(): void;
-  /** The pane measured a new grid. Published only while the pane is shown — a
-   *  hidden pane's measurement is not lost, it is carried by the `resizeTo` of
-   *  the attach that the reveal opens. */
+  /** The pane measured a new grid. Published only while the pane is shown. */
   measured(grid: TerminalGrid): void;
 }
 

@@ -31,7 +31,7 @@ import { SafeClipboardProvider } from "../ui/clipboard";
 import "@xterm/xterm/css/xterm.css";
 import { TERMINAL_RESET } from "@kolu/padi/endpoint";
 import { rejectionFor, sizeRejectionFor } from "@kolu/padi-client/upload";
-import { activeArm } from "@kolu/padi-client/surface";
+import { activeArm, type AttachCause } from "@kolu/padi-client/surface";
 import {
   isSnapshotFrame,
   snapshotLayoutGrid,
@@ -94,7 +94,6 @@ import {
   REATTACH_BACKOFF_MS,
   StaleSnapshotGrid,
 } from "./reattachingStream";
-import { createRevealRepaint } from "./revealRepaint";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
 import { createShownPane } from "./shownPane";
@@ -195,13 +194,6 @@ const Terminal: Component<{
    *  live attempt's state is in its closure, and a cross-lane caller needs a
    *  door to it. */
   let supersedeAttempt: (() => void) | null = null;
-  /** Why the NEXT attach opens, for the host's telemetry (`cause` on the attach
-   *  input). `"attach"` is the ordinary open — a reveal, a reconnect, the loop's
-   *  own re-subscribe — and it is the DEFAULT because every other reopen lane
-   *  is one. The foreign-grid watcher sets `"foreign"` on the open IT pulls
-   *  (below), and the thunk consumes the value as it sends it, so a later
-   *  unrelated reopen reports the ordinary cause rather than inheriting one. */
-  let nextAttachCause: "attach" | "foreign" = "attach";
   let disposeDiagnostics: (() => void) | null = null;
   let webglTrackerId: number | null = null;
   const [handle, setHandle] = createSignal<XtermHandle | null>(null);
@@ -294,19 +286,12 @@ const Terminal: Component<{
    *
    *  The POLICY (H1's not-connected suppression, K4's latch, the settle window,
    *  and the convergence argument for all three) lives in `publishGrid.ts`; this
-   *  binds the four real facts. A PTY resize makes the shell REPAINT (SIGWINCH)
-   *  — but that repaint no longer needs suppressing here: kaval excludes resize
-   *  repaints from its meaningful-output edge at the source, so the live dot
-   *  (mirrored off padi's `activity` set) never lights on a reveal/resize in the
-   *  first place.
-   *
-   *  The fourth fact is the EDGE a settled publish runs at. The publish leaves
-   *  this call stack — it fires a quarter second later, off a timer — so there
-   *  is no Solid owner left to tie the fiber to (`runOwnedAction` reads the
-   *  CURRENT owner and would throw). The pane's route to a publish it no longer
-   *  wants is `dispose()` below, not an owned fiber, and the label is the one
-   *  this pane has always published under so the logs and the toast id are
-   *  unchanged.
+   *  binds the facts it reads and the edge a settled publish runs on
+   *  ({@link GridPublisherDeps}). A PTY resize makes the shell REPAINT
+   *  (SIGWINCH) — but that repaint no longer needs suppressing here: kaval
+   *  excludes resize repaints from its meaningful-output edge at the source, so
+   *  the live dot (mirrored off padi's `activity` set) never lights on a
+   *  reveal/resize in the first place.
    *
    *  ONE publisher per tile, built at component scope so the suppression latch
    *  lives exactly as long as the pane does. */
@@ -357,12 +342,9 @@ const Terminal: Component<{
     // order (`Terminal.tsx`'s pre-cut cleanup), restored across the boundary.
     onCleanup(() => {
       attachTornDown = true;
-      attachFiber?.interruptUnsafe();
-      attachFiber = null;
-      if (staleGridReopenTimer !== null) clearTimeout(staleGridReopenTimer);
-      staleGridReopenTimer = null;
-      // A pane torn down mid-drag must not resize its PTY a quarter second
-      // later, when the settle window it armed closes over a tile that is gone.
+      // The same end the hide takes, in the same order and for the same reason
+      // (`closeAttachStream`) — plus the publish the pane still owes nobody.
+      closeAttachStream();
       gridPublisher.cancel();
       unregisterTerminalRefs(props.terminalId);
       disposeDiagnostics?.();
@@ -588,7 +570,7 @@ const Terminal: Component<{
     // stale-grid reopen, both of which are getting rid of bytes the pane must
     // stop looking at, with the replacement a round trip away. A reveal is not
     // one of those — it blanks nothing, and its snapshot carries its own reset
-    // instead (`revealRepaint.ts`).
+    // instead (the open's `repaint`).
     const resetForFreshSnapshot = () => {
       clearForFreshSnapshot();
       handle()?.terminal?.reset();
@@ -596,42 +578,22 @@ const Terminal: Component<{
     // The attach stream may open only while this pane is SHOWN — measured AND
     // visible — and it ENDS the moment the pane stops being either.
     //
-    // MEASURED, because the snapshot the host serializes is bytes laid out FOR
-    // A GRID: cursor moves and wraps are only meaningful at the width they were
-    // written for. An unmeasured xterm reports the 80×24 its constructor
-    // invents, and attaching there paints a screen laid out for the real width
-    // into 80 columns; revealing the pane then REFLOWS the damage rather than
-    // repainting it, and the repair never comes, because the grid the client
-    // finally publishes is the one the PTY already had — and kaval no-ops a
-    // same-dimensions resize, so no SIGWINCH ever reaches the process. Only a
-    // genuine resize (nudging the divider) fixed it. No grid, no bytes: gating
-    // here — rather than dropping or buffering frames after the fact — is what
-    // makes that unrepresentable, because the grid is also what we ASK for the
-    // snapshot AT (below), and a request can't carry a size we haven't measured.
-    //
-    // VISIBLE, because attaching is a WRITE on a shared PTY — `resizeTo` — and
-    // a hidden pane has a measurable box: mobile mounts every terminal of the
-    // host and hides the inactive ones with `content-visibility`, so the
-    // measured-only gate attached all of them and resized 14 PTYs in under a
-    // second on one phone open (kolu#2362 §4). The judgment, and why the
-    // hidden pane's measurement is not lost, is `shownPane.ts`'s; what stays
-    // here is the live facts and the two acts.
+    // The JUDGMENT — why each half is required, and why a hidden pane's
+    // measurement is not lost — is `shownPane.ts`'s; what stays here is the two
+    // live facts and the acts they drive. MEASURED is `h.grid()`, the kit's one
+    // door for a real measurement (an unmeasured xterm reports the 80×24 its
+    // constructor invents); VISIBLE is the tile's own `visible` prop, which a
+    // mobile body hidden with `content-visibility` still has a measurable box
+    // under.
     const shown = () => h.grid() !== null && props.visible;
-    const revealRepaint = createRevealRepaint();
     const shownPane = createShownPane({
       shown,
       attach: () => {
-        // Every open is answered with a fresh snapshot, so everything the pane
-        // still holds from the attach its last hide ended has to go — but the
-        // SCREEN is not cleared here. It stays up until the snapshot that
-        // replaces it arrives, which is what makes a tile switch instant
-        // instead of a flash of black for the length of a round trip; the reset
-        // rides the snapshot frame instead (`revealRepaint.ts`). The first open
-        // of a pane takes the same road, onto an empty terminal, where the
-        // reset paints nothing — one rule instead of two.
+        // Everything the pane still holds from the attach its last hide ended
+        // has to go — but the SCREEN is not cleared, because the snapshot this
+        // open is answered with carries its own reset (`repaint` below).
         clearForFreshSnapshot();
-        revealRepaint.armReveal();
-        openAttachStream();
+        openAttachStream({ cause: "attach", repaint: true });
       },
       detach: closeAttachStream,
       publish: gridPublisher.publish,
@@ -708,6 +670,15 @@ const Terminal: Component<{
     // See `attachAttempts.ts`.
     const attempts = createAttemptGate();
 
+    /** WHY an attach opens — the one fact the lanes differ by, carried as an
+     *  argument of the open rather than as a mark left on the pane for the next
+     *  one to find. Each lane names both halves at the call site: a reveal owes
+     *  its first snapshot a repaint (the hide deliberately left the old screen
+     *  standing), the foreign-grid watcher's reopen is `"foreign"` on the wire
+     *  so the host can count attaches a user never asked for, and every other
+     *  reopen is an ordinary `"attach"` that blanked the screen itself. */
+    type OpenReason = { cause: AttachCause; repaint: boolean };
+
     // Carve-out (Leak A): `terminalAttach` is a padi SURFACE stream member
     // (`padiSurface.streams.terminalAttach`), but its health is the terminal's
     // OWN concern — surfaced in-pane (a reset + visible retry on `onRetry`, the
@@ -726,7 +697,7 @@ const Terminal: Component<{
     // ends, dies through the run edge (console + toast). Enrolling here instead
     // would flicker the fleet's health on every ordinary overflow re-attach and
     // still not answer "is THIS pane alive".
-    function openAttachStream() {
+    function openAttachStream(why: OpenReason) {
       // ALL of this attempt's state lives here, in its closure — never in a
       // binding a successor could overwrite. `attempt` decides whether this
       // loop's work still counts; `superseded` is this attempt's own teardown
@@ -737,11 +708,13 @@ const Terminal: Component<{
        *  the thunk on every open, read by the snapshot frame that answers it — so
        *  an attempt and the grid it is only valid for are one thing, not two. */
       let requestedGrid: TerminalGrid | null = null;
-      /** Does THIS attempt's first snapshot have to repaint from scratch? One
-       *  shot, spent by the frame that uses it — true for the open a reveal
-       *  made, whose screen was deliberately left standing, and false for every
-       *  other open, which blanked the screen itself. See `revealRepaint.ts`. */
-      const takeRepaint = revealRepaint.openAttempt();
+      /** The reason, spent. Both halves are ONE-SHOT and the shot is this
+       *  attempt's FIRST: the repaint is owed to the first snapshot that is
+       *  actually painted (a refused one leaves the mark standing for the frame
+       *  that is), and the cause describes the open, so the loop's own
+       *  re-subscribe after a transport blip reports the ordinary one. */
+      let repaintOwed = why.repaint;
+      let causeOwed: AttachCause | null = why.cause;
 
       /** Live = still the current attempt AND not torn down. `isCurrent()` alone
        *  stays true forever when no successor opens, so an unmounted pane's
@@ -783,7 +756,7 @@ const Terminal: Component<{
        *
        *  Guarded by `attemptLive()` at every call site, so several superseded
        *  callbacks reaching here produce ONE successor, not a cascade. */
-      const reopenForStaleGrid = () => {
+      const reopenForStaleGrid = (cause: AttachCause = "attach") => {
         // Latch first, interrupt second — the window between them is exactly
         // where a late frame of this attempt would otherwise land.
         superseded = true;
@@ -797,7 +770,7 @@ const Terminal: Component<{
         staleGridReopenTimer = setTimeout(() => {
           staleGridReopenTimer = null;
           if (attachTornDown) return;
-          openAttachStream();
+          openAttachStream({ cause, repaint: false });
         }, REATTACH_BACKOFF_MS);
       };
 
@@ -808,13 +781,10 @@ const Terminal: Component<{
       // It also NAMES the open it pulls. An attach that exists because another
       // viewer took the terminal is not the same event as a user revealing a
       // pane, and the host can only tell them apart if the client says which
-      // one it is — the whole point of counting attaches by cause. The successor
-      // opens after a backoff, so the mark is left on `nextAttachCause` for the
-      // thunk to spend, not passed down a call chain.
-      reopenForForeignGrid = onlyWhenCurrent({ isCurrent: attemptLive }, () => {
-        nextAttachCause = "foreign";
-        reopenForStaleGrid();
-      });
+      // one it is — the whole point of counting attaches by cause.
+      reopenForForeignGrid = onlyWhenCurrent({ isCurrent: attemptLive }, () =>
+        reopenForStaleGrid("foreign"),
+      );
 
       // The hide route into THIS attempt (see the binding's note). A close is
       // the one end that opens no successor, so it has to set the attempt's own
@@ -859,14 +829,11 @@ const Terminal: Component<{
             );
           }
           requestedGrid = measured;
-          // WHY this attach opened, consumed as it is sent: the host counts
-          // attaches by cause (how many of these resizes a terminal actually
-          // asked for), and a cause left standing would misreport the NEXT open,
-          // which has its own reason. Reset here rather than at the call that
-          // set it, because this is the moment it is spent — including on the
-          // loop's own re-entry into this thunk after a backoff.
-          const cause = nextAttachCause;
-          nextAttachCause = "attach";
+          // The reason this attempt opened, spent as it is sent: a transparent
+          // STREAM_RETRY re-enters this thunk, and that re-subscribe is an
+          // ordinary open rather than a second foreign one.
+          const cause = causeOwed ?? "attach";
+          causeOwed = null;
           return unenrolledStreamCall(
             activePadiStreams.terminalAttach.unenrolled,
             // `resizeTo`, not a description of this pane: the host resizes the
@@ -979,12 +946,15 @@ const Terminal: Component<{
           // frame; a REVEAL-opened attach owes its first snapshot the same shape,
           // because the hide deliberately left the old screen standing so that
           // this frame could replace it in a single write instead of the pane
-          // going blank for the round trip (`revealRepaint.ts`). The one-shot is
-          // spent HERE, past the refusal above — a snapshot that is never painted
-          // leaves the mark standing for the frame that is.
+          // going blank for the round trip. A pane's FIRST attach takes the same
+          // road, onto an empty terminal where a RIS paints nothing — one rule
+          // instead of two. The debt is spent HERE, past the refusal above: a
+          // snapshot that is never painted leaves it standing for the frame that
+          // is.
           const ownReset =
             isSnapshotFrame(frame) && frame.data.startsWith(TERMINAL_RESET);
-          const addReset = isSnapshotFrame(frame) && takeRepaint() && !ownReset;
+          const addReset = isSnapshotFrame(frame) && repaintOwed && !ownReset;
+          if (isSnapshotFrame(frame)) repaintOwed = false;
           const commitSeed = isSnapshotFrame(frame)
             ? backfill?.consumeSnapshotFrame(
                 frame.topLine,
@@ -1121,7 +1091,7 @@ const Terminal: Component<{
      *  The screen is left alone: hiding a pane must not blank it, and revealing
      *  it must not either — the stale bytes stay where nobody is looking at
      *  them until the reveal's own snapshot arrives and replaces them in one
-     *  write (`revealRepaint.ts`).
+     *  write.
      *
      *  The pane's PENDING PUBLISH goes, though, and it goes through the gate
      *  (`shownPane.ts`), which owns what hiding costs. */
