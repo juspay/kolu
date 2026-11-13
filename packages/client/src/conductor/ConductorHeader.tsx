@@ -16,6 +16,7 @@
 import type { ConductorRow, ConductorState } from "kolu-common/conductor";
 import { type Component, createSignal, Show } from "solid-js";
 import Tip from "../ui/Tip";
+import { isDesktop } from "../useMobile";
 import ConductorMenu from "./ConductorMenu";
 import ConductorSettings from "./ConductorSettings";
 
@@ -62,10 +63,20 @@ const ConductorHeader: Component<{
 
   return (
     <header class="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-edge">
-      <span class="text-busy text-sm leading-none">◆</span>
-      <span class="font-mono text-[0.65rem] font-extrabold tracking-[0.14em] text-fg-2">
-        CONDUCTOR
-      </span>
+      {/* The mark and the name, on a desktop only: on a phone the pull handle
+          right above already reads `◆ Conductor`, and a screen that says the
+          same name twice reads as two things. */}
+      <Show when={isDesktop()}>
+        <span
+          data-testid="conductor-header-name"
+          class="flex items-center gap-2.5"
+        >
+          <span class="text-busy text-sm leading-none">◆</span>
+          <span class="font-mono text-[0.65rem] font-extrabold tracking-[0.14em] text-fg-2">
+            CONDUCTOR
+          </span>
+        </span>
+      </Show>
       {/* Said once here, beside the name: the surface you are IN has to say it
           too, or a reader who arrived by ⌘⇧O never passed the chrome-bar tag.
           Not a phase chip — what it is alpha about does not change while the
