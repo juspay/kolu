@@ -83,13 +83,15 @@ const MobileChromeSheet: Component<{
        *  no status dot, no hue, nothing in the row above. Selecting it shows
        *  the chat full-screen (a sheet, `ConductorSheet`), which is why
        *  there is nothing more to lay out here than the door and the count of
-       *  questions waiting behind it. */}
+       *  questions waiting behind it. EXACTLY ONE place looks current, as on
+       *  the desktop row: while the conversation is on screen this entry is
+       *  lit and no host chip above is (`useActiveHostSelector`). */}
       <div class="border-b border-edge/50 px-3 py-2">
         <button
           type="button"
           data-testid="conductor-tab"
           data-active={conductorMode() ? "" : undefined}
-          aria-pressed={conductorMode()}
+          aria-current={conductorMode() ? "page" : undefined}
           class="relative flex min-h-[44px] w-full items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
           classList={{
             "border-accent/60 bg-accent/12 text-accent": conductorMode(),
@@ -113,7 +115,7 @@ const MobileChromeSheet: Component<{
           </span>
           <span>Conductor</span>
           {/* Inline, beside the name, for the same reason as the desktop
-              pill's: the corner holds the needs-you count, and the tag is a
+              tab's: the corner holds the needs-you count, and the tag is a
               constant rather than something that arrives. */}
           <span
             data-testid="conductor-alpha"

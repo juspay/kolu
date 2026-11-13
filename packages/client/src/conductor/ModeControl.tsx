@@ -2,18 +2,20 @@
  *
  *  `canvas` and `maximized` are mutually exclusive views OF A HOST TAB, which
  *  is the whole of what this control is for. The conductor is not a third
- *  segment here: it is its own entry in the chrome bar beside the host tabs
- *  (`ConductorTab`), because it is a different destination rather than a
- *  different way of looking at the same one. Pressing either segment while the
- *  conductor is on screen therefore LEAVES it — the press is a choice about
- *  the host tab underneath, and `postureTo` is the one writer that knows it. */
+ *  segment here: it is a place of its own, the first tab in the chrome bar's
+ *  tab row (`ConductorTab`), and while it is the current place this control is
+ *  not drawn at all (`ChromeBar`) — there is no host canvas on screen for it
+ *  to describe. */
 
 import type { Component } from "solid-js";
 import { useViewPosture } from "../canvas/useViewPosture";
 import { ACTIONS } from "../input/actions";
 import { formatKeybind } from "../input/keyboard";
 import Tip from "../ui/Tip";
-import { CHROME_CONTROL_SHELL } from "./chromeControl";
+
+/** The box the two segments share: the chrome's control height, radius and
+ *  edge. */
+const SHELL = "h-7 shrink-0 rounded-lg border border-edge";
 
 const segmentClass =
   "flex items-center gap-1.5 px-2 py-1 font-mono text-[0.65rem] font-semibold cursor-pointer transition-colors";
@@ -21,16 +23,14 @@ const segmentClass =
 const ModeControl: Component = () => {
   const view = useViewPosture();
 
-  /** Which segment is lit. The conductor borrows nothing from the posture
-   *  any more — it is a destination beside the host tabs — so the layout the
-   *  canvas is in IS the choice this control reports. */
+  /** Which segment is lit: the layout the host's canvas is in. */
   const mode = (): "canvas" | "maximized" =>
     view.layout() === "maximized" ? "maximized" : "canvas";
 
   return (
     <div
       data-testid="mode-control"
-      class={`${CHROME_CONTROL_SHELL} flex items-stretch overflow-hidden`}
+      class={`${SHELL} flex items-stretch overflow-hidden`}
     >
       <Tip label="Canvas">
         <button

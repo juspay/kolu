@@ -49,6 +49,7 @@
  *  → `client.hosts.add`. */
 
 import { useActiveHostSelector } from "./isActiveHost";
+import { conductorMode } from "../conductor/useConductorMode";
 
 import {
   closestCenter,
@@ -517,11 +518,15 @@ const HostOverflowMenu: Component<{ hosts: string[] }> = (props) => {
 };
 
 /** Narrow multi-host range (`sm..md`): one tab-shaped unit — the active host
- *  status pip + identity, opening an anchored host switcher. */
+ *  status pip + identity, opening an anchored host switcher. It names the host
+ *  the canvas belongs to, and it is LIT only while that canvas is on screen:
+ *  in the Conductor the conductor's tab is the current one, so this unit rests
+ *  like any other tab that is not where you are. */
 const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
   const [open, setOpen] = createSignal(false);
   let triggerEl: HTMLButtonElement | undefined;
   const active = () => activeHost();
+  const current = () => !conductorMode();
   const state = () => padiMap.entry(active()).state();
   // The ACTIVE host's chain, read through the active-host memo rather than a
   // per-host subscription: this switcher re-points at whatever host is active, and
@@ -538,8 +543,12 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
       <div
         role="tablist"
         aria-label="Hosts"
-        class="host-tab host-tab-active -mb-px flex h-8 items-center shrink-0 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50"
-        classList={{ "host-tab-down": down() }}
+        class="host-tab -mb-px flex h-8 items-center shrink-0 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/50"
+        classList={{
+          "host-tab-active": current(),
+          "host-tab-idle": !current() && !down(),
+          "host-tab-down": down(),
+        }}
         style={{ "--host-hue": hostHue(active()) }}
         data-testid="host-dropdown-switcher"
         data-down={down() ? "" : undefined}
@@ -547,7 +556,7 @@ const HostDropdownSwitcher: Component<{ hosts: HostKey[] }> = (props) => {
         <button
           type="button"
           role="tab"
-          aria-selected="true"
+          aria-selected={current()}
           aria-expanded={open()}
           ref={triggerEl}
           class="pointer-events-auto flex h-8 items-center gap-1.5 pl-2.5 pr-2 text-xs transition-colors focus-visible:outline-none cursor-pointer"
@@ -732,37 +741,10 @@ const HostSelectorStrip: Component = () => {
     }),
   );
   // The "+ add a host" affordance is always present now, so its width is always
-  // reserved from the chips' fit budget.
+  // reserved from the chips' fit budget. Nothing else in the row needs room
+  // taken from it: the Conductor's tab sits BEFORE this strip as a `shrink-0`
+  // sibling, so this strip's own width is already what is left after it.
   const chipsBudget = createMemo(() => containerWidth() - ADD_BUTTON_RESERVE);
-  /** THE ROW'S OWN TRAILING ENTRY — `◆ Conductor alpha`, whole, tag included.
-   *
-   *  It shares this row and is not a host: it never folds, so every pixel it
-   *  occupies is a pixel the chips must not seat into, or the tabs run into
-   *  the pill instead of folding into `⋯ +N`. It is MEASURED off the live
-   *  entry rather than copied from its markup as a constant — the alpha tag is
-   *  exactly the part such a copy forgets, and the pill's width changes with
-   *  the type it renders.
-   *
-   *  What is measured is the entry's LEFT EDGE against this strip's box, not
-   *  its bare width, and that is the whole correctness argument: the header
-   *  lays the pill out as a `shrink-0` sibling of this strip, so in the
-   *  ordinary case the row has ALREADY kept its room clear and the reserve is
-   *  zero — subtracting the pill's width again there would fold a tab that
-   *  fits. The number goes positive exactly when the entry sits over this
-   *  strip's box (a pill wider than the leftover, a re-layout that has not
-   *  settled, chrome that pins it over the row), which is the case where a
-   *  seated tab would collide. Re-read whenever the row's geometry moves. */
-  const conductorReserve = createMemo(() => {
-    const width = containerWidth();
-    const strip = containerRef;
-    const entry = document.querySelector<HTMLElement>(
-      '[data-testid="conductor-tab"]',
-    );
-    if (strip === undefined || entry === null) return 0;
-    const clear =
-      entry.getBoundingClientRect().left - strip.getBoundingClientRect().left;
-    return Math.max(0, width - clear);
-  });
   // `hostFit()` returns fresh `{visible, overflowed}` arrays of CANONICAL string
   // keys on every recompute (it re-runs whenever `activeHost()` changes, even
   // when the outcome is identical). Rendering directly off those STRINGS
@@ -780,7 +762,6 @@ const HostSelectorStrip: Component = () => {
       encodeHostKey(activeHost()),
       chipsBudget(),
       OVERFLOW_TRIGGER_RESERVE,
-      conductorReserve(),
     ),
   );
 

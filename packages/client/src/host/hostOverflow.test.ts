@@ -17,7 +17,7 @@ const chips = (widths: Record<string, number>): HostFit[] =>
 describe("computeVisibleHosts — everything fits", () => {
   it("shows every chip, in pool order, when the total width is within budget", () => {
     const order = chips({ local: 80, a: 90, b: 100 });
-    const result = computeVisibleHosts(order, "local", 400, 40, 0);
+    const result = computeVisibleHosts(order, "local", 400, 40);
     expect(result).toEqual({ visible: ["local", "a", "b"], overflowed: [] });
   });
 
@@ -31,14 +31,12 @@ describe("computeVisibleHosts — everything fits", () => {
       "local",
       containerWidth,
       trailingReserve,
-      0,
     );
     const after = computeVisibleHosts(
       order,
       "beta",
       containerWidth,
       trailingReserve,
-      0,
     );
 
     expect(after).toEqual(before);
@@ -51,7 +49,7 @@ describe("computeVisibleHosts — overflow", () => {
     // local(50) + a(50) + b(50) + c(50) = 200, container 140, reserve 40 ⇒
     // budget 100 ⇒ local + a fit (100), b/c overflow.
     const order = chips({ local: 50, a: 50, b: 50, c: 50 });
-    const result = computeVisibleHosts(order, "local", 140, 40, 0);
+    const result = computeVisibleHosts(order, "local", 140, 40);
     expect(result).toEqual({
       visible: ["local", "a"],
       overflowed: ["b", "c"],
@@ -60,8 +58,8 @@ describe("computeVisibleHosts — overflow", () => {
 
   it("PIN: switching between two hosts BOTH already inside the visible prefix still changes nothing", () => {
     const order = chips({ local: 50, a: 50, b: 50, c: 50 });
-    const before = computeVisibleHosts(order, "local", 140, 40, 0);
-    const after = computeVisibleHosts(order, "a", 140, 40, 0);
+    const before = computeVisibleHosts(order, "local", 140, 40);
+    const after = computeVisibleHosts(order, "a", 140, 40);
     expect(after).toEqual(before);
   });
 
@@ -70,58 +68,57 @@ describe("computeVisibleHosts — overflow", () => {
     // is [local, a]; switching active to c (currently overflowed) must pull
     // it in — drop `a` (nearest the cut) to make room, keep `local` first.
     const order = chips({ local: 50, a: 50, b: 50, c: 50 });
-    const result = computeVisibleHosts(order, "c", 140, 40, 0);
+    const result = computeVisibleHosts(order, "c", 140, 40);
     expect(result.visible).toEqual(["local", "c"]);
     expect(result.overflowed).toEqual(["a", "b"]);
   });
 
   it("always keeps the active host visible even when it alone exceeds the reduced budget", () => {
     const order = chips({ local: 30, huge: 300 });
-    const result = computeVisibleHosts(order, "huge", 140, 40, 0);
+    const result = computeVisibleHosts(order, "huge", 140, 40);
     expect(result.visible).toContain("huge");
   });
 });
 
 /** FIVE HOSTS IN A REAL CHROME BAR, with the widths the browser actually
- *  reports. Measured in the e2e lane (`features/conductor.feature`, the
- *  "minified 5 KB payload" scenario logs the row's geometry at four window
- *  widths): a host tab is 124px, the identity rail 28px, the `◆ Conductor
- *  alpha` pill 145px (tag included — it is one measured box), the control
- *  cluster 397px, and the bar's own padding plus flex gaps 60px.
+ *  reports — re-measured off the live bar on a host tab at 1920, 1280 and
+ *  1024px windows: a host tab is 124px, the identity rail 28px, the
+ *  `◆ Conductor alpha` tab at the head of the row 144.5px (tag included — it
+ *  is one measured box), the control cluster 397px, and the bar's own padding
+ *  (24) plus its three flex gaps (36) 60px.
  *
  *  This is where the five-host fold is proved, because the e2e worker holds
  *  one padi and its strip never folds; that lane pins the INPUT (the strip's
- *  measured width really is the row's leftover), and this pins what the
- *  arithmetic does with it — including what the Conductor entry's reserve
- *  does to the fold when the row has NOT already kept its room clear. */
+ *  measured width really is the row's leftover, Conductor tab and all), and
+ *  this pins what the arithmetic does with it. */
 describe("computeVisibleHosts — five hosts in the real chrome bar", () => {
   const CHIP = 124;
   const ADD_BUTTON_RESERVE = 38;
   const OVERFLOW_TRIGGER_RESERVE = 44;
-  /** The measured `◆ Conductor alpha` pill, whole. */
-  const CONDUCTOR = 145;
+  /** The measured `◆ Conductor alpha` tab, whole. */
+  const CONDUCTOR = 144.5;
   /** The strip's measured width at a given window, from the row's geometry:
-   *  identity (28) + conductor pill (145) + control cluster (397) + the bar's
-   *  padding and gaps (60) are taken before the strip sees anything. */
+   *  identity (28) + the Conductor's tab (144.5) + control cluster (397) + the
+   *  bar's padding and gaps (60) are taken before the strip sees anything.
+   *  Measured 1290.5 / 650.5 / 394.5 at 1920 / 1280 / 1024. */
   const stripAt = (window: number): number =>
     window - 28 - CONDUCTOR - 397 - 60;
   const five = chips({ local: CHIP, a: CHIP, b: CHIP, c: CHIP, d: CHIP });
-  const seating = (window: number, pinned = 0) =>
+  const seating = (window: number) =>
     computeVisibleHosts(
       five,
       "local",
       stripAt(window) - ADD_BUTTON_RESERVE,
       OVERFLOW_TRIGGER_RESERVE,
-      pinned,
     );
 
   it("seats every tab in a wide window", () => {
-    // 1920 ⇒ strip 1290 ⇒ budget 1252 against 620px of tabs.
+    // 1920 ⇒ strip 1290.5 ⇒ budget 1252.5 against 620px of tabs.
     expect(seating(1920).overflowed).toEqual([]);
   });
 
-  it("folds into `⋯ +N` well before the tabs reach the conductor entry", () => {
-    // 1024 ⇒ strip 394 ⇒ budget 356, trigger reserved ⇒ 312 ⇒ two tabs seated.
+  it("folds into `⋯ +N` before the tabs reach the control cluster", () => {
+    // 1024 ⇒ strip 394.5 ⇒ budget 356.5, trigger reserved ⇒ 312.5 ⇒ two seated.
     expect(seating(1024)).toEqual({
       visible: ["local", "a"],
       overflowed: ["b", "c", "d"],
@@ -138,19 +135,10 @@ describe("computeVisibleHosts — five hosts in the real chrome bar", () => {
     expect(seating(820).visible).toEqual(["local"]);
   });
 
-  it("takes the Conductor entry's measured width off the budget, so a tab that would reach the pill folds instead", () => {
-    // A row that has NOT kept the pill's room clear — the strip's box runs
-    // under the entry — reports the overlap as the pinned reserve. 1920 seats
-    // all five with 1252px of budget; take the pill's measured 145 off a strip
-    // that is only just wide enough and the last tab must go into `⋯ +N`
-    // rather than sit where the pill is drawn.
-    const window = 1270; // strip 640 ⇒ budget 602 against 620px of tabs… just short
-    expect(seating(window).visible).toEqual(["local", "a", "b", "c"]);
-    expect(seating(window, CONDUCTOR).visible).toEqual(["local", "a", "b"]);
-    expect(seating(window, CONDUCTOR).overflowed).toEqual(["c", "d"]);
-  });
-
-  it("reserves nothing when there is no such entry in the row", () => {
-    expect(seating(1920, 0)).toEqual(seating(1920));
+  it("seats one tab fewer at a window just short of all five", () => {
+    // 1270 ⇒ strip 640.5 ⇒ budget 602.5 against 620px of tabs, trigger
+    // reserved ⇒ 558.5 ⇒ four seated.
+    expect(seating(1270).visible).toEqual(["local", "a", "b", "c"]);
+    expect(seating(1270).overflowed).toEqual(["d"]);
   });
 });

@@ -1,7 +1,7 @@
 /** Select a host tab — the ONE verb behind every tab-row pick.
  *
  *  Two things happen together, and they have to: the host becomes the active
- *  one, and the `◆ Conductor` entry sitting at the end of the same row is
+ *  one, and the `◆ Conductor` tab at the head of the same row is
  *  deselected. Spelling that at each call site is how the row comes to have two
  *  selected entries — a chip picked while the conversation is on screen would
  *  switch the canvas underneath and leave the chat covering it.

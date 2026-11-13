@@ -1,7 +1,7 @@
 Feature: The Conductor
   ONE ACP conversation for the whole fleet — hosted by kolu-server, not by any
-  one host's padi — reached from its own `◆ Conductor` entry in the chrome
-  tab row, beside the host tabs and deliberately not one of them. Every
+  one host's padi — reached from its own `◆ Conductor` tab, first in the chrome
+  bar's tab row, drawn like the host tabs and deliberately not one of them. Every
   scenario runs against a scripted ACP adapter the harness points
   `KOLU_ACP_AGENT` at, so the frames the panel draws are frames a real agent
   could have sent — not a stubbed store.
@@ -62,6 +62,29 @@ Feature: The Conductor
     When I press the conductor shortcut
     Then the conductor pane should not be visible
     And the active host tab should be the one I noted
+    And there should be no page errors
+
+  Scenario: The Conductor is the first tab, and the only one lit while you are in it
+    # A place you go is a tab, so the conversation is one: FIRST in the row,
+    # before the hosts. Exactly one tab looks current — in the conversation no
+    # host tab is lit, and the controls that describe a host's canvas (the
+    # posture control, the dock and inspector toggles) are not drawn, because
+    # there is no canvas on screen for them to describe. Back on the host, both
+    # return.
+    When I press Escape
+    Then the conductor pane should not be visible
+    When I create a terminal
+    Then the conductor tab should come first in the tab row
+    And exactly one host tab should look current
+    And the host view controls should be shown
+    When I press the conductor shortcut
+    Then the conductor tab should be active
+    And no host tab should look current
+    And the host view controls should not be shown
+    When I press the conductor shortcut
+    Then the conductor pane should not be visible
+    And exactly one host tab should look current
+    And the host view controls should be shown
     And there should be no page errors
 
   Scenario: A prompt round trip draws the agent's answer
@@ -266,9 +289,9 @@ Feature: The Conductor
     # `packages/client/src/host/hostOverflow.test.ts`, against the same pure
     # function the strip calls with real measured widths. What IS proved here
     # is the arithmetic's INPUT: the strip's measured width is the row's true
-    # leftover after the identity rail, the `◆ Conductor alpha` pill and the
-    # control cluster have taken theirs, which is the premise that fold rests
-    # on and the one a second entry in the row could silently break.
+    # leftover after the identity rail, the `◆ Conductor alpha` tab ahead of
+    # it and the control cluster have taken theirs, which is the premise that
+    # fold rests on and the one a new member of the row could silently break.
     When I resize the viewport to 1024x768
     Then that tool card should keep the payload inside it
     And the page should be no wider than the window

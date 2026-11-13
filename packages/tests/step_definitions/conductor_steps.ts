@@ -7,9 +7,9 @@
  *  Nothing here stubs a store, so a step that passes is evidence about the
  *  wire and not about a value somebody put in a signal.
  *
- *  The conversation is reached from its own entry in the chrome tab row — the
- *  `◆ Conductor` pill — never from the view-mode control, which carries
- *  `▦ canvas · ▢ maximized` for host tabs and nothing else.
+ *  The conversation is reached from its own tab — the `◆ Conductor` tab, first
+ *  in the chrome bar's tab row — never from the view-mode control, which
+ *  carries `▦ canvas · ▢ maximized` for host tabs and nothing else.
  */
 
 import assert from "node:assert";
@@ -18,8 +18,8 @@ import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 const PANE = '[data-testid="conductor-pane"]';
-/** The conversation's OWN entry in the tab row — not a host tab, and not a
- *  segment of the mode control (which no longer has one). */
+/** The conversation's OWN tab, first in the tab row — not a host tab, and not
+ *  a segment of the mode control (which no longer has one). */
 const TAB = '[data-testid="conductor-tab"]';
 const BADGE = `${TAB} [data-testid="conductor-badge"]`;
 const CHIP = '[data-testid="conductor-phase"]';
@@ -365,6 +365,111 @@ Then("no host tab should be the conductor", async function (this: KoluWorld) {
     }
   }
 });
+
+/** How many host tabs are drawn as the CURRENT one — the lit class and the
+ *  `aria-selected` a tab list reads out — across both layouts the strip can
+ *  mount (the chip row, and the narrow range's one-tab switcher). The two must
+ *  agree, so both are counted and the step fails if they do not. The strip's
+ *  hidden measuring twins are `visibility: hidden`, which the visibility check
+ *  is told to honour. */
+async function currentHostTabs(world: KoluWorld): Promise<number> {
+  // One query per fact, each its own browser-side evaluation: a NAMED helper
+  // inside the callback is rewritten by the step loader into a `__name` call
+  // the page has never heard of.
+  const shown = (selector: string) =>
+    world.page
+      .locator(`[data-testid="host-selector-strip"] ${selector}`)
+      .evaluateAll(
+        (all) =>
+          all.filter((el) => el.checkVisibility({ visibilityProperty: true }))
+            .length,
+      );
+  const counts = {
+    lit: await shown(".host-tab-active"),
+    selected: await shown('[role="tab"][aria-selected="true"]'),
+  };
+  assert.ok(
+    counts.lit === counts.selected,
+    `host tabs disagree about which is current: ${JSON.stringify(counts)}`,
+  );
+  return counts.lit;
+}
+
+Then("no host tab should look current", async function (this: KoluWorld) {
+  await waitForValue(
+    "host tabs drawn as current",
+    async () => String(await currentHostTabs(this)),
+    "0",
+  );
+});
+
+Then(
+  "exactly one host tab should look current",
+  async function (this: KoluWorld) {
+    await waitForValue(
+      "host tabs drawn as current",
+      async () => String(await currentHostTabs(this)),
+      "1",
+    );
+  },
+);
+
+Then(
+  "the conductor tab should come first in the tab row",
+  async function (this: KoluWorld) {
+    // By where it is DRAWN, not by markup order: the claim a person checks is
+    // that the tab sits before the hosts, on the same floor as them.
+    const tab = await this.page.locator(TAB).boundingBox();
+    const first = await this.page.locator(HOST_TAB).first().boundingBox();
+    assert.ok(tab !== null && first !== null, "a tab is not on screen");
+    assert.ok(
+      tab.x + tab.width <= first.x,
+      `the conductor tab ends at x=${tab.x + tab.width}, after the first host tab starts at x=${first.x}`,
+    );
+    assert.ok(
+      Math.abs(tab.y + tab.height - (first.y + first.height)) <= 1,
+      `the conductor tab's floor (y=${tab.y + tab.height}) is not the host tabs' (y=${first.y + first.height})`,
+    );
+  },
+);
+
+/** The chrome-bar controls that describe a HOST's canvas. */
+const HOST_VIEW_CONTROLS = ["mode-control", "dock-toggle", "inspector-toggle"];
+
+async function shownHostViewControls(world: KoluWorld): Promise<string[]> {
+  const shown: string[] = [];
+  for (const id of HOST_VIEW_CONTROLS) {
+    if (
+      await world.page
+        .locator(`${CHROME_BAR} [data-testid="${id}"]`)
+        .isVisible()
+    )
+      shown.push(id);
+  }
+  return shown;
+}
+
+Then(
+  "the host view controls should be shown",
+  async function (this: KoluWorld) {
+    await waitForValue(
+      "host view controls shown",
+      async () => (await shownHostViewControls(this)).join(","),
+      HOST_VIEW_CONTROLS.join(","),
+    );
+  },
+);
+
+Then(
+  "the host view controls should not be shown",
+  async function (this: KoluWorld) {
+    await waitForValue(
+      "host view controls shown",
+      async () => (await shownHostViewControls(this)).join(","),
+      "",
+    );
+  },
+);
 
 Then(
   "the conductor tab should show a badge of {int}",
@@ -783,13 +888,13 @@ Then(
 
 /** THE CHROME BAR'S OWN ARITHMETIC, measured. The row is a flex line whose
  *  only shrinkable member is the host strip; everything else — the identity
- *  rail, the `◆ Conductor alpha` pill, the control cluster — is `shrink-0`. So
- *  two facts matter and this step pins both: the row FITS the window, and the
- *  strip's own measured width (the budget `computeVisibleHosts` folds tabs
- *  against) is exactly what is LEFT once the others have taken theirs. The
- *  second is the premise the fold rests on — a conductor entry that stopped
+ *  rail, the `◆ Conductor alpha` tab ahead of the strip, the control cluster —
+ *  is `shrink-0`. So two facts matter and this step pins both: the row FITS the
+ *  window, and the strip's own measured width (the budget `computeVisibleHosts`
+ *  folds tabs against) is exactly what is LEFT once the others have taken
+ *  theirs. The second is the premise the fold rests on — a member that stopped
  *  being counted would make the strip claim room it does not have and the
- *  tabs would collide with the pill instead of folding. */
+ *  tabs would run into it instead of folding. */
 Then("the chrome bar should fit the window", async function (this: KoluWorld) {
   const bar = await this.page.locator(CHROME_BAR).evaluate((el) => {
     const style = getComputedStyle(el);

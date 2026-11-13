@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 /**
- * The tab row has two halves — the host tabs and the one conductor entry —
+ * The tab row has two halves — the conductor's tab first, then the host tabs —
  * and this pins the trip between them.
  *
  * `⌘⇧O` is a ROUND TRIP: it shows the conversation and the next press puts you

@@ -1,12 +1,12 @@
 /** ChromeBar — the always-visible workspace chrome band.
  *
- *  Left → right: quiet Kolu mark, host tab strip (primary multi-host
- *  nav; Padi/Kaval dual marks ride each host tab), the `◆ Conductor`
- *  entry that closes that row (same row, not a host tab — see
- *  `ConductorTab`), global control cluster (recorder, view mode,
- *  dock, inspector, settings, command palette).
- *  The live-terminal navigator lives on the dock at the canvas's left edge
- *  (#903) — not here.
+ *  Left → right: quiet Kolu mark, the TAB ROW — the `◆ Conductor` tab first
+ *  (the conversation is a place, drawn as a tab; see `ConductorTab`), then the
+ *  host tab strip (primary multi-host nav; Padi/Kaval dual marks ride each
+ *  host tab) — and the global control cluster (recorder, view mode, dock,
+ *  inspector, settings, command palette). Exactly one tab in that row looks
+ *  current. The live-terminal navigator lives on the dock at the canvas's left
+ *  edge (#903) — not here.
  *
  *  A single DOCKED full-width top bar in BOTH postures (tiled + maximized):
  *  `relative shrink-0` in flex flow, spanning the whole viewport, so the
@@ -18,12 +18,14 @@
  *  `posture.layout()` no longer changes the bar's positioning; it only drives
  *  the `data-maximized` marker. The maximize/restore affordance is one segment
  *  of the two-way `ModeControl` (canvas · maximized), which describes the HOST
- *  TAB underneath and nothing else.
+ *  TAB underneath and nothing else — so it, and the dock and inspector toggles
+ *  that describe the same host tab, are not drawn while the Conductor is the
+ *  current place. Their keyboard shortcuts are unchanged.
  *
  *  Mobile uses a different chrome surface — a pull-down sheet — see
  *  `MobileChromeSheet` and `MobileTileView`. */
 
-import { type Component, createMemo } from "solid-js";
+import { type Component, createMemo, Show } from "solid-js";
 import { dockExpanded, toggleRailCards } from "./canvas/dock/Dock";
 import { useViewPosture } from "./canvas/useViewPosture";
 import HostSelectorStrip from "./host/HostSelectorStrip";
@@ -31,6 +33,7 @@ import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import ModeControl from "./conductor/ModeControl";
 import ConductorTab from "./conductor/ConductorTab";
+import { conductorMode } from "./conductor/useConductorMode";
 import RecordButton from "./recorder/RecordButton";
 import { useRightPanel } from "./right-panel/useRightPanel";
 import type { WsStatus } from "./rpc/rpc";
@@ -83,19 +86,18 @@ const ChromeBar: Component<{
         <IdentityRail status={props.status} />
       </div>
 
+      {/* The conversation's tab — FIRST in the tab row, the host tabs' shape,
+       *  on the same rail floor (`items-end`), and a `shrink-0` sibling of the
+       *  strip: the strip's own width is then the row's leftover, which is
+       *  the budget its tabs fold against, with nothing to reserve for it. */}
+      <div class="flex shrink-0 items-end pointer-events-none">
+        <ConductorTab />
+      </div>
+
       {/* Host tab bar — Home/hostname + connection pip (+ awaiting). Padi/Kaval
        *  live in the host diagnostics popover (click the status pip). */}
       <div class="flex-1 min-w-0 flex items-end pointer-events-none">
         <HostSelectorStrip />
-      </div>
-
-      {/* The one special destination in the tab row — pinned at its end, where
-       *  the host tabs stop. It is CENTRED in the full header exactly as the
-       *  control cluster below is (`-mt-2 h-10`), not riding the tab baseline:
-       *  it is a pill beside the posture control, and a pill four pixels lower
-       *  than its neighbour reads as something somebody forgot to align. */}
-      <div class="-mt-2 flex h-10 shrink-0 items-center">
-        <ConductorTab />
       </div>
 
       {/* Control cluster: recorder → view mode → dock → inspector → settings
@@ -109,52 +111,56 @@ const ChromeBar: Component<{
        *  The lone maximize toggle became the two-way `ModeControl`: canvas and
        *  maximized are mutually exclusive views of the host tab underneath,
        *  and two separate toggles would let a person spell a state the layout
-       *  does not have. */}
+       *  does not have. It, the dock and the inspector toggle are about that
+       *  host tab, so the Conductor does not draw them — pressing one there
+       *  used to throw you out of the conversation. */}
       <div class="-mt-2 flex h-10 items-center gap-2 shrink-0">
         <RecordButton />
-        <ModeControl />
-        <Tip
-          label={`Toggle dock (${formatKeybind(ACTIONS.toggleDock.keybind)})`}
-        >
-          <button
-            type="button"
-            data-testid="dock-toggle"
-            class={toggleBtnClass}
-            classList={{
-              "bg-surface-2 text-fg": dockExpanded(),
-              "text-fg-3 hover:bg-surface-2 hover:text-fg": !dockExpanded(),
-            }}
-            data-active={dockExpanded() ? "" : undefined}
-            onClick={toggleRailCards}
-            aria-label="Toggle dock"
+        <Show when={!conductorMode()}>
+          <ModeControl />
+          <Tip
+            label={`Toggle dock (${formatKeybind(ACTIONS.toggleDock.keybind)})`}
           >
-            <DockToggleIcon active={dockExpanded()} />
-          </button>
-        </Tip>
-        <Tip
-          label={`${ACTIONS.toggleRightPanel.label} (${formatKeybind(ACTIONS.toggleRightPanel.keybind)})`}
-        >
-          <button
-            type="button"
-            data-testid="inspector-toggle"
-            class={toggleBtnClass}
-            classList={{
-              "bg-surface-2 text-fg": rightPanel.panelOpen(),
-              "text-fg-3 hover:bg-surface-2 hover:text-fg":
-                rightPanel.hasTerminals() && !rightPanel.panelOpen(),
-              "text-fg-3/40 cursor-not-allowed": !rightPanel.hasTerminals(),
-            }}
-            data-active={rightPanel.panelOpen() ? "" : undefined}
-            // Dead on an empty workspace: there's no panel to reveal, so the
-            // toggle joins the maximize button in being disabled until a
-            // terminal exists (the keybind/palette no-op via togglePanel too).
-            disabled={!rightPanel.hasTerminals()}
-            onClick={() => rightPanel.togglePanel()}
-            aria-label={ACTIONS.toggleRightPanel.label}
+            <button
+              type="button"
+              data-testid="dock-toggle"
+              class={toggleBtnClass}
+              classList={{
+                "bg-surface-2 text-fg": dockExpanded(),
+                "text-fg-3 hover:bg-surface-2 hover:text-fg": !dockExpanded(),
+              }}
+              data-active={dockExpanded() ? "" : undefined}
+              onClick={toggleRailCards}
+              aria-label="Toggle dock"
+            >
+              <DockToggleIcon active={dockExpanded()} />
+            </button>
+          </Tip>
+          <Tip
+            label={`${ACTIONS.toggleRightPanel.label} (${formatKeybind(ACTIONS.toggleRightPanel.keybind)})`}
           >
-            <InspectorToggleIcon active={rightPanel.panelOpen()} />
-          </button>
-        </Tip>
+            <button
+              type="button"
+              data-testid="inspector-toggle"
+              class={toggleBtnClass}
+              classList={{
+                "bg-surface-2 text-fg": rightPanel.panelOpen(),
+                "text-fg-3 hover:bg-surface-2 hover:text-fg":
+                  rightPanel.hasTerminals() && !rightPanel.panelOpen(),
+                "text-fg-3/40 cursor-not-allowed": !rightPanel.hasTerminals(),
+              }}
+              data-active={rightPanel.panelOpen() ? "" : undefined}
+              // Dead on an empty workspace: there's no panel to reveal, so the
+              // toggle joins the maximize button in being disabled until a
+              // terminal exists (the keybind/palette no-op via togglePanel too).
+              disabled={!rightPanel.hasTerminals()}
+              onClick={() => rightPanel.togglePanel()}
+              aria-label={ACTIONS.toggleRightPanel.label}
+            >
+              <InspectorToggleIcon active={rightPanel.panelOpen()} />
+            </button>
+          </Tip>
+        </Show>
         <div class="pointer-events-auto">
           <Tip label="Settings">
             <button
