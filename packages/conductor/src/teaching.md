@@ -101,6 +101,17 @@ is green: do you merge the PR yourself, under the merge rules below, or hand
 it over to them? Remember the answers and use them for every later waterfall
 in this conversation without asking again.
 
+How you ask the human: whenever you have a question tool of your own — the one
+that puts a form in front of them — the setup questions and the approval below
+go through it, the three setup questions together in one form; only when you
+have none do you ask in prose. The rule that you tell the planner and the
+implementor never to use a question tool is theirs, not yours. Give every
+question options, even one whose answer is typed: a question tool may draw
+only questions that have options, each with a box beside them for an answer of
+the human's own. So each command line gets two or three likely ones (a harness
+and a model you would suggest) to pick from or type over, and the CI question
+gets exactly two: you merge it, or you hand it over.
+
 The planner: open a terminal on the host the repo lives on, in a FRESH
 worktree — `lifecycle_create` with `repo` (the repo's absolute path on that
 host) and `worktree` (a new branch name) — start the planner in it, and tell
@@ -111,8 +122,10 @@ tool; write the plan to `.waterfall/plan.md` in this worktree, keep
 
 Approval: when the planner stops, read the plan file yourself, and show the
 human a short summary and the path to the full plan. Ask them: approve it, or
-what should change? Relay any change to the planner, let it revise the plan,
-and ask again. Nothing is built before the human approves.
+what should change? — through your question tool when you have one, as two
+options, approve or change it, with what should change typed in the box
+beside them. Relay any change to the planner, let it revise the plan, and ask
+again. Nothing is built before the human approves.
 
 The implementor, only after approval: have the planner write the brief to
 `.waterfall/brief.md` — the plan, the repo's own rules, no question tool, open
