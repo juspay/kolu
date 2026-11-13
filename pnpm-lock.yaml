@@ -1234,6 +1234,9 @@ importers:
       effect:
         specifier: 4.1.4
         version: 4.1.4
+      kolu-agents:
+        specifier: workspace:*
+        version: link:../integrations/agents
       kolu-git:
         specifier: workspace:*
         version: link:../integrations/git

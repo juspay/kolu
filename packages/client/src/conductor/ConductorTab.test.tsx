@@ -59,19 +59,21 @@ const entryOf = (el: HTMLElement): HTMLElement => {
 describe("the conductor's tab", () => {
   it("is present, and wears none of a host's marks", () => {
     const entry = entryOf(mount());
-    // The mark is its own element (it carries the accent), so the gap between
-    // it and the word is the tab's flex gap rather than a space in the text —
-    // assert the two parts, not the concatenation.
+    // The mark is its own element (it inherits the tab's ink), so the gap
+    // between it and the word is the tab's flex gap rather than a space in the
+    // text — assert the two parts, not the concatenation.
     expect(entry.textContent).toContain("◆");
     expect(entry.textContent).toContain("Conductor");
     // Not a host: no key to address it by, and nothing a host-switcher data
     // model could pick it up as.
     expect(entry.dataset.host).toBeUndefined();
-    // No connection dot, and the accent where a host's own hue would be.
+    // No connection dot — and no inline `--host-hue` either: the tab's own
+    // colour is a THEME TOKEN carried by `.conductor-tab` (index.css), which
+    // is what keeps a raw hex off the only tab in the row that is not a
+    // machine.
     expect(root?.querySelector('[data-testid="host-status-pip"]')).toBeNull();
-    expect(entry.style.getPropertyValue("--host-hue")).toBe(
-      "var(--color-accent)",
-    );
+    expect(entry.style.getPropertyValue("--host-hue")).toBe("");
+    expect(entry.className).toContain("conductor-tab");
   });
 
   it("enters the conversation, says it is the current place, and stays there on a second press", () => {

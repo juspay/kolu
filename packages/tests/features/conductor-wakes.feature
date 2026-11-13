@@ -1,0 +1,92 @@
+Feature: The Conductor never blocks
+  The Conductor does not sit in a wait while its agents work. It says what it
+  is watching and ends its turn; kolu-server starts the next turn ITSELF when a
+  watched terminal's agent stops, asks something, or the terminal dies. A wake
+  that rings while the Conductor is busy is HELD and arrives when the turn
+  ends. Every scenario runs against the scripted ACP adapter the harness points
+  `KOLU_ACP_AGENT` at, and the terminals' agent states come from the same
+  mocked Claude Code session files the agent-detection scenarios use — so the
+  wake travels padi's urgency fold, kolu-server's watcher and the ACP wire
+  exactly as a real one would.
+
+  Background:
+    Given the terminal is ready
+    And the conductor is on a fresh conversation
+
+  Scenario: A watched terminal whose agent asks wakes the idle Conductor
+    # The wake is a MACHINE'S line: full width, one line saying who speaks,
+    # and the whole account behind a disclosure. The agent answers it, which
+    # is the proof the turn kolu started is a real turn.
+    When I create a terminal
+    And a Claude Code session is mocked with state "thinking"
+    And I ask the conductor to watch the terminal
+    Then the conductor status should say it is watching 1
+    When the Claude Code session state changes to "awaiting_user"
+    Then the conductor transcript should show a wake about the watched terminal
+    And the wake should be one line from kolu
+    When I open the wake
+    Then the wake should give the whole account of the watched terminal
+    And the conductor transcript should show a row of kind "agent" saying "woke"
+    And there should be no page errors
+
+  Scenario: A wake that rings while the Conductor works waits for the turn to end
+    # HELD, never injected: the count on the status line says it is waiting,
+    # nothing lands in the transcript while the turn runs, and it arrives on
+    # its own the moment the turn ends.
+    When I create a terminal
+    And a Claude Code session is mocked with state "thinking"
+    And I ask the conductor to watch the terminal
+    Then the conductor status should say it is watching 1
+    When I send the conductor the prompt "work for a while"
+    Then the conductor state chip should read "working"
+    When the Claude Code session state changes to "awaiting_user"
+    Then the conductor status should say 1 waiting
+    And the conductor transcript should show no wake
+    And the conductor transcript should show a wake about the watched terminal
+    And the conductor status should say nothing is waiting
+    And there should be no page errors
+
+  Scenario: The watched terminals are listed, looked at, and let go
+    # The marker is COMPUTED by the shell so the command line's echo cannot
+    # satisfy the Look: only the terminal's own screen can.
+    When I create a terminal
+    And I run "echo kolu-watch-$((6*7))"
+    And a Claude Code session is mocked with state "thinking"
+    And I ask the conductor to watch the terminal
+    Then the conductor status should say it is watching 1
+    When I open the watched terminals
+    Then the watched panel should list the watched terminal
+    When I look at the watched terminal
+    Then the watched terminal's look should show "kolu-watch-42"
+    When I stop watching the watched terminal
+    Then the conductor status should say it is watching 0
+    And there should be no page errors
+
+  Scenario: Alt+Enter steers a message into the turn that is running
+    # Enter would queue it behind the turn; Alt+Enter puts it INTO the turn.
+    # The fixture says what it heard mid-turn, and the row is never queued.
+    When I enter conductor mode
+    And I send the conductor the prompt "work until steered"
+    Then the conductor should offer to steer
+    When I steer the conductor with "not that file"
+    Then the conductor transcript should show a row of kind "agent" saying "heard: not that file"
+    And the conductor transcript should mark no user row "queued"
+    And there should be no page errors
+
+  Scenario: The status line says what the Conductor is doing, in one place
+    When I enter conductor mode
+    And I send the conductor the prompt "work for a while"
+    Then the conductor state chip should read "working"
+    And the conductor status should count how long it has been working
+    And the conductor header should carry no state chip
+    And there should be no page errors
+
+  @mobile
+  Scenario: The status line and the watched panel fit a phone
+    # The phone's terminal is a plain shell: watching one is allowed (it stays
+    # listed, and never rings), which is all this layout check needs.
+    When I ask the conductor to watch the first terminal
+    Then the conductor status should say it is watching 1
+    When I open the watched terminals
+    Then the watched panel should list the watched terminal
+    And nothing on screen should reach past the window's right edge

@@ -146,6 +146,9 @@ const prompts: Array<string> = [];
  *  image arrived as an `image` block with its base64 intact is a question only
  *  the process at the other end of the pipe can answer. */
 const blocks: Array<unknown> = [];
+/** ... and the words STEERED into a running turn, in order — the only record
+ *  that a steer really landed, since nothing else about it reaches a reader. */
+const steered: Array<string> = [];
 
 /** The turn whose prompt is still unanswered, so a cancel can end it. */
 let openTurn: unknown = null;
@@ -448,7 +451,17 @@ function handle(message: Message): void {
           // the pinned adapter advertises. A client may send an `image` block
           // or embed a file's text only because of this line.
           promptCapabilities: { image: true, embeddedContext: true },
+          // ... and what this agent does with a prompt sent while it is BUSY:
+          // it holds it behind the turn it is working on, which is the claim
+          // the pinned adapter makes in its own corner of `_meta` and the one
+          // `queued` is a promise about.
+          _meta: { claudeCode: { promptQueueing: true } },
         },
+        // STEERING IS ADVERTISED HERE, beside `agentCapabilities` rather than
+        // inside it, which is where the steering extension's contract puts it
+        // and where a leg reads it. Without this line the harness would offer
+        // no interruption at all and the steer lane would be unreachable.
+        _meta: { steering: { supported: true } },
         authMethods: [
           { id: "subscription", name: "Claude subscription", type: "terminal" },
         ],
@@ -600,14 +613,38 @@ function handle(message: Message): void {
       respond(message.id, {});
       return;
     case "session/cancel":
+      // A CANCEL ENDS WHATEVER IS RUNNING, which is what makes the steer's
+      // hardest case reachable: a turn a person stopped answers a steer aimed
+      // at it the same way a turn that merely finished does.
       if (openTurn !== null) {
         finish(openTurn, "cancelled");
         openTurn = null;
+        return;
+      }
+      if (slowTurn !== null) {
+        const held = slowTurn;
+        slowTurn = null;
+        finish(held, "cancelled");
       }
       return;
     case "session/prompt":
       enqueue(message);
       return;
+    case "_session/steering": {
+      // THE EXTENSION, as the pinned adapter behaves: words go INTO the turn
+      // that is running, and when nothing is running they come BACK for the
+      // client to send itself — which is the `idleBehavior: "promptRequired"`
+      // kolu asks for on every steer, and the only answer a client that owns
+      // its own turns can use.
+      if (!busy) {
+        respond(message.id, { outcome: "promptRequired" });
+        return;
+      }
+      const first = message.params?.prompt?.[0];
+      steered.push(typeof first?.text === "string" ? first.text : "");
+      respond(message.id, { outcome: "injected" });
+      return;
+    }
 
     default:
       // A response to a request WE made — the elicitation. Nothing to do: the
@@ -725,6 +762,14 @@ function turn(message: Message): void {
       params: { model: "claude-fable-5-2" },
     });
     says("recorded");
+    finish(message.id, "end_turn");
+    return;
+  }
+  if (text === "steered") {
+    // Every body this process was handed through `_session/steering`, whole
+    // and in order — the only place a steer that LANDED is visible, since a
+    // taken steer sends nothing back down the session stream.
+    says(JSON.stringify(steered));
     finish(message.id, "end_turn");
     return;
   }

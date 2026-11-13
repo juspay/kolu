@@ -369,6 +369,41 @@ describe("foldToolRuns", () => {
     expect(settled).toBe(working);
     expect(spoken).toBe(working);
   });
+
+  it("never folds across a wake — the machine's line STARTS a turn", () => {
+    // The calls before the wake belong to the work that was running when the
+    // terminal rang; folding across it would put the answer to the wake in the
+    // same closed Details as whatever came before it.
+    const wake = (id: string, seq: number): ConductorRow => ({
+      id,
+      seq,
+      since: SINCE,
+      kind: "wake",
+      from: "kolu",
+      events: [
+        {
+          ref: `local/${TERMINAL}`,
+          host: "local",
+          terminalId: TERMINAL as never,
+          hostName: "local",
+          name: "planner",
+          agent: "claude-code",
+          level: "stopped",
+          at: SINCE,
+        },
+      ],
+      text: "planner stopped",
+    });
+    expect(
+      drawn([
+        agentRow("a", 1, "Watching."),
+        tool("t1", 2),
+        wake("w", 3),
+        tool("t2", 4),
+        agentRow("b", 5, "Done."),
+      ]),
+    ).toEqual(["a", ["t1"], "w", ["t2"], "b"]);
+  });
 });
 
 describe("foldFailureRuns", () => {

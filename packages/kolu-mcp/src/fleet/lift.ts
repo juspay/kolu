@@ -28,43 +28,43 @@
  * `local/3f1c…` and comes back as a terminal that does not exist, which is
  * precisely the failure a table of the id fields exists to make visible.
  *
- * The two WATCH tools are not in the table, because they are not mechanical:
- * one subscription spans every host and its cursor belongs to the fleet. They
- * are built here over `./watch.ts`, which owns that merge.
+ * **The fleet face is a SUBSET, and that is the point.** The stdio `kolu mcp`
+ * face serves every verb it ever did; the table below is what the CONDUCTOR
+ * gets, and three things are deliberately absent from it:
+ * `wait_agentState`, `watch_open`/`watch_next` — every one of them a wait with
+ * no end. The conductor's whole discipline is to say what it watches and END
+ * its turn, and a tool that blocks is how a script drifts back into holding a
+ * conversation open for twenty minutes while a human's words sit queued behind
+ * it. `wait_outputSettled` survives because the settle between typing and
+ * Enter is genuinely needed — hard-capped at {@link FLEET_SETTLE_CAP_MS}, as a
+ * schema check so the REFUSAL teaches the cap rather than a silent clamp
+ * pretending the call was honoured.
+ *
+ * In their place the fleet face adds the two tools that move the watch list
+ * (`./watchList.ts`), and `lifecycle_create` watches what it creates: the
+ * conductor does not have to ask for news about a worker it just started, and
+ * a create whose watch the agent forgot is a worker nobody is listening to.
  */
 
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import { PLACEMENT_REQUIRED } from "@kolu/padi-client/surface";
-import { waitOutcomeJson } from "@kolu/surface/wait";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
-import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
 import { CreateArgsSchema } from "../create.ts";
+import { AgentSayArgsSchema } from "../say.ts";
 import { ScreenImageArgsSchema } from "../screenImage.ts";
 import { ScreenTextArgsSchema } from "../screenText.ts";
 import { SendInputArgsSchema } from "../sendInput.ts";
 import { KOLU_MCP_TOOLS } from "../tools.ts";
-import {
-  WaitAgentStateArgsSchema,
-  WaitOutputSettledArgsSchema,
-} from "../wait.ts";
-import { WatchNextArgsSchema } from "../watchNext.ts";
-import {
-  type ParsedWatchOpen,
-  resolveWatchOpenInput,
-  type WatchOpenArgs,
-  WatchOpenArgsSchema,
-} from "../watchOpen.ts";
+import { MillisecondsSchema, WaitOutputSettledArgsSchema } from "../wait.ts";
 import { type FleetHosts, requireHost, requireTerminal } from "./hosts.ts";
 import { fleetTerminalRef, splitFleetTerminalRef } from "./ref.ts";
 import { FleetHostKeySchema, FleetTerminalRefSchema } from "./refSchema.ts";
 import {
-  type FleetWatchGap,
-  type FleetWatchMet,
-  type FleetWatchRegistry,
-  fleetWatchNext,
-  fleetWatchOpen,
-} from "./watch.ts";
+  type FleetWatchList,
+  unwatchTerminalTool,
+  watchTerminalTool,
+} from "./watchList.ts";
 
 /** What every lifted description gains. ONE sentence, appended rather than
  *  woven in: the per-host blurbs are written and pinned where they are, and a
@@ -72,6 +72,26 @@ import {
  *  prose. */
 const FLEET_NOTE =
   "On this face a terminal is addressed as <host>/<id> — the host key from the `hosts` resource, a slash, and the terminal id.";
+
+/** The hard ceiling on the one wait this face still serves, in milliseconds.
+ *
+ *  Three seconds, because of what the wait is FOR: a TUI's paste debounce
+ *  between typing text and pressing Enter, which is tens of milliseconds of
+ *  redraw. Anything longer is somebody waiting on an AGENT — the exact move
+ *  this face exists to make impossible, since the conductor's turn is a
+ *  conversation a human may be trying to speak into. A worker's news arrives
+ *  by WAKE now, not by a wait held open here. */
+export const FLEET_SETTLE_CAP_MS = 3_000;
+
+/** The cap, as the decoder's own rule: the shared positive-integer
+ *  milliseconds field with {@link FLEET_SETTLE_CAP_MS} as a second check, so an
+ *  over-long value is REFUSED with the bound in the message before any
+ *  subscription opens. Both millisecond fields of `wait_outputSettled` are
+ *  spelled with it below. */
+const cappedMs = (description: string): Schema.Number =>
+  MillisecondsSchema(description).check(
+    Schema.isLessThanOrEqualTo(FLEET_SETTLE_CAP_MS),
+  );
 
 /** padi's placement sum, with the parent at a fleet reference. The arms and the
  *  refusal sentence are padi's own; only the id type moves, which is the whole
@@ -110,6 +130,12 @@ interface FleetLift {
    *  agent on this face to wake an id no tool here accepts, so that path is
    *  listed too and the prose is rewritten beside it. */
   readonly refusals: readonly string[];
+  /** An ANSWER path whose fleet reference is added to the conductor's watch
+   *  list once the call succeeds. Only `lifecycle_create` has one, and it is
+   *  stated as a row of this table rather than buried in that tool's wrapper
+   *  because it is the same kind of fact as the others here: where in an
+   *  answer a terminal reference lives. */
+  readonly watches?: string;
 }
 
 /** THE id grammar of the fleet face, in one place. Each input is the per-host
@@ -130,6 +156,17 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     refs: ["placement.parentId"],
     answers: ["id"],
     refusals: ["landed.id", "id"],
+    watches: "id",
+  },
+  agent_say: {
+    input: Schema.Struct({
+      ...AgentSayArgsSchema.fields,
+      id: FleetTerminalRefSchema,
+    }),
+    from: { ref: "id" },
+    refs: [],
+    answers: [],
+    refusals: ["id"],
   },
   lifecycle_sendInput: {
     input: Schema.Struct({
@@ -162,19 +199,24 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     refusals: ["id"],
   },
   wait_outputSettled: {
+    // The ONE wait the conductor keeps, and it is re-typed rather than spread
+    // whole: both millisecond fields are capped at {@link FLEET_SETTLE_CAP_MS}
+    // by a SCHEMA check, so an over-long value is refused with the bound in the
+    // message and the cap is in the tool's advertised description. A clamp
+    // would have answered "met" after three seconds to a caller that believed
+    // it had waited ten minutes — the same lie as a blocking tool, told
+    // quietly.
     input: Schema.Struct({
       ...WaitOutputSettledArgsSchema.fields,
       id: FleetTerminalRefSchema,
-    }),
-    from: { ref: "id" },
-    refs: [],
-    answers: ["id"],
-    refusals: ["id"],
-  },
-  wait_agentState: {
-    input: Schema.Struct({
-      ...WaitAgentStateArgsSchema.fields,
-      id: FleetTerminalRefSchema,
+      idleMs: cappedMs(
+        `Resolve once no output has arrived for this many milliseconds — the settle between typing and submitting (e.g. 800). At most ${FLEET_SETTLE_CAP_MS} on this face.`,
+      ),
+      timeoutMs: Schema.optionalKey(
+        cappedMs(
+          `Give up after this many milliseconds (result: "timeout"). At most ${FLEET_SETTLE_CAP_MS} on this face, and that is also the default ceiling: this tool is the short settle before a keystroke, never a way to wait on an agent.`,
+        ),
+      ),
     }),
     from: { ref: "id" },
     refs: [],
@@ -332,6 +374,7 @@ function requalifyRefusal(
 /** One per-host tool, over the fleet. */
 function lifted(
   hosts: FleetHosts,
+  watchList: FleetWatchList,
   tool: BespokeTool,
   lift: FleetLift,
 ): BespokeTool {
@@ -350,7 +393,24 @@ function lifted(
               // the same degenerate bundle `kolu mcp` dials, so the handler
               // cannot tell which face invoked it.
               tool.handler(call.bare, { core: call.padi }, signal),
-              (answer) => requalify(answer, lift.answers, call.host),
+              (answer) => {
+                const lifted = requalify(answer, lift.answers, call.host);
+                // AFTER the re-qualification, so the watch list holds the
+                // reference the agent was given back — a bare id there would be
+                // a watch on a terminal no other tool on this face can name.
+                if (
+                  lift.watches !== undefined &&
+                  lifted !== null &&
+                  typeof lifted === "object"
+                ) {
+                  const ref = atPath(
+                    lifted as Record<string, unknown>,
+                    lift.watches,
+                  );
+                  if (typeof ref === "string") watchList.watch(ref);
+                }
+                return lifted;
+              },
             ),
             (error: unknown) =>
               requalifyRefusal(error, lift.refusals, call.host),
@@ -359,187 +419,35 @@ function lifted(
   };
 }
 
-/** Group fleet references by the host that owns them. */
-function byHost(
-  refs: readonly string[] | undefined,
-): Effect.Effect<Map<string, TerminalId[]> | undefined, ToolFailure> {
-  if (refs === undefined) return Effect.succeed(undefined);
-  const grouped = new Map<string, TerminalId[]>();
-  for (const ref of refs) {
-    const split = splitFleetTerminalRef(ref);
-    if (split === null) {
-      return Effect.fail(
-        new ToolFailure(
-          `${JSON.stringify(ref)} is not a fleet terminal reference (<host>/<id>).`,
-          { kind: "not-a-fleet-ref", ref },
-        ),
-      );
-    }
-    grouped.set(split.host, [...(grouped.get(split.host) ?? []), split.id]);
-  }
-  // An explicit EMPTY list stays an empty GROUPING rather than collapsing to
-  // "no ids given": `ids: []` is a scope refusal the per-host resolver has its
-  // own words for, and turning it into "watch the whole fleet" would answer a
-  // caller's mistake with the widest possible subscription.
-  return Effect.succeed(grouped);
-}
+/** The two fleet-ONLY tool names — the ones that are not a lift of anything the
+ *  stdio face serves, because the watch list they move is the conductor's and
+ *  exists nowhere else. Named beside the lift table so
+ *  {@link KOLU_FLEET_TOOL_NAMES} can be read without building a face. */
+const FLEET_ONLY_TOOLS = ["watch_terminal", "unwatch_terminal"] as const;
 
-/** `watch_open`, over the fleet.
+/** EVERY bespoke tool name the fleet face serves, as a static value.
  *
- *  `ignoreSelf` is deliberately ABSENT. Per host it means "mute the terminal
- *  this MCP server runs inside", which is true and useful for an agent working
- *  in a terminal. The fleet face runs inside kolu-server and its caller is the
- *  conductor — a child of kolu-server, in no terminal at all — so there is
- *  no self to mute, and resolving `KAVAL_TERMINAL_ID` here would mute whichever
- *  terminal kolu-server happened to be launched from: a lane nobody asked to go
- *  blind to. `ignoreIds` says it precisely. */
-function fleetWatchOpenTool(
-  hosts: FleetHosts,
-  registry: FleetWatchRegistry,
-): BespokeTool {
-  const { ignoreSelf: _noSelf, ...open } = WatchOpenArgsSchema.fields;
-  return {
-    input: Schema.Struct({
-      ...open,
-      ids: Schema.optionalKey(
-        Schema.Array(FleetTerminalRefSchema).annotate({
-          description:
-            "Watch only these terminals, as <host>/<id>. Omit to watch the WHOLE FLEET — every terminal on every host, including hosts that connect later. A list you forget to update goes blind to a machine nobody added.",
-        }),
-      ),
-      ignoreIds: Schema.optionalKey(
-        Schema.Array(FleetTerminalRefSchema).annotate({
-          description:
-            "Mute these terminals, as <host>/<id>. Fail-open: a stale reference costs nothing.",
-        }),
-      ),
-    }),
-    mutates: true,
-    title: "Open a fleet watch",
-    description:
-      `${KOLU_MCP_TOOLS.watch_open?.description ?? ""} ${FLEET_NOTE} One name covers every host: a host that connects later joins this subscription on its own, and a host that LEAVES the fleet reports each terminal it was carrying as "gone" before it goes. A host that is merely down or refusing is neither legged nor mourned — it is listed in \`gaps\`, retried on every watch_next, and drains what it missed when it answers.`.trim(),
-    handler: (args, _bundle, _signal) =>
-      Effect.suspend(() => {
-        const { ids, ignoreIds, ...base } = args as Omit<
-          WatchOpenArgs,
-          "ids" | "ignoreIds" | "ignoreSelf"
-        > & {
-          readonly ids?: readonly string[];
-          readonly ignoreIds?: readonly string[];
-        };
-        return Effect.flatMap(byHost(ids), (watched) =>
-          Effect.flatMap(byHost(ignoreIds), (muted) => {
-            // Each leg is resolved by the per-host face's OWN pure half, so the
-            // nag grammar, the scope refusals and the input assembly are the
-            // ones `kolu mcp` applies — the fleet decides only which hosts get
-            // a leg. `live` is empty and the env is not read: `ignoreSelf` is
-            // not a field here, so no roster is needed.
-            const resolved = (host: string): ParsedWatchOpen =>
-              resolveWatchOpenInput(
-                {
-                  ...base,
-                  ...(watched === undefined
-                    ? {}
-                    : { ids: watched.get(host) ?? [] }),
-                  ...(muted === undefined
-                    ? {}
-                    : { ignoreIds: muted.get(host) ?? [] }),
-                } as WatchOpenArgs,
-                [],
-                {},
-              );
-            // An `ids: []` names no terminal on any host, so no leg would be
-            // opened at all and the subscription would report success while
-            // watching nothing. The per-host resolver owns that refusal's
-            // words; ask it rather than writing a second pair.
-            if (watched !== undefined && watched.size === 0) {
-              const refusal = resolved("");
-              if (refusal.kind === "error") {
-                return Effect.fail(
-                  new ToolFailure(refusal.message, refusal.detail),
-                );
-              }
-            }
-            return Effect.map(
-              fleetWatchOpen(hosts, registry, {
-                name: base.name,
-                // The HOSTS, not the grouping: which ids go to each is already
-                // the resolver's business one line down, and handing the watch
-                // a second copy would be one fact in two places.
-                scope:
-                  watched === undefined
-                    ? { kind: "all" }
-                    : { kind: "ids", hosts: new Set(watched.keys()) },
-                opened: (host) => {
-                  const parsed = resolved(host);
-                  if (parsed.kind === "error") {
-                    throw new ToolFailure(parsed.message, parsed.detail);
-                  }
-                  return parsed.value;
-                },
-              }),
-              withGaps,
-            );
-          }),
-        );
-      }),
-  };
-}
-
-/** A watch answer's blind spots, on the wire — present only when there ARE
- *  any. An empty `gaps: []` on every frame is a field a reader learns to skip,
- *  which is exactly the wrong habit for the one field that says "this batch is
- *  missing a machine". */
-function withGaps<T extends { readonly gaps: readonly FleetWatchGap[] }>(
-  answer: T,
-): Record<string, unknown> {
-  const { gaps, ...rest } = answer;
-  return gaps.length === 0 ? { ...rest } : { ...rest, gaps };
-}
-
-/** `watch_next`, over the fleet — the merged drain. The cursor an agent echoes
- *  back is the FLEET's `ackAfter`, never a host's own seq. */
-function fleetWatchNextTool(
-  hosts: FleetHosts,
-  registry: FleetWatchRegistry,
-): BespokeTool {
-  return {
-    input: WatchNextArgsSchema,
-    mutates: false,
-    title: "Wait for the next terminal event",
-    description:
-      `${KOLU_MCP_TOOLS.watch_next?.description ?? ""} ${FLEET_NOTE} Events from every host arrive in ONE ordered batch under a fleet-wide seq, and a host that leaves the fleet reports each terminal it was carrying as "gone". A host that merely stopped answering is NOT gone: it is listed in \`gaps\`, and its events arrive when it reconnects.`.trim(),
-    handler: (args, _bundle, signal) => {
-      const { name, after, timeoutMs } = args as {
-        readonly name: string;
-        readonly after?: number;
-        readonly timeoutMs?: number;
-      };
-      return Effect.map(
-        fleetWatchNext(hosts, registry, { name, after, timeoutMs, signal }),
-        // The subscription NAME rides the envelope's id slot, exactly as the
-        // per-host drain does — for a standing subscription that IS "what was
-        // this wait about".
-        ({ outcome, gaps }) =>
-          withGaps({
-            ...waitOutcomeJson<FleetWatchMet>(name, outcome, (met) => ({
-              met,
-            })),
-            gaps,
-          }),
-      );
-    },
-  };
-}
+ *  `koluFleetTools` is a factory (it closes over one fleet's host port and
+ *  watch list), so there is no built table to read at module scope — and a
+ *  consumer that needs only the NAMES should not have to mint a face to learn
+ *  them. kolu-server's conductor pins its teaching script against this list, so
+ *  a tool the script names and this face does not serve fails a test instead of
+ *  a live turn. Derived from the two sources the factory itself builds from, so
+ *  it cannot drift from what is served. */
+export const KOLU_FLEET_TOOL_NAMES: readonly string[] = [
+  ...Object.keys(FLEET_LIFTS),
+  ...FLEET_ONLY_TOOLS,
+];
 
 /** The fleet face's bespoke table. A FACTORY, not a const: every tool here is
- *  closed over the one fleet it serves (the host port and that face's watch
- *  registry), where the per-host table could be a module-level value because
+ *  closed over the one fleet it serves — the host port, and the conductor's
+ *  watch list — where the per-host table could be a module-level value because
  *  the adapter hands each call its client. Two faces in one process are two
- *  fleets, and a module-level registry would let one close the other's watch. */
+ *  fleets, and a module-level watch list would let one conversation's watch
+ *  decide another conversation's wakes. */
 export function koluFleetTools(
   hosts: FleetHosts,
-  registry: FleetWatchRegistry,
+  watchList: FleetWatchList,
 ): Record<string, BespokeTool> {
   const table: Record<string, BespokeTool> = {};
   for (const [name, lift] of Object.entries(FLEET_LIFTS)) {
@@ -549,9 +457,9 @@ export function koluFleetTools(
         `kolu-mcp fleet: the lift table names ${name}, which KOLU_MCP_TOOLS does not serve — the fleet face LIFTS the kolu face's tools and cannot invent one.`,
       );
     }
-    table[name] = lifted(hosts, tool, lift);
+    table[name] = lifted(hosts, watchList, tool, lift);
   }
-  table.watch_open = fleetWatchOpenTool(hosts, registry);
-  table.watch_next = fleetWatchNextTool(hosts, registry);
+  table.watch_terminal = watchTerminalTool(hosts, watchList);
+  table.unwatch_terminal = unwatchTerminalTool(watchList);
   return table;
 }

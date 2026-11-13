@@ -315,6 +315,20 @@ export const ConductorKoluCallSchema = Schema.Union([
     snapshot: Schema.NullOr(Schema.String),
   }),
   Schema.Struct({
+    /** `agent_say` — words put to the agent in a terminal, NOW, with kolu
+     *  doing the keystrokes that agent needs (idle or working). */
+    kind: Schema.Literal("say"),
+    ...CALL_SUBJECT,
+    text: Schema.NullOr(Schema.String),
+  }),
+  Schema.Struct({
+    /** `watch_terminal` / `unwatch_terminal` — the Conductor adding a terminal
+     *  to the list kolu wakes it about, or taking one off. */
+    kind: Schema.Literal("watch"),
+    ...CALL_SUBJECT,
+    watching: Schema.Boolean,
+  }),
+  Schema.Struct({
     kind: Schema.Literal("kill"),
     ...CALL_SUBJECT,
   }),
@@ -406,6 +420,69 @@ export const ConductorDividerRowSchema = Schema.Struct({
   text: Schema.String,
 });
 
+/** HOW A WATCHED TERMINAL STANDS when kolu wakes the Conductor about it.
+ *
+ *  Three values because there are exactly three things that wake it: the
+ *  agent in the terminal STOPPED (its turn ended and its output went quiet —
+ *  padi's `finishedIds`), it is ASKING a person something (`awaitingIds`), or
+ *  the terminal is GONE (it left its host's roster while that host was
+ *  answering). Nothing else rings: an agent that is working, a plain shell
+ *  with no agent, a host that is merely not answering. */
+export const ConductorWakeLevelSchema = Schema.Literals([
+  "stopped",
+  "asking",
+  "gone",
+]);
+export type ConductorWakeLevel = typeof ConductorWakeLevelSchema.Type;
+
+/** One terminal's part of a wake — what a person sees when the line opens and
+ *  what the agent's account is composed from. The ref is joined
+ *  (`host/id`) because that is the name the agent acts on; `host` and
+ *  `terminalId` ride beside it so a card can switch host before it focuses
+ *  the tile, the rule {@link ConductorMentionSchema} states. */
+export const ConductorWakeEventSchema = Schema.Struct({
+  ref: Schema.String,
+  host: Schema.String,
+  terminalId: TerminalIdSchema,
+  /** What a person calls the host — its hostname, or its ssh target. */
+  hostName: Schema.String,
+  /** The terminal's own name, as kolu last read it. */
+  name: Schema.String,
+  /** The agent kolu detected in it (`claude-code`, `codex`, …). */
+  agent: Schema.String,
+  level: ConductorWakeLevelSchema,
+  /** When kolu saw it enter this level. */
+  at: Schema.String,
+});
+export type ConductorWakeEvent = typeof ConductorWakeEventSchema.Type;
+
+/** A MACHINE'S LINE — kolu itself starting a Conductor turn, because a
+ *  watched terminal stopped, asked, or died.
+ *
+ *  In the lane a prompt goes out on (it IS a prompt, to the agent), but never
+ *  the human's bubble: it is drawn full width on the left, one line that
+ *  opens for the rest, saying who speaks and when. `text` is exactly what the
+ *  agent was handed — the whole account, opening with who wrote it, because a
+ *  resumed conversation is rebuilt from the agent's own store, which carries
+ *  the words and not this row's mark. No *send again*: what it says is how
+ *  something STOOD when it rang, and the thing that rang rings again.
+ *
+ *  `queued` and `delivery` are the user row's own two facts, because a turn
+ *  kolu started is a turn like any other — it can wait behind one, be
+ *  refused, or go unanswered. */
+export const ConductorWakeRowSchema = Schema.Struct({
+  ...rowHead,
+  kind: Schema.Literal("wake"),
+  /** Who speaks — `kolu`. */
+  from: Schema.String,
+  /** Every terminal this turn is about, one each, in the order they rang. */
+  events: Schema.Array(ConductorWakeEventSchema),
+  text: Schema.String,
+  queued: Schema.optionalKey(Schema.Literal(true)),
+  delivery: Schema.optionalKey(ConductorDeliverySchema),
+});
+export type ConductorWakeRow = typeof ConductorWakeRowSchema.Type;
+
 export const ConductorRowSchema = Schema.Union([
   ConductorUserRowSchema,
   ConductorAgentRowSchema,
@@ -414,6 +491,7 @@ export const ConductorRowSchema = Schema.Union([
   ConductorAskRowSchema,
   ConductorNoticeRowSchema,
   ConductorDividerRowSchema,
+  ConductorWakeRowSchema,
 ]);
 export type ConductorRow = typeof ConductorRowSchema.Type;
 export type ConductorToolRow = typeof ConductorToolRowSchema.Type;
@@ -674,6 +752,27 @@ export const ConductorStateSchema = Schema.Struct({
    *  is no composer under this and the panel offers *try again*, which asks
    *  for the same thing that was refused. */
   refusal: Schema.NullOr(Schema.String),
+  /** Whether a message may be STEERED into the turn that is running (Alt+Enter)
+   *  — BOTH halves in one bit, so the composer derives nothing: the agent's leg
+   *  advertised steering at the handshake, AND this conversation has never
+   *  held a message behind a running turn. The second half is a guard around
+   *  the pinned adapter's defect (a steer into a session that has ever queued
+   *  never settles its turn), brought over from olai with its measurement;
+   *  a new session gets it back. */
+  steers: Schema.Boolean,
+  /** When the turn in flight began, or `null` while nothing is running — so
+   *  every reader's "working · 2m" counts from the same instant. */
+  busySince: Schema.NullOr(Schema.String),
+  /** The terminals kolu wakes the Conductor about, as FLEET REFS, in the
+   *  order they were added. Membership only, like `fleet`: a terminal's name,
+   *  agent and state are read from its host's `terminals` collection. Saved
+   *  with the conversation. */
+  watched: Schema.Array(Schema.String),
+  /** The watched terminals whose news is HELD because a turn is running — one
+   *  per terminal, in the order the first of each rang. NEVER saved: a
+   *  restart looks at every watched terminal again instead. The status line's
+   *  "N waiting" is this list's length. */
+  held: Schema.Array(Schema.String),
 });
 export type ConductorState = typeof ConductorStateSchema.Type;
 
@@ -694,6 +793,10 @@ export const DEFAULT_CONDUCTOR_STATE: ConductorState = {
   signIn: null,
   identity: null,
   refusal: null,
+  steers: false,
+  busySince: null,
+  watched: [],
+  held: [],
 };
 
 // ── Procedure I/O ─────────────────────────────────────────────────────────
@@ -709,6 +812,14 @@ export const ConductorPromptInputSchema = Schema.Struct({
    *  being refused by the decoder for having nothing to attach. */
   attachments: Schema.Array(ConductorAttachmentSchema).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed([])),
+  ),
+  /** STEER rather than queue: put the words INTO the turn that is running
+   *  (Alt+Enter). Honoured only while a turn runs and `steers` holds; a steer
+   *  the agent did not take — the turn ended under it — goes out as a plain
+   *  prompt, so the words are never lost. A decoding default so an older
+   *  browser's prompt is an ordinary one. */
+  steer: Schema.Boolean.pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(false)),
   ),
 });
 
@@ -790,3 +901,9 @@ export const ConductorTextInputSchema = Schema.Struct({
 });
 
 export const ConductorEmptySchema = Schema.Struct({});
+
+/** Take one terminal off the list kolu wakes the Conductor about — the
+ *  watched panel's remove control. `ref` is the fleet ref (`host/id`). */
+export const ConductorUnwatchInputSchema = Schema.Struct({
+  ref: Schema.String,
+});

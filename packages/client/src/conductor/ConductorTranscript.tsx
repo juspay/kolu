@@ -58,6 +58,7 @@ import {
   unpinTranscript,
 } from "./transcriptScroll";
 import { useConductor } from "./useConductor";
+import { wakeHeadline, wakeWhen } from "./wake";
 
 const ConductorTranscript: Component<{
   rows: readonly ConductorRow[];
@@ -353,6 +354,9 @@ function TranscriptRow(props: { row: ConductorRow; repeat: number }) {
             </p>
           )}
         </Match>
+        <Match when={props.row.kind === "wake" && props.row}>
+          {(row) => <WakeRow row={row()} />}
+        </Match>
         <Match when={props.row.kind === "divider" && props.row}>
           {(row) => (
             <div class="flex items-center gap-2 text-fg-3 font-mono text-[0.62rem] uppercase tracking-[0.12em]">
@@ -363,6 +367,81 @@ function TranscriptRow(props: { row: ConductorRow; repeat: number }) {
           )}
         </Match>
       </Switch>
+    </div>
+  );
+}
+
+/** THE MACHINE'S LINE — kolu itself starting a turn, because a watched
+ *  terminal stopped, asked, or died.
+ *
+ *  FULL WIDTH ON THE LEFT, never the human's right-hand bubble: a person
+ *  scrolling back must be able to tell at a glance which lines they wrote and
+ *  which kolu did, and the side of the column is the fastest such signal there
+ *  is. For the same reason there is no *send again*: this row is not a message
+ *  that can be re-sent — what it says is how something STOOD when it rang, and
+ *  the thing that rang rings again.
+ *
+ *  ONE LINE, which OPENS. The account handed to the agent is several
+ *  paragraphs about each terminal; the headline is derived from the events
+ *  (`wakeHeadline`) because the account's own first line is the briefing's
+ *  opening, not the news. A plain `<details>`, owned by the DOM like the tool
+ *  fold above — the list is keyed by row id, so an open disclosure survives
+ *  every refinement of the row around it.
+ *
+ *  The `queued` / `delivery` marks are the user row's, minus the retry: a turn
+ *  kolu started can wait behind one, be refused, or go unanswered exactly as a
+ *  typed message can. */
+function WakeRow(props: { row: Extract<ConductorRow, { kind: "wake" }> }) {
+  const mark = (): "queued" | "refused" | "unanswered" | undefined =>
+    props.row.queued === true ? "queued" : props.row.delivery;
+  const when = createMemo(() => wakeWhen(props.row.since));
+
+  return (
+    <div data-testid="conductor-wake" class="min-w-0">
+      <details class="min-w-0 rounded-md border border-edge bg-surface-1/60 px-2 py-1">
+        <summary
+          data-testid="conductor-wake-toggle"
+          class="flex min-w-0 cursor-pointer list-none items-baseline gap-1.5 font-mono text-[0.68rem] text-fg-2 marker:content-none [&::-webkit-details-marker]:hidden"
+        >
+          <span aria-hidden="true" class="shrink-0 text-fg-3">
+            ▸
+          </span>
+          <span class="shrink-0 font-semibold text-busy">{props.row.from}</span>
+          <Show when={when()}>
+            {(clock) => (
+              <span class="shrink-0 text-fg-3 tabular-nums">· {clock()}</span>
+            )}
+          </Show>
+          {/* The news gives way first at a phone's width — the speaker and the
+              clock are two short words and the headline is as long as the
+              names of the terminals that rang. */}
+          <span
+            data-testid="conductor-wake-headline"
+            class="min-w-0 flex-1 truncate text-fg"
+          >
+            · {wakeHeadline(props.row.events)}
+          </span>
+        </summary>
+        <p
+          data-testid="conductor-wake-text"
+          class="mt-1 whitespace-pre-wrap break-words text-[0.75rem] text-fg-2"
+        >
+          {props.row.text}
+        </p>
+      </details>
+      <Show when={mark()}>
+        {(what) => (
+          <div class="mt-1 font-mono text-[0.62rem] text-fg-3">
+            <span data-testid="conductor-wake-mark" data-mark={what()}>
+              {what() === "queued"
+                ? "queued"
+                : what() === "refused"
+                  ? "not sent"
+                  : "no answer"}
+            </span>
+          </div>
+        )}
+      </Show>
     </div>
   );
 }
@@ -452,10 +531,14 @@ function UserRow(props: { row: Extract<ConductorRow, { kind: "user" }> }) {
                   // root, so a row minted a moment ago and one restored after
                   // a restart send the same message. Only the thumbnail is
                   // this browser's, and no wire ever carried it.
+                  // Never a steer: the turn this message was refused by is
+                  // over, and a retry is the message being sent for the first
+                  // time.
                   orch.prompt(
                     props.row.text,
                     props.row.mentions ?? [],
                     attachments(),
+                    false,
                   )
                 }
               >

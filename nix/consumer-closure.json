@@ -897,6 +897,7 @@
         "@kolu/surface-mcp",
         "@kolu/terminal-protocol",
         "@kolu/terminal-vocab",
+        "kolu-agents",
         "kolu-git"
       ],
       "external": {

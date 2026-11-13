@@ -26,6 +26,8 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { hostLabel } from "../host/hostChipTone";
+import { CONTEXTUAL_TIPS } from "../settings/tips";
+import { useTips } from "../settings/useTips";
 import { isDesktop } from "../useMobile";
 import { useFleetTerminalIndex } from "../palette/fleetTerminals";
 import { fleetMentionCandidates } from "./mentionCandidates";
@@ -53,6 +55,7 @@ import {
   type TokenQuery,
   tokenQueryAt,
 } from "./mentions";
+import { sendsAsSteer, steerOnOffer } from "./steer";
 import { thumbnailOf } from "./thumbnails";
 import { pinTranscript } from "./transcriptScroll";
 import { useConductor } from "./useConductor";
@@ -161,7 +164,21 @@ const ConductorComposer: Component<{
    *  what prevents it. */
   const [sending, setSending] = createSignal(false);
 
-  const send = (): void => {
+  /** Steering is ON OFFER — the hint beside Send, and what Alt+Enter does. */
+  const offered = createMemo(() => steerOnOffer(props.state));
+  const { showTipOnce } = useTips();
+  // The first conversation that OFFERS steering is the moment the chord is
+  // worth announcing — and the only moment it is true. `showTipOnce` keeps it
+  // to once per browser.
+  createEffect(() => {
+    if (offered()) showTipOnce(CONTEXTUAL_TIPS.conductorSteer);
+  });
+
+  /** Send what is in the box. `alt` is the chord that was held: it steers only
+   *  where the offer stands, and is an ordinary send everywhere else — a
+   *  person who learned the chord never loses a message by using it on a
+   *  conversation that cannot steer. */
+  const send = (alt = false): void => {
     if (sending()) return;
     const text = composerText().trim();
     // An attachment with no words is still a message — "look at this" is the
@@ -180,7 +197,8 @@ const ConductorComposer: Component<{
     // cannot be sent, or a message over the cap, is refused before any row
     // exists — so a composer that had already emptied itself would have thrown
     // the message away with nothing on screen left holding it.
-    orch.prompt(text, armed(), files, (accepted) => {
+    const steer = sendsAsSteer(alt, offered());
+    orch.prompt(text, armed(), files, steer, (accepted) => {
       setSending(false);
       if (!accepted) {
         // kolu-server deletes every file a refused prompt named, so the chips still
@@ -233,7 +251,10 @@ const ConductorComposer: Component<{
       data-testid="conductor-send"
       class="shrink-0 whitespace-nowrap rounded-md bg-accent px-3 font-mono text-[0.65rem] font-semibold text-surface-0 cursor-pointer"
       classList={{ "py-1": !phone(), "py-2": phone() }}
-      onClick={send}
+      // Alt-CLICK steers too, for the same reason Alt+Enter does: the chord is
+      // a decision about the message, and a person who holds Alt means it
+      // whichever way they then send.
+      onClick={(event) => send(event.altKey)}
     >
       {phone() ? "Send" : "Send ↵"}
     </button>
@@ -454,6 +475,24 @@ const ConductorComposer: Component<{
           </For>
         </div>
       </Show>
+      {/* THE OFFER, said where the decision is made. A chord nobody mentions
+          is a chord nobody uses, and this one is only on SOMETIMES — so the
+          hint appears exactly while it would work, which also teaches when it
+          would not. Drawn in both layouts: a phone with a hardware keyboard
+          steers too, and the line is one truncating row at 390px. */}
+      <Show when={offered()}>
+        <div
+          data-testid="conductor-steer-hint"
+          class="mb-1.5 flex min-w-0 items-center gap-1.5 font-mono text-[0.62rem] text-accent"
+        >
+          <span aria-hidden="true" class="shrink-0">
+            ↯
+          </span>
+          <span class="min-w-0 truncate">
+            ⌥⏎ steers — your words go into the turn that is running
+          </span>
+        </div>
+      </Show>
       <div class="flex items-end gap-2">
         <textarea
           ref={box}
@@ -480,6 +519,20 @@ const ConductorComposer: Component<{
           onClick={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyDown={(event) => {
+            // ALT+ENTER SENDS, and it outranks the completion menu. The chord
+            // is a decision about the MESSAGE — put these words into the turn
+            // that is running — and a person who holds Alt while a half-typed
+            // `@term` has the menu open meant to send, not to complete. Plain
+            // Enter still completes, which is the key the menu is about.
+            // Not fenced by `prohibitedKeybinds.ts`: that list is the chords a
+            // terminal's agent owns, and this one never reaches a pty — it is
+            // handled on the conductor's own textarea. No app ACTION binds
+            // Alt+Enter either (`actions.ts`), so nothing else loses a key.
+            if (event.key === "Enter" && event.altKey) {
+              event.preventDefault();
+              send(true);
+              return;
+            }
             const intent = completionIntent(
               event.key,
               event.shiftKey,

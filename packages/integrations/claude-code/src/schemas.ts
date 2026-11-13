@@ -150,5 +150,16 @@ export const claudeCodeVocab: AgentVocab<ClaudeCodeInfo> = {
     idPattern: UUID_RE,
     ref: (info) => info.sessionId,
   },
+  // Measured here, not guessed: `claude` 2.1.322 in a kolu terminal on
+  // 2026-11-13. Idle, a pasted line plus one Enter submits it. WHILE WORKING,
+  // the same keys are accepted and the composer clears — but the transcript
+  // then shows the running turn's own footer ("Cooked for 16s · done") BEFORE
+  // the message's row, i.e. Claude Code holds it and starts a FRESH turn with
+  // it when the current one ends. Nothing is lost, and nothing is steered.
+  say: {
+    idle: ["Enter"],
+    working: { keys: ["Enter"], delivery: "queue" },
+    verified: "ran claude 2.1.322 in a kolu terminal, 2026-11-13",
+  },
   infoSchema: ClaudeCodeInfoSchema,
 };

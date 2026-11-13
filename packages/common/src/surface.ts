@@ -94,6 +94,7 @@ import {
   ConductorSignInOutputSchema,
   ConductorStateSchema,
   ConductorTextInputSchema,
+  ConductorUnwatchInputSchema,
 } from "./conductorSchema.ts";
 import { ConductorRefused, ConductorUnavailable } from "./conductorErrors.ts";
 export * from "./conductorSchema.ts";
@@ -1293,6 +1294,14 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
       clearSession: {
         input: ConductorEmptySchema,
         error: Schema.Union([ConductorUnavailable, ConductorRefused]),
+      },
+      /** Take one terminal off the list kolu wakes the conductor about — the
+       *  watched panel's remove control. Answers nothing: the cell's `watched`
+       *  is where the list moved. No bring-up — a list the conductor keeps is
+       *  not a reason to start its agent. */
+      unwatch: {
+        input: ConductorUnwatchInputSchema,
+        error: Schema.Union([ConductorUnavailable]),
       },
     },
   },

@@ -113,5 +113,18 @@ export const piVocab: AgentVocab<PiInfo> = {
     // id from a fresh invocation, while the absolute path opens unconditionally.
     ref: (info) => info.sessionPath,
   },
+  // Measured: `pi` 1.5.2 in a kolu terminal on 2026-11-13. Idle, text plus one
+  // Enter submits. WHILE WORKING, the same keys put the line in pi's own
+  // steering pane ("Steering: … ↳ Alt+Up to edit all queued messages") and the
+  // running turn picks it up at its next step. The working leg was observed
+  // with pi's provider request held open deliberately (an HTTPS proxy that
+  // accepts and never answers), because this machine's gateway refuses pi's
+  // key — the TUI's acceptance is the fact the recipe needs, and it is the
+  // same steering pane omp (pi's sibling) delivers from mid-turn.
+  say: {
+    idle: ["Enter"],
+    working: { keys: ["Enter"], delivery: "steer" },
+    verified: "ran pi 1.5.2 in a kolu terminal, 2026-11-13",
+  },
   infoSchema: PiInfoSchema,
 };

@@ -1,6 +1,7 @@
-/** The conversation's one-line readout: what it is doing, who it is signed in
- *  as, what it is running on, how full its context is — and the `⋯` that
- *  opens everything else it can be asked.
+/** The conversation's one-line readout: who it is signed in as, what it is
+ *  running on, how full its context is — and the `⋯` that opens everything
+ *  else it can be asked. What it is DOING is not here; it is the status line
+ *  above the composer.
  *
  *  The context meter draws a FRACTION — `148k/1M` — never a percentage. A
  *  window is not a constant (200k and 1M are both ordinary, and a session moves
@@ -29,16 +30,12 @@ function tokens(count: number): string {
   return `${millions >= 10 || Number.isInteger(millions) ? Math.round(millions) : millions.toFixed(1)}M`;
 }
 
-/** The chip's ink, by what the conversation is doing. `asking` outranks
- *  `working` on the wire already — a turn stopped on a form is blocked on a
- *  human — so this is a straight lookup, not a second precedence. */
-const PHASE_CLASS: Record<ConductorState["phase"], string> = {
-  offline: "text-fg-3 bg-surface-2",
-  starting: "text-fg-2 bg-surface-2",
-  idle: "text-fg-3 bg-surface-2",
-  working: "text-busy bg-busy/15",
-  asking: "text-surface-0 bg-alert",
-};
+/** NO PHASE CHIP HERE. What the conversation is doing moved to the ONE status
+ *  line directly above the composer (`ConductorStatus`), where a person is
+ *  looking when they are about to speak to it — and where there is room to say
+ *  what it is doing and for how long, not only one word. Two readouts of one
+ *  fact, a column apart, is how a header chip comes to say `working` over a
+ *  conversation that finished. */
 
 const ConductorHeader: Component<{
   state: ConductorState;
@@ -89,13 +86,7 @@ const ConductorHeader: Component<{
           alpha
         </span>
       </Tip>
-      <span
-        data-testid="conductor-phase"
-        data-phase={props.state.phase}
-        class={`font-mono text-[0.65rem] font-semibold rounded-full px-2 py-px ${PHASE_CLASS[props.state.phase]}`}
-      >
-        {props.state.phase}
-      </span>
+      {/* The phase chip stood here — see the note above this component. */}
       {/* ABSENT when the agent said nothing. Silence is not "logged out" — a
           known logged-out state arrives as its own payload and says so here. */}
       <Show when={identity()}>

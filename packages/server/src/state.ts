@@ -372,7 +372,7 @@ function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.45.0";
+const SCHEMA_VERSION = "1.46.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -1076,6 +1076,29 @@ const CONF_MIGRATIONS = {
       "conductor",
       repointConductorAttachments(store.get("conductor"), from, to),
     );
+  },
+  // THE CONDUCTOR'S WATCH LIST — the terminals kolu wakes it about — is saved
+  // with the conversation now, so the record grows a `watched` key. A file
+  // written before this rung has no such key, and the conductor's schema would
+  // refuse it on read: the ladder's whole job is that an existing state root
+  // keeps working, so the key is seeded EMPTY, which is the truth about a
+  // conversation that has never watched anything.
+  //
+  // The record is otherwise untouched: the session id, the transcript tail,
+  // the fleet and the model a person chose all carry across unchanged, because
+  // this is an addition and not a reshape.
+  "1.46.0": (store: Conf<PersistedState>) => {
+    // Read as an OBJECT rather than as the decoded record: this rung runs
+    // against a file written by an older build, whose `conductor` key is
+    // exactly the shape the current schema does not yet accept.
+    const record = store.get("conductor") as
+      | Record<string, unknown>
+      | undefined;
+    if (record === undefined || "watched" in record) return;
+    store.set("conductor", {
+      ...record,
+      watched: [],
+    } as unknown as PersistedState["conductor"]);
   },
 };
 

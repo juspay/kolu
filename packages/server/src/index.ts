@@ -47,14 +47,20 @@ import {
   type PadiEntryFailure,
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
-import { serveKoluFleetMcp } from "kolu-mcp";
+import { type FleetWatchList, serveKoluFleetMcp } from "kolu-mcp";
 import type { KoluBootFlags } from "./bootFlags.ts";
 import { fleetHostsOver } from "./fleet/fleetHosts.ts";
 import { startFleetMcpEndpoint } from "./fleet/mcpEndpoint.ts";
 import {
   disposeServerConductor,
+  liveServerConductor,
+  setConductorStateListener,
   setFleetMcpEndpoint,
 } from "./conductor/live.ts";
+import {
+  type ConductorWatcher,
+  startConductorWatcher,
+} from "./conductor/watcher.ts";
 import { healthRouteLayer } from "./healthRoute.ts";
 import { serverHostname, serverProcessId, serverVersion } from "./hostname.ts";
 import { getPersistedHosts, savePoolMembership } from "./hostPersistence.ts";
@@ -175,6 +181,12 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // until the claim lands; a crash skips it and the next boot's liveness reap
   // handles the stale pid.
   let releaseLocalSupervisor: (() => void) | null = null;
+  /** The Conductor's watch over the fleet, once it is started — far below,
+   *  after the surface exists. Declared HERE because the shutdown handler
+   *  closes over it and is installed before it: a teardown that could not
+   *  reach it would leave a standing subscription per host running under a
+   *  process that is exiting. */
+  let conductorWatcher: ConductorWatcher | undefined;
 
   // --- Graceful shutdown ---
   // Signals map to a clean exit; the fatal handlers make a floating promise or a
@@ -201,6 +213,10 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       shuttingDown = true;
       log.info({ signal: sig }, "shutting down");
       void (async () => {
+        // The watch first: its subscriptions are what could still start a turn,
+        // and a wake delivered into a conversation that is being disposed is a
+        // row written to a file the next boot reads as unfinished business.
+        await conductorWatcher?.dispose();
         await disposeServerConductor();
         releaseLocalSupervisor?.();
         process.exit(0);
@@ -615,6 +631,23 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // at once cannot do anything with "local".
     localName: serverHostname,
   });
+  // THE CONDUCTOR'S WATCH LIST, as the fleet face reaches it. The list itself
+  // lives with the conversation (it is saved with it, and the Conductor's own
+  // `watch_terminal` / `unwatch_terminal` move it); what the face needs is the
+  // three verbs, and kolu-server is what knows that "the conversation" means
+  // `liveServerConductor()`. Read through the thunk on every call rather than
+  // captured, for the reason every other conductor seam here is: the host is
+  // built on its first reader, and a face held at boot would force it up.
+  //
+  // `lifecycle_create` calls `watch` on what it creates, so a terminal the
+  // Conductor starts is watched without it having to ask.
+  const watchList: FleetWatchList = {
+    watched: () => liveServerConductor().watched(),
+    watch: (ref) => {
+      liveServerConductor().watchTerminal(ref);
+    },
+    unwatch: (ref) => liveServerConductor().unwatchTerminal(ref),
+  };
   const fleetMcp = await startFleetMcpEndpoint({
     log,
     serve: (transport) =>
@@ -622,6 +655,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         hosts: fleetHosts,
         transport,
         serverInfo: { name: "kolu-fleet", version: serverVersion },
+        watchList,
       }),
   });
   // The conductor PROVES this endpoint before it names it to an agent — the
@@ -994,6 +1028,36 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
             host.kind === "local" ? serverHostname : host.target,
           log,
         });
+
+  // ── The CONDUCTOR'S WATCH, started now that the cell exists ──────────────
+  //
+  // AFTER `implementKoluSurface`, and that order is load-bearing: the watcher
+  // reads the conversation's watch list, which reads the remembered record,
+  // which PUBLISHES what it restored — and a publish before the cell writer is
+  // registered is the boot-order crash `conductor/live.ts` states. It is also
+  // why nothing above this line asks the conversation anything.
+  //
+  // It may WAKE the conversation (that is the whole feature) but it must never
+  // start the agent merely to read the list, which is the line
+  // `ConductorHost.watched` draws: reading is bookkeeping, a wake is a turn.
+  conductorWatcher = startConductorWatcher({
+    hosts: fleetHosts,
+    conductor: liveServerConductor,
+    log,
+  });
+  // The list moves for four reasons — the Conductor watching or unwatching, a
+  // terminal it created being watched for it, a person removing one, a watched
+  // terminal going away — and every one of them republishes the cell. Re-scope
+  // only when the LIST changed: a state frame lands per turn, per model switch
+  // and per sign-in step, and re-walking the fleet for a phase change would be
+  // work for nothing.
+  let watchedKey = "";
+  setConductorStateListener((state) => {
+    const key = state.watched.join("\n");
+    if (key === watchedKey) return;
+    watchedKey = key;
+    conductorWatcher?.rescope();
+  });
 
   // The ROOT procedures — kolu-server's own seven, bound as the third served
   // fragment. There is no router SPLICE any more: the wire namespace is flat, so the

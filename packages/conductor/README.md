@@ -20,6 +20,41 @@ The `koluSurface` members a browser subscribes to are here too (`./surface`),
 because an implementation of "what `conductor.prompt` does" belongs with the
 thing that does it.
 
+## The watch, the hold and the wake
+
+The Conductor never sits in a wait. It says what it is watching and ends its
+turn; kolu-server watches, and starts a turn when something happens.
+
+- **The list** (`watchTerminal` / `unwatchTerminal` / `watched`) — fleet refs
+  (`host/id`), in the order they were added, saved with the conversation. Per
+  entry the record keeps what a restart cannot re-derive: the name kolu last
+  saw, whether an agent was ever seen in it, and the level the conversation has
+  already been TOLD about. Spelled `watchTerminal`, not `watch`, because
+  `watch` on this host is the transcript subscription and has been since there
+  was a transcript.
+- **The decision** (`./watching.ts`, pure) — one reading of one terminal
+  becomes a wake level or nothing: working forgets what we were told, a shell
+  never rings, a terminal that goes away rings only if an agent was ever seen
+  in it (and drops either way), and a level equal to `told` does not ring
+  twice. That last rule is what makes a restart quiet.
+- **The hold** (`./held.ts`, ported from olai's `deliveries.ts`) — while a turn
+  runs, news WAITS: one slot per terminal, newest only, kept in the position
+  the first one took, withdrawn when that terminal goes back to working. On
+  every turn boundary — however the turn ended, a cancel included — everything
+  waiting leaves as ONE `harness.wake(...)`, one row with N events. Held news
+  is memory only: a restart re-reads the world instead of replaying a queue
+  about one that has moved on.
+- **The account** (`./wakeText.ts`, pure) — what the agent is actually handed:
+  who speaks, each terminal as `host/id` with its name, host, agent and how it
+  stands, and what to do about it — read the screen, answer with `agent_say`,
+  then end the turn.
+
+A wake MAY start the agent (that is the feature); reading the list may not
+(`watched()` is bookkeeping). The readings themselves come from kolu-server's
+`conductor/watcher.ts`, over padi's own `urgency` fold and `terminals`
+collection, for refs on CONNECTED hosts only — a host that is not answering
+says nothing about its terminals, and `gone` for one of them would be a lie.
+
 ## Why a package
 
 The same argument `kolu-mcp` makes one shelf over: **a face kolu mounts is not

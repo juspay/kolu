@@ -72,6 +72,35 @@ describes the extension and links the patch. #1017's native async-task channel
 does not replace it — that lifecycle is published only to a client that
 advertises the AIR capability, which kolu's leg does not.
 
+## Steering, and the hang this pin still has
+
+The leg's steering bits — `STEER_METHOD` (`_session/steering`),
+`STEER_WHEN_IDLE` (`_meta.steering.idleBehavior: "promptRequired"`),
+`STEER_TIMEOUT`, `steerTaken`, `STEERING_ADVERTISED` and `QUEUES_WHEN_BUSY` —
+are **vendored from olai** (`packages/plugins/claude/src/leg.ts`) at this same
+0.81.2 pin, where they were written and measured. They are not a patch: the
+adapter ships the extension, and what is vendored is the READING of it.
+
+**The known limit, and why kolu carries a latch for it.** olai measured, on the
+wire and with no client of its own in the loop, that this adapter leaves a
+turn's `session/prompt` unanswered **forever** once a `_session/steering` is
+injected into any turn of a session that has ever held a QUEUED prompt: the
+steered words run and stream, and only a cancel ends the turn. Fresh sessions
+steer cleanly, one sequential turn steers cleanly, two steer cleanly — one
+queued turn earlier in the session poisons every steer after it. (It is not the
+whole defect: a session whose turn armed a background task hangs the same way
+with nothing ever queued. olai left that one open and so does kolu, because
+widening the guard is a change to what the composer OFFERS rather than a fact
+about the adapter.)
+
+So `@kolu/acp-harness` carries olai's `queuedHere` latch: once this conversation
+has sent a message while a turn was running, `state.steers` is false for the
+rest of that session, and a new session gets it back. It costs a person their
+interruption after one message typed into a working turn, and that is the price
+of never offering a control that hangs the conversation. It goes when the
+adapter is fixed, which is not the same as when the pin moves — re-measure it
+at each bump and record the result here, as olai's copy does.
+
 ## Bumping the pin
 
 Move the version in `../shim/package.json`, regenerate the lockfile

@@ -49,7 +49,16 @@ export {
   type ServeKoluFleetMcpOptions,
   serveKoluFleetMcp,
 } from "./fleet/serve.ts";
-export type { FleetWatchEvent } from "./fleet/watch.ts";
+// The conductor's watch list, as this face reaches it — kolu-server implements
+// the port and owns the list (it is persisted with the conversation); the face
+// only moves it. `KOLU_FLEET_TOOL_NAMES` is the static roll of what the fleet
+// face serves, for a consumer (the conductor's teaching script and its test)
+// that needs the names without minting a face.
+export type { FleetWatchList } from "./fleet/watchList.ts";
+export {
+  FLEET_SETTLE_CAP_MS,
+  KOLU_FLEET_TOOL_NAMES,
+} from "./fleet/lift.ts";
 export {
   type KoluMcpConnection,
   type ServeKoluMcpOptions,

@@ -63,8 +63,9 @@ Read the full [Philosophy](https://kolu.dev/philosophy).
 - **[Agent attention](https://kolu.dev/agent-detection)** — see which agents are
   working, finished, or waiting for you.
 - **[The Conductor](https://kolu.dev/conductor)** — one chat that drives
-  every terminal on every host: it opens them, writes their briefs, waits
-  for them to settle, and brings you only the decisions that are yours.
+  every terminal on every host: it opens them, writes their briefs, and is
+  woken when an agent stops or asks — never sitting in a wait — so it brings
+  you only the decisions that are yours.
 - **[Durable sessions](https://kolu.dev/sessions)** — keep shells and agents
   alive across tab closes, server restarts, and redeploys.
 - **[From another device](https://kolu.dev/remote-access) and

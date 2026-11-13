@@ -28,7 +28,7 @@ import { assertFleetFaceComplete, fleetClientFace } from "./face.ts";
 import { fleetSurface } from "./fleetSurface.ts";
 import type { FleetHosts } from "./hosts.ts";
 import { koluFleetTools } from "./lift.ts";
-import { newFleetWatchRegistry } from "./watch.ts";
+import type { FleetWatchList } from "./watchList.ts";
 
 export interface ServeKoluFleetMcpOptions {
   /** kolu-server's host map, as this face reads it. */
@@ -39,16 +39,19 @@ export interface ServeKoluFleetMcpOptions {
    *  face's is: a baked fallback would let the one server a conductor
    *  depends on report a version that is not the product's. */
   serverInfo: { name: string; version: string };
+  /** The conductor's watch list — what kolu-server wakes it about. REQUIRED,
+   *  and a PORT for the same reason `hosts` is: the list is persisted with the
+   *  conversation and read by the server's watcher, so a copy held here would
+   *  be a second answer to "what is being watched". `lifecycle_create` adds
+   *  what it creates; `watch_terminal` / `unwatch_terminal` are the agent's
+   *  own door to it. */
+  watchList: FleetWatchList;
 }
 
 export async function serveKoluFleetMcp(
   opts: ServeKoluFleetMcpOptions,
 ): Promise<{ server: Server; close: () => Promise<void> }> {
-  // The watch registry belongs to THIS served face: two faces in one process
-  // are two fleets, and a shared registry would let one close the other's
-  // subscription by name.
-  const registry = newFleetWatchRegistry();
-  const client = fleetClientFace(opts.hosts, registry);
+  const client = fleetClientFace(opts.hosts);
   assertFleetFaceComplete(client);
   return serveSurfaceAsMcp({
     // The degenerate rooted bundle, exactly as the stdio face serves: one core
@@ -56,7 +59,7 @@ export async function serveKoluFleetMcp(
     // plain member name an agent already knows from `kolu mcp`.
     core: { surface: fleetSurface, expose: KOLU_FLEET_EXPOSE },
     client: () => ({ core: client }),
-    tools: koluFleetTools(opts.hosts, registry),
+    tools: koluFleetTools(opts.hosts, opts.watchList),
     serverInfo: opts.serverInfo,
     transport: opts.transport,
   });

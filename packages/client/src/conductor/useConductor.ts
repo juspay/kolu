@@ -60,6 +60,11 @@ export interface Conductor {
     text: string,
     mentions: readonly ConductorMention[],
     attachments: readonly ConductorAttachment[],
+    /** STEER rather than queue — Alt+Enter, and only where the cell offers it
+     *  (`steer.ts` holds the rule). kolu-server puts the words into the turn
+     *  that is running; a steer the agent did not take goes out as a plain
+     *  prompt, so passing `true` can never lose a message. */
+    steer: boolean,
     settled?: (accepted: boolean) => void,
   ): void;
   cancel(): void;
@@ -78,6 +83,10 @@ export interface Conductor {
    *  `New session` is the one caller. Two verbs rather than a flag, because
    *  what a person LOSES is the whole of the difference. */
   clearSession(): void;
+  /** Take one terminal off the watch list — the watched panel's remove
+   *  control. The cell's `watched` is where the answer lands, so there is
+   *  nothing to read back here. */
+  unwatch(ref: string): void;
 }
 
 export const useConductor = createSharedRoot<Conductor>(() => {
@@ -112,7 +121,7 @@ export const useConductor = createSharedRoot<Conductor>(() => {
 
   return {
     state,
-    prompt: (text, mentions, attachments, settled) =>
+    prompt: (text, mentions, attachments, steer, settled) =>
       runAction(
         "conductor prompt",
         app.procedures.conductor
@@ -120,6 +129,7 @@ export const useConductor = createSharedRoot<Conductor>(() => {
             text,
             mentions: [...mentions],
             attachments: [...attachments],
+            steer,
           })
           .pipe(
             Effect.tap(() =>
@@ -197,5 +207,10 @@ export const useConductor = createSharedRoot<Conductor>(() => {
         app.procedures.conductor.clearSession({}),
       );
     },
+    unwatch: (ref) =>
+      ask(
+        "Could not stop watching that terminal",
+        app.procedures.conductor.unwatch({ ref }),
+      ),
   };
 });

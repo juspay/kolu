@@ -145,6 +145,9 @@ export class KoluWorld extends World {
    *  presses the tool card's *open tile* can assert the focus landed on THAT
    *  terminal rather than on whichever tile happened to be active. */
   adoptedTerminalId?: string;
+  /** The terminal id the conductor was asked to WATCH, so a wake, the watched
+   *  panel's row and its Look can each be checked against THAT terminal. */
+  watchedTerminalId?: string;
   /** Everything the page's console said from the conductor paste onwards. A
    *  prompt refused before any row exists (an attachment this agent was never
    *  told it could take) leaves nothing in the transcript, so the console is

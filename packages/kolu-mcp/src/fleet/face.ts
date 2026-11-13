@@ -69,7 +69,6 @@ import {
 } from "./fleetSurface.ts";
 import { type FleetHosts, requireHost, requireTerminal } from "./hosts.ts";
 import { fleetTerminalRef } from "./ref.ts";
-import { type FleetWatchRegistry, fleetWatchClose } from "./watch.ts";
 
 // The four repo-scoped verbs take padi's own input, plus a host. Named off the
 // SCHEMAS padi declares them with, so a field added upstream arrives here
@@ -318,10 +317,7 @@ function fleetTerminalRow(
 }
 
 /** The whole face. */
-export function fleetClientFace(
-  hosts: FleetHosts,
-  registry: FleetWatchRegistry,
-): SurfaceClientCallable {
+export function fleetClientFace(hosts: FleetHosts): SurfaceClientCallable {
   return {
     surface: {
       terminals: {
@@ -381,10 +377,12 @@ export function fleetClientFace(
             padi.surface.fs.readFile(rest),
           ),
       },
-      watch: {
-        close: (input: { name: string }) =>
-          fleetWatchClose(registry, input.name),
-      },
+      // No `watch` member: the fleet face no longer serves a standing
+      // subscription at all. The conductor is WOKEN by kolu-server (its watch
+      // list, `watchList.ts`) rather than draining a queue it has to stay in a
+      // call for, and `fleetSurface` dropped the member to match — a face
+      // answering a verb its own spec does not declare is a tool nothing can
+      // reach and a reader cannot explain.
     },
   };
 }

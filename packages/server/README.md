@@ -85,6 +85,21 @@ load-bearing: the adapter is spawned detached, so nothing else in the teardown
 reaches it, and without the explicit stop every restart would leave an adapter
 and its `claude` behind and spawn a second set beside them.
 
+### The watch — kolu-server starts turns of its own
+
+`src/conductor/watcher.ts` is why the conversation never has to sit in a wait.
+For each host holding a terminal the Conductor watches, it subscribes that
+host's padi `urgency` fold and `terminals` collection, and hands the readings
+to the conversation (`observe`), which decides what is news, holds it while a
+turn runs, and sends everything waiting as ONE wake when the turn ends.
+
+It is started **after** `implementKoluSurface` — reading the watch list reads
+the remembered record, which publishes, and a publish before the cell writer
+exists is the boot-order crash `live.ts` states — and disposed **before** the
+conversation, so nothing can start a turn into a host that is shutting down. A
+host that is not answering is parked, never mourned: disconnected is not gone.
+A reading may WAKE the conversation; reading the list never starts the agent.
+
 ### The record
 
 The transcript, the session id and the model the person chose live in

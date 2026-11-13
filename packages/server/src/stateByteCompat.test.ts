@@ -66,7 +66,7 @@ function makeStore(): Conf<Record<string, unknown>> {
   dirs.push(dir);
   return new Conf<Record<string, unknown>>({
     cwd: dir,
-    projectVersion: "1.45.0",
+    projectVersion: "1.46.0",
     configFileMode: 0o600,
     defaults: {
       preferences: DEFAULT_PREFERENCES,
@@ -113,7 +113,8 @@ describe("the persisted state file — aggregate bytes", () => {
 \t\t"cwd": "",
 \t\t"model": null,
 \t\t"rows": [],
-\t\t"fleet": []
+\t\t"fleet": [],
+\t\t"watched": []
 \t}
 }`,
     );
@@ -149,6 +150,16 @@ describe("the persisted state file — aggregate bytes", () => {
         },
       ],
       fleet: ["local/11111111-1111-4111-8111-111111111111"],
+      // ... and the terminals kolu wakes it about, each with what was last
+      // seen of it and the level the conversation has already been told.
+      watched: [
+        {
+          ref: "local/11111111-1111-4111-8111-111111111111",
+          name: "fix the parser",
+          agent: "claude-code",
+          told: "stopped",
+        },
+      ],
     });
 
     const onDisk = JSON.parse(readFileSync(store.path, "utf8")) as Record<
@@ -178,7 +189,8 @@ describe("the persisted state file — aggregate bytes", () => {
     expect(JSON.stringify(onDisk.conductor)).toBe(
       '{"sessionId":"sess-live","cwd":"/home/tester","model":"claude-sonnet-4",' +
         '"rows":[{"id":"a","seq":1,"since":"2026-01-01T00:00:00.000Z","kind":"agent","text":"one"}],' +
-        '"fleet":["local/11111111-1111-4111-8111-111111111111"]}',
+        '"fleet":["local/11111111-1111-4111-8111-111111111111"],' +
+        '"watched":[{"ref":"local/11111111-1111-4111-8111-111111111111","name":"fix the parser","agent":"claude-code","told":"stopped"}]}',
     );
   });
 

@@ -29,6 +29,7 @@ import { completionOpen } from "./drafts";
 import ConductorComposer from "./ConductorComposer";
 import ConductorHeader from "./ConductorHeader";
 import ConductorSignIn from "./ConductorSignIn";
+import ConductorStatus from "./ConductorStatus";
 import ConductorStrip from "./ConductorStrip";
 import ConductorTranscript from "./ConductorTranscript";
 import { useConductor } from "./useConductor";
@@ -199,10 +200,17 @@ const ConductorPane: Component<{
             />
             {/* A conversation the agent would not OPEN has no composer under
                 it: there is nothing to say to an agent that is not there. The
-                one offer is to ask again for exactly what was refused. */}
+                one offer is to ask again for exactly what was refused — and no
+                status line either, because the line reports on a conversation
+                that is running and this one never started. */}
             <Show
               when={state().refusal}
-              fallback={<ConductorComposer state={state()} />}
+              fallback={
+                <>
+                  <ConductorStatus state={state()} rows={feed.rows()} />
+                  <ConductorComposer state={state()} />
+                </>
+              }
             >
               {(why) => (
                 <div

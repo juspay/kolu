@@ -110,7 +110,7 @@ terminal.
 | layer | its one job | killing it does _not_ lose |
 | --- | --- | --- |
 | [`PWA client`](/install-pwa) | the view in your browser — one surface consumer per pane | Reload the tab, switch devices: it re-subscribes. It holds no state to lose. |
-| `kolu-server` | the web shell — HTTP, the PWA, websockets; dials and binds one padi per host, and holds [the Conductor](/conductor)'s one agent conversation for the whole fleet | Restart it and no terminal metadata is lost — padi's registry stays warm; the remote-host fleet you added survives too (kolu-server persists its own small membership list as a field in its config store, distinct from the per-terminal state the daemons hold). The conversation comes back as well: its transcript lives in kolu-server's own state store and the session is resumed by its id. |
+| `kolu-server` | the web shell — HTTP, the PWA, websockets; dials and binds one padi per host, holds [the Conductor](/conductor)'s one agent conversation for the whole fleet, and starts that conversation's turns when a terminal it watches has news | Restart it and no terminal metadata is lost — padi's registry stays warm; the remote-host fleet you added survives too (kolu-server persists its own small membership list as a field in its config store, distinct from the per-terminal state the daemons hold). The conversation comes back as well: its transcript lives in kolu-server's own state store, the session is resumed by its id, and the terminals it was watching are looked at again — so a wake that came due while the process was down is not lost, and one already delivered does not ring twice. |
 | [`padi`](/padi) | the per-host workspace daemon — session, awareness, restore | Kill it and no terminal state is lost — records live in its folder on disk; PTYs survive in kaval. It re-seeds in seconds, and the conductor's tools reach it again the moment it is back, with nothing reopened above. |
 | [`kaval`](/kaval) | the PTY survivor — owns the shells and their live screens | Kill everything above it and the live shells and scrollback keep running — they live in kaval's memory. |
 
@@ -387,11 +387,14 @@ keystrokes and the screen. The **metadata loop** is side-channel enrichment — 
 git, PR, agent state, and live output activity that light up the dock. Both run
 over the browser's one websocket. The **conductor loop** is the third, and it
 touches no browser at all: an agent kolu-server spawns, calling kolu's tools back
-into kolu-server, which fans them out over its host map.
+into kolu-server, which fans them out over its host map — and, uniquely among the
+three, it is a loop kolu-server **closes itself**: it watches the hosts' urgency
+and terminals for the Conductor's watched terminals and starts the next turn of
+the conversation when one of them has news.
 
 <figure class="doc-figure">
-  <svg viewBox="0 0 720 258" role="img" aria-labelledby="ax-flow-title">
-    <title id="ax-flow-title">Three data-flow loops. The terminal I/O loop runs both ways through client, kolu-server, padi, and kaval — keystrokes down to the PTY, the screen (a snapshot then live deltas) back up. The metadata loop flows the other way only: kaval feeds padi — its VT taps drive padi's git, PR, and agent sensors, and its resize-excluded meaningful-output edge feeds padi's live-activity fold — and padi pushes the result to the client. The conductor loop is separate and reaches no browser: kolu-server spawns the claude ACP adapter, which calls kolu's tools back over a loopback HTTP MCP endpoint, and kolu-server serves them from its host map — every padi, local and remote, with each terminal named host slash id.</title>
+  <svg viewBox="0 0 720 292" role="img" aria-labelledby="ax-flow-title">
+    <title id="ax-flow-title">Three data-flow loops. The terminal I/O loop runs both ways through client, kolu-server, padi, and kaval — keystrokes down to the PTY, the screen (a snapshot then live deltas) back up. The metadata loop flows the other way only: kaval feeds padi — its VT taps drive padi's git, PR, and agent sensors, and its resize-excluded meaningful-output edge feeds padi's live-activity fold — and padi pushes the result to the client. The conductor loop is separate and reaches no browser: kolu-server spawns the claude ACP adapter, which calls kolu's tools back over a loopback HTTP MCP endpoint, and kolu-server serves them from its host map — every padi, local and remote, with each terminal named host slash id. That loop closes the other way too: kolu-server watches the host map's urgency and terminal rosters for the terminals the conversation is watching, and starts a turn of the conversation itself when one of them stops, asks or is gone.</title>
     <defs>
       <marker id="ax-flow-arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
         <path d="M0,0 L10,5 L0,10 z" class="ax-d-arrow"></path>
@@ -443,6 +446,9 @@ into kolu-server, which fans them out over its host map.
     <rect x="394" y="206" width="314" height="44" rx="10" class="ax-d-daemon"></rect>
     <text x="412" y="228" class="ax-d-daemon-label2">the host map</text>
     <text x="412" y="243" class="ax-d-sub">padi · local — padi · prod — padi · box-3</text>
+
+    <path d="M551,250 V270 H87 V254" class="ax-d-socket" marker-end="url(#ax-flow-arrow)"></path>
+    <text x="360" y="288" text-anchor="middle" class="ax-d-tlabel">wakes — a watched terminal stops · asks · is gone → kolu-server starts the turn</text>
   </svg>
 </figure>
 
@@ -487,12 +493,20 @@ same way.
 [the protocol](https://agentclientprotocol.com) to it over stdio. The agent's
 hands point back the other way: it calls kolu's own [MCP tools](/mcp) over the
 loopback endpoint above, and kolu-server answers them out of its host map — so
-`lifecycle_create` on `prod` lands a terminal in that host's padi, and a watch
-opened with no ids merges every host's events into one ordered queue. A terminal
-is named `host/id` on that wire, and a `hosts` resource is the live roster, so a
+`lifecycle_create` on `prod` lands a terminal in that host's padi, and a terminal
+is named `host/id` on that wire, with a `hosts` resource as the live roster, so a
 machine joining or leaving is a resource update rather than a reopened session.
-Nothing in this loop touches the browser: the pane you read it in is an ordinary
-subscriber to the transcript kolu-server is keeping.
+The loop also runs the other way, which is what makes this one different from the
+other two: **kolu-server starts turns**. A watcher over the host map — the same
+urgency and terminal records the dock is drawn from — carries the conversation's
+watched terminals, and when one of them stops, asks something or leaves its host's
+roster, kolu-server mints a wake row and runs a turn exactly as a human's prompt
+does. The conversation therefore never has to sit in a blocking tool call, and
+the unbounded waits are not served on this face at all. News that arrives while a
+turn is running is held — one slot per terminal, newest state — and delivered as
+one wake when that turn ends, however it ended. Nothing in this loop touches the
+browser: the pane you read it in is an ordinary subscriber to the transcript
+kolu-server is keeping.
 
 ## The packages
 

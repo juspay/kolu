@@ -6,7 +6,7 @@
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "//exports": "`./fleetRef` is the identity GRAMMAR alone — `src/fleet/ref.ts`, a leaf with no imports at all. `@kolu/acp-harness` splits a fleet reference out of a tool call and must not grow an edge to the MCP SDK, to padi-client or to effect to do it (its manifest is the ACP SDK plus kolu-common); the same split-for-weight argument `./tools` already carries one level up.",
+  "//exports": "`./fleetRef` is the identity GRAMMAR alone \u2014 `src/fleet/ref.ts`, a leaf with no imports at all. `@kolu/acp-harness` splits a fleet reference out of a tool call and must not grow an edge to the MCP SDK, to padi-client or to effect to do it (its manifest is the ACP SDK plus kolu-common); the same split-for-weight argument `./tools` already carries one level up.",
   "exports": {
     ".": "./src/index.ts",
     "./expose": "./src/expose.ts",
@@ -27,6 +27,7 @@
     "@kolu/terminal-vocab": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.31.0",
     "effect": "catalog:",
+    "kolu-agents": "workspace:*",
     "kolu-git": "workspace:*",
     "ts-pattern": "^5.9.0",
     "zod": "^4.6.6"

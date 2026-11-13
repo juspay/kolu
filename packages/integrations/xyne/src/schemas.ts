@@ -73,5 +73,16 @@ export const xyneVocab: AgentVocab<XyneInfo> = {
     idPattern: UUID_RE,
     ref: (info) => info.sessionId,
   },
+  // Measured: `xyne` 0.4.8-dev in a kolu terminal on 2026-11-13. Idle, text
+  // plus one Enter submits (the prompt leaves the composer and opens a
+  // session). WHILE WORKING, the same keys show xyne's "Steering: …" line
+  // under the running turn — the pi-derived steering pane, delivered at the
+  // turn's next step. Observed with the provider request held open by a
+  // never-answering proxy, for the reason pi's note gives.
+  say: {
+    idle: ["Enter"],
+    working: { keys: ["Enter"], delivery: "steer" },
+    verified: "ran xyne-cli 0.4.8-dev in a kolu terminal, 2026-11-13",
+  },
   infoSchema: XyneInfoSchema,
 };

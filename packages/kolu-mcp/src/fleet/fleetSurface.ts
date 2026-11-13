@@ -38,12 +38,10 @@ import {
   PadiScreenHistoryOutputSchema,
   PadiSleepingTerminalSchema,
   type PadiUrgencySchema,
-  PadiWatchNameInputSchema,
   PtyHostIdentitySchema,
   TerminalGateErrorSchema,
   TerminalInfoSchema,
   TerminalNotFound,
-  WatchSubscriptionNotFound,
 } from "@kolu/padi-client/surface";
 import { defineSurface } from "@kolu/surface/define";
 import {
@@ -291,16 +289,12 @@ export const fleetSurface = defineSurface({
         error: FsGitReadErrorSchema,
       },
     },
-    watch: {
-      /** A fleet watch has ONE name across every host it is legged onto, so
-       *  closing it takes the name and nothing else — the per-host legs are the
-       *  face's bookkeeping, never the caller's. */
-      close: {
-        input: PadiWatchNameInputSchema,
-        output: Schema.Struct({}),
-        error: WatchSubscriptionNotFound,
-      },
-    },
+    // No `watch` namespace. A standing subscription is a call held open, and
+    // the ONE conversation this surface serves — the conductor's — must never
+    // be inside one: kolu-server WAKES it when a watched terminal's agent
+    // stops, asks or dies (`fleet/watchList.ts` is the list, the server owns
+    // the watcher). The per-host face keeps `watch.open`/`close`/`drain`
+    // unchanged for every other MCP client.
   },
 });
 

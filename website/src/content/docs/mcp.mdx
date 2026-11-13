@@ -80,14 +80,26 @@ What the fleet projection changes is identity, and only identity:
 | naming a terminal | `3f29…` | `local/3f29…`, `remote:nix@prod/9a1b…` — the host, then the id, read apart at the **last** `/` |
 | `lifecycle_create` | opens one here | takes the host to open on, and answers a fleet reference |
 | the repo tools — `git_getStatus` · `git_getDiff` · `fs_listAll` · `fs_readFile` | a repo path | a repo path **and** the host it is on |
-| `watch_open` with no `ids` | watches this host's terminals | watches the **whole fleet** — and a host that arrives later flows into the subscription already open, with one ordered queue across every machine |
+| the waits and the watch | `wait_outputSettled` · `wait_agentState` · `watch_open` · `watch_next` · `watch_close`, all as documented below | **not served.** The Conductor never blocks: kolu-server wakes it. It gets `watch_terminal` / `unwatch_terminal` instead, and keeps `wait_outputSettled` **hard-capped at a few seconds** — the settle between typing and Enter, never a way to sit on an agent |
 | live views | `terminals` · `urgency` · `daemonStatus` · `status` · `identity` | `terminals` · `urgency` · **`hosts`** |
 
 </div>
 
 `hosts` is the live roster: which machines kolu knows, what each is called, and whether it is warming, connected or failed *now*. It stands in for the three per-host health views rather than fanning them out — `daemonStatus`, `status` and `identity` are facts about **one** host, and in a fleet they are columns of that roster. A call naming a host that is not connected is **refused by name**, saying which host and what state it is in; it is never answered with an empty list, which an agent would read as "nothing is running there".
 
-Everything else — every tool below, every refusal, the whole allowlist — is one definition serving both. So if you want to know what the Conductor is capable of, this page is still the answer.
+Everything else — every tool below, every refusal, the whole allowlist — is one definition serving both; the single exception is the row above. So if you want to know what the Conductor is capable of, this page is still the answer.
+
+That one exception is worth stating plainly, because it is the only place the
+two faces differ in what they can *do*. An agent in a terminal that calls a
+wait is blocking itself, and that is its own business. [The
+Conductor](/conductor) is a conversation a person is talking to, so a turn of
+its own stuck in a wait is a person stuck behind it. So the unbounded waits
+are simply not on its table: it names what it is watching, ends its turn, and
+kolu-server starts the next one when a watched terminal's agent stops, asks or
+goes. `watch_terminal` and `unwatch_terminal` are how it keeps that list (a
+terminal it creates is added for it); `wait_outputSettled` survives with a
+hard cap, because typing a command and submitting it still needs the pause in
+between.
 
 ## Connect it to your agent
 
@@ -229,6 +241,7 @@ the sentence names both spellings and no terminal was created to clean up.
 | `lifecycle_create` | Open a new terminal and return its `id`. **`placement` is required** — `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"…"}` to open it as a split inside that terminal; there is no default, and a call that omits it is refused with both spellings. Optionally: in a working directory (`cwd`) or a **fresh git worktree** (`repo` + `worktree`, cut at `<repo>/.worktrees/<name>`), labelled on the canvas (`intent`), typing a first command at its shell prompt (`run`). One call does what `kolu create --toplevel --repo … --worktree … -- <cmd>` does. A create that fails after the worktree or terminal already landed names the survivors as data (`stopped-partway`), so nothing orphaned goes unnameable. It picks up your [new-terminal theme setting](/theming) like a terminal you open yourself. |
 | `lifecycle_sendInput` | Type into a terminal: text, **or** one named key or chord (`Enter`, `Escape`, `C-c`, arrows…) — never both in one call. |
 | `lifecycle_kill` | Close one terminal by `id`. |
+| `agent_say` | Say something to the **agent** in a terminal, idle or mid-turn. kolu knows which agent is in there (see [agent detection](/agent-detection)) and performs its own submit — the keys, in the order and number that agent wants — so a driver never has to learn that one CLI needs a second Enter. A terminal with no agent, or an agent kolu has no recipe for, is refused with the reason rather than typed at blindly. Served by **both** faces. |
 
 ### Wait for the right moment
 
@@ -236,6 +249,10 @@ the sentence names both spellings and no terminal was created to clean up.
 | --- | --- |
 | `wait_outputSettled` | Block until a terminal's output goes quiet — the turn ended, or it's waiting for input. |
 | `wait_agentState` | Block until the terminal's agent reaches a state you name (`working`, `awaiting`, `waiting`) — a precise done-signal, not a guess from silence. |
+
+Both waits are the **per-host** face's, and an uncapped one is not on [the
+Conductor](/conductor)'s table at all: its `wait_outputSettled` is capped at a
+few seconds and it has no `wait_agentState`.
 
 Both take two extras that turn a three-call routine into one call, and both
 exist because the gaps between those calls are where a driving agent gets
@@ -257,10 +274,13 @@ shell.
 
 ### Supervise several terminals at once
 
-The two waits above each watch **one** terminal, and only while the call is
-open — so an agent running several workers used to need a wait per worker, kept
-re-armed by hand, and anything that happened between two waits was invisible.
-These replace that with one subscription:
+This subscription is the **per-host** face's too — [the
+Conductor](/conductor) is woken by kolu-server instead, and keeps a watched
+list rather than a subscription (below). For an agent that does block, the two
+waits above each watch **one** terminal, and only while the call is open — so
+an agent running several workers used to need a wait per worker, kept re-armed
+by hand, and anything that happened between two waits was invisible. These
+replace that with one subscription:
 
 | Tool | What it does |
 | --- | --- |
@@ -333,6 +353,21 @@ recent 512 events; if your agent stays away long enough to overflow one, the nex
 batch comes back with a count of what was dropped rather than quietly losing the
 tail. Restarting kolu's background service itself — an upgrade does it — clears
 subscriptions; the next call says so plainly instead of reporting silence.
+
+### The Conductor's watched list
+
+The fleet face swaps the subscription for a list kolu-server keeps, because
+the Conductor is not the thing doing the waiting — it is the thing being
+woken.
+
+| Tool | What it does |
+| --- | --- |
+| `watch_terminal` | Add a terminal to the watched list, by its `host/id`. Idempotent; refused by name for a malformed reference, a host that is not a member, or a terminal its host's roster does not have. Answers the whole list back. |
+| `unwatch_terminal` | Take one off, and say whether it was there. A terminal that closes drops off by itself, and a terminal the Conductor creates is added without being asked. |
+
+A watched terminal whose agent stops, asks or goes starts a new Conductor
+turn, carrying every terminal that has news. Nothing else does — no timer, and
+no plain shell. [The Conductor](/conductor) has the whole of it.
 
 ### Read the screen and the code
 

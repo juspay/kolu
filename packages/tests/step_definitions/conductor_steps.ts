@@ -1298,3 +1298,285 @@ Then(
     );
   },
 );
+
+// ── The Conductor never blocks: wakes, the watched list, the status line ──
+//
+// A watched terminal's agent state comes from the same mocked Claude Code
+// session files the agent-detection scenarios write, so a wake here travels
+// padi's urgency fold, kolu-server's watcher and the ACP wire to the scripted
+// adapter — nothing in the browser is told about it except by the cell and the
+// transcript, which is exactly what a person reads.
+
+const STATUS = '[data-testid="conductor-status"]';
+const WATCHING = '[data-testid="conductor-watching"]';
+const HELD = '[data-testid="conductor-held"]';
+const WATCHED_PANEL = '[data-testid="conductor-watched-panel"]';
+const WATCHED_ROW = '[data-testid="conductor-watched-row"]';
+const WAKE_ROW = `${ROW}[data-row-kind="wake"]`;
+const STEER_HINT = '[data-testid="conductor-steer-hint"]';
+
+/** The number in an element's text — `watching 3`, `2 waiting` — or `absent`
+ *  when the element is not on screen, so a failure says which. */
+async function countIn(world: KoluWorld, selector: string): Promise<string> {
+  const node = world.page.locator(selector);
+  if ((await node.count()) === 0) return "absent";
+  const text = (await node.first().textContent()) ?? "";
+  return text.match(/\d+/)?.[0] ?? `no number in ${JSON.stringify(text)}`;
+}
+
+/** The terminal this scenario watches, or a failure saying the scenario never
+ *  asked for one — every step below is about THAT terminal. */
+function watchedId(world: KoluWorld): string {
+  const id = world.watchedTerminalId;
+  assert.ok(id, "no terminal was watched in this scenario");
+  return id;
+}
+
+/** The watched panel's row for that terminal: its ref is `<host>/<id>`, and
+ *  the id half is the one this scenario knows. */
+function watchedRow(world: KoluWorld) {
+  return world.page.locator(
+    `${WATCHED_PANEL} ${WATCHED_ROW}[data-ref$="/${watchedId(world)}"]`,
+  );
+}
+
+When(
+  "I ask the conductor to watch the terminal",
+  async function (this: KoluWorld) {
+    // THE FOCUSED tile, read before the conversation covers the canvas — the
+    // same reading `adopt the terminal I am in` makes, for the same reason.
+    const id = await this.page
+      .locator(`${CANVAS_TILE}[data-active]`)
+      .getAttribute("data-terminal-id", { timeout: POLL_TIMEOUT });
+    assert.ok(id, "no tile is focused, so there is nothing to watch");
+    this.watchedTerminalId = id;
+    await enterConductor(this);
+    // The fixture answers `watch <id>` with a REAL `watch_terminal` call on the
+    // fleet face it was handed — so the list moves because the tool moved it.
+    await sendPrompt(this, `watch ${id}`);
+  },
+);
+
+When(
+  "I ask the conductor to watch the first terminal",
+  async function (this: KoluWorld) {
+    // The PHONE's spelling: no canvas tile is focused there, so the terminal
+    // is read off the roster the same way `adopt the terminal` reads it.
+    const ids = await this.terminalIds();
+    const id = ids[0];
+    assert.ok(id, "a terminal must exist before the conductor can watch one");
+    this.watchedTerminalId = id;
+    await enterConductor(this);
+    await sendPrompt(this, `watch ${id}`);
+  },
+);
+
+Then(
+  "the conductor status should say it is watching {int}",
+  async function (this: KoluWorld, count: number) {
+    await waitForValue(
+      "the status line's watching count",
+      () => countIn(this, `${STATUS} ${WATCHING}`),
+      String(count),
+    );
+  },
+);
+
+Then(
+  "the conductor status should say {int} waiting",
+  async function (this: KoluWorld, count: number) {
+    await waitForValue(
+      "the status line's waiting count",
+      () => countIn(this, `${STATUS} ${HELD}`),
+      String(count),
+    );
+  },
+);
+
+Then(
+  "the conductor status should say nothing is waiting",
+  async function (this: KoluWorld) {
+    await waitForCount(this, `${STATUS} ${HELD}`, 0);
+  },
+);
+
+Then(
+  "the conductor transcript should show no wake",
+  async function (this: KoluWorld) {
+    // AN INSTANT, not a wait: the claim is about NOW — the turn is running and
+    // the wake is held — and a poll for zero would pass the moment before one
+    // was wrongly injected.
+    assert.equal(
+      await this.page.locator(WAKE_ROW).count(),
+      0,
+      `a wake landed while the turn ran: ${await transcriptInventory(this)}`,
+    );
+  },
+);
+
+Then(
+  "the conductor transcript should show a wake about the watched terminal",
+  async function (this: KoluWorld) {
+    const id = watchedId(this);
+    // The ACCOUNT names the terminal by its fleet ref; it is in the DOM even
+    // folded (the disclosure hides it, it does not withhold it) — so the
+    // wake is matched on the terminal it is about, not merely on existing.
+    let inventoryAtTimeout = "(not observed)";
+    await pollFor({
+      observe: () =>
+        this.page
+          .locator(WAKE_ROW)
+          .evaluateAll(
+            (rows, want) =>
+              rows.filter((row) => (row.textContent ?? "").includes(want))
+                .length,
+            `/${id}`,
+          ),
+      isDone: (seen) => seen > 0,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (_last, elapsedMs) =>
+        new Error(
+          `no wake about ${id} after ${elapsedMs}ms; the transcript holds ${inventoryAtTimeout}`,
+        ),
+      onTick: async () => {
+        inventoryAtTimeout = await transcriptInventory(this);
+      },
+    });
+  },
+);
+
+Then("the wake should be one line from kolu", async function (this: KoluWorld) {
+  const wake = this.page.locator(WAKE_ROW).last();
+  const headline = wake.locator('[data-testid="conductor-wake-headline"]');
+  await headline.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  assert.match((await wake.textContent()) ?? "", /kolu/);
+  assert.equal(
+    await wake.locator('[data-testid="conductor-wake-text"]').isVisible(),
+    false,
+    "the wake's whole account was open before anybody opened it",
+  );
+  // The machine's line is NOT the human's bubble — a user mark (and the
+  // send-again that rides it) belongs to words a person typed.
+  assert.equal(await wake.locator(USER_MARK).count(), 0);
+});
+
+When("I open the wake", async function (this: KoluWorld) {
+  await this.page
+    .locator(WAKE_ROW)
+    .last()
+    .locator('[data-testid="conductor-wake-toggle"]')
+    .click();
+});
+
+Then(
+  "the wake should give the whole account of the watched terminal",
+  async function (this: KoluWorld) {
+    const text = this.page
+      .locator(WAKE_ROW)
+      .last()
+      .locator('[data-testid="conductor-wake-text"]');
+    await text.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    assert.match(
+      (await text.textContent()) ?? "",
+      new RegExp(`local/${watchedId(this)}`),
+    );
+  },
+);
+
+When("I open the watched terminals", async function (this: KoluWorld) {
+  await this.page.locator(`${STATUS} ${WATCHING}`).click();
+  await this.page
+    .locator(WATCHED_PANEL)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
+Then(
+  "the watched panel should list the watched terminal",
+  async function (this: KoluWorld) {
+    await watchedRow(this).waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When("I look at the watched terminal", async function (this: KoluWorld) {
+  await watchedRow(this)
+    .locator('[data-testid="conductor-watched-look"]')
+    .click();
+});
+
+Then(
+  "the watched terminal's look should show {string}",
+  async function (this: KoluWorld, text: string) {
+    await pollFor({
+      observe: async () =>
+        (
+          (await this.page
+            .locator(`${WATCHED_PANEL} [data-testid="conductor-look-tail"]`)
+            .last()
+            .textContent({ timeout: 1_000 })
+            .catch(() => null)) ?? "(no tail)"
+        )
+          .replace(/\s+/g, " ")
+          .trim(),
+      isDone: (seen) => seen.includes(text),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `the watched terminal's look never showed ${JSON.stringify(text)}; after ${elapsedMs}ms it said ${JSON.stringify(last)}`,
+        ),
+    });
+  },
+);
+
+When("I stop watching the watched terminal", async function (this: KoluWorld) {
+  await watchedRow(this)
+    .locator('[data-testid="conductor-watched-remove"]')
+    .click();
+});
+
+Then("the conductor should offer to steer", async function (this: KoluWorld) {
+  await this.page
+    .locator(STEER_HINT)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
+When(
+  "I steer the conductor with {string}",
+  async function (this: KoluWorld, text: string) {
+    const input = this.page.locator(INPUT);
+    await input.click();
+    await input.fill(text);
+    await this.page.keyboard.press("Alt+Enter");
+  },
+);
+
+Then(
+  "the conductor status should count how long it has been working",
+  async function (this: KoluWorld) {
+    await pollFor({
+      observe: async () =>
+        (
+          (await this.page
+            .locator(`${STATUS} [data-testid="conductor-status-since"]`)
+            .textContent({ timeout: 1_000 })
+            .catch(() => null)) ?? "(absent)"
+        ).trim(),
+      isDone: (seen) => /\d+\s*(s|m|h)/.test(seen),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `the status line never counted the turn; after ${elapsedMs}ms it said ${JSON.stringify(last)}`,
+        ),
+    });
+  },
+);
+
+Then(
+  "the conductor header should carry no state chip",
+  async function (this: KoluWorld) {
+    // The state lives in ONE place — the status line above the composer — so
+    // the only `conductor-phase` on screen is the status line's.
+    const phases = this.page.locator(CHIP);
+    assert.equal(await phases.count(), 1);
+    assert.equal(await this.page.locator(`${STATUS} ${CHIP}`).count(), 1);
+  },
+);

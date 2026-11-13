@@ -44,6 +44,33 @@ export interface TerminalAsleepRefusal extends Record<string, unknown> {
   readonly state: "sleeping" | "parked";
 }
 
+/** THE sentence and detail for "that terminal is dormant", built from the id
+ *  and the arm — without an error to map.
+ *
+ *  Separated from {@link terminalAsleepFailure} because one caller reaches the
+ *  same conclusion from the ROSTER rather than from a refused call: `agent_say`
+ *  reads the terminal's record before it writes anything, and a `sleeping` or
+ *  `parked` record carries no agent, so without this it would report "no agent
+ *  here" — telling an agent its worker is a plain shell when the truth is that
+ *  the terminal is asleep. Two sentences for one condition is how a face starts
+ *  lying in one of them, so the sentence is minted once. */
+export function terminalAsleepRefusal(
+  id: string,
+  state: "sleeping" | "parked",
+): ToolFailure<TerminalAsleepRefusal> {
+  return new ToolFailure<TerminalAsleepRefusal>(
+    // The sentence names the FIX, not just the diagnosis — and names it as a
+    // thing the reader can DO rather than as a tool on this face: waking a
+    // terminal is canvas-owned (`lifecycle.wake` is denied on both
+    // projections, see `expose.ts`), so an agent either asks the human to wake
+    // it or skips it and says it is asleep.
+    state === "parked"
+      ? `Terminal ${id} is parked — it is a saved terminal waiting to be restored, so it has no live screen to read`
+      : `Terminal ${id} is asleep — wake it before reading its screen, or skip it and say it is asleep`,
+    { kind: "terminal-not-active", tag: "TerminalNotActive", id, state },
+  );
+}
+
 /** `err` as this face's refusal, or `undefined` when it is some other failure.
  *
  *  Unwraps one `cause` level on the way in: the `wait_*` tools lift a
@@ -59,18 +86,7 @@ export function terminalAsleepFailure(
       ? terminalNotActiveOf(err.cause)
       : undefined);
   if (found === undefined) return undefined;
-  const { id, state } = found;
-  return new ToolFailure<TerminalAsleepRefusal>(
-    // The sentence names the FIX, not just the diagnosis — and names it as a
-    // thing the reader can DO rather than as a tool on this face: waking a
-    // terminal is canvas-owned (`lifecycle.wake` is denied on both
-    // projections, see `expose.ts`), so an agent either asks the human to wake
-    // it or skips it and says it is asleep.
-    state === "parked"
-      ? `Terminal ${id} is parked — it is a saved terminal waiting to be restored, so it has no live screen to read`
-      : `Terminal ${id} is asleep — wake it before reading its screen, or skip it and say it is asleep`,
-    { kind: "terminal-not-active", tag: "TerminalNotActive", id, state },
-  );
+  return terminalAsleepRefusal(found.id, found.state);
 }
 
 /** Run `effect`, turning padi's `TerminalNotActive` into this face's refusal and

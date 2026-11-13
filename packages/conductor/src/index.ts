@@ -40,6 +40,7 @@ export {
   startConductorHost,
   UNSENT_ATTACHMENT_MS,
 } from "./conductor.ts";
+export { type Held, type HeldSlot, holding } from "./held.ts";
 export {
   EMPTY_PERSISTED_CONDUCTOR,
   type PersistedConductor,
@@ -50,3 +51,12 @@ export {
 export { conductorSurfaceMembers } from "./surface.ts";
 export { parseTeaching, teachingLines } from "./teaching.ts";
 export { conductorTranscriptSource } from "./transcriptStream.ts";
+export { wakeText } from "./wakeText.ts";
+export {
+  observed,
+  type WatchEntry,
+  type Watched,
+  type WatchLevel,
+  type WatchObservation,
+  watchEntry,
+} from "./watching.ts";

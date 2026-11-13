@@ -79,5 +79,15 @@ export const opencodeVocab: AgentVocab<OpenCodeInfo> = {
     idPattern: /^ses_[0-9a-zA-Z]{1,64}$/,
     ref: (info) => info.sessionId,
   },
+  // Measured: `opencode` 2.2.7 in a kolu terminal on 2026-11-13. Idle, text
+  // plus one Enter submits. WHILE WORKING, the message is accepted (the
+  // composer clears and the row appears under the running answer) but the
+  // generation carries on to its end untouched — opencode holds it for the
+  // next turn, so it is a queue, not a steer.
+  say: {
+    idle: ["Enter"],
+    working: { keys: ["Enter"], delivery: "queue" },
+    verified: "ran opencode 2.2.7 in a kolu terminal, 2026-11-13",
+  },
   infoSchema: OpenCodeInfoSchema,
 };

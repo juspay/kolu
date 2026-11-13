@@ -143,6 +143,54 @@ body {
     inset 0 1px 0 color-mix(in oklch, white 16%, transparent),
     0 -6px 16px -12px var(--host-hue);
 }
+
+/* ── The CONDUCTOR's tab — the one place in the row that is not a machine ──
+ *
+ * Every host tab rests as quiet grey text and only the CURRENT one wears its
+ * hue. The conductor is not one of a set: it is the single conversation that
+ * reaches all of them, and at rest in grey it read as the weakest thing on a
+ * row of hosts — the opposite of what it is. So it wears `--color-conductor`
+ * (a `@kolu/theme` token, light and dark) AT REST as well as when current:
+ * coloured ink, a faint wash and a hairline, so it reads as the special tab
+ * from across the room and still as a tab.
+ *
+ * It also FEEDS `--host-hue`, so the shared `.host-tab-active` belly, hover
+ * and focus ring below paint it in the same colour without a second set of
+ * rules to keep in step. Declared BEFORE the attention wash: a conductor with
+ * questions waiting washes violet exactly like a host does, and the wash must
+ * win over this identity. */
+.conductor-tab {
+  --host-hue: var(--color-conductor);
+}
+.conductor-tab.host-tab-idle {
+  color: var(--color-conductor);
+  background: color-mix(in oklch, var(--color-conductor) 10%, transparent);
+  border-color: color-mix(in oklch, var(--color-conductor) 30%, transparent);
+}
+.conductor-tab.host-tab-idle:hover {
+  color: var(--color-conductor);
+  background: color-mix(in oklch, var(--color-conductor) 20%, transparent);
+  border-color: color-mix(in oklch, var(--color-conductor) 48%, transparent);
+}
+/* The lit tab keeps the hue in its BORDER as well as its belly — the belly is
+ * a 13% mix over the surface, which on paper is nearly the surface itself. */
+.conductor-tab.host-tab-active {
+  border-color: color-mix(
+    in oklch,
+    var(--color-conductor) 45%,
+    var(--color-edge)
+  );
+}
+/* Dark: the same reason the active tab needs 32% instead of 13% — a low mix
+ * over near-black collapses to grey, and the resting tab is the one that must
+ * still read as coloured. */
+:root.dark .conductor-tab.host-tab-idle {
+  background: color-mix(in oklch, var(--color-conductor) 16%, transparent);
+  border-color: color-mix(in oklch, var(--color-conductor) 38%, transparent);
+}
+:root.dark .conductor-tab.host-tab-idle:hover {
+  background: color-mix(in oklch, var(--color-conductor) 26%, transparent);
+}
 /* Host-tab attention wash — the AREA channel, ONE rule, two hues.
  *
  * The `AttentionTriplet`'s capsule carries the count; this washes the whole tab

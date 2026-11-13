@@ -171,6 +171,16 @@ const minted = (
 const isRunning = (status: ConductorToolStatus): boolean =>
   status === "pending" || status === "in_progress";
 
+/** A row a TURN is the delivery of — the two kinds that can wait behind
+ *  another turn, be refused, or go unanswered: a person's message, and kolu's
+ *  own wake. Named once because three marks ask the same question of a row,
+ *  and a fourth asked of `kind === "user"` alone is how a server-started turn
+ *  would quietly stop reporting how it went. */
+const isDelivered = (
+  row: ConductorRow,
+): row is Extract<ConductorRow, { kind: "user" | "wake" }> =>
+  row.kind === "user" || row.kind === "wake";
+
 /** A background task that is STILL OUT — the one kind of call a turn's ending
  *  says nothing about, because outliving its turn is the whole point of it.
  *  Asked of the row rather than of a flag, so the strip above the scroll and
@@ -352,6 +362,25 @@ export class Transcript {
   }
 
   /**
+   * ... AND WHAT KOLU ITSELF SENT — a wake: the server started a turn because
+   * a watched terminal stopped, asked, or died.
+   *
+   * A row of its own kind rather than a `user` row with a mark on it, because
+   * what a reader is owed is different: this is a machine's line, drawn full
+   * width with no *send again* under it, and the account it carries is already
+   * in the agent's own store. It is minted by the same door and ANSWERS WITH
+   * ITS KEY for the same reason a user row does — the turn it starts can wait
+   * behind another, be refused, or go unanswered, and every one of those
+   * marks lands back on this key.
+   */
+  wake(
+    text: string,
+    events: Extract<ConductorRow, { kind: "wake" }>["events"],
+  ): { readonly key: string; readonly change: Change } {
+    return this.#row("wake", text, { from: "kolu", events });
+  }
+
+  /**
    * THE BREAK BETWEEN TWO CONVERSATIONS — the row that says the agent's memory
    * was reset, and says nothing else.
    *
@@ -411,7 +440,7 @@ export class Transcript {
 
   #waiting(key: string, waiting: boolean): Change {
     const current = this.#rows.get(key);
-    if (current === undefined || current.kind !== "user") return EMPTY;
+    if (current === undefined || !isDelivered(current)) return EMPTY;
     // ALREADY SO IS NOT NEWS: {@link taken} lands mostly on rows that were
     // never waiting, and a frame per turn saying nothing is a conversation
     // republishing itself.
@@ -450,19 +479,35 @@ export class Transcript {
     auth = false,
   ): Change {
     const current = this.#rows.get(key);
-    if (current === undefined || current.kind !== "user") return EMPTY;
+    if (current === undefined) return EMPTY;
     // `delivery` comes off along with the derived fields, for `contentOf`'s
     // reason: this line is what DECIDES it, and a spread of the old row would
     // carry the previous answer past the decision. The reason goes with it,
     // because a row that stopped being refused for want of a signature must
     // stop saying it was.
-    const { delivery: _delivery, auth: _auth, ...content } = contentOf(current);
+    //
+    // THE TWO KINDS A TURN IS THE DELIVERY OF are spelled apart rather than
+    // folded, because only one of them has an `auth` face: *nobody is signed
+    // in* is a refusal with a button under it, and the button belongs to words
+    // somebody typed. A wake is kolu's own line and its account is already in
+    // the agent's store, so it carries the mark and nothing to press.
+    if (current.kind === "user") {
+      const {
+        delivery: _delivery,
+        auth: _auth,
+        ...content
+      } = contentOf(current);
+      if (delivery === null) return this.#put(key, content);
+      return this.#put(key, {
+        ...content,
+        delivery,
+        ...(auth ? { auth: true as const } : {}),
+      });
+    }
+    if (current.kind !== "wake") return EMPTY;
+    const { delivery: _delivery, ...content } = contentOf(current);
     if (delivery === null) return this.#put(key, content);
-    return this.#put(key, {
-      ...content,
-      delivery,
-      ...(auth ? { auth: true as const } : {}),
-    });
+    return this.#put(key, { ...content, delivery });
   }
 
   /** One chunk of the agent's prose. Appends to the row already open, or opens

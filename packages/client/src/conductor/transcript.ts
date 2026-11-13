@@ -234,7 +234,7 @@ const FOLD_AT_TOP = "fold:top";
  *  reads as the sentences it is — while the Conductor is still working, too.
  *  The count grows as more calls settle.
  *
- *  A run is everything between two BOUNDARIES — an `agent`, `user` or
+ *  A run is everything between two BOUNDARIES — an `agent`, `user`, `wake` or
  *  `divider` row, or the top of the transcript — and nothing folds across
  *  one, so a fold never swallows a message of yours or outlives a session.
  *  Rows inside a run that are not plain tool calls (a question, the plan card,
@@ -269,7 +269,17 @@ export function foldToolRuns(
 
   for (const entry of entries) {
     const kind = entry.row.kind;
-    if (kind !== "agent" && kind !== "user" && kind !== "divider") {
+    // A WAKE is a boundary like a message of yours, and for the same reason:
+    // it STARTS a turn. The calls before it belong to the work that was
+    // running when the terminal rang, and a fold that reached across it would
+    // put the Conductor's answer to the wake in the same closed "Details" as
+    // whatever it had been doing beforehand.
+    if (
+      kind !== "agent" &&
+      kind !== "user" &&
+      kind !== "divider" &&
+      kind !== "wake"
+    ) {
       run.push(entry);
       continue;
     }
@@ -387,6 +397,11 @@ function rowText(row: ConductorRow): string {
       return `note: ${row.text}`;
     case "divider":
       return `— ${row.text} —`;
+    case "wake":
+      // The ACCOUNT, not the headline: a transcript pasted into an issue is
+      // read by somebody reconstructing what the agent was told, and the
+      // headline is this browser's summary of it.
+      return `${row.from}: ${row.text}`;
   }
 }
 

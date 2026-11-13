@@ -64,6 +64,18 @@ move under — that gap is a race, not a formality.
   `surface://cells/urgency` lists terminals whose agent awaits a human.
 - Interrupt a runaway before redirecting: `{ key: "Escape" }` (stop Claude Code
   mid-stream), `{ key: "C-c" }` (SIGINT).
+- `agent_say { id, text }` — **say something to the AGENT in a terminal, and
+  let kolu press the keys.** It reads which agent is there and whether it is
+  working, types the text, waits a hard-capped settle, and presses that agent's
+  own submit keys — the three-step submit below, done for you, with the
+  per-agent knowledge kolu already has. The answer says what happened:
+  `delivery: "submitted"` (it was idle), `"steer"` (the words reached the turn
+  that is running — codex, omp, pi, xyne) or `"queue"` (they wait for the
+  current turn to end — claude-code, opencode, grok). It REFUSES rather than
+  guessing: a terminal with no agent (a plain shell), an agent with no verified
+  recipe, a terminal that is asleep, empty text. Prefer it over the three-step
+  submit whenever the target is a detected agent; keep `lifecycle_sendInput`
+  for shells, menus, and interrupts.
 
 ## The three-step submit — text · settle · Enter
 

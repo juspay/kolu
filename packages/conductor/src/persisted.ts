@@ -43,9 +43,10 @@ import {
   type ConductorRow,
   ConductorRowSchema,
   type ConductorState,
+  ConductorWakeLevelSchema,
 } from "kolu-common/conductor";
 import type { CellStore } from "@kolu/surface/server";
-import { Result, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 
 /** The record's SHAPE, as a schema rather than as an interface alone.
  *
@@ -72,6 +73,29 @@ export const PersistedConductorSchema = Schema.Struct({
    *  conversation spans every host, and a bare id would name two terminals on
    *  a two-host fleet. */
   fleet: Schema.Array(Schema.String),
+  /** THE TERMINALS KOLU WAKES THIS CONVERSATION ABOUT, in the order they were
+   *  added — and per entry the three facts a restart cannot re-derive: what
+   *  kolu last saw the terminal called, whether an agent was ever seen in it
+   *  (a terminal that never held one drops off in silence when it goes), and
+   *  the level the conversation has already been TOLD about.
+   *
+   *  The last is what makes a restart quiet: kolu looks at every watched
+   *  terminal again, and one that is still stopped for the reason it was
+   *  stopped before the restart does not ring a second time. What is NOT here
+   *  is the held news — a restart re-reads the world instead of replaying a
+   *  queue about one that has moved on.
+   *
+   *  A DECODING DEFAULT, because this key is read back off a `config.json`
+   *  written before the watch list existed: the ladder's rung seeds it, and
+   *  this is the belt to that brace. */
+  watched: Schema.Array(
+    Schema.Struct({
+      ref: Schema.String,
+      name: Schema.String,
+      agent: Schema.NullOr(Schema.String),
+      told: Schema.NullOr(ConductorWakeLevelSchema),
+    }),
+  ).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
 });
 
 /** The record as a value. Derived from the schema rather than declared beside
@@ -85,6 +109,7 @@ export const EMPTY_PERSISTED_CONDUCTOR: PersistedConductor = {
   model: null,
   rows: [],
   fleet: [],
+  watched: [],
 };
 
 /** The re-validation, compiled once. `decodeUnknownResult` is a BRANCH rather
@@ -158,6 +183,12 @@ function oneDividerPerReset(
 export function persistedFrom(
   state: ConductorState,
   rows: ReadonlyArray<ConductorRow>,
+  /** The watch list as ENTRIES — the cell's `watched` is refs alone, and what
+   *  a restart needs is the three facts beside each one (see the schema).
+   *  Passed in rather than read off the state for exactly that reason: the
+   *  state is what a browser is told, and this is what the next boot resumes
+   *  from. */
+  watched: PersistedConductor["watched"],
 ): PersistedConductor {
   return {
     sessionId: state.sessionId,
@@ -165,6 +196,7 @@ export function persistedFrom(
     model: state.model?.id ?? null,
     rows: rows.length > ROW_CAP ? rows.slice(rows.length - ROW_CAP) : rows,
     fleet: state.fleet,
+    watched,
   };
 }
 

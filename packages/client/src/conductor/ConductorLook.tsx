@@ -94,6 +94,10 @@ const ConductorLook: Component<{
   /** The ENCODED host key the terminal lives on (`local`, `remote:…`). */
   host: string;
   id: TerminalId;
+  /** What the Look/Hide button is found by. The transcript's agent lines are
+   *  `conductor-look-toggle`; the watched panel draws the SAME peek under its
+   *  own name, so a test can say which of the two it pressed. */
+  toggleTestId?: string;
 }> = (props) => {
   const standing = createMemo(() =>
     fleetTerminalStanding(props.host, props.id),
@@ -173,7 +177,7 @@ const ConductorLook: Component<{
         <Show when={lookable()}>
           <button
             type="button"
-            data-testid="conductor-look-toggle"
+            data-testid={props.toggleTestId ?? "conductor-look-toggle"}
             aria-expanded={open()}
             class="shrink-0 rounded-md border border-edge-bright bg-surface-2 px-2 py-px text-[0.7rem] font-semibold text-accent hover:bg-surface-3 cursor-pointer"
             onClick={() => setOpened(props.rowId, open() ? undefined : true)}

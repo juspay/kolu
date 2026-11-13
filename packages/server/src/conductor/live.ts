@@ -38,6 +38,13 @@ let endpoint: () => FleetMcpEndpoint | null = () => null;
 
 /** The served cell's writer, or `null` until `surface.ts` registers it. */
 let writeCell: ((state: ConductorState) => void) | null = null;
+/** What else wants to know the conversation moved, or `null` — the WATCHER,
+ *  which re-scopes its subscriptions when the watch list changes. Beside the
+ *  cell writer rather than inside it because the two are different audiences:
+ *  the cell is what a browser reads, and this is a process-internal consumer
+ *  of the same frame that must not be able to break the browser's by throwing
+ *  into the publish path. */
+let onState: ((state: ConductorState) => void) | null = null;
 
 let live: ConductorHost | undefined;
 
@@ -67,6 +74,17 @@ export function setConductorCellWriter(
   write: (state: ConductorState) => void,
 ): void {
   writeCell = write;
+}
+
+/** ... and register the one process-internal reader of the same frame: the
+ *  WATCHER, whose subscriptions follow the watch list the conversation
+ *  publishes. Optional — a boot that never started one publishes exactly as it
+ *  always did — and guarded at the call site, because a listener that threw
+ *  must not take a browser's frame down with it. */
+export function setConductorStateListener(
+  listen: (state: ConductorState) => void,
+): void {
+  onState = listen;
 }
 
 /**
@@ -110,6 +128,17 @@ export function liveServerConductor(): ConductorHost {
         );
       }
       writeCell(state);
+      // ... and whoever else in this process follows the conversation. AFTER
+      // the cell and inside its own guard: a watcher that threw here would
+      // take a frame a browser is waiting on down with it.
+      try {
+        onState?.(state);
+      } catch (err) {
+        log.warn(
+          { err },
+          "kolu-server: a conductor state listener threw and was ignored",
+        );
+      }
     },
     store: confStore<PersistedConductor>(store, "conductor"),
     storePath: () => store.path,

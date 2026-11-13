@@ -212,6 +212,12 @@ const WEB_SHELL_FILES = [
   // runs no terminal domain, and every terminal the conversation touches it
   // touches through a padi client, over the wire, like any other consumer.
   "conductor/live",
+  // ...and the WATCHER that wakes it: the host map's padi clients read the way
+  // the fleet face reads them (each host's `urgency` cell and `terminals`
+  // collection, over the wire), folded into readings the conversation decides
+  // on. Shell code by the same argument — it owns no PTY and runs no terminal
+  // domain; it subscribes to padi like any other consumer.
+  "conductor/watcher",
   // ── the fleet MCP face's server side (packages/server/src/fleet/) ──
   // The loopback listener the conductor's agent reaches the fleet through,
   // and kolu-server's implementation of `@kolu/kolu-mcp`'s `FleetHosts` port
