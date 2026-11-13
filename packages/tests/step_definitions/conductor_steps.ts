@@ -812,7 +812,17 @@ Then(
     // row reads `handed`, which is the honest "kolu gave this over and nobody
     // has reported either way", and a conductor that silently fell back to
     // running shell commands itself would sit at exactly that.
-    const row = `[data-testid="conductor-server"][data-server="${server}"]`;
+    //
+    // THE ROSTER IS IN THE `⋯` NOW, not a strip above every conversation, so
+    // this opens the menu the way a person asking the question does. The
+    // panel is portalled and stays up while the poll runs; the second press
+    // puts it away so the scenario's next step meets the conversation and not
+    // a panel over it.
+    const row = `${MENU_PANEL} [data-testid="conductor-server"][data-server="${server}"]`;
+    await this.page.locator(MENU).click();
+    await this.page
+      .locator(MENU_PANEL)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await waitForValue(
       `${row} standing`,
       async () =>
@@ -820,6 +830,8 @@ Then(
         "absent",
       "connected",
     );
+    await this.page.locator(MENU).click();
+    await waitForCount(this, MENU_PANEL, 0);
   },
 );
 
@@ -1632,7 +1644,14 @@ Then(
 );
 
 When("I open the watched terminals", async function (this: KoluWorld) {
-  await this.page.locator(`${STATUS} ${WATCHING}`).click();
+  // PUT THEM ON SCREEN, however this window holds them. On a window wide
+  // enough for two columns the panel is already beside the conversation and
+  // there is nothing to press — the status line carries a readout there, not
+  // a control. Below that width it is the band the control opens. The step
+  // means the same thing in both: the watched terminals are readable now.
+  if ((await this.page.locator(WATCHED_PANEL).count()) === 0) {
+    await this.page.locator(`${STATUS} ${WATCHING}`).click();
+  }
   await this.page
     .locator(WATCHED_PANEL)
     .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
@@ -1679,6 +1698,78 @@ When("I stop watching the watched terminal", async function (this: KoluWorld) {
   await watchedRow(this)
     .locator('[data-testid="conductor-watched-remove"]')
     .click();
+});
+
+// ── One reading column, and the side column beside it ──
+//
+// The watched panel has TWO placements and one implementation: a side column
+// that is always on screen on a window wide enough for both measures, and the
+// band the status line's control opens below that width. These steps say
+// which placement is live, because that is the thing a person sees change.
+
+/** The pane's second column — the always-on placement of the watched panel. */
+const SIDE = '[data-testid="conductor-side"]';
+
+Then(
+  "the conductor side column should list the watched terminal",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(`${SIDE} ${WATCHED_ROW}[data-ref$="/${watchedId(this)}"]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the conductor should have no side column",
+  async function (this: KoluWorld) {
+    await waitForCount(this, SIDE, 0);
+  },
+);
+
+Then(
+  "the watched terminals should be behind the status line's control",
+  async function (this: KoluWorld) {
+    // The narrow window's bargain: the list is not standing beside the
+    // conversation, and the way to it is the count on the status line.
+    await waitForCount(this, WATCHED_PANEL, 0);
+    await this.page
+      .locator(`${STATUS} ${WATCHING}`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the conductor status should say nothing is being watched",
+  async function (this: KoluWorld) {
+    // NOT `watching 0`: the count and the control that would open an empty
+    // panel are both absent when there is nothing to count.
+    await waitForCount(this, `${STATUS} ${WATCHING}`, 0);
+  },
+);
+
+Then(
+  "the conductor side column should say nothing is in progress",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(`${SIDE} [data-testid="conductor-watched-empty"]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then("no count on screen should read zero", async function (this: KoluWorld) {
+  // Every readout the conversation keeps about its own work — the status
+  // line and the side column — read whole, and none of them may say `0`.
+  // A zero here is not a small cosmetic thing: it is the conversation
+  // reporting a quantity of nothing, which a reader has to parse before
+  // they can ignore it.
+  const zeros = await this.page.evaluate(
+    ([status, side]) =>
+      [...document.querySelectorAll<HTMLElement>(`${status}, ${side}`)]
+        .map((el) => (el.textContent ?? "").replace(/\s+/g, " ").trim())
+        .filter((text) => /\b0\b/.test(text)),
+    [STATUS, SIDE],
+  );
+  assert.deepEqual(zeros, [], `a readout says zero: ${zeros.join(" / ")}`);
 });
 
 Then("the conductor should offer to steer", async function (this: KoluWorld) {

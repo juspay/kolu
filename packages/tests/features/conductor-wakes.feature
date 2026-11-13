@@ -72,7 +72,7 @@ Feature: The Conductor never blocks
     When I look at the watched terminal
     Then the watched terminal's look should show "kolu-watch-42"
     When I stop watching the watched terminal
-    Then the conductor status should say it is watching 0
+    Then the conductor status should say nothing is being watched
     And there should be no page errors
 
   Scenario: Two pieces of work count on the tab, and the badge says when it needs you

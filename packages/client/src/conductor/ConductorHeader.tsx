@@ -215,6 +215,7 @@ const ConductorHeader: Component<{
         working={props.state.phase === "working"}
         signedIn={signedIn()}
         onSignIn={props.onSignIn}
+        servers={props.state.servers}
       />
     </header>
   );

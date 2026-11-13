@@ -65,6 +65,13 @@ const ConductorWatchedPanel: Component<{
    *  top-level terminal, carrying the watched refs under it in watch order,
    *  and the groups themselves in the order their first member was added. */
   work: ConductorState["work"];
+  /** WHERE THIS COPY IS DRAWN, and nothing more — the rows, the names, the
+   *  clocks and the Look are identical in both. `inline` is the band the
+   *  status line's control opens above itself below the two-column
+   *  breakpoint, so it is separated from the line by its own top edge;
+   *  `side` is the always-on column beside the conversation on a wide window
+   *  (`ConductorPane`), which already has the frame's own left edge. */
+  placement: "inline" | "side";
 }> = (props) => {
   const fleet = useFleetTerminalIndex();
   /** Ref → the name the `@` menu would offer for that terminal. The same
@@ -83,14 +90,26 @@ const ConductorWatchedPanel: Component<{
   return (
     <div
       data-testid="conductor-watched-panel"
-      class="min-w-0 border-t border-edge bg-surface-1 px-3 py-2"
+      data-placement={props.placement}
+      // ONE `class` BINDING, derived from the placement: a `classList` beside
+      // a static `class` loses here (Solid applies the static one last and
+      // erases the state class), which is the defect `HostChipShell` is the
+      // worked example of.
+      class={`min-w-0 px-3 py-2 ${props.placement === "inline" ? "border-t border-edge bg-surface-1" : "bg-surface-0"}`}
     >
       <Show
         when={props.work.length > 0}
         fallback={
-          <p class="font-mono text-[0.65rem] text-fg-3">
-            Nothing is being watched — the conversation is woken by the
-            terminals it starts, and by any it is asked to watch.
+          /* ONE QUIET LINE. The side column is on screen whether or not
+             anything is being watched — that is what keeps the conversation
+             from sliding sideways when the first terminal appears — so what
+             it says with nothing in it has to be a sentence and not a hole.
+             It never reads `0`. */
+          <p
+            data-testid="conductor-watched-empty"
+            class="m-0 font-mono text-[0.65rem] text-fg-3"
+          >
+            Nothing in progress.
           </p>
         }
       >

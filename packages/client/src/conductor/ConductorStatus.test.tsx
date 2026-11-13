@@ -133,6 +133,15 @@ describe("the status line", () => {
     );
   });
 
+  it("says NOTHING when nothing is watched — no count, and no control", () => {
+    // `watching 0` and a press that opened an empty panel were both readouts
+    // of nothing. The line simply does not carry them.
+    const at = mount({ watched: [], work: [] });
+    expect(at("conductor-watching")).toBeUndefined();
+    expect(at("conductor-watched-panel")).toBeUndefined();
+    expect(at("conductor-status")?.textContent).not.toContain("0");
+  });
+
   it("says how many events are waiting, and nothing at all at zero", () => {
     expect(mount({ held: [] })("conductor-held")).toBeUndefined();
     dispose?.();
@@ -140,5 +149,25 @@ describe("the status line", () => {
 
     const at = mount({ held: ["local/a", "local/b", "local/c"] });
     expect(at("conductor-held")?.textContent).toContain("3");
+  });
+
+  it("carries the steer hint only while steering is on offer", () => {
+    // The hint had a row of its own under the composer. It lives on the line
+    // that reports the running turn now, and it is still true exactly when
+    // the chord works: a conversation that steers, with a turn in flight.
+    expect(
+      mount({ steers: true, phase: "idle" })("conductor-steer-hint"),
+    ).toBeUndefined();
+    dispose?.();
+    root?.remove();
+
+    expect(
+      mount({ steers: false, phase: "working" })("conductor-steer-hint"),
+    ).toBeUndefined();
+    dispose?.();
+    root?.remove();
+
+    const at = mount({ steers: true, phase: "working" });
+    expect(at("conductor-steer-hint")?.textContent).toContain("steers");
   });
 });

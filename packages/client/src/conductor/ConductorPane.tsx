@@ -1,12 +1,21 @@
 /** The conductor, whole: the conversation as a pane.
  *
- *  THE CHAT. Header, the strip (tool-server roster, background tasks,
- *  subagents), the transcript, the composer — no Dock, no fleet list, no
- *  canvas. The entry in the chrome bar is a DESTINATION, not a layer over the
- *  workspace: a person who selected it is reading a conversation. An agent the
- *  conversation started is checked from inside it — the create card's status
- *  line and its Look at the terminal's screen — and reached on the host tab it
- *  lives on (which every tool card offers, in one press).
+ *  THE CHAT. A header, then ONE READING COLUMN — the transcript, the status
+ *  line and the composer at the same measure and the same centre line
+ *  (`--container-conductor`, 45rem: about 85 characters a line at the pane's
+ *  15px body size) — and, on a window wide enough to hold both, the watched
+ *  panel as a SIDE COLUMN beside it. No Dock, no fleet list, no canvas. The
+ *  entry in the chrome bar is a DESTINATION, not a layer over the workspace: a
+ *  person who selected it is reading a conversation. An agent the conversation
+ *  started is checked from inside it — the create card's status line and its
+ *  Look at the terminal's screen, or that same terminal's row in the side
+ *  column — and reached on the host tab it lives on (which every tool card
+ *  offers, in one press).
+ *
+ *  THE FRAME IS CONSTANT on a wide window. The grid declares both tracks
+ *  whatever is in them, so the conversation does not slide sideways the moment
+ *  the first terminal is watched; the side column says, in one line, that
+ *  there is nothing in progress rather than leaving a hole.
  *
  *  Mounted on the first visit and then RETAINED for the page's life: leaving
  *  for a host tab hides it (`App.tsx`'s out-of-flow host with
@@ -40,6 +49,8 @@ import ConductorSignIn from "./ConductorSignIn";
 import ConductorStatus from "./ConductorStatus";
 import ConductorStrip from "./ConductorStrip";
 import ConductorTranscript from "./ConductorTranscript";
+import ConductorWatchedPanel from "./ConductorWatchedPanel";
+import { conductorWide } from "./conductorLayout";
 import { useConductor } from "./useConductor";
 import { exitConductorMode } from "./useConductorMode";
 import { createConductorTranscript } from "./useConductorTranscript";
@@ -170,7 +181,12 @@ const ConductorPane: Component<{
       // what keeps a future card that forgets from reaching the DOCUMENT —
       // where the damage is not a wide pane but a window whose chrome bar and
       // composer have been pushed off the right-hand edge.
-      class={`flex flex-col min-w-0 min-h-0 overflow-x-hidden bg-surface-0 ${props.class ?? ""}`}
+      // `text-chat` is the pane's BODY SIZE (15px/1.7, `index.css`), inherited
+      // by every row that does not insist on a size of its own — the agent's
+      // prose, a person's bubble, the box you type in. The chrome around them
+      // (the header, the status line, a card's labels) keeps its own small
+      // mono sizes; what changed is the thing you came here to read.
+      class={`flex flex-col min-w-0 min-h-0 overflow-x-hidden bg-surface-0 text-chat ${props.class ?? ""}`}
     >
       <Show when={dropping()}>
         <div
@@ -196,53 +212,81 @@ const ConductorPane: Component<{
                 );
               }}
             />
-            <ConductorStrip
-              servers={state().servers}
-              watching={state().watching}
-              onReveal={reveal}
-            />
-            <Show when={state().signIn}>
-              {(signIn) => <ConductorSignIn signIn={signIn()} />}
-            </Show>
-            <ConductorTranscript
-              rows={feed.rows()}
-              pending={feed.pending()}
-              error={feed.error()}
-              containerRef={(el) => {
-                transcriptEl = el;
-              }}
-            />
-            {/* A conversation the agent would not OPEN has no composer under
-                it: there is nothing to say to an agent that is not there. The
-                one offer is to ask again for exactly what was refused — and no
-                status line either, because the line reports on a conversation
-                that is running and this one never started. */}
-            <Show
-              when={state().refusal}
-              fallback={
-                <>
-                  <ConductorStatus state={state()} rows={feed.rows()} />
-                  <ConductorComposer state={state()} />
-                </>
-              }
-            >
-              {(why) => (
-                <div
-                  data-testid="conductor-refusal"
-                  class="border-t border-edge px-4 py-3 text-xs text-fg-2"
+            {/* THE FRAME. Two tracks, declared once and ALWAYS declared: the
+                reading column, and the side column beside it on a window wide
+                enough for both (`conductorLayout.ts`). The second track is
+                `auto`, so with no side column it is simply zero wide — the
+                conversation does not re-flow into a different grid when the
+                panel appears, and the two-column frame on a wide window is
+                constant whether or not anything is being watched. */}
+            <div class="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_auto]">
+              {/* ONE COLUMN FOR ALL THREE. The transcript, the status line and
+                  the composer are the same measure and the same centre line,
+                  so a reply, what it is doing and what you type to it read as
+                  one thing rather than three bands of a window. */}
+              <div class="mx-auto flex min-h-0 w-full min-w-0 max-w-conductor flex-col">
+                <ConductorStrip watching={state().watching} onReveal={reveal} />
+                <Show when={state().signIn}>
+                  {(signIn) => <ConductorSignIn signIn={signIn()} />}
+                </Show>
+                <ConductorTranscript
+                  rows={feed.rows()}
+                  pending={feed.pending()}
+                  error={feed.error()}
+                  containerRef={(el) => {
+                    transcriptEl = el;
+                  }}
+                />
+                {/* A conversation the agent would not OPEN has no composer
+                    under it: there is nothing to say to an agent that is not
+                    there. The one offer is to ask again for exactly what was
+                    refused — and no status line either, because the line
+                    reports on a conversation that is running and this one
+                    never started. */}
+                <Show
+                  when={state().refusal}
+                  fallback={
+                    <>
+                      <ConductorStatus state={state()} rows={feed.rows()} />
+                      <ConductorComposer state={state()} />
+                    </>
+                  }
                 >
-                  <p class="mb-2 whitespace-pre-wrap">{why()}</p>
-                  <button
-                    type="button"
-                    data-testid="conductor-retry"
-                    class="rounded-md border border-edge-bright bg-surface-2 hover:bg-surface-3 px-2.5 py-1 text-fg cursor-pointer"
-                    onClick={() => orch.newSession()}
-                  >
-                    Try again
-                  </button>
-                </div>
-              )}
-            </Show>
+                  {(why) => (
+                    <div
+                      data-testid="conductor-refusal"
+                      class="border-t border-edge px-5 py-3 text-xs text-fg-2"
+                    >
+                      <p class="mb-2 whitespace-pre-wrap">{why()}</p>
+                      <button
+                        type="button"
+                        data-testid="conductor-retry"
+                        class="rounded-md border border-edge-bright bg-surface-2 hover:bg-surface-3 px-2.5 py-1 text-fg cursor-pointer"
+                        onClick={() => orch.newSession()}
+                      >
+                        Try again
+                      </button>
+                    </div>
+                  )}
+                </Show>
+              </div>
+              {/* THE WORK IN PROGRESS, beside the conversation rather than
+                  over it. The SAME component the status line's control opens
+                  below the breakpoint — one implementation, one piece of
+                  state: a Look opened here is open there, because
+                  `ConductorLook` keys what is open by row id in a module
+                  store, which is what lets the panel move between the two
+                  placements across a resize with what a person had open still
+                  open. */}
+              <Show when={conductorWide()}>
+                <aside
+                  data-testid="conductor-side"
+                  class="flex min-h-0 w-conductor-side flex-col overflow-y-auto border-l border-edge ps-conductor-gutter"
+                >
+                  <ConductorWatchedPanel work={state().work} placement="side" />
+                </aside>
+              </Show>
+            </div>
           </>
         }
       >

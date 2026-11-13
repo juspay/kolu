@@ -16,13 +16,18 @@
  *  running (there is nothing to stop otherwise), and `Sign in…` only while
  *  the agent is not signed in. Neither is drawn disabled: a greyed row is a
  *  row a person reads, reaches for and then has to work out, and the fact
- *  behind both is already on the wire. */
+ *  behind both is already on the wire.
+ *
+ *  IT ALSO HOLDS THE ROSTER. `kolu ✓ · plus the agent's own` was a strip
+ *  above every conversation — a permanent row answering a question a person
+ *  asks about twice a week. The fact did not move: it is read here now, as a
+ *  section this menu's one press opens. */
 
-import type { ConductorRow } from "kolu-common/conductor";
+import type { ConductorRow, ConductorState } from "kolu-common/conductor";
 import { writeTextToClipboard } from "@kolu/solid-logtail";
 import { toError } from "@kolu/surface/run-stream";
 import { Effect } from "effect";
-import { type Component, Show } from "solid-js";
+import { type Component, For, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-sonner";
 import { runAction, type UiAction } from "../runAction";
@@ -37,6 +42,19 @@ import { useConductor } from "./useConductor";
  *  not the divider-and-carry-on they may remember. */
 const WIPE_COPY =
   "Start a new session? This conversation's messages, the files attached to them and the terminals it remembers are deleted — on this host too. There is no undo.";
+
+/** The three standings a roster row can hold, keyed by the union so a fourth
+ *  one added to the schema fails the typecheck here rather than painting
+ *  unstyled. There is no `missing`: a server kolu could not reach does not get
+ *  a red row, it refuses the whole conversation (kolu-server's
+ *  `ConductorUnavailable`), because a conductor that cannot reach the fleet is
+ *  not a degraded conductor. */
+type Standing = ConductorState["servers"][number]["standing"];
+const STANDING_CLASS: Record<Standing, string> = {
+  connected: "text-ok",
+  handed: "text-fg-2",
+  unattached: "text-attention",
+};
 
 const ConductorMenu: Component<{
   /** What `Copy transcript` copies — the rows the panel is drawing, passed in
@@ -53,6 +71,11 @@ const ConductorMenu: Component<{
   signedIn: boolean;
   /** Opens the sign-in row under the transcript. */
   onSignIn: () => void;
+  /** The tool servers this conversation was handed, and how each one stands
+   *  by the AGENT'S own word. They used to be a strip above the transcript on
+   *  every conversation all day; they are a thing a person looks up — "does it
+   *  really have kolu's hands?" — which is what this menu is. */
+  servers: ConductorState["servers"];
 }> = (props) => {
   const orch = useConductor();
   const chrome = surface({ radius: "lg", shadow: "soft", portalled: true });
@@ -136,6 +159,46 @@ const ConductorMenu: Component<{
           >
             Copy transcript
           </button>
+          {/* THE ROSTER — read, never pressed, so it is a section under the
+              rows and not a row among them. The tick is the AGENT'S word and
+              only its word: `connected` is the agent reporting the server
+              attached, and the other standings each say their own thing
+              instead of borrowing it. An `unattached` server carries the
+              agent's own sentence about why, because that sentence is the
+              whole answer to the question this section is opened with. */}
+          <Show when={props.servers.length > 0}>
+            <div class="mt-2 border-t border-edge pt-2">
+              <p class="m-0 mb-1 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-fg-3">
+                tool servers
+              </p>
+              <For each={props.servers}>
+                {(server) => (
+                  <p
+                    data-testid="conductor-server"
+                    data-server={server.name}
+                    data-standing={server.standing}
+                    class={`m-0 px-2 font-mono text-[0.68rem] ${STANDING_CLASS[server.standing]}`}
+                  >
+                    <span class="font-semibold">
+                      {server.name}
+                      {server.standing === "connected" ? " ✓" : ""}
+                    </span>
+                    <Show when={server.standing !== "connected"}>
+                      <span class="font-normal text-fg-3">
+                        {" "}
+                        · {server.said ?? server.where ?? server.standing}
+                      </span>
+                    </Show>
+                  </p>
+                )}
+              </For>
+              {/* The agent brings its own servers and we never handed them, so
+                  the roster says so rather than inventing rows for them. */}
+              <p class="m-0 px-2 font-mono text-[0.68rem] text-fg-3">
+                · plus the agent's own
+              </p>
+            </div>
+          </Show>
         </div>
       </Portal>
     </Show>

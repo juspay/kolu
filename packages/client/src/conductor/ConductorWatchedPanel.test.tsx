@@ -78,13 +78,16 @@ const working = (): FleetTerminalStanding => ({
 let dispose: (() => void) | undefined;
 let root: HTMLElement | undefined;
 
-function mount(work: ConductorState["work"]): HTMLElement {
+function mount(
+  work: ConductorState["work"],
+  placement: "inline" | "side" = "inline",
+): HTMLElement {
   root = document.createElement("div");
   document.body.append(root);
   dispose = render(
     () => (
       <ConductorShown.Provider value={() => true}>
-        <ConductorWatchedPanel work={work} />
+        <ConductorWatchedPanel work={work} placement={placement} />
       </ConductorShown.Provider>
     ),
     root,
@@ -175,9 +178,27 @@ describe("the watched panel", () => {
     expect(at("conductor-watched-remove")).toBeDefined();
   });
 
-  it("says nothing is watched when there is no work at all", () => {
-    mount([]);
+  it("says it in ONE quiet line when there is no work at all — never a zero", () => {
+    mount([], "side");
     expect(at("conductor-watched-group")).toBeUndefined();
     expect(at("conductor-watched-row")).toBeUndefined();
+    // The side column is on screen whether or not anything is being watched,
+    // so the empty case is a sentence rather than a hole — and it says
+    // nothing about counts, because `0 pieces of work` is the readout this
+    // whole rule exists to delete.
+    const empty = at("conductor-watched-empty");
+    expect(empty?.textContent).toBe("Nothing in progress.");
+    expect(root?.textContent).not.toContain("0");
+  });
+
+  it("draws the same rows in both placements", () => {
+    // ONE COMPONENT, two places it is drawn: the band the status line opens
+    // on a narrow window, and the always-on side column on a wide one. A
+    // second implementation of this list is the thing the `placement` prop
+    // exists to make unnecessary, so the rows must not differ by it.
+    mount([piece(REF, "fix-parser", [REF])], "side");
+    expect(at("conductor-watched-panel")?.dataset.placement).toBe("side");
+    expect(at("conductor-watched-row")?.dataset.ref).toBe(REF);
+    expect(at("conductor-watched-look")).toBeDefined();
   });
 });

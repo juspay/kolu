@@ -87,6 +87,39 @@ body {
   --breakpoint-sm: 40rem; /* 640px */
 
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+
+  /* ── THE CONDUCTOR'S READING COLUMN ──────────────────────────────────
+   * The conversation is prose, and prose is read in a column. Three
+   * measures, stated once here, and the breakpoint they add up to:
+   *
+   *   --text-chat …… 0.9375rem (15px) with a 1.7 line-height. The body
+   *     size of the whole pane: every row that does not insist on its own
+   *     size (the agent's prose, a bubble, the box you type in) inherits
+   *     it, which is why there are no per-element sizes for body text.
+   *   --container-conductor …… 45rem (720px). Inside its 1.25rem gutters
+   *     that leaves ~42.5rem of text — at 15px DM Sans (~0.52em an
+   *     average character) about 85 characters a line, inside the 70–90
+   *     a person reads without losing their place. Replies used to run
+   *     the full window: ~230 characters at 1568px.
+   *   --container-conductor-side …… 22rem (352px). The watched panel in
+   *     its second placement: a group heading, a terminal's name, its
+   *     host, its clock and Look all fit without wrapping.
+   *   --spacing-conductor-gutter …… 2rem between the two columns.
+   *
+   * --breakpoint-conductor-wide IS THEIR SUM — 45 + 22 + 2 = 69rem
+   * (1104px), the narrowest window where both columns fit at their own
+   * measure. `conductorLayout.ts` reads this token for the one
+   * `matchMedia` the pane asks which placement is live, so the column JS
+   * thinks is on screen and the column CSS draws cannot disagree; the
+   * sum is pinned against these three tokens in `conductorLayout.test.ts`,
+   * so moving a measure without moving the breakpoint fails a test rather
+   * than shipping a side column that overlaps the conversation. */
+  --text-chat: 0.9375rem;
+  --text-chat--line-height: 1.7;
+  --container-conductor: 45rem;
+  --container-conductor-side: 22rem;
+  --spacing-conductor-gutter: 2rem;
+  --breakpoint-conductor-wide: 69rem;
 }
 
 .chrome-bar-surface {

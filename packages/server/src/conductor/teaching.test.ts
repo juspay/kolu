@@ -133,6 +133,28 @@ describe("the waterfall's setup questions", () => {
   });
 });
 
+describe("a choice put to the human", () => {
+  const SCRIPT = teachingLines("zest").join("\n");
+
+  it("goes through the question form everywhere, not only in a waterfall", () => {
+    // The defect this guards: outside the waterfall the Conductor wrote
+    // "Your options: 1, 2, 3" in prose and waited, so the human answered by
+    // typing a number into the composer — a form drawn by hand.
+    const rule = SCRIPT.split("\n").find((line) =>
+      line.includes("CHOICES ARE BUTTONS"),
+    );
+    expect(rule).toBeDefined();
+    expect(rule).toContain("inside a waterfall or not");
+    expect(rule).toContain("goes through your question tool");
+    expect(rule).toContain("Your prose explains the choice; the form asks it.");
+    // ...and it is said BEFORE the waterfall, where it governs every turn
+    // rather than reading as one of the procedure's steps.
+    expect(SCRIPT.indexOf("CHOICES ARE BUTTONS")).toBeLessThan(
+      SCRIPT.indexOf("THE WATERFALL."),
+    );
+  });
+});
+
 describe("the watch list", () => {
   const SCRIPT = teachingLines("zest").join("\n");
 

@@ -14,20 +14,31 @@
  *       whole change is about.
  *    2. N PIECES OF WORK · M TERMINALS — what kolu will wake it about, said
  *       in both the unit a person thinks in (a waterfall, a terminal they
- *       pointed it at) and the unit kolu rings on. A button, because the list
- *       is the answer to "so what happens next"; it opens above.
+ *       pointed it at) and the unit kolu rings on. ABSENT AT ZERO, control
+ *       and all: `watching 0` is a readout of nothing, and a press that
+ *       opened an empty panel was a promise of a list that was not there.
+ *       Below the two-column breakpoint it is a button and the list opens
+ *       above it; on a window wide enough for the side column the list is
+ *       already on screen beside this line, so the same words are a readout
+ *       and nothing presses.
  *    3. N WAITING — events held because a turn is running, which go out
- *       together the moment it ends. Absent at zero: a counter that renders
- *       its own silence is one every reader has to parse before ignoring.
+ *       together the moment it ends. Absent at zero, for the same reason.
+ *    4. ↯ STEERS, while the offer stands. It had a row of its own under the
+ *       composer; a chord that is only true during a running turn belongs on
+ *       the line that reports the running turn, and the sentence it used to
+ *       spell out is its tip.
  *
  *  Stop stays beside Send, where it has always been. This line reports; it is
  *  not a second place to act on the turn. */
 
 import type { ConductorRow, ConductorState } from "kolu-common/conductor";
 import { type Component, createMemo, createSignal, Show } from "solid-js";
+import { formatKeybind } from "../input/keyboard";
 import Tip from "../ui/Tip";
 import ConductorWatchedPanel from "./ConductorWatchedPanel";
+import { conductorWide } from "./conductorLayout";
 import { useShownClock } from "./conductorShown";
+import { STEER_KEYBIND, steerOnOffer } from "./steer";
 import { statusDetail, statusSince } from "./conductorStatus";
 
 /** The line's ink, by what the conversation is doing — the header chip's own
@@ -87,11 +98,23 @@ const ConductorStatus: Component<{
   const pieces = () => props.state.work.length;
   const terminals = () => props.state.watched.length;
   const held = () => props.state.held.length;
+  /** The sentence both spellings of the control say, so the button a phone
+   *  presses and the readout a wide window draws cannot drift into two
+   *  different counts of one fact. */
+  const watching = () =>
+    `${pieces()} ${pieces() === 1 ? "piece of work" : "pieces of work"} · ${terminals()} ${terminals() === 1 ? "terminal" : "terminals"}`;
+  /** The list is OPENED from here only below the breakpoint. On a wide window
+   *  `ConductorPane` is already drawing the same panel in its side column,
+   *  and a second copy over the conversation would be two lists of one fact
+   *  — with the same Look open in both. */
+  const opensHere = () => open() && !conductorWide() && pieces() > 0;
+  /** Steering is ON OFFER — the chord's hint, where the turn is reported. */
+  const steers = createMemo(() => steerOnOffer(props.state));
 
   return (
     <>
-      <Show when={open()}>
-        <ConductorWatchedPanel work={props.state.work} />
+      <Show when={opensHere()}>
+        <ConductorWatchedPanel work={props.state.work} placement="inline" />
       </Show>
       <div
         data-testid="conductor-status"
@@ -104,7 +127,10 @@ const ConductorStatus: Component<{
         // `leading-4`, like the header and the strip: one LENGTH line-height
         // for the row, so the dot, the words and the two pills centre on one
         // line rather than each striking its own from its own font size.
-        class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-edge px-3 py-1.5 font-mono text-[0.65rem] leading-4"
+        // `px-5` is the reading column's gutter — the transcript above and
+        // the composer below are struck from the same two edges, so the three
+        // read as one column rather than three bands.
+        class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-edge px-5 py-1.5 font-mono text-[0.65rem] leading-4"
       >
         <span
           class={`h-1.5 w-1.5 shrink-0 rounded-full ${DOT_CLASS[props.state.phase]}`}
@@ -146,27 +172,65 @@ const ConductorStatus: Component<{
           )}
         </Show>
         <span class="flex-1" />
-        <Tip
-          class="flex items-center"
-          label="The pieces of work this conversation has in flight — its watched terminals, grouped by the top-level terminal each one hangs off"
-        >
-          <button
-            type="button"
-            data-testid="conductor-watching"
-            // The two numbers as DATA as well as words: a reader wants the
-            // sentence, and anything reading this line wants the fact without
-            // parsing English that may be singular today and plural next
-            // frame.
-            data-work={pieces()}
-            data-terminals={terminals()}
-            aria-expanded={open()}
-            class="shrink-0 rounded-md border border-edge-bright px-1.5 py-px text-fg-2 hover:text-fg hover:bg-surface-2 cursor-pointer"
-            onClick={() => setOpen(!open())}
+        {/* THE STEER HINT, where the running turn is reported — not a row of
+            its own under the composer. A chord nobody mentions is a chord
+            nobody uses, and this one is only on SOMETIMES, so the hint stands
+            exactly while it would work, which also teaches when it would not.
+            `formatKeybind` prints it in the reader's own idiom (`Alt+Enter`
+            off macOS, `⌥Enter` on it), and the sentence it used to spell out
+            is the tip. */}
+        <Show when={steers()}>
+          <Tip
+            class="flex items-center"
+            label="Your words go into the turn that is running, instead of queueing behind it"
           >
-            {pieces()} {pieces() === 1 ? "piece of work" : "pieces of work"} ·{" "}
-            {terminals()} {terminals() === 1 ? "terminal" : "terminals"}
-          </button>
-        </Tip>
+            <span
+              data-testid="conductor-steer-hint"
+              class="shrink-0 text-accent"
+            >
+              ↯ {formatKeybind(STEER_KEYBIND)} steers
+            </span>
+          </Tip>
+        </Show>
+        {/* NOTHING AT ZERO — no number, and no control that would open an
+            empty panel. The two numbers ride as DATA as well as words: a
+            reader wants the sentence, and anything reading this line wants
+            the fact without parsing English that may be singular today and
+            plural next frame. */}
+        <Show when={pieces() > 0}>
+          <Tip
+            class="flex items-center"
+            label="The pieces of work this conversation has in flight — its watched terminals, grouped by the top-level terminal each one hangs off"
+          >
+            <Show
+              when={!conductorWide()}
+              fallback={
+                // A READOUT on a wide window: the list it would open is
+                // already beside this line, in the pane's side column.
+                <span
+                  data-testid="conductor-watching"
+                  data-work={pieces()}
+                  data-terminals={terminals()}
+                  class="shrink-0 text-fg-2"
+                >
+                  {watching()}
+                </span>
+              }
+            >
+              <button
+                type="button"
+                data-testid="conductor-watching"
+                data-work={pieces()}
+                data-terminals={terminals()}
+                aria-expanded={open()}
+                class="shrink-0 rounded-md border border-edge-bright px-1.5 py-px text-fg-2 hover:text-fg hover:bg-surface-2 cursor-pointer"
+                onClick={() => setOpen(!open())}
+              >
+                {watching()}
+              </button>
+            </Show>
+          </Tip>
+        </Show>
         {/* WAITING is news — events kolu is holding because a turn is running.
             They go out together as one machine's line the moment it ends,
             however it ends, so this number is a promise and not a backlog. */}

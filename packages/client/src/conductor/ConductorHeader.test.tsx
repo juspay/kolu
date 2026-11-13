@@ -207,4 +207,39 @@ describe("the header's ⋯", () => {
     expect(text).toContain("you: hello");
     expect(text).toContain("agent: hello back");
   });
+
+  it("holds the tool-server roster — read in here, not a strip on every screen", () => {
+    // `kolu ✓ · plus the agent's own` stood above every conversation all day.
+    // It answers a question a person asks now and then, so it is read behind
+    // the one press that promises *there is more here* — and the tick is
+    // still the AGENT'S word about the server, not kolu's.
+    const { at } = mount({
+      servers: [
+        { name: "kolu", standing: "connected", said: null, where: null },
+        {
+          name: "notes",
+          standing: "unattached",
+          said: "the token expired",
+          where: null,
+        },
+      ],
+    });
+    expect(at("conductor-server")).toBeUndefined();
+
+    open(at);
+
+    const panel = at("conductor-menu-panel");
+    const rows = [
+      ...(panel?.querySelectorAll<HTMLElement>(
+        '[data-testid="conductor-server"]',
+      ) ?? []),
+    ];
+    expect(rows.map((row) => row.dataset.server)).toEqual(["kolu", "notes"]);
+    expect(rows[0]?.dataset.standing).toBe("connected");
+    expect(rows[0]?.textContent).toContain("✓");
+    // The agent's own sentence about why it is not on that server is the
+    // whole answer to the question this section gets opened with.
+    expect(rows[1]?.textContent).toContain("the token expired");
+    expect(panel?.textContent).toContain("plus the agent's own");
+  });
 });

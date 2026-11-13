@@ -10174,6 +10174,66 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "c2e67718c907836ee57014c1c8b4f933b0fb885a"
+    },
+    {
+      "revisionId": "revision-d35abeb50d28e5d37781",
+      "scenarioKey": "scenario-670522edc71a8d758545",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "A Look stays open across the width where the two columns fold",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "cc9181acaa00398f4a0afdaff4410c87a60691e31e6f90c26e536dbfc2b0ba15",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2014e6f7bc31bc45bb53f90e69fe1d984f0ec426"
+    },
+    {
+      "revisionId": "revision-81427fce2b1fea6b38e7",
+      "scenarioKey": "scenario-a5e40565e61949fdcbea",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "The phone keeps one column, and nothing reaches past its right edge",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "407a69f52ceba272f2aba357f9f00bf259c670c89015080af86c5baa50e72eb4",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2014e6f7bc31bc45bb53f90e69fe1d984f0ec426"
+    },
+    {
+      "revisionId": "revision-b1bfdc121e1da09141d6",
+      "scenarioKey": "scenario-c18c138c77c1bfb2f99f",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "The work in progress stands beside the conversation, and folds into the status line on a narrow window",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "7416ea3ebf421961ac70b4876964b7e0851b37dc05de7bc6a696bfe3ab54d9cb",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2014e6f7bc31bc45bb53f90e69fe1d984f0ec426"
+    },
+    {
+      "revisionId": "revision-72ec7488db777dbb5d9b",
+      "scenarioKey": "scenario-7ba60d61a3d8d60e9ace",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "With nothing in progress the side column says so, and no readout says zero",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "de171808ea72cb1c8fef337d0333c9eb2e0484c2916e04089f7b5f5d35dd95d4",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2014e6f7bc31bc45bb53f90e69fe1d984f0ec426"
+    },
+    {
+      "revisionId": "revision-a0c0e08ef1f12caacb5d",
+      "scenarioKey": "scenario-9c4e792531210f19574c",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "The watched terminals are listed, looked at, and let go",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "db0c5d01e6424e8ef61b56ea0bb5773d4533394d63471834f1f1234a1fcc6abd",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "2014e6f7bc31bc45bb53f90e69fe1d984f0ec426"
     }
   ]
 }

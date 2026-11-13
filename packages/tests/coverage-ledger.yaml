@@ -3857,3 +3857,16 @@ retirements:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: An unanswered question is a needs-you source from the tab row"
       test: The same journey — ask, leave the conversation, read the tab with the pane unmounted — against the same wire. Only the mark being read changed with the product. The tab now carries ONE badge whose number is the pieces of work in flight and whose colour is the ask, so a question with nothing watched is the violet dot this step now asserts instead of a count of 1.
+  - id: revise-6536e78e09c8abe1df77
+    revisionId: revision-6536e78e09c8abe1df77
+    action: revised
+    status: landed
+    promise: The watched terminals are listed, looked at, and let go
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-a0c0e08ef1f12caacb5d]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: The watched terminals are listed, looked at, and let go"
+      test: The same journey against the same wire — watch a terminal, read its list, Look at its screen, let it go. One step changed because the product stopped saying the thing it asserted. The status line no longer reads `watching 0` after the last terminal is dropped, so the final assertion is that the count and the control that would open an empty panel are both ABSENT rather than that they read zero. The remove verb, the list and the Look are untouched.

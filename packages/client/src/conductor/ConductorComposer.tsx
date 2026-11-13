@@ -9,7 +9,13 @@
  *  `@` completes EVERY host's terminals — one conversation reaches the whole
  *  fleet — and `/` completes the agent's own commands. Both are plain text in a
  *  plain textarea — see `./mentions` for why the structured mention is resolved
- *  at SEND time rather than carried as a widget. */
+ *  at SEND time rather than carried as a widget.
+ *
+ *  ONE ROW, and it grows. The box is a single line at rest in every layout,
+ *  with `■ Stop` and `Send` beside it; the four-item hints row that stood
+ *  under it on a desktop is gone, and the two hints worth keeping are in the
+ *  placeholder. The steer chord's hint is in the status line directly above,
+ *  where the running turn it belongs to is reported (`ConductorStatus`). */
 
 import { formatBytes } from "@kolu/byte-units";
 import { Key } from "@solid-primitives/keyed";
@@ -26,7 +32,6 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { hostLabel } from "../host/hostChipTone";
-import { formatKeybind } from "../input/keyboard";
 import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import { isDesktop } from "../useMobile";
@@ -57,7 +62,7 @@ import {
   type TokenQuery,
   tokenQueryAt,
 } from "./mentions";
-import { sendsAsSteer, STEER_KEYBIND, steerOnOffer } from "./steer";
+import { sendsAsSteer, steerOnOffer } from "./steer";
 import { thumbnailOf } from "./thumbnails";
 import { pinTranscript } from "./transcriptScroll";
 import { useConductor } from "./useConductor";
@@ -166,7 +171,8 @@ const ConductorComposer: Component<{
    *  what prevents it. */
   const [sending, setSending] = createSignal(false);
 
-  /** Steering is ON OFFER — the hint beside Send, and what Alt+Enter does. */
+  /** Steering is ON OFFER — what Alt+Enter does here, and what the status
+   *  line above draws its `↯` hint from. */
   const offered = createMemo(() => steerOnOffer(props.state));
   const { showTipOnce } = useTips();
   const shown = useConductorShown();
@@ -222,14 +228,19 @@ const ConductorComposer: Component<{
     });
   };
 
-  /** The touch layout — one row: a box that grows with what is typed, and the
-   *  buttons beside it. */
+  /** A touch layout. The SHAPE is now the same in both — a growing one-line
+   *  box with its buttons beside it — so this is only what the words differ
+   *  by: a shorter placeholder and a `Send` with no `↵` on it, because there
+   *  is no Enter key to name. */
   const phone = () => !isDesktop();
-  // GROWS WITH THE TEXT on a phone: one line at rest, as tall as what was
-  // typed up to its `max-height`, then it scrolls. Re-measured on every edit,
-  // including a programmatic one (a send clearing it, a completion). An EMPTY
-  // box is left at its one row: a browser counts a wrapping placeholder in
-  // `scrollHeight`, and the box at rest is one line by definition.
+  // GROWS WITH THE TEXT, in every layout: one line at rest, as tall as what
+  // was typed up to its `max-height`, then it scrolls. It was a three-row box
+  // on a desktop — two rows of nothing above whatever you were writing, on
+  // every conversation — and the phone's growing one-liner is the shape that
+  // was right all along. Re-measured on every edit, including a programmatic
+  // one (a send clearing it, a completion). An EMPTY box is left at its one
+  // row: a browser counts a wrapping placeholder in `scrollHeight`, and the
+  // box at rest is one line by definition.
   //
   // NOT MEASURED WHILE THE PANE IS HIDDEN. The pane is retained behind the
   // host tabs and a hidden subtree has no layout at all, so `scrollHeight`
@@ -239,7 +250,7 @@ const ConductorComposer: Component<{
   createEffect(() => {
     const text = composerText();
     if (!shown()) return;
-    if (!phone() || text === "") {
+    if (text === "") {
       box.style.height = "";
       return;
     }
@@ -275,12 +286,14 @@ const ConductorComposer: Component<{
   return (
     <div
       data-testid="conductor-composer"
-      class="relative border-t border-edge px-3 py-2.5"
+      // `px-5` — the reading column's own gutter, the same two edges the
+      // transcript and the status line are struck from.
+      class="relative border-t border-edge px-5 py-2.5"
     >
       <Show when={mentionMatches().length > 0}>
         <div
           data-testid="conductor-mention-menu"
-          class="absolute left-3 right-3 bottom-full mb-1 max-h-60 overflow-y-auto rounded-lg border border-edge-bright bg-surface-1 shadow-lg shadow-black/40 p-1.5"
+          class="absolute left-5 right-5 bottom-full mb-1 max-h-60 overflow-y-auto rounded-lg border border-edge-bright bg-surface-1 shadow-lg shadow-black/40 p-1.5"
         >
           {/* KEYED, never `<For>`. `candidates` mints fresh objects on every
               fleet notification and the fleet index notifies on ANY metadata
@@ -359,7 +372,7 @@ const ConductorComposer: Component<{
       <Show when={commandMatches().length > 0}>
         <div
           data-testid="conductor-command-menu"
-          class="absolute left-3 right-3 bottom-full mb-1 max-h-60 overflow-y-auto rounded-lg border border-edge-bright bg-surface-1 shadow-lg shadow-black/40 p-1.5"
+          class="absolute left-5 right-5 bottom-full mb-1 max-h-60 overflow-y-auto rounded-lg border border-edge-bright bg-surface-1 shadow-lg shadow-black/40 p-1.5"
         >
           <For each={commandMatches()}>
             {(command, index) => (
@@ -487,37 +500,29 @@ const ConductorComposer: Component<{
           </For>
         </div>
       </Show>
-      {/* THE OFFER, said where the decision is made. A chord nobody mentions
-          is a chord nobody uses, and this one is only on SOMETIMES — so the
-          hint appears exactly while it would work, which also teaches when it
-          would not. Drawn in both layouts: a phone with a hardware keyboard
-          steers too, and the line is one truncating row at 390px. */}
-      <Show when={offered()}>
-        <div
-          data-testid="conductor-steer-hint"
-          class="mb-1.5 flex min-w-0 items-center gap-1.5 font-mono text-[0.62rem] text-accent"
-        >
-          <span aria-hidden="true" class="shrink-0">
-            ↯
-          </span>
-          <span class="min-w-0 truncate">
-            {formatKeybind(STEER_KEYBIND)} steers — your words go into the turn
-            that is running
-          </span>
-        </div>
-      </Show>
       <div class="flex items-end gap-2">
         <textarea
           ref={box}
           data-testid="conductor-input"
-          rows={phone() ? 1 : 3}
+          // ONE LINE AT REST, in every layout. The box used to stand three
+          // rows tall on a desktop whatever was in it, which is two rows of
+          // nothing between the conversation and the thing you came to type.
+          // It grows with what is typed instead (the effect above), to its
+          // `max-height`, and then it scrolls.
+          rows={1}
+          // WHAT THE HINT ROW UNDER HERE USED TO SAY. Four pieces of
+          // keyboard-and-mouse advice stood below the box on every desktop
+          // conversation; the two that are about what you type live in the
+          // placeholder, where they are read at the moment they apply and
+          // disappear the moment there is text to read instead.
           placeholder={
             phone()
               ? "Ask… @ terminal, / command"
-              : "Ask the conductor… @ for a terminal, / for a command"
+              : "Ask the conductor… @ for a terminal, / for a command, ⇧⏎ for a newline"
           }
-          class="min-w-0 flex-1 resize-none rounded-[0.6rem] border border-edge-bright bg-surface-0 px-2.5 py-2 text-[0.82rem] text-fg outline-none focus:border-accent"
-          classList={{ "max-h-[40dvh] overflow-y-auto": phone() }}
+          // `text-chat` — the pane's body size, so what you type is the size
+          // of what you are reading rather than a size of its own.
+          class="max-h-[40dvh] min-w-0 flex-1 resize-none overflow-y-auto rounded-[0.6rem] border border-edge-bright bg-surface-0 px-2.5 py-2 text-chat text-fg outline-none focus:border-accent"
           value={composerText()}
           onInput={(event) => {
             setComposerText(event.currentTarget.value);
@@ -583,28 +588,15 @@ const ConductorComposer: Component<{
             }
           }}
         />
-        {/* ON A PHONE the buttons sit beside the one-line box, compact, and
-            there is no hint row: `⇧⏎` and "drop a file" are keyboard-and-mouse
-            advice, and the placeholder already says `@` and `/`. */}
-        <Show when={phone()}>
-          <Show when={props.state.phase === "working"}>{stopButton()}</Show>
-          {sendButton()}
-        </Show>
+        {/* THE BUTTONS SIT BESIDE THE BOX, in every layout. They used to be
+            the right-hand end of a hints row on a desktop, which is how four
+            pieces of advice came to live under every conversation all day;
+            with the row gone they stand where the phone has always had them.
+            `items-end` on the row keeps them on the box's last line as it
+            grows. */}
+        <Show when={props.state.phase === "working"}>{stopButton()}</Show>
+        {sendButton()}
       </div>
-      <Show when={!phone()}>
-        <div class="mt-2 flex items-center gap-2.5 font-mono text-[0.65rem] text-fg-3">
-          <span>@ terminals</span>
-          <span>·</span>
-          <span>/ commands</span>
-          <span>·</span>
-          <span>⇧⏎ newline</span>
-          <span>·</span>
-          <span>paste or drop a file</span>
-          <span class="flex-1" />
-          <Show when={props.state.phase === "working"}>{stopButton()}</Show>
-          {sendButton()}
-        </div>
-      </Show>
     </div>
   );
 };
