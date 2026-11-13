@@ -436,6 +436,27 @@ it can act on. `requireMutableTerminal` (the chrome setters) also keeps
 immutable restore placeholder", not "it is dormant" — a SLEEPING record passes
 it.
 
+## `terminalAttach` — one feed, and the re-sync that rides it
+
+padi relays kaval's attach stream to whoever is watching, and owns the one
+translation on it: kaval's `overflow` control frame becomes `TERMINAL_RESET` +
+a fresh snapshot on the SAME stream (`terminalEndpoint/reattachingDeltas.ts`),
+so a consumer never has to re-dial to get current. That lane used to fire only
+when a viewer was wedged. Since [kolu#2362](https://github.com/juspay/kolu/issues/2362)
+it is the **ordinary** path for two more things, both decided in kaval:
+
+- a viewer with more queued for it than a fresh snapshot would cost — the bound
+  is bytes, derived from the snapshot, so catching up never costs more than
+  starting over;
+- a **real resize** — every viewer is dropped, kaval waits out the redraw the
+  size change provokes, and the re-attach is answered with the settled screen.
+
+Nothing about the wire changed: no new frame kind, no contract bump, and an
+older peer on either side behaves exactly as it did. What changed is how often
+this lane fires and why — which matters here because padi is where the reset and
+the snapshot are spliced onto one stream, and a consumer that mishandled a
+mid-stream snapshot would now meet one far more often.
+
 ## `screen.image` — padi is where the picture gets made
 
 Beside `screen.text` (characters) padi serves `screen.image`: the terminal

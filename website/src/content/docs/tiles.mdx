@@ -85,7 +85,9 @@ reconnects on its own; reconnecting re-asks for everything the old connection wa
 carrying, so a pane cannot be left waiting on an answer that can no longer come; a
 repaint queued while the window was in the background runs the instant you return;
 and when a flooding terminal outruns its view, it re-attaches and repaints from a
-fresh snapshot rather than freezing. You should never need a keypress or a reload
+fresh snapshot rather than freezing — a terminal that reprints megabytes faster
+than your link can carry them costs you one screen, not the whole flood.
+You should never need a keypress or a reload
 to see output that already happened. And a pane whose feed keeps coming back
 **empty** — reopened, but never delivering anything — says so rather than sitting
 there blank: a message names the pane and tells you kolu is still retrying, and
@@ -99,6 +101,22 @@ no size on screen to measure yet, so rather than guess one and paint a screen
 drawn for the wrong width, it stays empty until you reveal it and then paints
 once, correctly. You should never have to nudge the divider to fix a split's
 rendering.
+
+**A pane you can't see isn't attached.** Only the tiles actually on screen hold a
+live feed: on a phone that is the one tile you are looking at, and on the desktop
+a background sub-terminal tab is left alone. A hidden pane also doesn't state its
+size, so opening kolu on a second device no longer reshapes every terminal on the
+host behind it. When you bring a pane back, it re-attaches and paints the screen
+as it is **now** — and the activity dot is what tells you it changed while you
+were elsewhere.
+
+**Resizing costs one repaint, not a replay.** Dragging a divider or opening the
+soft keyboard publishes the new size **once**, after the layout stops moving,
+instead of walking the terminal through every intermediate size. And because
+programs — agents especially — redraw their whole screen when the size changes,
+kolu waits for that redraw to finish and then paints the settled screen in one
+go. You see the end you asked for, not the terminal scrolling through its
+session to get there.
 
 ## A tip under the title bar
 

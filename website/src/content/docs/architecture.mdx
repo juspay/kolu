@@ -456,8 +456,14 @@ Each hop's connection carries every terminal's stream at once, so a stream nobod
 is reading must not hold the others up: when one attach stream stops being read,
 only that stream waits — its sender pauses until there is room — while the
 connection and every other terminal keep flowing, and it picks up where it left
-off. (A reader that falls so far behind that kaval's own per-viewer buffer
-overflows is re-attached with a fresh snapshot, as before.)
+off. (A reader that falls behind is **re-attached with a fresh snapshot** rather
+than fed the backlog: kaval bounds each viewer's queue by the cost of a fresh
+screen snapshot, so once catching up would cost more than re-sending the screen,
+it re-sends the screen. A **resize** takes the same route deliberately — a
+program redraws its whole screen when its size changes, so kaval drops the
+viewers, lets the redraw finish, and hands each one the settled screen instead of
+streaming the redraw through. Both arrive as the `overflow` control frame the
+attach stream has carried since contract 5.0; neither is a new frame kind.)
 
 Who decides that a hop is dead is just as deliberate. Each connection's own
 keep-alive ping is only a **backstop**: it ends a connection that has carried
