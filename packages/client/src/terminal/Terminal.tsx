@@ -34,9 +34,8 @@ import { rejectionFor, sizeRejectionFor } from "@kolu/padi-client/upload";
 import { activeArm } from "@kolu/padi-client/surface";
 import {
   isSnapshotFrame,
-  snapshotAnswersGrid,
-  snapshotGrid,
-  snapshotGridMoved,
+  snapshotLayoutGrid,
+  snapshotPaintableAt,
 } from "@kolu/padi-client/attach";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { toError } from "@kolu/surface/run-stream";
@@ -68,12 +67,7 @@ import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
 import { isDeclared, TERMINAL_NOT_FOUND } from "../rpc/declaredErrors";
-import {
-  runAction,
-  runActionPromise,
-  runOwnedAction,
-  type UiAction,
-} from "../runAction";
+import { runAction, runActionPromise, type UiAction } from "../runAction";
 import type { LineRef } from "../ui/lineRef";
 import { isTouch } from "../useMobile";
 import {
@@ -102,6 +96,7 @@ import {
 } from "./reattachingStream";
 import ScrollToBottom from "./ScrollToBottom";
 import SearchBar from "./SearchBar";
+import { createShownPane } from "./shownPane";
 import { applyStickyModifiers } from "./stickyModifiers";
 import { registerTerminalRefs, unregisterTerminalRefs } from "./terminalRefs";
 import { registerDiagnostics } from "./useTerminalDiagnostics";
@@ -189,6 +184,23 @@ const Terminal: Component<{
    *  already wrapped in that attempt's own liveness latch, so a stale one is
    *  inert rather than a second successor. */
   let reopenForForeignGrid: (() => void) | null = null;
+  /** The LIVE attach attempt's own supersession latch, exposed for the one
+   *  caller that has to end an attach WITHOUT opening a successor: the pane
+   *  going hidden. Every other route out of an attempt is a REPLACEMENT, and a
+   *  replacement supersedes by opening (`attempts.open()`); a close has nothing
+   *  to open, so it has to reach the latch the attempt guards itself with, or
+   *  the attempt would stay "current" and a late frame would paint into a pane
+   *  nobody is watching. Same reason `reopenForForeignGrid` is held here: the
+   *  live attempt's state is in its closure, and a cross-lane caller needs a
+   *  door to it. */
+  let supersedeAttempt: (() => void) | null = null;
+  /** Why the NEXT attach opens, for the host's telemetry (`cause` on the attach
+   *  input). `"attach"` is the ordinary open — a reveal, a reconnect, the loop's
+   *  own re-subscribe — and it is the DEFAULT because every other reopen lane
+   *  is one. The foreign-grid watcher sets `"foreign"` on the open IT pulls
+   *  (below), and the thunk consumes the value as it sends it, so a later
+   *  unrelated reopen reports the ordinary cause rather than inheriting one. */
+  let nextAttachCause: "attach" | "foreign" = "attach";
   let disposeDiagnostics: (() => void) | null = null;
   let webglTrackerId: number | null = null;
   const [handle, setHandle] = createSignal<XtermHandle | null>(null);
@@ -279,12 +291,21 @@ const Terminal: Component<{
   /** Resize the server-side PTY so node-pty matches the xterm grid. Driven off
    *  `XtermHandle.grid` — the one door a measured grid leaves the kit through.
    *
-   *  The POLICY (H1's not-connected suppression, K4's latch, and the convergence
-   *  argument for both) lives in `publishGrid.ts`; this binds the three real
-   *  facts. A PTY resize makes the shell REPAINT (SIGWINCH) — but that repaint
-   *  no longer needs suppressing here: kaval excludes resize repaints from its
-   *  meaningful-output edge at the source, so the live dot (mirrored off padi's
-   *  `activity` set) never lights on a reveal/resize in the first place.
+   *  The POLICY (H1's not-connected suppression, K4's latch, the settle window,
+   *  and the convergence argument for all three) lives in `publishGrid.ts`; this
+   *  binds the four real facts. A PTY resize makes the shell REPAINT (SIGWINCH)
+   *  — but that repaint no longer needs suppressing here: kaval excludes resize
+   *  repaints from its meaningful-output edge at the source, so the live dot
+   *  (mirrored off padi's `activity` set) never lights on a reveal/resize in the
+   *  first place.
+   *
+   *  The fourth fact is the EDGE a settled publish runs at. The publish leaves
+   *  this call stack — it fires a quarter second later, off a timer — so there
+   *  is no Solid owner left to tie the fiber to (`runOwnedAction` reads the
+   *  CURRENT owner and would throw). The pane's route to a publish it no longer
+   *  wants is `dispose()` below, not an owned fiber, and the label is the one
+   *  this pane has always published under so the logs and the toast id are
+   *  unchanged.
    *
    *  ONE publisher per tile, built at component scope so the suppression latch
    *  lives exactly as long as the pane does. */
@@ -299,11 +320,10 @@ const Terminal: Component<{
         cols: grid.cols,
         rows: grid.rows,
       }),
+    run: (action) => {
+      runAction("publish terminal grid", action);
+    },
   });
-
-  function publishDimensions(size: TerminalGrid): UiAction {
-    return gridPublisher.publish(size);
-  }
 
   // Wire kolu's policy over the live terminal. Runs inside <Xterm>'s reactive
   // owner, so every listener / disposable registered here is cleaned up on
@@ -340,6 +360,9 @@ const Terminal: Component<{
       attachFiber = null;
       if (staleGridReopenTimer !== null) clearTimeout(staleGridReopenTimer);
       staleGridReopenTimer = null;
+      // A pane torn down mid-drag must not resize its PTY a quarter second
+      // later, when the settle window it armed closes over a tile that is gone.
+      gridPublisher.dispose();
       unregisterTerminalRefs(props.terminalId);
       disposeDiagnostics?.();
       disposeDiagnostics = null;
@@ -554,41 +577,58 @@ const Terminal: Component<{
       // the terminal we just reset.
       backfill?.reset();
     };
-    // The attach stream may not open until this pane has MEASURED its own box.
+    // The attach stream may open only while this pane is SHOWN — measured AND
+    // visible — and it ENDS the moment the pane stops being either.
     //
-    // The snapshot the host serializes is bytes laid out FOR A GRID — cursor
-    // moves and wraps are only meaningful at the width they were written for.
-    // An unmeasured xterm reports the 80×24 its constructor invents, and a pane
-    // that is hidden at mount (a collapsed split, a background sub-tab) can
-    // never be measured, so it keeps reporting that invented grid. Attaching
-    // there paints a screen laid out for the real width into 80 columns;
-    // revealing the pane then REFLOWS the damage rather than repainting it, and
-    // the repair never comes, because the grid the client finally publishes is
-    // the one the PTY already had — and kaval no-ops a same-dimensions resize,
-    // so no SIGWINCH ever reaches the process. Only a genuine resize (nudging
-    // the divider) fixed it.
+    // MEASURED, because the snapshot the host serializes is bytes laid out FOR
+    // A GRID: cursor moves and wraps are only meaningful at the width they were
+    // written for. An unmeasured xterm reports the 80×24 its constructor
+    // invents, and attaching there paints a screen laid out for the real width
+    // into 80 columns; revealing the pane then REFLOWS the damage rather than
+    // repainting it, and the repair never comes, because the grid the client
+    // finally publishes is the one the PTY already had — and kaval no-ops a
+    // same-dimensions resize, so no SIGWINCH ever reaches the process. Only a
+    // genuine resize (nudging the divider) fixed it. No grid, no bytes: gating
+    // here — rather than dropping or buffering frames after the fact — is what
+    // makes that unrepresentable, because the grid is also what we ASK for the
+    // snapshot AT (below), and a request can't carry a size we haven't measured.
     //
-    // So: no grid, no bytes. Gating here — rather than dropping or buffering
-    // frames after the fact — is what makes the bad state unrepresentable,
-    // because the grid is also what we ASK for the snapshot AT (below), and a
-    // request can't carry a size we haven't measured.
-    //
-    // The latch is the kit's (`onceMeasured`), not a local boolean: it owns the
-    // measurement hazard, so "wait for a real grid" is one call here rather than
-    // a re-derivation of the rule beside the rule.
-    h.onceMeasured(() => openAttachStream());
+    // VISIBLE, because attaching is a WRITE on a shared PTY — `resizeTo` — and
+    // a hidden pane has a measurable box: mobile mounts every terminal of the
+    // host and hides the inactive ones with `content-visibility`, so the
+    // measured-only gate attached all of them and resized 14 PTYs in under a
+    // second on one phone open (kolu#2362 §4). The judgment, and why the
+    // hidden pane's measurement is not lost, is `shownPane.ts`'s; what stays
+    // here is the live facts and the two acts.
+    const shown = () => h.grid() !== null && props.visible;
+    const shownPane = createShownPane({
+      shown,
+      attach: () => {
+        // Every open starts from a clean screen, because every open is answered
+        // with a fresh snapshot: a reveal would otherwise paint it on top of
+        // whatever the pane still held from the attach its last hide ended. The
+        // first open resets a terminal that is already empty, which costs
+        // nothing and buys one rule instead of two.
+        resetForFreshSnapshot();
+        openAttachStream();
+      },
+      detach: closeAttachStream,
+      publish: gridPublisher.publish,
+    });
+    createEffect(on(shown, () => shownPane.observe()));
 
     // The ONE publisher of this pane's grid CHANGES → the PTY. (The attach's own
     // `resizeTo` states the grid the pane OPENS at; every change after that
-    // travels here.) `grid` is value-compared inside the kit, so this fires
-    // exactly once per REAL grid change — the initial fit included — and never
-    // for a re-fit that measured nothing new.
+    // travels here — and a change measured while the pane is hidden travels
+    // nowhere, because the attach the reveal opens restates it.) `grid` is
+    // value-compared inside the kit, so this fires exactly once per REAL grid
+    // change — the initial fit included — and never for a re-fit that measured
+    // nothing new.
     // Driving it from the signal rather than a second `onResize` callback door
     // means "who states this pane's size" has a single answer.
     createEffect(
       on(h.grid, (measured) => {
-        if (measured)
-          runOwnedAction("publish terminal grid", publishDimensions(measured));
+        if (measured) shownPane.measured(measured);
       }),
     );
 
@@ -596,11 +636,12 @@ const Terminal: Component<{
     // FOREIGN resize observable, and this pane's route into the same re-attach
     // lane a refused snapshot takes.
     //
-    // `snapshotGridMoved` (the frame check below) catches only the narrow case
-    // where another viewer's resize beat OUR snapshot back. Once attached there
-    // is no frame at all: the other viewer's attach reflows the pty and this
-    // pane goes on receiving deltas laid out for a grid it never asked for. The
-    // record is the channel that carries it (`TerminalEndpoint.noteGrid`).
+    // The frame check below (rule 1, `@kolu/padi-client/attach`) catches only
+    // the narrow case where another viewer's resize beat OUR snapshot back.
+    // Once attached there is no frame at all: the other viewer's attach reflows
+    // the pty and this pane goes on receiving deltas laid out for a grid it
+    // never asked for. The record is the channel that carries it
+    // (`TerminalEndpoint.noteGrid`).
     //
     // The JUDGMENT — a settle window, and the one mismatch to sit out — is
     // `foreignGrid.ts`'s; what stays here is the three live facts and the
@@ -627,18 +668,16 @@ const Terminal: Component<{
     // back — and if the open attach stays silent through the outage there is no
     // re-attach to restate it either, leaving the PTY at its old size with no
     // symptom but wrong output. This watches the host entry instead, and leans
-    // on the latch for idempotence: with nothing owed the action is
-    // `Effect.void`, and a restatement that lands clears the latch, so the
-    // effect's re-runs (and a tile that mounts while the host is already up)
-    // cost nothing. Reachable on the LOCAL host too — `daemon.restart` drains
-    // it out of `connected`.
+    // on the latch for idempotence: with nothing owed it does nothing, and a
+    // restatement that lands clears the latch, so the effect's re-runs (and a
+    // tile that mounts while the host is already up) cost nothing. Reachable on
+    // the LOCAL host too — `daemon.restart` drains it out of `connected`.
+    //
+    // No settle window on this one: the latched grid is a measurement that
+    // stopped moving an outage ago, so there is nothing left to wait out.
     createEffect(
       on(hostEntryKind, (kind) => {
-        if (kind === "connected")
-          runOwnedAction(
-            "publish terminal grid",
-            gridPublisher.republishSuppressed(),
-          );
+        if (kind === "connected") gridPublisher.republishSuppressed();
       }),
     );
 
@@ -698,23 +737,6 @@ const Terminal: Component<{
         resetForFreshSnapshot,
       );
 
-      /** Does a snapshot answered by THIS attempt still describe the pane?
-       *
-       *  An absent side ANSWERS: with nothing to compare there is no evidence of
-       *  a mismatch, and refusing on ignorance would livelock the reopen loop
-       *  rather than protect anything. The reachable absences are both benign —
-       *  no request has been made yet, or the pane has been disposed and its grid
-       *  released. */
-      // The predicate itself is `@kolu/padi-client/attach`'s, not this pane's:
-      // "a snapshot is only valid at the grid it was asked for" is a property of
-      // the `terminalAttach` CONTRACT — including the clause no consumer guesses,
-      // that another client attaching at its own size resizes this pty underneath
-      // us — so it lives with the stream rather than in whichever app learned it
-      // the expensive way. What stays here is the pane's own inputs: the grid it
-      // asked at, and the grid it has now.
-      const answersCurrentGrid = (): boolean =>
-        snapshotAnswersGrid(requestedGrid, h.grid());
-
       /** End this loop and start exactly one replacement — the FOURTH reopen
        *  lane, named in `reattachingStream.ts`'s module-header taxonomy along
        *  with the other three (kolu#2101 K5).
@@ -755,10 +777,25 @@ const Terminal: Component<{
       // The served-grid watcher's route into THIS attempt (see the binding's
       // note). Guarded exactly as every other cross-lane callback is, so a
       // watcher tick that lands on a superseded attempt does nothing.
-      reopenForForeignGrid = onlyWhenCurrent(
-        { isCurrent: attemptLive },
-        reopenForStaleGrid,
-      );
+      //
+      // It also NAMES the open it pulls. An attach that exists because another
+      // viewer took the terminal is not the same event as a user revealing a
+      // pane, and the host can only tell them apart if the client says which
+      // one it is — the whole point of counting attaches by cause. The successor
+      // opens after a backoff, so the mark is left on `nextAttachCause` for the
+      // thunk to spend, not passed down a call chain.
+      reopenForForeignGrid = onlyWhenCurrent({ isCurrent: attemptLive }, () => {
+        nextAttachCause = "foreign";
+        reopenForStaleGrid();
+      });
+
+      // The hide route into THIS attempt (see the binding's note). A close is
+      // the one end that opens no successor, so it has to set the attempt's own
+      // latch: `attempts.open()` is what supersedes everywhere else, and there
+      // is no open here to do it.
+      supersedeAttempt = () => {
+        superseded = true;
+      };
 
       const consume = consumeReattachingStream(
         () => {
@@ -776,8 +813,8 @@ const Terminal: Component<{
           // `StaleSnapshotGrid`, channel 2) and let that outer loop reopen,
           // rather than to paint and correct afterwards.
           //
-          // Absent is unreachable — `onceMeasured` opens the stream only once a
-          // grid exists, and a measured grid is never un-measured.
+          // Absent is unreachable — the shown-pane gate opens the stream only
+          // once a grid exists, and a measured grid is never un-measured.
           //
           // So a throw here is a DEFECT (channel 1 in `reattachingStream`'s
           // header) and that is what makes it fail loud: the re-attach loop
@@ -795,11 +832,19 @@ const Terminal: Component<{
             );
           }
           requestedGrid = measured;
+          // WHY this attach opened, consumed as it is sent: the host counts
+          // attaches by cause (how many of these resizes a terminal actually
+          // asked for), and a cause left standing would misreport the NEXT open,
+          // which has its own reason. Reset here rather than at the call that
+          // set it, because this is the moment it is spent — including on the
+          // loop's own re-entry into this thunk after a backoff.
+          const cause = nextAttachCause;
+          nextAttachCause = "attach";
           return unenrolledStreamCall(
             activePadiStreams.terminalAttach.unenrolled,
             // `resizeTo`, not a description of this pane: the host resizes the
             // shared PTY to it before serializing.
-            { id: props.terminalId, resizeTo: measured },
+            { id: props.terminalId, resizeTo: measured, cause },
             {
               // Names the PANE, in the framework's `<key>[<id>]` spelling and
               // with the same terminal id the attach loop's log lines carry — a
@@ -822,25 +867,47 @@ const Terminal: Component<{
           // arrive here — and consuming one would paint into a terminal the
           // successor has already reset.
           if (!attemptLive()) return;
-          // REFUSE a snapshot that answers a grid this pane no longer has.
+          // REFUSE a snapshot that is not laid out for the grid this pane has.
           //
-          // A snapshot is bytes laid out for the grid it was serialized at, and
-          // THREE paths can make that grid stale between the ask and the answer:
-          // a resize while the request is in flight (a reload's one-column
-          // layout settle is the common one), a STREAM_RETRY, which re-subscribes
-          // by replaying the ORIGINAL captured input, and another client
-          // attaching at its own size — `resizeTo` is last-attach-wins on a
-          // SHARED pty (`@kolu/padi-client/surface`'s `PadiTerminalAttachInputSchema`),
-          // so a phone joining this terminal resizes it under this pane. Painting
-          // the answer anyway and correcting the PTY afterwards does NOT undo the
-          // damage — a later SIGWINCH repaints a full-screen app, but nothing
-          // rebuilds scrollback that has already been wrapped at the wrong width.
+          // A snapshot is bytes laid out for a specific cols×rows, and THREE
+          // paths can make that layout the wrong one: a resize while the request
+          // is in flight (a reload's one-column layout settle is the common
+          // one), a STREAM_RETRY, which re-subscribes by replaying the ORIGINAL
+          // captured input, and another client attaching at its own size —
+          // `resizeTo` is last-attach-wins on a SHARED pty
+          // (`@kolu/padi-client/surface`'s `PadiTerminalAttachInputSchema`), so a
+          // phone joining this terminal resizes it under this pane and the bytes
+          // come back serialized at the phone's width. Painting the answer
+          // anyway and correcting the PTY afterwards does NOT undo the damage —
+          // a later SIGWINCH repaints a full-screen app, but nothing rebuilds
+          // scrollback that has already been wrapped at the wrong width.
           //
-          // So: do not paint at all. RETURNING the refusal fails the attempt in
-          // the recoverable channel, and `consumeReattachingStream` resets the
-          // screen and reopens through the thunk above, which reads the CURRENT
-          // grid. Its 300ms backoff bounds the loop, and a pane that has stopped
-          // resizing converges on its first reopen.
+          // ONE rule covers all three, and it is `@kolu/padi-client/attach`'s
+          // rather than this pane's: "a snapshot is only valid at the grid it
+          // was laid out for" is a property of the `terminalAttach` CONTRACT —
+          // including the clause no consumer guesses, that another client
+          // attaching at its own size resizes this pty underneath us — so it
+          // lives with the stream rather than in whichever app learned it the
+          // expensive way. What stays here is the pane's own inputs: the grid
+          // this attempt asked at, and the grid the pane has NOW.
+          //
+          // NOW is load-bearing, and it is what makes kaval's re-snapshot cheap.
+          // kaval drops its data subscribers on a REAL resize and re-snapshots
+          // them mid-stream, on the SAME attach — so moments after this pane's
+          // own publish lands, the frame that arrives is laid out for the grid
+          // the pane has just moved TO, while `requestedGrid` still holds the
+          // grid the attach OPENED at. Judged against the grid we asked at, that
+          // perfect frame is refused and every resize costs a reset plus a round
+          // trip for a second snapshot that says the same thing.
+          //
+          // So: do not paint what does not fit. RETURNING the refusal fails the
+          // attempt in the recoverable channel, and `consumeReattachingStream`
+          // resets the screen and reopens through the thunk above, which reads
+          // the CURRENT grid. Its 300ms backoff bounds the loop, and a pane that
+          // has stopped resizing converges on its first reopen. Two viewers
+          // contending ping-pong the width, which is the multi-client contract's
+          // own stated outcome — "contention costs a repaint, never the attach
+          // loop".
           //
           // It is a RETURN and not a throw because that promise has to be true.
           // Spelled as a throw, this refusal was a defect the failure-only retry
@@ -852,35 +919,17 @@ const Terminal: Component<{
           // This is the FIRST of two checks — the cheap guard that stops the
           // common case before a single byte is written or any backfill state is
           // touched. Receipt is not when the bytes LAND, so the write callback
-          // re-checks; the why is stated in full there.
-          if (isSnapshotFrame(frame) && !answersCurrentGrid()) {
+          // re-checks, against the layout grid captured HERE; the why is stated
+          // in full there.
+          const laidOutAt = snapshotLayoutGrid(frame, requestedGrid);
+          if (
+            isSnapshotFrame(frame) &&
+            !snapshotPaintableAt(laidOutAt, h.grid())
+          ) {
             return new StaleSnapshotGrid({
               terminalId: props.terminalId,
-              requested: requestedGrid,
+              laidOutAt,
               current: h.grid(),
-            });
-          }
-          // THE FOREIGN RESIZE — the case the check above structurally cannot
-          // see, and the reason contract 5.5 put the SERVED grid on the frame.
-          //
-          // `answersCurrentGrid` compares two LOCAL measurements, so it is blind
-          // to another viewer asserting its own size: `resizeTo` is
-          // last-attach-wins on a shared pty, and our own attach asked at OUR
-          // grid, so asked === current and it waves the frame through. But the
-          // bytes came back serialized at the OTHER viewer's width, and painting
-          // them wraps scrollback at a width this pane never had — the same
-          // damage, from a cause the local check cannot detect.
-          //
-          // Same disposition, and deliberately so: refuse in the recoverable
-          // channel and let the loop reopen at the current grid. Two viewers
-          // then ping-pong the width, which is the multi-client contract's own
-          // stated outcome — "contention costs a repaint, never the attach
-          // loop" — bounded by the loop's backoff.
-          if (snapshotGridMoved(frame, requestedGrid)) {
-            return new StaleSnapshotGrid({
-              terminalId: props.terminalId,
-              requested: requestedGrid,
-              current: snapshotGrid(frame) ?? h.grid(),
             });
           }
           // A `snapshot` frame begins a fresh snapshot (initial attach or a
@@ -952,10 +1001,16 @@ const Terminal: Component<{
               // Receipt is not that moment: the write above parses
               // asynchronously, and scroll lock stashes the chunk until unlock,
               // which the user controls. A pane that resized inside that window
-              // has just had a snapshot for the OLD grid parsed into it, so the
-              // seed computed from those bytes must not be committed (it would
-              // anchor backfill to a layout the buffer no longer has) and the
-              // screen must be repainted from a snapshot for the grid it now is.
+              // has just had a snapshot for its OLD layout parsed into it, so
+              // the seed computed from those bytes must not be committed (it
+              // would anchor backfill to a layout the buffer no longer has) and
+              // the screen must be repainted from a snapshot for the grid it now
+              // is.
+              // Against `laidOutAt`, not a re-derived one: it is the layout the
+              // frame was ACCEPTED at, captured when the frame arrived, so this
+              // asks the one question that is still open — did the PANE move
+              // while these bytes were in flight — rather than re-reading a
+              // frame-side fact that cannot have changed.
               // The frame handler's REFUSAL channel is unavailable here — this
               // runs in an xterm callback, not the iterator, so there is no
               // return value the loop will read — and the attempt is aborted and
@@ -963,7 +1018,7 @@ const Terminal: Component<{
               // really does follow), reached by the one route this callsite has.
               // The first stale callback installs the one replacement; the rest
               // are superseded by the guard above.
-              if (commitSeed && !answersCurrentGrid()) {
+              if (commitSeed && !snapshotPaintableAt(laidOutAt, h.grid())) {
                 reopenForStaleGrid();
                 return;
               }
@@ -1008,6 +1063,32 @@ const Terminal: Component<{
       // here is unreachable by construction and says so loudly rather than
       // silently ending the attach.
       attachFiber = runAction("Terminal attach", consume.pipe(Effect.orDie));
+    }
+
+    /** End the live attach and open NOTHING — the pane stopped being shown.
+     *
+     *  The ONE teardown with no successor, which is what makes it its own
+     *  function rather than a call to an existing lane: every other end here is
+     *  a replacement, and a replacement supersedes by opening. This has to do by
+     *  hand what `attempts.open()` does for them, in the SAME order the component
+     *  teardown uses — latch first, interrupt second, cancel the pending reopen
+     *  last — because the window between the latch and the (asynchronous)
+     *  interrupt is exactly where a late frame or a stashed xterm write callback
+     *  of the dying attempt would otherwise land, and the pending
+     *  {@link REATTACH_BACKOFF_MS} timer would resurrect the loop a third of a
+     *  second after the pane went dark.
+     *
+     *  The screen is left alone: hiding a pane must not blank it, and the reveal
+     *  resets it immediately before re-attaching, so the stale bytes live only
+     *  where nobody is looking at them. */
+    function closeAttachStream() {
+      supersedeAttempt?.();
+      supersedeAttempt = null;
+      reopenForForeignGrid = null;
+      attachFiber?.interruptUnsafe();
+      attachFiber = null;
+      if (staleGridReopenTimer !== null) clearTimeout(staleGridReopenTimer);
+      staleGridReopenTimer = null;
     }
 
     // Initial focus, mirroring the old post-fit focus on first mount.

@@ -21,9 +21,13 @@
 
 import type { TerminalGrid } from "@kolu/xterm-kit/solid";
 import { Effect } from "effect";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runAction } from "../runAction";
-import { createGridPublisher, publishGridAction } from "./publishGrid";
+import {
+  createGridPublisher,
+  GRID_SETTLE_MS,
+  publishGridAction,
+} from "./publishGrid";
 
 const toastSpy = { error: vi.fn(), success: vi.fn() };
 vi.mock("solid-sonner", () => ({
@@ -174,6 +178,112 @@ describe("publishGridAction", () => {
     );
   });
 
+  it("a gone PTY eats the failure toast — the tile is tearing down anyway", async () => {
+    const resize = vi.fn(() => Effect.fail(new Error("kaval said no")));
+
+    runAction(
+      "publish terminal grid",
+      publishGridAction(
+        { cols: 80, rows: 24 },
+        {
+          terminalId: "t1",
+          hostState: () => "connected",
+          ptyLive: () => false,
+          resize,
+        },
+      ),
+    );
+    await settle();
+
+    expect(toastSpy.error).not.toHaveBeenCalled();
+  });
+});
+
+/** The publisher, driven the way a pane drives it: grids in, resizes out.
+ *
+ *  Fake timers, because the settle window is the thing under test — a real
+ *  250ms wait per case would buy nothing but a slow suite. The publish itself
+ *  still goes through the REAL `runAction` edge, and the resize stubs are
+ *  synchronous, so a fired publish has already called `resize` by the time the
+ *  advance returns. */
+describe("createGridPublisher", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  /** One pane's publisher over a mutable host state and a recording PTY. */
+  function harness(init?: { host?: string }) {
+    let host = init?.host ?? "connected";
+    /** The server-side PTY, as kaval holds it. */
+    let ptyGrid = "80×24";
+    const resize = vi.fn((g: TerminalGrid) =>
+      Effect.sync(() => {
+        ptyGrid = `${g.cols}×${g.rows}`;
+      }),
+    );
+    const publisher = createGridPublisher({
+      terminalId: "t1",
+      hostState: () => host,
+      ptyLive: () => true,
+      resize,
+      run: (action) => {
+        runAction("publish terminal grid", action);
+      },
+    });
+    return {
+      publisher,
+      resize,
+      ptyGrid: () => ptyGrid,
+      setHost(next: string) {
+        host = next;
+      },
+    };
+  }
+
+  // ── The settle window (kolu#2362 §5) ────────────────────────────────────
+  //
+  // A divider drag published five resizes in 220ms across two agent terminals,
+  // each one a SIGWINCH and a full repaint from the agent underneath — and, now
+  // that kaval re-snapshots its subscribers on a real resize, a snapshot fanned
+  // out to every viewer of that terminal. The user asked for one resize.
+
+  it("publishes ONCE for a drag, carrying the grid the drag ended at", async () => {
+    const h = harness();
+    for (const cols of [120, 110, 100, 90, 80]) {
+      h.publisher.publish({ cols, rows: 40 });
+      await vi.advanceTimersByTimeAsync(40);
+    }
+    // Nothing yet: every frame of the gesture re-armed the window.
+    expect(h.resize).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS);
+    expect(h.resize.mock.calls).toEqual([[{ cols: 80, rows: 40 }]]);
+    expect(h.ptyGrid()).toBe("80×40");
+  });
+
+  it("publishes again once the pane moves after the window closed", async () => {
+    // A DELAY, not a drop: a later real resize is a later real publish.
+    const h = harness();
+    h.publisher.publish({ cols: 80, rows: 24 });
+    await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS);
+    h.publisher.publish({ cols: 132, rows: 43 });
+    await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS);
+    expect(h.resize.mock.calls).toEqual([
+      [{ cols: 80, rows: 24 }],
+      [{ cols: 132, rows: 43 }],
+    ]);
+  });
+
+  it("publishes nothing after dispose — a tile torn down mid-drag", async () => {
+    const h = harness();
+    h.publisher.publish({ cols: 132, rows: 43 });
+    h.publisher.dispose();
+    await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS * 4);
+    expect(h.resize).not.toHaveBeenCalled();
+  });
+
   // ── The suppressed publish is never re-fired (kolu#2101 K4) ─────────────
   //
   // H1's gate drops the publish while the host is not connected on the
@@ -193,118 +303,102 @@ describe("publishGridAction", () => {
 
   it("(K4) a grid suppressed while the host is down is re-published ONCE on the connected flip", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
-    /** The server-side PTY, as kaval holds it. */
-    let ptyGrid = "80×24";
-    let host = "connected";
-    const resize = vi.fn((g: TerminalGrid) =>
-      Effect.sync(() => {
-        ptyGrid = `${g.cols}×${g.rows}`;
-      }),
-    );
-    const publisher = createGridPublisher({
-      terminalId: "t1",
-      hostState: () => host,
-      ptyLive: () => true,
-      resize,
-    });
+    const h = harness();
 
     // The lid closes, then the user drags the split divider.
-    host = "warming";
-    runAction(
-      "publish terminal grid",
-      publisher.publish({ cols: 132, rows: 43 }),
-    );
-    await settle();
-    expect(resize).not.toHaveBeenCalled();
-    expect(ptyGrid).toBe("80×24");
+    h.setHost("warming");
+    h.publisher.publish({ cols: 132, rows: 43 });
+    await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS);
+    expect(h.resize).not.toHaveBeenCalled();
+    expect(h.ptyGrid()).toBe("80×24");
 
     // The host reconverges. The attach is SILENT — no frame, no failure, no end
     // — so nothing re-opens it and, pre-fix, nothing ever restated the grid.
-    host = "connected";
-    runAction("publish terminal grid", publisher.republishSuppressed());
-    await settle();
-    expect(resize).toHaveBeenCalledTimes(1);
-    expect(resize).toHaveBeenCalledWith({ cols: 132, rows: 43 });
-    expect(ptyGrid).toBe("132×43");
+    h.setHost("connected");
+    h.publisher.republishSuppressed();
+    expect(h.resize).toHaveBeenCalledTimes(1);
+    expect(h.resize).toHaveBeenCalledWith({ cols: 132, rows: 43 });
+    expect(h.ptyGrid()).toBe("132×43");
 
     // ONCE. The effect re-runs on every host-state tick, and a second write of
     // the same grid must cost nothing.
-    runAction("publish terminal grid", publisher.republishSuppressed());
-    runAction("publish terminal grid", publisher.republishSuppressed());
-    await settle();
-    expect(resize).toHaveBeenCalledTimes(1);
+    h.publisher.republishSuppressed();
+    h.publisher.republishSuppressed();
+    expect(h.resize).toHaveBeenCalledTimes(1);
   });
 
-  it("(K4) a flip with nothing suppressed publishes nothing", async () => {
-    const resize = vi.fn(() => Effect.succeed({ ok: true }));
-    const publisher = createGridPublisher({
-      terminalId: "t1",
-      hostState: () => "connected",
-      ptyLive: () => true,
-      resize,
-    });
-
-    runAction("publish terminal grid", publisher.republishSuppressed());
-    await settle();
-    expect(resize).not.toHaveBeenCalled();
+  it("(K4) a flip with nothing suppressed publishes nothing", () => {
+    const h = harness();
+    h.publisher.republishSuppressed();
+    expect(h.resize).not.toHaveBeenCalled();
   });
 
   it("(K4) the latch carries the LAST suppressed grid, and a normal publish clears it", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
-    let host = "failed";
-    const resize = vi.fn(() => Effect.succeed({ ok: true }));
-    const publisher = createGridPublisher({
-      terminalId: "t1",
-      hostState: () => host,
-      ptyLive: () => true,
-      resize,
-    });
+    const h = harness({ host: "failed" });
 
-    // Three suppressed measurements during one outage: only the last one
-    // describes the pane, and replaying the earlier two would move the shared
-    // PTY backwards.
+    // Three suppressed measurements during one outage, each its own settled
+    // publish: only the last one describes the pane, and replaying the earlier
+    // two would move the shared PTY backwards.
     for (const cols of [100, 120, 132]) {
-      runAction("publish terminal grid", publisher.publish({ cols, rows: 40 }));
+      h.publisher.publish({ cols, rows: 40 });
+      await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS);
     }
-    await settle();
 
-    host = "connected";
-    runAction("publish terminal grid", publisher.republishSuppressed());
-    await settle();
-    expect(resize.mock.calls).toEqual([[{ cols: 132, rows: 40 }]]);
+    h.setHost("connected");
+    h.publisher.republishSuppressed();
+    expect(h.resize.mock.calls).toEqual([[{ cols: 132, rows: 40 }]]);
 
     // A publish that goes through normally supersedes the latch, so a LATER
     // flip cannot replay a grid the pane has already moved past.
-    runAction(
-      "publish terminal grid",
-      publisher.publish({ cols: 80, rows: 24 }),
-    );
-    await settle();
-    runAction("publish terminal grid", publisher.republishSuppressed());
-    await settle();
-    expect(resize.mock.calls).toEqual([
+    h.publisher.publish({ cols: 80, rows: 24 });
+    await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS);
+    h.publisher.republishSuppressed();
+    expect(h.resize.mock.calls).toEqual([
       [{ cols: 132, rows: 40 }],
       [{ cols: 80, rows: 24 }],
     ]);
   });
 
-  it("a gone PTY eats the failure toast — the tile is tearing down anyway", async () => {
-    const resize = vi.fn(() => Effect.fail(new Error("kaval said no")));
+  // The latch is bookkept at FIRE time, which is what makes this case work: a
+  // publish still sitting in the window owes the PTY nothing yet, so the flip
+  // sees an honest empty latch — and the publish, when it fires, meets the host
+  // state it is actually judged against.
+  it("(K4) a host that flips back MID-WINDOW still gets the grid, once", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const h = harness({ host: "warming" });
 
-    runAction(
-      "publish terminal grid",
-      publishGridAction(
-        { cols: 80, rows: 24 },
-        {
-          terminalId: "t1",
-          hostState: () => "connected",
-          ptyLive: () => false,
-          resize,
-        },
-      ),
-    );
-    await settle();
+    h.publisher.publish({ cols: 132, rows: 43 });
+    await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS / 2);
+    h.setHost("connected");
+    h.publisher.republishSuppressed();
+    expect(h.resize).not.toHaveBeenCalled();
 
-    expect(toastSpy.error).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS);
+    expect(h.resize.mock.calls).toEqual([[{ cols: 132, rows: 43 }]]);
+    // …and the latch is empty afterwards: the grid landed.
+    h.publisher.republishSuppressed();
+    expect(h.resize).toHaveBeenCalledTimes(1);
+  });
+
+  it("(K4) a suppressed settled publish re-latches, and converges on the next flip", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const h = harness({ host: "connected" });
+
+    h.publisher.publish({ cols: 100, rows: 30 });
+    await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS);
+    expect(h.resize).toHaveBeenCalledTimes(1);
+
+    h.setHost("warming");
+    h.publisher.publish({ cols: 132, rows: 43 });
+    await vi.advanceTimersByTimeAsync(GRID_SETTLE_MS);
+    expect(h.resize).toHaveBeenCalledTimes(1);
+
+    h.setHost("connected");
+    h.publisher.republishSuppressed();
+    expect(h.resize.mock.calls).toEqual([
+      [{ cols: 100, rows: 30 }],
+      [{ cols: 132, rows: 43 }],
+    ]);
   });
 });

@@ -295,7 +295,7 @@ describe("consumeReattachingStream", () => {
         refusals.push(item);
         return new StaleSnapshotGrid({
           terminalId: "t1",
-          requested: { cols: requestedCols, rows: 24 },
+          laidOutAt: { cols: requestedCols, rows: 24 },
           current: { cols: paneCols, rows: 24 },
         });
       }

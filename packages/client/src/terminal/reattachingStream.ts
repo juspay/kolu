@@ -330,9 +330,9 @@ interface Grid {
   rows: number;
 }
 
-/** The consumer REFUSES this frame: the snapshot answers a grid the pane no
- *  longer has, so painting it would wrap scrollback at the wrong width — damage
- *  a later repaint cannot undo.
+/** The consumer REFUSES this frame: the snapshot is laid out for a grid the
+ *  pane does not have, so painting it would wrap scrollback at the wrong width
+ *  — damage a later repaint cannot undo.
  *
  *  A RETURNED value, not a throw, and that is the whole point (kolu#2101 G8). The
  *  refusal is a recoverable race — a resize between the request and the answer,
@@ -352,8 +352,11 @@ interface Grid {
 export class StaleSnapshotGrid extends Error {
   constructor(args: {
     terminalId: string;
-    /** The grid this attempt ASKED at. Absent only before the first request. */
-    requested: Grid | null | undefined;
+    /** The grid the refused snapshot was LAID OUT at — the frame's own `grid`
+     *  when it states one (padi contract 5.5), and otherwise the grid this
+     *  attempt asked at. Absent only before the first request, against a daemon
+     *  that states no grid. */
+    laidOutAt: Grid | null | undefined;
     /** The grid the pane has NOW. Absent when the pane has been disposed and
      *  released its measurement. */
     current: Grid | null | undefined;
@@ -361,7 +364,7 @@ export class StaleSnapshotGrid extends Error {
     const at = (g: Grid | null | undefined) =>
       g ? `${g.cols}x${g.rows}` : "unmeasured";
     super(
-      `terminal ${args.terminalId}: snapshot answered ${at(args.requested)}, pane is now ${at(args.current)} — refusing it and re-attaching at the current grid`,
+      `terminal ${args.terminalId}: snapshot was laid out at ${at(args.laidOutAt)}, pane is now ${at(args.current)} — refusing it and re-attaching at the current grid`,
     );
     this.name = "StaleSnapshotGrid";
   }
