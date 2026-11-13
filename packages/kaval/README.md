@@ -115,24 +115,38 @@ baked floor, so it tracks the terminal instead of a constant. Every other tap
 `maxQueue` item bound (default 10,000) — their items are a path, a title, a
 command line.
 
-A **real resize** drops every `data` subscriber outright, for the same reason:
-the bytes still queued were laid out for a grid that no longer exists, and the
-program is about to redraw its whole screen into the new one (an agent reprints
-its entire transcript on `SIGWINCH`). kaval then **holds** any attach that
-arrives while the PTY is still redrawing — until its output has been quiet for
-~100 ms, capped at 600 ms after the latest resize — so a viewer pays one
-snapshot of the *settled* screen for the whole resize, not the reprint. The
-mirror parses throughout, so nothing is lost by waiting; only the moment the
-reading is taken moves.
+A **real resize** opens a **window**, and the window asks the same question the
+budget does. While it is open, parsed output is **withheld** rather than
+published — the mirror still parses it — because a resize is the one moment
+kaval knows the bytes about to arrive are a redraw of a screen it already holds
+(an agent reprints its entire transcript on `SIGWINCH`). At close it decides:
+what **fits** the budget is simply delivered, so a plain shell's hundred-byte
+repaint costs its viewers nothing — no reset, no lost scrollback, no lost
+selection or scroll position — and anything **larger** is discarded in favour of
+dropping the subscribers, who each get one snapshot of the settled screen.
 
-All three arrive at a consumer the same way: in process the `deltas` stream
-**fails** with `SubscriberOverflow` on its error channel — a drop is told apart
-from a graceful end by the channel it arrives on, not by a flag — and the served
-wire carries that as the typed `overflow` control frame, distinct from a PTY
-exit, so the client re-attaches for a fresh snapshot instead of mistaking the
-drop for a dead terminal and freezing its scrollback. No new frame kind and no
-contract bump: the error carries a `reason` (`items` / `bytes` / `invalidated`)
-for the log, and the wire sees what it has seen since contract 5.0.
+The window runs 600 ms from the latest resize and **does not close early on
+silence**: an agent writes a few KB within ~4 ms of a `SIGWINCH`, goes quiet for
+318–375 ms, and only *then* emits its reprint, so quiet is the pause before the
+repaint, not the end of it. It extends past 600 ms only while a burst is still
+arriving, up to a hard cap. A second resize inside a window discards what was
+kept and restarts the clock. An attach whose own `resizeTo` opens a **fresh**
+window is not delayed at all; one arriving into a window already open waits for
+it, because the bytes that window is holding are already in the mirror and would
+otherwise be delivered twice.
+
+That window is also the single answer to "is this output the resize's repaint?":
+the meaningful-output edge reads the same window, so the activity signal and the
+publish path cannot disagree.
+
+A drop — from either rule — arrives at a consumer the same way: in process the
+`deltas` stream **fails** with `SubscriberOverflow` on its error channel — a drop
+is told apart from a graceful end by the channel it arrives on, not by a flag —
+and the served wire carries that as the typed `overflow` control frame, distinct
+from a PTY exit, so the client re-attaches for a fresh snapshot instead of
+mistaking the drop for a dead terminal and freezing its scrollback. No new frame
+kind and no contract bump: the error carries a `reason` (`items` / `bytes` /
+`invalidated`) for the log, and the wire sees what it has seen since contract 5.0.
 
 ## Usage
 

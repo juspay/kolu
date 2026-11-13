@@ -1216,11 +1216,11 @@ describeDaemon("attach() reconnect-storm defenses", () => {
     // invalidation the next same-epoch attach hands back the stale 80-col snap.
     serializeSpy.mockClear();
     host.resize(id, 120, 24);
-    // ASYNC, unlike every other attach in this file: a real resize opens the
-    // settling window (kolu#2362), so this attach parks until the PTY has gone
-    // quiet and only then takes its fused subscribe+serialize reading. The
-    // fusion itself is unchanged — it is still one synchronous step — but it
-    // now happens after a wait, which `runScopedSync` cannot express.
+    // ASYNC, unlike every other attach in this file: the resize above opened a
+    // resize window (kolu#2362), and an attach arriving into one ALREADY open
+    // parks until it closes before taking its fused subscribe+serialize
+    // reading. The fusion itself is unchanged — still one synchronous step —
+    // but it now happens after a wait, which `runScopedSync` cannot express.
     const second = (await Effect.runPromise(Effect.scoped(host.attach(id))))
       .snapshot;
 

@@ -286,19 +286,26 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  *
  *  (1) A data subscriber is now dropped on a BYTE budget — "more queued for you
  *  than a fresh bounded snapshot would cost" — instead of only at 10,000 queued
- *  chunks. (2) A REAL resize drops every data subscriber outright and then HOLDS
- *  the re-attach until the PTY's output has been quiet for ~100 ms, capped at
- *  600 ms after the latest resize. Both arrive at a consumer as the SAME
- *  `overflow` frame it has handled since 5.0, followed by the same fresh
- *  snapshot. The only consumer-visible difference is TIMING: the first frame of
- *  an attach that lands inside a resize settling window may take up to the cap.
+ *  chunks. (2) A REAL resize opens a WINDOW (600 ms from the latest resize,
+ *  extended only while a burst is still arriving, hard-capped) during which
+ *  parsed output is WITHHELD rather than published. At close, output that fits
+ *  the budget is simply delivered — nothing visible happens to the consumer at
+ *  all, which is the common case for a plain shell — and output larger than the
+ *  budget is discarded in favour of dropping the subscribers, who then see the
+ *  SAME `overflow` frame they have handled since 5.0 and the same fresh
+ *  snapshot.
+ *
+ *  So there are exactly two consumer-visible differences, both TIMING: deltas
+ *  may arrive up to the window late after a resize, and an attach that lands
+ *  inside a window already open may wait for it (an attach whose OWN `resizeTo`
+ *  opens the window is not delayed).
  *
  *  Why that is safe in both skew directions. An OLD consumer against a NEW
  *  daemon already handles `overflow` (it is 5.0's whole reason for the major) and
  *  already has no deadline on the first frame — an attach has always waited on a
  *  remote host over ssh, and the cap is an order of magnitude under the
  *  supervisor's adoption timeouts. A NEW consumer against an OLD daemon sees
- *  exactly today's behaviour: fewer overflow frames and no hold, which is the
+ *  exactly today's behaviour: fewer overflow frames and no window, which is the
  *  status quo, not a lie. A version bump would therefore buy nothing and cost a
  *  forced recycle — killing live PTYs — which is the one price this file keeps
  *  refusing to pay for something that degrades gracefully. */
