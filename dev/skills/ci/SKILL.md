@@ -18,8 +18,7 @@ unpushed commit can't run.
 **Sync master before CI, every run, whoever is driving.** Fetch and merge
 `origin/<default>` unless it's already an ancestor
 (`git merge-base --is-ancestor`). The changelog is `merge=union` and never
-conflicts; a real conflict is yours to resolve now. Never merge while a
-gauntlet round is mid-commit — it races the index.
+conflicts; a real conflict is yours to resolve now.
 
 **Every run is `x86_64-linux` ONLY.** Pin it explicitly —
 `platforms=["x86_64-linux"]` — never trust a machine-local default: a platform
