@@ -1100,6 +1100,7 @@ export const startHarness = async (
         server: call?.server,
         tool: call?.tool,
         detail: detailOf(update.rawInput, update.rawOutput),
+        asked: detailOf(update.rawInput, undefined),
         progress: progressOf(
           update.content as Parameters<typeof progressOf>[0],
         ),

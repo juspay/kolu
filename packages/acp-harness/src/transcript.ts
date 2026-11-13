@@ -215,6 +215,9 @@ export interface ToolMove {
   readonly server?: string | undefined;
   readonly tool?: string | undefined;
   readonly detail?: string | undefined;
+  /** The call's ARGUMENTS alone, as the same folded JSON — what a FAILED
+   *  call's disclosure shows, so its error is said once, by its reason. */
+  readonly asked?: string | undefined;
   readonly progress?: string | undefined;
   readonly diffs?: ReadonlyArray<FileDiff> | undefined;
   readonly locations?: ReadonlyArray<string> | undefined;
@@ -245,6 +248,11 @@ export class Transcript {
    *  it. What is kept here is only WHETHER the question has been answered; the
    *  answer itself stays in `text` where a reader of the row can see it. */
   #named = new Set<string>();
+  /** Each call's arguments as last reported, by key — kept beside the rows
+   *  rather than on them: the adapter sends the input on the arming frame and
+   *  the answer on the settling one, and a failed call's disclosure needs the
+   *  first after the second has replaced it. */
+  #asked = new Map<string, string>();
   /** Which rows have already had a death announced, so the sentence that
    *  arrives a beat after an ending refines rather than minting a second
    *  notice. BY THE ROW rather than by the task's own id: a call that armed a
@@ -598,6 +606,16 @@ export class Transcript {
       return EMPTY;
     }
     const status = move.status ?? held?.status ?? "pending";
+    if (move.asked !== undefined) this.#asked.set(key, move.asked);
+    const progress = move.progress ?? held?.progress;
+    // A FAILED CALL SAYS WHY ONCE. Its content (`progress`) is the reason the
+    // card shows; the JSON under it is then what was ASKED, and never the
+    // answer again. A failure that said nothing in its content keeps its
+    // answer here, because that is the only place the error is.
+    const detail =
+      status === "failed" && progress !== undefined
+        ? this.#asked.get(key)
+        : (move.detail ?? held?.detail);
     const named = this.#named.has(key);
     const title =
       move.title !== undefined && !named
@@ -613,7 +631,7 @@ export class Transcript {
       status,
       ...pick("server", move.server, held?.server),
       ...pick("tool", move.tool, held?.tool),
-      ...pick("detail", move.detail, held?.detail),
+      ...(detail === undefined ? {} : { detail }),
       ...pick("progress", move.progress, held?.progress),
       ...pick("diffs", move.diffs, held?.diffs),
       ...pick("locations", move.locations, held?.locations),
