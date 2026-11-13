@@ -468,7 +468,7 @@ the id.
 
 > **A terminal id is not stable across a daemon restart.** kaval re-keys every
 > terminal when it restarts (crash-restore, a "Restart kaval", a redeploy), so an
-> id you were *handed* — a coordinator's terminal from your brief, an id you cached
+> id you were *handed* — a supervisor's terminal from your brief, an id you cached
 > turns ago — can go stale mid-run; a `send`/`snapshot` to it then fails with **"no
 > terminal matching"**. Don't re-assume the id: run `kolu ls --json` and re-find
 > the terminal by its stable **`intent` label** (which is exactly what you set it
