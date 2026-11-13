@@ -41,6 +41,25 @@
  * separates "this attachment was cheap" from "this attachment was cheap
  * because the host gave up on it".
  *
+ * AND THE ENDS FOLD TOO. That per-attachment line is `debug`, and kolu-server
+ * runs at `info` unless `LOG_LEVEL` or `--verbose` says otherwise
+ * (`log.ts`) — so on a normal deployment the only line carrying `deltaChars`
+ * and `skipAheads` is never written, and the log cannot answer the one
+ * question this file exists for: how many bytes did viewing cost. It cannot
+ * simply be promoted: a host switch tears down every tile, so one `info` line
+ * per attachment would print twenty of them per switch. So the ENDS fold the
+ * way the opens do — attachments ending within {@link ATTACH_BURST_QUIET_MS}
+ * of each other are one group, reported as ONE `info` line, `terminal attach:
+ * ends`, once the group goes quiet or at {@link ATTACH_BURST_CAP_MS}, so a
+ * teardown that never settles is still reported. That line carries the totals
+ * an operator asks for — how many attachments ended, over how many terminals,
+ * the characters they opened with and forwarded, the skip-aheads they took,
+ * the resizes behind them and how long they lived — and the per-attachment
+ * line stays at `debug` for the breakdown, exactly as the per-attach
+ * first-frame line sits under the burst line. One grouping idea, two
+ * groupings: the ends reuse the burst's own quiet/cap constants and its
+ * arm/close shape rather than inventing a second timer discipline.
+ *
  * DID VIEWING RESIZE ANYTHING. A `terminalAttach` subscribe MAY carry a
  * `resizeTo`, and that resizes the PTY: looking at a terminal can reshape it,
  * and every other viewer eats the reflow. Three causes ask for a grid at this
@@ -69,18 +88,58 @@
  */
 
 import type { Logger } from "@kolu/log";
+import { type PadiSurfaceSpec, padiSurface } from "@kolu/padi-client/surface";
+import { surfaceTag } from "@kolu/surface/define";
 import type { SurfaceDispatch } from "@kolu/surface/link";
 import { Cause, Effect, type Exit, Stream } from "effect";
 
-/** The entry-member tag a terminal attach arrives at the per-host dispatch under
- *  (`serveHostMap` has already stripped the map envelope). */
-export const TERMINAL_ATTACH_TAG = "surface/terminalAttach/get";
+/** The two members this wrapper watches for, pinned to `padiSurface`'s own spec
+ *  with `satisfies`: renaming `terminalAttach` or `lifecycle.resize` in the
+ *  contract then fails the BUILD here, rather than leaving a stale string
+ *  literal that matches no tag and counts nothing, forever — a failure no test
+ *  that imports the same constant can see. */
+const ATTACH_MEMBER = "terminalAttach" satisfies keyof NonNullable<
+  PadiSurfaceSpec["streams"]
+>;
+const LIFECYCLE_MEMBER = "lifecycle" satisfies keyof NonNullable<
+  PadiSurfaceSpec["procedures"]
+>;
+const RESIZE_VERB = "resize" satisfies keyof NonNullable<
+  PadiSurfaceSpec["procedures"]
+>["lifecycle"];
 
-/** The entry-member tag a deliberate grid publish arrives under. `lifecycle` is
- *  a PROCEDURE namespace, so its wire tag is the same `<prefix><member>/<verb>`
- *  algebra `surfaceTag` mints the attach stream's at, with the map envelope
- *  likewise already stripped. */
-export const LIFECYCLE_RESIZE_TAG = "surface/lifecycle/resize";
+/** The entry-member tag a terminal attach arrives at the per-host dispatch
+ *  under — minted off the surface, never typed out.
+ *
+ *  THE ENVELOPE IS ALREADY OFF, and that is the subtlety. A client reaches this
+ *  member through the padi HOST MAP, so on the socket it carries the map's
+ *  mount prefix (`padiHostMap.tagPrefix` — `surface/padi/`, what
+ *  `siblingTagPrefix("padi")` mints). `serveHostMap` resolves the
+ *  `{ mapKey, input }` envelope itself and forwards the member to this host's
+ *  per-entry dispatch under the ENTRY surface's own tags, so what passes HERE
+ *  is `surface/terminalAttach/get`, not `surface/padi/terminalAttach/get`.
+ *  `padiSurface` IS that entry surface (`padiEntrySurface`), and a standalone
+ *  surface's `tagPrefix` is the bare `surface/` — so minting from it IS minting
+ *  the stripped form, with no stripping step of its own to get wrong.
+ *  `fleetHosts.test.ts` keys the per-host mirror by the same expression, which
+ *  is the same fact said from the serving side. A stream's verb is the
+ *  framework's own `get`. */
+export const TERMINAL_ATTACH_TAG = surfaceTag(
+  padiSurface.tagPrefix,
+  ATTACH_MEMBER,
+  "get",
+);
+
+/** The entry-member tag a deliberate grid publish arrives under, envelope
+ *  likewise already stripped. `lifecycle` is a PROCEDURE namespace, so the
+ *  member segment is the namespace and the verb is the procedure's own name —
+ *  the same `<prefix><member>/<verb>` algebra `surfaceTag` mints the attach
+ *  stream's at. */
+export const LIFECYCLE_RESIZE_TAG = surfaceTag(
+  padiSurface.tagPrefix,
+  LIFECYCLE_MEMBER,
+  RESIZE_VERB,
+);
 
 /** How many terminals' grids one host's wrapper remembers. A host shows tens of
  *  tiles at once but MINTS terminal ids forever — every create, every restore —
@@ -98,11 +157,16 @@ const MAX_TRACKED_TERMINALS = 512;
 /** Attaches opening within this long of the previous one on the same host are
  *  one burst. A switch to a 20-tile host opens its attaches over ~100 ms, and
  *  a tile that re-measures reopens 300 ms later (`REATTACH_BACKOFF_MS`), so a
- *  gap this wide keeps a whole switch — second rounds included — in one line. */
+ *  gap this wide keeps a whole switch — second rounds included — in one line.
+ *  The ENDS are grouped by the same number for the same reason: a switch tears
+ *  the old host's tiles down over the same handful of milliseconds it opens
+ *  the new host's with. */
 export const ATTACH_BURST_QUIET_MS = 1500;
 
 /** The longest a burst waits for its last first-frame before reporting anyway.
- *  Past this the line reports what came and how many attaches never answered. */
+ *  Past this the line reports what came and how many attaches never answered.
+ *  The ends group holds to the same cap, so a teardown that trickles forever
+ *  still reports what it has. */
 export const ATTACH_BURST_CAP_MS = 30_000;
 
 export interface AttachTelemetryOptions {
@@ -126,8 +190,11 @@ interface Grid {
  *  of one wire event — a `terminalAttach` subscribe carrying `resizeTo` — told
  *  apart by the attach input's `cause` key; `publish` is a `lifecycle.resize`
  *  call, a pane publishing its grid on purpose rather than as a side effect of
- *  being looked at. */
-type ResizeCause = "attach" | "foreign" | "publish";
+ *  being looked at. Spelled as a LIST so the summing a line does can walk the
+ *  causes rather than name three of them and quietly miss a fourth. */
+const RESIZE_CAUSES = ["attach", "foreign", "publish"] as const;
+
+type ResizeCause = (typeof RESIZE_CAUSES)[number];
 
 type ResizeTally = { [C in ResizeCause]: number };
 
@@ -173,6 +240,37 @@ interface Burst {
   quietTimer: ReturnType<typeof setTimeout> | undefined;
   capTimer: ReturnType<typeof setTimeout>;
 }
+
+/** Attachments that ENDED within `quietMs` of each other, folded the way
+ *  {@link Burst} folds opens. No `quiet` flag and no "has everyone answered"
+ *  question: an end is already an answer, so the group closes on quiet alone —
+ *  the same two timers, one condition fewer. */
+interface EndGroup {
+  startedAt: number;
+  lastEndedAt: number;
+  ended: AttachRecord[];
+  quietTimer: ReturnType<typeof setTimeout> | undefined;
+  capTimer: ReturnType<typeof setTimeout>;
+}
+
+/** A `setTimeout` that never holds the process open. Both groupings arm their
+ *  timers through it because both of them arm at exactly the wrong moment: the
+ *  ends group's timers start when attachments are tearing down, which is what a
+ *  shutdown looks like, and a telemetry line is not worth keeping a dying
+ *  kolu-server alive for a second and a half (or, at the cap, thirty). The
+ *  timer still fires normally in a process that goes on living, which is every
+ *  host switch. `unref` is a Node/Bun timer's; a clock whose handle lacks it
+ *  (a test's fake) is not holding anything open anyway. */
+const idleTimeout = (
+  fn: () => void,
+  ms: number,
+): ReturnType<typeof setTimeout> => {
+  const timer = setTimeout(fn, ms) as ReturnType<typeof setTimeout> & {
+    unref?: () => void;
+  };
+  timer.unref?.();
+  return timer;
+};
 
 const answered = (a: AttachRecord): boolean =>
   a.firstFrameAt !== undefined || a.endedAt !== undefined;
@@ -246,6 +344,7 @@ export function withAttachTelemetry(
   const quietMs = opts.quietMs ?? ATTACH_BURST_QUIET_MS;
   const capMs = opts.capMs ?? ATTACH_BURST_CAP_MS;
   let burst: Burst | undefined;
+  let ends: EndGroup | undefined;
   /** Per-terminal last-asked grid and resize counters, bounded by
    *  {@link MAX_TRACKED_TERMINALS}. */
   const terminals = new Map<string, TerminalResizes>();
@@ -357,10 +456,88 @@ export function withAttachTelemetry(
 
   const armQuiet = (b: Burst): void => {
     if (b.quietTimer !== undefined) clearTimeout(b.quietTimer);
-    b.quietTimer = setTimeout(() => {
+    b.quietTimer = idleTimeout(() => {
       b.quietTimer = undefined;
       b.quiet = true;
       maybeClose();
+    }, quietMs);
+  };
+
+  /** The resize tally a group of ends reports: the terminals' own cumulative
+   *  counts, summed over DISTINCT terminal RECORDS. Deduplicating by record
+   *  identity rather than by id is what makes the group line the sum of the
+   *  per-attachment lines with the duplicates taken out — three attachments to
+   *  one terminal share ONE tally (they hold it by reference), so adding each
+   *  attachment's copy would count that terminal's resizes three times, while
+   *  an id that was evicted and seen again is honestly two records. */
+  const endedResizes = (ended: readonly AttachRecord[]): ResizeTally => {
+    const total = noTally();
+    for (const tracked of new Set(ended.map((a) => a.resizes))) {
+      for (const cause of RESIZE_CAUSES) total[cause] += tracked.tally[cause];
+    }
+    return total;
+  };
+
+  const reportEnds = (g: EndGroup, why: "quiet" | "cap"): void => {
+    const t = now();
+    opts.log.info(
+      {
+        host: opts.host,
+        ends: g.ended.length,
+        terminals: new Set(g.ended.map((a) => a.terminalId)).size,
+        /** What viewing COST — the question this line is `info` for: the
+         *  screens these attachments opened with, plus the output they
+         *  forwarded afterwards, in the same UTF-16 code units throughout. */
+        snapshotChars: g.ended.reduce((n, a) => n + a.snapshotChars, 0),
+        deltaChars: g.ended.reduce((n, a) => n + a.deltaChars, 0),
+        skipAheads: g.ended.reduce(
+          (n, a) => n + Math.max(0, a.snapshots - 1),
+          0,
+        ),
+        resizes: endedResizes(g.ended),
+        livedMs: quantiles(
+          g.ended.map((a) => (a.endedAt as number) - a.openedAt),
+        ),
+        /** How long the teardown itself took to let go of all of them — the
+         *  ends' reading of the burst line's `openedOverMs`, and what tells one
+         *  host switch from a trickle that merely never went quiet. */
+        endedOverMs: g.lastEndedAt - g.startedAt,
+        reportedAfterMs: t - g.startedAt,
+        why,
+      },
+      "terminal attach: ends",
+    );
+  };
+
+  const closeEnds = (why: "quiet" | "cap"): void => {
+    if (ends === undefined) return;
+    const g = ends;
+    ends = undefined;
+    clearTimeout(g.quietTimer);
+    clearTimeout(g.capTimer);
+    reportEnds(g, why);
+  };
+
+  /** Fold one ended attachment into the open group, opening one if this is the
+   *  first — {@link open}'s shape for the other end of an attachment's life. */
+  const noteEnd = (rec: AttachRecord): void => {
+    const t = now();
+    if (ends === undefined) {
+      ends = {
+        startedAt: t,
+        lastEndedAt: t,
+        ended: [],
+        quietTimer: undefined,
+        capTimer: idleTimeout(() => closeEnds("cap"), capMs),
+      };
+    }
+    const g = ends;
+    g.ended.push(rec);
+    g.lastEndedAt = t;
+    clearTimeout(g.quietTimer);
+    g.quietTimer = idleTimeout(() => {
+      g.quietTimer = undefined;
+      closeEnds("quiet");
     }, quietMs);
   };
 
@@ -374,7 +551,7 @@ export function withAttachTelemetry(
         resizes: noTally(),
         quiet: false,
         quietTimer: undefined,
-        capTimer: setTimeout(() => close("cap"), capMs),
+        capTimer: idleTimeout(() => close("cap"), capMs),
       };
     }
     const b = burst;
@@ -462,6 +639,7 @@ export function withAttachTelemetry(
       },
       "terminal attach: end",
     );
+    noteEnd(rec);
     maybeClose();
   };
 
