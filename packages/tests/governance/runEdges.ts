@@ -182,8 +182,8 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
   },
   {
     path: "packages/server/src/conductor/watcher.ts",
-    sites: 3,
-    why: "the Conductor's watcher: each host's standing subscription (its `urgency` cell and `terminals` collection) is a long-lived stream FORKED per leg, and every edge that re-scopes the legs is a synchronous callback that hands down no Effect — `FleetHosts.subscribe`'s `() => void` and the conductor cell's state listener — so the fork, and the two interrupts that tear a leg down, are run where those callbacks land",
+    sites: 4,
+    why: "the Conductor's watcher: each host's standing subscription (its `urgency` cell and `terminals` collection) is a long-lived stream FORKED per leg, as is each read of an UNWATCHED ANCESTOR's record — the parent-edge walk that groups the watch list into pieces of work, forked on the same leg's client — and every edge that re-scopes the legs is a synchronous callback that hands down no Effect — `FleetHosts.subscribe`'s `() => void` and the conductor cell's state listener — so the two forks, and the two interrupts that tear a leg and its ancestor reads down, are run where those callbacks land",
   },
   {
     path: "packages/server/src/index.ts",

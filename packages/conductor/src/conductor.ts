@@ -131,6 +131,7 @@ import {
   type WatchJoin,
   type WatchObservation,
   watchEntry,
+  workOf,
 } from "./watching.ts";
 
 /** What a reader of the transcript stream is handed, in order: one snapshot,
@@ -530,14 +531,20 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
   let missedEdge = false;
 
   /** The state as a READER sees it: whatever the harness last said, plus the
-   *  three fields this server authors and the two the WATCH owns. `watched`
-   *  and `held` are published from here rather than carried on the harness's
-   *  state for the reason `install` is: each fact has exactly one author, and
-   *  the conversation is not the author of kolu's watch. */
+   *  three fields this server authors and the three the WATCH owns. `watched`,
+   *  `work` and `held` are published from here rather than carried on the
+   *  harness's state for the reason `install` is: each fact has exactly one
+   *  author, and the conversation is not the author of kolu's watch.
+   *
+   *  `work` is DERIVED on every publish rather than kept beside the list
+   *  ({@link workOf}): it is a fold over the same entries, so a second copy
+   *  could only ever be the stale one — and it is what the Conductor tab
+   *  badges, which must not disagree with the panel under it. */
   const publishState = (): void => {
     state = {
       ...state,
       watched: [...watchList.keys()],
+      work: workOf(watchList.values()),
       held: heldNews.refs(),
     };
     publish(state);
@@ -1060,8 +1067,9 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
             // resumed. What the file must hold is the conversation as it stood
             // when the process let go of it.
             if (disposed) return;
-            // The harness answers for the conversation; `watched` and `held`
-            // are this module's and are folded back on by `publishState`.
+            // The harness answers for the conversation; `watched`, `work` and
+            // `held` are this module's and are folded back on by
+            // `publishState`.
             state = {
               ...state,
               ...change.state,
@@ -1421,7 +1429,15 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         } else if (read.drop) moved = true;
         else if (
           read.entry.told !== entry.told ||
-          read.entry.name !== entry.name
+          read.entry.name !== entry.name ||
+          // ... AND WHEN THE PIECE OF WORK MOVED. The first reading of a
+          // terminal is what tells kolu which group it is in, and the root's
+          // own name arrives a frame later again — neither touches `told` or
+          // this terminal's name, so without this the tab's count and the
+          // panel's headings would sit on the last reading that happened to
+          // change something else.
+          read.entry.root?.ref !== entry.root?.ref ||
+          read.entry.root?.name !== entry.root?.name
         )
           moved = true;
       }

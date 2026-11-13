@@ -525,6 +525,57 @@ Then(
   },
 );
 
+/** The badge's COLOUR, read as the fact that drives it (`data-asking`) and
+ *  never as a class name: what the tab promises is "this is the needs-you
+ *  badge", and pinning a utility class would pin the paint instead — a
+ *  rename of the token would fail here while the product was fine, and a
+ *  badge that stopped turning violet would pass. */
+Then(
+  "the conductor tab badge should be the needs-you one",
+  async function (this: KoluWorld) {
+    await waitForValue(
+      "conductor badge data-asking",
+      async () =>
+        (await this.page.locator(BADGE).getAttribute("data-asking")) ??
+        "absent",
+      "",
+    );
+  },
+);
+
+Then(
+  "the conductor tab badge should not be the needs-you one",
+  async function (this: KoluWorld) {
+    await waitForValue(
+      "conductor badge data-asking",
+      async () =>
+        (await this.page.locator(BADGE).getAttribute("data-asking")) ??
+        "absent",
+      "absent",
+    );
+  },
+);
+
+Then(
+  "the conductor tab should show a needs-you dot",
+  async function (this: KoluWorld) {
+    // Asking with nothing in flight: the badge is THERE, in the needs-you
+    // colour, and carries NO number — a `0` on a tab is a number every reader
+    // has to parse before ignoring.
+    await waitForValue(
+      "conductor badge as a dot",
+      async () => {
+        const badge = this.page.locator(BADGE);
+        if ((await badge.count()) === 0) return "absent";
+        const asking =
+          (await badge.getAttribute("data-asking")) ?? "not-asking";
+        return `${asking}|${(await badge.textContent()) ?? ""}`;
+      },
+      "|",
+    );
+  },
+);
+
 Then(
   "the conductor transcript should show a row of kind {string} saying {string}",
   async function (this: KoluWorld, kind: string, text: string) {
@@ -1398,12 +1449,46 @@ When(
   },
 );
 
+When(
+  "I ask the conductor to watch the terminal I just created",
+  async function (this: KoluWorld) {
+    // The id the CREATE answered with, not whichever tile the canvas has
+    // focused: a scenario that watches two terminals in a row is asking for
+    // two particular ones, and the focus is a different fact.
+    const id = this.createdTerminalIds.at(-1);
+    assert.ok(id, "no terminal was created in this scenario");
+    this.watchedTerminalId = id;
+    await enterConductor(this);
+    await sendPrompt(this, `watch ${id}`);
+  },
+);
+
 Then(
   "the conductor status should say it is watching {int}",
   async function (this: KoluWorld, count: number) {
+    // The line says two numbers now — pieces of work and terminals — so the
+    // count is read off the button's own data rather than the first digit in
+    // its sentence.
     await waitForValue(
-      "the status line's watching count",
-      () => countIn(this, `${STATUS} ${WATCHING}`),
+      "the status line's watched terminal count",
+      async () =>
+        (await this.page
+          .locator(`${STATUS} ${WATCHING}`)
+          .getAttribute("data-terminals")) ?? "absent",
+      String(count),
+    );
+  },
+);
+
+Then(
+  "the conductor status should say {int} piece(s) of work",
+  async function (this: KoluWorld, count: number) {
+    await waitForValue(
+      "the status line's pieces of work",
+      async () =>
+        (await this.page
+          .locator(`${STATUS} ${WATCHING}`)
+          .getAttribute("data-work")) ?? "absent",
       String(count),
     );
   },

@@ -97,10 +97,22 @@ describe("the status line", () => {
     expect(at("conductor-status-detail")).toBeUndefined();
   });
 
-  it("counts what it watches, and opens the list on a press", () => {
-    const at = mount({ watched: ["local/a", "local/b"] });
+  it("says how many pieces of work are in flight and how many terminals that is, and opens the list on a press", () => {
+    const at = mount({
+      watched: ["local/a", "local/b", "local/c"],
+      work: [
+        { root: "local/a", name: "fix-parser", refs: ["local/a", "local/b"] },
+        { root: "local/c", name: "docs-pass", refs: ["local/c"] },
+      ],
+    });
     const button = at("conductor-watching");
-    expect(button?.textContent).toContain("2");
+    // The words a person reads, and the same two numbers as data for anything
+    // that should not have to parse English.
+    expect(button?.textContent?.replace(/\s+/g, " ")).toBe(
+      "2 pieces of work · 3 terminals",
+    );
+    expect(button?.dataset.work).toBe("2");
+    expect(button?.dataset.terminals).toBe("3");
     expect(at("conductor-watched-panel")).toBeUndefined();
 
     button?.click();
@@ -109,6 +121,16 @@ describe("the status line", () => {
 
     button?.click();
     expect(at("conductor-watched-panel")).toBeUndefined();
+  });
+
+  it("says one piece of work and one terminal in the singular", () => {
+    const at = mount({
+      watched: ["local/a"],
+      work: [{ root: "local/a", name: "fix-parser", refs: ["local/a"] }],
+    });
+    expect(at("conductor-watching")?.textContent?.replace(/\s+/g, " ")).toBe(
+      "1 piece of work · 1 terminal",
+    );
   });
 
   it("says how many events are waiting, and nothing at all at zero", () => {

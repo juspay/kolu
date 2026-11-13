@@ -31,7 +31,8 @@ turn; kolu-server watches, and starts a turn when something happens.
   the name kolu last saw, whether an agent was ever seen in it, the level the
   conversation has already been TOLD about, HOW it came to be watched
   (`created` · `created-run` · `asked`), whether anything has been said to the
-  agent in it, and whether a command was ever seen running in it. Spelled
+  agent in it, whether a command was ever seen running in it, and the
+  top-level terminal its `child-of` edges end at — its PIECE OF WORK. Spelled
   `watchTerminal`, not `watch`, because `watch` on this host is the transcript
   subscription and has been since there was a transcript.
 - **The decision** (`./watching.ts`, pure) — one reading of one terminal
@@ -76,6 +77,15 @@ turn; kolu-server watches, and starts a turn when something happens.
   waiting and why, the news put back, and an event-driven retry with no timer:
   the next time the conversation goes idle, the next time the agent comes up,
   or the next reading from the watcher. One notice per failure episode.
+- **The pieces of work** (`workOf`, pure) — the list grouped by the top-level
+  terminal each entry's parent edges end at, published on the cell as `work`
+  (`root` · `name` · the watched `refs` in it, in watch order). A planner and
+  the implementor it split off are ONE: the canvas already says so, and a
+  count derived from the edges cannot drift from what is really running the
+  way a declared one would. The edge is read by kolu-server's watcher — a
+  browser can walk the parents only of the host it has open — and REMEMBERED
+  on the entry, so a host that stops answering keeps the group it was last
+  seen in. A terminal nothing has read yet is its own group.
 
 A wake MAY start the agent (that is the feature); reading the list may not
 (`watched()` is bookkeeping). The readings themselves come from kolu-server's

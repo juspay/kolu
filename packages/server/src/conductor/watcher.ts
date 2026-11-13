@@ -10,7 +10,7 @@
  * watched terminal's agent comes up, stops, asks, sleeps or goes away it
  * starts a Conductor turn itself ({@link ConductorHost.observe}).
  *
- * ## What it subscribes, and why those two
+ * ## What it subscribes, and why those three
  *
  * Per host that holds at least one watched terminal, over that host's padi:
  *
@@ -21,10 +21,20 @@
  *    second one here that can disagree with the dock.
  *  - **`terminals`** — the keys (which terminals that host still has, which is
  *    what makes `gone` decidable) and the RECORD of each watched id: its name,
- *    the agent detected in it, whether it is active or asleep, and whether the
- *    FOREGROUND is the terminal's own shell. The last is reported, never
- *    concluded from: "the command kolu typed has ended" is two readings of it
- *    and belongs with the rest of the rules (`kolu-conductor`'s `watching.ts`).
+ *    the agent detected in it, whether it is active or asleep, whether the
+ *    FOREGROUND is the terminal's own shell, and the PARENT it hangs off. The
+ *    foreground is reported, never concluded from: "the command kolu typed has
+ *    ended" is two readings of it and belongs with the rest of the rules
+ *    (`kolu-conductor`'s `watching.ts`).
+ *  - **the record of each ANCESTOR** those parent edges lead to, discovered as
+ *    the records arrive and read on the same leg. The watch list never named
+ *    them and nothing about them ever rings — what they carry is WHICH PIECE
+ *    OF WORK a watched terminal is part of (a planner and the implementor it
+ *    split off are one thing going on) and what to call it. Read HERE because
+ *    this is the one place that holds every watched terminal's host: a browser
+ *    can walk the parent edges only of the host it has open, and a host that
+ *    is away has none to walk — so the grouping is derived once, on the
+ *    readings, and remembered on the watch list's entries.
  *
  * Nothing else: a screen is read by the Conductor when it decides to look, and
  * a wake carries how something STANDS rather than what it printed. padi has no
@@ -63,7 +73,7 @@ import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
 import { Effect, Fiber, Stream } from "effect";
 import type { ConductorHost, WatchObservation } from "kolu-conductor";
 import type { FleetHosts } from "kolu-mcp";
-import { splitFleetTerminalRef } from "kolu-mcp/fleetRef";
+import { fleetTerminalRef, splitFleetTerminalRef } from "kolu-mcp/fleetRef";
 
 /** How long a leg whose stream died on its own waits before re-opening.
  *
@@ -103,12 +113,89 @@ interface Leg {
   /** Which terminals that host still has. `null` until the first frame: `gone`
    *  is only decidable against a roster that has actually been read. */
   roster: ReadonlySet<string> | null;
-  /** The record of each watched id, for its name and the agent in it. */
+  /** The record of each watched id, for its name, the agent in it and the
+   *  PARENT it hangs off — and the record of each ANCESTOR those parent edges
+   *  lead to, which is how a split's piece of work gets its heading. */
   readonly records: Map<string, PadiTerminal>;
+  /** The ancestor records this leg also reads, id to the fiber reading it —
+   *  `null` for the beat between claiming the id and forking.
+   *
+   *  Kept APART from {@link Leg.ids}, which is the watch list's own set and
+   *  the thing a re-scope compares: an ancestor is discovered from a record
+   *  that has already arrived, so folding it into `ids` would re-open the
+   *  whole leg once per generation of the family tree. They are torn down
+   *  with the leg, and a re-opened leg discovers them again from its own
+   *  first frames. */
+  readonly ancestors: Map<string, Fiber.Fiber<void, unknown> | null>;
   /** A re-open already scheduled, so a fiber that exits twice does not queue
    *  two of them. */
   reopening: boolean;
 }
+
+/** WHAT A TERMINAL IS CALLED, off its padi record: the name a person gave it,
+ *  else the branch it is on, else nothing.
+ *
+ *  One rule, two callers — the watched terminal's own reading and the heading
+ *  of the piece of work it belongs to ({@link walkRoot}) — because a group
+ *  whose header named a terminal differently from the row under it would be
+ *  two spellings of one fact. A dormant record has no live arm to ask, and
+ *  "nothing known" is reported as EMPTY rather than invented: the conversation
+ *  keeps whatever its entry already remembered. */
+export const recordName = (record: PadiTerminal | undefined): string => {
+  const live = record?.state === "active" ? record : undefined;
+  const branch = live?.git.kind === "repo" ? live.git.info.branch : "";
+  return live?.intent ?? branch;
+};
+
+/** The answer {@link walkRoot} gives: the top-level terminal, and the one
+ *  ancestor id whose record would be needed to walk any further. */
+export interface RootWalk {
+  readonly root: { readonly ref: string; readonly name: string };
+  /** An ancestor this host has not been asked about yet — the next record to
+   *  subscribe — or `null` when the chain is fully read. Never the walked
+   *  terminal itself: that one is already on the leg. */
+  readonly missing: string | null;
+}
+
+/**
+ * WHICH PIECE OF WORK A TERMINAL IS IN — its `child-of` edges followed to the
+ * top-level terminal they end at.
+ *
+ * Pure, and over the records this leg has already read, so it is the same walk
+ * whether it runs on a frame or in a test. A terminal with no parent is its
+ * own root; a chain that runs into a record nobody has read yet stops THERE
+ * and names it, which is the furthest honest answer — a split whose parent is
+ * known but whose grandparent is not is still not a piece of work of its own.
+ *
+ * The cycle guard is a belt: padi refuses a parent edge that would close a
+ * loop when it is written (`packages/padi/src/terminals.ts`), so this can only
+ * fire on a record that got onto a disk some other way — and a watcher that
+ * span forever on one would take the Conductor's whole watch with it.
+ */
+export const walkRoot = (
+  host: string,
+  id: string,
+  records: ReadonlyMap<string, PadiTerminal>,
+): RootWalk => {
+  let at = id;
+  const seen = new Set<string>([id]);
+  for (;;) {
+    const record = records.get(at);
+    if (record === undefined)
+      return {
+        root: { ref: fleetTerminalRef(host, at), name: "" },
+        missing: at === id ? null : at,
+      };
+    const parent = record.parentId;
+    if (parent === undefined || seen.has(parent))
+      return {
+        root: { ref: fleetTerminalRef(host, at), name: recordName(record) },
+        missing: null,
+      };
+    seen.add(parent);
+    at = parent;
+  }
+};
 
 export function startConductorWatcher(deps: {
   readonly hosts: FleetHosts;
@@ -165,7 +252,6 @@ export function startConductorWatcher(deps: {
     for (const { ref, id } of watched) {
       const record = leg.records.get(id);
       const live = record?.state === "active" ? record : undefined;
-      const branch = live?.git.kind === "repo" ? live.git.info.branch : "";
       const base = {
         ref,
         host,
@@ -174,8 +260,13 @@ export function startConductorWatcher(deps: {
         // The name a person gave it, else the branch it is on. Nothing is
         // invented: a terminal with neither keeps whatever the entry already
         // remembered ({@link WatchEntry.name}).
-        name: live?.intent ?? branch,
+        name: recordName(record),
         agent: live?.agent?.kind ?? null,
+        // THE PIECE OF WORK IT IS PART OF, walked here because this is the one
+        // place that reads every watched terminal's record on every host — a
+        // browser has the parent edges only of the host it has open, and the
+        // Conductor watches terminals on machines nobody is looking at.
+        root: walkRoot(host, id, leg.records).root,
         // PADI'S OWN ANSWER about what is in front of the prompt — `shell:
         // true` is an idle prompt with nothing running on it. `null` for a
         // reading with no live arm to ask (a sleeping terminal has released
@@ -225,6 +316,64 @@ export function startConductorWatcher(deps: {
     return seen;
   };
 
+  /** Read one ANCESTOR's record on this leg — a terminal the watch list never
+   *  named, subscribed because a watched terminal hangs off it.
+   *
+   *  Its frames move no levels and ring nothing: what they carry is the
+   *  heading of a piece of work, so they land in the same records map and
+   *  re-report. A `gone` is never concluded from one either — an ancestor is
+   *  not on the list, and the terminals that ARE have their own roster test.
+   *
+   *  Claimed on the map BEFORE the fork, because the first frame can arrive
+   *  inside `runFork` and walk straight back in here through {@link report}. */
+  const openAncestor = (host: string, leg: Leg, id: string): void => {
+    if (leg.ancestors.has(id) || leg.ids.includes(id)) return;
+    leg.ancestors.set(id, null);
+    const pump = Stream.runForEach(
+      Stream.map(leg.padi.surface.terminals.get({ key: id }), (record) => {
+        leg.records.set(id, record);
+      }),
+      () =>
+        Effect.sync(() => {
+          report(host, leg);
+        }),
+    );
+    leg.ancestors.set(
+      id,
+      Effect.runFork(
+        Effect.onExit(pump, (exit) =>
+          Effect.sync(() => {
+            if (exit._tag !== "Failure") return;
+            // NOT RE-OPENED on its own clock. An ancestor read that dies
+            // alone leaves the group's heading at the last name it had, which
+            // is a stale word on a panel; the leg it rides re-opens for every
+            // reason that matters (the host dropped, the link died) and
+            // discovers the family again from its own first frames.
+            log.warn(
+              { err: exit.cause, host, terminal: id },
+              "kolu-server: the conductor's watch over a parent terminal stopped",
+            );
+          }),
+        ),
+      ),
+    );
+  };
+
+  /** Subscribe whatever this host has not been asked about yet in the parent
+   *  chains of the terminals being watched on it. One generation per pass:
+   *  the record that answers the question is also the record that asks the
+   *  next one, and it arrives on a frame that runs this again. */
+  const discover = (
+    host: string,
+    leg: Leg,
+    watched: ReadonlyArray<{ ref: string; id: string }>,
+  ): void => {
+    for (const { id } of watched) {
+      const missing = walkRoot(host, id, leg.records).missing;
+      if (missing !== null) openAncestor(host, leg, missing);
+    }
+  };
+
   /** One host's frames, folded and handed over. Called on EVERY frame of
    *  either subscription: each one is a reading of the whole host, and the
    *  conversation's own rules decide what is news (`kolu-conductor`'s
@@ -233,6 +382,11 @@ export function startConductorWatcher(deps: {
     if (disposed) return;
     const watched = byHost().get(host) ?? [];
     if (watched.length === 0) return;
+    // Before the readings, because a reading carries the piece of work this
+    // terminal is in and the parent that decides it may not have been read
+    // yet. Nothing waits on it: this frame reports the furthest root it can
+    // name, and the record that arrives from here re-reports with the rest.
+    discover(host, leg, watched);
     const seen = readingsOf(host, leg, watched);
     if (seen.length === 0) return;
     conductor().observe(seen);
@@ -281,6 +435,7 @@ export function startConductorWatcher(deps: {
       urgency: null,
       roster: null,
       records: new Map(),
+      ancestors: new Map(),
       reopening: false,
     };
     const pump = Stream.runForEach(legStream(padi, ids, leg), () =>
@@ -331,19 +486,22 @@ export function startConductorWatcher(deps: {
    *  nothing synchronous can observe — the interrupt then has nothing to reach
    *  and the leg is already off the map, so the stream's own exit arm drops it. */
   const close = (leg: Leg): void => {
-    const fiber = leg.fiber;
-    if (fiber === null) return;
-    void Effect.runPromise(Fiber.interrupt(fiber)).catch((err: unknown) => {
-      // An interrupt that itself fails has nothing left to tear down — the
-      // fiber is finished either way, and the leg is already off the map — but
-      // it is still something that went wrong inside a teardown, and a caught
-      // error nobody can see is the one thing this repo does not allow. There
-      // is no caller to throw at: a re-scope runs off a host-map callback.
-      log.warn(
-        { err },
-        "kolu-server: the conductor's watch over a host did not close cleanly",
-      );
-    });
+    // The ancestor reads go with it: they are this leg's subscriptions over
+    // this leg's client, and a re-open discovers the family again.
+    for (const fiber of [leg.fiber, ...leg.ancestors.values()]) {
+      if (fiber === null) continue;
+      void Effect.runPromise(Fiber.interrupt(fiber)).catch((err: unknown) => {
+        // An interrupt that itself fails has nothing left to tear down — the
+        // fiber is finished either way, and the leg is already off the map — but
+        // it is still something that went wrong inside a teardown, and a caught
+        // error nobody can see is the one thing this repo does not allow. There
+        // is no caller to throw at: a re-scope runs off a host-map callback.
+        log.warn(
+          { err },
+          "kolu-server: the conductor's watch over a host did not close cleanly",
+        );
+      });
+    }
   };
 
   /** Bring the legs in line with the watch list and the fleet: leg every host
@@ -409,18 +567,20 @@ export function startConductorWatcher(deps: {
       // place a teardown that did not go cleanly can be read afterwards.
       await Promise.all(
         running.flatMap((leg) =>
-          leg.fiber === null
-            ? []
-            : [
-                Effect.runPromise(Fiber.interrupt(leg.fiber)).catch(
-                  (err: unknown) => {
-                    log.warn(
-                      { err },
-                      "kolu-server: the conductor's watch did not shut down cleanly",
-                    );
-                  },
-                ),
-              ],
+          [leg.fiber, ...leg.ancestors.values()].flatMap((fiber) =>
+            fiber === null
+              ? []
+              : [
+                  Effect.runPromise(Fiber.interrupt(fiber)).catch(
+                    (err: unknown) => {
+                      log.warn(
+                        { err },
+                        "kolu-server: the conductor's watch did not shut down cleanly",
+                      );
+                    },
+                  ),
+                ],
+          ),
         ),
       );
     },

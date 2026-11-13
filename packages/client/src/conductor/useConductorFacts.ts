@@ -18,7 +18,7 @@ import {
   DEFAULT_CONDUCTOR_STATE,
   type ConductorState,
 } from "kolu-common/conductor";
-import type { Accessor } from "solid-js";
+import { type Accessor, createMemo } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { app } from "../wire";
 
@@ -49,3 +49,34 @@ export function conductorState(): ConductorState {
 export function conductorAsksTotal(): number {
   return conductorState().openAsks.length;
 }
+
+/** THE TAB'S ONE BADGE, derived once for every place that wears it — the
+ *  desktop tab and the phone's Conductor entry.
+ *
+ *  Two facts go in and ONE mark comes out. `pieces` is how many pieces of
+ *  work are in flight: the watched terminals GROUPED by the top-level
+ *  terminal their `child-of` edges end at, which kolu-server derives from the
+ *  watch list's own readings and publishes as `work` — so a planner and the
+ *  implementor split under it count once, and a host this browser has never
+ *  opened still has its group (the browser cannot walk a parent edge on a
+ *  machine it is not connected to; the server already reads every watched
+ *  terminal's record on every host). `asking` is whether the conversation is
+ *  blocked on an answer from you.
+ *
+ *  The count is what the badge SAYS and the ask is what COLOURS it. There is
+ *  no second number: two counters on one tab is a sum every reader has to do
+ *  before they know whether to look.
+ *
+ *  Both are memos over PRIMITIVES, so the tab wakes when one of those two
+ *  moves and not when a row lands, a model changes or a terminal on some host
+ *  ticks — a tab in the chrome bar must not re-render the strip because an
+ *  unrelated terminal breathed. */
+export const useConductorBadge = createSharedRoot(() => {
+  const facts = useConductorFacts();
+  return {
+    /** The pieces of work in flight. */
+    pieces: createMemo(() => facts().work.length),
+    /** Whether the conversation is waiting on a human answer. */
+    asking: createMemo(() => facts().openAsks.length > 0),
+  };
+});

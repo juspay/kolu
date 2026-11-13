@@ -53,6 +53,7 @@ export { parseTeaching, teachingLines } from "./teaching.ts";
 export { conductorTranscriptSource } from "./transcriptStream.ts";
 export { wakeText } from "./wakeText.ts";
 export {
+  type ConductorWork,
   type LastReading,
   observed,
   restoredEntry,
@@ -63,5 +64,7 @@ export {
   type WatchJoin,
   type WatchLevel,
   type WatchObservation,
+  type WatchRoot,
   watchEntry,
+  workOf,
 } from "./watching.ts";

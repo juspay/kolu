@@ -315,7 +315,7 @@ Feature: The Conductor
     And I enter conductor mode
     And I send the conductor the prompt "ask me something"
     Then the conductor should be asking
-    And the conductor tab should show a badge of 1
+    And the conductor tab should show a needs-you dot
     When I answer the conductor's question with "30"
     Then the conductor should not be asking
     And the conductor tab should show no badge
@@ -324,15 +324,16 @@ Feature: The Conductor
 
   Scenario: An unanswered question is a needs-you source from the tab row
     # Leave the conversation and its pane is gone — the chrome-bar entry is the
-    # whole of its presence on a host tab, so the badge has to count the asks
-    # without the pane mounted to count them from.
+    # whole of its presence on a host tab, so the ask has to show on the tab
+    # without the pane mounted to show it from. Nothing is being watched here,
+    # so the badge is the violet DOT rather than a count.
     When I create a terminal
     And I enter conductor mode
     And I send the conductor the prompt "ask me something"
     Then the conductor should be asking
     When I press Escape
     Then the conductor pane should not be visible
-    And the conductor tab should show a badge of 1
+    And the conductor tab should show a needs-you dot
     And there should be no page errors
 
   Scenario: A pasted image rides the message as an attachment

@@ -12,16 +12,20 @@
  * every host-switcher list — four lies, each one a place for the two models to
  * disagree.
  *
- * What it IS: a tab, current or not, carrying the violet count of questions
- * the conversation is blocked on.
+ * What it IS: a tab, current or not, carrying ONE badge — how many pieces of
+ * work the conversation has in flight, violet while it is asking you
+ * something.
  */
 
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const asks = vi.hoisted(() => ({ open: 0 }));
+const cell = vi.hoisted(() => ({ pieces: 0, asking: false }));
 vi.mock("./useConductorFacts", () => ({
-  conductorAsksTotal: () => asks.open,
+  useConductorBadge: () => ({
+    pieces: () => cell.pieces,
+    asking: () => cell.asking,
+  }),
 }));
 
 import ConductorTab from "./ConductorTab";
@@ -31,7 +35,8 @@ let dispose: (() => void) | undefined;
 let root: HTMLElement | undefined;
 
 beforeEach(() => {
-  asks.open = 0;
+  cell.pieces = 0;
+  cell.asking = false;
   exitConductorMode();
 });
 
@@ -49,6 +54,16 @@ function mount(): HTMLElement {
   dispose = render(() => <ConductorTab />, root);
   return root;
 }
+
+/** Take the tab down so the next `mount()` reads the cell's new values —
+ *  the badge's facts are module-level in these tests, not props. */
+function remount(): void {
+  dispose?.();
+  root?.remove();
+}
+
+const badgeOf = (el: HTMLElement): HTMLElement | null =>
+  el.querySelector<HTMLElement>('[data-testid="conductor-badge"]');
 
 const entryOf = (el: HTMLElement): HTMLElement => {
   const entry = el.querySelector<HTMLElement>('[data-testid="conductor-tab"]');
@@ -92,16 +107,32 @@ describe("the conductor's tab", () => {
     expect(conductorMode()).toBe(true);
   });
 
-  it("wears the needs-you count, and ABSENT at zero", () => {
+  it("counts the pieces of work, and is ABSENT at zero", () => {
     const el = mount();
     expect(el.querySelector('[data-testid="conductor-badge"]')).toBeNull();
-    dispose?.();
-    root?.remove();
-    asks.open = 3;
-    const withAsks = mount();
-    expect(
-      withAsks.querySelector('[data-testid="conductor-badge"]')?.textContent,
-    ).toBe("3");
+    remount();
+    cell.pieces = 2;
+    expect(badgeOf(mount())?.textContent).toBe("2");
+  });
+
+  it("turns the needs-you colour while the conversation asks, keeping the one count", () => {
+    cell.pieces = 2;
+    cell.asking = true;
+    const badge = badgeOf(mount());
+    // The ask is a DATA fact on the badge, not a class name: what the reader
+    // is promised is "this badge is the needs-you one", and a utility class
+    // would pin the paint instead.
+    expect(badge?.dataset.asking).toBe("");
+    // ONE number. The work count is what it says; the ask only colours it.
+    expect(badge?.textContent).toBe("2");
+  });
+
+  it("shows a dot — no number — when it asks with nothing in flight", () => {
+    cell.asking = true;
+    const badge = badgeOf(mount());
+    expect(badge).not.toBeNull();
+    expect(badge?.dataset.asking).toBe("");
+    expect(badge?.textContent).toBe("");
   });
 
   it("never writes a host key — the selection is its own value", () => {

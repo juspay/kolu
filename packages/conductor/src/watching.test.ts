@@ -17,7 +17,9 @@ import {
   type WatchEntry,
   type WatchJoin,
   type WatchLevel,
+  type WatchRoot,
   watchEntry,
+  workOf,
 } from "./watching.ts";
 
 const REF = "local/11111111-1111-4111-8111-111111111111";
@@ -30,6 +32,10 @@ const seeing = (
     name?: string;
     agent?: string | null;
     foregroundShell?: boolean | null;
+    /** The piece of work it is in, as the watcher walked the parent edges on
+     *  its host — the terminal ITSELF unless the reading says it is a split
+     *  of something else. */
+    root?: WatchRoot;
   } = {},
 ) => ({
   ref,
@@ -40,6 +46,7 @@ const seeing = (
   agent: over.agent === undefined ? "claude-code" : over.agent,
   level,
   foregroundShell: over.foregroundShell ?? null,
+  root: over.root ?? { ref, name: over.name ?? "fix the parser" },
 });
 
 describe("the held news", () => {
@@ -270,6 +277,7 @@ describe("what is worth waking the Conductor about", () => {
       joined: "created",
       spoken: true,
       ran: false,
+      root: null,
     });
     expect(observed(restored, seeing(REF, "asking")).ring).toBeNull();
     // ... and a terminal that moved on while kolu was down still rings.
@@ -287,6 +295,7 @@ describe("what is worth waking the Conductor about", () => {
       joined: "asked",
       spoken: true,
       ran: false,
+      root: null,
     });
     expect(observed(restored, seeing(REF, "stopped")).ring).toBe("stopped");
   });
@@ -300,6 +309,7 @@ describe("what is worth waking the Conductor about", () => {
       joined: "created",
       spoken: false,
       ran: true,
+      root: null,
     });
     expect(observed(restored, seeing(REF, "stopped")).ring).toBe("ready");
   });
@@ -344,5 +354,110 @@ describe("the account the agent is handed", () => {
     // No agent was ever in it, so none is named.
     expect(ended).toContain("no agent in it");
     expect(ended).not.toContain("running ");
+  });
+});
+
+describe("the pieces of work the watch list adds up to", () => {
+  /** A third ref on the first host — the implementor split a planner opened,
+   *  which is the whole case: two terminals, one piece of work. */
+  const SPLIT = "local/33333333-3333-4333-8333-333333333333";
+  /** ... and the terminal nobody watches that two watched ones hang off. */
+  const PARENT = "local/44444444-4444-4444-8444-444444444444";
+
+  /** One entry, as it stands after a reading. Built through the real
+   *  `observed` rather than assembled by hand: what is under test is the
+   *  grouping of entries the watch actually produces. */
+  const read = (
+    ref: string,
+    over: { name?: string; root?: WatchRoot } = {},
+  ): WatchEntry =>
+    observed(watchEntry(ref, "created"), seeing(ref, "working", over)).entry;
+
+  it("counts a planner and the implementor it split off as ONE", () => {
+    const planner = read(REF, { name: "plan the cutover" });
+    const split = read(SPLIT, {
+      name: "write the migration",
+      root: { ref: REF, name: "plan the cutover" },
+    });
+    expect(workOf([planner, split])).toEqual([
+      {
+        root: REF,
+        name: "plan the cutover",
+        refs: [REF, SPLIT],
+      },
+    ]);
+  });
+
+  it("counts two unrelated terminals as TWO, in the order they were added", () => {
+    const first = read(REF, { name: "plan the cutover" });
+    const second = read(OTHER, { name: "fix the flake" });
+    expect(workOf([first, second])).toEqual([
+      { root: REF, name: "plan the cutover", refs: [REF] },
+      { root: OTHER, name: "fix the flake", refs: [OTHER] },
+    ]);
+  });
+
+  it("heads a group by a parent NOBODY WATCHES, because that is the work", () => {
+    // The human asked the Conductor to watch two splits of a terminal they
+    // opened themselves. The parent is on no list and never rings — but it is
+    // what makes these two one piece of work, and what a person calls it.
+    const one = read(REF, {
+      name: "write the migration",
+      root: { ref: PARENT, name: "the cutover" },
+    });
+    const two = read(SPLIT, {
+      name: "review the migration",
+      root: { ref: PARENT, name: "the cutover" },
+    });
+    expect(workOf([one, two])).toEqual([
+      { root: PARENT, name: "the cutover", refs: [REF, SPLIT] },
+    ]);
+  });
+
+  it("keeps the group of a terminal whose host has gone AWAY", () => {
+    // The host answered once, and then stopped. A host that is not answering
+    // produces no readings at all — so the entry is the only thing left that
+    // knows which piece of work this terminal is part of, and the panel must
+    // not break it out on its own while the machine is down.
+    const planner = read(REF, { name: "plan the cutover" });
+    const split = read(SPLIT, {
+      name: "write the migration",
+      root: { ref: REF, name: "plan the cutover" },
+    });
+    // Nothing further is observed about either: whatever the watcher last
+    // read is what the entries carry.
+    expect(workOf([planner, split])).toEqual([
+      { root: REF, name: "plan the cutover", refs: [REF, SPLIT] },
+    ]);
+  });
+
+  it("makes a terminal NOBODY HAS READ YET its own piece of work", () => {
+    // Just watched, nothing has looked at its host. It is one thing going on
+    // under its own name, and the first reading either leaves it there or
+    // folds it into the piece of work it belongs to.
+    const fresh = watchEntry(REF, "asked");
+    expect(workOf([fresh])).toEqual([{ root: REF, name: "", refs: [REF] }]);
+    const named: WatchEntry = { ...fresh, name: "fix the parser" };
+    expect(workOf([named])).toEqual([
+      { root: REF, name: "fix the parser", refs: [REF] },
+    ]);
+  });
+
+  it("takes the heading from whichever member of a group has one", () => {
+    // The split was read before its parent's record had arrived, so its root
+    // is named but nameless; the planner's own reading knows what it is
+    // called. An empty heading over a group whose root IS named is the drift
+    // this guards.
+    const split = read(SPLIT, {
+      name: "write the migration",
+      root: { ref: PARENT, name: "" },
+    });
+    const other = read(REF, {
+      name: "review the migration",
+      root: { ref: PARENT, name: "the cutover" },
+    });
+    expect(workOf([split, other])).toEqual([
+      { root: PARENT, name: "the cutover", refs: [SPLIT, REF] },
+    ]);
   });
 });

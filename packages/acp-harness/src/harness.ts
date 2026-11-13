@@ -249,17 +249,18 @@ export interface HarnessOptions {
 }
 
 /** WHAT A HARNESS CAN ANSWER FOR: padi's whole conductor state minus the
- *  five facts it would only be echoing back. `install` and `agentName` are
+ *  six facts it would only be echoing back. `install` and `agentName` are
  *  the ENGINE's, settled when kolu was built, and `cwd` is the directory padi
  *  handed in — a harness that published them would be overwriting the caller's
- *  own answer with a copy of it. `watched` and `held` are the SERVER's in the
- *  same way: which terminals kolu wakes this conversation about, and whose
- *  news is waiting for the turn to end, are facts about kolu's watch rather
- *  than about the conversation — this end only ever learns of them as a
+ *  own answer with a copy of it. `watched`, `work` and `held` are the
+ *  SERVER's in the same way: which terminals kolu wakes this conversation
+ *  about, how they group into pieces of work, and whose news is waiting for
+ *  the turn to end, are facts about kolu's watch rather than about the
+ *  conversation — this end only ever learns of them as a
  *  {@link Harness.wake}. */
 export type HarnessState = Omit<
   ConductorState,
-  "install" | "agentName" | "cwd" | "watched" | "held"
+  "install" | "agentName" | "cwd" | "watched" | "work" | "held"
 >;
 
 /**

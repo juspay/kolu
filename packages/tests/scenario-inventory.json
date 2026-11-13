@@ -10138,6 +10138,42 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "348ff7f5583d57957a7fd87f37ef477fa9d751c3"
+    },
+    {
+      "revisionId": "revision-6adadf28eb5d658999d7",
+      "scenarioKey": "scenario-a12ee8bac6802662f9a2",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "Two pieces of work count on the tab, and the badge says when it needs you",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d9bfc26b2461b075c446f8b5b2b241739bf3e51dc731c50170e93cde726ec093",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c2e67718c907836ee57014c1c8b4f933b0fb885a"
+    },
+    {
+      "revisionId": "revision-256383356f3dd3780c16",
+      "scenarioKey": "scenario-23806b2981ea03acc05d",
+      "feature": "features/conductor.feature",
+      "scenario": "A question the agent asks is answered from the transcript",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "90cdc4117e8f0f97aadfc980df1d96a564e00fa5c0498d7abb54e7b05d8e28b6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c2e67718c907836ee57014c1c8b4f933b0fb885a"
+    },
+    {
+      "revisionId": "revision-356b0e3c05e339d3aa43",
+      "scenarioKey": "scenario-5f4e6c9d3ed5500ec65c",
+      "feature": "features/conductor.feature",
+      "scenario": "An unanswered question is a needs-you source from the tab row",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "ad1229bbad08c156b735801d4c56c78de8a7a6190cb474794793525da37b4e61",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "c2e67718c907836ee57014c1c8b4f933b0fb885a"
     }
   ]
 }

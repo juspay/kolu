@@ -75,6 +75,28 @@ Feature: The Conductor never blocks
     Then the conductor status should say it is watching 0
     And there should be no page errors
 
+  Scenario: Two pieces of work count on the tab, and the badge says when it needs you
+    # ONE BADGE on the Conductor's tab, like an unread count. The NUMBER is
+    # how many pieces of work are in flight — a piece of work is the watched
+    # terminals that share a top-level terminal, and these two are unrelated
+    # terminals, so they are two — and the COLOUR is whether the conversation
+    # is blocked on an answer from you. Never a second count beside it.
+    When I create a terminal
+    And I ask the conductor to watch the terminal I just created
+    Then the conductor status should say it is watching 1
+    And the conductor status should say 1 piece of work
+    When I create a terminal
+    And I ask the conductor to watch the terminal I just created
+    Then the conductor status should say it is watching 2
+    And the conductor status should say 2 pieces of work
+    And the conductor tab should show a badge of 2
+    And the conductor tab badge should not be the needs-you one
+    When I send the conductor the prompt "ask me something"
+    Then the conductor should be asking
+    And the conductor tab badge should be the needs-you one
+    And the conductor tab should show a badge of 2
+    And there should be no page errors
+
   Scenario: Alt+Enter steers a message into the turn that is running
     # Enter would queue it behind the turn; Alt+Enter puts it INTO the turn.
     # The fixture says what it heard mid-turn, and the row is never queued.

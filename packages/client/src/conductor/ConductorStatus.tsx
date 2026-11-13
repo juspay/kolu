@@ -12,8 +12,10 @@
  *       The dot MOVES while it works:
  *       a readout that cannot be told from a frozen one is the defect this
  *       whole change is about.
- *    2. WATCHING N — the terminals kolu will wake it about. A button, because
- *       the list is the answer to "so what happens next"; it opens above.
+ *    2. N PIECES OF WORK · M TERMINALS — what kolu will wake it about, said
+ *       in both the unit a person thinks in (a waterfall, a terminal they
+ *       pointed it at) and the unit kolu rings on. A button, because the list
+ *       is the answer to "so what happens next"; it opens above.
  *    3. N WAITING — events held because a turn is running, which go out
  *       together the moment it ends. Absent at zero: a counter that renders
  *       its own silence is one every reader has to parse before ignoring.
@@ -75,13 +77,21 @@ const ConductorStatus: Component<{
   // rebuilt (`App.tsx`). Hoisting it to a module would say the opposite: that
   // it has to outlive its own view.
   const [open, setOpen] = createSignal(false);
-  const watched = () => props.state.watched.length;
+  /** THE SAME TWO NUMBERS THE TAB'S BADGE IS MADE OF, off the same published
+   *  fact: `work` is the watched terminals grouped by the top-level terminal
+   *  their parent edges end at (kolu-server derives it once, from the watch
+   *  list's own readings), and `watched` is the terminals themselves. The tab
+   *  shows the first; this line says both, because the number that moves when
+   *  a waterfall starts and the number that moves when it splits are
+   *  different numbers and a reader seeing one jump wants to know which. */
+  const pieces = () => props.state.work.length;
+  const terminals = () => props.state.watched.length;
   const held = () => props.state.held.length;
 
   return (
     <>
       <Show when={open()}>
-        <ConductorWatchedPanel watched={props.state.watched} />
+        <ConductorWatchedPanel work={props.state.work} />
       </Show>
       <div
         data-testid="conductor-status"
@@ -138,16 +148,23 @@ const ConductorStatus: Component<{
         <span class="flex-1" />
         <Tip
           class="flex items-center"
-          label="The terminals kolu wakes this conversation about"
+          label="The pieces of work this conversation has in flight — its watched terminals, grouped by the top-level terminal each one hangs off"
         >
           <button
             type="button"
             data-testid="conductor-watching"
+            // The two numbers as DATA as well as words: a reader wants the
+            // sentence, and anything reading this line wants the fact without
+            // parsing English that may be singular today and plural next
+            // frame.
+            data-work={pieces()}
+            data-terminals={terminals()}
             aria-expanded={open()}
             class="shrink-0 rounded-md border border-edge-bright px-1.5 py-px text-fg-2 hover:text-fg hover:bg-surface-2 cursor-pointer"
             onClick={() => setOpen(!open())}
           >
-            watching {watched()}
+            {pieces()} {pieces() === 1 ? "piece of work" : "pieces of work"} ·{" "}
+            {terminals()} {terminals() === 1 ? "terminal" : "terminals"}
           </button>
         </Tip>
         {/* WAITING is news — events kolu is holding because a turn is running.

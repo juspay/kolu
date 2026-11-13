@@ -65,10 +65,10 @@ const OTHER_REF = "remote:prod/22222222-2222-4222-8222-222222222222";
 /** The version this file's ladder pin names. A literal, deliberately: a pin
  *  read off the constant it is pinning asserts nothing. The conductor arrived
  *  at 1.44.0 (master took 1.43.0 for `hostOrder` — see the note on the ladder
- *  entry in `state.ts`), 1.45.0 is the rename of its key, and 1.47.0 is the
- *  watch list joining the record (1.46.0 is the number its pre-release builds
- *  stamped — see that rung). */
-const STATE_SCHEMA_VERSION = "1.47.0";
+ * entry in `state.ts`), 1.45.0 is the rename of its key, and 1.48.0 is the
+ * watch list joining the record (1.46.0 and 1.47.0 are the numbers its
+ * pre-release builds stamped — see that rung). */
+const STATE_SCHEMA_VERSION = "1.48.0";
 
 const log = {
   debug() {},
@@ -290,6 +290,7 @@ describe("the conversation survives a restart", () => {
         agent: "claude-code",
         level: "stopped",
         foregroundShell: false,
+        root: { ref: FLEET_REF, name: "fix the parser" },
       },
     ]);
     await vi.waitFor(() => {
@@ -316,6 +317,7 @@ describe("the conversation survives a restart", () => {
         joined: "created",
         spoken: true,
         ran: true,
+        root: { ref: FLEET_REF, name: "fix the parser" },
       },
       {
         ref: OTHER_REF,
@@ -325,6 +327,11 @@ describe("the conversation survives a restart", () => {
         joined: "created",
         spoken: false,
         ran: false,
+        // Never read: the watcher says nothing about a terminal on a host it
+        // has not reached, so which piece of work it is part of is not known
+        // yet — and a record that guessed would be the restart inventing a
+        // group.
+        root: null,
       },
     ]);
     // THE HELD NEWS IS MEMORY ONLY: a restart re-reads the world rather than
@@ -440,10 +447,10 @@ describe("the conductor's rungs", () => {
   it("complete each entry of a watch list a pre-release build stamped 1.46.0", () => {
     // A file the watch list's own earlier builds wrote: it HAS a `watched`
     // key, at the version number those builds bumped to, but its entries
-    // predate `joined`/`spoken`/`ran`. The schema carries no defaults for
-    // them, so without the rung this file is refused on read — and with it,
-    // each entry gains the reading that claims nothing it did not see, while
-    // a fact the file DID record is kept, never overwritten.
+    // predate `joined`/`spoken`/`ran` and `root`. The schema carries no
+    // defaults for them, so without the rung this file is refused on read —
+    // and with it, each entry gains the reading that claims nothing it did
+    // not see, while a fact the file DID record is kept, never overwritten.
     const held = {
       sessionId: "sess-held",
       cwd: HOME,
@@ -460,6 +467,7 @@ describe("the conductor's rungs", () => {
           joined: "created-run",
           spoken: true,
           ran: true,
+          root: { ref: FLEET_REF, name: "build" },
         },
       ],
     };
@@ -484,9 +492,53 @@ describe("the conductor's rungs", () => {
         joined: "asked",
         spoken: false,
         ran: false,
+        root: null,
       },
       held.watched[1],
     ]);
+    expect(migrated.conductor.rows).toEqual(held.rows);
+  });
+
+  it("complete a watch list a 1.47.0 build wrote with no piece of work on it", () => {
+    // The rung's OTHER pre-release number: these entries are complete in
+    // every way the watch list knew about at 1.47.0, and carry no `root` —
+    // the grouping arrived after them. A restart owes them `null` (nothing
+    // has read their hosts yet), and the first reading after the boot says
+    // which piece of work each is part of.
+    const held = {
+      sessionId: "sess-held",
+      cwd: HOME,
+      model: null,
+      rows: [row("a", 1, "one")],
+      fleet: [FLEET_REF],
+      watched: [
+        {
+          ref: FLEET_REF,
+          name: "plan the cutover",
+          agent: "claude",
+          told: "stopped",
+          joined: "created-run",
+          spoken: true,
+          ran: true,
+        },
+      ],
+    };
+    const legacy: unknown = {
+      preferences: (
+        JSON.parse(readFileSync(store.path, "utf8")) as {
+          preferences: unknown;
+        }
+      ).preferences,
+      hosts: [],
+      viewerMode: "dark",
+      conductor: held,
+      __internal__: { migrations: { version: "1.47.0" } },
+    };
+    const migrated = decodeStateBackup(legacy, "1.47-pre-release");
+    expect(migrated.conductor.watched).toEqual([
+      { ...held.watched[0], root: null },
+    ]);
+    // ... and nothing else moved: the rung is an addition.
     expect(migrated.conductor.rows).toEqual(held.rows);
   });
 

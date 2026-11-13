@@ -794,6 +794,33 @@ export const ConductorStateSchema = Schema.Struct({
    *  agent and state are read from its host's `terminals` collection. Saved
    *  with the conversation. */
   watched: Schema.Array(Schema.String),
+  /** THE PIECES OF WORK in flight: the watched terminals grouped by the
+   *  top-level terminal their parent edges end at.
+   *
+   *  One group is one piece of work — a planner and the implementor it split
+   *  off are one thing going on, not two — and the count of these is what the
+   *  Conductor tab badges. DERIVED, by kolu's own watch (`kolu-conductor`'s
+   *  `workOf`), from the readings the watcher already takes of every watched
+   *  terminal's host: a browser cannot walk the parent edges of a terminal on
+   *  a host it never opened, and a host that is AWAY has no edges to walk at
+   *  all — only the server's remembered entries carry the last-known group
+   *  across that.
+   *
+   *  Groups are in the order their first member joined the watch list, and so
+   *  are the refs inside one. A watched terminal whose root is not known yet
+   *  (nothing has read its host since it joined) is its own group. */
+  work: Schema.Array(
+    Schema.Struct({
+      /** The fleet ref of the top-level terminal the group hangs off — the
+       *  terminal itself, when it has no parent. */
+      root: Schema.String,
+      /** What that terminal was last called, or EMPTY when nothing is known:
+       *  the same `intent ?? branch` rule every other watch reading uses. */
+      name: Schema.String,
+      /** The watched refs in this group, in watch order. */
+      refs: Schema.Array(Schema.String),
+    }),
+  ),
   /** The watched terminals whose news is HELD because a turn is running — one
    *  per terminal, in the order the first of each rang. NEVER saved: a
    *  restart looks at every watched terminal again instead. The status line's
@@ -822,6 +849,7 @@ export const DEFAULT_CONDUCTOR_STATE: ConductorState = {
   steers: false,
   busySince: null,
   watched: [],
+  work: [],
   held: [],
 };
 

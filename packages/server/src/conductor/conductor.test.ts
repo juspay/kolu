@@ -78,6 +78,7 @@ import {
   type PersistedConductor,
   type WatchLevel,
   type WatchObservation,
+  type WatchRoot,
 } from "kolu-conductor";
 
 const HOME = "/home/tester";
@@ -1609,6 +1610,10 @@ const seeing = (
     name?: string;
     agent?: string | null;
     foregroundShell?: boolean | null;
+    /** The piece of work it is in, as the watcher walked the parent edges on
+     *  its host. Defaults to the terminal ITSELF, which is what a top-level
+     *  terminal reads as — a split names the terminal it hangs off. */
+    root?: WatchRoot;
   } = {},
 ): WatchObservation => ({
   ref,
@@ -1619,6 +1624,7 @@ const seeing = (
   agent: over.agent === undefined ? "claude-code" : over.agent,
   level,
   foregroundShell: over.foregroundShell ?? null,
+  root: over.root ?? { ref, name: over.name ?? "fix the parser" },
 });
 
 /** A conversation that is WORKING, as the harness publishes one — the state
@@ -1751,6 +1757,7 @@ describe("the news a watched terminal makes", () => {
         joined: "created",
         spoken: true,
         ran: false,
+        root: { ref: A, name: "fix the parser" },
       },
       {
         ref: B,
@@ -1760,6 +1767,9 @@ describe("the news a watched terminal makes", () => {
         joined: "created",
         spoken: true,
         ran: false,
+        // Nothing has read this one's host, so there is no piece of work to
+        // put it in yet.
+        root: null,
       },
     ]);
 
@@ -1794,6 +1804,7 @@ describe("the watch across a restart", () => {
           joined: "created",
           spoken: true,
           ran: false,
+          root: { ref: A, name: "fix the parser" },
         },
       ],
     });
@@ -1816,6 +1827,66 @@ describe("the watch across a restart", () => {
       expect(agent.wakes()).toHaveLength(1);
     });
     expect(agent.wakes()[0]?.events[0]?.level).toBe("asking");
+  });
+});
+
+describe("the pieces of work the cell publishes", () => {
+  /** A terminal on the first host that is a SPLIT of `A` — the implementor a
+   *  planner opened, which is the case the grouping exists for. */
+  const SPLIT = "local/33333333-3333-4333-8333-333333333333";
+
+  it("folds a split into its planner's piece of work, and says so again when the name arrives", async () => {
+    const r = rig();
+    await r.host.prompt("hello", [], [], false);
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    idle(agent);
+    r.host.watchTerminal(A, "created");
+    r.host.watchTerminal(SPLIT, "created");
+    // Before anything has been read, each is a piece of work of its own under
+    // its own (empty) name: nothing has looked at the host yet.
+    expect(r.host.state().work).toEqual([
+      { root: A, name: "", refs: [A] },
+      { root: SPLIT, name: "", refs: [SPLIT] },
+    ]);
+
+    // The first frame off the host: the planner is top-level, and the split's
+    // parent edge ends at it — but that frame landed before the planner's own
+    // record did, so its heading is not known yet.
+    r.host.observe([
+      seeing(SPLIT, "working", {
+        name: "write the migration",
+        root: { ref: A, name: "" },
+      }),
+    ]);
+    await vi.waitFor(() => {
+      expect(r.host.state().work).toEqual([
+        { root: A, name: "", refs: [A, SPLIT] },
+      ]);
+    });
+
+    // ... and the record that names the planner reaches the cell, with no
+    // level moving and nothing ringing — a heading is not news.
+    r.host.observe([seeing(A, "working", { name: "plan the cutover" })]);
+    await vi.waitFor(() => {
+      expect(r.host.state().work).toEqual([
+        { root: A, name: "plan the cutover", refs: [A, SPLIT] },
+      ]);
+    });
+    expect(agent.wakes()).toEqual([]);
+  });
+
+  it("counts two unrelated terminals as two", async () => {
+    const r = rig();
+    const agent = await busyWatching(r);
+    r.host.observe([seeing(A, "working"), seeing(B, "working")]);
+    await vi.waitFor(() => {
+      expect(r.host.state().work).toEqual([
+        { root: A, name: "fix the parser", refs: [A] },
+        { root: B, name: "fix the parser", refs: [B] },
+      ]);
+    });
+    expect(agent.wakes()).toEqual([]);
   });
 });
 

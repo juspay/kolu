@@ -90,9 +90,9 @@ export const PersistedConductorSchema = Schema.Struct({
    *
    *  NO DECODING DEFAULTS, here or on any entry's key: the schema says what
    *  the file holds, and making an older file hold it is the ladder's job
-   *  (`kolu-server`'s `state.ts`, the 1.47.0 rung — it seeds the key and
-   *  fills an entry's missing `joined`/`spoken`/`ran`). A file the ladder did
-   *  not bring here is refused by name, never read as a guess. */
+   *  (`kolu-server`'s `state.ts`, the 1.48.0 rung — it seeds the key and
+   *  fills an entry's missing `joined`/`spoken`/`ran`/`root`). A file the
+   *  ladder did not bring here is refused by name, never read as a guess. */
   watched: Schema.Array(
     Schema.Struct({
       ref: Schema.String,
@@ -111,6 +111,18 @@ export const PersistedConductorSchema = Schema.Struct({
        *  of `ended`, and across a restart the only way to know that the
        *  command kolu typed ever started. */
       ran: Schema.Boolean,
+      /** THE PIECE OF WORK it belongs to — the top-level terminal its
+       *  `child-of` edges end at, by fleet ref, and what that terminal was
+       *  last called (`kolu-conductor`'s `WatchRoot`); `null` for an entry
+       *  nothing has read the host of yet.
+       *
+       *  Saved because the alternative is the watching panel coming apart on
+       *  every restart: the edges live on the HOSTS, a host that is away
+       *  cannot be asked, and a boot that forgot the grouping would show four
+       *  separate pieces of work until every machine answered again. */
+      root: Schema.NullOr(
+        Schema.Struct({ ref: Schema.String, name: Schema.String }),
+      ),
     }),
   ),
 });
@@ -226,6 +238,7 @@ export function persistedFrom(
       joined: one.joined,
       spoken: one.spoken,
       ran: one.ran,
+      root: one.root,
     })),
   };
 }

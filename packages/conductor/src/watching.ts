@@ -49,9 +49,24 @@
  * `told` is set when a wake is DELIVERED (its turn started), never when it is
  * decided — a ring that waited through a turn and then failed to go must still
  * be owed.
+ *
+ * ## ... and the OTHER thing this list answers: how much is going on
+ *
+ * The list is also where "how many pieces of work are in flight" comes from
+ * ({@link workOf}): the watched terminals grouped by the top-level terminal
+ * their `child-of` edges end at, so a planner and the implementor it split off
+ * count once. The edge itself is read by the watcher upstream, on the host —
+ * a browser cannot walk the parents of a terminal on a machine it has never
+ * opened — and REMEMBERED on the entry, so a host that stops answering keeps
+ * the group it was last seen in.
  */
 
-import type { ConductorWakeLevel } from "kolu-common/conductor";
+import type { ConductorState, ConductorWakeLevel } from "kolu-common/conductor";
+
+/** ONE PIECE OF WORK, as the cell publishes it — the shape read straight off
+ *  the state schema rather than re-declared beside it, so the thing this
+ *  module derives and the thing a browser decodes cannot drift apart. */
+export type ConductorWork = ConductorState["work"][number];
 
 /** HOW A TERMINAL CAME TO BE WATCHED, which is what the `ready` and `ended`
  *  rules read.
@@ -77,6 +92,20 @@ export interface LastReading {
   /** Whether the foreground was the terminal's own shell — padi's answer, or
    *  `null` for a reading that carried none ({@link WatchObservation}). */
   readonly foregroundShell: boolean | null;
+}
+
+/** THE TOP-LEVEL TERMINAL one watched terminal belongs to — what makes a
+ *  planner and the implementor it split off ONE piece of work rather than two.
+ *
+ *  `ref` is the fleet ref of the terminal its `child-of` edges end at (itself,
+ *  when it has no parent); `name` is what that terminal was last called, by
+ *  the same `intent ?? branch` rule every reading's `name` uses, and EMPTY
+ *  when neither is known. Walked by the watcher on the host — the one place
+ *  that reads every watched terminal's record, on every host, including the
+ *  ones nobody has opened a browser on ({@link WatchObservation.root}). */
+export interface WatchRoot {
+  readonly ref: string;
+  readonly name: string;
 }
 
 /** One terminal on the list, as it is remembered — and saved with the
@@ -107,6 +136,12 @@ export interface WatchEntry {
    *  `foreground.shell === false`. Half of `ended`: a command that never ran
    *  cannot have returned. */
   readonly ran: boolean;
+  /** The top-level terminal this one hangs off, or `null` until a reading has
+   *  said ({@link WatchRoot}). REMEMBERED, which is the whole reason it is on
+   *  the entry rather than re-derived per publish: a host that is away
+   *  produces no readings at all, and a piece of work must not come apart on
+   *  screen because the machine it is on stopped answering. */
+  readonly root: WatchRoot | null;
   /** RUNTIME ONLY. The last reading of this terminal in THIS process, or
    *  `null` before the first one. */
   readonly last: LastReading | null;
@@ -171,6 +206,11 @@ export interface WatchObservation {
    *  prompt", which is two readings of this one fact and not a state padi has
    *  a word for. */
   readonly foregroundShell: boolean | null;
+  /** The top-level terminal this one's parent edges end at — the watcher's
+   *  walk up the `child-of` chain on the host it is already subscribed to
+   *  ({@link WatchRoot}). Never `null`: a reading happened, so SOMETHING was
+   *  read, and a terminal with no parent is its own root. */
+  readonly root: WatchRoot;
 }
 
 /** What one reading did to one entry. `ring` is the wake level this is worth
@@ -193,6 +233,7 @@ export const watchEntry = (ref: string, joined: WatchJoin): WatchEntry => ({
   joined,
   spoken: false,
   ran: false,
+  root: null,
   last: null,
   baselining: joined === "asked",
 });
@@ -274,6 +315,12 @@ export const observed = (
     name: named,
     agent,
     ran: entry.ran || seen.foregroundShell === false,
+    // THE GROUP THIS TERMINAL IS IN, as the host it is on says it stands now:
+    // a re-parent is a thing a person can do, so the latest reading wins over
+    // what was remembered. What the memory is for is the OTHER case — a host
+    // that is away takes no readings at all, and the entry keeps the group it
+    // was last seen in rather than falling out of its piece of work.
+    root: seen.root,
     last: { level: seen.level, foregroundShell: seen.foregroundShell },
     baselining: false,
   };
@@ -329,4 +376,58 @@ export const observed = (
 export const spokenTo = (entry: WatchEntry): WatchEntry => {
   const spoken: WatchEntry = { ...entry, spoken: true, baselining: false };
   return { ...spoken, told: standsAs(spoken, spoken.last) ?? entry.told };
+};
+
+/**
+ * THE PIECES OF WORK — the watch list grouped by the top-level terminal each
+ * entry's parent edges end at ({@link WatchRoot}).
+ *
+ * ONE DERIVATION, three readers: the Conductor tab's badge counts these, the
+ * status line says how many there are, and the watching panel draws one
+ * heading per group. kolu has no record of a "waterfall" and the human chose
+ * not to add one — a planner and the implementor it split off are one thing
+ * going on because the canvas already says so, and a count derived from the
+ * edges cannot drift from what is really running the way a declared one
+ * would.
+ *
+ * PURE, and over the ENTRIES rather than over the refs: `root` is what the
+ * watcher last read off the host, and it is on the entry precisely so a host
+ * that has gone away keeps its last-known group instead of scattering into
+ * one-terminal pieces.
+ *
+ * A terminal NOBODY HAS READ YET is its own group, headed by its own name.
+ * That is the honest answer rather than a placeholder: it was just watched,
+ * nothing has looked at its host, and the first reading either leaves it
+ * where it is or folds it into the piece of work it belongs to.
+ */
+export const workOf = (
+  entries: Iterable<WatchEntry>,
+): ReadonlyArray<ConductorWork> => {
+  // Insertion-ordered, which IS the contract: a group sits where its first
+  // member joined the list, and the refs inside it are in watch order. A badge
+  // that renumbered its groups every time one of them moved would be a count
+  // nobody could follow.
+  const groups = new Map<
+    string,
+    { root: string; name: string; refs: Array<string> }
+  >();
+  for (const entry of entries) {
+    const root = entry.root?.ref ?? entry.ref;
+    const group = groups.get(root);
+    if (group === undefined) {
+      groups.set(root, {
+        root,
+        name: entry.root?.name ?? entry.name,
+        refs: [entry.ref],
+      });
+      continue;
+    }
+    group.refs.push(entry.ref);
+    // A NAME FROM WHICHEVER MEMBER HAS ONE. Two entries under one root can
+    // disagree only one way — one of them was read before the root's own
+    // record had arrived and carries "" for it — and an empty heading over a
+    // group whose root is perfectly well named is the drift that would show.
+    if (group.name === "") group.name = entry.root?.name ?? "";
+  }
+  return [...groups.values()];
 };

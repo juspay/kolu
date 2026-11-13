@@ -3532,7 +3532,7 @@ retirements:
     defectSurface: [conductor, attention-alerts]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-b3b92d3e13f6d974a94a]
+    survivorRevisionIds: [revision-256383356f3dd3780c16]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: A question the agent asks is answered from the transcript"
@@ -3545,7 +3545,7 @@ retirements:
     defectSurface: [conductor, attention-alerts]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-892646fe7d7ab987fc33]
+    survivorRevisionIds: [revision-356b0e3c05e339d3aa43]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: An unanswered question is a needs-you source from the tab row"
@@ -3683,7 +3683,7 @@ retirements:
     defectSurface: [conductor, attention-alerts]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-b3b92d3e13f6d974a94a]
+    survivorRevisionIds: [revision-256383356f3dd3780c16]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: A question the agent asks is answered from the transcript"
@@ -3709,7 +3709,7 @@ retirements:
     defectSurface: [conductor, attention-alerts]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-892646fe7d7ab987fc33]
+    survivorRevisionIds: [revision-356b0e3c05e339d3aa43]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: An unanswered question is a needs-you source from the tab row"
@@ -3826,8 +3826,34 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-b3b92d3e13f6d974a94a]
+    survivorRevisionIds: [revision-256383356f3dd3780c16]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: A question the agent asks is answered from the transcript"
       test: The same answer through the same wire; the revised scenario additionally reads the settled card, which now keeps the question and the answer instead of collapsing to the word `answered`.
+  - id: revise-b3b92d3e13f6d974a94a
+    revisionId: revision-b3b92d3e13f6d974a94a
+    action: revised
+    status: landed
+    promise: A question the agent asks is answered from the transcript
+    defectSurface: [conductor, attention-alerts]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-256383356f3dd3780c16]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: A question the agent asks is answered from the transcript"
+      test: The same elicitation round trip, answered the same way, and the badge still read off the conductor tab with the pane mounted. One assertion changed form because the tab's badge did — it is now a count of the PIECES OF WORK in flight, coloured by the ask, so an ask with nothing watched (which is this scenario) shows the needs-you dot rather than the number 1. The come-off-at-zero rule is asserted unchanged.
+  - id: revise-892646fe7d7ab987fc33
+    revisionId: revision-892646fe7d7ab987fc33
+    action: revised
+    status: landed
+    promise: An unanswered question is a needs-you source from the tab row
+    defectSurface: [conductor, attention-alerts]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-356b0e3c05e339d3aa43]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: An unanswered question is a needs-you source from the tab row"
+      test: The same journey — ask, leave the conversation, read the tab with the pane unmounted — against the same wire. Only the mark being read changed with the product. The tab now carries ONE badge whose number is the pieces of work in flight and whose colour is the ask, so a question with nothing watched is the violet dot this step now asserts instead of a count of 1.

@@ -1,5 +1,5 @@
-/** WHAT THE CONVERSATION IS WATCHING — the list behind the status line's
- *  `watching N`.
+/** WHAT THE CONVERSATION IS WORKING ON — the list behind the status line's
+ *  `N pieces of work · M terminals`.
  *
  *  The Conductor does not sit in a wait any more: it says what it is watching
  *  and ends its turn, and kolu wakes it when one of these terminals stops,
@@ -7,14 +7,27 @@
  *  "what is it waiting for": which terminals will ring, where they are, and
  *  how they stand right now.
  *
- *  EVERY FACT HERE IS READ OFF THE FLEET, not off the conversation. The cell
- *  carries membership only (`watched`, fleet refs in add order); the name
- *  comes from the same per-host key computation the `@` menu's rows use
- *  (`fleetMentionCandidates`), and the live standing — agent, state, what it
- *  is doing, and the Look at its screen — is `ConductorLook`, the peek the
- *  transcript's agent lines already draw. Reusing that component rather than
- *  restating its status line is what keeps "how this terminal stands" from
- *  having two answers in one window.
+ *  ONE GROUP PER PIECE OF WORK. A waterfall is not a list of terminals to the
+ *  person who asked for it — it is one thing, with a planner and an
+ *  implementor split under it — so the rows sit under the top-level terminal
+ *  their `child-of` edges end at, headed by that terminal's name. The
+ *  grouping itself is NOT computed here: kolu-server walks those edges while
+ *  it reads each watched terminal's record and publishes the result as
+ *  `work`, which is the only place the walk can honestly happen (a host this
+ *  browser never opened has no records here, and a host that is away must
+ *  keep its last-known group). This panel draws it.
+ *
+ *  EVERY LIVE FACT HERE IS READ OFF THE FLEET, not off the conversation. The
+ *  cell carries membership and the grouping only; the name — a group's head
+ *  as much as a row — comes from the same per-host key computation the `@`
+ *  menu's rows use (`fleetMentionCandidates`), and the live standing — agent,
+ *  state, what it is doing, and the Look at its screen — is `ConductorLook`,
+ *  the peek the transcript's agent lines already draw. Reusing that component
+ *  rather than restating its status line is what keeps "how this terminal
+ *  stands" from having two answers in one window. A root on a host this
+ *  browser cannot reach has no live name, and the group then wears the name
+ *  the server last read, falling back to the bare terminal id — never a blank
+ *  heading.
  *
  *  A TERMINAL THAT IS NOT THERE STAYS ON THE LIST. Gone, asleep, or on a host
  *  this browser is not connected to: the row is drawn and says which, because
@@ -30,6 +43,7 @@
  *  own age. */
 
 import { activeArm } from "@kolu/padi-client/surface";
+import type { ConductorState } from "kolu-common/conductor";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { decodeHostKey } from "kolu-common/hostKey";
 import { agentName } from "../ui/agentDisplay";
@@ -47,14 +61,17 @@ import { useConductor } from "./useConductor";
 import { splitWatchedRef } from "./watchedRef";
 
 const ConductorWatchedPanel: Component<{
-  /** The fleet refs the conversation watches, in add order. */
-  watched: readonly string[];
+  /** The pieces of work, as kolu-server publishes them: one entry per
+   *  top-level terminal, carrying the watched refs under it in watch order,
+   *  and the groups themselves in the order their first member was added. */
+  work: ConductorState["work"];
 }> = (props) => {
   const fleet = useFleetTerminalIndex();
   /** Ref → the name the `@` menu would offer for that terminal. The same
    *  computation, so the name a person reads here is the name they would type
    *  into the composer; a terminal the fleet index has not got is simply
-   *  absent and the row falls back to its id. */
+   *  absent and the row — or the group's head — falls back to what the server
+   *  last read, and then to its id. */
   const names = createMemo(() => {
     const byRef = new Map<string, string>();
     for (const candidate of fleetMentionCandidates(fleet())) {
@@ -69,7 +86,7 @@ const ConductorWatchedPanel: Component<{
       class="min-w-0 border-t border-edge bg-surface-1 px-3 py-2"
     >
       <Show
-        when={props.watched.length > 0}
+        when={props.work.length > 0}
         fallback={
           <p class="font-mono text-[0.65rem] text-fg-3">
             Nothing is being watched — the conversation is woken by the
@@ -77,9 +94,36 @@ const ConductorWatchedPanel: Component<{
           </p>
         }
       >
-        <ul class="m-0 flex list-none flex-col gap-1.5 p-0">
-          <For each={props.watched}>
-            {(ref) => <WatchedRow watchedRef={ref} name={names().get(ref)} />}
+        <ul class="m-0 flex list-none flex-col gap-2 p-0">
+          <For each={props.work}>
+            {(piece) => (
+              <li
+                data-testid="conductor-watched-group"
+                data-root={piece.root}
+                class="min-w-0"
+              >
+                {/* THE HEAD IS THE WORK'S NAME, and the root terminal may not
+                    be watched itself (a split is watched while the planner
+                    above it is not) — so it is named, not drawn as a row:
+                    there is nothing here to stop watching. */}
+                <p
+                  data-testid="conductor-watched-group-name"
+                  class="m-0 mb-1 min-w-0 truncate font-mono text-[0.62rem] uppercase tracking-[0.08em] text-fg-3"
+                >
+                  {names().get(piece.root) ??
+                    (piece.name === ""
+                      ? (splitWatchedRef(piece.root)?.id ?? piece.root)
+                      : piece.name)}
+                </p>
+                <ul class="m-0 flex list-none flex-col gap-1.5 p-0">
+                  <For each={piece.refs}>
+                    {(ref) => (
+                      <WatchedRow watchedRef={ref} name={names().get(ref)} />
+                    )}
+                  </For>
+                </ul>
+              </li>
+            )}
           </For>
         </ul>
       </Show>
