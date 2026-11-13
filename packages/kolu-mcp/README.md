@@ -170,6 +170,30 @@ empty list: the refusal says which host and what state it is in, as prose and as
 `cross-host-reference`). An agent that is told "box is warming" retries; an
 agent handed an empty list concludes the machine is idle.
 
+**A terminal that is ASLEEP is refused by name too**, never as "not found".
+padi's active-terminal gate answers `TerminalNotActive` for a terminal that is
+in the roster but has no live PTY, and this face turns it into the refusal an
+agent can act on: the sentence names the fix (`Terminal local/3f1c… is asleep —
+wake it before reading its screen, or skip it and say it is asleep`) and
+`structuredContent` carries `{ kind: "terminal-not-active", tag:
+"TerminalNotActive", id, state }`, with `state` the arm the record is in
+(`sleeping` · `parked`). The id is the FLEET reference on the fleet face, in
+the prose as well as the data, so an agent is never handed an id its own tools
+refuse. One mapper (`src/asleep.ts`), taken by every terminal-addressing tool —
+`screen_text`, `screen_image`, `lifecycle_create` (a dormant `child-of`
+parent), and both waits. Waking a terminal is canvas-owned, so neither face has
+a verb for it; the honest moves are to ask the human or to skip it.
+
+**The waits REFUSE a sleeping terminal, they do not wait on it.** A dormant
+terminal has no attach feed to open and no agent bucket to enter, so every
+outcome would be a lie: `gone` says it died, `closed` says "retry" against a
+subscription that can never open, and `timeout` charges the caller its whole
+window. `wait_outputSettled` / `wait_agentState` therefore answer the refusal
+above, up front, before anything subscribes (the check is in the engine —
+`@kolu/padi-client/watch` — so argv and MCP answer alike). A terminal slept
+MID-wait propagates the same refusal rather than reporting a met with no
+screen.
+
 **One watch, every host.** `watch_open` with no `ids` watches the whole fleet —
 including hosts that connect later; with `ids` it groups them by host and legs
 each one under the same name. `watch_next` merges every host's queue into one

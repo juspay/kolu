@@ -32,7 +32,12 @@ import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema, Stream } from "effect";
 import type { PadiSurfaceClient } from "./dial.ts";
-import { isTerminalNotFound, isWatchSubscriptionNotFound } from "./errors.ts";
+import {
+  isTerminalNotActive,
+  isTerminalNotFound,
+  isWatchSubscriptionNotFound,
+  TerminalNotActive,
+} from "./errors.ts";
 import {
   type PadiStateEvent,
   type PadiTerminal,
@@ -97,6 +102,29 @@ export function matchingActiveAgent(
 ): AgentInfo | null {
   const agent = activeAgent(v);
   return agent !== null && targets.has(agentBucket(agent.state)) ? agent : null;
+}
+
+/** The DORMANT arm a terminal's published record is in — `sleeping` | `parked`
+ *  — or `undefined` when it is live, or when padi has no record for the id at
+ *  all.
+ *
+ *  One first-frame read of the record the `terminals` collection already
+ *  publishes (`state`, the same field padi's own gate reads off its registry
+ *  entry). Absent is deliberately NOT this function's business: an id nothing
+ *  serves is the `gone` machinery's answer, and it already has one. */
+async function dormantStateOf(
+  client: PadiSurfaceClient,
+  id: TerminalId,
+  signal: AbortSignal,
+): Promise<"sleeping" | "parked" | undefined> {
+  for await (const record of iterateUntilAborted(
+    client.surface.terminals.get({ key: id }),
+    signal,
+  )) {
+    const state = record?.state;
+    return state === "sleeping" || state === "parked" ? state : undefined;
+  }
+  return undefined;
 }
 
 /** Handlers a live watch reacts to. `live` is whether the terminal is moving
@@ -1262,6 +1290,10 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
       /** A read failure that must PROPAGATE rather than become an outcome (a
        *  dead transport poisons the shared connection). Latched, thrown below. */
       let readFailure: unknown;
+      /** The gate's DORMANT refusal, if the record said so — latched for the
+       *  same reason {@link readFailure} is, and thrown beside it: "this
+       *  terminal is asleep" is a refusal, never an outcome of waiting. */
+      let gateRefusal: TerminalNotActive | undefined;
       /** The in-flight stamp loop, or `undefined` when none is running — ONE
        *  variable for one fact, so "at most one read at a time" and "the read is
        *  finished before the wait returns" are the same binding rather than a
@@ -1362,6 +1394,19 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
             ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
             return;
           }
+          // The terminal was SLEPT between the condition landing and its screen
+          // being read (kolu#2361). Neither `gone` (it is not dead) nor
+          // `closed` (retrying reads the same refusal) is true, so the declared
+          // refusal PROPAGATES — latched like a dead transport, thrown after the
+          // subscriptions unwind, and the face says "wake it first".
+          if (isTerminalNotActive(err)) {
+            readFailure = err;
+            ctx.settle({
+              kind: "closed",
+              error: `${id} went to sleep before its screen could be read at the met`,
+            });
+            return;
+          }
           const message = messageOf(err);
           ctx.recordUpstreamError(message);
           // A DEAD transport poisons the shared connection and must PROPAGATE so
@@ -1418,6 +1463,33 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
       });
 
       const arms: Promise<void>[] = [];
+
+      // THE DORMANT REFUSAL (kolu#2361). A sleeping terminal has no PTY: its
+      // attach feed cannot open, no byte can arrive and no agent bucket can
+      // land — so every arm of the outcome union would be a lie. `gone` says
+      // the terminal is dead when it is one wake away, `closed` tells a driver
+      // to retry a subscription that can never open, and `timeout` makes the
+      // caller pay its whole window to learn nothing. So the record is read
+      // once, and a dormant one REFUSES with padi's own declared
+      // `TerminalNotActive` — latched like a dead transport and thrown after
+      // the subscriptions unwind, because it is not an outcome of waiting.
+      //
+      // An ARM, not a pre-flight before `runWait`: the record of a terminal
+      // that EXITED never arrives at all, so a blocking read in front of the
+      // wait would out-wait the caller's own `--timeout` and hang a `gone`
+      // forever. Here it is bound to `ctx.signal`, so the ordinary machinery
+      // (membership → `gone`, the timeout, a cancel) tears it down and wins.
+      arms.push(
+        (async () => {
+          const dormant = await dormantStateOf(client, id, ctx.signal);
+          if (dormant === undefined || ctx.signal.aborted) return;
+          gateRefusal = new TerminalNotActive({ id, state: dormant });
+          ctx.settle({
+            kind: "closed",
+            error: `${id} is ${dormant} — there is nothing live to wait on`,
+          });
+        })(),
+      );
 
       // The OUTPUT feed — needed by a form that reads FRAMES to decide the
       // condition, and by the quiescence conjunct whatever the form. An `agent`
@@ -1504,6 +1576,9 @@ export async function awaitTerminalCondition<C extends TerminalCondition>(
       // propagates a watcher's rejection verbatim, and it wins over the `closed`
       // that was only settled to unwind the subscriptions.
       if (readFailure !== undefined) throw readFailure;
+      // The dormant refusal rides the same road, for the same reason: the
+      // `closed` beside it existed only to unwind the subscriptions.
+      if (gateRefusal !== undefined) throw gateRefusal;
     },
   ) as Promise<MetOf<C>>;
 }

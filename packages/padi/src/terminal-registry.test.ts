@@ -1,6 +1,7 @@
 /**
- * `requireMutableTerminal` — the record-level "PARKED is IMMUTABLE" invariant
- * (split-restore FIX 3).
+ * The registry's GATES — `requireMutableTerminal`'s "PARKED is IMMUTABLE"
+ * invariant (split-restore FIX 3), and `requireActiveTerminal`'s two refusals
+ * (kolu#2361: an absent id is NOT the same fact as a sleeping one).
  *
  * A PARKED record is a restore-card placeholder standing in for a saved active
  * terminal until `session.restore` consumes it (the parked→active flip). A client
@@ -13,15 +14,23 @@
  * hole at the RECORD level — timing-independent, not a restart-in-flight gate.
  *
  * The ACTIVE and SLEEPING arms stay MUTABLE (a chrome edit on a dormant tile is
- * valid); the read/query guard `requireTerminal` keeps ACCEPTING parked.
+ * valid); the read/query guard `requireTerminal` keeps ACCEPTING parked. The
+ * active-only gate is the OTHER half: it accepts neither, but it says WHICH —
+ * `TerminalNotFound` for an id nothing serves, `TerminalNotActive { state }`
+ * for a record that is merely dormant.
  */
 
-import { LOCAL_LOCATION, TerminalNotFound } from "@kolu/padi-client/surface";
+import {
+  LOCAL_LOCATION,
+  TerminalNotActive,
+  TerminalNotFound,
+} from "@kolu/padi-client/surface";
 import type { TerminalId, TerminalSnapshot } from "@kolu/terminal-vocab/schema";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   type ActiveTerminalProcess,
   registerTerminal,
+  requireActiveTerminal,
   requireMutableTerminal,
   requireTerminal,
   terminalEntries,
@@ -121,5 +130,40 @@ describe("requireMutableTerminal — parked records are immutable", () => {
     expect(err).toBeInstanceOf(TerminalNotFound);
     expect((err as TerminalNotFound)._tag).toBe("TerminalNotFound");
     expect((err as TerminalNotFound).id).toBe(ID);
+  });
+});
+
+describe("requireActiveTerminal — absent is not the same as asleep", () => {
+  it("REJECTS an ABSENT id with TerminalNotFound", () => {
+    const err = caught(() => requireActiveTerminal(ID));
+    expect(err).toBeInstanceOf(TerminalNotFound);
+    expect((err as TerminalNotFound)._tag).toBe("TerminalNotFound");
+    expect((err as TerminalNotFound).id).toBe(ID);
+  });
+
+  it("REJECTS a SLEEPING id with TerminalNotActive, carrying its state", () => {
+    // The regression this file exists for: a terminal the user can see in
+    // their dock used to answer "Terminal <id> not found", and every face
+    // repeated it. It EXISTS — it is asleep, and the caller can wake it.
+    seedSleeping();
+    const err = caught(() => requireActiveTerminal(ID));
+    expect(err).toBeInstanceOf(TerminalNotActive);
+    expect((err as TerminalNotActive)._tag).toBe("TerminalNotActive");
+    expect((err as TerminalNotActive).id).toBe(ID);
+    expect((err as TerminalNotActive).state).toBe("sleeping");
+    expect((err as TerminalNotActive).message).toContain("is asleep");
+  });
+
+  it("REJECTS a PARKED id with TerminalNotActive, carrying its state", () => {
+    seedParked();
+    const err = caught(() => requireActiveTerminal(ID));
+    expect(err).toBeInstanceOf(TerminalNotActive);
+    expect((err as TerminalNotActive).state).toBe("parked");
+    expect((err as TerminalNotActive).id).toBe(ID);
+  });
+
+  it("ACCEPTS a live ACTIVE record", () => {
+    seedActive();
+    expect(requireActiveTerminal(ID).meta.state).toBe("active");
   });
 });

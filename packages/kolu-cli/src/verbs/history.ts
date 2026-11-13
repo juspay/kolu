@@ -34,6 +34,7 @@ import {
   readWholeHistory,
 } from "@kolu/padi/read";
 import { shortId } from "@kolu/padi/render";
+import { terminalNotActiveOf } from "@kolu/padi-client/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect } from "effect";
 import type { Command } from "effect/cli";
@@ -41,7 +42,7 @@ import type { Command } from "effect/cli";
 // runtime and the per-face dynamic-import fence is untouched.
 import type { historyFlags } from "../cli.ts";
 import { type Connection, type Endpoint, withPadi } from "../endpoint.ts";
-import { failure } from "../exit.ts";
+import { failure, terminalAsleep } from "../exit.ts";
 import { resolveTerminal, writeErr, writeOutBlock } from "./shared.ts";
 
 /** What the command tree parses for this verb — DERIVED from `historyFlags` in
@@ -78,9 +79,22 @@ function readPages(
       : Effect.map(readHistoryPage(conn.client, id, lines), (page) =>
           page === null ? [] : [page],
         );
-  return Effect.catch(read, (err) =>
-    Effect.fail(isPadiHistoryStale(err) ? staleFailure(id) : err),
-  );
+  return Effect.catch(read, (err) => {
+    // The gate's dormant answer gets this binary's own arm (exit 4): a
+    // sleeping terminal has no live mirror to page, and that is the user's to
+    // wake — not the generic failure a dropped link gets (kolu#2361).
+    const dormant = terminalNotActiveOf(err);
+    if (dormant !== undefined) {
+      return Effect.fail(
+        terminalAsleep({
+          terminal: shortId(id),
+          state: dormant.state,
+          attempted: "page its scrollback",
+        }),
+      );
+    }
+    return Effect.fail(isPadiHistoryStale(err) ? staleFailure(id) : err);
+  });
 }
 
 /**

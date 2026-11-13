@@ -30,6 +30,7 @@ import {
   failure,
   reportOf,
   reservedFace,
+  terminalAsleep,
   UsageRefused,
   waitInterrupted,
   waitTerminalGone,
@@ -68,6 +69,16 @@ const MATRIX = [
     waitTerminalGone({ terminal: "a1b2c3d4", describe: "awaiting" }),
     3,
     "kolu: a1b2c3d4 exited before reaching awaiting — its terminal is gone.\n",
+  ],
+  [
+    "the terminal is asleep",
+    terminalAsleep({
+      terminal: "a1b2c3d4",
+      state: "sleeping",
+      attempted: "read its screen",
+    }),
+    4,
+    "kolu: a1b2c3d4 is asleep — wake it in kolu, then read its screen again.\n",
   ],
   [
     "interrupted",
@@ -129,6 +140,21 @@ describe("the exit-code contract", () => {
       expect(reportOf(error)).toBe(line);
       expect(line).toMatch(/^kolu: /);
     }
+  });
+
+  it("says PARKED in its own words, on the same code", () => {
+    // One code (4 — "it exists, it is just not awake"), two arms: a terminal
+    // the user slept, and one waiting on a restore. The state rides as data
+    // from padi's `TerminalNotActive`, so the line can name it (kolu#2361).
+    const parked = terminalAsleep({
+      terminal: "a1b2c3d4",
+      state: "parked",
+      attempted: "read its screen",
+    });
+    expect(Runtime.getErrorExitCode(parked)).toBe(4);
+    expect(reportOf(parked)).toBe(
+      "kolu: a1b2c3d4 is parked — a saved terminal waiting to be restored, with no live screen; restore the session, then read its screen again.\n",
+    );
   });
 
   it("never reports 0 for a failure that carries no marker", () => {

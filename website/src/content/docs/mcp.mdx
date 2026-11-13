@@ -344,6 +344,14 @@ subscriptions; the next call says so plainly instead of reporting silence.
 | `git_getStatus` · `git_getDiff` | The git status and diff for a terminal's repo. |
 | `fs_listAll` · `fs_readFile` | List and read files in a terminal's project. |
 
+A terminal you put to [sleep](/sessions) has no live screen, and the tools say
+exactly that: a read or a wait aimed at one comes back **"Terminal … is asleep
+— wake it before reading its screen"**, carrying the terminal's id and whether
+it is `sleeping` or `parked`, rather than claiming the terminal does not exist
+or that it died. The waits refuse it up front instead of waiting out their
+window. Waking is yours, not the agent's: an agent either asks you to wake it
+or skips it and tells you how many are asleep.
+
 ### Watch the whole workspace (live views)
 
 | Live view | What it shows |

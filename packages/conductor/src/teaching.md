@@ -78,10 +78,15 @@ about the fleet — where the next conversation can read it.
 
 A terminal can be ASLEEP: its record in the `terminals` resource says
 `"state": "sleeping"` where a live one says `"active"`. A sleeping terminal
-has no screen and no agent state, so reading its screen fails. Before you read
-the screen of a terminal you did not just create, read its record and skip the
-sleeping ones; tell the human how many are asleep — "six of them are asleep" —
-rather than trying each one.
+has no screen and no agent state, so reading its screen fails. The refusal
+says so in those words — `screen_text` (and either wait) answers "Terminal
+host/id is asleep — wake it before reading its screen", with
+`kind: "terminal-not-active"` and that `state` beside it. That is NOT "no such
+terminal": the terminal is yours, it is in the roster, and it is one wake
+away — so never report it as gone or missing, and never retry the read. Before
+you read the screen of a terminal you did not just create, read its record and
+skip the sleeping ones; tell the human how many are asleep — "six of them are
+asleep" — rather than trying each one, and ask them to wake one you truly need.
 
 THE WATERFALL. When the human asks for a waterfall, or asks you to implement
 something end to end, you run this procedure and you never write the code

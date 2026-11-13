@@ -409,7 +409,7 @@ describe("padi scratch.write re-enforces the authoritative upload gate (F1)", ()
     ).resolves.toBe("TerminalNotFound");
   });
 
-  it("rejects a SLEEPING id with TerminalNotFound (only an ACTIVE terminal can take an upload)", async () => {
+  it("rejects a SLEEPING id with TerminalNotActive (it EXISTS — it just has no live PTY to write under)", async () => {
     seed();
     const write = scratchWrite();
     await expect(
@@ -418,10 +418,10 @@ describe("padi scratch.write re-enforces the authoritative upload gate (F1)", ()
           input: { terminalId: SLEEPING_ID, name: "notes.md", data: "AAAA" },
         }),
       ),
-    ).resolves.toBe("TerminalNotFound");
+    ).resolves.toBe("TerminalNotActive");
   });
 
-  it("rejects a PARKED id with TerminalNotFound (a reboot placeholder can't take an upload)", async () => {
+  it("rejects a PARKED id with TerminalNotActive (a reboot placeholder can't take an upload)", async () => {
     seed();
     const write = scratchWrite();
     await expect(
@@ -430,7 +430,7 @@ describe("padi scratch.write re-enforces the authoritative upload gate (F1)", ()
           input: { terminalId: PARKED_ID, name: "notes.md", data: "AAAA" },
         }),
       ),
-    ).resolves.toBe("TerminalNotFound");
+    ).resolves.toBe("TerminalNotActive");
   });
 });
 
@@ -511,7 +511,8 @@ describe("padi scratch.write chunked continuation (G9a)", () => {
 
   it("still needs an ACTIVE terminal for every chunk, not just the first", async () => {
     // A terminal that dies mid-upload must stop taking bytes. The liveness gate
-    // runs before the append branch, so this holds for continuations too.
+    // runs before the append branch, so this holds for continuations too — and
+    // it says WHICH refusal: this id is SLEEPING, not absent (kolu#2361).
     seed();
     const write = scratchWrite();
     const first = (await runHandler(
@@ -528,7 +529,7 @@ describe("padi scratch.write chunked continuation (G9a)", () => {
           },
         }),
       ),
-    ).resolves.toBe("TerminalNotFound");
+    ).resolves.toBe("TerminalNotActive");
   });
 
   it("enforces the size cap on the ACCUMULATED total, not the chunk", async () => {

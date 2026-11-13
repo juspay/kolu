@@ -72,6 +72,7 @@
  * — there is no base to resolve it against that the caller meant.
  */
 
+import { refusingAsleep } from "./asleep.ts";
 import { padiOf } from "./bundleClient.ts";
 import { isAbsolute } from "node:path";
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
@@ -393,6 +394,9 @@ export const createTool: BespokeTool = {
     // Refusals are raised synchronously, BEFORE anything dials padi.
     refuseBlankFields(a);
     const directory = resolveCreateDirectory(a);
-    return composeCreate(directory, a, padiOf(client));
+    // A `child-of` placement whose PARENT is asleep is refused by padi's
+    // active-terminal gate; `refusingAsleep` gives that refusal this face's
+    // sentence and structured arm (every other failure passes through).
+    return refusingAsleep(composeCreate(directory, a, padiOf(client)));
   },
 };

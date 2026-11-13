@@ -48,7 +48,7 @@ import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 import type { PadiSurfaceClient } from "./dial.ts";
-import { TerminalNotFound } from "./errors.ts";
+import { TerminalNotActive, TerminalNotFound } from "./errors.ts";
 import type { PadiTerminal } from "./surface.ts";
 import { WAIT_STATES } from "./terminalVocab.ts";
 import {
@@ -251,9 +251,12 @@ function matchClient(parts: {
           Stream.fail(
             new Error("terminals.keys must not be read in this case"),
           ),
+        // The engine reads the RECORD before it subscribes anything (the
+        // dormant refusal — kolu#2361), so an unstubbed `get` answers a LIVE
+        // record rather than failing: "this terminal is awake" is the default
+        // every case but the sleeping ones means.
         get: (input: { key: TerminalId }) =>
-          parts.get?.(input.key) ??
-          Stream.fail(new Error("terminals.get must not be read in this case")),
+          parts.get?.(input.key) ?? Stream.make(activeWithAgent(null)),
       },
       screen: {
         text: (input: { id: TerminalId; tail?: number }) =>
@@ -769,6 +772,53 @@ describe("awaitTerminalCondition — `screenTail`, the screen stamp", () => {
       },
     );
     expect(outcome).toMatchObject({ kind: "gone" });
+  });
+
+  it("REFUSES a wait on a SLEEPING terminal instead of waiting on it (kolu#2361)", async () => {
+    // A dormant terminal has no attach feed to open and no bucket to enter, so
+    // every outcome would be a lie: `gone` says it died, `closed` says retry a
+    // subscription that can never open, and `timeout` charges the caller its
+    // whole window. The engine refuses BEFORE it subscribes anything — note
+    // that neither `attach` nor `keys` is stubbed here, so touching either
+    // would fail this test — and the refusal is padi's own declared error,
+    // carrying the arm the record is in.
+    const err = await awaitTerminalCondition(
+      matchClient({
+        get: () =>
+          Stream.make({ state: "sleeping" } as unknown as PadiTerminal),
+      }),
+      {
+        id: T as TerminalId,
+        condition: { kind: "idle", idleMs: 40 },
+        timeoutMs: 5000,
+        retryAdvice: "re-run the wait",
+      },
+    ).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(TerminalNotActive);
+    expect((err as TerminalNotActive).state).toBe("sleeping");
+    expect((err as TerminalNotActive).id).toBe(T);
+  });
+
+  it("REFUSES a wait on a PARKED terminal the same way", async () => {
+    const err = await awaitTerminalCondition(
+      matchClient({
+        get: () => Stream.make({ state: "parked" } as unknown as PadiTerminal),
+      }),
+      {
+        id: T as TerminalId,
+        condition: { kind: "idle", idleMs: 40 },
+        timeoutMs: 5000,
+        retryAdvice: "re-run the wait",
+      },
+    ).then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(TerminalNotActive);
+    expect((err as TerminalNotActive).state).toBe("parked");
   });
 
   it("DISCARDS a screen whose quiet window re-fired under it — not just one whose flags flipped", async () => {

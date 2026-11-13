@@ -35,7 +35,7 @@ import type { Command } from "effect/cli";
 // runtime and the per-face dynamic-import fence is untouched.
 import type { screenshotFlags } from "../cli.ts";
 import { type Endpoint, withPadi } from "../endpoint.ts";
-import { errorMessage, failure } from "../exit.ts";
+import { errorMessage, failure, terminalAsleep } from "../exit.ts";
 import { resolveTerminal, writeErr, writeOut } from "./shared.ts";
 
 /** What the command tree hands this verb — DERIVED from `screenshotFlags` in
@@ -65,21 +65,33 @@ export const run = Effect.fn("kolu screenshot")(function* (
   const { image, id } = yield* withPadi(endpoint, (conn) =>
     Effect.gen(function* () {
       const id = yield* resolveTerminal(conn, args.id);
-      const image = yield* Effect.catchTag(
-        conn.client.surface.screen.image({
-          id,
-          // SPREAD, never spell: `lines` is `optionalKey` on padi's wire and
-          // that input is DECODED, so an absent key is accepted where a
-          // present-but-`undefined` one is rejected.
-          ...(lines !== undefined && { lines }),
-        }),
-        "TerminalNotFound",
-        () =>
+      const read = conn.client.surface.screen.image({
+        id,
+        // SPREAD, never spell: `lines` is `optionalKey` on padi's wire and
+        // that input is DECODED, so an absent key is accepted where a
+        // present-but-`undefined` one is rejected.
+        ...(lines !== undefined && { lines }),
+      });
+      // The gate's TWO answers (kolu#2361): a terminal that ENDED between the
+      // listing and the read, and one that is merely ASLEEP — which is the
+      // user's to wake, so it gets its own line and exit code 4.
+      const image = yield* read.pipe(
+        Effect.catchTag("TerminalNotFound", () =>
           Effect.fail(
             failure(
               `terminal ${shortId(id)} ended between listing it and reading its screen — nothing to screenshot.`,
             ),
           ),
+        ),
+        Effect.catchTag("TerminalNotActive", (err) =>
+          Effect.fail(
+            terminalAsleep({
+              terminal: shortId(id),
+              state: err.state,
+              attempted: "screenshot it",
+            }),
+          ),
+        ),
       );
       return { image, id };
     }),

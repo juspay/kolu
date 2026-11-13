@@ -32,6 +32,7 @@
  * outcome the agent can retry.
  */
 
+import { refusingAsleep } from "./asleep.ts";
 import { padiOf } from "./bundleClient.ts";
 // The dial kit arrives dynamically, INSIDE the handlers: this module is on the
 // static tree-build path of every `kolu` invocation (the surface face mounts
@@ -137,7 +138,7 @@ export const waitOutputSettledTool: BespokeTool = {
   mutates: false,
   title: "Wait for a terminal to go quiet",
   description:
-    'Block until a terminal\'s output has been idle for idleMs milliseconds — the agent-agnostic done-signal (the dispatch loop\'s "observe the TUI settle" step). Pass screenTail: N to also get the last N screen lines, read inside the same wait, instead of a follow-up screen_text the terminal can move under. Returns {result: "met", met: {fired, elapsedMs, screen?}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}. ONLY "gone" means the terminal is dead: "closed" means this subscription dropped while the terminal was still live, so retry rather than concluding anything about the agent. To supervise several terminals without re-arming a wait per turn, prefer watch_open + watch_next.',
+    'Block until a terminal\'s output has been idle for idleMs milliseconds — the agent-agnostic done-signal (the dispatch loop\'s "observe the TUI settle" step). Pass screenTail: N to also get the last N screen lines, read inside the same wait, instead of a follow-up screen_text the terminal can move under. Returns {result: "met", met: {fired, elapsedMs, screen?}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}. ONLY "gone" means the terminal is dead: "closed" means this subscription dropped while the terminal was still live, so retry rather than concluding anything about the agent. A terminal that is ASLEEP is REFUSED immediately (an error naming it, with state "sleeping" or "parked") rather than waited on — wake it and wait again. To supervise several terminals without re-arming a wait per turn, prefer watch_open + watch_next.',
   // The one bespoke tool that does NOT compose a surface member: padi's
   // `awaitOutputSettled` is a Promise-shaped waiter that takes an AbortSignal,
   // so this LIFTS it rather than composing it. That is why `signal` survives on
@@ -150,23 +151,31 @@ export const waitOutputSettledTool: BespokeTool = {
   // Ctrl-C against an unbounded wait would hang instead of the matrix's 130.
   // `signal ?? fiberSignal`: the MCP edge's request signal when one was
   // handed, the fiber's own interrupt handle in every other case.
+  // `refusingAsleep`: the engine REFUSES a wait on a dormant terminal up front
+  // with padi's declared `TerminalNotActive` rather than settling an outcome
+  // that would be a lie (a sleeping terminal is not `gone`, and `closed` would
+  // tell a driver to retry a subscription that can never open). That refusal
+  // arrives here inside `tryPromise`'s `UnknownError`, which `asleep.ts`
+  // unwraps, so the agent gets the sentence AND the structured arm.
   handler: (args, client, signal) =>
-    Effect.tryPromise(async (fiberSignal) => {
-      const { id, idleMs, screenTail, timeoutMs } =
-        args as WaitOutputSettledArgs;
-      const { awaitOutputSettled } = await import("@kolu/padi-client/watch");
-      const outcome = await awaitOutputSettled(padiOf(client), {
-        id,
-        idleMs,
-        screenTail,
-        timeoutMs,
-        signal: signal ?? fiberSignal,
-      });
-      return waitJson<{ fired: "idle"; elapsedMs: number; screen?: string }>(
-        id,
-        outcome,
-      );
-    }),
+    refusingAsleep(
+      Effect.tryPromise(async (fiberSignal) => {
+        const { id, idleMs, screenTail, timeoutMs } =
+          args as WaitOutputSettledArgs;
+        const { awaitOutputSettled } = await import("@kolu/padi-client/watch");
+        const outcome = await awaitOutputSettled(padiOf(client), {
+          id,
+          idleMs,
+          screenTail,
+          timeoutMs,
+          signal: signal ?? fiberSignal,
+        });
+        return waitJson<{ fired: "idle"; elapsedMs: number; screen?: string }>(
+          id,
+          outcome,
+        );
+      }),
+    ),
 };
 
 // ── wait_agentState ───────────────────────────────────────────────────────
@@ -200,27 +209,30 @@ export const waitAgentStateTool: BespokeTool = {
   // force `kolu debrief`'s protocol constants out of the CLI leaf that owns
   // them into a home both faces reach, for defaults each face can just state.
   description:
-    'Block until a terminal\'s detected agent state enters a target bucket (working / awaiting / waiting) — the precise agent-state done-signal. An agent ALREADY in a target bucket resolves immediately. To ask "is this worker\'s turn REALLY over, and what did it say?" in ONE race-free call — the `kolu debrief` protocol — pass until: ["awaiting","waiting"], settledMs: 15000, screenTail: 40; the three-call version (wait for the bucket, wait for quiet, read the screen) has a hole in each gap. Returns {result: "met", met: {agent, elapsedMs, screen?}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}. ONLY "gone" means the terminal is dead: "closed" means this subscription dropped while the terminal was still live, so retry rather than concluding anything about the agent. To supervise several terminals without re-arming a wait per turn, prefer watch_open + watch_next.',
+    'Block until a terminal\'s detected agent state enters a target bucket (working / awaiting / waiting) — the precise agent-state done-signal. An agent ALREADY in a target bucket resolves immediately. To ask "is this worker\'s turn REALLY over, and what did it say?" in ONE race-free call — the `kolu debrief` protocol — pass until: ["awaiting","waiting"], settledMs: 15000, screenTail: 40; the three-call version (wait for the bucket, wait for quiet, read the screen) has a hole in each gap. Returns {result: "met", met: {agent, elapsedMs, screen?}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}. ONLY "gone" means the terminal is dead: "closed" means this subscription dropped while the terminal was still live, so retry rather than concluding anything about the agent. A terminal that is ASLEEP is REFUSED immediately (an error naming it, with state "sleeping" or "parked") rather than waited on — wake it and wait again. To supervise several terminals without re-arming a wait per turn, prefer watch_open + watch_next.',
   // Lifted, not composed — same reason as `wait_outputSettled` above,
   // including the AbortSignal the one-form `tryPromise` would leave unmilled
   // (a Ctrl-C on an unbounded argv wait would hang, never the matrix's 130).
   handler: (args, client, signal) =>
-    Effect.tryPromise(async (fiberSignal) => {
-      const { id, until, settledMs, screenTail, timeoutMs } =
-        args as WaitAgentStateArgs;
-      const { awaitAgentState } = await import("@kolu/padi-client/watch");
-      const outcome = await awaitAgentState(padiOf(client), {
-        id,
-        targets: new Set(until),
-        settledMs,
-        screenTail,
-        timeoutMs,
-        signal: signal ?? fiberSignal,
-      });
-      return waitJson<{
-        agent: AgentInfo;
-        elapsedMs: number;
-        screen?: string;
-      }>(id, outcome);
-    }),
+    // Refused up front for a dormant terminal — see `wait_outputSettled`.
+    refusingAsleep(
+      Effect.tryPromise(async (fiberSignal) => {
+        const { id, until, settledMs, screenTail, timeoutMs } =
+          args as WaitAgentStateArgs;
+        const { awaitAgentState } = await import("@kolu/padi-client/watch");
+        const outcome = await awaitAgentState(padiOf(client), {
+          id,
+          targets: new Set(until),
+          settledMs,
+          screenTail,
+          timeoutMs,
+          signal: signal ?? fiberSignal,
+        });
+        return waitJson<{
+          agent: AgentInfo;
+          elapsedMs: number;
+          screen?: string;
+        }>(id, outcome);
+      }),
+    ),
 };

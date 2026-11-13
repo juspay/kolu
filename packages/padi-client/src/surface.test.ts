@@ -33,6 +33,7 @@ import {
   padiSurfaceSibling,
   PreviewTooLarge,
   ScratchWriteRejected,
+  TerminalNotActive,
   TerminalNotFound,
   TerminalParentCycle,
   TranscriptNoAgent,
@@ -148,7 +149,12 @@ describe("padiSurface contract", () => {
     // package and the built profiles, and the `agentDistroResolved` cell is
     // GONE (kolu-server resolves a profile when it builds it). A member was
     // removed and no arm decodes across the change, so it is a major.
-    expect(PADI_SURFACE_VERSION).toBe("7.1");
+    // 7.1 added `screen.text { tail }`. 7.2 widens the ACTIVE-TERMINAL gate's
+    // error channel: `TerminalNotActive { id, state }` joins `TerminalNotFound`
+    // on every member behind it, so a sleeping terminal stops answering "not
+    // found" — a widened output a 7.1 decoder would refuse, which is the 5.3
+    // case and therefore a minor.
+    expect(PADI_SURFACE_VERSION).toBe("7.2");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -696,6 +702,8 @@ describe("the declared error vocabulary (PLAN D4)", () => {
     // consumer narrows the REHYDRATED value.
     const cases = [
       new TerminalNotFound({ id: "t-1" }),
+      new TerminalNotActive({ id: "t-2", state: "sleeping" }),
+      new TerminalNotActive({ id: "t-3", state: "parked" }),
       new TerminalParentCycle({
         childId: "a",
         parentId: "b",

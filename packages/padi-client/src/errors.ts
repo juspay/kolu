@@ -47,6 +47,40 @@ export class TerminalNotFound extends Schema.TaggedError<TerminalNotFound>(
   }
 }
 
+/** The terminal EXISTS, but it is not the live arm the call needs — it is
+ *  asleep (a record whose PTY was released) or parked (a reboot placeholder the
+ *  restore card offers). Raised by padi's one active-terminal gate
+ *  (`requireActiveTerminal`), which used to answer {@link TerminalNotFound} for
+ *  this case and so told every face the same lie: "Terminal <id> not found" for
+ *  a terminal sitting in the roster, one `lifecycle_wake` away from readable.
+ *
+ *  The DISTINCTION is the whole value, and it is actionable in a way not-found
+ *  never is: a caller that meets this one wakes the terminal (or skips it and
+ *  says how many are asleep); a caller that meets not-found drops the id. So
+ *  the state rides as DATA — `sleeping` | `parked`, padi's own registry arms —
+ *  rather than as an adjective in the prose a face would have to parse back out.
+ *
+ *  Declared beside {@link TerminalNotFound} on every per-terminal procedure
+ *  behind that gate ({@link TerminalGateErrorSchema}). The two STREAM members
+ *  are the stated exception: a `StreamSpec` has no error channel, and the
+ *  client's attach loop ENDS on `TerminalNotFound` as its teardown verdict, so
+ *  `requireAttachableTerminal` keeps answering not-found there — see its own
+ *  doc in `packages/padi/src/terminals.ts`. */
+export class TerminalNotActive extends Schema.TaggedError<TerminalNotActive>(
+  "padi/TerminalNotActive",
+)("TerminalNotActive", {
+  id: Schema.String,
+  /** The registry arm the record IS in — never `active`, which is the arm that
+   *  would not have raised this. */
+  state: Schema.Literals(["sleeping", "parked"]),
+}) {
+  override get message(): string {
+    return this.state === "parked"
+      ? `Terminal ${this.id} is parked — it is a restore-card placeholder with no live screen; wake it by restoring the session`
+      : `Terminal ${this.id} is asleep — wake it before reading its screen`;
+  }
+}
+
 /** A proposed parent edge that is nonsense in any tree model — a self-parent,
  *  an edge that would close a cycle, or a parent already sitting in one.
  *
@@ -155,6 +189,43 @@ const TERMINAL_NOT_FOUND_TAG: string = new TerminalNotFound({ id: "" })._tag;
  *  no longer exists. */
 export function isTerminalNotFound(err: unknown): boolean {
   return hasTag(err, TERMINAL_NOT_FOUND_TAG);
+}
+
+/** {@link TerminalNotActive}'s tag, read off the class — same discipline as its
+ *  siblings above. The `state` is required by the constructor, so the probe
+ *  instance names an arm; neither field is read. */
+const TERMINAL_NOT_ACTIVE_TAG: string = new TerminalNotActive({
+  id: "",
+  state: "sleeping",
+})._tag;
+
+/** Is `err` a {@link TerminalNotActive} that may have CROSSED A WIRE?
+ *
+ *  Structural on `_tag`, like its siblings. The collapse it prevents is the
+ *  wait kit's: a sleeping terminal's refused attach must NOT settle `gone` (the
+ *  outcome a driver reads as "the agent I was driving died") nor the retryable
+ *  `closed` — it is a REFUSAL, and it propagates out of the wait so the face
+ *  can say "wake it first" instead of waiting out a timeout. */
+export function isTerminalNotActive(err: unknown): boolean {
+  return hasTag(err, TERMINAL_NOT_ACTIVE_TAG);
+}
+
+/** The `{ id, state }` of a {@link TerminalNotActive} that crossed a wire, or
+ *  `undefined` when `err` is not one. The companion of
+ *  {@link isTerminalNotActive} for a face that must RENDER the refusal (the MCP
+ *  face's `structuredContent`, the CLI's line): the value was decoded in
+ *  another realm, so its fields are read structurally too rather than through a
+ *  cast to a class this realm would not recognise. */
+export function terminalNotActiveOf(
+  err: unknown,
+): { readonly id: string; readonly state: "sleeping" | "parked" } | undefined {
+  if (!isTerminalNotActive(err)) return undefined;
+  if (typeof err !== "object" || err === null) return undefined;
+  if (!("state" in err) || !("id" in err)) return undefined;
+  const state: unknown = err.state;
+  const id: unknown = err.id;
+  if (state !== "parked" && state !== "sleeping") return undefined;
+  return typeof id === "string" ? { id, state } : undefined;
 }
 
 // ── Byte writes / reads ───────────────────────────────────────────────────
@@ -314,6 +385,16 @@ export class GitFailed extends Schema.TaggedError<GitFailed>("padi/GitFailed")(
 // than inlining a `Schema.Union` per member in `surface.ts`) is what keeps
 // "which members can fail how" a single readable table.
 
+/** The ACTIVE-TERMINAL gate's two answers, for every member behind
+ *  `requireActiveTerminal`: the id names nothing ({@link TerminalNotFound}), or
+ *  it names a record with no live PTY ({@link TerminalNotActive}). One union so
+ *  the pair cannot drift apart member by member — a procedure that narrows to
+ *  the active arm declares THIS, never one half of it. */
+export const TerminalGateErrorSchema = Schema.Union([
+  TerminalNotFound,
+  TerminalNotActive,
+]);
+
 /** Every fs/git READ can hit a gone file or a git failure. */
 export const FsGitReadErrorSchema = Schema.Union([FileGone, GitFailed]);
 
@@ -329,6 +410,7 @@ export const WorktreeCreateErrorSchema = Schema.Union([
  *  drift from the other or from this file. */
 const PADI_ERROR_CLASSES = [
   TerminalNotFound,
+  TerminalNotActive,
   TerminalParentCycle,
   WatchSubscriptionNotFound,
   ScratchWriteRejected,

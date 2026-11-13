@@ -40,7 +40,7 @@ import type { Command } from "effect/cli";
 // runtime and the per-face dynamic-import fence is untouched.
 import type { snapshotFlags } from "../cli.ts";
 import { type Endpoint, withPadi } from "../endpoint.ts";
-import { failure } from "../exit.ts";
+import { failure, terminalAsleep } from "../exit.ts";
 import { resolveTerminal, writeErr, writeOutBlock } from "./shared.ts";
 
 /** What the command tree hands this verb — DERIVED from `snapshotFlags` in
@@ -76,17 +76,30 @@ export const run = Effect.fn("kolu snapshot")(function* (
   const { text, id } = yield* withPadi(endpoint, (conn) =>
     Effect.gen(function* () {
       const id = yield* resolveTerminal(conn, args.id);
-      const text = yield* Effect.catchTag(
-        conn.client.surface.screen.text(
-          tail === undefined ? { id } : { id, tail },
-        ),
-        "TerminalNotFound",
-        () =>
+      const read = conn.client.surface.screen.text(
+        tail === undefined ? { id } : { id, tail },
+      );
+      // The gate's TWO answers, told apart (kolu#2361). A terminal that ENDED
+      // between the listing and the read is a race the user can only retry; a
+      // terminal that is ASLEEP is still theirs and wakes — so it gets its own
+      // line and its own exit code (4), never the generic failure.
+      const text = yield* read.pipe(
+        Effect.catchTag("TerminalNotFound", () =>
           Effect.fail(
             failure(
               `terminal ${shortId(id)} ended between listing it and reading its screen — nothing to snapshot.`,
             ),
           ),
+        ),
+        Effect.catchTag("TerminalNotActive", (err) =>
+          Effect.fail(
+            terminalAsleep({
+              terminal: shortId(id),
+              state: err.state,
+              attempted: "read its screen",
+            }),
+          ),
+        ),
       );
       return { text, id };
     }),
