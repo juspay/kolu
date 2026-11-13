@@ -102,12 +102,12 @@ export function applyTranscriptScroll(el: {
 }
 
 /** Bring one row into view — the strip's "reveal this row". A row the
- *  transcript has folded into a "Details" is drawn inside a closed
- *  `<details>`, where it has no box to scroll to, so the fold holding it is
- *  opened first. The fold is the row's only `<details>` ANCESTOR (a card's
- *  own disclosures sit inside the row, never around it). Scoped to the
- *  transcript's own container: another mounted copy of the pane must not
- *  receive this one's reveal. */
+ *  transcript has folded into a "Details", or into a run of the same failure,
+ *  is drawn inside a closed `<details>`, where it has no box to scroll to, so
+ *  the disclosure holding it is opened first. That disclosure is the row's
+ *  only `<details>` ANCESTOR (a card's own disclosures sit inside the row,
+ *  never around it). Scoped to the transcript's own container: another
+ *  mounted copy of the pane must not receive this one's reveal. */
 export function revealTranscriptRow(container: Element, rowId: string): void {
   const row = container.querySelector(`[data-row-id="${CSS.escape(rowId)}"]`);
   if (row === null) return;

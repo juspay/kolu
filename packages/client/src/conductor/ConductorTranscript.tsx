@@ -21,7 +21,8 @@
  *  a divider — are folded into one closed "Details" as they settle
  *  (`foldToolRuns`), so the conversation reads as its sentences even while the
  *  Conductor works; what a reader would lose by folding — a running call, a
- *  failure, the line about an agent — stays in the flow. */
+ *  failure, the line about an agent — stays in the flow. The same failure in a
+ *  row is said once, with its count (`foldFailureRuns`). */
 
 import { formatBytes } from "@kolu/byte-units";
 import type { ConductorRow, ConductorToolRow } from "kolu-common/conductor";
@@ -44,6 +45,7 @@ import ConductorAsk from "./ConductorAsk";
 import ConductorToolCard from "./ConductorToolCard";
 import { thumbnailOf } from "./thumbnails";
 import {
+  foldFailureRuns,
   foldNoticeRuns,
   foldToolRuns,
   type TranscriptItem,
@@ -70,9 +72,12 @@ const ConductorTranscript: Component<{
    *  re-applied until there is something to scroll. */
   let placed = false;
   /** What is DRAWN: a run of identical notices is one row carrying its count
-   *  (`foldNoticeRuns`), never eight copies of one fact; and the settled tool
-   *  calls of a run are one closed "Details" (`foldToolRuns`). */
-  const items = createMemo(() => foldToolRuns(foldNoticeRuns(props.rows)));
+   *  (`foldNoticeRuns`), never eight copies of one fact; the settled tool
+   *  calls of a run are one closed "Details" (`foldToolRuns`); and the same
+   *  failure in a row is one line with its count (`foldFailureRuns`). */
+  const items = createMemo(() =>
+    foldFailureRuns(foldToolRuns(foldNoticeRuns(props.rows))),
+  );
 
   // BEFORE the follow effect below, and that order is the fix: declared first,
   // so Solid runs it first and the first follow check measures a container
@@ -180,6 +185,15 @@ const ConductorTranscript: Component<{
               <Match when={foldRowsOf(item())}>
                 {(rows) => <TranscriptFold rows={rows()} />}
               </Match>
+              <Match when={failuresOf(item())}>
+                {(run) => (
+                  <TranscriptFailures
+                    tool={run().tool}
+                    reason={run().reason}
+                    rows={run().rows}
+                  />
+                )}
+              </Match>
               <Match when={entryOf(item())}>
                 {(entry) => (
                   <TranscriptRow row={entry().row} repeat={entry().repeat} />
@@ -204,10 +218,12 @@ const ConductorTranscript: Component<{
   );
 };
 
-/** The two arms of an item, narrowed — what lets each `<Match>` hand its child
- *  a typed accessor instead of re-checking the kind inside it. */
+/** The arms of an item, narrowed — what lets each `<Match>` hand its child a
+ *  typed accessor instead of re-checking the kind inside it. */
 const foldRowsOf = (item: TranscriptItem) =>
   item.kind === "fold" ? item.rows : undefined;
+const failuresOf = (item: TranscriptItem) =>
+  item.kind === "failures" ? item : undefined;
 const entryOf = (item: TranscriptItem) =>
   item.kind === "entry" ? item.entry : undefined;
 
@@ -231,6 +247,36 @@ function TranscriptFold(props: { rows: readonly ConductorToolRow[] }) {
         <span class="ml-1 hidden group-open:inline">⌄</span>
       </summary>
       <div class="mt-2 flex min-w-0 flex-col gap-2.5 border-l-2 border-edge pl-2.5">
+        <Key each={props.rows} by={(row) => row.id}>
+          {(row) => <TranscriptRow row={row()} repeat={1} />}
+        </Key>
+      </div>
+    </details>
+  );
+}
+
+/** The same failure several times in a row, said ONCE: "screen_text failed
+ *  6 times: …", in the danger colour and in the flow — a failure is news, so
+ *  unlike the Details fold this line is the news itself. It opens to the
+ *  individual cards. Keyed by its first failure, so a seventh joining it keeps
+ *  the element, and whether it is open. */
+function TranscriptFailures(props: {
+  tool: string;
+  reason: string;
+  rows: readonly ConductorToolRow[];
+}) {
+  return (
+    <details
+      data-testid="conductor-failures"
+      data-count={props.rows.length}
+      class="group/failures min-w-0"
+    >
+      <summary class="min-w-0 cursor-pointer list-none font-mono text-[0.68rem] text-danger wrap-anywhere [&::-webkit-details-marker]:hidden">
+        <span class="group-open/failures:hidden">▸</span>
+        <span class="hidden group-open/failures:inline">▾</span> {props.tool}{" "}
+        failed {props.rows.length} times: {props.reason}
+      </summary>
+      <div class="mt-2 flex min-w-0 flex-col gap-2.5 border-l-2 border-danger/40 pl-2.5">
         <Key each={props.rows} by={(row) => row.id}>
           {(row) => <TranscriptRow row={row()} repeat={1} />}
         </Key>

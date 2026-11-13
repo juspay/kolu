@@ -14,11 +14,12 @@
  *  timeline.
  *
  *  The READER RULES live here too, beside the rows they read: a run of
- *  identical notices draws as one (`foldNoticeRuns`), and the settled tool
- *  calls between two boundaries fold into one "Details" as they settle
- *  (`foldToolRuns`). Both are pure, so what the panel draws is decided in a
- *  unit test, and neither rewrites a row — `Copy transcript` still reads them
- *  all. */
+ *  identical notices draws as one (`foldNoticeRuns`), the settled tool calls
+ *  between two boundaries fold into one "Details" as they settle
+ *  (`foldToolRuns`), and the same failure in a row draws as one line with its
+ *  count (`foldFailureRuns`). All three are pure, so what the panel draws is
+ *  decided in a unit test, and none rewrites a row — `Copy transcript` still
+ *  reads them all. */
 
 import {
   appendedText,
@@ -27,7 +28,12 @@ import {
   type ConductorSayingSchema,
   type ConductorToolRow,
 } from "kolu-common/conductor";
-import { agentLineSubject } from "./toolCard";
+import {
+  agentLineSubject,
+  callSubject,
+  failureReason,
+  toolLabel,
+} from "./toolCard";
 
 type Saying = typeof ConductorSayingSchema.Type;
 
@@ -174,12 +180,14 @@ export function foldNoticeRuns(
 }
 
 /** One thing the transcript DRAWS, in order: an entry (a row, a notice run
- *  already folded to one), or a FOLD — a closed "Details" holding the settled
- *  tool calls of one stretch of the Conductor's work. `key` is what the list is
- *  keyed by: a row's own id, and for a fold the id of the boundary that OPENS
- *  its run ({@link FOLD_AT_TOP} for the top of the transcript) — which exists
- *  from the run's first call on and never changes after, however many calls
- *  settle into it and whatever closes it later. */
+ *  already folded to one), a FOLD — a closed "Details" holding the settled
+ *  tool calls of one stretch of the Conductor's work — or a FAILURE RUN, the
+ *  same failure several times in a row, drawn as one line with its count.
+ *  `key` is what the list is keyed by: a row's own id; for a fold the id of the
+ *  boundary that OPENS its run ({@link FOLD_AT_TOP} for the top of the
+ *  transcript) — which exists from the run's first call on and never changes
+ *  after, however many calls settle into it and whatever closes it later; and
+ *  for a failure run the id of its first failure. */
 export type TranscriptItem =
   | {
       readonly kind: "entry";
@@ -189,6 +197,16 @@ export type TranscriptItem =
   | {
       readonly kind: "fold";
       readonly key: string;
+      readonly rows: readonly ConductorToolRow[];
+    }
+  | {
+      readonly kind: "failures";
+      readonly key: string;
+      /** The tool, as its cards name it. */
+      readonly tool: string;
+      /** The reason they share, with the terminal each one was about taken
+       *  out — the one thing that differs between them. */
+      readonly reason: string;
       readonly rows: readonly ConductorToolRow[];
     };
 
@@ -261,6 +279,84 @@ export function foldToolRuns(
   }
   flush();
   return items;
+}
+
+/** One failed call that said why, as the run rule compares it. */
+interface Failure {
+  readonly tool: string;
+  readonly reason: string;
+  readonly row: ConductorToolRow;
+}
+
+/** What makes two failures THE SAME failure: the tool, and its reason with
+ *  the terminal it was about taken out — so "Terminal A not found" and
+ *  "Terminal B not found" match. `null` for anything that is not a failed call
+ *  that said why. */
+function failureOf(item: TranscriptItem): Failure | null {
+  if (item.kind !== "entry" || item.entry.row.kind !== "tool") return null;
+  const row = item.entry.row;
+  const said = failureReason(row);
+  if (said === null) return null;
+  const subject = callSubject(row.kolu);
+  const reason = (
+    subject === null
+      ? said
+      : said
+          .replaceAll(`${subject.host}/${subject.id}`, "")
+          .replaceAll(subject.id, "")
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+  return { tool: toolLabel(row), reason, row };
+}
+
+/** The same failure IN A ROW draws as one line carrying its count —
+ *  "screen_text failed 6 times: …" — that opens to the individual cards. The
+ *  notice rule's idea (`foldNoticeRuns`) applied to failed calls: a failure is
+ *  still news, so this is not the Details fold and it stays in the flow; it
+ *  only stops saying the same thing six times. "In a row" is as DRAWN:
+ *  anything drawn between two failures — the Details fold, a boundary, a
+ *  running call, a different failure — separates them, and a settled call
+ *  that joined a fold drawn earlier does not. One failure on its own is drawn
+ *  as it was. */
+export function foldFailureRuns(
+  items: readonly TranscriptItem[],
+): readonly TranscriptItem[] {
+  const out: TranscriptItem[] = [];
+  /** The failures drawn in a row so far, all THE SAME one. */
+  let run: { item: TranscriptItem; failure: Failure }[] = [];
+
+  const flush = () => {
+    const [first] = run;
+    if (first !== undefined && run.length === 1) out.push(first.item);
+    if (first !== undefined && run.length > 1) {
+      out.push({
+        kind: "failures",
+        key: `failures:${first.failure.row.id}`,
+        tool: first.failure.tool,
+        reason: first.failure.reason,
+        rows: run.map((one) => one.failure.row),
+      });
+    }
+    run = [];
+  };
+
+  for (const item of items) {
+    const failure = failureOf(item);
+    const last = run.at(-1)?.failure;
+    if (
+      failure === null ||
+      last === undefined ||
+      failure.tool !== last.tool ||
+      failure.reason !== last.reason
+    ) {
+      flush();
+    }
+    if (failure === null) out.push(item);
+    else run.push({ item, failure });
+  }
+  flush();
+  return out;
 }
 
 /** ONE ROW as plain text — what the header menu's `Copy transcript` puts on

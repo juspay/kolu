@@ -31,9 +31,11 @@ import ConductorLook from "./ConductorLook";
 import {
   agentLineSubject,
   callSubject,
+  failureReason,
   foldJson,
   runningFor,
   sentInput,
+  toolLabel,
   waitedFor,
 } from "./toolCard";
 
@@ -115,13 +117,19 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
    *  card doing its job. A screen tail or a snapshot is EVIDENCE — the
    *  characters a terminal actually put on screen — and a terminal whose last
    *  lines happen to be a JSON document would come back reformatted, which is
-   *  the card editing what it was shown instead of showing it. */
-  const folded = (summary: string, body: string | null, print: boolean) => (
+   *  the card editing what it was shown instead of showing it.
+   *
+   *  ONE ARROW. The browser's own disclosure marker is hidden and the summary
+   *  draws its own, turning with the open state — the named group (`/call`)
+   *  because this `<details>` can sit inside the transcript's fold, and a bare
+   *  `group-open` would answer to THAT one being open. */
+  const folded = (label: string, body: string | null, print: boolean) => (
     <Show when={body}>
       {(text) => (
-        <details class="col-span-full min-w-0">
-          <summary class="font-mono text-[0.65rem] text-fg-3 cursor-pointer">
-            {summary}
+        <details class="group/call col-span-full min-w-0">
+          <summary class="w-fit list-none font-mono text-[0.65rem] text-fg-3 cursor-pointer [&::-webkit-details-marker]:hidden">
+            <span class="group-open/call:hidden">▸</span>
+            <span class="hidden group-open/call:inline">▾</span> {label}
           </summary>
           <pre
             data-testid="conductor-tool-detail"
@@ -133,6 +141,9 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
       )}
     </Show>
   );
+
+  /** Why it failed, when it did: the ONE place a failed card says so. */
+  const reason = () => failureReason(props.row);
 
   return (
     <div
@@ -149,7 +160,7 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
       class="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-1.5 rounded-lg border border-edge bg-surface-1 px-2.5 py-1.5 text-xs"
     >
       <span class="font-mono text-[0.62rem] font-semibold text-fg-3 bg-surface-2 rounded px-1.5 py-px">
-        {props.row.tool ?? props.row.server ?? "tool"}
+        {toolLabel(props.row)}
       </span>
       <span class="min-w-0 truncate">
         {/* WHICH MACHINE, first. One conversation drives terminals on every
@@ -294,17 +305,33 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
           its turn ended and it never reported back
         </div>
       </Show>
+      {/* WHY IT FAILED, once, in the danger colour, where a reader looks
+          first. The same words would otherwise have come back twice — as the
+          call's content below, and as a "screen" — so a failed card draws
+          neither of those. */}
+      <Show when={reason()}>
+        {(why) => (
+          <div
+            data-testid="conductor-tool-reason"
+            class="col-span-full min-w-0 font-mono text-[0.68rem] text-danger whitespace-pre-wrap wrap-anywhere"
+          >
+            {why()}
+          </div>
+        )}
+      </Show>
       {(() => {
         const call = props.row.kolu;
         if (call === undefined)
-          return folded("▸ call", props.row.detail ?? null, true);
+          return folded("call", props.row.detail ?? null, true);
+        // A failed wait or read has no screen: what it holds is the error.
+        if (props.row.status === "failed") return null;
         if (call.kind === "settle")
-          return folded("▸ last lines (screenTail)", call.screenTail, false);
+          return folded("last lines (screenTail)", call.screenTail, false);
         if (call.kind === "screen")
-          return folded("▸ screen", call.snapshot, false);
+          return folded("screen", call.snapshot, false);
         return null;
       })()}
-      <Show when={props.row.progress}>
+      <Show when={props.row.status !== "failed" && props.row.progress}>
         {(progress) => (
           // LIVE CONTENT, wrapped and height-capped. The vertical clip is the
           // point — this is a tail, not a transcript — but a horizontal one
@@ -312,6 +339,7 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
           // and `overflow-hidden` CUT it at the card's edge, so what the agent
           // read was simply gone. `wrap-anywhere` breaks it mid-token instead,
           // which keeps every character on screen and the card at its width.
+          // A failed call's content is its reason, drawn above instead.
           <pre class="col-span-full min-w-0 font-mono text-[0.65rem] text-fg-3 whitespace-pre-wrap wrap-anywhere max-h-24 overflow-hidden">
             {progress()}
           </pre>

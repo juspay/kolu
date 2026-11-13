@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyFrame,
   EMPTY_TRANSCRIPT,
+  foldFailureRuns,
   foldNoticeRuns,
   foldToolRuns,
   type TranscriptItem,
@@ -227,7 +228,9 @@ describe("foldToolRuns", () => {
   /** What the panel draws, as `id` for a row and `[ids]` for a fold. */
   const drawn = (rows: ConductorRow[]): (string | string[])[] =>
     foldToolRuns(foldNoticeRuns(rows)).map((item: TranscriptItem) =>
-      item.kind === "fold" ? item.rows.map((row) => row.id) : item.entry.row.id,
+      item.kind === "entry"
+        ? item.entry.row.id
+        : item.rows.map((row) => row.id),
     );
 
   it("folds the calls between two pieces of prose into ONE fold", () => {
@@ -365,5 +368,124 @@ describe("foldToolRuns", () => {
     expect(working).toBe("fold:u");
     expect(settled).toBe(working);
     expect(spoken).toBe(working);
+  });
+});
+
+describe("foldFailureRuns", () => {
+  const SINCE = "2026-01-01T00:00:00.000Z";
+  /** A failed `screen_text` on one terminal, answered the way the MCP edge
+   *  answers a terminal padi does not hold. */
+  const unread = (id: string, seq: number, terminal: string): ConductorRow =>
+    ({
+      id,
+      seq,
+      since: SINCE,
+      kind: "tool",
+      text: "screen_text",
+      status: "failed",
+      tool: "screen_text",
+      server: "kolu",
+      progress: `\`\`\`\nsurface-mcp: Terminal ${terminal} not found\n\`\`\``,
+      kolu: {
+        kind: "screen",
+        terminalId: terminal,
+        host: "remote:srid@zest",
+        name: null,
+        snapshot: `surface-mcp: Terminal ${terminal} not found`,
+      },
+    }) as unknown as ConductorRow;
+  const failed = (
+    id: string,
+    seq: number,
+    tool: string,
+    progress: string,
+  ): ConductorRow =>
+    ({
+      id,
+      seq,
+      since: SINCE,
+      kind: "tool",
+      text: tool,
+      status: "failed",
+      tool,
+      progress,
+    }) as unknown as ConductorRow;
+  const settled = (id: string, seq: number): ConductorRow =>
+    ({
+      id,
+      seq,
+      since: SINCE,
+      kind: "tool",
+      text: id,
+      status: "completed",
+    }) as unknown as ConductorRow;
+  const user = (id: string, seq: number): ConductorRow => ({
+    id,
+    seq,
+    since: SINCE,
+    kind: "user",
+    text: "status?",
+    attachments: [],
+  });
+  const drawn = (rows: ConductorRow[]) =>
+    foldFailureRuns(foldToolRuns(foldNoticeRuns(rows))).map(
+      (item: TranscriptItem) =>
+        item.kind === "failures"
+          ? `${item.tool} ×${item.rows.length}: ${item.reason}`
+          : item.kind === "fold"
+            ? item.rows.map((row) => row.id)
+            : item.entry.row.id,
+    );
+
+  it("says the same failure on six terminals ONCE, with the terminal taken out", () => {
+    expect(
+      drawn([
+        user("u", 0),
+        ...["a", "b", "c", "d", "e", "f"].map((t, i) =>
+          unread(`s${i}`, i + 1, `${t}${t}${t}-terminal`),
+        ),
+      ]),
+    ).toEqual(["u", "screen_text ×6: Terminal not found"]);
+  });
+
+  it("is a run as drawn: a settled call that joined a fold drawn earlier does not split it", () => {
+    expect(
+      drawn([
+        user("u", 0),
+        settled("look", 1),
+        unread("s1", 2, "t1"),
+        settled("ok", 3),
+        unread("s2", 4, "t2"),
+      ]),
+    ).toEqual(["u", ["look", "ok"], "screen_text ×2: Terminal not found"]);
+  });
+
+  it("splits on a different reason, a different tool, and anything drawn between", () => {
+    expect(
+      drawn([
+        user("u", 0),
+        unread("s1", 1, "t1"),
+        failed("x", 2, "screen_text", "the host is not connected"),
+        failed("y", 3, "Bash", "exit 1"),
+        failed("z", 4, "Bash", "exit 1"),
+        user("u2", 5),
+        failed("w", 6, "Bash", "exit 1"),
+      ]),
+    ).toEqual(["u", "s1", "x", "Bash ×2: exit 1", "u2", "w"]);
+  });
+
+  it("keys a run by its first failure, steady as more join it", () => {
+    const keyOf = (count: number) =>
+      foldFailureRuns(
+        foldToolRuns(
+          foldNoticeRuns(
+            Array.from({ length: count }, (_, i) =>
+              unread(`s${i}`, i, `t${i}`),
+            ),
+          ),
+        ),
+      ).find((item) => item.kind === "failures")?.key;
+    expect(keyOf(2)).toBe("failures:s0");
+    expect(keyOf(6)).toBe(keyOf(2));
   });
 });
