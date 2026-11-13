@@ -31,6 +31,7 @@ vi.mock("../canvas/dock/useDockFocus", () => ({
 vi.mock("./ConductorDiffs", () => ({ default: () => null }));
 
 import ConductorToolCard from "./ConductorToolCard";
+import { ConductorShown } from "./conductorShown";
 
 const TERMINAL = "11111111-1111-4111-8111-111111111111" as TerminalId;
 
@@ -67,7 +68,14 @@ afterEach(() => {
 function mount(host: string | null): HTMLElement {
   root = document.createElement("div");
   document.body.append(root);
-  dispose = render(() => <ConductorToolCard row={row(host)} />, root);
+  dispose = render(
+    () => (
+      <ConductorShown.Provider value={() => true}>
+        <ConductorToolCard row={row(host)} />
+      </ConductorShown.Provider>
+    ),
+    root,
+  );
   return root;
 }
 
@@ -128,7 +136,14 @@ describe("a failed call", () => {
   const mountRow = (one: ConductorToolRow): HTMLElement => {
     root = document.createElement("div");
     document.body.append(root);
-    dispose = render(() => <ConductorToolCard row={one} />, root);
+    dispose = render(
+      () => (
+        <ConductorShown.Provider value={() => true}>
+          <ConductorToolCard row={one} />
+        </ConductorShown.Provider>
+      ),
+      root,
+    );
     return root;
   };
 
@@ -169,7 +184,14 @@ describe("the payload under a card kolu recognises", () => {
   const mountRow = (one: ConductorToolRow): HTMLElement => {
     root = document.createElement("div");
     document.body.append(root);
-    dispose = render(() => <ConductorToolCard row={one} />, root);
+    dispose = render(
+      () => (
+        <ConductorShown.Provider value={() => true}>
+          <ConductorToolCard row={one} />
+        </ConductorShown.Provider>
+      ),
+      root,
+    );
     return root;
   };
 

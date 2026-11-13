@@ -25,10 +25,10 @@ import { type Component, Show } from "solid-js";
 import { useDockFocus } from "../canvas/dock/useDockFocus";
 import { hostLabel } from "../host/hostChipTone";
 import { selectHostTab } from "../host/selectHostTab";
-import { getClockNow } from "../time/clock";
 import { isDesktop } from "../useMobile";
 import ConductorDiffs from "./ConductorDiffs";
 import ConductorLook from "./ConductorLook";
+import { useShownClock } from "./conductorShown";
 import {
   agentLineSubject,
   callSubject,
@@ -56,14 +56,16 @@ const STATUS_CLASS: Record<ConductorToolRow["status"], string> = {
 
 const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
   const focus = useDockFocus();
-  const now = getClockNow();
+  const now = useShownClock();
 
-  /** READ THE CLOCK ONLY WHILE THE CALL IS RUNNING. `now()` is the app's one
-   *  1 s tick, and a transcript holds every tool call a conversation ever made:
-   *  reading it unconditionally subscribed every finished card to a signal that
-   *  invalidates once a second, so a long session re-ran hundreds of memos for
-   *  a number that cannot change. The status check short-circuits before the
-   *  read, so a settled card holds no subscription at all. */
+  /** READ THE CLOCK ONLY WHILE THE CALL IS RUNNING, AND ONLY WHILE THE PANE
+   *  IS SHOWN. `now()` is the app's one 1 s tick (stopped for a hidden pane by
+   *  `conductorShown.ts`), and a transcript holds every tool call a
+   *  conversation ever made: reading it unconditionally subscribed every
+   *  finished card to a signal that invalidates once a second, so a long
+   *  session re-ran hundreds of memos for a number that cannot change. The
+   *  status check short-circuits before the read, so a settled card holds no
+   *  subscription at all. */
   const clock = () =>
     props.row.status === "in_progress" ? runningFor(props.row, now()) : null;
 

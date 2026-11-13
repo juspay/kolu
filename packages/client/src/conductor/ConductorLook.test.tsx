@@ -48,6 +48,7 @@ vi.mock("../settings/useTips", () => ({
 }));
 
 import ConductorLook, { LOOK_EVERY_MS, LOOK_LINES } from "./ConductorLook";
+import { ConductorShown } from "./conductorShown";
 
 /** An active terminal whose agent is working and says what on. */
 const working = (): FleetTerminalStanding => ({
@@ -78,11 +79,20 @@ class StubObserver {
 let dispose: (() => void) | undefined;
 let root: HTMLElement | undefined;
 
+/** Is the conductor pane the shown view? The pane is retained across a tab
+ *  switch, so this is the fact — not the element's geometry — that decides
+ *  whether Look is allowed to read a machine's screen. */
+const [shown, setShown] = createSignal(true);
+
 function mount(rowId = "row-1"): HTMLElement {
   root = document.createElement("div");
   document.body.append(root);
   dispose = render(
-    () => <ConductorLook rowId={rowId} host="remote:srid@zest" id={TERMINAL} />,
+    () => (
+      <ConductorShown.Provider value={shown}>
+        <ConductorLook rowId={rowId} host="remote:srid@zest" id={TERMINAL} />
+      </ConductorShown.Provider>
+    ),
     root,
   );
   return root;
@@ -102,6 +112,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal("IntersectionObserver", StubObserver);
   inView = true;
+  setShown(true);
   seam.reads = [];
   seam.reply = () => Effect.succeed("line one\nline two");
   setStanding(working());
@@ -204,5 +215,63 @@ describe("an agent line", () => {
     const again = mount("kept");
     expect(toggle(again)?.getAttribute("aria-expanded")).toBe("true");
     expect(toggle(again)?.textContent).toBe("Hide");
+  });
+
+  it("reads nothing while the pane is hidden, and picks up when it is shown again", async () => {
+    // THE RETAINED PANE'S CONTRACT. Leaving for a host tab does not unmount
+    // this Look — it stays open, which is the whole point — so the only thing
+    // standing between a conversation somebody left an hour ago and a poll
+    // against a real machine every two seconds is `shown()`.
+    setShown(false);
+    const el = mount("hidden");
+    toggle(el)?.click();
+    await vi.advanceTimersByTimeAsync(LOOK_EVERY_MS * 3);
+    expect(seam.reads).toEqual([]);
+    // Still OPEN while hidden: the toggle was not undone, only the work was.
+    expect(toggle(el)?.textContent).toBe("Hide");
+
+    setShown(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(seam.reads).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(LOOK_EVERY_MS * 2);
+    expect(seam.reads.length).toBeGreaterThanOrEqual(2);
+
+    // And it stops again on the way out, rather than only starting.
+    setShown(false);
+    const whileShown = seam.reads.length;
+    await vi.advanceTimersByTimeAsync(LOOK_EVERY_MS * 3);
+    expect(seam.reads).toHaveLength(whileShown);
+  });
+
+  it("keeps the SAME element across the trip, open tail and all", async () => {
+    // Element identity, the way `/solidjs` asks for it: a marker put on the
+    // node by hand cannot survive a rebuild, so finding it afterwards is proof
+    // that nothing was re-created — and the open tail's own lines are proof
+    // that the view came back as it was left rather than re-fetched.
+    const el = mount("identity");
+    toggle(el)?.click();
+    await vi.advanceTimersByTimeAsync(0);
+    const before = el.querySelector('[data-testid="conductor-look"]');
+    const tailBefore = el.querySelector('[data-testid="conductor-look-tail"]');
+    expect(before).not.toBeNull();
+    expect(tailBefore).not.toBeNull();
+    (before as HTMLElement & { marker?: string }).marker = "same node";
+
+    setShown(false);
+    await vi.advanceTimersByTimeAsync(LOOK_EVERY_MS);
+    setShown(true);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const after = el.querySelector('[data-testid="conductor-look"]');
+    expect(after).toBe(before);
+    expect((after as HTMLElement & { marker?: string }).marker).toBe(
+      "same node",
+    );
+    expect(el.querySelector('[data-testid="conductor-look-tail"]')).toBe(
+      tailBefore,
+    );
+    expect(
+      el.querySelector('[data-testid="conductor-look-lines"]')?.textContent,
+    ).toContain("line two");
   });
 });

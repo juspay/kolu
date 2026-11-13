@@ -247,6 +247,30 @@ When(
   },
 );
 
+Then(
+  "the answered question should read {string}",
+  async function (this: KoluWorld, line: string) {
+    // THE RECORD, read off the settled card: the question and the answer, on
+    // one line. The form is gone by now, so this is the only place either of
+    // them can still be read — a card that collapsed to `answered` fails here.
+    const ask = this.page.locator(ASK).last();
+    await pollFor({
+      observe: async () =>
+        (
+          await ask
+            .locator('[data-testid="conductor-ask-answer"]')
+            .allTextContents()
+        ).map((one) => one.replace(/\s+/g, " ").trim()),
+      isDone: (read) => read.includes(line),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (read, elapsedMs) =>
+        new Error(
+          `after ${elapsedMs}ms the settled question reads ${JSON.stringify(read)}, not ${JSON.stringify(line)}`,
+        ),
+    });
+  },
+);
+
 Then("the conductor pane should be visible", async function (this: KoluWorld) {
   await this.page
     .locator(PANE)
@@ -1617,5 +1641,63 @@ Then(
     const phases = this.page.locator(PHASE);
     assert.equal(await phases.count(), 1);
     assert.equal(await this.page.locator(`${STATUS} ${PHASE}`).count(), 1);
+  },
+);
+
+When("I mark the conductor pane", async function (this: KoluWorld) {
+  // A JS EXPANDO, not a `data-` attribute: an attribute is markup, and a pane
+  // rebuilt from the same JSX would come back wearing it. A property set on
+  // the node by hand exists only on THAT object, so finding it again is proof
+  // the element itself survived — the identity check `/solidjs` asks for.
+  //
+  // The value is built here, at run time, so it cannot be anything the page's
+  // own source could have put there.
+  const marker = `kolu-pane-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  this.conductorPaneMarker = marker;
+  const pane = this.page.locator(PANE);
+  await pane.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await pane.evaluate((el, value) => {
+    (el as HTMLElement & { koluPaneMarker?: string }).koluPaneMarker = value;
+  }, marker);
+});
+
+Then(
+  "the conductor pane should be the one I marked",
+  async function (this: KoluWorld) {
+    const marker = this.conductorPaneMarker;
+    assert.ok(marker, "no conductor pane was marked");
+    const pane = this.page.locator(PANE);
+    await pane.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const found = await pane.evaluate(
+      (el) => (el as HTMLElement & { koluPaneMarker?: string }).koluPaneMarker,
+    );
+    assert.equal(
+      found,
+      marker,
+      found === undefined
+        ? "the conductor pane came back as a NEW element — it was rebuilt rather than retained, so everything that was open in it was thrown away"
+        : `the conductor pane carries ${JSON.stringify(found)}, not the marker ${JSON.stringify(marker)}`,
+    );
+  },
+);
+
+Then(
+  "the conductor composer should still hold {string}",
+  async function (this: KoluWorld, text: string) {
+    await waitForValue(
+      "the conductor composer's text after the round trip",
+      () => this.page.locator(INPUT).inputValue(),
+      text,
+    );
+  },
+);
+
+When(
+  "I type {string} into the conductor without sending",
+  async function (this: KoluWorld, text: string) {
+    const input = this.page.locator(INPUT);
+    await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await input.click();
+    await input.fill(text);
   },
 );

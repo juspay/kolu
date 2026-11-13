@@ -6,6 +6,11 @@
  *  two buttons are *answer with what I picked* and *I would not say*, and the
  *  second one tells the agent exactly that rather than fabricating a choice.
  *
+ *  ANSWERING DOES NOT ERASE IT. A settled card keeps reading as what it was —
+ *  every question, with what was said to it on its line ({@link ./askRecord})
+ *  — and adds how it ended. The card that collapsed to the bare word
+ *  `answered` threw away both halves of the exchange a day later.
+ *
  *  Drafts are kept per question (`./drafts`), so half-filling one form, scrolling
  *  away, and coming back does not lose the pick. They are dropped the moment the
  *  question stops waiting.
@@ -21,6 +26,7 @@ import {
   YES_NO,
 } from "kolu-common/conductor";
 import { type Component, createMemo, For, Match, Show, Switch } from "solid-js";
+import { askLead, askQuestions, askRecord } from "./askRecord";
 import { askDraft, forgetAskDraft, setAskDraft } from "./drafts";
 import { useConductor } from "./useConductor";
 
@@ -34,9 +40,7 @@ const ConductorAsk: Component<{ row: ConductorAskRow }> = (props) => {
   const settled = () => ask().outcome !== null;
   /** The fields that are questions in their own right — an `attachedTo` field
    *  belongs inside the block of the field it extends. */
-  const questions = createMemo(() =>
-    ask().fields.filter((field) => field.attachedTo === null),
-  );
+  const questions = createMemo(() => askQuestions(props.row));
   const otherFor = (key: string) =>
     ask().fields.find((field) => field.attachedTo === key);
   /** Is this value in the draft for this field — the one predicate every
@@ -83,7 +87,18 @@ const ConductorAsk: Component<{ row: ConductorAskRow }> = (props) => {
         <span class="text-alert text-base leading-none">✱</span>
         <b class="text-[0.78rem]">Conductor asks you</b>
       </header>
-      <p class="text-fg whitespace-pre-wrap">{props.row.text}</p>
+      {/* The ask's own sentence, only where it says something the fields do
+          not — see {@link askLead}. */}
+      <Show when={askLead(props.row)}>
+        {(lead) => (
+          <p
+            data-testid="conductor-ask-text"
+            class="text-fg whitespace-pre-wrap"
+          >
+            {lead()}
+          </p>
+        )}
+      </Show>
       <Show when={ask().link}>
         {(link) => (
           <a
@@ -100,12 +115,36 @@ const ConductorAsk: Component<{ row: ConductorAskRow }> = (props) => {
       <Show
         when={!settled()}
         fallback={
-          <p
-            data-testid="conductor-ask-outcome"
-            class="mt-2 font-mono text-[0.65rem] text-fg-3"
-          >
-            {ask().outcome?.how}
-          </p>
+          <>
+            {/* THE RECORD: what was asked and what was said, one line each.
+                Drawn for every ending — a declined or withdrawn form lists its
+                questions with nothing beside them, which is exactly what
+                happened to them. */}
+            <ul class="mt-2 list-none m-0 p-0 flex flex-col gap-0.5">
+              <For each={askRecord(props.row)}>
+                {(line) => (
+                  <li
+                    data-testid="conductor-ask-answer"
+                    data-field={line.key}
+                    class="text-fg-2"
+                  >
+                    <span class="font-mono text-[0.62rem] uppercase tracking-[0.1em] text-fg-3">
+                      {line.question}
+                    </span>
+                    <Show when={line.answer}>
+                      {(answer) => <span class="text-fg"> — {answer()}</span>}
+                    </Show>
+                  </li>
+                )}
+              </For>
+            </ul>
+            <p
+              data-testid="conductor-ask-outcome"
+              class="mt-2 font-mono text-[0.65rem] text-fg-3"
+            >
+              {ask().outcome?.how}
+            </p>
+          </>
         }
       >
         <For each={questions()}>

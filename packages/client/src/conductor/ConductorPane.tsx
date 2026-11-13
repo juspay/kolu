@@ -8,12 +8,19 @@
  *  line and its Look at the terminal's screen — and reached on the host tab it
  *  lives on (which every tool card offers, in one press).
  *
- *  Mounted only while the conductor entry is selected (desktop) or the
- *  sheet is open (touch), and it owns the transcript subscription for exactly
- *  that long — the stream is snapshot-then-deltas, so re-entering re-syncs
- *  rather than replaying. Everything that must survive a round trip (the
- *  composer's text, a half-filled answer, the cell itself) lives in a singleton
- *  outside this component.
+ *  Mounted on the first visit and then RETAINED for the page's life: leaving
+ *  for a host tab hides it (`App.tsx`'s out-of-flow host with
+ *  `content-visibility: hidden`) rather than unmounting it, so everything a
+ *  person had open in here is still open on the way back. The subtree asks
+ *  `useConductorShown()` before doing any work, because a retained view that
+ *  kept reading screens and ticking clocks for nobody would be a worse bug
+ *  than the one retention fixes. The transcript subscription is therefore
+ *  opened ONCE, on that first visit, and held: it is snapshot-then-deltas and
+ *  idle-cheap, and a stream that closed and re-synced on every tab switch is
+ *  exactly the round-trip cost the retained pane exists to stop. The
+ *  composer's text, a half-filled answer and the cell itself still live in a
+ *  singleton outside this component — they outlive a NEW SESSION, which the
+ *  pane does not.
  *
  *  `install.kind === "absent"` is a HARD face, not a degraded one: the ACP
  *  adapter is baked into kolu's closure, so its absence is either a build that
@@ -26,6 +33,7 @@ import { toast } from "solid-sonner";
 import { useDialogStack } from "../ui/useDialogStack";
 import { attachDroppedFiles } from "./attachFiles";
 import { completionOpen } from "./drafts";
+import { useConductorShown } from "./conductorShown";
 import ConductorComposer from "./ConductorComposer";
 import ConductorHeader from "./ConductorHeader";
 import ConductorSignIn from "./ConductorSignIn";
@@ -65,9 +73,15 @@ const ConductorPane: Component<{
   // every dialog (palette, Settings, About, the intent editor, a confirm) for
   // free. Same rule for an open completion menu, which `drafts.ts` publishes
   // for the same reason.
+  const shown = useConductorShown();
   const standDown = (): boolean =>
     completionOpen() || dialogStack.openCount() > 0;
   makeEventListener(window, "keydown", (event: KeyboardEvent) => {
+    // A HIDDEN PANE TAKES NO KEYS. The pane outlives the trip to a host tab
+    // now, and a window listener that outlived it with it would leave the
+    // conversation's `Escape` armed over a terminal — dismissing a mode the
+    // reader is not in, on a press meant for whatever they are looking at.
+    if (!shown()) return;
     // `defaultPrevented` is the other half of "an overlay won": a dismiss that
     // handled the key without stopping it still reaches here, and leaving on
     // the same press would close two things with one `Esc`.

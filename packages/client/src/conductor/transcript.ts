@@ -28,6 +28,7 @@ import {
   type ConductorSayingSchema,
   type ConductorToolRow,
 } from "kolu-common/conductor";
+import { askLead, askRecord } from "./askRecord";
 import {
   agentLineSubject,
   callSubject,
@@ -413,8 +414,21 @@ function rowText(row: ConductorRow): string {
       ].join("\n");
     case "tool":
       return `tool: ${row.text} [${row.status}]`;
-    case "ask":
-      return `ask: ${row.text}`;
+    case "ask": {
+      // THE EXCHANGE, not the headline: a question and what was said to it is
+      // the part of a conversation somebody pasting it into an issue most
+      // needs, and the card on screen reads the same lines
+      // ({@link ./askRecord}) so the clipboard cannot disagree with it.
+      const lead = askLead(row);
+      return [
+        `ask:${lead === null ? "" : ` ${lead}`}`,
+        ...askRecord(row).map(
+          (line) =>
+            `  ${line.question}${line.answer === null ? "" : ` — ${line.answer}`}`,
+        ),
+        ...(row.ask.outcome === null ? [] : [`  [${row.ask.outcome.how}]`]),
+      ].join("\n");
+    }
     case "notice":
       return `note: ${row.text}`;
     case "divider":

@@ -23,9 +23,9 @@
 
 import type { ConductorRow, ConductorState } from "kolu-common/conductor";
 import { type Component, createMemo, createSignal, Show } from "solid-js";
-import { getClockNow } from "../time/clock";
 import Tip from "../ui/Tip";
 import ConductorWatchedPanel from "./ConductorWatchedPanel";
+import { useShownClock } from "./conductorShown";
 import { statusDetail, statusSince } from "./conductorStatus";
 
 /** The line's ink, by what the conversation is doing — the header chip's own
@@ -57,7 +57,10 @@ const ConductorStatus: Component<{
   /** The transcript as it is drawn — where "what it is doing" is read from. */
   rows: readonly ConductorRow[];
 }> = (props) => {
-  const now = getClockNow();
+  // The 1 s tick, STOPPED while the pane is hidden (`conductorShown.ts`): the
+  // pane is retained behind a host tab, and a second hand nobody can see is a
+  // re-render a second for a readout that is not on screen.
+  const now = useShownClock();
   // TWO DERIVATIONS, so the 1 s tick moves the one thing it can move. What
   // the conversation is doing is read off the transcript and the phase; how
   // long it has been at it is the only part that reads the clock. Folded
@@ -67,6 +70,10 @@ const ConductorStatus: Component<{
   const since = createMemo(() =>
     statusSince(props.state.phase, props.state.busySince, now()),
   );
+  // The panel's open/closed, LOCAL — and it stays open across a trip to a
+  // host tab, because the pane that holds this signal is retained rather than
+  // rebuilt (`App.tsx`). Hoisting it to a module would say the opposite: that
+  // it has to outlive its own view.
   const [open, setOpen] = createSignal(false);
   const watched = () => props.state.watched.length;
   const held = () => props.state.held.length;

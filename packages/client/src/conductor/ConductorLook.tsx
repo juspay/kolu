@@ -15,16 +15,21 @@
  *  THE TAIL is what Look opens: the last {@link LOOK_LINES} lines of that
  *  terminal's screen, as read-only text, read with `screen.text { id, tail }`
  *  from the terminal's OWN host and re-read every {@link LOOK_EVERY_MS} ms. It
- *  reads only while somebody can see it — open, on screen, and in a visible
- *  tab — because a transcript can hold a dozen agent lines and each one left
- *  open would otherwise poll a machine forever for a box scrolled out of view.
- *  Closed, nothing is fetched: the reader is a child that exists only while
- *  the tail is open, so closing it is what ends the work.
+ *  reads only while somebody can see it — open, on screen, in a visible tab,
+ *  and in a conductor pane that is the shown view (`useConductorShown`) —
+ *  because a transcript can hold a dozen agent lines and each one left open
+ *  would otherwise poll a machine forever for a box scrolled out of view, or
+ *  for a conversation the reader left ten minutes ago. Closed, nothing is
+ *  fetched: the reader is a child that exists only while the tail is open, so
+ *  closing it is what ends the work.
  *
- *  WHETHER IT IS OPEN lives outside the card, keyed by the row's id. The
- *  transcript replaces a row object on every update and a card can be rebuilt
- *  under it (a fold, a remount of the pane); a person who opened Look on the
- *  planner expects it still open when they come back to it.
+ *  WHETHER IT IS OPEN lives outside the card, keyed by the row's id. The pane
+ *  itself is retained across a tab switch now, so this is no longer what
+ *  survives that trip — but the transcript still replaces a row OBJECT on
+ *  every update and still moves a settled call into its "Details" fold, which
+ *  rebuilds the card under the person who opened it. A Look opened on the
+ *  planner is expected still open when the card comes back, so the answer
+ *  stays keyed by the row rather than held in the card.
  *
  *  A failed read is SHOWN, beside whatever the last good read was — never an
  *  empty box, which would read as an agent with nothing on its screen. */
@@ -58,6 +63,7 @@ import {
   stateTones,
 } from "../ui/agentDisplay";
 import { padiRpcOf } from "../wire";
+import { useConductorShown } from "./conductorShown";
 
 /** How much of the screen Look shows. */
 export const LOOK_LINES = 40;
@@ -66,7 +72,8 @@ export const LOOK_LINES = 40;
 export const LOOK_EVERY_MS = 2_000;
 
 /** Which rows have Look open, by row id. Module-level so the answer outlives
- *  the card that drew it (see the header). */
+ *  the card that drew it — a fold swallowing a settled call, a row object
+ *  replaced by an update (see the header). */
 const [opened, setOpened] = createStore<Record<string, true | undefined>>({});
 
 /** The dot's paint, per agent tone — the same families the dock pip and the
@@ -113,10 +120,14 @@ const ConductorLook: Component<{
   });
   const lookable = () => live() !== undefined;
   const { showTipOnce } = useTips();
+  const shown = useConductorShown();
   // The first agent line with something to look at is the moment Look is
-  // worth announcing; `showTipOnce` keeps it to once per browser.
+  // worth announcing; `showTipOnce` keeps it to once per browser. A pane kept
+  // alive behind a host tab must not spend that one announcement on a toast
+  // over somebody's terminal, so it waits until the conversation is the view
+  // being read.
   createEffect(() => {
-    if (lookable()) showTipOnce(CONTEXTUAL_TIPS.conductorLook);
+    if (shown() && lookable()) showTipOnce(CONTEXTUAL_TIPS.conductorLook);
   });
 
   const status = createMemo((): Status => {
@@ -220,8 +231,14 @@ const LookTail: Component<{ host: string; id: TerminalId }> = (props) => {
   /** The last read's failure, cleared by the next read that succeeds. */
   const [failure, setFailure] = createSignal<string | null>(null);
 
+  const shown = useConductorShown();
   createEffect(() => {
-    if (!onScreen() || !tabVisible()) return;
+    // THREE GATES, one of them not about this box at all: the pane may be
+    // retained behind a host tab, in which case the whole conversation is off
+    // screen however well laid out this tail is. It is asked FIRST and as a
+    // contextual fact — never inferred from the element, whose observer and
+    // measurements describe layout rather than attention.
+    if (!shown() || !onScreen() || !tabVisible()) return;
     const host = decodeHostKey(props.host);
     const id = props.id;
     const readOnce = Effect.suspend(() =>

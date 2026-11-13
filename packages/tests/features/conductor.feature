@@ -308,6 +308,9 @@ Feature: The Conductor
     And there should be no page errors
 
   Scenario: A question the agent asks is answered from the transcript
+    # And the answer STAYS: a settled card is the record of the exchange, so
+    # the question and what was said to it are both still on screen after the
+    # form is gone — not the bare word `answered`.
     When I create a terminal
     And I enter conductor mode
     And I send the conductor the prompt "ask me something"
@@ -316,6 +319,7 @@ Feature: The Conductor
     When I answer the conductor's question with "30"
     Then the conductor should not be asking
     And the conductor tab should show no badge
+    And the answered question should read "Retention — 30"
     And there should be no page errors
 
   Scenario: An unanswered question is a needs-you source from the tab row

@@ -29,9 +29,11 @@ import {
   type ConductorState,
 } from "kolu-common/conductor";
 import { Effect } from "effect";
+import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ConductorHeader from "./ConductorHeader";
+import { ConductorShown } from "./conductorShown";
 
 const verbs = vi.hoisted(() => ({
   clearSession: vi.fn(),
@@ -77,18 +79,23 @@ afterEach(() => {
   writeTextToClipboard.mockClear();
 });
 
-function mount(over: Partial<ConductorState> = {}): {
+function mount(
+  over: Partial<ConductorState> = {},
+  shown: () => boolean = () => true,
+): {
   at: (testid: string) => HTMLElement | undefined;
 } {
   root = document.createElement("div");
   document.body.append(root);
   dispose = render(
     () => (
-      <ConductorHeader
-        state={{ ...DEFAULT_CONDUCTOR_STATE, phase: "idle", ...over }}
-        rows={ROWS}
-        onSignIn={() => {}}
-      />
+      <ConductorShown.Provider value={shown}>
+        <ConductorHeader
+          state={{ ...DEFAULT_CONDUCTOR_STATE, phase: "idle", ...over }}
+          rows={ROWS}
+          onSignIn={() => {}}
+        />
+      </ConductorShown.Provider>
     ),
     root,
   );
@@ -117,6 +124,20 @@ describe("the header's ⋯", () => {
     expect(verbs.clearSession).not.toHaveBeenCalled();
     expect(verbs.newSession).not.toHaveBeenCalled();
     expect(verbs.cancel).not.toHaveBeenCalled();
+  });
+
+  it("takes the menu off the page when the pane stops being the shown view", () => {
+    // The pane is RETAINED behind a host tab, and this menu is PORTALLED to
+    // the document — so hiding the pane hides everything except exactly this.
+    // An open `⋯` panel left over a person's terminals would take their next
+    // click and their next `Escape`.
+    const [shown, setShown] = createSignal(true);
+    const { at } = mount({}, shown);
+    open(at);
+    expect(at("conductor-menu-panel")).toBeDefined();
+
+    setShown(false);
+    expect(at("conductor-menu-panel")).toBeUndefined();
   });
 
   it("wipes only after the confirm step", () => {

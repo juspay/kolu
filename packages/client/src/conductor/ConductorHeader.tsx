@@ -15,11 +15,12 @@
  *  acts on its own press. */
 
 import type { ConductorRow, ConductorState } from "kolu-common/conductor";
-import { type Component, createSignal, Show } from "solid-js";
+import { type Component, createEffect, createSignal, Show } from "solid-js";
 import Tip from "../ui/Tip";
 import { isDesktop } from "../useMobile";
 import ConductorMenu from "./ConductorMenu";
 import ConductorSettings from "./ConductorSettings";
+import { useConductorShown } from "./conductorShown";
 
 /** Tokens at the scale a context window is discussed in. Not bytes — these are
  *  the agent's own units, and `148k` is how a person says the number. */
@@ -48,6 +49,19 @@ const ConductorHeader: Component<{
   let menuRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [menuOpen, setMenuOpen] = createSignal(false);
+  // BOTH POPOVERS WITHDRAW WHEN THE PANE GOES BEHIND A HOST TAB. They are
+  // PORTALLED to the document, so they are not hidden by the pane's own
+  // `content-visibility` — an open `⋯` panel would stay on screen over
+  // somebody's terminals, taking clicks and `Escape` for a conversation that
+  // is no longer the view. Closing them is the retained pane's side of the
+  // bargain: everything IN the pane is kept, everything it put on top of the
+  // page is taken back.
+  const shown = useConductorShown();
+  createEffect(() => {
+    if (shown()) return;
+    setSettingsOpen(false);
+    setMenuOpen(false);
+  });
   const usage = () => props.state.usage;
   const identity = () => props.state.identity;
   /** KNOWN signed in. The cell's rule is that silence is not logged out, so

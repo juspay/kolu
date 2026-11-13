@@ -43,6 +43,7 @@ import {
 import ScrollToBottom from "../terminal/ScrollToBottom";
 import ConductorAsk from "./ConductorAsk";
 import ConductorToolCard from "./ConductorToolCard";
+import { useConductorShown } from "./conductorShown";
 import { thumbnailOf } from "./thumbnails";
 import {
   foldFailureRuns,
@@ -101,27 +102,41 @@ const ConductorTranscript: Component<{
     return `${rows.length}:${last === undefined || last.kind === "plan" ? 0 : last.text.length}`;
   });
 
+  const shown = useConductorShown();
   createEffect(
     // `on`, so the body's reads of the ELEMENT are not dependencies and the
-    // deps are exactly these two: what was drawn, and whether the reader is
-    // following. The pin is a dep because the pill and a sent message re-pin
-    // with no row arriving, and the view must move then too.
-    on([signature, transcriptPinned], ([drawn, pinned], prev) => {
-      if (!placed) {
-        applyTranscriptScroll(scroller);
-        placed = scroller.scrollHeight > scroller.clientHeight;
-        return;
-      }
-      // NOT `atEnd(scroller)`. The rows are already in the column by now, so
-      // that measurement answers about the chunk that just landed, not about
-      // the reader — which is precisely how the transcript stopped following.
-      if (pinned) {
-        scroller.scrollTop = scroller.scrollHeight;
-        setUnseen(false);
-        return;
-      }
-      if (prev !== undefined && prev[0] !== drawn) setUnseen(true);
-    }),
+    // deps are exactly these three: what was drawn, whether the reader is
+    // following, and whether the conversation is the view being read. The pin
+    // is a dep because the pill and a sent message re-pin with no row
+    // arriving, and the view must move then too.
+    //
+    // SHOWN is a dep rather than a guard that returns early for a reason: a
+    // hidden pane has no layout at all (`content-visibility: hidden` skips the
+    // subtree), so a scroll written there would land on a column of height 0
+    // and clamp to the top — the reader's position, thrown away by the very
+    // mechanism meant to preserve it. Rows that arrive while away leave the
+    // remembered offset alone, and coming back re-runs this with the column
+    // laid out again.
+    on(
+      [signature, transcriptPinned, shown],
+      ([drawn, pinned, visible], prev) => {
+        if (!visible) return;
+        if (!placed) {
+          applyTranscriptScroll(scroller);
+          placed = scroller.scrollHeight > scroller.clientHeight;
+          return;
+        }
+        // NOT `atEnd(scroller)`. The rows are already in the column by now, so
+        // that measurement answers about the chunk that just landed, not about
+        // the reader — which is precisely how the transcript stopped following.
+        if (pinned) {
+          scroller.scrollTop = scroller.scrollHeight;
+          setUnseen(false);
+          return;
+        }
+        if (prev !== undefined && prev[0] !== drawn) setUnseen(true);
+      },
+    ),
   );
 
   return (

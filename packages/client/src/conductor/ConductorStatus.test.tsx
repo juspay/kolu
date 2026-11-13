@@ -24,6 +24,7 @@ vi.mock("./ConductorWatchedPanel", () => ({
 }));
 
 import ConductorStatus from "./ConductorStatus";
+import { ConductorShown } from "./conductorShown";
 
 const SINCE = "2026-01-01T00:00:00.000Z";
 
@@ -52,7 +53,17 @@ function mount(
   root = document.createElement("div");
   document.body.append(root);
   const state: ConductorState = { ...DEFAULT_CONDUCTOR_STATE, ...over };
-  dispose = render(() => <ConductorStatus state={state} rows={rows} />, root);
+  dispose = render(
+    () => (
+      // The pane is a retained view; every part of it reads its visibility
+      // from this context, so a status line mounted for a test says it is
+      // being looked at.
+      <ConductorShown.Provider value={() => true}>
+        <ConductorStatus state={state} rows={rows} />
+      </ConductorShown.Provider>
+    ),
+    root,
+  );
   return (testid) =>
     root?.querySelector<HTMLElement>(`[data-testid="${testid}"]`) ?? undefined;
 }

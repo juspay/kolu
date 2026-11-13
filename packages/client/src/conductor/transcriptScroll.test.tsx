@@ -26,7 +26,14 @@ vi.mock("./ConductorDiffs", () => ({ default: () => null }));
 
 import ConductorTranscript from "./ConductorTranscript";
 import type { ConductorRow } from "kolu-common/conductor";
+import { ConductorShown } from "./conductorShown";
 import { atEnd, pinTranscript, revealTranscriptRow } from "./transcriptScroll";
+
+/** Is the pane the view being read? The pane is RETAINED across a tab switch,
+ *  so the follow rule has to ask — a scroll written into a subtree with no
+ *  layout lands on a column of height 0 and clamps to the top, which is the
+ *  reader's position thrown away. */
+const [shown, setShown] = createSignal(true);
 
 const VIEWPORT = 200;
 const COLUMN = 1000;
@@ -80,15 +87,17 @@ function mount(): HTMLDivElement {
   setRows = write;
   dispose = render(
     () => (
-      <ConductorTranscript
-        rows={rows()}
-        pending={false}
-        error={undefined}
-        containerRef={(el) => {
-          measure(el);
-          scroller = el;
-        }}
-      />
+      <ConductorShown.Provider value={shown}>
+        <ConductorTranscript
+          rows={rows()}
+          pending={false}
+          error={undefined}
+          containerRef={(el) => {
+            measure(el);
+            scroller = el;
+          }}
+        />
+      </ConductorShown.Provider>
     ),
     root,
   );
@@ -123,6 +132,7 @@ const pill = (): HTMLButtonElement | null =>
 
 beforeEach(() => {
   column = COLUMN;
+  setShown(true);
   pinTranscript();
 });
 afterEach(() => {
@@ -222,6 +232,24 @@ describe("the transcript's follow rule", () => {
     append();
     expect(second.scrollTop).toBe(300);
   });
+
+  it("does not move a pane nobody is looking at, and follows again on the way back", () => {
+    // THE RETAINED PANE. Leaving for a host tab keeps this container alive
+    // with no layout at all, so rows that arrive while away must not write a
+    // scroll into it — and the reader, who was at the end, must find the end
+    // again when the conversation is back on screen.
+    const scroller = mount();
+    const wasAt = scroller.scrollTop;
+
+    setShown(false);
+    append();
+    append();
+    expect(scroller.scrollTop).toBe(wasAt);
+
+    setShown(true);
+    expect(scroller.scrollTop).toBe(endOf(column));
+    expect(pill()).toBeNull();
+  });
 });
 
 describe("the strip's reveal", () => {
@@ -242,14 +270,16 @@ describe("the strip's reveal", () => {
     ];
     dispose = render(
       () => (
-        <ConductorTranscript
-          rows={rows}
-          pending={false}
-          error={undefined}
-          containerRef={(el) => {
-            scroller = el;
-          }}
-        />
+        <ConductorShown.Provider value={() => true}>
+          <ConductorTranscript
+            rows={rows}
+            pending={false}
+            error={undefined}
+            containerRef={(el) => {
+              scroller = el;
+            }}
+          />
+        </ConductorShown.Provider>
       ),
       root,
     );

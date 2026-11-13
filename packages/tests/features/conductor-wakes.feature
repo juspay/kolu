@@ -94,6 +94,35 @@ Feature: The Conductor never blocks
     And the conductor header should carry no state chip
     And there should be no page errors
 
+  Scenario: Leaving the conversation and coming back finds it exactly as it was
+    # THE PANE IS MOUNTED ONCE AND RETAINED. A tab switch changes what is on
+    # screen, not what exists — so the watched panel is still open, the Look is
+    # still open with the terminal's own lines in it, and the half-typed
+    # message is still in the box. The marker is a property put on the DOM NODE
+    # by hand: a pane rebuilt from the same markup comes back without it, so
+    # this is element identity and not a look-alike.
+    #
+    # The Look's text is COMPUTED by the shell, so the command line's echo
+    # cannot satisfy it: only the terminal's own screen can.
+    When I create a terminal
+    And I run "echo kolu-watch-$((6*7))"
+    And a Claude Code session is mocked with state "thinking"
+    And I ask the conductor to watch the terminal
+    Then the conductor status should say it is watching 1
+    When I open the watched terminals
+    And I look at the watched terminal
+    Then the watched terminal's look should show "kolu-watch-42"
+    When I type "half a thought" into the conductor without sending
+    And I mark the conductor pane
+    And I press Escape
+    Then the conductor pane should not be visible
+    When I enter conductor mode
+    Then the conductor pane should be the one I marked
+    And the watched panel should list the watched terminal
+    And the watched terminal's look should show "kolu-watch-42"
+    And the conductor composer should still hold "half a thought"
+    And there should be no page errors
+
   @mobile
   Scenario: The status line and the watched panel fit a phone
     # The phone's terminal is a plain shell: watching one is allowed (it stays

@@ -3,6 +3,7 @@
  *  the offset the writer stamped. */
 
 import type {
+  ConductorAskRow,
   ConductorFrame,
   ConductorRow,
   ConductorToolRow,
@@ -15,6 +16,7 @@ import {
   foldNoticeRuns,
   foldToolRuns,
   type TranscriptItem,
+  transcriptText,
 } from "./transcript";
 
 const agentRow = (id: string, seq: number, text: string): ConductorRow => ({
@@ -566,5 +568,81 @@ describe("foldFailureRuns", () => {
       ).find((item) => item.kind === "failures")?.key;
     expect(keyOf(2)).toBe("failures:s0");
     expect(keyOf(6)).toBe(keyOf(2));
+  });
+});
+
+describe("transcriptText", () => {
+  /** The adapter's wrapper sentence, labelled questions, and an "Other" box
+   *  attached to one of them — the shape an `AskUserQuestion` arrives in. */
+  const askRow = (
+    outcome: ConductorAskRow["ask"]["outcome"],
+  ): ConductorAskRow => ({
+    id: "ask:1",
+    seq: 1,
+    since: "2026-01-01T00:00:00.000Z",
+    kind: "ask",
+    text: "Please answer the following questions.",
+    ask: {
+      fields: [
+        {
+          key: "mode",
+          label: "Mode",
+          hint: null,
+          kind: "choice",
+          choices: [{ value: "trivial", label: "trivial", hint: null }],
+          required: true,
+          attachedTo: null,
+        },
+        {
+          key: "who",
+          label: "Implementor",
+          hint: null,
+          kind: "choice",
+          choices: [{ value: "omp", label: "omp", hint: null }],
+          required: true,
+          attachedTo: null,
+        },
+        {
+          key: "who_other",
+          label: "Other",
+          hint: null,
+          kind: "text",
+          choices: [],
+          required: false,
+          attachedTo: "who",
+        },
+      ],
+      link: null,
+      outcome,
+    },
+  });
+
+  it("carries the questions and the answers, not the word `answered`", () => {
+    // What somebody pasting the conversation into an issue needs: the exchange.
+    expect(
+      transcriptText([
+        askRow({
+          how: "answered",
+          answers: [
+            { key: "mode", values: ["trivial"] },
+            { key: "who", values: ["omp"] },
+            { key: "who_other", values: ["anthropic/claude-opus-5-5"] },
+          ],
+        }),
+      ]),
+    ).toBe(
+      [
+        "ask:",
+        "  Mode — trivial",
+        "  Implementor — omp · anthropic/claude-opus-5-5",
+        "  [answered]",
+      ].join("\n"),
+    );
+  });
+
+  it("says what was asked of a form nobody answered", () => {
+    expect(transcriptText([askRow({ how: "declined", answers: [] })])).toBe(
+      ["ask:", "  Mode", "  Implementor", "  [declined]"].join("\n"),
+    );
   });
 });

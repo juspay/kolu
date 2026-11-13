@@ -13,9 +13,9 @@
 
 import type { ConductorState } from "kolu-common/conductor";
 import { type Component, For, Show } from "solid-js";
-import { getClockNow } from "../time/clock";
 import { formatElapsedShort } from "../time/duration";
 import Tip from "../ui/Tip";
+import { useShownClock } from "./conductorShown";
 
 // The three standings a row can hold, keyed by the union so a fourth one added
 // to the schema fails the typecheck here rather than painting unstyled. There
@@ -35,7 +35,9 @@ const ConductorStrip: Component<{
   /** Reveal the transcript row a watched task or subagent belongs to. */
   onReveal: (rowId: string) => void;
 }> = (props) => {
-  const now = getClockNow();
+  // Ages that stop while nobody is reading them — the pane is retained behind
+  // a host tab, so this is `getClockNow` gated on `shown()`.
+  const now = useShownClock();
   const since = (stamp: string): string => {
     const at = Date.parse(stamp);
     return Number.isNaN(at) ? "" : formatElapsedShort(Math.max(0, now() - at));

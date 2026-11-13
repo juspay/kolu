@@ -45,6 +45,7 @@ const verbs = vi.hoisted(() => ({ unwatch: vi.fn() }));
 vi.mock("./useConductor", () => ({ useConductor: () => verbs }));
 
 import ConductorWatchedPanel from "./ConductorWatchedPanel";
+import { ConductorShown } from "./conductorShown";
 
 /** An active terminal whose agent is working, as the fleet reports it. */
 const working = (): FleetTerminalStanding => ({
@@ -67,7 +68,14 @@ let root: HTMLElement | undefined;
 function mount(watched: readonly string[]): HTMLElement {
   root = document.createElement("div");
   document.body.append(root);
-  dispose = render(() => <ConductorWatchedPanel watched={watched} />, root);
+  dispose = render(
+    () => (
+      <ConductorShown.Provider value={() => true}>
+        <ConductorWatchedPanel watched={watched} />
+      </ConductorShown.Provider>
+    ),
+    root,
+  );
   return root;
 }
 

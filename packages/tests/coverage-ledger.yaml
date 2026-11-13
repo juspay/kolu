@@ -3532,7 +3532,7 @@ retirements:
     defectSurface: [conductor, attention-alerts]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-2ceb530d1e89061648f2]
+    survivorRevisionIds: [revision-b3b92d3e13f6d974a94a]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: A question the agent asks is answered from the transcript"
@@ -3683,7 +3683,7 @@ retirements:
     defectSurface: [conductor, attention-alerts]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-2ceb530d1e89061648f2]
+    survivorRevisionIds: [revision-b3b92d3e13f6d974a94a]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: A question the agent asks is answered from the transcript"
@@ -3818,3 +3818,16 @@ retirements:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: The status line says what the Conductor is doing, in one place"
       test: The same phase assertion against the same value; the step names the status line above the composer, where the phase now lives, instead of the header chip this PR removed.
+  - id: revise-2ceb530d1e89061648f2
+    revisionId: revision-2ceb530d1e89061648f2
+    action: revised
+    status: landed
+    promise: A question the agent asks is answered from the transcript
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-b3b92d3e13f6d974a94a]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: A question the agent asks is answered from the transcript"
+      test: The same answer through the same wire; the revised scenario additionally reads the settled card, which now keeps the question and the answer instead of collapsing to the word `answered`.

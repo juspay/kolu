@@ -10114,6 +10114,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "68e0abda10199810402f59dbfdad4c9d02e3671f"
+    },
+    {
+      "revisionId": "revision-b3b92d3e13f6d974a94a",
+      "scenarioKey": "scenario-23806b2981ea03acc05d",
+      "feature": "features/conductor.feature",
+      "scenario": "A question the agent asks is answered from the transcript",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "cd92b641db879091ab2a60c488256e6a41858359ab62c66f5f6ffdb4d6e4a15a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "348ff7f5583d57957a7fd87f37ef477fa9d751c3"
+    },
+    {
+      "revisionId": "revision-be5a4ab52a3797d96b69",
+      "scenarioKey": "scenario-b44cb20d43828674b5ac",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "Leaving the conversation and coming back finds it exactly as it was",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "4f7ca66d493a4b0f1132228c8b60c3f416e6b634aa7715d6bb0ce2f49a2dcb80",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "348ff7f5583d57957a7fd87f37ef477fa9d751c3"
     }
   ]
 }

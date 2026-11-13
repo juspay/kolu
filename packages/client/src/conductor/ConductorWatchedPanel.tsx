@@ -38,10 +38,10 @@ import {
   fleetTerminalStanding,
   useFleetTerminalIndex,
 } from "../palette/fleetTerminals";
-import { getClockNow } from "../time/clock";
 import { formatElapsedShort } from "../time/duration";
 import Tip from "../ui/Tip";
 import ConductorLook from "./ConductorLook";
+import { useShownClock } from "./conductorShown";
 import { fleetMentionCandidates } from "./mentionCandidates";
 import { useConductor } from "./useConductor";
 import { splitWatchedRef } from "./watchedRef";
@@ -105,7 +105,9 @@ const ConductorWatchedPanel: Component<{
  *  opened. */
 function WatchedRow(props: { watchedRef: string; name: string | undefined }) {
   const orch = useConductor();
-  const now = getClockNow();
+  // Gated on the pane being the shown view: "quiet for 4m" ticking behind a
+  // host tab would wake this row once a second for nobody.
+  const now = useShownClock();
   const parts = createMemo(() => splitWatchedRef(props.watchedRef));
   /** The terminal's standing on its host — read ONCE for both the agent name
    *  and the clock, so the two halves of the line can never describe two

@@ -38,6 +38,7 @@ import {
   completionQuestion,
   createCompletionHighlight,
 } from "./completion";
+import { useConductorShown } from "./conductorShown";
 import {
   clearComposerAttachments,
   composerAttachments,
@@ -168,11 +169,14 @@ const ConductorComposer: Component<{
   /** Steering is ON OFFER — the hint beside Send, and what Alt+Enter does. */
   const offered = createMemo(() => steerOnOffer(props.state));
   const { showTipOnce } = useTips();
+  const shown = useConductorShown();
   // The first conversation that OFFERS steering is the moment the chord is
   // worth announcing — and the only moment it is true. `showTipOnce` keeps it
-  // to once per browser.
+  // to once per browser, and `shown()` keeps that one announcement from being
+  // spent as a toast over a terminal: the pane is retained behind the host
+  // tabs, so "it is offering now" can become true while nobody is reading it.
   createEffect(() => {
-    if (offered()) showTipOnce(CONTEXTUAL_TIPS.conductorSteer);
+    if (shown() && offered()) showTipOnce(CONTEXTUAL_TIPS.conductorSteer);
   });
 
   /** Send what is in the box. `alt` is the chord that was held: it steers only
@@ -226,8 +230,15 @@ const ConductorComposer: Component<{
   // including a programmatic one (a send clearing it, a completion). An EMPTY
   // box is left at its one row: a browser counts a wrapping placeholder in
   // `scrollHeight`, and the box at rest is one line by definition.
+  //
+  // NOT MEASURED WHILE THE PANE IS HIDDEN. The pane is retained behind the
+  // host tabs and a hidden subtree has no layout at all, so `scrollHeight`
+  // there is 0 — a height written from it would pin the box shut, and it
+  // would stay shut until the next keystroke. `shown()` is a dependency
+  // rather than a guard, so coming back re-measures with real boxes.
   createEffect(() => {
     const text = composerText();
+    if (!shown()) return;
     if (!phone() || text === "") {
       box.style.height = "";
       return;
