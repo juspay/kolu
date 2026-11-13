@@ -137,6 +137,7 @@ describeDaemon(
       for (const name of [
         "lifecycle_create",
         "lifecycle_sendInput",
+        "agent_say",
         "lifecycle_kill",
         "wait_outputSettled",
         "wait_agentState",
@@ -153,7 +154,7 @@ describeDaemon(
       ]) {
         expect(verbs.has(name), name).toBe(true);
       }
-      expect(verbs.size).toBe(15);
+      expect(verbs.size).toBe(16);
       // And both shapes of introspection answer: the staggered resources, one
       // row per ADDRESS a caller can type rather than one per member. A
       // collection is reachable two ways and says so — `get terminals` for an

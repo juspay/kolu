@@ -59,7 +59,19 @@ const ConductorHeader: Component<{
   };
 
   return (
-    <header class="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-edge">
+    /* ONE TYPE SIZE AND ONE LINE-HEIGHT FOR THE WHOLE ROW, set here and
+       inherited by every child (`leading-4` is a LENGTH, so it does not
+       re-scale per font-size the way an inherited unitless 1.5 does).
+
+       This row read as five different heights because each child carried its
+       own size and its own leading, and two of them sit inside a `Tip`
+       wrapper whose line box was struck at the row's old 16px/24px: a 10px
+       pill baseline-aligned inside a 16px strut sits ~3px BELOW the centre of
+       everything beside it. One inherited line-height removes the strut
+       mismatch; `items-center` then centres every box on one line. A child
+       that needs its own size (the mark) may still set one — what it must
+       never set is its own line-height. */
+    <header class="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-edge font-mono text-[0.65rem] leading-4">
       {/* The mark and the name, on a desktop only: on a phone the pull handle
           right above already reads `◆ Conductor`, and a screen that says the
           same name twice reads as two things. */}
@@ -68,8 +80,13 @@ const ConductorHeader: Component<{
           data-testid="conductor-header-name"
           class="flex items-center gap-2.5"
         >
-          <span class="text-busy text-sm leading-none">◆</span>
-          <span class="font-mono text-[0.65rem] font-extrabold tracking-[0.14em] text-fg-2">
+          {/* Its own SIZE (a mark reads small at the row's 10px), never its own
+              leading — `/4` holds the row's 16px line box, which is what keeps
+              its box the same height as the words beside it. A bare `text-sm`
+              would ship Tailwind's own 20px leading and quietly make this one
+              child a taller line than the row. */}
+          <span class="text-busy text-sm/4">◆</span>
+          <span class="font-extrabold tracking-[0.14em] text-fg-2">
             CONDUCTOR
           </span>
         </span>
@@ -78,10 +95,13 @@ const ConductorHeader: Component<{
           too, or a reader who arrived by ⌘⇧O never passed the chrome-bar tag.
           Not a phase chip — what it is alpha about does not change while the
           conversation runs. */}
-      <Tip label="Alpha: the shape can still change, and a conversation can be lost across a version">
+      <Tip
+        class="flex items-center"
+        label="Alpha: the shape can still change, and a conversation can be lost across a version"
+      >
         <span
           data-testid="conductor-alpha"
-          class="rounded-sm bg-fg-3/15 px-1 py-px font-mono text-[0.6rem] font-semibold uppercase tracking-[0.08em] text-fg-3"
+          class="rounded-sm bg-fg-3/15 px-1 py-px font-semibold uppercase tracking-[0.08em] text-fg-3"
         >
           alpha
         </span>
@@ -91,11 +111,14 @@ const ConductorHeader: Component<{
           known logged-out state arrives as its own payload and says so here. */}
       <Show when={identity()}>
         {(who) => (
-          <Tip label={who().account?.email ?? who().detail ?? who().label}>
+          <Tip
+            class="flex items-center"
+            label={who().account?.email ?? who().detail ?? who().label}
+          >
             <span
               data-testid="conductor-identity"
               data-identity-kind={who().kind ?? undefined}
-              class="font-mono text-[0.65rem] text-fg-3 rounded-full border border-edge px-2 py-px truncate max-w-[12rem]"
+              class="text-fg-3 rounded-full border border-edge px-2 py-px truncate max-w-[12rem]"
             >
               {who().kind === "none" ? "not signed in" : who().label}
             </span>
@@ -105,12 +128,16 @@ const ConductorHeader: Component<{
       {/* The agent's name stands in until it has said which model it is on —
           the control is the session's settings door either way, and a door
           that appears only once a model is known is a door you cannot find
-          when the model is the thing you wanted to set. */}
+          when the model is the thing you wanted to set.
+
+          Its dashed line is an UNDERLINE, not a bottom border: a border is
+          part of the box, so it pushed the words half a pixel up off the row's
+          centre line. The affordance has to be free of the layout. */}
       <button
         type="button"
         ref={modelRef}
         data-testid="conductor-model"
-        class="font-mono text-[0.68rem] text-fg-3 hover:text-fg border-b border-dashed border-edge-bright cursor-pointer truncate max-w-[14rem]"
+        class="text-fg-3 hover:text-fg underline decoration-dashed decoration-edge-bright underline-offset-[3px] cursor-pointer truncate max-w-[14rem]"
         onClick={() => setSettingsOpen(!settingsOpen())}
       >
         {props.state.model?.name ?? props.state.agentName}
@@ -118,7 +145,10 @@ const ConductorHeader: Component<{
       <div class="flex-1" />
       <Show when={usage()}>
         {(u) => (
-          <Tip label="Context used — tokens in the window, and how many fit">
+          <Tip
+            class="flex items-center"
+            label="Context used — tokens in the window, and how many fit"
+          >
             <span
               data-testid="conductor-usage"
               class="flex items-center gap-1.5"
@@ -131,7 +161,7 @@ const ConductorHeader: Component<{
                   }}
                 />
               </span>
-              <span class="font-mono text-[0.65rem] text-fg-3">
+              <span class="text-fg-3">
                 {tokens(u().used)}/{tokens(u().size)}
               </span>
             </span>
@@ -140,15 +170,18 @@ const ConductorHeader: Component<{
       </Show>
       {/* A MENU AFFORDANCE, and nothing else. This button used to start a
           new session on the press — a `⋯` that acted, which is the one thing
-          a `⋯` may never do. */}
-      <Tip label="Conversation menu">
+          a `⋯` may never do.
+
+          Its own size, like the mark — a `⋯` at the row's 10px is a speck; the
+          row's `leading-4` keeps its box the same height as the rest. */}
+      <Tip class="flex items-center" label="Conversation menu">
         <button
           type="button"
           ref={menuRef}
           data-testid="conductor-menu"
           aria-haspopup="menu"
           aria-expanded={menuOpen()}
-          class="text-fg-3 hover:text-fg cursor-pointer px-1 leading-none"
+          class="text-fg-3 hover:text-fg cursor-pointer px-1 text-base/4"
           onClick={() => setMenuOpen(!menuOpen())}
         >
           ⋯

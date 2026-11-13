@@ -61,6 +61,7 @@ import { type FleetHosts, requireHost, requireTerminal } from "./hosts.ts";
 import { fleetTerminalRef, splitFleetTerminalRef } from "./ref.ts";
 import { FleetHostKeySchema, FleetTerminalRefSchema } from "./refSchema.ts";
 import {
+  type FleetWatchJoin,
   type FleetWatchList,
   unwatchTerminalTool,
   watchTerminalTool,
@@ -131,11 +132,25 @@ interface FleetLift {
    *  listed too and the prose is rewritten beside it. */
   readonly refusals: readonly string[];
   /** An ANSWER path whose fleet reference is added to the conductor's watch
-   *  list once the call succeeds. Only `lifecycle_create` has one, and it is
-   *  stated as a row of this table rather than buried in that tool's wrapper
-   *  because it is the same kind of fact as the others here: where in an
-   *  answer a terminal reference lives. */
-  readonly watches?: string;
+   *  list once the call succeeds, and HOW that terminal joined (read off the
+   *  call's own arguments — a create with a `run` command is a different kind
+   *  of entry from a bare shell, because only the first can fail by never
+   *  growing an agent). Only `lifecycle_create` has one, and it is stated as a
+   *  row of this table rather than buried in that tool's wrapper because it is
+   *  the same kind of fact as the others here: where in an answer a terminal
+   *  reference lives. */
+  readonly watches?: {
+    readonly answer: string;
+    readonly joined: (args: Record<string, unknown>) => FleetWatchJoin;
+  };
+  /** An ARGUMENT path naming the terminal this call SPOKE to. Only
+   *  `agent_say` has one: once its keys have landed, the conductor has acted
+   *  on whatever that terminal was doing, so the news held about it is stale
+   *  and the list is told (`said`). Read off the arguments rather than the
+   *  answer because that is where `agent_say` carries its reference — and the
+   *  pre-route arguments still hold the FLEET spelling, which is what the list
+   *  is keyed by. */
+  readonly says?: string;
 }
 
 /** THE id grammar of the fleet face, in one place. Each input is the per-host
@@ -156,7 +171,15 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     refs: ["placement.parentId"],
     answers: ["id"],
     refusals: ["landed.id", "id"],
-    watches: "id",
+    watches: {
+      answer: "id",
+      // A `run` command is the difference between "a shell I opened" and "a
+      // bring-up I started": only the second can end with the command gone and
+      // no agent ever there, which is the one thing the Conductor must hear
+      // about rather than wait on for ever.
+      joined: (args) =>
+        typeof args.run === "string" ? "created-run" : "created",
+    },
   },
   agent_say: {
     input: Schema.Struct({
@@ -167,6 +190,7 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     refs: [],
     answers: [],
     refusals: ["id"],
+    says: "id",
   },
   lifecycle_sendInput: {
     input: Schema.Struct({
@@ -405,9 +429,25 @@ function lifted(
                 ) {
                   const ref = atPath(
                     lifted as Record<string, unknown>,
-                    lift.watches,
+                    lift.watches.answer,
                   );
-                  if (typeof ref === "string") watchList.watch(ref);
+                  if (typeof ref === "string") {
+                    watchList.watch(
+                      ref,
+                      lift.watches.joined(args as Record<string, unknown>),
+                    );
+                  }
+                }
+                // The keys landed, so the conductor has now acted on whatever
+                // that terminal was doing. The list is told at the FLEET
+                // reference the call named; a terminal that is not watched is
+                // the list's own business to ignore.
+                if (lift.says !== undefined) {
+                  const ref = atPath(
+                    args as Record<string, unknown>,
+                    lift.says,
+                  );
+                  if (typeof ref === "string") watchList.said(ref);
                 }
                 return lifted;
               },

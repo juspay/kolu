@@ -54,7 +54,11 @@ export {
 // only moves it. `KOLU_FLEET_TOOL_NAMES` is the static roll of what the fleet
 // face serves, for a consumer (the conductor's teaching script and its test)
 // that needs the names without minting a face.
-export type { FleetWatchList } from "./fleet/watchList.ts";
+export type {
+  FleetWatchJoin,
+  FleetWatchList,
+  WatchedFound,
+} from "./fleet/watchList.ts";
 export {
   FLEET_SETTLE_CAP_MS,
   KOLU_FLEET_TOOL_NAMES,

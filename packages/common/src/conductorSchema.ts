@@ -422,16 +422,37 @@ export const ConductorDividerRowSchema = Schema.Struct({
 
 /** HOW A WATCHED TERMINAL STANDS when kolu wakes the Conductor about it.
  *
- *  Three values because there are exactly three things that wake it: the
- *  agent in the terminal STOPPED (its turn ended and its output went quiet —
- *  padi's `finishedIds`), it is ASKING a person something (`awaitingIds`), or
- *  the terminal is GONE (it left its host's roster while that host was
- *  answering). Nothing else rings: an agent that is working, a plain shell
- *  with no agent, a host that is merely not answering. */
+ *  Six values, and every one of them is a thing the Conductor can DO
+ *  something about:
+ *
+ *  - `stopped` — the agent's turn ended and its output went quiet (padi's
+ *    `finishedIds`).
+ *  - `asking` — it is asking a person something (`awaitingIds`).
+ *  - `gone` — the terminal left its host's roster while that host was
+ *    answering.
+ *  - `ready` — the agent in it has COME UP and nothing has been said to it
+ *    yet. It rings INSTEAD of `stopped` the first time a never-spoken-to
+ *    agent is idle, because a fresh agent sitting at its prompt is not a
+ *    turn that ended: it is one that has not been given.
+ *  - `asleep` — the terminal an agent was seen in was put to sleep, so that
+ *    agent is gone with it. The entry stays watched: waking the terminal
+ *    brings it back to the ordinary levels.
+ *  - `ended` — a terminal the Conductor created WITH a command: the command
+ *    ran and the terminal is back at its shell prompt with no agent ever
+ *    seen in it. What kolu has to decide this is padi's foreground process
+ *    and its agent detection, and NO exit status — so a command that fails
+ *    before any non-shell foreground is sampled (`omp: command not found`,
+ *    answered by the shell itself) does not ring at all.
+ *
+ *  Nothing else rings: an agent that is working, a plain shell nobody
+ *  created with a command, a host that is merely not answering. */
 export const ConductorWakeLevelSchema = Schema.Literals([
   "stopped",
   "asking",
   "gone",
+  "ready",
+  "asleep",
+  "ended",
 ]);
 export type ConductorWakeLevel = typeof ConductorWakeLevelSchema.Type;
 
@@ -448,7 +469,11 @@ export const ConductorWakeEventSchema = Schema.Struct({
   hostName: Schema.String,
   /** The terminal's own name, as kolu last read it. */
   name: Schema.String,
-  /** The agent kolu detected in it (`claude-code`, `codex`, …). */
+  /** The agent kolu detected in it (`claude-code`, `codex`, …), or EMPTY for
+   *  a terminal no agent was ever seen in — which is `ended` and nothing
+   *  else: every other level is about an agent, so every other level names
+   *  one. A reader draws the terminal alone rather than inventing a word for
+   *  an agent that never existed. */
   agent: Schema.String,
   level: ConductorWakeLevelSchema,
   /** When kolu saw it enter this level. */
@@ -457,7 +482,8 @@ export const ConductorWakeEventSchema = Schema.Struct({
 export type ConductorWakeEvent = typeof ConductorWakeEventSchema.Type;
 
 /** A MACHINE'S LINE — kolu itself starting a Conductor turn, because a
- *  watched terminal stopped, asked, or died.
+ *  watched terminal's agent came up, stopped, asked, slept or died
+ *  ({@link ConductorWakeLevelSchema}).
  *
  *  In the lane a prompt goes out on (it IS a prompt, to the agent), but never
  *  the human's bubble: it is drawn full width on the left, one line that

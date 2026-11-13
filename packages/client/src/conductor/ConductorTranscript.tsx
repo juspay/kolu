@@ -397,7 +397,14 @@ function WakeRow(props: { row: Extract<ConductorRow, { kind: "wake" }> }) {
   const when = createMemo(() => wakeWhen(props.row.since));
 
   return (
-    <div data-testid="conductor-wake" class="min-w-0">
+    /* `data-levels` is the row's news as DATA — the levels of its events, in
+       event order — so a test can assert that a `ready` wake was drawn without
+       pinning the wording of the headline above it. */
+    <div
+      data-testid="conductor-wake"
+      data-levels={props.row.events.map((event) => event.level).join(" ")}
+      class="min-w-0"
+    >
       <details class="min-w-0 rounded-md border border-edge bg-surface-1/60 px-2 py-1">
         <summary
           data-testid="conductor-wake-toggle"

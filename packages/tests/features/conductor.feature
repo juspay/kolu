@@ -93,7 +93,7 @@ Feature: The Conductor
     And I send the conductor the prompt "say hello"
     Then the conductor transcript should show a row of kind "user" saying "say hello"
     And the conductor transcript should show a row of kind "agent" saying "hello back"
-    And the conductor state chip should read "idle"
+    And the conductor status should read "idle"
     And there should be no page errors
 
   Scenario: The agent really has hold of kolu's own MCP server
@@ -230,7 +230,7 @@ Feature: The Conductor
     Then the conductor transcript should fold 2 tool calls into one closed Details
     And the running tool call should stay in the flow
     When I open the Details fold
-    Then the conductor state chip should read "working"
+    Then the conductor status should read "working"
     And the conductor transcript should show a row of kind "agent" saying "Found what I needed."
     And the Details fold should still be open, holding 3 tool calls
     And there should be no page errors
@@ -381,7 +381,7 @@ Feature: The Conductor
     And I enter conductor mode
     And I send the conductor the prompt "refuse this"
     Then the conductor transcript should mark a user row "refused"
-    And the conductor state chip should read "idle"
+    And the conductor status should read "idle"
     When I send the conductor the prompt "say hello"
     Then the conductor transcript should show a row of kind "agent" saying "hello back"
     And there should be no page errors

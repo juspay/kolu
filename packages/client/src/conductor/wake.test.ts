@@ -30,6 +30,31 @@ describe("the wake headline", () => {
     expect(wakeHeadline([event("review", "gone")])).toBe("review gone");
   });
 
+  it("says an agent that has come up and not been spoken to is up", () => {
+    // `ready` is the level that exists so the Conductor is not told its fresh
+    // planner *stopped*: the line has to read as news about an agent that is
+    // waiting to be briefed.
+    expect(wakeHeadline([event("planner", "ready")])).toBe("planner is up");
+  });
+
+  it("says a watched terminal was put to sleep", () => {
+    expect(wakeHeadline([event("impl", "asleep")])).toBe("impl asleep");
+  });
+
+  it("says what is MISSING when a created terminal's command ended", () => {
+    // "setup ended" alone reads like a success. The whole news is that the
+    // command came back to a prompt and no agent ever appeared.
+    expect(wakeHeadline([event("setup", "ended")])).toBe(
+      "setup ended without an agent",
+    );
+  });
+
+  it("names the new levels beside the old ones in one line", () => {
+    expect(
+      wakeHeadline([event("planner", "ready"), event("impl", "asleep")]),
+    ).toBe("planner is up · impl asleep");
+  });
+
   it("counts the rest once the line is full", () => {
     expect(
       wakeHeadline([

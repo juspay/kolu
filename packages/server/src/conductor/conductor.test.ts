@@ -1605,7 +1605,11 @@ const B = "remote:prod/22222222-2222-4222-8222-222222222222";
 const seeing = (
   ref: string,
   level: WatchLevel,
-  over: { name?: string; agent?: string | null } = {},
+  over: {
+    name?: string;
+    agent?: string | null;
+    foregroundShell?: boolean | null;
+  } = {},
 ): WatchObservation => ({
   ref,
   host: ref.slice(0, ref.lastIndexOf("/")),
@@ -1614,6 +1618,7 @@ const seeing = (
   name: over.name ?? "fix the parser",
   agent: over.agent === undefined ? "claude-code" : over.agent,
   level,
+  foregroundShell: over.foregroundShell ?? null,
 });
 
 /** A conversation that is WORKING, as the harness publishes one — the state
@@ -1638,14 +1643,20 @@ const idle = (agent: Spawned): void => {
   });
 };
 
-/** A conversation that is up, working, and watching both terminals. */
+/** A conversation that is up, working, and watching both terminals — both of
+ *  them BRIEFED, which is the ordinary state of a terminal the Conductor
+ *  created: it opened it, said what to do, and is waiting for the answer. An
+ *  agent nobody has spoken to rings `ready` on its first idle instead, which
+ *  is its own case below. */
 const busyWatching = async (r: Rig): Promise<Spawned> => {
   await r.host.prompt("hello", [], [], false);
   const agent = r.spawns[0];
   if (agent === undefined) throw new Error("the host spawned nothing");
   working(agent);
-  r.host.watchTerminal(A);
-  r.host.watchTerminal(B);
+  r.host.watchTerminal(A, "created");
+  r.host.watchTerminal(B, "created");
+  r.host.saidTo(A);
+  r.host.saidTo(B);
   return agent;
 };
 
@@ -1732,8 +1743,24 @@ describe("the news a watched terminal makes", () => {
     });
     await r.host.dispose();
     expect(r.value().watched).toEqual([
-      { ref: A, name: "fix the parser", agent: "claude-code", told: null },
-      { ref: B, name: "", agent: null, told: null },
+      {
+        ref: A,
+        name: "fix the parser",
+        agent: "claude-code",
+        told: null,
+        joined: "created",
+        spoken: true,
+        ran: false,
+      },
+      {
+        ref: B,
+        name: "",
+        agent: null,
+        told: null,
+        joined: "created",
+        spoken: true,
+        ran: false,
+      },
     ]);
 
     // ... and when one does go, that is what writes it down.
@@ -1764,6 +1791,9 @@ describe("the watch across a restart", () => {
           name: "fix the parser",
           agent: "claude-code",
           told: "stopped",
+          joined: "created",
+          spoken: true,
+          ran: false,
         },
       ],
     });
@@ -1786,5 +1816,134 @@ describe("the watch across a restart", () => {
       expect(agent.wakes()).toHaveLength(1);
     });
     expect(agent.wakes()[0]?.events[0]?.level).toBe("asking");
+  });
+});
+
+describe("an agent that has just come up", () => {
+  it("rings READY, and the brief that answers it does not ring back", async () => {
+    const r = rig();
+    await r.host.prompt("hello", [], [], false);
+    const agent = r.spawns[0];
+    if (agent === undefined) throw new Error("the host spawned nothing");
+    idle(agent);
+    // The terminal the Conductor opened with `omp …` in it. Seconds later the
+    // agent is up and sitting at its prompt — padi's `finishedIds`.
+    r.host.watchTerminal(A, "created-run");
+    r.host.observe([seeing(A, "stopped")]);
+    await vi.waitFor(() => {
+      expect(agent.wakes()).toHaveLength(1);
+    });
+    // NOT `stopped`: nothing has been said to this agent, so nothing of its
+    // ended. The account says so in words.
+    expect(agent.wakes()[0]?.events[0]?.level).toBe("ready");
+    expect(agent.wakes()[0]?.text).toContain("has not been told anything yet");
+
+    // The Conductor briefs it. `agent_say` answers on the keystrokes, so the
+    // agent is still in the very idle it rang about when the turn ends — and
+    // that must not wake it about the terminal it has just spoken to.
+    r.host.saidTo(A);
+    r.host.observe([seeing(A, "stopped")]);
+    // It then works, and the stop at the END of that work is news.
+    r.host.observe([seeing(A, "working")]);
+    r.host.observe([seeing(A, "stopped")]);
+    await vi.waitFor(() => {
+      expect(agent.wakes()).toHaveLength(2);
+    });
+    // Two wakes, not three: the silent one in the middle never went.
+    expect(agent.wakes()[1]?.events[0]?.level).toBe("stopped");
+  });
+
+  it("withdraws what a terminal was about to say when the Conductor speaks to it", async () => {
+    const r = rig();
+    const agent = await busyWatching(r);
+    r.host.observe([seeing(A, "stopped")]);
+    await vi.waitFor(() => {
+      expect(r.host.state().held).toEqual([A]);
+    });
+    // The Conductor answered that terminal from inside the running turn.
+    r.host.saidTo(A);
+    expect(r.host.state().held).toEqual([]);
+    idle(agent);
+    await vi.waitFor(() => {
+      expect(r.host.state().phase).toBe("idle");
+    });
+    expect(agent.wakes()).toEqual([]);
+  });
+});
+
+describe("a wake that could not be delivered", () => {
+  /** The notices in the transcript right now — a `watch` hands back the whole
+   *  of it as its snapshot, and the sink is dropped again so this can be
+   *  asked repeatedly inside a `waitFor`. */
+  const noticesNow = (r: Rig): ReadonlyArray<ConductorRow> => {
+    const seen: ConductorFrame[] = [];
+    const off = r.host.watch((frame) => seen.push(frame));
+    off();
+    const snapshot = seen[0];
+    if (snapshot?.kind !== "snapshot") throw new Error("expected a snapshot");
+    return snapshot.rows.filter((one) => one.kind === "notice");
+  };
+
+  it("says so ONCE, keeps the news, and sends it on the next idle", async () => {
+    const r = rig();
+    const agent = await busyWatching(r);
+    agent.failWakes("the agent is not there");
+    r.host.observe([seeing(A, "stopped")]);
+    idle(agent);
+    // SAID, in the conversation, naming the terminal and the reason. A
+    // failure that only reached the log is a panel that looks idle over news
+    // nobody will ever hear.
+    await vi.waitFor(() => {
+      expect(noticesNow(r)).toHaveLength(1);
+    });
+    const said = noticesNow(r)[0];
+    expect(said?.kind === "notice" ? said.text : "").toContain(A);
+    expect(said?.kind === "notice" ? said.text : "").toContain(
+      "the agent is not there",
+    );
+    // ... and the news is still owed: a wake that did not go is not a wake.
+    expect(r.host.state().held).toEqual([A]);
+    expect(agent.wakes()).toEqual([]);
+
+    // A second failing edge does NOT write a second notice: one per episode.
+    r.host.observe([seeing(A, "asking")]);
+    idle(agent);
+    await vi.waitFor(() => {
+      expect(r.host.state().held).toEqual([A]);
+    });
+    expect(noticesNow(r)).toHaveLength(1);
+
+    // THE RETRY, event-driven: the wake can go again, and the next idle is
+    // what carries it. No timer waited for anything.
+    agent.failWakes(null);
+    idle(agent);
+    await vi.waitFor(() => {
+      expect(agent.wakes()).toHaveLength(1);
+    });
+    expect(agent.wakes()[0]?.events.map((one) => one.level)).toEqual([
+      "asking",
+    ]);
+    expect(r.host.state().held).toEqual([]);
+  });
+
+  it("retries on the next reading of a watched terminal", async () => {
+    const r = rig();
+    const agent = await busyWatching(r);
+    agent.failWakes("the agent is not there");
+    r.host.observe([seeing(A, "stopped")]);
+    idle(agent);
+    await vi.waitFor(() => {
+      expect(noticesNow(r)).toHaveLength(1);
+    });
+
+    agent.failWakes(null);
+    // Nothing changed about the conversation; the WATCHER spoke, which is one
+    // of the three edges a held wake waits for.
+    r.host.observe([seeing(B, "stopped")]);
+    await vi.waitFor(() => {
+      expect(agent.wakes()).toHaveLength(1);
+    });
+    // Both go together: the one that was owed and the one that just rang.
+    expect(agent.wakes()[0]?.events.map((one) => one.ref)).toEqual([A, B]);
   });
 });

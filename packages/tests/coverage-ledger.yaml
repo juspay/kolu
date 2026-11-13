@@ -3605,7 +3605,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-cbb87cd8f78cfc96f063]
+    survivorRevisionIds: [revision-2224bf02d8cdc561b396]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: A prompt round trip draws the agent's answer"
@@ -3618,7 +3618,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-e18922e436e8e1b8a4e7]
+    survivorRevisionIds: [revision-9f2ebbff65659ab954de]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: An agent that refuses the turn leaves the conversation ready"
@@ -3753,3 +3753,68 @@ retirements:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: The agent reads this fleet's terminals through kolu's own MCP face"
       test: The same fleet read over the same loopback face; the MCP tool and resource names are deliberately unchanged and the steps differ only in the entry they open.
+  - id: revise-cbb87cd8f78cfc96f063
+    revisionId: revision-cbb87cd8f78cfc96f063
+    action: revised
+    status: landed
+    promise: A prompt round trip draws the agent's answer
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-2224bf02d8cdc561b396]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: A prompt round trip draws the agent's answer"
+      test: The same phase assertion against the same value; the step names the status line above the composer, where the phase now lives, instead of the header chip this PR removed.
+  - id: revise-e18922e436e8e1b8a4e7
+    revisionId: revision-e18922e436e8e1b8a4e7
+    action: revised
+    status: landed
+    promise: An agent that refuses the turn leaves the conversation ready
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-9f2ebbff65659ab954de]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: An agent that refuses the turn leaves the conversation ready"
+      test: The same phase assertion against the same value; the step names the status line above the composer, where the phase now lives, instead of the header chip this PR removed.
+  - id: revise-0eab55e1aff51efaa073
+    revisionId: revision-0eab55e1aff51efaa073
+    action: revised
+    status: landed
+    promise: The calls fold while the Conductor is still working
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-9c65ee76cc04b7c7de4f]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: The calls fold while the Conductor is still working"
+      test: The same phase assertion against the same value; the step names the status line above the composer, where the phase now lives, instead of the header chip this PR removed.
+  - id: revise-ec124fbc0011f423d7de
+    revisionId: revision-ec124fbc0011f423d7de
+    action: revised
+    status: landed
+    promise: A wake that rings while the Conductor works waits for the turn to end
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-77b79c5e257d162d02ab]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: A wake that rings while the Conductor works waits for the turn to end"
+      test: The same phase assertion against the same value; the step names the status line above the composer, where the phase now lives, instead of the header chip this PR removed.
+  - id: revise-4d83bcaf38144d0f285d
+    revisionId: revision-4d83bcaf38144d0f285d
+    action: revised
+    status: landed
+    promise: The status line says what the Conductor is doing, in one place
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-4bf385c649ba59de9c7a]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: The status line says what the Conductor is doing, in one place"
+      test: The same phase assertion against the same value; the step names the status line above the composer, where the phase now lives, instead of the header chip this PR removed.

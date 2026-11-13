@@ -7,8 +7,8 @@
  * with no time limit, which is a turn that lasts as long as the work does and a
  * person's message queued behind it for all of that. This module is the other
  * half of deleting that: kolu holds the standing subscriptions, and when a
- * watched terminal stops, asks, or goes away it starts a Conductor turn itself
- * ({@link ConductorHost.observe}).
+ * watched terminal's agent comes up, stops, asks, sleeps or goes away it
+ * starts a Conductor turn itself ({@link ConductorHost.observe}).
  *
  * ## What it subscribes, and why those two
  *
@@ -20,11 +20,16 @@
  *    reading the lists is reading padi's answer rather than re-deriving a
  *    second one here that can disagree with the dock.
  *  - **`terminals`** — the keys (which terminals that host still has, which is
- *    what makes `gone` decidable) and the RECORD of each watched id (its name
- *    and the agent detected in it, which is what a wake is composed from).
+ *    what makes `gone` decidable) and the RECORD of each watched id: its name,
+ *    the agent detected in it, whether it is active or asleep, and whether the
+ *    FOREGROUND is the terminal's own shell. The last is reported, never
+ *    concluded from: "the command kolu typed has ended" is two readings of it
+ *    and belongs with the rest of the rules (`kolu-conductor`'s `watching.ts`).
  *
  * Nothing else: a screen is read by the Conductor when it decides to look, and
- * a wake carries how something STANDS rather than what it printed.
+ * a wake carries how something STANDS rather than what it printed. padi has no
+ * exit status to offer, so a command that fails before any non-shell
+ * foreground is sampled is not something this module can see.
  *
  * ## Retry, and the two ways a subscription dies
  *
@@ -171,9 +176,27 @@ export function startConductorWatcher(deps: {
         // remembered ({@link WatchEntry.name}).
         name: live?.intent ?? branch,
         agent: live?.agent?.kind ?? null,
+        // PADI'S OWN ANSWER about what is in front of the prompt — `shell:
+        // true` is an idle prompt with nothing running on it. `null` for a
+        // reading with no live arm to ask (a sleeping terminal has released
+        // its PTY) or a record padi has not sampled a foreground for yet.
+        // The conversation's own rules read it; this end only reports it
+        // (`kolu-conductor`'s `watching.ts`, where `ended` is decided).
+        foregroundShell: live?.foreground?.shell ?? null,
       };
       if (!roster.has(id)) {
         seen.push({ ...base, level: "gone" });
+        continue;
+      }
+      // ASLEEP, NOT A SHELL. padi keeps a slept (or boot-parked) terminal in
+      // its roster with the PTY and the agent released — so a watched
+      // terminal whose agent was working reads as a terminal with no agent in
+      // it, which is the one reading that never rings. Its agent is dead and
+      // whatever it was doing stopped there: that is news exactly once, and
+      // the entry stays listed because waking the terminal puts it back on the
+      // ordinary levels.
+      if (record !== undefined && record.state !== "active") {
+        seen.push({ ...base, level: "asleep" });
         continue;
       }
       if (urgency.awaitingIds.includes(id)) {
@@ -310,9 +333,16 @@ export function startConductorWatcher(deps: {
   const close = (leg: Leg): void => {
     const fiber = leg.fiber;
     if (fiber === null) return;
-    void Effect.runPromise(Fiber.interrupt(fiber)).catch(() => {
-      // An interrupt that itself fails has nothing left to tear down: the
-      // fiber is finished either way, and the leg is already off the map.
+    void Effect.runPromise(Fiber.interrupt(fiber)).catch((err: unknown) => {
+      // An interrupt that itself fails has nothing left to tear down — the
+      // fiber is finished either way, and the leg is already off the map — but
+      // it is still something that went wrong inside a teardown, and a caught
+      // error nobody can see is the one thing this repo does not allow. There
+      // is no caller to throw at: a re-scope runs off a host-map callback.
+      log.warn(
+        { err },
+        "kolu-server: the conductor's watch over a host did not close cleanly",
+      );
     });
   };
 
@@ -373,11 +403,24 @@ export function startConductorWatcher(deps: {
       timers.clear();
       const running = [...legs.values()];
       legs.clear();
+      // The interrupts are awaited so a shutdown does not race the streams it
+      // is ending, and one that FAILS is said out loud: the process is on its
+      // way out and there is nobody left to throw at, so the log is the only
+      // place a teardown that did not go cleanly can be read afterwards.
       await Promise.all(
         running.flatMap((leg) =>
           leg.fiber === null
             ? []
-            : [Effect.runPromise(Fiber.interrupt(leg.fiber)).catch(() => {})],
+            : [
+                Effect.runPromise(Fiber.interrupt(leg.fiber)).catch(
+                  (err: unknown) => {
+                    log.warn(
+                      { err },
+                      "kolu-server: the conductor's watch did not shut down cleanly",
+                    );
+                  },
+                ),
+              ],
         ),
       );
     },

@@ -29,6 +29,19 @@ Feature: The Conductor never blocks
     And the conductor transcript should show a row of kind "agent" saying "woke"
     And there should be no page errors
 
+  Scenario: An agent that comes up in a watched terminal rings once as ready
+    # The seconds between a terminal and its agent are a fact with a name: a
+    # watched terminal whose agent has come up and has not been spoken to yet
+    # rings as READY — never as "stopped" about an agent nobody briefed.
+    When I create a terminal
+    And I note the terminal's shell pid
+    And I ask the conductor to watch the terminal
+    Then the conductor status should say it is watching 1
+    When a Claude Code session is mocked with state "waiting" on the noted terminal
+    Then the conductor transcript should show a "ready" wake about the watched terminal
+    And the conductor transcript should show a row of kind "agent" saying "woke"
+    And there should be no page errors
+
   Scenario: A wake that rings while the Conductor works waits for the turn to end
     # HELD, never injected: the count on the status line says it is waiting,
     # nothing lands in the transcript while the turn runs, and it arrives on
@@ -38,7 +51,7 @@ Feature: The Conductor never blocks
     And I ask the conductor to watch the terminal
     Then the conductor status should say it is watching 1
     When I send the conductor the prompt "work for a while"
-    Then the conductor state chip should read "working"
+    Then the conductor status should read "working"
     When the Claude Code session state changes to "awaiting_user"
     Then the conductor status should say 1 waiting
     And the conductor transcript should show no wake
@@ -76,7 +89,7 @@ Feature: The Conductor never blocks
   Scenario: The status line says what the Conductor is doing, in one place
     When I enter conductor mode
     And I send the conductor the prompt "work for a while"
-    Then the conductor state chip should read "working"
+    Then the conductor status should read "working"
     And the conductor status should count how long it has been working
     And the conductor header should carry no state chip
     And there should be no page errors

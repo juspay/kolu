@@ -26,7 +26,8 @@ const TAB = '[data-testid="conductor-tab"]';
 const MOBILE_HANDLE = '[data-testid="mobile-pull-handle"]';
 const MOBILE_SHEET = '[data-testid="mobile-chrome-sheet"]';
 const BADGE = `${TAB} [data-testid="conductor-badge"]`;
-const CHIP = '[data-testid="conductor-phase"]';
+/** The phase word on the status line above the composer. */
+const PHASE = '[data-testid="conductor-phase"]';
 const TRANSCRIPT = '[data-testid="conductor-transcript"]';
 const ROW = '[data-testid="conductor-row"]';
 const TOOL_CARD = '[data-testid="conductor-tool-card"]';
@@ -661,11 +662,13 @@ Then(
 );
 
 Then(
-  "the conductor state chip should read {string}",
+  "the conductor status should read {string}",
   async function (this: KoluWorld, phase: string) {
+    // The phase word on the ONE status line above the composer — the header's
+    // chip that used to carry it is gone, so the state lives in one place.
     await waitForValue(
-      "conductor state chip",
-      async () => (await this.page.locator(CHIP).textContent())?.trim() ?? "",
+      "the conductor status line's phase",
+      async () => (await this.page.locator(PHASE).textContent())?.trim() ?? "",
       phase,
     );
   },
@@ -1445,6 +1448,42 @@ Then(
   },
 );
 
+Then(
+  "the conductor transcript should show a {string} wake about the watched terminal",
+  async function (this: KoluWorld, level: string) {
+    const id = watchedId(this);
+    let inventoryAtTimeout = "(not observed)";
+    // The LEVEL is read off the wake's own `data-levels`, not its wording:
+    // which words the line uses is the panel's business, which fact rang is
+    // the server's.
+    await pollFor({
+      observe: () =>
+        this.page
+          .locator(`${WAKE_ROW} [data-testid="conductor-wake"]`)
+          .evaluateAll(
+            (wakes, want) =>
+              wakes.filter(
+                (wake) =>
+                  (wake.getAttribute("data-levels") ?? "")
+                    .split(" ")
+                    .includes(want.level) &&
+                  (wake.textContent ?? "").includes(want.ref),
+              ).length,
+            { level, ref: `/${id}` },
+          ),
+      isDone: (seen) => seen > 0,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (_last, elapsedMs) =>
+        new Error(
+          `no ${JSON.stringify(level)} wake about ${id} after ${elapsedMs}ms; the transcript holds ${inventoryAtTimeout}`,
+        ),
+      onTick: async () => {
+        inventoryAtTimeout = await transcriptInventory(this);
+      },
+    });
+  },
+);
+
 Then("the wake should be one line from kolu", async function (this: KoluWorld) {
   const wake = this.page.locator(WAKE_ROW).last();
   const headline = wake.locator('[data-testid="conductor-wake-headline"]');
@@ -1575,8 +1614,8 @@ Then(
   async function (this: KoluWorld) {
     // The state lives in ONE place — the status line above the composer — so
     // the only `conductor-phase` on screen is the status line's.
-    const phases = this.page.locator(CHIP);
+    const phases = this.page.locator(PHASE);
     assert.equal(await phases.count(), 1);
-    assert.equal(await this.page.locator(`${STATUS} ${CHIP}`).count(), 1);
+    assert.equal(await this.page.locator(`${STATUS} ${PHASE}`).count(), 1);
   },
 );

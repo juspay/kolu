@@ -157,6 +157,7 @@ export const KOLU_SURFACE_POSITIONALS = {
   wait_outputSettled: { positional: ["id"] },
   wait_agentState: { positional: ["id"] },
   lifecycle_sendInput: { positional: ["id"] },
+  agent_say: { positional: ["id"] },
   lifecycle_kill: { positional: ["id"] },
   watch_next: { positional: ["name"] },
   watch_close: { positional: ["name"] },
@@ -184,7 +185,12 @@ export const KOLU_SURFACE_HELP = {
   groups: [
     {
       title: "Drive a terminal",
-      verbs: ["lifecycle_create", "lifecycle_sendInput", "lifecycle_kill"],
+      verbs: [
+        "lifecycle_create",
+        "agent_say",
+        "lifecycle_sendInput",
+        "lifecycle_kill",
+      ],
     },
     {
       title: "Look at the screen",
@@ -205,6 +211,11 @@ export const KOLU_SURFACE_HELP = {
   ],
   examples: {
     lifecycle_create: `lifecycle_create --input '{"placement":{"kind":"toplevel"},"run":"claude"}'`,
+    // The verb that knows the keys, listed before the raw send for the same
+    // reason the help page groups it there: speaking to an AGENT is what a
+    // driver wants, and `lifecycle_sendInput` is the shell/menu/interrupt
+    // tool it falls back to.
+    agent_say: `agent_say <id> --text 'skip the review on this one'`,
     lifecycle_sendInput: "lifecycle_sendInput <id> --text 'nix build'",
     lifecycle_kill: "lifecycle_kill <id>",
     screen_text: "screen_text <id> --tail 20",

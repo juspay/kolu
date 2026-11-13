@@ -95,11 +95,11 @@ wait is blocking itself, and that is its own business. [The
 Conductor](/conductor) is a conversation a person is talking to, so a turn of
 its own stuck in a wait is a person stuck behind it. So the unbounded waits
 are simply not on its table: it names what it is watching, ends its turn, and
-kolu-server starts the next one when a watched terminal's agent stops, asks or
-goes. `watch_terminal` and `unwatch_terminal` are how it keeps that list (a
-terminal it creates is added for it); `wait_outputSettled` survives with a
-hard cap, because typing a command and submitting it still needs the pause in
-between.
+kolu-server starts the next one when a watched terminal's agent comes up
+unbriefed, stops, asks or goes. `watch_terminal` and `unwatch_terminal` are
+how it keeps that list (a terminal it creates is added for it);
+`wait_outputSettled` survives with a hard cap, because typing a command and
+submitting it still needs the pause in between.
 
 ## Connect it to your agent
 
@@ -241,7 +241,7 @@ the sentence names both spellings and no terminal was created to clean up.
 | `lifecycle_create` | Open a new terminal and return its `id`. **`placement` is required** — `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"…"}` to open it as a split inside that terminal; there is no default, and a call that omits it is refused with both spellings. Optionally: in a working directory (`cwd`) or a **fresh git worktree** (`repo` + `worktree`, cut at `<repo>/.worktrees/<name>`), labelled on the canvas (`intent`), typing a first command at its shell prompt (`run`). One call does what `kolu create --toplevel --repo … --worktree … -- <cmd>` does. A create that fails after the worktree or terminal already landed names the survivors as data (`stopped-partway`), so nothing orphaned goes unnameable. It picks up your [new-terminal theme setting](/theming) like a terminal you open yourself. |
 | `lifecycle_sendInput` | Type into a terminal: text, **or** one named key or chord (`Enter`, `Escape`, `C-c`, arrows…) — never both in one call. |
 | `lifecycle_kill` | Close one terminal by `id`. |
-| `agent_say` | Say something to the **agent** in a terminal, idle or mid-turn. kolu knows which agent is in there (see [agent detection](/agent-detection)) and performs its own submit — the keys, in the order and number that agent wants — so a driver never has to learn that one CLI needs a second Enter. A terminal with no agent, or an agent kolu has no recipe for, is refused with the reason rather than typed at blindly. Served by **both** faces. |
+| `agent_say` | Say something to the **agent** in a terminal, idle or mid-turn. kolu knows which agent is in there (see [agent detection](/agent-detection)) and performs its own submit — the keys, in the order and number that agent wants — so a driver never has to learn that one CLI needs a second Enter. A terminal with no agent, or an agent kolu has no recipe for, is refused with the reason rather than typed at blindly. The answer **says whether it took**: for an agent that was idle, whether it began working within a few seconds of the keys — and when it did not, that the keys were sent and the screen is what to read, never the same words sent again; for one already working, how the words were delivered (steered into the turn, or queued behind it) and that taking is not observable from outside. Served by **both** faces, and by the CLI as `kolu surface agent_say <id> --text '…'`. |
 
 ### Wait for the right moment
 
@@ -362,12 +362,14 @@ woken.
 
 | Tool | What it does |
 | --- | --- |
-| `watch_terminal` | Add a terminal to the watched list, by its `host/id`. Idempotent; refused by name for a malformed reference, a host that is not a member, or a terminal its host's roster does not have. Answers the whole list back. |
+| `watch_terminal` | Add a terminal to the watched list, by its `host/id`. Idempotent; refused by name for a malformed reference, a host that is not a member, or a terminal its host's roster does not have. Answers the whole list back, **and the state that terminal was found in** — the agent in it and how it stands, or that there is no agent, or that it is asleep. That found state is a baseline, not news: it never rings, because the answer has just said it. |
 | `unwatch_terminal` | Take one off, and say whether it was there. A terminal that closes drops off by itself, and a terminal the Conductor creates is added without being asked. |
 
-A watched terminal whose agent stops, asks or goes starts a new Conductor
-turn, carrying every terminal that has news. Nothing else does — no timer, and
-no plain shell. [The Conductor](/conductor) has the whole of it.
+A watched terminal whose agent comes up unbriefed (`ready`), stops, asks, goes,
+is put to sleep, or — for one created with a `run` command — ends back at its
+shell prompt with no agent ever seen, starts a new Conductor turn, carrying
+every terminal that has news. Nothing else does — no timer, and no plain
+shell. [The Conductor](/conductor) has the whole of it.
 
 ### Read the screen and the code
 

@@ -273,8 +273,11 @@ describe("the conversation survives a restart", () => {
 
   it("keeps the WATCH LIST — with what each terminal was told — and never the held news", async () => {
     const first = hostOver();
-    first.host.watchTerminal(FLEET_REF);
-    first.host.watchTerminal(OTHER_REF);
+    first.host.watchTerminal(FLEET_REF, "created");
+    first.host.watchTerminal(OTHER_REF, "created");
+    // The Conductor briefed the first one, so its next idle is a STOP rather
+    // than the `ready` an agent nobody has spoken to rings.
+    first.host.saidTo(FLEET_REF);
     // One of them rang and the conversation was idle, so it was told at once.
     first.host.observe([
       {
@@ -285,6 +288,7 @@ describe("the conversation survives a restart", () => {
         name: "fix the parser",
         agent: "claude-code",
         level: "stopped",
+        foregroundShell: false,
       },
     ]);
     await vi.waitFor(() => {
@@ -298,16 +302,29 @@ describe("the conversation survives a restart", () => {
     const onDisk = Schema.decodeUnknownSync(PersistedConductorSchema)(
       file.conductor,
     );
-    // Per entry, the three facts a restart cannot re-derive — and `told` is
-    // the one that makes the restart quiet.
+    // Per entry, the facts a restart cannot re-derive — and `told` is the one
+    // that makes the restart quiet. The runtime halves of a live entry (the
+    // last reading, and whether the next one baselines) are NOT here: a
+    // restart re-reads the world.
     expect(onDisk.watched).toEqual([
       {
         ref: FLEET_REF,
         name: "fix the parser",
         agent: "claude-code",
         told: "stopped",
+        joined: "created",
+        spoken: true,
+        ran: true,
       },
-      { ref: OTHER_REF, name: "", agent: null, told: null },
+      {
+        ref: OTHER_REF,
+        name: "",
+        agent: null,
+        told: null,
+        joined: "created",
+        spoken: false,
+        ran: false,
+      },
     ]);
     // THE HELD NEWS IS MEMORY ONLY: a restart re-reads the world rather than
     // replaying a queue about one that has moved on, so there is no such key

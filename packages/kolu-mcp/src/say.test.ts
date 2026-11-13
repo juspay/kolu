@@ -7,13 +7,24 @@
  * recipes it reads are the real ones from `kolu-agents` — a test that stubbed
  * them would pin this file's idea of claude-code's keys rather than the one
  * `agent_say` will actually press.
+ *
+ * The ONE place a stub is right is the last suite: the two refusals for an
+ * agent kolu cannot steer are unreachable through the registry (all seven
+ * shipped agents have a measured recipe for both states), so they are reached
+ * through the vocabulary ARGUMENT `resolveSay` takes — a branch nobody can
+ * enter is a branch nobody has run.
  */
 
 import type { PadiTerminal } from "@kolu/padi-client/surface";
 import { ToolFailure } from "@kolu/surface-mcp";
 import { describe, expect, it } from "vitest";
 import { agentVocab } from "kolu-agents/vocab";
-import { resolveSay, type SayRefusal } from "./say.ts";
+import {
+  resolveSay,
+  type SayRefusal,
+  type SayVocabulary,
+  sayTook,
+} from "./say.ts";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 
@@ -159,5 +170,113 @@ describe("resolveSay — every refusal reaches the agent as DATA", () => {
     const refusal = refusalFrom("ship it", SHELL);
     expect(refusal.detail).toMatchObject({ id: ID });
     expect(refusal.message).toContain(ID);
+  });
+});
+
+describe("the two refusals no shipped agent can reach", () => {
+  // Every one of the seven agents kolu detects has a measured recipe, and
+  // every recipe answers for both states — which is the promise the suite
+  // above pins, and which makes these two arms unreachable through the
+  // registry. They are kept because the brief requires an agent kolu cannot
+  // steer to be REFUSED with a reason rather than guessed at, and they are
+  // reached here the only honest way: by handing the resolver a vocabulary.
+  const fake = (say: SayVocabulary["say"]): SayVocabulary => ({
+    displayName: "Rumour",
+    say,
+  });
+
+  it("an agent with NO recipe is refused by name, never guessed at", () => {
+    try {
+      resolveSay(ID, "ship it", withAgent("omp", "waiting"), () => fake(null));
+    } catch (e) {
+      const refusal = e as ToolFailure<SayRefusal>;
+      expect(refusal.detail).toEqual({
+        kind: "agent-cannot-be-told",
+        id: ID,
+        agent: "omp",
+      });
+      expect(refusal.message).toContain("Rumour");
+      return;
+    }
+    throw new Error("expected a refusal, but the say resolved");
+  });
+
+  it("an agent with no MID-TURN recipe is refused only while it works", () => {
+    const idleOnly = fake({
+      idle: ["Enter"],
+      working: null,
+      verified: "a test",
+    });
+    // Idle: the same vocabulary says the words plainly.
+    const said = resolveSay(
+      ID,
+      "ship it",
+      withAgent("omp", "waiting"),
+      () => idleOnly,
+    );
+    expect(said.keys).toEqual(["Enter"]);
+    expect(said.delivery).toBe("submitted");
+
+    try {
+      resolveSay(ID, "ship it", withAgent("omp", "thinking"), () => idleOnly);
+    } catch (e) {
+      const refusal = e as ToolFailure<SayRefusal>;
+      expect(refusal.detail).toEqual({
+        kind: "agent-cannot-be-told-while-working",
+        id: ID,
+        agent: "omp",
+      });
+      // The recovery, named: wait for the turn and say it then.
+      expect(refusal.message).toMatch(/Wait for it to finish/);
+      return;
+    }
+    throw new Error("expected a refusal, but the say resolved");
+  });
+});
+
+describe("sayTook — did the keys take, and what the answer says either way", () => {
+  it("an idle agent that starts working took it", () => {
+    const took = sayTook("submitted", {
+      kind: "met",
+      agent: { kind: "omp", state: "thinking" } as never,
+      elapsedMs: 120,
+    });
+    expect(took).toMatchObject({ observed: "began-working", afterMs: 120 });
+    expect(took.note).toContain("120");
+  });
+
+  it("an idle agent that does NOT start is an ANSWER, not a failure — and it names the screen read", () => {
+    // The failure mode this exists to stop: a tool that reports nothing but
+    // "sent" invites the caller to say it again, which types the prompt twice.
+    const took = sayTook("submitted", { kind: "timeout", elapsedMs: 3000 });
+    expect(took).toMatchObject({ observed: "did-not-begin", waitedMs: 3000 });
+    expect(took.note).toContain("keys were sent");
+    expect(took.note).toContain("screen_text");
+  });
+
+  it("a WORKING agent is told plainly that taking is not observable — with its delivery", () => {
+    const steered = sayTook("steer", null);
+    expect(steered.observed).toBe("not-observable");
+    expect(steered.note).toContain("turn that is running");
+
+    const queued = sayTook("queue", null);
+    expect(queued.observed).toBe("not-observable");
+    expect(queued.note).toContain("next turn");
+  });
+
+  it("losing sight of the terminal says which way it was lost", () => {
+    expect(sayTook("submitted", { kind: "gone", elapsedMs: 10 })).toMatchObject(
+      { observed: "lost-sight", why: "gone" },
+    );
+    expect(
+      sayTook("submitted", { kind: "closed", error: "link dropped" }),
+    ).toMatchObject({ observed: "lost-sight", why: "closed" });
+    expect(
+      sayTook("submitted", { kind: "closed", error: "link dropped" }).note,
+    ).toContain("link dropped");
+    expect(sayTook("submitted", { kind: "interrupted" })).toMatchObject({
+      observed: "lost-sight",
+      why: "interrupted",
+    });
   });
 });

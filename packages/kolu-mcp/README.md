@@ -66,14 +66,20 @@ quiet, 2 s ceiling — the TUI's paste debounce, nothing more), and presses that
 agent's own submit keys. The recipe lives with agent detection, in each agent's
 vocab (`AgentVocab.say` in `packages/integrations/<agent>/src/schemas.ts`), and
 every one of them was **established by running the agent or from its own docs**
-— never guessed. The answer says what happened, including the one thing a
-caller cannot see: `delivery` is `"submitted"` (it was idle, the words start a
+— never guessed. The answer says what happened, including the two things a
+caller cannot see. `delivery` is `"submitted"` (it was idle, the words start a
 turn), `"steer"` (the words reach the turn that is running — codex, omp, pi,
 xyne) or `"queue"` (they wait for the current turn to end — claude-code,
-opencode, grok). Refused as data, never guessed: `no-agent` (a plain shell),
-`agent-cannot-be-told` (kolu detects the agent but has no verified recipe),
-`agent-cannot-be-told-while-working`, the asleep refusal, and `text-refused`
-(empty text).
+opencode, grok). `took` is whether the words LANDED: for an agent that was
+idle, kolu then watches its state for a hard-capped few seconds
+(`SAY_TAKE_CAP_MS`) and answers `began-working` or `did-not-begin` — the keys
+were sent either way, so a say that did not take is an ANSWER naming the screen
+read that settles it, never a refusal that invites typing the prompt a second
+time. For an agent that was already working there is no state change to watch,
+so `took` is `not-observable` and the delivery is the whole story. Refused as
+data, never guessed: `no-agent` (a plain shell), `agent-cannot-be-told` (kolu
+detects the agent but has no verified recipe), `agent-cannot-be-told-while-working`,
+the asleep refusal, and `text-refused` (empty text).
 
 **A refusal is data, not a sentence to parse.** `lifecycle_sendInput` refuses
 four things on purpose, and a driver recovers from each differently — so each
@@ -200,21 +206,34 @@ description. A clamp would answer "met" after three seconds to a caller that
 believed it had waited ten minutes. The reason is the conductor: its turn is a
 conversation a human may be trying to speak into, so it says what it watches
 and ENDS its turn, and kolu-server starts the next one when a watched
-terminal's agent stops, asks or dies. The settle between typing and Enter is
-the one wait that survives, because `agent_say` is built on it.
+terminal's agent stops, asks or dies. The two waits that survive are both
+`agent_say`'s own and both hard constants: the settle between typing and the
+submit keys, and the few seconds it watches afterwards to say whether the words
+took.
 
 **The watch list, and who is on it.** `watch_terminal { id }` adds a terminal
 (refusing a malformed reference, a host that is not connected, and a terminal
 that is not in its host's roster — a watch on something that does not exist is
-silence a conductor would read as calm) and answers `{ watching }`.
-`unwatch_terminal { id }` answers `{ watching, removed }`, consults no roster,
-and is happy to forget a terminal that has already died. **A terminal this face
-CREATES is watched automatically**, at the fleet reference `lifecycle_create`
-answered — the agent never has to ask for news about a worker it just started.
-The list itself belongs to kolu-server (it is persisted with the conversation
-and read by the server's watcher); this face reaches it through the
-`FleetWatchList` port (`watched` · `watch` · `unwatch`), for the same reason
-`FleetHosts` is a port.
+silence a conductor would read as calm) and answers `{ watching, found }`:
+`found` is the state the terminal was in when it joined — the agent and its
+bucket, or `no-agent` / `asleep`. That state is also the BASELINE the server
+keeps for an `asked` join, so it is said here precisely because it will never
+arrive as a wake. `unwatch_terminal { id }` answers `{ watching, removed }`,
+consults no roster, and is happy to forget a terminal that has already died.
+**A terminal this face CREATES is watched automatically**, at the fleet
+reference `lifecycle_create` answered — the agent never has to ask for news
+about a worker it just started.
+
+Every entry says HOW it joined (`FleetWatchJoin`): `created` for a bare shell
+this face opened, `created-run` when a command was typed at that shell (only
+that one can end with the command gone and no agent ever there), and `asked`
+for a terminal that was already running when the conductor asked for it. The
+list itself belongs to kolu-server (it is persisted with the conversation and
+read by the server's watcher); this face reaches it through the
+`FleetWatchList` port (`watched` · `watch` · `unwatch` · `said`), for the same
+reason `FleetHosts` is a port. `agent_say` calls `said` once its keys land: the
+conductor has just acted on whatever that terminal was doing, so news held
+about it is stale.
 
 `agent_say` is on BOTH faces, unchanged except for the reference: the conductor
 says things to the agents it starts without knowing one keystroke of any of

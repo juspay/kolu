@@ -34,11 +34,17 @@
  *   4. **Press the recipe's keys** — one send per key, in order, so a recipe
  *      that ever needs two keys cannot deliver them fused into one write that a
  *      TUI reads as a single chord.
+ *   5. **Watch, briefly, whether it TOOK** — for an agent that was IDLE, a
+ *      hard-capped wait ({@link SAY_TAKE_CAP_MS}) for its state to turn
+ *      `working`. A dropped Enter is the whole reason this verb exists, so
+ *      "the keys were sent" is not a good enough answer; and because a
+ *      refusal here would invite a blind resend, BOTH outcomes are answers.
  *
  * Then it ANSWERS what it did: which agent, whether that agent was working, the
  * keys pressed, and — the fact a caller actually needs — whether those keys
- * STEER the running turn or QUEUE behind it. "I said it" and "it heard it" are
- * different claims, and only the agent's own recipe knows which one this was.
+ * STEER the running turn or QUEUE behind it; plus, for an idle agent, whether
+ * it began working. "I said it" and "it heard it" are different claims, and
+ * this tool reports both rather than letting one stand for the other.
  */
 
 import { terminalAsleepRefusal } from "./asleep.ts";
@@ -47,6 +53,10 @@ import { padiOf } from "./bundleClient.ts";
 // table's static-load fence (`tools.test.ts`) is untouched by it.
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import type { PadiTerminal } from "@kolu/padi-client/surface";
+// The agent-state wait's OUTCOME type, for the verdict mapper below — a type
+// import of the banned `…/watch` entry, which the fence exempts because it is
+// erased. The wait itself is pulled at call time, in the handler.
+import type { AgentStateOutcome } from "@kolu/padi-client/watch";
 // A PURE leaf of the dial kit — the narrowing only, no socket (that package's
 // `terminalVocab.ts` exists for exactly this: `tools.test.ts`'s fence bans
 // `@kolu/padi-client/dial` and `…/watch`, not the vocabulary below them).
@@ -101,6 +111,17 @@ const SAY_SEND_VOCABULARY: SendVocabulary = {
 export const SAY_SETTLE_IDLE_MS = 250;
 export const SAY_SETTLE_TIMEOUT_MS = 2_000;
 
+/** How long an IDLE agent is given to BEGIN WORKING after its submit keys,
+ *  before the answer says it did not.
+ *
+ *  A hard constant, and small: this is not a wait on the agent's turn (the
+ *  Conductor never waits on one — it is woken when a watched terminal stops),
+ *  it is the question "did the Enter land", and a TUI that accepted a prompt
+ *  flips its state within a beat. Past this the tool still ANSWERS — the keys
+ *  were sent, and the honest report is that taking was not observed, which is
+ *  a screen to read rather than a reason to type the words again. */
+export const SAY_TAKE_CAP_MS = 3_000;
+
 /** Why `agent_say` would not say it. Each kind is a different recovery:
  *
  *   - `text-refused` — the shared encoder refused the words (today: empty).
@@ -149,6 +170,90 @@ export interface SayPerformance {
   readonly delivery: SayDelivery;
 }
 
+/** Whether the words TOOK — the half of this tool's promise the delivery word
+ *  cannot answer.
+ *
+ *  An Enter that is silently dropped is the whole reason `agent_say` exists,
+ *  so the answer may not stop at "the keys were sent". For an agent that was
+ *  IDLE, kolu watches its state for {@link SAY_TAKE_CAP_MS} and says which of
+ *  the two happened. Neither is a failure — a refusal here would invite a
+ *  blind resend, which is how a prompt gets typed twice — so both arms are an
+ *  answer, and the one that did not take names the screen read that settles
+ *  it.
+ *
+ *   - `began-working` — the agent's bucket turned `working`: it took.
+ *   - `did-not-begin` — it had not within the cap. The keys WERE sent.
+ *   - `not-observable` — the agent was already working, so there is no state
+ *     change to watch for; what happens to the words is the recipe's
+ *     `delivery`, which the answer carries.
+ *   - `lost-sight` — the watch ended for its own reason (the terminal went
+ *     away, the subscription dropped, the call was interrupted) before either
+ *     verdict. */
+export type SayTook =
+  | {
+      readonly observed: "began-working";
+      readonly afterMs: number;
+      readonly note: string;
+    }
+  | {
+      readonly observed: "did-not-begin";
+      readonly waitedMs: number;
+      readonly note: string;
+    }
+  | { readonly observed: "not-observable"; readonly note: string }
+  | {
+      readonly observed: "lost-sight";
+      readonly why: "gone" | "closed" | "interrupted";
+      readonly note: string;
+    };
+
+/** The wait's outcome, read as the answer's verdict — pure, so every arm is
+ *  pinned without a terminal that refuses to start working on cue. `outcome`
+ *  is `null` exactly when no wait was run, which is the WORKING case. */
+export function sayTook(
+  delivery: SayDelivery,
+  outcome: AgentStateOutcome | null,
+): SayTook {
+  if (outcome === null) {
+    return {
+      observed: "not-observable",
+      note: `The agent was already working, so there is no state change that would prove it heard this; the keys went in with delivery "${delivery}" — ${delivery === "steer" ? "its TUI hands them to the turn that is running" : "its TUI holds them for the next turn"}. Read the screen to see them land.`,
+    };
+  }
+  switch (outcome.kind) {
+    case "met":
+      return {
+        observed: "began-working",
+        afterMs: outcome.elapsedMs,
+        note: `The agent began working ${outcome.elapsedMs} ms after the keys — it took.`,
+      };
+    case "timeout":
+      return {
+        observed: "did-not-begin",
+        waitedMs: outcome.elapsedMs,
+        note: `The keys were sent, but the agent had not begun working ${outcome.elapsedMs} ms later. Do NOT say it again blind — read the screen (screen_text): the words may be staged at its prompt, it may be waiting on a dialog, or it may just be slow to start.`,
+      };
+    case "gone":
+      return {
+        observed: "lost-sight",
+        why: "gone",
+        note: "The keys were sent, and then the terminal went away — whatever was said died with it. Nothing is running there.",
+      };
+    case "interrupted":
+      return {
+        observed: "lost-sight",
+        why: "interrupted",
+        note: "The keys were sent; the call was interrupted before kolu could see whether the agent started. Read the screen.",
+      };
+    case "closed":
+      return {
+        observed: "lost-sight",
+        why: "closed",
+        note: `The keys were sent; the watch over this terminal dropped before kolu could see whether the agent started${outcome.error === undefined ? "" : ` (${outcome.error})`} — the terminal is not known to be dead. Read the screen.`,
+      };
+  }
+}
+
 /** The live agent in a record, or the refusal that says why there is none to
  *  talk to — dormant terminal and plain shell are different facts and get
  *  different sentences. */
@@ -164,13 +269,28 @@ function sayableAgent(id: string, record: PadiTerminal): AgentInfo {
   return agent;
 }
 
+/** The slice of an agent's vocab the recipe selection reads. Named as its own
+ *  shape so {@link sayableRecipe} is a pure function OVER a vocabulary rather
+ *  than over the registry: the `say: null` and `working: null` arms are
+ *  refusals the shipped agents cannot reach today (every one of the seven has
+ *  a measured recipe), and a branch no test can enter is a branch nobody has
+ *  ever run. A fake vocabulary reaches both. */
+export interface SayVocabulary {
+  readonly displayName: string;
+  readonly say: AgentSayRecipe | null;
+}
+
+/** Every agent's vocab, by kind — the production lookup, and the default of
+ *  the one argument {@link resolveSay} takes for it. */
+export type SayVocabularyOf = (kind: AgentInfo["kind"]) => SayVocabulary;
+
 /** The recipe for this agent in this state, or the refusal that names the agent
  *  and why kolu will not improvise. */
-function sayableRecipe(
+export function sayableRecipe(
   id: string,
   agent: AgentInfo,
+  vocab: SayVocabulary,
 ): { readonly keys: readonly string[]; readonly delivery: SayDelivery } {
-  const vocab = agentVocab(agent.kind);
   const recipe: AgentSayRecipe | null = vocab.say;
   if (recipe === null) {
     throw new ToolFailure<SayRefusal>(
@@ -197,6 +317,7 @@ export function resolveSay(
   id: string,
   text: string,
   record: PadiTerminal,
+  vocabOf: SayVocabularyOf = agentVocab,
 ): SayPerformance {
   // The words are encoded FIRST: an empty `text` is refused before the record
   // read decides whose fault the silence is, and the refusal is the shared
@@ -217,7 +338,7 @@ export function resolveSay(
     });
   }
   const agent = sayableAgent(id, record);
-  const { keys, delivery } = sayableRecipe(id, agent);
+  const { keys, delivery } = sayableRecipe(id, agent, vocabOf(agent.kind));
   return {
     text: encoded.plan,
     keys,
@@ -258,7 +379,7 @@ export const agentSayTool: BespokeTool = {
   mutates: true,
   title: "Say something to the agent in a terminal",
   description:
-    'Say this to the agent running in that terminal — kolu knows which agent it is and presses that agent\'s own submit keys, so you never send Enter yourself. Types the text, waits for the terminal to settle (hard-capped), then submits. Answers what it did: the agent, whether it was WORKING, the keys pressed, and the delivery — "steer" (the words reach the running turn), "queue" (they wait for the current turn to end) or "submitted" (it was idle, so they start a turn). REFUSED, never guessed: a terminal with no agent (a plain shell), an agent with no verified recipe, an agent that cannot be told anything mid-turn, a terminal that is asleep, and empty text.',
+    'Say this to the agent running in that terminal — kolu knows which agent it is and presses that agent\'s own submit keys, so you never send Enter yourself. Types the text, waits for the terminal to settle (hard-capped), then submits. Answers what it did: the agent, whether it was WORKING, the keys pressed, and the delivery — "steer" (the words reach the running turn), "queue" (they wait for the current turn to end) or "submitted" (it was idle, so they start a turn) — AND whether it took: for an idle agent kolu watches a few seconds for it to begin working and reports "began-working" or "did-not-begin" (the keys were sent either way — read the screen rather than saying it again). REFUSED, never guessed: a terminal with no agent (a plain shell), an agent with no verified recipe, an agent that cannot be told anything mid-turn, a terminal that is asleep, and empty text.',
   handler: (args, client, signal) => {
     const { id, text } = args as AgentSayArgs;
     const padi = padiOf(client);
@@ -308,7 +429,7 @@ export const agentSayTool: BespokeTool = {
                   // would be this face guessing about a terminal padi can speak
                   // for.
                   () =>
-                    Effect.as(
+                    Effect.flatMap(
                       Effect.forEach(
                         say.keys,
                         (key) => pressKey(padi, id, key),
@@ -316,15 +437,40 @@ export const agentSayTool: BespokeTool = {
                           discard: true,
                         },
                       ),
-                      {
-                        said: {
-                          agent: say.agent,
-                          working: say.working,
-                          keys: say.keys,
-                          delivery: say.delivery,
-                          textBytes: say.text.bytes,
-                        },
-                      },
+                      // DID IT TAKE. Only for an agent that was idle: a
+                      // working agent has no state change to show (it was
+                      // already working), so the recipe's delivery is the
+                      // whole of what can be said and no wait is opened at
+                      // all. The cap is a constant, and the answer is an
+                      // answer either way — see {@link sayTook}.
+                      () =>
+                        Effect.map(
+                          say.working
+                            ? Effect.succeed<AgentStateOutcome | null>(null)
+                            : Effect.tryPromise(async (fiberSignal) => {
+                                // Same call-time lift as the settle above, and
+                                // for the same fence.
+                                const { awaitAgentState } = await import(
+                                  "@kolu/padi-client/watch"
+                                );
+                                return awaitAgentState(padi, {
+                                  id,
+                                  targets: new Set(["working"]),
+                                  timeoutMs: SAY_TAKE_CAP_MS,
+                                  signal: signal ?? fiberSignal,
+                                });
+                              }),
+                          (outcome) => ({
+                            said: {
+                              agent: say.agent,
+                              working: say.working,
+                              keys: say.keys,
+                              delivery: say.delivery,
+                              textBytes: say.text.bytes,
+                            },
+                            took: sayTook(say.delivery, outcome),
+                          }),
+                        ),
                     ),
                 ),
             ),

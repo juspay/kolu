@@ -124,7 +124,10 @@ import { teachingLines } from "./teaching.ts";
 import { wakeText } from "./wakeText.ts";
 import {
   observed,
+  restoredEntry,
+  spokenTo,
   type WatchEntry,
+  type WatchJoin,
   type WatchObservation,
   watchEntry,
 } from "./watching.ts";
@@ -172,16 +175,30 @@ export interface ConductorHost {
    *  order they were added. Reads the remembered record if nobody has yet; it
    *  never starts the agent — a list is bookkeeping, not a conversation. */
   readonly watched: () => ReadonlyArray<string>;
-  /** Put one on the list. Idempotent: a terminal watched twice is watched.
+  /** Put one on the list, saying HOW it got there — which is what decides
+   *  whether its first reading is news or a baseline, and whether a command
+   *  coming back to the prompt means anything ({@link WatchJoin}).
+   *  Idempotent: a terminal watched twice is watched, and a re-watch keeps
+   *  the entry it already has rather than forgetting what it was told.
    *
    *  SPELLED `watchTerminal`, not `watch`: this interface's `watch` is the
    *  TRANSCRIPT subscription and has been since there was a transcript. Two
    *  verbs with one name is how a caller subscribes to a conversation when it
    *  meant to start watching a terminal, so the newer one carries the subject
    *  in its name — which is also what the Conductor's own tool is called. */
-  readonly watchTerminal: (ref: string) => void;
+  readonly watchTerminal: (ref: string, joined: WatchJoin) => void;
   /** ... and take one off, answering whether it was there. */
   readonly unwatchTerminal: (ref: string) => boolean;
+  /** THE CONDUCTOR JUST SPOKE TO THE AGENT IN THIS TERMINAL — `agent_say`
+   *  landed its keystrokes.
+   *
+   *  Whatever that terminal was about to say is withdrawn and its entry
+   *  re-baselines at the state it stands in (`./watching.ts`'s `spokenTo`):
+   *  a say answers as soon as the keys are pressed, so without this the
+   *  Conductor is woken about the agent it has just briefed the instant its
+   *  turn ends. A ref that is NOT watched is ignored — the fleet face calls
+   *  this for every say, and most terminals are nobody's watch. */
+  readonly saidTo: (ref: string) => void;
   /**
    * WHAT THE WATCHER SAW, for refs on CONNECTED hosts only.
    *
@@ -491,6 +508,15 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
    *  that everything waiting leaves in ONE turn — two of them racing would be
    *  two wakes for one boundary. */
   let flushing = false;
+  /** THE FAILURE EPISODE a wake is in, as the sentence that was said about it
+   *  — or `null` when the last wake went. One notice per episode: a flush
+   *  that fails is retried on every edge that could make it work, and a row
+   *  per attempt would bury the conversation under kolu's own apologies. */
+  let wakeFailure: string | null = null;
+  /** Something rang (or a turn ended) while a flush was already running. The
+   *  dropped edge is re-run when that flush ends, so news that landed in the
+   *  window does not wait for an edge that has already passed. */
+  let missedEdge = false;
 
   /** The state as a READER sees it: whatever the harness last said, plus the
    *  three fields this server authors and the two the WATCH owns. `watched`
@@ -543,7 +569,8 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       // each: the watcher looks at every one of these again in a moment, and
       // `told` is what stops a terminal that has not moved since the restart
       // from ringing a second time.
-      for (const entry of record.watched) watchList.set(entry.ref, entry);
+      for (const entry of record.watched)
+        watchList.set(entry.ref, restoredEntry(entry));
       state = { ...state, sessionId: record.sessionId, fleet: record.fleet };
       publishState();
     }
@@ -907,6 +934,35 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     publishState();
   };
 
+  /** How many notices THIS HOST has written, for the row ids it mints. */
+  let notices = 0;
+
+  /** KOLU'S OWN SENTENCE IN THE TRANSCRIPT — a `notice` row this module
+   *  writes rather than one the agent's harness reported.
+   *
+   *  Minted HERE and not through the harness because the failure that needs
+   *  saying most is the one where there IS no harness: a wake that could not
+   *  go because the conversation would not come up has nobody to mint it. The
+   *  id is this host's own (`kolu:notice:N`) so it cannot collide with the
+   *  harness's (`user:N`, `agent:N`), and the seq follows the last row there
+   *  is — the same fence a replacement harness resumes from. */
+  const sayNotice = (text: string): void => {
+    notices += 1;
+    applyRows({
+      upserts: [
+        {
+          kind: "notice",
+          id: `kolu:notice:${notices}`,
+          seq: (rows().at(-1)?.seq ?? 0) + 1,
+          since: new Date().toISOString(),
+          text,
+        },
+      ],
+      removes: [],
+      appends: [],
+    });
+  };
+
   /** Bring the conversation up, once, and hand back the same promise to every
    *  caller that arrives while it is in flight — so two readers opening at the
    *  same instant cannot spawn two adapters. */
@@ -1030,6 +1086,14 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     starting = begun
       .then((started) => {
         harness = started;
+        // AN AGENT THAT CAME UP IS AN EDGE A HELD WAKE WAITS FOR. A flush
+        // that failed because the conversation would not start left its news
+        // on the list ({@link flush}); nothing else here would notice that
+        // the reason is gone, and a conversation that is now up with news
+        // nobody delivered is the indefinite wait this whole feature exists
+        // to remove. Re-entrant by design: a flush that is already running is
+        // the caller of this very bring-up and its own guard drops this one.
+        void flush();
         return started;
       })
       .catch((err: unknown) => {
@@ -1080,9 +1144,40 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
    * The slots are TAKEN before the wake is awaited, so a terminal that rings
    * during the round trip is held for the next flush rather than sent twice;
    * a wake that then fails puts back the ones nothing newer has replaced.
+   *
+   * ## When a wake cannot go at all
+   *
+   * It is SAID — one `notice` row naming the terminals still waiting and the
+   * sentence behind the failure — and then retried on the next edge that could
+   * make it work. A caught error that only reached the log is the thing
+   * `AGENTS.md` refuses: the held news would sit behind an idle-looking
+   * conversation with nothing on screen to say why.
+   *
+   * THE RETRY IS EVENT-DRIVEN AND HAS NO TIMER, because the whole design has
+   * none. Three edges reach here and each is a real change in the world: the
+   * conversation going idle (which includes a replacement agent finishing its
+   * bring-up, a sign-in landing, and a person's own turn ending), the agent
+   * coming up at all ({@link live}), and the next reading from the watcher.
+   * One notice per FAILURE EPISODE rather than per retry: the news that could
+   * not go is one piece of news, and a row per attempt would be a conversation
+   * full of kolu apologising to itself. The latch lifts the moment a wake
+   * lands.
+   *
+   * AN EDGE THAT ARRIVES WHILE A FLUSH IS RUNNING IS NOT LOST. Only one flush
+   * runs at a time — two would be two wakes for one boundary — so a second
+   * one is dropped, and `missedEdge` remembers that something happened while
+   * the first was on the wire. The dropped edge is re-run when that flush
+   * ends, whichever way it ended: a terminal that rang during a wake that
+   * then failed would otherwise wait for an edge that has already been and
+   * gone. It cannot spin, because the re-run needs a REAL edge to have landed
+   * in the window, and an empty list returns at the top.
    */
   const flush = async (): Promise<void> => {
-    if (disposed || flushing) return;
+    if (disposed) return;
+    if (flushing) {
+      missedEdge = true;
+      return;
+    }
     if (heldNews.waiting().length === 0) return;
     flushing = true;
     try {
@@ -1105,6 +1200,8 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         publishState();
         throw err;
       }
+      // DELIVERED, so the episode is over: the next failure is news again.
+      wakeFailure = null;
       // TOLD is set when the wake was DELIVERED — its turn started — and not a
       // moment before: news that waited through a turn and then failed to go
       // is still owed, and a restart must ring about it again.
@@ -1115,12 +1212,25 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       }
       schedulePersist();
     } catch (err) {
-      // A wake nobody could deliver is a WARNING rather than a throw: there is
-      // no caller to tell — this runs off a watcher's frame or a turn ending —
-      // and the refusal a bring-up failed with is already in the cell.
+      // A wake nobody could deliver is not thrown — there is no caller to tell,
+      // this runs off a watcher's frame or a turn ending — so it is LOGGED for
+      // the operator and SAID for the person reading the panel.
       log.warn({ err }, "kolu-server: the conductor could not be woken");
+      const why = sentenceOf(err);
+      if (wakeFailure === null) {
+        wakeFailure = why;
+        const waiting = heldNews.refs();
+        sayNotice(
+          `kolu could not wake this conversation about ${waiting.length === 0 ? "a watched terminal" : waiting.join(", ")} — ${why} — the news is still waiting, and goes out on the next thing that happens: the conversation going idle, the agent coming back up, or the next reading of a watched terminal.`,
+        );
+      }
     } finally {
       flushing = false;
+    }
+    // ... and whatever rang while that was on the wire gets its own turn now.
+    if (missedEdge) {
+      missedEdge = false;
+      void flush();
     }
   };
 
@@ -1139,10 +1249,11 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       terminalId: seen.terminalId,
       hostName: seen.hostName,
       name: entry.name,
-      // A wake is only ever about a terminal an agent was seen in, so the
-      // sticky reading is never null here; the fallback is what a defect
-      // would read as, and it says so rather than crashing a watcher.
-      agent: entry.agent ?? "unknown",
+      // EMPTY is a real answer here, and exactly one level gives it: `ended`
+      // is about a terminal no agent was ever seen in, so there is no name to
+      // put. Every other level is about an agent, and the sticky reading has
+      // one ({@link ./watching.ts}).
+      agent: entry.agent ?? "",
       level,
       at: new Date().toISOString(),
     });
@@ -1229,11 +1340,28 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       remembered();
       return [...watchList.keys()];
     },
-    watchTerminal: (ref) => {
+    watchTerminal: (ref, joined) => {
       remembered();
+      // A RE-WATCH KEEPS THE ENTRY IT HAS. The join only describes how the
+      // terminal arrived, and the entry already here knows what it was told,
+      // whether anything has been said to it and whether its command ran —
+      // all of which a second `watch` would throw away.
       if (watchList.has(ref)) return;
-      watchList.set(ref, watchEntry(ref));
+      watchList.set(ref, watchEntry(ref, joined));
       publishState();
+      schedulePersist();
+    },
+    saidTo: (ref) => {
+      remembered();
+      const entry = watchList.get(ref);
+      // Not watched: the fleet face says this about every `agent_say`, and
+      // most terminals on a fleet are nobody's watch.
+      if (entry === undefined) return;
+      // The news it was about to make is the state the Conductor has just
+      // acted on, so it goes — and the entry re-baselines at that state.
+      const withdrew = heldNews.withdraw(ref);
+      watchList.set(ref, spokenTo(entry));
+      if (withdrew) publishState();
       schedulePersist();
     },
     unwatchTerminal: (ref) => {

@@ -70,9 +70,11 @@ a server it will mark failed for the life of the session.
 
 **Hosts come and go without a seam.** ACP fixes the MCP server list at
 `session/new`, so the conversation is opened against one URL and keeps it
-forever. A host arriving is a `hosts` update and its terminals flow into the
-fleet watch already open; a host leaving reports its terminals gone and drops
-out. Nothing reopens the session.
+forever. A host arriving is a `hosts` update, and the conductor's own watch
+re-scopes onto it (`src/conductor/watcher.ts`): the terminals on it that the
+Conductor is watching get a leg. A host leaving drops that leg and says
+nothing more about its terminals — disconnected is not gone. Nothing reopens
+the session.
 
 ### Lifetime
 
@@ -93,12 +95,29 @@ host's padi `urgency` fold and `terminals` collection, and hands the readings
 to the conversation (`observe`), which decides what is news, holds it while a
 turn runs, and sends everything waiting as ONE wake when the turn ends.
 
+**What a reading carries** is how the terminal stands — working, asking,
+stopped, a shell, asleep, gone — plus the agent in it and whether padi's
+foreground is the terminal's own shell. The watcher reports; it never
+concludes. Whether a stop is a `ready` (an agent that has come up and has not
+been spoken to), whether a shell is an `ended` (a terminal kolu opened with a
+command, whose command ran and gave the prompt back with no agent ever in it),
+and whether anything rings at all is `kolu-conductor`'s `watching.ts`. A slept
+or boot-parked terminal reads as `asleep` rather than as a shell: its agent
+was released with it, which is news exactly once, and the entry stays watched
+because waking the terminal brings it back.
+
 It is started **after** `implementKoluSurface` — reading the watch list reads
 the remembered record, which publishes, and a publish before the cell writer
 exists is the boot-order crash `live.ts` states — and disposed **before** the
 conversation, so nothing can start a turn into a host that is shutting down. A
 host that is not answering is parked, never mourned: disconnected is not gone.
 A reading may WAKE the conversation; reading the list never starts the agent.
+
+**A wake that cannot be delivered** — the agent refused it, or would not come
+up — writes one `notice` row naming the terminals still waiting and why, puts
+the news back, and is retried on the next edge that could carry it: the
+conversation going idle, the agent coming up, or the next reading from this
+watcher. One notice per failure episode, and no timer anywhere.
 
 ### The record
 

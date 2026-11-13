@@ -151,13 +151,18 @@ describe("the persisted state file — aggregate bytes", () => {
       ],
       fleet: ["local/11111111-1111-4111-8111-111111111111"],
       // ... and the terminals kolu wakes it about, each with what was last
-      // seen of it and the level the conversation has already been told.
+      // seen of it, the level the conversation has already been told, how it
+      // joined the list, whether it has been spoken to, and whether a command
+      // was seen running in it.
       watched: [
         {
           ref: "local/11111111-1111-4111-8111-111111111111",
           name: "fix the parser",
           agent: "claude-code",
           told: "stopped",
+          joined: "created-run",
+          spoken: true,
+          ran: true,
         },
       ],
     });
@@ -190,7 +195,7 @@ describe("the persisted state file — aggregate bytes", () => {
       '{"sessionId":"sess-live","cwd":"/home/tester","model":"claude-sonnet-4",' +
         '"rows":[{"id":"a","seq":1,"since":"2026-01-01T00:00:00.000Z","kind":"agent","text":"one"}],' +
         '"fleet":["local/11111111-1111-4111-8111-111111111111"],' +
-        '"watched":[{"ref":"local/11111111-1111-4111-8111-111111111111","name":"fix the parser","agent":"claude-code","told":"stopped"}]}',
+        '"watched":[{"ref":"local/11111111-1111-4111-8111-111111111111","name":"fix the parser","agent":"claude-code","told":"stopped","joined":"created-run","spoken":true,"ran":true}]}',
     );
   });
 

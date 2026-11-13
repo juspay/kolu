@@ -59,7 +59,7 @@ import { FLEET_SETTLE_CAP_MS, KOLU_FLEET_TOOL_NAMES } from "./lift.ts";
 import { fleetSurface } from "./fleetSurface.ts";
 import type { FleetHosts } from "./hosts.ts";
 import { serveKoluFleetMcp } from "./serve.ts";
-import type { FleetWatchList } from "./watchList.ts";
+import type { FleetWatchJoin, FleetWatchList } from "./watchList.ts";
 
 const ALPHA_1 = "11111111-1111-4111-8111-111111111111" as TerminalId;
 const ALPHA_2 = "22222222-2222-4222-8222-222222222222" as TerminalId;
@@ -67,7 +67,13 @@ const BETA_1 = "33333333-3333-4333-8333-333333333333" as TerminalId;
 
 /** A value with subscribers, as a snapshot-then-change `Stream` — the shape
  *  every padi cell and collection-keys member has on the wire. */
-function cell<T>(initial: T) {
+interface Cell<T> {
+  readonly value: T;
+  set(next: T): void;
+  stream(): Stream.Stream<T>;
+}
+
+function cell<T>(initial: T): Cell<T> {
   let current = initial;
   const subs = new Set<(value: T) => void>();
   return {
@@ -129,6 +135,14 @@ interface FakePadi {
   add(id: TerminalId, title: string, parentId?: TerminalId): void;
   /** Put a live agent of `kind` in `state` into that terminal's record. */
   runAgent(id: TerminalId, kind: string, state: string): void;
+  /** Arm that terminal's agent to BEGIN WORKING when a submit key (`\r`)
+   *  reaches it — a TUI accepting a prompt, which is what `agent_say`'s "did
+   *  it take" wait watches for. */
+  startsWorkingOnSubmit(id: TerminalId, kind: string): void;
+  /** Put that terminal to sleep IN ITS RECORD — padi's `state` arm, which is
+   *  what any reader of the roster sees (distinct from `sleep`, which is the
+   *  screen-read gate). */
+  park(id: TerminalId, state: "sleeping" | "parked"): void;
   remove(id: TerminalId): void;
   /** Queue a settle event and ring the pulse, as padi's registry would. */
   fire(id: TerminalId, kind: "asking" | "finished" | "gone"): void;
@@ -154,8 +168,12 @@ interface FakePadi {
 
 function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
   const calls: string[] = [];
-  const records = new Map<TerminalId, PadiTerminal>(
-    seeded.map((id) => [id, terminalRecord(`${host} ${id.slice(0, 4)}`)]),
+  // One cell PER RECORD, because a collection `get` is a live stream on the
+  // wire: a terminal whose agent starts working while something is watching
+  // it publishes that, and a fixture that answered one frame and completed
+  // would make every state change after the first unobservable.
+  const records = new Map<TerminalId, Cell<PadiTerminal>>(
+    seeded.map((id) => [id, cell(terminalRecord(`${host} ${id.slice(0, 4)}`))]),
   );
   const keys = cell<TerminalId[]>([...records.keys()]);
   const urgency = cell<PadiUrgency>(EMPTY_URGENCY);
@@ -168,6 +186,9 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
   let seq = 0;
   let watchOpenRefusal: string | null = null;
   let sendInputRefusal: string | null = null;
+  /** Terminals whose agent begins WORKING when its submit key arrives, by the
+   *  agent kind that is in them. */
+  const startsOnSubmit = new Map<TerminalId, string>();
   /** The one terminal this padi reports as ASLEEP, if any. */
   let sleeping: TerminalId | null = null;
 
@@ -190,7 +211,7 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
     [at("terminals", "keys")]: () => keys.stream(),
     [at("terminals", "get")]: ({ key }: { key: TerminalId }) => {
       const record = records.get(key);
-      return record === undefined ? Stream.never : Stream.make(record);
+      return record === undefined ? Stream.never : record.stream();
     },
     [at("screen", "text")]: (input: { id: TerminalId }) =>
       Effect.suspend(() => {
@@ -221,9 +242,20 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
     [at("lifecycle", "sendInput")]: (input: unknown) =>
       Effect.suspend(() => {
         calls.push(`lifecycle.sendInput:${JSON.stringify(input)}`);
-        return sendInputRefusal === null
-          ? Effect.void
-          : Effect.fail(new Error(sendInputRefusal));
+        if (sendInputRefusal !== null) {
+          return Effect.fail(new Error(sendInputRefusal));
+        }
+        // A submit KEY landing on an agent that was armed to start: what a
+        // real TUI does a beat after its Enter, and the only way an
+        // in-process fixture can let `agent_say`'s "did it take" wait observe
+        // the thing it is there to observe.
+        const { id, data } = input as { id: TerminalId; data: string };
+        const starting = startsOnSubmit.get(id);
+        const record = records.get(id);
+        if (data === "\r" && starting !== undefined && record !== undefined) {
+          record.set(withAgent(`${host} agent`, starting, "thinking"));
+        }
+        return Effect.void;
       }),
     [at("git", "getStatus")]: (input: { repoPath: string }) =>
       Effect.sync(() => {
@@ -308,11 +340,31 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
     openedWatches,
     closedWatches,
     runAgent(id, kind, state) {
-      records.set(id, withAgent(`${host} agent`, kind, state));
+      const held = records.get(id);
+      const next = withAgent(`${host} agent`, kind, state);
+      if (held === undefined) records.set(id, cell(next));
+      else held.set(next);
+      keys.set([...records.keys()]);
+    },
+    startsWorkingOnSubmit(id, kind) {
+      startsOnSubmit.set(id, kind);
+    },
+    park(id, state) {
+      const held = records.get(id);
+      const dormant = {
+        state,
+        title: `${host} parked`,
+        agent: null,
+      } as unknown as PadiTerminal;
+      if (held === undefined) records.set(id, cell(dormant));
+      else held.set(dormant);
       keys.set([...records.keys()]);
     },
     add(id, title, parentId) {
-      records.set(id, terminalRecord(title, parentId));
+      const held = records.get(id);
+      const next = terminalRecord(title, parentId);
+      if (held === undefined) records.set(id, cell(next));
+      else held.set(next);
       keys.set([...records.keys()]);
     },
     remove(id) {
@@ -407,22 +459,36 @@ const jsonOf = (result: {
 }): unknown => JSON.parse(String(result.contents[0]?.text));
 
 /** kolu-server's watch list, as a test holds it: add-ordered, idempotent,
- *  in memory. The real one is persisted with the conversation and read by the
- *  server's watcher — this face only moves it, which is exactly what these
- *  tests are about. */
-function fakeWatchList(): FleetWatchList {
+ *  in memory, and recording HOW each entry joined plus every terminal the
+ *  conductor has spoken to. The real one is persisted with the conversation
+ *  and read by the server's watcher — this face only moves it, which is
+ *  exactly what these tests are about. */
+function fakeWatchList(): FleetWatchList & {
+  joinOf(ref: string): FleetWatchJoin | undefined;
+  readonly saids: string[];
+} {
+  const joins = new Map<string, FleetWatchJoin>();
   const refs: string[] = [];
+  const saids: string[] = [];
   return {
     watched: () => [...refs],
-    watch(ref) {
-      if (!refs.includes(ref)) refs.push(ref);
+    watch(ref, joined) {
+      if (refs.includes(ref)) return;
+      refs.push(ref);
+      joins.set(ref, joined);
     },
     unwatch(ref) {
       const at = refs.indexOf(ref);
       if (at < 0) return false;
       refs.splice(at, 1);
+      joins.delete(ref);
       return true;
     },
+    said(ref) {
+      saids.push(ref);
+    },
+    joinOf: (ref) => joins.get(ref),
+    saids,
   };
 }
 
@@ -705,14 +771,17 @@ describe("`agent_say` over the fleet", () => {
     teardown = undefined;
   });
 
-  async function servedFleet(hosts: FleetHosts): Promise<Client> {
+  async function servedFleet(
+    hosts: FleetHosts,
+    watchList: FleetWatchList = fakeWatchList(),
+  ): Promise<Client> {
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
     const { close } = await serveKoluFleetMcp({
       hosts,
       transport: serverTransport,
       serverInfo: { name: "kolu-fleet", version: "0.0.0-test" },
-      watchList: fakeWatchList(),
+      watchList,
     });
     const mcp = new Client({ name: "test-client", version: "0.0.0" });
     await mcp.connect(clientTransport);
@@ -723,9 +792,12 @@ describe("`agent_say` over the fleet", () => {
     return mcp;
   }
 
-  it("types the words, then presses that agent's own submit keys — in that order", async () => {
+  it("types the words, presses the submit keys, and reports that it TOOK", async () => {
     const { alpha, fleet } = twoHostFleet();
     alpha.runAgent(ALPHA_1, "omp", "waiting");
+    // The agent accepts the prompt a beat after its Enter — so the "did it
+    // take" wait sees the bucket turn `working`, which is the whole claim.
+    alpha.startsWorkingOnSubmit(ALPHA_1, "omp");
     const mcp = await servedFleet(fleet.hosts);
 
     const res = await mcp.callTool({
@@ -734,7 +806,7 @@ describe("`agent_say` over the fleet", () => {
     });
 
     expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
-    expect(res.structuredContent).toEqual({
+    expect(res.structuredContent).toMatchObject({
       said: {
         agent: "omp",
         working: false,
@@ -742,6 +814,7 @@ describe("`agent_say` over the fleet", () => {
         delivery: "submitted",
         textBytes: "ship it".length,
       },
+      took: { observed: "began-working" },
     });
     // TWO writes, in order: the text, then the submit — never one fused write,
     // which is the paste-debounce race this whole protocol exists for.
@@ -754,7 +827,24 @@ describe("`agent_say` over the fleet", () => {
     ]);
   });
 
-  it("a WORKING agent is told what its keys actually did", async () => {
+  it("tells the watch list it SPOKE, at the fleet reference", async () => {
+    // The entry's held news is about a state the conductor has now acted on;
+    // the server withdraws it on this call, which is what stops a wake about
+    // the worker that was just briefed.
+    const { alpha, fleet } = twoHostFleet();
+    alpha.runAgent(ALPHA_1, "claude-code", "tool_use");
+    const watchList = fakeWatchList();
+    const mcp = await servedFleet(fleet.hosts, watchList);
+
+    await mcp.callTool({
+      name: "agent_say",
+      arguments: { id: `local/${ALPHA_1}`, text: "skip the review" },
+    });
+
+    expect(watchList.saids).toEqual([`local/${ALPHA_1}`]);
+  });
+
+  it("a WORKING agent is told what its keys actually did, and that taking is not observable", async () => {
     const { alpha, fleet } = twoHostFleet();
     alpha.runAgent(ALPHA_1, "claude-code", "tool_use");
     const mcp = await servedFleet(fleet.hosts);
@@ -766,9 +856,10 @@ describe("`agent_say` over the fleet", () => {
 
     // claude-code holds a mid-turn message for the NEXT turn — so the answer
     // says `queue`, and a conductor reading it knows the worker has not heard
-    // this yet.
+    // this yet. There is no state change to wait for, so none is waited for.
     expect(res.structuredContent).toMatchObject({
       said: { agent: "claude-code", working: true, delivery: "queue" },
+      took: { observed: "not-observable" },
     });
   });
 
@@ -850,6 +941,32 @@ describe("the conductor's watch list", () => {
     // that only accept `<host>/<id>`, so a bare id here would be an entry
     // nothing on this face can name.
     expect(watchList.watched()).toEqual([`local/${BETA_1}`]);
+    // A bare shell: nothing was asked to run in it, so there is no bring-up
+    // that can end without an agent.
+    expect(watchList.joinOf(`local/${BETA_1}`)).toBe("created");
+  });
+
+  it("a create WITH a run command joins as a bring-up, not as a bare shell", async () => {
+    const alpha = fakePadi("local", [ALPHA_1]);
+    const fleet = fakeFleet([
+      { key: "local", display: "this machine", padi: alpha },
+    ]);
+    const watchList = fakeWatchList();
+    const mcp = await servedFleet(fleet.hosts, watchList);
+
+    await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: {
+        host: "local",
+        placement: { kind: "toplevel" },
+        run: "omp",
+      },
+    });
+
+    // The difference the server acts on: a terminal whose command ran and
+    // came back to the prompt with no agent ever seen is news, where a shell
+    // nobody ran anything in is simply a shell.
+    expect(watchList.joinOf(`local/${BETA_1}`)).toBe("created-run");
   });
 
   it("a create that FAILS watches nothing", async () => {
@@ -878,8 +995,9 @@ describe("the conductor's watch list", () => {
     expect(watchList.watched()).toEqual([]);
   });
 
-  it("`watch_terminal` adds a terminal that exists, and answers the whole list", async () => {
-    const { fleet } = twoHostFleet();
+  it("`watch_terminal` adds a terminal that exists, and answers the list AND what it found", async () => {
+    const { beta, fleet } = twoHostFleet();
+    beta.runAgent(BETA_1, "codex", "thinking");
     const watchList = fakeWatchList();
     const mcp = await servedFleet(fleet.hosts, watchList);
 
@@ -889,10 +1007,39 @@ describe("the conductor's watch list", () => {
     });
 
     expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
+    // The found state is the BASELINE — the conductor is told it here
+    // precisely because it will never arrive as a wake.
     expect(res.structuredContent).toEqual({
       watching: [`remote:box/${BETA_1}`],
+      found: { kind: "agent", agent: "codex", bucket: "working" },
     });
     expect(watchList.watched()).toEqual([`remote:box/${BETA_1}`]);
+    expect(watchList.joinOf(`remote:box/${BETA_1}`)).toBe("asked");
+  });
+
+  it("a terminal with no agent, and one that is asleep, are each said plainly", async () => {
+    const { alpha, fleet } = twoHostFleet();
+    const watchList = fakeWatchList();
+    const mcp = await servedFleet(fleet.hosts, watchList);
+
+    const shell = await mcp.callTool({
+      name: "watch_terminal",
+      arguments: { id: `local/${ALPHA_1}` },
+    });
+    expect(shell.structuredContent).toMatchObject({
+      found: { kind: "no-agent" },
+    });
+
+    // A dormant terminal is watchable (the human may wake it), and the answer
+    // says so rather than calling it a plain shell.
+    alpha.park(ALPHA_2, "parked");
+    const parked = await mcp.callTool({
+      name: "watch_terminal",
+      arguments: { id: `local/${ALPHA_2}` },
+    });
+    expect(parked.structuredContent).toMatchObject({
+      found: { kind: "asleep", state: "parked" },
+    });
   });
 
   it("watching something twice does not duplicate it or move it", async () => {
@@ -913,8 +1060,11 @@ describe("the conductor's watch list", () => {
       arguments: { id: `local/${ALPHA_1}` },
     });
 
+    // A re-watch still answers the found state — the question "what is it
+    // doing now" is worth answering every time, and the list is unmoved.
     expect(res.structuredContent).toEqual({
       watching: [`local/${ALPHA_1}`, `remote:box/${BETA_1}`],
+      found: { kind: "no-agent" },
     });
   });
 

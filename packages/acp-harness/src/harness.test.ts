@@ -1596,6 +1596,36 @@ describe("putting a message INTO the turn that is running", () => {
     expect(await steeredInto(running)).toEqual(["actually, the other branch"]);
   });
 
+  test("a steer that carries FILES goes as a plain prompt, files and all", async () => {
+    const running = await open("agent.ts", { leg: steersLeg });
+    const shot = await picture();
+    await running.harness.prompt("slow", [], [], false);
+    // Alt+Enter with a picture in the composer. A steer carries ONE text
+    // block, so taking this one would have delivered the words and dropped
+    // the picture — silently, with a chip still on screen saying it went.
+    const sent = await running.harness.prompt("look at this", [], [shot], true);
+    await settled(running, "the turn carrying the picture never ended");
+
+    // Nothing was steered ...
+    expect(await steeredInto(running)).toEqual([]);
+    // ... and the picture crossed the pipe with the words, as an ordinary
+    // prompt's blocks.
+    const blocks = (await asked(running, "blocks")) as ReadonlyArray<
+      ReadonlyArray<Record<string, unknown>>
+    >;
+    const carried = blocks.find((one) =>
+      one.some((block) => block.type === "image"),
+    );
+    expect(carried?.[0]).toMatchObject({ type: "text" });
+    expect(carried?.[1]).toEqual({
+      type: "image",
+      data: PNG,
+      mimeType: "image/png",
+    });
+    const row = rowOf(running, sent.rowId);
+    expect(row.kind === "user" ? row.attachments : null).toEqual([shot]);
+  });
+
   test("a steer with NOTHING RUNNING is an ordinary prompt", async () => {
     const running = await open("agent.ts", { leg: steersLeg });
     // Alt+Enter with an idle conversation: there is no turn to put words in,

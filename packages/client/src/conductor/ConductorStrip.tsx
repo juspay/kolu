@@ -49,11 +49,18 @@ const ConductorStrip: Component<{
     >
       <div
         data-testid="conductor-strip"
-        class="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3.5 py-1.5 border-b border-edge font-mono text-[0.68rem] text-fg-2"
+        // `leading-4` for the same reason the header carries one: a LENGTH
+        // line-height makes every child's line box 16px whatever its size, so
+        // a bare word, a bordered pill and a `Tip`'s wrapper all centre on one
+        // line instead of each striking its own.
+        class="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3.5 py-1.5 border-b border-edge font-mono text-[0.68rem] leading-4 text-fg-2"
       >
         <For each={props.servers}>
           {(server) => (
-            <Tip label={server.said ?? server.where ?? server.standing}>
+            <Tip
+              class="flex items-center"
+              label={server.said ?? server.where ?? server.standing}
+            >
               <span
                 data-testid="conductor-server"
                 data-server={server.name}

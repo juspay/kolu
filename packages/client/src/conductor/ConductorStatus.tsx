@@ -76,7 +76,11 @@ const ConductorStatus: Component<{
         // clock and the two buttons do not fit on one line, and a line that
         // pushed the right-hand edge of the pane off screen would take the
         // composer's Send with it.
-        class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-edge px-3 py-1.5 font-mono text-[0.65rem]"
+        //
+        // `leading-4`, like the header and the strip: one LENGTH line-height
+        // for the row, so the dot, the words and the two pills centre on one
+        // line rather than each striking its own from its own font size.
+        class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-edge px-3 py-1.5 font-mono text-[0.65rem] leading-4"
       >
         <span
           class={`h-1.5 w-1.5 shrink-0 rounded-full ${DOT_CLASS[props.state.phase]}`}
@@ -104,7 +108,10 @@ const ConductorStatus: Component<{
         </Show>
         <Show when={readout().since}>
           {(since) => (
-            <Tip label="How long this turn has been running">
+            <Tip
+              class="flex items-center"
+              label="How long this turn has been running"
+            >
               <span
                 data-testid="conductor-status-since"
                 class="shrink-0 text-fg-3 tabular-nums"
@@ -115,7 +122,10 @@ const ConductorStatus: Component<{
           )}
         </Show>
         <span class="flex-1" />
-        <Tip label="The terminals kolu wakes this conversation about">
+        <Tip
+          class="flex items-center"
+          label="The terminals kolu wakes this conversation about"
+        >
           <button
             type="button"
             data-testid="conductor-watching"
@@ -130,7 +140,10 @@ const ConductorStatus: Component<{
             They go out together as one machine's line the moment it ends,
             however it ends, so this number is a promise and not a backlog. */}
         <Show when={held() > 0}>
-          <Tip label="Watched terminals that rang while a turn was running — they arrive together when it ends">
+          <Tip
+            class="flex items-center"
+            label="Watched terminals that rang while a turn was running — they arrive together when it ends"
+          >
             <span
               data-testid="conductor-held"
               class="shrink-0 rounded-md bg-attention/20 px-1.5 py-px font-semibold text-attention tabular-nums"

@@ -4,7 +4,7 @@ description: >-
   Drive one AI agent from another through kolu's terminals: spawn a Claude
   Code / Codex / opencode session in a PTY, prompt it, watch the screen, read
   the reply, prompt again. PRIMARY PATH: the kolu MCP tools
-  (`lifecycle_create`/`lifecycle_sendInput`, `wait_outputSettled`/
+  (`lifecycle_create`/`agent_say`, `wait_outputSettled`/
   `wait_agentState`, `screen_text`, the `terminals` resource). FALLBACK: the
   `kolu` CLI — same verbs, same discipline. Triggers on "drive
   another agent", "agent drives agent", "make Claude drive Codex", or wiring a
@@ -25,16 +25,15 @@ every discipline here applies to both.
 ```
 lifecycle_create   { placement: {kind: "toplevel"},                     → { id }
                      intent: "🔧 parser refactor", cwd: "/abs/repo" }
-lifecycle_sendInput{ id, text: "refactor the parser to use a lexer" }   # 1. the text (no Enter)
-wait_outputSettled { id, idleMs: 300, timeoutMs: 15000 }                # 2. observe the TUI settle
-lifecycle_sendInput{ id, key: "Enter" }                                 # 3. submit (its own call)
-wait_outputSettled { id, idleMs: 800, screenTail: 40,                   # 4. let its turn finish
-                     timeoutMs: 600000 }                                #    AND read the screen
+agent_say          { id, text: "refactor the parser to use a lexer" }   # say it — kolu
+                                                                        #  presses the keys
+wait_outputSettled { id, idleMs: 800, screenTail: 40,                   # let its turn finish
+                     timeoutMs: 600000 }                                #  AND read the screen
 ```
 
-`screenTail` is why step 5 is gone: the screen comes back **on the met**, read
-inside the wait. A follow-up `screen_text` is a second call the terminal can
-move under — that gap is a race, not a formality.
+`screenTail` is why there is no follow-up read: the screen comes back **on the
+met**, read inside the wait. A separate `screen_text` is a second call the
+terminal can move under — that gap is a race, not a formality.
 
 - `lifecycle_create` spawns a padi-tracked canvas tile. **`placement` is
   REQUIRED and has no default** — `{kind: "toplevel"}` for a tile of its own, or
@@ -46,8 +45,7 @@ move under — that gap is a race, not a formality.
   `<repo>/.worktrees/<name>` and open the terminal IN it, and `run` types a
   command line at the first shell prompt (submitted with Enter) — the whole
   `kolu create --toplevel --repo … --worktree … -- <agent>` in ONE call. It spawns a
-  shell — to drive a live TUI prompt afterwards, still use the three-step
-  submit.
+  shell — to say something to the agent that comes up in it, use `agent_say`.
 - `lifecycle_sendInput` writes **text OR one named key, never both** —
   `{ text, key }` together is a typed hard error. Keys: `Enter`, `Escape`,
   `Tab`, arrows, `Home`/`End`, `Backspace`, `Space`, `Shift-Tab`,
@@ -64,38 +62,51 @@ move under — that gap is a race, not a formality.
   `surface://cells/urgency` lists terminals whose agent awaits a human.
 - Interrupt a runaway before redirecting: `{ key: "Escape" }` (stop Claude Code
   mid-stream), `{ key: "C-c" }` (SIGINT).
-- `agent_say { id, text }` — **say something to the AGENT in a terminal, and
-  let kolu press the keys.** It reads which agent is there and whether it is
-  working, types the text, waits a hard-capped settle, and presses that agent's
-  own submit keys — the three-step submit below, done for you, with the
-  per-agent knowledge kolu already has. The answer says what happened:
-  `delivery: "submitted"` (it was idle), `"steer"` (the words reached the turn
-  that is running — codex, omp, pi, xyne) or `"queue"` (they wait for the
-  current turn to end — claude-code, opencode, grok). It REFUSES rather than
-  guessing: a terminal with no agent (a plain shell), an agent with no verified
-  recipe, a terminal that is asleep, empty text. Prefer it over the three-step
-  submit whenever the target is a detected agent; keep `lifecycle_sendInput`
-  for shells, menus, and interrupts.
+- `agent_say { id, text }` — **the way to speak to an AGENT.** It reads which
+  agent is there and whether it is working, types the text, waits a hard-capped
+  settle, and presses that agent's own submit keys — you never send an Enter
+  yourself, and you never need to know one agent's submit ritual from
+  another's. The answer says what happened: `delivery` is `"submitted"` (it was
+  idle, the words start a turn), `"steer"` (they reached the turn that is
+  running — codex, omp, pi, xyne) or `"queue"` (they wait for the current turn
+  to end — claude-code, opencode, grok); and `took` says whether the agent
+  actually began working — `"began-working"`, or `"did-not-begin"` within a few
+  seconds, in which case **read the screen rather than saying it again**. It
+  REFUSES rather than guessing: a terminal with no agent (a plain shell), an
+  agent with no verified recipe, a terminal that is asleep, empty text.
+  `lifecycle_sendInput` is for shells, menus, dialogs and interrupts.
 
-## The three-step submit — text · settle · Enter
+## The three-step submit — only for a plain shell
+
+`agent_say` is the verb for anything kolu detects as an agent. When the target
+is a **bare shell or a TUI kolu does not know** you drive the submit yourself,
+and it is three calls, never two:
+
+```
+lifecycle_sendInput{ id, text: "nix build" }             # 1. the text (no Enter)
+wait_outputSettled { id, idleMs: 300, timeoutMs: 15000 } # 2. observe the settle
+lifecycle_sendInput{ id, key: "Enter" }                  # 3. submit (its own call)
+```
 
 An Enter sent in the same breath as the text races the TUI's bracketed-paste
 handling and is **silently dropped** — the prompt sits staged on the `❯` line
 while the send reports success (the #1 cause of "the turn never started";
-`screen_text` will show it). The daemon can't observe the TUI settle, so *you*
-do: send text, wait for settle, send Enter as its own call.
+`screen_text` will show it). The daemon can't observe the settle, so *you* do.
+That whole ritual, plus the per-agent keys, is what `agent_say` performs for
+you — which is why it is the verb for an agent and this is the fallback.
 
-> **Multi-line pastes don't submit** ([#1702](https://github.com/juspay/kolu/issues/1702)):
+> **Multi-line pastes don't submit** ([#1702](https://github.com/juspay/kolu/issues/1702)),
+> `agent_say` included — it is the same paste:
 > past a handful of lines, Claude Code folds the paste into a `[Pasted text]`
 > placeholder that Enter does not reliably submit. For any message beyond a
 > couple of lines, write it to a file and send a short pointer prompt instead
 > (`read /tmp/brief.md and carry it out`).
 
-> Step 2's idle fires only when the agent is **at the prompt**. Against a busy,
-> mid-turn agent the wait times out — treat that `timeout` as "target busy":
-> send the Enter anyway (it buffers and submits when the turn ends), then
-> `screen_text` to confirm. `result: "gone"` is real — the terminal died;
-> surface it.
+> On the manual path, step 2's idle fires only when the agent is **at the
+> prompt**. Against a busy, mid-turn agent the wait times out — treat that
+> `timeout` as "target busy": send the Enter anyway (it buffers and submits
+> when the turn ends), then `screen_text` to confirm. `result: "gone"` is
+> real — the terminal died; surface it.
 
 ## Done-signals
 
@@ -213,8 +224,9 @@ watch_close { name: "campaign" }                                 // when the cam
 - Launch unattended agents with bypass permissions
   (`claude --dangerously-skip-permissions`) and confirm from the footer via
   `screen_text` before dispatching.
-- Restarting the CLI in place: send its quit command (`/exit`) as a three-step
-  submit, confirm the shell prompt, relaunch.
+- Restarting the CLI in place: send its quit command (`/exit`) with `agent_say`
+  (or the three-step submit if nothing is detected in there), confirm the shell
+  prompt, relaunch.
 - **Terminal ids are not stable across a kaval restart** — a cached id can go
   stale mid-run. Re-find the terminal via the `terminals` resource by its
   stable `intent` label (set it at create for exactly this).
@@ -229,7 +241,8 @@ The verb map:
 | MCP | CLI |
 | --- | --- |
 | `lifecycle_create` (`placement` REQUIRED) | `kolu create (--toplevel \| --parent <id>) [--intent …] [--repo … --worktree …] -- <agent>` |
-| `lifecycle_sendInput { text }` | `kolu send "$id" "text"` (`--file <path>` for tricky payloads) |
+| **`agent_say { id, text }`** | **`kolu surface agent_say "$id" --text '…'`** — kolu presses that agent's own submit keys; the verb to speak to an agent on either face |
+| `lifecycle_sendInput { text }` | `kolu send "$id" "text"` (`--file <path>` for tricky payloads) — a shell, a menu, a TUI kolu does not know |
 | `lifecycle_sendInput { key: "Enter" }` | `kolu send "$id" --key Enter` |
 | `wait_outputSettled` | `kolu wait "$id" --until idle:<ms> --timeout <ms>` (also `--until match:'<regex>'`) |
 | `wait_agentState` | `kolu wait "$id" --until working` · `--until awaiting,waiting` |
@@ -248,7 +261,10 @@ none. Ids accept **any unique prefix**.
 
 ## Acceptance
 
-- Submitted with a **separate Enter**, sent after an observed settle.
+- Said to an agent with `agent_say` (never a hand-rolled Enter); at a plain
+  shell, submitted with a **separate Enter** after an observed settle.
+- A say that reported `did-not-begin` was followed by a screen read, not by
+  saying it again.
 - The reply is **actually in the screen read** — idle means output stopped, not
   that the answer is right.
 - Every wait had a timeout under your harness's per-call cap.

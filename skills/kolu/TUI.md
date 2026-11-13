@@ -4,8 +4,9 @@
 **This is the FALLBACK path** — reach for it only when the kolu MCP tools
 (SKILL.md's primary path) are unavailable: no `kolu mcp` configured on this
 host, an older kolu without the MCP face, or a non-MCP agent runtime. The
-discipline is identical to the MCP path (three-step submit, observe-then-act,
-timeouts on every wait) — only the spelling changes.
+discipline is identical to the MCP path (say it with `agent_say`, or the
+three-step submit at a plain shell; observe-then-act, timeouts on every wait) —
+only the spelling changes.
 
 **`kolu` is the ONE terminal CLI.** One command carries the whole toolkit —
 **ls** (the roster) · **create** (spawn) · **send** (write text, OR a `--key`) ·
@@ -23,21 +24,23 @@ against `kolu`.)
 
 ```sh
 id=$(kolu create --toplevel --intent "parser refactor" -- claude)   # spawn the inner agent (prints the id)
-kolu send  "$id" "refactor the parser to use a lexer"     # 1. the text (no Enter)
-kolu wait  "$id" --until idle:300 --timeout 15000         # 2. observe the TUI settle
-kolu send  "$id" --key Enter                              # 3. submit (its own command)
-kolu debrief "$id" --timeout 600000                       # 4. turn over AND quiet → its screen
+kolu surface agent_say "$id" --text "refactor the parser to use a lexer"
+                                                          # say it — kolu presses the keys
+kolu debrief "$id" --timeout 600000                       # turn over AND quiet → its screen
 ```
 
-Step 4 is **one** call on purpose. It used to be three — wait for the turn, wait
-for quiet, read the screen — and each gap between them is a race the CLI cannot
-close from out here. `kolu debrief` is exactly
+The second step is **one** command because kolu knows which agent is in that
+terminal: `agent_say` types the words, waits for the TUI to settle and presses
+**that agent's own submit keys**, then reports whether the agent began working.
+It is the way to speak to a detected agent on this face as much as on the MCP
+one; the three-step `send` below is what you drive by hand at a plain **shell**,
+a menu, or a TUI kolu does not detect.
+
+The last step is one call on purpose too. It used to be three — wait for the
+turn, wait for quiet, read the screen — and each gap between them is a race the
+CLI cannot close from out here. `kolu debrief` is exactly
 `kolu wait "$id" --until awaiting,waiting --settled 15000 --snapshot 40`; the
 done-signal section below is when to reach for something else.
-
-Submitting a prompt is its **own** `send --key Enter`, sent *after* you observe
-the TUI settle — never folded into the text send. Why: a same-breath Enter races
-the TUI's paste debounce and is silently dropped. See the next section.
 
 **stdout is data, stderr is prose.** `create` prints the new id on stdout and
 its human trailer on stderr, so `id=$(kolu create … )` captures exactly the id
@@ -60,10 +63,15 @@ rather than picking one.
 > viewport extent. Older output than the screen is `kolu history "$id"
 > [--lines N]`.
 
-## `kolu send` — the canonical three-step submit
+## `kolu send` — the canonical three-step submit (a shell, or a TUI kolu does not know)
 
-Submitting a **normal-size** prompt to a TUI agent is **three commands**, because
-`send` bakes in no timing magic — it writes exactly what you pass and nothing more:
+For a terminal whose agent kolu detects, `kolu surface agent_say "$id" --text
+'…'` does all of this with that agent's own keys and tells you whether it took;
+reach for the three commands below when there is nothing detected in there.
+
+Submitting a **normal-size** prompt to a TUI agent by hand is **three commands**,
+because `send` bakes in no timing magic — it writes exactly what you pass and
+nothing more:
 
 ```sh
 kolu send "$id" "fix the failing test in parser.ts"   # 1. the text (no Enter)
@@ -486,11 +494,13 @@ the id.
 
 Before calling a driven turn done:
 
-- You **submitted with a separate `send --key Enter`**, sent *after* you observed
-  the TUI settle (`wait --until idle`) — never `send "text" --key Enter` in one
-  call (it's a hard error), whose Enter races the paste debounce. A prompt left
-  staged on the `❯` line is the #1 failure here; the observe-then-submit split is
-  what removes the race.
+- You said it to the agent with **`kolu surface agent_say "$id" --text …`** —
+  or, at a plain shell, **submitted with a separate `send --key Enter`** sent
+  *after* you observed the TUI settle (`wait --until idle`), never `send "text"
+  --key Enter` in one call (it's a hard error), whose Enter races the paste
+  debounce. A prompt left staged on the `❯` line is the #1 failure here; the
+  observe-then-submit split — which `agent_say` performs for you — is what
+  removes the race.
 - The inner agent's **reply is actually in the `snapshot`** — not an empty box or
   a half-rendered stream. `wait --until idle` means "output stopped", not "the
   answer is right"; verify the content.

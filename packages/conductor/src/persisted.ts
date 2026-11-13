@@ -74,12 +74,15 @@ export const PersistedConductorSchema = Schema.Struct({
    *  a two-host fleet. */
   fleet: Schema.Array(Schema.String),
   /** THE TERMINALS KOLU WAKES THIS CONVERSATION ABOUT, in the order they were
-   *  added — and per entry the three facts a restart cannot re-derive: what
-   *  kolu last saw the terminal called, whether an agent was ever seen in it
-   *  (a terminal that never held one drops off in silence when it goes), and
-   *  the level the conversation has already been TOLD about.
+   *  added — and per entry the facts a restart cannot re-derive: what kolu
+   *  last saw the terminal called, whether an agent was ever seen in it (a
+   *  terminal that never held one drops off in silence when it goes), the
+   *  level the conversation has already been TOLD about, and the three that
+   *  say how to read the next sighting — how it came to be watched, whether
+   *  anything has been said to the agent in it, and whether a command was
+   *  ever seen running in it.
    *
-   *  The last is what makes a restart quiet: kolu looks at every watched
+   *  `told` is what makes a restart quiet: kolu looks at every watched
    *  terminal again, and one that is still stopped for the reason it was
    *  stopped before the restart does not ring a second time. What is NOT here
    *  is the held news — a restart re-reads the world instead of replaying a
@@ -87,13 +90,35 @@ export const PersistedConductorSchema = Schema.Struct({
    *
    *  A DECODING DEFAULT, because this key is read back off a `config.json`
    *  written before the watch list existed: the ladder's rung seeds it, and
-   *  this is the belt to that brace. */
+   *  this is the belt to that brace. The three facts BESIDE the first four
+   *  carry their own defaults for the same reason one rung later — a record
+   *  written before `ready`/`ended` existed names no `joined`, and the
+   *  reading that cannot be wrong about an older entry is `asked`: it is the
+   *  join that claims nothing about a command kolu typed. */
   watched: Schema.Array(
     Schema.Struct({
       ref: Schema.String,
       name: Schema.String,
       agent: Schema.NullOr(Schema.String),
       told: Schema.NullOr(ConductorWakeLevelSchema),
+      /** How it came to be watched — `kolu-conductor`'s `WatchJoin`. What
+       *  `ended` turns on: only a terminal kolu opened WITH a command can be
+       *  said to have finished one. */
+      joined: Schema.Literals(["created", "created-run", "asked"]).pipe(
+        Schema.withDecodingDefaultKey(Effect.succeed("asked" as const)),
+      ),
+      /** Whether the Conductor has said anything to the agent in it. What
+       *  `ready` turns on, and therefore worth surviving a restart: an agent
+       *  briefed before the restart must not ring as a fresh one after it. */
+      spoken: Schema.Boolean.pipe(
+        Schema.withDecodingDefaultKey(Effect.succeed(false)),
+      ),
+      /** Whether a non-shell foreground was ever seen in it — the other half
+       *  of `ended`, and across a restart the only way to know that the
+       *  command kolu typed ever started. */
+      ran: Schema.Boolean.pipe(
+        Schema.withDecodingDefaultKey(Effect.succeed(false)),
+      ),
     }),
   ).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
 });
@@ -184,11 +209,16 @@ export function persistedFrom(
   state: ConductorState,
   rows: ReadonlyArray<ConductorRow>,
   /** The watch list as ENTRIES — the cell's `watched` is refs alone, and what
-   *  a restart needs is the three facts beside each one (see the schema).
-   *  Passed in rather than read off the state for exactly that reason: the
-   *  state is what a browser is told, and this is what the next boot resumes
-   *  from. */
-  watched: PersistedConductor["watched"],
+   *  a restart needs is the facts beside each one (see the schema). Passed in
+   *  rather than read off the state for exactly that reason: the state is
+   *  what a browser is told, and this is what the next boot resumes from.
+   *
+   *  COPIED FIELD BY FIELD below, because the live entry carries two runtime
+   *  fields the record must not learn (`kolu-conductor`'s `WatchEntry`: the
+   *  last reading, and whether the next one baselines). A spread would write
+   *  them to disk and a later boot would read back a reading of a world that
+   *  has moved on. */
+  watched: ReadonlyArray<PersistedConductor["watched"][number]>,
 ): PersistedConductor {
   return {
     sessionId: state.sessionId,
@@ -196,7 +226,15 @@ export function persistedFrom(
     model: state.model?.id ?? null,
     rows: rows.length > ROW_CAP ? rows.slice(rows.length - ROW_CAP) : rows,
     fleet: state.fleet,
-    watched,
+    watched: watched.map((one) => ({
+      ref: one.ref,
+      name: one.name,
+      agent: one.agent,
+      told: one.told,
+      joined: one.joined,
+      spoken: one.spoken,
+      ran: one.ran,
+    })),
   };
 }
 

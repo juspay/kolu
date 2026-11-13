@@ -4,9 +4,10 @@
  * The words live in `teaching.md`'s wrapped paragraphs so a person can read
  * them, and `teaching.ts` renders them one line per paragraph. Everything the
  * Conductor is told BEFORE the waterfall — who it is, the `host/id` grammar,
- * where to create, that it never waits, what it watches, how it talks to an
- * agent, questions, briefs, memory, sleeping terminals — is pinned byte for
- * byte against `fixtures/teaching-before-waterfall.zest.json`, so a reword is
+ * where to create, that it never waits, what every wake level means, what it
+ * watches, how it talks to an agent and how it learns whether that took,
+ * questions, briefs, memory, sleeping terminals — is pinned byte for byte
+ * against `fixtures/teaching-before-waterfall.zest.json`, so a reword is
  * a deliberate change to the fixture rather than a drift nobody reviewed. The
  * verbs those words name are checked against the tool registry in
  * `conductor.test.ts`.
@@ -63,8 +64,22 @@ describe("the waterfall's two modes", () => {
     }
   });
 
-  it("has the Conductor write the brief itself when there is no planner", () => {
-    expect(SCRIPT).toContain("you write `.waterfall/brief.md` yourself");
+  it("gives a trivial waterfall no brief file at all", () => {
+    // The defect this guards: the script used to have the Conductor write
+    // `.waterfall/brief.md` itself, which it cannot do — its hands are kolu's
+    // tools, and none of them writes a file on another host. Trivial says the
+    // brief instead.
+    expect(SCRIPT).toContain("NO BRIEF FILE");
+    expect(SCRIPT).toContain(
+      "you say the request and the standing rules to the implementor yourself",
+    );
+    expect(SCRIPT).not.toContain("you write `.waterfall/brief.md` yourself");
+  });
+
+  it("has the implementor started and briefed in two turns", () => {
+    // A created terminal's agent is not up when the create answers, so the
+    // brief is said on the `ready` wake rather than in the same turn.
+    expect(SCRIPT).toContain("when it wakes you as `ready`");
   });
 });
 

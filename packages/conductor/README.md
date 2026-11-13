@@ -25,18 +25,42 @@ thing that does it.
 The Conductor never sits in a wait. It says what it is watching and ends its
 turn; kolu-server watches, and starts a turn when something happens.
 
-- **The list** (`watchTerminal` / `unwatchTerminal` / `watched`) — fleet refs
-  (`host/id`), in the order they were added, saved with the conversation. Per
-  entry the record keeps what a restart cannot re-derive: the name kolu last
-  saw, whether an agent was ever seen in it, and the level the conversation has
-  already been TOLD about. Spelled `watchTerminal`, not `watch`, because
-  `watch` on this host is the transcript subscription and has been since there
-  was a transcript.
+- **The list** (`watchTerminal` / `unwatchTerminal` / `saidTo` / `watched`) —
+  fleet refs (`host/id`), in the order they were added, saved with the
+  conversation. Per entry the record keeps what a restart cannot re-derive:
+  the name kolu last saw, whether an agent was ever seen in it, the level the
+  conversation has already been TOLD about, HOW it came to be watched
+  (`created` · `created-run` · `asked`), whether anything has been said to the
+  agent in it, and whether a command was ever seen running in it. Spelled
+  `watchTerminal`, not `watch`, because `watch` on this host is the transcript
+  subscription and has been since there was a transcript.
 - **The decision** (`./watching.ts`, pure) — one reading of one terminal
-  becomes a wake level or nothing: working forgets what we were told, a shell
-  never rings, a terminal that goes away rings only if an agent was ever seen
-  in it (and drops either way), and a level equal to `told` does not ring
-  twice. That last rule is what makes a restart quiet.
+  becomes a wake level or nothing:
+  - `working` forgets what we were told, so the next stop is news again;
+  - `ready` — an agent that has COME UP in a watched terminal and has not been
+    spoken to rings this instead of `stopped` the first time it is idle: a
+    fresh agent at its prompt has not ended a turn, it is waiting for one;
+  - `stopped` · `asking` — the ordinary two, once each until the terminal
+    moves;
+  - `asleep` — a terminal an agent was seen in was put to sleep; rings once
+    and STAYS listed, because waking it brings it back;
+  - `ended` — a terminal kolu opened WITH a command whose command ran (a
+    non-shell foreground was seen) and gave the prompt back with no agent ever
+    detected: the brief never started. padi exposes the foreground process and
+    agent detection and NO exit status, so a command that fails before any
+    non-shell foreground is sampled (`omp: command not found`, answered by the
+    shell itself) is not detectable and does not ring;
+  - a shell never rings otherwise, a terminal that goes away rings only if an
+    agent was ever seen in it (and drops either way), and a level equal to
+    `told` does not ring twice. That last rule is what makes a restart quiet.
+- **The baselines** — a state the Conductor itself caused is never news.
+  `saidTo(ref)`, which the fleet face calls when `agent_say` lands its keys,
+  withdraws that terminal's held slot and re-baselines `told` at the level it
+  stands at; a terminal that JOINS by being `asked` for baselines on its first
+  reading, and the tool's own answer tells the Conductor what it was found in.
+  Without the two, `agent_say` — which returns on the keystrokes, before the
+  agent flips to working — would wake the Conductor about the agent it has
+  just briefed.
 - **The hold** (`./held.ts`, ported from olai's `deliveries.ts`) — while a turn
   runs, news WAITS: one slot per terminal, newest only, kept in the position
   the first one took, withdrawn when that terminal goes back to working. On
@@ -48,6 +72,10 @@ turn; kolu-server watches, and starts a turn when something happens.
   who speaks, each terminal as `host/id` with its name, host, agent and how it
   stands, and what to do about it — read the screen, answer with `agent_say`,
   then end the turn.
+- **A wake that could not go** — one `notice` row naming the terminals still
+  waiting and why, the news put back, and an event-driven retry with no timer:
+  the next time the conversation goes idle, the next time the agent comes up,
+  or the next reading from the watcher. One notice per failure episode.
 
 A wake MAY start the agent (that is the feature); reading the list may not
 (`watched()` is bookkeeping). The readings themselves come from kolu-server's

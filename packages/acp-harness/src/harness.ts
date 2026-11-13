@@ -2178,6 +2178,10 @@ export const startHarness = async (
    * takes a busy send through steering whether it was asked for or not — a
    * second ordinary prompt can overwrite such an agent's pending turn, leaving
    * the first request unanswered forever (olai measured it on opencode).
+   *
+   * AND A MESSAGE WITH FILES ON IT IS NEVER STEERED, whoever asked: the steer
+   * carries one text block, so steering it would deliver the words and drop
+   * the files. The words and the files go together the ordinary way instead.
    */
   const prompt = async (
     text: string,
@@ -2205,15 +2209,22 @@ export const startHarness = async (
       (steer || !queuesWhenBusy) &&
       aimed !== null &&
       advertisedSteering &&
-      !queuedHere
+      !queuedHere &&
+      // A MESSAGE WITH FILES IS NEVER STEERED. A steer carries ONE text block
+      // and nothing else — that is the shape of `_session/steering` — so
+      // steering a message with a picture on it would deliver the words and
+      // silently drop the picture, which is the one failure a composer with a
+      // chip in it must never have. It goes the ordinary way instead: the
+      // blocks below carry every attachment, and a turn in flight means it
+      // queues rather than vanishes.
+      attached.length === 0
     ) {
       // The row is on screen before the round trip: a steer takes a deadline,
       // and a person's words must not wait on it to be drawn.
       publish();
       const went = await steerInto(key, body, aimed, sessionId);
       // A steer that LANDED starts nothing here — the words are in a turn this
-      // file already owns — so no ticket, no queued mark, and the attachments
-      // rode the same text the turn is reading.
+      // file already owns — so no ticket and no queued mark.
       if (went === "handled") return { rowId: key };
     }
     send(key, [{ type: "text", text: body }, ...attached], sessionId);

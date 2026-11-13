@@ -15,6 +15,12 @@
  * rows that exist only while they mean something (`Stop` needs a running turn,
  * `Sign in…` needs an agent that is not signed in). Absent rather than
  * disabled: a greyed row is still a row a person reaches for.
+ *
+ * The last block is the ROW'S ONE LINE-HEIGHT. There is no layout in this
+ * environment — happy-dom has no boxes to measure — so what is pinned is the
+ * CAUSE the measured misalignment came from: the row declares one leading and
+ * no child declares a second one. (The numbers themselves were taken in a real
+ * browser: every child's box centre and text centre now land on one pixel.)
  */
 
 import {
