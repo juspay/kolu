@@ -630,14 +630,12 @@ export interface PtyHost {
  *
  * The invariants, which the tests pin: no byte is delivered twice, none is lost
  * (a viewer either receives the withheld bytes or a snapshot that already
- * contains them), and the memory held is at most one budget.
+ * contains them), and the memory held is at most one budget. The first of those
+ * is held by {@link claimWithheldOverlap}, not by timing — see there.
  */
 interface ResizeWindow {
-  /** Earliest close, {@link RESIZE_WINDOW_MS} after the latest resize. The
-   *  window never closes before this, however quiet the PTY goes. */
-  base: number;
-  /** Latest close, {@link RESIZE_WINDOW_MAX_MS} after the latest resize. */
-  hard: number;
+  /** Closes the window {@link RESIZE_WINDOW_MS} after the latest resize — one
+   *  timer, re-armed by a later resize, never extended by output. */
   timer: ReturnType<typeof setTimeout> | undefined;
   /** Parsed chunks held back, in arrival order. Empty once `resync` is set. */
   withheld: string[];
@@ -773,25 +771,20 @@ const FOREGROUND_SAMPLE_THROTTLE_MS = 250;
  *  emits its whole ~3.5 MB reprint in under 100 ms. A window that closed on
  *  100 ms of quiet would close before the reprint had started, and 99.8% of it
  *  would arrive as ordinary deltas. The pause is the agent thinking, not the
- *  agent finished. */
-const RESIZE_WINDOW_MS = 600;
-
-/** How recently output must have arrived, at the moment {@link RESIZE_WINDOW_MS}
- *  runs out, for the window to stay open a little longer.
+ *  agent finished.
  *
- *  Only a burst that is still IN FLIGHT extends the window: a reprint that
- *  started at 580 ms must not be cut in half by a deadline at 600. Silence is
- *  never a reason to extend (that is the whole point above) — it is only a
- *  reason to stop. */
-const RESIZE_WINDOW_BURST_QUIET_MS = 100;
-
-/** The hard end of a resize window, from the latest resize. A program that
- *  never stops writing (a progress spinner, a log tail) would otherwise hold
- *  its viewers' output back forever, so the extension above is bounded and the
- *  window closes whatever is still arriving. Generous, because every extension
- *  past {@link RESIZE_WINDOW_MS} is a burst genuinely in flight, and the cost of
- *  closing mid-burst is a re-sync nobody needed. */
-const RESIZE_WINDOW_MAX_MS = 3_000;
+ *  It is a FLAT span, with no extension. An earlier spelling kept the window
+ *  open while output was still arriving — "a burst is still in flight" — but a
+ *  gap between writes cannot tell a burst from a spinner: any program writing
+ *  more often than the extension's own interval holds the window open to its
+ *  cap. A working agent's spinner does exactly that, so resizing its tile would
+ *  have frozen its output, and the echo of anything typed into it, for seconds.
+ *  A reprint that starts after this span is simply published as it arrives, and
+ *  the per-subscriber byte budget is what spares a viewer the rest of it: one
+ *  drop and one snapshot instead of none. That is the fallback, not the design,
+ *  and it is cheaper than freezing every resized terminal that happens to be
+ *  busy. */
+const RESIZE_WINDOW_MS = 600;
 
 /** The floor under a data subscriber's byte budget, in UTF-16 code units of
  *  serialized VT text (what `boundedSnapshotOf` produces and what the budget is
@@ -1523,58 +1516,47 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
    *  paint a screen nobody ever had. A drag that walks a PTY through five sizes
    *  therefore settles once, at the end. */
   function openResizeWindow(entry: Entry): void {
-    const now = Date.now();
-    const w = entry.window;
-    if (w === undefined) {
-      entry.window = {
-        base: now + RESIZE_WINDOW_MS,
-        hard: now + RESIZE_WINDOW_MAX_MS,
-        timer: undefined,
-        withheld: [],
-        withheldChars: 0,
-        resync: false,
-        waiters: new Set(),
-      };
-    } else {
-      w.withheld.length = 0;
-      w.withheldChars = 0;
-      w.resync = true;
-      w.base = now + RESIZE_WINDOW_MS;
-      w.hard = now + RESIZE_WINDOW_MAX_MS;
+    const open: ResizeWindow = entry.window ?? {
+      timer: undefined,
+      withheld: [],
+      withheldChars: 0,
+      resync: false,
+      waiters: new Set(),
+    };
+    if (entry.window !== undefined) {
+      open.withheld.length = 0;
+      open.withheldChars = 0;
+      open.resync = true;
     }
-    armResizeWindow(entry);
+    entry.window = open;
+    // ONE timer for the whole window, re-armed from the LATEST resize and never
+    // from output — see {@link RESIZE_WINDOW_MS} for why output must not extend
+    // it.
+    clearTimeout(open.timer);
+    open.timer = setTimeout(() => closeResizeWindow(entry), RESIZE_WINDOW_MS);
   }
 
-  /** When the open window may close: never before {@link RESIZE_WINDOW_MS} from
-   *  the latest resize, extended while a burst is still arriving, and never past
-   *  {@link RESIZE_WINDOW_MAX_MS}. */
-  function resizeWindowDeadline(entry: Entry, w: ResizeWindow): number {
-    return Math.min(
-      w.hard,
-      Math.max(w.base, entry.lastActivity + RESIZE_WINDOW_BURST_QUIET_MS),
-    );
-  }
-
-  /** Arm the window's timer for its current deadline. The deadline MOVES as
-   *  output arrives, so the timer re-checks on every fire rather than being
-   *  re-armed per chunk — a reprint is tens of thousands of chunks and this is
-   *  one timer, not one per chunk. */
-  function armResizeWindow(entry: Entry): void {
+  /** The subscriber about to be registered will serialize the mirror in this
+   *  same synchronous step, so anything the open window is holding is ALSO in
+   *  its snapshot — and would reach it a SECOND time when the window closes.
+   *  Discard what is held and latch `resync`; that is the honest cost, and the
+   *  siblings that were counting on those bytes get one snapshot instead.
+   *
+   *  Called from inside `subscribeWith`'s `read()`, because that is the only
+   *  point at which "registered" and "serialized" are one instant. `attach()`
+   *  already tries to keep this unreachable — an attach whose own `resizeTo`
+   *  opens a FRESH window runs before any chunk can be withheld, and one
+   *  arriving into a window already open PARKS instead — but "unreachable"
+   *  there rests on a fiber not yielding between the resize and the
+   *  registration, which `fanOut.ts`'s own header refuses to assume. So the
+   *  partition's hardest invariant — no byte delivered twice — is held HERE, by
+   *  construction, rather than by timing. */
+  function claimWithheldOverlap(entry: Entry): void {
     const w = entry.window;
-    if (w === undefined) return;
-    clearTimeout(w.timer);
-    w.timer = setTimeout(
-      () => {
-        const current = entry.window;
-        if (current === undefined) return;
-        if (Date.now() < resizeWindowDeadline(entry, current)) {
-          armResizeWindow(entry);
-          return;
-        }
-        closeResizeWindow(entry);
-      },
-      Math.max(0, resizeWindowDeadline(entry, w) - Date.now()),
-    );
+    if (w === undefined || w.withheldChars === 0) return;
+    w.withheld.length = 0;
+    w.withheldChars = 0;
+    w.resync = true;
   }
 
   /** Close the window: SETTLE the existing subscribers, then release the parked
@@ -1663,8 +1645,9 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       // An attach arriving into a window that was ALREADY open must PARK. The
       // bytes that window is holding are already in the mirror, so a snapshot
       // taken now would contain them AND they would arrive again as deltas at
-      // close: the one duplication this design has to rule out. Parking costs it
-      // the rest of the window (bounded by {@link RESIZE_WINDOW_MAX_MS}); the
+      // close: the one duplication this design has to rule out — and the one
+      // `claimWithheldOverlap` then rules out structurally, for the race this
+      // check cannot see. Parking costs it the rest of the window; the
       // mirror parses throughout, so what moves is only WHEN its one reading is
       // taken.
       if (!windowWasOpen) return attachNow(id, entry);
@@ -1710,16 +1693,24 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       // snapshot from the same serialize, so the backfill seed can never drift
       // from the bytes the client received.
       return Effect.map(
-        entry.data.subscribeWith(() => ({
-          ...boundedSnapshotOf(entry),
-          reflowEpoch: entry.anchor.reflowEpoch(),
-          // Read INSIDE the same synchronous reading as the serialize and the
-          // epoch — `resize()` mutates the mirror and invalidates the snapshot
-          // memo, both synchronously, so a grid read out here could describe a
-          // reflow the bytes never saw. The whole point of this field is that it
-          // cannot drift from the snapshot it rides with.
-          grid: { cols: entry.headless.cols, rows: entry.headless.rows },
-        })),
+        entry.data.subscribeWith(() => {
+          // Anything an open window still holds is about to be in this
+          // snapshot, so it must not also be replayed at close. See
+          // `claimWithheldOverlap` — this is the one instant where the
+          // registration and the serialize are the same step, which is what
+          // makes the claim structural rather than lucky.
+          claimWithheldOverlap(entry);
+          return {
+            ...boundedSnapshotOf(entry),
+            reflowEpoch: entry.anchor.reflowEpoch(),
+            // Read INSIDE the same synchronous reading as the serialize and the
+            // epoch — `resize()` mutates the mirror and invalidates the snapshot
+            // memo, both synchronously, so a grid read out here could describe a
+            // reflow the bytes never saw. The whole point of this field is that
+            // it cannot drift from the snapshot it rides with.
+            grid: { cols: entry.headless.cols, rows: entry.headless.rows },
+          };
+        }),
         ({ stream, reading }): PtyAttachment => ({
           snapshot: reading.snapshot,
           topLine: reading.topLine,

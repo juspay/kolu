@@ -125,15 +125,24 @@ repaint costs its viewers nothing — no reset, no lost scrollback, no lost
 selection or scroll position — and anything **larger** is discarded in favour of
 dropping the subscribers, who each get one snapshot of the settled screen.
 
-The window runs 600 ms from the latest resize and **does not close early on
-silence**: an agent writes a few KB within ~4 ms of a `SIGWINCH`, goes quiet for
-318–375 ms, and only *then* emits its reprint, so quiet is the pause before the
-repaint, not the end of it. It extends past 600 ms only while a burst is still
-arriving, up to a hard cap. A second resize inside a window discards what was
-kept and restarts the clock. An attach whose own `resizeTo` opens a **fresh**
-window is not delayed at all; one arriving into a window already open waits for
-it, because the bytes that window is holding are already in the mirror and would
-otherwise be delivered twice.
+The window is a **flat 600 ms from the latest resize**. It does not close early
+on silence: an agent writes a few KB within ~4 ms of a `SIGWINCH`, goes quiet
+for 318–375 ms, and only *then* emits its reprint, so quiet is the pause before
+the repaint, not the end of it. It does not stay open late either — an earlier
+spelling extended it while output kept arriving, but a gap between writes cannot
+tell a reprint still landing from a working agent's spinner, which would have
+frozen a resized tile's output for seconds. A reprint that starts after the span
+is published as it arrives, and the per-subscriber byte budget is what spares a
+viewer the rest of it.
+
+A second resize inside a window discards what was kept and restarts the clock.
+An attach whose own `resizeTo` opens a **fresh** window is not delayed at all;
+one arriving into a window already open waits for it, because the bytes that
+window is holding are already in the mirror and would otherwise be delivered
+twice. That last invariant does not rest on the timing: the subscriber's own
+`read()` — the one instant where registering and serializing are the same step —
+discards anything the window still holds and marks it for re-sync, so "no byte
+delivered twice" is true by construction.
 
 That window is also the single answer to "is this output the resize's repaint?":
 the meaningful-output edge reads the same window, so the activity signal and the

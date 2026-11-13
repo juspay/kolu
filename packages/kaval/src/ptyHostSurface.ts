@@ -286,8 +286,8 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  *
  *  (1) A data subscriber is now dropped on a BYTE budget — "more queued for you
  *  than a fresh bounded snapshot would cost" — instead of only at 10,000 queued
- *  chunks. (2) A REAL resize opens a WINDOW (600 ms from the latest resize,
- *  extended only while a burst is still arriving, hard-capped) during which
+ *  chunks. (2) A REAL resize opens a WINDOW (a flat 600 ms from the latest
+ *  resize) during which
  *  parsed output is WITHHELD rather than published. At close, output that fits
  *  the budget is simply delivered — nothing visible happens to the consumer at
  *  all, which is the common case for a plain shell — and output larger than the
