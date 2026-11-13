@@ -143,7 +143,8 @@ describe("FanOut", () => {
     // rather than draining three stale values first.
     await expect(it.next()).rejects.toMatchObject({
       _tag: "SubscriberOverflow",
-      maxQueue: 3,
+      reason: "items",
+      limit: 3,
     });
   });
 
@@ -205,5 +206,112 @@ describe("FanOut", () => {
     expect(await Effect.runPromise(Fiber.join(fiber))).toEqual([5]);
     // The fiber is done, so its scope closed and the subscription went with it.
     expect(fan.subscriberCount).toBe(0);
+  });
+});
+
+describe("FanOut byte budget", () => {
+  /** A fan-out whose values are strings and whose bound is a FIXED number of
+   *  characters — the shape kaval gives the PTY data feed, with the live
+   *  `limit()` reading pinned so the test is about the budget and not about
+   *  what kaval derives it from. */
+  function budgeted(limitChars: number): FanOut<string> {
+    return new FanOut<string>({
+      maxQueue: 1000,
+      byteBudget: { sizeOf: (s) => s.length, limit: () => limitChars },
+    });
+  }
+
+  it("drops a subscriber whose QUEUED bytes pass the budget", async () => {
+    // The #2362 case in miniature: an agent reprints far more than a snapshot
+    // costs, nobody is draining fast enough, and the right answer is to stop
+    // forwarding the replay and let the viewer re-sync.
+    const fan = budgeted(100);
+    const { it } = await open(fan);
+    fan.publishUnsafe("x".repeat(60));
+    fan.publishUnsafe("y".repeat(60));
+    expect(fan.subscriberCount).toBe(0);
+    await expect(it.next()).rejects.toMatchObject({
+      _tag: "SubscriberOverflow",
+      reason: "bytes",
+      limit: 100,
+    });
+  });
+
+  it("loses nothing for a subscriber that stays under the budget", async () => {
+    // The ordinary viewer: it drains each chunk before the next arrives, so its
+    // queued total never approaches the bound and every byte is delivered.
+    const fan = budgeted(100);
+    const { it } = await open(fan);
+    for (const chunk of ["aaa", "bbb", "ccc"]) {
+      fan.publishUnsafe(chunk);
+      expect(await next(it)).toEqual({ done: false, value: chunk });
+    }
+    expect(fan.subscriberCount).toBe(1);
+  });
+
+  it("drops ONE lagging subscriber and leaves its siblings streaming", async () => {
+    const fan = budgeted(100);
+    const slow = await open(fan);
+    const fast = await open(fan);
+    for (let i = 0; i < 3; i++) {
+      const chunk = "z".repeat(60);
+      fan.publishUnsafe(chunk);
+      expect(await next(fast.it)).toEqual({ done: false, value: chunk });
+    }
+    expect(fan.subscriberCount).toBe(1);
+    await expect(slow.it.next()).rejects.toMatchObject({
+      _tag: "SubscriberOverflow",
+      reason: "bytes",
+    });
+  });
+
+  it("delivers a single value that is itself over the budget, then drops", async () => {
+    // A 0.7 MB reprint can arrive as one read. The budget is on what is QUEUED,
+    // so the offer happens and the drop follows: the viewer is told to re-sync
+    // rather than being handed a value larger than the re-sync would cost.
+    const fan = budgeted(100);
+    const { it } = await open(fan);
+    fan.publishUnsafe("w".repeat(500));
+    expect(fan.subscriberCount).toBe(0);
+    await expect(it.next()).rejects.toMatchObject({
+      _tag: "SubscriberOverflow",
+      reason: "bytes",
+    });
+  });
+
+  it("gives the budget back as values are consumed", async () => {
+    // The decrement rides the subscriber's own stream, so a consumer that keeps
+    // up can receive an unbounded TOTAL through a bounded queue — otherwise the
+    // first subscriber would be dropped the moment cumulative bytes passed the
+    // bound, which is every long-lived terminal.
+    const fan = budgeted(100);
+    const { it } = await open(fan);
+    for (let i = 0; i < 20; i++) {
+      const chunk = "q".repeat(80);
+      fan.publishUnsafe(chunk);
+      expect(await next(it)).toEqual({ done: false, value: chunk });
+    }
+    expect(fan.subscriberCount).toBe(1);
+  });
+
+  it("dropAllUnsafe fails every subscriber with `invalidated` and stays open", async () => {
+    // kaval's resize: what every viewer holds was laid out for a grid that is
+    // gone. The fan-out itself is NOT closed — a re-subscribe is expected
+    // immediately, and must not be born already-ended.
+    const fan = budgeted(100);
+    const a = await open(fan);
+    const b = await open(fan);
+    fan.dropAllUnsafe();
+    expect(fan.subscriberCount).toBe(0);
+    for (const sub of [a, b]) {
+      await expect(sub.it.next()).rejects.toMatchObject({
+        _tag: "SubscriberOverflow",
+        reason: "invalidated",
+        limit: null,
+      });
+    }
+    const fresh = await open(fan);
+    fan.publishUnsafe("after");
+    expect(await next(fresh.it)).toEqual({ done: false, value: "after" });
   });
 });

@@ -73,7 +73,17 @@ export const DEFAULT_MIRROR_SCROLLBACK = 10_000;
  *  a time. Deliberately far below the mirror depth — the whole point is to stop
  *  shipping 10k lines on every host switch (the W9 full-replay cost). The client
  *  seeds its backfill cursor from what it actually received, so the exact value
- *  is a perf knob, not a correctness one. */
+ *  is a perf knob, not a correctness one.
+ *
+ *  **Kept at 1,000 by kolu#2362, deliberately.** That change made the snapshot
+ *  the unit everything else is priced in — a viewer more than one snapshot
+ *  behind is dropped and re-synced ({@link MIN_DATA_BUDGET_CHARS}), and a
+ *  resize now costs each viewer exactly one — so shrinking it to the screen
+ *  alone (the backfill path can serve the rest) would cut both the attach cost
+ *  AND the drop threshold. That is a real option and it is NOT taken here:
+ *  there was no measurement of what a screen-only snapshot does to the scroll-up
+ *  experience, and #2362's Step 0 counters (`deltaChars` / `skipAheads` per
+ *  attachment) are what will answer it with numbers rather than a guess. */
 export const SNAPSHOT_SCROLLBACK = 1_000;
 /** How many exited-PTY exit codes to retain after teardown, so a late
  *  `exit(id)` succeeds with the real code rather than a fabricated
@@ -623,6 +633,25 @@ interface Entry {
   /** Wall-clock until which output is a RESIZE repaint, not work — set by
    *  `resize()`, read by the meaningful-output edge to exclude the SIGWINCH burst. */
   resizeMuteUntil: number;
+  /** Length (UTF-16 code units) of the most recent BOUNDED snapshot serialized
+   *  for this PTY — the derived half of the data fan-out's byte budget (see
+   *  `dataBudgetChars`). Written by `boundedSnapshotOf`, which is the one
+   *  producer; 0 until a first attach has taken one, where the baked floor
+   *  governs. Kept on the entry rather than read off the memo because the memo
+   *  is invalidated by every parse and the budget must survive that: the
+   *  question it answers is "what would a fresh snapshot cost", and the last one
+   *  taken is the only evidence available. */
+  lastBoundedSnapshotChars: number;
+  /** The RESIZE SETTLING window (kolu#2362). `settleTimer` being set IS the
+   *  predicate "this PTY is settling": it is armed by `resize()` on a real size
+   *  change, re-armed by every output chunk that arrives while it is set (so the
+   *  window measures QUIET, not elapsed time), and bounded by `settleDeadline`.
+   *  `settleWaiters` are the attaches parked until it closes — released by the
+   *  timer, by a later resize's re-arm reaching the deadline, or by teardown, so
+   *  a PTY that exits mid-settle never leaves a fiber parked forever. */
+  settleTimer: ReturnType<typeof setTimeout> | undefined;
+  settleDeadline: number;
+  settleWaiters: Set<() => void>;
   /** Wall-clock of the last meaningful-output edge published, to throttle it (see
    *  `ACTIVITY_EDGE_THROTTLE_MS`). */
   lastActivityEdgeAt: number;
@@ -685,6 +714,41 @@ const FOREGROUND_SAMPLE_THROTTLE_MS = 250;
  *  hack, moved to the one process that actually causes the repaint (so every
  *  consumer inherits the exclusion, and the client copy is deleted). */
 const RESIZE_ACTIVITY_MUTE_MS = 600;
+
+/** How long a resized PTY's output must go QUIET before the settling window
+ *  closes and a waiting attach takes its snapshot (kolu#2362).
+ *
+ *  The window exists because a resize is the one moment kaval KNOWS the bytes
+ *  about to arrive are a redraw of a screen it already mirrors: an agent clears
+ *  its scrollback and reprints its whole transcript on every SIGWINCH (0.57–0.97
+ *  MB, measured on #2362), and a viewer that watches that arrive byte-for-byte
+ *  sees its terminal scroll through the session for seconds before settling at
+ *  the end it asked for. So the viewers are dropped (they re-sync through the
+ *  existing overflow path), the mirror keeps parsing, and the re-attach is held
+ *  until the repaint is done — then ONE snapshot carries the settled screen.
+ *
+ *  Short, because it is pure added latency on every attach that follows a
+ *  resize, and a repaint arrives as a dense back-to-back burst: 100 ms of
+ *  silence means the writer has stopped, not that it is pausing to think. The
+ *  hard cap is {@link RESIZE_ACTIVITY_MUTE_MS} after the LATEST resize, so a
+ *  terminal whose program never goes quiet (a progress spinner) still paints —
+ *  the same window kaval already treats as "this output is repaint, not work",
+ *  reused rather than re-derived. */
+const RESIZE_SETTLE_QUIET_MS = 100;
+
+/** The floor under a data subscriber's byte budget, in UTF-16 code units of
+ *  serialized VT text (what `boundedSnapshotOf` produces and what the budget is
+ *  otherwise derived from).
+ *
+ *  The budget says "once more than a fresh snapshot is queued for you, a
+ *  snapshot is the cheaper way to catch you up". That reasoning collapses on a
+ *  nearly-blank screen, whose bounded snapshot is a few hundred bytes — a single
+ *  ordinary PTY read (node-pty hands up 64 KiB at a time) would exceed it and
+ *  every viewer of a freshly-spawned shell would thrash the re-snapshot path.
+ *  Two full reads is the floor: a viewer that is one chunk behind is not behind.
+ *  Baked, not configurable — the fail-fast rule: a derived bound with a baked
+ *  floor, never a knob. */
+const MIN_DATA_BUDGET_CHARS = 128 * 1024;
 
 /** Coalesce the meaningful-output edge to at most one per PTY per window — a
  *  streaming agent produces thousands of chunks/sec, but the edge only needs to
@@ -963,6 +1027,13 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       if (oldest !== undefined) exitCodes.delete(oldest);
     }
     entries.delete(entry.id);
+    // Release any attach parked on a settling window, AFTER the delete above:
+    // a PTY that exits mid-settle must not leave a fiber waiting on a window
+    // that will never close, and resolving them once the id is gone means each
+    // re-resolves to the honest `PtyNotFound` rather than serializing a mirror
+    // this teardown has already disposed. Also clears the pending timer, so a
+    // dead entry schedules nothing.
+    endResizeSettle(entry);
     // Announce the membership change AFTER the delete, so a consumer reacting to
     // `exited` that re-checks `has`/`list` sees the PTY already gone.
     inventoryFanOut.publishUnsafe({ kind: "exited", id: entry.id });
@@ -1030,6 +1101,10 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       headless,
       serialize,
       resizeMuteUntil: 0,
+      lastBoundedSnapshotChars: 0,
+      settleTimer: undefined,
+      settleDeadline: 0,
+      settleWaiters: new Set(),
       lastActivityEdgeAt: 0,
       snapshotCache: undefined,
       boundedSnapshotCache: undefined,
@@ -1043,7 +1118,18 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       exitCode: undefined,
       exitWaiters: new Set(),
       disposables: [],
-      data: new FanOut<string>({ maxQueue: dataMaxQueue }),
+      // The data feed is the one fan-out whose items are PTY reads, so it is
+      // the one that carries a BYTE budget: a viewer more than a fresh snapshot
+      // behind is dropped and re-synced instead of being shown the replay (see
+      // `dataBudgetChars`). The metadata taps below keep the item bound alone —
+      // their items are a cwd, a title, a command line.
+      data: new FanOut<string>({
+        maxQueue: dataMaxQueue,
+        byteBudget: {
+          sizeOf: (chunk) => chunk.length,
+          limit: () => dataBudgetChars(entries.get(id)),
+        },
+      }),
       cwdFanOut: new FanOut<string>(),
       titleFanOut: new FanOut<string>(),
       commandRunFanOut: new FanOut<string>(),
@@ -1191,6 +1277,13 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     entry.disposables.push(
       proc.onData((data: string) => {
         const now = Date.now();
+        // A chunk arriving inside the resize settling window pushes the quiet
+        // timer out (bounded by the window's own deadline): the window measures
+        // SILENCE after the repaint, not a fixed delay, so a short redraw
+        // releases its parked attaches in ~100 ms while a long one is waited
+        // out. Read on ARRIVAL rather than post-parse — the question is whether
+        // the program has stopped writing, which the raw stream answers first.
+        if (entry.settleTimer !== undefined) armSettleTimer(entry);
         entry.lastActivity = now;
         // Meaningful-output edge — the resize-aware activity signal every consumer
         // reads. Resize repaint excluded + throttled (see `shouldEmitActivityEdge`).
@@ -1304,16 +1397,91 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         0,
         normal.length - entry.headless.rows - start,
       );
-      return {
-        topLine: entry.anchor.baseLine() + start,
-        snapshot: entry.serialize.serialize({ scrollback }),
-      };
+      const snapshot = entry.serialize.serialize({ scrollback });
+      // The cost of a fresh snapshot, remembered — this is what the data
+      // fan-out's byte budget is derived from (`dataBudgetChars`). Recorded
+      // here because this is the one place a bounded snapshot is produced, so
+      // the budget can never be derived from a number no attach ever paid.
+      entry.lastBoundedSnapshotChars = snapshot.length;
+      return { topLine: entry.anchor.baseLine() + start, snapshot };
     })();
     return entry.boundedSnapshotCache;
   }
   function invalidateSnapshot(entry: Entry): void {
     entry.snapshotCache = undefined;
     entry.boundedSnapshotCache = undefined;
+  }
+
+  /** The most a data subscriber may have QUEUED before it is dropped and
+   *  re-synced, in UTF-16 code units (kolu#2362).
+   *
+   *  DERIVED, not configured: once more bytes are queued for a viewer than a
+   *  fresh bounded snapshot would cost, the snapshot IS the cheaper way to make
+   *  it current — and a far better one, because it is the screen the viewer
+   *  wants rather than the history of how the screen got there. That is the
+   *  whole of the policy; {@link MIN_DATA_BUDGET_CHARS} is the floor under it
+   *  for a screen too small to measure sensibly. A PTY that has gone (the map
+   *  lookup is how the budget reaches the entry from inside the fan-out's own
+   *  closure) reads as the floor, which is unreachable in practice: a closed
+   *  fan-out publishes nothing. */
+  function dataBudgetChars(entry: Entry | undefined): number {
+    return Math.max(
+      MIN_DATA_BUDGET_CHARS,
+      entry?.lastBoundedSnapshotChars ?? 0,
+    );
+  }
+
+  /** Open (or restart) the resize settling window — see
+   *  {@link RESIZE_SETTLE_QUIET_MS}. A later resize lands here again and pushes
+   *  the deadline out, so a drag that walks a PTY through five sizes settles
+   *  once, at the end. */
+  function openResizeSettle(entry: Entry): void {
+    entry.settleDeadline = Date.now() + RESIZE_ACTIVITY_MUTE_MS;
+    armSettleTimer(entry);
+  }
+
+  /** (Re-)arm the quiet timer, clamped to the window's hard deadline. Re-armed
+   *  by every chunk that arrives while settling, so the window closes on
+   *  SILENCE — and, once the deadline is in sight, the clamp shrinks the delay
+   *  to zero, so a program that never stops writing still releases its waiters
+   *  at the cap instead of holding them forever. */
+  function armSettleTimer(entry: Entry): void {
+    clearTimeout(entry.settleTimer);
+    const delay = Math.max(
+      0,
+      Math.min(RESIZE_SETTLE_QUIET_MS, entry.settleDeadline - Date.now()),
+    );
+    entry.settleTimer = setTimeout(() => endResizeSettle(entry), delay);
+  }
+
+  /** Close the settling window and release every parked attach. Idempotent, and
+   *  called from teardown too: a PTY that exits mid-settle must not leave a
+   *  fiber parked on a window that will never close. */
+  function endResizeSettle(entry: Entry): void {
+    if (entry.settleTimer !== undefined) {
+      clearTimeout(entry.settleTimer);
+      entry.settleTimer = undefined;
+    }
+    const waiters = [...entry.settleWaiters];
+    entry.settleWaiters.clear();
+    for (const release of waiters) release();
+  }
+
+  /** Park until this PTY's settling window closes — `Effect.void` when it is
+   *  not settling, so the ordinary attach costs nothing. The finalizer
+   *  deregisters the waiter, so an interrupted attach releases its slot rather
+   *  than leaving a dead callback for the window to invoke. */
+  function awaitResizeSettled(entry: Entry): Effect.Effect<void> {
+    return Effect.suspend(() => {
+      if (entry.settleTimer === undefined) return Effect.void;
+      return Effect.callback<void>((resume) => {
+        const waiter = (): void => resume(Effect.void);
+        entry.settleWaiters.add(waiter);
+        return Effect.sync(() => {
+          entry.settleWaiters.delete(waiter);
+        });
+      });
+    });
   }
 
   function attach(
@@ -1345,6 +1513,41 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       // the WRITE the `resizeTo` name advertises: it is visible to every other
       // client attached to this PTY, not private to this attachment.
       if (resizeTo) resize(id, resizeTo.cols, resizeTo.rows);
+      // …then WAIT OUT the repaint that resize just caused (kolu#2362). A real
+      // size change dropped every current viewer and opened a settling window;
+      // an attach arriving inside one — including the attach whose own
+      // `resizeTo` opened it — parks until the program has stopped redrawing,
+      // so its single snapshot is the SETTLED screen rather than the first
+      // frame of a 0.7 MB reprint the viewer would then watch scroll past. The
+      // mirror parses throughout, so nothing is lost by waiting; what changes
+      // is only WHEN the one reading is taken. An attach with nothing to wait
+      // for (the overwhelming majority) costs an `Effect.void`.
+      return Effect.flatMap(awaitResizeSettled(entry), () =>
+        attachNow(id, entry),
+      );
+    });
+  }
+
+  /** The fused subscribe+serialize half of {@link attach}, after any settling
+   *  window has closed.
+   *
+   *  `id` is re-resolved rather than trusting the `entry` the caller parked
+   *  with: a PTY can EXIT while its attach is parked (teardown releases the
+   *  waiters), and that entry's mirror is disposed — serializing it would read
+   *  a dead terminal. Re-resolving gives the same answer an attach to an
+   *  already-gone PTY has always given: `requireEntry` throws `PtyNotFound`,
+   *  which the serving layer carries as a defect because a `StreamSpec` has no
+   *  error channel to declare it on. The parked `entry` is still taken as an
+   *  argument so the common case (same object) needs no second lookup to reason
+   *  about — it is the identity check that makes "the PTY I waited for" and
+   *  "the PTY I serialize" provably the same one. */
+  function attachNow(
+    id: PtyId,
+    parked: Entry,
+  ): Effect.Effect<PtyAttachment, never, Scope.Scope> {
+    return Effect.suspend(() => {
+      const entry = requireEntry(id);
+      if (entry !== parked) throw new PtyNotFound({ id });
       // Subscribe and serialize in ONE synchronous step (`subscribeWith` — the
       // two halves are not separately spellable): no headless parse, and thus no
       // post-parse publish, can interleave between them, so every chunk lands in
@@ -1573,6 +1776,26 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // triggers is a genuine byte burst that must NOT count as meaningful output
     // (the reveal/resize "un-finish" regression, killed at the source).
     entry.resizeMuteUntil = Date.now() + RESIZE_ACTIVITY_MUTE_MS;
+    // A REAL size change invalidates every attached viewer at once (kolu#2362).
+    //
+    // Two things are true the moment the grid moves: the bytes still queued for
+    // each viewer were laid out for a grid that no longer exists, and the
+    // program is about to redraw its whole screen into the new one — an agent
+    // reprints its entire transcript on SIGWINCH, 0.57–0.97 MB in the sessions
+    // measured on #2362, with no synchronized-output wrapper, so a viewer that
+    // receives it byte-for-byte watches the session scroll past for seconds
+    // before landing on the end it asked for.
+    //
+    // So drop them all through the path that already exists for "what you have
+    // is worthless, come and get a fresh one" — `SubscriberOverflow` → the
+    // served `overflow` frame → padi's `reattachingDeltas` → RIS + snapshot.
+    // No new frame kind, no new client lane, no wire bump: the re-attach they
+    // make is then held by the settling window below until the repaint is done,
+    // so each viewer pays ONE snapshot for the whole resize instead of the
+    // reprint. The mirror keeps parsing throughout — kaval's screen is never
+    // behind, only its viewers' knowledge of it is, which is the entire point.
+    entry.data.dropAllUnsafe();
+    openResizeSettle(entry);
     entry.proc.resize(cols, rows);
     entry.headless.resize(cols, rows);
     // resize() reflows the mirror (reflowCursorLine rewraps lines on a width
