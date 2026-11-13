@@ -13,7 +13,7 @@
  *  only "the same" because they live on different machines. Across hosts the
  *  host itself is the disambiguator, and it is what the menu row shows. */
 
-import { activeArm } from "@kolu/padi-client/surface";
+import { activeArm, type TerminalMetadata } from "@kolu/padi-client/surface";
 import {
   computeTerminalKeys,
   type TerminalKey,
@@ -24,7 +24,30 @@ import {
   type FleetTerminalRow,
   groupFleetByHost,
 } from "../palette/fleetTerminals";
-import type { MentionCandidate } from "./mentions";
+import { agentName, stateLabels } from "../ui/agentDisplay";
+import type { MentionCandidate, MentionDetail } from "./mentions";
+
+/** What tells a terminal apart from the others the menu offers under the same
+ *  name — and same-named terminals are ordinary (one repo, several branches
+ *  cut from it, or several shells in one directory). In order: the intent a
+ *  person gave it, else the agent running in it and its state, else the
+ *  directory it is in. `null` only for a record with none of the three.
+ *
+ *  The KIND rides along because the row draws a directory differently: what
+ *  differs between two worktrees of one repo is the END of the path, so a
+ *  directory is cut from the left. */
+export function mentionDetail(meta: TerminalMetadata): MentionDetail | null {
+  const intent = meta.intent?.split("\n")[0]?.trim();
+  if (intent) return { kind: "intent", text: intent };
+  const agent = activeArm(meta)?.agent;
+  if (agent) {
+    return {
+      kind: "agent",
+      text: `${agentName(agent.kind)} · ${stateLabels[agent.state] ?? agent.state}`,
+    };
+  }
+  return meta.cwd ? { kind: "directory", text: meta.cwd } : null;
+}
 
 export function fleetMentionCandidates(
   rows: readonly FleetTerminalRow[],
@@ -60,7 +83,7 @@ export function fleetMentionCandidates(
       intent: row.meta.intent?.split("\n")[0] ?? null,
       cwd: row.meta.cwd,
       repo: key.group,
-      state: activeArm(row.meta)?.agent?.state ?? null,
+      detail: mentionDetail(row.meta),
     };
   });
 }

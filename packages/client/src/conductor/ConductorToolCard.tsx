@@ -26,6 +26,7 @@ import { useDockFocus } from "../canvas/dock/useDockFocus";
 import { hostLabel } from "../host/hostChipTone";
 import { selectHostTab } from "../host/selectHostTab";
 import { getClockNow } from "../time/clock";
+import { isDesktop } from "../useMobile";
 import ConductorDiffs from "./ConductorDiffs";
 import ConductorLook from "./ConductorLook";
 import {
@@ -145,6 +146,12 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
   /** Why it failed, when it did: the ONE place a failed card says so. */
   const reason = () => failureReason(props.row);
 
+  /** The touch layout, where the title row has a phone's width to live in. */
+  const phone = () => !isDesktop();
+  /** The raw tool-name chip: always on a desktop and on a generic card (its
+   *  name IS what the card can say), but not on a phone's kolu card. */
+  const showChip = () => !phone() || props.row.kolu === undefined;
+
   return (
     <div
       data-testid="conductor-tool-card"
@@ -157,12 +164,26 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
       // card would size the transcript, and the transcript would size the
       // document. Written here rather than relied on from the parent because
       // the card is the box that must hold a tool's output whatever it is.
-      class="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2.5 gap-y-1.5 rounded-lg border border-edge bg-surface-1 px-2.5 py-1.5 text-xs"
+      //
+      // ON A PHONE a kolu card drops the raw tool-name chip — the card's own
+      // words already say what happened, and the chip took a third of the row
+      // — so the track it sat in goes too; and the title WRAPS instead of
+      // clipping, so no part of it runs past the screen's edge.
+      class="grid min-w-0 items-center gap-x-2.5 gap-y-1.5 rounded-lg border border-edge bg-surface-1 px-2.5 py-1.5 text-xs"
+      classList={{
+        "grid-cols-[auto_minmax(0,1fr)_auto]": showChip(),
+        "grid-cols-[minmax(0,1fr)_auto]": !showChip(),
+      }}
     >
-      <span class="font-mono text-[0.62rem] font-semibold text-fg-3 bg-surface-2 rounded px-1.5 py-px">
-        {toolLabel(props.row)}
-      </span>
-      <span class="min-w-0 truncate">
+      <Show when={showChip()}>
+        <span class="font-mono text-[0.62rem] font-semibold text-fg-3 bg-surface-2 rounded px-1.5 py-px">
+          {toolLabel(props.row)}
+        </span>
+      </Show>
+      <span
+        class="min-w-0"
+        classList={{ truncate: !phone(), "wrap-anywhere": phone() }}
+      >
         {/* WHICH MACHINE, first. One conversation drives terminals on every
             host, so `fix-parser` alone does not say where the agent typed —
             and the card's own "open tile" goes to a different tab depending

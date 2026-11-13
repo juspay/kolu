@@ -21,6 +21,10 @@ const PANE = '[data-testid="conductor-pane"]';
 /** The conversation's OWN tab, first in the tab row — not a host tab, and not
  *  a segment of the mode control (which no longer has one). */
 const TAB = '[data-testid="conductor-tab"]';
+/** The phone's pull handle — the way into its chrome sheet, the phone's tab
+ *  row. */
+const MOBILE_HANDLE = '[data-testid="mobile-pull-handle"]';
+const MOBILE_SHEET = '[data-testid="mobile-chrome-sheet"]';
 const BADGE = `${TAB} [data-testid="conductor-badge"]`;
 const CHIP = '[data-testid="conductor-phase"]';
 const TRANSCRIPT = '[data-testid="conductor-transcript"]';
@@ -101,14 +105,19 @@ async function waitForAtLeastOne(
 
 /** IDEMPOTENT, because the selected tab is persisted per device: a reload comes
  *  back in the conversation, and a step that pressed the entry unconditionally
- *  would LEAVE it exactly in the scenario that reloads. */
+ *  would LEAVE it exactly in the scenario that reloads.
+ *
+ *  On a PHONE the tab lives in the pull-down chrome sheet, so the handle is
+ *  pulled first — the same two taps a person makes. */
 async function enterConductor(world: KoluWorld): Promise<void> {
+  const pane = world.page.locator(PANE);
+  if (await pane.isVisible()) return;
+  const handle = world.page.locator(MOBILE_HANDLE);
+  if (await handle.isVisible()) await handle.click();
   const tab = world.page.locator(TAB);
   await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   if ((await tab.getAttribute("data-active")) === null) await tab.click();
-  await world.page
-    .locator(PANE)
-    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await pane.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 }
 
 async function sendPrompt(world: KoluWorld, text: string): Promise<void> {
@@ -1220,6 +1229,72 @@ Then(
       await fold.evaluate((el) => (el as HTMLDetailsElement).open),
       true,
       "the Details fold a person opened should still be open",
+    );
+  },
+);
+
+// ── The Conductor on a phone ──
+
+Then(
+  "the mobile chrome sheet should put the conductor first, lit, and no host lit",
+  async function (this: KoluWorld) {
+    // The sheet IS the phone's tab row, so it keeps the row's rules: the
+    // conversation first, and exactly one place lit — the one you are in.
+    const tab = this.page.locator(`${MOBILE_SHEET} ${TAB}`);
+    await waitForValue(
+      "the sheet's conductor entry lit",
+      async () => (await tab.getAttribute("data-active")) ?? "absent",
+      "",
+    );
+    const hosts = this.page.locator(
+      `${MOBILE_SHEET} [data-testid="mobile-host-chip"]`,
+    );
+    const entry = await tab.boundingBox();
+    const firstHost = await hosts.first().boundingBox();
+    assert.ok(entry !== null && firstHost !== null, "the sheet is not drawn");
+    assert.ok(
+      entry.y + entry.height <= firstHost.y,
+      `the conductor entry (y=${entry.y}) is not above the host chips (y=${firstHost.y})`,
+    );
+    assert.equal(
+      await this.page
+        .locator(
+          `${MOBILE_SHEET} [data-testid="mobile-host-chip"][data-active]`,
+        )
+        .count(),
+      0,
+      "a host chip is lit while the conversation is the current place",
+    );
+  },
+);
+
+Then(
+  "nothing on screen should reach past the window's right edge",
+  async function (this: KoluWorld) {
+    // Stricter than "the page is no wider than the window": a span clipped by
+    // an `overflow: hidden` ancestor keeps the document narrow while its own
+    // box runs off the screen — exactly how a phone's agent line used to cut
+    // its title. Every element with a box is measured.
+    const offenders = await this.page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>("body *")]
+        .filter((el) => {
+          const box = el.getBoundingClientRect();
+          return (
+            box.width > 0 &&
+            box.height > 0 &&
+            box.right > window.innerWidth + 0.5
+          );
+        })
+        .slice(0, 5)
+        .map(
+          (el) =>
+            `${el.tagName.toLowerCase()}${el.dataset.testid ? `[data-testid="${el.dataset.testid}"]` : ""} right=${Math.round(el.getBoundingClientRect().right)} "${(el.textContent ?? "").trim().slice(0, 40)}"`,
+        ),
+    );
+    assert.deepEqual(
+      offenders,
+      [],
+      `elements reach past the ${await this.page.evaluate(() => window.innerWidth)}px window:\n${offenders.join("\n")}`,
     );
   },
 );

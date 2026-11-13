@@ -9946,6 +9946,30 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "b96ddde37e3f5480951dd39b9ce81f66616ff4db"
+    },
+    {
+      "revisionId": "revision-95bd10ab0226aee210c6",
+      "scenarioKey": "scenario-672eca80a5874953fc3e",
+      "feature": "features/mobile-conductor.feature",
+      "scenario": "An agent line on a phone stays inside the screen",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "5845a589eee3bcc773b25208df0608afb562b600431e6b50cca70bb52c47e718",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "95b1e01d0563150711889be7c687ddd88ef1577f"
+    },
+    {
+      "revisionId": "revision-95ae40078d9ef7ece112",
+      "scenarioKey": "scenario-28a3ec3c235aefbda939",
+      "feature": "features/mobile-conductor.feature",
+      "scenario": "From the Conductor, the chrome sheet takes you back to a host",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "ef8ee2f106e68f55564737df391b437bb0ca48a43871443778e276fa4f2bc81f",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "95b1e01d0563150711889be7c687ddd88ef1577f"
     }
   ]
 }

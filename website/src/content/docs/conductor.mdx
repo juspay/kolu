@@ -43,7 +43,7 @@ Its badge is a violet count: how many of its questions are waiting for you, summ
 
 **The view is the chat** — header, strip, transcript, composer, filling the window. No dock, no canvas, no second pane holding a terminal: the terminals are on the host tabs, one keystroke away, and a half-width copy of one here would be a second place to look at the same thing. What the chat does carry is a way to **check on** an agent without leaving it: the card for each terminal the Conductor opened says how that agent is doing, and **Look** shows the last lines of its screen right there (see [the transcript](#the-transcript)). The way to the terminal itself is **open tile** on that same card, which takes you to the terminal's host tab with the tile focused.
 
-On mobile the Conductor appears in the host sheet beside the hosts, and opens the chat full-screen.
+**On a phone** the Conductor is the first entry in the pull-down chrome sheet, above the host chips. Tapping it gives the conversation the whole screen under the pull handle, which reads **◆ Conductor** while you are in it; the sheet opens from there exactly as it does from a host — the Conductor lit, no host lit — and tapping a host chip takes you back to that machine. The composer is one line that grows as you type, with **Send** beside it and none of the desktop's keyboard hints; a tool card for one of kolu's own calls drops the raw tool name and wraps its title rather than cutting it off; and the inspector toggle is not offered while you are in the Conductor.
 
 ## The conversation
 
@@ -96,7 +96,7 @@ The tool calls the Conductor makes between two things said — its own words, a 
 
 ### The composer
 
-It never locks. `@` completes terminals **from every host** into a chip — the host is shown as you pick, and the message that goes out carries a structured reference to each one, so the agent gets the terminal's `host/id` and intent rather than a name it has to guess at. `/` completes the agent's own commands. <kbd>⇧⏎</kbd> is a newline, <kbd>⏎</kbd> sends, **Stop** cancels the turn in flight.
+It never locks. `@` completes terminals **from every host** into a chip — the host is shown as you pick, and so is what tells same-named terminals apart (one repo, several branches): the intent you gave it, else the agent in it and its state, else its directory, cut from the left so the part that differs stays in view. The message that goes out carries a structured reference to each one, so the agent gets the terminal's `host/id` and intent rather than a name it has to guess at. `/` completes the agent's own commands. <kbd>⇧⏎</kbd> is a newline, <kbd>⏎</kbd> sends, **Stop** cancels the turn in flight.
 
 Sending while it works is fine: the message goes out immediately and waits **at the agent**, marked _queued_ until it is picked up. Nothing is held on kolu's side, which is also why **Stop** has nothing to throw away — anything queued behind the turn you stopped survives and runs next.
 

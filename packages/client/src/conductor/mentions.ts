@@ -33,8 +33,16 @@ export interface MentionCandidate {
   readonly cwd: string | null;
   /** The repo the terminal lives in, for the menu's quiet second column. */
   readonly repo: string | null;
-  /** Its agent state in one word, as the dock paints it. */
-  readonly state: string | null;
+  /** What tells this row apart from others under the same name — the
+   *  intent, else the agent and its state, else the directory
+   *  (`mentionDetail`). */
+  readonly detail: MentionDetail | null;
+}
+
+/** A row's distinguishing detail, and which of the three it is. */
+export interface MentionDetail {
+  readonly kind: "intent" | "agent" | "directory";
+  readonly text: string;
 }
 
 /** A completion in progress: the trigger's position and what has been typed

@@ -71,21 +71,14 @@ const MobileChromeSheet: Component<{
         />
       </div>
 
-      {/* Host row — the mobile face of the keyed padi host map: per-host chips
-       *  (tap to switch), attention pills, and the in-sheet add-host section.
-       *  Closes the sheet on a switch so the canvas is visible immediately. The
-       *  desktop `HostSelectorStrip` is `isDesktop()`-gated, so this is the
-       *  ONLY host chrome the touch layout has. */}
-      <MobileHostRow onSwitch={props.onClose} />
-
-      {/* The conductor, BESIDE the hosts rather than among them: it is the
-       *  touch layout's one entry to the conversation, and it is not a host —
-       *  no status dot, no hue, nothing in the row above. Selecting it shows
-       *  the chat full-screen (a sheet, `ConductorSheet`), which is why
-       *  there is nothing more to lay out here than the door and the count of
-       *  questions waiting behind it. EXACTLY ONE place looks current, as on
-       *  the desktop row: while the conversation is on screen this entry is
-       *  lit and no host chip above is (`useActiveHostSelector`). */}
+      {/* The conductor FIRST, as on the desktop tab row: this sheet is the
+       *  phone's tab row, and the conversation is the one place that reaches
+       *  every host. It is not a host — no status dot, no hue, nothing in the
+       *  host row below. Selecting it shows the chat over the whole screen
+       *  under the pull handle, and the handle opens this same sheet from
+       *  there, so a host chip below is the way back. EXACTLY ONE place looks
+       *  current: while the conversation is on screen this entry is lit and no
+       *  host chip is (`useActiveHostSelector`). */}
       <div class="border-b border-edge/50 px-3 py-2">
         <button
           type="button"
@@ -133,6 +126,14 @@ const MobileChromeSheet: Component<{
           </Show>
         </button>
       </div>
+
+      {/* Host row — the mobile face of the keyed padi host map: per-host chips
+       *  (tap to switch — from the Conductor too, which a tap leaves), attention
+       *  pills, and the in-sheet add-host section. Closes the sheet on a switch
+       *  so the canvas is visible immediately. The desktop `HostSelectorStrip`
+       *  is `isDesktop()`-gated, so this is the ONLY host chrome the touch
+       *  layout has. */}
+      <MobileHostRow onSwitch={props.onClose} />
 
       {/* Client out of sync with the server — the actionable mobile form of the
        *  desktop rail's `≠ srv` signal: a one-tap reload onto the deployed build
@@ -191,25 +192,29 @@ const MobileChromeSheet: Component<{
             triggerRef={settingsTriggerRef}
           />
         </div>
-        <button
-          type="button"
-          data-testid="inspector-toggle"
-          class="h-9 w-9 flex items-center justify-center text-fg-2 bg-surface-2 rounded-lg border border-edge active:bg-surface-3"
-          classList={{
-            "bg-surface-3 text-fg": rightPanel.drawerOpen(),
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => {
-            // Mobile drawer is session-local — do NOT call togglePanel,
-            // which writes the desktop chrome preference. This is the
-            // whole reason `drawerOpen` exists as a separate signal.
-            rightPanel.setDrawerOpen(!rightPanel.drawerOpen());
-            props.onClose();
-          }}
-          aria-label={ACTIONS.toggleRightPanel.label}
-        >
-          <InspectorToggleIcon active={rightPanel.drawerOpen()} />
-        </button>
+        {/* The inspector is about a host's terminal, so — as on the desktop
+         *  bar — it is not offered while the Conductor is the current place. */}
+        <Show when={!conductorMode()}>
+          <button
+            type="button"
+            data-testid="inspector-toggle"
+            class="h-9 w-9 flex items-center justify-center text-fg-2 bg-surface-2 rounded-lg border border-edge active:bg-surface-3"
+            classList={{
+              "bg-surface-3 text-fg": rightPanel.drawerOpen(),
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => {
+              // Mobile drawer is session-local — do NOT call togglePanel,
+              // which writes the desktop chrome preference. This is the
+              // whole reason `drawerOpen` exists as a separate signal.
+              rightPanel.setDrawerOpen(!rightPanel.drawerOpen());
+              props.onClose();
+            }}
+            aria-label={ACTIONS.toggleRightPanel.label}
+          >
+            <InspectorToggleIcon active={rightPanel.drawerOpen()} />
+          </button>
+        </Show>
       </div>
     </div>
   );

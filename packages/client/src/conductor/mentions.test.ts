@@ -25,7 +25,7 @@ const terminal = (
   intent: `${name} intent`,
   cwd: `/repo/${name}`,
   repo: "KOLU",
-  state: "working",
+  detail: { kind: "intent", text: `${name} intent` },
 });
 
 const fleet = [
