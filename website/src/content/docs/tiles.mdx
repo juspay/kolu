@@ -106,17 +106,19 @@ rendering.
 live feed: on a phone that is the one tile you are looking at, and on the desktop
 a background sub-terminal tab is left alone. A hidden pane also doesn't state its
 size, so opening kolu on a second device no longer reshapes every terminal on the
-host behind it. When you bring a pane back, it re-attaches and paints the screen
-as it is **now** — and the activity dot is what tells you it changed while you
-were elsewhere.
+host behind it. Bringing a pane back doesn't blank it either — the old screen
+stays up and is replaced the moment the current one arrives — and the activity
+dot is what tells you it changed while you were elsewhere.
 
 **Resizing costs one repaint, not a replay.** Dragging a divider or opening the
 soft keyboard publishes the new size **once**, after the layout stops moving,
 instead of walking the terminal through every intermediate size. And because
 programs — agents especially — redraw their whole screen when the size changes,
-kolu waits for that redraw to finish and then paints the settled screen in one
-go. You see the end you asked for, not the terminal scrolling through its
-session to get there.
+kolu holds that redraw back for a moment and then decides: a plain shell's
+repaint is tiny, so it is simply handed over and nothing about your view changes;
+an agent reprinting its whole transcript is bigger than a screen, so you get the
+screen instead. Either way you see the end you asked for, not the terminal
+scrolling through its session to get there.
 
 ## A tip under the title bar
 

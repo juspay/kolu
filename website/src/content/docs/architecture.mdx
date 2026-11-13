@@ -459,10 +459,12 @@ connection and every other terminal keep flowing, and it picks up where it left
 off. (A reader that falls behind is **re-attached with a fresh snapshot** rather
 than fed the backlog: kaval bounds each viewer's queue by the cost of a fresh
 screen snapshot, so once catching up would cost more than re-sending the screen,
-it re-sends the screen. A **resize** takes the same route deliberately — a
-program redraws its whole screen when its size changes, so kaval drops the
-viewers, lets the redraw finish, and hands each one the settled screen instead of
-streaming the redraw through. Both arrive as the `overflow` control frame the
+it re-sends the screen. A **resize** is handled by the same question, asked
+ahead of time: a program redraws its whole screen when its size changes, so
+kaval holds that redraw back for a moment instead of forwarding it, then either
+delivers it (a shell's repaint is a hundred bytes — nobody is interrupted) or,
+when it is larger than a snapshot, drops the viewers and gives each one the
+settled screen. Both arrive as the `overflow` control frame the
 attach stream has carried since contract 5.0; neither is a new frame kind.)
 
 Who decides that a hop is dead is just as deliberate. Each connection's own

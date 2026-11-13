@@ -448,8 +448,10 @@ it is the **ordinary** path for two more things, both decided in kaval:
 - a viewer with more queued for it than a fresh snapshot would cost — the bound
   is bytes, derived from the snapshot, so catching up never costs more than
   starting over;
-- a **real resize** — every viewer is dropped, kaval waits out the redraw the
-  size change provokes, and the re-attach is answered with the settled screen.
+- a **real resize** whose repaint turns out to cost more than a snapshot —
+  kaval withholds the redraw a size change provokes and then decides, so a
+  shell's hundred-byte repaint is simply delivered and an agent's
+  multi-megabyte reprint becomes one re-sync instead.
 
 Nothing about the wire changed: no new frame kind, no contract bump, and an
 older peer on either side behaves exactly as it did. What changed is how often

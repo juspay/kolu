@@ -295,9 +295,10 @@ so a host with many terminals takes a moment longer to paint; the kolu server lo
 were, how long the host took to answer, and **how many PTYs the switch actually resized and
 who asked for it** — `attach` (a pane stating its size as it attaches), `publish` (a
 deliberate grid change) or `foreign` (one viewer taking the size back from another). A
-second line lands when each attachment ends, reporting the characters it forwarded as live
-output and how many times it had to skip ahead to a fresh snapshot — so one read answers
-both "did viewing resize anything" and "what did that cost" (`journalctl --user -u kolu`
+matching `terminal attach: ends` line lands when a switch tears the old host's attachments
+down, reporting the characters they forwarded as live output and how many times they had to
+skip ahead to a fresh snapshot — so one read at the default log level answers both "did
+viewing resize anything" and "what did that cost" (`journalctl --user -u kolu`
 under systemd). Browser memory
 therefore scales with that retained per-host view state, the fleet metadata index, and
 the number of connected hosts — not with a full canvas for every host. If a multi-host
