@@ -1,6 +1,6 @@
 ---
 title: AI coding agents
-description: "Kolu can bring AI coding agents into every new terminal — kept up to date, nothing to install — on the machine running kolu and on every host you add. Until agents are on, kolu asks in the welcome card whenever no terminals are open, and in the Tutorial; Settings → Agents switches them on or off and lists the profiles stacked over them at any time."
+description: "Kolu brings AI coding agents into every new terminal, kept up to date, on the machine running kolu and on every host you add."
 order: 49
 section: "Agents & Attention"
 koluHero:
@@ -10,206 +10,120 @@ koluHero:
     It's {already} there.
 ---
 
-import Aside from "../../components/docs/Aside.astro";
+import LinkCard from "../../components/docs/LinkCard.astro";
+import Steps from "../../components/docs/Steps.astro";
 
-Kolu can bring the AI coding agents along — **Claude Code, Codex, OpenCode, Pi
-and Oh My Pi** — kept up to date, with nothing for you to install. Kolu asks
-whether you want them ([First run](#first-run)); switch them on, open a new
-terminal and type `claude`: it runs, and so do the others. Each one starts with
-kolu's own plugin loaded, so it can drive your other kolu terminals out of the
-box. Agents you installed yourself keep working: kolu's come first, yours stay
-as the fallback.
+Kolu can bring the AI coding agents along: **Claude Code, Codex, OpenCode, Pi
+and Oh My Pi**, kept up to date, with nothing to install. Switch them on, open
+a new terminal and type `claude`. It runs, and so do the others. Each starts
+with kolu's own plugin loaded, so it can drive your other kolu terminals.
 
-Two things make up the choice, and they are separate. The **agents** are a
-switch: on, every new terminal gets them. **Profiles** are a list on top of
-them: each one is an Agent Plugin in a repository — a `plugin.json` — that
-brings skills, MCP servers and settings to every agent, such as **Juspay**'s
-(`github:juspay/skills`), one click away; and they stack in the order you list
-them. With no profile the agents are exactly as they ship.
-
-Until you choose, nothing changes: kolu adds no agents to your terminals until
-you switch them on, on a fresh install and on one that predates this. The agents
-come from [agent-distro](https://github.com/juspay/agent-distro), a distribution
-of coding agents that kolu pins and ships.
+The **agents** are a switch: on, every new terminal gets them, as
+[agent-distro](https://github.com/juspay/agent-distro) ships them. **Profiles**
+are an ordered list on top of them, each a git repository of skills, MCP
+servers and settings, such as **Juspay**'s (`github:juspay/skills`).
 
 ## First run
 
-Until agents are on, kolu asks in three places:
+Kolu adds no agents until you switch them on. It asks in the **welcome card**
+whenever no terminals are open, in the palette's **Tutorial**, and in
+**Settings → Agents**.
 
-- the **welcome card**, whenever no terminals are open — the question leads it:
-  **Choose your coding agents**;
-- the palette's **Tutorial** command, which shows the same welcome at any time;
-- **Settings → Agents**, at any time.
+<Steps>
 
-The welcome card and the Tutorial ask with the same profile list as Settings,
-always empty to start with, and two buttons — **Turn on ⏎**, and **Not now —
-plain terminals, ask again later**. Above the list sits **+ Juspay — Juspay
-skills + Kolu, via Juspay's LiteLLM gateway**: one click adds Juspay's profile,
-and the row goes once it is listed. It is an offer, never a default — Juspay is
-never in the list unless you click it. Until you choose,
-**Turn on** already has the keyboard: press **Enter** and agents are on, with
-whatever profiles the step lists. Nothing is written until you press it.
+1. Add a profile, if you want one: one click adds **+ Juspay — Juspay skills +
+   Kolu, via Juspay's LiteLLM gateway**. The list is otherwise empty.
+2. Press **Turn on ⏎**. It has the keyboard already, and nothing is written
+   until you press it.
+3. Or press **Not now — plain terminals, ask again later**. The question comes
+   back the next time the welcome card appears.
 
-The question then folds away into the welcome's done line — "Agents: on", or
-"Agents: juspay ✓" once each profile has been built ([Profiles](#profiles)); if
-one cannot be, its error stands there instead of the check. It stays only while
-kolu is still delivering the agents to this machine, or if that delivery failed.
+</Steps>
 
-**Not now** chooses nothing: no preference is written, no agents are added, and
-the question only goes for this session — the next time the welcome card appears
-it asks again.
-
-Until agents are on, the welcome card keeps the question at the top: switch them
-off again in Settings and it comes back, its list empty again. Once you have chosen, it no longer takes
-the keyboard when the welcome card appears, so an **Enter** out of habit changes
-nothing. If you upgraded and your session brings your terminals back, you will
-not see the welcome card: your terminals have no agents until you switch them on
-in Settings or the Tutorial.
-
-Nothing forces the question. **⌘⏎** still opens a terminal from anywhere; it just
-gets no agents, and the question stays until agents are on.
+Terminals your session brings back after an upgrade get no welcome card, and no
+agents until you switch them on.
 
 ## Settings → Agents
 
-To change it later, open **Settings** (the gear in the top bar). One row,
-**Agents**, holds all of it: the switch, on or off, and the **profile list**.
-Either way kolu tells you what changed for new terminals.
+Open **Settings** (the gear in the top bar). The **Agents** row holds the
+switch and the **profile list**, for all of kolu: not per host, not per
+terminal. kolu tells you what changed for new terminals.
 
-Under the switch sit the agents it brings, one **chip** each with the version
-this machine has. While agents are off the chips name them without versions —
-nothing is installed yet — and the hint above them is one sentence: "Off. New
-terminals use only the agents you installed yourself. Turn on and they start
-with these, kept up to date:".
-
-Below them is one **fleet line** for every machine at once — "Ready on
-naiveintent and 2 more · buildbox delivering · devbox failed", a coloured dot
-per state. A machine that is ready but whose last update failed is named apart,
-with a warning dot: "zest ready, last update failed". Each machine's name is a
-link that opens that machine's **host details**, where everything true of that
-machine lives: the build it serves, its state and last update, its own events
-and its own actions ([On other machines](#on-other-machines)). Settings keeps no
-per-machine state of its own.
-
-The row ends with **Docs →** and **Provided by agent-distro ↗**.
-
-The setting is one for all of kolu — not per host, not per terminal.
+Chips under the switch name the agents and this machine's versions. A **fleet
+line** under them covers every machine at once, and each machine's name opens
+its **host details** ([On other machines](#on-other-machines)).
 
 ## Profiles
 
 A **profile** is an [Agent Plugin](https://agent-plugins.org/) in any git
 repository: a `plugin.json` at its root carrying its skills and MCP servers,
-the commands those servers need, and the env and settings it gives every agent
-([agent-distro's Profiles](https://agent-distro.kolu.dev/#profiles)). The
-**profile list** in Settings → Agents names them, one row each, in order. Under
-each row kolu says whether it builds — its name and description and the
-revision it was fetched at ("juspay (a1b2c3d) · Juspay skills + Kolu, via
-Juspay's LiteLLM gateway"), or, in red, Nix's or agent-distro's own words for
-why not. Each row is removed by its **✕**; with two or more, each can also move
-up or down.
+the commands those servers need, and the env and settings it gives every agent.
 
-Add one with the field under the list. Clicking into it opens its suggestions —
-in Settings **+ Juspay** first (the welcome step offers it as its own row
-instead), then the profiles you added before, none the list already holds — and
-typing filters them. Pick one, or type a
-flake reference (`github:you/your-profile`) or a path to its directory
-(`~/src/my-profile`, or an absolute path) and press **Enter**. An empty list
-draws no rows: it is the agents as they ship.
+Each row of the profile list says whether its profile builds, and the revision
+it was fetched at. If it does not, Nix's or agent-distro's own words say why,
+in red. **✕** removes a row; with two or more, each can also move up or down.
 
-A profile that does not build stays in the list, said in red under its row, and
-while it is there new terminals get no coding agents — a terminal never starts
-without a profile you listed. The red line is the cause; when Nix printed more
-(a builder's log, say), it sits under it in a small box that scrolls, with a
-**Copy** button for the whole failure. Fix it (kolu tries again at the next
-check, and when you edit the list), or remove it. A profile that still carries
-an old `agent-distro.nix` is one of these: agent-distro refuses it, and its own
-migration message — the file, and the `plugin.json` extension to move its
-fields into — stands under the row.
+Add one with the field under the list: click it for suggestions, or type a
+flake reference (`github:you/your-profile`) or a path (`~/src/my-profile`, or
+an absolute one) and press **Enter**.
+
+While a profile in the list does not build, new terminals get no coding agents
+at all. Fix it and kolu tries again at the next check and when you edit the
+list, or remove the row.
 
 ### How profiles stack
 
-Profiles are applied **in list order, each over the one above it**: where two
-of them set the same thing, the lower one wins. A **repository's own
-`plugin.json`** comes last of all — opening an agent in a repository that
-carries one composes that profile over your whole list. The list ends with a
-row saying so — the one place it says how profiles stack — which you cannot
-edit or remove: it is where your repository's profile goes, not a setting.
+Profiles apply in list order, each over the one above it: where two set the
+same thing, the lower one wins. A repository's own `plugin.json` comes last of
+all, so opening an agent there composes that profile over your whole list. The
+list ends with a row saying so, which you cannot edit or remove.
 
-Opening a terminal in a repository reads that repository's `plugin.json`
-through agent-distro, before you type anything, to tell the pill what is in
-effect. A repository's profile brings its own plugins and MCP servers, so only
-open terminals in repositories you trust, as with a `.envrc`.
+A repository's profile brings its own plugins and MCP servers, so open
+terminals only in repositories you trust, as with a `.envrc`.
 
 ### Built once, by kolu
 
-A profile is an Agent Plugin: `plugin.json`, a skill in each
-`skills/<name>/SKILL.md`, optionally `mcp.json` — and, for what an Agent Plugin
-does not carry, the `extensions."asia.nixos.agent-distro"` block: more plugins,
-`packages`, `env` and `settings`
-([Profiles](https://agent-distro.kolu.dev/#profiles)). A repository that used
-APM moves its `apm.yml` dependencies into that block
-([From APM](https://agent-distro.kolu.dev/#from-apm)).
+The machine running kolu builds each profile: it fetches it, notes the revision
+it found, and builds it with agent-distro's own builder, which fetches any
+plugin the profile names by a flake reference. The result goes to every machine
+beside the agents ([On other machines](#on-other-machines)).
 
-kolu does not hand your references to the agents. The machine running kolu
-**builds** each profile — fetches it, notes the revision it found, and builds
-it with agent-distro's own builder, which fetches any plugin the profile names
-by a flake reference right then — and delivers the result to every machine
-beside the agents ([On other machines](#on-other-machines)). The build is the
-pinned thing: a terminal gets the built profiles as its `AI_PROFILE`, so
-starting an agent fetches, evaluates and compiles nothing, and works offline. A
-path is read on the machine running kolu, so a profile in `~/src/my-profile`
-there reaches every host. Every time kolu looks for newer agents — on its
-schedule, or when you check ([Kept up to date](#kept-up-to-date)) — it fetches
-and builds each profile again, so a newer revision, a plugin's newer commit or
-an edit to a path profile reaches your machines then.
+A terminal gets the built profiles as its `AI_PROFILE`, so starting an agent
+compiles nothing and works offline. A path is read on the machine running kolu,
+so a profile in `~/src/my-profile` there reaches every host. Every look for
+newer agents builds each profile again ([Kept up to date](#kept-up-to-date)).
 
-## New terminals only, and each one says which
+What a profile holds is agent-distro's own format
+([Profiles](https://agent-distro.kolu.dev/#profiles), and
+[From APM](https://agent-distro.kolu.dev/#from-apm) for a repository with an
+`apm.yml`).
 
-A change applies to the **next new terminal**. A terminal that is already open
-keeps exactly the agents it started with: kolu puts the exact build of that set
-on its PATH, so a later switch (or a newer build arriving) never changes a
-running agent under you — until you **Restart** it (below).
+## Which agents a terminal has
 
-Every tile shows which it got: a small pill in the tile's title bar with the
-profiles in effect and a short hash of the agents' build. Two tiles with
-different pills started with different agents; **no pill** means agents were off
-when that terminal started.
-
-The profiles on the pill are the ones **in effect** in that terminal, as
-agent-distro names a stack — `juspay + my-repo` when a repository's own profile
-composes over your list. Right after the terminal starts, kolu asks agent-distro
-once, in the terminal's folder and with its environment, and shows its answer;
-hover the pill to see where each came from. Until agent-distro answers (or if
-it cannot), the pill shows your list; with no profile at all it shows only the
-hash. It is asked once per terminal: `cd` into another repository and the pill
-keeps naming what was in effect where the terminal started.
-
-In a terminal with agents, a bar under the tile's title bar points at the next
-step — a button for each agent of its set to launch, then a skill to try at its
-first prompt — and the buttons type it for you ([A tip under the title bar](/tiles#a-tip-under-the-title-bar)).
+A change applies to the next new terminal. One already open keeps exactly the
+agents it started with, since kolu puts that exact build on its PATH. A pill in
+its title bar names the profiles in effect, as agent-distro names a stack
+(`juspay + my-repo`), and a short hash of the agents' build. No pill means
+agents were off when that terminal started.
 
 ## Restarting a terminal onto the current agents
 
-When a terminal's agents are no longer what a new terminal there would get — you
-changed the profile list, turned agents off, or a newer build of the agents or
-of a profile arrived —
-its pill dims and becomes a **Restart** button. Hover it to see what the terminal
-has and what new terminals get. While kolu is still delivering the set to that
-machine, or the delivery failed, new terminals there get no agents — so the pill says so
-and offers no Restart yet: restarting then would leave the terminal with none.
+When a terminal's agents are no longer what a new terminal there would get, its
+pill dims and becomes a **Restart** button. While kolu is still delivering a
+set to that machine, or the delivery failed, it offers no Restart: restarting
+then would leave the terminal with no agents at all.
 
-Restart gives the terminal a fresh shell in place — the same tile, folder and
-theme, with the current agents, and **its splits restart with it** (each on its
-own id, so the split tree comes back whole). With agents still on, the agent's
-conversation resumes on the new agents, and any other program in the terminal
-ends. With agents now off it comes back as a plain shell, and the agent ends too.
+Restart gives the terminal a fresh shell in place, with the current agents, in
+the same tile, folder and theme, and its splits restart with it. The agent's
+conversation resumes on the new agents, any other program in the terminal ends,
+and with agents off it comes back as a plain shell.
+
 If an agent is working or waiting for you, the first click only asks; a second
-click within a few seconds confirms. The old shell is stopped the way sleep stops
-it — killed outright — so it does not write its history file, and anything you
-started with `nohup` keeps running.
+click within a few seconds confirms. The old shell is killed outright, so it
+writes no history file, and `nohup` jobs keep running.
 
-The same restart is on the tile's **↻** button and as **Restart terminal** in the
-command palette, so a terminal whose agents are current can still be restarted on
-purpose ([Inside a Tile](/tiles#restarting-a-terminal-in-place)).
+The same restart is the tile's **↻** button and **Restart terminal** in the
+command palette ([Inside a Tile](/tiles#restarting-a-terminal-in-place)).
 
 ## Where they sit on the PATH
 
@@ -217,216 +131,121 @@ With agents on, a new terminal's PATH reads, from the front:
 
 1. kolu's own tools (`kolu`, `kaval-tui`, `padi-tui`),
 2. the agents,
-3. your own PATH — including anything your shell's dotfiles add.
+3. your own PATH, including anything your shell's dotfiles add.
 
-A profile's own commands (the MCP servers' programs it lists) go first on the
-agent's PATH when it starts — not in the shell.
+So the bundled `claude` wins over one you installed yourself, which stays as
+the fallback. kolu re-applies this order after your `.bashrc` or `.zshrc` runs,
+so a dotfile that puts its own directory first
+(`export PATH=$HOME/.local/bin:$PATH`) does not undo it. Other shells get the
+order at spawn only ([Shell integration](/shell-integration)). To run your own
+`claude`, turn agents off or call it by its full path.
 
-So the bundled `claude` wins over one you installed yourself. That is on purpose.
-kolu re-applies this order after your `.bashrc` / `.zshrc` run, so neither a
-dotfile that sets `PATH` outright nor one that puts its own directory first
-(`export PATH=$HOME/.local/bin:$PATH`, as Claude Code's own installer writes)
-undoes it (bash and zsh; other shells get the order at spawn only — see
-[Shell integration](/shell-integration)).
-
-To run your own `claude` in a kolu terminal, turn Agents off, or call it by its
-full path.
-
-The agents also bring a command, **`agent-distro`**: type it to see the
-profiles in effect in this terminal, its agents, their versions and whether
-each is signed in, or to launch one. It comes from the same build the tile's
-pill names, so what it lists is exactly what this terminal has — on the machine
-running kolu and on every host alike. To change the list, use
-[Settings](#settings--agents).
+The agents also bring the `agent-distro` command: it lists the profiles in
+effect here, the agents, their versions and who is signed in, and launches one.
 
 ## On other machines
 
 Agents work the same on every host you [add](/remote-hosts). The machine
-running kolu **delivers** them: it looks up which build of the agents the host
-needs in agent-distro's published index, then — over the same ssh login kolu
-already uses — has the host download exactly that build from agent-distro's
-binary cache and pins it there so Nix's garbage collection leaves it alone.
-The machine running kolu moves none of the agents' bytes itself. A host needs
-only the ssh login, `nix` on the PATH of that login, and outbound HTTPS to the
-cache — no flakes and no GitHub access; a Linux host needs nothing in its Nix
-settings either, while a Mac must trust the login or the cache's key ([When a
-delivery fails](#when-a-delivery-fails)) — and nothing is ever compiled, on
-either side. The host's tab shows the delivery
-until it lands (below). Terminals opened on that host before then have no
-agents (and no pill).
+running kolu delivers them.
 
-Your [profiles](#profiles) are delivered the same way, beside the agents: the
-machine running kolu builds each one for the host's kind of machine
-([Built once, by kolu](#built-once-by-kolu)) and copies it into the host's store
-over the same login, pinned there too. So a host needs no GitHub access for a
-profile either, and a profile at a path on the machine running kolu works on
-every host. A profile built on another kind of machine than the host (a Mac
-host from a Linux kolu, say) is built for the machine running kolu: its skills,
-servers and settings are the same anywhere — unless it lists commands for the
-host's kind of machine, which this machine cannot build; then that host's
-delivery fails, naming the profile and both kinds of machine.
+<Steps>
 
-Every host tab with agents on carries agent-distro's mark right after the host
-name, and the mark's look says where that host stands:
+1. kolu looks up which build of the agents the host needs, in agent-distro's
+   published index.
+2. Over the ssh login kolu already uses, the host downloads that build from
+   agent-distro's binary cache and pins it against Nix's garbage collection.
+3. Your profiles go the same way, built here for the host's kind of machine and
+   copied into its store over the same login.
 
-| The mark | Means |
+</Steps>
+
+A host needs only the ssh login, `nix` on the PATH of that login, and outbound
+HTTPS to the cache: no flakes, no GitHub access, nothing compiled on either
+side. A Mac must also trust the login or the cache's key
+([When a delivery fails](#when-a-delivery-fails)).
+
+Each host tab carries agent-distro's mark after the host name:
+
+| The mark | What it means |
 | --- | --- |
-| plain, in the tab's text colour | ready for new terminals |
-| a turning arc around it | kolu is delivering the agents to it |
-| plain, with a turning arc around it | ready, and kolu is delivering a newer set; the current one keeps serving ([Kept up to date](#kept-up-to-date)) |
-| plain, with a small warning dot | ready — its agents keep working — but its last update failed; hover for who said what, open its host details for the whole cause ([Kept up to date](#kept-up-to-date)) |
-| warning colour with a small dot | the delivery failed — hover for why ([below](#when-a-delivery-fails)) |
-| dimmed, with a turning arc | checking: the host is connected but has not said yet |
-| no mark at all | agents are off, or kolu has not delivered that host any agents |
+| plain, in the tab's text colour | Ready for new terminals. |
+| a turning arc around it | Delivering the agents to it. |
+| plain, with a turning arc around it | Ready; a newer set is on its way. |
+| plain, with a small warning dot | Ready and working, but its last update failed. |
+| warning colour with a small dot | The delivery failed. |
+| no mark at all | Agents are off, or this host has none. |
 
-The arc only turns — it never fills: a delivery's copies report no byte counts
-to fill it with.
+Click the mark for that machine's **host details**: the profile and build new
+terminals there get, and **check for newer agents ↻**.
 
-Clicking the mark opens that machine's **host details** — the popover behind its
-tab's connection pip — without switching tabs. Its **agents** section is
-everything true of that machine: the profile new terminals there get and the
-short hash of the build serving it, its state with its last delivery ("ready ·
-updated 3h ago"), that machine's recent update events, and one action — **check
-for newer agents ↻**, which is also how you try a failed machine again ([When a
-delivery fails](#when-a-delivery-fails)). The machine names on Settings' fleet
-line open the same place.
-
-The machine running kolu itself needs no first delivery of the agents: they ship
-inside kolu, so turning them on there is instant and works offline. Its profiles
-are built and added like any host's. kolu still keeps it up to date like any
-other host (below); the agents kolu shipped with are what it uses until the
-first newer ones land.
-
-<Aside type="note" title="Disk">
-  A host keeps its delivered agents and profiles in its own Nix store (and the
-  machine running kolu also carries the agents kolu ships).
-  If you also install agent-distro on a host through its Home Manager module,
-  both share the same set and the same update log. Only the set that serves —
-  the newest agents and the newest build of each profile you list — is
-  protected from Nix's garbage collection: after an update, or once you remove
-  a profile, what came before can be removed, even while a terminal opened
-  before then still has it.
-</Aside>
+The machine running kolu needs no delivery: the agents ship inside kolu. Its
+own cache carries them for x86_64 Linux and Apple Silicon; on aarch64 Linux the
+first `nix run` compiles them instead
+([the binary cache](/deployment#first-run-compiling-enable-the-binary-cache)).
 
 ## Kept up to date
 
-agent-distro publishes a newer tested set of agents up to four times a day. At
-those times — 02:00, 08:00, 14:00 and 20:00 UTC, agent-distro's own schedule —
-kolu looks for a newer build of the agents, and a newer revision of each of your
-profiles, and delivers them to every connected machine that does not have them
-yet. Changing the profile list delivers the new list at once. A machine also gets a
-delivery whenever it connects — kolu starts, a host comes back after sleep or a
-dropped link, a newer kolu reaches it — so a machine that was away at those times
-catches up as soon as it is back. A run that fails — the index or the cache did
-not answer, a host dropped off mid-download, or no machine was connected to take
-it — is tried
-again up to twice, five minutes after the failed run ended, as agent-distro's
-own schedule does.
+agent-distro publishes a newer tested set of agents up to four times a day, at
+02:00, 08:00, 14:00 and 20:00 UTC. At those times kolu looks for a newer build
+of the agents and a newer revision of each profile, and delivers what is
+missing to every connected machine.
 
-Nothing is ever compiled on a host, and the agents are never compiled at all.
-If agent-distro has not published them for a host's kind of machine yet, the
-delivery fails instead and is tried again as above.
+Changing the profile list delivers it at once, and a machine also gets a
+delivery whenever it connects, so one that was away catches up. A failed run is
+tried again up to twice, five minutes after it ended.
 
-While a newer set is delivered, the one you have keeps working: new terminals get
-it until the new one has fully arrived. The host's mark keeps its plain colour
-with the arc turning around it; Settings' fleet line keeps that machine among
-the ones still working, and its host details say "ready · delivering newer
-agents…". Then:
+While a newer set is on its way, the one you have keeps serving new terminals.
+When it lands, a toast says what changed and on which machine, and an open
+terminal keeps its own set and offers **Restart**
+([above](#restarting-a-terminal-onto-the-current-agents)). Only the serving set
+is protected from Nix's garbage collection.
 
-- a toast says what changed, in agent-distro's own format ("Claude Code
-  2.1.286 → 2.1.291, juspay a1b2c3d → d4e5f6a"), and on which machine;
-- new terminals there start with the new set — `agent-distro` included, since
-  it comes in the same build;
-- a terminal already open keeps its own, and its pill offers **Restart**
-  ([above](#restarting-a-terminal-onto-the-current-agents)).
+A check that finds nothing newer says nothing, and a failed update pops no
+toast, since your agents keep working. Both show in that machine's host
+details, with its last five update events in agent-distro's own words.
 
-A look that finds nothing newer says nothing: it shows in that machine's host
-details, as its state's last run ("checked 2h ago, up to date"). A later
-delivery that fails pops no toast either — the agents you have keep working —
-but the machine's tab mark gains a warning dot, Settings' fleet line names it
-"ready, last update failed", and its host details say "ready · last update
-failed 3m ago" in the warning colour, with the cause written out under it: who
-said it (kolu's delivery, padi, or agent-distro's own updater when it also runs
-there), then the cause itself, wrapped in full, and — when Nix or the copy
-printed more — that output in a small box under it that scrolls and copies. The
-dot and the cause go away once a later run lands, or finds nothing newer.
-
-A terminal keeps the set it started with until you restart it — or until a Nix
-garbage collection on that machine removes that set, which an update leaves
-unprotected. **Restart** gets the current set.
-
-Two places let you look right now:
-
-- the palette's **Check for newer coding agents** ("every machine") looks for
-  every connected machine at once, whatever the time;
-- a machine's host details offer **check for newer agents ↻** for that machine
-  alone, greyed out while it could not take one — it is not connected, or a
-  delivery to it is already running.
-
-Each machine's **last five events** are in its host details too, one line each
-with the time and the log's own words (hover a line for all of them). They come
-from agent-distro's update log on that machine, which kolu writes in
-agent-distro's own format. A machine whose update log kolu could not read says
-so there instead, with padi's words for why under its state.
+To look now, use the palette's **Check for newer coding agents** for every
+connected machine, or **check for newer agents ↻** for one, greyed out while
+that machine is away or a delivery to it is running.
 
 ## When a delivery fails
 
-A Linux host's Nix settings rarely matter here. A Linux host gets the agents in
-**content-addressed** form, where each store path is named by the hash of what
-it holds, so Nix takes them from anyone without asking whom it trusts. The
-login kolu connects as needs no place in `trusted-users`, and the host needs
-neither agent-distro's cache nor its key in its `nix.conf`. That holds for a
-host on Nix 2.17 through 2.34: Nix 2.35 changed how that form is checked, so
-a Linux host on Nix 2.35 or later is sent the signed agents, like a Mac.
+A delivery that fails leaves the host with no agents, and its tab mark turns
+the warning colour. kolu tries again on the schedule above, or now, from that
+machine's host details, which carry the cause in full.
 
-A Mac is the exception. Rewriting the agents into that form would break the
-code signatures macOS checks before it runs a program, so a Mac gets them as
-agent-distro's cache signed them, and its Nix takes them only if it trusts the
-login kolu connects as (`nix.settings.trusted-users`) or the cache's key
-(`nix.settings.trusted-public-keys`). When it trusts neither, the delivery
-fails with Nix's own words and that one-line fix.
+| Cause | What to do |
+| --- | --- |
+| agent-distro has not published the agents for that kind of machine yet | Nothing; kolu tries again on its schedule. |
+| a profile would not build | Fix it or remove it. The cause is under its row in Settings ([Profiles](#profiles)). |
+| a profile lists commands for the host's kind of machine | The machine running kolu cannot build those; the failure names it and both kinds of machine. |
+| the host could not reach the cache, or the download broke off | Nothing; kolu tries again. |
+| the host's Nix does not trust what it was sent | Add the login kolu connects as to its `nix.settings.trusted-users`, or agent-distro's cache key to `nix.settings.trusted-public-keys`. |
 
-A profile is built on the machine running kolu, so it is signed by no one.
-kolu rewrites it content-addressed for a Linux host when that machine's Nix and
-the host's are on the same side of Nix 2.35 — both before it, or both from it
-on — and the host takes it without trusting anyone. When they are on opposite
-sides (or the machine running kolu disagrees with itself: its `nix` command on
-one side, its Nix daemon on the other), no content-addressed form exists that
-both would take, so kolu sends the profile as built, and the host takes it only
-when its Nix trusts the login kolu connects as. A Mac always gets a profile as
-built, on the same terms. A refusal says which Nix versions disagreed, and the
-one-line fix.
+A Linux host on Nix 2.17 through 2.34 has to trust nothing: the agents reach it
+content-addressed, each store path named by the hash of what it holds. A Mac,
+and a Linux host on Nix 2.35 or later, gets the signed agents instead, and
+takes them only if its Nix trusts the login or the cache's key.
 
-A delivery that fails — agent-distro has not published the agents for that kind
-of machine yet, a profile would not build, the machine running kolu could not
-prepare a profile for the host, the host could not reach the cache, the
-download broke off, a host refused what it was sent —
-carries kolu's words for the cause, with Nix's own output under it. The host gets no agents (kolu never
-compiles them), and its mark turns to the warning colour. kolu tries again on
-its own at the next scheduled time and whenever the machine reconnects (see
-[Kept up to date](#kept-up-to-date)) — or right away: open that machine's host
-details (click the mark, or the machine's name on Settings' fleet line) and
-press **check for newer agents ↻**. Its **agents** section carries the cause in
-full — Nix's output in a box under it that scrolls and copies — and that "New
-terminals on &lt;host&gt; get no coding agents until this is fixed". A profile
-that does not build shows the same under its row in Settings
-([Profiles](#profiles)).
-
-A later delivery that fails on a machine that already has agents is different:
-the agents it has keep working, so its mark keeps its plain colour with a
-warning dot, and the cause stands in that machine's host details
-([Kept up to date](#kept-up-to-date)).
+A profile is built here and signed by no one. It goes content-addressed only
+when this machine's Nix and the host's sit on the same side of Nix 2.35, and as
+built otherwise, which a host takes only if its Nix trusts the login. A refusal
+names the versions that disagreed and the one-line fix.
 
 ## Turning it off
 
-Settings → **Agents**, switch it off. From the next new terminal on, on every host,
-kolu adds no agents and no plugin variable; your own tools are what run.
-Terminals already open keep what they have, and keep their pill, until you close
-them (or restart them, which brings them back as a plain shell). While agents
-are off, the welcome card keeps the question at the top of every empty canvas.
-Your profile list stays as it is for when you switch them back on.
+Settings → **Agents**, switch it off. From the next new terminal on, on every
+host, kolu adds no agents and no plugin variable. Terminals already open keep
+what they have until you close them, or restart them, which brings them back as
+a plain shell. Your profile list stays for when you switch them back on.
 
-## What doesn't change
-
-[Agent detection](/agent-detection) works the same either way: kolu watches the
-agent running in a terminal, whichever `claude` it is.
+<LinkCard
+  title="Agent detection"
+  href="/agent-detection"
+  description="kolu watches the agent running in a terminal, whichever claude it is."
+/>
+<LinkCard
+  title="Add another machine"
+  href="/remote-hosts"
+  description="The hosts kolu delivers the agents and your profiles to."
+/>
