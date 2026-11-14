@@ -42,7 +42,7 @@ with the same policy.
 
 `probeDaemonIdentity({ capability: "not-drainable" })(socketPath)` owns a fresh
 local socket dial; the drainable form also requires `drainCeilingMs`. A
-connector that has already dialed a combined client uses
+connector that has already dialled a combined client uses
 `probeDaemonIdentityFrom` instead, supplying that client, its disposer, and the
 transport's stronger exit oracle. Both forms assemble the same
 `ConvergenceProbe`, and the client form never turns a lost link into daemon
@@ -66,6 +66,6 @@ re-adopted live across the kill.
 <Aside type="caution" title="Compare contract versions, not strings">
   The decision keys on ordered contract versions and match-only build ids, never
   on a literal string equality. A newer build with a compatible contract is
-  recognised as compatible. See
+  recognized as compatible. See
   [Daemon invariants](/surface/surface-daemon-invariants).
 </Aside>
