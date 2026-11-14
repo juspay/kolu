@@ -66,26 +66,14 @@ When(
  *  model an occluded window. `Boolean.bind(null, x)` is a hasFocus() → x with
  *  no function literal for esbuild's keep-names to decorate. */
 When(
-  "I simulate the Kolu window losing focus",
-  async function (this: KoluWorld) {
-    await this.page.evaluate(() => {
+  /^I simulate the Kolu window (losing|regaining) focus$/,
+  async function (this: KoluWorld, how: string) {
+    await this.page.evaluate((focused) => {
       Object.defineProperty(document, "hasFocus", {
         configurable: true,
-        value: Boolean.bind(null, false),
+        value: Boolean.bind(null, focused),
       });
-    });
-  },
-);
-
-When(
-  "I simulate the Kolu window regaining focus",
-  async function (this: KoluWorld) {
-    await this.page.evaluate(() => {
-      Object.defineProperty(document, "hasFocus", {
-        configurable: true,
-        value: Boolean.bind(null, true),
-      });
-    });
+    }, how === "regaining");
   },
 );
 
@@ -144,14 +132,21 @@ When("I stub the Badging API", async function (this: KoluWorld) {
  *  The `Audio` the app builds is still the real one — only the noise is
  *  replaced. Assigned as a property, so no name is inferred for esbuild's
  *  keep-names to wrap in a `__name(...)` the page does not have. */
+const stubSound = (): void => {
+  window.__soundPlays = [];
+  HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+    // A media element playing a `srcObject` has no `src` to name.
+    window.__soundPlays?.push(this.src ? new URL(this.src).pathname : "");
+    return Promise.resolve();
+  };
+};
+
+/** Installed on THIS page and on every page a navigation loads after it, so a
+ *  reload is heard too — the new page starts with an empty stash, which is
+ *  exactly what "did the reload ring?" needs. */
 When("I stub the notification sound", async function (this: KoluWorld) {
-  await this.page.evaluate(() => {
-    window.__soundPlays = [];
-    HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
-      window.__soundPlays?.push(new URL(this.src).pathname);
-      return Promise.resolve();
-    };
-  });
+  await this.page.addInitScript(stubSound);
+  await this.page.evaluate(stubSound);
 });
 
 /** EXACTLY this many, not at least: waits for the count to arrive, then gives

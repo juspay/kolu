@@ -222,8 +222,7 @@ export function useAttention(deps: AttentionDeps): {
     // Silence is not an empty list: before the server's first frame there is
     // nothing to compare against, and the real first frame is the baseline.
     if (asks === undefined) return;
-    // A COPY: the cell's value is a `reconcile` proxy that mutates in place.
-    conductorBell.observe([...asks]);
+    conductorBell.observe(asks);
   });
 
   // The detect→fire ENGINE (`attentionCore`) — unit-tested off the wire. It owns

@@ -348,6 +348,13 @@ Feature: The Conductor
     # of you — ringing for it is how people learn to ignore the bell. It is a
     # DIFFERENT question (the harness never reuses an id), so a bell that only
     # compared ids would ring here; the count staying at one is the rule.
+    #
+    # The third is the reload. That question is still open; leave the
+    # conversation so a host tab is on screen, and reload. The question was
+    # there before the page was, so finding it is a discovery, not an
+    # arrival: the new page must not ring. The tab's needs-you dot is the
+    # proof the server's first frame has landed — the bell reads that same
+    # frame — so silence after it is silence, not a frame still in flight.
     When I create a terminal
     And I stub the notification sound
     And I enter conductor mode
@@ -361,6 +368,11 @@ Feature: The Conductor
     When I send the conductor the prompt "ask me something"
     Then the conductor should be asking
     And the notification sound should have played 1 time
+    When I press Escape
+    Then the conductor pane should not be visible
+    When I reload the page
+    Then the conductor tab should show a needs-you dot
+    And the notification sound should have played 0 times
     And there should be no page errors
 
   Scenario: A pasted image rides the message as an attachment
