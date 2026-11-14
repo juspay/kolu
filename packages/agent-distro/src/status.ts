@@ -15,6 +15,7 @@
  */
 
 import { agentBundleShortHash } from "./bundle.ts";
+import { type FailureWords, failureWords } from "./failure.ts";
 import {
   referencesOf,
   sameSet,
@@ -223,10 +224,16 @@ export function agentProfileTitle(reference: string): string {
  *  description its build gives itself, or Nix's / agent-distro's own words. */
 export interface AgentsResolvedLine {
   readonly kind: "pending" | "resolved" | "failed";
-  /** `failed`: the words of what failed — {@link AGENTS_UNRESOLVED_MEANS}
-   *  follows them. */
+  /** One line: `failed`'s is the cause ({@link AGENTS_UNRESOLVED_MEANS}
+   *  follows it). */
   readonly text: string;
+  /** `failed`: what Nix printed, a line each, under the cause — empty when
+   *  the cause is all there is, and for `pending` / `resolved`. */
+  readonly detail: readonly string[];
 }
+
+/** The detail of a line that has none — one shared value. */
+const NO_DETAIL: readonly string[] = Object.freeze([]);
 
 /** What a profile that does not build means for new terminals, under its
  *  words. */
@@ -249,7 +256,11 @@ export function agentsResolvedLine(
 ): AgentsResolvedLine {
   const resolution = resolutionOf(reference, profiles);
   if (resolution === undefined || resolution.kind === "pending")
-    return { kind: "pending", text: `resolving ${reference}…` };
+    return {
+      kind: "pending",
+      text: `resolving ${reference}…`,
+      detail: NO_DETAIL,
+    };
   switch (resolution.kind) {
     case "resolved": {
       const rev =
@@ -260,10 +271,13 @@ export function agentsResolvedLine(
           resolution.description === ""
             ? `${resolution.name}${rev}`
             : `${resolution.name}${rev} · ${resolution.description}`,
+        detail: NO_DETAIL,
       };
     }
-    case "failed":
-      return { kind: "failed", text: resolution.message };
+    case "failed": {
+      const { headline, detail } = failureWords(resolution.message);
+      return { kind: "failed", text: headline, detail };
+    }
     default:
       return resolution satisfies never;
   }
@@ -326,6 +340,15 @@ export function agentsChosenLabel(
     : `Agents: ${name}`;
 }
 
+/** A failure's words as a surface shows them: who said it, when someone other
+ *  than the status itself did, then the cause (one line) and the evidence
+ *  under it (`./failure.ts`). */
+export interface AgentFailureCause extends FailureWords {
+  /** Who said it ("kolu's delivery", "padi", "agent-distro's updater", "the
+   *  host's update log") — absent when the status itself is the cause. */
+  readonly by?: string;
+}
+
 /** How a host shows its agents: the treatment of its tab's agent-distro mark,
  *  and of its line in Settings.
  *
@@ -336,7 +359,9 @@ export function agentsChosenLabel(
  *     arrived yet (a dimmed mark with a spinning arc);
  *   - `ready`: the setting's set is on the host for new terminals —
  *     `delivering` while kolu delivers a newer set there (the old set keeps
- *     serving; the mark keeps its plain colour, with a turning arc);
+ *     serving; the mark keeps its plain colour, with a turning arc), and
+ *     `updateFailed` when its last update failed (the agents there keep
+ *     working: the plain colour, with a warning dot);
  *   - `downloading`: kolu is delivering it to a host that has none yet (a
  *     turning arc — a delivery's copies report no byte counts to fill with);
  *   - `failed`: the delivery failed (the warning colour and a dot). */
@@ -359,6 +384,10 @@ export type AgentMark =
       /** kolu is delivering a newer set there; this one serves until it has
        *  fully landed. */
       readonly delivering: boolean;
+      /** The host's last update run failed — who said so and why. Absent
+       *  otherwise: before the receipt is heard, and for a receipt that would
+       *  not read (that is not an update failure; the host details say it). */
+      readonly updateFailed?: AgentFailureCause;
     }
   | { readonly kind: "downloading" }
   | {
@@ -371,10 +400,13 @@ export type AgentMark =
  *  fenced (`satisfies never`): a new status kind must decide here, once.
  *
  *  `checking` is the client's own fact (connected, agents on, and the status
- *  cell has not sent its first frame); there is no server state for it. */
+ *  cell has not sent its first frame); there is no server state for it.
+ *  `receipt` (`undefined` until its first frame) says whether a ready host's
+ *  last update failed — every caller hands it in, so none can forget it. */
 export function agentMarkOf(
   status: AgentDistroStatus | undefined,
   checking: boolean,
+  receipt: AgentDistroReceipt | undefined,
 ): AgentMark {
   if (checking) return { kind: "checking" };
   if (status === undefined) return { kind: "none", why: "unheard" };
@@ -385,13 +417,23 @@ export function agentMarkOf(
       return { kind: "none", why: "unavailable" };
     case "undelivered":
       return { kind: "none", why: "undelivered" };
-    case "ready":
+    case "ready": {
+      const run = receipt?.error === undefined ? receipt?.lastRun : undefined;
       return {
         kind: "ready",
         stack: stackTitle(status.set.profiles),
         hash: agentBundleShortHash(status.set.bundle),
         delivering: status.delivering,
+        ...(run?.outcome === "failed"
+          ? {
+              updateFailed: {
+                by: AUTHOR[run.by],
+                ...failureWords(updateWords(run)),
+              },
+            }
+          : {}),
       };
+    }
     case "downloading":
       return { kind: "downloading" };
     case "error":
@@ -406,15 +448,27 @@ export const AGENTS_DELIVERY_AGAIN =
   "kolu tries again at the next scheduled update, or when you check that machine from its host details.";
 
 /** A failed delivery's words, in the one order the mark's hover shows them —
- *  the cause, then when kolu tries again. */
+ *  the cause (its first line; the host details carry the rest), then when
+ *  kolu tries again. */
 export function agentFailureLines(
   failure: { readonly message: string },
   where: string,
 ): readonly string[] {
   return [
-    `The coding agents could not be delivered to ${where}: ${failure.message}`,
+    `The coding agents could not be delivered to ${where}: ${failureWords(failure.message).headline}`,
     AGENTS_DELIVERY_AGAIN,
   ];
+}
+
+/** The mark's line for a ready host whose last update failed: who said what,
+ *  that its agents keep working, and where the whole cause is. */
+export function agentUpdateFailedLine(
+  cause: AgentFailureCause,
+  where: string,
+): string {
+  const said =
+    cause.by === undefined ? cause.headline : `${cause.by}: ${cause.headline}`;
+  return `The last update on ${where} failed — ${said} — the agents there keep working, and its host details carry the whole cause.`;
 }
 
 /** A ready host's state line, in its host details, while a newer set is
@@ -447,6 +501,9 @@ export function agentMarkLabel(
       return [
         `Coding agents ready on ${where}: ${setWords(mark)} — new terminals on ${where} start with them`,
         ...(mark.delivering ? [AGENTS_UPDATE_DOWNLOADING] : []),
+        ...(mark.updateFailed === undefined
+          ? []
+          : [agentUpdateFailedLine(mark.updateFailed, where)]),
       ].join("\n");
     case "downloading":
       return `Delivering the coding agents to ${where}…`;
@@ -544,14 +601,31 @@ const AUTHOR: Record<AgentUpdateAuthor, string> = {
   log: "the host's update log",
 };
 
-/** A hover that quotes `words` as `by`'s, under the short `text`. */
+/** A hover that quotes `words` as `by`'s, under the short `text` — their
+ *  first line: a hover is one line, and the host details carry the rest. */
 function quoted(text: string, by: AgentUpdateAuthor, words: string): string {
-  return `${text} — ${AUTHOR[by]}: ${words}`;
+  return `${text} — ${AUTHOR[by]}: ${failureWords(words).headline}`;
+}
+
+/** What a failed update means on a ready machine: nothing is lost there — and,
+ *  for kolu's own run, when kolu tries again. */
+export function agentsUpdateFailedMeans(
+  where: string,
+  koluTriesAgain: boolean,
+): string {
+  const keep = `The agents already on ${where} keep working, and new terminals there still get them.`;
+  return koluTriesAgain ? `${keep} ${AGENTS_DELIVERY_AGAIN}` : keep;
+}
+
+/** What an update history that would not read means on a machine. */
+export function agentsHistoryUnreadableMeans(where: string): string {
+  return `The agents on ${where} keep working — only its update history could not be read.`;
 }
 
 /** What a ready host's line adds about its last update run. A skip or a
- *  failure never claims a cause: the note says what happened, and its hover
- *  quotes the reason verbatim, naming who wrote it. */
+ *  failure never claims a cause here: the note says what happened, and its
+ *  hover quotes the reason's first line, naming who wrote it (a failure's whole
+ *  cause is the host details' `cause`). */
 function lastRunNote(run: AgentUpdateRun, ago: AgoPhrase): AgentStatusNote {
   const when = ago(run.at);
   const words = updateWords(run);
@@ -639,7 +713,14 @@ interface AgentFleetState {
 function fleetState(mark: AgentMark): AgentFleetState {
   switch (mark.kind) {
     case "ready":
-      return { key: "ready", tone: "ok", lead: "Ready on", trail: "" };
+      return mark.updateFailed === undefined
+        ? { key: "ready", tone: "ok", lead: "Ready on", trail: "" }
+        : {
+            key: "ready:update-failed",
+            tone: "warn",
+            lead: "",
+            trail: "ready, last update failed",
+          };
     case "downloading":
       return {
         key: "downloading",
@@ -675,7 +756,9 @@ export function agentFleetSummary<H extends HostAgentStatus>(
 ): readonly AgentFleetGroup<H>[] {
   const groups: { state: AgentFleetState; hosts: H[] }[] = [];
   for (const host of hosts) {
-    const state = fleetState(agentMarkOf(host.status, host.checking));
+    const state = fleetState(
+      agentMarkOf(host.status, host.checking, host.receipt),
+    );
     const group = groups.find((g) => g.state.key === state.key);
     if (group === undefined) groups.push({ state, hosts: [host] });
     else group.hosts.push(host);
@@ -762,9 +845,12 @@ export interface AgentHostDetail {
   /** The package serving them — only a ready host has one. */
   readonly hash?: string;
   readonly state: AgentStatusNote;
-  /** A failed delivery's words — kolu-server's, with Nix's own line. Trying
-   *  again is the section's button; `means` says when kolu tries on its own. */
-  readonly cause?: string;
+  /** A failure's own words: a failed delivery's (kolu-server's, its first
+   *  line the cause and Nix's output under it), a ready machine's failed last
+   *  update (with who said it), or why its update history would not read
+   *  (padi's). Trying again is the section's button; `means` says when kolu
+   *  tries on its own. */
+  readonly cause?: AgentFailureCause;
   /** What a failure means for new terminals on THAT machine. */
   readonly means?: string;
   /** That machine's last update events, newest first — empty when it has run
@@ -786,7 +872,7 @@ export function agentHostDetail(input: {
   readonly setting: AgentDistroSetting;
 }): AgentHostDetail | undefined {
   const { host, setting } = input;
-  const mark = agentMarkOf(host.status, host.checking);
+  const mark = agentMarkOf(host.status, host.checking, host.receipt);
   if (mark.kind === "none" && mark.why !== "off" && mark.why !== "undelivered")
     return undefined;
   const plain = (text: string): AgentStatusNote => ({
@@ -805,14 +891,16 @@ export function agentHostDetail(input: {
       return { ...base, state: plain("checking…"), canCheck: false };
     case "downloading":
       return { ...base, state: plain("delivering…"), canCheck: false };
-    case "failed":
+    case "failed": {
+      const cause = failureWords(mark.message);
       return {
         ...base,
-        state: { text: "delivery failed", title: mark.message, tone: "warn" },
-        cause: mark.message,
+        state: { text: "delivery failed", title: cause.headline, tone: "warn" },
+        cause,
         means: `New terminals on ${host.label} get no coding agents until this is fixed. ${AGENTS_DELIVERY_AGAIN}`,
         canCheck: true,
       };
+    }
     case "ready": {
       const { receipt } = host;
       const run = lastRunNoteOf(receipt, host.ago);
@@ -821,11 +909,33 @@ export function agentHostDetail(input: {
         : run === undefined
           ? plain("ready")
           : { ...run, text: `ready · ${run.text}` };
+      // The cause is a function of the receipt — shown while a newer delivery
+      // runs too (padi keeps the failure as the last run until that one ends).
+      const failure =
+        receipt?.error !== undefined
+          ? {
+              cause: { by: AUTHOR.padi, ...failureWords(receipt.error) },
+              means: agentsHistoryUnreadableMeans(host.label),
+            }
+          : mark.updateFailed !== undefined
+            ? {
+                cause: mark.updateFailed,
+                // kolu tries its own run again (kolu-server's delivery, or
+                // the landing padi refused); agent-distro's updater keeps its
+                // own schedule.
+                means: agentsUpdateFailedMeans(
+                  host.label,
+                  mark.updateFailed.by === AUTHOR.delivery ||
+                    mark.updateFailed.by === AUTHOR.padi,
+                ),
+              }
+            : {};
       return {
         ...base,
         stack: mark.stack,
         hash: mark.hash,
         state,
+        ...failure,
         events:
           receipt?.error !== undefined
             ? [

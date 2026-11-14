@@ -66,7 +66,9 @@ const LOCKED_REV = "a".repeat(40);
 function fakeOps(
   opts: {
     systems?: Record<string, string>;
-    result?: () => Awaited<ReturnType<DeliveryOps["pull"]>>;
+    result?: (
+      onProgress: (line: string) => void,
+    ) => Awaited<ReturnType<DeliveryOps["pull"]>>;
     published?: (system: string) => PublishedClosure | Error | undefined;
     lock?: (reference: string) => LockedProfile | Error | undefined;
     build?: (args: {
@@ -78,6 +80,7 @@ function fakeOps(
       ssh: string;
       reference: string;
       path: string;
+      onProgress: (line: string) => void;
     }) => Awaited<ReturnType<DeliveryOps["ship"]>> | undefined;
   } = {},
 ) {
@@ -134,11 +137,11 @@ function fakeOps(
         }
       );
     },
-    ship: async ({ ssh, hostNix, reference, path }) => {
+    ship: async ({ ssh, hostNix, reference, path, onProgress }) => {
       shipped.push({ ssh, system: hostNix.system, reference, path });
       steps.push(`ship:${ssh}:${reference}`);
       return (
-        opts.ship?.({ ssh, reference, path }) ?? {
+        opts.ship?.({ ssh, reference, path, onProgress }) ?? {
           ok: true,
           path: `${path}-on-${ssh}`,
         }
@@ -146,12 +149,12 @@ function fakeOps(
     },
     // Which form a host runs is the ops' call (`closureRoute`,
     // `@kolu/surface-remote`); this fake lands `ca`.
-    pull: async ({ ssh, hostNix, published }) => {
+    pull: async ({ ssh, hostNix, published, onProgress }) => {
       const storePath = published.ca ?? published.ia;
       pulled.push({ ssh, system: hostNix.system, storePath });
       steps.push(`pull:${ssh}`);
       if (gate !== undefined) await gate;
-      return opts.result?.() ?? { ok: true, bundle: storePath };
+      return opts.result?.(onProgress) ?? { ok: true, bundle: storePath };
     },
   };
   return {
@@ -303,6 +306,28 @@ describe("createAgentDelivery — the package", () => {
       kind: "failed",
       profiles: [JUSPAY],
       message: "box: ssh dropped",
+    });
+  });
+
+  it("a pull that fails with a bare reason carries what the delivery narrated under it", async () => {
+    const nix = fakeOps({
+      result: (onProgress) => {
+        onProgress("copying path '/nix/store/aaa-agent-distro' to 'ssh://box'");
+        onProgress("error: cannot add path: disk full");
+        return { ok: false, message: "box: exited with code 1" };
+      },
+    });
+    const box = fakeHost("remote:box", "box");
+    const { delivery } = setup({ ops: nix.ops, hosts: [box.host] });
+    expect(await delivery.run({ trigger: "user" })).toEqual(["failed"]);
+    expect(box.reports.at(-1)).toEqual({
+      kind: "failed",
+      profiles: [],
+      message: [
+        "box: exited with code 1",
+        "copying path '/nix/store/aaa-agent-distro' to 'ssh://box'",
+        "error: cannot add path: disk full",
+      ].join("\n"),
     });
   });
 
@@ -509,6 +534,34 @@ describe("createAgentDelivery — the profiles", () => {
     expect(last[1]?.resolution).toEqual({
       kind: "failed",
       message: `cannot build ${BAD} for x86_64-linux: error: attribute 'x' missing`,
+    });
+  });
+
+  it("a profile failure that brings its own evidence is reported as it is — nothing the delivery narrated is added", async () => {
+    const BAD = "github:me/broken";
+    const built = `cannot build ${BAD} for x86_64-linux: error: 1 dependencies failed\nerror: builder for '/nix/store/a.drv' failed\n       > exit 1`;
+    const nix = fakeOps({
+      build: ({ locked }) =>
+        locked.reference === BAD ? new Error(built) : undefined,
+      // The profile before it ships, narrating as it goes.
+      ship: ({ onProgress }) => {
+        onProgress(
+          "copying path '/nix/store/jjj-profile-skills' to 'ssh://box'",
+        );
+        return undefined;
+      },
+    });
+    const box = fakeHost("remote:box", "box");
+    const { delivery } = setup({
+      ops: nix.ops,
+      hosts: [box.host],
+      stack: () => [JUSPAY, BAD],
+    });
+    expect(await delivery.run({ trigger: "user" })).toEqual(["failed"]);
+    expect(box.reports.at(-1)).toEqual({
+      kind: "failed",
+      profiles: [JUSPAY, BAD],
+      message: `the ${BAD} profile: ${built}`,
     });
   });
 

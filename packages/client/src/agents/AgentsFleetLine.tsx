@@ -1,5 +1,7 @@
 /** Settings' ONE line about the fleet: which machines have the agents, which
- *  are still fetching them, which failed — `agentFleetSummary`'s groups, each
+ *  are still fetching them, which failed — and, apart from those, which are
+ *  ready but whose last update failed ("devbox ready, last update failed", in
+ *  the warning colour) — `agentFleetSummary`'s groups, each
  *  a coloured dot, its words and the machines it names. A machine's NAME is a
  *  button that opens that machine's host details, where its profile, its last
  *  run, its events and its own actions live; Settings keeps no per-machine

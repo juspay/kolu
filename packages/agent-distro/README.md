@@ -93,7 +93,8 @@ The **TypeScript half**, as data and pure functions:
   kolu-server pushes; kolu-common's preference field is this schema),
   `AgentDistroDeliveryReport` (what kolu-server tells a padi about a delivery:
   `delivering` · `landed` with the set — the package and the built profiles · `failed`
-  with its cause in kolu-server's words, each naming the stack it is about),
+  with its cause in kolu-server's words and the evidence under it (`./failure`),
+  each naming the stack it is about),
   `AgentDistroStatus` (what padi reports — and what a new terminal there gets:
   a set serves only while it is the setting's stack), `AgentProfiles` (whether
   each profile of the setting builds — kolu-server's `agentProfiles` cell),
@@ -105,6 +106,12 @@ The **TypeScript half**, as data and pure functions:
   `AI_PROFILE`, and the profile in effect, `./inEffect`). padi-client and
   kolu-common DECLARE the cells and records that carry them; padi, the server
   and the client import the values from here.
+- `./failure` — how a failure's text is written and read, the one convention
+  every failure field above crosses in: one string, its first line the cause,
+  any lines after it the evidence (what Nix or the copy printed). The writer
+  (`failureMessage`, capped at `FAILURE_DETAIL_LINES` × `FAILURE_LINE_CHARS`)
+  is kolu-server's; the reader (`failureWords`) is `./status`'s. No field of
+  its own, so no schema moves.
 - `./gcRoots` — where kolu roots what it delivered on a host (the package,
   each profile by its reference), which kolu-server writes and padi prunes as
   a stack lands: every root but the package's and the kept stacks'
@@ -114,9 +121,11 @@ The **TypeScript half**, as data and pure functions:
   home (`concreteStatePath`). (The state directory's `current` and
   `last-success` are upstream's, `@juspay/agent-distro/update/state`.)
 - `./status` — how a host's status shows, and every word kolu says about it:
-  the one fenced fold from status to the host tab's mark (`agentMarkOf`) and
-  its words (`agentMarkLabel`), a failed delivery's cause and when kolu tries
-  again (`agentFailureLines`, `AGENTS_DELIVERY_AGAIN`); the stored preference —
+  the one fenced fold from status — and the host's receipt — to the host tab's
+  mark (`agentMarkOf`; a ready host whose last update failed carries
+  `updateFailed`) and its words (`agentMarkLabel`, `agentUpdateFailedLine`), a
+  failed delivery's cause and when kolu tries again (`agentFailureLines`,
+  `AGENTS_DELIVERY_AGAIN`) — one line each, the cause's first; the stored preference —
   `null` until someone chooses — and the one fold from it to the setting new
   terminals get (`agentDistroSettingOf`, `agentsChosen`), the one whole-value
   writer behind the switch and the profile list (`agentDistroChoice`) and the
@@ -131,7 +140,9 @@ The **TypeScript half**, as data and pure functions:
   harness chips (`agentChips`), the off hint (`agentsHint`) and the welcome
   step's line (`agentsStepHint`); Settings' ONE fleet line
   (`agentFleetSummary`) and what a machine's host details say about its agents
-  (`agentHostDetail`, with `AGENTS_HOST_CHECK`); whether a terminal's agents
+  (`agentHostDetail`, with `AGENTS_HOST_CHECK`) — a failure's cause there
+  whole (`AgentFailureCause`: who said it, the cause, the evidence) with what
+  it means (`agentsUpdateFailedMeans`, `agentsHistoryUnreadableMeans`); whether a terminal's agents
   went stale and what its restart does (`agentStalenessOf`,
   `agentRestartReady`, `agentRestartAction`, `agentStaleLabel`,
   `restartedLabel`); the tile pill's words (`agentChipProfile`,
@@ -141,7 +152,8 @@ The **TypeScript half**, as data and pure functions:
   wire is one the folds must handle.
 - `./testing` — test support only: `packageFiles` (the package's versions
   file), `builtProfileFiles` (a built profile's `profile.json`), `readFrom` (a
-  `readText` over them) and `standInListJson` (a stand-in picker's
+  `readText` over them), `failedUpdateLine` (a failed run's line in a host's
+  update log, by upstream's writer) and `standInListJson` (a stand-in picker's
   `--list --json`, upstream's shape). Every test that fakes a package or a
   profile — this package's, padi's, kolu-server's boot read, the e2e fixture —
   goes through it.

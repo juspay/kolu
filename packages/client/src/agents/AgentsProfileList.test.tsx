@@ -175,17 +175,27 @@ describe("the rows", () => {
   });
 
   it("the resolved line's three states", () => {
-    const f = mount([row("x", { kind: "pending", text: "resolving x…" })]);
+    const f = mount([
+      row("x", { kind: "pending", text: "resolving x…", detail: [] }),
+    ]);
     const line = () =>
       f.host.querySelector<HTMLElement>("[data-testid=agents-resolved]");
     expect(line()?.dataset.kind).toBe("pending");
     expect(line()?.textContent).toBe("resolving x…");
     f.setRows([
-      row("x", { kind: "resolved", text: "juspay · Juspay skills + Kolu" }),
+      row("x", {
+        kind: "resolved",
+        text: "juspay · Juspay skills + Kolu",
+        detail: [],
+      }),
     ]);
     expect(line()?.dataset.kind).toBe("resolved");
     f.setRows([
-      row("x", { kind: "failed", text: "cannot fetch x: HTTP error 404" }),
+      row("x", {
+        kind: "failed",
+        text: "cannot fetch x: HTTP error 404",
+        detail: [],
+      }),
     ]);
     expect(line()?.dataset.kind).toBe("failed");
     expect(line()?.textContent).toBe(

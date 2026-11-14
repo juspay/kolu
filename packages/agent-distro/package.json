@@ -15,6 +15,7 @@
     "./bake": "./src/bake.ts",
     "./manifest": "./src/manifest.ts",
     "./profileFile": "./src/profileFile.ts",
+    "./failure": "./src/failure.ts",
     "./schema": "./src/schema.ts",
     "./status": "./src/status.ts",
     "./testing": "./src/testing.ts",

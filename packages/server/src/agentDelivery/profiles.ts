@@ -13,16 +13,17 @@
  *     fetched, evaluated or compiled at launch.
  *
  * Shipping the built path to a host is `./ops.ts`'s, beside the package's
- * pull. Every failure throws with Nix's own words, on one line: a profile that
- * will not lock or build is said under its entry in Settings and on the hosts
- * it could not reach, never dropped.
+ * pull. Every failure throws with Nix's own words — the cause on its first
+ * line, Nix's whole output (capped) after it (`@kolu/agent-distro/failure`):
+ * a profile that will not lock or build is said under its entry in Settings
+ * and on the hosts it could not reach, never dropped.
  *
  * A profile is an Agent Plugin — its tree holds a `plugin.json`. A tree still
  * holding an `agent-distro.nix` does not build: upstream refuses that format,
  * and its message is what the red line under the row says, kolu adding none.
  */
 
-import { execFile } from "node:child_process";
+import { type ExecFileException, execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import {
@@ -30,6 +31,7 @@ import {
   prefetchArgs,
   prefetchedTree,
 } from "@juspay/agent-distro/profile/reference";
+import { failureMessage } from "@kolu/agent-distro/failure";
 import { parseProfileFile, profileFile } from "@kolu/agent-distro/profileFile";
 
 /** A reference pinned: the tree it names (a store path, or a path on this
@@ -48,10 +50,11 @@ export interface BuiltProfile {
   readonly description: string;
 }
 
-/** Nix's words for a failure, on one line: its LAST `error:` and what follows,
- *  else its last line. Nix prints the trace that led to a `throw` above the
- *  thrown message, and the row under a profile must say the message, not the
- *  frames. */
+/** Nix's words for a failure — the cause's one line: its LAST `error:` and
+ *  what follows, else its last line. Nix prints the trace that led to a
+ *  `throw` above the thrown message, and the row under a profile must say the
+ *  message, not the frames; the whole output follows it as evidence
+ *  ({@link nixFailure}). */
 export function nixWords(stderr: string, fallback: string): string {
   const text = stderr.trim();
   const at = text.lastIndexOf("error:");
@@ -66,6 +69,28 @@ export function nixWords(stderr: string, fallback: string): string {
  *  and nixpkgs the first time, and may substitute packages. */
 const NIX_TIMEOUT_MS = 15 * 60_000;
 
+/** How much of Nix's output kolu reads before it gives up on the run. */
+const NIX_MAX_BUFFER = 64 * 1024 * 1024;
+
+/** A failed Nix run as one failure message: `what` and why — how the process
+ *  ended when it was stopped (the timeout, or more output than kolu reads),
+ *  else Nix's own words — on the first line, and everything Nix printed after
+ *  it as evidence. */
+export function nixFailure(
+  what: string,
+  run: { readonly stderr: string; readonly error: ExecFileException },
+  timeoutMs: number,
+): string {
+  const { stderr, error } = run;
+  const headline =
+    error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
+      ? `${what}: nix printed more than kolu reads`
+      : error.killed === true
+        ? `${what}: nix did not finish in ${Math.round(timeoutMs / 60_000)} minutes and was stopped`
+        : `${what}: ${nixWords(stderr, error.message)}`;
+  return failureMessage(headline, stderr);
+}
+
 function runNix(args: readonly string[], what: string): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
@@ -73,12 +98,15 @@ function runNix(args: readonly string[], what: string): Promise<string> {
       [...args],
       {
         timeout: NIX_TIMEOUT_MS,
-        maxBuffer: 64 * 1024 * 1024,
+        maxBuffer: NIX_MAX_BUFFER,
         encoding: "utf8",
       },
-      (err, stdout, stderr) => {
-        if (err === null) resolve(stdout);
-        else reject(new Error(`${what}: ${nixWords(stderr, err.message)}`));
+      (error, stdout, stderr) => {
+        if (error === null) resolve(stdout);
+        else
+          reject(
+            new Error(nixFailure(what, { stderr, error }, NIX_TIMEOUT_MS)),
+          );
       },
     );
   });

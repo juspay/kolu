@@ -97,6 +97,15 @@ const codexDir = mkSubDir("codex");
 const opencodeDbDir = mkSubDir("opencode");
 const opencodeDbPath = path.join(opencodeDbDir, "opencode.db");
 
+/** Per-worker `XDG_STATE_HOME` for the server — and so for the padi it spawns,
+ *  `XDG_STATE_HOME` being an operational spawn-env var a harness's own value
+ *  would otherwise ride through on. It is where padi finds agent-distro's host
+ *  state (`hostStateHome`), the fixture's update log among it
+ *  (`agentDistroFixture.ts`). Everyday e2e only, with the throwaway HOME (see
+ *  `serverModeEnv`); EXPORTED so a step that seeds that log writes HERE, never
+ *  under the developer's real state home. */
+export const stateHomeDir = mkSubDir("state-home");
+
 /** The everyday-e2e vs recording (KOLU_X11CAP) divergence for the server's
  *  environment, decided ONCE here so no `if (KOLU_X11CAP)` has to be re-derived
  *  downstream (before this, the agent dirs branched here and HOME branched at
@@ -180,7 +189,7 @@ const xyneDir = RECORDING ? undefined : mkSubDir("xyne");
 const serverModeEnv: Record<
   (typeof AGENT_DIR_VARS)[number],
   string | undefined
-> & { HOME?: string } = RECORDING
+> & { HOME?: string; XDG_STATE_HOME?: string } = RECORDING
   ? {
       KOLU_CLAUDE_SESSIONS_DIR: undefined,
       KOLU_CLAUDE_PROJECTS_DIR: undefined,
@@ -199,6 +208,7 @@ const serverModeEnv: Record<
       KOLU_OMP_DIR: ompDir,
       KOLU_XYNE_DIR: xyneDir,
       HOME: fixtureHome,
+      XDG_STATE_HOME: stateHomeDir,
     };
 for (const name of AGENT_DIR_VARS) {
   const value = serverModeEnv[name];

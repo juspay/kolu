@@ -55,6 +55,7 @@ import DocLink from "../ui/DocLink";
 import { ChevronDownIcon, ChevronUpIcon, CloseIcon } from "../ui/Icons";
 import { surface } from "../ui/Surface";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
+import FailureWords from "./FailureWords";
 
 /** The add field's menu test id — Settings' outside-click dismiss reads it,
  *  so a pick in this portalled menu does not close Settings. */
@@ -273,8 +274,8 @@ const AddField: Component<{
   );
 };
 
-/** A row's line: pending, resolved, or the failure's own words in red, with
- *  what it means for new terminals. */
+/** A row's line: pending, resolved, or the failure's own words in red —
+ *  Nix's output under them — with what it means for new terminals. */
 const ResolvedLine: Component<{ line: AgentsResolvedLine }> = (props) => (
   <div
     data-testid="agents-resolved"
@@ -282,21 +283,28 @@ const ResolvedLine: Component<{ line: AgentsResolvedLine }> = (props) => (
     class="min-w-0 text-xs leading-relaxed"
   >
     {/* A resolved line is one line (a name and a description); a failure's
-        words wrap in FULL — they carry Nix's own line, and a cut-off cause is
-        no cause (the host details' rule for the same words). */}
-    <p
-      title={props.line.text}
-      classList={{
-        truncate: props.line.kind !== "failed",
-        "wrap-anywhere": props.line.kind === "failed",
-        "text-fg-3/70 italic": props.line.kind === "pending",
-        "text-fg-3": props.line.kind === "resolved",
-        "text-danger": props.line.kind === "failed",
-      }}
+        words wrap in FULL with Nix's output under them — a cut-off cause is
+        no cause (the host details' rule, and component, for the same words). */}
+    <Show
+      when={props.line.kind === "failed"}
+      fallback={
+        <p
+          title={props.line.text}
+          class="truncate"
+          classList={{
+            "text-fg-3/70 italic": props.line.kind === "pending",
+            "text-fg-3": props.line.kind === "resolved",
+          }}
+        >
+          {props.line.text}
+        </p>
+      }
     >
-      {props.line.text}
-    </p>
-    <Show when={props.line.kind === "failed"}>
+      <FailureWords
+        words={{ headline: props.line.text, detail: props.line.detail }}
+        tone="danger"
+        testid="agents-resolved-failure"
+      />
       <p class="text-fg-3/70">{AGENTS_UNRESOLVED_MEANS}</p>
     </Show>
   </div>

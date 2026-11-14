@@ -111,7 +111,7 @@ export const AMBIENT_TIPS: readonly Tip[] = [
   },
   {
     id: "amb-agents-host-mark",
-    text: "Click the agent-distro mark on a host tab for that machine's agents: the profiles and build its new terminals get, when it last updated, and — if its delivery failed — the cause, the fix on that machine, and a check to try again",
+    text: "Click the agent-distro mark on a host tab for that machine's agents: the profiles and build its new terminals get, when it last updated, and — if a delivery or an update failed (a warning dot on the mark) — the cause, the fix on that machine, and a check to try again",
     doc: "agents",
   },
   {

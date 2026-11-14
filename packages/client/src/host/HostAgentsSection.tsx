@@ -1,8 +1,9 @@
 /** The agents section of a machine's host details — everything about
  *  agent-distro that is TRUE OF THAT MACHINE: the profiles new terminals there
- *  get and the build serving it, its state with its last delivery, a failed
- *  delivery's own words and what it means there, that machine's last update
- *  events,
+ *  get and the build serving it, its state with its last delivery, a failure's
+ *  own words — a failed delivery's, a failed last update's (with who said it),
+ *  or why its update history would not read — and what it means there, that
+ *  machine's last update events,
  *  and the one action it offers: check for newer agents — which is also how a
  *  machine whose delivery failed is tried again. The facts and their words are
  *  `agentHostDetail`'s; Settings keeps only the fleet line.
@@ -23,6 +24,7 @@ import {
   checkAgentsOn,
   hostAgentDetail,
 } from "../agents/useAgentDistro";
+import FailureWords from "../agents/FailureWords";
 import { padiMap } from "../wire";
 
 /** The one action a machine's section offers: check for newer agents. Shown
@@ -101,15 +103,15 @@ const Section: Component<{ host: HostKey; detail: AgentHostDetail }> = (
       </span>
     </div>
     {/* A failure's cause wraps in FULL — it may carry nix's own long line, and
-        a cut-off cause is no cause. */}
+        a cut-off cause is no cause; Nix's output sits under it, scrolling. */}
     <Show when={props.detail.cause}>
       {(cause) => (
-        <p
-          data-testid="host-agents-cause"
-          class="my-0.5 font-mono text-[10px] leading-4 wrap-anywhere text-warning"
-        >
-          {cause()}
-        </p>
+        <FailureWords
+          words={cause()}
+          tone="warn"
+          testid="host-agents-cause"
+          class="my-0.5 font-mono text-[10px] leading-4"
+        />
       )}
     </Show>
     <Show when={props.detail.means}>
@@ -139,7 +141,9 @@ const Section: Component<{ host: HostKey; detail: AgentHostDetail }> = (
               >
                 <span class="font-medium">{event.kind}</span>
                 <Show when={event.text !== ""}>
-                  <span class="ml-1 font-mono">{event.text}</span>
+                  {/* A history line may hold a long token (a store path):
+                      it wraps rather than widening the panel. */}
+                  <span class="ml-1 font-mono wrap-anywhere">{event.text}</span>
                 </Show>
               </span>
             </div>

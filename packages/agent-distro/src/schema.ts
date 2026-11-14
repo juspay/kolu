@@ -84,8 +84,8 @@ export function agentDistroSettingEqual(
  *     the built profiles, in stack order; its stack is theirs) — `delivering`
  *     while kolu-server delivers a newer set and this one keeps serving.
  *   - `error` — the delivery failed and nothing serves: `message` states its
- *     cause (kolu-server's words, with Nix's own line). New terminals get no
- *     agents.
+ *     cause (kolu-server's words) on its first line, and Nix's own output on
+ *     the lines after it (`./failure.ts`). New terminals get no agents.
  *
  *  A `Schema.Union` of structs discriminated on `kind`, like
  *  `NewTerminalPolicySchema`. */
@@ -139,7 +139,8 @@ export function statusStack(
  *   - `pending` — locking or building it now (a first fetch can take a while);
  *   - `resolved` — it built: the name and description it gives itself, and
  *     the revision it was locked to (absent for a path);
- *   - `failed` — it did not: Nix's or agent-distro's own words, on one line. */
+ *   - `failed` — it did not: Nix's or agent-distro's own words — the cause on
+ *     the first line, Nix's output on the lines after it (`./failure.ts`). */
 export const AgentProfileResolutionSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("pending") }),
   Schema.Struct({
@@ -192,8 +193,9 @@ export const AgentDistroReceiptSchema = Schema.Struct({
   lastRun: Schema.optionalKey(AgentUpdateRunSchema),
   events: Schema.Array(AgentUpdateEventSchema),
   /** The host's files would not read (a format upstream changed, say):
-   *  why, in padi's words. The rest is then empty — never a stale receipt
-   *  passed off as current. */
+   *  why, in padi's words — its first line the cause, any lines after it the
+   *  evidence (`./failure.ts`). The rest is then empty — never a stale
+   *  receipt passed off as current. */
   error: Schema.optionalKey(Schema.String),
 });
 
@@ -240,8 +242,9 @@ export type TerminalAgents = typeof TerminalAgentsSchema.Type;
  *   - `landed` — every path of `set` is valid in this host's store and
  *     rooted there: padi points `current` at the package, records the set,
  *     and new terminals get it. Its stack is the set's own;
- *   - `failed` — the delivery did not land: its cause in kolu-server's words.
- *     Whatever served keeps serving. */
+ *   - `failed` — the delivery did not land: its cause in kolu-server's words
+ *     on the first line, and the evidence (what Nix or the copy printed) on
+ *     the lines after it (`./failure.ts`). Whatever served keeps serving. */
 export const AgentDistroDeliveryReportSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("delivering"),
