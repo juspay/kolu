@@ -130,10 +130,10 @@ Then(
   "the canvas tiles should be visible in the viewport",
   async function (this: KoluWorld) {
     await this.page.waitForFunction(
-      ({ sel, tileSel }: { sel: string; tileSel: string }) => {
+      (sel: string) => {
         const container = document.querySelector(sel);
         if (!container) return false;
-        const tile = container.querySelector(tileSel);
+        const tile = container.querySelector('[data-testid="canvas-tile"]');
         if (!tile) return false;
         const cRect = container.getBoundingClientRect();
         const tRect = tile.getBoundingClientRect();
@@ -145,7 +145,7 @@ Then(
           tRect.top < cRect.bottom
         );
       },
-      { sel: CANVAS_SELECTOR, tileSel: CANVAS_TILE_SELECTOR },
+      CANVAS_SELECTOR,
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -211,12 +211,10 @@ async function waitForTileCenteredInViewport(
   await world.page.waitForFunction(
     ({
       sel,
-      tileSel,
       activeTileSel,
       pick,
     }: {
       sel: string;
-      tileSel: string;
       activeTileSel: string;
       pick: "newest" | "active";
     }) => {
@@ -224,7 +222,7 @@ async function waitForTileCenteredInViewport(
       if (!container) return false;
       let tile: HTMLElement | null;
       if (pick === "newest") {
-        const tiles = container.querySelectorAll(tileSel);
+        const tiles = container.querySelectorAll('[data-testid="canvas-tile"]');
         if (tiles.length < 2) return false;
         tile = tiles[tiles.length - 1] as HTMLElement;
       } else {
@@ -243,12 +241,7 @@ async function waitForTileCenteredInViewport(
         Math.abs(tileCy - viewCy) < tolerance
       );
     },
-    {
-      sel: CANVAS_SELECTOR,
-      tileSel: CANVAS_TILE_SELECTOR,
-      activeTileSel: ACTIVE_CANVAS_TILE_SELECTOR,
-      pick,
-    },
+    { sel: CANVAS_SELECTOR, activeTileSel: ACTIVE_CANVAS_TILE_SELECTOR, pick },
     { timeout: POLL_TIMEOUT },
   );
 }
