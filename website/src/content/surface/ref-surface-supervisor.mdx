@@ -5,272 +5,616 @@ order: 321
 section: Daemons · Reference
 ---
 
-import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 
-The client half — the code that spawns, watches, recycles, and upgrades a daemon.
+The client half: the code that spawns, watches, recycles and upgrades a daemon.
 It runs in the *client* process, never the daemon, and carries no `@kolu/*` app
 dependency. Its only workspace edges are the daemon half and `@kolu/surface`,
-used to dial the frozen control core.
+which it dials the frozen control core through.
 
 ## The face is Effect-native
 
-Every verb on this page **returns an `Effect`**, and every plug it takes from a
-consumer — `connect`, `probe`, `driver.spawn`, `RestartSteps`' three steps,
-`drain`, `awaitExit` — **is one**. There is no Promise-shaped twin: a supervisor
-composes its boot, its recycle and its drain into one fiber tree, so a boot that
-loses a race, a restart the user abandoned, and a drain past its ceiling all tear
-their own work down instead of running on unobserved.
+Every verb on this page returns an `Effect`, and so does every plug it takes
+from a consumer: `connect`, `probe`, `driver.spawn`, `RestartSteps`' three
+steps, `drain` and `awaitExit`. There is no Promise-shaped twin, so a boot that
+loses a race, a restart you abandoned and a drain past its ceiling each tear
+their own work down.
 
-Three seams are deliberately **not** Effects, and each is a synchronous fact
-rather than an operation: `Endpoint.current()` (a read of held state, whose eager
-throw callers rely on), and a `DaemonConnection`'s `dispose()` / `onClose(cb)`
-(the supervisor tears down from paths that cannot await).
+Three seams are synchronous facts rather than operations:
 
-**Nothing on `EndpointSpec` is Promise-shaped.** The three that were —
-`readProcessIdentity`, `readSocketHolders` and `readProcessState` — were
-Promise-shaped only because
-**`osfacts-client`**, the package that satisfies them, declared no `effect`
-dependency, so the supervisor lifted each at its one call site. The client takes
-`effect` as its one runtime dependency now and its spawning verbs return
-Effects, so all three seams state
-`Effect.Effect<…, OsfactsClientError>` and every lift is gone. The error
-channel is the client's own union rather than a wrapper of this package's
-making: the success halves (`SocketOccupancy`, `SocketHolder`) already come
-from there, so a local error type would be a second name for facts this package
-does not produce — and an identity read that fails stays a typed failure the
-endpoint answers (report `dead`, then propagate) instead of a defect that
-strands the UI at `connecting`.
+| Seam | Why it is not an `Effect` |
+| --- | --- |
+| `Endpoint.current()` | A read of held state, whose eager throw callers rely on. |
+| `DaemonConnection`'s `dispose()` | The supervisor tears down from paths that cannot await. |
+| `DaemonConnection`'s `onClose(cb)` | The same: it is called from paths that cannot await. |
 
-`awaitExit` no longer takes an `AbortSignal`. It existed for exactly one job —
-telling a poll-based exit oracle to stop once the drain ceiling had won — and
-fiber interruption does that job unconditionally. Interruption is not refusable;
-an abandoned `AbortController` was.
+Nothing on `EndpointSpec` is Promise-shaped.
+
+- `readProcessIdentity`, `readSocketHolders` and `readProcessState` each state
+  `Effect.Effect<…, OsfactsClientError>`.
+- The error channel is the union of **`osfacts-client`**, the package that
+  satisfies those seams and takes `effect` as its one runtime dependency. Their
+  success halves (`SocketOccupancy`, `SocketHolder`) come from there too.
+- An identity read that fails is a typed failure the endpoint answers (report
+  `dead`, then propagate), not a defect that strands the UI at `connecting`.
+- `awaitExit` takes no `AbortSignal` and no `AbortController`. Fiber
+  interruption tells a poll-based exit oracle to stop once the drain ceiling has
+  won, and interruption cannot be refused.
 
 ## The dial leaf — `/dial`
 
-`@kolu/surface-daemon-supervisor/dial` carries exactly three things: `dialSocket`
-(the unix-socket connect/error race, won once), `DaemonContractSkewError` plus
-its brand-checked `isContractSkewError`, and the `DaemonConnection` shape a
-handshake produces.
+`@kolu/surface-daemon-supervisor/dial` carries exactly three things:
+`dialSocket` (the unix-socket connect/error race, won once),
+`DaemonContractSkewError` plus its brand-checked `isContractSkewError`, and the
+`DaemonConnection` shape a handshake produces.
 
-It exists because of who else needs them. `@kolu/padi-client/dial` needs those
-three and nothing more, and it is the entry an out-of-repo consumer hydrates on
-its own — so what it reaches, that consumer's `tsc` compiles. Reaching them
-through the BARREL made it compile `endpoint.ts`: the drivers, the convergence
-probe, and through the process-identity seam `osfacts-client`, a second npins pin
-the consumer then had to graft and guard.
-
-| entry | carries | what it no longer compiles |
+| entry | carries | what it does not compile |
 | --- | --- | --- |
 | `@kolu/surface-daemon-supervisor/dial` | `dialSocket`, `DaemonContractSkewError`, `isContractSkewError`, `DaemonConnection` | `endpoint.ts` — drivers, convergence, `osfacts-client` |
 
-`endpoint.ts` imports the three from the leaf and re-exports them, so the
-barrel's surface is unchanged. Its whole compile cost is `node:net` and
-`effect`. `@kolu/padi-client`'s hydrate guard now asserts that **no bare daemon
-barrel** is in its import closure — the list that once recorded both barrels as
-a known cost is empty, and empty is the assertion.
-
-Note the copy/compile split this does NOT change: a consumer still copies the
-supervisor's directory, whose manifest still names `osfacts-client`. The graft
-that is gone is the one the COMPILER needed.
+- `@kolu/padi-client/dial` needs those three and nothing more, and it is the
+  entry an out-of-repo consumer hydrates on its own. What that consumer reaches,
+  its `tsc` compiles.
+- Reaching them through the barrel instead compiles `endpoint.ts`: the drivers,
+  the convergence probe, and through the process-identity seam
+  `osfacts-client`, a second npins pin to graft and guard.
+- `endpoint.ts` imports the three from the leaf and re-exports them, so the
+  barrel's surface is unchanged. Its whole compile cost is `node:net` and
+  `effect`.
+- `@kolu/padi-client`'s hydrate guard asserts that no bare daemon barrel is in
+  its import closure.
+- The copy/compile split stands: a consumer still copies the supervisor's
+  directory, whose manifest still names `osfacts-client`.
 
 ## The endpoint
 
-`createEndpoint({ home, readProcessIdentity, readSocketHolders, readProcessState, policy, probe, connect: (socketPath) => …, … })` is the
-state machine: `connecting → connected | dead | incompatible`, then
-`connected → degraded` if the daemon dies mid-session. Gate and socket come from
-`home` (the same spine primitive `daemonMain` takes); the three OS-fact readers —
-`readProcessIdentity` (start-qualified gate ownership), `readSocketHolders`
-(gate-less squatter recovery) and `readProcessState` (is the holder stopped, so
-its graceful reap leg is skippable) — are required, never defaulted; `connect`
-receives the
-socket path from the framework so callers never re-thread it. The policy is the
-consumer's whole convergence surface (who I am + how I converge); the public
-verbs are `converge(endpoint)` and `recycle(endpoint, steps)` — the boot-method
-trio (`ensure` / `adoptOrEnsure` / `adoptOrSpawnOrRefuse`) is **absent from the
-public `Endpoint` type and from the runtime object**. Private binds live only in
-a package `WeakMap` keyed by the genuine `createEndpoint` handle; kit modules
-(`converge`, `recycle`) and same-package tests resolve them via a
-package-internal relative import of `endpoint.private.ts` — there is no public
-`asEndpointInternal` or `./testing` subpath.
-**Unreadable gate (EACCES/EIO):** the endpoint's holder probe folds the daemon
-half's three-way gate-read law exhaustively — when `readGateIdentity` yields
-`unreadable`, `ensure` / recycle **throw before any unlink, kill, or spawn**
-(status still emits `connecting → dead` then rethrows so the UI never wedges).
-An unreadable gate is not free and not stale; a mode-`000` gate is the unit pin
-(`recycleForeignGate.test.ts`).
-`incompatible` is the PROVEN contract-skew verdict — a respawn from the
-realised closure already skewed (or a refuse-policy survivor skews at
-handshake) — reported with both contract versions on the status
-(`{ state: "incompatible", daemonVersion, requiredVersion }`), never collapsed
-into `dead`/`degraded`: a consumer deriving affordances from the state sum
-must not offer a restart against it (restarting cannot fix a skew; only
-changing the closure can). It is deliberately NOT coerced by a restart hold —
-a skew inside a restart is that restart's terminal verdict, not a transition.
-`current()` is the live connection; `holdRestarting` is the recycle emit-guard.
-It is generic over the client `C` and identity `I`.
+The endpoint is the state machine that takes a daemon from nothing to a live,
+handshaken connection, and reports what it finds while it does.
+
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`createEndpoint({ home, readProcessIdentity, readSocketHolders, readProcessState, policy, probe, connect, … })`](#createendpoint) | `.` | Builds the state machine from your injects and policy. |
+| [`Endpoint`](#endpoint) | `.` | The handle it returns: states, the live connection, the restart hold. |
+| [`destructiveRecycleSteps()`](#destructiverecyclesteps) | `.` | Named no-preservation steps for a fail-closed recycle. |
+| [`survivableSpawnDriver(cfg, deps?)`](#survivablespawndrivercfg-deps) | `.` | The default driver: a systemd service, or a detached child. |
+| [`scrubDaemonNodeOptions(nodeOptions)`](#scrubdaemonnodeoptionsnodeoptions) | `.` | Strips dev-only Node flags from an inherited `NODE_OPTIONS`. |
+| [`recycle(endpoint, steps)` · `serializeRestart(endpoint)`](#recycleendpoint-steps--serializerestartendpoint) | `.` | The restart sequence, and its single-flight trigger. |
+| [`waitForPidGone(pid, opts?)`](#waitforpidgonepid-opts) | `.` | Polls until a pid is reaped. |
+| [`reapHolder(pid, readProcessState, opts?)`](#reapholderpid-readprocessstate-opts) | `.` | The two-deadline stop every kill site shares. |
+| [`ReadSocketHolders`](#readsocketholders) | `.` | The type of the socket-holder inject. |
+| [`ReadProcessState`](#readprocessstate) | `.` | The type of the process-state inject. |
+| [`SocketOccupancy` · `SocketHolder`](#socketoccupancy--socketholder) | `.` | The three-way answer to "who holds this socket?". |
+| [`SocketSquatterForeignError` · `isSocketSquatterForeignError(err)`](#socketsquatterforeignerror--issocketsquatterforeignerrorerr) | `.` | A foreign holder of the rendezvous socket, never killed. |
+| [`SocketProbeIndeterminateError` · `isSocketProbeIndeterminateError(err)`](#socketprobeindeterminateerror--issocketprobeindeterminateerrorerr) | `.` | A connect probe that timed out, proving nothing. |
+| [`DaemonContractSkewError` · `isContractSkewError(err)`](#daemoncontractskewerror--iscontractskewerrorerr) | `.`, `/dial` | The one typed connect rejection that proves incompatibility. |
+| [`ENDPOINT_STATES` · `ENDPOINT_STATE_DOWN` · `isDownEndpointState(s)`](#endpoint_states--endpoint_state_down--isdownendpointstates) | `/states`, `.` | The state tuple and its down/terminal classification. |
+
+### `createEndpoint`
+
+Builds the state machine and returns an unforgeable public `Endpoint`.
+
+`createEndpoint({ home, readProcessIdentity, readSocketHolders, readProcessState, policy, probe, connect: (socketPath) => …, … })`
 
 <Snippet src="packages/surface/example/snippets/supervisor.ts" region="endpoint" />
 
-| Export | Role |
+| Option | What you pass |
 | --- | --- |
-| `createEndpoint({ home, readProcessIdentity, readSocketHolders, readProcessState, policy, probe, connect, … })` | returns an **unforgeable** public `Endpoint` (boot trio lives in a package WeakMap, not on the object); `home` is `DaemonHomePaths`; `readProcessIdentity` is `ReadProcessIdentityAsync`, i.e. `(pid: number) => Effect.Effect<ProcessIdentity \| undefined, OsfactsClientError>` (off the serving loop, so an osfacts spawn never blocks it — prefer `processIdentityAsync(bin)`, with `bin` resolved once at the composition root). The awaitable type lives in this package beside `EndpointSpec`; the daemon half keeps only the sync `ReadProcessIdentity`, which is what the synchronous gate-claim paths still use. `readSocketHolders` and `readProcessState` are the other two OS-fact injects (`ReadSocketHolders`, `ReadProcessState`) — all three are **required**, because the endpoint performs no platform traversal of its own. **Gate unreadable** (EACCES/EIO) → throw before unlink/kill/spawn; emit `dead` then rethrow |
-| `destructiveRecycleSteps()` | named no-preservation steps for fail-closed recycle (all steps still required) |
-| `survivableSpawnDriver(cfg, deps?)` | the default `DaemonDriver`: `systemd-run --user` under a service, detached `+unref` otherwise. `DaemonDriver.spawn` is an `Effect<void>` VALUE, not a method — re-running it IS "spawn again" |
-| `scrubDaemonNodeOptions(nodeOptions)` | strip dev-only Node flags from an inherited `NODE_OPTIONS` so a spawned daemon never opens the SUPERVISOR's inspector or writes its profiles; returns `undefined` when nothing of value remains, so the var is dropped rather than emptied. Opt-in per driver |
-| `recycle(endpoint, steps)` · `serializeRestart(endpoint)` | `recycle` is the composed `capture → drain → recycle → reattach` sequence, as one `Effect`; `RestartSteps`' three members are `Effect`s too (`capture` is a VALUE — an effect is already the description of work not yet done). `serializeRestart` returns a single-flight `triggerRestart` whose concurrency is COALESCING, not queueing: a second caller JOINS the restart already in flight and gets its outcome, rather than waiting and then running a second one |
-| `waitForPidGone(pid, opts?)` | an `Effect<boolean>` that polls `isHolderLive` until the pid is reaped (`ESRCH`), so a respawn never races a live gate holder |
-| `reapHolder(pid, readProcessState, opts?)` | an `Effect<ReapOutcome, OsfactsClientError>` — the two-deadline stop every supervisor kill site shares: `SIGTERM` → wait `REAP_TERM_CEILING_MS` (120 s) → `SIGKILL` → wait `REAP_KILL_CEILING_MS` (5 s). `readProcessState` is REQUIRED (the injected OS fact, never a default): a holder observed STOPPED (`T`/`t`) skips the graceful leg — a stopped process cannot run a shutdown handler — and `SIGKILL` lands at once. A read that cannot COMPLETE travels the error channel (the endpoint reports `dead` and rethrows), never a silent "not stopped". Answers `{ kind: "reaped", endedBy, waitedMs, reason? }` or `{ kind: "survived", waitedMs, reason? }` — a record, because which signal ended it, how long it took, and whether the graceful window was skipped are what an operator reads after the fact |
-| `ReadSocketHolders` | the TYPE of the `readSocketHolders` inject: `(socketPath: string) => Effect.Effect<SocketOccupancy, OsfactsClientError>`. The reader that satisfies it is `osfactsSocketHolders(bin)` from **`osfacts-client`**, bound to an already-resolved osfacts binary path (`bakedOsFactsBin(<your env var>)` — this package never learns which var a consumer bakes). It calls `osfacts socket-holders <path> --procs`; the platform split, the parse, the honesty policy AND the fold live in the tool and its client, not here. Bind it to the same resolved path as `processIdentityAsync` so one root spells its env var once for all the OS facts |
-| `ReadProcessState` | the TYPE of the `readProcessState` inject: `(pid: number) => Effect.Effect<ProcessState \| undefined, OsfactsClientError>`. The reader that satisfies it is `processStateAsync(bin)` from **`osfacts-client`**, bound to the same already-resolved osfacts binary path (`osfacts snapshot --pids <pid> --status`). `undefined` is the honest dead-pid answer; the `T`/`t` ⇒ stopped fold lives once in this package, not in the reader |
-| `SocketOccupancy` · `SocketHolder` | the **three-way** answer, never one possibly-empty list: `{ kind: "held", holders }` (a NON-EMPTY tuple by type — `readonly [SocketHolder, ...SocketHolder[]]` — so a consumer never writes an unreachable empty-check), `{ kind: "none" }` (**proven** nothing holds it — only linux's world-readable `/proc/net/unix` can prove this), `{ kind: "unattributed", detail }` (something may hold it and the OS would not say what — a bound-but-unreadable holder, or a search that could not complete). Only `none` is evidence of freedom, and the endpoint still re-probes before spawning. Both types are **re-exported from `osfacts-client`**, whose `foldSocketOccupancy(reading)` produces them from a `SocketHoldersReading` — one fold, so kolu and drishti cannot spell the three-way differently |
-| `SocketSquatterForeignError` · `isSocketSquatterForeignError(err)` | thrown when the process holding the rendezvous socket did NOT complete the kaval handshake — a foreign / non-conforming holder that is **never** killed. Carries `socketPath`, `holders: SocketHolder[]` (each a pid and an OPTIONAL `command` — absent, never `"?"`, when the identity read lost the race, so a sentinel can never be mistaken for a process actually named `?`) and `detail?: string` so the refusal names the squatter — and when the OS named NOBODY, `detail` is the `unattributed` reading's own words (`the holder search could not complete (darwin_proc_fds: BLIND_OR_EMPTY)`), which the message renders instead of "an unidentifiable process". On darwin the nameless case is the ordinary one, so the explanation, not just the decision, has to survive the fold. Brand-checked, realm-robust |
-| `SocketProbeIndeterminateError` · `isSocketProbeIndeterminateError(err)` | thrown when a one-shot socket connect probe times out (`SocketServeState` `"indeterminate"`) — not proof free or dead. The endpoint never kills, unlinks, or spawns on it; carries `gatePath` / `socketPath` / optional `gatePid`. Failures after `connecting` emit `dead` then rethrow so status never wedges |
-| `DaemonContractSkewError` · `isContractSkewError(err)` | the ONE typed connect rejection that proves incompatibility. Constructed from fields — `{ subject, daemonVersion, requiredVersion, pid? }` — with the message derived from them (no consumer ever re-parses the prose); `readonly daemonVersion` / `requiredVersion` ride the instance so downstream translators (a typed RPC rethrow, a status arm) read them structurally. The optional `readonly pid` is the skewed daemon's self-reported OS pid (additive), carried so the gate-less-squatter recovery of an OLD orphan — which throws here before a connection exists — has its identity attestation. The guard is brand-checked (realm-robust), never `instanceof` |
-| `ENDPOINT_STATES` · `ENDPOINT_STATE_DOWN` · `isDownEndpointState(s)` | the state tuple and its TOTAL down/terminal classification, both living in the zero-dependency, browser-safe `/states` subpath (re-exported from the package root). `ENDPOINT_STATE_DOWN` is a `Record<EndpointState, boolean>`, so a new state is a compile error at the home until classified; consumers (a dial-ended check, a client presentation table) read `isDownEndpointState` instead of hand-spelling the `degraded \|\| dead \|\| incompatible` disjunct |
+| `home` | `DaemonHomePaths`, the same spine primitive `daemonMain` takes. Gate and socket come from it. |
+| `readProcessIdentity` | Start-qualified gate ownership, as a `ReadProcessIdentityAsync`. |
+| `readSocketHolders` | Gate-less squatter recovery, as a `ReadSocketHolders`. |
+| `readProcessState` | Whether the holder is stopped, so its graceful reap leg is skippable. A `ReadProcessState`. |
+| `policy` | Your whole convergence surface: who I am, and how I converge. |
+| `probe` | The convergence probe, usually [`probeDaemonIdentity`](#probedaemonidentityoptssocketpath). |
+| `connect` | Receives the socket path from the framework, so callers never re-thread it. |
 
-<Aside type="caution" title="`cfg.env` means different things per launch mode">
-  `survivableSpawnDriver`'s `cfg.env` is read differently by the mode the driver
-  picks, so compose it for the mode you will hit. On the **detached** path (the
-  production default) `env` is the COMPLETE child env — nothing from the parent is
-  layered under it, so a partial set spawns a daemon with no `PATH`/`HOME`; carry
-  the daemon's whole base (compose it from a fixed allowlist, as the snippet
-  above does — kolu mines `kolu-pty`'s `SPAWN_ENV_ALLOWLIST`). Under **systemd**
-  `env` OVERLAYS the unit's PAM/manager env via `--setenv`, so a partial set is
-  fine. Launch mode and env inheritance are ONE union field so the illegal
-  combination is unspellable: **`fromSource`** omitted (or `false`) is a normal
-  launch (systemd-eligible, `env` complete). An **object** `{ inheritParentEnv }`
-  forces the detached branch even under a session (an actual source launch OR a
-  built binary a box forces detached), and its `inheritParentEnv` decides whether
-  `env` layers OVER the supervisor's full parent env — `true` only for an actual
-  from-source launch (the dev nix-shell env); a built forced-detached daemon uses
-  `{ inheritParentEnv: false }` and gets `env` alone. Folding the two together
-  means "inherit the parent env on a normal launch" is a type error, not a prose
-  invariant a caller must remember.
-</Aside>
+- All three OS-fact readers are required, never defaulted, because the endpoint
+  performs no platform traversal of its own.
+- `readProcessIdentity` is `(pid: number) => Effect.Effect<ProcessIdentity | undefined, OsfactsClientError>`.
+  It runs off the serving loop, so an osfacts spawn never blocks it. Prefer
+  `processIdentityAsync(bin)`, with `bin` resolved once at the composition root.
+- The awaitable type lives in this package beside `EndpointSpec`. The daemon
+  half keeps only the sync `ReadProcessIdentity`, which the synchronous
+  gate-claim paths use.
+- The boot trio lives in a package `WeakMap`, not on the returned object.
+
+#### An unreadable gate
+
+The endpoint's holder probe folds the daemon half's three-way gate-read law
+exhaustively. An unreadable gate (EACCES or EIO) is not free and not stale.
+
+- When `readGateIdentity` yields `unreadable`, `ensure` and recycle throw before
+  any unlink, kill or spawn.
+- Status still emits `connecting → dead`, then rethrows, so the UI never wedges.
+- A mode-`000` gate is the unit pin (`recycleForeignGate.test.ts`).
+
+#### The `incompatible` state
+
+`incompatible` is the proven contract-skew verdict: a respawn from the realised
+closure already skewed, or a refuse-policy survivor skews at handshake.
+
+- It is reported with both contract versions on the status
+  (`{ state: "incompatible", daemonVersion, requiredVersion }`).
+- It is never collapsed into `dead`/`degraded`. A consumer deriving affordances
+  from the state sum must not offer a restart against it, because restarting
+  cannot fix a skew. Only changing the closure can.
+- A restart hold does not coerce it. A skew inside a restart is that restart's
+  terminal verdict, not a transition.
+
+### `Endpoint`
+
+The handle `createEndpoint` returns, generic over the client `C` and the
+identity `I`.
+
+- Its states are `connecting → connected | dead | incompatible`, then
+  `connected → degraded` if the daemon dies mid-session.
+- The public verbs are [`converge(endpoint)`](#convergeendpoint) and
+  [`recycle(endpoint, steps)`](#recycleendpoint-steps--serializerestartendpoint).
+- The boot-method trio (`ensure` / `adoptOrEnsure` / `adoptOrSpawnOrRefuse`) is
+  absent from the public `Endpoint` type and from the runtime object.
+- Private binds live only in a package `WeakMap` keyed by the genuine
+  `createEndpoint` handle. Kit modules (`converge`, `recycle`) and same-package
+  tests resolve them through a package-internal relative import of
+  `endpoint.private.ts`. There is no public `asEndpointInternal` and no
+  `./testing` subpath.
+- `current()` is the live connection. `holdRestarting` is the recycle
+  emit-guard.
+
+### `destructiveRecycleSteps()`
+
+Named no-preservation steps for a fail-closed recycle. All steps are still
+required.
+
+### `survivableSpawnDriver(cfg, deps?)`
+
+The default `DaemonDriver`: `systemd-run --user` under a service, and a
+detached `+unref` child otherwise.
+
+- `DaemonDriver.spawn` is an `Effect<void>` value, not a method. Re-running it
+  is "spawn again".
+
+#### `cfg.env` per launch mode
+
+`survivableSpawnDriver`'s `cfg.env` is read differently by the mode the driver
+picks, so compose it for the mode you will hit.
+
+| Mode | How `env` is read |
+| --- | --- |
+| Detached (the production default) | `env` is the complete child env. Nothing from the parent is layered under it, so a partial set spawns a daemon with no `PATH` or `HOME`. |
+| Under systemd | `env` overlays the unit's PAM/manager env via `--setenv`, so a partial set is fine. |
+
+- On the detached path, carry the daemon's whole base. Compose it from a fixed
+  allowlist, as the snippet above does. kolu mines `kolu-pty`'s
+  `SPAWN_ENV_ALLOWLIST`.
+- Launch mode and env inheritance are one union field, so the illegal
+  combination is unspellable. **`fromSource`** omitted (or `false`) is a normal
+  launch: systemd-eligible, with `env` complete.
+- An object `{ inheritParentEnv }` forces the detached branch even under a
+  session, for an actual source launch or a built binary a box forces detached.
+- `inheritParentEnv` decides whether `env` layers over the supervisor's full
+  parent env. Use `true` only for an actual from-source launch (the dev
+  nix-shell env). A built forced-detached daemon uses
+  `{ inheritParentEnv: false }` and gets `env` alone.
+
+### `scrubDaemonNodeOptions(nodeOptions)`
+
+Strips dev-only Node flags from an inherited `NODE_OPTIONS`, so a spawned
+daemon never opens the supervisor's inspector or writes its profiles.
+
+- It returns `undefined` when nothing of value remains, so the variable is
+  dropped rather than emptied.
+- It is opt-in per driver.
+
+### `recycle(endpoint, steps)` · `serializeRestart(endpoint)`
+
+`recycle` is the composed `capture → drain → recycle → reattach` sequence, as
+one `Effect`. `serializeRestart` returns a single-flight `triggerRestart`.
+
+- `RestartSteps`' three members are `Effect`s too. `capture` is a value,
+  because an effect is already the description of work not yet done.
+- `triggerRestart` coalesces rather than queues: a second caller joins the
+  restart already in flight and gets its outcome, instead of waiting and then
+  running a second one.
+
+### `waitForPidGone(pid, opts?)`
+
+An `Effect<boolean>` that polls `isHolderLive` until the pid is reaped
+(`ESRCH`), so a respawn never races a live gate holder.
+
+### `reapHolder(pid, readProcessState, opts?)`
+
+An `Effect<ReapOutcome, OsfactsClientError>`: the two-deadline stop every
+supervisor kill site shares.
+
+`SIGTERM` → wait `REAP_TERM_CEILING_MS` (120 s) → `SIGKILL` → wait
+`REAP_KILL_CEILING_MS` (5 s).
+
+- `readProcessState` is required, as the injected OS fact, never a default.
+- A holder observed stopped (`T`/`t`) skips the graceful leg, because a stopped
+  process cannot run a shutdown handler. `SIGKILL` lands at once.
+- A read that cannot complete travels the error channel, where the endpoint
+  reports `dead` and rethrows. It is never a silent "not stopped".
+- It answers `{ kind: "reaped", endedBy, waitedMs, reason? }` or
+  `{ kind: "survived", waitedMs, reason? }`. An operator reads which signal
+  ended it, how long it took, and whether the graceful window was skipped.
+
+### `ReadSocketHolders`
+
+The type of the `readSocketHolders` inject:
+`(socketPath: string) => Effect.Effect<SocketOccupancy, OsfactsClientError>`.
+
+- The reader that satisfies it is `osfactsSocketHolders(bin)` from
+  **`osfacts-client`**, bound to an already-resolved osfacts binary path
+  (`bakedOsFactsBin(<your env var>)`). This package never learns which variable
+  a consumer bakes.
+- It calls `osfacts socket-holders <path> --procs`. The platform split, the
+  parse, the honesty policy and the fold live in the tool and its client, not
+  here.
+- Bind it to the same resolved path as `processIdentityAsync`, so one root
+  spells its environment variable once for all the OS facts.
+
+### `ReadProcessState`
+
+The type of the `readProcessState` inject:
+`(pid: number) => Effect.Effect<ProcessState | undefined, OsfactsClientError>`.
+
+- The reader that satisfies it is `processStateAsync(bin)` from
+  **`osfacts-client`**, bound to the same already-resolved osfacts binary path
+  (`osfacts snapshot --pids <pid> --status`).
+- `undefined` is the honest dead-pid answer.
+- The `T`/`t` ⇒ stopped fold lives once in this package, not in the reader.
+
+### `SocketOccupancy` · `SocketHolder`
+
+The three-way answer to who holds a socket, never one possibly-empty list.
+
+| Answer | What it means |
+| --- | --- |
+| `{ kind: "held", holders }` | `holders` is a non-empty tuple by type (`readonly [SocketHolder, ...SocketHolder[]]`), so a consumer never writes an unreachable empty-check. |
+| `{ kind: "none" }` | Proven nothing holds it. Only linux's world-readable `/proc/net/unix` can prove this. |
+| `{ kind: "unattributed", detail }` | Something may hold it and the OS would not say what: a bound-but-unreadable holder, or a search that could not complete. |
+
+- Only `none` is evidence of freedom, and the endpoint still re-probes before
+  spawning.
+- Both types are re-exported from `osfacts-client`, whose
+  `foldSocketOccupancy(reading)` produces them from a `SocketHoldersReading`.
+  One fold, so kolu and drishti cannot spell the three-way differently.
+
+### `SocketSquatterForeignError` · `isSocketSquatterForeignError(err)`
+
+Thrown when the process holding the rendezvous socket did not complete the
+kaval handshake. Such a foreign or non-conforming holder is never killed.
+
+- It carries `socketPath`, `holders: SocketHolder[]` and `detail?: string`, so
+  the refusal names the squatter.
+- Each holder is a pid and an optional `command`. The command is absent, never
+  `"?"`, when the identity read lost the race, so a sentinel cannot be mistaken
+  for a process actually named `?`.
+- When the OS named nobody, `detail` is the `unattributed` reading's own words
+  (`the holder search could not complete (darwin_proc_fds: BLIND_OR_EMPTY)`),
+  which the message renders instead of "an unidentifiable process".
+- On darwin the nameless case is the ordinary one, so the explanation, not just
+  the decision, has to survive the fold.
+- The guard is brand-checked and realm-robust.
+
+### `SocketProbeIndeterminateError` · `isSocketProbeIndeterminateError(err)`
+
+Thrown when a one-shot socket connect probe times out (`SocketServeState`
+`"indeterminate"`). It proves neither free nor dead.
+
+- The endpoint never kills, unlinks or spawns on it.
+- It carries `gatePath`, `socketPath` and an optional `gatePid`.
+- Failures after `connecting` emit `dead`, then rethrow, so status never
+  wedges.
+
+### `DaemonContractSkewError` · `isContractSkewError(err)`
+
+The one typed connect rejection that proves incompatibility. It is also exported
+from [`/dial`](#the-dial-leaf--dial).
+
+- It is constructed from fields (`{ subject, daemonVersion, requiredVersion, pid? }`),
+  with the message derived from them, so no consumer re-parses the prose.
+- `readonly daemonVersion` and `requiredVersion` ride the instance, so
+  downstream translators (a typed RPC rethrow, a status arm) read them
+  structurally.
+- The optional `readonly pid` is the skewed daemon's self-reported OS pid. The
+  gate-less-squatter recovery of an old orphan throws here before a connection
+  exists, and this is its identity attestation.
+- The guard is brand-checked (realm-robust), never `instanceof`.
+
+### `ENDPOINT_STATES` · `ENDPOINT_STATE_DOWN` · `isDownEndpointState(s)`
+
+The state tuple and its total down/terminal classification. Both live in the
+zero-dependency, browser-safe `/states` subpath, and are re-exported from the
+package root.
+
+- `ENDPOINT_STATE_DOWN` is a `Record<EndpointState, boolean>`, so a new state is
+  a compile error at the home until it is classified.
+- Consumers (a dial-ended check, a client presentation table) read
+  `isDownEndpointState` instead of hand-spelling the
+  `degraded || dead || incompatible` disjunct.
 
 ## The convergence kit
 
-`converge(endpoint)` is the only boot verb: it probes the running daemon's
-identity, asks a pure `decide`, admits drain via the per-boot budget (when
-drainable), and enacts through the endpoint's private boot methods, returning a
-typed `ConvergenceOutcome` whose kinds either **always** carry their anomaly or
-**never** do (no optionals). Connector arms (ssh) use `convergeAdmit` with the
-*same* policy object. Anomaly arms carry typed evidence as data (`running` /
-`expected` identities, `drained` / `observed` instance keys); `detail` is human
-garnish only.
+`converge(endpoint)` is the only boot verb. It probes the running daemon's
+identity, asks a pure `decide`, admits drain through the per-boot budget when
+the daemon is drainable, and enacts through the endpoint's private boot methods.
 
-**Single observation authority.** Every observed identity — initial probe, bind
-characterization, post-drain successor, post-give-up bind, drainable re-probe —
-flows through one internal fold (`foldObserved`). Every **bind transition**
-(plain / recycle / post-drain / give-up) flows through one BindResult consumer
-(`consumeBindResult`); call sites never inspect `r.kind`. That fold always runs
-`decide(policy, identity | null)` (never a hand-copied compat/match subset), owns
-connection lifecycle so refused / not-adopted / probe-failed exits call the
-idempotent `releaseHeld` unconditionally (no `holding` mirror), preserves
-four-valued characterizations (`characterized | absent | failed | uncorrelated`),
-and reports `unconverged.running: null` when the running identity is honestly
-unknown (never fabricates `expected`). A characterization probe throw is
-`probe-failed` with the true message — never catch-to-null into
-`identity-unverifiable`. Named probe instance keys must match `conn.startedAt`;
-mismatch is `uncorrelated`.
+[kaval](/kaval) declares `recycle-on-skew`. [padi](/padi) declares
+`drain-newer-else-refuse` with a drain-capable handshake. The step-by-step for
+both is in
+[How to recycle and upgrade a daemon](/surface/recycle-and-upgrade), and the
+rules the kit enforces are in
+[Daemon invariants](/surface/surface-daemon-invariants).
 
 <Snippet src="packages/surface/example/snippets/supervisor.ts" region="converge" />
 
-| Export | Role |
-| --- | --- |
-| `converge(endpoint)` | single fold over every observation → decide → budget-gated drain → private bind; genuine createEndpoint handle only; same-lineage admitted drains continue (F1a); null re-probe is `identity-unverifiable` (F1b); give-up re-decides characterization without re-draining |
-| `convergeAdmit({ running, budget, drain, awaitExit, … })` | connector arm, an `Effect<ConvergeAdmitVerdict>`; `budget` is `ConnectorDrainBudget` (recycle/nudge-human unspellable); `drain` and `awaitExit` are `Effect`s, and `awaitExit` succeeds only on process exit, never on link loss (F3) |
-| `probeDaemonIdentity({ capability, drainCeilingMs? })(socketPath)` | endpoint probe for the frozen fragment; full `ConvergenceProbe`, `null` only for honest `ECONNREFUSED`/`ENOENT`, all other dial/hello failures—including a control-core version other than frozen `1.0`, and an unspeakable peer (`UnspeakableProtocolError`)—throw |
-| `probeDaemonIdentityFrom({ client, dispose, capability: "not-drainable" })`<br />`probeDaemonIdentityFrom({ client, dispose, capability: "drainable", awaitExit, drainCeilingMs })` | single probe-assembly authority for an already-dialed connector; drainable probes require both exit-oracle fields, while not-drainable probes omit them; SSH keeps its stronger process-exit oracle instead of treating link loss as exit |
-| `readControlCoreHello(client)` · `ControlCoreProbeClient` | read + validate the frozen hello on its one baked 30 s deadline (frozen-version check, plus the joint `buildId`/`commit` fact), and the already-dialed client shape it takes — `client.surface.control.core.hello()`, which is itself an `Effect` |
-| `dialSocket(socketPath)` | the package's own unix-socket dial as an `Effect<Socket>`, so the control-core leg owns its framing tap — and a dial INTERRUPTED before it settles destroys the half-open socket rather than abandoning it |
-| `isNoListenerError(error)` | the one `ECONNREFUSED`/`ENOENT` classifier shared by generic and pre-fragment daemon probes |
-| `decide(policy, running)` | pure fold — reads `policy.baked` (no free-standing baked arg); sole decision authority under `converge` |
-| `createDrainBudget` · `createConnectorDrainBudget` · `outcomeAdopted` · `outcomeAnomaly` | opaque budget handles (no public admit/can-openers); connector mint is type-gated |
-| `InstanceKey` · `instanceKeyFromStartedAt` · `instanceKeyTag` | named instance or `pre-instance` (absent startedAt = older — never overloaded null) |
-| `BindResult` · `BoundResidentCharacterization` | private-bind result; adopted residents carry four-valued characterization (`characterized \| absent \| failed \| uncorrelated`) |
-| `drainAndAwaitExit(drain: Effect<void>, awaitExit: Effect<void>, { ceilingMs })` | framework-run drain-and-confirm-exit skeleton both enactments share. Both plugs are forked into the primitive's own scope, so the ceiling winning INTERRUPTS the exit oracle — `awaitExit`'s error channel is `never` by type, which is the F3 contract stated in the signature rather than in a comment |
-| `ConvergenceAnomaly` | `adopted-stale \| skew-refused \| unconverged \| cross-supervisor` — each arm carries typed evidence; `unconverged.running` is nullable (unknown); `link-failed` is session-owned |
-| `UnconvergedCause` | `budget-exhausted \| drain-not-taken \| adopt-bind-failed \| identity-unverifiable \| probe-failed \| unspeakable-protocol` — evidence as data under `unconverged`. The `unspeakable-protocol` arm carries `socketPath` · `gatePath` · the `pid` that was CLASSIFIED; it rides a refusal only when the gate stopped naming that pid before the takeover could act |
-| `UnspeakableEvidence` · `unspeakableClause(evidence)` | WHY a peer is unspeakable, as DATA: `{ trigger: "undecodable-frame", frame }` or `{ trigger: "silence", silentForMs }`. There is no third arm, and the renderer is shared so the dial path, the corroboration site and the fold cannot drift in what they tell an operator |
-| `UnspeakableProtocolError` · `isUnspeakableProtocolError(err)` | the TRANSPORT fact, raised by `probeDaemonIdentity`'s dial at one of those two triggers — never by the hello deadline, a close, or a member error. Carries `socketPath` and the `evidence` field. Uncorroborated it is an ordinary `probe-failed`. Brand-checked, realm-robust |
-| `UnspeakablePeerError` · `isUnspeakablePeerError(err)` | the CORROBORATED verdict — the same fact plus the two attestations the endpoint adds: the gate at this rendezvous is OURS and its `pid` passed the holder identity law. Carries `gatePath` and `pid` beside them. Only this becomes the `unspeakable-protocol` observation |
-| `UNSPEAKABLE_SILENCE_MS` | the silence bound (8 s), pinned between two facts of the link: it pings every 5 s and a peer of this epoch pongs *below* its handlers (so a merely slow daemon has still demonstrably spoken), and its keep-alive backstop ends a silent connection only past 60 s (after which there is nothing left to classify) |
-| `contractIsNewer` · `contractIsCompatible` · `buildsMatch` | re-exported from `@kolu/surface-daemon` (contract versions ordered; build ids match-only) |
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`converge(endpoint)`](#convergeendpoint) | `.` | The boot verb: observe, decide, drain, bind. |
+| [`convergeAdmit({ running, budget, drain, awaitExit, … })`](#convergeadmitopts) | `.` | The connector arm of the same policy. |
+| [`probeDaemonIdentity({ capability, drainCeilingMs? })(socketPath)`](#probedaemonidentityoptssocketpath) | `.` | The endpoint's probe of the frozen fragment. |
+| [`probeDaemonIdentityFrom({ client, dispose, capability: "not-drainable" })`<br />`probeDaemonIdentityFrom({ client, dispose, capability: "drainable", awaitExit, drainCeilingMs })`](#probedaemonidentityfromopts) | `.` | The probe assembled from an already-dialed connector. |
+| [`readControlCoreHello(client)` · `ControlCoreProbeClient`](#readcontrolcorehelloclient--controlcoreprobeclient) | `.` | Reads and validates the frozen hello. |
+| [`dialSocket(socketPath)`](#dialsocketsocketpath) | `.`, `/dial` | The package's own unix-socket dial. |
+| [`isNoListenerError(error)`](#isnolistenererrorerror) | `.` | The shared `ECONNREFUSED`/`ENOENT` classifier. |
+| [`decide(policy, running)`](#decidepolicy-running) | `.` | The pure fold that decides what to do. |
+| [`createDrainBudget` · `createConnectorDrainBudget` · `outcomeAdopted` · `outcomeAnomaly`](#createdrainbudget--createconnectordrainbudget--outcomeadopted--outcomeanomaly) | `.` | Opaque budget handles and outcome constructors. |
+| [`InstanceKey` · `instanceKeyFromStartedAt` · `instanceKeyTag`](#instancekey--instancekeyfromstartedat--instancekeytag) | `.` | Which instance an observation named. |
+| [`BindResult` · `BoundResidentCharacterization`](#bindresult--boundresidentcharacterization) | `.` | The private-bind result and its characterization. |
+| [`drainAndAwaitExit(drain: Effect<void>, awaitExit: Effect<void>, { ceilingMs })`](#drainandawaitexitdrain-awaitexit--ceilingms-) | `.` | The drain-and-confirm-exit skeleton both enactments share. |
+| [`ConvergenceAnomaly`](#convergenceanomaly) | `.` | What went wrong, as typed evidence. |
+| [`UnconvergedCause`](#unconvergedcause) | `.` | Why a boot ended unconverged. |
+| [`UnspeakableEvidence` · `unspeakableClause(evidence)`](#unspeakableevidence--unspeakableclauseevidence) | `.` | Why a peer is unspeakable, as data, and its renderer. |
+| [`UnspeakableProtocolError` · `isUnspeakableProtocolError(err)`](#unspeakableprotocolerror--isunspeakableprotocolerrorerr) | `.` | The transport fact raised at either trigger. |
+| [`UnspeakablePeerError` · `isUnspeakablePeerError(err)`](#unspeakablepeererror--isunspeakablepeererrorerr) | `.` | The corroborated verdict, with its two attestations. |
+| [`UNSPEAKABLE_SILENCE_MS`](#unspeakable_silence_ms) | `.` | The silence bound, 8 s. |
+| [`contractIsNewer` · `contractIsCompatible` · `buildsMatch`](#contractisnewer--contractiscompatible--buildsmatch) | `.` | The version and build comparisons, re-exported. |
 
-The generic probe deliberately throws when a live pre-fragment daemon answers
-the socket but has no `core.hello` route. A consumer with a named upgrade window
-may catch only that structured route-missing failure and project it as an
-older-build observation. Kaval does this so its not-drainable policy reports the
-existing human nudge; it never turns the served-daemon fact into `null`, and no
-other probe error is caught. (The oRPC `NOT_FOUND` *frame* that carried this
-failure is gone with the protocol epoch; a consumer's narrowing re-derives on the
-Effect RPC failure it was replaced by. A previous-**epoch** daemon is a different
-observation entirely — see below.)
+### `converge(endpoint)`
+
+A single fold over every observation, then decide, then a budget-gated drain,
+then a private bind. It takes a genuine `createEndpoint` handle only.
+
+- It returns a typed `ConvergenceOutcome` whose kinds either always carry their
+  anomaly or never do. There are no optionals.
+- Anomaly arms carry typed evidence as data: `running` and `expected`
+  identities, `drained` and `observed` instance keys. `detail` is human garnish
+  only.
+- Same-lineage admitted drains continue (F1a).
+- A null re-probe is `identity-unverifiable` (F1b).
+- Give-up re-decides characterization without re-draining.
+- Connector arms (ssh) use [`convergeAdmit`](#convergeadmitopts) with the same
+  policy object.
+
+#### Single observation authority
+
+Every observed identity flows through one internal fold (`foldObserved`): the
+initial probe, bind characterization, the post-drain successor, the post-give-up
+bind, and the drainable re-probe.
+
+- Every bind transition (plain, recycle, post-drain, give-up) flows through one
+  `BindResult` consumer (`consumeBindResult`). Call sites never inspect
+  `r.kind`.
+- The fold always runs `decide(policy, identity | null)`, never a hand-copied
+  compat/match subset.
+- It owns connection lifecycle, so refused, not-adopted and probe-failed exits
+  call the idempotent `releaseHeld` unconditionally. There is no `holding`
+  mirror.
+- It preserves four-valued characterizations
+  (`characterized | absent | failed | uncorrelated`).
+- It reports `unconverged.running: null` when the running identity is honestly
+  unknown, and never fabricates `expected`.
+- A characterization probe throw is `probe-failed` with the true message, never
+  a catch-to-null into `identity-unverifiable`.
+- Named probe instance keys must match `conn.startedAt`. A mismatch is
+  `uncorrelated`.
+
+### `convergeAdmit(opts)`
+
+The connector arm, an `Effect<ConvergeAdmitVerdict>`. It takes
+`{ running, budget, drain, awaitExit, … }`.
+
+- `budget` is a `ConnectorDrainBudget`, which makes recycle and nudge-human
+  unspellable.
+- `drain` and `awaitExit` are `Effect`s.
+- `awaitExit` succeeds only on process exit, never on link loss (F3).
+
+### `probeDaemonIdentity(opts)(socketPath)`
+
+The endpoint probe for the frozen fragment, as a full `ConvergenceProbe`. It
+takes `{ capability, drainCeilingMs? }`.
+
+- It answers `null` only for an honest `ECONNREFUSED` or `ENOENT`.
+- Every other dial or hello failure throws, including a control-core version
+  other than the frozen `1.0`, and an unspeakable peer
+  (`UnspeakableProtocolError`).
+- It throws when a live pre-fragment daemon answers the socket but has no
+  `core.hello` route.
+
+A consumer with a named upgrade window may catch only that structured
+route-missing failure and project it as an older-build observation. Kaval does
+this, so its not-drainable policy reports the existing human nudge.
+
+- Such a consumer never turns the served-daemon fact into `null`, and catches no
+  other probe error.
+- The narrowing derives on the Effect RPC failure. The oRPC `NOT_FOUND` frame
+  does not exist on this wire.
+- A peer from a previous epoch is a different observation. See
+  [The third observation](#the-third-observation--unspeakable-protocol).
+
+### `probeDaemonIdentityFrom(opts)`
+
+The single probe-assembly authority for an already-dialed connector.
+
+- `probeDaemonIdentityFrom({ client, dispose, capability: "not-drainable" })`
+  omits the exit-oracle fields.
+- `probeDaemonIdentityFrom({ client, dispose, capability: "drainable", awaitExit, drainCeilingMs })`
+  requires both of them.
+- ssh keeps its stronger process-exit oracle instead of treating link loss as
+  exit.
+
+### `readControlCoreHello(client)` · `ControlCoreProbeClient`
+
+Reads and validates the frozen hello on its one baked 30 s deadline: the
+frozen-version check, plus the joint `buildId`/`commit` fact.
+
+- `ControlCoreProbeClient` is the already-dialed client shape it takes:
+  `client.surface.control.core.hello()`, which is itself an `Effect`.
+
+### `dialSocket(socketPath)`
+
+The package's own unix-socket dial, as an `Effect<Socket>`, so the control-core
+leg owns its framing tap.
+
+- A dial interrupted before it settles destroys the half-open socket rather than
+  abandoning it.
+
+### `isNoListenerError(error)`
+
+The one `ECONNREFUSED`/`ENOENT` classifier shared by generic and pre-fragment
+daemon probes.
+
+### `decide(policy, running)`
+
+The pure fold, and the sole decision authority under `converge`. It reads
+`policy.baked`; there is no free-standing baked argument.
+
+### `createDrainBudget` · `createConnectorDrainBudget` · `outcomeAdopted` · `outcomeAnomaly`
+
+Opaque budget handles and outcome constructors. There are no public admit
+can-openers, and the connector mint is type-gated.
+
+### `InstanceKey` · `instanceKeyFromStartedAt` · `instanceKeyTag`
+
+A named instance, or `pre-instance` when `startedAt` is absent, which means
+older. The absence is never overloaded onto null.
+
+### `BindResult` · `BoundResidentCharacterization`
+
+The private-bind result. Adopted residents carry a four-valued characterization:
+`characterized | absent | failed | uncorrelated`.
+
+### `drainAndAwaitExit(drain, awaitExit, { ceilingMs })`
+
+The framework-run drain-and-confirm-exit skeleton both enactments share. Its
+signature is
+`drainAndAwaitExit(drain: Effect<void>, awaitExit: Effect<void>, { ceilingMs })`.
+
+- Both plugs are forked into the primitive's own scope, so the ceiling winning
+  interrupts the exit oracle.
+- `awaitExit`'s error channel is `never` by type, which states the F3 contract
+  in the signature rather than in a comment.
+
+### `ConvergenceAnomaly`
+
+`adopted-stale | skew-refused | unconverged | cross-supervisor`. Each arm
+carries typed evidence.
+
+- `unconverged.running` is nullable, for an unknown identity.
+- `link-failed` is session-owned.
+
+### `UnconvergedCause`
+
+`budget-exhausted | drain-not-taken | adopt-bind-failed | identity-unverifiable | probe-failed | unspeakable-protocol`,
+with the evidence as data under `unconverged`.
+
+- The `unspeakable-protocol` arm carries `socketPath`, `gatePath` and the pid
+  that was classified.
+- It rides a refusal only when the gate stopped naming that pid before the
+  takeover could act.
+
+### `UnspeakableEvidence` · `unspeakableClause(evidence)`
+
+Why a peer is unspeakable, as data: `{ trigger: "undecodable-frame", frame }` or
+`{ trigger: "silence", silentForMs }`.
+
+- There is no third arm.
+- `unspeakableClause` is shared, so the dial path, the corroboration site and
+  the fold cannot drift in what they tell an operator.
+
+### `UnspeakableProtocolError` · `isUnspeakableProtocolError(err)`
+
+The transport fact, raised by `probeDaemonIdentity`'s dial at one of the two
+triggers. It is never raised by the hello deadline, a close, or a member error.
+
+- It carries `socketPath` and the `evidence` field.
+- Uncorroborated, it is an ordinary `probe-failed`.
+- The guard is brand-checked and realm-robust.
+
+### `UnspeakablePeerError` · `isUnspeakablePeerError(err)`
+
+The corroborated verdict: the same fact plus the two attestations the endpoint
+adds. The gate at this rendezvous is ours, and its `pid` passed the holder
+identity law.
+
+- It carries `gatePath` and `pid` beside the transport fields.
+- Only this becomes the `unspeakable-protocol` observation.
+
+### `UNSPEAKABLE_SILENCE_MS`
+
+The silence bound, 8 s. It is pinned between two facts of the link.
+
+- The link pings every 5 s, and a peer of this epoch pongs *below* its handlers,
+  so a merely slow daemon has still demonstrably spoken.
+- The link's keep-alive backstop ends a silent connection only past 60 s, after
+  which there is nothing left to classify.
+
+### `contractIsNewer` · `contractIsCompatible` · `buildsMatch`
+
+Re-exported from `@kolu/surface-daemon`. Contract versions are ordered; build
+ids are match-only.
 
 ### The third observation — `unspeakable-protocol`
 
-A daemon from a **previous protocol epoch** cannot be asked its version at all:
-version negotiation happens inside the protocol that was replaced. Convergence
-therefore has a third narrowly-typed peer observation beside "identity" and
-"absent".
+A daemon from a **previous protocol epoch** cannot be asked its version at all,
+because version negotiation happens inside the protocol that was replaced.
+Convergence therefore has a third narrowly-typed peer observation beside
+"identity" and "absent".
 
-Such a peer betrays itself in exactly **two** ways, and which one you get depends
-on who greets whom:
+Such a peer betrays itself in exactly two ways, and which one you get depends on
+who greets whom:
 
 | Trigger | What happens | Evidence |
 | --- | --- | --- |
-| `undecodable-frame` | the peer speaks FIRST, in a framing we cannot parse | a bounded, JSON-quoted `frame` excerpt |
-| `silence` | the peer waits for a greeting in a protocol we do not speak — it accepts the connection, takes our frames, and answers nothing | `silentForMs`, the bound it stayed mute through |
+| `undecodable-frame` | The peer speaks first, in a framing we cannot parse. | A bounded, JSON-quoted `frame` excerpt. |
+| `silence` | The peer waits for a greeting in a protocol we do not speak: it accepts the connection, takes our frames, and answers nothing. | `silentForMs`, the bound it stayed mute through. |
 
-The `silence` arm is measured against the real previous release: the old oRPC
-`ServerPeer` waits for its own client hello, our ndjson frames never look like
-one, and the connection dies by timeout with **no first frame to fail decoding**.
-Both are the same verdict, so they are one error type with the trigger as a
-tagged field, never two classes a consumer would have to union.
+- The `silence` arm is measured against the previous release: its oRPC
+  `ServerPeer` waits for its own client hello, our ndjson frames never look like
+  one, and the connection dies by timeout with no first frame to fail decoding.
+- Both triggers are the same verdict, so they are one error type with the
+  trigger as a tagged field, never two classes a consumer would have to union.
+- The fact is raised under those triggers alone. The observation additionally
+  requires two attestations: the gate file at this rendezvous is ours, and its
+  pid passed the holder identity law.
+- An uncorroborated trigger stays `probe-failed`, and a foreign socket-squatter
+  keeps the `SocketSquatterForeignError` path. A merely slow peer and a stranger
+  on our socket both stop at the transport fact.
+- Classification happens at the trigger, not by waiting out the frozen hello's
+  30 s deadline. That keeps `awaitHelloGone` responsive inside a drain ceiling
+  when the peer will never answer.
 
-The fact is raised under those triggers alone; the **observation** additionally
-requires two attestations — the **gate file at this rendezvous is ours** and its
-**pid passed the holder identity law**. Nothing else earns it: an uncorroborated
-trigger stays `probe-failed`, and a foreign socket-squatter keeps the untouched
-`SocketSquatterForeignError` path. That split is the whole safety story, and it
-is what lets the `silence` trigger exist at all — a merely slow peer and a
-stranger on our socket both stop at the transport fact, so the observation can
-never put a SIGTERM near a process we have not proven is ours.
+#### The takeover
 
-Classification happens at the trigger, not by waiting out the frozen hello's
-30 s deadline — which is also what keeps `awaitHelloGone` responsive inside a
-drain ceiling when the peer will never answer.
-
-The disposition is **TAKEOVER**, for every policy — the contract-skew policy is
-not consulted, because this is not a skew (a version is something you read off a
-wire you can speak) and the drain verb the ordered padi policy would reach for
-does not exist on an undecodable wire. What *is* available is the act the drain
-verb was only ever a way to request: the daemon's own in-process shutdown, asked
-for with a **signal** instead of a message.
+The disposition is takeover, for every policy. The contract-skew policy is not
+consulted, because an undecodable wire is not a skew and the drain verb does not
+exist on it. What is available is the act the drain verb requests: the daemon's
+own in-process shutdown, asked for with a signal instead of a message.
 
 | step | what happens |
 | --- | --- |
-| re-attest | the gate must still name the exact pid that was classified. If it names anyone else, **nothing is signalled** — that holder was never observed — and the pass refuses with the `unspeakable-protocol` cause |
-| `SIGTERM` | the old daemon's own shutdown runs (persist, close, release the gate). Bounded by `REAP_TERM_CEILING_MS` (120 s) — a deadline, not a delay. **Skipped entirely** when the holder is observed STOPPED (`T`/`t`): a stopped process cannot run a shutdown handler — the signal is queued, not delivered — so the graceful window could only be spent for nothing |
-| `SIGKILL` | on that skipped path, immediately (that is the `reason: "stopped"` in the outcome); otherwise only past the graceful deadline. Bounded by `REAP_KILL_CEILING_MS` (5 s). Still alive after it ⇒ the endpoint reports `dead` and fails loud |
-| spawn | a daemon of this epoch is started and connected at the same rendezvous; it **seeds from disk**, so loss is bounded by the old daemon's autosave debounce |
+| re-attest | The gate must still name the exact pid that was classified. If it names anyone else, nothing is signalled and the pass refuses with the `unspeakable-protocol` cause. |
+| `SIGTERM` | The old daemon's own shutdown runs (persist, close, release the gate), bounded by `REAP_TERM_CEILING_MS` (120 s). |
+| `SIGKILL` | Only past the graceful deadline, bounded by `REAP_KILL_CEILING_MS` (5 s). Still alive after it, and the endpoint reports `dead` and fails loud. |
+| spawn | A daemon of this epoch is started and connected at the same rendezvous. It seeds from disk, so loss is bounded by the old daemon's autosave debounce. |
 
-The takeover is logged as one operator-readable line carrying what was stopped,
-why it was provably ours, which signal ended it, and how long the wait took — and,
-when the graceful leg was skipped, that it was. The
-outcome is `recycled` — the holder was replaced, not adopted.
-
-Kaval's `recycle` reaches the same act by the same path; padi's old **refuse**
-is gone, because reasoning from "the drain verb is unreachable" to "leave it
-standing" left a cross-epoch upgrade permanently unconverged until a human
-stopped a daemon out of band.
-
-<Aside type="note" title="Two policies in the wild">
-  [kaval](/kaval) declares `recycle-on-skew`; [padi](/padi) declares `drain-newer-else-refuse` with
-  a drain-capable handshake. The step-by-step for both is in
-  [How to recycle and upgrade a daemon](/surface/recycle-and-upgrade); the rules
-  the kit enforces are in [Daemon invariants](/surface/surface-daemon-invariants).
-</Aside>
+- The graceful leg is skipped entirely when the holder is observed stopped
+  (`T`/`t`): a stopped process cannot run a shutdown handler, because the signal
+  is queued, not delivered.
+- On that skipped path `SIGKILL` lands immediately. That is the
+  `reason: "stopped"` in the outcome.
+- The takeover is logged as one operator-readable line: what was stopped, why it
+  was provably ours, which signal ended it, how long the wait took, and whether
+  the graceful leg was skipped.
+- The outcome is `recycled`, because the holder was replaced, not adopted.
+- Kaval's `recycle` reaches the same act by the same path.
