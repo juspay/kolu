@@ -42,9 +42,14 @@ const STANDS: Readonly<Record<ConductorWakeEvent["level"], string>> = {
 /** One terminal's line. The ref comes first because it is what every tool
  *  takes; the prose after it is what a person would say about the same thing.
  *  An EMPTY agent is the `ended` case — no agent was ever in it — and the line
- *  says so rather than naming one that never existed. */
+ *  says so rather than naming one that never existed.
+ *
+ *  An EMPTY NAME is the same kind of answer about a different fact: nothing
+ *  kolu has read says what the terminal is for (no intent, no branch). It is
+ *  SAID in words, because a pair of quotes with nothing between them reads as
+ *  a terminal somebody called "" — a name the agent would then try to use. */
 const lineOf = (event: ConductorWakeEvent): string =>
-  `- ${event.ref} — “${event.name}” on ${event.hostName}, ${event.agent === "" ? "no agent in it" : `running ${event.agent}`}: ${STANDS[event.level]} (seen ${event.at}).`;
+  `- ${event.ref} — ${event.name === "" ? "an unnamed terminal" : `“${event.name}”`} on ${event.hostName}, ${event.agent === "" ? "no agent in it" : `running ${event.agent}`}: ${STANDS[event.level]} (seen ${event.at}).`;
 
 /**
  * The account, for one wake carrying one or more terminals.

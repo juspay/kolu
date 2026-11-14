@@ -22,9 +22,17 @@
  * never misleads: the next frame says more.
  */
 
+import { frameByClass, frameClassOf } from "@kolu/padi-client/attention";
 import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import type { WatchObservation, WatchRoot } from "./watching.ts";
+
+/** padi's own terminal-id type, read off the urgency cell this module already
+ *  takes — the watch list carries plain strings, and the one place they are
+ *  handed back to padi's fold is the class read below. Taken from `PadiUrgency`
+ *  rather than imported from the vocabulary so this package keeps the two
+ *  padi-client leaves it declares and no third edge. */
+type PadiTerminalId = PadiUrgency["awaitingIds"][number];
 
 /** ONE HOST'S LAST WORD, as the watcher's leg accumulated it.
  *
@@ -119,11 +127,15 @@ export const walkRoot = (
  *    with no agent in it; its agent is dead and whatever it was doing stopped
  *    there. News exactly once, and the entry stays listed because waking the
  *    terminal puts it back on the ordinary levels.
- *  - **asking** / **stopped** — padi's own two awaiting lists.
- *  - **working** — padi's working list AND its linger list. padi splits a
- *    waiting agent into "lingering" and "finished" on its own quiet rule, and
- *    only the second half is the end of a turn: treating the first as a stop
- *    would wake the Conductor while the agent is still printing.
+ *  - **asking** / **stopped** / **working** — padi's own partition of the
+ *    frame, read through `@kolu/padi-client/attention` (the one place that
+ *    names what each urgency list MEANS) rather than off the id arrays. padi
+ *    splits a waiting agent into "lingering" and "finished" on its own quiet
+ *    rule, and only the second half is the end of a turn: treating the first
+ *    as a stop would wake the Conductor while the agent is still printing, so
+ *    `linger` reads as `working` here. The switch below is exhaustive — a
+ *    sixth attention class stops this compiling instead of silently falling
+ *    through to `shell`.
  *  - **shell** — in none of the four lists, with a record that says there is no
  *    agent in it. It never rings; what it carries is the name, and the fact
  *    that the prompt is back.
@@ -132,6 +144,11 @@ export const readingsOf = (
   reading: HostReading,
 ): ReadonlyArray<WatchObservation> => {
   const { host, hostName, urgency, keys, records } = reading;
+  // padi's urgency cell, as the CLASSES `@kolu/padi-client/attention` names —
+  // the one translation from `awaitingIds`/`finishedIds`/… to what those lists
+  // mean. `liveIds` is kaval's byte-motion feed, which a watcher leg does not
+  // take and no level below asks about.
+  const frame = { byClass: frameByClass(urgency), liveIds: [] };
   const seen: Array<WatchObservation> = [];
   for (const id of reading.watched) {
     const record = records.get(id);
@@ -165,17 +182,29 @@ export const readingsOf = (
       seen.push({ ...base, level: "asleep" });
       continue;
     }
-    if (urgency.awaitingIds.includes(id)) {
-      seen.push({ ...base, level: "asking" });
-      continue;
-    }
-    if (urgency.finishedIds.includes(id)) {
-      seen.push({ ...base, level: "stopped" });
-      continue;
-    }
-    if (urgency.workingIds.includes(id) || urgency.lingerIds.includes(id)) {
-      seen.push({ ...base, level: "working" });
-      continue;
+    const klass = frameClassOf(frame, id as PadiTerminalId);
+    switch (klass) {
+      case "asking":
+        seen.push({ ...base, level: "asking" });
+        continue;
+      case "finished":
+        seen.push({ ...base, level: "stopped" });
+        continue;
+      // padi's own split of a waiting agent: only `finished` is the end of a
+      // turn, so a lingering one is still work in progress here.
+      case "linger":
+      case "working":
+        seen.push({ ...base, level: "working" });
+        continue;
+      case "idle":
+        // Mentioned by no list — decided against the record just below.
+        break;
+      default: {
+        // A sixth attention class reaches this file as a compile error rather
+        // than as a terminal that silently reads `shell`.
+        const unknownClass: never = klass;
+        throw new Error(`unhandled attention class: ${String(unknownClass)}`);
+      }
     }
     // In none of the four lists: either there is no agent in it (a shell, which
     // never rings) or there is one in a state padi puts in no list — and about

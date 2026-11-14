@@ -164,6 +164,7 @@ function hostOver(): {
     fleetMcp: () => liveEndpoint,
     proveFleetMcp: proveFleetMcpEndpoint,
     publish: () => {},
+    watchListMoved: () => {},
     store: conductorStore,
     storePath: () => store.path,
     stateRoot,

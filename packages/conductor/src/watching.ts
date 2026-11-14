@@ -63,10 +63,11 @@
  */
 
 import type {
+  ConductorReadingLevel,
   ConductorState,
   ConductorWakeLevel,
-  ConductorWatchLevel,
 } from "kolu-common/conductor";
+import type { FLEET_WATCH_JOINS } from "kolu-mcp/fleetWatchJoin";
 
 /** ONE PIECE OF WORK, as the cell publishes it — the shape read straight off
  *  the state schema rather than re-declared beside it, so the thing this
@@ -79,16 +80,13 @@ export type ConductorWork = ConductorState["work"][number];
 export type ConductorSeen = ConductorState["seen"][number];
 
 /** HOW A TERMINAL CAME TO BE WATCHED, which is what the `ready` and `ended`
- *  rules read.
- *
- *  - `created` — the Conductor opened it (`lifecycle_create`) with no command.
- *  - `created-run` — ... and typed a command at its first prompt. The ONLY
- *    join `ended` applies to: nothing else gives kolu a command whose return
- *    to the prompt means anything.
- *  - `asked` — the Conductor (or a person) put an existing terminal on the
- *    list with `watch_terminal`. The only join that BASELINES, because it is
- *    the only one whose terminal already has a state nobody here caused. */
-export type WatchJoin = "created" | "created-run" | "asked";
+ *  rules read — the type of the one tuple the word is spelled in
+ *  (`kolu-mcp/fleetWatchJoin`, a zero-import leaf), which the fleet face's
+ *  wire schema and this conversation's persisted record both build from. The
+ *  joins and what each one means are documented there; what matters HERE is
+ *  that a fourth one cannot appear in a tool's answer without appearing in
+ *  these rules. */
+export type WatchJoin = (typeof FLEET_WATCH_JOINS)[number];
 
 /** THE LAST READING, as the entry remembers it — runtime only.
  *
@@ -197,19 +195,19 @@ export type WatchedTerminal = Pick<
 
 /** What a terminal is doing, as the watcher reads it off its host.
  *
- *  A wake level plus the two readings that never ring on their own: `working`
- *  and `shell` are reported rather than dropped because both MOVE the entry —
- *  one resets what we were told, the other keeps the name current and is where
- *  `ended` is decided.
+ *  The four levels a wake shares, plus the two readings that never ring on
+ *  their own: `working` and `shell` are reported rather than dropped because
+ *  both MOVE the entry — one resets what we were told, the other keeps the
+ *  name current and is where `ended` is decided.
  *
- *  Two of the wake levels never come off a host: `ready` and `ended` are
- *  CONCLUSIONS this module draws from a `stopped` and a `shell` reading, and
- *  the watcher has no business spelling either.
+ *  `ready` and `ended` are not in here at all: they are CONCLUSIONS this
+ *  module draws from a `stopped` and a `shell` reading, and the watcher has
+ *  no business spelling either.
  *
  *  READ OFF THE STATE SCHEMA, like {@link ConductorWork}: the level is
  *  published per watched ref, so the words this module decides with and the
  *  words a browser decodes are one list. */
-export type WatchLevel = ConductorWatchLevel;
+export type WatchLevel = ConductorReadingLevel;
 
 /** One reading of one watched terminal, for refs on CONNECTED hosts only — a
  *  host that is merely not answering says nothing about its terminals, and
@@ -323,10 +321,9 @@ const standsAs = (
     case "stopped":
       // AN AGENT NOBODY HAS SPOKEN TO HAS NOT STOPPED — it has arrived.
       return entry.spoken || entry.agent === null ? "stopped" : "ready";
-    default:
-      // `asking` — and the two levels no watcher produces, which read as
-      // themselves if one ever did.
-      return last.level;
+    case "asking":
+      // Asking a person is news about any terminal, agent detected or not.
+      return "asking";
   }
 };
 

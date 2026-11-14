@@ -420,6 +420,16 @@ export const ConductorDividerRowSchema = Schema.Struct({
   text: Schema.String,
 });
 
+/** THE FOUR LEVELS A READING AND A WAKE BOTH SPELL — the ones that come off a
+ *  host AND are worth waking the Conductor about. Declared once and spread
+ *  into both unions below, because the two lists are not one list: a reading
+ *  can never say `ready` or `ended` (those are conclusions kolu's watch draws
+ *  from a SEQUENCE of readings) and a wake can never say `working` or `shell`
+ *  (neither is news). Four literals spelled twice is how two lists drift;
+ *  one union covering both is a type that admits values its own producer
+ *  cannot make. */
+const SHARED_LEVELS = ["stopped", "asking", "gone", "asleep"] as const;
+
 /** HOW A WATCHED TERMINAL STANDS when kolu wakes the Conductor about it.
  *
  *  Six values, and every one of them is a thing the Conductor can DO
@@ -447,30 +457,26 @@ export const ConductorDividerRowSchema = Schema.Struct({
  *  Nothing else rings: an agent that is working, a plain shell nobody
  *  created with a command, a host that is merely not answering. */
 export const ConductorWakeLevelSchema = Schema.Literals([
-  "stopped",
-  "asking",
-  "gone",
+  ...SHARED_LEVELS,
   "ready",
-  "asleep",
   "ended",
 ]);
 export type ConductorWakeLevel = typeof ConductorWakeLevelSchema.Type;
 
 /** WHAT A WATCHED TERMINAL IS DOING, as the watch READS it off its host: the
- *  wake levels, plus the two readings that never ring on their own —
+ *  four shared levels, plus the two readings that never ring on their own —
  *  `working` (an agent visibly moving) and `shell` (a prompt with nothing in
  *  front of it). Both MOVE the entry, so both are read, and a panel that says
  *  how long a terminal has stood as it stands has to be able to name them.
  *
- *  `ready` and `ended` never come off a host — they are conclusions kolu's
- *  watch draws — so they cannot appear in a reading; they are in the type
- *  because the wake level this extends is where the words are spelled, and
- *  spelling four of them twice is how two lists drift. */
-export const ConductorWatchLevelSchema = Schema.Union([
-  ConductorWakeLevelSchema,
-  Schema.Literals(["working", "shell"]),
+ *  `ready` and `ended` are NOT in here: they never come off a host, so a
+ *  reading that carried one would be a frame nothing can produce. */
+export const ConductorReadingLevelSchema = Schema.Literals([
+  ...SHARED_LEVELS,
+  "working",
+  "shell",
 ]);
-export type ConductorWatchLevel = typeof ConductorWatchLevelSchema.Type;
+export type ConductorReadingLevel = typeof ConductorReadingLevelSchema.Type;
 
 /** One terminal's part of a wake — what a person sees when the line opens and
  *  what the agent's account is composed from. The ref is joined
@@ -805,11 +811,6 @@ export const ConductorStateSchema = Schema.Struct({
   /** When the turn in flight began, or `null` while nothing is running — so
    *  every reader's "working · 2m" counts from the same instant. */
   busySince: Schema.NullOr(Schema.String),
-  /** The terminals kolu wakes the Conductor about, as FLEET REFS, in the
-   *  order they were added. Membership only, like `fleet`: a terminal's name,
-   *  agent and state are read from its host's `terminals` collection. Saved
-   *  with the conversation. */
-  watched: Schema.Array(Schema.String),
   /** HOW EACH WATCHED TERMINAL STANDS, and SINCE WHEN — one entry per ref the
    *  watch has actually read, in watch order.
    *
@@ -823,14 +824,17 @@ export const ConductorStateSchema = Schema.Struct({
    *  accurate as the watch's first sight of it, which is the honest answer
    *  and the only one kolu has. An absent ref is "not read yet", not "0s".
    *
-   *  Beside `watched` rather than inside `work` because it is a READING and
-   *  those two are membership: a terminal is watched whether or not any host
-   *  has answered about it. */
+   *  Beside `work` rather than inside it because it is a READING and `work`
+   *  is membership: a terminal is watched whether or not any host has
+   *  answered about it. MEMBERSHIP IS `work` AND ONLY `work` — every watched
+   *  terminal is in exactly one group, so the flat list of refs this cell
+   *  used to carry beside it was the same fact twice, and two counts of one
+   *  list are two counts free to disagree. */
   seen: Schema.Array(
     Schema.Struct({
       ref: Schema.String,
       /** What the watch last read in it. */
-      level: ConductorWatchLevelSchema,
+      level: ConductorReadingLevelSchema,
       /** The ISO time it entered that level, by the watcher's clock — kept
        *  across readings that repeat the level, so the duration counts the
        *  state and not the poll. */
@@ -898,7 +902,6 @@ export const DEFAULT_CONDUCTOR_STATE: ConductorState = {
   refusal: null,
   steers: false,
   busySince: null,
-  watched: [],
   seen: [],
   work: [],
   held: [],

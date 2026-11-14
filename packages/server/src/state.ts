@@ -1093,11 +1093,20 @@ const CONF_MIGRATIONS = {
   // file's own version never runs, so the number moves UP with the shape
   // rather than a second rung being added beside this one.
   //
+  // THAT LICENCE COVERED THIS PR'S OWN PRE-RELEASE STAMPS AND EXPIRES WITH
+  // THEM: once 1.49.0 has shipped, a file in the wild says 1.49.0 and a rung
+  // renumbered past it would run again over a record it has already walked.
+  // The next shape change after the release gets a NEW rung beside this one,
+  // never a bigger number on this one.
+  //
   // The rung completes each entry with the reading that claims nothing it did
   // not see — `joined: "asked"` (no command kolu typed), `spoken: false`,
   // `ran: false`, and `root: null` (nothing has read the terminal's host, so
   // which piece of work it is part of is not yet known; the first reading
-  // after the boot says).
+  // after the boot says). Those values are FROZEN HISTORY, not a mirror of
+  // `kolu-conductor`'s `watchEntry()`: they are what completes the files
+  // these shapes were written by, and they stay as they are when a fresh
+  // entry's empty values move.
   //
   // `since` IS THE MOMENT THIS RUNG RUNS, and that is a deliberate choice
   // between two wrong answers. The join time was never written down, so the

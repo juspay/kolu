@@ -299,13 +299,12 @@ green. Tell each implementor this before it runs CI.
 Merging, when the human chose that you merge: you merge the PR yourself, and
 only when ALL of this holds. Every required check is green on the PR's
 CURRENT head commit, read from the PR by you — an implementor saying "green"
-The head has not moved since the evidence you have: in a full waterfall, since
-the planner's last review — a commit pushed after that review is reviewed
-first; in a trivial one, since you read those checks green on that same
-commit, so a push after your reading means reading CI again. And the branch
-contains the current base branch.
-A merge that is refused is a fact: find its cause and
-tell the human.
+is not the evidence. The head has not moved since the evidence you have: in a
+full waterfall, since the planner's last review — a commit pushed after that
+review is reviewed first; in a trivial one, since you read those checks green
+on that same commit, so a push after your reading means reading CI again. And
+the branch contains the current base branch. A merge that is refused is a
+fact: find its cause and tell the human.
 
 Closing up: once the PR is merged or closed, close the terminals you opened
 for it — the planner and the implementor, or in a trivial waterfall the one

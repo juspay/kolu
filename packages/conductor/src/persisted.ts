@@ -47,6 +47,7 @@ import {
 } from "kolu-common/conductor";
 import type { CellStore } from "@kolu/surface/server";
 import { Result, Schema } from "effect";
+import { FLEET_WATCH_JOINS } from "kolu-mcp/fleetWatchJoin";
 
 /** The record's SHAPE, as a schema rather than as an interface alone.
  *
@@ -101,10 +102,13 @@ export const PersistedConductorSchema = Schema.Struct({
       name: Schema.String,
       agent: Schema.NullOr(Schema.String),
       told: Schema.NullOr(ConductorWakeLevelSchema),
-      /** How it came to be watched — `kolu-conductor`'s `WatchJoin`. What
-       *  `ended` turns on: only a terminal kolu opened WITH a command can be
-       *  said to have finished one. */
-      joined: Schema.Literals(["created", "created-run", "asked"]),
+      /** How it came to be watched — built from the one tuple the word is
+       *  spelled in (`kolu-mcp/fleetWatchJoin`), which the fleet face's wire
+       *  schema and this module's `WatchJoin` also build from: a join a tool
+       *  can record is a join this file can read back. What `ended` turns on:
+       *  only a terminal kolu opened WITH a command can be said to have
+       *  finished one. */
+      joined: Schema.Literals([...FLEET_WATCH_JOINS]),
       /** Whether the Conductor has said anything to the agent in it. What
        *  `ready` turns on, and therefore worth surviving a restart: an agent
        *  briefed before the restart must not ring as a fresh one after it. */
@@ -220,10 +224,11 @@ function oneDividerPerReset(
 export function persistedFrom(
   state: ConductorState,
   rows: ReadonlyArray<ConductorRow>,
-  /** The watch list as ENTRIES — the cell's `watched` is refs alone, and what
-   *  a restart needs is the facts beside each one (see the schema). Passed in
-   *  rather than read off the state for exactly that reason: the state is
-   *  what a browser is told, and this is what the next boot resumes from.
+  /** The watch list as ENTRIES — the cell publishes membership as `work`
+   *  (the refs, grouped) and nothing else about an entry, and what a restart
+   *  needs is the facts beside each one (see the schema). Passed in rather
+   *  than read off the state for exactly that reason: the state is what a
+   *  browser is told, and this is what the next boot resumes from.
    *
    *  COPIED FIELD BY FIELD below, because the live entry carries two runtime
    *  fields the record must not learn (`kolu-conductor`'s `WatchEntry`: the

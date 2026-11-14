@@ -19,7 +19,7 @@
  *  vocabulary when the chip moved above the composer. */
 
 import type { ConductorRow, ConductorState } from "kolu-common/conductor";
-import { formatElapsedShort } from "../time/duration";
+import { elapsedSince } from "../time/duration";
 import { toolLabel } from "./toolCard";
 
 /** How much of a spoken line the status row carries. Past this the line is
@@ -94,8 +94,13 @@ export function statusDetail(
 
 /** HOW LONG the turn in flight has been running (`2m 14s`), from `busySince`
  *  against `nowMs` — the ticking clock, passed in so this stays pure and a
- *  test can place the instant. `null` while nothing is running, and `null`
- *  for a stamp that does not parse: an invented duration is worse than none.
+ *  test can place the instant. `null` while nothing is running: there is no
+ *  turn to age, and the line draws nothing at all.
+ *
+ *  A stamp that does not parse — or one in this browser's past-by-skew future
+ *  — is the shared dash, not a hole: `elapsedSince` is the one reading of a
+ *  wire stamp this app has, and a clock it cannot trust says so out loud
+ *  rather than letting the line quietly lose its duration.
  *
  *  The one thing on this line the tick may move. */
 export function statusSince(
@@ -104,7 +109,5 @@ export function statusSince(
   nowMs: number,
 ): string | null {
   if (phase !== "working" && phase !== "asking") return null;
-  const at = busySince === null ? Number.NaN : Date.parse(busySince);
-  if (Number.isNaN(at)) return null;
-  return formatElapsedShort(Math.max(0, nowMs - at));
+  return busySince === null ? null : elapsedSince(busySince, nowMs);
 }

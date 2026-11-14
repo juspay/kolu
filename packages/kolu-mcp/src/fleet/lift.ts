@@ -61,7 +61,6 @@ import { type FleetHosts, requireHost, requireTerminal } from "./hosts.ts";
 import { fleetTerminalRef, splitFleetTerminalRef } from "./ref.ts";
 import { FleetHostKeySchema, FleetTerminalRefSchema } from "./refSchema.ts";
 import {
-  type FleetWatchJoin,
   type FleetWatchList,
   unwatchTerminalTool,
   watchTerminalTool,
@@ -131,26 +130,26 @@ interface FleetLift {
    *  agent on this face to wake an id no tool here accepts, so that path is
    *  listed too and the prose is rewritten beside it. */
   readonly refusals: readonly string[];
-  /** An ANSWER path whose fleet reference is added to the conductor's watch
-   *  list once the call succeeds, and HOW that terminal joined (read off the
-   *  call's own arguments — a create with a `run` command is a different kind
-   *  of entry from a bare shell, because only the first can fail by never
-   *  growing an agent). Only `lifecycle_create` has one, and it is stated as a
-   *  row of this table rather than buried in that tool's wrapper because it is
-   *  the same kind of fact as the others here: where in an answer a terminal
-   *  reference lives. */
-  readonly watches?: {
-    readonly answer: string;
-    readonly joined: (args: Record<string, unknown>) => FleetWatchJoin;
-  };
-  /** An ARGUMENT path naming the terminal this call SPOKE to. Only
-   *  `agent_say` has one: once its keys have landed, the conductor has acted
-   *  on whatever that terminal was doing, so the news held about it is stale
-   *  and the list is told (`said`). Read off the arguments rather than the
-   *  answer because that is where `agent_say` carries its reference — and the
-   *  pre-route arguments still hold the FLEET spelling, which is what the list
-   *  is keyed by. */
-  readonly says?: string;
+  /** WHAT THE WATCH LIST IS TOLD once this call lands — the one place a lifted
+   *  tool's effect on the conductor's list is stated, given the call's own
+   *  arguments and its RE-QUALIFIED answer so every reference handed to the
+   *  list is the fleet spelling the agent itself was given back. A bare id
+   *  there would be a watch on a terminal no other tool on this face can name.
+   *
+   *  `lifecycle_create` watches what it created (and reads off the arguments
+   *  whether that was a bring-up with a `run` command or a bare shell: only the
+   *  first can end with the command gone and no agent ever there, which is the
+   *  one thing the Conductor must hear about rather than wait on for ever).
+   *  `agent_say` tells the list it spoke (`said`): once its keys have landed
+   *  the conductor has acted on whatever that terminal was doing, so the news
+   *  held about it is stale. Stated as a row of this table rather than buried
+   *  in each tool's wrapper because it is the same kind of fact as the others
+   *  here: where in a call a terminal reference lives. */
+  readonly tells?: (
+    list: FleetWatchList,
+    args: Record<string, unknown>,
+    answer: unknown,
+  ) => void;
 }
 
 /** THE id grammar of the fleet face, in one place. Each input is the per-host
@@ -171,14 +170,16 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     refs: ["placement.parentId"],
     answers: ["id"],
     refusals: ["landed.id", "id"],
-    watches: {
-      answer: "id",
+    tells: (list, args, answer) => {
+      const ref = refAt(answer, "id");
       // A `run` command is the difference between "a shell I opened" and "a
-      // bring-up I started": only the second can end with the command gone and
-      // no agent ever there, which is the one thing the Conductor must hear
-      // about rather than wait on for ever.
-      joined: (args) =>
-        typeof args.run === "string" ? "created-run" : "created",
+      // bring-up I started".
+      if (ref !== undefined) {
+        list.watch(
+          ref,
+          typeof args.run === "string" ? "created-run" : "created",
+        );
+      }
     },
   },
   agent_say: {
@@ -190,7 +191,11 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     refs: [],
     answers: [],
     refusals: ["id"],
-    says: "id",
+    tells: (list, args) => {
+      const ref = refAt(args, "id");
+      // A terminal that is not watched is the list's own business to ignore.
+      if (ref !== undefined) list.said(ref);
+    },
   },
   lifecycle_sendInput: {
     input: Schema.Struct({
@@ -257,6 +262,16 @@ function atPath(value: Record<string, unknown>, path: string): unknown {
     if (at === null || typeof at !== "object") return undefined;
     return (at as Record<string, unknown>)[key];
   }, value);
+}
+
+/** A terminal reference at a dotted path of a call's arguments or its answer —
+ *  `undefined` for anything that is not a string there, which is how a tool
+ *  that refused before it created anything tells the watch list nothing. The
+ *  one read every {@link FleetLift.tells} does. */
+function refAt(value: unknown, path: string): string | undefined {
+  if (value === null || typeof value !== "object") return undefined;
+  const at = atPath(value as Record<string, unknown>, path);
+  return typeof at === "string" ? at : undefined;
 }
 
 /** The same object with one dotted path replaced — copying each level it
@@ -419,36 +434,13 @@ function lifted(
               tool.handler(call.bare, { core: call.padi }, signal),
               (answer) => {
                 const lifted = requalify(answer, lift.answers, call.host);
-                // AFTER the re-qualification, so the watch list holds the
-                // reference the agent was given back — a bare id there would be
-                // a watch on a terminal no other tool on this face can name.
-                if (
-                  lift.watches !== undefined &&
-                  lifted !== null &&
-                  typeof lifted === "object"
-                ) {
-                  const ref = atPath(
-                    lifted as Record<string, unknown>,
-                    lift.watches.answer,
-                  );
-                  if (typeof ref === "string") {
-                    watchList.watch(
-                      ref,
-                      lift.watches.joined(args as Record<string, unknown>),
-                    );
-                  }
-                }
-                // The keys landed, so the conductor has now acted on whatever
-                // that terminal was doing. The list is told at the FLEET
-                // reference the call named; a terminal that is not watched is
-                // the list's own business to ignore.
-                if (lift.says !== undefined) {
-                  const ref = atPath(
-                    args as Record<string, unknown>,
-                    lift.says,
-                  );
-                  if (typeof ref === "string") watchList.said(ref);
-                }
+                // AFTER the re-qualification, so every reference the list is
+                // told is the one the agent was given back.
+                lift.tells?.(
+                  watchList,
+                  args as Record<string, unknown>,
+                  lifted,
+                );
                 return lifted;
               },
             ),

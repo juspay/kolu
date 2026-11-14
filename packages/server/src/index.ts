@@ -54,8 +54,8 @@ import { startFleetMcpEndpoint } from "./fleet/mcpEndpoint.ts";
 import {
   disposeServerConductor,
   liveServerConductor,
-  setConductorStateListener,
   setFleetMcpEndpoint,
+  setWatchListListener,
 } from "./conductor/live.ts";
 import {
   type ConductorWatcher,
@@ -651,8 +651,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   //
   // `entries` is the READ — the `watched` resource the Conductor reads its own
   // list from — and `subscribe` is how that resource hears the list move
-  // without the Conductor calling anything. The subscribers are fired off the
-  // conversation's own published state below, beside the watcher's re-scope.
+  // without the Conductor calling anything. The subscribers are fired from the
+  // conversation's own "the list moved" event below, which is also what
+  // re-scopes the watcher.
   const watchedReaders = new Set<() => void>();
   const watchList: FleetWatchList = {
     entries: () =>
@@ -1080,29 +1081,18 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     conductor: liveServerConductor,
     log,
   });
-  // The list moves for three reasons — the Conductor watching or unwatching, a
-  // terminal it created being watched for it, a watched terminal going away —
-  // and every one of them republishes the cell. Tell the watch
-  // only when the LIST changed: a state frame lands per turn, per model switch
-  // and per sign-in step, and re-walking the fleet for a phase change would be
-  // work for nothing.
+  // THE LIST MOVED, as the conversation itself says it. Membership — the
+  // Conductor watching or unwatching, a terminal it created being watched for
+  // it, a watched terminal going away — is what the WATCHER acts on: it
+  // re-scopes its per-host subscriptions, which is work worth doing only when
+  // the set of refs is different.
   //
   // The `watched` RESOURCE moves for one more reason than the scope does: a
   // reading that renames a terminal or finds an agent in it leaves membership
-  // alone and still changes every row an agent reads. So the two have their
-  // own keys — the watcher's over the refs, the resource's over the rows —
-  // and neither wakes for the other's changes.
-  let watchedKey = "";
-  let watchedRows = "";
-  setConductorStateListener((state) => {
-    const key = state.watched.join("\n");
-    if (key !== watchedKey) {
-      watchedKey = key;
-      conductorWatcher?.watchListMoved();
-    }
-    const rows = JSON.stringify(watchList.entries());
-    if (rows === watchedRows) return;
-    watchedRows = rows;
+  // alone and still changes every row an agent reads. So it hears every
+  // event, and the watcher hears the membership ones.
+  setWatchListListener((membership) => {
+    if (membership) conductorWatcher?.watchListMoved();
     for (const tell of watchedReaders) tell();
   });
 

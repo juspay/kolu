@@ -91,12 +91,18 @@ const ConductorStatus: Component<{
   /** THE SAME TWO NUMBERS THE TAB'S BADGE IS MADE OF, off the same published
    *  fact: `work` is the watched terminals grouped by the top-level terminal
    *  their parent edges end at (kolu-server derives it once, from the watch
-   *  list's own readings), and `watched` is the terminals themselves. The tab
-   *  shows the first; this line says both, because the number that moves when
-   *  a waterfall starts and the number that moves when it splits are
-   *  different numbers and a reader seeing one jump wants to know which. */
+   *  list's own readings), and the terminals are the refs inside those
+   *  groups. The tab shows the first; this line says both, because the number
+   *  that moves when a waterfall starts and the number that moves when it
+   *  splits are different numbers and a reader seeing one jump wants to know
+   *  which.
+   *
+   *  BOTH COUNTED OFF `work`, which is the one place membership is published:
+   *  every watched terminal is in exactly one group, so a second flat list
+   *  beside it could only ever be the same list — or the one that disagrees. */
   const pieces = () => props.state.work.length;
-  const terminals = () => props.state.watched.length;
+  const terminals = () =>
+    props.state.work.reduce((count, one) => count + one.refs.length, 0);
   const held = () => props.state.held.length;
   /** The sentence both spellings of the control say, so the button a phone
    *  presses and the readout a wide window draws cannot drift into two

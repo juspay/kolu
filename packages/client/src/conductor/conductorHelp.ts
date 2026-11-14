@@ -13,10 +13,11 @@
  *
  *    - `@` and `/` are the composer's own two completions, and `@` spans every
  *      host (`ConductorComposer.tsx`).
- *    - The waterfall's setup questions are the ones the script asks, in the
- *      order it asks them (`packages/conductor/src/teaching.md`): host, mode,
- *      harness, model, what to do on green — and in a FULL waterfall the
- *      human approves the plan before anything is built.
+ *    - A waterfall ASKS ITS OWN setup questions first. Which ones, and how a
+ *      mode changes what follows, is the script's (`packages/conductor/src/
+ *      teaching.md`) and revs with the procedure — so the help says THAT it
+ *      asks and not WHICH, because a list here is a copy of a document this
+ *      module cannot see, and the copy is the half that goes stale.
  *    - Enter queues at the agent, the steer chord goes into the running turn
  *      while the status line offers it, and `■ Stop` is beside Send.
  *    - A wake is kolu ringing the conversation when a watched agent comes up,
@@ -78,8 +79,7 @@ export function helpSections(): readonly HelpSection[] {
       heading: "Waterfall",
       lines: [
         "Say “waterfall <what> in <repo>” to have it built end to end.",
-        "It asks the host, mode, harness, model and what to do on green.",
-        "Full mode plans first and you approve it; trivial is one implementor.",
+        "It asks a few setup questions first, then runs on its own.",
       ],
     },
     {

@@ -38,13 +38,16 @@ let endpoint: () => FleetMcpEndpoint | null = () => null;
 
 /** The served cell's writer, or `null` until `surface.ts` registers it. */
 let writeCell: ((state: ConductorState) => void) | null = null;
-/** What else wants to know the conversation moved, or `null` — the WATCHER,
- *  which re-scopes its subscriptions when the watch list changes. Beside the
- *  cell writer rather than inside it because the two are different audiences:
- *  the cell is what a browser reads, and this is a process-internal consumer
- *  of the same frame that must not be able to break the browser's by throwing
- *  into the publish path. */
-let onState: ((state: ConductorState) => void) | null = null;
+/** Who follows THE WATCH LIST, or `null` until the boot wires it — the
+ *  watcher, which re-scopes its per-host subscriptions when the set of
+ *  watched refs changes, and the `watched` resource's subscribers, which want
+ *  every change to a row as well. Registered rather than imported for the
+ *  same reason the cell writer is: this module is reached by three callers
+ *  that hold no handle on each other.
+ *
+ *  `null` is ordinary at boot — the watcher reads the list itself when it
+ *  starts, so an event before it is wired has nothing to tell. */
+let onWatchList: ((membership: boolean) => void) | null = null;
 
 let live: ConductorHost | undefined;
 
@@ -76,15 +79,14 @@ export function setConductorCellWriter(
   writeCell = write;
 }
 
-/** ... and register the one process-internal reader of the same frame: the
- *  WATCHER, whose subscriptions follow the watch list the conversation
- *  publishes. Optional — a boot that never started one publishes exactly as it
- *  always did — and guarded at the call site, because a listener that threw
- *  must not take a browser's frame down with it. */
-export function setConductorStateListener(
-  listen: (state: ConductorState) => void,
+/** ... and register who follows THE WATCH LIST ({@link onWatchList}). The
+ *  conversation announces that event where it mutates the list, so what
+ *  arrives here is the fact itself rather than a frame a consumer has to
+ *  diff. */
+export function setWatchListListener(
+  listen: (membership: boolean) => void,
 ): void {
-  onState = listen;
+  onWatchList = listen;
 }
 
 /**
@@ -128,18 +130,11 @@ export function liveServerConductor(): ConductorHost {
         );
       }
       writeCell(state);
-      // ... and whoever else in this process follows the conversation. AFTER
-      // the cell and inside its own guard: a watcher that threw here would
-      // take a frame a browser is waiting on down with it.
-      try {
-        onState?.(state);
-      } catch (err) {
-        log.warn(
-          { err },
-          "kolu-server: a conductor state listener threw and was ignored",
-        );
-      }
     },
+    // The list moved, said by the one thing that knows. Unguarded: this is
+    // not riding a browser's frame any more, so a listener that throws is a
+    // boot-wiring fault to see rather than a frame to protect.
+    watchListMoved: (membership) => onWatchList?.(membership),
     store: confStore<PersistedConductor>(store, "conductor"),
     storePath: () => store.path,
     // Attachments land beside the state file, under `conductor/attachments`.

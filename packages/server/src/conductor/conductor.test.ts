@@ -265,6 +265,13 @@ interface Rig {
   reads: () => number;
   writes: () => number;
   value: () => PersistedConductor;
+  /** Every frame a reader was actually given, in order. The host publishes
+   *  only when the frame says something different from the last one, so this
+   *  is what a browser's panel would have been redrawn from. */
+  published: () => ConductorState[];
+  /** Every "the watch list moved" the host announced — `true` when the SET of
+   *  watched refs changed, `false` when only a row did. */
+  listMoved: () => boolean[];
 }
 
 function rig(
@@ -274,6 +281,8 @@ function rig(
 ): Rig {
   const { spawn, spawns } = fakeSpawner();
   const backing = countingStore(remembered);
+  const published: ConductorState[] = [];
+  const listMoved: boolean[] = [];
   const host = startConductorHost({
     log,
     home: HOME,
@@ -284,10 +293,15 @@ function rig(
     // the server's own prover — which is why every bring-up below exercises
     // the real door rather than an imitation of it.
     proveFleetMcp: proveFleetMcpEndpoint,
-    // The served cell, as a sink. Nothing here reads it back — what a reader
-    // sees is `host.state()`, which is the same value — so this only has to
-    // not throw, the way the real writer does not once the surface is up.
-    publish: () => {},
+    // The served cell, as a sink — kept, because WHEN the host publishes is
+    // itself behaviour: a reading that moves something a reader can see has
+    // to reach the cell, and one that moves nothing must not.
+    publish: (state) => {
+      published.push(state);
+    },
+    watchListMoved: (membership) => {
+      listMoved.push(membership);
+    },
     store: backing.store,
     storePath: () => join(root, "config.json"),
     stateRoot: root,
@@ -299,6 +313,8 @@ function rig(
     reads: backing.reads,
     writes: backing.writes,
     value: backing.value,
+    published: () => published,
+    listMoved: () => listMoved,
   };
 }
 
@@ -946,6 +962,7 @@ describe("teardown (B2)", () => {
       fleetMcp: () => liveEndpoint,
       proveFleetMcp: proveFleetMcpEndpoint,
       publish: () => {},
+      watchListMoved: () => {},
       store: backing.store,
       storePath: () => "/state/config.json",
       stateRoot: "/state",
@@ -1006,6 +1023,7 @@ describe("teardown (B2)", () => {
       fleetMcp: () => liveEndpoint,
       proveFleetMcp: proveFleetMcpEndpoint,
       publish: () => {},
+      watchListMoved: () => {},
       store: backing.store,
       storePath: () => "/state/config.json",
       stateRoot: "/state",
@@ -1822,7 +1840,7 @@ describe("the watch across a restart", () => {
     // here is the conversation hearing the same news twice.
     r.host.observe([seeing(A, "stopped")]);
     await vi.waitFor(() => {
-      expect(r.host.state().watched).toContain(A);
+      expect(r.host.watched()).toContain(A);
     });
     expect(agent.wakes()).toEqual([]);
 
@@ -1833,6 +1851,65 @@ describe("the watch across a restart", () => {
       expect(agent.wakes()).toHaveLength(1);
     });
     expect(agent.wakes()[0]?.events[0]?.level).toBe("asking");
+  });
+});
+
+describe("what a reading publishes", () => {
+  it("publishes a LEVEL CHANGE that moves nothing else", () => {
+    // The command kolu typed is at the prompt: a shell, with no agent in it
+    // and nothing to tell anybody. Then it starts running. Nothing else about
+    // the terminal moves — same name, same (absent) agent, same piece of
+    // work, nothing held, nothing the conversation was told — so the level
+    // and its clock are the WHOLE of what a reader would see change.
+    const r = rig();
+    r.host.watchTerminal(A, "created-run");
+    r.host.observe([
+      seeing(A, "shell", { agent: null, foregroundShell: true }),
+    ]);
+    const before = r.published().length;
+
+    r.host.observe([
+      seeing(A, "working", { agent: null, foregroundShell: false }),
+    ]);
+
+    expect(r.published().length).toBe(before + 1);
+    expect(r.published().at(-1)?.seen.map((one) => one.level)).toEqual([
+      "working",
+    ]);
+  });
+
+  it("tells the list's readers when a reading first DETECTS the agent", () => {
+    // The agent is not in the cell — it is a row of the `watched` resource the
+    // Conductor reads its own list from — so what has to move here is the
+    // list event, with `membership: false`: the set of watched refs is the
+    // same one, and a watcher that re-scoped for this would tear down its
+    // subscriptions over a terminal that never left.
+    const r = rig();
+    r.host.watchTerminal(A, "created");
+    r.host.observe([seeing(A, "working", { agent: null })]);
+    const before = r.listMoved().length;
+
+    r.host.observe([seeing(A, "working", { agent: "claude-code" })]);
+
+    expect(r.listMoved().slice(before)).toEqual([false]);
+    expect(r.host.watchedTerminals()[0]?.agent).toBe("claude-code");
+  });
+
+  it("says NOTHING when a reading repeats what was already read", () => {
+    const r = rig();
+    r.host.watchTerminal(A, "created");
+    r.host.observe([seeing(A, "working")]);
+    const published = r.published().length;
+    const moved = r.listMoved().length;
+
+    r.host.observe([seeing(A, "working")]);
+
+    // Including the CLOCK: the stamp of the reading that first saw the level
+    // is carried forward, so "working 4m" is four minutes of working rather
+    // than four minutes of polling — and a poll that read the same thing
+    // again is not a frame, not a write and not an event.
+    expect(r.published().length).toBe(published);
+    expect(r.listMoved().length).toBe(moved);
   });
 });
 

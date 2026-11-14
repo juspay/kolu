@@ -18,6 +18,10 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import {
+  CONDUCTOR_HELP_FALLBACK,
+  CONDUCTOR_WIDE_FALLBACK,
+} from "./conductorLayout";
 
 // `fileURLToPath` + `node:path`, not `new URL(…, import.meta.url)`: the test
 // env's global `URL` is the browser one, which rejects a `file:` base.
@@ -65,6 +69,19 @@ describe("the Conductor's two-column breakpoint", () => {
     // is what both of those windows get.
     expect(rem("--breakpoint-conductor-help")).toBeGreaterThan(
       rem("--breakpoint-conductor-wide"),
+    );
+  });
+
+  it("flips at the same pixel before the stylesheet has applied", () => {
+    // The accessors carry the tokens' values as fallbacks for the first frame
+    // (and for a unit environment with no layout). A fallback nothing compares
+    // is a second spelling of a design number: move a measure, and the frame
+    // before the stylesheet lands would keep flipping at the old one.
+    expect(CONDUCTOR_WIDE_FALLBACK).toBe(
+      `${rem("--breakpoint-conductor-wide")}rem`,
+    );
+    expect(CONDUCTOR_HELP_FALLBACK).toBe(
+      `${rem("--breakpoint-conductor-help")}rem`,
     );
   });
 

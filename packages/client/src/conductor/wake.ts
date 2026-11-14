@@ -11,22 +11,42 @@
  *  would give a person the opening of a briefing ("You are the Conductor…")
  *  instead of the news. The events are the news. */
 
-import type { ConductorWakeEvent } from "kolu-common/conductor";
+import type {
+  ConductorReadingLevel,
+  ConductorWakeEvent,
+  ConductorWakeLevel,
+} from "kolu-common/conductor";
 
 /** How many terminals the one line names before it starts counting. Three
  *  fits a 390px phone beside the `kolu ·` prefix and the ▸; past that the
  *  count is the honest summary. */
 const NAMED_LIMIT = 3;
 
-/** What each level is CALLED on the line, as `<name> <word>` reads it.
+/** WHAT EACH LEVEL IS CALLED ON SCREEN — the app's ONE words table for the
+ *  watch's vocabulary, read by this line (`<name> <word>`) and by the watched
+ *  panel's row (`<word> <elapsed>`).
  *
- *  Three of them are the AGENT'S standing (`is up`, `stopped`, `asking`), one
- *  is the terminal's (`gone`), one is the terminal kolu was told to sleep
- *  (`asleep` — the agent in it is dead, and that is why it rang), and `ended`
- *  is a terminal the Conductor created with a command that ran and came back
- *  to a prompt with no agent ever appearing: the words say WHAT IS MISSING
- *  ("ended without an agent"), because "ended" alone reads like a success. */
-const LEVEL_WORD: Record<ConductorWakeEvent["level"], string> = {
+ *  One table because the levels are a WIRE enum on the rules' clock and these
+ *  are words on a reader's: the panel used to print the token itself, so
+ *  `shell 3m` was jargon on screen and no rewording was possible without a
+ *  protocol change. Keyed by every level the watch can publish, so a level
+ *  added to the schema fails to compile here rather than reaching a person
+ *  as its own enum name.
+ *
+ *  Three are the AGENT'S standing (`is up`, `stopped`, `asking`), one is the
+ *  terminal's (`gone`), one is the terminal kolu was told to sleep (`asleep` —
+ *  the agent in it is dead, and that is why it rang), `working` is an agent
+ *  visibly moving, `shell` is a prompt with nothing in front of it (so the
+ *  words say `no agent`, which is the fact a person is after), and `ended` is
+ *  a terminal the Conductor created with a command that ran and came back to a
+ *  prompt with no agent ever appearing: the words say WHAT IS MISSING, because
+ *  "ended" alone reads like a success. */
+export const LEVEL_WORD: Record<
+  ConductorReadingLevel | ConductorWakeLevel,
+  string
+> = {
+  working: "working",
+  shell: "no agent",
   stopped: "stopped",
   asking: "asking",
   gone: "gone",

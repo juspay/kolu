@@ -104,7 +104,6 @@ describe("the status line", () => {
 
   it("says how many pieces of work are in flight and how many terminals that is, and opens the list on a press", () => {
     const at = mount({
-      watched: ["local/a", "local/b", "local/c"],
       work: [
         {
           root: "local/a",
@@ -140,7 +139,6 @@ describe("the status line", () => {
 
   it("says one piece of work and one terminal in the singular", () => {
     const at = mount({
-      watched: ["local/a"],
       work: [
         {
           root: "local/a",
@@ -158,7 +156,7 @@ describe("the status line", () => {
   it("says NOTHING when nothing is watched — no count, and no control", () => {
     // `watching 0` and a press that opened an empty panel were both readouts
     // of nothing. The line simply does not carry them.
-    const at = mount({ watched: [], work: [] });
+    const at = mount({ work: [] });
     expect(at("conductor-watching")).toBeUndefined();
     expect(at("conductor-watched-panel")).toBeUndefined();
     expect(at("conductor-status")?.textContent).not.toContain("0");

@@ -28,7 +28,11 @@
  *  The fallbacks are the tokens' own values, for the moment before the
  *  stylesheet has applied (and for a unit environment with no layout at all,
  *  where both resolve to the narrow placement — the one with the control that
- *  opens the panel, and the menu entry that opens the help). */
+ *  opens the panel, and the menu entry that opens the help). They are EXPORTED
+ *  because a second spelling of a design token that nothing compares is a
+ *  number that drifts silently: `conductorLayout.test.ts` already parses
+ *  `index.css`, and it asserts these two equal the tokens there, so moving a
+ *  measure cannot leave the pre-stylesheet frame flipping at the old pixel. */
 
 import { createMediaQuery } from "@solid-primitives/media";
 
@@ -44,14 +48,21 @@ function breakpoint(token: string, fallback: string): string {
   return declared || fallback;
 }
 
+/** `--breakpoint-conductor-wide`'s declared value, pinned against the
+ *  stylesheet by this module's test. */
+export const CONDUCTOR_WIDE_FALLBACK = "69rem";
+
+/** `--breakpoint-conductor-help`'s declared value, pinned the same way. */
+export const CONDUCTOR_HELP_FALLBACK = "87rem";
+
 /** The window is wide enough for the reading column and the side column at
  *  once: the exact complement of Tailwind's `conductor-wide:` variant. */
 export const conductorWide = createMediaQuery(
-  `(width >= ${breakpoint("--breakpoint-conductor-wide", "69rem")})`,
+  `(width >= ${breakpoint("--breakpoint-conductor-wide", CONDUCTOR_WIDE_FALLBACK)})`,
 );
 
 /** The window holds all three tracks — help, conversation, work in progress:
  *  the help is a COLUMN here and an entry in the `⋯` menu everywhere else. */
 export const conductorHelpColumn = createMediaQuery(
-  `(width >= ${breakpoint("--breakpoint-conductor-help", "87rem")})`,
+  `(width >= ${breakpoint("--breakpoint-conductor-help", CONDUCTOR_HELP_FALLBACK)})`,
 );

@@ -17,7 +17,7 @@
 
 import type { ConductorState } from "kolu-common/conductor";
 import { type Component, For, Show } from "solid-js";
-import { formatElapsedShort } from "../time/duration";
+import { elapsedSince } from "../time/duration";
 import { useShownClock } from "../ui/shown";
 
 const ConductorStrip: Component<{
@@ -26,12 +26,10 @@ const ConductorStrip: Component<{
   onReveal: (rowId: string) => void;
 }> = (props) => {
   // Ages that stop while nobody is reading them — the pane is retained behind
-  // a host tab, so this is `getClockNow` gated on `shown()`.
+  // a host tab, so this is `getClockNow` gated on `shown()`. The reading of a
+  // wire stamp is `elapsedSince`'s, so a skewed or unreadable stamp draws the
+  // same dash here as on every other kolu readout.
   const now = useShownClock();
-  const since = (stamp: string): string => {
-    const at = Date.parse(stamp);
-    return Number.isNaN(at) ? "" : formatElapsedShort(Math.max(0, now() - at));
-  };
 
   return (
     <Show
@@ -67,7 +65,7 @@ const ConductorStrip: Component<{
             >
               <span>{out.kind === "task" ? "●" : "⤷"}</span>
               <span class="truncate max-w-[16rem]">{out.name}</span>
-              <span class="text-fg-3">· {since(out.since)}</span>
+              <span class="text-fg-3">· {elapsedSince(out.since, now())}</span>
             </button>
           )}
         </For>

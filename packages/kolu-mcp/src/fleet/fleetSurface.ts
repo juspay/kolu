@@ -59,6 +59,7 @@ import {
   GitStatusOutputSchema,
 } from "kolu-git/schemas";
 import { FleetHostKeySchema, FleetTerminalRefSchema } from "./refSchema.ts";
+import { FLEET_WATCH_JOINS } from "./watchJoin.ts";
 
 /** An id list at fleet refs — the one re-typing this surface performs, named so
  *  the four urgency lists below are visibly the SAME change four times. */
@@ -170,16 +171,13 @@ export const FleetTerminalSchema = Schema.Union([
 ]);
 export type FleetTerminal = typeof FleetTerminalSchema.Type;
 
-/** HOW a terminal came to be watched, as a wire value. The literals live HERE
- *  rather than beside the port that uses them because this file is the one
- *  both reach ({@link FleetWatchJoin} in `./watchList.ts` takes its type from
- *  this schema), and a second spelling is how a join the resource can show
- *  stops being a join a tool can record. */
-export const FleetWatchJoinSchema = Schema.Literals([
-  "created",
-  "created-run",
-  "asked",
-]);
+/** HOW a terminal came to be watched, as a wire value — built from the one
+ *  tuple the word is spelled in ({@link FLEET_WATCH_JOINS}, a zero-import
+ *  leaf), which is also what `kolu-conductor`'s rules and its persisted
+ *  record build from. A second spelling is how a join the resource can show
+ *  stops being a join a tool can record — or worse, one a tool writes and the
+ *  next boot refuses. */
+export const FleetWatchJoinSchema = Schema.Literals([...FLEET_WATCH_JOINS]);
 
 /** ONE TERMINAL THE CONDUCTOR IS BEING WOKEN ABOUT.
  *

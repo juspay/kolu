@@ -91,7 +91,7 @@
 
 import { activeArm } from "@kolu/padi-client/surface";
 import type { ConductorState } from "kolu-common/conductor";
-import { DASH } from "kolu-common/surface";
+import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { decodeHostKey } from "kolu-common/hostKey";
 import { agentName } from "../ui/agentDisplay";
@@ -100,11 +100,12 @@ import {
   fleetTerminalStanding,
   useFleetTerminalIndex,
 } from "../palette/fleetTerminals";
-import { formatElapsedShort } from "../time/duration";
+import { elapsedSince } from "../time/duration";
 import Tip from "../ui/Tip";
 import ConductorLook from "./ConductorLook";
 import { useShownClock } from "../ui/shown";
 import { fleetMentionCandidates } from "./mentionCandidates";
+import { LEVEL_WORD } from "./wake";
 import { splitWatchedRef } from "./watchedRef";
 import { useOpenTile } from "./useOpenTile";
 
@@ -140,7 +141,10 @@ const ConductorWatchedPanel: Component<{
   const names = createMemo(() => {
     const byRef = new Map<string, string>();
     for (const candidate of fleetMentionCandidates(fleet())) {
-      byRef.set(`${candidate.host}/${candidate.terminalId}`, candidate.name);
+      byRef.set(
+        fleetTerminalRef(candidate.host, candidate.terminalId),
+        candidate.name,
+      );
     }
     return byRef;
   });
@@ -274,17 +278,6 @@ function groupHeading(
     : head;
 }
 
-/** HOW LONG AGO an ISO stamp was, in the compact readout every kolu surface
- *  uses. The delta is handed over UNCLAMPED: a stamp in this clock's future
- *  is skew between two machines, and the shared ladder's answer to that is a
- *  dash rather than a confident `0s`. A stamp that is not a time at all —
- *  which only a hand-edited record can produce — is the same dash, because
- *  `Date.parse` answers `NaN` and the ladder has no tier for it. */
-function elapsedSince(iso: string, now: number): string {
-  const at = Date.parse(iso);
-  return Number.isNaN(at) ? DASH : formatElapsedShort(now - at);
-}
-
 /** One watched terminal, in two lines: who it is, then how it stands and for
  *  how long. The second line is `ConductorLook`'s — the transcript's own peek
  *  — with this row's clock handed to it.
@@ -336,25 +329,33 @@ function WatchedRow(props: {
     const split = parts();
     return split !== null && standing()?.kind === "here" ? split : null;
   });
-  /** HOW LONG IT HAS STOOD AS IT STANDS, in the watch's own word — `working
-   *  4m`, `asking 40s`, `asleep 2m`, `stopped 10s`. ONE rule for every state,
-   *  because the instant comes from the only thing that sees a state CHANGE:
-   *  kolu's watch, which stamped it when it first read the new level.
+  /** HOW LONG IT HAS STOOD AS IT STANDS, in the word the whole app calls that
+   *  level — `working 4m`, `asking 40s`, `asleep 2m`, `stopped 10s`. ONE rule
+   *  for every state, because the instant comes from the only thing that sees
+   *  a state CHANGE: kolu's watch, which stamped it when it first read the new
+   *  level.
+   *
+   *  The word is `wake.ts`'s {@link LEVEL_WORD} and not the wire token: the
+   *  levels are a PROTOCOL enum, revved by the rules, and printing one raw
+   *  makes every wording change a wire change (and reads as jargon in the
+   *  meantime — `shell`, to a person, is `no agent`). The wake line says the
+   *  same words for the same levels, from the same table.
    *
    *  `null` for a terminal the watch has not read in this process — nothing
    *  has looked at its host, or its host is away — because a row showing no
    *  duration is the honest answer where `0s` is not.
    *
-   *  The word is the WATCH'S level and not the state `ConductorLook` prints
-   *  beside it: the two come from different readings on different clocks (see
-   *  the header), and lending one source's clock to the other's word is how a
-   *  row comes to say something neither of them said. */
+   *  The level is the WATCH'S and not the state `ConductorLook` prints beside
+   *  it: the two come from different readings on different clocks (see the
+   *  header), and lending one source's clock to the other's word is how a row
+   *  comes to say something neither of them said. */
   const clock = createMemo((): { text: string; measures: string } | null => {
     const reading = props.seen;
     if (reading === undefined) return null;
+    const word = LEVEL_WORD[reading.level];
     return {
-      text: `${reading.level} ${elapsedSince(reading.since, now())}`,
-      measures: `How long kolu's watch has read this terminal as ${reading.level} — counted from the reading that first saw it`,
+      text: `${word} ${elapsedSince(reading.since, now())}`,
+      measures: `How long kolu's watch has read this terminal as ${word} — counted from the reading that first saw it`,
     };
   });
 

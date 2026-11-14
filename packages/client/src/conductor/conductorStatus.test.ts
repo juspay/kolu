@@ -4,6 +4,7 @@
  *  instant the turn began. */
 
 import type { ConductorRow, ConductorToolRow } from "kolu-common/conductor";
+import { DASH } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
 import { conductorDoing, statusDetail, statusSince } from "./conductorStatus";
 
@@ -163,8 +164,10 @@ describe("the status line's two halves", () => {
     expect(statusSince("asking", AT, NOW + 5_000)).toBe("5s");
   });
 
-  it("shows no clock while nothing is running, and none for a bad stamp", () => {
+  it("shows no clock while nothing is running, and the dash for a bad stamp", () => {
     expect(statusSince("idle", null, NOW)).toBeNull();
-    expect(statusSince("working", "not a date", NOW)).toBeNull();
+    // An unreadable stamp is a clock this app cannot trust, and every kolu
+    // readout says that with the same dash rather than dropping the figure.
+    expect(statusSince("working", "not a date", NOW)).toBe(DASH);
   });
 });

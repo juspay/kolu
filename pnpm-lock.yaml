@@ -410,6 +410,9 @@ importers:
       kolu-github:
         specifier: workspace:*
         version: link:../integrations/github
+      kolu-mcp:
+        specifier: workspace:*
+        version: link:../kolu-mcp
       tailwindcss:
         specifier: ^4.1.0
         version: 4.2.2

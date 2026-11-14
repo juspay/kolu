@@ -55,7 +55,7 @@
 
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
-import { Effect, Fiber, Queue, Schedule, Stream } from "effect";
+import { Cause, Effect, Fiber, Queue, Schedule, Stream } from "effect";
 import {
   type ConductorHost,
   type HostReading,
@@ -268,12 +268,28 @@ export function startConductorWatcher(deps: {
   // conversation's own to decide (`kolu-conductor`'s `watching.ts`). A reading
   // about a ref that has just been unwatched is ordinary — the legs re-open
   // asynchronously — and the conversation drops it.
+  //
+  // A leg's own failure is retried above, so the only way this fiber ends on
+  // its own is a DEFECT — a throw out of `observe` or the fold. Nothing re-opens
+  // it after that, and a watch that is gone means a Conductor nobody wakes, so
+  // it is said at `error` with its cause rather than ending in silence.
   const fiber = Effect.runFork(
-    Stream.runForEach(legs, ([, reading]) =>
-      Effect.sync(() => {
-        const seen = readingsOf(reading);
-        if (seen.length > 0) conductor().observe(seen);
-      }),
+    Effect.onExit(
+      Stream.runForEach(legs, ([, reading]) =>
+        Effect.sync(() => {
+          const seen = readingsOf(reading);
+          if (seen.length > 0) conductor().observe(seen);
+        }),
+      ),
+      (exit) =>
+        Effect.sync(() => {
+          if (exit._tag === "Success" || Cause.hasInterruptsOnly(exit.cause))
+            return;
+          log.error(
+            { err: Cause.squash(exit.cause) },
+            "kolu-server: the conductor's watch died — nothing will wake the Conductor until kolu-server restarts",
+          );
+        }),
     ),
   );
 

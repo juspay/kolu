@@ -99,6 +99,7 @@ import {
   ATTACHMENT_BYTE_CAP,
   attachmentGone,
   attachmentTooBig,
+  ConductorStateSchema,
   DEFAULT_CONDUCTOR_STATE,
   type ConductorAttachment,
   type ConductorFrame,
@@ -113,9 +114,11 @@ import {
   ConductorUnavailable,
 } from "kolu-common/conductorErrors";
 import type { CellStore } from "@kolu/surface/server";
+import { Schema } from "effect";
 import type { Logger } from "pino";
 import { type Held, holding } from "./held.ts";
 import {
+  PersistedConductorSchema,
   persistedFrom,
   type PersistedConductor,
   readPersistedConductor,
@@ -341,6 +344,20 @@ export interface ConductorDeps {
    *  and an import of the served ctx would be a cycle (`surface.ts` builds the
    *  cell that seeds itself from this host's first reading). */
   readonly publish: (state: ConductorState) => void;
+  /** THE WATCH LIST MOVED — the one in-process event this host announces, for
+   *  readers that follow the list itself rather than the browser's frame.
+   *  `membership` is true when the SET of watched refs changed (something was
+   *  added or dropped) and false when only what kolu knows about an entry did
+   *  (its name, the agent in it). The two are different jobs: the watcher
+   *  re-scopes its per-host subscriptions on a membership change and must not
+   *  tear them down because a terminal was renamed, while a reader of the
+   *  list's ROWS needs both.
+   *
+   *  An event, pushed where the list is mutated, rather than something a
+   *  consumer recovers by diffing published state: the conversation is the
+   *  one thing that knows, and "did the list move" reconstructed from a
+   *  serialised frame is one more copy of the answer free to be wrong. */
+  readonly watchListMoved: (membership: boolean) => void;
   readonly store: CellStore<PersistedConductor>;
   /** The FILE behind `store`, named in the refusal a corrupt record raises —
    *  the one thing a person holding a bad state-root can act on. */
@@ -448,6 +465,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     fleetMcp,
     proveFleetMcp,
     publish,
+    watchListMoved,
     store,
     storePath,
     stateRoot,
@@ -529,6 +547,18 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
    */
   const watchList = new Map<string, WatchEntry>();
   const heldNews: Held<ConductorWakeEvent> = holding();
+  /** AN ENTRY'S SAVED HALF — everything except the two runtime fields, which
+   *  is exactly what the record on disk holds ({@link ./persisted.ts}). Taken
+   *  by subtraction rather than by listing the saved fields, so a field added
+   *  to the entry AND to the record cannot be left out of the comparison that
+   *  decides a write is owed. The file holds facts no frame shows — `told`,
+   *  `spoken`, `ran` — so "the reader saw nothing move" is never the question
+   *  a persist is answered with. */
+  const saved = ({
+    last: _last,
+    baselining: _baselining,
+    ...rest
+  }: WatchEntry): Omit<WatchEntry, "last" | "baselining"> => rest;
   /** A flush in flight. One at a time, because the whole point of a flush is
    *  that everything waiting leaves in ONE turn — two of them racing would be
    *  two wakes for one boundary. */
@@ -543,26 +573,50 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
    *  window does not wait for an edge that has already passed. */
   let missedEdge = false;
 
+  /** THE LAST FRAME A READER WAS GIVEN, or `null` before the first one — what
+   *  {@link publishState} compares against to answer "would anybody see
+   *  anything different?". */
+  let published: ConductorState | null = null;
+
+  /** Two frames, and two saved entries, compared by WHAT THEY SAY rather than
+   *  by identity — every publish rebuilds the arrays, so `===` answers "a new
+   *  array was made", which is not the question. Derived from the SCHEMAS the
+   *  values are declared by, so a field either one grows is compared without
+   *  an edit here. */
+  const sameFrame = Schema.toEquivalence(ConductorStateSchema);
+  const sameSaved = Schema.toEquivalence(
+    PersistedConductorSchema.fields.watched.value,
+  );
+
   /** The state as a READER sees it: whatever the harness last said, plus the
-   *  three fields this server authors and the four the WATCH owns. `watched`,
-   *  `seen`, `work` and `held` are published from here rather than carried on
-   *  the harness's state for the reason `install` is: each fact has exactly
-   *  one author, and the conversation is not the author of kolu's watch.
+   *  three fields this server authors and the three the WATCH owns. `seen`,
+   *  `work` and `held` are published from here rather than carried on the
+   *  harness's state for the reason `install` is: each fact has exactly one
+   *  author, and the conversation is not the author of kolu's watch.
    *
    *  `work` and `seen` are DERIVED on every publish rather than kept beside
    *  the list ({@link workOf}, {@link seenOf}): both are folds over the same
    *  entries, so a second copy could only ever be the stale one — and `work`
    *  is what the Conductor tab badges, which must not disagree with the panel
-   *  under it. */
-  const publishState = (): void => {
+   *  under it.
+   *
+   *  AND THE GATE IS HERE, answering `true` when it published. A caller
+   *  cannot decide "did anything visible move?" for itself without naming
+   *  every field this function folds — which is a second, hand-written copy
+   *  of the projection, and the moment the projection grows a fact (a level,
+   *  an agent) that copy is silently wrong and the panel freezes. The frame
+   *  that is about to go out is compared with the one that did. */
+  const publishState = (): boolean => {
     state = {
       ...state,
-      watched: [...watchList.keys()],
       seen: seenOf(watchList.values()),
       work: workOf(watchList.values()),
       held: heldNews.refs(),
     };
+    if (published !== null && sameFrame(published, state)) return false;
+    published = state;
     publish(state);
+    return true;
   };
 
   const remembered = (): void => {
@@ -606,6 +660,11 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         watchList.set(entry.ref, restoredEntry(entry));
       state = { ...state, sessionId: record.sessionId, fleet: record.fleet };
       publishState();
+      // A RESTORE IS THE LIST MOVING: it went from empty to whatever the file
+      // held, and the watcher has to scope itself to those hosts. It reads
+      // the list itself at boot too, but this edge is also reached by the
+      // first procedure call of a process whose watcher has already looked.
+      if (record.watched.length > 0) watchListMoved(true);
     }
     // ... and the files go with them. This is the one edge where the set of
     // rows can SHRINK — the record was capped at {@link ROW_CAP}, or the home
@@ -1082,7 +1141,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
             // resumed. What the file must hold is the conversation as it stood
             // when the process let go of it.
             if (disposed) return;
-            // The harness answers for the conversation; `watched`, `work` and
+            // The harness answers for the conversation; `seen`, `work` and
             // `held` are this module's and are folded back on by
             // `publishState`.
             state = {
@@ -1398,6 +1457,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       watchList.set(ref, watchEntry(ref, joined));
       publishState();
       schedulePersist();
+      watchListMoved(true);
     },
     saidTo: (ref) => {
       remembered();
@@ -1407,10 +1467,13 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       if (entry === undefined) return;
       // The news it was about to make is the state the Conductor has just
       // acted on, so it goes — and the entry re-baselines at that state.
-      const withdrew = heldNews.withdraw(ref);
+      heldNews.withdraw(ref);
       watchList.set(ref, spokenTo(entry));
-      if (withdrew) publishState();
+      publishState();
       schedulePersist();
+      // NO `watchListMoved`: the list did not move and neither did any row of
+      // it — `spoken` is this module's own bookkeeping about an entry that is
+      // still the same terminal, with the same name, agent and join.
     },
     closedTerminal: (ref) => {
       remembered();
@@ -1419,6 +1482,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       if (!left && !withdrew) return;
       publishState();
       schedulePersist();
+      if (left) watchListMoved(true);
     },
     unwatchTerminal: (ref) => {
       remembered();
@@ -1429,45 +1493,53 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       heldNews.withdraw(ref);
       publishState();
       schedulePersist();
+      watchListMoved(true);
       return true;
     },
     observe: (seen) => {
-      let moved = false;
+      // THREE DIFFERENT QUESTIONS, and none of them is the others. What a
+      // READER sees is {@link publishState}'s to answer, by comparing the
+      // frame it is about to send with the one it sent. What the FILE must
+      // hold is the saved half of an entry, which carries facts no frame
+      // shows (`told`, `spoken`, `ran`). What an in-process FOLLOWER needs is
+      // the list moving, membership apart from rows.
+      let saidSomethingNew = false;
+      let persist = false;
+      let membership = false;
+      let rows = false;
       for (const one of seen) {
         const entry = watchList.get(one.ref);
         // Not watched (any more): the watcher re-scopes asynchronously, so a
         // frame in flight across an unwatch is ordinary rather than a fault.
         if (entry === undefined) continue;
         const read = observed(entry, one);
-        if (read.drop) watchList.delete(one.ref);
-        else watchList.set(one.ref, read.entry);
+        if (read.drop) {
+          watchList.delete(one.ref);
+          persist = true;
+          membership = true;
+        } else {
+          watchList.set(one.ref, read.entry);
+          if (!sameSaved(saved(entry), saved(read.entry))) persist = true;
+          if (read.entry.name !== entry.name || read.entry.agent !== entry.agent)
+            rows = true;
+        }
         // BACK TO WORKING WITHDRAWS WHAT IT WAS GOING TO SAY: held news
         // describes how something STOOD, and this one has stopped standing
         // that way. A terminal that goes away keeps its news — that it went
         // away is exactly the thing to say.
-        if (one.level === "working")
-          moved = heldNews.withdraw(one.ref) || moved;
+        if (one.level === "working") heldNews.withdraw(one.ref);
         if (read.ring !== null) {
           ring(read.entry, one, read.ring);
-          moved = true;
-        } else if (read.drop) moved = true;
-        else if (
-          read.entry.told !== entry.told ||
-          read.entry.name !== entry.name ||
-          // ... AND WHEN THE PIECE OF WORK MOVED. The first reading of a
-          // terminal is what tells kolu which group it is in, and the root's
-          // own name arrives a frame later again — neither touches `told` or
-          // this terminal's name, so without this the tab's count and the
-          // panel's headings would sit on the last reading that happened to
-          // change something else.
-          read.entry.root?.ref !== entry.root?.ref ||
-          read.entry.root?.name !== entry.root?.name
-        )
-          moved = true;
+          saidSomethingNew = true;
+        }
       }
-      if (!moved) return;
-      publishState();
-      schedulePersist();
+      if (publishState()) saidSomethingNew = true;
+      if (persist) schedulePersist();
+      if (membership || rows) watchListMoved(membership);
+      // Nothing anybody can act on: no new news, nothing a reader would see.
+      // The flush below is what may START A TURN, so it runs on movement
+      // only — a poll that read the same thing again must not wake anybody.
+      if (!saidSomethingNew) return;
       // Idle right now? Then nothing is waiting for a turn to end, and the
       // news goes out at once — which is the ordinary case: the Conductor
       // says what it is watching and ends its turn.

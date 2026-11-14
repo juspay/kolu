@@ -15,6 +15,7 @@
 
 import { readFileSync } from "node:fs";
 import { parseTeaching, teachingLines } from "kolu-conductor";
+import { KOLU_FLEET_RECORD_ADDRESS } from "kolu-mcp";
 import { describe, expect, it } from "vitest";
 
 const BEFORE: string[] = JSON.parse(
@@ -191,10 +192,13 @@ describe("one terminal's record", () => {
     // The defect this guards: the script told the Conductor to read a
     // terminal's record before reading its screen and never said WHERE, so it
     // invented addresses and each one came back "unknown resource". The
-    // address is a reference pasted after the collection, exactly as every
-    // tool and wake spells one — the percent-escaped spelling is the one no
-    // agent guesses.
-    expect(SCRIPT).toContain("surface://collections/terminals/<host>/<id>");
+    // address is the one the FACE builds from its own served template
+    // (`KOLU_FLEET_RECORD_ADDRESS`), not a literal re-typed here — a renamed
+    // collection moves the address and this test, not the Conductor's turn.
+    // The reference is pasted after the collection exactly as every tool and
+    // wake spells one; the percent-escaped spelling is the one no agent
+    // guesses.
+    expect(SCRIPT).toContain(KOLU_FLEET_RECORD_ADDRESS);
     expect(SCRIPT).toContain("surface://collections/terminals/remote:prod/");
     expect(SCRIPT).not.toContain("%2F");
   });

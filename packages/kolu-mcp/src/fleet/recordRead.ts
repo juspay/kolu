@@ -130,12 +130,25 @@ function fleetAddresses(): FleetAddresses {
   };
 }
 
+/** The addresses this face serves, resolved ONCE at load: the spec and the
+ *  expose map are constants, so a second resolution could only ever answer the
+ *  same thing — and a face whose template no longer ends in `{id}` fails on
+ *  import rather than on the first read. */
+const FLEET_ADDRESSES = fleetAddresses();
+
+/** THE ADDRESS SHAPE a terminal's record is read at, built once from the
+ *  template this face actually serves. Exported because the Conductor's
+ *  teaching script states it in its own words
+ *  (`packages/conductor/src/teaching.md`) and kolu-server's `teaching.test.ts`
+ *  pins the script against THIS value: a renamed collection moves the sentence
+ *  here and turns that test red, instead of leaving the Conductor inventing
+ *  addresses nothing answers. */
+export const KOLU_FLEET_RECORD_ADDRESS = `${FLEET_ADDRESSES.recordPrefix}<host>/<id>`;
+
 /** WHERE A RECORD IS READ — the sentence every refusal on this face ends with,
- *  and the one `packages/conductor/src/teaching.md` states to the Conductor in
- *  its own words. Built from the addresses the face actually serves, so a
- *  renamed collection moves the sentence with it. */
-function recordAddress(at: FleetAddresses): string {
-  return `A terminal's record is read at "${at.recordPrefix}<host>/<id>" — the reference exactly as the tools, the wakes and the resources hand it out ("local/<id>", "remote:<host>/<id>"), with nothing escaped; "${at.recordCollection}" is the live set of them.`;
+ *  and the one the teaching script states to the Conductor. */
+function recordAddress(): string {
+  return `A terminal's record is read at "${KOLU_FLEET_RECORD_ADDRESS}" — the reference exactly as the tools, the wakes and the resources hand it out ("local/<id>", "remote:<host>/<id>"), with nothing escaped; "${FLEET_ADDRESSES.recordCollection}" is the live set of them.`;
 }
 
 /** The whole URI, as THIS face reads it. */
@@ -208,14 +221,14 @@ function delegateReader(server: Server): ReadResourceHandler {
  *  requires a completed `initialize` round trip first, and this registration
  *  happens in the same turn the connect resolved in. */
 export function serveFleetRecordReads(server: Server): void {
-  const at = fleetAddresses();
+  const at = FLEET_ADDRESSES;
   const delegate = delegateReader(server);
   server.setRequestHandler(ReadResourceRequestSchema, async (req, extra) => {
     const asked = req.params.uri;
     const route = routeOf(asked, at);
     if (route.kind === "unknown") {
       throw new Error(
-        `unknown resource "${asked}" on kolu's fleet face. ${recordAddress(at)} The other resources it serves are ${[...at.served].map((uri) => `"${uri}"`).join(", ")}.`,
+        `unknown resource "${asked}" on kolu's fleet face. ${recordAddress()} The other resources it serves are ${[...at.served].map((uri) => `"${uri}"`).join(", ")}.`,
       );
     }
     if (route.kind === "member") return delegate(req, extra);
@@ -229,7 +242,7 @@ export function serveFleetRecordReads(server: Server): void {
       // not the one this module re-addressed it to.
       const detail = messageOf(cause).replaceAll(route.canonical, asked);
       throw new Error(
-        `no terminal record at "${asked}" — ${detail}. ${recordAddress(at)}`,
+        `no terminal record at "${asked}" — ${detail}. ${recordAddress()}`,
         { cause },
       );
     });

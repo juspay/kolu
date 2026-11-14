@@ -6,11 +6,12 @@
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "//exports": "`./fleetRef` is the identity GRAMMAR alone \u2014 `src/fleet/ref.ts`, a leaf with no imports at all. `@kolu/acp-harness` splits a fleet reference out of a tool call and must not grow an edge to the MCP SDK, to padi-client or to effect to do it (its manifest is the ACP SDK plus kolu-common); the same split-for-weight argument `./tools` already carries one level up.",
+  "//exports": "`./fleetRef` is the identity GRAMMAR alone \u2014 `src/fleet/ref.ts`, a leaf with no imports at all. `@kolu/acp-harness` splits a fleet reference out of a tool call and must not grow an edge to the MCP SDK, to padi-client or to effect to do it (its manifest is the ACP SDK plus kolu-common); the same split-for-weight argument `./tools` already carries one level up. `./fleetWatchJoin` is the same shape for the HOW-IT-JOINED vocabulary: `kolu-conductor` decides `ready`/`ended` from it and writes it to disk, and one tuple is what keeps a join a tool records from being a join the next boot refuses.",
   "exports": {
     ".": "./src/index.ts",
     "./expose": "./src/expose.ts",
     "./fleetRef": "./src/fleet/ref.ts",
+    "./fleetWatchJoin": "./src/fleet/watchJoin.ts",
     "./tools": "./src/tools.ts"
   },
   "scripts": {

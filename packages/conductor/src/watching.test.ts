@@ -429,6 +429,15 @@ describe("the account the agent is handed", () => {
     expect(ended).toContain("no agent in it");
     expect(ended).not.toContain("running ");
   });
+
+  it("says a terminal is UNNAMED rather than quoting an empty name", () => {
+    // Nothing kolu has read says what this one is for — no intent, no branch.
+    // A pair of empty quotes reads as a terminal somebody called "", which is
+    // a name the agent would then try to use.
+    const text = wakeText([{ ...event, name: "" }]);
+    expect(text).toContain("an unnamed terminal");
+    expect(text).not.toContain("“”");
+  });
 });
 
 describe("the pieces of work the watch list adds up to", () => {
