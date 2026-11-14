@@ -40,13 +40,9 @@ function busy(mark: AgentMark): boolean {
   );
 }
 
-/** Something the user should look at: the delivery failed, or — the agents
- *  still working — the last update did. */
-function warned(mark: AgentMark): boolean {
-  return (
-    mark.kind === "failed" ||
-    (mark.kind === "ready" && mark.updateFailed !== undefined)
-  );
+/** Its agents keep working, but its last update failed. */
+function updateFailed(mark: AgentMark): boolean {
+  return mark.kind === "ready" && mark.updateFailed !== undefined;
 }
 
 /** A third of a faint ring, turning — still under reduced motion. */
@@ -93,9 +89,7 @@ const AgentDistroHostMark: Component<{
       type="button"
       data-testid={props.measuring ? undefined : "host-agents-mark"}
       data-state={mark().kind}
-      data-update-failed={
-        mark().kind === "ready" && warned(mark()) ? "" : undefined
-      }
+      data-update-failed={updateFailed(mark()) ? "" : undefined}
       aria-label={agentMarkLabel(mark(), where())}
       tabIndex={props.measuring ? -1 : undefined}
       onClick={(e) => {
@@ -114,7 +108,7 @@ const AgentDistroHostMark: Component<{
         <Arc />
       </Show>
       <AgentDistroLogo size={13} />
-      <Show when={warned(mark())}>
+      <Show when={mark().kind === "failed" || updateFailed(mark())}>
         {/* The warning dot, haloed in the strip's own background. */}
         <span
           aria-hidden="true"

@@ -286,7 +286,7 @@ const ResolvedLine: Component<{ line: AgentsResolvedLine }> = (props) => (
         words wrap in FULL with Nix's output under them — a cut-off cause is
         no cause (the host details' rule, and component, for the same words). */}
     <Show
-      when={props.line.kind === "failed"}
+      when={props.line.kind === "failed" ? props.line : undefined}
       fallback={
         <p
           title={props.line.text}
@@ -300,12 +300,16 @@ const ResolvedLine: Component<{ line: AgentsResolvedLine }> = (props) => (
         </p>
       }
     >
-      <FailureWords
-        words={{ headline: props.line.text, detail: props.line.detail }}
-        tone="danger"
-        testid="agents-resolved-failure"
-      />
-      <p class="text-fg-3/70">{AGENTS_UNRESOLVED_MEANS}</p>
+      {(failed) => (
+        <>
+          <FailureWords
+            words={{ headline: failed().text, detail: failed().detail }}
+            tone="danger"
+            testid="agents-resolved-failure"
+          />
+          <p class="text-fg-3/70">{AGENTS_UNRESOLVED_MEANS}</p>
+        </>
+      )}
     </Show>
   </div>
 );

@@ -221,19 +221,16 @@ export function agentProfileTitle(reference: string): string {
 
 /** The line under one profile of the list: whether kolu-server could build it
  *  — `pending` until it has answered for THIS reference, then the name and
- *  description its build gives itself, or Nix's / agent-distro's own words. */
-export interface AgentsResolvedLine {
-  readonly kind: "pending" | "resolved" | "failed";
-  /** One line: `failed`'s is the cause ({@link AGENTS_UNRESOLVED_MEANS}
-   *  follows it). */
-  readonly text: string;
-  /** `failed`: what Nix printed, a line each, under the cause — empty when
-   *  the cause is all there is, and for `pending` / `resolved`. */
-  readonly detail: readonly string[];
-}
-
-/** The detail of a line that has none — one shared value. */
-const NO_DETAIL: readonly string[] = Object.freeze([]);
+ *  description its build gives itself, or Nix's / agent-distro's own words:
+ *  `failed`'s `text` is the cause, one line ({@link AGENTS_UNRESOLVED_MEANS}
+ *  follows it), and `detail` what Nix printed under it, a line each. */
+export type AgentsResolvedLine =
+  | { readonly kind: "pending" | "resolved"; readonly text: string }
+  | {
+      readonly kind: "failed";
+      readonly text: string;
+      readonly detail: readonly string[];
+    };
 
 /** What a profile that does not build means for new terminals, under its
  *  words. */
@@ -256,11 +253,7 @@ export function agentsResolvedLine(
 ): AgentsResolvedLine {
   const resolution = resolutionOf(reference, profiles);
   if (resolution === undefined || resolution.kind === "pending")
-    return {
-      kind: "pending",
-      text: `resolving ${reference}…`,
-      detail: NO_DETAIL,
-    };
+    return { kind: "pending", text: `resolving ${reference}…` };
   switch (resolution.kind) {
     case "resolved": {
       const rev =
@@ -271,7 +264,6 @@ export function agentsResolvedLine(
           resolution.description === ""
             ? `${resolution.name}${rev}`
             : `${resolution.name}${rev} · ${resolution.description}`,
-        detail: NO_DETAIL,
       };
     }
     case "failed": {

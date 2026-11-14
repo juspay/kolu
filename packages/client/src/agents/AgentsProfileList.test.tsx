@@ -175,19 +175,13 @@ describe("the rows", () => {
   });
 
   it("the resolved line's three states", () => {
-    const f = mount([
-      row("x", { kind: "pending", text: "resolving x…", detail: [] }),
-    ]);
+    const f = mount([row("x", { kind: "pending", text: "resolving x…" })]);
     const line = () =>
       f.host.querySelector<HTMLElement>("[data-testid=agents-resolved]");
     expect(line()?.dataset.kind).toBe("pending");
     expect(line()?.textContent).toBe("resolving x…");
     f.setRows([
-      row("x", {
-        kind: "resolved",
-        text: "juspay · Juspay skills + Kolu",
-        detail: [],
-      }),
+      row("x", { kind: "resolved", text: "juspay · Juspay skills + Kolu" }),
     ]);
     expect(line()?.dataset.kind).toBe("resolved");
     f.setRows([

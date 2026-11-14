@@ -316,7 +316,6 @@ describe("agentsResolvedLine — does the profile build", () => {
     const pending = {
       kind: "pending",
       text: `resolving ${JUSPAY_PROFILE}…`,
-      detail: [],
     };
     expect(agentsResolvedLine(JUSPAY_PROFILE, undefined)).toEqual(pending);
     expect(
@@ -344,11 +343,7 @@ describe("agentsResolvedLine — does the profile build", () => {
           rev: "a1b2c3d4e5f6",
         }),
       ),
-    ).toEqual({
-      kind: "resolved",
-      text: "juspay (a1b2c3d) · Juspay skills",
-      detail: [],
-    });
+    ).toEqual({ kind: "resolved", text: "juspay (a1b2c3d) · Juspay skills" });
     // A path has no revision; an empty description adds nothing.
     expect(
       agentsResolvedLine(
@@ -358,7 +353,7 @@ describe("agentsResolvedLine — does the profile build", () => {
           EKALA_REF,
         ),
       ),
-    ).toEqual({ kind: "resolved", text: "ekala", detail: [] });
+    ).toEqual({ kind: "resolved", text: "ekala" });
   });
 
   it("failed: Nix's or agent-distro's own words", () => {
@@ -406,11 +401,7 @@ describe("the profile list's rows", () => {
       {
         reference: JUSPAY_PROFILE,
         title: "Juspay",
-        line: {
-          kind: "pending",
-          text: `resolving ${JUSPAY_PROFILE}…`,
-          detail: [],
-        },
+        line: { kind: "pending", text: `resolving ${JUSPAY_PROFILE}…` },
       },
       {
         reference: EKALA_REF,
