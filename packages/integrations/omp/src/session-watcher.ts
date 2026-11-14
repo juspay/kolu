@@ -2,7 +2,9 @@
  *  with the shared append-robust subscription (`subscribeFileAppends`, which
  *  tolerates absence, fires on the absent→present transition, and keys on
  *  `size:mtime:ino` so a rewrite also re-fires) plus the shared coalesce
- *  schedule, and emits `OmpInfo` on change, gated by `agentInfoEqual`.
+ *  schedule, and emits `OmpInfo` on change, gated by `agentInfoEqual`. The
+ *  todo list's progress rides the same tick: `createTodoProgressReader` reads
+ *  only the bytes appended since the last tick (see `todo.ts`).
  *
  *  Pure observer: never creates paths under the agent dir. A session whose
  *  JSONL has not materialized yet (omp's `fresh` crumb) simply emits nothing
@@ -25,6 +27,7 @@ import type { Logger } from "kolu-shared";
 import type { OmpSession } from "./breadcrumb.ts";
 import { deriveOmpInfo } from "./core.ts";
 import type { OmpInfo } from "./schemas.ts";
+import { createTodoProgressReader } from "./todo.ts";
 
 export interface OmpWatcher {
   readonly session: OmpSession;
@@ -38,6 +41,7 @@ export function createOmpWatcher(
 ): OmpWatcher {
   let destroyed = false;
   let lastInfo: OmpInfo | null = null;
+  const todo = createTodoProgressReader(session.transcriptPath, log);
 
   function emitIfChanged(): void {
     if (destroyed) return;
@@ -50,7 +54,7 @@ export function createOmpWatcher(
       sessionPath: session.transcriptPath,
       model: derived.model,
       summary: derived.summary,
-      taskProgress: null,
+      taskProgress: todo.read(),
       contextTokens: derived.contextTokens,
       startedAt: session.startedAt,
     };
@@ -62,6 +66,7 @@ export function createOmpWatcher(
         model: info.model,
         session: info.sessionId,
         tokens: info.contextTokens,
+        tasks: info.taskProgress,
       },
       "omp state updated",
     );

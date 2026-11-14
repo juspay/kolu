@@ -16,6 +16,7 @@ import * as path from "node:path";
 import { After, Then, When } from "@cucumber/cucumber";
 import type { AgentLifecycleState } from "../support/agent-lifecycle.ts";
 import {
+  appendOmpTodoList,
   type OmpFixture,
   ompMockPayload,
   ompTranscriptPath,
@@ -138,6 +139,16 @@ When(
       throw new Error("No Oh My Pi fixture to update — call mock step first");
     }
     updateOmpFixture(mockFixture, state as AgentLifecycleState);
+  },
+);
+
+When(
+  "Oh My Pi's todo list has {int} tasks with {int} done",
+  async function (this: KoluWorld, total: number, done: number) {
+    if (!mockFixture) {
+      throw new Error("No Oh My Pi fixture to update — call mock step first");
+    }
+    appendOmpTodoList(mockFixture, total, done);
   },
 );
 

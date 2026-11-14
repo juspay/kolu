@@ -258,6 +258,70 @@ export function updateOmpFixture(
   );
 }
 
+let todoCounter = 0;
+
+/** Append a `todo` call and its result, as omp writes them: the result's
+ *  `details.phases` carries the WHOLE list (one phase here, `done` tasks
+ *  completed, the next one in progress), which is what kolu counts. */
+export function appendOmpTodoList(
+  fixture: OmpFixture,
+  total: number,
+  done: number,
+): void {
+  todoCounter += 1;
+  const callId = `todo:${todoCounter}`;
+  const tasks = Array.from({ length: total }, (_, i) => ({
+    content: `Mock task ${i + 1}`,
+    status: i < done ? "completed" : i === done ? "in_progress" : "pending",
+  }));
+  const call = {
+    type: "message",
+    id: `todo-call-${todoCounter}`,
+    parentId: null,
+    timestamp: "2026-09-14T17:07:17.000Z",
+    message: {
+      role: "assistant",
+      content: [
+        {
+          type: "toolCall",
+          id: callId,
+          name: "todo",
+          arguments: { op: "done", task: `Mock task ${done}` },
+        },
+      ],
+      model: "deepseek-v4.1-flash",
+      stopReason: "toolUse",
+    },
+  };
+  const result = {
+    type: "message",
+    id: `todo-result-${todoCounter}`,
+    parentId: null,
+    timestamp: "2026-09-14T17:07:18.000Z",
+    message: {
+      role: "toolResult",
+      toolCallId: callId,
+      toolName: "todo",
+      content: [
+        {
+          type: "text",
+          text: `Overall: ${done}/${total} done, ${total - done} open.`,
+        },
+      ],
+      details: {
+        op: "done",
+        phases: [{ name: "Tasks", tasks }],
+        storage: "session",
+      },
+      isError: false,
+    },
+  };
+  fs.appendFileSync(
+    fixture.transcriptPath,
+    `${JSON.stringify(call)}\n${JSON.stringify(result)}\n`,
+  );
+}
+
 /** The fake `omp` process's payload: write the breadcrumb the way omp writes it
  *  (from its OWN tty), then stay resident, painting an approval dialog or
  *  clearing the screen on request.

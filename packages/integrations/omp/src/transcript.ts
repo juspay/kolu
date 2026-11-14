@@ -9,10 +9,10 @@
  *
  *  Entries form a tree (`id`/`parentId`) because omp supports in-file branching
  *  (omp forked pi's session format): abandoned branches stay in the file
- *  interleaved with the live conversation. The export walks the parentId chain
- *  back from the file's LAST entry and emits only entries on that chain, in file
- *  order. Abandoned branches, which a dead file cannot present as anything but
- *  confusion, are dropped.
+ *  interleaved with the live conversation. The export emits only the entries
+ *  on the active branch (`branch.ts` — omp's own leaf rule, which the file's
+ *  last line alone does not give), in file order. Abandoned branches, which a
+ *  dead file cannot present as anything but confusion, are dropped.
  *
  *  Where the file is: the breadcrumb, and nothing else. `resolveSessions`
  *  records the absolute path omp itself handed kolu, keyed by session id; this
@@ -42,6 +42,7 @@ import {
 } from "kolu-transcript-core";
 import { match } from "ts-pattern";
 import { knownOmpSessionPath } from "./agent-adapter.ts";
+import { branchEntryOf, createOmpBranch } from "./branch.ts";
 import { readTitleSlot } from "./core.ts";
 import { ompVocab } from "./schemas.ts";
 
@@ -163,47 +164,38 @@ function eventsFromEntry(entry: OmpEntry): TranscriptEvent[] {
 }
 
 /** Parse an omp session JSONL file's contents into transcript events,
- *  following omp's tree semantics (omp forked pi's format — see
- *  `kolu-pi/transcript.ts` for the shared reasoning): entries carry
- *  `id`/`parentId` and form a branching tree, and the live conversation is the
- *  path from the file's last entry back to the root. Entries off that path
- *  belong to abandoned branches and are dropped. The line-1 title slot and the
- *  `session` header carry no `type: "message"`, so the same gate that drops
- *  every non-conversation entry drops them. Exported for tests. */
+ *  following omp's tree semantics: entries carry `id`/`parentId` and form a
+ *  branching tree, and the live conversation is the path from omp's leaf back
+ *  to the root (`branch.ts`). Entries off that path belong to abandoned
+ *  branches and are dropped. The line-1 title slot and the `session` header
+ *  carry no `type: "message"`, so the same gate that drops every
+ *  non-conversation entry drops them. Exported for tests. */
 export function parseOmpTranscript(content: string): TranscriptEvent[] {
   const ordered: OmpEntry[] = [];
+  const branch = createOmpBranch();
   for (const line of content.split("\n")) {
     if (line.length === 0) continue;
+    let parsed: unknown;
     try {
+      parsed = JSON.parse(line);
+    } catch {
       // Malformed line — skip. A truncated final write is the only practical
       // failure mode; one corrupt entry must not fail the export.
-      ordered.push(JSON.parse(line) as OmpEntry);
-    } catch {
-      // skip
+      continue;
     }
-  }
-  const byId = new Map<string, OmpEntry>();
-  for (const entry of ordered) {
-    if (typeof entry.id === "string") byId.set(entry.id, entry);
+    ordered.push(parsed as OmpEntry);
+    const entry = branchEntryOf(parsed);
+    if (entry !== undefined) branch.add(entry);
   }
   // Tree linkage exists at all? An older file with ids but no parent chain
   // renders whole — filter ONLY on a linkage witness.
-  const hasLinkage = ordered.some(
-    (e) => typeof e.parentId === "string" && byId.has(e.parentId),
-  );
-  const onActivePath = new Set<string>();
-  if (hasLinkage) {
-    let cur = [...ordered].reverse().find((e) => typeof e.id === "string");
-    while (cur && typeof cur.id === "string" && !onActivePath.has(cur.id)) {
-      onActivePath.add(cur.id);
-      cur =
-        typeof cur.parentId === "string" ? byId.get(cur.parentId) : undefined;
-    }
-  }
+  const onActivePath = branch.hasLinkage()
+    ? new Set(branch.idsFromLeaf())
+    : null;
   const events: TranscriptEvent[] = [];
   for (const entry of ordered) {
     if (
-      hasLinkage &&
+      onActivePath !== null &&
       typeof entry.id === "string" &&
       !onActivePath.has(entry.id)
     )

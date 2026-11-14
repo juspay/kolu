@@ -47,13 +47,30 @@ tiles. The seventh agent alongside `kolu-claude-code`, `kolu-codex`,
   slot**, rewritten in place, holding the user's name or the auto-generated one.
   Read as one 256-byte read per fold; an empty title publishes nothing rather
   than fabricating one from the first message.
+- **The active branch** (`branch.ts`) — omp's entries form a tree, and the live
+  conversation is the path from the leaf to the root. The leaf is NOT the
+  file's last line: an entry appended off to the side (a `model_usage` entry
+  hangs off the turn it accounts for, often an older one) names the real leaf
+  as `activeLeafId`. `createOmpBranch` mirrors omp's own rule for reading the
+  leaf back (`resolveSessionLeafId`), and both the export and the todo reader
+  use it.
+- **Task progress** (`todo.ts`) — omp's `todo` tool answers every op with the
+  whole list (`details.phases`), and its own bookkeeping writes the same list as
+  a `user_todo_edit` entry; kolu takes the newest of the two on the active
+  branch, as omp does when it reopens a session, rather than replaying ops.
+  Counted like omp's own `Overall: N/M done` line — every task in every phase,
+  `completed` and `abandoned` (dropped) as done, `blocked` open — and `null`
+  for no list or an emptied one. The list can sit far behind the state fold's
+  tail window, so `createTodoProgressReader` reads the whole file once and then
+  only what is appended (`kolu-shared`'s `createAppendedLineReader`, which also
+  starts over on a rewritten file).
 - **Awaiting-user** (`screen-scrape.ts`) — omp's tool-approval dialog
   (`Allow tool: …`) and its `ask` question are painted on the terminal while the
   transcript stays on the in-flight tool call, so the detector recognizes both on
   the rendered screen and the promote-only policy lifts `tool_use`/`thinking` →
   `awaiting_user`.
-- **Transcript export** (`transcript.ts`) — renders the ACTIVE branch of omp's
-  entry tree (the `parentId` chain from the file's last entry, in file order).
+- **Transcript export** (`transcript.ts`) — renders the active branch
+  (`branch.ts`), in file order.
   The path comes from the breadcrumb kolu recorded: `resolveSessions` files it
   under the session id, and `knownOmpSessionPath` reads it back for the export
   path, which knows only an id — `null` until this padi has observed that
@@ -86,8 +103,6 @@ tiles. The seventh agent alongside `kolu-claude-code`, `kolu-codex`,
 - **Plan approval** — omp's plan-review overlay has no stable on-screen marker
   yet, so it is not promoted to awaiting-you (Claude Code's `ExitPlanMode` has
   the same gap).
-- **`taskProgress` stays `null`** — omp's `todo` tool writes a list, but kolu
-  does not fold it yet.
 - **Titles are omp's own** — a `--no-title` session shows none, and kolu never
   derives one from the first message.
 - **What an env-var redirect did, on macOS only** — `ps` has redacted even
