@@ -148,6 +148,9 @@ export class KoluWorld extends World {
   /** The terminal id the conductor was asked to WATCH, so a wake, the watched
    *  panel's row and its Look can each be checked against THAT terminal. */
   watchedTerminalId?: string;
+  /** The terminal a watched SPLIT was cut from, so the watched panel can be
+   *  checked for drawing the split under it rather than beside it. */
+  watchedSplitParentId?: string;
   /** A terminal's shell pid, read while it still had the keyboard, so an
    *  agent can be staged in it after the scenario has moved elsewhere. */
   notedShellPid?: number;

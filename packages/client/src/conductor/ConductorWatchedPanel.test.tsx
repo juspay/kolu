@@ -27,7 +27,8 @@ const TERMINAL = "11111111-1111-4111-8111-111111111111" as TerminalId;
 const REF = `local/${TERMINAL}`;
 const OTHER_TERMINAL = "22222222-2222-4222-8222-222222222222" as TerminalId;
 const OTHER_REF = `local/${OTHER_TERMINAL}`;
-const SPLIT_REF = "local/33333333-3333-4333-8333-333333333333";
+const SPLIT_TERMINAL = "33333333-3333-4333-8333-333333333333" as TerminalId;
+const SPLIT_REF = `local/${SPLIT_TERMINAL}`;
 
 /** THE APP'S 1 s CLOCK, driven by hand. The real one is a single
  *  app-lifetime interval which also stands down for a hidden DOCUMENT — a
@@ -72,9 +73,17 @@ const read = (
  *  the clock is mounted with. */
 const WORKING_4M = [read(REF, "working", 4 * 60_000)];
 
+/** WHAT EVERY TERMINAL'S STANDING IS, and the ones that differ. The panel
+ *  reads one standing per watched ref — the row's agent, the words the naming
+ *  ladder climbs, and the `parentId` the tree is drawn from all come off it —
+ *  so a case about a split and its parent has to be able to say something
+ *  different about each terminal. */
 const [standing, setStanding] = createSignal<FleetTerminalStanding>({
   kind: "gone",
 });
+const [eachStanding, setEachStanding] = createSignal<
+  Record<string, FleetTerminalStanding>
+>({});
 
 /** `await import` inside the factory rather than a static import: a `vi.mock`
  *  factory is hoisted above this file's imports, so there is nothing else it
@@ -96,7 +105,8 @@ vi.mock("../palette/fleetTerminals", async (importOriginal) => ({
   // The grouping/keying half stays REAL — the panel's names come from the same
   // computation the `@` menu uses, and a stub there would prove nothing.
   ...(await importOriginal<typeof import("../palette/fleetTerminals")>()),
-  fleetTerminalStanding: () => standing(),
+  fleetTerminalStanding: (_host: string, id: TerminalId) =>
+    eachStanding()[id] ?? standing(),
   useFleetTerminalIndex: () => (): FleetTerminalRow[] => [],
 }));
 vi.mock("../wire", () => ({
@@ -127,19 +137,38 @@ vi.mock("../canvas/dock/useDockFocus", () => ({
 import ConductorWatchedPanel from "./ConductorWatchedPanel";
 import { Shown } from "../ui/shown";
 
-/** An active terminal whose agent is working, as the fleet reports it. */
-const working = (): FleetTerminalStanding => ({
+/** An active terminal whose agent is working, as the fleet reports it. The
+ *  record carries what the panel NAMES a terminal from as well as what it
+ *  says about it — a terminal with a working directory and no intent is the
+ *  ordinary case, and it is the one a raw uuid used to be drawn for. */
+const working = (
+  over: Record<string, unknown> = {},
+): FleetTerminalStanding => ({
   kind: "here",
   meta: {
     state: "active",
     foreground: null,
+    cwd: "/home/srid/code/kolu",
+    git: { kind: "none" },
     lastActivityAt: Date.now() - 4_000,
     agent: {
       kind: "claude-code",
       state: "thinking",
       summary: "writing the plan",
+      taskProgress: null,
     },
+    ...over,
   } as never,
+});
+
+/** The agent in a terminal that has NOT titled itself — the split the human
+ *  saw drawn as a uuid. `taskProgress` rides as an override. */
+const untitled = (over: Record<string, unknown> = {}) => ({
+  kind: "claude-code",
+  state: "thinking",
+  summary: null,
+  taskProgress: null,
+  ...over,
 });
 
 let dispose: (() => void) | undefined;
@@ -183,6 +212,7 @@ const all = (testid: string): HTMLElement[] =>
 
 beforeEach(() => {
   setStanding(working());
+  setEachStanding({});
 });
 
 afterEach(() => {
@@ -224,7 +254,7 @@ describe("the watched panel", () => {
   it("still ages a piece of work whose heading says nothing", () => {
     // The group-of-one rule drops the NAME (the heading would say the row's
     // own word back at it); the age is not a repeat of anything, so it stays.
-    mount([piece(REF, TERMINAL, [REF])]);
+    mount([piece(REF, "writing the plan", [REF])]);
     expect(at("conductor-watched-group-name")).toBeUndefined();
     expect(at("conductor-watched-group-since")?.textContent).toContain("1h");
   });
@@ -235,9 +265,10 @@ describe("the watched panel", () => {
     expect(name?.dataset.opensTile).toBe("true");
     // The accessible name says what pressing it DOES and still carries the
     // words on screen. The fleet index is stubbed empty here, so those words
-    // are the terminal's own id — the same fallback every other row test
-    // reads.
-    expect(name?.getAttribute("aria-label")).toBe(`Go to ${TERMINAL}`);
+    // are the next rung of the ladder — what the agent in it calls what it is
+    // doing — and never the terminal's raw id.
+    expect(name?.getAttribute("aria-label")).toBe("Go to writing the plan");
+    expect(name?.getAttribute("aria-label")).not.toContain(TERMINAL);
     name?.click();
     // The host tab first, then the tile — the two steps, in order.
     expect(landed.hosts).toEqual([{ kind: "local" }]);
@@ -249,8 +280,11 @@ describe("the watched panel", () => {
     mount([piece(REF, "fix-parser", [REF])]);
     const name = at("conductor-watched-name");
     // Still named — the Conductor is still watching it — with nothing to
-    // press: there is no tile to land on.
-    expect(name?.textContent).toBe(TERMINAL);
+    // press: there is no tile to land on. There is no record left to read a
+    // name off either, so this is the ladder's last rung: the SHORT id, which
+    // a person can read, rather than 36 characters of uuid.
+    expect(name?.textContent).toBe(TERMINAL.slice(0, 8));
+    expect(name?.textContent).not.toBe(TERMINAL);
     expect(name?.dataset.opensTile).toBeUndefined();
     name?.click();
     expect(landed.hosts).toEqual([]);
@@ -274,6 +308,8 @@ describe("the watched panel", () => {
       meta: {
         state: "sleeping",
         foreground: null,
+        cwd: "/home/srid/code/kolu",
+        git: { kind: "none" },
         lastActivityAt: Date.now() - 7_200_000,
         agent: null,
       } as never,
@@ -305,6 +341,10 @@ describe("the watched panel", () => {
   });
 
   it("puts a piece of work's terminals under its root's name, and two pieces side by side", () => {
+    // The root's own words — the heading climbs the same ladder the rows do,
+    // so what heads a group is what that terminal is CALLED and not a second
+    // reading of the cell.
+    setEachStanding({ [TERMINAL]: working({ intent: "fix-parser" }) });
     mount([
       piece(REF, "fix-parser", [REF, SPLIT_REF]),
       piece(OTHER_REF, "docs-pass", [OTHER_REF]),
@@ -329,27 +369,43 @@ describe("the watched panel", () => {
     ).toBe(1);
   });
 
-  it("heads a piece whose root the fleet cannot name with that terminal's id", () => {
-    // Two terminals, so the heading is drawn at all — and the root is not one
-    // the fleet index can name, which is the fallback under test.
+  it("heads a piece nothing can be read off with the root's short id", () => {
+    // Two terminals, so the heading is drawn at all — and no record to read a
+    // name off, with no name from the server either. The last rung is eight
+    // characters a person can compare, never the whole uuid.
+    setStanding({ kind: "gone" });
     mount([piece(REF, "", [REF, SPLIT_REF])]);
-    expect(at("conductor-watched-group-name")?.textContent).toBe(TERMINAL);
+    const head = at("conductor-watched-group-name");
+    expect(head?.textContent).toBe(TERMINAL.slice(0, 8));
+    expect(head?.textContent).not.toBe(TERMINAL);
+  });
+
+  it("heads a piece on an away host with the name the server last read", () => {
+    // The grouping and its name survive a host leaving the fleet — that is
+    // the one rung the server owns, and it sits above the short id.
+    setStanding({ kind: "unreachable" });
+    mount([piece(REF, "paths-kept-by", [REF, SPLIT_REF])], { seen: [] });
+    expect(at("conductor-watched-group-name")?.textContent).toBe(
+      "paths-kept-by",
+    );
   });
 
   it("draws no heading over a lone terminal that the heading would only repeat", () => {
     // A group of one, named what its only row is named: the heading would say
     // the same word twice, so there is no heading.
-    mount([piece(REF, TERMINAL, [REF])]);
+    mount([piece(REF, "writing the plan", [REF])]);
     expect(at("conductor-watched-group")).toBeDefined();
     expect(at("conductor-watched-row")?.dataset.ref).toBe(REF);
     expect(at("conductor-watched-group-name")).toBeUndefined();
   });
 
   it("heads a lone terminal whose piece of work is called something else", () => {
-    // Still one terminal, but the work has a name of its own — that name is
-    // not in the row, so it is worth a heading.
-    mount([piece(REF, "fix-parser", [REF])]);
-    expect(at("conductor-watched-group-name")?.textContent).toBe("fix-parser");
+    // Still one watched terminal, but the piece of work's top-level terminal
+    // is another one — not watched itself — and it is called something this
+    // row does not say.
+    setEachStanding({ [OTHER_TERMINAL]: working({ intent: "docs-pass" }) });
+    mount([piece(OTHER_REF, "", [REF])]);
+    expect(at("conductor-watched-group-name")?.textContent).toBe("docs-pass");
   });
 
   it("still lists a terminal that is gone, and offers no Look at it", () => {
@@ -388,5 +444,65 @@ describe("the watched panel", () => {
     expect(at("conductor-watched-panel")?.dataset.placement).toBe("side");
     expect(at("conductor-watched-row")?.dataset.ref).toBe(REF);
     expect(at("conductor-watched-look")).toBeDefined();
+  });
+
+  it("shows an agent's task progress beside its state, and nothing for an agent without one", () => {
+    setEachStanding({
+      [TERMINAL]: working({
+        agent: untitled({
+          summary: "writing the plan",
+          taskProgress: { completed: 7, total: 12 },
+        }),
+      }),
+      // The same agent, same state, keeping no task list of its own.
+      [SPLIT_TERMINAL]: working(),
+    });
+    mount([piece(REF, "fix-parser", [REF, SPLIT_REF])]);
+    const rows = all("conductor-watched-row");
+    const progressIn = (row: HTMLElement | undefined) =>
+      row?.querySelector('[data-testid="conductor-look-progress"]')
+        ?.textContent;
+    expect(progressIn(rows[0])).toBe("7/12");
+    // Not a zero, not a dash: an agent that reports no task list says
+    // nothing about one.
+    expect(progressIn(rows[1])).toBeUndefined();
+    expect(rows[1]?.textContent).not.toContain("/");
+  });
+
+  it("draws a split under the terminal it is a split of, named by what it is", () => {
+    setEachStanding({
+      [TERMINAL]: working({ intent: "paths-kept-by" }),
+      // The implementor: a split with no intent and no title of its own —
+      // the row the human saw drawn as a raw uuid, at the same level as its
+      // planner.
+      [SPLIT_TERMINAL]: working({
+        parentId: TERMINAL,
+        agent: untitled(),
+      }),
+    });
+    mount([piece(REF, "paths-kept-by", [REF, SPLIT_REF])]);
+    const rows = all("conductor-watched-row");
+    // Parent first, split under it — one list, in tree order.
+    expect(rows.map((row) => row.dataset.ref)).toEqual([REF, SPLIT_REF]);
+    expect(rows[0]?.dataset.depth).toBe("0");
+    expect(rows[0]?.dataset.parentRef).toBeUndefined();
+    expect(rows[1]?.dataset.depth).toBe("1");
+    expect(rows[1]?.dataset.parentRef).toBe(REF);
+    const name = rows[1]?.querySelector<HTMLElement>(
+      '[data-testid="conductor-watched-name"]',
+    );
+    expect(name?.textContent).toBe("Claude Code · split of paths-kept-by");
+    expect(name?.textContent).not.toContain(SPLIT_TERMINAL);
+  });
+
+  it("flattens a group whose parent edge this browser cannot read", () => {
+    // A host that is away keeps its grouping — the server's reading — but
+    // there is no record here to read a `parentId` off, so the rows sit at
+    // the top of the group rather than being nested on a guess.
+    setStanding({ kind: "unreachable" });
+    mount([piece(REF, "paths-kept-by", [REF, SPLIT_REF])], { seen: [] });
+    expect(
+      all("conductor-watched-row").map((row) => row.dataset.depth),
+    ).toEqual(["0", "0"]);
   });
 });

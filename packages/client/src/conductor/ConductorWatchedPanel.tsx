@@ -17,17 +17,36 @@
  *  browser never opened has no records here, and a host that is away must
  *  keep its last-known group). This panel draws it.
  *
+ *  AND IT DRAWS IT AS THE TREE IT IS. Inside a group a split is stepped in
+ *  under the terminal it is a split of, with the dock's own `└` beside it,
+ *  deepest last and the group's own top-level terminal first
+ *  (`watchedTree.ts`). The server's grouping and the panel's NESTING come
+ *  from different places on purpose: the group is the server's reading and
+ *  survives a host going away, while the indentation needs the LIVE
+ *  `parentId` of a record this browser can read right now. So a row whose
+ *  parent is not watched here, or whose host is away, keeps its place in the
+ *  group and sits at the top of it rather than guessing at an edge nothing
+ *  can see.
+ *
  *  EVERY LIVE FACT HERE IS READ OFF THE FLEET, not off the conversation. The
- *  cell carries membership and the grouping only; the name — a group's head
- *  as much as a row — comes from the same per-host key computation the `@`
- *  menu's rows use (`fleetMentionCandidates`), and the live standing — agent,
- *  state, what it is doing, and the Look at its screen — is `ConductorLook`,
- *  the peek the transcript's agent lines already draw. Reusing that component
- *  rather than restating its status line is what keeps "how this terminal
- *  stands" from having two answers in one window. A root on a host this
- *  browser cannot reach has no live name, and the group then wears the name
- *  the server last read, falling back to the bare terminal id — never a blank
- *  heading.
+ *  cell carries membership and the grouping only; the live standing — agent,
+ *  state, what it is doing, how far through its own task list it is, and the
+ *  Look at its screen — is `ConductorLook`, the peek the transcript's agent
+ *  lines already draw. Reusing that component rather than restating its
+ *  status line is what keeps "how this terminal stands" from having two
+ *  answers in one window.
+ *
+ *  AND NOTHING IS NAMED BY A BARE ID. The `@` menu's name still comes first,
+ *  so what a person reads here is what they would type into the composer —
+ *  but that index holds TILES only, and a SPLIT therefore used to fall
+ *  through to a raw uuid, which is the one terminal in a waterfall a person
+ *  most needs to recognise. `watchedName.ts` is the rest of the ladder (its
+ *  intent, its agent's own title, its agent and who it is a split of, where
+ *  it is, and eight characters of id as the last resort), climbed ONCE per
+ *  ref and used by the rows and by the heading above them, so a group of one
+ *  can still tell when the heading would only repeat its row. A root on a
+ *  host this browser cannot reach has no live name at all, and its group
+ *  then wears the name the server last read — never a blank heading.
  *
  *  A TERMINAL THAT IS NOT THERE STAYS ON THE LIST. Gone, asleep, or on a host
  *  this browser is not connected to: the row is drawn and says which, because
@@ -58,10 +77,15 @@
  *  row's. The heading's clock is drawn either way: every piece of work has an
  *  age, including one terminal's.
  *
- *  TWO LINES PER ROW: who it is (name · host · agent), then how it stands and
- *  for how long, with Look at the end. The second line is `ConductorLook`'s
- *  own — the clock is handed to it rather than drawn beside it, because the
- *  duration is a duration OF the state that line reports.
+ *  TWO LINES PER ROW: who it is (the connector at its depth · name · host ·
+ *  agent), then how it stands — with `7/12` beside the state for an agent
+ *  that reports a task list of its own, and nothing for one that does not —
+ *  for how long, and Look at the end. The second line is `ConductorLook`'s
+ *  own, progress included: it already holds the record that fraction is on,
+ *  so the transcript's agent lines and every watched row in both placements
+ *  get it from one place and none of them opens a reading to do it. The
+ *  clock is handed to that line rather than drawn beside it, because the
+ *  duration is a duration OF the state it reports.
  *
  *  WHAT THE CLOCKS COUNT, exactly:
  *
@@ -98,6 +122,7 @@ import { agentName } from "../ui/agentDisplay";
 import { hostLabel } from "../host/hostChipTone";
 import {
   fleetTerminalStanding,
+  type FleetTerminalStanding,
   useFleetTerminalIndex,
 } from "../palette/fleetTerminals";
 import { elapsedSince } from "../time/duration";
@@ -107,6 +132,12 @@ import { useShownClock } from "../ui/shown";
 import { fleetMentionCandidates } from "./mentionCandidates";
 import { LEVEL_WORD } from "./wake";
 import { splitWatchedRef } from "./watchedRef";
+import {
+  type WatchedNaming,
+  watchedGroupName,
+  watchedName,
+} from "./watchedName";
+import { watchedParentRef, watchedTreeRows } from "./watchedTree";
 import { useOpenTile } from "./useOpenTile";
 
 const ConductorWatchedPanel: Component<{
@@ -156,6 +187,63 @@ const ConductorWatchedPanel: Component<{
     for (const one of props.seen) byRef.set(one.ref, one);
     return byRef;
   });
+  /** Ref → WHERE THAT TERMINAL STANDS on its host, read ONCE for the whole
+   *  panel. Three readers want it — the row (its agent, whether there is
+   *  anywhere to go), the naming ladder (the record a name is read off,
+   *  including a PARENT's, which is another group member's record) and the
+   *  tree (the `parentId` edge) — and reading it per reader is how the same
+   *  ref came to be looked up three times a frame. It opens nothing: the
+   *  standing is a read of the per-host mirror the switcher already rides.
+   *
+   *  EACH GROUP'S ROOT IS READ TOO, watched or not: a waterfall's planner can
+   *  be the top-level terminal of a piece of work without being on the watch
+   *  list itself, and the heading is named off its record exactly as a row
+   *  is. A ref this browser cannot parse is simply absent, like a terminal
+   *  with no record. */
+  const standings = createMemo(() => {
+    const byRef = new Map<string, FleetTerminalStanding>();
+    for (const piece of props.work) {
+      for (const ref of [piece.root, ...piece.refs]) {
+        if (byRef.has(ref)) continue;
+        const split = splitWatchedRef(ref);
+        if (split !== null)
+          byRef.set(ref, fleetTerminalStanding(split.host, split.id));
+      }
+    }
+    return byRef;
+  });
+  /** The two lookups the naming ladder climbs, over the maps above — so a row
+   *  and the heading over it are named by the same words, and naming a split
+   *  after its PARENT costs a map read rather than a second standing. */
+  const naming = createMemo((): WatchedNaming => {
+    const byName = names();
+    const byStanding = standings();
+    return {
+      fleetName: (ref) => byName.get(ref),
+      metaOf: (ref) => {
+        const standing = byStanding.get(ref);
+        return standing?.kind === "here" ? standing.meta : undefined;
+      },
+    };
+  });
+  /** THE GROUPS AS THEY ARE DRAWN — each piece of work with its rows already
+   *  in TREE order, computed here rather than inside the list so one pass
+   *  over the standings serves every group. The edge is each terminal's own
+   *  `parentId` on its own host, and a terminal whose record this browser
+   *  cannot read contributes no edge at all: it keeps its place in the group
+   *  (that grouping is the server's, and it survives a host going away) and
+   *  is drawn at the top of it. */
+  const groups = createMemo(() =>
+    props.work.map((piece) => ({
+      piece,
+      rows: watchedTreeRows(piece.refs, piece.root, (ref) => {
+        const standing = standings().get(ref);
+        return standing?.kind === "here"
+          ? watchedParentRef(ref, standing.meta)
+          : null;
+      }),
+    })),
+  );
 
   return (
     <div
@@ -184,11 +272,11 @@ const ConductorWatchedPanel: Component<{
         }
       >
         <ul class="m-0 flex list-none flex-col gap-2 p-0">
-          <For each={props.work}>
-            {(piece) => (
+          <For each={groups()}>
+            {(group) => (
               <li
                 data-testid="conductor-watched-group"
-                data-root={piece.root}
+                data-root={group.piece.root}
                 class="min-w-0"
               >
                 {/* THE HEAD IS THE WORK'S NAME AND ITS AGE. The root terminal
@@ -204,7 +292,7 @@ const ConductorWatchedPanel: Component<{
                     — the browser would close the paragraph early and the
                     heading would come apart. */}
                 <div class="mb-1 flex min-w-0 items-baseline gap-2">
-                  <Show when={groupHeading(piece, names())}>
+                  <Show when={groupHeading(group.piece, naming())}>
                     {(head) => (
                       <span
                         data-testid="conductor-watched-group-name"
@@ -222,17 +310,27 @@ const ConductorWatchedPanel: Component<{
                       data-testid="conductor-watched-group-since"
                       class="shrink-0 font-mono text-[0.62rem] tabular-nums text-fg-3"
                     >
-                      {elapsedSince(piece.since, now())}
+                      {elapsedSince(group.piece.since, now())}
                     </span>
                   </Tip>
                 </div>
+                {/* ONE `<ul>` PER GROUP, in tree order — the nesting is said
+                    by each row's own depth and connector rather than by a
+                    list inside a list. A nested list would make a split's row
+                    a child of its parent's row ELEMENT, and the rows are
+                    siblings in every other sense: one reading, one keyboard
+                    order, one place a test finds them in the order they are
+                    drawn. */}
                 <ul class="m-0 flex list-none flex-col gap-1.5 p-0">
-                  <For each={piece.refs}>
-                    {(ref) => (
+                  <For each={group.rows}>
+                    {(row) => (
                       <WatchedRow
-                        watchedRef={ref}
-                        name={names().get(ref)}
-                        seen={readings().get(ref)}
+                        watchedRef={row.ref}
+                        label={watchedName(row.ref, naming())}
+                        standing={standings().get(row.ref)}
+                        seen={readings().get(row.ref)}
+                        depth={row.depth}
+                        parent={row.parent}
                       />
                     )}
                   </For>
@@ -252,30 +350,31 @@ const ConductorWatchedPanel: Component<{
   );
 };
 
-/** What a watched ref is CALLED on screen: the name the `@` menu would offer
- *  for it, then the bare terminal id, then the raw ref. ONE computation, so
- *  the group-of-one rule below compares the words a person actually reads
- *  rather than a second rendering of them. */
-function refLabel(ref: string, fleetName: string | undefined): string {
-  return fleetName ?? splitWatchedRef(ref)?.id ?? ref;
-}
-
 /** The heading a piece of work is drawn under, or `null` when it would only
- *  repeat its single row. The name is the fleet's, then the one the server
- *  last read, then the root's bare id — a heading is never blank. */
+ *  repeat its single row. The words are the ladder every row climbs
+ *  (`watchedGroupName`), so the comparison below is between the words a
+ *  person actually reads rather than between two renderings of them — and a
+ *  heading is never blank. */
 function groupHeading(
   piece: ConductorState["work"][number],
-  names: ReadonlyMap<string, string>,
+  naming: WatchedNaming,
 ): string | null {
-  const head =
-    names.get(piece.root) ??
-    (piece.name === ""
-      ? (splitWatchedRef(piece.root)?.id ?? piece.root)
-      : piece.name);
+  const head = watchedGroupName(piece, naming);
   const only = piece.refs.length === 1 ? piece.refs[0] : undefined;
-  return only !== undefined && refLabel(only, names.get(only)) === head
-    ? null
-    : head;
+  return only !== undefined && watchedName(only, naming) === head ? null : head;
+}
+
+/** HOW FAR A ROW STEPS IN PER HOP, and the depth past which it stops
+ *  stepping. The dock's own measure for the same marker (`1.25rem`, then
+ *  `0.75rem` a hop) scaled down for a list whose rows are already small, and
+ *  capped because the side placement is a narrow column: a tree deeper than
+ *  four is still a tree a person has to read the names in. The rows stay
+ *  siblings in one list either way, so the cap costs the EYE a level of
+ *  nesting and costs the DOM nothing — `data-depth` keeps saying how deep it
+ *  really is. */
+const INDENT_CAP = 4;
+function treeIndent(depth: number): string {
+  return `${0.75 + (Math.min(depth, INDENT_CAP) - 1) * 0.6}rem`;
 }
 
 /** One watched terminal, in two lines: who it is, then how it stands and for
@@ -291,29 +390,35 @@ function groupHeading(
  *  opened. */
 function WatchedRow(props: {
   watchedRef: string;
-  name: string | undefined;
+  /** WHAT IT IS CALLED, already climbed from the panel's one pass over the
+   *  fleet (`watchedName`) — the row never names itself, so a row and the
+   *  heading over it cannot answer differently. */
+  label: string;
+  /** WHERE IT STANDS, read once by the panel: the row's agent, whether there
+   *  is anywhere to go, and the record the panel named it from, all off ONE
+   *  frame. `undefined` for a ref this browser cannot parse. */
+  standing: FleetTerminalStanding | undefined;
   /** The watch's last reading of this terminal, or `undefined` for one it has
    *  not read — which is what the row's clock is drawn from. */
   seen: ConductorState["seen"][number] | undefined;
+  /** HOW DEEP IN ITS PIECE OF WORK — 0 for the group's own top-level
+   *  terminal (and for any row whose parent this browser cannot see), one
+   *  more for each `child-of` step under a watched terminal. */
+  depth: number;
+  /** The watched ref this row is drawn UNDER, or `null` at depth 0. */
+  parent: string | null;
 }) {
   // Gated on the pane being the shown view: a clock ticking behind a host tab
   // would wake this row once a second for nobody.
   const now = useShownClock();
   const openTileAt = useOpenTile();
   const parts = createMemo(() => splitWatchedRef(props.watchedRef));
-  /** The terminal's standing on its host — read ONCE for the agent name, the
-   *  clock and whether there is anywhere to go, so the parts of the row can
-   *  never describe two different frames. */
-  const standing = createMemo(() => {
-    const split = parts();
-    return split === null ? null : fleetTerminalStanding(split.host, split.id);
-  });
   /** WHICH agent is in it, by display name. `null` for a plain shell, a
    *  sleeping terminal or one that is gone — `ConductorLook` below says which
    *  of those it is, so this line does not repeat it. */
   const agent = createMemo(() => {
-    const here = standing();
-    if (here === null || here.kind !== "here") return null;
+    const here = props.standing;
+    if (here === undefined || here.kind !== "here") return null;
     const kind = activeArm(here.meta)?.agent?.kind;
     return kind === undefined ? null : agentName(kind);
   });
@@ -327,7 +432,7 @@ function WatchedRow(props: {
    *  this rule parts company with Look's, which needs a live screen to read. */
   const goTo = createMemo(() => {
     const split = parts();
-    return split !== null && standing()?.kind === "here" ? split : null;
+    return split !== null && props.standing?.kind === "here" ? split : null;
   });
   /** HOW LONG IT HAS STOOD AS IT STANDS, in the word the whole app calls that
    *  level — `working 4m`, `asking 40s`, `asleep 2m`, `stopped 10s`. ONE rule
@@ -363,10 +468,38 @@ function WatchedRow(props: {
     <li
       data-testid="conductor-watched-row"
       data-ref={props.watchedRef}
+      // THE TREE, for a reader of the DOM as much as for the eye: how deep
+      // this row sits in its piece of work, and which watched row it sits
+      // under. The parent attribute is simply ABSENT at depth 0 rather than
+      // written empty, so its presence is the fact "this terminal is a split
+      // of another terminal on this list".
+      data-depth={props.depth}
+      data-parent-ref={props.parent ?? undefined}
       class="min-w-0 rounded-md border border-edge bg-surface-0 px-2 py-1.5 text-[0.72rem]"
+      // STEPPED IN BY DEPTH, and capped: an eighth-level split is still a row
+      // a person has to read, and a panel that is 15rem wide in its side
+      // placement runs out of room long before the tree does.
+      style={
+        props.depth === 0
+          ? undefined
+          : { "margin-inline-start": treeIndent(props.depth) }
+      }
     >
       {/* LINE ONE: WHO IT IS. */}
       <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+        {/* The dock's own marker for a sub-row, at the dock's own weight: the
+            indent says how deep, this says the step is a `child-of` edge and
+            not a stylistic inset. Decorative — `data-parent-ref` carries the
+            fact, and a screen reader reciting "└" would be reading
+            punctuation. */}
+        <Show when={props.depth > 0}>
+          <span
+            aria-hidden="true"
+            class="shrink-0 select-none font-mono text-[0.6rem] leading-none text-fg-3/70"
+          >
+            └
+          </span>
+        </Show>
         <Show
           when={goTo()}
           fallback={
@@ -374,7 +507,7 @@ function WatchedRow(props: {
               data-testid="conductor-watched-name"
               class="min-w-0 max-w-full truncate font-semibold text-fg"
             >
-              {refLabel(props.watchedRef, props.name)}
+              {props.label}
             </span>
           }
         >
@@ -389,11 +522,11 @@ function WatchedRow(props: {
               // The accessible name says what pressing it DOES and still
               // carries the visible words, so a voice command spoken as they
               // are read lands on it.
-              aria-label={`Go to ${refLabel(props.watchedRef, props.name)}`}
+              aria-label={`Go to ${props.label}`}
               class="min-w-0 max-w-full cursor-pointer truncate rounded-sm font-semibold text-fg underline-offset-2 hover:text-accent hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
               onClick={() => openTileAt(target())}
             >
-              {refLabel(props.watchedRef, props.name)}
+              {props.label}
             </button>
           )}
         </Show>

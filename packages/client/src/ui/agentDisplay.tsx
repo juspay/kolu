@@ -11,7 +11,7 @@ import {
   isAgentKind,
   mapAgentVocabs,
 } from "kolu-agents/vocab";
-import type { AgentInfo } from "kolu-common/surface";
+import type { AgentInfo, TaskProgress } from "kolu-common/surface";
 import type { Component } from "solid-js";
 import { MarkIcon } from "./Icons";
 
@@ -85,6 +85,24 @@ const tokenFormat = new Intl.NumberFormat("en", {
 });
 export const formatContextTokens = (tokens: number): string =>
   tokenFormat.format(tokens);
+
+/** AN AGENT'S TASK PROGRESS as the fraction every surface prints — `"7/12"`.
+ *
+ *  ONE spelling, because there are four places that print it (the tile's meta
+ *  line, its compact twin, the Inspector's status card and the Conductor's
+ *  status line) and `${completed}/${total}` is small enough that each of them
+ *  would have written its own. A separator or a zero-total rule reconsidered
+ *  in one of them is then a readout that disagrees with itself across one
+ *  window, which is the whole reason the display strings live in this module
+ *  rather than at their render sites. */
+export const formatTaskProgress = (progress: TaskProgress): string =>
+  `${progress.completed}/${progress.total}`;
+
+/** The same fraction as the SENTENCE a tooltip says, for the sites that draw
+ *  the number bare — a bar, or a word-less chip, means nothing until something
+ *  says what it counts. */
+export const taskProgressTitle = (progress: TaskProgress): string =>
+  `${formatTaskProgress(progress)} tasks completed`;
 
 /** Semantic bucket per state — THE shared "which color family" fact, so the
  *  compact header cluster (AgentIndicator) and the Inspector's status card

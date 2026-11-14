@@ -15,6 +15,7 @@
 import assert from "node:assert";
 import { Given, Then, When } from "@cucumber/cucumber";
 import { pollFor } from "../support/poll.ts";
+import { padiCall } from "../support/rpcWire.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 const PANE = '[data-testid="conductor-pane"]';
@@ -1472,6 +1473,80 @@ When(
     this.watchedTerminalId = id;
     await enterConductor(this);
     await sendPrompt(this, `watch ${id}`);
+  },
+);
+
+When(
+  "I ask the conductor to watch a split of the terminal I just created",
+  async function (this: KoluWorld) {
+    // THROUGH THE DAEMON, the way the dock's split scenarios cut one: this
+    // scenario is about how the conversation DRAWS a split, not how one is
+    // born (`sub-terminal.feature` owns that path). The create answers with
+    // the new terminal's record, which is the id the watch is asked for.
+    const parentId = this.createdTerminalIds.at(-1);
+    assert.ok(parentId, "no terminal was created in this scenario to split");
+    const created = (await padiCall("lifecycle/create", {
+      placement: { kind: "child-of", parentId },
+    })) as { readonly id: string };
+    this.watchedTerminalId = created.id;
+    this.watchedSplitParentId = parentId;
+    await enterConductor(this);
+    await sendPrompt(this, `watch ${created.id}`);
+  },
+);
+
+Then(
+  "the watched split should be drawn under the terminal it is a split of",
+  async function (this: KoluWorld) {
+    const split = watchedId(this);
+    const parent = this.watchedSplitParentId;
+    assert.ok(parent, "no split was watched in this scenario");
+    // ONE READING of the panel's shape — the order the rows are drawn in, and
+    // what each says it hangs under — so a failure prints the tree as drawn
+    // rather than "not nested", which cannot tell a flat list from a split
+    // nested under the wrong row.
+    const shape = async (): Promise<string> =>
+      JSON.stringify(
+        await this.page
+          .locator(`${WATCHED_PANEL} ${WATCHED_ROW}`)
+          .evaluateAll((rows) =>
+            rows.map((row) => ({
+              ref: row.getAttribute("data-ref"),
+              depth: row.getAttribute("data-depth"),
+              under: row.getAttribute("data-parent-ref"),
+              name:
+                row
+                  .querySelector('[data-testid="conductor-watched-name"]')
+                  ?.textContent?.trim() ?? null,
+            })),
+          ),
+      );
+    await waitForValue(
+      "the watched split's place in its group",
+      async () => {
+        const rows = JSON.parse(await shape()) as Array<{
+          ref: string | null;
+          depth: string | null;
+          under: string | null;
+          name: string | null;
+        }>;
+        const at = rows.findIndex((row) => row.ref?.endsWith(`/${split}`));
+        const above = rows.findIndex((row) => row.ref?.endsWith(`/${parent}`));
+        const row = rows[at];
+        if (row === undefined) return `no row for the split: ${await shape()}`;
+        // NEVER A BARE ID: a split has no name of its own, and the uuid is the
+        // one thing a person cannot recognise it by.
+        if (row.name?.includes(split))
+          return `the split is named by its id: ${await shape()}`;
+        return above !== -1 &&
+          above < at &&
+          row.depth === "1" &&
+          row.under === rows[above]?.ref
+          ? "drawn under its parent"
+          : `not under its parent: ${await shape()}`;
+      },
+      "drawn under its parent",
+    );
   },
 );
 

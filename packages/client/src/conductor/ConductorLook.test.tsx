@@ -51,8 +51,13 @@ vi.mock("../settings/useTips", () => ({
 import ConductorLook, { LOOK_EVERY_MS, LOOK_LINES } from "./ConductorLook";
 import { Shown } from "../ui/shown";
 
-/** An active terminal whose agent is working and says what on. */
-const working = (): FleetTerminalStanding => ({
+/** An active terminal whose agent is working and says what on. The agent
+ *  record is the WIRE's shape — `taskProgress` is a field every agent
+ *  publishes, `null` for one that keeps no task list — so a case can turn it
+ *  on without the fixture growing a second shape. */
+const working = (
+  agent: Record<string, unknown> = {},
+): FleetTerminalStanding => ({
   kind: "here",
   meta: {
     state: "active",
@@ -61,6 +66,8 @@ const working = (): FleetTerminalStanding => ({
       kind: "claude-code",
       state: "thinking",
       summary: "writing the plan",
+      taskProgress: null,
+      ...agent,
     },
   } as never,
 });
@@ -134,6 +141,28 @@ describe("an agent line", () => {
     ).toBe("Thinking · writing the plan");
     expect(toggle(el)?.textContent).toBe("Look");
     expect(seam.reads).toEqual([]);
+  });
+
+  it("says how far through its own task list the agent is, when it keeps one", async () => {
+    setStanding(working({ taskProgress: { completed: 7, total: 12 } }));
+    const el = mount("progress");
+    await vi.advanceTimersByTimeAsync(0);
+    // Beside the state, ahead of what it is doing — the same fraction the
+    // tile's meta line and the Inspector's card print.
+    expect(
+      el.querySelector('[data-testid="conductor-look-progress"]')?.textContent,
+    ).toBe("7/12");
+    expect(
+      el.querySelector('[data-testid="conductor-look-status"]')?.textContent,
+    ).toBe("Thinking · 7/12 · writing the plan");
+  });
+
+  it("says nothing about tasks for an agent that keeps no list", async () => {
+    const el = mount("no-tasks");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el.querySelector('[data-testid="conductor-look-progress"]')).toBe(
+      null,
+    );
   });
 
   it("opens to the last lines, read from the terminal's OWN host", async () => {

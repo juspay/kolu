@@ -7,10 +7,13 @@
  *  THE STATUS LINE is always there and costs nothing. It reads the terminal
  *  out of the fleet roster the client already mirrors for every host
  *  (`fleetTerminalStanding`, the same per-host streams the switcher and the `@`
- *  menu read), so it opens no stream of its own: the agent's state, and what
- *  the agent says it is doing. A terminal no longer in that roster says
- *  "terminal gone", and a sleeping one says "asleep": neither has a live screen,
- *  so neither offers Look.
+ *  menu read), so it opens no stream of its own: the agent's state, how far
+ *  through its own task list it is when it keeps one (`7/12`, the fraction
+ *  the tile's meta line and the Inspector's card print — the record is
+ *  already in hand, so this is the one place the Conductor's rows and its
+ *  agent lines both get it from), and what the agent says it is doing. A
+ *  terminal no longer in that roster says "terminal gone", and a sleeping one
+ *  says "asleep": neither has a live screen, so neither offers Look.
  *
  *  A terminal with NO detected agent is read through its foreground program:
  *  the shell is "no agent · at the shell", and one of kolu's own agent
@@ -66,8 +69,10 @@ import { useTips } from "../settings/useTips";
 import {
   type AgentStateTone,
   agentNameForBinary,
+  formatTaskProgress,
   stateLabels,
   stateTones,
+  taskProgressTitle,
 } from "../ui/agentDisplay";
 import { padiRpcOf } from "../wire";
 import { useShown } from "../ui/shown";
@@ -93,11 +98,24 @@ const DOT: Record<AgentStateTone | "none", string> = {
   none: "bg-fg-3",
 };
 
-/** The status line's words: what the terminal is, and what its agent says it
- *  is doing (when it says anything). */
+/** The status line's words: what the terminal is, how far through its task
+ *  list the agent in it says it is, and what it says it is doing (when it
+ *  says anything). */
 interface Status {
   readonly tone: keyof typeof DOT;
   readonly state: string;
+  /** HOW MANY OF ITS OWN TASKS ARE DONE — `7/12` and the sentence that says
+   *  what the fraction counts — for an agent that reports a task list, and
+   *  `null` for one that does not (most states, and every agent that keeps no
+   *  list). The fraction is the formatter the tile's meta line and the
+   *  Inspector's card already print, so the Conductor does not spell progress
+   *  a second way.
+   *
+   *  It costs no reading of its own: it is on the record this line is already
+   *  holding, which is what makes it drawable on the transcript's agent lines
+   *  and on every watched row, in both placements, without a subscription per
+   *  row. */
+  readonly progress: { readonly text: string; readonly title: string } | null;
   readonly doing: string | null;
 }
 
@@ -151,30 +169,59 @@ const ConductorLook: Component<{
     const now = standing();
     switch (now.kind) {
       case "gone":
-        return { tone: "none", state: "terminal gone", doing: null };
+        return {
+          tone: "none",
+          state: "terminal gone",
+          progress: null,
+          doing: null,
+        };
       case "loading":
-        return { tone: "none", state: "finding the terminal…", doing: null };
+        return {
+          tone: "none",
+          state: "finding the terminal…",
+          progress: null,
+          doing: null,
+        };
       case "unreachable":
         return {
           tone: "none",
           state: "its host is not connected",
+          progress: null,
           doing: null,
         };
       case "here": {
         const arm = live();
         if (arm === undefined)
-          return { tone: "none", state: "asleep", doing: null };
+          return {
+            tone: "none",
+            state: "asleep",
+            progress: null,
+            doing: null,
+          };
         const agent = arm.agent;
         if (agent !== null) {
+          const tasks = agent.taskProgress;
           return {
             tone: stateTones[agent.state],
             state: stateLabels[agent.state] ?? agent.state,
+            progress:
+              tasks === null
+                ? null
+                : {
+                    text: formatTaskProgress(tasks),
+                    title: taskProgressTitle(tasks),
+                  },
             doing: agent.summary,
           };
         }
         const front = arm.foreground;
         if (front === null || front.shell)
-          return { tone: "none", state: "no agent", doing: "at the shell" };
+          return {
+            tone: "none",
+            state: "no agent",
+            progress: null,
+            doing: "at the shell",
+          };
         // THE PROGRAM IN FRONT IS ONE OF OURS, and nothing has been detected
         // in it yet: that is an agent coming up, not a terminal without one.
         // "no agent · running omp" said both halves of that at once and
@@ -182,8 +229,18 @@ const ConductorLook: Component<{
         // `cli.basename` — there is no second list of agent names here.
         const starting = agentNameForBinary(front.name);
         return starting === undefined
-          ? { tone: "none", state: "no agent", doing: `running ${front.name}` }
-          : { tone: "none", state: `starting ${starting}`, doing: null };
+          ? {
+              tone: "none",
+              state: "no agent",
+              progress: null,
+              doing: `running ${front.name}`,
+            }
+          : {
+              tone: "none",
+              state: `starting ${starting}`,
+              progress: null,
+              doing: null,
+            };
       }
     }
   });
@@ -203,6 +260,24 @@ const ConductorLook: Component<{
           class="min-w-0 flex-1 truncate text-fg-2"
         >
           <span class="font-semibold text-fg">{status().state}</span>
+          {/* BESIDE THE STATE, ahead of what it is doing: `working · 7/12 ·
+              writing the plan`. The fraction is the one number on this line, so
+              it is `tabular-nums` — a row whose count ticks over must not shift
+              the words after it. */}
+          <Show when={status().progress}>
+            {(tasks) => (
+              <>
+                {" · "}
+                <span
+                  data-testid="conductor-look-progress"
+                  class="tabular-nums"
+                  title={tasks().title}
+                >
+                  {tasks().text}
+                </span>
+              </>
+            )}
+          </Show>
           <Show when={status().doing}>{(doing) => <> · {doing()}</>}</Show>
         </span>
         {props.clock}

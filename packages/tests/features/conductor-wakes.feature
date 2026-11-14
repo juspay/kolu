@@ -80,19 +80,26 @@ Feature: The Conductor never blocks
     And the watched terminal should be the focused tile
     And there should be no page errors
 
-  Scenario: Two pieces of work count on the tab, and the badge says when it needs you
+  Scenario: Two pieces of work count on the tab, a split is drawn under its parent, and the badge says when it needs you
     # ONE BADGE on the Conductor's tab, like an unread count. The NUMBER is
     # how many pieces of work are in flight — a piece of work is the watched
-    # terminals that share a top-level terminal, and these two are unrelated
-    # terminals, so they are two — and the COLOUR is whether the conversation
-    # is blocked on an answer from you. Never a second count beside it.
+    # terminals that share a top-level terminal, so a split of a watched
+    # terminal joins ITS piece rather than starting one, and the panel draws it
+    # UNDER that terminal (named as something a person recognises, never its
+    # id) — and the COLOUR is whether the conversation is blocked on an answer
+    # from you. Never a second count beside it.
     When I create a terminal
     And I ask the conductor to watch the terminal I just created
     Then the conductor status should say it is watching 1
     And the conductor status should say 1 piece of work
+    When I ask the conductor to watch a split of the terminal I just created
+    Then the conductor status should say it is watching 2
+    And the conductor status should say 1 piece of work
+    When I open the watched terminals
+    Then the watched split should be drawn under the terminal it is a split of
     When I create a terminal
     And I ask the conductor to watch the terminal I just created
-    Then the conductor status should say it is watching 2
+    Then the conductor status should say it is watching 3
     And the conductor status should say 2 pieces of work
     And the conductor tab should show a badge of 2
     And the conductor tab badge should not be the needs-you one

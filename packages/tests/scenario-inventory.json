@@ -10282,6 +10282,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "5f4e4821e28257ede5725059eca0d3edcd99892c"
+    },
+    {
+      "revisionId": "revision-65aa6a2f05699d25ddea",
+      "scenarioKey": "scenario-1d77afd4ce5781207962",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "Two pieces of work count on the tab, a split is drawn under its parent, and the badge says when it needs you",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "70bb1958426b5553b7cd5b08be61f87d5baf7b59aa5cbfcbec436766caebec23",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "152adb740c7cd98d2c2b3c679c9641b39021827b"
     }
   ]
 }
