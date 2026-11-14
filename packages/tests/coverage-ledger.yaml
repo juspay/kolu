@@ -3532,7 +3532,7 @@ retirements:
     defectSurface: [conductor, attention-alerts]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-256383356f3dd3780c16]
+    survivorRevisionIds: [revision-d85ddd057cb13def6b8e]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: A question the agent asks is answered from the transcript"
@@ -3545,7 +3545,7 @@ retirements:
     defectSurface: [conductor, attention-alerts]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-356b0e3c05e339d3aa43]
+    survivorRevisionIds: [revision-369554022391c086ba53]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: An unanswered question is a needs-you source from the tab row"
@@ -3683,7 +3683,7 @@ retirements:
     defectSurface: [conductor, attention-alerts]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-256383356f3dd3780c16]
+    survivorRevisionIds: [revision-d85ddd057cb13def6b8e]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: A question the agent asks is answered from the transcript"
@@ -3709,7 +3709,7 @@ retirements:
     defectSurface: [conductor, attention-alerts]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-356b0e3c05e339d3aa43]
+    survivorRevisionIds: [revision-369554022391c086ba53]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: An unanswered question is a needs-you source from the tab row"
@@ -3800,7 +3800,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-77b79c5e257d162d02ab]
+    survivorRevisionIds: [revision-eb2bc6d737f8e6dd329a]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: A wake that rings while the Conductor works waits for the turn to end"
@@ -3826,7 +3826,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-256383356f3dd3780c16]
+    survivorRevisionIds: [revision-d85ddd057cb13def6b8e]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: A question the agent asks is answered from the transcript"
@@ -3839,7 +3839,7 @@ retirements:
     defectSurface: [conductor, attention-alerts]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-256383356f3dd3780c16]
+    survivorRevisionIds: [revision-d85ddd057cb13def6b8e]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: A question the agent asks is answered from the transcript"
@@ -3852,7 +3852,7 @@ retirements:
     defectSurface: [conductor, attention-alerts]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-356b0e3c05e339d3aa43]
+    survivorRevisionIds: [revision-369554022391c086ba53]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: An unanswered question is a needs-you source from the tab row"
@@ -3865,7 +3865,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-11493fccc6f705712232]
+    survivorRevisionIds: [revision-1ebdcd4a24dea0b88e06]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: The watched terminals are listed and looked at"
@@ -3878,7 +3878,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-11493fccc6f705712232]
+    survivorRevisionIds: [revision-1ebdcd4a24dea0b88e06]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: The watched terminals are listed and looked at"
@@ -3891,7 +3891,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-11493fccc6f705712232]
+    survivorRevisionIds: [revision-1ebdcd4a24dea0b88e06]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: The watched terminals are listed, looked at, and pressed to go there"
@@ -3904,7 +3904,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-65aa6a2f05699d25ddea]
+    survivorRevisionIds: [revision-aecaee89f29348a2dc50]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: Two pieces of work count on the tab, a split is drawn under its parent, and the badge says when it needs you"
@@ -3917,8 +3917,190 @@ retirements:
     defectSurface: [conductor, agent-detection, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-d0dd016c80ef4dfd05f0]
+    survivorRevisionIds: [revision-d2814d8757406c604137]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: A session the Conductor finds idle rings once as ready"
       test: Same scenario, same steps, same assertions — only the title and its comment changed. Ready now has two readings, and this one is the INFERENCE — a session kolu did not watch come up (written against the terminal's own shell pid, the adopted or resumed case) whose agent is idle and which the conversation has never spoken to. The DIRECT reading, an agent padi watched arrive whose own state is the `fresh` presence, is a new scenario at the end of the same file, so the title has to say which of the two this one guards.
+  - id: revise-127ba559d2fd6924e4b6
+    revisionId: revision-127ba559d2fd6924e4b6
+    action: revised
+    status: landed
+    promise: A watched terminal whose agent asks wakes the idle Conductor
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-bf6cea23c3d7ca00b42e]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: A watched terminal whose agent asks wakes the idle Conductor"
+      test: The same wake journey against the same wire; only the arrangement's readout changed, because a watched terminal is now a MEMBER of a stored piece of work and the status line counts pieces of work rather than watched terminals.
+  - id: revise-77b79c5e257d162d02ab
+    revisionId: revision-77b79c5e257d162d02ab
+    action: revised
+    status: landed
+    promise: A wake that rings while the Conductor works waits for the turn to end
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-eb2bc6d737f8e6dd329a]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: A wake that rings while the Conductor works waits for the turn to end"
+      test: Every held-wake assertion is unchanged; the arrangement now reads the status line's pieces-of-work count, the readout that replaced "watching N".
+  - id: revise-d0dd016c80ef4dfd05f0
+    revisionId: revision-d0dd016c80ef4dfd05f0
+    action: revised
+    status: landed
+    promise: A session the Conductor finds idle rings once as ready
+    defectSurface: [conductor, agent-detection, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-d2814d8757406c604137]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: A session the Conductor finds idle rings once as ready"
+      test: Same inferred-ready journey, same assertions; only the arrangement's readout moved to the pieces-of-work count.
+  - id: rename-11493fccc6f705712232
+    revisionId: revision-11493fccc6f705712232
+    action: renamed
+    status: landed
+    promise: The watched terminals are listed, looked at, and pressed to go there
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-1ebdcd4a24dea0b88e06]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: A work's terminals are listed, looked at, and pressed to go there"
+      test: The same three claims against the same code paths — the terminal is listed, its own screen is read in the Look, and pressing its name leaves the conversation and lands on its tile. The list is now the work card's Terminals section (a member row with its role) instead of the watch list, which is what the title says.
+  - id: revise-65aa6a2f05699d25ddea
+    revisionId: revision-65aa6a2f05699d25ddea
+    action: revised
+    status: landed
+    promise: Two pieces of work count on the tab, a split is drawn under its parent, and the badge says when it needs you
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-aecaee89f29348a2dc50]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: The tab's badge counts what is waiting on you, and is absent when nothing is"
+      test: "The badge half is kept and sharpened — the number is now how many things WAIT ON YOU (absent at zero, violet when something does), which is the human's ruling in this PR's brief. The split half is not replaced because the behaviour it guarded is gone: a piece of work is no longer inferred from watched terminals sharing a parent, so there is no grouping for a split to join and no tree for the panel to draw. Membership is stated by the Conductor and asserted by the new conductor-work.feature scenarios."
+  - id: revise-be5a4ab52a3797d96b69
+    revisionId: revision-be5a4ab52a3797d96b69
+    action: revised
+    status: landed
+    promise: Leaving the conversation and coming back finds it exactly as it was
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-054a923b20ade0185f1f]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: Leaving the conversation and coming back finds it exactly as it was"
+      test: The same element-identity proof and the same retained Look and composer text; what is open across the round trip is now the work card and its member row rather than the watched panel's row.
+  - id: revise-dfea6e48355c7cce4b46
+    revisionId: revision-dfea6e48355c7cce4b46
+    action: revised
+    status: landed
+    promise: An agent the Conductor starts rings ready once, and can be spoken to
+    defectSurface: [conductor, agent-detection, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-79c32bba719ef23af9d5]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: An agent the Conductor starts rings ready once, and can be spoken to"
+      test: The same whole loop — create, ring ready exactly once, speak to it, read the words off its own screen. The create now carries a work and a role (the fleet face refuses one without them) and the screen is read from the work card's member row.
+  - id: collapse-d2c205ec4a4a66e8df6c
+    revisionId: revision-d2c205ec4a4a66e8df6c
+    action: collapse-outline
+    status: landed
+    promise: The status line and the watched panel fit a phone
+    defectSurface: [conductor, mobile, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-91da9a9914b88c036009, revision-6d31a0f0995ca43fb059]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: The work column and its card fit a phone"
+      test: Folded into the two phone-width scenarios that survive rather than replaced by a unit test. Both run in a browser at 390px against the same layout; the conductor-work one additionally OPENS the card (the widest thing the column can hold, which this scenario never drew) and conductor-layout's keeps the whole-conversation measurement. Nothing this scenario asserted is now unasserted.
+  - id: rename-b1bfdc121e1da09141d6
+    revisionId: revision-b1bfdc121e1da09141d6
+    action: renamed
+    status: landed
+    promise: The work in progress stands beside the conversation, and folds into the status line on a narrow window
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-29efcf88159ee2c5951f]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-layout.feature
+      symbol: "Scenario: The work stands beside the conversation, and folds into the status line on a narrow window"
+      test: The same two placements and the same fold at the same two widths; what stands in the second track is the work column (a card per piece of work) rather than the watched panel, which is the only reason the title moved.
+  - id: rename-72ec7488db777dbb5d9b
+    revisionId: revision-72ec7488db777dbb5d9b
+    action: renamed
+    status: landed
+    promise: With nothing in progress the side column says so, and no readout says zero
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-d13542c461ab4034d24d]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-layout.feature
+      symbol: "Scenario: With nothing in progress the column says so, and no readout says zero"
+      test: The same no-zero sweep over the same two regions; the empty line is the work column's own, and the absent readout is the pieces-of-work count rather than "watching N".
+  - id: revise-d35abeb50d28e5d37781
+    revisionId: revision-d35abeb50d28e5d37781
+    action: revised
+    status: landed
+    promise: A Look stays open across the width where the two columns fold
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-27cd7e7e48a67717033d]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-layout.feature
+      symbol: "Scenario: A Look stays open across the width where the two columns fold"
+      test: The same Look, opened on the same terminal's own screen and read across the same two resizes in both directions; it now lives on the work card's member row, so the scenario opens the card first.
+  - id: revise-81427fce2b1fea6b38e7
+    revisionId: revision-81427fce2b1fea6b38e7
+    action: revised
+    status: landed
+    promise: The phone keeps one column, and nothing reaches past its right edge
+    defectSurface: [conductor, mobile, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-6d31a0f0995ca43fb059]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-layout.feature
+      symbol: "Scenario: The phone keeps one column, and nothing reaches past its right edge"
+      test: The same 390px measurement of every box on screen, after the same gesture; the thing the count opens is the work column.
+  - id: revise-256383356f3dd3780c16
+    revisionId: revision-256383356f3dd3780c16
+    action: revised
+    status: landed
+    promise: A question the agent asks is answered from the transcript
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-d85ddd057cb13def6b8e]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: A question the agent asks is answered from the transcript"
+      test: "Same round trip, same settled-card assertion. The badge half is restated because the tab's number changed meaning in this PR: it counts what is WAITING ON YOU rather than how much is in flight, so one question with nothing else outstanding is a violet `1` where it used to be a numberless dot. The zero case is unchanged — answering it takes the badge away entirely."
+  - id: revise-356b0e3c05e339d3aa43
+    revisionId: revision-356b0e3c05e339d3aa43
+    action: revised
+    status: landed
+    promise: An unanswered question is a needs-you source from the tab row
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-369554022391c086ba53]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: An unanswered question is a needs-you source from the tab row"
+      test: "The same claim — an ask shows on the chrome-bar entry with the pane unmounted — against the badge's new meaning: a question belonging to no piece of work still counts as one thing waiting on you, so the tab reads a violet `1` instead of the dot the old count-of-work model drew."

@@ -145,12 +145,27 @@ export class KoluWorld extends World {
    *  presses the tool card's *open tile* can assert the focus landed on THAT
    *  terminal rather than on whichever tile happened to be active. */
   adoptedTerminalId?: string;
-  /** The terminal id the conductor was asked to WATCH, so a wake, the watched
-   *  panel's row and its Look can each be checked against THAT terminal. */
+  /** The terminal id the conductor was asked to WATCH — the one it adopted
+   *  into a work — so a wake, the work card's member row and its Look can each
+   *  be checked against THAT terminal. */
   watchedTerminalId?: string;
-  /** The terminal a watched SPLIT was cut from, so the watched panel can be
-   *  checked for drawing the split under it rather than beside it. */
-  watchedSplitParentId?: string;
+  /** The piece of work the scenario opened, as the card's own `data-work`.
+   *  Read off the card rather than parsed out of prose: the id is the client's
+   *  own reading of the record, so every later step is about the same work the
+   *  person is looking at. */
+  workId?: string;
+  /** The title the scenario gave that work, which is what the dock row's mark
+   *  and the card's head read out. */
+  workTitle?: string;
+  /** The git repo the work is done in — a scratch worktree this scenario made.
+   *  Its `.waterfall/` files, its branch and its stated pull request are what
+   *  kolu observes the work through. */
+  workRepoDir?: string;
+  /** The member terminal the conductor created with a role, and the transcript
+   *  path of the stand-in agent running in it: the scenario moves that agent
+   *  between states to produce the level changes kolu records as events. */
+  memberTerminalId?: string;
+  memberTranscriptPath?: string;
   /** A terminal's shell pid, read while it still had the keyboard, so an
    *  agent can be staged in it after the scenario has moved elsewhere. */
   notedShellPid?: number;

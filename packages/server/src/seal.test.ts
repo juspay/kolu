@@ -174,6 +174,10 @@ const WEB_SHELL_FILES = [
   // Pure HTTP shell code, runs no terminal domain.
   "httpMiddleware",
   "iframePreviewRoute",
+  // The kept-file byte route — `@kolu/serve-dir` rooted at one work's corner
+  // of the state root, so a finished work's plan still opens after its
+  // worktree is gone. Pure HTTP shell code.
+  "workFilesRoute",
   "index",
   "log",
   // The pure process-memory poll READ behind koluSurface's derived `processMemory`
@@ -218,6 +222,16 @@ const WEB_SHELL_FILES = [
   // on. Shell code by the same argument — it owns no PTY and runs no terminal
   // domain; it subscribes to padi like any other consumer.
   "conductor/watcher",
+  // ...the TRANSCRIPT FILE the conversation's rows live in, and the ladder
+  // rule that governs it (`state.ts`'s rung writes it; this file refuses a
+  // stamp that ladder did not write). A file beside `config.json`: shell
+  // storage, no terminal domain.
+  "conductor/transcriptFile",
+  // ...and the WORK FILES port: listing a worktree's `.waterfall/` over a
+  // host's padi and copying those bytes under the state root through the same
+  // remote-safe read the preview route uses. Shell code — it holds no PTY and
+  // reads every host the way any other consumer does.
+  "conductor/workFiles",
   // ── the fleet MCP face's server side (packages/server/src/fleet/) ──
   // The loopback listener the conductor's agent reaches the fleet through,
   // and kolu-server's implementation of `@kolu/kolu-mcp`'s `FleetHosts` port

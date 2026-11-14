@@ -95,16 +95,20 @@ export function conductorSurfaceMembers(deps: {
       attach: ({ input }: { input: Parameters<ConductorHost["attach"]>[0] }) =>
         ask(() => host().attach(input)),
       cancel: () => ask(() => host().cancel()),
+      /** The answer, and WHERE it was pressed — the work's card or the chat.
+       *  Both draw the same ask row; the decision the work keeps records
+       *  which face the human was looking at. */
       answer: ({
         input,
       }: {
         input: {
           askId: string;
           answers: Parameters<ConductorHost["answer"]>[1];
+          from: Parameters<ConductorHost["answer"]>[2];
         };
       }) =>
         ask(async () => ({
-          settled: await host().answer(input.askId, input.answers),
+          settled: await host().answer(input.askId, input.answers, input.from),
         })),
       signIn: ({ input }: { input: { method: string } }) =>
         ask(async () => ({ outcome: await host().signIn(input.method) })),

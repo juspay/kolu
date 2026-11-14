@@ -68,8 +68,17 @@ export interface Conductor {
     settled?: (accepted: boolean) => void,
   ): void;
   cancel(): void;
-  /** `answers === null` DECLINES — the agent is told you would not say. */
-  answer(askId: string, answers: readonly AskAnswer[] | null): void;
+  /** `answers === null` DECLINES — the agent is told you would not say.
+   *
+   *  `from` is WHICH FACE answered. A question about a piece of work is drawn
+   *  twice — in the chat and on the work's card — and answering either settles
+   *  the one question; the decision the work keeps records which one the
+   *  person was looking at when they answered it. */
+  answer(
+    askId: string,
+    answers: readonly AskAnswer[] | null,
+    from: "card" | "chat",
+  ): void;
   signIn(method: string): void;
   signInInput(text: string): void;
   signInCancel(): void;
@@ -146,12 +155,13 @@ export const useConductor = createSharedRoot<Conductor>(() => {
       ),
     cancel: () =>
       ask("Could not stop the turn", app.procedures.conductor.cancel({})),
-    answer: (askId, answers) =>
+    answer: (askId, answers, from) =>
       ask(
         "Could not answer",
         app.procedures.conductor.answer({
           askId,
           answers: answers === null ? null : [...answers],
+          from,
         }),
         (result) => {
           // A two-tab world: somebody else got there first. A reported state,

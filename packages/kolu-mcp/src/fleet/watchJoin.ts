@@ -1,10 +1,10 @@
 /**
- * HOW A TERMINAL CAME TO BE WATCHED — the whole vocabulary, in one place.
+ * HOW A TERMINAL CAME TO BE A MEMBER — the whole vocabulary, in one place.
  *
- * This word crosses three boundaries: an MCP tool records it (`watch_terminal`,
+ * This word crosses three boundaries: an MCP tool records it (`work_adopt`,
  * `lifecycle_create`), the Conductor's rules decide `ready` and `ended` from it
- * (`kolu-conductor`'s `WatchJoin`), and it is written to disk with the
- * conversation (`kolu-conductor`'s persisted record). Spelled once per
+ * (`kolu-conductor`'s `WatchJoin`), and it is written to disk with each
+ * member's wake bookkeeping (`kolu-conductor`'s persisted works). Spelled once per
  * boundary, a fourth join would COMPILE in all three and then be refused at the
  * next boot's record decode — after the write that made the file unreadable.
  *
@@ -22,8 +22,8 @@
  * - `created-run` — ... and typed a command at its first prompt. The ONLY join
  *   `ended` applies to: nothing else gives kolu a command whose return to the
  *   prompt means anything.
- * - `asked` — the Conductor (or a person) put an existing terminal on the list
- *   with `watch_terminal`. The only join that BASELINES, because it is the only
- *   one whose terminal already has a state nobody here caused.
+ * - `asked` — the Conductor (or a person) adopted an existing terminal into a
+ *   work with `work_adopt`. The only join that BASELINES, because it is the
+ *   only one whose terminal already has a state nobody here caused.
  */
 export const FLEET_WATCH_JOINS = ["created", "created-run", "asked"] as const;

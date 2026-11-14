@@ -1,37 +1,85 @@
 /**
- * The three pure pieces the watch is made of: what is HELD while a turn runs,
- * what is WORTH ringing about, and what the agent is actually handed.
+ * The three pure pieces a work's watch is made of: what is HELD while a turn
+ * runs, what is WORTH ringing about, and what the agent is actually handed.
  *
  * Pure, so this is the lane where the rules are pinned — every one of them is
  * otherwise reachable only by running two daemons and an agent, which is what
  * made the blocking loop it replaces untestable.
+ *
+ * The rules are stated per MEMBER now ({@link MemberState}: the watch
+ * bookkeeping that is written down, plus the two fields this process keeps).
+ * The cases below read a member as ONE flat value, through {@link flat}, for
+ * the reason the module splits them in the first place: what is under test is
+ * the DECISION, and the decision reads the two halves together.
  */
 
 import type { ConductorWakeLevel } from "kolu-common/conductor";
 import { describe, expect, it, vi } from "vitest";
 import { holding } from "./held.ts";
 import { wakeText } from "./wakeText.ts";
+import type { MemberWatch } from "./persisted.ts";
 import {
-  observed,
-  restoredEntry,
-  seenOf,
-  spokenTo,
-  type WatchEntry,
+  joinedMember,
+  type LastReading,
+  type MemberState,
+  observed as observedMember,
+  restoredMember,
+  spokenTo as spokenToMember,
   type WatchJoin,
   type WatchLevel,
-  type WatchRoot,
-  watchEntry,
-  workOf,
-} from "./watching.ts";
+} from "./members.ts";
 
 const REF = "local/11111111-1111-4111-8111-111111111111";
 const OTHER = "remote:prod/22222222-2222-4222-8222-222222222222";
 
-/** When a restored entry joined the watch list. A fixed instant, because the
- *  rules under test read it only as "the moment this terminal was watched" —
- *  the one reader that COUNTS from it is `workOf`, which has its own tests
- *  below. */
-const JOINED_AT = "2026-01-01T00:00:00.000Z";
+/** A member as ONE value — the saved bookkeeping and the two runtime fields
+ *  flattened together, which is how every rule below reads it. */
+type WatchEntry = MemberWatch & {
+  readonly last: LastReading | null;
+  readonly baselining: boolean;
+};
+
+const flat = (member: MemberState): WatchEntry => ({
+  ...member.watch,
+  last: member.last,
+  baselining: member.baselining,
+});
+
+const deep = (entry: WatchEntry): MemberState => {
+  const { last, baselining, ...watch } = entry;
+  return { watch, last, baselining };
+};
+
+const watchEntry = (_ref: string, joined: WatchJoin): WatchEntry =>
+  flat(joinedMember(joined));
+
+const restoredEntry = (saved: MemberWatch): WatchEntry =>
+  flat(restoredMember(saved));
+
+const spokenTo = (entry: WatchEntry): WatchEntry =>
+  flat(spokenToMember(deep(entry)));
+
+const observed = (
+  entry: WatchEntry,
+  seen: Parameters<typeof observedMember>[1],
+): { entry: WatchEntry; ring: ConductorWakeLevel | null; drop: boolean } => {
+  const read = observedMember(deep(entry), seen);
+  return { entry: flat(read.member), ring: read.ring, drop: read.drop };
+};
+
+/** HOW EACH MEMBER STANDS, as the works view publishes it — the same fold the
+ *  host runs over its runtime readings, written here over the flat entries
+ *  these cases hold. */
+const seenOf = (
+  entries: Iterable<[string, WatchEntry]>,
+): ReadonlyArray<{ terminal: string; level: WatchLevel; since: string }> => {
+  const rows: { terminal: string; level: WatchLevel; since: string }[] = [];
+  for (const [terminal, entry] of entries) {
+    if (entry.last === null) continue;
+    rows.push({ terminal, level: entry.last.level, since: entry.last.since });
+  }
+  return rows;
+};
 
 const seeing = (
   ref: string,
@@ -40,10 +88,7 @@ const seeing = (
     name?: string;
     agent?: string | null;
     foregroundShell?: boolean | null;
-    /** The piece of work it is in, as the watcher walked the parent edges on
-     *  its host — the terminal ITSELF unless the reading says it is a split
-     *  of something else. */
-    root?: WatchRoot;
+    worktree?: string;
   } = {},
 ) => ({
   ref,
@@ -54,7 +99,11 @@ const seeing = (
   agent: over.agent === undefined ? "claude-code" : over.agent,
   level,
   foregroundShell: over.foregroundShell ?? null,
-  root: over.root ?? { ref, name: over.name ?? "fix the parser" },
+  git:
+    over.worktree === undefined
+      ? null
+      : { worktree: over.worktree, branch: "work", repo: "/repo" },
+  pr: null,
 });
 
 describe("the held news", () => {
@@ -391,15 +440,13 @@ describe("what is worth waking the Conductor about", () => {
     // What a restart holds is the saved entry: the level it was told, the name
     // and agent it last saw, and how it is to be read from here.
     const restored = restoredEntry({
-      ref: REF,
       name: "fix the parser",
       agent: "claude-code",
       told: "asking",
       joined: "created",
       spoken: true,
       ran: false,
-      since: JOINED_AT,
-      root: null,
+      worktree: null,
     });
     expect(observed(restored, seeing(REF, "asking")).ring).toBeNull();
     // ... and a terminal that moved on while kolu was down still rings.
@@ -410,30 +457,26 @@ describe("what is worth waking the Conductor about", () => {
     // The record a kolu-server left behind after a wake that could not be
     // delivered: watched, asked for, and told nothing.
     const restored = restoredEntry({
-      ref: REF,
       name: "fix the parser",
       agent: "claude-code",
       told: null,
       joined: "asked",
       spoken: true,
       ran: false,
-      since: JOINED_AT,
-      root: null,
+      worktree: null,
     });
     expect(observed(restored, seeing(REF, "stopped")).ring).toBe("stopped");
   });
 
   it("remembers across a restart that nothing has been said to the agent yet", () => {
     const restored = restoredEntry({
-      ref: REF,
       name: "fix the parser",
       agent: "claude-code",
       told: null,
       joined: "created",
       spoken: false,
       ran: true,
-      since: JOINED_AT,
-      root: null,
+      worktree: null,
     });
     expect(observed(restored, seeing(REF, "stopped")).ring).toBe("ready");
   });
@@ -701,15 +744,13 @@ describe("how long a watched terminal has stood as it stands", () => {
    *  was only ever in memory. */
   const restored = (): WatchEntry =>
     restoredEntry({
-      ref: REF,
       name: "fix the parser",
       agent: "claude-code",
       told: "stopped",
       joined: "created",
       spoken: true,
       ran: false,
-      since: JOINED_AT,
-      root: null,
+      worktree: null,
     });
 
   it("stamps the level a terminal ENTERED, and keeps the stamp while it stays there", () => {
@@ -736,8 +777,12 @@ describe("how long a watched terminal has stood as it stands", () => {
       // ... and the level CHANGING is what moves it.
       const stopped = observed(still, seeing(REF, "stopped")).entry;
       expect(stopped.last?.since).toBe("2026-02-01T10:04:00.000Z");
-      expect(seenOf([stopped])).toEqual([
-        { ref: REF, level: "stopped", since: "2026-02-01T10:04:00.000Z" },
+      expect(seenOf([[REF, stopped]])).toEqual([
+        {
+          terminal: REF,
+          level: "stopped",
+          since: "2026-02-01T10:04:00.000Z",
+        },
       ]);
     } finally {
       vi.useRealTimers();
@@ -751,11 +796,16 @@ describe("how long a watched terminal has stood as it stands", () => {
     // instant it can honestly claim.
     const back = restored();
     expect(back.last).toBeNull();
-    expect(seenOf([back, watchEntry(OTHER, "asked")])).toEqual([]);
+    expect(
+      seenOf([
+        [REF, back],
+        [OTHER, watchEntry(OTHER, "asked")],
+      ]),
+    ).toEqual([]);
 
     const read = observed(back, seeing(REF, "asking")).entry;
-    expect(seenOf([read])).toEqual([
-      { ref: REF, level: "asking", since: read.last?.since },
+    expect(seenOf([[REF, read]])).toEqual([
+      { terminal: REF, level: "asking", since: read.last?.since },
     ]);
   });
 });
@@ -771,30 +821,48 @@ describe("the account the agent is handed", () => {
     level: "stopped" as const,
     at: "2026-01-01T00:00:00.000Z",
   };
+  /** What each terminal IS: the work it belongs to and the part it plays —
+   *  looked up by the host, because a member that left between the ring and
+   *  the wake must be described as it stands. */
+  const about = (ref: string) =>
+    ref === REF
+      ? { role: "implementor" as const, title: "a stored piece of work" }
+      : null;
 
-  it("says who speaks, which terminal, how it stands, and to end the turn", () => {
-    const text = wakeText([event]);
+  it("says who speaks, which terminal, what work it is, how it stands, and to end the turn", () => {
+    const text = wakeText([event], about);
     expect(text).toContain("[kolu]");
     expect(text).toContain(REF);
     expect(text).toContain("fix the parser");
     expect(text).toContain("box");
     expect(text).toContain("claude-code");
     expect(text).toContain("STOPPED");
+    // The work and the role, because that is what the Conductor acts ON: a
+    // bare reference says nothing about which brief this terminal holds.
+    expect(text).toContain("the implementor of «a stored piece of work»");
     expect(text).toContain("agent_say");
     expect(text).toContain("END YOUR TURN");
   });
 
   it("counts the terminals when several rang together", () => {
-    const text = wakeText([event, { ...event, ref: OTHER, level: "gone" }]);
+    const text = wakeText(
+      [event, { ...event, ref: OTHER, level: "gone" }],
+      about,
+    );
     expect(text).toContain("2 terminals");
     expect(text).toContain(OTHER);
     expect(text).toContain("GONE");
+    // The second one left its work between the ring and the wake, and the
+    // line says so rather than naming a work it is no longer part of.
+    expect(text).toContain("no longer a member of any work in progress");
   });
 
   it("words the three levels this watch learned to tell apart", () => {
-    expect(wakeText([{ ...event, level: "ready" }])).toContain("UP");
-    expect(wakeText([{ ...event, level: "asleep" }])).toContain("PUT TO SLEEP");
-    const ended = wakeText([{ ...event, level: "ended", agent: "" }]);
+    expect(wakeText([{ ...event, level: "ready" }], about)).toContain("UP");
+    expect(wakeText([{ ...event, level: "asleep" }], about)).toContain(
+      "PUT TO SLEEP",
+    );
+    const ended = wakeText([{ ...event, level: "ended", agent: "" }], about);
     expect(ended).toContain("ENDED");
     // No agent was ever in it, so none is named.
     expect(ended).toContain("no agent in it");
@@ -805,161 +873,8 @@ describe("the account the agent is handed", () => {
     // Nothing kolu has read says what this one is for — no intent, no branch.
     // A pair of empty quotes reads as a terminal somebody called "", which is
     // a name the agent would then try to use.
-    const text = wakeText([{ ...event, name: "" }]);
+    const text = wakeText([{ ...event, name: "" }], about);
     expect(text).toContain("an unnamed terminal");
     expect(text).not.toContain("“”");
-  });
-});
-
-describe("the pieces of work the watch list adds up to", () => {
-  /** A third ref on the first host — the implementor split a planner opened,
-   *  which is the whole case: two terminals, one piece of work. */
-  const SPLIT = "local/33333333-3333-4333-8333-333333333333";
-  /** ... and the terminal nobody watches that two watched ones hang off. */
-  const PARENT = "local/44444444-4444-4444-8444-444444444444";
-
-  /** One entry, as it stands after a reading. Built through the real
-   *  `observed` rather than assembled by hand: what is under test is the
-   *  grouping of entries the watch actually produces. */
-  const read = (
-    ref: string,
-    over: { name?: string; root?: WatchRoot } = {},
-  ): WatchEntry =>
-    observed(watchEntry(ref, "created"), seeing(ref, "working", over)).entry;
-
-  it("counts a planner and the implementor it split off as ONE", () => {
-    const planner = read(REF, { name: "plan the cutover" });
-    const split = read(SPLIT, {
-      name: "write the migration",
-      root: { ref: REF, name: "plan the cutover" },
-    });
-    expect(workOf([planner, split])).toEqual([
-      {
-        root: REF,
-        name: "plan the cutover",
-        refs: [REF, SPLIT],
-        // The planner joined first, so the piece of work is as old as it is.
-        since: planner.since,
-      },
-    ]);
-  });
-
-  it("counts two unrelated terminals as TWO, in the order they were added", () => {
-    const first = read(REF, { name: "plan the cutover" });
-    const second = read(OTHER, { name: "fix the flake" });
-    expect(workOf([first, second])).toEqual([
-      { root: REF, name: "plan the cutover", refs: [REF], since: first.since },
-      {
-        root: OTHER,
-        name: "fix the flake",
-        refs: [OTHER],
-        since: second.since,
-      },
-    ]);
-  });
-
-  it("heads a group by a parent NOBODY WATCHES, because that is the work", () => {
-    // The human asked the Conductor to watch two splits of a terminal they
-    // opened themselves. The parent is on no list and never rings — but it is
-    // what makes these two one piece of work, and what a person calls it.
-    const one = read(REF, {
-      name: "write the migration",
-      root: { ref: PARENT, name: "the cutover" },
-    });
-    const two = read(SPLIT, {
-      name: "review the migration",
-      root: { ref: PARENT, name: "the cutover" },
-    });
-    expect(workOf([one, two])).toEqual([
-      {
-        root: PARENT,
-        name: "the cutover",
-        refs: [REF, SPLIT],
-        since: one.since,
-      },
-    ]);
-  });
-
-  it("keeps the group of a terminal whose host has gone AWAY", () => {
-    // The host answered once, and then stopped. A host that is not answering
-    // produces no readings at all — so the entry is the only thing left that
-    // knows which piece of work this terminal is part of, and the panel must
-    // not break it out on its own while the machine is down.
-    const planner = read(REF, { name: "plan the cutover" });
-    const split = read(SPLIT, {
-      name: "write the migration",
-      root: { ref: REF, name: "plan the cutover" },
-    });
-    // Nothing further is observed about either: whatever the watcher last
-    // read is what the entries carry.
-    expect(workOf([planner, split])).toEqual([
-      {
-        root: REF,
-        name: "plan the cutover",
-        refs: [REF, SPLIT],
-        since: planner.since,
-      },
-    ]);
-  });
-
-  it("makes a terminal NOBODY HAS READ YET its own piece of work", () => {
-    // Just watched, nothing has looked at its host. It is one thing going on
-    // under its own name, and the first reading either leaves it there or
-    // folds it into the piece of work it belongs to.
-    const fresh = watchEntry(REF, "asked");
-    expect(workOf([fresh])).toEqual([
-      { root: REF, name: "", refs: [REF], since: fresh.since },
-    ]);
-    const named: WatchEntry = { ...fresh, name: "fix the parser" };
-    expect(workOf([named])).toEqual([
-      { root: REF, name: "fix the parser", refs: [REF], since: fresh.since },
-    ]);
-  });
-
-  it("takes the heading from whichever member of a group has one", () => {
-    // The split was read before its parent's record had arrived, so its root
-    // is named but nameless; the planner's own reading knows what it is
-    // called. An empty heading over a group whose root IS named is the drift
-    // this guards.
-    const split = read(SPLIT, {
-      name: "write the migration",
-      root: { ref: PARENT, name: "" },
-    });
-    const other = read(REF, {
-      name: "review the migration",
-      root: { ref: PARENT, name: "the cutover" },
-    });
-    expect(workOf([split, other])).toEqual([
-      {
-        root: PARENT,
-        name: "the cutover",
-        refs: [SPLIT, REF],
-        since: split.since,
-      },
-    ]);
-  });
-
-  it("ages a piece of work from its EARLIEST terminal, wherever that one sits", () => {
-    // The planner was watched an hour ago; the implementor it split off
-    // joined a minute ago. The work has been going for the hour — a piece
-    // that reset its clock every time a terminal was added to it would say a
-    // waterfall just started every time it split.
-    const hourAgo = "2026-01-01T10:00:00.000Z";
-    const minuteAgo = "2026-01-01T10:59:00.000Z";
-    const planner: WatchEntry = {
-      ...read(REF, { name: "plan the cutover" }),
-      since: hourAgo,
-    };
-    const split: WatchEntry = {
-      ...read(SPLIT, {
-        name: "write the migration",
-        root: { ref: REF, name: "plan the cutover" },
-      }),
-      since: minuteAgo,
-    };
-    expect(workOf([planner, split])[0]?.since).toBe(hourAgo);
-    // ... and the answer is the EARLIEST, not the first one handed over: a
-    // list that arrived in another order describes the same piece of work.
-    expect(workOf([split, planner])[0]?.since).toBe(hourAgo);
   });
 });

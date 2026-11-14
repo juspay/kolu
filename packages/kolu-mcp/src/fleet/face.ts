@@ -67,13 +67,13 @@ import {
   type FleetHost,
   type FleetTerminal,
   type FleetUrgency,
-  type FleetWatched,
+  type FleetWorksView,
   fleetSurface,
 } from "./fleetSurface.ts";
 import { type FleetHosts, requireHost, requireTerminal } from "./hosts.ts";
 import { hostRoster, overConnectedHosts } from "./overHosts.ts";
 import { fleetTerminalRef, splitFleetTerminalRef } from "./ref.ts";
-import type { FleetWatchList } from "./watchList.ts";
+import { type FleetWorks, memberWithHost } from "./works.ts";
 
 // The four repo-scoped verbs take padi's own input, plus a host. Named off the
 // SCHEMAS padi declares them with, so a field added upstream arrives here
@@ -248,66 +248,60 @@ function fleetRoster(
   );
 }
 
-/** THE WATCH LIST, AS ROWS — each entry the conversation is woken by, plus
- *  this fleet's reading of the host it is on.
+/** THE WORKS, AS THE RESOURCE CARRIES THEM — kolu's record, plus this fleet's
+ *  reading of the host each member terminal is on.
  *
  *  The two halves come from different owners and that is the whole of this
- *  function: the ENTRY is kolu-server's (the list is persisted with the
- *  conversation), and whether its host is still here is the POOL's, read at
- *  the instant of the read like every other member. A ref whose host has left
- *  keeps its row with three nulls rather than being dropped — "I am watching
- *  something I can no longer reach" is the answer, and dropping it would read
- *  as a list that never had it.
+ *  function: the WORK is kolu-server's (it is stored, and it outlives this
+ *  conversation), and whether a member's host is still here is the POOL's,
+ *  read at the instant of the read like every other member. A member whose
+ *  host has left keeps its row with two nulls rather than being dropped — "I
+ *  am running something I can no longer reach" is the answer, and dropping it
+ *  would read as a work that never had it.
  *
  *  Both lookups are synchronous and local: no host is dialled to answer this,
- *  so a fleet with an unreachable member still answers "what am I watching"
+ *  so a fleet with an unreachable member still answers "what am I running"
  *  whole. What a terminal is doing RIGHT NOW is `terminals` and the tools;
- *  this is the list and nothing more. */
-function watchedRows(
-  hosts: FleetHosts,
-  watchList: FleetWatchList,
-): readonly FleetWatched[] {
+ *  this is the work and nothing more. */
+function worksRows(hosts: FleetHosts, works: FleetWorks): FleetWorksView {
   const fleet = new Set(hosts.keys());
-  return watchList.entries().map((entry) => {
-    const split = splitFleetTerminalRef(entry.ref);
-    const host = split !== null && fleet.has(split.host) ? split.host : null;
-    return {
-      ref: entry.ref,
-      host,
-      hostName: host === null ? null : hosts.display(host),
-      hostState: host === null ? null : hosts.state(host),
-      name: entry.name,
-      agent: entry.agent,
-      joined: entry.joined,
-    };
-  });
+  const rows = works.rows();
+  return {
+    works: rows.works.map((work) => ({
+      ...work,
+      members: work.members.map((member) =>
+        memberWithHost(hosts, fleet, member, splitFleetTerminalRef),
+      ),
+    })),
+    finished: rows.finished,
+  };
 }
 
-/** ... now, and on every move of EITHER half. The list moves without the
- *  conversation touching it (a watched terminal that goes away drops off, a
- *  person can take one off from the browser) and so does the roster under it,
- *  so both are subscribed: a reader holding this resource hears a host leave
- *  as readily as an unwatch.
+/** ... now, and on every move of EITHER half. The record moves without the
+ *  Conductor touching it (an agent stops, a member terminal goes away, CI
+ *  turns red, a human answers a question) and so does the roster under it, so
+ *  both are subscribed: a reader holding this resource hears a host leave as
+ *  readily as a work ending.
  *
  *  The current rows go out BEFORE either subscription, for the reason
  *  {@link hostRoster} states: a resource read takes the first frame, and a
- *  stream that only spoke on change would hang on a conversation watching
- *  nothing. */
-function fleetWatched(
+ *  stream that only spoke on change would hang on a conversation that is
+ *  running nothing. */
+function fleetWorks(
   hosts: FleetHosts,
-  watchList: FleetWatchList,
-): Stream.Stream<readonly FleetWatched[]> {
-  return Stream.callback<readonly FleetWatched[]>((queue) =>
+  works: FleetWorks,
+): Stream.Stream<FleetWorksView> {
+  return Stream.callback<FleetWorksView>((queue) =>
     Effect.gen(function* () {
       const push = (): void => {
-        Queue.offerUnsafe(queue, watchedRows(hosts, watchList));
+        Queue.offerUnsafe(queue, worksRows(hosts, works));
       };
       push();
-      const offList = watchList.subscribe(push);
+      const offWorks = works.subscribe(push);
       const offHosts = hosts.subscribe(push);
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
-          offList();
+          offWorks();
           offHosts();
         }),
       );
@@ -360,13 +354,13 @@ function fleetTerminalRow(
   } as FleetTerminal;
 }
 
-/** The whole face. The watch list arrives beside the hosts because one member
- *  — `watched` — is about the CONVERSATION rather than about the fleet, and
- *  it is a port for the same reason the host map is: kolu-server owns the
- *  list, this package only projects it. */
+/** The whole face. The works arrive beside the hosts because one member —
+ *  `works` — is about KOLU'S RECORD rather than about the fleet, and it is a
+ *  port for the same reason the host map is: kolu-server owns the works, this
+ *  package only projects them. */
 export function fleetClientFace(
   hosts: FleetHosts,
-  watchList: FleetWatchList,
+  works: FleetWorks,
 ): SurfaceClientCallable {
   return {
     surface: {
@@ -389,10 +383,11 @@ export function fleetClientFace(
         // warming host omitted from it reads as a host that is not yours.
         get: () => fleetRoster(hosts),
       },
-      watched: {
-        // What this conversation is woken by, with each ref's host read as it
-        // stands now — the one member whose value belongs to the conversation.
-        get: () => fleetWatched(hosts, watchList),
+      works: {
+        // What this conversation is running, with each member's host read as
+        // it stands now — the one member whose value belongs to kolu's record
+        // rather than to the fleet.
+        get: () => fleetWorks(hosts, works),
       },
       urgency: { get: () => fleetUrgency(hosts) },
       screen: {
@@ -402,18 +397,18 @@ export function fleetClientFace(
           ),
       },
       lifecycle: {
-        // A KILL THAT LANDED is one the Conductor caused, and the watch list
-        // is told so (`closed`) — otherwise the `gone` it would ring at the
-        // turn's end is a wake about the Conductor's own action. Told at the
-        // reference padi answered with, re-qualified, which is the spelling
-        // the list is keyed by.
+        // A KILL THAT LANDED is one the Conductor caused, and the work it
+        // belonged to is told so (`closed`) — otherwise the `gone` it would
+        // ring at the turn's end is a wake about the Conductor's own action.
+        // Told at the reference padi answered with, re-qualified, which is the
+        // spelling the members are keyed by.
         kill: (input: { id: string }) =>
           Effect.flatMap(
             requireTerminal(hosts, input.id),
             ({ host, id, padi }) =>
               Effect.map(padi.surface.lifecycle.kill({ id }), (info) => {
                 const ref = fleetTerminalRef(host, info.id);
-                watchList.closed(ref);
+                works.closed(ref);
                 return { ...info, id: ref };
               }),
           ),
@@ -439,11 +434,11 @@ export function fleetClientFace(
           ),
       },
       // No `watch` member: the fleet face no longer serves a standing
-      // subscription at all. The conductor is WOKEN by kolu-server (its watch
-      // list, `watchList.ts`) rather than draining a queue it has to stay in a
-      // call for, and `fleetSurface` dropped the member to match — a face
-      // answering a verb its own spec does not declare is a tool nothing can
-      // reach and a reader cannot explain.
+      // subscription at all. The conductor is WOKEN by kolu-server (the works
+      // and their members, `works.ts`) rather than draining a queue it has to
+      // stay in a call for, and `fleetSurface` dropped the member to match — a
+      // face answering a verb its own spec does not declare is a tool nothing
+      // can reach and a reader cannot explain.
     },
   };
 }

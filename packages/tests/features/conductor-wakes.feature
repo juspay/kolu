@@ -20,7 +20,7 @@ Feature: The Conductor never blocks
     When I create a terminal
     And a Claude Code session is mocked with state "thinking"
     And I ask the conductor to watch the terminal
-    Then the conductor status should say it is watching 1
+    Then the conductor status should say 1 piece of work
     When the Claude Code session state changes to "awaiting_user"
     Then the conductor transcript should show a wake about the watched terminal
     And the wake should be one line from kolu
@@ -41,7 +41,7 @@ Feature: The Conductor never blocks
     When I create a terminal
     And I note the terminal's shell pid
     And I ask the conductor to watch the terminal
-    Then the conductor status should say it is watching 1
+    Then the conductor status should say 1 piece of work
     When a Claude Code session is mocked with state "waiting" on the noted terminal
     Then the conductor transcript should show a "ready" wake about the watched terminal
     And the conductor transcript should show a row of kind "agent" saying "woke"
@@ -54,7 +54,7 @@ Feature: The Conductor never blocks
     When I create a terminal
     And a Claude Code session is mocked with state "thinking"
     And I ask the conductor to watch the terminal
-    Then the conductor status should say it is watching 1
+    Then the conductor status should say 1 piece of work
     When I send the conductor the prompt "work for a while"
     Then the conductor status should read "working"
     When the Claude Code session state changes to "awaiting_user"
@@ -64,54 +64,49 @@ Feature: The Conductor never blocks
     And the conductor status should say nothing is waiting
     And there should be no page errors
 
-  Scenario: The watched terminals are listed, looked at, and pressed to go there
+  Scenario: A work's terminals are listed, looked at, and pressed to go there
     # The marker is COMPUTED by the shell so the command line's echo cannot
     # satisfy the Look: only the terminal's own screen can.
     #
-    # ... and the row's NAME is the way to the terminal itself: the same
+    # ... and the member's NAME is the way to the terminal itself: the same
     # journey the create card's "open tile" makes — leave the conversation,
     # land on that terminal's tile — because it is the same code path.
     When I create a terminal
     And I run "echo kolu-watch-$((6*7))"
     And a Claude Code session is mocked with state "thinking"
     And I ask the conductor to watch the terminal
-    Then the conductor status should say it is watching 1
-    When I open the watched terminals
-    Then the watched panel should list the watched terminal
-    When I look at the watched terminal
-    Then the watched terminal's look should show "kolu-watch-42"
-    When I press the watched terminal's name
+    Then the conductor status should say 1 piece of work
+    When I open the work card
+    Then the work column should list the terminal as a member
+    When I look at the member terminal
+    Then the member terminal's look should show "kolu-watch-42"
+    When I press the member terminal's name
     Then the conductor pane should not be visible
-    And the watched terminal should be the focused tile
+    And the member terminal should be the focused tile
     And there should be no page errors
 
-  Scenario: Two pieces of work count on the tab, a split is drawn under its parent, and the badge says when it needs you
-    # ONE BADGE on the Conductor's tab, like an unread count. The NUMBER is
-    # how many pieces of work are in flight — a piece of work is the watched
-    # terminals that share a top-level terminal, so a split of a watched
-    # terminal joins ITS piece rather than starting one, and the panel draws it
-    # UNDER that terminal (named as something a person recognises, never its
-    # id) — and the COLOUR is whether the conversation is blocked on an answer
-    # from you. Never a second count beside it.
+  Scenario: The tab's badge counts what is waiting on you, and is absent when nothing is
+    # ONE BADGE on the Conductor's tab, like an unread count — and the number
+    # is how many things are WAITING ON YOU, which is not how much is in
+    # flight. Work the agents are getting on with is not a demand on your
+    # attention: two pieces of work in progress and nothing asked show no
+    # badge at all. A question lights it, in the violet that means "you".
+    #
+    # The status line keeps the other number, because "how much is in
+    # progress" is still worth reading — it is simply not what a badge is for.
     When I create a terminal
     And I ask the conductor to watch the terminal I just created
-    Then the conductor status should say it is watching 1
-    And the conductor status should say 1 piece of work
-    When I ask the conductor to watch a split of the terminal I just created
-    Then the conductor status should say it is watching 2
-    And the conductor status should say 1 piece of work
-    When I open the watched terminals
-    Then the watched split should be drawn under the terminal it is a split of
+    Then the conductor status should say 1 piece of work
     When I create a terminal
     And I ask the conductor to watch the terminal I just created
-    Then the conductor status should say it is watching 3
-    And the conductor status should say 2 pieces of work
-    And the conductor tab should show a badge of 2
-    And the conductor tab badge should not be the needs-you one
+    Then the conductor status should say 2 pieces of work
+    And the conductor status should say nothing is waiting on you
+    And the conductor tab should show no badge
     When I send the conductor the prompt "ask me something"
     Then the conductor should be asking
+    And the conductor status should say 1 waiting on you
+    And the conductor tab should show a badge of 1
     And the conductor tab badge should be the needs-you one
-    And the conductor tab should show a badge of 2
     And there should be no page errors
 
   Scenario: Alt+Enter steers a message into the turn that is running
@@ -135,7 +130,7 @@ Feature: The Conductor never blocks
 
   Scenario: Leaving the conversation and coming back finds it exactly as it was
     # THE PANE IS MOUNTED ONCE AND RETAINED. A tab switch changes what is on
-    # screen, not what exists — so the watched panel is still open, the Look is
+    # screen, not what exists — so the work card is still open, the Look is
     # still open with the terminal's own lines in it, and the half-typed
     # message is still in the box. The marker is a property put on the DOM NODE
     # by hand: a pane rebuilt from the same markup comes back without it, so
@@ -147,39 +142,30 @@ Feature: The Conductor never blocks
     And I run "echo kolu-watch-$((6*7))"
     And a Claude Code session is mocked with state "thinking"
     And I ask the conductor to watch the terminal
-    Then the conductor status should say it is watching 1
-    When I open the watched terminals
-    And I look at the watched terminal
-    Then the watched terminal's look should show "kolu-watch-42"
+    Then the conductor status should say 1 piece of work
+    When I open the work card
+    And I look at the member terminal
+    Then the member terminal's look should show "kolu-watch-42"
     When I type "half a thought" into the conductor without sending
     And I mark the conductor pane
     And I press Escape
     Then the conductor pane should not be visible
     When I enter conductor mode
     Then the conductor pane should be the one I marked
-    And the watched panel should list the watched terminal
-    And the watched terminal's look should show "kolu-watch-42"
+    And the work column should list the terminal as a member
+    And the member terminal's look should show "kolu-watch-42"
     And the conductor composer should still hold "half a thought"
     And there should be no page errors
-
-  @mobile
-  Scenario: The status line and the watched panel fit a phone
-    # The phone's terminal is a plain shell: watching one is allowed (it stays
-    # listed, and never rings), which is all this layout check needs.
-    When I ask the conductor to watch the first terminal
-    Then the conductor status should say it is watching 1
-    When I open the watched terminals
-    Then the watched panel should list the watched terminal
-    And nothing on screen should reach past the window's right edge
 
   @omp-mock
   Scenario: An agent the Conductor starts rings ready once, and can be spoken to
     # THE WHOLE LOOP, with nothing mocked between the conversation and the
-    # terminal: the Conductor calls `lifecycle_create` with a command to run,
-    # that command is a coding agent, and the agent comes up with no transcript
-    # of any kind. Its READY here is the DIRECT reading — padi watched the
-    # process arrive and its own state is `fresh` — not the inference the
-    # scenario near the top of this file makes about a session it merely found.
+    # terminal: the Conductor opens a piece of work, calls `lifecycle_create`
+    # with that work, a role and a command to run, that command is a coding
+    # agent, and the agent comes up with no transcript of any kind. Its READY
+    # here is the DIRECT reading — padi watched the process arrive and its own
+    # state is `fresh` — not the inference the scenario near the top of this
+    # file makes about a session it merely found.
     #
     # It rings ONCE: coming up is one piece of news, not a condition to be
     # reminded about.
@@ -190,13 +176,13 @@ Feature: The Conductor never blocks
     # terminal's own screen: the stand-in echoes what it hears behind a marker it
     # assembles at runtime, so nothing kolu typed can spell it.
     When I ask the conductor to run an agent in a new terminal
-    Then the conductor status should say it is watching 1
+    Then the conductor status should say 1 piece of work
     And the conductor transcript should show a "ready" wake about the watched terminal
     And the conductor transcript should show exactly one "ready" wake about the watched terminal
     And the conductor transcript should show a row of kind "agent" saying "woke"
     When I ask the conductor to tell the agent "take a look at the parser"
     Then the conductor transcript should show a row of kind "agent" saying "submitted"
-    When I open the watched terminals
-    And I look at the watched terminal
-    Then the watched terminal's look should show "omp-stand-in-heard take a look at the parser"
+    When I open the work card
+    And I look at the member terminal
+    Then the member terminal's look should show "omp-stand-in-heard take a look at the parser"
     And there should be no page errors

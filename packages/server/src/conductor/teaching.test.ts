@@ -126,7 +126,9 @@ describe("the waterfall's setup questions", () => {
     expect(SCRIPT).toContain("which HOST the work runs on");
     expect(SCRIPT).toContain("unless the request names the host");
     expect(SCRIPT).toContain("a path does not: the same path exists on");
-    expect(SCRIPT).toContain("NOTHING IS CREATED BEFORE THE HOST IS KNOWN.");
+    expect(SCRIPT).toContain(
+      "NOTHING IS CREATED BEFORE THE WORK IS OPEN AND THE HOST IS KNOWN.",
+    );
     expect(SCRIPT).toContain("the host question offers the hosts connected");
     // ... and outside a waterfall too: any terminal it is about to open.
     expect(SCRIPT).toContain("never default to zest");
@@ -134,9 +136,11 @@ describe("the waterfall's setup questions", () => {
 
   it("asks what to do on green CI and the mode in that same one form", () => {
     expect(SCRIPT).toContain("what to do when CI is green");
-    expect(SCRIPT).toContain("the mode, unless the request already said which");
-    expect(SCRIPT).toContain("in ONE form");
-    expect(SCRIPT).toContain("all of one waterfall's setup in a single form");
+    expect(SCRIPT).toContain("and the mode. In a full waterfall");
+    expect(SCRIPT).toContain("The setup questions travel IN `work_open`");
+    expect(SCRIPT).toContain(
+      "all of one waterfall's setup goes in the single `work_open` call",
+    );
   });
 
   it("keeps every question optioned, with a box for the human's own answer", () => {
@@ -144,7 +148,7 @@ describe("the waterfall's setup questions", () => {
     // answer still needs them: a question without options is a form the
     // human never sees.
     expect(SCRIPT).toContain(
-      "a question tool may draw only questions that have options",
+      "a form may draw only questions that have options",
     );
     expect(SCRIPT).toContain(
       "a box beside them for an answer of the human's own",
@@ -164,7 +168,7 @@ describe("a choice put to the human", () => {
     );
     expect(rule).toBeDefined();
     expect(rule).toContain("inside a waterfall or not");
-    expect(rule).toContain("goes through your question tool");
+    expect(rule).toContain("it goes through a form: `work_ask`");
     expect(rule).toContain("Your prose explains the choice; the form asks it.");
     // ...and it is said BEFORE the waterfall, where it governs every turn
     // rather than reading as one of the procedure's steps.
@@ -174,18 +178,37 @@ describe("a choice put to the human", () => {
   });
 });
 
-describe("the watch list", () => {
+describe("the works", () => {
   const SCRIPT = teachingLines("zest").join("\n");
 
-  it("tells the Conductor to read its own list rather than remember it", () => {
+  it("tells the Conductor to read its own record rather than remember it", () => {
     // The defect this guards: after a restart it said it was "not certain"
     // which terminals it watched and then tried to watch two that were gone.
-    // The list is the fleet's, and it is readable.
-    expect(SCRIPT).toContain("`watched` resource");
-    expect(SCRIPT).toContain(
-      "Read it before you act on what you THINK you are",
-    );
+    // The record is kolu's, and it is readable.
+    expect(SCRIPT).toContain("`works` resource");
+    expect(SCRIPT).toContain("Read it at the start of every conversation");
     expect(SCRIPT).toContain("after a restart");
+  });
+
+  it("makes a work the thing a terminal is created INTO, with a role", () => {
+    expect(SCRIPT).toContain("EVERYTHING YOU START BELONGS TO A PIECE OF WORK");
+    expect(SCRIPT).toContain("`work` it is for with the `role`");
+    expect(SCRIPT).toContain("refused before");
+  });
+
+  it("keeps the two answers kolu reads back in kolu's own words", () => {
+    // `modeOf` and `onGreenOf` read a decision only when the answer is one of
+    // their words, so a question offering anything else is answered and then
+    // read as nothing.
+    expect(SCRIPT).toContain("Two of those answers are kolu's OWN WORDS");
+    expect(SCRIPT).toContain("`merge` or `hand-over`");
+    expect(SCRIPT).toContain("`full`, `trivial` or `watch`");
+  });
+
+  it("sends every question about a work through `work_ask`, and notes through `work_note`", () => {
+    expect(SCRIPT).toContain("`work_ask`");
+    expect(SCRIPT).toContain("from the work's card or from this chat");
+    expect(SCRIPT).toContain("`work_note`");
   });
 });
 

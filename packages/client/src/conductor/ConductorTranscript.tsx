@@ -369,7 +369,7 @@ function TranscriptRow(props: { row: ConductorRow; repeat: number }) {
           {(row) => <ConductorToolCard row={row()} />}
         </Match>
         <Match when={props.row.kind === "ask" && props.row}>
-          {(row) => <ConductorAsk row={row()} />}
+          {(row) => <ConductorAsk row={row()} from="chat" />}
         </Match>
         <Match when={props.row.kind === "notice" && props.row}>
           {(row) => (

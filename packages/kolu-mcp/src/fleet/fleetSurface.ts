@@ -7,7 +7,7 @@
  * what a SPEC declares — a resource is a primitive of the served surface, its
  * JSON Schema is the member's own, and the expose map is checked against the
  * spec at boot. A fleet face assembled out of bespoke tools alone could not
- * carry `terminals`/`urgency`/`hosts`/`watched` as subscribable resources at
+ * carry `terminals`/`urgency`/`hosts`/`works` as subscribable resources at
  * all.
  *
  * **Every value schema is padi's, imported.** `PadiTerminalSchema`,
@@ -58,6 +58,12 @@ import {
   GitStatusInputSchema,
   GitStatusOutputSchema,
 } from "kolu-git/schemas";
+import {
+  OnGreenSchema,
+  WorkModeSchema,
+  WorkOutcomeSchema,
+  WorkRoleSchema,
+} from "kolu-work";
 import { FleetHostKeySchema, FleetTerminalRefSchema } from "./refSchema.ts";
 import { FLEET_WATCH_JOINS } from "./watchJoin.ts";
 
@@ -179,39 +185,89 @@ export type FleetTerminal = typeof FleetTerminalSchema.Type;
  *  next boot refuses. */
 export const FleetWatchJoinSchema = Schema.Literals([...FLEET_WATCH_JOINS]);
 
-/** ONE TERMINAL THE CONDUCTOR IS BEING WOKEN ABOUT.
+/** ONE MEMBER TERMINAL of a piece of work, as the `works` resource carries
+ *  it.
  *
- *  The watch list is the only state on this face that belongs to the
- *  CONVERSATION rather than to the fleet, and until this resource existed the
- *  conversation could move it (`watch_terminal` / `unwatch_terminal`) and
- *  never read it back. A restarted Conductor therefore knew it was being woken
- *  by something and could not say what — the observed result is an agent that
- *  says it is "not certain" and then re-watches terminals that are long gone.
- *
- *  `name` and `agent` are the LAST THING KOLU SAW, not a live read: the entry
+ *  `name` and `agent` are the LAST THING KOLU SAW, not a live read: the member
  *  keeps them so a terminal can still be described after the host it was on
  *  stopped answering. `null` means nothing has been read yet — never "it has
  *  no name" — which is why they are nullable rather than empty strings.
  *
- *  `host` / `hostName` / `hostState` are this fleet's reading of the ref's own
- *  host RIGHT NOW: all three are `null` for a host that is no longer a member
- *  (and `host` alone for a saved reference that is not a fleet reference at
- *  all), which is precisely the "can I still reach this?" question a restart
- *  leaves open. A row whose host is missing is kept, not dropped — it is on
- *  the list, and `unwatch_terminal` is the only thing left to do with it. */
-export const FleetWatchedSchema = Schema.Struct({
+ *  `hostName` / `hostState` are this fleet's reading of the ref's own host
+ *  RIGHT NOW, and both are `null` for a host that is no longer a member of the
+ *  fleet — precisely the "can I still reach this?" question a restart leaves
+ *  open. A member whose host is missing is kept, not dropped: it is part of
+ *  the work, and `work_leave` is the only thing left to do with it. */
+export const FleetWorkMemberSchema = Schema.Struct({
   ref: Schema.String.annotate({
     description:
       "The terminal, as <host>/<id> — the reference every tool on this face takes.",
   }),
-  host: Schema.NullOr(FleetHostKeySchema),
-  hostName: Schema.NullOr(Schema.String),
-  hostState: Schema.NullOr(FleetHostStateSchema),
+  role: WorkRoleSchema,
   name: Schema.NullOr(Schema.String),
   agent: Schema.NullOr(Schema.String),
   joined: FleetWatchJoinSchema,
+  hostName: Schema.NullOr(Schema.String),
+  hostState: Schema.NullOr(FleetHostStateSchema),
 });
-export type FleetWatched = typeof FleetWatchedSchema.Type;
+export type FleetWorkMember = typeof FleetWorkMemberSchema.Type;
+
+/** WHERE A WORK STANDS, in one line: who it is waiting on, what for, and
+ *  since when — `kolu-work`'s own fold over the timeline, not a second
+ *  reading of it. */
+export const FleetWorkStandingSchema = Schema.Struct({
+  who: Schema.Literals(["agent", "you", "ci", "done"]),
+  what: Schema.String,
+  since: Schema.String,
+});
+
+/** ONE PIECE OF WORK IN PROGRESS, as the Conductor reads its own work back.
+ *
+ *  Every field here is a READING of the stored record: `host`, `mode` and
+ *  `onGreen` come off the human's decisions, `standing` off the timeline. That
+ *  is what makes `onGreen` THE one place "merge it or hand it over" is
+ *  written — the card shows the same decision, and nothing keeps a second
+ *  copy to disagree with it.
+ *
+ *  `openQuestions` is what the human has been asked and has not answered, in
+ *  the words they were asked in: an agent reading its own work must see what
+ *  it is waiting on without guessing at an ask id. */
+export const FleetWorkSchema = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  repo: Schema.String,
+  branch: Schema.String,
+  host: Schema.NullOr(Schema.String),
+  mode: Schema.NullOr(WorkModeSchema),
+  onGreen: Schema.NullOr(OnGreenSchema),
+  standing: FleetWorkStandingSchema,
+  members: Schema.Array(FleetWorkMemberSchema),
+  openQuestions: Schema.Array(Schema.String),
+});
+export type FleetWork = typeof FleetWorkSchema.Type;
+
+/** A FINISHED work, as the resource still names it: what it was, how it
+ *  ended and when. Enough to say "that one is done" and no more — the whole
+ *  of a finished work is on its card. */
+export const FleetFinishedWorkSchema = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  outcome: Schema.NullOr(WorkOutcomeSchema),
+  endedAt: Schema.String,
+});
+
+/** WHAT THIS CONVERSATION IS RUNNING — every piece of work in progress, and
+ *  the last few that finished. */
+export const FleetWorksSchema = Schema.Struct({
+  works: Schema.Array(FleetWorkSchema),
+  finished: Schema.Array(FleetFinishedWorkSchema),
+});
+export type FleetWorksView = typeof FleetWorksSchema.Type;
+
+/** Nothing open and nothing finished — the cell's default, which no reader
+ *  ever sees: this surface is served by a client FACE that answers `get` off
+ *  the live record. */
+export const EMPTY_FLEET_WORKS: FleetWorksView = { works: [], finished: [] };
 
 /** `screen.history` over the fleet: padi's own input, addressed by reference. */
 export const FleetScreenHistoryInputSchema = Schema.Struct({
@@ -279,24 +335,27 @@ export const fleetSurface = defineSurface({
       default: [],
       verbs: ["get"],
     },
-    /** WHAT THIS CONVERSATION IS WOKEN ABOUT — the Conductor's own watch
-     *  list, as rows ({@link FleetWatchedSchema}).
+    /** WHAT THIS CONVERSATION IS RUNNING — every piece of work in progress,
+     *  its members by role, where it stands and what it is waiting on
+     *  ({@link FleetWorksSchema}), plus the last few that finished.
      *
      *  A cell for the same reason `hosts` is: the question is "what am I
-     *  watching, and can I still reach it", and a key set would answer the
-     *  first half of it. It is also the only member here whose value is the
-     *  conversation's rather than the fleet's — the list kolu-server keeps for
-     *  it, reached through the `FleetWatchList` port like every other thing
+     *  running, and can I still reach it", and a key set would answer the
+     *  first half of it. It is also the only member here whose value belongs
+     *  to kolu's RECORD rather than to the fleet — the works kolu-server
+     *  keeps, reached through the `FleetWorks` port like every other thing
      *  this package refuses to hold a copy of.
      *
-     *  It CHANGES without the Conductor touching it: a watched terminal that
-     *  goes away drops off by itself, and a person can take one off from the
-     *  browser. So it is subscribable, and a reader that holds the
-     *  subscription hears those departures instead of discovering them by
-     *  acting on a terminal that is not there. */
-    watched: {
-      schema: Schema.Array(FleetWatchedSchema),
-      default: [],
+     *  It CHANGES without the Conductor touching it: an agent stops, a member
+     *  terminal goes away, CI turns red, a human answers a question. So it is
+     *  subscribable, and a reader that holds the subscription hears all of
+     *  that instead of discovering it by acting on a terminal that is not
+     *  there. It is also what a conversation that has just STARTED reads: a
+     *  work outlives the chat that opened it, so a new session picks up the
+     *  work in flight rather than beginning again. */
+    works: {
+      schema: FleetWorksSchema,
+      default: EMPTY_FLEET_WORKS,
       verbs: ["get"],
     },
   },
@@ -355,8 +414,8 @@ export const fleetSurface = defineSurface({
     },
     // No `watch` namespace. A standing subscription is a call held open, and
     // the ONE conversation this surface serves — the conductor's — must never
-    // be inside one: kolu-server WAKES it when a watched terminal's agent
-    // stops, asks or dies (`fleet/watchList.ts` is the list, the server owns
+    // be inside one: kolu-server WAKES it when a member terminal's agent
+    // stops, asks or dies (`fleet/works.ts` is the record, the server owns
     // the watcher). The per-host face keeps `watch.open`/`close`/`drain`
     // unchanged for every other MCP client.
   },

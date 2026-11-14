@@ -735,16 +735,23 @@ export class Transcript {
     return both(closed, this.#put(PLAN_KEY, content));
   }
 
-  /** A question the agent is waiting on, under the id the registry minted for
+  /** A question somebody is waiting on, under the id the registry minted for
    *  it — so the row's key and the handle an answer arrives under are one
    *  string, and `openAsks` is a list of row ids rather than a second
-   *  vocabulary that can disagree. */
+   *  vocabulary that can disagree.
+   *
+   *  `work` is the piece of work the question is ABOUT, for kolu's own asks
+   *  (`Harness.askPerson`); `null` for an agent's elicitation, which belongs
+   *  to the conversation alone. On the ROW rather than looked up later,
+   *  because the work's card draws this same row and a link inferred from
+   *  timing is the one that goes wrong when two questions are open. */
   ask(
     id: string,
     message: string,
     fields: ReadonlyArray<AskField>,
     link: AskLink | null,
     parent: string | null,
+    work: string | null = null,
   ): Change {
     const closed = this.#close();
     return both(
@@ -754,6 +761,7 @@ export class Transcript {
         text: message,
         ask: { fields, link, outcome: null },
         ...(parent === null ? {} : { parent }),
+        ...(work === null ? {} : { work }),
       }),
     );
   }

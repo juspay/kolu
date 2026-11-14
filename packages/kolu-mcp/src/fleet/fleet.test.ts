@@ -61,10 +61,11 @@ import { fleetSurface } from "./fleetSurface.ts";
 import type { FleetHosts } from "./hosts.ts";
 import { serveKoluFleetMcp } from "./serve.ts";
 import type {
-  FleetWatchEntry,
   FleetWatchJoin,
-  FleetWatchList,
-} from "./watchList.ts";
+  FleetWorkMemberRow,
+  FleetWorkRow,
+  FleetWorks,
+} from "./works.ts";
 
 const ALPHA_1 = "11111111-1111-4111-8111-111111111111" as TerminalId;
 const ALPHA_2 = "22222222-2222-4222-8222-222222222222" as TerminalId;
@@ -463,66 +464,196 @@ const jsonOf = (result: {
   readonly contents: readonly Record<string, unknown>[];
 }): unknown => JSON.parse(String(result.contents[0]?.text));
 
-/** kolu-server's watch list, as a test holds it: add-ordered, idempotent,
- *  in memory, recording HOW each entry joined, every terminal the conductor
- *  has spoken to, and what the server's watcher last SAW in each one. The real
- *  one is persisted with the conversation and read by that watcher — this face
- *  moves it and serves it back, which is exactly what these tests are about. */
-function fakeWatchList(): FleetWatchList & {
+/** kolu's pieces of work, as a test holds them: one work opened per
+ *  `work_open`, add-ordered members, in memory, recording HOW each joined,
+ *  every terminal the conductor has spoken to, and what the server's watcher
+ *  last SAW in each one. The real record is stored with the rest of kolu's
+ *  state and read by that watcher — this face moves it and serves it back,
+ *  which is exactly what these tests are about. */
+function fakeWorks(): FleetWorks & {
+  /** Open a work the way kolu-server would, without going through the tool —
+   *  for the cases that are about something else and need a work to hang it
+   *  on. */
+  seed(id: string, title?: string): string;
   joinOf(ref: string): FleetWatchJoin | undefined;
-  /** The refs on the list, which is what most of these cases assert. */
+  roleOf(ref: string): string | undefined;
+  /** Every member ref, across every work — what most of these cases assert. */
   refs(): string[];
-  /** What the SERVER's watcher does between turns: it reads a watched
-   *  terminal and writes back what it found. Nothing on this face does it, and
-   *  the `watched` resource has to show it. */
+  /** What the SERVER's watcher does between turns: it reads a member terminal
+   *  and writes back what it found. Nothing on this face does it, and the
+   *  `works` resource has to show it. */
   sawIn(ref: string, name: string, agent: string | null): void;
+  /** End a work, as kolu-server would when its PR merged. */
+  end(id: string): void;
   readonly saids: string[];
-  /** Every `closed` the face told the list, in order. */
+  /** Every `closed` the face told the record, in order. */
   readonly closeds: string[];
+  /** Every `work_open` that reached the port, and every note. */
+  readonly opened: { title: string; setup: readonly string[] }[];
+  readonly notes: { work: string; text: string }[];
+  /** The answer the next `open`/`ask` resolves with. */
+  declineNext: boolean;
 } {
-  const entries = new Map<string, FleetWatchEntry>();
+  const works = new Map<string, FleetWorkRow>();
+  const ended = new Map<string, string>();
   const listeners = new Set<() => void>();
   const saids: string[] = [];
   const closeds: string[] = [];
+  const opened: { title: string; setup: readonly string[] }[] = [];
+  const notes: { work: string; text: string }[] = [];
   const moved = (): void => {
     for (const one of listeners) one();
   };
-  return {
-    entries: () => [...entries.values()],
-    subscribe(cb) {
+  const blank = (id: string, title: string): FleetWorkRow => ({
+    id,
+    title,
+    repo: "/repo",
+    branch: "work",
+    host: "local",
+    mode: "full",
+    onGreen: "merge",
+    standing: { who: "agent", what: "agents at work", since: "2026-01-01" },
+    members: [],
+    openQuestions: [],
+  });
+  const self = {
+    rows: () => ({
+      works: [...works.values()],
+      finished: [...ended.entries()].map(([id, title]) => ({
+        id,
+        title,
+        outcome: "merged" as const,
+        endedAt: "2026-01-02",
+      })),
+    }),
+    subscribe(cb: () => void) {
       listeners.add(cb);
       return () => {
         listeners.delete(cb);
       };
     },
-    watch(ref, joined) {
-      if (entries.has(ref)) return;
-      entries.set(ref, { ref, name: null, agent: null, joined });
+    open: async (intent: Parameters<FleetWorks["open"]>[0]) => {
+      opened.push({
+        title: intent.title,
+        setup: intent.setup.map((one) => one.key),
+      });
+      const id = `work:${works.size + 1}`;
+      works.set(id, blank(id, intent.title));
+      moved();
+      return {
+        work: id,
+        host: "local",
+        mode: "full" as const,
+        roles: [
+          { role: "planner" as const, harness: "omp", model: "opus" },
+          { role: "implementor" as const, harness: "omp", model: "sonnet" },
+        ],
+        onGreen: "merge" as const,
+        declined: self.declineNext,
+      };
+    },
+    ask: async (
+      _work: string,
+      questions: Parameters<FleetWorks["ask"]>[1],
+    ) => ({
+      answers: questions.map((one) => ({
+        question: one.question,
+        picked: self.declineNext ? [] : [one.options[0] ?? ""],
+        text: null,
+      })),
+      declined: self.declineNext,
+    }),
+    join(
+      ref: string,
+      work: string,
+      role: FleetWorkMemberRow["role"],
+      joined: FleetWatchJoin,
+    ) {
+      const one = works.get(work);
+      if (one === undefined)
+        throw Object.assign(new Error("gone"), {
+          kind: "unknown-work",
+          why: `no work ${work}`,
+        });
+      if (one.members.some((two) => two.ref === ref)) return;
+      works.set(work, {
+        ...one,
+        members: [
+          ...one.members,
+          { ref, role, name: null, agent: null, joined },
+        ],
+      });
       moved();
     },
-    unwatch(ref) {
-      if (!entries.delete(ref)) return false;
-      moved();
-      return true;
+    leave(ref: string) {
+      for (const [id, work] of works) {
+        if (!work.members.some((one) => one.ref === ref)) continue;
+        works.set(id, {
+          ...work,
+          members: work.members.filter((one) => one.ref !== ref),
+        });
+        moved();
+        return true;
+      }
+      return false;
     },
-    said(ref) {
+    note(work: string, text: string) {
+      notes.push({ work, text });
+    },
+    said(ref: string) {
       saids.push(ref);
     },
-    closed(ref) {
+    closed(ref: string) {
       closeds.push(ref);
-      if (entries.delete(ref)) moved();
+      if (self.leave(ref)) moved();
     },
-    joinOf: (ref) => entries.get(ref)?.joined,
-    refs: () => [...entries.keys()],
-    sawIn(ref, name, agent) {
-      const entry = entries.get(ref);
-      if (entry === undefined) return;
-      entries.set(ref, { ...entry, name, agent });
+    check: (work: string) =>
+      works.has(work)
+        ? null
+        : ended.has(work)
+          ? ("work-ended" as const)
+          : ("unknown-work" as const),
+    seed(id: string, title = "a piece of work") {
+      works.set(id, blank(id, title));
+      moved();
+      return id;
+    },
+    joinOf: (ref: string) =>
+      [...works.values()]
+        .flatMap((one) => one.members)
+        .find((one) => one.ref === ref)?.joined,
+    roleOf: (ref: string) =>
+      [...works.values()]
+        .flatMap((one) => one.members)
+        .find((one) => one.ref === ref)?.role,
+    refs: () =>
+      [...works.values()].flatMap((one) => one.members.map((two) => two.ref)),
+    sawIn(ref: string, name: string, agent: string | null) {
+      for (const [id, work] of works) {
+        if (!work.members.some((one) => one.ref === ref)) continue;
+        works.set(id, {
+          ...work,
+          members: work.members.map((one) =>
+            one.ref === ref ? { ...one, name, agent } : one,
+          ),
+        });
+        moved();
+      }
+    },
+    end(id: string) {
+      const work = works.get(id);
+      if (work === undefined) return;
+      ended.set(id, work.title);
+      works.delete(id);
       moved();
     },
     saids,
     closeds,
+    opened,
+    notes,
+    declineNext: false,
   };
+  return self;
 }
 
 /** The two-host fixture, at module scope so both suites raise it. */
@@ -543,6 +674,12 @@ describe("the fleet face over two hosts", () => {
     teardown = undefined;
   });
 
+  /** The record these cases create INTO. A terminal belongs to a piece of
+   *  work and nothing is created outside one, so even the addressing cases
+   *  name a work — this is it, and nothing here reads it back. */
+  const addressingWorks = fakeWorks();
+  addressingWorks.seed("work:1");
+
   async function servedFleet(hosts: FleetHosts): Promise<Client> {
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
@@ -550,9 +687,10 @@ describe("the fleet face over two hosts", () => {
       hosts,
       transport: serverTransport,
       serverInfo: { name: "kolu-fleet", version: "0.0.0-test" },
-      // These cases are about addressing, not about the watch list — it is
-      // handed a working one and never read.
-      watchList: fakeWatchList(),
+      // These cases are about addressing, not about the works — the port is
+      // handed one that already holds the work they name, and nothing here
+      // reads it back.
+      works: addressingWorks,
     });
     const mcp = new Client({ name: "test-client", version: "0.0.0" });
     await mcp.connect(clientTransport);
@@ -787,6 +925,8 @@ describe("the fleet face over two hosts", () => {
       arguments: {
         host: "remote:box",
         placement: { kind: "toplevel" },
+        work: "work:1",
+        role: "implementor",
       },
     });
     expect(res.isError ?? false).toBe(false);
@@ -807,6 +947,8 @@ describe("the fleet face over two hosts", () => {
         host: "remote:box",
         placement: { kind: "toplevel" },
         run: "pnpm test",
+        work: "work:1",
+        role: "implementor",
       },
     });
     expect(res.isError).toBe(true);
@@ -834,6 +976,8 @@ describe("the fleet face over two hosts", () => {
       arguments: {
         host: "remote:box",
         placement: { kind: "child-of", parentId: `local/${ALPHA_1}` },
+        work: "work:1",
+        role: "implementor",
       },
     });
     expect(res.isError).toBe(true);
@@ -886,7 +1030,7 @@ describe("`agent_say` over the fleet", () => {
 
   async function servedFleet(
     hosts: FleetHosts,
-    watchList: FleetWatchList = fakeWatchList(),
+    works: FleetWorks = fakeWorks(),
   ): Promise<Client> {
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
@@ -894,7 +1038,7 @@ describe("`agent_say` over the fleet", () => {
       hosts,
       transport: serverTransport,
       serverInfo: { name: "kolu-fleet", version: "0.0.0-test" },
-      watchList,
+      works,
     });
     const mcp = new Client({ name: "test-client", version: "0.0.0" });
     await mcp.connect(clientTransport);
@@ -940,21 +1084,21 @@ describe("`agent_say` over the fleet", () => {
     ]);
   });
 
-  it("tells the watch list it SPOKE, at the fleet reference", async () => {
-    // The entry's held news is about a state the conductor has now acted on;
+  it("tells the record it SPOKE, at the fleet reference", async () => {
+    // The member's held news is about a state the conductor has now acted on;
     // the server withdraws it on this call, which is what stops a wake about
     // the worker that was just briefed.
     const { alpha, fleet } = twoHostFleet();
     alpha.runAgent(ALPHA_1, "claude-code", "tool_use");
-    const watchList = fakeWatchList();
-    const mcp = await servedFleet(fleet.hosts, watchList);
+    const works = fakeWorks();
+    const mcp = await servedFleet(fleet.hosts, works);
 
     await mcp.callTool({
       name: "agent_say",
       arguments: { id: `local/${ALPHA_1}`, text: "skip the review" },
     });
 
-    expect(watchList.saids).toEqual([`local/${ALPHA_1}`]);
+    expect(works.saids).toEqual([`local/${ALPHA_1}`]);
   });
 
   it("a WORKING agent is told what its keys actually did, and that taking is not observable", async () => {
@@ -1008,7 +1152,7 @@ describe("`agent_say` over the fleet", () => {
   });
 });
 
-describe("the conductor's watch list", () => {
+describe("the conductor's pieces of work", () => {
   let teardown: (() => Promise<void>) | undefined;
   afterEach(async () => {
     await teardown?.();
@@ -1017,7 +1161,7 @@ describe("the conductor's watch list", () => {
 
   async function servedFleet(
     hosts: FleetHosts,
-    watchList: FleetWatchList,
+    works: FleetWorks,
   ): Promise<Client> {
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
@@ -1025,7 +1169,7 @@ describe("the conductor's watch list", () => {
       hosts,
       transport: serverTransport,
       serverInfo: { name: "kolu-fleet", version: "0.0.0-test" },
-      watchList,
+      works,
     });
     const mcp = new Client({ name: "test-client", version: "0.0.0" });
     await mcp.connect(clientTransport);
@@ -1036,27 +1180,90 @@ describe("the conductor's watch list", () => {
     return mcp;
   }
 
-  it("`lifecycle_create` watches what it created, at the reference it answered", async () => {
+  const SETUP = [
+    { key: "host", question: "Which host?", options: ["local"] },
+    { key: "mode", question: "Which mode?", options: ["full", "trivial"] },
+    {
+      key: "planner.harness",
+      question: "Which harness plans?",
+      options: ["omp"],
+    },
+    { key: "planner.model", question: "On which model?", options: ["opus"] },
+    {
+      key: "implementor.harness",
+      question: "Which harness builds?",
+      options: ["omp"],
+    },
+    {
+      key: "implementor.model",
+      question: "On which model?",
+      options: ["sonnet"],
+    },
+    {
+      key: "on-green",
+      question: "On green?",
+      options: ["merge it", "hand it over"],
+    },
+  ];
+
+  it("`work_open` states the work and answers the setup as kolu now READS it", async () => {
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    const mcp = await servedFleet(fleet.hosts, works);
+
+    const res = await mcp.callTool({
+      name: "work_open",
+      arguments: {
+        title: "a stored piece of work",
+        repo: "/repo",
+        branch: "work",
+        setup: SETUP,
+      },
+    });
+
+    expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
+    // The answer is the setup READ BACK off the decisions, flattened — so the
+    // Conductor never has to remember what the human chose.
+    expect(res.structuredContent).toMatchObject({
+      work: "work:1",
+      host: "local",
+      mode: "full",
+      onGreen: "merge",
+      declined: false,
+    });
+    expect(works.opened).toEqual([
+      { title: "a stored piece of work", setup: SETUP.map((one) => one.key) },
+    ]);
+  });
+
+  it("`lifecycle_create` puts what it created INTO the work, in the role it was given", async () => {
     const alpha = fakePadi("local", [ALPHA_1]);
     const fleet = fakeFleet([
       { key: "local", display: "this machine", padi: alpha },
     ]);
-    const watchList = fakeWatchList();
-    const mcp = await servedFleet(fleet.hosts, watchList);
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
 
     const res = await mcp.callTool({
       name: "lifecycle_create",
-      arguments: { host: "local", placement: { kind: "toplevel" } },
+      arguments: {
+        host: "local",
+        placement: { kind: "toplevel" },
+        work: "work:1",
+        role: "implementor",
+      },
     });
 
     expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
-    // The FLEET reference, not padi's bare id: the list is read back by tools
-    // that only accept `<host>/<id>`, so a bare id here would be an entry
-    // nothing on this face can name.
-    expect(watchList.refs()).toEqual([`local/${BETA_1}`]);
+    // The FLEET reference, not padi's bare id: the members are read back by
+    // tools that only accept `<host>/<id>`, so a bare id here would be a
+    // member nothing on this face can name.
+    expect(works.refs()).toEqual([`local/${BETA_1}`]);
+    expect(works.roleOf(`local/${BETA_1}`)).toBe("implementor");
     // A bare shell: nothing was asked to run in it, so there is no bring-up
     // that can end without an agent.
-    expect(watchList.joinOf(`local/${BETA_1}`)).toBe("created");
+    expect(works.joinOf(`local/${BETA_1}`)).toBe("created");
   });
 
   it("a create WITH a run command joins as a bring-up, not as a bare shell", async () => {
@@ -1064,8 +1271,9 @@ describe("the conductor's watch list", () => {
     const fleet = fakeFleet([
       { key: "local", display: "this machine", padi: alpha },
     ]);
-    const watchList = fakeWatchList();
-    const mcp = await servedFleet(fleet.hosts, watchList);
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
 
     await mcp.callTool({
       name: "lifecycle_create",
@@ -1073,23 +1281,79 @@ describe("the conductor's watch list", () => {
         host: "local",
         placement: { kind: "toplevel" },
         run: "omp",
+        work: "work:1",
+        role: "planner",
       },
     });
 
     // The difference the server acts on: a terminal whose command ran and
     // came back to the prompt with no agent ever seen is news, where a shell
     // nobody ran anything in is simply a shell.
-    expect(watchList.joinOf(`local/${BETA_1}`)).toBe("created-run");
+    expect(works.joinOf(`local/${BETA_1}`)).toBe("created-run");
   });
 
-  it("a create that FAILS watches nothing", async () => {
+  it("a create for a work that is not there is refused with NOTHING created", async () => {
+    // The rule the whole model rests on: a terminal is made INTO a piece of
+    // work. Discovering that the work is unknown after padi had spawned a
+    // shell would leave a terminal nobody is watching and no card to find it
+    // on, so the check happens before anything is routed anywhere.
+    const alpha = fakePadi("local", [ALPHA_1]);
+    const fleet = fakeFleet([
+      { key: "local", display: "this machine", padi: alpha },
+    ]);
+    const works = fakeWorks();
+    const mcp = await servedFleet(fleet.hosts, works);
+
+    const res = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: {
+        host: "local",
+        placement: { kind: "toplevel" },
+        work: "work:nope",
+        role: "implementor",
+      },
+    });
+
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toMatchObject({ kind: "unknown-work" });
+    expect(JSON.stringify(res.content)).toContain("Nothing was created");
+    expect(
+      alpha.calls.filter((one) => one.startsWith("lifecycle.create")),
+    ).toEqual([]);
+    expect(works.refs()).toEqual([]);
+  });
+
+  it("a create with no role at all is refused by the schema", async () => {
+    const alpha = fakePadi("local", [ALPHA_1]);
+    const fleet = fakeFleet([
+      { key: "local", display: "this machine", padi: alpha },
+    ]);
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
+
+    const res = await mcp.callTool({
+      name: "lifecycle_create",
+      arguments: {
+        host: "local",
+        placement: { kind: "toplevel" },
+        work: "work:1",
+      },
+    });
+
+    expect(res.isError).toBe(true);
+    expect(works.refs()).toEqual([]);
+  });
+
+  it("a create that FAILS joins nothing", async () => {
     const alpha = fakePadi("local", [ALPHA_1]);
     alpha.refuseSendInput("pty is gone");
     const fleet = fakeFleet([
       { key: "local", display: "this machine", padi: alpha },
     ]);
-    const watchList = fakeWatchList();
-    const mcp = await servedFleet(fleet.hosts, watchList);
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
 
     const res = await mcp.callTool({
       name: "lifecycle_create",
@@ -1097,28 +1361,31 @@ describe("the conductor's watch list", () => {
         host: "local",
         placement: { kind: "toplevel" },
         run: "claude",
+        work: "work:1",
+        role: "implementor",
       },
     });
 
     // The terminal LANDED (the refusal names it), but the call did not
-    // succeed — and the watch hook hangs off the answer, so there is nothing
-    // in the list. The conductor is told what landed and can watch it itself.
+    // succeed — and the join hangs off the answer, so there is no member. The
+    // conductor is told what landed and can adopt it itself.
     expect(res.isError).toBe(true);
     expect(res.structuredContent).toMatchObject({ kind: "stopped-partway" });
-    expect(watchList.refs()).toEqual([]);
+    expect(works.refs()).toEqual([]);
   });
 
-  it("a kill that LANDS tells the list the Conductor closed it; a refused one tells it nothing", async () => {
+  it("a kill that LANDS tells the record the Conductor closed it; a refused one tells it nothing", async () => {
     // The defect this guards: the Conductor closed its planner and
     // implementor after a merge and was then woken — `… gone · … gone` — about
     // its own action. The face is where the kill is seen to land, so it is
-    // what says so, at the fleet reference the list is keyed by.
+    // what says so, at the fleet reference the members are keyed by.
     const { fleet } = twoHostFleet();
-    const watchList = fakeWatchList();
-    const mcp = await servedFleet(fleet.hosts, watchList);
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
     await mcp.callTool({
-      name: "watch_terminal",
-      arguments: { id: `remote:box/${BETA_1}` },
+      name: "work_adopt",
+      arguments: { id: `remote:box/${BETA_1}`, work: "work:1", role: "other" },
     });
 
     const killed = await mcp.callTool({
@@ -1126,10 +1393,10 @@ describe("the conductor's watch list", () => {
       arguments: { id: `remote:box/${BETA_1}` },
     });
     expect(killed.isError ?? false, JSON.stringify(killed.content)).toBe(false);
-    expect(watchList.closeds).toEqual([`remote:box/${BETA_1}`]);
-    expect(watchList.refs()).toEqual([]);
+    expect(works.closeds).toEqual([`remote:box/${BETA_1}`]);
+    expect(works.refs()).toEqual([]);
 
-    // A kill that never reached padi closed nothing, so the list must not be
+    // A kill that never reached padi closed nothing, so the record must not be
     // told it did: that terminal is still there, still worth a `gone`.
     fleet.setState("remote:box", "warming");
     const refused = await mcp.callTool({
@@ -1137,108 +1404,136 @@ describe("the conductor's watch list", () => {
       arguments: { id: `remote:box/${BETA_1}` },
     });
     expect(refused.isError).toBe(true);
-    expect(watchList.closeds).toEqual([`remote:box/${BETA_1}`]);
+    expect(works.closeds).toEqual([`remote:box/${BETA_1}`]);
   });
 
-  it("`watch_terminal` adds a terminal that exists, and answers the list AND what it found", async () => {
+  it("`work_adopt` adds a terminal that exists, and answers the members AND what it found", async () => {
     const { beta, fleet } = twoHostFleet();
     beta.runAgent(BETA_1, "codex", "thinking");
-    const watchList = fakeWatchList();
-    const mcp = await servedFleet(fleet.hosts, watchList);
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
 
     const res = await mcp.callTool({
-      name: "watch_terminal",
-      arguments: { id: `remote:box/${BETA_1}` },
+      name: "work_adopt",
+      arguments: {
+        id: `remote:box/${BETA_1}`,
+        work: "work:1",
+        role: "implementor",
+      },
     });
 
     expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
     // The found state is the BASELINE — the conductor is told it here
     // precisely because it will never arrive as a wake.
     expect(res.structuredContent).toEqual({
-      watching: [`remote:box/${BETA_1}`],
+      work: "work:1",
+      role: "implementor",
+      members: [`remote:box/${BETA_1}`],
       found: { kind: "agent", agent: "codex", bucket: "working" },
     });
-    expect(watchList.refs()).toEqual([`remote:box/${BETA_1}`]);
-    expect(watchList.joinOf(`remote:box/${BETA_1}`)).toBe("asked");
+    expect(works.refs()).toEqual([`remote:box/${BETA_1}`]);
+    expect(works.joinOf(`remote:box/${BETA_1}`)).toBe("asked");
+  });
+
+  it("adopting into a work that is not there is refused, and reads nothing", async () => {
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    const mcp = await servedFleet(fleet.hosts, works);
+
+    const res = await mcp.callTool({
+      name: "work_adopt",
+      arguments: {
+        id: `remote:box/${BETA_1}`,
+        work: "work:gone",
+        role: "other",
+      },
+    });
+
+    expect(res.isError).toBe(true);
+    expect(res.structuredContent).toMatchObject({ kind: "unknown-work" });
+    expect(works.refs()).toEqual([]);
   });
 
   it("a terminal with no agent, and one that is asleep, are each said plainly", async () => {
     const { alpha, fleet } = twoHostFleet();
-    const watchList = fakeWatchList();
-    const mcp = await servedFleet(fleet.hosts, watchList);
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
 
     const shell = await mcp.callTool({
-      name: "watch_terminal",
-      arguments: { id: `local/${ALPHA_1}` },
+      name: "work_adopt",
+      arguments: { id: `local/${ALPHA_1}`, work: "work:1", role: "other" },
     });
     expect(shell.structuredContent).toMatchObject({
       found: { kind: "no-agent" },
     });
 
-    // A dormant terminal is watchable (the human may wake it), and the answer
+    // A dormant terminal is adoptable (the human may wake it), and the answer
     // says so rather than calling it a plain shell.
     alpha.park(ALPHA_2, "parked");
     const parked = await mcp.callTool({
-      name: "watch_terminal",
-      arguments: { id: `local/${ALPHA_2}` },
+      name: "work_adopt",
+      arguments: { id: `local/${ALPHA_2}`, work: "work:1", role: "other" },
     });
     expect(parked.structuredContent).toMatchObject({
       found: { kind: "asleep", state: "parked" },
     });
   });
 
-  it("watching something twice does not duplicate it or move it", async () => {
+  it("adopting the same terminal twice does not duplicate it", async () => {
     const { fleet } = twoHostFleet();
-    const watchList = fakeWatchList();
-    const mcp = await servedFleet(fleet.hosts, watchList);
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
 
     await mcp.callTool({
-      name: "watch_terminal",
-      arguments: { id: `local/${ALPHA_1}` },
-    });
-    await mcp.callTool({
-      name: "watch_terminal",
-      arguments: { id: `remote:box/${BETA_1}` },
+      name: "work_adopt",
+      arguments: { id: `local/${ALPHA_1}`, work: "work:1", role: "other" },
     });
     const res = await mcp.callTool({
-      name: "watch_terminal",
-      arguments: { id: `local/${ALPHA_1}` },
+      name: "work_adopt",
+      arguments: { id: `local/${ALPHA_1}`, work: "work:1", role: "other" },
     });
 
-    // A re-watch still answers the found state — the question "what is it
-    // doing now" is worth answering every time, and the list is unmoved.
-    expect(res.structuredContent).toEqual({
-      watching: [`local/${ALPHA_1}`, `remote:box/${BETA_1}`],
+    // A re-adopt still answers the found state — the question "what is it
+    // doing now" is worth answering every time — and the membership is
+    // unmoved.
+    expect(res.structuredContent).toMatchObject({
+      members: [`local/${ALPHA_1}`],
       found: { kind: "no-agent" },
     });
+    expect(works.refs()).toEqual([`local/${ALPHA_1}`]);
   });
 
-  it("refuses a terminal that is not in its host's roster, instead of watching silence", async () => {
+  it("refuses a terminal that is not in its host's roster, instead of adopting silence", async () => {
     const { fleet } = twoHostFleet();
-    const watchList = fakeWatchList();
-    const mcp = await servedFleet(fleet.hosts, watchList);
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
 
     const res = await mcp.callTool({
-      name: "watch_terminal",
-      arguments: { id: `local/${BETA_1}` },
+      name: "work_adopt",
+      arguments: { id: `local/${BETA_1}`, work: "work:1", role: "other" },
     });
 
     expect(res.isError).toBe(true);
     expect(res.structuredContent).toMatchObject({
       kind: "terminal-not-in-roster",
     });
-    expect(watchList.refs()).toEqual([]);
+    expect(works.refs()).toEqual([]);
   });
 
   it("refuses a disconnected host BY NAME, and a host nobody has", async () => {
     const { fleet } = twoHostFleet();
     fleet.setState("remote:box", "warming");
-    const watchList = fakeWatchList();
-    const mcp = await servedFleet(fleet.hosts, watchList);
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
 
     const warming = await mcp.callTool({
-      name: "watch_terminal",
-      arguments: { id: `remote:box/${BETA_1}` },
+      name: "work_adopt",
+      arguments: { id: `remote:box/${BETA_1}`, work: "work:1", role: "other" },
     });
     expect(warming.isError).toBe(true);
     expect(warming.structuredContent).toMatchObject({
@@ -1247,171 +1542,269 @@ describe("the conductor's watch list", () => {
     });
 
     const stranger = await mcp.callTool({
-      name: "watch_terminal",
-      arguments: { id: `remote:elsewhere/${BETA_1}` },
+      name: "work_adopt",
+      arguments: {
+        id: `remote:elsewhere/${BETA_1}`,
+        work: "work:1",
+        role: "other",
+      },
     });
     expect(stranger.isError).toBe(true);
     expect(stranger.structuredContent).toMatchObject({ kind: "unknown-host" });
-    expect(watchList.refs()).toEqual([]);
+    expect(works.refs()).toEqual([]);
   });
 
-  it("`unwatch_terminal` removes it, and says plainly when there was nothing to remove", async () => {
+  it("`work_leave` takes a member out, and says plainly when there was nothing to take", async () => {
     const { fleet } = twoHostFleet();
-    const watchList = fakeWatchList();
-    const mcp = await servedFleet(fleet.hosts, watchList);
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
     await mcp.callTool({
-      name: "watch_terminal",
-      arguments: { id: `local/${ALPHA_1}` },
+      name: "work_adopt",
+      arguments: { id: `local/${ALPHA_1}`, work: "work:1", role: "other" },
     });
 
-    const removed = await mcp.callTool({
-      name: "unwatch_terminal",
+    const left = await mcp.callTool({
+      name: "work_leave",
       arguments: { id: `local/${ALPHA_1}` },
     });
-    expect(removed.structuredContent).toEqual({ watching: [], removed: true });
+    expect(left.structuredContent).toEqual({ left: true, work: "work:1" });
 
-    // A terminal that already died has dropped off by itself, so forgetting it
-    // again is a plain `false` — never an error a conductor has to handle.
+    // A terminal that already died has left by itself, so letting it go again
+    // is a plain `false` — never an error a conductor has to handle.
     const again = await mcp.callTool({
-      name: "unwatch_terminal",
+      name: "work_leave",
       arguments: { id: `local/${ALPHA_1}` },
     });
-    expect(again.structuredContent).toEqual({ watching: [], removed: false });
+    expect(again.structuredContent).toEqual({ left: false, work: null });
   });
 
-  it("unwatching a terminal that is GONE still works — the roster is not consulted", async () => {
+  it("letting go of a terminal that is GONE still works — the roster is not consulted", async () => {
     const { alpha, fleet } = twoHostFleet();
-    const watchList = fakeWatchList();
-    const mcp = await servedFleet(fleet.hosts, watchList);
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
     await mcp.callTool({
-      name: "watch_terminal",
-      arguments: { id: `local/${ALPHA_1}` },
+      name: "work_adopt",
+      arguments: { id: `local/${ALPHA_1}`, work: "work:1", role: "other" },
     });
 
     alpha.remove(ALPHA_1);
     const res = await mcp.callTool({
-      name: "unwatch_terminal",
+      name: "work_leave",
       arguments: { id: `local/${ALPHA_1}` },
     });
 
     expect(res.isError ?? false).toBe(false);
-    expect(res.structuredContent).toEqual({ watching: [], removed: true });
+    expect(res.structuredContent).toEqual({ left: true, work: "work:1" });
   });
 
-  it("`watched` reads the list back — every ref, its host as the fleet stands NOW, and the last thing kolu saw in it", async () => {
-    // The failure this resource exists for: a Conductor that had restarted
-    // could move the list and never read it, so it said it was "not certain"
-    // what it was watching and then watched terminals that were long gone.
-    const { beta, fleet } = twoHostFleet();
-    beta.runAgent(BETA_1, "codex", "thinking");
-    const watchList = fakeWatchList();
-    const mcp = await servedFleet(fleet.hosts, watchList);
-    await mcp.callTool({
-      name: "watch_terminal",
-      arguments: { id: `local/${ALPHA_1}` },
-    });
-    await mcp.callTool({
-      name: "watch_terminal",
-      arguments: { id: `remote:box/${BETA_1}` },
-    });
-    // What the server's watcher writes back between turns, and the only place
-    // a name or an agent on this list comes from.
-    watchList.sawIn(`remote:box/${BETA_1}`, "the implementor", "codex");
+  it("`work_ask` puts questions about a work and answers what the human chose", async () => {
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
 
-    expect(
-      jsonOf(await mcp.readResource({ uri: "surface://cells/watched" })),
-    ).toEqual([
-      {
-        ref: `local/${ALPHA_1}`,
-        host: "local",
-        hostName: "this machine",
-        hostState: "connected",
-        // Nothing has read it yet — said as `null` rather than as a terminal
-        // that is called nothing.
-        name: null,
-        agent: null,
-        joined: "asked",
+    const res = await mcp.callTool({
+      name: "work_ask",
+      arguments: {
+        work: "work:1",
+        questions: [
+          { question: "Approve the plan?", options: ["approve", "revise"] },
+        ],
       },
-      {
-        ref: `remote:box/${BETA_1}`,
-        host: "remote:box",
-        hostName: "box",
-        hostState: "connected",
-        name: "the implementor",
-        agent: "codex",
-        joined: "asked",
-      },
+    });
+
+    expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
+    expect(res.structuredContent).toMatchObject({
+      answers: [{ question: "Approve the plan?", picked: ["approve"] }],
+      declined: false,
+    });
+  });
+
+  it("`work_note` writes one line on the timeline and nothing else", async () => {
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
+
+    const res = await mcp.callTool({
+      name: "work_note",
+      arguments: { work: "work:1", text: "waiting on the human's laptop" },
+    });
+
+    expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
+    expect(works.notes).toEqual([
+      { work: "work:1", text: "waiting on the human's laptop" },
     ]);
   });
 
-  it("a row whose host is NOT answering says so, and one whose host has left keeps its row", async () => {
-    // Both halves matter to an agent deciding what it still has: a warming
-    // host is one to wait for, and a host that is gone is one to take off the
-    // list. Dropping the second row would read as a list that never had it.
-    const { fleet } = twoHostFleet();
-    const watchList = fakeWatchList();
-    const mcp = await servedFleet(fleet.hosts, watchList);
+  it("`works` reads the record back — the members, their hosts as the fleet stands NOW, and the last thing kolu saw", async () => {
+    // The failure this resource exists for: a Conductor that had restarted
+    // could move its work and never read it, so it said it was "not certain"
+    // what it was running and then adopted terminals that were long gone.
+    const { beta, fleet } = twoHostFleet();
+    beta.runAgent(BETA_1, "codex", "thinking");
+    const works = fakeWorks();
+    works.seed("work:1", "a stored piece of work");
+    const mcp = await servedFleet(fleet.hosts, works);
     await mcp.callTool({
-      name: "watch_terminal",
-      arguments: { id: `remote:box/${BETA_1}` },
+      name: "work_adopt",
+      arguments: { id: `local/${ALPHA_1}`, work: "work:1", role: "planner" },
+    });
+    await mcp.callTool({
+      name: "work_adopt",
+      arguments: {
+        id: `remote:box/${BETA_1}`,
+        work: "work:1",
+        role: "implementor",
+      },
+    });
+    // What the server's watcher writes back between turns, and the only place
+    // a name or an agent on a member comes from.
+    works.sawIn(`remote:box/${BETA_1}`, "the implementor", "codex");
+
+    expect(
+      jsonOf(await mcp.readResource({ uri: "surface://cells/works" })),
+    ).toEqual({
+      works: [
+        {
+          id: "work:1",
+          title: "a stored piece of work",
+          repo: "/repo",
+          branch: "work",
+          host: "local",
+          mode: "full",
+          onGreen: "merge",
+          standing: {
+            who: "agent",
+            what: "agents at work",
+            since: "2026-01-01",
+          },
+          openQuestions: [],
+          members: [
+            {
+              ref: `local/${ALPHA_1}`,
+              role: "planner",
+              // Nothing has read it yet — said as `null` rather than as a
+              // terminal that is called nothing.
+              name: null,
+              agent: null,
+              joined: "asked",
+              hostName: "this machine",
+              hostState: "connected",
+            },
+            {
+              ref: `remote:box/${BETA_1}`,
+              role: "implementor",
+              name: "the implementor",
+              agent: "codex",
+              joined: "asked",
+              hostName: "box",
+              hostState: "connected",
+            },
+          ],
+        },
+      ],
+      finished: [],
+    });
+  });
+
+  it("a member whose host is NOT answering says so, and one whose host has left keeps its row", async () => {
+    // Both halves matter to an agent deciding what it still has: a warming
+    // host is one to wait for, and a host that is gone is one to let go of.
+    // Dropping the second member would read as a work that never had it.
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
+    await mcp.callTool({
+      name: "work_adopt",
+      arguments: {
+        id: `remote:box/${BETA_1}`,
+        work: "work:1",
+        role: "implementor",
+      },
     });
 
     fleet.setState("remote:box", "warming");
     expect(
-      jsonOf(await mcp.readResource({ uri: "surface://cells/watched" })),
-    ).toMatchObject([{ host: "remote:box", hostState: "warming" }]);
+      jsonOf(await mcp.readResource({ uri: "surface://cells/works" })),
+    ).toMatchObject({
+      works: [{ members: [{ hostName: "box", hostState: "warming" }] }],
+    });
 
     fleet.leave("remote:box");
     expect(
-      jsonOf(await mcp.readResource({ uri: "surface://cells/watched" })),
-    ).toEqual([
-      {
-        ref: `remote:box/${BETA_1}`,
-        // Nothing is invented for a host this fleet no longer holds: the ref
-        // is still watched, and there is nothing to reach it through.
-        host: null,
-        hostName: null,
-        hostState: null,
-        name: null,
-        agent: null,
-        joined: "asked",
-      },
-    ]);
+      jsonOf(await mcp.readResource({ uri: "surface://cells/works" })),
+    ).toMatchObject({
+      works: [
+        {
+          members: [
+            {
+              ref: `remote:box/${BETA_1}`,
+              // Nothing is invented for a host this fleet no longer holds:
+              // the member is still part of the work, and there is nothing to
+              // reach it through.
+              hostName: null,
+              hostState: null,
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("a finished work is still named, with how it ended", async () => {
+    const { fleet } = twoHostFleet();
+    const works = fakeWorks();
+    works.seed("work:1", "the merged one");
+    const mcp = await servedFleet(fleet.hosts, works);
+
+    works.end("work:1");
+
+    expect(
+      jsonOf(await mcp.readResource({ uri: "surface://cells/works" })),
+    ).toMatchObject({
+      works: [],
+      finished: [{ id: "work:1", title: "the merged one", outcome: "merged" }],
+    });
   });
 
   it("a subscriber hears a move nobody on this face made", async () => {
-    // The list changes under the conversation — a watched terminal goes away,
-    // a person takes one off in the browser — and a conductor that only
-    // learned of it by calling something would act on a terminal that is not
-    // there. The subscription is how it hears instead.
+    // The record changes under the conversation — an agent stops, a member
+    // terminal goes away, a person answers a question in the browser — and a
+    // conductor that only learned of it by calling something would act on a
+    // terminal that is not there. The subscription is how it hears instead.
     const { fleet } = twoHostFleet();
-    const watchList = fakeWatchList();
-    const mcp = await servedFleet(fleet.hosts, watchList);
+    const works = fakeWorks();
+    works.seed("work:1");
+    const mcp = await servedFleet(fleet.hosts, works);
     await mcp.callTool({
-      name: "watch_terminal",
-      arguments: { id: `local/${ALPHA_1}` },
+      name: "work_adopt",
+      arguments: { id: `local/${ALPHA_1}`, work: "work:1", role: "other" },
     });
     const updates: string[] = [];
     mcp.setNotificationHandler(ResourceUpdatedNotificationSchema, (note) => {
       updates.push(note.params.uri);
     });
-    await mcp.subscribeResource({ uri: "surface://cells/watched" });
+    await mcp.subscribeResource({ uri: "surface://cells/works" });
     // Whatever subscribing itself announces has landed by the time a round
     // trip to the same server has: the count below is what the MOVE adds.
-    await mcp.readResource({ uri: "surface://cells/watched" });
+    await mcp.readResource({ uri: "surface://cells/works" });
     const before = updates.length;
 
-    // The move this face did NOT make: kolu-server dropping a terminal that
+    // The move this face did NOT make: kolu-server dropping a member that
     // went away.
-    watchList.unwatch(`local/${ALPHA_1}`);
+    works.leave(`local/${ALPHA_1}`);
 
     await vi.waitFor(() => {
       expect(updates.length).toBeGreaterThan(before);
     });
-    expect(updates.at(-1)).toBe("surface://cells/watched");
+    expect(updates.at(-1)).toBe("surface://cells/works");
     expect(
-      jsonOf(await mcp.readResource({ uri: "surface://cells/watched" })),
-    ).toEqual([]);
+      jsonOf(await mcp.readResource({ uri: "surface://cells/works" })),
+    ).toMatchObject({ works: [{ members: [] }] });
   });
 });
 
@@ -1467,8 +1860,8 @@ describe("one expose map, two projections", () => {
       "terminals",
       "urgency",
       // The one resource the stdio face has no counterpart for: this face
-      // serves one CONVERSATION, and the watch list is that conversation's.
-      "watched",
+      // serves one conversation's RECORD — kolu's pieces of work.
+      "works",
     ]);
     // ... and `hosts` is a CELL, which is what makes the roster one read: a
     // collection's resource is its key SET plus a per-item template, and an
@@ -1488,7 +1881,7 @@ describe("one expose map, two projections", () => {
       hosts: fleet.hosts,
       transport: serverTransport,
       serverInfo: { name: "kolu-fleet", version: "0.0.0-test" },
-      watchList: fakeWatchList(),
+      works: fakeWorks(),
     });
     const mcp = new Client({ name: "test-client", version: "0.0.0" });
     await mcp.connect(clientTransport);
@@ -1506,9 +1899,12 @@ describe("one expose map, two projections", () => {
         "screen_history",
         "screen_image",
         "screen_text",
-        "unwatch_terminal",
         "wait_outputSettled",
-        "watch_terminal",
+        "work_adopt",
+        "work_ask",
+        "work_leave",
+        "work_note",
+        "work_open",
       ]);
       // The removed four, named so a re-addition is a deliberate edit to this
       // list rather than a quiet widening: each is a call with no end, and the
@@ -1545,9 +1941,12 @@ describe("one expose map, two projections", () => {
         "lifecycle_sendInput",
         "screen_image",
         "screen_text",
-        "unwatch_terminal",
         "wait_outputSettled",
-        "watch_terminal",
+        "work_adopt",
+        "work_ask",
+        "work_leave",
+        "work_note",
+        "work_open",
       ]);
       for (const name of KOLU_FLEET_TOOL_NAMES) {
         expect(served).toContain(name);
@@ -1569,7 +1968,7 @@ describe("one expose map, two projections", () => {
       hosts: fleet.hosts,
       transport: serverTransport,
       serverInfo: { name: "kolu-fleet", version: "0.0.0-test" },
-      watchList: fakeWatchList(),
+      works: fakeWorks(),
     });
     const mcp = new Client({ name: "test-client", version: "0.0.0" });
     await mcp.connect(clientTransport);

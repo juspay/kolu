@@ -69,18 +69,24 @@ export {
   type ServeKoluFleetMcpOptions,
   serveKoluFleetMcp,
 } from "./fleet/serve.ts";
-// The conductor's watch list, as this face reaches it — kolu-server implements
-// the port and owns the list (it is persisted with the conversation); the face
-// moves it with two tools and SERVES it as the `watched` resource, which is
-// what `entries` is for. `KOLU_FLEET_TOOL_NAMES` is the static roll of what
-// the fleet face serves, for a consumer (the conductor's teaching script and
-// its test) that needs the names without minting a face.
+// KOLU'S PIECES OF WORK, as this face reaches them — kolu-server implements
+// the port and owns the record (a work outlives the conversation that opened
+// it); the face moves it with five tools and SERVES it as the `works`
+// resource, which is what `rows` is for. `KOLU_FLEET_TOOL_NAMES` is the static
+// roll of what the fleet face serves, for a consumer (the conductor's teaching
+// script and its test) that needs the names without minting a face.
 export type {
-  FleetWatchEntry,
+  FleetFinishedWorkRow,
   FleetWatchJoin,
-  FleetWatchList,
-  WatchedFound,
-} from "./fleet/watchList.ts";
+  FleetWorkAnswers,
+  FleetWorkIntent,
+  FleetWorkMemberRow,
+  FleetWorkOpened,
+  FleetWorkRow,
+  FleetWorks,
+  FleetWorksRows,
+  WorkMemberFound,
+} from "./fleet/works.ts";
 export {
   type KoluMcpConnection,
   type ServeKoluMcpOptions,

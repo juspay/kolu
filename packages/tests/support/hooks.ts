@@ -16,20 +16,21 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import { After, AfterAll, Before, BeforeAll, Status } from "@cucumber/cucumber";
+import type { AgentDistroSetting } from "@kolu/agent-distro/schema";
 import { padiKavalSocketPath } from "@kolu/padi/stateRoot";
 import { padiGatePath, padiSocketPath } from "@kolu/padi-client/rendezvous";
 import type { NewTerminalPolicy } from "@kolu/padi-client/surface";
-import type { AgentDistroSetting } from "@kolu/agent-distro/schema";
 import getPort from "get-port";
 import { composeSpawnEnv, NIX_ENV_WHITELIST, pickEnv } from "kolu-pty";
 import type { Browser, BrowserContext, Page } from "playwright";
 import { chromium } from "playwright";
-import { agentDistroFixtureEnv } from "./agentDistroFixture.ts";
-import { AGENT_DIR_VARS, FAKE_BIN_NAMES } from "./agentHarnessLists.ts";
-import { waitForPadiCell } from "./padiCellWait.ts";
-import { stageRenamedBash } from "./renamed-bash.ts";
 import * as engine from "../screencast/engine.ts";
 import { getRecording } from "../screencast/recordings/index.ts";
+import { agentDistroFixtureEnv } from "./agentDistroFixture.ts";
+import { AGENT_DIR_VARS, FAKE_BIN_NAMES } from "./agentHarnessLists.ts";
+import { stageFakeGh } from "./fake-gh.ts";
+import { waitForPadiCell } from "./padiCellWait.ts";
+import { stageRenamedBash } from "./renamed-bash.ts";
 import {
   disposeRpcWire,
   isPadiWarmingUp,
@@ -256,6 +257,15 @@ process.env.KOLU_FAKE_XYNE_BIN = fakeBins.xyne;
 // detection through the seeded command hint (the two-lock path).
 process.env.KOLU_FAKE_CLAUDE_BIN = fakeBins.claude;
 process.env.KOLU_FAKE_NODE_BIN = fakeBins.node;
+
+/** The `gh` the PR sensor runs (see `support/fake-gh.ts`). Staged per worker
+ *  beside the other fake binaries and handed to the server child explicitly —
+ *  `KOLU_GH_BIN` is a which-binary var outside the shared spawn allowlist, the
+ *  same class as `KOLU_KAVAL_BIN`, so it can only reach the server (and the
+ *  padi it spawns, which inherits the from-source server's env) by being named
+ *  there. Without it the devshell's REAL `gh` would answer the suite's
+ *  repositories — a network call, a token, and an answer no scenario stated. */
+const fakeGhBin = stageFakeGh(fakeBinDir, process.execPath);
 
 /** Per-worker ephemeral state dir for the kolu server under test. Routing
  *  to $TMPDIR keeps test state out of `~/.config`; nesting under
@@ -925,6 +935,11 @@ async function startServerChild(koluServer: string): Promise<void> {
           // a per-worker dir that outlives a server respawn, the way a real
           // adapter's store outlives kolu-server.
           KOLU_ACP_AGENT: `${process.execPath} ${acpFixtureAgent} ${acpFixtureSessions}`,
+          // THE PR SENSOR'S `gh`. It runs inside padi (the server spawns it
+          // from source here, so padi inherits this env), and the suite's
+          // answer must be the one a scenario wrote into its own repo rather
+          // than whatever the devshell's real `gh` can reach.
+          KOLU_GH_BIN: fakeGhBin,
         },
       },
     );
@@ -1526,3 +1541,30 @@ After({ tags: "@kaval-restart" }, async function (this: KoluWorld) {
   killServer(); // also reaps any surviving kaval
   await startServerChild(koluServer);
 });
+
+/** REBOOT THE WORKER'S SERVER MID-SCENARIO, by the same mechanism the
+ *  `@kaval-restart` hook above uses once a scenario has ended: the child is
+ *  killed with the daemons below it and a fresh one is started on a fresh
+ *  port. The new port is answered so the caller can navigate the page at it —
+ *  a page left on the old URL would be talking to a corpse.
+ *
+ *  What survives is what was WRITTEN: the state dir is the worker's and does
+ *  not move, so a restart is the honest test of "is this remembered?" rather
+ *  than of a signal that happened to stay in a browser tab. The terminals do
+ *  NOT survive (padi and its kaval are reaped with the server), so this is for
+ *  scenarios about records — finished work, its decisions and its kept files.
+ *
+ *  Refuses when `KOLU_SERVER` is a URL: that mode reuses a server this run
+ *  neither owns nor may restart. */
+export async function restartKoluServer(): Promise<string> {
+  const koluServer = process.env.KOLU_SERVER;
+  if (!koluServer || koluServer.startsWith("http")) {
+    throw new Error(
+      "a scenario asked for a server restart, but KOLU_SERVER is a reused URL this run does not own",
+    );
+  }
+  console.log(`[worker:${workerId}] restarting the server for a scenario.`);
+  killServer();
+  await startServerChild(koluServer);
+  return baseUrl;
+}

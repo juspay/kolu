@@ -322,8 +322,9 @@ export const ConductorKoluCallSchema = Schema.Union([
     text: Schema.NullOr(Schema.String),
   }),
   Schema.Struct({
-    /** `watch_terminal` / `unwatch_terminal` — the Conductor adding a terminal
-     *  to the list kolu wakes it about, or taking one off. */
+    /** `work_adopt` / `work_leave` — a terminal joining one of the
+     *  Conductor's works, or leaving it. (Rows stored before works existed
+     *  read the same way off `watch_terminal` / `unwatch_terminal`.) */
     kind: Schema.Literal("watch"),
     ...CALL_SUBJECT,
     watching: Schema.Boolean,
@@ -414,6 +415,11 @@ export const ConductorAskRowSchema = Schema.Struct({
   text: Schema.String,
   ask: ConductorAskSchema,
   parent: Schema.optionalKey(Schema.String),
+  /** THE WORK this question is about — stated when it was asked (kolu's own
+   *  `work_ask` / `work_open` put it), never inferred from timing. Absent for a
+   *  question about no work, which is the conversation's alone. The work's card
+   *  draws this same row, so answering either face answers the one question. */
+  work: Schema.optionalKey(Schema.String),
 });
 
 /** The conversation reporting on itself: the agent died, a turn was cancelled,
@@ -849,74 +855,11 @@ export const ConductorStateSchema = Schema.Struct({
   /** When the turn in flight began, or `null` while nothing is running — so
    *  every reader's "working · 2m" counts from the same instant. */
   busySince: Schema.NullOr(Schema.String),
-  /** HOW EACH WATCHED TERMINAL STANDS, and SINCE WHEN — one entry per ref the
-   *  watch has actually read, in watch order.
-   *
-   *  The watcher is the one thing that sees every level change on every host,
-   *  including hosts no browser has opened, so it is the only place that can
-   *  stamp when a terminal ENTERED the state it is in. A browser cannot: it
-   *  would be timing the moment it first noticed, per tab.
-   *
-   *  RUNTIME, which is why a ref can be absent: nothing is remembered across
-   *  a restart, and the first reading after one stamps the level afresh — as
-   *  accurate as the watch's first sight of it, which is the honest answer
-   *  and the only one kolu has. An absent ref is "not read yet", not "0s".
-   *
-   *  Beside `work` rather than inside it because it is a READING and `work`
-   *  is membership: a terminal is watched whether or not any host has
-   *  answered about it. MEMBERSHIP IS `work` AND ONLY `work` — every watched
-   *  terminal is in exactly one group, so the flat list of refs this cell
-   *  used to carry beside it was the same fact twice, and two counts of one
-   *  list are two counts free to disagree. */
-  seen: Schema.Array(
-    Schema.Struct({
-      ref: Schema.String,
-      /** What the watch last read in it. */
-      level: ConductorReadingLevelSchema,
-      /** The ISO time it entered that level, by the watcher's clock — kept
-       *  across readings that repeat the level, so the duration counts the
-       *  state and not the poll. */
-      since: Schema.String,
-    }),
-  ),
-  /** THE PIECES OF WORK in flight: the watched terminals grouped by the
-   *  top-level terminal their parent edges end at.
-   *
-   *  One group is one piece of work — a planner and the implementor it split
-   *  off are one thing going on, not two — and the count of these is what the
-   *  Conductor tab badges. DERIVED, by kolu's own watch (`kolu-conductor`'s
-   *  `workOf`), from the readings the watcher already takes of every watched
-   *  terminal's host: a browser cannot walk the parent edges of a terminal on
-   *  a host it never opened, and a host that is AWAY has no edges to walk at
-   *  all — only the server's remembered entries carry the last-known group
-   *  across that.
-   *
-   *  Groups are in the order their first member joined the watch list, and so
-   *  are the refs inside one. A watched terminal whose root is not known yet
-   *  (nothing has read its host since it joined) is its own group. */
-  work: Schema.Array(
-    Schema.Struct({
-      /** The fleet ref of the top-level terminal the group hangs off — the
-       *  terminal itself, when it has no parent. */
-      root: Schema.String,
-      /** What that terminal was last called, or EMPTY when nothing is known:
-       *  the same `intent ?? branch` rule every other watch reading uses. */
-      name: Schema.String,
-      /** The watched refs in this group, in watch order. */
-      refs: Schema.Array(Schema.String),
-      /** WHEN THIS PIECE OF WORK STARTED — the ISO time its FIRST terminal
-       *  joined the watch list, which is the earliest `since` of the entries
-       *  in it. kolu knows no other beginning: a waterfall is not declared
-       *  anywhere, and the moment the conversation started watching is the
-       *  moment it became work in flight. Saved with the entry, so the
-       *  duration a panel counts from it survives a restart. */
-      since: Schema.String,
-    }),
-  ),
-  /** The watched terminals whose news is HELD because a turn is running — one
+  /** The member terminals whose news is HELD because a turn is running — one
    *  per terminal, in the order the first of each rang. NEVER saved: a
-   *  restart looks at every watched terminal again instead. The status line's
-   *  "N waiting" is this list's length. */
+   *  restart looks at every member terminal again instead. The status line's
+   *  "N waiting" is this list's length. The works themselves are the `works`
+   *  cell's: a work outlives the conversation that opened it. */
   held: Schema.Array(Schema.String),
 });
 export type ConductorState = typeof ConductorStateSchema.Type;
@@ -940,8 +883,6 @@ export const DEFAULT_CONDUCTOR_STATE: ConductorState = {
   refusal: null,
   steers: false,
   busySince: null,
-  seen: [],
-  work: [],
   held: [],
 };
 
@@ -1021,6 +962,13 @@ export const ConductorAnswerInputSchema = Schema.Struct({
   /** `null` DECLINES — the agent is told you would not say, never handed a
    *  choice you did not make. */
   answers: Schema.NullOr(Schema.Array(AskAnswer)),
+  /** WHERE the human answered — the work's card or the chat. A question
+   *  about a work is one decision whichever face answered it, and the
+   *  decision records which. A decoding default so a browser served by an
+   *  earlier build, which omits the key, answers from the chat it drew. */
+  from: Schema.Literals(["card", "chat"]).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed("chat" as const)),
+  ),
 });
 
 export const ConductorAnswerOutputSchema = Schema.Struct({

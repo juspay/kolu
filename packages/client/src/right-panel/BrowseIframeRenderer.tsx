@@ -22,11 +22,15 @@ import {
   createEffect,
   createSignal,
   onCleanup,
+  Show,
 } from "solid-js";
 import { CommentIframeSurface } from "../comments/CommentIframeSurface";
 
 export type BrowseIframeRendererProps = {
-  terminalId: string;
+  /** The terminal a comment on this preview is anchored to, or `null` for a
+   *  copy kolu holds itself (a finished work's kept file) — bytes with no
+   *  repo behind them and so nothing a comment could address. */
+  terminalId: string | null;
   path: string;
   url: string;
   /** Follow a same-frame link click to another repo file: the in-iframe SDK
@@ -116,11 +120,15 @@ const BrowseIframeRenderer: Component<BrowseIframeRendererProps> = (props) => {
   return (
     <>
       <IframeRenderer path={props.path} url={props.url} ref={setIframeEl} />
-      <CommentIframeSurface
-        terminalId={props.terminalId}
-        path={props.path}
-        iframe={iframeEl()}
-      />
+      <Show when={props.terminalId}>
+        {(id) => (
+          <CommentIframeSurface
+            terminalId={id()}
+            path={props.path}
+            iframe={iframeEl()}
+          />
+        )}
+      </Show>
     </>
   );
 };

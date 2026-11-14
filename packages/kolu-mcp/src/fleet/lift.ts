@@ -40,16 +40,18 @@
  * schema check so the REFUSAL teaches the cap rather than a silent clamp
  * pretending the call was honoured.
  *
- * In their place the fleet face adds the two tools that move the watch list
- * (`./watchList.ts`), and `lifecycle_create` watches what it creates: the
- * conductor does not have to ask for news about a worker it just started, and
- * a create whose watch the agent forgot is a worker nobody is listening to.
+ * In their place the fleet face adds the five tools that move kolu's pieces of
+ * work (`./works.ts`), and `lifecycle_create` takes the work and the role of
+ * what it creates: a terminal is made INTO a piece of work, so the conductor
+ * does not have to remember to say so afterwards — which is exactly what it
+ * forgot.
  */
 
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import { PLACEMENT_REQUIRED } from "@kolu/padi-client/surface";
 import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
 import { Effect, Schema } from "effect";
+import { WORK_ROLES, type WorkRole, WorkRoleSchema } from "kolu-work";
 import { CreateArgsSchema } from "../create.ts";
 import { AgentSayArgsSchema } from "../say.ts";
 import { ScreenImageArgsSchema } from "../screenImage.ts";
@@ -61,10 +63,14 @@ import { type FleetHosts, requireHost, requireTerminal } from "./hosts.ts";
 import { fleetTerminalRef, splitFleetTerminalRef } from "./ref.ts";
 import { FleetHostKeySchema, FleetTerminalRefSchema } from "./refSchema.ts";
 import {
-  type FleetWatchList,
-  unwatchTerminalTool,
-  watchTerminalTool,
-} from "./watchList.ts";
+  type FleetWorks,
+  workAdoptTool,
+  workAskTool,
+  workCheckFailure,
+  workLeaveTool,
+  workNoteTool,
+  workOpenTool,
+} from "./works.ts";
 
 /** What every lifted description gains. ONE sentence, appended rather than
  *  woven in: the per-host blurbs are written and pinned where they are, and a
@@ -120,6 +126,10 @@ interface FleetLift {
   readonly from: { readonly ref: string } | { readonly host: true };
   readonly refs: readonly string[];
   readonly answers: readonly string[];
+  /** The argument keys this FACE adds and the per-host tool has never heard
+   *  of — taken off before the call is handed down. `host` is not here: it is
+   *  the routing rule's own ({@link FleetLift.from}) and is removed there. */
+  readonly strip?: readonly string[];
   /** Dotted paths into a {@link ToolFailure}'s detail that name a terminal the
    *  call CREATED before it stopped. A refusal is the one answer whose ids
    *  matter most — `stopped-partway` exists so an agent can kill what landed —
@@ -130,26 +140,39 @@ interface FleetLift {
    *  agent on this face to wake an id no tool here accepts, so that path is
    *  listed too and the prose is rewritten beside it. */
   readonly refusals: readonly string[];
-  /** WHAT THE WATCH LIST IS TOLD once this call lands — the one place a lifted
-   *  tool's effect on the conductor's list is stated, given the call's own
-   *  arguments and its RE-QUALIFIED answer so every reference handed to the
-   *  list is the fleet spelling the agent itself was given back. A bare id
-   *  there would be a watch on a terminal no other tool on this face can name.
+  /** WHAT THE WORKS ARE TOLD once this call lands — the one place a lifted
+   *  tool's effect on kolu's record is stated, given the call's own arguments
+   *  and its RE-QUALIFIED answer so every reference handed over is the fleet
+   *  spelling the agent itself was given back. A bare id there would be a
+   *  member no other tool on this face can name.
    *
-   *  `lifecycle_create` watches what it created (and reads off the arguments
-   *  whether that was a bring-up with a `run` command or a bare shell: only the
-   *  first can end with the command gone and no agent ever there, which is the
-   *  one thing the Conductor must hear about rather than wait on for ever).
-   *  `agent_say` tells the list it spoke (`said`): once its keys have landed
-   *  the conductor has acted on whatever that terminal was doing, so the news
-   *  held about it is stale. Stated as a row of this table rather than buried
-   *  in each tool's wrapper because it is the same kind of fact as the others
+   *  `lifecycle_create` puts what it created INTO the work the call named, in
+   *  the role the call stated (and reads off the arguments whether that was a
+   *  bring-up with a `run` command or a bare shell: only the first can end
+   *  with the command gone and no agent ever there, which is the one thing the
+   *  Conductor must hear about rather than wait on for ever). `agent_say`
+   *  tells the record it spoke (`said`): once its keys have landed the
+   *  conductor has acted on whatever that terminal was doing, so the news held
+   *  about it is stale. Stated as a row of this table rather than buried in
+   *  each tool's wrapper because it is the same kind of fact as the others
    *  here: where in a call a terminal reference lives. */
   readonly tells?: (
-    list: FleetWatchList,
+    works: FleetWorks,
     args: Record<string, unknown>,
     answer: unknown,
   ) => void;
+  /** WHAT IS CHECKED BEFORE ANYTHING HAPPENS — synchronously, off the record,
+   *  before the call is even routed to a host.
+   *
+   *  One tool needs it and the reason is the whole rule: a terminal is created
+   *  into a piece of work, and a create that discovered the work was unknown
+   *  only AFTER padi had spawned a shell would leave a terminal nothing is
+   *  watching and no card to find it on. The refusal costs a turn; the orphan
+   *  costs the run. */
+  readonly precheck?: (
+    works: FleetWorks,
+    args: Record<string, unknown>,
+  ) => ToolFailure | null;
 }
 
 /** THE id grammar of the fleet face, in one place. Each input is the per-host
@@ -165,21 +188,42 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
           "Which host to create the terminal ON — create it where the repository lives. The `hosts` resource is the roster.",
       }),
       placement: FleetPlacementSchema,
+      // REQUIRED, both of them. A terminal belongs to a piece of work and has
+      // a part to play in it, and the one moment both are known for certain is
+      // the moment it is made: anything else is the Conductor remembering to
+      // say so afterwards, which is exactly what it forgot.
+      work: Schema.String.annotate({
+        description:
+          "The piece of work this terminal is for, by the id `work_open` answered with. Required: open the work FIRST (`work_open`), then create its terminals. Read the `works` resource for the ones in progress.",
+      }),
+      role: WorkRoleSchema.annotate({
+        description:
+          "What this terminal is there to do: `planner`, `implementor`, or `other` for one the human simply asked you to keep an eye on. Required — a terminal with no part in the work is one nobody can read a card about.",
+      }),
     }),
     from: { host: true },
     refs: ["placement.parentId"],
+    strip: ["work", "role"],
     answers: ["id"],
     refusals: ["landed.id", "id"],
-    tells: (list, args, answer) => {
+    precheck: (works, args) => {
+      const work = typeof args.work === "string" ? args.work : "";
+      const refused = works.check(work);
+      return refused === null ? null : workCheckFailure(work, refused);
+    },
+    tells: (works, args, answer) => {
       const ref = refAt(answer, "id");
+      const work = typeof args.work === "string" ? args.work : "";
+      const role = args.role;
+      if (ref === undefined || !isWorkRole(role)) return;
       // A `run` command is the difference between "a shell I opened" and "a
       // bring-up I started".
-      if (ref !== undefined) {
-        list.watch(
-          ref,
-          typeof args.run === "string" ? "created-run" : "created",
-        );
-      }
+      works.join(
+        ref,
+        work,
+        role,
+        typeof args.run === "string" ? "created-run" : "created",
+      );
     },
   },
   agent_say: {
@@ -191,10 +235,11 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
     refs: [],
     answers: [],
     refusals: ["id"],
-    tells: (list, args) => {
+    tells: (works, args) => {
       const ref = refAt(args, "id");
-      // A terminal that is not watched is the list's own business to ignore.
-      if (ref !== undefined) list.said(ref);
+      // A terminal that is nobody's member is the record's own business to
+      // ignore.
+      if (ref !== undefined) works.said(ref);
     },
   },
   lifecycle_sendInput: {
@@ -266,13 +311,20 @@ function atPath(value: Record<string, unknown>, path: string): unknown {
 
 /** A terminal reference at a dotted path of a call's arguments or its answer —
  *  `undefined` for anything that is not a string there, which is how a tool
- *  that refused before it created anything tells the watch list nothing. The
- *  one read every {@link FleetLift.tells} does. */
+ *  that refused before it created anything tells the record nothing. The one
+ *  read every {@link FleetLift.tells} does. */
 function refAt(value: unknown, path: string): string | undefined {
   if (value === null || typeof value !== "object") return undefined;
   const at = atPath(value as Record<string, unknown>, path);
   return typeof at === "string" ? at : undefined;
 }
+
+/** A ROLE off the wire, narrowed — the decoder already refused anything else,
+ *  and this is what makes that provable where the value is USED rather than
+ *  cast through. */
+const isWorkRole = (value: unknown): value is WorkRole =>
+  typeof value === "string" &&
+  (WORK_ROLES as ReadonlyArray<string>).includes(value);
 
 /** The same object with one dotted path replaced — copying each level it
  *  rewrites, so the caller's args are never mutated under it. */
@@ -300,7 +352,12 @@ interface Routed {
   readonly bare: Record<string, unknown>;
 }
 
-/** Steps 1 and 2 — the host, and the args bared of every reference. */
+/** Steps 1 and 2 — the host, the args bared of every reference, and the
+ *  fields that are THIS FACE's alone taken off.
+ *
+ *  The strip matters as much as the route: `work` and `role` are facts about
+ *  kolu's record, and padi's `lifecycle_create` has never heard of either. A
+ *  handler handed them would refuse the call for arguments it cannot explain. */
 function route(
   hosts: FleetHosts,
   lift: FleetLift,
@@ -323,6 +380,10 @@ function route(
         );
   return Effect.flatMap(routed, (call): Effect.Effect<Routed, ToolFailure> => {
     let bare = call.bare;
+    for (const key of lift.strip ?? []) {
+      const { [key]: _mine, ...rest } = bare;
+      bare = rest;
+    }
     for (const path of lift.refs) {
       const value = atPath(bare, path);
       // Absent is fine — a `toplevel` placement has no parent. Present and not
@@ -413,7 +474,7 @@ function requalifyRefusal(
 /** One per-host tool, over the fleet. */
 function lifted(
   hosts: FleetHosts,
-  watchList: FleetWatchList,
+  works: FleetWorks,
   tool: BespokeTool,
   lift: FleetLift,
 ): BespokeTool {
@@ -421,8 +482,13 @@ function lifted(
     ...tool,
     input: lift.input,
     description: `${tool.description ?? ""} ${FLEET_NOTE}`.trim(),
-    handler: (args, _bundle, signal) =>
-      Effect.flatMap(
+    handler: (args, _bundle, signal) => {
+      // BEFORE THE ROUTE, let alone the host: a create for a work that is not
+      // there must refuse with nothing spawned behind it.
+      const refused = lift.precheck?.(works, args as Record<string, unknown>);
+      if (refused !== undefined && refused !== null)
+        return Effect.fail(refused);
+      return Effect.flatMap(
         route(hosts, lift, args as Record<string, unknown>),
         (call) =>
           Effect.mapError(
@@ -434,52 +500,55 @@ function lifted(
               tool.handler(call.bare, { core: call.padi }, signal),
               (answer) => {
                 const lifted = requalify(answer, lift.answers, call.host);
-                // AFTER the re-qualification, so every reference the list is
+                // AFTER the re-qualification, so every reference the record is
                 // told is the one the agent was given back.
-                lift.tells?.(
-                  watchList,
-                  args as Record<string, unknown>,
-                  lifted,
-                );
+                lift.tells?.(works, args as Record<string, unknown>, lifted);
                 return lifted;
               },
             ),
             (error: unknown) =>
               requalifyRefusal(error, lift.refusals, call.host),
           ),
-      ),
+      );
+    },
   };
 }
 
-/** The two fleet-ONLY tool names — the ones that are not a lift of anything the
- *  stdio face serves, because the watch list they move is the conductor's and
- *  exists nowhere else. Named beside the lift table so
+/** The five fleet-ONLY tool names — the ones that are not a lift of anything
+ *  the stdio face serves, because the pieces of work they move are kolu's
+ *  record and exist nowhere else. Named beside the lift table so
  *  {@link KOLU_FLEET_TOOL_NAMES} can be read without building a face. */
-const FLEET_ONLY_TOOLS = ["watch_terminal", "unwatch_terminal"] as const;
+const FLEET_ONLY_TOOLS = [
+  "work_open",
+  "work_ask",
+  "work_adopt",
+  "work_leave",
+  "work_note",
+] as const;
 
 /** EVERY bespoke tool name the fleet face serves, as a static value.
  *
- *  `koluFleetTools` is a factory (it closes over one fleet's host port and
- *  watch list), so there is no built table to read at module scope — and a
- *  consumer that needs only the NAMES should not have to mint a face to learn
- *  them. kolu-server's conductor pins its teaching script against this list, so
- *  a tool the script names and this face does not serve fails a test instead of
- *  a live turn. Derived from the two sources the factory itself builds from, so
- *  it cannot drift from what is served. */
+ *  `koluFleetTools` is a factory (it closes over one fleet's host port and its
+ *  works), so there is no built table to read at module scope — and a consumer
+ *  that needs only the NAMES should not have to mint a face to learn them.
+ *  kolu-server's conductor pins its teaching script against this list, so a
+ *  tool the script names and this face does not serve fails a test instead of
+ *  a live turn. Derived from the two sources the factory itself builds from,
+ *  so it cannot drift from what is served. */
 export const KOLU_FLEET_TOOL_NAMES: readonly string[] = [
   ...Object.keys(FLEET_LIFTS),
   ...FLEET_ONLY_TOOLS,
 ];
 
 /** The fleet face's bespoke table. A FACTORY, not a const: every tool here is
- *  closed over the one fleet it serves — the host port, and the conductor's
- *  watch list — where the per-host table could be a module-level value because
- *  the adapter hands each call its client. Two faces in one process are two
- *  fleets, and a module-level watch list would let one conversation's watch
- *  decide another conversation's wakes. */
+ *  closed over the one fleet it serves — the host port, and kolu's works —
+ *  where the per-host table could be a module-level value because the adapter
+ *  hands each call its client. Two faces in one process are two fleets, and a
+ *  module-level record would let one conversation's work decide another
+ *  conversation's wakes. */
 export function koluFleetTools(
   hosts: FleetHosts,
-  watchList: FleetWatchList,
+  works: FleetWorks,
 ): Record<string, BespokeTool> {
   const table: Record<string, BespokeTool> = {};
   for (const [name, lift] of Object.entries(FLEET_LIFTS)) {
@@ -489,9 +558,12 @@ export function koluFleetTools(
         `kolu-mcp fleet: the lift table names ${name}, which KOLU_MCP_TOOLS does not serve — the fleet face LIFTS the kolu face's tools and cannot invent one.`,
       );
     }
-    table[name] = lifted(hosts, watchList, tool, lift);
+    table[name] = lifted(hosts, works, tool, lift);
   }
-  table.watch_terminal = watchTerminalTool(hosts, watchList);
-  table.unwatch_terminal = unwatchTerminalTool(watchList);
+  table.work_open = workOpenTool(works);
+  table.work_ask = workAskTool(works);
+  table.work_adopt = workAdoptTool(hosts, works);
+  table.work_leave = workLeaveTool(works);
+  table.work_note = workNoteTool(works);
   return table;
 }

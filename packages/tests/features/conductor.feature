@@ -311,11 +311,16 @@ Feature: The Conductor
     # And the answer STAYS: a settled card is the record of the exchange, so
     # the question and what was said to it are both still on screen after the
     # form is gone — not the bare word `answered`.
+    #
+    # The tab's badge is what is WAITING ON YOU, so a question with nothing
+    # else in flight is one thing: a violet `1` that goes away with the
+    # answer, rather than a number about how busy the conversation is.
     When I create a terminal
     And I enter conductor mode
     And I send the conductor the prompt "ask me something"
     Then the conductor should be asking
-    And the conductor tab should show a needs-you dot
+    And the conductor tab should show a badge of 1
+    And the conductor tab badge should be the needs-you one
     When I answer the conductor's question with "30"
     Then the conductor should not be asking
     And the conductor tab should show no badge
@@ -325,15 +330,17 @@ Feature: The Conductor
   Scenario: An unanswered question is a needs-you source from the tab row
     # Leave the conversation and its pane is gone — the chrome-bar entry is the
     # whole of its presence on a host tab, so the ask has to show on the tab
-    # without the pane mounted to show it from. Nothing is being watched here,
-    # so the badge is the violet DOT rather than a count.
+    # without the pane mounted to show it from. The question belongs to no
+    # piece of work — it is the conversation's own — and it still counts,
+    # because the badge counts what waits on YOU wherever it came from.
     When I create a terminal
     And I enter conductor mode
     And I send the conductor the prompt "ask me something"
     Then the conductor should be asking
     When I press Escape
     Then the conductor pane should not be visible
-    And the conductor tab should show a needs-you dot
+    And the conductor tab should show a badge of 1
+    And the conductor tab badge should be the needs-you one
     And there should be no page errors
 
   Scenario: A pasted image rides the message as an attachment

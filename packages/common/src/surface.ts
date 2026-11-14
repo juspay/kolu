@@ -98,6 +98,8 @@ import {
 import { ConductorRefused, ConductorUnavailable } from "./conductorErrors.ts";
 export * from "./conductorSchema.ts";
 export * from "./conductorErrors.ts";
+import { EMPTY_WORKS_VIEW, WorksViewSchema } from "./worksSchema.ts";
+export * from "./worksSchema.ts";
 
 // The host-daemon inventory row TYPES are re-exported from @kolu/padi-client/surface (their
 // home) so existing `kolu-common/surface` importers (the client dialogs) keep resolving
@@ -1169,6 +1171,19 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
       // exactly right for this member, because there is now one conversation
       // rather than one per host.
       client: { onError: { kind: "toast", label: "Conductor" } },
+    },
+    /** THE WORKS — every piece of work the Conductor opened, as kolu stores
+     *  it, and how each member terminal stands. Its own cell rather than a
+     *  field of `conductor`: a work outlives the conversation that opened it
+     *  ("New session" clears the conversation, never the work), and every
+     *  mark on a dock row or a tile reads membership from here. Read-only:
+     *  the record is written by the Conductor's open/join calls and by what
+     *  kolu observes, and the human's part is answering its questions. */
+    works: {
+      schema: WorksViewSchema,
+      default: EMPTY_WORKS_VIEW,
+      verbs: ["get"],
+      client: { onError: { kind: "toast", label: "Works" } },
     },
   },
 

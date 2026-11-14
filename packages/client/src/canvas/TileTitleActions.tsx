@@ -19,7 +19,9 @@ import {
   agentStalenessOf,
 } from "@kolu/agent-distro/status";
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
-import type { HostKey } from "kolu-common/hostKey";
+import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
+import { fleetTerminalRef } from "kolu-mcp/fleetRef";
+import WorkMark from "../conductor/WorkMark";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
 import AgentProfileChip, { type ChipRestart } from "../agents/AgentProfileChip";
@@ -170,6 +172,13 @@ const TileTitleActions: Component<{
 
   return (
     <>
+      {/* THE CONDUCTOR'S MARK — first in the title bar's chrome, right after
+          the title it is about: what part this tile plays, and in which piece
+          of work. The same derivation the dock row reads, so a terminal
+          cannot be a planner in one place and nothing in the other. */}
+      <WorkMark
+        terminal={fleetTerminalRef(encodeHostKey(props.host), props.id)}
+      />
       <Show when={activeArm(meta())?.agent}>
         {(agent) => (
           <button

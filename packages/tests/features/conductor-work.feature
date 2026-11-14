@@ -1,0 +1,171 @@
+Feature: A piece of work is a stored thing
+  kolu REMEMBERS the work, and the Conductor states its intent once. The
+  conversation names a piece of work when it opens it — title, repo, branch and
+  the setup questions it needs answered — and names a role in the same call
+  that makes each terminal. Everything else on the card is kolu's own reading
+  of what it observed: a member joining, its agent coming up and stopping, a
+  file appearing in the worktree's `.waterfall/`, the pull request opening,
+  its checks, the merge. Nothing in these scenarios writes to the record; they
+  state facts WHERE KOLU READS THEM — a file in the repo, a session file on
+  disk, a pull request the repo's own `gh` answers with (the harness points
+  `KOLU_GH_BIN` at a stand-in that answers from a file the scenario writes, see
+  `support/fake-gh.ts`) — and then read the card.
+
+  Background:
+    Given the terminal is ready
+    And the conductor is on a fresh conversation
+
+  Scenario: A waterfall's card, from the request to the merge
+    # THE TIMELINE GROWS FROM OBSERVATION ALONE. Every event below is one kolu
+    # saw for itself: the only things the conversation wrote are the work's
+    # name and its members' roles. The guard that this is really so is the
+    # `pr-opened` assertion made BEFORE a pull request exists — a card that
+    # anticipated its events, or a fixture that wrote them, fails there.
+    Given a repo for the work
+    When I ask the conductor to open the work "rewrite the parser"
+    Then the work column should show the work
+    And the conductor status should say 1 piece of work
+    And the work's timeline should show a "requested" event
+    And the work's timeline should show no "pr-opened" event
+    # The setup travelled in the call that opened the work; only what the
+    # request did not already say is put to the human, as ONE question.
+    When I answer the work's question with "hand-over" in the chat
+    Then the work's decisions should include "hand-over" answered from the chat
+    # A member is made with its role in the same call — the terminal is an
+    # agent that comes up with no transcript at all, which kolu reads as ready.
+    When I ask the conductor to run the implementor in the work's repo
+    Then the work column should list the terminal as a member
+    And the work's timeline should show a "joined" event
+    And the work's timeline should show a "ready" event
+    # A file lands in the worktree's `.waterfall/`; kolu lists that directory
+    # when the member's state changes, so the plan becomes an event without
+    # anybody announcing it.
+    When the implementor writes ".waterfall/plan.md" into the work's repo
+    And the implementor's agent starts working
+    And the implementor's agent stops
+    Then the work's timeline should show a "file" event saying ".waterfall/plan.md"
+    When the work's pull request opens as #7 "Rewrite the parser"
+    Then the work's timeline should show a "pr-opened" event saying "#7"
+    And the work card should name the pull request "#7"
+    When the work's pull request starts its checks
+    Then the work's timeline should show a "checks-running" event
+    When the work's pull request goes green
+    Then the work's timeline should show a "checks-passed" event
+    When the work's pull request is merged
+    Then the work's timeline should show a "merged" event
+    And the work should be finished as "merged"
+    And there should be no page errors
+
+  Scenario: The plan is approved from the card, and the chat's question settles with it
+    # ONE QUESTION, TWO FACES. The card draws the SAME ask row the transcript
+    # does, so answering it on the card settles the conversation's copy — and
+    # the decision records where the answer came from, which is the only thing
+    # that tells the two apart afterwards.
+    #
+    # The work is then GOT ON WITH, which is what an approval is for: the
+    # answer releases the `work_open` call, and the member it makes next is
+    # the proof the conversation was not left sitting on the question.
+    Given a repo for the work
+    When I ask the conductor to open the work "tidy the lexer"
+    Then the conductor should be asking
+    And the conductor status should say 1 waiting on you
+    When I answer the work's question with "merge" on the card
+    Then the conductor should not be asking
+    And the work should have no open question
+    And the conductor status should say nothing is waiting on you
+    And the work's decisions should include "merge" answered from the card
+    When I ask the conductor to run the implementor in the work's repo
+    Then the work column should list the terminal as a member
+    And there should be no page errors
+
+  Scenario: A file on the card opens in place, rendered
+    # The files are the worktree's own `.waterfall/`, read live, and one opens
+    # INSIDE the card through the Code tab's viewer — so the plan is read
+    # where the work is, rather than by leaving for the file browser. Rendered
+    # is the claim: a markdown heading arrives as a heading, not as `#`.
+    Given a repo for the work
+    When I ask the conductor to open the work "read the lexer"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And the implementor writes ".waterfall/plan.md" into the work's repo
+    Then the work card should list the file ".waterfall/plan.md"
+    When I open the work's file ".waterfall/plan.md"
+    Then the work card should render "The plan" as a heading
+    And the conductor pane should be visible
+    And there should be no page errors
+
+  Scenario: A member terminal carries the Conductor's mark on its dock row
+    # ONE DERIVATION, from membership: everywhere else in the app a terminal
+    # that belongs to a work says so — the mark, the role it plays and the
+    # work's title — and the dock row is where a person meets it first.
+    Given a repo for the work
+    When I ask the conductor to open the work "mark the terminal"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And I press Escape
+    Then the conductor pane should not be visible
+    And the dock row for the member terminal should carry the work's mark as the "implementor"
+    And there should be no page errors
+
+  Scenario: Finished work, its decisions and its kept files outlive the server
+    # THE WHOLE POINT OF STORING IT. The server process is replaced — not the
+    # page reloaded — on a fresh port with the same state directory, so what
+    # comes back is what was WRITTEN. The worktree is not consulted: the plan
+    # is a copy kolu took when the work ended, which is why it can still be
+    # read after the terminals it was written in are gone.
+    Given a repo for the work
+    When I ask the conductor to open the work "survive the night"
+    And I answer the work's question with "merge" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    And the implementor writes ".waterfall/plan.md" into the work's repo
+    And the implementor's agent starts working
+    And the implementor's agent stops
+    Then the work's timeline should show a "file" event saying ".waterfall/plan.md"
+    When the work's pull request opens as #4 "Survive the night"
+    And the work's pull request is merged
+    Then the work should be finished as "merged"
+    When the kolu server is restarted
+    And I enter conductor mode
+    Then the work should be finished as "merged"
+    When I open the work card
+    Then the work's decisions should include "merge" answered from the chat
+    And the work card should keep the file ".waterfall/plan.md"
+    When I open the work's file ".waterfall/plan.md"
+    Then the work card should render "The plan" as a heading
+    And there should be no page errors
+
+  Scenario: A new conversation keeps the work in flight
+    # "New session" clears the CONVERSATION. The work it opened — its member
+    # terminal and the decisions taken about it — are not the conversation's
+    # to throw away: a waterfall in flight is picked up by whoever the next
+    # conversation is, which is the whole reason a piece of work is stored
+    # somewhere other than the chat.
+    Given a repo for the work
+    When I ask the conductor to open the work "outlive the chat"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    Then the work column should list the terminal as a member
+    When I start a new conductor session
+    Then the conductor transcript should be empty
+    And the work column should show the work
+    When I open the work card
+    Then the work's decisions should include "hand-over" answered from the chat
+    And the work column should list the terminal as a member
+    And there should be no page errors
+
+  @mobile
+  Scenario: The work column and its card fit a phone
+    # A phone is below the two-column width by definition, so the column is
+    # the one the status line's count opens — and every part of it, opened
+    # card and all, stays inside the 390px window.
+    When I ask the conductor to watch the first terminal
+    Then the conductor status should say 1 piece of work
+    And the conductor should have no side column
+    And the work column should be behind the status line's control
+    When I open the work column
+    Then the work column should show the work
+    And nothing on screen should reach past the window's right edge
+    When I open the work card
+    Then the work column should list the terminal as a member
+    And nothing on screen should reach past the window's right edge
+    And there should be no page errors

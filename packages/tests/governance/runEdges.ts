@@ -186,6 +186,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "the Conductor's watcher: the whole watch — every connected host's standing subscription, each watched terminal's record lineage, and the host-map and watch-list triggers that re-scope them — is ONE long-lived stream, forked once when kolu-server boots (`startConductorWatcher` is called from synchronous wiring that hands down no Effect), and interrupted once by `dispose`, which the shutdown awaits as a Promise",
   },
   {
+    path: "packages/server/src/conductor/workFiles.ts",
+    sites: 2,
+    why: "kolu-conductor's `WorkFiles` port is Promise-shaped and `kolu-conductor` knows nothing of Effect, so this adapter is the boundary where padi's Effect-typed reads are run — one per port verb (`fs.listDirectory` for the `.waterfall/` listing, the remote preview assembly for the copy a finished work keeps); composing them into the caller would push Effect into kolu-conductor",
+  },
+  {
     path: "packages/server/src/index.ts",
     sites: 2,
     why: "the two edges of an orderly async boot (locked decision 1): the reactor's poll dep is `() => Promise<T>` — its ENGINE is Effect's Atom, but its FACE is deliberately synchronous and non-Effect; and binding the listener, since `serveSurfaceApp` is a scoped `Effect` and `bootKoluWeb` is a plain async function with no Effect context to hand it (the node `request`-callback edge this file used to carry is GONE — the primitive owns that boundary now)",

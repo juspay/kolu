@@ -1,20 +1,23 @@
 /**
- * WHAT A HOST'S FRAMES MEAN for the terminals a conversation is watching — the
- * pure half of the watch.
+ * WHAT A HOST'S FRAMES MEAN for the member terminals of a work — the pure half
+ * of the watch.
  *
  * kolu-server holds the standing subscriptions (`conductor/watcher.ts`: one leg
- * per connected host that holds a watched terminal, re-opened as the host map
+ * per connected host that holds a member terminal, re-opened as the host map
  * moves). What a leg's last frames SAY is this module's, and it is a function:
  * padi's urgency fold, the host's roster and the records that were read go in,
- * one {@link WatchObservation} per watched terminal comes out. Nothing here
+ * one {@link WatchObservation} per member terminal comes out. Nothing here
  * subscribes to anything, so every rule below is exercised by calling it rather
  * than by driving a stream — which is the whole reason it is not over there.
  *
  * It REPORTS and never concludes. Two of the wake levels are conclusions drawn
  * one file over, from a sequence of these readings rather than from one of them
- * (`./watching.ts`: `ready` is a stop in a terminal nobody has spoken to yet,
- * `ended` is a command that ran and gave the prompt back). The split is the
- * same one `foregroundShell` is reported for: a single frame cannot know it.
+ * (`./members.ts`: `ready` is a stop in a terminal nobody has spoken to yet,
+ * `ended` is a command that ran and gave the prompt back). The same is true of
+ * everything a work's TIMELINE learns here: this module hands over the git fact
+ * and the PR as the record states them, and which of those is an EVENT is
+ * decided against the work itself (`kolu-work`'s `prOf`, `filesSeen`), never
+ * against the last reading — two members looking at one PR must record it once.
  *
  * A terminal is left OUT of the answer when nothing honest can be said about it
  * — its agent is in none of padi's four lists and its record has not arrived to
@@ -29,7 +32,7 @@ import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
 // for them and not this module's.
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
-import type { WatchObservation, WatchRoot } from "./watching.ts";
+import type { WatchGit, WatchObservation, WatchPr } from "./members.ts";
 
 /** padi's own terminal-id type, read off the urgency cell this module already
  *  takes — the watch list carries plain strings, and the one place they are
@@ -50,8 +53,8 @@ export interface HostReading {
   readonly host: string;
   /** What a person calls that host. */
   readonly hostName: string;
-  /** The ids being watched ON THIS HOST, as the leg was opened for them. The
-   *  list is the conversation's, split by the watcher that already holds both
+  /** The ids of the member terminals ON THIS HOST, as the leg was opened for
+   *  them — the works' membership, split by the watcher that already holds both
    *  halves of every ref. */
   readonly watched: readonly string[];
   /** padi's own fold over its terminals — who is awaiting a person, who just
@@ -61,61 +64,64 @@ export interface HostReading {
   readonly urgency: PadiUrgency;
   /** Which terminals that host still has — what makes `gone` decidable. */
   readonly keys: ReadonlySet<string>;
-  /** The record of each watched id, and of every ANCESTOR their `child-of`
-   *  edges lead to. The ancestors are nobody's watch list: what they carry is
-   *  WHICH PIECE OF WORK a watched terminal is part of, and what to call it. */
+  /** The record of each member terminal on this host. One record per id the
+   *  leg was opened for: what a terminal is called, the repository it is in and
+   *  the PR it carries are all read off it. */
   readonly records: ReadonlyMap<string, PadiTerminal>;
 }
 
 /** WHAT A TERMINAL IS CALLED, off its padi record: the name a person gave it,
  *  else the branch it is on, else nothing.
  *
- *  One rule, two callers — the watched terminal's own reading and the heading
- *  of the piece of work it belongs to ({@link walkRoot}) — because a group
- *  whose header named a terminal differently from the row under it would be
- *  two spellings of one fact. A dormant record has no live arm to ask, and
- *  "nothing known" is reported as EMPTY rather than invented: the conversation
- *  keeps whatever its entry already remembered. */
+ *  A dormant record has no live arm to ask, and "nothing known" is reported as
+ *  EMPTY rather than invented: the member keeps whatever it already
+ *  remembered. */
 export const recordName = (record: PadiTerminal | undefined): string => {
   const live = record?.state === "active" ? record : undefined;
   const branch = live?.git.kind === "repo" ? live.git.info.branch : "";
   return live?.intent ?? branch;
 };
 
-/**
- * WHICH PIECE OF WORK A TERMINAL IS IN — its `child-of` edges followed to the
- * top-level terminal they end at.
+/** WHERE THE TERMINAL IS WORKING, off the git fact padi already resolved for
+ *  it — the worktree a work's `.waterfall/` files are listed from, the branch
+ *  and the repository root.
  *
- * Over the records the leg has already read, so it is the same walk whether it
- * runs on a frame or in a test. A terminal with no parent is its own root; a
- * chain that runs into a record nobody has read yet stops THERE and names it,
- * which is the furthest honest answer — a split whose parent is known but whose
- * grandparent is not is still not a piece of work of its own. The record that
- * is missing is already being subscribed (the watcher reads a watched
- * terminal's whole lineage), so the next frame walks further.
+ *  `null` for every case that is not a resolved repository (`unresolved`,
+ *  `none`, a dormant record): "nobody has looked" and "it is in no repo" are
+ *  both answered by saying nothing, because what reads this only ever acts on
+ *  a path it has.  */
+const gitOf = (record: PadiTerminal | undefined): WatchGit | null => {
+  const live = record?.state === "active" ? record : undefined;
+  if (live?.git.kind !== "repo") return null;
+  const info = live.git.info;
+  return {
+    worktree: info.worktreePath,
+    branch: info.branch,
+    repo: info.repoRoot,
+  };
+};
+
+/** THE PULL REQUEST that record carries, as this watch reads it.
  *
- * The cycle guard is a belt: padi refuses a parent edge that would close a loop
- * when it is written (`packages/padi/src/terminals.ts`), so this can only fire
- * on a record that got onto a disk some other way — and a walk that span
- * forever on one would take the Conductor's whole watch with it.
- */
-export const walkRoot = (
-  host: string,
-  id: string,
-  records: ReadonlyMap<string, PadiTerminal>,
-): WatchRoot => {
-  let at = id;
-  const seen = new Set<string>([id]);
-  for (;;) {
-    const record = records.get(at);
-    if (record === undefined)
-      return { ref: fleetTerminalRef(host, at), name: "" };
-    const parent = record.parentId;
-    if (parent === undefined || seen.has(parent))
-      return { ref: fleetTerminalRef(host, at), name: recordName(record) };
-    seen.add(parent);
-    at = parent;
-  }
+ *  Only the RESOLVED arm says anything: `pending`, `absent`, `unsupported` and
+ *  `unavailable` are all "kolu does not know", and a work's timeline must not
+ *  learn a PR closed because the forge stopped answering. The failing check
+ *  NAMES come off the same per-check breakdown the rollup is folded from, so
+ *  the `checks-failed` event says which gates are red rather than that some
+ *  are. */
+const prOfRecord = (record: PadiTerminal | undefined): WatchPr | null => {
+  const live = record?.state === "active" ? record : undefined;
+  if (live?.pr.kind !== "ok") return null;
+  const pr = live.pr.value;
+  return {
+    number: pr.number,
+    title: pr.title,
+    state: pr.state,
+    checks: pr.checks,
+    failing: pr.checkRuns
+      .filter((one) => one.outcome === "fail")
+      .map((one) => one.name),
+  };
 };
 
 /**
@@ -172,15 +178,16 @@ export const readingsOf = (
       terminalId: id,
       hostName,
       // The name a person gave it, else the branch it is on. Nothing is
-      // invented: a terminal with neither keeps whatever the entry already
-      // remembered ({@link WatchEntry.name}).
+      // invented: a terminal with neither keeps whatever the member already
+      // remembered ({@link MemberWatch.name}).
       name: recordName(record),
       agent: live?.agent?.kind ?? null,
-      // THE PIECE OF WORK IT IS PART OF, walked on the host's own records
-      // because that is the one place every watched terminal's chain can be
-      // read — a browser has the parent edges only of the host it has open, and
-      // the Conductor watches terminals on machines nobody is looking at.
-      root: walkRoot(host, id, records),
+      // WHERE IT IS WORKING and WHAT PR IT CARRIES — both off the record this
+      // leg has already read, because the watcher is the one reader of every
+      // host: a work whose members are on a machine nobody has a browser on
+      // still gets its files listed and its PR recorded.
+      git: gitOf(record),
+      pr: prOfRecord(record),
       // PADI'S OWN ANSWER about what is in front of the prompt — `shell: true`
       // is an idle prompt with nothing running on it. `null` for a reading with
       // no live arm to ask (a sleeping terminal has released its PTY) or a

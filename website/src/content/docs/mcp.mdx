@@ -80,14 +80,15 @@ What the fleet projection changes is identity, and only identity:
 | naming a terminal | `3f29…` | `local/3f29…`, `remote:nix@prod/9a1b…` — the host, then the id, read apart at the **last** `/` |
 | `lifecycle_create` | opens one here | takes the host to open on, and answers a fleet reference |
 | the repo tools — `git_getStatus` · `git_getDiff` · `fs_listAll` · `fs_readFile` | a repo path | a repo path **and** the host it is on |
-| the waits and the watch | `wait_outputSettled` · `wait_agentState` · `watch_open` · `watch_next` · `watch_close`, all as documented below | **not served.** The Conductor never blocks: kolu-server wakes it. It gets `watch_terminal` / `unwatch_terminal` instead, and keeps `wait_outputSettled` **hard-capped at a few seconds** — the settle between typing and Enter, never a way to sit on an agent |
-| live views | `terminals` · `urgency` · `daemonStatus` · `status` · `identity` | `terminals` · `urgency` · **`hosts`** · **`watched`** |
+| the waits and the watch | `wait_outputSettled` · `wait_agentState` · `watch_open` · `watch_next` · `watch_close`, all as documented below | **not served.** The Conductor never blocks: kolu-server wakes it. It keeps terminals through the **work** tools instead (`work_open` · `work_adopt` · `work_leave`), and keeps `wait_outputSettled` **hard-capped at a few seconds** — the settle between typing and Enter, never a way to sit on an agent |
+| `lifecycle_create` again | nothing more to say | the create is **refused without a `work` and a `role`** — the terminal it makes joins that piece of work as its planner, implementor or other, so a member's role can never be forgotten |
+| live views | `terminals` · `urgency` · `daemonStatus` · `status` · `identity` | `terminals` · `urgency` · **`hosts`** · **`works`** |
 
 </div>
 
 `hosts` is the live roster: which machines kolu knows, what each is called, and whether it is warming, connected or failed *now*. It stands in for the three per-host health views rather than fanning them out — `daemonStatus`, `status` and `identity` are facts about **one** host, and in a fleet they are columns of that roster. A call naming a host that is not connected is **refused by name**, saying which host and what state it is in; it is never answered with an empty list, which an agent would read as "nothing is running there".
 
-`watched` is the Conductor's own watch list, read back: one row per watched terminal — its `host/id`, the last name and agent kolu saw in it, how it got on the list, and the state of the host it is on *now* (all three host columns `null` once that host is no longer a member). It moves the list with `watch_terminal` / `unwatch_terminal` and reads it here, so a conversation that restarted knows what it is being woken by instead of guessing. The resource subscribes, so a watched terminal that goes away — or one a person takes off from the browser — reaches it without a call.
+`works` (`surface://cells/works`) is the Conductor reading the pieces of work kolu is storing for it: one row per work in progress — its id and title, the repo and branch, the host and the mode, **what to do when CI goes green** (the one place that answer is written), where it stands and since when, its members with their `host/id`, role, name, the agent kolu last saw and the state of the host each is on *now*, and any question still open with the human — plus the last few finished works with their outcomes. The script reads it at the start of every conversation and after a restart, which is what lets a new conversation pick up work already in flight instead of guessing at it. The resource subscribes, so a member that goes away, an answer given from the card, or a PR that merges reaches the conversation without a call.
 
 One terminal's record is read at `surface://collections/terminals/<host>/<id>` — the reference exactly as a tool, a wake or a resource hands it out, nothing escaped. A reference that names nothing, like any address the fleet face does not serve, is refused in a sentence that says what a record address looks like.
 
@@ -98,12 +99,13 @@ two faces differ in what they can *do*. An agent in a terminal that calls a
 wait is blocking itself, and that is its own business. [The
 Conductor](/conductor) is a conversation a person is talking to, so a turn of
 its own stuck in a wait is a person stuck behind it. So the unbounded waits
-are simply not on its table: it names what it is watching, ends its turn, and
-kolu-server starts the next one when a watched terminal's agent comes up
-unbriefed, stops, asks or goes. `watch_terminal` and `unwatch_terminal` are
-how it keeps that list (a terminal it creates is added for it);
-`wait_outputSettled` survives with a hard cap, because typing a command and
-submitting it still needs the pause in between.
+are simply not on its table: it opens a piece of work, ends its turn, and
+kolu-server starts the next one when a member terminal's agent comes up
+unbriefed, stops, asks or goes. `work_open` names the piece of work and asks
+its setup, `lifecycle_create` and `work_adopt` give each terminal a role in it,
+and `work_leave` takes one out again; `wait_outputSettled` survives with a hard
+cap, because typing a command and submitting it still needs the pause in
+between.
 
 ## Connect it to your agent
 
@@ -279,8 +281,8 @@ shell.
 ### Supervise several terminals at once
 
 This subscription is the **per-host** face's too — [the
-Conductor](/conductor) is woken by kolu-server instead, and keeps a watched
-list rather than a subscription (below). For an agent that does block, the two
+Conductor](/conductor) is woken by kolu-server instead, and keeps pieces of
+work rather than a subscription (below). For an agent that does block, the two
 waits above each watch **one** terminal, and only while the call is open — so
 an agent running several workers used to need a wait per worker, kept re-armed
 by hand, and anything that happened between two waits was invisible. These
@@ -358,22 +360,27 @@ batch comes back with a count of what was dropped rather than quietly losing the
 tail. Restarting kolu's background service itself — an upgrade does it — clears
 subscriptions; the next call says so plainly instead of reporting silence.
 
-### The Conductor's watched list
+### The Conductor's pieces of work
 
-The fleet face swaps the subscription for a list kolu-server keeps, because
-the Conductor is not the thing doing the waiting — it is the thing being
-woken.
+The fleet face swaps the subscription for the **pieces of work** kolu-server
+stores, because the Conductor is not the thing doing the waiting — it is the
+thing being woken, and the work outlives the conversation that opened it.
 
 | Tool | What it does |
 | --- | --- |
-| `watch_terminal` | Add a terminal to the watched list, by its `host/id`. Idempotent; refused by name for a malformed reference, a host that is not a member, or a terminal its host's roster does not have. Answers the whole list back, **and the state that terminal was found in** — the agent in it and how it stands, or that there is no agent, or that it is asleep. That found state is a baseline, not news: it never rings, because the answer has just said it. |
-| `unwatch_terminal` | Take one off, and say whether it was there. A terminal that closes drops off by itself, and a terminal the Conductor creates is added without being asked. |
+| `work_open` | Open a piece of work: its title, the repo and the branch, plus the **setup questions** — which host, which mode, which harness and model per role, what to do when CI goes green. kolu puts the ones the request has not already answered to the human as **one** question linked to the new work, and the answers are stored on it as decisions; the call answers with the work, the setup as read back, and whether the human declined. Refused by name when a setup question it must ask is missing. |
+| `work_ask` | Ask the human something about a work — each question with its options, and a box for an answer of their own. The ask names the work, so the answer is stored on it as a decision (plan approval included). A question about no work is the conversation's own question tool, and stays the conversation's alone. |
+| `work_adopt` | Add a terminal the Conductor did not create, by its `host/id`, with the **role** it plays in a named work. Refused by name for a malformed reference, a host that is not a member, a terminal its host's roster does not have, or a work that is unknown or already finished. Answers **the state that terminal was found in** — the agent in it and how it stands, or that there is no agent, or that it is asleep. That found state is a baseline, not news: it never rings, because the answer has just said it. |
+| `work_leave` | Take a terminal out of its work, and say whether it was in one. A terminal that closes leaves by itself, and a terminal the Conductor creates joins without being asked — `lifecycle_create` takes the work and the role. |
+| `work_note` | Put a line of plain text on a work's timeline. Nothing reads a note to decide anything; it is there for the person reading the card. |
 
-A watched terminal whose agent comes up unbriefed (`ready`), stops, asks, goes,
+A member terminal whose agent comes up unbriefed (`ready`), stops, asks, goes,
 is put to sleep, or — for one created with a `run` command — ends back at its
 shell prompt with no agent ever seen, starts a new Conductor turn, carrying
 every terminal that has news. Nothing else does — no timer, and no plain
-shell. [The Conductor](/conductor) has the whole of it.
+shell. Everything else on a work's timeline is kolu's own observation: a file
+appearing in the worktree's `.waterfall/`, the PR opening, its checks starting,
+passing or failing, the merge. [The Conductor](/conductor) has the whole of it.
 
 ### Read the screen and the code
 

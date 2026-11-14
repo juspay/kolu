@@ -9,20 +9,27 @@
  * `[kolu]`, the same mark the standing prompt and a message's terminal
  * references wear — and then says, per terminal, everything an agent needs to
  * decide what to do without asking a question first: its `host/id` (the name
- * every tool takes), what it is called, which machine it is on, which agent is
- * in it, and how it stands.
+ * every tool takes), WHICH PIECE OF WORK it belongs to and in what role, what
+ * it is called, which machine it is on, which agent is in it, and how it
+ * stands.
+ *
+ * The work and the role are said because they are the thing the Conductor acts
+ * ON: "the planner of «a stored piece of work»" tells it which brief this
+ * terminal is holding, where to look for the plan, and what the next step of
+ * that work is — none of which a bare reference does.
  *
  * AND WHAT TO DO ABOUT IT, because the one thing that must not happen here is
  * the Conductor going back to sleep on a terminal that needs it. The closing
- * lines name the three verbs that answer a wake — read the screen, say
- * something to the agent, stop watching — and then say the rule the whole
- * design rests on: END THE TURN. kolu rings again when something else happens.
+ * lines name the verbs that answer a wake — read the screen, say something to
+ * the agent, let a member go — and then say the rule the whole design rests
+ * on: END THE TURN. kolu rings again when something else happens.
  *
  * PURE, and its own file, so what the agent reads is a string a test can
  * compare rather than something only reachable by waking a real conversation.
  */
 
 import type { ConductorWakeEvent } from "kolu-common/conductor";
+import type { WorkRole } from "kolu-work";
 
 /** How each level reads in the account — a whole clause, because what the
  *  agent has to decide from is the SITUATION and not a one-word enum it has to
@@ -41,6 +48,14 @@ const STANDS: Readonly<Record<ConductorWakeEvent["level"], string>> = {
     "its agent EXITED — the program is gone from the foreground and the terminal is back at its shell prompt, so nothing more will come from it; read the screen to see why it went",
 };
 
+/** WHAT A MEMBER TERMINAL IS — the work it belongs to and the part it plays,
+ *  looked up by the host that holds the record. `null` for a terminal whose
+ *  work has ended under it, which is a thing a late reading can be about. */
+export interface WakeMembership {
+  readonly role: WorkRole;
+  readonly title: string;
+}
+
 /** One terminal's line. The ref comes first because it is what every tool
  *  takes; the prose after it is what a person would say about the same thing.
  *  An EMPTY agent is the `ended` case — no agent was ever in it — and the line
@@ -50,8 +65,15 @@ const STANDS: Readonly<Record<ConductorWakeEvent["level"], string>> = {
  *  kolu has read says what the terminal is for (no intent, no branch). It is
  *  SAID in words, because a pair of quotes with nothing between them reads as
  *  a terminal somebody called "" — a name the agent would then try to use. */
-const lineOf = (event: ConductorWakeEvent): string =>
-  `- ${event.ref} — ${event.name === "" ? "an unnamed terminal" : `“${event.name}”`} on ${event.hostName}, ${event.agent === "" ? "no agent in it" : `running ${event.agent}`}: ${STANDS[event.level]} (seen ${event.at}).`;
+const lineOf = (
+  event: ConductorWakeEvent,
+  member: WakeMembership | null,
+): string =>
+  `- ${event.ref} — ${
+    member === null
+      ? "no longer a member of any work in progress"
+      : `the ${member.role} of «${member.title}»`
+  }, ${event.name === "" ? "an unnamed terminal" : `“${event.name}”`} on ${event.hostName}, ${event.agent === "" ? "no agent in it" : `running ${event.agent}`}: ${STANDS[event.level]} (seen ${event.at}).`;
 
 /**
  * The account, for one wake carrying one or more terminals.
@@ -60,16 +82,23 @@ const lineOf = (event: ConductorWakeEvent): string =>
  * running ({@link ./held.ts}), and they are one message rather than several
  * turns on purpose: the Conductor should see everything that happened while it
  * was busy at once, and decide about all of it in one pass.
+ *
+ * `about` is read per terminal rather than carried on the event, because the
+ * event is what was OBSERVED and the membership is what kolu knows now — a
+ * member that left between the ring and the wake is described as it stands.
  */
-export const wakeText = (events: ReadonlyArray<ConductorWakeEvent>): string => {
+export const wakeText = (
+  events: ReadonlyArray<ConductorWakeEvent>,
+  about: (ref: string) => WakeMembership | null,
+): string => {
   const subject =
     events.length === 1
-      ? "a terminal you are watching needs you"
-      : `${events.length} terminals you are watching need you`;
+      ? "a terminal working on one of your pieces of work needs you"
+      : `${events.length} terminals working on your pieces of work need you`;
   return [
     `[kolu] I am waking you: ${subject}. You did not ask for this turn — kolu started it.`,
-    events.map(lineOf).join("\n"),
-    "Look before you act: `screen_text` reads a terminal's screen. To brief, answer or redirect the agent in one, use `agent_say` — kolu does the keystrokes that agent needs, idle or working; a terminal that is READY is one waiting for exactly that. Use `unwatch_terminal` when a terminal's work is done, and `watch_terminal` for one you want to hear about.",
-    "Then END YOUR TURN. Do not wait on anything: kolu wakes you again the moment a watched terminal's agent comes up, stops, asks, sleeps, exits, ends or goes away.",
+    events.map((event) => lineOf(event, about(event.ref))).join("\n"),
+    "Look before you act: `screen_text` reads a terminal's screen. To brief, answer or redirect the agent in one, use `agent_say` — kolu does the keystrokes that agent needs, idle or working; a terminal that is READY is one waiting for exactly that. Use `work_leave` when a member's part is done, and `work_adopt` to bring a terminal the human points at into a piece of work. A question for the human about one of these works goes through `work_ask`, so the answer is kept with the work.",
+    "Then END YOUR TURN. Do not wait on anything: kolu wakes you again the moment a member terminal's agent comes up, stops, asks, sleeps, exits, ends or goes away.",
   ].join("\n\n");
 };

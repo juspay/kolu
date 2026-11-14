@@ -12,13 +12,12 @@
  *       The dot MOVES while it works:
  *       a readout that cannot be told from a frozen one is the defect this
  *       whole change is about.
- *    2. N PIECES OF WORK · M TERMINALS — what kolu will wake it about, said
- *       in both the unit a person thinks in (a waterfall, a terminal they
- *       pointed it at) and the unit kolu rings on. ABSENT AT ZERO, control
- *       and all: `watching 0` is a readout of nothing, and a press that
- *       opened an empty panel was a promise of a list that was not there.
- *       Below the two-column breakpoint it is a button and the list opens
- *       above it; on a window wide enough for the side column the list is
+ *    2. N PIECES OF WORK · M WAITING ON YOU — what kolu has in flight, and
+ *       how much of it is now your turn. ABSENT AT ZERO, each part on its
+ *       own: `0 pieces of work` is a readout of nothing, and a press that
+ *       opened an empty column was a promise of a list that was not there.
+ *       Below the two-column breakpoint it is a button and the column opens
+ *       above it; on a window wide enough for the side column the column is
  *       already on screen beside this line, so the same words are a readout
  *       and nothing presses.
  *    3. N WAITING — events held because a turn is running, which go out
@@ -35,7 +34,9 @@ import type { ConductorRow, ConductorState } from "kolu-common/conductor";
 import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { formatKeybind } from "../input/keyboard";
 import Tip from "../ui/Tip";
-import ConductorWatchedPanel from "./ConductorWatchedPanel";
+import WorkColumn from "./WorkColumn";
+import { useWorks } from "./useWorks";
+import { waitingCount, worksStatusWords } from "./workReadings";
 import { conductorWide } from "./conductorLayout";
 import { useShownClock } from "../ui/shown";
 import { STEER_KEYBIND, steerOnOffer } from "./steer";
@@ -88,43 +89,38 @@ const ConductorStatus: Component<{
   // rebuilt (`App.tsx`). Hoisting it to a module would say the opposite: that
   // it has to outlive its own view.
   const [open, setOpen] = createSignal(false);
-  /** THE SAME TWO NUMBERS THE TAB'S BADGE IS MADE OF, off the same published
-   *  fact: `work` is the watched terminals grouped by the top-level terminal
-   *  their parent edges end at (kolu-server derives it once, from the watch
-   *  list's own readings), and the terminals are the refs inside those
-   *  groups. The tab shows the first; this line says both, because the number
-   *  that moves when a waterfall starts and the number that moves when it
-   *  splits are different numbers and a reader seeing one jump wants to know
-   *  which.
+  /** WHAT KOLU HAS IN FLIGHT, off the `works` cell — the pieces of work, and
+   *  how many things are waiting on you.
    *
-   *  BOTH COUNTED OFF `work`, which is the one place membership is published:
-   *  every watched terminal is in exactly one group, so a second flat list
-   *  beside it could only ever be the same list — or the one that disagrees. */
-  const pieces = () => props.state.work.length;
-  const terminals = () =>
-    props.state.work.reduce((count, one) => count + one.refs.length, 0);
+   *  The second number is the tab's badge, said here in words: a work waiting
+   *  on an answer counts once however many questions it holds, plus every
+   *  question about NO work, which is the conversation's own. Both halves are
+   *  one fold (`worksStatusWords`), so the line and the badge cannot drift
+   *  into two counts of one fact — and a part that would read `0` is simply
+   *  not there. */
+  const works = useWorks();
+  const pieces = createMemo(
+    () => works().works.filter((one) => one.endedAt === null).length,
+  );
+  const waiting = createMemo(() =>
+    waitingCount(works().works, props.state.openAsks),
+  );
+  const words = createMemo(() =>
+    worksStatusWords(works().works, props.state.openAsks),
+  );
   const held = () => props.state.held.length;
-  /** The sentence both spellings of the control say, so the button a phone
-   *  presses and the readout a wide window draws cannot drift into two
-   *  different counts of one fact. */
-  const watching = () =>
-    `${pieces()} ${pieces() === 1 ? "piece of work" : "pieces of work"} · ${terminals()} ${terminals() === 1 ? "terminal" : "terminals"}`;
-  /** The list is OPENED from here only below the breakpoint. On a wide window
-   *  `ConductorPane` is already drawing the same panel in its side column,
-   *  and a second copy over the conversation would be two lists of one fact
-   *  — with the same Look open in both. */
-  const opensHere = () => open() && !conductorWide() && pieces() > 0;
+  /** The column is OPENED from here only below the breakpoint. On a wide
+   *  window `ConductorPane` is already drawing the same column beside the
+   *  conversation, and a second copy over it would be two lists of one fact —
+   *  with the same cards open in both. */
+  const opensHere = () => open() && !conductorWide() && words() !== "";
   /** Steering is ON OFFER — the chord's hint, where the turn is reported. */
   const steers = createMemo(() => steerOnOffer(props.state));
 
   return (
     <>
       <Show when={opensHere()}>
-        <ConductorWatchedPanel
-          work={props.state.work}
-          seen={props.state.seen}
-          placement="inline"
-        />
+        <WorkColumn rows={props.rows} placement="inline" />
       </Show>
       <div
         data-testid="conductor-status"
@@ -203,40 +199,40 @@ const ConductorStatus: Component<{
           </Tip>
         </Show>
         {/* NOTHING AT ZERO — no number, and no control that would open an
-            empty panel. The two numbers ride as DATA as well as words: a
-            reader wants the sentence, and anything reading this line wants
-            the fact without parsing English that may be singular today and
-            plural next frame. */}
-        <Show when={pieces() > 0}>
+            empty column. Each half rides as DATA as well as words, and each
+            is ABSENT rather than `0`: a reader wants the sentence, and
+            anything reading this line wants the fact without parsing English
+            that may be singular today and plural next frame. */}
+        <Show when={words() !== ""}>
           <Tip
             class="flex items-center"
-            label="The pieces of work this conversation has in flight — its watched terminals, grouped by the top-level terminal each one hangs off"
+            label="The pieces of work kolu has in flight, and how many things are now waiting on an answer from you"
           >
             <Show
               when={!conductorWide()}
               fallback={
-                // A READOUT on a wide window: the list it would open is
+                // A READOUT on a wide window: the column it would open is
                 // already beside this line, in the pane's side column.
                 <span
-                  data-testid="conductor-watching"
-                  data-work={pieces()}
-                  data-terminals={terminals()}
+                  data-testid="conductor-work-count"
+                  data-work={pieces() > 0 ? pieces() : undefined}
+                  data-waiting={waiting() > 0 ? waiting() : undefined}
                   class="shrink-0 text-fg-2"
                 >
-                  {watching()}
+                  {words()}
                 </span>
               }
             >
               <button
                 type="button"
-                data-testid="conductor-watching"
-                data-work={pieces()}
-                data-terminals={terminals()}
+                data-testid="conductor-work-count"
+                data-work={pieces() > 0 ? pieces() : undefined}
+                data-waiting={waiting() > 0 ? waiting() : undefined}
                 aria-expanded={open()}
                 class="shrink-0 rounded-md border border-edge-bright px-1.5 py-px text-fg-2 hover:text-fg hover:bg-surface-2 cursor-pointer"
                 onClick={() => setOpen(!open())}
               >
-                {watching()}
+                {words()}
               </button>
             </Show>
           </Tip>

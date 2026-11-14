@@ -2,12 +2,10 @@
  * WHAT A HOST'S FRAMES MEAN — the whole of the watch that is a function, with
  * no stream anywhere in it.
  *
- * Two halves: the one derivation that reads padi's records directly (a watched
- * terminal's `child-of` edges followed to the top-level terminal they end at,
- * which is what makes a planner and the implementor it split off ONE thing
- * going on — `walkRoot` — and the one rule that names a terminal), and the
- * reading itself: what padi's urgency lists, its roster and those records say
- * each watched terminal is DOING.
+ * Two halves: the rules that read padi's records directly (what a terminal is
+ * CALLED, where it is working and what PR it carries), and the reading itself:
+ * what padi's urgency lists, its roster and those records say each member
+ * terminal is DOING.
  *
  * The records are REAL ones — composed through padi's own
  * `composeTerminalMetadata`, the join that produces every record this watch
@@ -22,17 +20,11 @@ import {
 } from "@kolu/padi-client/vocab";
 import { type AgentPresence, agentPresence } from "kolu-agents/vocab";
 import { describe, expect, it } from "vitest";
-import {
-  type HostReading,
-  readingsOf,
-  recordName,
-  walkRoot,
-} from "./readings.ts";
+import { type HostReading, readingsOf, recordName } from "./readings.ts";
 
 const HOST = "local";
 const PLANNER = "11111111-1111-4111-8111-111111111111";
 const SPLIT = "22222222-2222-4222-8222-222222222222";
-const DEEPER = "33333333-3333-4333-8333-333333333333";
 
 interface Over {
   parentId?: string;
@@ -119,78 +111,6 @@ const reading = (over: {
   urgency: { ...QUIET, ...over.urgency },
   keys: new Set(over.roster ?? over.watched),
   records: records(over.records ?? {}),
-});
-
-describe("which piece of work a watched terminal is in", () => {
-  it("answers the PARENT for a split, by fleet ref and by its name", () => {
-    // The case the whole walk exists for: the Conductor is watching an
-    // implementor it split off a planner, and the thing going on is the
-    // planner's — one piece of work with two terminals in it.
-    expect(
-      walkRoot(
-        HOST,
-        SPLIT,
-        records({
-          [PLANNER]: { intent: "plan the cutover" },
-          [SPLIT]: { parentId: PLANNER, intent: "write the migration" },
-        }),
-      ),
-    ).toEqual({ ref: `${HOST}/${PLANNER}`, name: "plan the cutover" });
-  });
-
-  it("follows the edges all the way UP, not one step", () => {
-    expect(
-      walkRoot(
-        HOST,
-        DEEPER,
-        records({
-          [PLANNER]: { intent: "plan the cutover" },
-          [SPLIT]: { parentId: PLANNER },
-          [DEEPER]: { parentId: SPLIT },
-        }),
-      ).ref,
-    ).toBe(`${HOST}/${PLANNER}`);
-  });
-
-  it("makes a top-level terminal its OWN root", () => {
-    expect(
-      walkRoot(HOST, PLANNER, records({ [PLANNER]: { intent: "plan it" } })),
-    ).toEqual({ ref: `${HOST}/${PLANNER}`, name: "plan it" });
-  });
-
-  it("stops at the first ancestor it has not read, and names THAT one", () => {
-    // The ordinary first frame: the split's record has arrived and its
-    // parent's has not. The honest answer is the furthest terminal that can be
-    // named — a split whose parent is known is not a piece of work of its own
-    // — and its name is empty rather than invented. The lineage subscription
-    // is already open on it, so the next frame walks further.
-    expect(
-      walkRoot(HOST, SPLIT, records({ [SPLIT]: { parentId: PLANNER } })),
-    ).toEqual({ ref: `${HOST}/${PLANNER}`, name: "" });
-  });
-
-  it("is ITSELF when its own record has not landed yet", () => {
-    expect(walkRoot(HOST, SPLIT, records({}))).toEqual({
-      ref: `${HOST}/${SPLIT}`,
-      name: "",
-    });
-  });
-
-  it("does not spin on a record whose parent edges close a loop", () => {
-    // padi refuses a cycle when the edge is WRITTEN, so this cannot arrive off
-    // a live host — but a walk that span forever on one would take the whole
-    // watch with it, and that is not a trade worth leaving open.
-    expect(
-      walkRoot(
-        HOST,
-        SPLIT,
-        records({
-          [SPLIT]: { parentId: PLANNER },
-          [PLANNER]: { parentId: SPLIT, intent: "plan the cutover" },
-        }),
-      ).ref,
-    ).toBe(`${HOST}/${PLANNER}`);
-  });
 });
 
 describe("what a terminal is called", () => {
@@ -309,7 +229,7 @@ describe("what a host's frames say about each watched terminal", () => {
     ).toEqual([]);
   });
 
-  it("carries the name, the agent and the piece of work onto every reading", () => {
+  it("carries the name, the agent and where it is working onto every reading", () => {
     const seen = readingsOf(
       reading({
         watched: [SPLIT],
@@ -332,7 +252,10 @@ describe("what a host's frames say about each watched terminal", () => {
         hostName: "this machine",
         name: "write the migration",
         agent: "claude-code",
-        root: { ref: `${HOST}/${PLANNER}`, name: "plan the cutover" },
+        // No git fact and no PR on this record: both are said as `null`
+        // rather than invented, so the timeline records nothing about either.
+        git: null,
+        pr: null,
         foregroundShell: null,
         level: "asking",
       },

@@ -49,7 +49,7 @@ import ConductorSignIn from "./ConductorSignIn";
 import ConductorStatus from "./ConductorStatus";
 import ConductorStrip from "./ConductorStrip";
 import ConductorTranscript from "./ConductorTranscript";
-import ConductorWatchedPanel from "./ConductorWatchedPanel";
+import WorkColumn from "./WorkColumn";
 import { ConductorHelpColumn, ConductorHelpSheet } from "./ConductorHelp";
 import { conductorHelpColumn, conductorWide } from "./conductorLayout";
 import { useConductor } from "./useConductor";
@@ -288,24 +288,19 @@ const ConductorPane: Component<{
                   )}
                 </Show>
               </div>
-              {/* THE WORK IN PROGRESS, beside the conversation rather than
-                  over it. The SAME component the status line's control opens
-                  below the breakpoint — one implementation, one piece of
-                  state: a Look opened here is open there, because
-                  `ConductorLook` keys what is open by row id in a module
-                  store, which is what lets the panel move between the two
-                  placements across a resize with what a person had open still
-                  open. */}
+              {/* THE WORK, beside the conversation rather than over it. The
+                  SAME component the status line's control opens below the
+                  breakpoint — one implementation, one piece of state: a card
+                  opened here is open there, because `WorkCard` keys what is
+                  open by the work's id in a module store, which is what lets
+                  the column move between the two placements across a resize
+                  with what a person had open still open. */}
               <Show when={conductorWide()}>
                 <aside
                   data-testid="conductor-side"
                   class="flex min-h-0 w-conductor-side flex-col overflow-y-auto border-l border-edge ps-conductor-gutter"
                 >
-                  <ConductorWatchedPanel
-                    work={state().work}
-                    seen={state().seen}
-                    placement="side"
-                  />
+                  <WorkColumn rows={feed.rows()} placement="side" />
                 </aside>
               </Show>
             </div>

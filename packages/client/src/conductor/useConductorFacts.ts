@@ -21,6 +21,8 @@ import {
 import { type Accessor, createMemo } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { app } from "../wire";
+import { useWorks } from "./useWorks";
+import { waitingCount } from "./workReadings";
 
 /** The live conversation state, mirrored once for the whole app.
  *
@@ -53,30 +55,27 @@ export function conductorAsksTotal(): number {
 /** THE TAB'S ONE BADGE, derived once for every place that wears it — the
  *  desktop tab and the phone's Conductor entry.
  *
- *  Two facts go in and ONE mark comes out. `pieces` is how many pieces of
- *  work are in flight: the watched terminals GROUPED by the top-level
- *  terminal their `child-of` edges end at, which kolu-server derives from the
- *  watch list's own readings and publishes as `work` — so a planner and the
- *  implementor split under it count once, and a host this browser has never
- *  opened still has its group (the browser cannot walk a parent edge on a
- *  machine it is not connected to; the server already reads every watched
- *  terminal's record on every host). `asking` is whether the conversation is
- *  blocked on an answer from you.
+ *  ONE NUMBER, and it is HOW MANY THINGS ARE WAITING ON YOU: every piece of
+ *  work whose standing is "waiting on you" (one per work however many
+ *  questions it holds — the card is the one place to answer them), plus every
+ *  open ask that is about NO work, which is the conversation's own question
+ *  and has no card to carry it. That is the number a person acts on; the count
+ *  of work in flight is a readout and lives on the status line, where there is
+ *  room to say what it counts.
  *
- *  The count is what the badge SAYS and the ask is what COLOURS it. There is
- *  no second number: two counters on one tab is a sum every reader has to do
- *  before they know whether to look.
+ *  VIOLET, always — a badge that only ever says "it is your turn" has one
+ *  colour. ABSENT at zero, never a `0`: a badge that renders its own silence
+ *  is one every reader has to parse before ignoring it.
  *
- *  Both are memos over PRIMITIVES, so the tab wakes when one of those two
- *  moves and not when a row lands, a model changes or a terminal on some host
- *  ticks — a tab in the chrome bar must not re-render the strip because an
- *  unrelated terminal breathed. */
+ *  A memo over two primitives, so the tab wakes when that number moves and not
+ *  when a row lands, a model changes or a terminal on some host ticks — a tab
+ *  in the chrome bar must not re-render the strip because an unrelated
+ *  terminal breathed. */
 export const useConductorBadge = createSharedRoot(() => {
   const facts = useConductorFacts();
+  const works = useWorks();
   return {
-    /** The pieces of work in flight. */
-    pieces: createMemo(() => facts().work.length),
-    /** Whether the conversation is waiting on a human answer. */
-    asking: createMemo(() => facts().openAsks.length > 0),
+    /** How many things are waiting on the human. */
+    waiting: createMemo(() => waitingCount(works().works, facts().openAsks)),
   };
 });

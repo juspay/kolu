@@ -5,7 +5,8 @@
  * What a leg's frames MEAN is a function now, and it is tested by calling it
  * (`kolu-conductor`'s `readings.test.ts`). What is left here can only be seen
  * by running the streams: that a leg exists for a CONNECTED host holding a
- * watched terminal and for no other, that a host arriving opens one without
+ * MEMBER of a work in progress and for no other — and for the member alone,
+ * with nothing above it subscribed — that a host arriving opens one without
  * anybody asking, that nothing is said before padi's fold and its roster have
  * both answered, and that a dispose really lets the subscriptions go.
  *
@@ -184,17 +185,17 @@ function fakeHosts(entries: Record<string, PadiSurfaceClient | null>): {
   };
 }
 
-/** The conversation, as the watch reaches it: a list to scope by and a sink
- *  for the readings. Nothing else of `ConductorHost` is touched — which is
- *  itself the claim, since a watch that started the agent merely to read the
- *  list would be a subprocess nobody asked for. */
-function fakeConductor(watched: string[]): {
+/** The conversation, as the watch reaches it: the member refs to scope by and
+ *  a sink for the readings. Nothing else of `ConductorHost` is touched — which
+ *  is itself the claim, since a watch that started the agent merely to read
+ *  membership would be a subprocess nobody asked for. */
+function fakeConductor(members: string[]): {
   host: () => ConductorHost;
   readonly seen: WatchObservation[];
 } {
   const seen: WatchObservation[] = [];
   const host = {
-    watched: () => watched,
+    memberRefs: () => members,
     observe: (next: ReadonlyArray<WatchObservation>) => {
       seen.push(...next);
     },
@@ -203,7 +204,7 @@ function fakeConductor(watched: string[]): {
 }
 
 describe("the conductor's watch, as wiring", () => {
-  it("reports a watched terminal on a connected host, with the work it is in", async () => {
+  it("reports a member terminal on a connected host, and subscribes nothing above it", async () => {
     const local = fakePadi({
       [PLANNER]: { intent: "plan the cutover" },
       [SPLIT]: { parentId: PLANNER, intent: "write the migration" },
@@ -220,15 +221,15 @@ describe("the conductor's watch, as wiring", () => {
       await vi.waitFor(() => {
         const last = conductor.seen.at(-1);
         expect(last?.level).toBe("asking");
-        // The PLANNER was never on the watch list: the lineage recursion
-        // subscribed it off the split's own parent edge, which is the only way
-        // the piece of work gets a heading on a machine nobody has a browser
-        // open on.
-        expect(last?.root).toEqual({
-          ref: `${LOCAL}/${PLANNER}`,
-          name: "plan the cutover",
-        });
+        expect(last?.terminalId).toBe(SPLIT);
         expect(last?.hostName).toBe(`the ${LOCAL} machine`);
+        // THE PARENT IS NOT READ. It is a terminal on this host and the
+        // member's own `child-of` edge points at it, and it is not a member —
+        // membership is stated now, so the ancestor walk that used to open a
+        // subscription per link has nothing to find out. Two standing reads:
+        // the urgency fold and the one member's record (the roster's `keys`
+        // answers once and ends).
+        expect(local.held()).toBe(2);
       });
     } finally {
       await watcher.dispose();
@@ -308,7 +309,10 @@ describe("the conductor's watch, as wiring", () => {
       [SPLIT]: { parentId: PLANNER, intent: "write the migration" },
     });
     const fleet = fakeHosts({ [LOCAL]: local.client });
-    const conductor = fakeConductor([`${LOCAL}/${SPLIT}`]);
+    const conductor = fakeConductor([
+      `${LOCAL}/${PLANNER}`,
+      `${LOCAL}/${SPLIT}`,
+    ]);
     const watcher = startConductorWatcher({
       hosts: fleet.hosts,
       conductor: conductor.host,
@@ -317,13 +321,14 @@ describe("the conductor's watch, as wiring", () => {
     local.urgency.set({ ...QUIET, workingIds: [SPLIT] });
     await vi.waitFor(() => {
       expect(conductor.seen.length).toBeGreaterThan(0);
-      // The fold, the watched record and the ancestor the lineage found.
+      // The fold and one record per MEMBER — two members of one work here,
+      // which is the shape a waterfall has.
       expect(local.held()).toBe(3);
     });
     await watcher.dispose();
-    // One interrupt takes the legs, the lineages and the host-map subscription
-    // with it: a shutdown that left a standing read would keep this process's
-    // padi links open after kolu stopped watching.
+    // One interrupt takes the legs and the host-map subscription with it: a
+    // shutdown that left a standing read would keep this process's padi links
+    // open after kolu stopped watching.
     await vi.waitFor(() => {
       expect(local.held()).toBe(0);
     });

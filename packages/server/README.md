@@ -20,10 +20,11 @@ each daemon keeps — so the fleet you added survives a restart of this process.
 ## The conductor — kolu-server's one child that is not a daemon
 
 `src/conductor/` spawns the ACP adapter, holds its session, keeps its
-transcript, and serves the whole of it as `koluSurface` members: the
-`conductor` cell, the `conductorTranscript` stream and the `conductor`
-procedure namespace. The protocol itself is [`@kolu/acp-harness`](../acp-harness)'s;
-nothing here spells `session/prompt`.
+transcript, records every piece of work it opens, and serves the whole of it
+as `koluSurface` members: the `conductor` cell, the `works` cell (the stored
+works and how each member terminal stands), the `conductorTranscript` stream
+and the `conductor` procedure namespace. The protocol itself is
+[`@kolu/acp-harness`](../acp-harness)'s; nothing here spells `session/prompt`.
 
 **It is hosted here rather than in padi because its subject is the whole
 fleet.** padi knows one host, and a conversation held by one padi can only ever
@@ -90,13 +91,12 @@ and its `claude` behind and spawn a second set beside them.
 ### The watch — kolu-server starts turns of its own
 
 `src/conductor/watcher.ts` is why the conversation never has to sit in a wait,
-and it is WIRING only. For each host holding a terminal the Conductor watches,
+and it is WIRING only. For each host holding a MEMBER of a work in progress,
 it subscribes that host's padi `urgency` fold, its `terminals` keys and each
-watched terminal's LINEAGE — its own record and then, recursively, the record
-of whatever its `child-of` edge points at — and hands the frames to
-`kolu-conductor`'s `readings.ts`, which says what they mean. The readings go to
-the conversation (`observe`), which decides what is news, holds it while a turn
-runs, and sends everything waiting as ONE wake when the turn ends.
+member terminal's own record — and hands the frames to `kolu-conductor`'s
+`readings.ts`, which says what they mean. The readings go to the conversation
+(`observe`), which decides what is news, holds it while a turn runs, and sends
+everything waiting as ONE wake when the turn ends.
 
 Following the hosts themselves is not written here either: `kolu-mcp`'s
 `overConnectedHosts` is the one implementation of "a leg per connected host,
@@ -105,28 +105,29 @@ whose stream ends on its own is re-opened after a few seconds, alone — its
 siblings never notice.
 
 **What a reading carries** is how the terminal stands — working, asking,
-stopped, a shell, asleep, gone — plus the agent in it and whether padi's
-foreground is the terminal's own shell, and the top-level terminal its parent
-edges end at (its PIECE OF WORK: a planner and the implementor it split off
-are one thing going on, and the Conductor tab badges how many there are). The
-walk happens on the host's own records because this is the one place that holds
-every watched terminal's host — a browser has the edges only of the host it has
-open, and a host that is away has none to walk, so the grouping is derived once
-and remembered on the watch list's entries. The watch reports; it never
-concludes. Whether a stop is a `ready` (an agent that has come up and has not
-been spoken to), whether a shell is an `ended` (a terminal kolu opened with a
-command, whose command ran and gave the prompt back with no agent ever in it),
-and whether anything rings at all is `kolu-conductor`'s `watching.ts`. A slept
-or boot-parked terminal reads as `asleep` rather than as a shell: its agent
-was released with it, which is news exactly once, and the entry stays watched
-because waking the terminal brings it back.
+stopped, a shell, asleep, gone — plus the agent in it, whether padi's
+foreground is the terminal's own shell, and the git and PR facts the record
+already holds (the worktree a work's files are listed from, the PR whose
+checks become its timeline). It no longer walks ANCESTORS: a piece of work
+used to be guessed from which watched terminals shared a top-level parent, and
+membership is stated now — the Conductor names the work and the role in the
+same call that creates or adopts the terminal — so there is nothing above a
+member worth a subscription. The watch reports; it never concludes. Whether a
+stop is a `ready` (an agent that has come up and has not been spoken to),
+whether a shell is an `ended` (a terminal kolu opened with a command, whose
+command ran and gave the prompt back with no agent ever in it), and whether
+anything rings at all is `kolu-conductor`'s. A slept or boot-parked terminal
+reads as `asleep` rather than as a shell: its agent was released with it,
+which is news exactly once, and the terminal stays a member because waking it
+brings it back.
 
-It is started **after** `implementKoluSurface` — reading the watch list reads
-the remembered record, which publishes, and a publish before the cell writer
-exists is the boot-order crash `live.ts` states — and disposed **before** the
+It is started **after** `implementKoluSurface` — reading the membership reads
+the remembered record, which publishes, and a publish before the cell writers
+exist is the boot-order crash `live.ts` states — and disposed **before** the
 conversation, so nothing can start a turn into a host that is shutting down. A
 host that is not answering is parked, never mourned: disconnected is not gone.
-A reading may WAKE the conversation; reading the list never starts the agent.
+A reading may WAKE the conversation; reading the membership never starts the
+agent.
 
 **A wake that cannot be delivered** — the agent refused it, or would not come
 up — writes one `notice` row naming the terminals still waiting and why, puts
@@ -136,13 +137,35 @@ watcher. One notice per failure episode, and no timer anywhere.
 
 ### The record
 
-The transcript, the session id and the model the person chose live in
-kolu-server's state store (`src/state.ts`), under its own migration rung;
-attachments are files under `<state dir>/conductor/attachments/<id>`, and the
-bytes never ride a prompt frame. A restart resumes the session by its id and
-re-applies the model. What is not restored is anything that was a fact about a
-subprocess that no longer exists — a turn in flight, a half-finished sign-in —
-because a restored one would be a lie with a timestamp on it.
+THREE places, each where its volatility says it belongs.
+
+- The session id, the directory, the model a person chose and the fleet it
+  touched are the `conductor` key of kolu-server's state store
+  (`src/state.ts`), under its own migration rung.
+- Every piece of work — what the Conductor stated, what the human decided,
+  what kolu observed, and each member's per-terminal wake bookkeeping — is the
+  `works` key of the same store, on the same ladder. A work outlives the
+  conversation that opened it: "new session" clears the chat and nothing else.
+- The transcript's rows are their own file,
+  `<state dir>/conductor/transcript.json`, written atomically at 0600 with the
+  ladder's version stamped in it (`src/conductor/transcriptFile.ts`). They were
+  most of `config.json`'s bytes and `conf` rewrites the whole file on every
+  `set`. The file rides THE SAME ladder: a change to the row shape is a rung in
+  `state.ts` that rewrites it, and a file stamped with anything else is refused
+  by name. It is not in the state-backup ring, which snapshots `config.json`
+  alone.
+
+Attachments are files under `<state dir>/conductor/attachments/<id>`, and the
+bytes never ride a prompt frame. The files a work keeps when it ends are copied
+under `<state dir>/works/<id>/` — read off whichever host the work ran on
+through that daemon's own file read (`src/conductor/workFiles.ts`), served back
+to the browser at `/api/works/<id>/files/<path>` (`src/workFilesRoute.ts`), and
+deleted with the work when it falls off the 20-work history.
+
+A restart resumes the session by its id and re-applies the model. What is not
+restored is anything that was a fact about a subprocess that no longer exists —
+a turn in flight, a half-finished sign-in — because a restored one would be a
+lie with a timestamp on it.
 
 ## What kolu-server knows nothing about
 

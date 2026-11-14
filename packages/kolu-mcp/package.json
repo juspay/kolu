@@ -6,12 +6,13 @@
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "//exports": "`./fleetRef` is the identity GRAMMAR alone \u2014 `src/fleet/ref.ts`, a leaf with no imports at all. `@kolu/acp-harness` splits a fleet reference out of a tool call and must not grow an edge to the MCP SDK, to padi-client or to effect to do it (its manifest is the ACP SDK plus kolu-common); the same split-for-weight argument `./tools` already carries one level up. `./fleetWatchJoin` is the same shape for the HOW-IT-JOINED vocabulary: `kolu-conductor` decides `ready`/`ended` from it and writes it to disk, and one tuple is what keeps a join a tool records from being a join the next boot refuses.",
+  "//exports": "`./fleetRef` is the identity GRAMMAR alone \u2014 `src/fleet/ref.ts`, a leaf with no imports at all. `@kolu/acp-harness` splits a fleet reference out of a tool call and must not grow an edge to the MCP SDK, to padi-client or to effect to do it (its manifest is the ACP SDK plus kolu-common); the same split-for-weight argument `./tools` already carries one level up. `./fleetWatchJoin` is the same shape for the HOW-IT-JOINED vocabulary: `kolu-conductor` decides `ready`/`ended` from it and writes it to disk, and one tuple is what keeps a join a tool records from being a join the next boot refuses. `./workRefusal` is that shape a third time, for WHY A CALL ABOUT A WORK WAS REFUSED: the conductor raises the kinds and this face turns them into tool failures.",
   "exports": {
     ".": "./src/index.ts",
     "./expose": "./src/expose.ts",
     "./fleetRef": "./src/fleet/ref.ts",
     "./fleetWatchJoin": "./src/fleet/watchJoin.ts",
+    "./workRefusal": "./src/fleet/workRefusal.ts",
     "./tools": "./src/tools.ts"
   },
   "scripts": {
@@ -30,6 +31,7 @@
     "effect": "catalog:",
     "kolu-agents": "workspace:*",
     "kolu-git": "workspace:*",
+    "kolu-work": "workspace:*",
     "ts-pattern": "^5.9.0",
     "zod": "^4.6.6"
   },

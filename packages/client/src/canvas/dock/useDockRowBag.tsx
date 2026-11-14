@@ -40,6 +40,8 @@ import type { TerminalMetadata } from "@kolu/padi-client/vocab";
 import type { TerminalId } from "kolu-common/surface";
 import { type Accessor, createMemo } from "solid-js";
 import { useStatePip } from "../../terminal/statePipBind";
+import { fleetTerminalRef } from "kolu-mcp/fleetRef";
+import WorkMark from "../../conductor/WorkMark";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { encActiveHost } from "../../wire";
@@ -137,7 +139,17 @@ export function useDockRowBag(): (input: {
       get labelColor() {
         return input.combined().info.annotationColor;
       },
-      renderLabel: renderRowLabel,
+      renderLabel: (markdown) => (
+        <>
+          {/* THE CONDUCTOR'S MARK, inline with the row's own words: a
+              terminal that belongs to a piece of work says so here, where it
+              shares the annotation column and truncates with the name rather
+              than covering the recency cell beside it. Nothing is drawn for a
+              terminal that is in no work. */}
+          <WorkMark terminal={fleetTerminalRef(encActiveHost(), input.id)} />
+          {renderRowLabel(markdown)}
+        </>
+      ),
       get subline() {
         return facts().subline;
       },

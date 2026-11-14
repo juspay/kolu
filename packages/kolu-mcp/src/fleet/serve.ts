@@ -35,7 +35,7 @@ import { fleetSurface } from "./fleetSurface.ts";
 import type { FleetHosts } from "./hosts.ts";
 import { koluFleetTools } from "./lift.ts";
 import { serveFleetRecordReads } from "./recordRead.ts";
-import type { FleetWatchList } from "./watchList.ts";
+import type { FleetWorks } from "./works.ts";
 
 export interface ServeKoluFleetMcpOptions {
   /** kolu-server's host map, as this face reads it. */
@@ -46,20 +46,21 @@ export interface ServeKoluFleetMcpOptions {
    *  face's is: a baked fallback would let the one server a conductor
    *  depends on report a version that is not the product's. */
   serverInfo: { name: string; version: string };
-  /** The conductor's watch list — what kolu-server wakes it about. REQUIRED,
-   *  and a PORT for the same reason `hosts` is: the list is persisted with the
-   *  conversation and read by the server's watcher, so a copy held here would
-   *  be a second answer to "what is being watched". `lifecycle_create` adds
-   *  what it creates; `watch_terminal` / `unwatch_terminal` are the agent's
-   *  own door to it, and the `watched` resource is how it reads the list back
-   *  without moving it. */
-  watchList: FleetWatchList;
+  /** KOLU'S PIECES OF WORK — what the conductor opens, joins terminals to and
+   *  is woken about. REQUIRED, and a PORT for the same reason `hosts` is: the
+   *  works are stored with the rest of kolu's state and read by the server's
+   *  watcher, so a copy held here would be a second answer to "what is being
+   *  run". `lifecycle_create` puts what it creates into one; `work_open`,
+   *  `work_ask`, `work_adopt`, `work_leave` and `work_note` are the agent's
+   *  own door to them, and the `works` resource is how it reads them back
+   *  without moving anything. */
+  works: FleetWorks;
 }
 
 export async function serveKoluFleetMcp(
   opts: ServeKoluFleetMcpOptions,
 ): Promise<{ server: Server; close: () => Promise<void> }> {
-  const client = fleetClientFace(opts.hosts, opts.watchList);
+  const client = fleetClientFace(opts.hosts, opts.works);
   assertFleetFaceComplete(client);
   const served = await serveSurfaceAsMcp({
     // The degenerate rooted bundle, exactly as the stdio face serves: one core
@@ -67,7 +68,7 @@ export async function serveKoluFleetMcp(
     // plain member name an agent already knows from `kolu mcp`.
     core: { surface: fleetSurface, expose: KOLU_FLEET_EXPOSE },
     client: () => ({ core: client }),
-    tools: koluFleetTools(opts.hosts, opts.watchList),
+    tools: koluFleetTools(opts.hosts, opts.works),
     serverInfo: opts.serverInfo,
     transport: opts.transport,
   });

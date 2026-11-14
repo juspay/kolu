@@ -77,6 +77,7 @@
     "kolu-git": "workspace:*",
     "kolu-github": "workspace:*",
     "kolu-mcp": "workspace:*",
+    "kolu-work": "workspace:*",
     "tailwindcss": "^4.1.0",
     "terminal-themes": "workspace:*",
     "typescript": "^7.0.2",

@@ -83,6 +83,7 @@ import {
   surfaces,
 } from "kolu-common/surface";
 import { koluWireGroup } from "kolu-common/surfacesWithPadi";
+import { EMPTY_WORKS_VIEW } from "kolu-common/works";
 import { serverCommit, serverStartedAt, serverVersion } from "./hostname.ts";
 import { log } from "./log.ts";
 import {
@@ -95,6 +96,7 @@ import { conductorSurfaceMembers } from "kolu-conductor/surface";
 import {
   liveServerConductor,
   setConductorCellWriter,
+  setWorksCellWriter,
 } from "./conductor/live.ts";
 import { store } from "./state.ts";
 
@@ -503,6 +505,13 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       // first reader's edge and publishes it through the writer registered
       // below a moment later, the same way `agentDistroStatus` lands on padi.
       conductor: { store: inMemoryStore(conductorMembers.state()) },
+      // THE WORKS. Seeded EMPTY rather than from the host, and that is the
+      // honest seed: the record is read off disk on the host's first reader
+      // (the watch, started right after this surface is served) and published
+      // through the writer registered below. An empty cell before then says
+      // "kolu has not read its works yet", which is true; seeding it would
+      // mean building the conversation at boot merely to draw a column.
+      works: { store: inMemoryStore(EMPTY_WORKS_VIEW) },
     },
     streams: {
       // THE CONDUCTOR'S TRANSCRIPT — explicit snapshot-then-deltas. The
@@ -619,6 +628,12 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
   // this registration rather than swallowing one.
   setConductorCellWriter((state) => {
     koluSurfaces.ctx.kolu.cells.conductor.set(state);
+  });
+  // ...and the works', registered in the same breath. Two cells because a
+  // keystroke in the chat and a member's agent going quiet are two different
+  // movements, and a reader of one has no business re-rendering for the other.
+  setWorksCellWriter((view) => {
+    koluSurfaces.ctx.kolu.cells.works.set(view);
   });
 
   // Observe the surface runtime's `done` and route it into kolu-server's EXISTING

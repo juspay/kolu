@@ -23,36 +23,47 @@ The `koluSurface` members a browser subscribes to are here too (`./surface`),
 because an implementation of "what `conductor.prompt` does" belongs with the
 thing that does it.
 
-## The watch, the hold and the wake
+## The works, the watch, the hold and the wake
 
-The Conductor never sits in a wait. It says what it is watching and ends its
-turn; kolu-server watches, and starts a turn when something happens.
+A PIECE OF WORK is the thing kolu stores (`kolu-work`: the record, the event
+vocabulary, the pure folds). This host owns the LIVE half — opening one,
+putting its questions to the human, watching its member terminals, and
+appending what it observes.
 
-- **The list** (`watchTerminal` / `unwatchTerminal` / `saidTo` / `watched`) —
-  fleet refs (`host/id`), in the order they were added, saved with the
-  conversation. Per entry the record keeps what a restart cannot re-derive:
-  the name kolu last saw, whether an agent was ever seen in it, the level the
-  conversation has already been TOLD about, HOW it came to be watched
+- **The works** (`works` / `openWork` / `askAboutWork` / `joinWork` /
+  `leaveWork` / `note`) — kept in memory in the order they were opened and
+  saved under `config.json`'s `works` key (`./persisted.ts`'s `StoredWork`).
+  A work OUTLIVES the conversation that opened it: `clearSession` wipes the
+  chat and keeps every work, dropping only the questions that chat was
+  holding. Per MEMBER the record keeps what a restart cannot re-derive
+  (`MemberWatch`): the name kolu last saw, whether an agent was ever seen in
+  it, the level the conversation has already been TOLD about, HOW it joined
   (`created` · `created-run` · `asked`), whether anything has been said to the
-  agent in it, whether a command was ever seen running in it, and the
-  top-level terminal its `child-of` edges end at — its PIECE OF WORK. Spelled
-  `watchTerminal`, not `watch`, because `watch` on this host is the transcript
-  subscription and has been since there was a transcript.
-- **The reading** (`./readings.ts`, pure) — what ONE host's frames mean: padi's
-  urgency fold, that host's roster and the records read on it become one
-  observation per watched terminal (its level, its name, the agent in it,
-  padi's foreground answer, and the top-level terminal its `child-of` edges end
-  at). kolu-server owns the subscriptions; this owns what they SAY.
-- **The decision** (`./watching.ts`, pure) — one reading of one terminal
-  becomes a wake level or nothing:
+  agent in it, whether a command was ever seen running in it, and the worktree
+  kolu last read for it — where its files are listed and kept from.
+- **The setup is DECISIONS.** `work_open` carries the questions; they go to
+  the human as ONE ask row linked to the work (`@kolu/acp-harness`'s
+  `askPerson`, the same machinery an agent's elicitation rides), every answer
+  is recorded as a decision, and the host, the mode, the harness and model per
+  role and what to do on green are READINGS of them (`kolu-work`'s `setupOf`).
+  A setup that does not ask what its mode needs — or offers words
+  `modeOf`/`onGreenOf` cannot read — is refused with `WorkRefusal` before the
+  work exists.
+- **The reading** (`./readings.ts`, pure) — what ONE host's frames mean:
+  padi's urgency fold, that host's roster and the records read on it become
+  one observation per member terminal (its level, its name, the agent in it,
+  padi's foreground answer, the git fact and the PR the record carries).
+  kolu-server owns the subscriptions; this owns what they SAY.
+- **The decision** (`./members.ts`, pure) — one reading of one member becomes
+  a wake level or nothing:
   - `working` forgets what we were told, so the next stop is news again;
-  - `ready` — an agent that has COME UP in a watched terminal and has not been
-    spoken to rings this instead of `stopped` the first time it is idle: a
-    fresh agent at its prompt has not ended a turn, it is waiting for one;
+  - `ready` — an agent that has COME UP and has not been spoken to rings this
+    instead of `stopped` the first time it is idle: a fresh agent at its
+    prompt has not ended a turn, it is waiting for one;
   - `stopped` · `asking` — the ordinary two, once each until the terminal
     moves;
   - `asleep` — a terminal an agent was seen in was put to sleep; rings once
-    and STAYS listed, because waking it brings it back;
+    and the member STAYS, because waking it brings it back;
   - `ended` — a terminal kolu opened WITH a command whose command ran (a
     non-shell foreground was seen) and gave the prompt back with no agent ever
     detected: the brief never started. padi exposes the foreground process and
@@ -60,12 +71,26 @@ turn; kolu-server watches, and starts a turn when something happens.
     non-shell foreground is sampled (`omp: command not found`, answered by the
     shell itself) is not detectable and does not ring;
   - a shell never rings otherwise, a terminal that goes away rings only if an
-    agent was ever seen in it (and drops either way), and a level equal to
-    `told` does not ring twice. That last rule is what makes a restart quiet.
+    agent was ever seen in it (and LEAVES the work either way), and a level
+    equal to `told` does not ring twice. That last rule is what makes a
+    restart quiet.
+- **The timeline** — everything observed is appended through `kolu-work`'s
+  transitions: a level change that rings is the same word on the card
+  (`ready` · `stopped` · `asking` · `exited` · `asleep`); every path in a
+  member's `.waterfall/` that `filesSeen` does not already hold becomes a
+  `file` event, listed off a level change rather than a timer; and the PR is
+  compared with `prOf(work)` — the TIMELINE, never the last reading — so two
+  members looking at one PR record it once and a restart records nothing
+  twice. A merge or a close ends the work; so does the last member leaving
+  (`abandoned`).
+- **The end** — on the way out the work's files are listed and copied into
+  kolu (`WorkFiles`, implemented by kolu-server), so the plan outlives the
+  worktree, and the history is capped at the twenty most recently finished;
+  what falls off has its kept files deleted.
 - **The baselines** — a state the Conductor itself caused is never news.
   `saidTo(ref)`, which the fleet face calls when `agent_say` lands its keys,
   withdraws that terminal's held slot and re-baselines `told` at the level it
-  stands at; a terminal that JOINS by being `asked` for baselines on its first
+  stands at; a member that joined by being `asked` for baselines on its first
   reading, and the tool's own answer tells the Conductor what it was found in.
   Without the two, `agent_say` — which returns on the keystrokes, before the
   agent flips to working — would wake the Conductor about the agent it has
@@ -78,32 +103,20 @@ turn; kolu-server watches, and starts a turn when something happens.
   is memory only: a restart re-reads the world instead of replaying a queue
   about one that has moved on.
 - **The account** (`./wakeText.ts`, pure) — what the agent is actually handed:
-  who speaks, each terminal as `host/id` with its name, host, agent and how it
+  who speaks, each terminal as `host/id` with the work it belongs to and the
+  part it plays ("the planner of «…»"), its name, host, agent and how it
   stands, and what to do about it — read the screen, answer with `agent_say`,
   then end the turn.
 - **A wake that could not go** — one `notice` row naming the terminals still
   waiting and why, the news put back, and an event-driven retry with no timer:
   the next time the conversation goes idle, the next time the agent comes up,
   or the next reading from the watcher. One notice per failure episode.
-- **The pieces of work** (`workOf`, pure) — the list grouped by the top-level
-  terminal each entry's parent edges end at, published on the cell as `work`
-  (`root` · `name` · the watched `refs` in it, in watch order). A planner and
-  the implementor it split off are ONE: the canvas already says so, and a
-  count derived from the edges cannot drift from what is really running the
-  way a declared one would. The edge is read on the host by kolu-server — a
-  browser can walk the parents only of the host it has open — and REMEMBERED
-  on the entry, so a host that stops answering keeps the group it was last
-  seen in. A terminal nothing has read yet is its own group.
 
-A wake MAY start the agent (that is the feature); reading the list may not
-(`watched()` is bookkeeping). The readings are made HERE, by `./readings.ts`
-(pure): padi's own `urgency` fold, a host's roster and the records that were
-read go in, one observation per watched terminal comes out — its level, its
-name, the agent in it, whether padi's foreground is the terminal's own shell,
-and the top-level terminal its `child-of` edges end at. kolu-server holds the
-subscriptions that produce those frames (`conductor/watcher.ts`, wiring), and
-only for refs on CONNECTED hosts — a host that is not answering says nothing
-about its terminals, and `gone` for one of them would be a lie.
+A wake MAY start the agent (that is the feature); reading the works may not
+(`works()` is bookkeeping). kolu-server holds the subscriptions that produce
+those frames (`conductor/watcher.ts`, scoped to `memberRefs()`), and only for
+refs on CONNECTED hosts — a host that is not answering says nothing about its
+terminals, and `gone` for one of them would be a lie.
 
 ## Why a package
 

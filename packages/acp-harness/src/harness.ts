@@ -323,6 +323,26 @@ export interface Harness {
     askId: string,
     answers: ReadonlyArray<AskAnswer> | null,
   ): Promise<boolean>;
+  /**
+   * KOLU'S OWN QUESTION, about a piece of work.
+   *
+   * The same row, the same promise and the same `answer()` an agent's
+   * elicitation rides — the only differences are that kolu asked it and that
+   * the row NAMES the work, which is what lets the work's card draw the
+   * question and answer it. `known` is called with the ask id before anything
+   * can settle it, so the caller can write its decisions down against the id
+   * the row was drawn under.
+   *
+   * `content` is keyed by FIELD KEY, so a caller that keys its fields by
+   * decision id reads the answers back by decision id.
+   */
+  askPerson(
+    form: Form,
+    about: { readonly work: string; readonly known?: (id: string) => void },
+  ): Promise<{
+    readonly outcome: { how: "answered" | "declined" | "withdrawn" };
+    readonly content: Record<string, string | number | boolean | Array<string>>;
+  }>;
   signIn(method: string): Promise<SignedIn>;
   signInInput(text: string): Promise<void>;
   signInCancel(): Promise<boolean>;
@@ -820,11 +840,18 @@ export const startHarness = async (
    *  it was asked from and the call is what has been heard about, so there is
    *  nothing left for a caller to supply. A form drawn in nobody's name is
    *  drawn as the main agent's, which is the one thing a subagent's question
-   *  must not say. */
+   *  must not say.
+   *
+   *  `work` is the ONE thing a caller does supply, and only kolu's own asks
+   *  ({@link Harness.askPerson}) ever do: which piece of work this question is
+   *  ABOUT. Stated when the question is asked rather than inferred from timing
+   *  later, so the work's card and the chat draw the same row and answering
+   *  either face answers the one question. */
   const put = (
     form: Form,
     signal: AbortSignal,
     known?: (id: string) => void,
+    work: string | null = null,
   ): Promise<{
     readonly outcome: { how: "answered" | "declined" | "withdrawn" };
     readonly content: Record<string, string | number | boolean | Array<string>>;
@@ -839,10 +866,32 @@ export const startHarness = async (
           form.fields,
           form.link,
           parent === undefined ? null : parent,
+          work,
         ),
       );
       publish();
     });
+
+  /** KOLU'S OWN QUESTION, about a piece of work — `work_open`'s setup and
+   *  `work_ask`'s questions.
+   *
+   *  The SAME machinery an elicitation rides: one row, one promise, one
+   *  settlement, answered through `answer()` by id like any other. What
+   *  differs is who asked (kolu, not the agent) and that the row NAMES the
+   *  work, which is what lets the work's card draw and answer it.
+   *
+   *  No abort signal of its own: an elicitation is withdrawn when the TURN
+   *  that asked it is cancelled, and this question belongs to no turn. It ends
+   *  when somebody answers it or when the conversation it was asked in goes
+   *  away (`withdrawAll`), which is exactly the lifetime the work's own
+   *  `dropAsk` is written against. */
+  const askPerson = (
+    form: Form,
+    about: { readonly work: string; readonly known?: (id: string) => void },
+  ): Promise<{
+    readonly outcome: { how: "answered" | "declined" | "withdrawn" };
+    readonly content: Record<string, string | number | boolean | Array<string>>;
+  }> => put(form, new AbortController().signal, about.known, about.work);
 
   /** A question we cannot draw. Declined on the wire and SAID out loud: an
    *  agent that got an empty answer and a person who never saw the question is
@@ -2708,6 +2757,7 @@ export const startHarness = async (
     wake,
     cancel,
     answer,
+    askPerson,
     signIn: doSignIn,
     signInInput,
     signInCancel,

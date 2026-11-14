@@ -135,10 +135,10 @@ const CASES: ReadonlyArray<Case> = [
     },
   },
   {
-    why: "a watch says that terminal is on the list now",
-    tool: "watch_terminal",
-    input: { id: `local/${T}` },
-    answer: { watching: [`local/${T}`] },
+    why: "an adopt says that terminal is in the work now",
+    tool: "work_adopt",
+    input: { id: `local/${T}`, work: "work:1", role: "other" },
+    answer: { joined: `local/${T}` },
     reads: {
       kind: "watch",
       terminalId: T,
@@ -148,10 +148,10 @@ const CASES: ReadonlyArray<Case> = [
     },
   },
   {
-    why: "an unwatch says it is off it, host and all",
-    tool: "unwatch_terminal",
+    why: "a leave says it is out of it, host and all",
+    tool: "work_leave",
     input: { id: `remote:naiveintent/${WATCHED}` },
-    answer: { watching: [], removed: true },
+    answer: { removed: true },
     reads: {
       kind: "watch",
       terminalId: WATCHED,
@@ -177,8 +177,8 @@ const TOOLS = [
   "screen_text",
   "wait_outputSettled",
   "agent_say",
-  "watch_terminal",
-  "unwatch_terminal",
+  "work_adopt",
+  "work_leave",
 ] as const;
 
 /** What an agent (or a half-written frame) might put in any slot. The valid

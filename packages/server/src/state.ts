@@ -23,6 +23,7 @@
  * a PRESENT-but-corrupt one crashes the boot.
  */
 
+import { randomUUID } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
@@ -38,9 +39,11 @@ import { openStateBackupRing } from "kolu-shared/state-backup";
 import Conf from "conf";
 import { Result, Schema } from "effect";
 import { PersistedHostsSchema } from "kolu-common/hostKey";
+import type { ConductorRow } from "kolu-common/conductor";
 import {
   EMPTY_PERSISTED_CONDUCTOR,
   PersistedConductorSchema,
+  PersistedWorksSchema,
   repointConductorAttachments,
 } from "kolu-conductor";
 import {
@@ -49,6 +52,10 @@ import {
   PreferencesSchema,
   ViewerModeSchema,
 } from "kolu-common/surface";
+import {
+  transcriptFilePath,
+  writeTranscriptFile,
+} from "./conductor/transcriptFile.ts";
 import { log } from "./log.ts";
 
 /** Convert a pre-1.30 `preferences` record — where the on/off `shuffleTheme`
@@ -312,16 +319,20 @@ export function migratePreferences_1_34_0(
  *  face (MCP, CLI) creating a terminal on a server no browser has dialled yet still
  *  resolves an "auto" shuffle against a real answer. `conductor` is the ONE
  *  conversation's resumable half — the session id, the directory it was opened
- *  in, the model a person chose, the transcript's tail and the fleet it
- *  touched. It is never a served cell (the `conductor` cell is assembled
- *  from the LIVE agent); this is only what a restart has to start from, and it
- *  lives here because kolu-server HOSTS the conversation. Adding a new domain
- *  key requires a migration entry below. */
+ *  in, the model a person chose and the fleet it touched (its transcript rows
+ *  live in their own file since 1.50.0 — see that rung). `works` is the pieces
+ *  of work kolu has stored: what the Conductor stated, what the human decided
+ *  and what kolu observed, each with its members' per-terminal wake
+ *  bookkeeping. Neither is a served cell (`conductor` and `works` are both
+ *  assembled from the LIVE record); this is only what a restart has to start
+ *  from, and it lives here because kolu-server HOSTS the conversation. Adding
+ *  a new domain key requires a migration entry below. */
 const PersistedStateSchema = Schema.Struct({
   preferences: PreferencesSchema,
   hosts: PersistedHostsSchema,
   viewerMode: ViewerModeSchema,
   conductor: PersistedConductorSchema,
+  works: PersistedWorksSchema,
 });
 
 /** The DECODED disk shape. Effect's `Struct.Type` is deep-`readonly`; `Conf` is
@@ -372,7 +383,25 @@ function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.49.0";
+const SCHEMA_VERSION = "1.50.0";
+
+/** THE VERSION STAMPED INTO THE TRANSCRIPT FILE
+ *  (`<stateDir>/conductor/transcript.json`), and the one a reader accepts.
+ *
+ *  The transcript file is part of THIS ladder — it does not get one of its
+ *  own. The rows moved out of `config.json` at 1.50.0 because they are 90% of
+ *  a file rewritten on every keystroke, not because they became a separate
+ *  piece of state: they are still the one conversation's, still written by
+ *  this process, still bounded by `ROW_CAP`. So the rule is one sentence: a
+ *  future change to the row shape is a RUNG HERE that rewrites the file, and
+ *  this constant moves to that rung's number. A file stamped with anything
+ *  else is refused by name ({@link transcriptFileStore}) — never read as a
+ *  guess, never silently re-shaped.
+ *
+ *  Lives in `state.ts` rather than beside the store that reads it for the
+ *  same reason `SCHEMA_VERSION` does: the ladder is the one place that says
+ *  what version the state root is at. */
+export const TRANSCRIPT_FILE_VERSION = "1.50.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -506,6 +535,208 @@ export function stripLegacyStateKeys_1_31_0(store: Conf<PersistedState>): void {
   for (const key of LEGACY_KEYS_STRIPPED_1_31_0) deleteLegacyKey(store, key);
 }
 
+/** ONE WATCH-LIST ENTRY as the 1.49.0 shape left it — the input the 1.50.0
+ *  rung reads. Spelled HERE, as frozen history, rather than imported from
+ *  `kolu-conductor`: that package no longer has a watch list, and a rung must
+ *  keep reading the file the build before it wrote long after the live code
+ *  has moved on. */
+interface WatchedEntry_1_49_0 {
+  readonly ref: string;
+  readonly name: string;
+  readonly agent: string | null;
+  readonly told: string | null;
+  readonly joined: string;
+  readonly spoken: boolean;
+  readonly ran: boolean;
+  readonly since: string;
+  readonly root: { readonly ref: string; readonly name: string } | null;
+}
+
+/** THE GROUPING THE 1.50.0 RUNG CHOOSES, and why it is the only honest one.
+ *
+ *  Before this rung a piece of work was GUESSED from the watch list: entries
+ *  whose terminals shared a top-level ancestor were drawn as one card. That
+ *  guess is on disk as `entry.root` — so the key is `entry.root?.ref ??
+ *  entry.ref`, which is EXACTLY what the panel showed as one piece of work on
+ *  the build that wrote the file. A person's four carried-over terminals come
+ *  back arranged the way they left them; an entry no host had answered about
+ *  (`root: null`) becomes its own work, which is also what it was drawn as.
+ *
+ *  Everything the record now wants and that file never had is written as the
+ *  least it can claim:
+ *  - `repo`/`branch` are "" — nothing wrote them down, and inventing a path
+ *    would put a wrong address on the card;
+ *  - every member's role is `other` — the roles arrived with this PR, and
+ *    `other` is precisely "a terminal the human asked kolu to keep an eye on";
+ *  - `mode` and `host` are DECISIONS, because `modeOf`/`hostOf` read decisions
+ *    and a second copy of a setup is the thing the model refuses to have. They
+ *    are answered `from: null`: nobody was asked, in the card or the chat or
+ *    the request — the file is where they come from;
+ *  - the timeline opens with `carried-over` (by kolu), then one `joined` per
+ *    member, so a card that shows an empty history is impossible;
+ *  - `startedAt` is the EARLIEST `since` in the group: the age a person was
+ *    already being shown, kept rather than restarted at this boot.
+ *
+ *  FROZEN HISTORY, not a call into `kolu-work`'s transitions: these values are
+ *  what completes the files this shape was written by, and they stay as they
+ *  are when the live code's own empty values move.
+ *
+ *  Exported for `stateMigration.test.ts`, which drives it directly rather than
+ *  through a whole ladder walk. */
+export function worksFromWatched_1_50_0(
+  watched: ReadonlyArray<WatchedEntry_1_49_0>,
+  /** The work ids to mint, one per group, in group order — injected so a test
+   *  can read the result without matching UUIDs. */
+  mintId: () => string,
+): ReadonlyArray<Record<string, unknown>> {
+  const groups = new Map<string, WatchedEntry_1_49_0[]>();
+  for (const entry of watched) {
+    const key = entry.root?.ref ?? entry.ref;
+    const group = groups.get(key);
+    if (group === undefined) groups.set(key, [entry]);
+    else group.push(entry);
+  }
+  const works: Record<string, unknown>[] = [];
+  for (const [key, group] of groups) {
+    const id = mintId();
+    const first = group[0];
+    if (first === undefined) continue;
+    // ISO-8601 UTC strings sort lexically, which is why the record spells
+    // times that way: the earliest `since` is a string comparison.
+    const startedAt = group.reduce(
+      (earliest, one) => (one.since < earliest ? one.since : earliest),
+      first.since,
+    );
+    const rootName = group.find((one) => one.root !== null)?.root?.name ?? "";
+    const title =
+      rootName !== ""
+        ? rootName
+        : first.name !== ""
+          ? first.name
+          : "Carried over";
+    // The host half of the group's ref (`<encodedHostKey>/<terminalId>`) — the
+    // machine the work is on, which is the one setup answer the file does know.
+    // Split at the LAST slash: a terminal id never holds one, and a host key
+    // may (`remote:ssh://box`).
+    const host = key.slice(0, key.lastIndexOf("/"));
+    const carried = (key: string, value: string) => ({
+      id: `${id}:${key}`,
+      ask: `${id}:carried-over`,
+      at: startedAt,
+      key,
+      question: "Carried over from before kolu stored work",
+      options: [value],
+      multiple: false,
+      answer: {
+        at: startedAt,
+        how: "answered",
+        picked: [value],
+        text: null,
+        // Nowhere: no card, no chat, no request. The file said it.
+        from: null,
+      },
+    });
+    works.push({
+      id,
+      title,
+      repo: "",
+      branch: "",
+      members: group.map((one) => ({
+        terminal: one.ref,
+        role: "other",
+        joinedAt: one.since,
+        leftAt: null,
+        watch: {
+          name: one.name,
+          agent: one.agent,
+          told: one.told,
+          joined: one.joined,
+          spoken: one.spoken,
+          ran: one.ran,
+          // No worktree has been read for it yet; the first reading after the
+          // boot says, and until then no files are listed or kept.
+          worktree: null,
+        },
+      })),
+      events: [
+        {
+          at: startedAt,
+          by: "kolu",
+          kind: "carried-over",
+          terminal: null,
+          detail: "watched before kolu stored work",
+        },
+        ...group.map((one) => ({
+          at: one.since,
+          by: "kolu",
+          kind: "joined",
+          terminal: one.ref,
+          detail: "other",
+        })),
+      ],
+      decisions: [carried("mode", "watch"), carried("host", host)],
+      startedAt,
+      endedAt: null,
+      outcome: null,
+      keptFiles: [],
+    });
+  }
+  return works;
+}
+
+/** The 1.50.0 rung's body — A PIECE OF WORK IS A STORED THING, and the
+ *  transcript is a file.
+ *
+ *  Two moves, in this order:
+ *
+ *  1. THE ROWS LEAVE `config.json`. `conf` rewrites the whole file on every
+ *     `set`, and on a real machine the transcript was 90% of its bytes — so a
+ *     keystroke re-serialized the fleet and the host map with it. They move to
+ *     `<stateDir>/conductor/transcript.json`, stamped with
+ *     {@link TRANSCRIPT_FILE_VERSION} and written through the same one writer
+ *     the conversation uses (`conductor/transcriptFile.ts`, which states how
+ *     that file is versioned: by THIS ladder, in a rung like this one). The
+ *     key is then deleted — a stale copy left behind is a transcript a later
+ *     reader could find and believe.
+ *  2. THE WATCH LIST BECOMES WORKS ({@link worksFromWatched_1_50_0}), and the
+ *     key is deleted. No watched terminal is lost: every entry comes back as a
+ *     member of a work in progress, grouped as the panel that wrote the file
+ *     drew it.
+ *
+ *  Exported so a test can drive it against a real `Conf` under a temp dir
+ *  without walking the whole ladder — the shape `stripLegacyStateKeys_1_31_0`
+ *  already uses. */
+export function migrateConductorToWorks_1_50_0(
+  store: Conf<PersistedState>,
+): void {
+  // Read as an OBJECT: this rung runs against a file written by an older
+  // build, whose `conductor` key is exactly the shape the current schema no
+  // longer accepts.
+  const record = store.get("conductor") as Record<string, unknown> | undefined;
+  if (record === undefined) return;
+  const { rows, watched, ...rest } = record;
+  // A `rows`/`watched` that is there and is not a list is not an older shape —
+  // it is a broken file, left exactly as it is so the read refuses it by name
+  // rather than this rung quietly dropping a conversation.
+  if (rows !== undefined && !Array.isArray(rows)) return;
+  if (watched !== undefined && !Array.isArray(watched)) return;
+  if (rows !== undefined) {
+    writeTranscriptFile(
+      transcriptFilePath(dirname(store.path)),
+      TRANSCRIPT_FILE_VERSION,
+      rows,
+    );
+  }
+  store.set("conductor", rest as unknown as PersistedState["conductor"]);
+  store.set(
+    "works",
+    worksFromWatched_1_50_0(
+      (watched ?? []) as ReadonlyArray<WatchedEntry_1_49_0>,
+      randomUUID,
+    ) as unknown as PersistedState["works"],
+  );
+}
+
 /** The store's `defaults` — hoisted so {@link decodeStateBackup}'s scratch
  *  store merges the same seed the live store does. */
 const CONF_DEFAULTS: PersistedState = {
@@ -525,6 +756,10 @@ const CONF_DEFAULTS: PersistedState = {
   // on-disk-shape reason the two keys above give, and 1.45.0 carries a record
   // already written under the conversation's old name across to this key.
   conductor: EMPTY_PERSISTED_CONDUCTOR,
+  // NO PIECES OF WORK YET. A fresh install has stored none; the 1.50.0
+  // migration seeds this onto an existing file (from the watch list that
+  // preceded it) for the same on-disk-shape reason the keys above give.
+  works: [],
 };
 
 /** The migration ladder — hoisted so {@link decodeStateBackup}'s scratch
@@ -1072,10 +1307,18 @@ const CONF_MIGRATIONS = {
       );
       return;
     }
-    store.set(
-      "conductor",
-      repointConductorAttachments(store.get("conductor"), from, to),
-    );
+    // Frozen history: at this rung the rows still live in config.json's
+    // `conductor` key (1.50.0 is what moves them to the transcript file), so
+    // the key is read as the shape it had THEN.
+    const record = store.get("conductor") as unknown as Record<
+      string,
+      unknown
+    > & { rows?: ReadonlyArray<ConductorRow> };
+    if (record.rows === undefined) return;
+    store.set("conductor", {
+      ...record,
+      ...repointConductorAttachments({ rows: record.rows }, from, to),
+    } as unknown as PersistedState["conductor"]);
   },
   // THE CONDUCTOR'S WATCH LIST — the terminals kolu wakes it about — is saved
   // with the conversation now, so the record grows a `watched` key. A file
@@ -1147,6 +1390,20 @@ const CONF_MIGRATIONS = {
       })),
     } as unknown as PersistedState["conductor"]);
   },
+  // A PIECE OF WORK IS A STORED THING — and the transcript is a file of its
+  // own. The `conductor` key loses `rows` (to
+  // `<stateDir>/conductor/transcript.json`) and `watched` (to the new `works`
+  // key, one work per group the watching panel drew). Both moves and the
+  // grouping decision are argued at
+  // {@link migrateConductorToWorks_1_50_0} / {@link worksFromWatched_1_50_0}.
+  //
+  // This rung also RETIRES the licence 1.49.0 took to renumber itself past
+  // this branch's pre-release stamps: 1.49.0 has shipped, so the next shape
+  // change is a rung beside it rather than a bigger number on it. A file
+  // sitting at any number below 1.50.0 reaches here with a `conductor` key in
+  // the shape 1.49.0 guarantees — rows, watched entries complete — which is
+  // exactly what this one reads.
+  "1.50.0": migrateConductorToWorks_1_50_0,
 };
 
 export const store = new Conf<PersistedState>({

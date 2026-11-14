@@ -818,7 +818,8 @@
         "anyagent",
         "anyforge",
         "kolu-git",
-        "kolu-github"
+        "kolu-github",
+        "kolu-work"
       ],
       "external": {
         "effect": "catalog:",
@@ -835,7 +836,8 @@
         "@kolu/terminal-vocab",
         "kolu-agents",
         "kolu-common",
-        "kolu-mcp"
+        "kolu-mcp",
+        "kolu-work"
       ],
       "external": {
         "effect": "catalog:",
@@ -902,7 +904,8 @@
         "@kolu/terminal-protocol",
         "@kolu/terminal-vocab",
         "kolu-agents",
-        "kolu-git"
+        "kolu-git",
+        "kolu-work"
       ],
       "external": {
         "@effect/platform-node": "catalog:",
@@ -994,6 +997,7 @@
         "kolu-pty",
         "kolu-shared",
         "kolu-transcript-html",
+        "kolu-work",
         "osfacts-client"
       ],
       "external": {
@@ -1035,6 +1039,13 @@
       ],
       "external": {
         "marked": "^18.0.2"
+      }
+    },
+    "kolu-work": {
+      "dir": "packages/work",
+      "workspace": [],
+      "external": {
+        "effect": "catalog:"
       }
     },
     "kolu-xyne": {
