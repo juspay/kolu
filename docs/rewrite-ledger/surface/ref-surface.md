@@ -108,3 +108,45 @@ short reason and carries the `SIGTERM` span.
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs --old-lines 569-648`: 0 missing).
+
+## Consuming in SolidJS
+
+- Words: 2,975 → 3,118 (`wc -w` over the old lines 649–897 at `f50641c6a` and over the draft). The growth is the index table, the entry headings and the aside turned into a section.
+- Structure before: prose for `surfaceClient`, one hook table with 120-word cells, seven essay paragraphs (procedures, `.rpc`, push reconciliation, the bundle, `reroster`, `Subscription`, `.updated`/`.changed`), one `<Aside>` and the frame-socket subsection. After: an index table (`Export | Subpath | What it is`), one `###` per export, and `####` sections where an entry exceeded the limits.
+- The `<Aside type="caution" title="Wire links must carry a watchdog">` became the entry section `#### Wire links must carry a watchdog` under `surfaceClient`, keeping every fact (the brand, `directDispatch`, the three wire link factories).
+- Long table cells became short cells plus a list of facts, as the model does: the hook table, the `surfaceClients` bundle table, the `Subscription` placement table and the `fold` behaviour table all keep their first-column entries and all their code spans.
+- New entries for exports the old page only named in prose: `Subscription<T>`, `surfaceClientsHealth(clients)`, `.streams.X.useCollection(input, descriptor)`, `useCollectionDeltas`.
+- Code and the old page did not disagree anywhere in this range.
+
+### Headings renamed
+
+| Old | New | Inbound links |
+| --- | --- | --- |
+| `### The frame socket — \`fold\` on a \`deltas\` collection` (`#the-frame-socket--fold-on-a-deltas-collection`) | `### \`fold\` on a \`deltas\` collection` (`#fold-on-a-deltas-collection`) | One, same-page (old line 669, the collection hook row). Updated in this draft; the index row and the `Subscription` collection row link to the new anchor. No cross-page link exists. |
+
+The `##` heading text is unchanged, so `#consuming-in-solidjs` (linked from
+`ref-surface-app.mdx:664` and from the page's own line 57) still resolves.
+
+### Links left for the integrator
+
+- `[`arrayKey`](#declaring-array-identity--arraykey)` keeps the old anchor. The heading lives in the "Defining a surface" section (`01-defining.mdx`), whose rewriter may rename it.
+- `[the wire's frame cap](#the-wires-frame-cap-kolusurfaceframe-limit)` replaces the old page's bare "under the wire's frame budget above". The heading is `### The wire's frame cap (\`@kolu/surface/frame-limit\`)` in `10-transport-loss.mdx`, which keeps that anchor.
+
+### Moved
+
+None. The one long argument (the `.rpc` union-budget split) stays as a one-clause
+reason inside the `.rpc` entry, since it explains the constraint the reader meets
+(`unknown` per leaf).
+
+### Cut
+
+| Fact | Tag |
+| --- | --- |
+| "exactly where zod's `.parse` used to run" → "where zod's `.parse` runs" | history |
+| "That is what lets the call be part of a program rather than the whole of one" (the "not X but Y" set piece; the combinator facts stay) | rationale |
+| "a signal a *reader* owns is a rule kept by convention, and the second reader is silently blind rather than broken" (bundle notification) | rationale |
+| Capitals for emphasis: `DECLARED`, `IDENTITY`, `RECYCLES`, `REPEATS`, `MOVES`, `NAMES`, `PER-KEY`, `WHOLE`, `ONLY`, `NO`, `DIRECTLY`, `BOUNDED`, `RE-INITIALIZES`, `SYNCHRONOUSLY`, `VERBATIM`, `MUST`, `CLIENT STORE's`, `VALUE-diffed`, `REPLACEMENT`, `INVALIDATES`, `THROWS`, `NARROWED`, `reserved` | — (style, no fact) |
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs --old-lines 649-897`: 0 missing).

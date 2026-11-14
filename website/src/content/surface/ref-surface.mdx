@@ -1005,204 +1005,193 @@ The pull-face `MapRegistry` exit over a `reactiveFamily`:
 
 ## Consuming in SolidJS
 
-`surfaceClient(surface, transport, onClientError?)` returns a client with a bound
-accessor per member. It replaces the `source` / `mutate` / `keyToInput` refs you
-would otherwise thread at every hook. `transport` is either a watchdog-backed
-`LiveSignalHandle` or a bare in-process `SurfaceDispatch` (see the caution
-below). `onClientError` is the app's one interpreter, the same slot
-`surfaceClients` takes in the same position: a surface whose spec **declares** a
-`client.onError` policy and whose client was built without one throws at
-construction, because a declared policy may never route nowhere.
+`@kolu/surface/solid` binds a surface to SolidJS hooks: one accessor per member,
+one client per surface, and one fold face for a delta stream.
+
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`surfaceClient(surface, transport, onClientError?)`](#surfaceclientsurface-transport-onclienterror) | `/solid` | A client with a bound accessor per member. |
+| [`surfaceClients(transport, map)`](#surfaceclientstransport-map) | `/solid` | Splits one combined transport into a sibling client per surface. |
+| [`surfaceClientsHealth(clients)`](#surfaceclientshealthclients) | `/solid` | And-reduces a record of clients into one health fact. |
+| [`Subscription<T>`](#subscriptiont) | `/solid` | The accessor plus `pending` / `error` / `complete` and the change channel. |
+| [`.streams.X.useCollection(input, descriptor)`](#streamsxusecollectioninput-descriptor) | `/solid` | A keyed, read-only collection view over a stream of snapshots and deltas. |
+| [`fold`](#fold-on-a-deltas-collection) | `/solid` | Folds a `deltas` collection's whole frames into your own accumulator. |
+| [`useCollectionDeltas`](#usecollectiondeltas) | `/solid` | The delta hook `.use()` drives, for an un-enrolled stream. |
+
+### `surfaceClient(surface, transport, onClientError?)`
+
+Returns a client with a bound accessor per member. It replaces the `source` /
+`mutate` / `keyToInput` refs you would otherwise thread at every hook.
 
 <Snippet
   src="packages/surface/example/snippets/consume-solid.ts"
   region="solid"
 />
 
+- `transport` is either a watchdog-backed `LiveSignalHandle` or a bare in-process `SurfaceDispatch`. See [Wire links must carry a watchdog](#wire-links-must-carry-a-watchdog).
+- `onClientError` is the app's one interpreter, the same slot `surfaceClients` takes in the same position.
+- A surface whose spec declares a `client.onError` policy, built into a client without one, throws at construction: a declared policy may never route nowhere.
+
 | Member | Hook | Returns |
 | --- | --- | --- |
-| cell (mutable) | `.cells.X.use({ authority, initial, applyPatch, onError, coalesceMs })` | a `UseCellResult` `{ value, pending, error, set, patch, sub }` — `value` is the accessor, `sub` is the `Subscription` (its `.updated(...)` / `.changed(...)` is the change channel); mutate with `.set(v)` / `.patch(p)` |
-| cell (read-only, `verbs: ["get"]`) | `.cells.X.use({ onError? })` | a `ReadOnlyUseCellResult` `{ value, pending, error, sub }` — NO `set` / `patch`, and the options accept ONLY `onError` (no `authority: "local"` branch — a get-only cell carries no wire mutation verb) |
-| collection | `.collections.X.use({ keys?, onError? })` | `.byKey(id)?.()`, `.keys()`; mutate with `.upsert(k,v)` / `.delete(k)`. A `deltas`-declaring collection's WHOLE-collection `.use()` also carries `.fold({ init, step })` — see [the frame socket](#the-frame-socket--fold-on-a-deltas-collection) |
-| stream | `.streams.X.use(inputFn, { onError? })` | a `Subscription` DIRECTLY — an accessor plus `.pending()`, `.error()`, `.complete()`, `.updated(...)` and `.changed(...)` |
+| cell (mutable) | `.cells.X.use({ authority, initial, applyPatch, onError, coalesceMs })` | a `UseCellResult` `{ value, pending, error, set, patch, sub }`; mutate with `.set(v)` / `.patch(p)` |
+| cell (read-only, `verbs: ["get"]`) | `.cells.X.use({ onError? })` | a `ReadOnlyUseCellResult` `{ value, pending, error, sub }`, with no `set` / `patch` |
+| collection | `.collections.X.use({ keys?, onError? })` | `.byKey(id)?.()`, `.keys()`; mutate with `.upsert(k,v)` / `.delete(k)` |
+| stream | `.streams.X.use(inputFn, { onError? })` | a `Subscription` directly: an accessor plus `.pending()`, `.error()`, `.complete()`, `.updated(...)` and `.changed(...)` |
 | collection-shaped stream | `.streams.X.useCollection(input, descriptor)` | a keyed, read-only collection view with `byKey` and `fold`; equal static inputs share one subscription |
 | event | `.events.X.use(inputFn, handler, { onError?, signal? })` | nothing (no current value) |
-| procedure | `.procedures.<ns>.<verb>(input)` | a `ProcedureEffect<O, E>` — `Effect<O, E \| SurfaceCallFailure>`, the declared union in a channel the compiler tracks |
+| procedure | `.procedures.<ns>.<verb>(input)` | a `ProcedureEffect<O, E>`, that is `Effect<O, E \| SurfaceCallFailure>`: the declared union in a channel the compiler tracks |
+
+- A read-only cell's options accept only `onError`. There is no `authority: "local"` branch, because a get-only cell carries no wire mutation verb.
+- A `deltas`-declaring collection's whole-collection `.use()` also carries [`.fold({ init, step })`](#fold-on-a-deltas-collection).
+- A cell's `authority` is `"server"` (the default: every push reconciles) or `"local"` (the local store wins after the first server yield).
+- An `inputFn` that returns `null` pauses a stream or an event.
+
+#### Calling a procedure
 
 Every declared procedure is bound at `.procedures.<ns>.<verb>` and typed from its
-declaration — the typed dual of the reactive `.use()` primitives. The **input is
-the Encoded side** of the member's schema (the face decodes at the edge, exactly
-where zod's `.parse` used to run), while the result is the decoded side; a
-decoding default therefore stays omittable at the call site. Positions the client
-also *holds* — a cell's `set`/`patch` payload, a collection key — stay decoded,
-because the client feeds them to the spec's own `patch` and keys its own maps
-with them.
+declaration: the typed dual of the reactive `.use()` primitives.
 
-A call is a **description**, not a request already in flight: nothing is
-dispatched until the effect runs. That is what lets the call be part of a
-program rather than the whole of one — a command folding several members
-concurrently, a read that needs a deadline, a request superseded by the next
-one, anything that must die on Ctrl-C. Each of those is a combinator here.
-There is no `AbortSignal` to thread: cancellation is fiber interruption, and
-interrupting the caller tears the call's own work down with it.
+- The input is the encoded side of the member's schema (the face decodes at the edge, where zod's `.parse` runs), while the result is the decoded side. A decoding default therefore stays omittable at the call site.
+- Positions the client also holds stay decoded: a cell's `set` / `patch` payload, a collection key. The client feeds them to the spec's own `patch` and keys its own maps with them.
+- A call is a description, not a request already in flight. Nothing is dispatched until the effect runs, so the call can be part of a program: several members folded concurrently, a read with a deadline, a request superseded by the next one, anything that must die on Ctrl-C. Each of those is a combinator here.
+- There is no `AbortSignal` to thread. Cancellation is fiber interruption, and interrupting the caller tears the call's own work down with it.
 
-`.rpc` remains for the framework-**reserved** members (`system.live` /
-`system.identity` / `system.clockNow`, never in `spec.procedures`) and as the
-escape hatch for a member the bound shapes can't model. It is the structural
-`SurfaceFace` — `rpc.surface.<member>.<verb>`, typed `unknown` per leaf by
-design: per-member precision lives in the bound faces, and a second precise
-mapped type over the same spec is the union-budget blowup that split is there to
-avoid. It covers **every** member (cells' `set`/`patch`, collections'
-`upsert`/`delete`, the reserved `system.*`), not just the declared procedures —
-and like the bound face, a unary leaf there is an `Effect`. A declared procedure
-never needs it.
+#### `.rpc`, the structural face
 
-A cell's `authority` is `"server"` (default — every push reconciles) or
-`"local"` (the local store wins after the first server yield). An `inputFn`
-that returns `null` pauses a stream or event.
+`.rpc` serves the framework-reserved members (`system.live`, `system.identity`,
+`system.clockNow`, never in `spec.procedures`) and is the escape hatch for a
+member the bound shapes cannot model.
 
-**How a push reconciles: by the member's DECLARED key, else positionally — never
-by an inferred one.** An undeclared merge into a bound store passes Solid's
-`reconcile(..., { key: null })`. Solid's own default is `key: "id"`, which reads a
-field called `id` as an element's IDENTITY and RECYCLES the previous row objects
-for the records it thinks matched — so on a payload whose elements have no
-top-level `id` (every element's key reads `undefined`, and they all "match") the
-object that held one record comes to hold another. A reader that goes by position
-never notices; a `<For>` keyed by reference, a per-row memo, or a component
-holding a row across frames sees a row whose identity and whose fields disagree. A
-framework merging arbitrary app payloads has no basis for inferring identity from a
-field name, so it does not: undeclared, an element is replaced rather than
-recycled.
+- It is the structural `SurfaceFace`: `rpc.surface.<member>.<verb>`, typed `unknown` per leaf by design. Per-member precision lives in the bound faces, and a second precise mapped type over the same spec is the union-budget blowup that split avoids.
+- It covers every member: cells' `set` / `patch`, collections' `upsert` / `delete`, and the reserved `system.*`.
+- As on the bound face, a unary leaf there is an `Effect`.
+- A declared procedure never needs it.
 
-That safety has a price, and the member is what pays it or opts out of it:
-replacement is total, so a frame that merely REPEATS what the store holds still
-replaces every element and notifies every reader of every array under it — a keyed
-`<For>` tears its DOM down on every frame, and every per-row binding re-runs for
-every row for a one-character change in one row. A cell or stream that declares
-[`arrayKey`](#declaring-array-identity--arraykey) is merged by that field instead:
-a repeated frame notifies nothing, and a reorder MOVES the objects a keyed view is
-following. A `deltas` collection's keyed dictionary is not merged here at all — its
-hook owns a store and writes the keys a frame NAMES, replacing each leaf whole so
-an entry a `fold` consumer is holding never mutates under it; a collection's
-PER-KEY delivery does come through this merge, and honours the same declaration.
-`surfaceClients(transport, map)`
-splits one combined transport into a sibling client per surface — each built over
-a **tag-scoped** dispatch, so the face mints standalone tags and the wrapper
-splices the sibling key in, landing on exactly the tags `implementSurfaces` bound.
-It returns a **bundle**:
+#### How a push reconciles
+
+A push merges by the member's declared key, else positionally, never by an
+inferred one. An undeclared merge into a bound store passes Solid's
+`reconcile(..., { key: null })`.
+
+Solid's own default is `key: "id"`, which reads a field called `id` as an
+element's identity and recycles the previous row objects for the records it
+thinks matched. On a payload whose elements have no top-level `id`, every
+element's key reads `undefined` and they all match, so the object that held one
+record comes to hold another.
+
+A reader that goes by position never notices. A `<For>` keyed by reference, a
+per-row memo, or a component holding a row across frames sees a row whose
+identity and whose fields disagree. A framework merging arbitrary app payloads
+has no basis for inferring identity from a field name, so undeclared, an element
+is replaced rather than recycled.
+
+The member pays for that safety or opts out of it:
+
+- Replacement is total. A frame that merely repeats what the store holds still replaces every element and notifies every reader of every array under it. A keyed `<For>` tears its DOM down on every frame, and every per-row binding re-runs for every row for a one-character change in one row.
+- A cell or stream that declares [`arrayKey`](#declaring-array-identity--arraykey) is merged by that field instead: a repeated frame notifies nothing, and a reorder moves the objects a keyed view is following.
+- A `deltas` collection's keyed dictionary is not merged here at all. Its hook owns a store and writes the keys a frame names, replacing each leaf whole, so an entry a `fold` consumer is holding never mutates under it.
+- A collection's per-key delivery does come through this merge, and honours the same declaration.
+
+#### Wire links must carry a watchdog
+
+`surfaceClient` throws if handed a bare wire dispatch, because a
+`websocketLink` / `stdioLink` / `unixSocketLink` can silently half-open.
+
+- Pass a watchdog-backed handle from `connectSurface` (see [@kolu/surface-app](/surface/ref-surface-app)), or a bare `directDispatch`, whose transport is always live.
+- The refusal is by brand: every wire link factory brands what it returns, so a new wire link inherits the guard.
+
+### `Subscription<T>`
+
+A SolidJS `Accessor<T | undefined>` (`@kolu/surface/solid`) with `.pending()`,
+`.error()`, `.complete()` (it latches once the stream ends normally, and the
+value is then frozen), `.updated(handler)` and `.changed(handler)`.
+
+Where it sits differs by member:
+
+| Member | Where the subscription is |
+| --- | --- |
+| stream | `streams.X.use(...)` returns the `Subscription` directly; call it for the value |
+| cell (mutable) | `cells.X.use(...)` returns a `UseCellResult`, whose `.value` is the accessor and whose `.sub` is the `Subscription` |
+| cell (read-only) | a cell declared `verbs: ["get"]` (a `derived.cell`, say) returns a `ReadOnlyUseCellResult` instead |
+| collection | the handle depends on the delivery path (see below) |
+
+- A mutable cell's result is `{ value,
+pending, error, set, patch, sub }`, where `value` is the accessor and `sub` is the `Subscription`. The change channel is therefore `cells.X.use(...).sub.updated(...)`.
+- A read-only cell's result has no `set` / `patch`, and its `.use()` accepts only `onError`, since a get-only cell has no wire mutation verb to reconcile against.
+- A collection view answers `error()`, `pending()` and `keys()` whatever the path. Under batched delivery the per-key handle `byKey(id)` returns is assembled from the one stream's signals, so it carries no `.updated()`. Ask [`fold`](#fold-on-a-deltas-collection) instead, which hands over the wire's whole frame rather than one key's before and after.
+
+#### `.updated(handler)` and `.changed(handler)`
+
+`.updated()` is the change half of an FRP `Dynamic`: subscribe to
+`{ prev, next }` change pairs (`CellChange<T>`) under the change-iff-fired law.
+
+- A first frame is a value, not a change, and never fires.
+- A reconnect snapshot equal (by value) to the last-seen frame never fires.
+- A frame that differs fires exactly once, with `prev` the last-seen value.
+- It returns a `Dispose`. It is optional for the same reason as `complete`: a hand-assembled `Subscription`-shaped value may omit it, while every subscription this package's factories mint provides it.
+- `.changed(handler)` is the same law without the payload: same moments, same `Dispose`, no `{ prev, next }`.
+- `.updated()` must hand its handlers a snapshot, because the store adopts a frame and mutates it on the next write, so a retained pair would change out from under the consumer. That snapshot is two `structuredClone`s of a whole frame, and it is the price of the payload. Subscribing with `.changed()`, the clones do not happen at all.
+- Reach for `.updated()` when you read `prev` / `next`, `.changed()` when you do not. Neither is a raw arrival count: an equal reconnect snapshot is silent on both.
+
+### `surfaceClients(transport, map)`
+
+Splits one combined transport into a sibling client per surface. Each is built
+over a tag-scoped dispatch: the face mints standalone tags and the wrapper
+splices the sibling key in, landing on exactly the tags `implementSurfaces`
+bound. It returns a bundle:
 
 | Member | Answers |
 | --- | --- |
-| `clients` | the per-key map — **one object for the bundle's life**, mutated in place. Read a client through it; do not fold it in a tracking scope (next row) |
-| `roster()` | that **same object**, read reactively — the accessor reads the bundle's own membership signal first, so a memo or a `<For>` that goes through it re-runs when a sibling arrives or leaves |
-| `health()` | the bundle's combined fact — `surfaceClientsHealth` over its own clients, each sub's name already prefixed by its sibling key, and reactive about the roster as well as the subs |
-| `moves(next)` | would `reroster(next)` change anything? `false` when every key is present with the same `Surface` value. This is the bundle's own comparison — the one `reroster` makes |
-| `reroster(next)` | move onto a new roster in place; returns this same bundle, **retyped** to the roster it now carries. Re-bind through it — `bundle = bundle.reroster(next)` — since `clients` and `roster()` are typed on the roster, so a binding still typed on the old one keeps claiming departed keys exist |
+| `clients` | the per-key map, one object for the bundle's life, mutated in place. Read a client through it; do not fold it in a tracking scope (next row) |
+| `roster()` | that same object, read reactively: the accessor reads the bundle's own membership signal first, so a memo or a `<For>` that goes through it re-runs when a sibling arrives or leaves |
+| `health()` | the bundle's combined fact: `surfaceClientsHealth` over its own clients, each sub's name already prefixed by its sibling key, reactive about the roster as well as the subs |
+| `moves(next)` | would `reroster(next)` change anything? `false` when every key is present with the same `Surface` value. This is the bundle's own comparison, the one `reroster` makes |
+| `reroster(next)` | move onto a new roster in place; returns this same bundle, retyped to the roster it now carries |
 | `dispose()` | end every client on the roster |
 
-`clients` is a plain object mutated in place, which is what keeps its identity
-across a move — and Solid tracks nothing about a plain object's key set. So a
-`<For each={Object.keys(bundle.clients)}>`, a memo folding `Object.values(…)`, or
-a hand-written `surfaceClientsHealth(bundle.clients)` is **blind to a roster
-move**: it keeps naming departed siblings and never names an arrival. Reach for
-`bundle.roster()` or `bundle.health()` in any tracking scope. The notification
-lives on the bundle, beside the mutation, because `reroster` is the only code that
-knows the key set moved — a signal a *reader* owns is a rule kept by convention,
-and the second reader is silently blind rather than broken.
+- Re-bind through `reroster`, as `bundle = bundle.reroster(next)`. `clients` and `roster()` are typed on the roster, so a binding still typed on the old one keeps claiming departed keys exist.
+- `clients` is a plain object mutated in place, which is what keeps its identity across a move, and Solid tracks nothing about a plain object's key set.
+- So a `<For each={Object.keys(bundle.clients)}>`, a memo folding `Object.values(…)`, or a hand-written `surfaceClientsHealth(bundle.clients)` is blind to a roster move: it keeps naming departed siblings and never names an arrival. Reach for `bundle.roster()` or `bundle.health()` in any tracking scope.
+- The notification lives on the bundle, beside the mutation, because `reroster` is the only code that knows the key set moved.
+- `moves` is there because the expensive half of following a roster lives one layer up: [`conn.redial`](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces) asks it before it dials, so a roster the connection is already on costs nothing instead of a whole transport churn.
 
-`moves` exists because the expensive half of following a roster lives one layer
-up: [`conn.redial`](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces)
-asks it before it dials, so a roster the connection is already on costs nothing
-instead of a whole transport churn.
-
-`surfaceClientsHealth(clients)` AND-reduces a plain record into one fact — it is
-the fold `bundle.health()` performs, exported for a record you assembled yourself.
+#### What `reroster` does to each key
 
 `reroster` is what makes a [roster change follow in
 place](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces).
-A key on both rosters with the **same** `Surface` value keeps its client,
-standing subscriptions and all; a key that arrives gets one built now; a key that
-leaves — or whose `Surface` value was *replaced*, which is a different contract
-under one name — has its client **retracted** and dropped from the map. Retracted
-means its scoped dispatch refuses in words: a departed sibling's client is still
-held by whatever component has not unmounted, and left alone it would re-subscribe
-through the fence onto a wire that no longer serves those tags, which reads as a
-broken connection rather than as what happened. Arrivals are built **before**
-anything is retracted, so an arrival that throws leaves the bundle on its current
-roster rather than half-moved.
 
-A parameterized stream yielding collection snapshots and deltas can use
+- A key on both rosters with the same `Surface` value keeps its client, standing subscriptions and all.
+- A key that arrives gets a client built now.
+- A key that leaves, or whose `Surface` value was replaced (a different contract under one name), has its client retracted and dropped from the map.
+- Retracted means its scoped dispatch refuses in words. A departed sibling's client is still held by whatever component has not unmounted. Left alone it would re-subscribe through the fence onto a wire that no longer serves those tags, which reads as a broken connection rather than as what happened.
+- Arrivals are built before anything is retracted, so an arrival that throws leaves the bundle on its current roster rather than half-moved.
+
+### `surfaceClientsHealth(clients)`
+
+And-reduces a plain record of clients into one fact. It is the fold
+`bundle.health()` performs, exported for a record you assembled yourself.
+
+### `.streams.X.useCollection(input, descriptor)`
+
+A parameterized stream yielding collection snapshots and deltas is consumed as
 `app.streams.X.useCollection(input, descriptor)`. The descriptor supplies the
-collection key/value types; the stream supplies the frames. Input is a static
-JSON key captured on acquisition. Mount a new owner to change it. Equal inputs
-share one upstream subscription and one health entry until the last owner
-disposes; distinct inputs remain independent. The existing retry fence handles
-reconnection, whose first snapshot replaces the old collection contents.
+collection key and value types; the stream supplies the frames.
 
-A `Subscription<T>` (`@kolu/surface/solid`) is a SolidJS `Accessor<T | undefined>`
-with `.pending()`, `.error()`, `.complete()` (latches once the stream ends
-normally; the value is then frozen), `.updated(handler)` and `.changed(handler)`. **Where it sits
-differs by member:** `streams.X.use(...)` returns the `Subscription` DIRECTLY (call
-it for the value). A **mutable** `cells.X.use(...)` returns a `UseCellResult` — `{ value,
-pending, error, set, patch, sub }` — whose `.value` is the accessor and whose `.sub` is
-the `Subscription`, so the change channel is `cells.X.use(...).sub.updated(...)`. A
-**read-only** cell (declared `verbs: ["get"]`, e.g. a `derived.cell`) instead returns a
-`ReadOnlyUseCellResult` — `{ value, pending, error, sub }` with NO `set` / `patch` — and
-its `.use()` accepts only `onError` (no `authority: "local"` option, since a get-only cell
-has no wire mutation verb to reconcile against).
-Collection subscriptions depend on the selected delivery path — and one thing
-differs beyond `error()`/`pending()`/`keys()`: under BATCHED delivery the per-key
-handle `byKey(id)` returns is assembled from the one stream's signals, so it carries
-no `.updated()`. A consumer that wants "what changed" there asks `fold` instead,
-which hands over the wire's whole frame rather than one key's before/after. `.updated()` is the
-change half of an FRP `Dynamic`:
-subscribe to `{ prev, next }` change pairs (`CellChange<T>`) under the
-**change-iff-fired** law — a first frame is a value, not a change and never
-fires; a reconnect snapshot equal (by value) to the last-seen frame never fires;
-a frame that differs fires exactly once, with `prev` the last-seen value. It
-returns a `Dispose`. Optional for the same reason as `complete` — a
-hand-assembled `Subscription`-shaped value may omit it; every subscription this
-package's factories mint provides it.
+- Input is a static JSON key captured on acquisition. Mount a new owner to change it.
+- Equal inputs share one upstream subscription and one health entry until the last owner disposes. Distinct inputs remain independent.
+- The existing retry fence handles reconnection, whose first snapshot replaces the old collection contents.
 
-`.changed(handler)` is the same law without the payload — same moments, same
-`Dispose`, no `{ prev, next }`. The difference is not stylistic: `.updated()` must
-hand its handlers a SNAPSHOT, because the store adopts a frame and mutates it on
-the next write, so a retained pair would change out from under the consumer. That
-snapshot is two `structuredClone`s of a whole frame, and it is the price of the
-payload. A consumer that only wants to know THAT something arrived — a frame
-counter, a re-ask trigger, an invalidation — was paying two deep clones of a page
-per keystroke for an integer; subscribing here, the clones do not happen at all.
-Reach for `.updated()` when you read `prev`/`next`, `.changed()` when you don't.
-Neither is a raw arrival count: an equal reconnect snapshot is silent on both.
+### `fold` on a `deltas` collection
 
-<Aside type="caution" title="Wire links must carry a watchdog">
-  `surfaceClient` throws if handed a bare wire dispatch — a `websocketLink` /
-  `stdioLink` / `unixSocketLink` can silently half-open. Pass a watchdog-backed
-  handle from `connectSurface` (see
-  [@kolu/surface-app](/surface/ref-surface-app)), or a bare `directDispatch` (its
-  transport is honestly always-live). The refusal is by **brand**: every wire
-  link factory brands what it returns, so a new wire link inherits the guard by
-  construction.
-</Aside>
-
-### The frame socket — `fold` on a `deltas` collection
-
-A collection that declares the `deltas` verb is served by ONE coalesced
+A collection that declares the `deltas` verb is served by one coalesced
 snapshot-then-delta stream, and the client applies each frame to a keyed store by
 writing exactly the keys the frame names. That store is the right answer for a
-consumer whose accumulator IS a keyed map. For a consumer whose accumulator is
-something else — an index, a patched document set, a running total — the frame
-itself is the answer, so the whole-collection `.use()` of a `deltas` collection
-carries one more member:
+consumer whose accumulator is a keyed map.
 
-**Frames are BOUNDED, and you never see it.** A snapshot (or a coalesced delta)
-that scales with the set is split into `RPC_STREAM_CHUNK_BYTES` parts on the wire
-and reassembled at the client face before the store, any `fold`, `mirrorRemoteSurface`
-or a `SurfaceMap` fold sees it — so `init`/`step` receive exactly the whole frames
-described below and the frame format is unchanged for a small collection. (The
-`CollectionDeltasMsg` arms carry an optional internal `part` marker purely so the
-reassembler can join them; a consumer never meets one.) The *why* — the drain
-arithmetic behind 256 KiB — is under the wire's frame budget above.
+For a consumer whose accumulator is something else (an index, a patched document
+set, a running total) the frame itself is the answer, so the whole-collection
+`.use()` of a `deltas` collection carries one more member.
 
 ```ts
 const view = client.collections.entries.use();
@@ -1219,38 +1208,62 @@ const index = view.fold({
 index(); // Accessor<A | undefined>
 ```
 
-`init` and `step` are the consumer's, and `A` is inferred from them — the framework
-never sees inside the accumulator.
+`init` and `step` are the consumer's, and `A` is inferred from them: the
+framework never sees inside the accumulator.
 
 | Fact | Behaviour |
 | --- | --- |
-| Snapshot | RE-INITIALIZES every registered fold (`acc = init(entries)`), after the store applies it. First-connect and reconnect are the same event to a fold; it never classifies a frame. |
-| Registering mid-stream | Seeded SYNCHRONOUSLY from the held store, so arriving late is indistinguishable from a reconnect. Registered while `pending()`, the accessor reads `undefined` until the real snapshot lands. |
-| What `init` is handed | The CLIENT STORE's own values, in its arrival order — the same objects `byKey` reads — for every full-set frame, wire snapshot included. Never the wire's entries directly: the store's snapshot write is VALUE-diffed, so an entry a reconnect re-serialized unchanged keeps the object already held and the fresh copy is dropped. Seeding from the wire would hand a fold objects the store refused, and make what `init` receives depend on WHEN the fold registered. |
-| `undefined` | Means exactly one thing: there is no valid accumulator. That is the state before the first snapshot, and the state a throwing `init` / `step` returns the fold to until the next snapshot re-seeds it. |
-| Removes of unknown keys | Delivered VERBATIM. The server's tick coalescer resolves an upsert-then-remove within one producer tick to a bare remove, so `step` MUST be total over a remove of a key it never saw. The framework does not filter it — that would be swallowing part of the frame. |
-| Ordering | assert keys → apply to the store → notify the folds → clear `pending`, all in one tick. A `step` that reads `byKey` sees state consistent with the frame it holds. |
-| Aliasing | `step` receives the wire's decoded frame objects and `init` receives the store's held ones; the store adopts a value by REPLACEMENT and neither side ever mutates one, so a fold may retain either without cloning. A fold that keeps what `init` gave it holds the very objects `byKey` serves, not a second copy of them. |
-| Errors | The batched stream's error is collection-wide and terminal. Fold accessors keep their last value, frozen — exactly `byKey`'s behaviour — and the failure surfaces through the shared `error()` / `onError` / health enrolment. A throwing `init` / `step` is a different matter: it is contained to its own fold and reported loudly (never killing the stream, the store, or another fold), and it INVALIDATES that fold's accumulator — later deltas have no valid base to land on, so the accessor returns to `undefined` rather than reading live while frozen forever. |
-| Teardown | `fold()` must be called under a reactive owner; the registration is dropped by that owner's `onCleanup`. Called ownerless it THROWS, rather than minting an accumulator nothing can drop. |
+| Snapshot | Re-initializes every registered fold (`acc = init(entries)`), after the store applies it |
+| Registering mid-stream | Seeded synchronously from the held store, so arriving late is indistinguishable from a reconnect |
+| What `init` is handed | The client store's own values, in its arrival order: the same objects `byKey` reads |
+| `undefined` | Means exactly one thing: there is no valid accumulator |
+| Removes of unknown keys | Delivered verbatim, so `step` must be total over a remove of a key it never saw |
+| Ordering | Assert keys, apply to the store, notify the folds, clear `pending`, all in one tick |
+| Aliasing | `step` receives the wire's decoded frame objects and `init` receives the store's held ones; a fold may retain either without cloning |
+| Errors | The batched stream's error is collection-wide and terminal; a throwing `init` / `step` is contained to its own fold |
+| Teardown | `fold()` must be called under a reactive owner; the registration is dropped by that owner's `onCleanup` |
 
-**Where `fold` is spellable is the gate.** It is typed only on the
-whole-collection `.use()` of a collection whose `verbs` declare `deltas` — the same
-verb gate `unenrolledDeltas` rides. A collection without the verb has no frames; so
-does a NARROWED `.use({ keys })`, which is served by the per-key `keys`+`get` path
-even on a `deltas` collection. In both, `fold` is a type error rather than an
-`undefined` at runtime.
+- First-connect and reconnect are the same event to a fold; it never classifies a frame. Registered while `pending()`, the accessor reads `undefined` until the real snapshot lands.
+- `init` is never handed the wire's entries directly. The store's snapshot write is value-diffed, so an entry a reconnect re-serialized unchanged keeps the object already held and the fresh copy is dropped. Seeding from the wire would hand a fold objects the store refused, and make what `init` receives depend on when the fold registered.
+- `undefined` is the state before the first snapshot, and the state a throwing `init` / `step` returns the fold to until the next snapshot re-seeds it.
+- The server's tick coalescer resolves an upsert-then-remove within one producer tick to a bare remove. The framework does not filter such a remove out, since that would be swallowing part of the frame.
+- A `step` that reads `byKey` sees state consistent with the frame it holds.
 
-`useCollectionDeltas` — the hook `.use()` drives for a `deltas` collection — is
-exported from `@kolu/surface/solid` for the deliberately un-enrolled reach: a
-consumer that takes `.unenrolledDeltas` (the [#1591](https://github.com/juspay/kolu/issues/1591)
-health carve-out) hands the raw stream to it as `source` and gets the same store
-and the same `fold`, instead of hand-rolling a second one. Its result carries one
-member the bound `.use()` does not: `.stream`, the single batched stream's own
-`error()` / `pending()` / `complete()`. That reach has no `client.health()` fact to
-join its feed to, so a dead feed surfaces there or nowhere; under the enrolled
-`.use()` the health fact owns that, and a parallel accessor would be one more thing
-to remember to read.
+#### What a fold may hold, and what fails it
+
+- The store adopts a value by replacement and neither side ever mutates one. A fold that keeps what `init` gave it holds the very objects `byKey` serves, not a second copy of them.
+- On a collection-wide error, fold accessors keep their last value, frozen, exactly as `byKey` does, and the failure surfaces through the shared `error()` / `onError` / health enrolment.
+- A throwing `init` / `step` is reported loudly, never killing the stream, the store or another fold, and it invalidates that fold's accumulator. Later deltas have no valid base to land on, so the accessor returns to `undefined` rather than reading live while frozen forever.
+- Called ownerless, `fold()` throws rather than minting an accumulator nothing can drop.
+
+#### Frames are bounded
+
+A snapshot (or a coalesced delta) that scales with the set is split into
+`RPC_STREAM_CHUNK_BYTES` parts on the wire, and reassembled at the client face
+before the store, any `fold`, `mirrorRemoteSurface` or a `SurfaceMap` fold sees
+it. So `init` and `step` receive exactly the whole frames described above, and
+the frame format is unchanged for a small collection.
+
+- The `CollectionDeltasMsg` arms carry an optional internal `part` marker purely so the reassembler can join them. A consumer never meets one.
+- The drain arithmetic behind the 256 KiB figure is under [the wire's frame cap](#the-wires-frame-cap-kolusurfaceframe-limit).
+
+#### Where `fold` is spellable
+
+`fold` is typed only on the whole-collection `.use()` of a collection whose
+`verbs` declare `deltas`, the same verb gate `unenrolledDeltas` rides.
+
+- A collection without the verb has no frames.
+- Neither does a narrowed `.use({ keys })`, which is served by the per-key `keys`+`get` path even on a `deltas` collection.
+- In both, `fold` is a type error rather than an `undefined` at runtime.
+
+### `useCollectionDeltas`
+
+The hook `.use()` drives for a `deltas` collection, exported from
+`@kolu/surface/solid` for the deliberately un-enrolled reach.
+
+- A consumer that takes `.unenrolledDeltas` (the [#1591](https://github.com/juspay/kolu/issues/1591) health carve-out) hands the raw stream to it as `source` and gets the same store and the same `fold`, instead of hand-rolling a second one.
+- Its result carries one member the bound `.use()` does not: `.stream`, the single batched stream's own `error()` / `pending()` / `complete()`.
+- That reach has no `client.health()` fact to join its feed to, so a dead feed surfaces there or nowhere. Under the enrolled `.use()` the health fact owns that, and a parallel accessor would be one more thing to remember to read.
 
 ## The dispatch seam — `@kolu/surface/link`
 
