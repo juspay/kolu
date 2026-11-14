@@ -99,3 +99,39 @@ None.
 ### Dropped code spans
 
 None.
+
+## A mirror, end to end
+
+Unchanged: the section is a heading and one `<Snippet>`.
+
+## Lifecycle invariants
+
+- Old lines 429–471 at `f50641c6a`. Section words: 4,142 → 4,469. Page total: 9,785 → 10,297.
+- Heading kept (`#lifecycle-invariants`), since the rewritten "The session" section links to it twice.
+- The 21-item list became an index table and 21 `###` entries, with `####` sections inside `nudge()`, `runCapture`, `provisionAgent`, `deliverClosure` and `pullClosure`. The fault classes, the probe verdicts, the two manual cycles, the no-op arms, the lifetime policies, the option bags, the result arms and the watchdog arms became tables.
+- The "Nix is the contract, not the implementation" aside was dissolved into the `provisionAgent` entry, fact by fact (remote-store `nix build`, darwin fronting linux, the ask-only warm check, the `--add-root` commit, no tarball or Docker fallback, the Linux and darwin routes). The "Shared library" aside is kept, the page's only one.
+- Comparison: 0 missing for the section and for the whole page. Lint passes for the whole page.
+
+### Moved
+
+| Fact | Where |
+| --- | --- |
+| Why a `network` fault resets the remote run (the kolu#2101 reasoning) | `the-server-half` (pending, queued in `.waterfall/moved/the-server-half/ref-surface-remote.md`) |
+| Why an absence must never age into a terminal failure | `the-server-half` (pending, same queue) |
+| Why the 127 verdict is read off the exit code, not the shell's wording | `the-server-half` (pending, same queue) |
+| Why the pre-connected backstop's bound is baked in | `the-server-half` (pending, same queue) |
+| Why a mirror stays silent rather than relaying a guess | `the-server-half` (pending, same queue) |
+
+### Cut
+
+| Fact | Tag |
+| --- | --- |
+| "`recheck()` used to no-op while a dial was in flight; that documented no-op is fixed" | history |
+| Issue and task numbers: #1908 (D1b, D3, R6b, R8b), juspay/kolu#2101 (H2), P5 | history |
+| "the process exits and the session dies with it", restated by the invariant above it | duplicate |
+| "instead of reconnecting forever" / "rather than discarding a usable transport" as argument | rationale |
+| "(both before Nix 2.35, or both from it on)", restated by the three-version table and the 2.34/2.35 rule in `resolveHostNix` | duplicate |
+
+### Dropped code spans
+
+None.
