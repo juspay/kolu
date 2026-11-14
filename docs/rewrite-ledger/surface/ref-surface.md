@@ -37,3 +37,42 @@ None. Every reason in this section is the short "because" that explains a constr
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs --old-lines 15-275`: 0 missing).
+
+## Serving a surface
+
+- Old lines 276–568 at `f50641c6a`. Words (`.waterfall/words.mjs`): 3,306 → 3,183.
+- Structure: one short opening, then the group's index table (15 rows), then one `###` per export, with `####` sections where an entry passed the 300-word section limit. The old shape was one 1,100-word bullet block under `## Serving a surface` plus three `###`s and one `<Aside>`. No `<Aside>` in the draft.
+- New entries for exports and dependency shapes that were only named in prose or in a bullet: `SurfaceRuntimeHandle` (with `#### What settles done`, `#### Nothing you hand the engine may throw`, `#### close()`), `cells` / `collections` / `streams` / `procedures` dependencies, `mirrorRemoteSurface`, `Stores and channels`, `implementSurfaces(surfaces, base, deps)`, `implementSurfacesOnPublisher(surfaces, base, deps)`, `siblingDroppedDetail(key)`, `superviseTerminalSource(runtime, terminal)`.
+- The `<Aside type="caution" title="Which serve door re-reads them">` became the entry section `#### Which serve door re-reads group and handlers`.
+
+### Headings renamed
+
+| Old | New | Inbound links |
+| --- | --- | --- |
+| `### On a shared publisher — a distinct constructor, not a flag` (`#on-a-shared-publisher--a-distinct-constructor-not-a-flag`) | `### `implementSurfaceOnPublisher(surface, deps, channel)`` (`#implementsurfaceonpublishersurface-deps-channel`) | none |
+| `### A rooted bundle whose siblings move — `implementRootedSurfaces`` (`#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces`) | `### `implementRootedSurfaces(core, base, deps)`` (`#implementrootedsurfacescore-base-deps`) | `website/src/content/surface/ref-surface-app.mdx:55`, `:772` (other rewriter); `website/src/content/surface/ref-surface.mdx:1324` (draft 08's range); `:343` fixed inside this draft |
+| `### Composing a local runtime onto a re-served one` | `### `extendSurface(base, ext)`` (`#extendsurfacebase-ext`) | none |
+
+Links out of this draft that other drafters own: `#per-face-expose-kolusurfaceexpose` (frozen heading, used twice) and `#what-settles-done` (same-draft). Cross-page links to `ref-surface-app` anchors are unchanged from the old text.
+
+### Moved
+
+None. No passage was long-form argument once the rhetoric was removed; every reason that explains a constraint stayed in its entry.
+
+### Cut
+
+| Fact | Tag |
+| --- | --- |
+| "That is safe because every fallible *periodic* thing is deliberately off this channel" → "Every fallible periodic thing is deliberately off this channel" (the "that is safe because" flourish) | rationale |
+| "**Composition is incremental, and that is the whole point.**" → the heading `Composition is incremental` | rationale |
+| "the shape a consumer reaches for when the framework has no door" (aside on re-implementing the whole map) | rationale |
+| "Deliberate: a source nobody drives is damage" → "a source nobody drives is damage" | rationale |
+| "Said out loud because forgetting it fails *silently*" → "Forgetting it fails silently" | rationale |
+| "the app's job, for now" in the heading "How a client learns the roster moved" | history |
+| "`reServeSurface` used to hand-roll" → "the framework home for the terminal-source teardown" | history |
+| "by construction" in the `CellConnector` interruption sentence | rationale |
+| Emphasis capitals: `WIRING`, `MUST`, `CONSUME`, `REJECTS`, `ERROR`, `MUTE`, `CONTAINED`, `FIBER`, `PAIR`, `MOVES`, `THUNK`-style `OPENS`/`LET GO`/`HOLDS`/`ACTS`/`ANYWHERE`/`REPORTS`/`CALL`/`NOTICES`, `ROOT`, `ONE`, `OWNS` | implementation |
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs … --old-lines 276-568`: 0 missing).

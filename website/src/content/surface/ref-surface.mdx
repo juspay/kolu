@@ -336,106 +336,218 @@ The interpreter is registered at the connection seam: `onClientError` on
 
 ## Serving a surface
 
+You wire a surface's handlers with one of the `implement*` constructors. Each
+returns a supervised runtime: handlers keyed by wire tag, a typed write face, a
+fault promise and a `close()`.
+
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`implementSurface(surface, deps, opts?)`](#implementsurfacesurface-deps-opts) | `@kolu/surface/server` | Serves one surface and returns a supervised `SurfaceRuntime`. |
+| [`SurfaceRuntimeHandle`](#surfaceruntimehandle) | `@kolu/surface/server` | The handle every runtime answers: `group`, `handlers`, `ctx`, `done`, `close`. |
+| [`cells` dependencies](#cells-dependencies) | `@kolu/surface/server` | `store`, `patch?` and a `CellConnector<T>` source. |
+| [`collections` dependencies](#collections-dependencies) | `@kolu/surface/server` | `readAll`, `upsert`, `remove`, `readOne?` and `holders?`. |
+| [`streams` dependencies](#streams-dependencies) | `@kolu/surface/server` | A `source(input)` stream, or a declarative poll form. |
+| [`procedures` dependencies](#procedures-dependencies) | `@kolu/surface/server` | Verb handlers that mutate through `ctx`. |
+| [`mirrorRemoteSurface`](#mirrorremotesurface) | `@kolu/surface/mirror` | The consume-side twin of the fault audit, with `onFault`. |
+| [Stores and channels](#stores-and-channels) | `@kolu/surface/server` | The in-memory and conf-backed adapters. |
+| [`implementSurfaceOnPublisher(surface, deps, channel)`](#implementsurfaceonpublishersurface-deps-channel) | `@kolu/surface/server` | Serves one surface on a shared, caller-owned publisher. |
+| [`implementSurfaces(surfaces, base, deps)`](#implementsurfacessurfaces-base-deps) | `@kolu/surface/server` | Serves N surfaces over one transport. |
+| [`implementSurfacesOnPublisher(surfaces, base, deps)`](#implementsurfacesonpublishersurfaces-base-deps) | `@kolu/surface/server` | The shared-publisher twin of `implementSurfaces`. |
+| [`implementRootedSurfaces(core, base, deps)`](#implementrootedsurfacescore-base-deps) | `@kolu/surface/server` | Serves an unprefixed root plus siblings that mount and drop while served. |
+| [`siblingDroppedDetail(key)`](#siblingdroppeddetailkey) | `@kolu/surface/server` | The one sentence a dropped sibling's refusal carries. |
+| [`extendSurface(base, ext)`](#extendsurfacebase-ext) | `@kolu/surface/server` | Composes a parent-local runtime onto a re-served base. |
+| [`superviseTerminalSource(runtime, terminal)`](#superviseterminalsourceruntime-terminal) | `@kolu/surface/server` | Pairs a passive owned runtime with a terminal driver. |
+
+### `implementSurface(surface, deps, opts?)`
+
 `implementSurface(surface, deps, opts?)` wires every handler and returns a
-supervised **`SurfaceRuntime`** — `{ group, handlers, ctx, done, close }`.
+supervised `SurfaceRuntime` — `{ group, handlers, ctx, done, close }`.
 Persistence and pub/sub are supplied as dependencies.
 
 <Snippet src="packages/surface/example/snippets/serve.ts" region="implement" />
 
-- **`group`** — the surface's own flat `RpcGroup`, by identity.
-- **`handlers`** — every bound member handler, keyed by **full wire tag**. A
-  unary handler returns an `Effect`, a streaming one a `Stream`; both take the
-  member's **decoded** payload.
-- **`ctx`** — the typed cells/collections/events mutation map.
-- **`done`** — a `Promise<void>` that **rejects on an owned runtime fault** (a
-  cell connector's WIRING failing, or one of its finalizers) and resolves after a
-  clean `close()`. A serving site MUST observe it and treat a rejection as
-  **fatal** — log it whole, then exit through its shutdown path so a supervisor
-  respawns. That is safe because every fallible *periodic* thing is deliberately
-  off this channel:
+- `opts.identity` is the server's declared build triple, which the reserved
+  `system/identity` member serves as its `identified` arm. The framework stamps
+  `startedAt` and `processId`.
+- Omit `opts.identity` and the surface is served `anonymous`, stamped with the
+  same two.
+- `implementSurface` asserts at boot that the handler key set equals the group's
+  tag set. A route nobody answers (a 404 at the far end) and a handler nobody
+  advertises are both boot crashes.
+- An eager-seed throw (a non-poll derived cell's pull, a compute cell's bind)
+  throws out of `implementSurface` as a boot crash. It is not on `done`.
 
-  | Path | Settles `done`? | Class |
-  | --- | --- | --- |
-  | Builder wiring throws (one-shot guard, builder body) | rejects | runtime-fatal |
-  | A push source's `install` throws | rejects | runtime-fatal |
-  | A poll source's cadence `install(tick)` throws | rejects | runtime-fatal |
-  | A scope finalizer throws during `close()` | rejects (aggregated) | runtime-fatal |
-  | Poll **T+0 seed** read/publish fails | no | cell-local — logged, cadence held, retried |
-  | Poll **later tick** read/publish fails | no | cell-local — log-skip-continue |
-  | `scan` step throws | no | cell-local — stop-hold |
-  | `computed` recompute throws (later read) | no | cell-local — holds last, heals |
-  | Interruption (`close()`), clean close | resolves | end-of-life |
+### `SurfaceRuntimeHandle`
 
-  An eager-seed throw (a non-poll derived cell's pull, a compute cell's bind) is
-  not on this channel at all: it throws out of `implementSurface` as a boot crash.
+The handle every runtime in this section answers.
 
-  The CONSUME-side twin of this audit — every fiber `mirrorRemoteSurface`
-  (`@kolu/surface/mirror`) starts, how it dies, and who is told — lives in that
-  file's header docblock. Neither audit may grow a MUTE row. `mirrorRemoteSurface`
-  takes `{ signal?, onFault? }`: `onFault` is a structured `MirrorFault`
-  (`{ label, err, scope: "member" | "key" }`) that a serving consumer wires at
-  ERROR level. A `member` fault also REJECTS the mirror's `done` (that member is
-  never re-subscribed, so the mirror is dead); a `key` fault is key-local and
-  never reaches `done`, making `onFault` its only notice.
+| Member | What it is |
+| --- | --- |
+| `group` | The surface's own flat `RpcGroup`, by identity. |
+| `handlers` | Every bound member handler, keyed by full wire tag. |
+| `ctx` | The typed cells/collections/events mutation map. |
+| `done` | A `Promise<void>` that rejects on an owned runtime fault. |
+| `close()` | Releases every owned source. |
 
-- **Nothing you hand the engine may throw.** Every callback the reactive engine
-  runs — an `effect` body, a source listener, a cell's `onWrite`, a channel
-  subscriber — executes inside the batch drain on the writer's stack. The
-  framework brackets each one: a throw is logged loudly and CONTAINED, siblings
-  still run, and the write completes. This is deliberate (`containThrow`): the
-  alternative is not a crash but a silent global freeze, since an exception
-  mid-drain costs every remaining subscriber that frame.
-- **`close()`** — releases every owned source. Each connector runs as a FIBER in
-  its own scope, so `close()` **interrupts** each one and awaits its exit — and a
-  fiber's exit already includes its scope's finalizers, which is why "abort, then
-  observe the settle, then dispose" is one await rather than three steps.
-  Idempotent, and always resolves: a teardown fault is routed to `done`.
+A unary handler returns an `Effect`, a streaming one a `Stream`. Both take the
+member's decoded payload.
 
-**`group` + `handlers` is the pair every transport takes** — `serveOverStdio`,
+`group` + `handlers` is the pair every transport takes: `serveOverStdio`,
 `serveOverUnixSocket`, `serveSurfaceSocket`, or `directDispatch` in-process.
-There is nothing to finalize and nothing to re-prefix at a mount site: a tag
-carries its own route. `implementSurface` asserts at boot that the handler key
-set *equals* the group's tag set, so a route nobody answers (a 404 at the far
-end) and a handler nobody advertises are both boot crashes.
+There is nothing to finalize and nothing to re-prefix at a mount site, because a
+tag carries its own route.
 
-**Read the two as a PAIR, in one synchronous turn** — a rule of the handle, not
-of any one constructor. Most runtimes hand back fixed values, so it costs them
-nothing; a runtime whose served set MOVES
-([`implementRootedSurfaces`](#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces))
-answers both as live reads off one snapshot, so reading them either side of an
-`await` can hand you two generations — which the handler/group assertion then
-refuses, at a serve door far from the `await` that caused it. A function written
-against `SurfaceRuntimeHandle` cannot tell which implementation it holds, which
-is why the rule lives on the handle.
+Read the two as a pair, in one synchronous turn. That is a rule of the handle,
+not of any one constructor. Most runtimes hand back fixed values, so it costs
+them nothing.
 
-`opts.identity` is the server's declared build triple — what the reserved
-`system/identity` member serves as its `identified` arm (the framework stamps
-`startedAt` and `processId`). Omit it and the surface is served `anonymous`,
-stamped with the same two.
+A runtime whose served set moves
+([`implementRootedSurfaces`](#implementrootedsurfacescore-base-deps)) answers
+both as live reads off one snapshot, so reading them either side of an `await`
+can hand you two generations. The handler/group assertion then refuses, at a
+serve door far from the `await` that caused it. A function written against
+`SurfaceRuntimeHandle` cannot tell which implementation it holds.
 
-Dependency shapes, per member:
+#### What settles `done`
 
-- `cells: { <k>: { store, patch?, connect? } }` — `store` is a `CellStore<T>`. `connect` is a **`CellConnector<T>`**: `(cell) => Effect<void, unknown, Scope>`. It is an owned source of the runtime — a failure reaches `done`, and `close()` **interrupts** it, which releases whatever it acquired (`Effect.acquireRelease` / `addFinalizer` / `forkScoped`). There is no abort signal to thread and no disposer to return: cancellation is interruption, so an interrupted connector is end-of-life by construction and can never masquerade as a fault.
+`done` rejects on an owned runtime fault (a cell connector's wiring failing, or
+one of its finalizers) and resolves after a clean `close()`. A serving site must
+observe it and treat a rejection as fatal: log it whole, then exit through its
+shutdown path so a supervisor respawns. Every fallible periodic thing is
+deliberately off this channel.
 
-  Two rules for writing one. **Install synchronously** — the runtime forks the connector and Effect runs a `sync` step on the forking stack, so an `acquireRelease` whose acquire subscribes is live the instant `implementSurface` returns. And **do not fork the publish**: routing a frame through a fiber or a queue moves it behind an event published in the same tick, which is the delivery order `kill.feature` pins. Fork what must be concurrent, never the publish.
-- `collections: { <k>: { readAll, upsert, remove, readOne?, holders? } }` — persistence only; the surface wraps publish.
+| Path | Settles `done`? | Class |
+| --- | --- | --- |
+| Builder wiring throws (one-shot guard, builder body) | rejects | runtime-fatal |
+| A push source's `install` throws | rejects | runtime-fatal |
+| A poll source's cadence `install(tick)` throws | rejects | runtime-fatal |
+| A scope finalizer throws during `close()` | rejects (aggregated) | runtime-fatal |
+| Poll T+0 seed read/publish fails | no | cell-local — logged, cadence held, retried |
+| Poll later tick read/publish fails | no | cell-local — log-skip-continue |
+| `scan` step throws | no | cell-local — stop-hold |
+| `computed` recompute throws (later read) | no | cell-local — holds last, heals |
+| Interruption (`close()`), clean close | resolves | end-of-life |
 
-  `holders?: CollectionHolders<K>` — that is `(key: K) => Effect<unknown, never, Scope>` — is the **last-reader** seam. The wire already says when a reader OPENS a key — a per-key `get` IS a subscription, and `readOne` is where the server hears one arrive — but nothing said when the last reader LET GO, so a server that had to know inferred it from opens and aged the answer out. This publishes the fact it was inferring: a reader HOLDS `key` for the lifetime of the scope `holders` runs in, which is the `get` stream's own scope. Fiber interruption is the release — the scope closes when the tab navigates, the socket drops, the runtime tears down, or a one-shot reader takes its frame and leaves.
+This table, on `SurfaceRuntimeHandle.done`, is the single home for the audit.
 
-  | Fact | Behaviour |
-  | --- | --- |
-  | Pull order | **hold → channel subscribe → `readOne` snapshot**, and that is contract, not accident: a `readOne` that ACTS on the hold (reading a body only a held path is read for) must find the hold already in place. Pinned by test. |
-  | Release | Acquired in the returned stream's scope — the same scope the channel subscription rides — so an interruption ANYWHERE, including between the hold and the subscribe or mid-snapshot, releases exactly once. A subscription nobody runs holds nothing: the stream is lazy. |
-  | Multiplicity | Every `get` is its own stream, own scope, own hold. Two readers, two holds; the first to leave takes only its own. The framework REPORTS lifetimes and does not count — the refcount is the consumer's. |
-  | Failure | The error channel is `never`, so failure is unspellable. A defect propagates as a defect and kills that ONE subscription loudly — fail-fast, no degrade-to-unheld path. |
-  | Scope | `get` only. `keys` and `deltas` are collection-wide streams; "who holds this key" has no meaning there, and folding a collection-wide hold in would be a second axis on the same knob. |
-  | Absent | The exact expression served today — not a wrapped equivalent. Zero overhead, zero behaviour delta, for every collection that never asked. |
+#### Nothing you hand the engine may throw
 
-  Nothing crosses the wire: there is no verb, no member, no schema. A release verb a reader had to CALL would be a promise a closed tab cannot keep — the readers this is about are exactly the ones that vanish — so the transport is what is asked, because the transport is what notices.
-- `streams: { <k>: { source } }` — `source(input)` returns an Effect `Stream`; cancellation is fiber **interruption**, so there is no `AbortSignal` to thread and none to forget. Or a declarative poll form `{ read, install, isEqual }`. Supplying both is a type error.
-- `procedures: { <ns>: { <verb>: ({ input, ctx }) => Effect } }` — mutate through `ctx.cells.X.set(…)`, `ctx.collections.X.upsert(k, v)`, `ctx.events.X.publish(input, payload)` so the apply-and-publish chain stays single. A procedure that declares an `error` schema **fails** the Effect with an instance of a declared tagged class (`Effect.fail(new KavalBusy({ … }))`); an undeclared throw stays a defect, so reach for `Effect.promise` over `Effect.tryPromise` where no error is declared.
+Every callback the reactive engine runs executes inside the batch drain on the
+writer's stack: an `effect` body, a source listener, a cell's `onWrite`, a
+channel subscriber.
 
-Stores and channels:
+- The framework brackets each one (`containThrow`): a throw is logged loudly and
+  contained, siblings still run, and the write completes.
+- The alternative is not a crash but a silent global freeze, because an
+  exception mid-drain costs every remaining subscriber that frame.
+
+#### `close()`
+
+`close()` releases every owned source.
+
+- Each connector runs as a fiber in its own scope, so `close()` interrupts each
+  one and awaits its exit.
+- A fiber's exit already includes its scope's finalizers, so "abort, then
+  observe the settle, then dispose" is one await rather than three steps.
+- It is idempotent, and always resolves. A teardown fault is routed to `done`.
+
+### `cells` dependencies
+
+`cells: { <k>: { store, patch?, connect? } }`. `store` is a `CellStore<T>`.
+
+`connect` is a `CellConnector<T>`: `(cell) => Effect<void, unknown, Scope>`. It
+is an owned source of the runtime. A failure reaches `done`, and `close()`
+interrupts it, which releases whatever it acquired (`Effect.acquireRelease` /
+`addFinalizer` / `forkScoped`).
+
+- There is no abort signal to thread and no disposer to return. Cancellation is
+  interruption, so an interrupted connector is end-of-life and can never
+  masquerade as a fault.
+- Install synchronously. The runtime forks the connector and Effect runs a
+  `sync` step on the forking stack, so an `acquireRelease` whose acquire
+  subscribes is live the instant `implementSurface` returns.
+- Do not fork the publish. Routing a frame through a fiber or a queue moves it
+  behind an event published in the same tick, which is the delivery order
+  `kill.feature` pins. Fork what must be concurrent, never the publish.
+
+### `collections` dependencies
+
+`collections: { <k>: { readAll, upsert, remove, readOne?, holders? } }` is
+persistence only; the surface wraps publish.
+
+`holders?: CollectionHolders<K>` (that is `(key: K) => Effect<unknown, never, Scope>`)
+is the last-reader seam. The wire already says when a reader opens a key: a
+per-key `get` is a subscription, and `readOne` is where the server hears one
+arrive. `holders` publishes the other end.
+
+A reader holds `key` for the lifetime of the scope `holders` runs in, which is
+the `get` stream's own scope. Fiber interruption is the release: the scope
+closes when the tab navigates, the socket drops, the runtime tears down, or a
+one-shot reader takes its frame and leaves.
+
+| Fact | Behaviour |
+| --- | --- |
+| Pull order | hold → channel subscribe → `readOne` snapshot, as contract. Pinned by test. |
+| Release | Acquired in the returned stream's scope, the same scope the channel subscription rides. |
+| Multiplicity | Every `get` is its own stream, own scope, own hold. |
+| Failure | The error channel is `never`, so failure is unspellable. |
+| Scope | `get` only. `keys` and `deltas` are collection-wide streams. |
+| Absent | The exact expression served today, not a wrapped equivalent. |
+
+- A `readOne` that acts on the hold (reading a body only a held path is read
+  for) finds the hold already in place.
+- An interruption anywhere, including between the hold and the subscribe or
+  mid-snapshot, releases exactly once. A subscription nobody runs holds nothing,
+  because the stream is lazy.
+- Two readers, two holds; the first to leave takes only its own. The framework
+  reports lifetimes and does not count: the refcount is the consumer's.
+- A defect propagates as a defect and kills that one subscription loudly. There
+  is no degrade-to-unheld path.
+- "Who holds this key" has no meaning on a collection-wide stream, and a
+  collection-wide hold would be a second axis on the same knob.
+- A collection that never asked for `holders` pays zero overhead and zero
+  behaviour delta.
+- Nothing crosses the wire: there is no verb, no member, no schema. A release
+  verb a reader had to call would be a promise a closed tab cannot keep, and the
+  readers this is about are exactly the ones that vanish.
+
+### `streams` dependencies
+
+`streams: { <k>: { source } }`. `source(input)` returns an Effect `Stream`.
+
+- Cancellation is fiber interruption, so there is no `AbortSignal` to thread and
+  none to forget.
+- Or supply a declarative poll form `{ read, install, isEqual }`.
+- Supplying both is a type error.
+
+### `procedures` dependencies
+
+`procedures: { <ns>: { <verb>: ({ input, ctx }) => Effect } }`.
+
+- Mutate through `ctx.cells.X.set(…)`, `ctx.collections.X.upsert(k, v)` and
+  `ctx.events.X.publish(input, payload)`, so the apply-and-publish chain stays
+  single.
+- A procedure that declares an `error` schema fails the Effect with an instance
+  of a declared tagged class (`Effect.fail(new KavalBusy({ … }))`).
+- An undeclared throw stays a defect, so reach for `Effect.promise` over
+  `Effect.tryPromise` where no error is declared.
+
+### `mirrorRemoteSurface`
+
+The consume-side twin of the `done` audit lives in the header docblock of
+`mirrorRemoteSurface` (`@kolu/surface/mirror`): every fiber it starts, how it
+dies, and who is told. Neither audit may grow a mute row.
+
+`mirrorRemoteSurface` takes `{ signal?, onFault? }`.
+
+- `onFault` is a structured `MirrorFault` (`{ label, err, scope: "member" | "key" }`)
+  that a serving consumer wires at error level.
+- A `member` fault also rejects the mirror's `done`. That member is never
+  re-subscribed, so the mirror is dead.
+- A `key` fault is key-local and never reaches `done`, which makes `onFault` its
+  only notice.
+
+### Stores and channels
 
 | Adapter                                | Import                 | Purpose                                |
 | -------------------------------------- | ---------------------- | -------------------------------------- |
@@ -447,29 +559,37 @@ Stores and channels:
 | `inMemoryPublisher()`                  | `@kolu/surface/server` | a name-keyed `{ publish, subscribe }` publisher |
 | `publisherChannel<T>(publisher, name)` | `@kolu/surface/server` | adapt any name-keyed publisher to a typed `Channel<T>` |
 
-### On a shared publisher — a distinct constructor, not a flag
+### `implementSurfaceOnPublisher(surface, deps, channel)`
 
-The ordinary `implementSurface(surface, deps)` owns an internal
-`inMemoryChannelByName()` — self-contained in-process channels. A consumer that
-must serve on a **shared, caller-owned publisher** (whose cross-channel
-microtask order is load-bearing, and whose teardown the caller owns) reaches for
-**`implementSurfaceOnPublisher(surface, deps, channel)`** instead — a distinct
-ownership promise, never a mode flag. The runtime's `close()` releases only what
-it minted, never the shared publisher.
+Serves one surface on a shared, caller-owned publisher.
 
-`implementSurfaces(surfaces, base, deps)` serves N surfaces over one transport,
-keyed the same as the map, and likewise returns a supervised `SurfacesRuntime`.
-Its shared-publisher twin is **`implementSurfacesOnPublisher(surfaces, base, deps)`**,
-where `base` carries the `channel` factory.
+- The ordinary `implementSurface(surface, deps)` owns an internal
+  `inMemoryChannelByName()`, so its in-process channels are self-contained.
+- Reach for `implementSurfaceOnPublisher(surface, deps, channel)` when the
+  publisher is shared, its cross-channel microtask order is load-bearing, and
+  its teardown is the caller's.
+- It is a distinct constructor, never a mode flag.
+- The runtime's `close()` releases only what it minted, never the shared
+  publisher.
 
-### A rooted bundle whose siblings move — `implementRootedSurfaces`
+### `implementSurfaces(surfaces, base, deps)`
 
-**`implementRootedSurfaces(core, base, deps)`** serves an **unprefixed root**
-surface plus a sibling set that **changes while it is served**. It is the
-serve-side third member of the family whose other two doors already carry a root
-— [`exposeRootedFaces`](#per-face-expose-kolusurfaceexpose) at the gate and
+Serves N surfaces over one transport, keyed the same as the map. It likewise
+returns a supervised `SurfacesRuntime`.
+
+### `implementSurfacesOnPublisher(surfaces, base, deps)`
+
+The shared-publisher twin of `implementSurfaces`, where `base` carries the
+`channel` factory.
+
+### `implementRootedSurfaces(core, base, deps)`
+
+`implementRootedSurfaces(core, base, deps)` serves an unprefixed root surface
+plus a sibling set that changes while it is served. It is the serve-side third
+member of the family whose other two doors already carry a root:
+[`exposeRootedFaces`](#per-face-expose-kolusurfaceexpose) at the gate and
 [`connectSurfaces`' `core`](/surface/ref-surface-app#the-rooted-bundle) in the
-browser — and, like those, a distinct constructor rather than a mode flag on
+browser. Like those, it is a distinct constructor rather than a mode flag on
 `implementSurfaces`.
 
 ```ts
@@ -480,152 +600,195 @@ mounted.ctx.cells.fleet.set(next);   // the sibling's own write face
 await mounted.drop();                // …and the registration's own undo
 ```
 
-`group`, `handlers`, `ctx`, `done` and `close` are `SurfaceRuntimeHandle`'s, so
-this serves through the ordinary door with nothing in between; `ctx` is the
-**root's**, and a sibling's rides its `MountedSurface`. `group` and `handlers`
-are **live reads** — they answer for the roster as it stands when they are read.
-Read them as a **pair** inside one synchronous turn: a mount between the two
-reads hands you a group and a handler record of different generations, which
-`assertHandlersMatchGroup` then refuses.
-
-<Aside type="caution" title="Which serve door re-reads them">
-  [`serveSurfaceSocket`](/surface/ref-surface-app#accepting-a-browser-socket)
-  takes the pair **per accepted connection** — each socket builds its own
-  `RpcServer` — so an accept loop reading `runtime.group` / `runtime.handlers`
-  inside its `onAccepted` closure serves the current roster.
-
-  [`serveSurfaceApp`](/surface/ref-surface-app) and `serveOverUnixSocket` take
-  the same [`ServedGenerationSource`](#per-face-expose-kolusurfaceexpose):
-  `{ group, handlers, expose? }` is the generation written at the call, and
-  `{ live: () => ({ group, handlers, expose? }) }` is re-read at each accept,
-  as a pair. A socket accepted after a mount is indistinguishable from one
-  accepted on a boot that already had that sibling. A connection accepted
-  *before* the roster moved keeps the generation it was built over until the
-  client [redials](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces).
-  The granular accept loop remains the seam for "the app picks *which* runtime
-  serves this socket" (drishti's per-host dispatch).
-</Aside>
-
-| | |
+| Member | What it is |
 | --- | --- |
-| `mount(key, surface, deps, opts?)` | mount a sibling **live** — the only way one joins, at boot and forever after (a bundle whose roster moves would otherwise have two composition paths, and the one that runs at boot is the one that gets tested). **Transactional**: the sibling is walked, its route set proved and the whole bundle re-composed *before* anything is committed, so a missing dep, a duplicate key or a collision with the root throws with the roster and the running sources untouched |
-| `MountedSurface` | `{ key, surface, ctx, drop() }` — the scoped sibling surface, its write face, and **the registration's own undo**. `drop` is on the value `mount` handed back rather than a `drop(key)` verb, so a holder can retract its own sibling and nobody else's, and a stale holder's `drop()` on a key someone re-mounted is a no-op rather than a stranger's teardown |
-| `roster` | the keys currently mounted, in mount order |
+| `mount(key, surface, deps, opts?)` | Mounts a sibling live: the only way one joins, at boot and forever after. |
+| `MountedSurface` | `{ key, surface, ctx, drop() }` — the scoped sibling surface, its write face, and the registration's own undo. |
+| `roster` | The keys currently mounted, in mount order. |
 
-**Composition is incremental, and that is the whole point.** Mounting walks the
-*arriving* sibling only: every survivor keeps the handler values, cell stores,
-channels and running sources it already had. Re-implementing the whole map on
-each roster change — the shape a consumer reaches for when the framework has no
-door — silently forks that state, and a connection accepted before the change
-goes on answering out of the previous copy.
+- `group`, `handlers`, `ctx`, `done` and `close` are `SurfaceRuntimeHandle`'s,
+  so this serves through the ordinary door with nothing in between. `ctx` is the
+  root's, and a sibling's rides its `MountedSurface`.
+- `group` and `handlers` are live reads: they answer for the roster as it stands
+  when they are read. Read them as a pair inside one synchronous turn. A mount
+  between the two reads hands you a group and a handler record of different
+  generations, which `assertHandlersMatchGroup` then refuses.
+- A bundle whose roster moves would otherwise have two composition paths, and
+  the one that runs at boot is the one that gets tested.
+- `mount` is transactional. The sibling is walked, its route set proved and the
+  whole bundle re-composed before anything is committed, so a missing dep, a
+  duplicate key or a collision with the root throws with the roster and the
+  running sources untouched.
+- `drop` is on the value `mount` handed back rather than a `drop(key)` verb, so
+  a holder can retract its own sibling and nobody else's. A stale holder's
+  `drop()` on a key someone re-mounted is a no-op rather than a stranger's
+  teardown.
 
-**A drop reaches a connection that was already open.** Each of a sibling's tags
-is bound to a handler stable for that mount's whole life which refuses the
-instant the mount is dropped, so a record captured *before* the drop stops
-serving the dropped members: a new call gets a **`SurfaceSiblingDropped`**
-defect, and an in-flight *subscription* dies with the same defect rather than
-hanging on a producer nobody drives any more. A unary call already in flight is
-left to finish — it cannot go stale, because it does not outlive its own answer.
-A key that is dropped and later re-mounted mints a **new** handler at the same
-tags, so a recycled name can never route a stale connection into a different
-sibling's members.
+#### Which serve door re-reads `group` and `handlers`
 
-`siblingDroppedDetail(key)` is that refusal's **one sentence** — "the sibling
-`"<key>"` was dropped from this rooted bundle" — beside the class, read by
-`SurfaceSiblingDropped.message` and by the second reader that is not on the wire
-at all: `@kolu/surface-mcp`'s retirement table, which words the same fact for an
-agent holding a stale `tools/list`. Each caller keeps its own surrounding clause
-(what the name was, what to do next); only the sentence is shared, the same
-arrangement `notStandaloneRootDetail` makes for the three rooted doors.
+[`serveSurfaceSocket`](/surface/ref-surface-app#accepting-a-browser-socket)
+takes the pair per accepted connection, because each socket builds its own
+`RpcServer`. An accept loop reading `runtime.group` and `runtime.handlers`
+inside its `onAccepted` closure serves the current roster.
 
-`drop()` is idempotent and **always resolves**; a teardown fault reaches
-`done`, the runtime's one owned-fault channel, exactly as a finalizer faulting
-during `close()` does. The root's channels are its own (`<member>:changed`) and a
-sibling's are prefixed by its key **and its mount generation**
-(`<key>#<n>/<member>:changed`) — *not* the `<key>/<member>` rewrite
-`implementSurfaces` performs, because a key here can be dropped and re-used and
-the publisher is name-addressed, so the plain rewrite would let the new occupant
-subscribe to topics the retired one still publishes into. The generation is
-internal: channel names never cross the wire.
+[`serveSurfaceApp`](/surface/ref-surface-app) and `serveOverUnixSocket` take the
+same [`ServedGenerationSource`](#per-face-expose-kolusurfaceexpose):
 
-**A dropped sibling's `ctx` refuses, and so does a closed bundle's.** A mount has
-two faces — the wire handlers and the write face `mount` handed back — and a drop
-retracts both: every accessor on `MountedSurface.ctx`, reads included, throws
-`SurfaceSiblingDropped` from the instant of the drop. That covers the sibling's
-*own procedure handlers* too, which close over the same retracting value — an
-in-flight unary call is deliberately not interrupted, and its side effects would
-otherwise outlive the drop and write into a store nobody serves. `close()` is the
-runtime-wide drop and retracts every surviving mount for the same reason; the
-ROOT's `ctx` is the deliberate asymmetry (`SurfaceSiblingDropped` names a sibling,
-and the root is not one).
+- `{ group, handlers, expose? }` is the generation written at the call.
+- `{ live: () => ({ group, handlers, expose? }) }` is re-read at each accept, as
+  a pair.
 
-**What reaching `done` costs.** A `done` rejection is structural wiring death a
-serving site must treat as fatal, so **one sibling's teardown finalizer faulting
-ends the whole bundle, root included** — the two rows the `done` audit table
-(on `SurfaceRuntimeHandle.done`, the single home for it) carries for this door.
-A host that mounts
-siblings it does not control is accepting that. Deliberate: a source nobody
-drives is damage.
+A socket accepted after a mount is indistinguishable from one accepted on a boot
+that already had that sibling. A connection accepted before the roster moved
+keeps the generation it was built over until the client
+[redials](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces).
+The granular accept loop remains the seam for "the app picks which runtime
+serves this socket" (drishti's per-host dispatch).
 
-**How a client learns the roster moved — the app's job, for now.** This door and
+#### Composition is incremental
+
+Mounting walks the arriving sibling only. Every survivor keeps the handler
+values, cell stores, channels and running sources it already had.
+Re-implementing the whole map on each roster change silently forks that state,
+and a connection accepted before the change goes on answering out of the
+previous copy.
+
+#### A drop reaches a connection that was already open
+
+Each of a sibling's tags is bound to a handler stable for that mount's whole
+life, which refuses the instant the mount is dropped.
+
+- A record captured before the drop stops serving the dropped members: a new
+  call gets a `SurfaceSiblingDropped` defect.
+- An in-flight subscription dies with the same defect rather than hanging on a
+  producer nobody drives any more.
+- A unary call already in flight is left to finish. It cannot go stale, because
+  it does not outlive its own answer.
+- A key that is dropped and later re-mounted mints a new handler at the same
+  tags, so a recycled name can never route a stale connection into a different
+  sibling's members.
+- `drop()` is idempotent and always resolves. A teardown fault reaches `done`,
+  the runtime's one owned-fault channel, exactly as a finalizer faulting during
+  `close()` does.
+
+#### Channel names under a root
+
+The root's channels are its own (`<member>:changed`). A sibling's are prefixed
+by its key and its mount generation (`<key>#<n>/<member>:changed`), not the
+`<key>/<member>` rewrite `implementSurfaces` performs. A key here can be dropped
+and re-used and the publisher is name-addressed, so the plain rewrite would let
+the new occupant subscribe to topics the retired one still publishes into. The
+generation is internal: channel names never cross the wire.
+
+#### A dropped sibling's `ctx` refuses, and so does a closed bundle's
+
+A mount has two faces, the wire handlers and the write face `mount` handed back,
+and a drop retracts both.
+
+- Every accessor on `MountedSurface.ctx`, reads included, throws
+  `SurfaceSiblingDropped` from the instant of the drop.
+- That covers the sibling's own procedure handlers too, which close over the
+  same retracting value. An in-flight unary call is deliberately not
+  interrupted, and its side effects would otherwise outlive the drop and write
+  into a store nobody serves.
+- `close()` is the runtime-wide drop and retracts every surviving mount for the
+  same reason.
+- The root's `ctx` is the deliberate asymmetry: `SurfaceSiblingDropped` names a
+  sibling, and the root is not one.
+
+#### What reaching `done` costs
+
+A `done` rejection is structural wiring death a serving site must treat as
+fatal, so one sibling's teardown finalizer faulting ends the whole bundle, root
+included. Those are the two rows the [`done` audit table](#what-settles-done)
+carries for this door. A host that mounts siblings it does not control is
+accepting that: a source nobody drives is damage.
+
+#### How a client learns the roster moved
+
+This door and
 [`conn.redial`](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces)
-are the two *ends* of one axis, and the framework carries the middle — "the
-served roster is now `[a, c]`" — **nowhere**. A consumer publishes it (a cell on
-the *root* is the natural carrier, since the root is on every serve this wire can
-reach) and drives `redial` off it. (An over-firing effect that re-publishes an
-unchanged roster costs nothing: `redial` is idempotent — a roster the connection
-is already on dials no wire.) Said out loud because forgetting it fails
-*silently*: clients simply never learn about the new sibling and nothing errors. A
-framework-reserved `system/roster` cell plus a `connectSurfaces` option that
-redials on its change is the receptacle that would close it, recorded as an atlas
-candidate rather than built at a population of one.
+are the two ends of one axis, and the framework carries the middle ("the served
+roster is now `[a, c]`") nowhere.
 
-**Why `live` is a property of the *rooted* door.** A composed wire's two reserved
-round-trips — the `system/identity` echo and the `system/live` watchdog — must
-address a member on every serve the wire can reach. On a *rootless* bundle that
-target is the first sibling, and a first sibling that can be dropped is not a
-target: a watchdog probing a tag the serve stopped carrying reads "unknown
-member" as a dead wire and reconnects forever. A root is by definition on every
-serve. So the live door is the rooted one, and `implementSurfaces` stays the
-fixed bundle it is.
+- A consumer publishes it and drives `redial` off it. A cell on the root is the
+  natural carrier, since the root is on every serve this wire can reach.
+- An over-firing effect that re-publishes an unchanged roster costs nothing,
+  because `redial` is idempotent: a roster the connection is already on dials no
+  wire.
+- Forgetting it fails silently. Clients never learn about the new sibling and
+  nothing errors.
+- A framework-reserved `system/roster` cell plus a `connectSurfaces` option that
+  redials on its change is the receptacle that would close it, recorded as an
+  atlas candidate rather than built at a population of one.
 
-There is no `*OnPublisher` twin yet, deliberately: the shared-publisher
-constructors exist because kolu's shared publisher carries non-surface channels
-and its teardown is the caller's, and no rooted-bundle consumer has that problem.
+#### Why the live door is the rooted one
 
-### Composing a local runtime onto a re-served one
+A composed wire's two reserved round-trips, the `system/identity` echo and the
+`system/live` watchdog, must address a member on every serve the wire can reach.
 
-**`extendSurface(base, ext)`** composes a parent-**local** runtime (`ext`) onto a
-**re-served** base (a `reServeSurface` mirror of a remote agent) into one served
-surface — parent-owned additions stay causally separate from mirroring
-(post-commit observation, no second mirror). Both arguments are the structural
-**`ServedSurface<S>`** — `{ surface, handlers, done, close }` (a `reServeSurface`
-result satisfies it directly; a local `implementSurface` runtime does once its
-`surface` descriptor is carried alongside). It returns
-**`ExtendedSurface<Base, Ext>`** — the same supervision contract over the merged
-surface `Surface<ComposedSurfaceSpec<Base, Ext>>` (a flat per-kind merge of the two
-specs). Because both sides' handlers are already keyed by full wire tag, the merge
-is a handler-record union under one combined group — the tags are byte-identical
-to what each half served alone, on every transport rather than only in-process. A
-member-name collision between base and extension **fails loud** — the check is on
-the flat, per-name wire namespace across **all** kinds, so a base cell and an ext
-procedure of the same name collide too, and a duplicate bound tag is a second,
-independent crash.
+- On a rootless bundle that target is the first sibling, and a first sibling
+  that can be dropped is not a target. A watchdog probing a tag the serve
+  stopped carrying reads "unknown member" as a dead wire and reconnects forever.
+- A root is by definition on every serve, so `live` is a property of the rooted
+  door and `implementSurfaces` stays the fixed bundle it is.
+- There is no `*OnPublisher` twin of this door. The shared-publisher
+  constructors exist because kolu's shared publisher carries non-surface
+  channels and its teardown is the caller's, and no rooted-bundle consumer has
+  that problem.
 
-Supervision routes through **`superviseTerminalSource`**: the base is the
-**terminal** driver (its mirror pump ends when the remote session is destroyed, the
-composite's resolving edge), the local `ext` is **passive** (only its fault settles
-`done` before close). `close` tears the base down **fully first** — `base.close()`
-awaited to completion (it aborts the base's pump *and* releases the base runtime's
-own sources) — then releases the local runtime. The combinator
-**`superviseTerminalSource(runtime, terminal)`** pairs a passive owned `runtime`
-with a **terminal** driver whose `close: () => Promise<void>` is the atomic teardown
-verb (tear down *and* settle); it is the framework home for the terminal-source
-teardown `reServeSurface` used to hand-roll, and the seam both `reServeSurface` (a
-sync-abort pump wrapped as one `close`) and `extendSurface` (a full re-served base
-runtime) route through. Both closes are always attempted in that order. One close
-failure is rethrown unchanged; several are surfaced together as an
-`AggregateError`.
+### `siblingDroppedDetail(key)`
+
+The one sentence a dropped sibling's refusal carries: "the sibling `"<key>"` was
+dropped from this rooted bundle", read by `SurfaceSiblingDropped.message`.
+
+- Its second reader is not on the wire at all: `@kolu/surface-mcp`'s retirement
+  table, which words the same fact for an agent holding a stale `tools/list`.
+- Each caller keeps its own surrounding clause (what the name was, what to do
+  next). Only the sentence is shared, the same arrangement
+  `notStandaloneRootDetail` makes for the three rooted doors.
+
+### `extendSurface(base, ext)`
+
+`extendSurface(base, ext)` composes a parent-local runtime (`ext`) onto a
+re-served base (a `reServeSurface` mirror of a remote agent) into one served
+surface. Parent-owned additions stay causally separate from mirroring:
+post-commit observation, no second mirror.
+
+- Both arguments are the structural `ServedSurface<S>` — `{ surface, handlers, done, close }`.
+  A `reServeSurface` result satisfies it directly. A local `implementSurface`
+  runtime does once its `surface` descriptor is carried alongside.
+- It returns `ExtendedSurface<Base, Ext>`: the same supervision contract over
+  the merged surface `Surface<ComposedSurfaceSpec<Base, Ext>>`, a flat per-kind
+  merge of the two specs.
+- Both sides' handlers are already keyed by full wire tag, so the merge is a
+  handler-record union under one combined group. The tags are byte-identical to
+  what each half served alone, on every transport rather than only in-process.
+- A member-name collision between base and extension fails loud. The check is on
+  the flat, per-name wire namespace across all kinds, so a base cell and an ext
+  procedure of the same name collide too.
+- A duplicate bound tag is a second, independent crash.
+- Supervision routes through
+  [`superviseTerminalSource`](#superviseterminalsourceruntime-terminal): the
+  base is the terminal driver (its mirror pump ends when the remote session is
+  destroyed, the composite's resolving edge), and the local `ext` is passive, so
+  only its fault settles `done` before close.
+- `close` tears the base down fully first (`base.close()` awaited to completion,
+  which aborts the base's pump and releases the base runtime's own sources),
+  then releases the local runtime.
+
+### `superviseTerminalSource(runtime, terminal)`
+
+`superviseTerminalSource(runtime, terminal)` pairs a passive owned `runtime`
+with a terminal driver whose `close: () => Promise<void>` is the atomic teardown
+verb: tear down and settle.
+
+- It is the framework home for the terminal-source teardown, and the seam both
+  `reServeSurface` (a sync-abort pump wrapped as one `close`) and
+  `extendSurface` (a full re-served base runtime) route through.
+- Both closes are always attempted in that order.
+- One close failure is rethrown unchanged. Several are surfaced together as an
+  `AggregateError`.
 
 ## The reactor (reactive bridge)
 
