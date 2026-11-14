@@ -11,7 +11,6 @@
  */
 
 import { Effect } from "effect";
-import { agentVocab } from "kolu-agents/vocab";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
@@ -214,25 +213,33 @@ describe("an agent line", () => {
     expect(seam.reads).toEqual([]);
   });
 
-  it("says the agent is STARTING when its own binary is in front and nothing is detected yet", async () => {
-    // The row used to read "no agent · running omp", which says both halves
-    // of a contradiction at once. The binary is recognised through the agent
-    // registry (`cli.basename`), and the words it is named by come from the
-    // same registry — this test holds no list of its own.
-    const omp = agentVocab("omp");
-    setStanding({
-      kind: "here",
-      meta: {
-        state: "active",
-        agent: null,
-        foreground: { name: omp.cli.basename, title: null, shell: false },
-      } as never,
-    });
-    const el = mount("starting");
+  it("reads an agent that is only PRESENT off the record, quietly", async () => {
+    // The line used to GUESS this: no agent detected, one of our binaries in
+    // front, therefore "starting omp". padi says it now — a registered CLI in
+    // the foreground IS an agent on the record, `starting` while its screen is
+    // still being drawn and `fresh` once it has settled — so this reads like
+    // every other state, and the dot stays the muted one: an agent nobody has
+    // prompted is not something happening.
+    setStanding(working({ state: "starting", summary: null }));
+    const el = mount("coming-up");
     await vi.advanceTimersByTimeAsync(0);
     expect(
       el.querySelector('[data-testid="conductor-look-status"]')?.textContent,
-    ).toBe(`starting ${omp.displayName}`);
+    ).toBe("Starting");
+    const dot = el.querySelector('[data-testid="conductor-look"] span');
+    expect(dot?.className).toContain("bg-fg-3");
+    expect(dot?.className).not.toContain("animate-pulse");
+
+    unmount();
+    setStanding(working({ state: "fresh", summary: null }));
+    const ready = mount("ready");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(
+      ready.querySelector('[data-testid="conductor-look-status"]')?.textContent,
+    ).toBe("Ready");
+    expect(
+      ready.querySelector('[data-testid="conductor-look"] span')?.className,
+    ).toContain("bg-fg-3");
   });
 
   it("still says 'no agent' for a program that is none of ours, and for the shell", async () => {

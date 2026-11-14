@@ -22,7 +22,9 @@
  *  (`foldToolRuns`), so the conversation reads as its sentences even while the
  *  Conductor works; what a reader would lose by folding — a running call, a
  *  failure, the line about an agent — stays in the flow. The same failure in a
- *  row is said once, with its count (`foldFailureRuns`). */
+ *  row is said once, with its count (`foldFailureRuns`), and the call that
+ *  asked a question draws nothing at all — the ask row below it IS the
+ *  question, so its card said the same words twice (`transcript.ts`). */
 
 import { formatBytes } from "@kolu/byte-units";
 import type { ConductorRow, ConductorToolRow } from "kolu-common/conductor";

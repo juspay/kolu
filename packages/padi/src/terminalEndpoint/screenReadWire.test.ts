@@ -58,7 +58,11 @@ function readyProxy(): ReturnType<typeof recordingClient> & {
   proxy: PtyHostTerminalProxy;
 } {
   const rec = recordingClient();
-  const proxy = new PtyHostTerminalProxy("t1" as TerminalId, rec.client);
+  const proxy = new PtyHostTerminalProxy(
+    "t1" as TerminalId,
+    rec.client,
+    () => {},
+  );
   proxy.markReady(4242);
   return { ...rec, proxy };
 }

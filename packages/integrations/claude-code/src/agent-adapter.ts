@@ -63,6 +63,15 @@ export const claudeCodeAdapter: AgentAdapter<SessionFile, ClaudeCodeInfo> = {
     return `${session.sessionId}:${session.pid}:${session.startedAt ?? ""}`;
   },
 
+  // Claude writes `~/.claude/sessions/<pid>.json` the moment it starts — with
+  // the conversation's `sessionId` already in it — and its transcript only with
+  // the first exchange. So the presence padi publishes before then carries
+  // that id: the same one the transcript (`<sessionId>.jsonl`) is named by, so
+  // the conversation's identity does not move when the first turn lands.
+  presenceSessionId(session) {
+    return session.sessionId;
+  },
+
   sessionStartedAt(session) {
     return session.startedAt ?? null;
   },

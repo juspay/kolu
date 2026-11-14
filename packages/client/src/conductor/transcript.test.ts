@@ -406,6 +406,34 @@ describe("foldToolRuns", () => {
       ]),
     ).toEqual(["a", ["t1"], "w", ["t2"], "b"]);
   });
+
+  it("draws NO card for the call that asked a question — the ask row is the question", () => {
+    // `AskUserQuestion` and the form it produced reach the panel as two
+    // independent rows, so the question was drawn twice: once as grey
+    // machinery carrying the same words, immediately above the thing asking
+    // it. The ask row stays, and the fold's count does not hold the call
+    // either — it is not drawn anywhere.
+    const ask = (id: string, seq: number): ConductorRow =>
+      ({
+        id,
+        seq,
+        since: SINCE,
+        kind: "ask",
+        text: "Which database?",
+        ask: { fields: [], link: null, outcome: null },
+      }) as unknown as ConductorRow;
+    expect(
+      drawn([
+        user("u", 0),
+        tool("t-ask", 1, {
+          toolName: "AskUserQuestion",
+          text: "Which database?",
+        }),
+        ask("ask:1", 2),
+        tool("t2", 3, { toolName: "Read" }),
+      ]),
+    ).toEqual(["u", "ask:1", ["t2"]]);
+  });
 });
 
 describe("foldFailureRuns", () => {

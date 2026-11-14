@@ -45,7 +45,8 @@ terminal can move under — that gap is a race, not a formality.
   `<repo>/.worktrees/<name>` and open the terminal IN it, and `run` types a
   command line at the first shell prompt (submitted with Enter) — the whole
   `kolu create --toplevel --repo … --worktree … -- <agent>` in ONE call. It spawns a
-  shell — to say something to the agent that comes up in it, use `agent_say`.
+  shell — to say something to the agent that comes up in it, wait for it to be
+  up (`wait_agentState { until: ["fresh"] }`), then use `agent_say`.
 - `lifecycle_sendInput` writes **text OR one named key, never both** —
   `{ text, key }` together is a typed hard error. Keys: `Enter`, `Escape`,
   `Tab`, arrows, `Home`/`End`, `Backspace`, `Space`, `Shift-Tab`,
@@ -73,6 +74,7 @@ terminal can move under — that gap is a race, not a formality.
   actually began working — `"began-working"`, or `"did-not-begin"` within a few
   seconds, in which case **read the screen rather than saying it again**. It
   REFUSES rather than guessing: a terminal with no agent (a plain shell), an
+  agent still **starting** (its screen is being drawn — wait for `fresh`), an
   agent with no verified recipe, a terminal that is asleep, empty text.
   `lifecycle_sendInput` is for shells, menus, dialogs and interrupts.
 
@@ -114,9 +116,14 @@ you — which is why it is the verb for an agent and this is the fallback.
   agent-agnostic. `800` is a good default. It can't tell "finished" from
   "blocked asking you" — read the screen before responding.
 - `wait_agentState { until: […], timeoutMs }` — padi's detected state:
-  `working`, `awaiting` (asking you), `waiting` (post-turn lull). It matches
-  the state **the instant it connects**, so right after a submit it can return
-  on the *previous* turn's `waiting` — wait in two phases:
+  `working`, `awaiting` (asking you), `waiting` (post-turn lull), and for an
+  agent not yet prompted at all, `starting` (its screen is still being drawn)
+  then `fresh` (up, nothing said to it — the moment to brief one you launched).
+  An agent is detected from its process the moment it starts, before it writes
+  anything, and it reads `working` from the instant a prompt is submitted to it,
+  before it has written a word of transcript. It matches the state **the
+  instant it connects**, so right after a
+  submit it can return on the *previous* turn's `waiting` — wait in two phases:
   `until: ["working"]`, then `until: ["awaiting","waiting"]`.
 
 Both take two modifiers, and both exist because the thing they close is a race

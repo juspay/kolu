@@ -261,14 +261,16 @@ export class PreviewTooLarge extends Schema.TaggedError<PreviewTooLarge>(
 
 // ── Transcript export ─────────────────────────────────────────────────────
 
-/** The terminal hosts no agent session, so there is nothing to export.
- *  Successor of `ORPCError("PRECONDITION_FAILED")` — a precondition on the
- *  terminal's state, not a failure of the export. */
+/** The terminal hosts no agent session, so there is nothing to export — no
+ *  agent at all, or one that is up and has not been prompted yet (agents write
+ *  their transcript with the first exchange). Successor of
+ *  `ORPCError("PRECONDITION_FAILED")` — a precondition on the terminal's state,
+ *  not a failure of the export. */
 export class TranscriptNoAgent extends Schema.TaggedError<TranscriptNoAgent>(
   "padi/TranscriptNoAgent",
 )("TranscriptNoAgent", {}) {
   override get message(): string {
-    return "No active agent session in this terminal — start Claude Code, OpenCode, Codex, or Grok first";
+    return "No agent session in this terminal yet — start an agent and prompt it first; it writes its transcript with the first exchange";
   }
 }
 

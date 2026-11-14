@@ -11,7 +11,8 @@
  *    headless mirror generates.
  *  - `deviceQueries`   — the answered/silent matrix as data; executed against
  *    a real headless by `kaval`'s device-query contract tests.
- *  - `bracketedPaste`  — the `?2004` paste delimiters.
+ *  - `bracketedPaste`  — the `?2004` paste delimiters, and the one incremental
+ *    matcher that follows them through a stream (`createPasteTracker`).
  *  - `keyInput`        — named-key → bytes table + the Ctrl `& 0x1f` fold, the
  *    one home for every producer of key-press bytes (client + key bar + CLI).
  *  - `sendPolicy`      — WHAT a named send writes: text-XOR-keys, the
@@ -19,6 +20,9 @@
  *    the two tables above and shared by `kolu send` and the MCP send tool.
  *  - `snapshotReset`   — the reciprocal reset for modes a replayed
  *    `@xterm/addon-serialize` snapshot can switch on.
+ *  - `submitInput`     — whether a write to a terminal SUBMITS (a typed,
+ *    unmodified Enter outside a paste), which padi reads to know an agent
+ *    was handed a prompt before its transcript says so.
  *
  * A leaf: zero runtime dependencies, importable from the browser bundle, the
  * pty-host, and the CLI alike — which is exactly why this lives in its own
@@ -32,6 +36,8 @@
 export {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START,
+  createPasteTracker,
+  type PasteTracker,
   wrapBracketedPaste,
 } from "./bracketedPaste.ts";
 export {
@@ -61,3 +67,4 @@ export {
   type SendVocabulary,
 } from "./sendPolicy.ts";
 export { SNAPSHOT_TTY_RESET } from "./snapshotReset.ts";
+export { createSubmitScanner, type SubmitScanner } from "./submitInput.ts";

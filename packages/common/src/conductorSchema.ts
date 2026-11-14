@@ -363,6 +363,16 @@ export const ConductorToolRowSchema = Schema.Struct({
   /** Which MCP server and tool, when the call could be positively named. */
   server: Schema.optionalKey(Schema.String),
   tool: Schema.optionalKey(Schema.String),
+  /** WHAT THE CALL IS, as the agent spells it programmatically
+   *  (`AskUserQuestion`, `mcp__kolu__lifecycle_create`) — never the display
+   *  title, which is model-written prose. Distinct from `tool` above: that one
+   *  is the MCP identity a card NAMES the call by and exists only for the
+   *  servers kolu handed over, so a built-in call has it empty while still
+   *  being something a reader must be able to recognise (the panel draws no
+   *  card for the call that produced an ask form — the form IS the question).
+   *  Optional, like every other field a frame may not carry: a record written
+   *  before this existed decodes unchanged, with no name. */
+  toolName: Schema.optionalKey(Schema.String),
   /** Folded JSON of the call's input and answer — the generic card's body. */
   detail: Schema.optionalKey(Schema.String),
   /** Live incremental content while the call runs. */
@@ -432,7 +442,7 @@ const SHARED_LEVELS = ["stopped", "asking", "gone", "asleep"] as const;
 
 /** HOW A WATCHED TERMINAL STANDS when kolu wakes the Conductor about it.
  *
- *  Six values, and every one of them is a thing the Conductor can DO
+ *  Seven values, and every one of them is a thing the Conductor can DO
  *  something about:
  *
  *  - `stopped` — the agent's turn ended and its output went quiet (padi's
@@ -441,9 +451,13 @@ const SHARED_LEVELS = ["stopped", "asking", "gone", "asleep"] as const;
  *  - `gone` — the terminal left its host's roster while that host was
  *    answering.
  *  - `ready` — the agent in it has COME UP and nothing has been said to it
- *    yet. It rings INSTEAD of `stopped` the first time a never-spoken-to
- *    agent is idle, because a fresh agent sitting at its prompt is not a
- *    turn that ended: it is one that has not been given.
+ *    yet. TWO ways to it, and they are not the same claim: a `fresh` reading
+ *    is padi SAYING so (the agent's screen has settled and it has never been
+ *    prompted), while a `stopped` reading of an agent this conversation has
+ *    never spoken to is kolu INFERRING it — the case of a session that was
+ *    already running when the terminal was watched. Either way it rings
+ *    instead of `stopped`, because an agent sitting at its prompt unbriefed
+ *    is not a turn that ended: it is one that has not been given.
  *  - `asleep` — the terminal an agent was seen in was put to sleep, so that
  *    agent is gone with it. The entry stays watched: waking the terminal
  *    brings it back to the ordinary levels.
@@ -453,6 +467,14 @@ const SHARED_LEVELS = ["stopped", "asking", "gone", "asleep"] as const;
  *    and its agent detection, and NO exit status — so a command that fails
  *    before any non-shell foreground is sampled (`omp: command not found`,
  *    answered by the shell itself) does not ring at all.
+ *  - `exited` — the OTHER half of that pair, and the one a waiting Conductor
+ *    used to die on: an agent WAS seen in this terminal, and now its program
+ *    has left the foreground and the terminal is back at its shell prompt.
+ *    The agent crashed, was quit, or ran out of something. It rings because
+ *    the thing the Conductor was waiting for cannot happen any more — no
+ *    `stopped`, no `asking`, no `gone` will ever follow — and the screen the
+ *    agent left behind is where the reason is. Like `ended` it carries no
+ *    exit status: kolu saw the program go, not why.
  *
  *  Nothing else rings: an agent that is working, a plain shell nobody
  *  created with a command, a host that is merely not answering. */
@@ -460,21 +482,36 @@ export const ConductorWakeLevelSchema = Schema.Literals([
   ...SHARED_LEVELS,
   "ready",
   "ended",
+  "exited",
 ]);
 export type ConductorWakeLevel = typeof ConductorWakeLevelSchema.Type;
 
 /** WHAT A WATCHED TERMINAL IS DOING, as the watch READS it off its host: the
  *  four shared levels, plus the two readings that never ring on their own —
  *  `working` (an agent visibly moving) and `shell` (a prompt with nothing in
- *  front of it). Both MOVE the entry, so both are read, and a panel that says
- *  how long a terminal has stood as it stands has to be able to name them.
+ *  front of it) — plus the two PRESENCE readings. Both of the first pair MOVE
+ *  the entry, so both are read, and a panel that says how long a terminal has
+ *  stood as it stands has to be able to name them.
  *
- *  `ready` and `ended` are NOT in here: they never come off a host, so a
- *  reading that carried one would be a frame nothing can produce. */
+ *  `starting` and `fresh` are padi's own presence states, read off the record's
+ *  agent rather than off an urgency list: an agent program is in the foreground
+ *  and its screen is still being drawn (`starting`), or it has settled and
+ *  nothing has ever been said to it (`fresh`). They exist here because they
+ *  arrive BEFORE any transcript does — the watch used to say nothing at all
+ *  about a terminal whose agent had come up but had not yet written a session,
+ *  which is exactly the moment the Conductor is waiting to brief it in.
+ *
+ *  `ready`, `ended` and `exited` are NOT in here: they never come off a host,
+ *  so a reading that carried one would be a frame nothing can produce.
+ *  `fresh` is the reading `ready` is concluded from, and a `shell` reading is
+ *  where the other two are decided; they are not the same words, because the
+ *  conclusion is the watch's ({@link ConductorWakeLevelSchema}). */
 export const ConductorReadingLevelSchema = Schema.Literals([
   ...SHARED_LEVELS,
   "working",
   "shell",
+  "starting",
+  "fresh",
 ]);
 export type ConductorReadingLevel = typeof ConductorReadingLevelSchema.Type;
 

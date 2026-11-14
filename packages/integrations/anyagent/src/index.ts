@@ -13,6 +13,7 @@
 
 export {
   type AgentAdapter,
+  type AgentInfoFields,
   type AgentInfoShape,
   type AgentTerminalState,
   type AgentWatcher,
@@ -31,7 +32,13 @@ export {
 } from "./agent-cli.ts";
 export { classifyByAwaiting } from "./lifecycle.ts";
 export type { AgentPlugin } from "./plugin.ts";
-export { type TaskProgress, TaskProgressSchema } from "./schemas.ts";
+export {
+  AGENT_PRESENCE_STATES,
+  type AgentPresenceState,
+  AgentPresenceStateSchema,
+  type TaskProgress,
+  TaskProgressSchema,
+} from "./schemas.ts";
 export {
   type AgentCliGrammar,
   type AgentMark,

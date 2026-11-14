@@ -1177,6 +1177,14 @@ export const startHarness = async (
         status: statusOf(update.status),
         server: call?.server,
         tool: call?.tool,
+        // ... and WHAT THE CALL IS, programmatically, beside the MCP identity
+        // a card names it by. The two are not the same question: `tool` is
+        // filled only for the servers kolu handed over, so a BUILT-IN call
+        // (Claude's `AskUserQuestion`) carries nothing a reader could
+        // recognise it by — its title is model-written prose. The name is
+        // already in hand from the `_meta` the leg reads; passing it on is
+        // what lets the panel decide that a call draws no card of its own.
+        toolName: calls.about(update.toolCallId).name,
         detail: detailOf(update.rawInput, update.rawOutput),
         asked: detailOf(update.rawInput, undefined),
         progress: progressOf(

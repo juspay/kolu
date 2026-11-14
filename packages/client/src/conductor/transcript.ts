@@ -16,10 +16,11 @@
  *  The READER RULES live here too, beside the rows they read: a run of
  *  identical notices draws as one (`foldNoticeRuns`), the settled tool calls
  *  between two boundaries fold into one "Details" as they settle
- *  (`foldToolRuns`), and the same failure in a row draws as one line with its
- *  count (`foldFailureRuns`). All three are pure, so what the panel draws is
- *  decided in a unit test, and none rewrites a row — `Copy transcript` still
- *  reads them all. */
+ *  (`foldToolRuns`), the same failure in a row draws as one line with its
+ *  count (`foldFailureRuns`), and the call that produced a question draws
+ *  nothing — the ask row IS the question (`ASK_TOOL`). All of them are pure,
+ *  so what the panel draws is decided in a unit test, and none rewrites a
+ *  row — `Copy transcript` still reads them all. */
 
 import { isTerminalId } from "@kolu/terminal-vocab/terminalId";
 import {
@@ -147,6 +148,18 @@ export interface TranscriptEntry {
   readonly repeat: number;
 }
 
+/** Claude Code's question tool. The form it produces is the `ask` row, and
+ *  that row IS the question — drawn with its options, its answer and its
+ *  "Conductor asks you" heading — so the CALL that produced it has nothing
+ *  left to say: its card showed the same question a second time, as grey
+ *  machinery, immediately above the thing asking it.
+ *
+ *  Named rather than linked, because the wire carries no edge from an ask row
+ *  back to its tool row — the elicitation and the tool call reach the panel as
+ *  two independent reports. `toolName` is what the agent CALLED, from the
+ *  adapter's own `_meta`, never the title (model-written prose). */
+export const ASK_TOOL = "AskUserQuestion";
+
 /** Collapse every RUN of consecutive notices with identical text to the first
  *  of them, carrying the count.
  *
@@ -167,6 +180,14 @@ export function foldNoticeRuns(
 ): readonly TranscriptEntry[] {
   const entries: TranscriptEntry[] = [];
   for (const row of rows) {
+    // NOT DRAWN AT ALL — and decided HERE, at the one door every row passes
+    // through on its way to being drawn, rather than at the `<Match>` that
+    // would have rendered the card: everything downstream counts entries (the
+    // "Details" fold's number, the failure runs, the keyed list), so a row
+    // suppressed at the render site would still be counted by all of them and
+    // leave a fold that says 4 and opens on 3. Nothing is REWRITTEN: `Copy
+    // transcript` reads the rows themselves and still has the call.
+    if (row.kind === "tool" && row.toolName === ASK_TOOL) continue;
     const last = entries[entries.length - 1];
     if (
       last !== undefined &&

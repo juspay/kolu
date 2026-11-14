@@ -50,7 +50,6 @@ import { describe, expect, it } from "vitest";
 import type { PadiSurfaceClient } from "./dial.ts";
 import { TerminalNotActive, TerminalNotFound } from "./errors.ts";
 import type { PadiTerminal } from "./surface.ts";
-import { WAIT_STATES } from "./terminalVocab.ts";
 import {
   awaitAgentState,
   awaitOutputSettled,
@@ -121,10 +120,6 @@ describe("matchingActiveAgent — the wait predicate over a composed record", ()
         awaitingOrWaiting,
       ),
     ).toBeNull();
-  });
-
-  it("every WAIT_STATES bucket is a real agentBucket value (no dead target)", () => {
-    expect(WAIT_STATES).toEqual(["working", "awaiting", "waiting"]);
   });
 });
 

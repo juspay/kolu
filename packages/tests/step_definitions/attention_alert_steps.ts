@@ -147,3 +147,63 @@ Then("the app badge should be cleared", async function (this: KoluWorld) {
   assert.ok(lastCall, "Expected a badge API call");
   assert.strictEqual(lastCall.method, "clear");
 });
+
+/** THE QUIET CLAIM, and the reason it is spelled as "never": the badge is
+ *  de-duplicated against the last count it confirmed, so an agent that raises
+ *  nothing produces NO call at all — there is no `clear` to find and "the last
+ *  call was a clear" would fail on a perfectly quiet app. What a presence
+ *  promises is that no count was ever put on the icon for it, which is exactly
+ *  the absence of a `set` with a number in it. */
+Then(
+  "the app badge should never have counted an agent",
+  async function (this: KoluWorld) {
+    await this.waitForFrame();
+    const counted = await this.page.evaluate(() =>
+      (window.__badgeCalls ?? [])
+        .filter(
+          (call): call is { method: "set"; count?: number } =>
+            call.method === "set" && (call.count ?? 0) > 0,
+        )
+        .map((call) => call.count),
+    );
+    assert.deepStrictEqual(
+      counted,
+      [],
+      `the app badge was raised to ${counted.join(", ")} for an agent that needs nobody`,
+    );
+  },
+);
+
+/** The host tab's two attention marks, both absent: the working STRIPE along
+ *  its bottom edge and the count segment beside its name. Scoped under
+ *  `host-chip-row` — the hidden measuring twin also matches `host-chip` — and
+ *  read off the ACTIVE tab, the one whose terminals the scenario is about. */
+Then(
+  "the active host tab should show no attention marks",
+  async function (this: KoluWorld) {
+    await this.waitForFrame();
+    const marks = await this.page.evaluate(() => {
+      const tab = document.querySelector(
+        '[data-testid="host-chip-row"] [data-testid="host-chip"][data-active]',
+      );
+      if (tab === null) return "no active host tab";
+      const found = [
+        tab.querySelector('[data-testid="host-tab-working-stripe"]') === null
+          ? null
+          : "working stripe",
+        tab.querySelector('[data-testid="attention-active"]') === null
+          ? null
+          : "active count",
+        tab.querySelector('[data-testid="attention-awaiting"]') === null
+          ? null
+          : "awaiting count",
+      ].filter((mark) => mark !== null);
+      return found.join(", ");
+    });
+    assert.strictEqual(
+      marks,
+      "",
+      `the active host tab carried ${marks} for an agent that needs nobody`,
+    );
+  },
+);

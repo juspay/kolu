@@ -43,6 +43,15 @@
  *   watch <id>       — a REAL `watch_terminal` call on the fleet face for
  *                      `local/<id>`, so the watched list moves because the
  *                      Conductor's own tool moved it
+ *   run <command>    — a REAL `lifecycle_create` on the fleet face that TYPES
+ *                      `<command>` at the new terminal's first prompt (the
+ *                      scenario names it, because only the test process knows
+ *                      the stand-in binary's absolute path), and answers
+ *                      `ran: <the tool's answer>` — which carries the fleet
+ *                      ref the create watched
+ *   tell it <words>  — a REAL `agent_say` to the terminal `run` last started,
+ *                      answered verbatim: the tool's report when it landed,
+ *                      its refusal sentence when it did not
  *   work for a while — a turn held open for twelve seconds: long enough for a
  *                      watched terminal to ring while it runs and be HELD
  *   work until steered — a turn held open until a STEER arrives
@@ -375,6 +384,11 @@ const say = (text: string): void => {
 /** The steer the `work until steered` turn is waiting for, while it waits. */
 let awaitingSteer: ((text: string) => void) | null = null;
 
+/** The terminal the `run` verb last STARTED, as the fleet ref the create
+ *  answered with — what `tell it <words>` speaks to. `null` until one is
+ *  started, and the `tell` verb says so rather than inventing a ref. */
+let lastStarted: string | null = null;
+
 const turn = async (
   id: unknown,
   text: string,
@@ -396,6 +410,49 @@ const turn = async (
   if (text.startsWith("watch ")) {
     const terminalId = text.slice("watch ".length).trim();
     say(await callTool("watch_terminal", { id: `local/${terminalId}` }));
+    endTurn(id);
+    return;
+  }
+  if (text.startsWith("run ")) {
+    // THE CONDUCTOR STARTS SOMETHING. A real `lifecycle_create` on the fleet
+    // face, with the command the scenario named typed at the new terminal's
+    // first prompt — the fleet grammar's own `run`. The tool watches what it
+    // created, so the terminal is on the watched list from the moment it
+    // exists and nothing here has to ask for that separately.
+    //
+    // The COMMAND comes from the scenario rather than being baked in here: the
+    // stand-in it starts is a fake agent binary whose absolute path only the
+    // test process knows (the harness seeds it per worker), and a fixture that
+    // guessed `claude` would start whatever that name happens to resolve to on
+    // the box.
+    const answer = await callTool("lifecycle_create", {
+      host: "local",
+      placement: { kind: "toplevel" },
+      cwd: "/tmp",
+      intent: "bring one up",
+      run: text.slice("run ".length).trim(),
+    });
+    lastStarted = /\blocal\/[0-9a-f-]{36}\b/.exec(answer)?.[0] ?? null;
+    say(`ran: ${answer}`);
+    endTurn(id);
+    return;
+  }
+  if (text.startsWith("tell it ")) {
+    // SPEAKING TO THE AGENT IT STARTED — `agent_say` on the fleet face, which
+    // is the verb that knows the keys. The answer is said verbatim, refusal
+    // sentence and all, so a scenario can tell a call that landed from one the
+    // face turned down (an agent still coming up is turned down).
+    if (lastStarted === null) {
+      say("nothing was started to tell");
+      endTurn(id);
+      return;
+    }
+    say(
+      await callTool("agent_say", {
+        id: lastStarted,
+        text: text.slice("tell it ".length).trim(),
+      }),
+    );
     endTurn(id);
     return;
   }

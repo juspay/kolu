@@ -424,6 +424,11 @@ describe("loadOmpTranscript", () => {
           log,
         );
         expect(offered?.map((s) => s.id)).toEqual([sessionId]);
+        // …and the presence padi publishes while that JSONL is missing carries
+        // the id the fresh crumb names, rather than none.
+        expect(
+          offered?.map((s) => ompAdapter.presenceSessionId?.(s) ?? null),
+        ).toEqual([sessionId]);
       } finally {
         child.kill();
       }

@@ -21,6 +21,7 @@
 import type { ConductorRow, ConductorState } from "kolu-common/conductor";
 import { elapsedSince } from "../time/duration";
 import { toolLabel } from "./toolCard";
+import { ASK_TOOL } from "./transcript";
 
 /** How much of a spoken line the status row carries. Past this the line is
  *  a paragraph, and the status row is one line beside two buttons — on a
@@ -59,7 +60,15 @@ const TURN_OPENERS: Partial<Record<ConductorRow["kind"], true>> = {
  *  as the thing happening now — a status line that lied while the work it was
  *  describing was elsewhere. A running call still outranks prose, because a
  *  sentence the agent finished saying before it made the call is not what it
- *  is doing. */
+ *  is doing.
+ *
+ *  THE QUESTION CALL IS NOT A CALL IN FLIGHT. An `AskUserQuestion` sits
+ *  `pending` for exactly as long as its form is on screen waiting for a
+ *  person, so naming it here put the machinery's name on the line (`asking ·
+ *  AskUserQuestion`) while the thing actually happening was the form the
+ *  reader was already looking at. The same row the transcript refuses to draw
+ *  a card for ({@link ASK_TOOL}), refused by the same name: the form IS the
+ *  question, and the line says what the turn said before it instead. */
 export function conductorDoing(rows: readonly ConductorRow[]): string | null {
   /** The latest prose of this turn, held while the walk keeps looking for a
    *  call still out beneath it. */
@@ -70,6 +79,7 @@ export function conductorDoing(rows: readonly ConductorRow[]): string | null {
     if (TURN_OPENERS[row.kind] === true) break;
     if (
       row.kind === "tool" &&
+      row.toolName !== ASK_TOOL &&
       (row.status === "pending" || row.status === "in_progress")
     ) {
       return toolLabel(row);

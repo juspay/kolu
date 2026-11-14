@@ -16,10 +16,12 @@
  *
  *   1. **Read the terminal's record** — the live agent (`activeAgent`, padi's
  *      own narrowing) and its coarse state bucket (`agentBucket`). Nothing is
- *      typed before this: a plain shell, a sleeping terminal and an agent kolu
- *      has no recipe for are all REFUSED, never guessed at. Typing a sentence
+ *      typed before this: a plain shell, a sleeping terminal, an agent kolu
+ *      has no recipe for and an agent that is still COMING UP (its screen is
+ *      still being drawn) are all REFUSED, never guessed at. Typing a sentence
  *      meant for an agent into a bash prompt is a command the human did not
- *      write.
+ *      write; typing one into a TUI that has not finished painting itself is a
+ *      sentence nobody can say where it went.
  *   2. **Write the words** — through the SAME encoder `lifecycle_sendInput`
  *      uses (`@kolu/terminal-protocol`), so multiline text is bracketed-pasted
  *      and an empty payload is refused with the shared sentence. One policy,
@@ -68,7 +70,10 @@ import {
   type SendPlan,
   type SendVocabulary,
 } from "@kolu/terminal-protocol";
-import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
+import {
+  agentBucket,
+  type WaitState,
+} from "@kolu/terminal-vocab/agentProjection";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
@@ -136,7 +141,12 @@ export const SAY_TAKE_CAP_MS = 3_000;
  *     so the answer is a refusal that names the agent.
  *   - `agent-cannot-be-told-while-working` — there IS a recipe, but not for an
  *     agent mid-turn: this agent's TUI drops or mangles input while it works.
- *     The recovery is to wait for the turn to end and say it then. */
+ *     The recovery is to wait for the turn to end and say it then.
+ *   - `agent-starting` — the agent's process is up but its screen is still
+ *     being drawn (padi's `starting` presence). Keys pressed into a TUI that
+ *     is still painting itself are read by whatever it puts on screen next, or
+ *     by nothing at all. The recovery is to WAIT — the Conductor's watch rings
+ *     `ready`, a driver waits for the `fresh` bucket — and say it then. */
 export type SayRefusal =
   | { readonly kind: "text-refused" }
   | { readonly kind: "no-agent"; readonly id: string }
@@ -147,6 +157,11 @@ export type SayRefusal =
     }
   | {
       readonly kind: "agent-cannot-be-told-while-working";
+      readonly id: string;
+      readonly agent: string;
+    }
+  | {
+      readonly kind: "agent-starting";
       readonly id: string;
       readonly agent: string;
     };
@@ -170,6 +185,16 @@ export interface SayPerformance {
   readonly delivery: SayDelivery;
 }
 
+/** The one bucket whose arrival PROVES the words took ({@link SayTook}), for
+ *  every idle agent alike. An agent idle mid-conversation turns `working` when
+ *  its transcript starts the turn; one that was `fresh` (up, never prompted)
+ *  turns `working` the instant padi forwards the submit, as the `prompted`
+ *  presence — padi's own reading of the input it carried, so a first prompt
+ *  needs no transcript to be seen landing. */
+export const SAY_TAKES: ReadonlySet<WaitState> = new Set<WaitState>([
+  "working",
+]);
+
 /** Whether the words TOOK — the half of this tool's promise the delivery word
  *  cannot answer.
  *
@@ -181,7 +206,9 @@ export interface SayPerformance {
  *  answer, and the one that did not take names the screen read that settles
  *  it.
  *
- *   - `began-working` — the agent's bucket turned `working`: it took.
+ *   - `began-working` — the agent's bucket turned `working`: its transcript
+ *     started a turn, or — for an agent that was `fresh` — padi saw the
+ *     submit go in and published it `prompted`. It took.
  *   - `did-not-begin` — it had not within the cap. The keys WERE sent.
  *   - `not-observable` — the agent was already working, so there is no state
  *     change to watch for; what happens to the words is the recipe's
@@ -225,7 +252,12 @@ export function sayTook(
       return {
         observed: "began-working",
         afterMs: outcome.elapsedMs,
-        note: `The agent began working ${outcome.elapsedMs} ms after the keys — it took.`,
+        // A `prompted` agent is one padi SAW the submit reach, before any
+        // transcript: say exactly that, rather than claim a turn it cannot see.
+        note:
+          outcome.agent.state === "prompted"
+            ? `The submit reached the agent ${outcome.elapsedMs} ms after the keys and it is working on it — it took. It has not written a transcript yet, so there is nothing of its reply to read until it does.`
+            : `The agent began a turn ${outcome.elapsedMs} ms after the keys — it took.`,
       };
     case "timeout":
       return {
@@ -298,8 +330,32 @@ export function sayableRecipe(
       { kind: "agent-cannot-be-told", id, agent: agent.kind },
     );
   }
-  if (agentBucket(agent.state) !== "working") {
-    return { keys: recipe.idle, delivery: "submitted" };
+  // WHICH RECIPE, by the agent's coarse bucket — an exhaustive switch rather
+  // than a `!== "working"` test, because the fold now carries the two PRESENCE
+  // buckets and they do not mean the same thing: one of them is a refusal. A
+  // bucket added to `agentBucket` stops this compiling instead of silently
+  // taking the idle keys.
+  const bucket = agentBucket(agent.state);
+  switch (bucket) {
+    case "starting":
+      throw new ToolFailure<SayRefusal>(
+        `${vocab.displayName} (terminal ${id}) is still coming up — its process is there, but its screen is still being drawn. Keys pressed into a TUI that has not finished painting itself are read by whatever it draws next, or by nothing at all. Wait until it is READY and say it then: the Conductor's watch rings "ready" on its own, and a driver can wait for it with wait_agentState until: ["fresh"].`,
+        { kind: "agent-starting", id, agent: agent.kind },
+      );
+    case "fresh":
+    case "waiting":
+    case "awaiting":
+    case "other":
+      // UP AND NOT MID-TURN, so the words start a turn. `fresh` is an agent
+      // that has come up and never been prompted — exactly the agent a
+      // conductor briefs, and its first prompt is an ordinary idle submit.
+      return { keys: recipe.idle, delivery: "submitted" };
+    case "working":
+      break;
+    default:
+      // The fence: every bucket above is answered, so nothing reaches here.
+      bucket satisfies never;
+      break;
   }
   if (recipe.working === null) {
     throw new ToolFailure<SayRefusal>(
@@ -339,11 +395,12 @@ export function resolveSay(
   }
   const agent = sayableAgent(id, record);
   const { keys, delivery } = sayableRecipe(id, agent, vocabOf(agent.kind));
+  const bucket = agentBucket(agent.state);
   return {
     text: encoded.plan,
     keys,
     agent: agent.kind,
-    working: agentBucket(agent.state) === "working",
+    working: bucket === "working",
     delivery,
   };
 }
@@ -379,7 +436,7 @@ export const agentSayTool: BespokeTool = {
   mutates: true,
   title: "Say something to the agent in a terminal",
   description:
-    'Say this to the agent running in that terminal — kolu knows which agent it is and presses that agent\'s own submit keys, so you never send Enter yourself. Types the text, waits for the terminal to settle (hard-capped), then submits. Answers what it did: the agent, whether it was WORKING, the keys pressed, and the delivery — "steer" (the words reach the running turn), "queue" (they wait for the current turn to end) or "submitted" (it was idle, so they start a turn) — AND whether it took: for an idle agent kolu watches a few seconds for it to begin working and reports "began-working" or "did-not-begin" (the keys were sent either way — read the screen rather than saying it again). REFUSED, never guessed: a terminal with no agent (a plain shell), an agent with no verified recipe, an agent that cannot be told anything mid-turn, a terminal that is asleep, and empty text.',
+    'Say this to the agent running in that terminal — kolu knows which agent it is and presses that agent\'s own submit keys, so you never send Enter yourself. Types the text, waits for the terminal to settle (hard-capped), then submits. Answers what it did: the agent, whether it was WORKING, the keys pressed, and the delivery — "steer" (the words reach the running turn), "queue" (they wait for the current turn to end) or "submitted" (it was idle or freshly up, so they start a turn) — AND whether it took: for an agent that was not working kolu watches a few seconds for it to begin working and reports "began-working" or "did-not-begin" (the keys were sent either way — read the screen rather than saying it again). REFUSED, never guessed: a terminal with no agent (a plain shell), an agent with no verified recipe, an agent that cannot be told anything mid-turn, an agent that is still COMING UP (its screen is still being drawn — wait until it is ready), a terminal that is asleep, and empty text.',
   handler: (args, client, signal) => {
     const { id, text } = args as AgentSayArgs;
     const padi = padiOf(client);
@@ -455,7 +512,7 @@ export const agentSayTool: BespokeTool = {
                                 );
                                 return awaitAgentState(padi, {
                                   id,
-                                  targets: new Set(["working"]),
+                                  targets: SAY_TAKES,
                                   timeoutMs: SAY_TAKE_CAP_MS,
                                   signal: signal ?? fiberSignal,
                                 });

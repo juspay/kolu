@@ -18,11 +18,15 @@ import { useDuration } from "./staleness";
 /** Tone → text colour (the WHICH-bucket fact lives in `stateTones`). Busy =
  *  actively working. Alert = needs user input — same violet family as the dock
  *  StatePip; post-turn `waiting` lingers via `AWAITING_LINGER_CLASS` (same
- *  token as pip awaiting paint), genuine `awaiting_user` is full strength. */
+ *  token as pip awaiting paint), genuine `awaiting_user` is full strength.
+ *  Quiet = merely PRESENT (`starting` / `fresh`): the muted `text-fg-3` every
+ *  surface already spells "nothing is happening here" with, so a just-launched
+ *  agent announces itself by its name and its word and by nothing louder. */
 const toneColor: Record<AgentStateTone, string> = {
   busy: "text-busy",
   "alert-linger": AWAITING_LINGER_CLASS,
   alert: "text-alert",
+  quiet: "text-fg-3",
 };
 
 /** State → text colour. Keyed on state, not kind — all agents currently share

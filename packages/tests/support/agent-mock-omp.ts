@@ -7,9 +7,15 @@
  *  rename would then pass on both sides silently):
  *
  *   1. The **session transcript** — an append-only JSONL whose line 1 is omp's
- *      fixed 256-byte title slot and whose line 2 is the `session` header. Fresh
- *      scenarios write it directly; transitions APPEND (never rewrite — the
- *      append-robust watcher is the channel under test).
+ *      fixed 256-byte title slot and whose line 2 is the `session` header. It is
+ *      written by the fake `omp` PROCESS, and only when that process is
+ *      PROMPTED: real omp keeps a brand-new session in memory and materializes
+ *      its JSONL at the first prompt, so a stand-in that wrote one at launch
+ *      would be a terminal that can never be observed as an agent-with-no-
+ *      transcript — the state presence exists to name. The bytes are STAGED by
+ *      the scenario ({@link stageOmpPrompt}) and appended by the process when it
+ *      reads a prompt line; transitions after that APPEND too (never rewrite —
+ *      the append-robust watcher is the channel under test).
  *   2. The **breadcrumb** — written by the fake `omp` process ITSELF (see
  *      `ompMockPayload`), exactly as real omp writes it: omp derives the tty id
  *      from its own stdin, so the fixture must not guess it from the test
@@ -226,16 +232,21 @@ function transitionLines(state: AgentLifecycleState, n: number): object[] {
   }
 }
 
-/** Create the session file at `ompFixture.transcriptPath`, already in `state`.
- *  Idempotent: rewrites from scratch, so scenarios start each other's states
- *  cleanly. */
-export function writeOmpFixture(
-  fixture: OmpFixture,
+/** STAGE the session file the fake `omp` will write when it is next prompted:
+ *  the exact bytes a real omp materializes for a session already in `state`
+ *  (title slot + the entry sequence), parked at `stagePath` for the process to
+ *  append.
+ *
+ *  The scenario composes the JSON and the PROCESS performs the write, which is
+ *  the division the real agent makes: a transcript appears because somebody
+ *  prompted the agent, never because a test wanted one on disk. */
+export function stageOmpPrompt(
+  stagePath: string,
   state: AgentLifecycleState,
 ): void {
-  fs.mkdirSync(path.dirname(fixture.transcriptPath), { recursive: true });
+  fs.mkdirSync(path.dirname(stagePath), { recursive: true });
   fs.writeFileSync(
-    fixture.transcriptPath,
+    stagePath,
     `${titleSlot("Run echo hello bash command")}${initialLines(state)
       .map((l) => JSON.stringify(l))
       .join("\n")}\n`,
@@ -322,11 +333,31 @@ export function appendOmpTodoList(
   );
 }
 
-/** The fake `omp` process's payload: write the breadcrumb the way omp writes it
- *  (from its OWN tty), then stay resident, painting an approval dialog or
- *  clearing the screen on request.
+/** The fake `omp` process's own output markers.
  *
- *  Two things make this faithful rather than convenient:
+ *  Each is assembled INSIDE bash from two halves (see the payload below), so
+ *  the whole string never appears in the command line the shell echoes when the
+ *  scenario types it — only the process's own `printf` can satisfy a wait on it.
+ *  A marker that the echo could satisfy is a start-guard that passes against a
+ *  binary that never ran (dev/skills/e2e-testing). */
+const UP_HALVES = ["omp-stand-in", "-is-up"] as const;
+const HEARD_HALVES = ["omp-stand-in", "-heard"] as const;
+const GONE_HALVES = ["omp-stand-in", "-is-gone"] as const;
+/** Printed ONCE, after the crumb is on disk: the fake is up and resident. */
+export const OMP_UP_MARKER = UP_HALVES.join("");
+/** Printed with the words every time the fake is prompted — the proof a line
+ *  typed by a person (or by `agent_say`) reached the agent's own stdin. */
+export const OMP_HEARD_MARKER = HEARD_HALVES.join("");
+/** Printed as the loop breaks on `quit`, immediately before the process exits:
+ *  the agent is leaving the foreground. A scenario that waits for it is waiting
+ *  on the departure itself, not on a sleep. */
+export const OMP_GONE_MARKER = GONE_HALVES.join("");
+
+/** The fake `omp` process's payload: write the breadcrumb the way omp writes it
+ *  (from its OWN tty), then stay resident — painting an approval dialog,
+ *  clearing the screen, or MATERIALIZING ITS SESSION FILE when it is prompted.
+ *
+ *  Three things make this faithful rather than convenient:
  *
  *   - The crumb's NAME comes from `tty` inside the process — the same source
  *     `omp`'s `getTerminalId()` reads — so kolu's `/proc/<pid>/fd/0` derivation
@@ -334,19 +365,35 @@ export function appendOmpTodoList(
  *     process. (The path arithmetic is bash parameter expansion rather than a
  *     `sed` pipe: this payload runs under the fake binary, a bash copy.)
  *   - The crumb is written `fresh`, as omp writes a brand-new session's crumb
- *     before its JSONL materializes. A scenario that points at a file it has
- *     not written yet is therefore exercising the real lazy-session race.
+ *     before its JSONL materializes — and the JSONL stays ABSENT until this
+ *     process reads a prompt line, which is when real omp writes it. Between
+ *     the two, the terminal is an agent with no transcript: the `starting` /
+ *     `fresh` presence padi publishes off the foreground alone.
+ *   - The transcript the prompt lands is the bytes the scenario STAGED
+ *     ({@link stageOmpPrompt}), appended by this process. Nothing in the test
+ *     process writes that file.
  *
  *  The resident `read` loop is what lets a scenario paint the approval dialog or
  *  clear it mid-scenario (omp's own dialogs appear while the process holds the
  *  terminal). A compound command keeps bash itself as the foreground process
  *  (no `execve` optimisation), so `/proc/<pid>/comm` stays `omp`.
  *
+ *  `bootPaint` gives the screen-still-being-drawn half of presence a WITNESS: a
+ *  background painter writes a line a second until the scenario says `settle`,
+ *  which holds padi's quiet window (EF2, ~5s) open — so `starting` is a state
+ *  the scenario ENDS rather than one it races. The painter is a plain `&` job
+ *  of this same non-interactive bash, so it shares the pty's foreground process
+ *  group and `/proc/<pid>/comm` still reads `omp`.
+ *
  *  Quoting: the caller wraps this in single quotes, so the payload uses only
  *  double quotes inside, and every backslash below is literal bash. */
 export function ompMockPayload(opts: {
   breadcrumbDir: string;
   transcriptPath: string;
+  /** Where {@link stageOmpPrompt} parks the session file's bytes. */
+  stagePath: string;
+  /** Paint until this flag file appears (the `settle` verb touches it). */
+  bootPaintUntil?: string;
 }): string {
   const approval = [
     "╭─ Allow tool: bash ────────────────────────────╮",
@@ -364,14 +411,49 @@ export function ompMockPayload(opts: {
   // template string as a mistaken placeholder.
   const stripDevPrefix = "t=$" + "{t#/dev/}";
   const slashesToDashes = "t=$" + String.raw`{t//\//-}`;
+  // The three markers, halved — bash concatenates each pair at runtime, so the
+  // typed command line carries none of them whole.
+  const assembleUp = `u="${UP_HALVES[0]}"; u="$u""${UP_HALVES[1]}"`;
+  const assembleHeard = `h="${HEARD_HALVES[0]}"; h="$h""${HEARD_HALVES[1]}"`;
+  const assembleGone = `g="${GONE_HALVES[0]}"; g="$g""${GONE_HALVES[1]}"`;
+  // THE FIRST PROMPT WRITES THE SESSION FILE, as omp's does — then the words
+  // are echoed with the heard marker, so a scenario that waits on the echo is
+  // waiting on a transcript that is already on disk.
+  const onPrompt = [
+    `if [ -f "${opts.stagePath}" ]`,
+    `then cat "${opts.stagePath}" >> "${opts.transcriptPath}"`,
+    `rm -f "${opts.stagePath}"`,
+    "fi",
+    String.raw`printf "%s %s\n" "$h" "$ompcmd"`,
+  ].join("; ");
+  const boot = opts.bootPaintUntil;
+  const cases = [
+    `approval) printf "%s\\n" ${approval} ;;`,
+    `clear) for i in {1..40}; do printf "omp-clear %s\\n" "$i"; done ;;`,
+    ...(boot === undefined ? [] : [`settle) touch "${boot}" ;;`]),
+    "quit) break ;;",
+    `*) ${onPrompt} ;;`,
+  ].join(" ");
   return [
     `mkdir -p "${opts.breadcrumbDir}"`,
+    `mkdir -p "${path.dirname(opts.transcriptPath)}"`,
     "t=$(tty)",
     stripDevPrefix,
     slashesToDashes,
     writeCrumb,
     String.raw`printf "\033]0;omp\007"`,
-    `while IFS= read -r ompcmd; do case "$ompcmd" in approval) printf "%s\\n" ${approval} ;; clear) for i in {1..40}; do printf "omp-clear %s\\n" "$i"; done ;; esac; done`,
+    assembleUp,
+    assembleHeard,
+    assembleGone,
+    String.raw`printf "%s\n" "$u"`,
+    // read loop rides on the same element rather than after a `;` bash would
+    // refuse.
+    `${
+      boot === undefined
+        ? ""
+        : `( b=1; while [ ! -f "${boot}" ]; do printf "%s%s\\n" "omp-boot " "$b"; b=$((b+1)); sleep 1; done ) & `
+    }while IFS= read -r ompcmd; do case "$ompcmd" in ${cases} esac; done`,
     ":",
+    String.raw`printf "%s\n" "$g"`,
   ].join(" ; ");
 }

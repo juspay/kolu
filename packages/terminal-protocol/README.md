@@ -32,11 +32,12 @@ Every suppressed query class sits in exactly one arm — **answered** (one answe
 | `responseFilter` | The query-reply grammars (CSI / OSC-colour / DCS) + two suppression entry points: `isTerminalQueryResponse` (whole-payload, for xterm `onData` — one discrete event per call) and `createTerminalResponseStripper` (streaming, boundary-aware, for raw tty reads where replies split/coalesce). | browser `Terminal.tsx` · kaval-tui `attach` |
 | `headlessReplies` | `shouldForwardHeadlessReply` — the server-side forward/drop policy for replies the headless mirror generates. | `kaval` |
 | `deviceQueries` | `ANSWERED_DEVICE_QUERIES` / `SILENT_DEVICE_QUERIES` — the matrix as data. | `kaval` contract tests |
-| `bracketedPaste` | The `?2004` paste delimiters (`ESC [200~` / `ESC [201~`). | kaval-tui escape scanner · kolu-server paste injection |
+| `bracketedPaste` | The `?2004` paste delimiters (`ESC [200~` / `ESC [201~`), and `createPasteTracker` — the one incremental matcher that follows them through a stream fed a unit at a time, markers split across reads included. | kaval-tui escape scanner · kolu-server paste injection · `submitInput` |
 | `keyInput` | The named-key → bytes table (`NAMED_KEY_BYTES`), the Ctrl/Meta folds (`controlByte` / `metaByte`), and the one name/chord grammar over them (`encodeKey`, with its drift-guarded `ACCEPTED_KEY_NAMES` help vocabulary). | browser sticky modifiers · mobile key bar · kaval-tui `send --key` · kolu-mcp `lifecycle_sendInput` |
+| `submitInput` | `createSubmitScanner` — whether a write to a terminal SUBMITS: a typed, unmodified Enter (CR) outside a paste, never a pasted newline, Alt+Enter or Ctrl+J. Stateful across writes for the paste, per write for the Alt prefix. | padi's input seam (an agent goes `prompted` the moment a prompt is submitted to it) |
 | `snapshotReset` | `SNAPSHOT_TTY_RESET` — the reciprocal reset for every mode a replayed `@xterm/addon-serialize` snapshot can switch on. **Audit on every xterm/serialize bump.** | kaval-tui `attach` restore |
 
-What deliberately does *not* live here: the ssh-style `~.` escape state machine (an attach-control concern, `kaval-tui/src/escape.ts` — it imports only the paste markers), the OSC 7/2/633 *emission* hooks (`packages/integrations/pty` — coupled to shell-rc mechanics), and the key-input synthesis in the browser (UI-coupled).
+What deliberately does *not* live here: the ssh-style `~.` escape state machine (an attach-control concern, `kaval-tui/src/escape.ts` — it imports only the paste tracker), the OSC 7/2/633 *emission* hooks (`packages/integrations/pty` — coupled to shell-rc mechanics), and the key-input synthesis in the browser (UI-coupled).
 
 ## Invariants the package carries
 

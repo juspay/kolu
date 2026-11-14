@@ -75,6 +75,32 @@ describe("resolveSay — which keys, and what they do", () => {
     expect(say.delivery).toBe("submitted");
   });
 
+  it("a FRESH agent — up, settled, never prompted — gets the idle keys", () => {
+    // padi's presence, before the agent has written a line of transcript.
+    // This is the moment a conductor briefs a worker it just launched, and a
+    // first prompt is an ordinary idle submit.
+    const say = resolveSay(ID, "here is the brief", withAgent("omp", "fresh"));
+    expect(say.working).toBe(false);
+    expect(say.keys).toEqual(agentVocab("omp").say?.idle);
+    expect(say.delivery).toBe("submitted");
+  });
+
+  it("a PROMPTED agent — submitted to, no transcript yet — is WORKING, and a second say steers or queues", () => {
+    // The window between a fresh agent's first submit and its first transcript
+    // line (omp's lasts the whole first reply). Read as idle, a second say here
+    // would press the idle keys into an agent that is working.
+    const omp = resolveSay(ID, "also this", withAgent("omp", "prompted"));
+    expect(omp.working).toBe(true);
+    expect(omp.keys).toEqual(agentVocab("omp").say?.working?.keys);
+    expect(omp.delivery).toBe("steer");
+    const claude = resolveSay(
+      ID,
+      "also this",
+      withAgent("claude-code", "prompted"),
+    );
+    expect(claude.delivery).toBe("queue");
+  });
+
   it("a WORKING agent gets its mid-turn keys and its own delivery word", () => {
     // Two agents measured to differ in exactly this, which is the whole reason
     // the answer carries a delivery at all: omp hands the words to the running
@@ -145,6 +171,23 @@ describe("resolveSay — every refusal reaches the agent as DATA", () => {
     // The recovery is named, so a driver that genuinely meant the shell knows
     // which tool to reach for.
     expect(refusal.message).toMatch(/lifecycle_sendInput/);
+  });
+
+  it("an agent still COMING UP is refused — its screen is still being drawn", () => {
+    // Keys pressed into a TUI that has not finished painting itself are read
+    // by whatever it draws next, if anything. The refusal names the wait that
+    // ends it rather than inviting a blind resend.
+    const refusal = refusalFrom(
+      "here is the brief",
+      withAgent("omp", "starting"),
+    );
+    expect(refusal.detail).toEqual({
+      kind: "agent-starting",
+      id: ID,
+      agent: "omp",
+    });
+    expect(refusal.message).toMatch(/still coming up/);
+    expect(refusal.message).toMatch(/fresh/);
   });
 
   it("a DORMANT terminal is refused as asleep, not as a shell with no agent", () => {

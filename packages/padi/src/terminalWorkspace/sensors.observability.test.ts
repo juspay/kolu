@@ -99,6 +99,8 @@ function startHarness(): Harness {
     foreground: inMemoryChannel<ForegroundSample>(),
     ports: inMemoryChannel<TerminalPorts>(),
     grid: inMemoryChannel<TerminalGrid>(),
+    screenSettled: inMemoryChannel<void>(),
+    submitted: inMemoryChannel<void>(),
   };
   const stop = startAgentSensor(
     fakeAdapter,

@@ -200,6 +200,17 @@ export const ompAdapter: AgentAdapter<OmpSession, OmpInfo> = {
     return session.id;
   },
 
+  // omp KNOWS MORE BEFORE IT IS PROMPTED. Its breadcrumb names the session the
+  // moment omp creates it — a brand-new one is written `fresh`, with the JSONL
+  // still to come — so while that session's watcher has nothing to read, the
+  // presence padi publishes (`starting`, then `fresh`) carries this id rather
+  // than none. The id is the crumb's own (its transcript's filename), the same
+  // one the session-backed info will carry once the first turn lands, so the
+  // conversation's identity does not move when it does.
+  presenceSessionId(session) {
+    return session.id;
+  },
+
   sessionStartedAt(session) {
     return session.startedAt;
   },
