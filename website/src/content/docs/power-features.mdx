@@ -66,10 +66,10 @@ Every view in kolu has a URL. Anything that renders a link (a conductor board, a
 
 ### What a link can and cannot do
 
-- **It is a bookmark, not a one-shot** — open it fresh and it navigates there, and the URL stays in the bar. A reload restores the view you had reached rather than re-firing the link, and the back button restores the URL quietly without replaying it.
-- **It only changes what you look at** — no URL creates a terminal, kills one, writes a file, or sends keys.
-- **It says when it cannot land** — a link to a closed terminal, or to a host that has left, names what it pointed at and lands you on the nearest surviving view. An unknown link shape says so. On a cold start, a link waits for the host's terminals to load before deciding anything is missing.
-- **It works from inside a preview** — a `#/…` link in an HTML file previewed in the Code tab routes the surrounding app, so a previewed dashboard's lane pills become click-to-jump. The preview stays sandboxed: the link is relayed out, and it can still only change what you are looking at.
+- It is a bookmark, not a one-shot. Open it fresh and it navigates there, and the URL stays in the bar. A reload restores the view you had reached rather than re-firing the link, and the back button restores the URL quietly without replaying it.
+- It only changes what you look at. No URL creates a terminal, kills one, writes a file, or sends keys.
+- It says when it cannot land. A link to a closed terminal, or to a host that has left, names what it pointed at and lands you on the nearest surviving view. An unknown link shape says so. On a cold start, a link waits for the host's terminals to load before deciding anything is missing.
+- It works from inside a preview. A `#/…` link in an HTML file previewed in the Code tab routes the surrounding app, so a previewed dashboard's lane pills become click-to-jump. The preview stays sandboxed: the link is relayed out, and it can still only change what you are looking at.
 
 <Aside type="note" title="One window, not two">
   Installed as a [PWA](/install-pwa) on a Chromium browser, kolu focuses the
