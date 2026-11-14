@@ -57,3 +57,16 @@ The behaviour each passage argues for stays on this page: the prefix rule, the b
 ## Dropped code spans
 
 None (`.waterfall/compare.mjs`: 0 missing).
+
+## Review round 1
+
+- B3, the "Why" link of the reference-entry template: one link per entry, for each Moved row above.
+  - `Calling a name a past roster served` → [Why a refusal names what failed](/surface/why-surfaces#why-a-refusal-names-what-failed).
+  - `Without onClose` → the same heading (the kolu#2082 row).
+  - `Sibling prefixes` → [Why each face spells a name its own way](/surface/why-surfaces#why-each-face-spells-a-name-its-own-way).
+  - `What carrying both arms costs` → [Why a tool result is carried twice](/surface/why-surfaces#why-a-tool-result-is-carried-twice).
+  - `When the answer is a picture` → the same heading (the image-contract row).
+  - `The schema bridge` → [Why the schema bridge belongs to the framework](/surface/why-surfaces#why-the-schema-bridge-belongs-to-the-framework).
+  - `The @kolu/surface-mcp/tools subpath` → the same heading (the subpath row).
+- Index tables added for the two groups that had entries and none: `The projection` and `Tool results`. Both document behaviour rather than exports, so both use `| Entry | What it covers |`, one line per row. The exports they mention (`ToolFailure`, `okImage`) keep their rows in `Other exports`.
+- Checks: lint passes; `.waterfall/compare.mjs … f50641c6a` 0 missing; `house-style.mjs` reports nothing on this page.

@@ -104,9 +104,11 @@ which of the two retirements it was, because the caller's next move differs:
 
 A tombstone outlives its sibling's return, so it survives that return's own departure as well.
 
+Why: [Why a refusal names what failed](/surface/why-surfaces#why-a-refusal-names-what-failed).
+
 ### `OwnedSurfaceConnection`
 
-The bridge shape returns `{ client, dispose, onClose? }`. The adapter memoises one connection for reads and bespoke
+The bridge shape returns `{ client, dispose, onClose? }`. The adapter memoizes one connection for reads and bespoke
 tools, so it needs to know when that connection dies. There are two ways it finds out.
 
 | Field | Meaning |
@@ -131,6 +133,7 @@ tool catch path.
   to give or because the dial does not project one it could. It is not a tuning knob.
 - `kolu mcp --host` is the second case: the ssh layer observes its child's exit, but `AgentDial` has no field to carry
   it. That is a gap in the dial's face, not a limit of ssh.
+- Why: [Why a refusal names what failed](/surface/why-surfaces#why-a-refusal-names-what-failed).
 
 #### A transport death in flight
 
@@ -145,7 +148,7 @@ A socket can die with a request already in flight. That failure is re-framed bef
 #### A connection that is born dead
 
 A transport can announce its close during registration, synchronously or on a microtask. The adapter re-checks the slot
-by identity after each dial, and re-dials rather than hand out a corpse, bounded, then fails loudly. Re-dialing is
+by identity after each dial, and re-dials rather than hand out a corpse, bounded, then fails loudly. Re-dialling is
 legitimate where re-requesting is not: a dial carries no caller intent, so repeating one replays nothing.
 
 ## The projection
@@ -164,6 +167,14 @@ spec.
 | procedure `"<ns>.<verb>"` | tool | `<ns>_<verb>` (`.` is illegal in a tool name) | `t_<ns>_<verb>` |
 
 Resources are readable and subscribable; procedures become callable tools.
+
+| Entry | What it covers |
+| --- | --- |
+| [How a tool name is spelled](#how-a-tool-name-is-spelled) | Which character of a procedure's name becomes `_`, and which stays. |
+| [Where `ExposeMap` lives](#where-exposemap-lives) | The package that owns the map, and the part this one owns. |
+| [Sibling prefixes](#sibling-prefixes) | How a sibling key becomes a segment of every name it contributes. |
+| [What the composition refuses](#what-the-composition-refuses) | The three refusals made at boot and on every `reroster`. |
+| [Which client a bespoke tool receives](#which-client-a-bespoke-tool-receives) | The client handed to a sibling's tools and to the bundle root's. |
 
 <Aside type="caution" title="mutates defaults to true">
   A procedure exposed as a tool is advertised as mutating unless you say otherwise: `mutates` defaults to `true`. A
@@ -206,6 +217,7 @@ two name spaces.
   departed-name refusal consults.
 - What guarantees the namespace is the one-pass collision check over the finished names. The prefix narrows what can
   reach that check.
+- Why: [Why each face spells a name its own way](/surface/why-surfaces#why-each-face-spells-a-name-its-own-way).
 
 ### What the composition refuses
 
@@ -280,6 +292,14 @@ Every successful result carries data in `structuredContent`. Every tool that ans
 - MCP types the structured arm as a JSON object, so a scalar, array or `null` answer travels under the same single
   `value` property a scalar input is wrapped in.
 
+| Entry | What it covers |
+| --- | --- |
+| [The `value` wrapper on each side](#the-value-wrapper-on-each-side) | Where the input's wrapper and the result's agree, and where they diverge. |
+| [What carrying both arms costs](#what-carrying-both-arms-costs) | The frame a doubled answer measures, and where to bound it. |
+| [`ToolFailure`](#toolfailure) | The refusal that carries a structured detail beside its message. |
+| [Failures without a structured arm](#failures-without-a-structured-arm) | What every other failure reaches the host as. |
+| [When the answer is a picture](#when-the-answer-is-a-picture) | `render: okImage(...)`, and the copy a caller must not make. |
+
 ### The `value` wrapper on each side
 
 The same key is decided independently on each side: the input from its declared schema, the result from the value on
@@ -298,6 +318,8 @@ Carrying the answer twice roughly doubles the frame of a large result. A full 10
 1.2 MB before and 2.4 MB after. That is the price of MCP's own back-compat guidance that a server returning
 `structuredContent` should also return equivalent text. A tool that can return an unbounded payload should bound it at
 the tool, not by dropping an arm.
+
+Why: [Why a tool result is carried twice](/surface/why-surfaces#why-a-tool-result-is-carried-twice).
 
 ### `ToolFailure`
 
@@ -357,6 +379,7 @@ A tool whose answer is pixels declares `render: okImage(...)` and returns an MCP
   enormous on the wire.
 - `ToolContent` is the resulting union: `{ type: "text" }` or `{ type: "image", data, mimeType }`.
 - kolu's `screen_image` (a terminal's screen as a themed PNG) is the in-tree consumer.
+- Why: [Why a tool result is carried twice](/surface/why-surfaces#why-a-tool-result-is-carried-twice).
 
 ## The schema bridge
 
@@ -368,6 +391,8 @@ Codex and Claude Desktop. Effect's converter diverges from the zod one in ways a
 - reopens every object, because Effect emits `additionalProperties: false`, which is an outright host break;
 - normalizes `Schema.Number`'s Infinity/NaN-tolerant union back to its numeric arm;
 - special-cases `Schema.Void` and `Schema.Undefined`, so a no-arg tool does not end up demanding `{"value": null}`.
+
+Why: [Why the schema bridge belongs to the framework](/surface/why-surfaces#why-the-schema-bridge-belongs-to-the-framework).
 
 ### Writing a schema for an MCP-facing tool
 
@@ -472,6 +497,8 @@ A binary whose command tree is static hands its one table to both faces: MCP via
 [`@kolu/surface-cli`](/surface/ref-surface-cli). Every `--help` then runs without loading a server it never boots. kolu
 is the first-party proof. `kolu-mcp` owns its `KOLU_MCP_TOOLS` in a leaf that imports only this subpath, and the
 `kolu surface` argv face statically holds that leaf on every `kolu --help`.
+
+Why: [Why the schema bridge belongs to the framework](/surface/why-surfaces#why-the-schema-bridge-belongs-to-the-framework).
 
 ### Not exported here
 
