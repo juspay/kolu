@@ -28,6 +28,11 @@ declare global {
       { method: "set"; count?: number } | { method: "clear" }
     >;
 
+    /** Stash of the sources the notification sound was asked to play,
+     *  captured by the alert e2e suite's `I stub the notification sound`
+     *  step. Test-only. */
+    __soundPlays?: string[];
+
     /** Reads the live xterm buffer for the `idx`-th element matching `sel`,
      *  installed once per scenario by the e2e harness in `hooks.ts` via
      *  `page.addInitScript`. Returns the joined visible-buffer text, or
