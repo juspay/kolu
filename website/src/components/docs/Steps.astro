@@ -42,9 +42,12 @@
     font-size: 0.82rem;
     font-weight: 700;
   }
-  /* The first block of each step is the title — paint it as an h3, not as
-     another paragraph of dim body copy sitting next to a number. */
-  .doc-steps :global(ol > li > :first-child) {
+  /* A step whose first block is a paragraph (a loose list item) uses that
+     paragraph as its title — paint it as an h3, not as another paragraph of
+     dim body copy sitting next to a number. A tight item is one run of text,
+     so its first element is inline (a bold UI label, a link, code) and stays
+     body copy. */
+  .doc-steps :global(ol > li > p:first-child) {
     margin: 0 0 0.7rem;
     font-family: var(--font-sans);
     font-size: clamp(1.05rem, 0.95rem + 0.5vw, 1.25rem);
