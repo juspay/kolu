@@ -571,18 +571,27 @@ Feature: Canvas workspace
   Scenario: A tile parked off the canvas stops taking output until you look again
     # kolu#2362: the desktop used to hold an attach stream open for EVERY tile
     # of the host, including the ones nobody could see. A tile off the edge of
-    # the canvas now ends its feed (after a few seconds' grace, so a flick
-    # across the canvas and back costs nothing), and coming back repaints it
-    # from a fresh snapshot — so what it printed meanwhile is on its screen
-    # the moment you can see it again, it just wasn't carried across the wire
-    # while nobody was looking.
+    # the canvas now ends its feed, and coming back repaints it from a fresh
+    # snapshot — so what it printed meanwhile is on its screen the moment you
+    # can see it again, it just wasn't carried across the wire while nobody
+    # was looking.
+    #
+    # The GRACE comes first: a detach costs you your place in the output, so
+    # a tile that has just left keeps its feed for five minutes and a short
+    # trip away costs nothing at all. The page's clock is taken over to jump
+    # past that, because the scenario cannot wait five real minutes and
+    # shortening the grace for tests would be the knob this feature refuses
+    # to have.
     #
     # Tile 2 is the one just created, so it holds the active selection — and
     # the ACTIVE tile stays attached wherever it is parked (the keyboard
     # reaches it). Tile 1 is the unwatched one.
     Given I create a terminal
     Then there should be 2 canvas tiles
-    When I move canvas tile 1 far out of view
+    When I take over the page clock
+    And I move canvas tile 1 far out of view
+    Then the parked canvas tile should still be taking live output
+    When the grace period passes
     Then the parked canvas tile should stop taking live output
     When I print a marker in the parked canvas tile
     Then the parked canvas tile should not show the marker

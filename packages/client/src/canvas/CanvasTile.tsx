@@ -195,9 +195,9 @@ const CanvasTile: Component<{
     );
   });
   // Can a user see this tile — the rule in `tileSeen.ts`, held open for
-  // SEEN_HOLD_MS past its last sighting so a pan across the canvas is not a
-  // storm of detach/attach pairs. The hold is owned here, so it dies with the
-  // tile.
+  // SEEN_HOLD_MS past its last sighting so a trip away and back costs the
+  // reader nothing (a detach loses their place in the output). The hold is
+  // owned here, so it dies with the tile.
   const seen = createMemo(() =>
     tileIsSeen({
       viewShown: props.viewShown(),

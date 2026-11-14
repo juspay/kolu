@@ -64,9 +64,10 @@ export const APP_KEY = "Meta";
  *  `dormant-tile-body` (no `.xterm-screen`), and it is NOT the empty state —
  *  so the dormant body is the third settled shape a reload/converge can land
  *  on. The FOURTH is the Conductor: it is a place you can reload into (the
- *  selected tab persists), and it covers the canvas, whose tiles are then not
- *  shown at all (kolu#2362) — so a reload that lands there has no terminal
- *  screen to paint and is settled when the conversation is up. */
+ *  selected tab persists), and it covers the canvas — so after a reload that
+ *  lands there NO tile has ever been seen, nothing is inside the grace
+ *  period that would keep a pane shown (kolu#2362), and the page is settled
+ *  when the conversation is up. */
 const SETTLED_SELECTOR =
   '[data-visible] .xterm-screen, [data-testid="dormant-tile-body"], [data-testid="empty-state"], [data-testid="conductor-pane"]';
 /** Touch-device media query — mirrors `isTouch` in packages/client/src/useMobile.ts.
@@ -265,11 +266,13 @@ export class KoluWorld extends World {
    *  Returns the new terminal's ID. */
   async createTerminal(timeout = READY_TIMEOUT): Promise<string> {
     // IS THE WORKSPACE COVERED? The Conductor is a full-window layer over the
-    // host's canvas, and a canvas nobody is looking at shows no tile: its
-    // panes are not rendered and hold no feed (kolu#2362). So a terminal
-    // created from the Conductor mounts UNSEEN and leaves the keyboard where
-    // it was — there is no visible screen to wait for, and waiting for one is
-    // waiting for something the product deliberately does not do.
+    // host's canvas, and a tile the user has never seen is never shown: a
+    // terminal created from here mounts UNSEEN and leaves the keyboard where
+    // it was (kolu#2362). (Tiles that WERE on screen when the conversation
+    // covered them keep their feed for the grace period — but a brand new
+    // one has nothing to hold.) So there is no visible screen to wait for,
+    // and waiting for one is waiting for something the product deliberately
+    // does not do.
     const covered = await this.page
       .locator('[data-testid="conductor-pane"]')
       .isVisible();

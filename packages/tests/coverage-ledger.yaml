@@ -3934,7 +3934,7 @@ retirements:
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: A watched terminal whose agent asks wakes the idle Conductor"
-      test: The same wake, asserted the same way. Only the SETUP moved — the terminal and its agent are made on the host tab rather than from behind the conversation, because a canvas the Conductor covers shows no tile (its panes take no keystroke and carry no output), so the stand-in agent was being typed at blind. The watch step walks back into the Conductor, and everything the scenario is about (the wake ringing while the user sits in the conversation) happens exactly where it did.
+      test: The same wake, asserted the same way. Only the SETUP moved — the terminal and its agent are made on the host tab rather than from behind the conversation, because a terminal made behind it is never shown (a tile nobody has seen has nothing to hold), so the stand-in agent was being typed at blind. The watch step walks back into the Conductor, and everything the scenario is about (the wake ringing while the user sits in the conversation) happens exactly where it did.
   - id: revise-d0dd016c80ef4dfd05f0
     revisionId: revision-d0dd016c80ef4dfd05f0
     action: revised
@@ -3973,7 +3973,7 @@ retirements:
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: The watched terminals are listed, looked at, and pressed to go there"
-      test: Every assertion is the one it was. The terminal is made and typed at on the host tab, because a canvas the Conductor covers shows no tile — its panes take no keystroke and carry no output — so the marker the Look reads was being echoed into a pane nobody was listening to. The watch step walks back into the conversation, where the whole journey this scenario is about still happens.
+      test: Every assertion is the one it was. The terminal is made and typed at on the host tab, because a terminal made from behind the conversation is never shown, so the marker the Look reads was being echoed into a pane nobody was listening to. The watch step walks back into the conversation, where the whole journey this scenario is about still happens.
   - id: revise-be5a4ab52a3797d96b69
     revisionId: revision-be5a4ab52a3797d96b69
     action: revised
@@ -4013,3 +4013,16 @@ retirements:
       file: packages/tests/features/conductor-layout.feature
       symbol: "Scenario: A Look stays open across the width where the two columns fold"
       test: The resize journey and both fold directions are asserted exactly as before; only the terminal's setup moved to the host tab, for the same reason as the scenarios above.
+  - id: revise-7626893a7a694fe6d902
+    revisionId: revision-7626893a7a694fe6d902
+    action: revised
+    status: landed
+    promise: A tile parked off the canvas stops taking output until you look again
+    defectSurface: [canvas, streaming, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-21dfddde661909a00f58]
+    sameCodePathEvidence:
+      file: packages/tests/features/canvas.feature
+      symbol: "Scenario: A tile parked off the canvas stops taking output until you look again"
+      test: The same journey, with the grace period made observable. Letting go of a tile's feed costs the reader their place in its output, so the grace is now five minutes rather than five seconds — longer than a scenario may wait, and not something to shorten with a knob. The scenario takes over the PAGE's clock and jumps past it, and gains the assertion that the other half of the promise needs — the parked tile is STILL taking output before the jump. Everything after it (the marker printed to a tile nobody is looking at, its absence from that tile's screen, and its arrival when the tile is brought back) is asserted exactly as it was.

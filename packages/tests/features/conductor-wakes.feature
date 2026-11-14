@@ -17,9 +17,9 @@ Feature: The Conductor never blocks
     # The wake is a MACHINE'S line: full width, one line saying who speaks,
     # and the whole account behind a disclosure. The agent answers it, which
     # is the proof the turn kolu started is a real turn.
-    # The terminal is made where it can be SEEN: a canvas the conversation is
-    # covering shows no tile, so an agent launched from behind the Conductor
-    # would be typed at blind. The watch step steps back in.
+    # The terminal is made where it can be SEEN: a terminal made from behind
+    # the conversation is never shown, so an agent launched there would be
+    # typed at blind. The watch step steps back in.
     When I leave the conductor for the host tab
     And I create a terminal
     And a Claude Code session is mocked with state "thinking"

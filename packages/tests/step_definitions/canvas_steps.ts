@@ -1756,6 +1756,25 @@ When(
   },
 );
 
+When("I take over the page clock", async function (this: KoluWorld) {
+  // Fake timers from HERE on, so the grace period's own `setTimeout` — armed
+  // by the step that parks the tile, after this one — is a timer this test
+  // can advance. Installed as LATE as it can be: everything the app armed
+  // while it was coming up keeps running on real time, and the clock is
+  // taken over for the grace period and nothing else. Time still flows
+  // normally until something asks it to jump.
+  await this.page.clock.install();
+});
+
+When("the grace period passes", async function (this: KoluWorld) {
+  // Past `tileSeen.ts`'s SEEN_HOLD_MS, which is five minutes — stated here
+  // as its own literal because the test package cannot import the client's
+  // source; what matters is only that it is LONGER. `fastForward` is the
+  // laptop-lid jump: a due timer fires at most once, so a one-second
+  // interval does not fire three hundred times on the way.
+  await this.page.clock.fastForward("06:00");
+});
+
 When(
   "I move the parked canvas tile back into view",
   async function (this: KoluWorld) {
@@ -1764,13 +1783,26 @@ When(
   },
 );
 
+/** The parked tile's pane is SHOWN — which is exactly when it holds an
+ *  attach stream. */
+async function waitForParkedPaneShown(world: KoluWorld): Promise<void> {
+  const { id } = parkedTile(world);
+  await world.page
+    .locator(`${paneOf(id)}[data-visible]`)
+    .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+}
+
+Then(
+  "the parked canvas tile should still be taking live output",
+  async function (this: KoluWorld) {
+    await waitForParkedPaneShown(this);
+  },
+);
+
 Then(
   "the parked canvas tile should stop taking live output",
   async function (this: KoluWorld) {
     const { id } = parkedTile(this);
-    // The grace period deliberately outlives a flick across the canvas
-    // (`tileSeen.ts`'s SEEN_HOLD_MS, 5 s), so this waits through it —
-    // POLL_TIMEOUT is 20 s.
     await this.page.waitForFunction(
       ({ shell, shown }: { shell: string; shown: string }) =>
         document.querySelector(shell) !== null &&
@@ -1787,10 +1819,7 @@ Then(
 Then(
   "the parked canvas tile should take live output again",
   async function (this: KoluWorld) {
-    const { id } = parkedTile(this);
-    await this.page
-      .locator(`${paneOf(id)}[data-visible]`)
-      .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+    await waitForParkedPaneShown(this);
   },
 );
 

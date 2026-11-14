@@ -19,15 +19,12 @@
  *
  *  THE HOLD is the other half, and it belongs here rather than in
  *  `shownPane.ts`: mobile's tile switch is a decision the user just made, so
- *  it detaches at once, while a canvas pan is a continuous gesture that
- *  sweeps tiles off the edge and back. Dropping an attach the instant a tile
- *  leaves the margin would make a pan a storm of detach/attach pairs — each
- *  one a serialize and a SIGWINCH on somebody's terminal. So a tile that
- *  stops being seen keeps counting as seen for {@link SEEN_HOLD_MS}, and a
- *  tile seen again inside that window never changes state at all: no detach
- *  and no re-attach, so the feed it already has never stops. A tile that has
- *  NEVER been seen has nothing to hold — it is not attached, and no timer
- *  runs for it. */
+ *  it detaches at once, while a canvas is a place you look AROUND. So a tile
+ *  that stops being seen keeps counting as seen for {@link SEEN_HOLD_MS},
+ *  and a tile seen again inside that window never changes state at all: no
+ *  detach and no re-attach, so the feed it already has never stops. A tile
+ *  that has NEVER been seen has nothing to hold — it is not attached, and no
+ *  timer runs for it. */
 
 import {
   type Accessor,
@@ -40,12 +37,17 @@ import type { CanvasTileMode } from "./CanvasTile";
 
 /** How long a tile that has left the view keeps its attach.
  *
- *  Long enough that panning across the canvas, flicking to a tile and back,
- *  or leaving for the Conductor to read one message costs nothing; short
- *  enough that parking a tile off screen stops costing the wire within a
- *  breath. One baked constant — a knob here would be a way to turn the fix
- *  off. */
-export const SEEN_HOLD_MS = 5_000;
+ *  WHAT A DETACH COSTS is the place you were reading: the tile comes back
+ *  showing the END of its output, so a scrolled-up position in it is gone.
+ *  That is the whole scale here. A SHORT trip — glance at another tile,
+ *  answer an agent, come back — expects to find your place where you left
+ *  it, and five seconds lost it almost every time. After a LONG absence you
+ *  are coming back to see what is new, and landing at the end is what you
+ *  wanted anyway. Much past five minutes and a tile you revisit through the
+ *  day would never detach at all, which is the bug.
+ *
+ *  One baked constant — a knob here would be a way to turn the fix off. */
+export const SEEN_HOLD_MS = 5 * 60_000;
 
 /** The live facts a canvas tile's visibility is decided from. */
 export interface TileSeenFacts {
@@ -57,9 +59,10 @@ export interface TileSeenFacts {
    *  pan — centring on a tile, landing a restored session, the host-switch
    *  re-centre. It qualifies ONE row below, the only row that asks where the
    *  camera is: a 150 ms flight sweeps tiles through the viewport that nobody
-   *  asked to see, and attaching each one (then dropping it five seconds
-   *  later) is exactly the cost this module exists to avoid, so a tile that
-   *  is merely flown OVER waits for the pose the camera lands on. The
+   *  asked to see, and attaching each one — then holding that attach open for
+   *  the whole grace period — is exactly the cost this module exists to
+   *  avoid, so a tile that is merely flown OVER waits for the pose the camera
+   *  lands on. The
    *  maximized tile and the active tile never ask: they are seen whatever the
    *  camera is doing. */
   readonly cameraSettled: boolean;
