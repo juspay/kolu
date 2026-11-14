@@ -343,29 +343,37 @@ The web manifest, as its own layer. `path?` is where it is served.
 
 ## Building the client dist
 
-`buildSurfaceClient(opts)` (`@kolu/surface-app/bun`) is the Bun-runtime build:
-it produces the dist the static layer above is built to serve, and nothing about
-that dist is the app's to remember. Content-hashed `/assets/*` (entry, split
-chunks, extra assets), the `no-store` shell rewritten to name them, the commit
-injected onto that shell, a `<link rel="modulepreload">` for each chunk the entry
-statically imports, and — since the socket was completed — the precompressed
-siblings and the code splitting every consumer used to bolt on afterwards.
+`buildSurfaceClient(opts)` (`@kolu/surface-app/bun`) is the Bun-runtime build. It produces the dist the static layer above is built to serve, and nothing about that dist is the app's to remember.
 
-| Export | Subpath | Role |
+| Export | Subpath | What it is |
 | --- | --- | --- |
-| `surfaceApp()` | `/vite` | Vite plugin that injects the build commit onto the shell |
-| `buildSurfaceClient(opts)` | `/bun` | the Bun build: hashed assets, rewritten shell, siblings, splitting |
-| `SurfaceClientBuildOptions` | `/bun` | its options — entrypoint, `distDir`, the HTML template + placeholders, `extraAssets`, `publicDir`, `minify`, `commit`, `assetPrefix` |
-| `SurfaceClientBuildResult` | `/bun` | `{ jsHref, assetHrefs, assetPrefix, preloadHrefs, assets }` — every hashed URL the shell now names (the JS entry, one per extra asset, and the entry's static chunks in load order), plus an `AssetReport` per **compressible** asset in the hashed dir (sourcemaps and already-compressed media are skipped, and absent from the report) |
-| `AssetReport` | `/bun` | `{ file, bytes, siblings }` — identity size and each sibling's size, keyed by `Content-Encoding` |
-| `injectShellHead(html, { preloadHrefs, commit })` | `.` | the whole head prelude in one splice — preload links first, then the build identity — for a caller templating its own shell from a build result |
-| `injectShellCommit(html, commit)` | `.` | that same splice with nothing to preload: the build identity alone |
-| `PRECOMPRESSED_ENCODINGS` | `.` | the `[encoding, suffix]` table BOTH halves read: `freshStaticLayer` to negotiate, the builder to emit |
-| `assertAssetPrefix(assetPrefix?)` | `.` | a hashed-asset request prefix, checked and handed back — the one place its shape is judged, so a prefix the build refuses is not one the server accepts |
-| `assetDirOf(assetPrefix?)` | `.` | …and the dist-relative directory that prefix names, which the Bun build reads to choose its `outdir` |
-| `HASHED_NAMING` | `.` | the naming template every hashed output is emitted under (`[name]-[hash].[ext]`). `/bun` hands it to `Bun.build`'s `naming` for entry, chunk and asset alike, so the rule is spelled once |
-| `chunkPattern(module, ext?)` | `.` | that template read backwards — what the split chunk for `module` is CALLED, anchored to the whole filename, for a caller that must name the file BEFORE the build has run. Built FROM `HASHED_NAMING` rather than re-spelled, so the two directions cannot drift. `ext` defaults to `js`; pass `"css"` to name a hashed stylesheet. A RegExp, because callers hand it to a route matcher and print it in a diagnosis |
-| `chunkUrlPattern(module, assetPrefix?, ext?)` | `.` | the same rule as a REQUEST under the hashed prefix — the filename half is `chunkPattern`'s, not a second spelling of it — taken through `assertAssetPrefix` so a prefix the build refuses is not one a matcher accepts |
+| [`surfaceApp()`](#surfaceapp) | `/vite` | Vite plugin that injects the build commit onto the shell. |
+| [`buildSurfaceClient(opts)`](#buildsurfaceclientopts) | `/bun` | The Bun build: hashed assets, rewritten shell, siblings, splitting. |
+| [`SurfaceClientBuildOptions`](#surfaceclientbuildoptions) | `/bun` | Its options. |
+| [`SurfaceClientBuildResult`](#surfaceclientbuildresult) | `/bun` | Every hashed URL the shell now names, plus a report per asset. |
+| [`AssetReport`](#assetreport) | `/bun` | One asset's identity size and its siblings' sizes. |
+| [`injectShellHead(html, { preloadHrefs, commit })`](#injectshellheadhtml--preloadhrefs-commit-) | `.` | The whole head prelude in one splice. |
+| [`injectShellCommit(html, commit)`](#injectshellcommithtml-commit) | `.` | That same splice with nothing to preload. |
+| [`PRECOMPRESSED_ENCODINGS`](#precompressed_encodings) | `.` | The `[encoding, suffix]` table both halves read. |
+| [`assertAssetPrefix(assetPrefix?)`](#assertassetprefixassetprefix) | `.` | A hashed-asset request prefix, checked and handed back. |
+| [`assetDirOf(assetPrefix?)`](#assetdirofassetprefix) | `.` | The dist-relative directory that prefix names. |
+| [`HASHED_NAMING`](#hashed_naming) | `.` | The naming template every hashed output is emitted under. |
+| [`chunkPattern(module, ext?)`](#chunkpatternmodule-ext) | `.` | What the split chunk for a module is called. |
+| [`chunkUrlPattern(module, assetPrefix?, ext?)`](#chunkurlpatternmodule-assetprefix-ext) | `.` | That same rule as a request under the hashed prefix. |
+
+### `surfaceApp()`
+
+The Vite plugin, on `/vite`. It injects the build commit onto the shell.
+
+### `buildSurfaceClient(opts)`
+
+The Bun build. One call writes:
+
+- content-hashed `/assets/*`: the entry, the split chunks and the extra assets;
+- the `no-store` shell, rewritten to name them;
+- the commit, injected onto that shell;
+- a `<link rel="modulepreload">` for each chunk the entry statically imports;
+- the precompressed siblings.
 
 ```ts
 const { jsHref, assets } = await buildSurfaceClient({
@@ -378,61 +386,91 @@ const { jsHref, assets } = await buildSurfaceClient({
 for (const a of assets) console.log(a.file, a.bytes, a.siblings);
 ```
 
-<Aside type="note" title="Neither half is an option">
-  There is no `precompress` flag and no `splitting` flag. A sibling is written
-  only when it beat identity, only under the prefix the layer negotiates, and
-  never for a type the layer refuses — so a flag would only choose between the
-  negotiation working and it having nothing to serve. Splitting is what a
-  dynamic `import()` in your own source already asked for; `splitting: false`
-  used to inline it, which is deferred in evaluation and identical on the wire.
-  With one entrypoint and no dynamic import the output is unchanged.
-</Aside>
+#### Siblings and splitting
 
-<Aside type="note" title="The shell preloads the entry's STATIC chunks, and only those">
-  Splitting hands the entry a chunk it imports at the top — the module the
-  bundler hoisted out because the entry and a deferred chunk both need it. A
-  browser handed only the entry's URL cannot ask for that file until it has
-  fetched **and parsed** the entry, so the split costs one extra round trip on
-  first paint. The build reads its own chunk graph (`Bun.build({ metafile: true })`)
-  and names those files in the shell, transitively, so the fetches start while
-  the HTML is still parsing. A `dynamic-import` chunk is never preloaded —
-  that would fetch on first paint exactly what `import()` was written to defer —
-  and an entry that split into nothing gets no tags at all. A static import that
-  is not a JS module is **refused**, loudly: the bundler emitted a file this
-  build rewrites no placeholder for, so the shell would name it nowhere.
-</Aside>
+There is no `precompress` flag and no `splitting` flag.
 
-<Aside type="tip" title="Moving the bundle out of the app's URL space">
-  `assetPrefix` (default `/assets/`) is the one thing about the dist's shape you
-  may say, and it is here because the right answer is not universal: it is a
-  fact about **whose URL space** sits at `/`. An app serving somebody else's
-  files there — olai serves a person's own directory, so `/assets/notes.md` is
-  one of their pages — cannot leave the bundle on the convention: a miss under
-  the immutable prefix 404s by design rather than reaching the shell, so a whole
-  folder of theirs has no page at all. Pass the same string to the build and to
-  `freshStaticLayer` and the collision is gone; `assetDirOf` derives the
-  dist-relative directory from it, so the hrefs in the shell and the bytes on
-  disk are one setting rather than two that can part. The prefix must start and
-  end with `/` and must not be the root — each refusal throws where it is
-  written. Vite-built clients say the same thing through Vite's own
-  `build.assetsDir`. **Moving the prefix wants a clean `distDir`**: the prune
-  below measures the directory this build wrote and cannot know where the last
-  one put its files, so a rebuild that moves the prefix leaves the vacated
-  directory behind. Deleting a sibling directory on the strength of its name is
-  the alternative, and it would eat a `publicDir` output the day someone moved
-  the prefix onto one.
-</Aside>
+- A sibling is written only when it beat identity, only under the prefix the layer negotiates, and never for a type the layer refuses. A flag would only choose between the negotiation working and it having nothing to serve.
+- Splitting is what a dynamic `import()` in your own source already asked for. `splitting: false` inlines that chunk, which is deferred in evaluation and identical on the wire.
+- With one entrypoint and no dynamic import the output is unchanged.
 
-<Aside type="caution" title="The hashed dir belongs to the build">
-  Every rebuild PRUNES the hashed dir (`<distDir>/assets/` by default) down to
-  what it just produced (plus
-  their sourcemaps and siblings): a hashed file the new shell does not name is
-  unreachable, and leaving it there is what makes a long dev session pay brotli
-  over a growing pile. A sibling that already sits beside an unchanged asset is
-  never recompressed — same name means same bytes. Your app's stable-URL files
-  (icons, fonts, a manifest) belong in `publicDir`, which lands at the dist
-  **root** and is never touched.
-</Aside>
+#### Preloading the entry's static chunks
+
+Splitting hands the entry a chunk it imports at the top: the module the bundler hoisted out because the entry and a deferred chunk both need it. A browser handed only the entry's URL cannot ask for that file until it has fetched and parsed the entry, so the split costs one extra round trip on first paint.
+
+- The build reads its own chunk graph (`Bun.build({ metafile: true })`) and names those files in the shell, transitively, so the fetches start while the HTML is still parsing.
+- A `dynamic-import` chunk is never preloaded. That would fetch on first paint exactly what `import()` was written to defer.
+- An entry that split into nothing gets no tags at all.
+- A static import that is not a JS module is refused, loudly. The bundler emitted a file this build rewrites no placeholder for, so the shell would name it nowhere.
+
+#### The hashed dir
+
+Every rebuild prunes the hashed dir (`<distDir>/assets/` by default) down to what it just produced, plus their sourcemaps and siblings.
+
+- A hashed file the new shell does not name is unreachable, and leaving it there is what makes a long dev session pay brotli over a growing pile.
+- A sibling that already sits beside an unchanged asset is never recompressed: same name means same bytes.
+- Your app's stable-URL files (icons, fonts, a manifest) belong in `publicDir`, which lands at the dist root and is never touched.
+
+### `SurfaceClientBuildOptions`
+
+The build's options: the entrypoint, `distDir`, the HTML template and its placeholders, `extraAssets`, `publicDir`, `minify`, `commit` and `assetPrefix`.
+
+#### `assetPrefix`
+
+`assetPrefix` (default `/assets/`) is the one thing about the dist's shape you may say, and the right answer is not universal: it is a fact about whose URL space sits at `/`.
+
+- An app serving somebody else's files at `/` cannot leave the bundle on the convention. olai serves a person's own directory, so `/assets/notes.md` is one of their pages. A miss under the immutable prefix 404s by design rather than reaching the shell, so a whole folder of theirs would have no page at all.
+- Pass the same string to the build and to `freshStaticLayer`, and the collision is gone. `assetDirOf` derives the dist-relative directory from it, so the hrefs in the shell and the bytes on disk are one setting rather than two that can part.
+- The prefix must start and end with `/`, and must not be the root. Each refusal throws where it is written.
+- Vite-built clients say the same thing through Vite's own `build.assetsDir`.
+- Moving the prefix wants a clean `distDir`. The prune measures the directory this build wrote and cannot know where the last one put its files, so a rebuild that moves the prefix leaves the vacated directory behind.
+
+### `SurfaceClientBuildResult`
+
+`{ jsHref, assetHrefs, assetPrefix, preloadHrefs, assets }`: every hashed URL the shell now names, plus a report per asset.
+
+- The URLs are the JS entry, one per extra asset, and the entry's static chunks in load order.
+- `assets` carries an `AssetReport` per compressible asset in the hashed dir. Sourcemaps and already-compressed media are skipped, and absent from the report.
+
+### `AssetReport`
+
+`{ file, bytes, siblings }`: the identity size and each sibling's size, keyed by `Content-Encoding`.
+
+### `injectShellHead(html, { preloadHrefs, commit })`
+
+The whole head prelude in one splice, for a caller templating its own shell from a build result. Preload links come first, then the build identity.
+
+### `injectShellCommit(html, commit)`
+
+That same splice with nothing to preload: the build identity alone.
+
+### `PRECOMPRESSED_ENCODINGS`
+
+The `[encoding, suffix]` table both halves read: `freshStaticLayer` to negotiate, the builder to emit.
+
+### `assertAssetPrefix(assetPrefix?)`
+
+A hashed-asset request prefix, checked and handed back. It is the one place its shape is judged, so a prefix the build refuses is not one the server accepts.
+
+### `assetDirOf(assetPrefix?)`
+
+The dist-relative directory that prefix names, which the Bun build reads to choose its `outdir`.
+
+### `HASHED_NAMING`
+
+The naming template every hashed output is emitted under (`[name]-[hash].[ext]`). `/bun` hands it to `Bun.build`'s `naming` for entry, chunk and asset alike, so the rule is spelled once.
+
+### `chunkPattern(module, ext?)`
+
+That template read backwards: what the split chunk for `module` is called, anchored to the whole filename, for a caller that must name the file before the build has run.
+
+- It is built from `HASHED_NAMING` rather than re-spelled, so the two directions cannot drift.
+- `ext` defaults to `js`; pass `"css"` to name a hashed stylesheet.
+- It is a RegExp, because callers hand it to a route matcher and print it in a diagnosis.
+
+### `chunkUrlPattern(module, assetPrefix?, ext?)`
+
+The same rule as a request under the hashed prefix. The filename half is `chunkPattern`'s, not a second spelling of it, and it is taken through `assertAssetPrefix` so a prefix the build refuses is not one a matcher accepts.
 
 ## Accepting a browser socket
 

@@ -53,3 +53,25 @@ None.
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs`: 0 missing).
+
+## Building the client dist
+
+- Words: 991 → 1,107. The growth is the index table, 13 entry headings and the four asides unpacked into lists. Before: one `##` holding 628 words of running text, four `<Aside>`s (the longest 227 words) and two table cells over 50 words. After: an index table, 13 entries, four entry sections, no asides.
+- Headings renamed: none. `Building the client dist` is kept. No inbound links point into this section.
+- The four asides became entry sections: "Neither half is an option" → `Siblings and splitting`; "The shell preloads the entry's STATIC chunks, and only those" → `Preloading the entry's static chunks`; "Moving the bundle out of the app's URL space" → `assetPrefix` (under `SurfaceClientBuildOptions`); "The hashed dir belongs to the build" → `The hashed dir`.
+
+### Moved
+
+None.
+
+### Cut
+
+| Fact | Tag |
+| --- | --- |
+| "since the socket was completed … the code splitting every consumer used to bolt on afterwards" | history |
+| "`splitting: false` used to inline it" (kept, in present tense, as what `splitting: false` does) | history |
+| "Deleting a sibling directory on the strength of its name is the alternative, and it would eat a `publicDir` output the day someone moved the prefix onto one" | rationale |
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs`: 0 missing).
