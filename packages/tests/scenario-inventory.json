@@ -10378,6 +10378,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "d064a791feb538848f10761c796093e08a40058c"
+    },
+    {
+      "revisionId": "revision-096c3b0c8fd702223d8d",
+      "scenarioKey": "scenario-72bfeee2d6441ac4ca46",
+      "feature": "features/conductor.feature",
+      "scenario": "A question from the Conductor rings when you are not looking at it",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "80c049ab576ff842bc164c7f5c8e405e1acb96781f0359d1b56b1c3dcddcb7d2",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "6abb97f80c2a4a6c6b40d31b5694e47db05be0f9"
     }
   ]
 }
