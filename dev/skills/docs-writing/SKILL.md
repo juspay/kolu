@@ -44,6 +44,15 @@ Edit the page so it stays true. Do not append a paragraph describing your change
 20. **One fact, one home.** Another page that needs it gets at most two sentences and a link.
 21. **Nothing is invented.** Every sentence traces to the code or to what the page said before. Where the old text is unclear, read the code. If code and page disagree, the code wins. The Conductor's in-app help (`packages/client/src/conductor/helpContent.ts`) must agree with the `conductor` page.
 
+## House style
+
+Small choices a reader notices when they change from page to page. Every page makes them the same way.
+
+22. **Spelling is British, with -ize (Oxford):** colour, behaviour, centre, grey, dialled, cancelled, labelled; organize, recognize, normalize, summarize. Identifiers, code, commands, product names, quoted messages and on-screen labels stay exactly as written, and so does Nix's own term *realise* (`nix-store --realise`).
+23. **One verb per pointer.** You press a key, click a control (a button, a tab, a row, a link) and tap only where the text is about a touch screen. A control you can click is "clickable", never "pressable".
+24. **One way to write a shortcut**, the way `keyboard-shortcuts` does: one `<kbd>` per key, modifiers as words (Cmd, Ctrl, Super, Alt, Shift, Enter), joined by ` + `. Where the platforms differ, name both: `<kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd>`. No ⌘ ⇧ ⌥ ⏎ glyphs in a keycap and no bare "Ctrl+K" in text. A label the screen itself draws with a glyph (**Turn on ⏎**) is quoted as the screen draws it.
+25. **kolu is lower case**, also at the start of a sentence or a heading. A name the screen shows with a capital (an on-screen label, a menu item) is quoted as it appears.
+
 ## Variants for the Surface docs
 
 The lint thresholds apply to the Surface collection as they are, with one exception. The other differences are review rules.

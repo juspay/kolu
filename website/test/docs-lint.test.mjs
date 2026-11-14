@@ -85,8 +85,12 @@ function plain(node) {
 const words = (text) =>
   text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
 
+// "kolu" is written lower case even at the start of a sentence (house style),
+// which the segmenter would read as a continuation, so it segments a copy with
+// the word capitalised. Word counts are unaffected.
 function sentencesOf(text) {
-  return [...sentences.segment(text.replace(/\s+/g, " ").trim())]
+  const flat = text.replace(/\s+/g, " ").trim().replace(/\bkolu\b/g, "Kolu");
+  return [...sentences.segment(flat)]
     .map((s) => s.segment.trim())
     .filter(Boolean);
 }
