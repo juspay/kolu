@@ -22,16 +22,16 @@ isolated second instance. Both act on the [daemons](/architecture), `padi` and
 
 ## Before you start
 
-- **Two state directories.** `KOLU_STATE_DIR` is the server's config store
+- There are two state directories. `KOLU_STATE_DIR` is the server's config store
   (`~/.config/kolu` by default). `KOLU_PADI_STATE_DIR` is padi's state root
   (`~/.local/state/padi`): saved sessions, `padi.log`, and the anchor for
   everything else. The production launcher supplies both. A bare `padi` with
   neither set refuses to start rather than guess.
-- **The padi state root is an identity.** Its absolute path is hashed to a
+- The padi state root is an identity. Its absolute path is hashed to a
   short digest, and that digest names every socket and pid gate the daemons
   use. Two kolus with different padi state roots compute different paths, so
   neither can see the other's daemons.
-- **Each daemon claims a pid gate** beside its socket, in the per-user runtime
+- Each daemon claims a pid gate beside its socket, in the per-user runtime
   directory.
 
 | File | Holder |
@@ -82,11 +82,10 @@ one, see
 ## Stop the stack
 
 <Aside type="caution" title="`pkill padi` matches nothing">
-  The daemons are Node processes, so their process name is `node` (or
-  `MainThread`) and "padi" appears only in their argv. A bare `pkill padi`
-  matches zero processes and looks like it worked. `pkill -f padi` does match,
-  but it also matches anything else with the word in its command line. Read the
-  pid from the gate file instead.
+  The daemons are Node processes named `node` (or `MainThread`), so a bare
+  `pkill padi` matches nothing and looks like it worked. `pkill -f padi` matches
+  anything with the word in its command line. Read the pid from the gate file
+  instead.
 </Aside>
 
 <Steps>
@@ -142,7 +141,7 @@ observed stopped, since a stopped process cannot act on SIGTERM at all.
 ## Roll back to an older release
 
 Upgrading is hands-off. When a release changes the protocol the daemons speak,
-the new supervisor probes whatever holds the socket, recognises a
+the new supervisor probes whatever holds the socket, recognizes a
 previous-epoch daemon, corroborates it against the gate file and the OS process
 table, and takes it over. That happens on this machine and on each [remote
 host](/remote-hosts), with nothing to run by hand. The story users see is in
@@ -189,10 +188,9 @@ to the production paths when they are not. That is why forgetting one is
 dangerous rather than merely untidy.
 
 <Aside type="caution" title="Sharing a padi state root makes your test a deploy">
-  The supervisor takes over any daemon it can corroborate: a gate file under its
-  own padi runtime directory naming a pid the OS agrees is holding the socket.
-  Share `KOLU_PADI_STATE_DIR` with production and both instances hash to the
-  same digest, so the test instance reads production's gate and SIGTERMs
+  The supervisor takes over any daemon it can corroborate. Share
+  `KOLU_PADI_STATE_DIR` with production and both instances hash to the same
+  digest, so the test instance reads production's gate file and SIGTERMs
   production's daemon.
 </Aside>
 

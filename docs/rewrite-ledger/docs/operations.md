@@ -45,3 +45,8 @@ tip, the SIGTERM caution and the separate-machine caution are now plain text.
 ## Dropped code spans
 
 `.waterfall/compare.mjs` reports 0 missing.
+
+## Review round 1
+
+- Two asides cut under 50 words. Cut as duplicate: "but it also matches anything else" is kept in shorter words; the corroboration detail ("a gate file under its own padi runtime directory naming a pid the OS agrees is holding the socket") is the takeover rule stated under "Before you start" and in `surface-daemon-invariants`.
+- Three bold run-in sentences in "Before you start" are plain list items now.
