@@ -10,6 +10,7 @@ import DaemonLifecycle from "../../components/docs/diagrams/DaemonLifecycle.astr
 A surface in a browser tab dies with the tab. A surface in a **daemon** outlives
 every client that connects to it, and outlives its own code. You ship a new
 build while a client is mid-session, and the old process still holds the socket.
+
 The daemon stratum makes that moment safe.
 
 <DaemonLifecycle />
@@ -86,7 +87,7 @@ the runtime behind it dead. A failed poll read is already cell-local at every
 tick, so a dead runtime can only be structural wiring death, which does not heal
 by waiting.
 
-Kolu met the zombie once. A padi logged a probe timeout, kept its gate and
+kolu met the zombie once. A padi logged a probe timeout, kept its gate and
 socket, and needed an operator, where a crash would have been respawned and
 restored in about two seconds
 ([kolu#2101](https://github.com/juspay/kolu/pull/2101)).

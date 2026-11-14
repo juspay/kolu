@@ -53,3 +53,8 @@ The one history passage kept is the juspay/kolu#2101 zombie, with its PR link, b
 ## Dropped code spans
 
 None. `node .waterfall/compare.mjs website/src/content/surface/the-daemon-spine.mdx` reports 0 missing.
+
+## Review round 1
+
+- Opening cut to 50 words (rule 4): 52 → 45. "The daemon stratum makes that moment safe" is now its own paragraph, immediately before the lifecycle diagram. No fact was cut.
+- Checks: lint passes; `.waterfall/compare.mjs` 0 missing; `house-style.mjs` reports nothing on this page.
