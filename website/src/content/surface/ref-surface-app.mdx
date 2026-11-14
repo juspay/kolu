@@ -789,24 +789,32 @@ It derives the connection lifecycle (`connecting → connected → disconnected 
 
 ## The client model
 
-`SurfaceAppProvider` (`@kolu/surface-app/solid`) is the turnkey source that
-handles the stale-tab handshake; its connection source is a union of
-`{ wire, probe }` (the provider derives the lifecycle off the link's
-`WatchableWire` — there is no socket shape to satisfy) or `{ status }` (you
-already did). It takes a typed `controlPlane` whose `buildInfo` cell yields build
-identity, plus `clientCommit={shellCommit()}` — and a **required `fault`**, the
-LOOK of an uncaught render throw (below).
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`SurfaceAppProvider`](#surfaceappprovider) | `/solid` | The turnkey source for the stale-tab handshake and build identity. |
+| [`useSurfaceApp()`](#usesurfaceapp) | `/solid` | The headless model the shell is drawn from. |
 
-`useSurfaceApp()` is the headless model — no styled components ship:
+### `SurfaceAppProvider`
+
+`SurfaceAppProvider` (`@kolu/surface-app/solid`) is the turnkey source that handles the stale-tab handshake.
+
+- Its connection source is a union of `{ wire, probe }` and `{ status }`. Pass the first and the provider derives the lifecycle off the link's `WatchableWire`; pass the second when you already did.
+- There is no socket shape to satisfy.
+- It takes a typed `controlPlane` whose `buildInfo` cell yields build identity, plus `clientCommit={shellCommit()}`.
+- `fault` is required: the look of an uncaught render throw. See [the fault boundary](#the-fault-boundary).
+
+### `useSurfaceApp()`
+
+The headless model. No styled components ship.
 
 | Accessor | Meaning |
 | --- | --- |
 | `status()` | `"live" \| "reconnecting" \| "restarted" \| "down"` |
-| `presentingDown()` | grace-windowed down state — `true` only once `status()` has been not-live for `DISCONNECT_OVERLAY_GRACE_MS` (1 s; re-exported from `@kolu/surface/solid`, and folded into a readout's `presentingDown`) |
+| `presentingDown()` | Grace-windowed down state. `true` only once `status()` has been not-live for `DISCONNECT_OVERLAY_GRACE_MS` (1 s), re-exported from `@kolu/surface/solid` and folded into a readout's `presentingDown` |
 | `server()` | `{ commit, … }` server identity |
-| `reload()` | reload for an update |
-| `setAttention(n)` | OS app badge + title |
-| `canInstallPwa()` | true only in a secure context and not already installed |
+| `reload()` | Reload for an update |
+| `setAttention(n)` | OS app badge and title |
+| `canInstallPwa()` | True only in a secure context, and not already installed |
 
 ## The fault boundary: a throw is not a white tab
 

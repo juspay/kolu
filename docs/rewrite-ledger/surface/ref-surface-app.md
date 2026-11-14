@@ -130,3 +130,20 @@ None.
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs`: 0 missing).
+
+## The client model
+
+- Words: 144 → 182, the growth being the index table and two entry headings. Before: one 45-word sentence carrying three parenthetical facts. After: two entries, the provider's props as a list, the accessor table unchanged in content.
+- Headings renamed: none. `The client model` is kept. No inbound links point into this section.
+
+### Moved
+
+None.
+
+### Cut
+
+Nothing. "the LOOK of an uncaught render throw" is now "the look of an uncaught render throw".
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs`: 0 missing).
