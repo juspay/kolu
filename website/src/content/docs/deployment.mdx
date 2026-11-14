@@ -1,6 +1,6 @@
 ---
 title: Deployment
-description: "Run kolu as a home-manager service on Linux or macOS, configure its address and browser origins, inspect logs, and capture heap diagnostics."
+description: "Run kolu as a home-manager service on Linux or macOS, set its address and browser origins, enable the binary cache, read logs, and capture heap snapshots."
 order: 72
 section: Operate
 koluHero:
@@ -9,11 +9,12 @@ koluHero:
 ---
 
 import Aside from "../../components/docs/Aside.astro";
+import Steps from "../../components/docs/Steps.astro";
 
 kolu's home-manager module runs the web server as a systemd user service on
-Linux or a launchd LaunchAgent on macOS. Both supervisors restart a failed
-server, while [padi and kaval](/architecture) keep workspace state and live
-shells below it.
+Linux, or a launchd LaunchAgent on macOS. Both supervisors restart a failed
+server. Below it, [padi and kaval](/architecture) hold your workspace state and
+your live shells.
 
 ## Enable the service
 
@@ -35,28 +36,23 @@ Apply the home-manager configuration as usual, then open
 [http://127.0.0.1:7681](http://127.0.0.1:7681). The module also puts the
 matching `kolu`, `padi-tui`, and `kaval-tui` commands on `PATH`.
 
-A generation built this way **carries every agent kolu can send to a [remote
-host](/remote-hosts)**, so a first connect copies binaries this machine already
-holds instead of fetching them from a cache or asking the remote machine to
-build them. Nothing to warm, nothing to run before switching. The set comes
-from `services.kolu.agentPackages`, which the module's flake defaults to the
-agents kolu is allowed to provision — override it only to pin particular
-builds.
+A generation built this way carries every agent kolu can send to a [remote
+host](/remote-hosts), so a first connect copies binaries this machine already
+holds instead of fetching or building them. The set comes from
+`services.kolu.agentPackages`, which defaults to the agents kolu is allowed to
+provision. Override it only to pin particular builds.
 
 The complete, build-tested flake is in
 [`nix/home/example`](https://github.com/juspay/kolu/tree/master/nix/home/example).
-CI boots its systemd configuration in a NixOS VM and builds its launchd
-activation package on macOS.
 
-On a **headless** NixOS box, also set `users.users.<you>.linger = true` in the
-system config so the user systemd — and this service — starts at boot without
-a login.
+On a headless NixOS box, also set `users.users.<you>.linger = true` in the
+system config, so the user systemd starts this service at boot without a login.
 
 ## Ubuntu (and other non-NixOS Linux)
 
 Same module, applied with standalone home-manager. Install Nix with flakes
-first ([NixOS Asia guide](https://nixos.asia/en/install)), then a flake whose
-`homeConfigurations` output imports the module:
+first ([NixOS Asia guide](https://nixos.asia/en/install)), then write a flake
+whose `homeConfigurations` output imports the module:
 
 ```nix
 {
@@ -99,11 +95,11 @@ nix run home-manager -- switch --flake .#you
 sudo loginctl enable-linger you
 ```
 
-Linger keeps the user systemd running after SSH disconnects — without it the
-service dies when you log out, which is the opposite of a headless box. Then
-open [http://127.0.0.1:7681](http://127.0.0.1:7681). Address, origins, and
-logs below apply unchanged. The [From a Mac](/from-a-mac) tutorial walks this
-as the first step of the Mac-window setup.
+Linger keeps the user systemd running after SSH disconnects; without it the
+service stops when you log out. Then open
+[http://127.0.0.1:7681](http://127.0.0.1:7681). Address, origins and logs below
+apply unchanged. The [From a Mac](/from-a-mac) tutorial walks this as the first
+step of the Mac-window setup.
 
 ## Choose the address
 
@@ -126,10 +122,9 @@ your LAN, pass an address and port after `--`:
 nix --refresh run github:juspay/kolu -- web --bind 0.0.0.0 --port 8080
 ```
 
-Open the address you chose. For another device, prefer the private HTTPS
-setup in [From a Mac](/from-a-mac) or [From another
-device](/remote-access); plain LAN HTTP does not unlock install prompts,
-badges, or notifications.
+Open the address you chose. For another device, prefer the private HTTPS setup
+in [From a Mac](/from-a-mac) or [From another device](/remote-access); plain
+LAN HTTP does not unlock install prompts, badges, or notifications.
 
 <Aside type="caution" title="The RPC surface has no login">
   The same-origin gate stops a hostile website from reaching kolu through your
@@ -142,76 +137,55 @@ badges, or notifications.
 ## First run compiling? Enable the binary cache
 
 Every kolu commit is pre-built and pushed to a public binary cache,
-`https://cache.kolu.dev/kolu-r2`. The flake declares it, but Nix only honors a
-flake-declared cache if you accept it **and** your user is
-[trusted](https://nix.dev/manual/nix/latest/command-ref/conf-file#conf-trusted-users)
-by the Nix daemon — and on a standard multi-user install it isn't, so the
-setting is dropped with a one-line warning
-(`ignoring untrusted flake configuration setting 'extra-substituters'`) and the
-first run compiles kolu from source, including downloading a Rust toolchain
-for one of its helper binaries.
-
-To download pre-built binaries instead, add the cache to the **system** Nix
-configuration (`/etc/nix/nix.conf`):
+`https://cache.kolu.dev/kolu-r2`. The flake declares it, but Nix honours a
+flake-declared cache only if you accept it and the Nix daemon counts your user
+as [trusted](https://nix.dev/manual/nix/latest/command-ref/conf-file#conf-trusted-users).
+A standard multi-user install does not, so Nix drops the setting with a one-line
+warning:
 
 ```text
-extra-substituters = https://cache.kolu.dev/kolu-r2
-extra-trusted-public-keys = kolu-r2-1:7KmFrK05rVrnxkyZi9hJGnJJmRCpg87u6MUQIk7nokQ=
+ignoring untrusted flake configuration setting 'extra-substituters'
 ```
 
-Or, on NixOS:
+The first run then compiles kolu from source, including a Rust toolchain for one
+of its helper binaries. To download pre-built binaries instead:
 
-```nix
-nix.settings = {
-  extra-substituters = [ "https://cache.kolu.dev/kolu-r2" ];
-  extra-trusted-public-keys = [ "kolu-r2-1:7KmFrK05rVrnxkyZi9hJGnJJmRCpg87u6MUQIk7nokQ=" ];
-};
-```
+<Steps>
 
-After editing `nix.conf`, restart the daemon (`sudo systemctl restart
-nix-daemon` on Linux, `sudo launchctl kickstart -k
-system/org.nixos.nix-daemon` on macOS).
+1. Add the cache to the system Nix configuration, `/etc/nix/nix.conf`:
 
-Machines you [add as another machine](/remote-hosts) can inherit the cache
-through kolu: provisioning copies the agent's binaries from **this** machine
-onto the host, cross-architecture included. A Linux host is sent them
-content-addressed (each store path named by the hash of what it holds), which
-its Nix accepts from anyone — no `trusted-users`, no cache key, nothing in its
-`nix.conf` — as long as its Nix and this machine's are on the same side of Nix
-2.35 (2.35 changed that form, so a Nix on one side refuses the other's). A Mac
-is sent them as signed (rewriting would break macOS's code signatures), and so
-is a Linux host across that line, so that copy lands only if the host trusts
-your ssh user (`trusted-users`) or the cache's key; when it trusts neither, kolu
-shows Nix's refusal in the connect log and the host realises the agent itself,
-so the block above applied there lets it download instead of build.
+   ```text
+   extra-substituters = https://cache.kolu.dev/kolu-r2
+   extra-trusted-public-keys = kolu-r2-1:7KmFrK05rVrnxkyZi9hJGnJJmRCpg87u6MUQIk7nokQ=
+   ```
 
-The coding agents kolu puts on terminals' PATH ([AI coding agents](/agents)) follow a
-different rule. On the machine running kolu they ship inside kolu itself — the
-whole set, the profiles you list included — so they come down with kolu from
-the same cache on the two systems the cache is filled for (x86_64 Linux and
-Apple Silicon). On aarch64 Linux the cache has no
-build of them, so the first `nix run` there compiles them, which takes a while. For a
-remote host this machine needs none of that: it reads which build the host needs
-from agent-distro's published index and has the **host** download it over its own
-HTTPS from agent-distro's binary cache,
-never building it — and keeps every machine current the same way, four times a
-day ([Kept up to date](/agents#kept-up-to-date)). This machine's Nix trusts
-nothing for it. A Linux host's needn't either — on Nix 2.17 through 2.34 it gets
-the set content-addressed — while a Mac, or a Linux host on Nix 2.35 or later,
-gets it signed and needs the trust above
-(`trusted-users` for the login, or the cache's key; see [When a delivery
-fails](/agents#when-a-delivery-fails)). The profiles this machine builds go the
-same way only when its Nix and the host's are on the same side of Nix 2.35;
-otherwise they are sent as built, and the host must trust the login. On the
-machine running kolu, the set kolu shipped with keeps working either way.
+   On NixOS, set it in the system configuration instead:
+
+   ```nix
+   nix.settings = {
+     extra-substituters = [ "https://cache.kolu.dev/kolu-r2" ];
+     extra-trusted-public-keys = [ "kolu-r2-1:7KmFrK05rVrnxkyZi9hJGnJJmRCpg87u6MUQIk7nokQ=" ];
+   };
+   ```
+
+2. Restart the Nix daemon: `sudo systemctl restart nix-daemon` on Linux, or
+   `sudo launchctl kickstart -k system/org.nixos.nix-daemon` on macOS.
+
+3. Run kolu again. It downloads what the cache holds instead of building it.
+
+</Steps>
+
+A machine you [add as another machine](/remote-hosts) can inherit the cache
+through kolu: provisioning copies binaries from this machine onto the host,
+cross-architecture included. The copy can land only if the host's Nix accepts
+it, and [AI coding agents](/agents) covers what is sent, how, and what to do
+when a host refuses it.
 
 Whether this machine has those binaries to copy depends on how you installed
-kolu. If you run kolu as a service through the **home-manager module**, it
-always does: the installed generation carries every agent closure kolu can
-provision, so the cache above is only about kolu's *own* first build, never
-about a remote connect. If you launch kolu with `nix run` or a plain `nix
-profile install`, the agent closure is fetched on demand — from this cache, and
-from source if the cache doesn't have it yet.
+kolu. Run as a service through the home-manager module, it always does, so the
+cache above is only about kolu's own first build. Launched with `nix run` or
+`nix profile install`, the agent closure is fetched on demand, and built from
+source when the cache does not have it yet.
 
 ## Allow a reverse-proxy origin
 
@@ -245,18 +219,17 @@ On macOS, launchd writes the two streams to:
 ~/Library/Logs/kolu.err.log
 ```
 
-Both work because a service manager owns the server's output. Started **by
-hand**, nothing does — `kolu web` writes to your terminal and that is the only
-copy, so redirect it if the run is meant to outlive the shell:
+Both work because a service manager owns the server's output. Started by hand,
+nothing does: `kolu web` writes to your terminal and that is the only copy, so
+redirect it if the run is meant to outlive the shell:
 
 ```sh
 kolu web > ~/kolu-server.log 2>&1
 ```
 
-This is the log that records **why a host's daemon was stopped or replaced**;
-[Operations](/operations) lists the full set and which question each answers.
-
-Crashes and startup failures remain visible after the process exits.
+This is the log that records why a host's daemon was stopped or replaced.
+[Operations](/operations) lists the full set of logs and which question each
+answers. Crashes and startup failures stay visible after the process exits.
 
 ## Capture memory diagnostics
 
@@ -286,14 +259,13 @@ snapshots offline with
 [MemLab](https://facebook.github.io/memlab/docs/cli/CLI-commands/) to find what
 retains the growing objects.
 
-Diagnostics are disabled by default and add no overhead until `dir` is set.
+Diagnostics are disabled until you set `dir`, and add no overhead before that.
 Browser-tab or GPU growth has a different checklist in
 [Troubleshooting](/troubleshooting#kolu-is-using-a-lot-of-memory).
 
 ## Stop it, roll it back, or test beside it
 
-Stopping the whole stack by hand — the daemons included — is not `systemctl stop`
-alone, and it is what a rollback to an older release needs. Running a second kolu
-on a machine that already has one needs its own state directories, or the test
-instance takes production's daemons over. Both procedures, and the vocabulary
-they share, are in [Operations](/operations).
+Stopping the whole stack by hand, daemons included, takes more than
+`systemctl stop`, and a rollback to an older release needs it. A second kolu on
+a machine that already runs one needs its own state directories. Both
+procedures are in [Operations](/operations).

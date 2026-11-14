@@ -12,27 +12,29 @@ import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 import Steps from "../../components/docs/Steps.astro";
 
-So far fleet-top has watched *your* machine. Now we reach one running on
-**another** box, over ssh, and show its `top` in your browser — using the exact
-same surface. The trick is a **mirror**: the remote box serves the surface, a
-local parent folds its frames into a local copy of the same surface and re-serves
-*that*, and the browser only ever talks to the local copy. Swap the box behind it
-and the browser never notices.
+So far fleet-top has watched your machine. Now we reach one running on another
+box, over ssh, and show its `top` in your browser.
+
+The trick is a [mirror](/surface/glossary): the remote box serves the surface, a
+local parent folds its frames into a local copy of the same surface and
+re-serves that, and the browser only ever talks to the local copy. You use the
+same surface you already built. Swap the box behind it and the browser never
+notices.
 
 <Aside type="note" title="The code for this page (part 3)">
-  Multi-host builds on the **basics** surface (part 1), not the daemon stratum —
-  so we continue from the `top` surface you already know, no daemon required. The
-  mirror + map code lives at `packages/surface/example/fleet-top/part-3`; it
-  typechecks in CI, so the snippets are the real files. Set up like the earlier
-  parts: `cd packages/surface/example/fleet-top/part-3 && pnpm install`.
+  Multi-host builds on the part-1 surface, so no daemon is required. The code
+  lives at `packages/surface/example/fleet-top/part-3` and typechecks in CI, so
+  the snippets are the real files. Set it up with
+  `cd packages/surface/example/fleet-top/part-3 && pnpm install`.
 </Aside>
 
-## The agent — what runs on the far box
+## What runs on the far box
 
-The remote side is tiny: it serves the same `top` surface over stdin/stdout. This
-is what the parent runs on each target — `ssh <host> fleet-top-agent --stdio` for
-a remote box, the realised binary directly for `localhost`. It is ephemeral — a
-fresh one per link — which is the right shape for a re-run-fresh reader like `top`.
+The remote side is tiny: it serves the same `top` surface over stdin/stdout.
+This is what the parent runs on each target:
+`ssh <host> fleet-top-agent --stdio` for a remote box, the realised binary
+directly for `localhost`. Each link gets a fresh agent, which suits a
+re-run-fresh reader like `top`.
 
 <Snippet src="packages/surface/example/fleet-top/part-3/src/agent/main.ts" />
 
@@ -45,7 +47,7 @@ reconnecting on drop.
 
 <Snippet src="packages/surface/example/fleet-top/part-3/src/server/hosts.ts" region="dial" />
 
-Then **pump** the agent's frames *inward*, folding each into a local
+Then **pump** the agent's frames inward, folding each into a local
 `implementSurface` of the same surface. The local copy is what browser
 subscribers read; `makeSink` writes the incoming frames through its `ctx`.
 
@@ -53,38 +55,41 @@ subscribers read; `makeSink` writes the incoming frames through its `ctx`.
 
 Finally **re-serve**: a `directDispatch` over the re-served surface is what the
 browser reaches (`reServeSurface` hands back the same `{ group, handlers }` pair
-any transport takes — nothing to finalize). Three hops — dial, pump, re-serve —
-and the surface that started on another machine now serves from this process.
+any transport takes, with nothing to finalize). After those three hops (dial,
+pump, re-serve) the surface that started on another machine serves from this
+process.
 
-<Aside type="caution" title="The parent owns the connection state">
-  The remote box cannot report whether *your* link to it is healthy — so that
-  state is the parent's to own. While the closure is copying or the session is
-  reconnecting, the parent projects `warming` (in motion, self-heals); only a
-  bounded remote fault — a box that answers-but-refuses, or gives up terminally —
-  projects `failed` (needs intervention). One box's trouble becomes exactly one
-  honest chip, never a crash — the idea behind
-  [The server half](/surface/the-server-half).
-</Aside>
+The remote box cannot report whether your link to it is healthy, so that state
+is the parent's to own. While the closure is copying or the session is
+reconnecting, the parent projects `warming` (in motion, self-heals). Only a
+bounded remote fault projects `failed` (needs intervention): a box that
+answers-but-refuses, or one that gives up terminally.
 
-<Aside type="caution" title="Prerequisites for running it">
-  Multi-host needs two things the earlier parts did not. **(1) The agent as a
-  [Nix derivation](https://nixos.org/manual/nix/stable/language/derivations.html).**
-  `sshConnector` ships a realised closure to each host, so it needs
-  the agent's `.drv` path in `FLEET_TOP_AGENT_DRV` — the server refuses to boot
-  without it (no fallback). fleet-top ships the agent as a flake output, so you
-  resolve it in one command: `nix eval --raw ./packages/surface/example#fleet-top-agent.drvPath` (from the
-  repo root). **(2) A reachable host.** `localhost` is the easy one: `sshConnector`
-  detects it and runs the realised binary **directly, with no ssh and no sshd**; a
-  non-local `HOST` is a genuine ssh hop.
-</Aside>
+One box's trouble becomes one chip, never a crash. For why the parent is shaped
+this way, see [The server half](/surface/the-server-half).
+
+## Before you run it
+
+Multi-host needs two things the earlier parts did not.
+
+1. **The agent as a
+   [Nix derivation](https://nixos.org/manual/nix/stable/language/derivations.html).**
+   `sshConnector` ships a realised closure to each host, so it needs the agent's
+   `.drv` path in `FLEET_TOP_AGENT_DRV`. The server refuses to boot without it,
+   and there is no fallback. fleet-top ships the agent as a flake output, so one
+   command resolves it from the repo root:
+   `nix eval --raw ./packages/surface/example#fleet-top-agent.drvPath`.
+2. **A reachable host.** `localhost` is the easy one: `sshConnector` detects it
+   and runs the realised binary directly, with no ssh and no sshd. A non-local
+   `HOST` is a genuine ssh hop.
 
 ## Watch it arrive
 
 <Steps>
 
 1. Point the parent at one host and start it. `HOST` is the target (`localhost`
-   here — no ssh needed); `FLEET_TOP_AGENT_DRV` is the agent's flake output,
-   resolved in place.
+   here, so no ssh is needed). `FLEET_TOP_AGENT_DRV` is the agent's flake
+   output, resolved in place.
 
    ```sh
    # resolve the agent .drv (works from anywhere in the repo):
@@ -98,9 +103,9 @@ and the surface that started on another machine now serves from this process.
    ```
 
 2. Open **http://localhost:5176**. The header chip shows the host warming while
-   the agent closure is realised, then flips to connected — and the same live
-   `top` you built in part 1 fills in, this time streaming from the agent the
-   parent stood up (on `localhost`, directly; on a remote box, over ssh).
+   the agent closure is realised, then flips to connected. The same live `top`
+   you built in part 1 fills in, streaming from the agent the parent stood up
+   (on `localhost`, directly; on a remote box, over ssh).
 
 </Steps>
 
@@ -112,4 +117,5 @@ laptop across the room; the mirror makes it read like local state.
 One box is a mirror. Many boxes is a **map**. In
 [A fleet of surfaces](/surface/a-fleet-of-surfaces) you gather N hosts into one
 keyed surface, render them as chips, and watch a single box's trouble stay
-confined to its own chip — the moment fleet-top becomes a mini-[drishti](https://github.com/srid/drishti).
+confined to its own chip. That is fleet-top as a
+mini-[drishti](https://github.com/srid/drishti).

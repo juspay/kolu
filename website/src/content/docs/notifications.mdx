@@ -1,6 +1,6 @@
 ---
 title: Notifications & Attention
-description: "How kolu surfaces an agent that needs you: the per-row dock badge, the app-icon count, an OS notification for a backgrounded tab, and cross-machine reach that switches host and focuses the exact terminal in one click."
+description: "How kolu tells you an agent needs you: row washes, counts, the app-icon badge, OS notifications, and one click to the right terminal on any host."
 order: 50
 section: "Agents & Attention"
 koluHero:
@@ -12,136 +12,124 @@ import Aside from "../../components/docs/Aside.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 
-Running several agents, the thing you most need to know is *which one is waiting
-on you, and where*. kolu escalates that signal outward — from the dock row, to
-the app icon, to an OS notification, across every machine — so an agent that
-flips to **awaiting you** finds you even when you're looking elsewhere.
+When several agents run at once, you need to know which one is waiting on you,
+and where. The mark lands on the dock row, the count on the host tab and the app
+icon. An OS notification reaches you when you are looking elsewhere.
 
 <figure class="doc-shot">
   <img src="/shots/needs-you.webp" alt="The pinned Needs-you strip above the dock's repo groups, surfacing an agent blocked on a question." loading="lazy" />
   <figcaption>The Needs-you strip pins blocked agents above everything else.</figcaption>
 </figure>
 
-## One vocabulary, everywhere
+## What each agent state means
 
-Three signals, three colours, and the same rendering wherever they appear — dock
-row, repo section header, host tab, phone host row (one exception, below the
-table: a host tab shows **active** as a running stripe):
+Every agent's status is shown as one of the same five states, drawn with the same marks wherever
+kolu shows agent status:
 
-| Signal | Looks like | Goes away when |
+| State | Mark | What it means |
 | --- | --- | --- |
-| **Needs you** — an agent is blocked on your input | violet count pill · violet row wash · a chip counting **how long it has waited** | you answer it — nothing else clears it |
-| **Unread** — an agent finished and you haven't looked | amber count pill · amber row wash · amber badge on the pip | you open that terminal — or that agent starts working again (or the terminal closes) |
-| **Active** — something is happening in a terminal | a plain rust count with a spinner · on a host tab, a rust **stripe runs along its bottom edge** | everything goes quiet |
+| Thinking | pulsing accent dot | The agent is generating a reply. |
+| Tool use | pulsing amber dot | The agent is running a tool. |
+| Awaiting you | pulsing alert dot | The agent is blocked on your input: a question, or a permission it needs. |
+| Working | spinning teal ring | The agent ended its turn while a task it launched is still running. It is busy, not blocked on you. |
+| Waiting | dim dot | The agent is idle and it is your turn. |
 
-The two you can **act on** wear a pill; the activity count deliberately does not.
-So a number in a pill always means *there is something to do here*. Where kolu
-has somewhere to send you, **clicking a pill takes you there** — the violet count
-jumps to the next terminal blocked on you, cycling through them on repeat clicks.
-Clicking never dismisses: the needs-you count is a live reading of what is
-actually waiting, so only answering the agent clears it. (A host tab's amber
-count has no jump of its own — switching to that machine is what clears it, and
-the tab is already the button that does that.)
+Before an agent's first session lands on disk, a terminal shows **starting**,
+**ready** or **working**. Starting and ready ask nothing of you, so they raise no
+badge or count. [Agent detection](/agent-detection) covers how kolu reads each
+state.
 
-A **host tab** carries no active count of its own. A number that appeared and
-vanished as agents started and stopped made the tab grow and shrink, shoving every
-tab after it sideways. Instead a thin rust **stripe runs along the tab's bottom
-edge** while anything on that machine is active, and the tab keeps its size. The
-count itself is the **working** row in the popover the connection dot opens
-(screen readers get it in the dot's label). With reduced motion on, the stripe
-stops moving but stays on the tab.
+## The three counts
 
-**"Active" means what the marks mean.** The rust count is the same question a
-moving mark answers, asked about a whole machine or a whole repo — so it counts
-an agent thinking, an agent still settling in the moments after its turn, and a
-plain shell that is printing. That last one matters: a terminal running a build
-has no agent to ask, and its output is the only evidence there is. If three marks
-are moving, the count above them says three.
+The same three counts appear on the dock row, the repo section header, the host
+tab and the phone host row:
 
-One consequence worth knowing: a terminal that prints *intermittently* — a dev
-server logging a line every few seconds — counts while it prints and stops
-counting a second after it goes quiet, so the number pulses. It is doing exactly
-what the mark in the dock does, at the same moment, because both read the same
-signal. A count that held steady while the marks beneath it blinked would be the
-older, worse behaviour wearing a calmer face.
+| Count | Looks like | Goes away when |
+| --- | --- | --- |
+| **Needs you**, an agent blocked on your input | violet count pill, violet row wash, and a chip counting how long it has waited | you answer it, and nothing else |
+| **Unread**, an agent finished and you have not looked | amber count pill, amber row wash, amber badge on the pip | you open that terminal, that agent starts working again, or the terminal closes |
+| **Active**, something is happening in a terminal | a plain rust count with a spinner | everything goes quiet |
 
-An agent that finishes in the background washes its whole dock row amber — tinted
-background, lit leading stripe, bold title. A blocked one washes violet and gets a mirrored entry in the dock's pinned
-[Needs-you strip](/dock) — the row itself does not move. The vocabulary of states is
-[Agent detection](/agent-detection); how the marks compose with the state pip is
-[The Dock](/dock).
+The two you can act on wear a pill, so a number in a pill always means there is
+something to do here. Clicking a violet count jumps to the next terminal blocked
+on you, and cycles on repeat clicks. Clicking never dismisses a count: only
+answering the agent clears it.
 
-## Beyond the app
+An agent that finishes in the background washes its whole dock row amber. A
+blocked one washes violet and gets a mirrored entry in the dock's pinned
+[Needs-you strip](/dock), while the row itself stays where it is.
 
-- The **app-icon badge** counts awaiting agents — and it counts them across
-  **every connected machine**, not just the one on screen.
-- A backgrounded tab gets a **native OS notification** when an agent **effectively
-  finishes** (its turn is done *and* the terminal has been quiet for a few
-  seconds — so background sub-agents still typing do not chime early; once that
-  finished signal has fired, idle statusline ticks do not re-chime), starts
-  waiting on you, or **stops to ask you something** — a live question or
-  permission prompt reaches you even when the agent was already sitting in its
-  post-turn lull, and usually reads *needs your input* rather than *finished*
-  (a prompt that settles in right on the heels of a finished turn may still
-  carry the *finished* wording — but it rings). (If notifications don't appear,
-  see
-  [Troubleshooting](/troubleshooting#i-am-not-getting-desktop-notifications).)
-- **Clicking the notification** brings kolu forward, and when the agent is on
-  another machine it **switches to that host and focuses the exact terminal** —
-  one action, no hunting.
-- **[The Conductor](/conductor) rings the same bell.** When the agent
-  chat stops to ask you something — about a terminal on any host — it is a
-  needs-you source like any
-  terminal: the same chime, the same OS notification, the same app-icon badge —
-  plus a violet count on its chrome-bar entry. There is no second mechanism and
-  no separate switch. A turn of its own merely *ending* is silent; being asked
-  a question is not — unless the conversation is already on screen in a
-  focused window, where it stays quiet just as the terminal you are typing in
-  does.
+## What a host tab shows
 
-**Attention alerts** is the master switch for reaching you this way. It's a
-toggle in the **settings popover**, and turning it off silences the chime, the
-OS notification, and the dock's unread mark for a background tile — the app-icon
-badge, the counts, and the row washes are a live reading of what is actually
-waiting, so they stay.
-kolu remembers the setting for this install and an upgrade keeps it, however old
-your install is.
+A host tab carries no active count of its own. A rust stripe along its bottom
+edge means something on that machine is active, so the tab keeps its size. The
+count itself is the **working** row in the popover the connection dot opens.
+With reduced motion on, the stripe stops moving. The tab's amber count has no
+jump of its own: the tab itself is the button that switches machine.
+
+## What counts as active
+
+The rust count counts an agent thinking, an agent still settling in the moments
+after its turn, and a plain shell that is printing. So a dev server that logs a
+line every few seconds counts while it prints, and stops a second after it goes
+quiet.
+
+## Chimes and OS notifications
+
+- The app-icon badge counts awaiting agents across every connected machine, not
+  just the one on screen.
+- A backgrounded tab gets a native OS notification when an agent effectively
+  finishes (its turn is done and the terminal has been quiet for a few seconds),
+  starts waiting on you, or stops to ask you something. Background sub-agents
+  still typing do not chime early, and an agent's status line redrawing while it
+  sits idle does not chime again.
+- A question or permission prompt reaches you even in the agent's post-turn
+  lull, and usually reads *needs your input*.
+- Clicking the notification brings kolu forward. When the agent is on another
+  machine, kolu switches to that host and focuses the exact terminal.
+- [The Conductor](/conductor) is a needs-you source like any terminal: the same
+  chime, the same notification, the same badge, plus a violet count on its
+  chrome-bar entry. A turn of its own merely ending is silent. A question stays
+  quiet while the conversation is on screen in a focused window, as the
+  terminal you are typing in does.
+
+If notifications do not appear, see
+[Troubleshooting](/troubleshooting#i-am-not-getting-desktop-notifications).
+
+## Turn the alerts off
+
+The **settings popover** has an **Attention alerts** toggle. Turning it off
+silences the chime, the OS notification, and the dock's unread mark for a
+background tile. The badge, the counts and the row washes stay, because they
+read what is actually waiting. kolu remembers the setting across upgrades.
 
 <Aside type="note" title="It fires once per attention episode">
-  kolu tracks each terminal by its own identity and chimes when it first needs
-  you — when it **effectively finishes** (quiet after a waiting turn) or starts
-  waiting on you, *or* when a live question lands over an agent that was already
-  waiting — then stays quiet until the agent goes fully back to work (a later
-  finish is a fresh episode). Idle TUI redraws after finish do not re-chime.
-  Switching hosts, or opening and closing terminals, reorders the list but never
-  manufactures a phantom alert, and a brief flicker between states as a prompt
-  settles won't ding twice — a parked review prompt won't ding again every time
-  you return to its machine. Pure resize/reveal repaints never count as work.
+  kolu chimes when a terminal first needs you: on an effective finish, when it
+  starts waiting on you, or when a live question lands over an agent already
+  waiting. It then stays quiet until the agent goes fully back to work. A later
+  finish is a fresh episode.
 </Aside>
 
 ## Across machines
 
-The needs-you signal is a first-class part of the [multi-host](/remote-hosts)
-story, and it reaches you **the same way on every host** — an agent that finishes
-or starts waiting on a *background* machine chimes, shows a backgrounded-tab
-popup, and marks that host, exactly as the active machine's does. Each host tab
-carries the **full summary for that machine** — how many terminals have something
-happening in them, how many agents are blocked on you, and how much finished work
-you haven't opened — read
-straight off it (a host whose link drops **dims** its tab rather than dropping the
-counts). A tab with an agent waiting on you **washes violet**; one with unopened
-finished work washes amber until you switch there.
+The needs-you signal reaches you the same way on every
+[connected machine](/remote-hosts). An agent that finishes or starts waiting on a
+background host chimes, shows a backgrounded-tab popup, and marks that host.
 
-The summary shows on the tab you're **already on**, too. Being on a machine is no
-guarantee you can see a terminal buried in the dock — so the tab tells you what
-that host holds regardless, and clicking its violet pill takes you straight to the
-agent that's waiting. On a phone, the same three counts ride the host row in the
-pull-down sheet — see [kolu on a phone](/mobile).
+Each host tab carries the full summary for that machine: how many terminals are
+active, how many agents are blocked on you, and how much finished work you have
+not opened. A host whose link drops dims its tab rather than dropping the counts.
+A tab with an agent waiting on you washes violet, and one with unopened finished
+work washes amber until you switch there. The summary shows on the tab you are
+already on, too.
+
+On a phone, the same three counts ride the host row in the pull-down sheet; see
+[kolu on a phone](/mobile).
 
 ## Next
 
 <CardGrid>
   <LinkCard title="The Dock" href="/dock" description="where attention first surfaces, per row" />
   <LinkCard title="Add another machine" href="/remote-hosts" description="attention that rolls up across machines" />
-  <LinkCard title="Troubleshooting" href="/troubleshooting" description="if desktop notifications aren't showing" />
+  <LinkCard title="Troubleshooting" href="/troubleshooting" description="if desktop notifications are not showing" />
 </CardGrid>

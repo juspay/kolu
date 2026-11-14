@@ -21,6 +21,7 @@
         let website = websiteBySystem.${system};
         in {
           typecheck = website.typecheck;
+          linkcheck = website.linkcheck;
         });
     };
 }

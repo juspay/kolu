@@ -9,56 +9,51 @@ import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 import LinkMatrix from "../../components/docs/diagrams/LinkMatrix.astro";
 
-A link is how a client reaches a served surface. Every link produces the *same*
-`SurfaceDispatch` — one flat `{ unary, stream }` pair keyed by wire tag — and
-therefore the same typed client, so the choice is purely about transport, and you
-can change it later without touching a single call site.
+A [link](/surface/glossary) is how a client reaches a served surface. Every
+link produces the same `SurfaceDispatch`, one flat `{ unary, stream }` pair
+keyed by wire tag, and so the same typed client. The choice is about transport,
+and you can change it later without touching a call site.
 
 <LinkMatrix />
 
 ## Pick by where the server is
 
-| Where the server runs | Link | Import |
-| --- | --- | --- |
-| In the same process (tests, single-process apps) | `directDispatch(served)` | `@kolu/surface/links/direct` |
-| In a browser, talking to a Node server | `websocketLink({ group, url, isTerminalClose })` | `@kolu/surface/links/websocket` |
-| A daemon on the same machine | `unixSocketLink({ group, socketPath })` | `@kolu/surface/links/unix-socket` |
-| A subprocess, or a remote box over ssh | `stdioLink({ group, read, write })` | `@kolu/surface/links/stdio` |
+| Where the server runs | Link | Import | Serve side |
+| --- | --- | --- | --- |
+| In the same process (tests, single-process apps) | `directDispatch(served)` | `@kolu/surface/links/direct` | Nothing: it calls the handlers directly. |
+| In a browser, talking to a Node server | `websocketLink({ group, url, isTerminalClose })` | `@kolu/surface/links/websocket` | `serveSurfaceApp` from `@kolu/surface-app/serve` |
+| A daemon on the same machine | `unixSocketLink({ group, socketPath })` | `@kolu/surface/links/unix-socket` | `serveOverUnixSocket` |
+| A subprocess, or a remote box over ssh | `stdioLink({ group, read, write })` | `@kolu/surface/links/stdio` | `serveOverStdio` |
 
-Match each to its serve side: nothing for `directDispatch` (it calls the handlers
-directly), `serveSurfaceApp` from `@kolu/surface-app/serve` for the browser —
-the turnkey one, which owns the whole listener (shell and socket, gates,
-heartbeat, bind and teardown) — `serveOverUnixSocket` for the daemon,
-`serveOverStdio` for the subprocess or ssh peer. Every one of those takes the
-same `{ group, handlers }` pair `implementSurface` returns. Reach past it to the
-granular `serveSurfaceSocket` (`@kolu/surface-app/server`) only when the app owns
-its own listener — routing each upgrade to a different runtime by `?host=`, say.
+Every serve function takes the same `{ group, handlers }` pair
+`implementSurface` returns. `serveSurfaceApp` is the turnkey one: it owns the
+whole listener, meaning shell and socket, gates, heartbeat, bind and teardown.
+Reach past it to the granular `serveSurfaceSocket` (`@kolu/surface-app/server`)
+only when the app owns its own listener, such as routing each upgrade to a
+different runtime by `?host=`.
 
-- **`directDispatch`** is the identity element: hand it the served surface itself
-  — `directDispatch(implementSurface(surface, deps))` — and every call runs the
-  handler in-process, with no serialization in either direction. Use it for tests
-  and for the in-process phase of a service you will later put behind a socket.
-- **Every wire link is async** — building a protocol and its fibers is an effect
-  — and returns `{ dispatch, dispose }` (the websocket link adds the watchable
-  `wire`). `dispose()` releases the link's scope, so its dial, ping and response
-  fibers go with it.
-- **Every wire link takes the served surface's `group`**, which is what makes
-  "the client and the wire agree about which members exist" true by construction
-  rather than by review.
-- **`stdioLink`** carries both a local subprocess and an ssh peer; over ssh you
-  usually drive it through `makeSession` (see [Mirror over ssh](/surface/mirror-over-ssh))
-  rather than wiring `read`/`write` by hand. For a test, `createLoopbackPair()`
-  (`@kolu/surface/loopback`) gives you both ends of the same ndjson framing with
-  no subprocess.
+- **`directDispatch`** is the identity link. Hand it the served surface itself,
+  as `directDispatch(implementSurface(surface, deps))`, and every call runs the
+  handler in-process, with no serialization in either direction. Use it for
+  tests, and for the in-process phase of a service you will later put behind a
+  socket.
+- Every wire link is async, because building a protocol and its fibers is an
+  effect. Each returns `{ dispatch, dispose }`, and the websocket link adds the
+  watchable `wire`. `dispose()` releases the link's scope, so its dial, ping and
+  response fibers go with it.
+- Every wire link takes the served surface's `group`, so the client and the wire
+  agree about which members exist.
+- **`stdioLink`** carries both a local subprocess and an ssh peer. Over ssh you
+  usually drive it through `makeSession` (see
+  [Mirror over ssh](/surface/mirror-over-ssh)) rather than wiring `read` and
+  `write` by hand. For a test, `createLoopbackPair()` (`@kolu/surface/loopback`)
+  gives you both ends of the same ndjson framing with no subprocess.
 
 <Aside type="caution" title="A wire link needs a watchdog to reach surfaceClient">
-  `surfaceClient` / `surfaceClients` **throw** if handed a bare `websocketLink`,
-  `unixSocketLink`, or `stdioLink` dispatch — a wire link can silently half-open,
-  and the framework refuses to build a client that cannot tell live from dead.
-  The refusal is by brand, stamped by the link factory itself, so a new wire link
-  inherits it. Pass a watchdog-backed handle (`connectSurface` mints one for the
-  browser; `makeSession` for ssh). Only `directDispatch` may be passed bare,
-  because its transport is honestly always-live.
+  `surfaceClient` and `surfaceClients` throw if handed a bare `websocketLink`,
+  `unixSocketLink`, or `stdioLink` dispatch, because a wire link can half-open
+  silently. Pass a watchdog-backed handle: `connectSurface` mints one for the
+  browser, `makeSession` for ssh. Only `directDispatch` may be passed bare.
 </Aside>
 
 ## Swap a link without touching call sites
@@ -72,7 +67,6 @@ moves to the browser by changing only the link:
 
 <Snippet src="packages/surface/example/snippets/links.ts" region="swap" />
 
-Everything downstream — `app.cells.load.use(...)`, `app.procedures.proc.kill(...)`
-— is byte-identical. That is the point of the link abstraction: choose the
-nearest transport now, and let the surface follow the code out to a socket or a
-fleet later.
+Everything downstream (`app.cells.load.use(...)`,
+`app.procedures.proc.kill(...)`) is byte-identical. Choose the nearest transport
+now, and let the surface follow the code out to a socket or a fleet later.

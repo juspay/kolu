@@ -1,299 +1,528 @@
 ---
 title: "@kolu/surface-daemon reference"
-description: "The daemon binary half: home, pid gate, lifecycle, frozen identity fragment, stdio front, baked identity, and the upgrade-window test kit."
+description: "The daemon binary half: home, pid gate, lifecycle, frozen control core, stdio front, baked identity, and the upgrade-window test kit."
 order: 320
 section: Daemons · Reference
 ---
 
-import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 
-The daemon *binary* half — the code that runs inside the long-lived process. It
-carries no `@kolu/*` app dependency; the client half lives separately in
-[@kolu/surface-daemon-supervisor](/surface/ref-surface-supervisor). Production
-imports use the package root; mixed-version suites use the dedicated
-`./upgrade-window.testlib` subpath; pid-gate test seams (connect-probe
-override) use `./pidGate.testlib` — never re-exported from the production root.
+The code that runs inside a long-lived daemon process: its home on disk, its
+single-instance gate, its lifecycle, and the frozen control core a supervisor
+dials. It carries no `@kolu/*` app dependency. The client half lives in
+[@kolu/surface-daemon-supervisor](/surface/ref-surface-supervisor).
 
-## The frozen control core
+## Entry points
 
-`controlCoreFragment({ stateRoot, surfaceVersion, startedAt, commit, buildId,
-onDrain })` implements the immutable `core.hello` identity and `core.drain` verb.
-It is served beside the versioned application surface — composed as the sibling
-`control`, so the two members sit at the wire tags `surface/control/core/hello`
-and `surface/control/core/drain` and cannot collide with anything the application
-surface mints. A supervisor can therefore identify and drain a resident daemon
-before knowing whether that versioned surface is compatible. The hello fields are
-fixed:
-`stateRoot · surfaceVersion · controlCoreVersion · startedAt · commit · buildId`.
-`CONTROL_CORE_VERSION` is frozen at `"1.0"`; it is not an application contract
-version. Build id and commit are one observation: the shared reader accepts both
-absent, both empty (off-Nix), or both non-empty, and rejects every partial pair
-before convergence policy runs.
+Production imports use the package root. The `/home` and `/lifetime` leaves
+exist for code that must not compile a daemon. Mixed-version suites use
+`./upgrade-window.testlib`, and pid-gate test seams use `./pidGate.testlib`.
+Neither test subpath is re-exported from the production root.
 
-**The fragment never versions — within a protocol epoch.** The Effect-4
-migration moved this wire's *framing* (the oRPC base64+newline peer codec →
-Effect RPC ndjson). That is a declared **flag day**, not a version negotiation:
-negotiation happens inside the protocol being replaced, so a daemon from the
-previous epoch cannot be asked anything at all — its first frame is undecodable,
-and the supervisor observes that as `unspeakable-protocol`, never as an
-incompatible version. `CONTROL_CORE_VERSION` deliberately did **not** move with
-it: it versions the hello *payload*, the payload's six fields are unchanged
-(byte-pinned in `controlCore.test.ts`), and a value carried inside the frame
-cannot describe a break in the frame itself. From this epoch forward the frozen
-contract holds again, unchanged.
-
-The wire says only `drain(): void`; it does not promise that every daemon is
-drainable. A daemon whose durable state cannot survive a drain implements the
-verb as an honest **refusal** — kaval's `onDrain` throws — and declares the
-supervisor capability `not-drainable`, which makes policy-driven invocation
-unrepresentable. The refusal must leave the daemon and its owned resources alive.
-
-That refusal is a **defect**, not a member error, and deliberately so. `drain`
-declares no error schema (the frozen fragment's shape is not a consumer's to
-widen), so `controlCoreFragment` runs the hook under `Effect.promise`: an
-undeclared throw stays a defect rather than masquerading as something a supervisor
-could narrow on and "handle". The oRPC-era `PRECONDITION_FAILED` code said the
-same thing with a string the caller had to compare.
-
-Both members are Effect Schema-typed: `hello` declares
-`ControlCoreHelloSchema` as its output, `drain` declares nothing at all.
-`commit` / `buildId` are `Schema.optionalKey` — the key is present with a string
-or absent, never an explicit `undefined` round-tripped through `null`.
-
-| Export | Role |
+| Subpath | What you import it for |
 | --- | --- |
-| `controlCoreFragment(opts)` | server deps for frozen `hello` + awaited `drain`; a not-drainable daemon's callback throws, and the throw stays a defect without exiting |
-| `controlCoreSurface` · `controlCoreProcedureSpec` | standalone fragment surface (`procedures: { core: … }`), plus the spec seam for a daemon retaining extra frozen members |
-| `ControlCoreFragment` | the `ImplementSurfaceDeps` type of that surface — what `controlCoreFragment` satisfies |
-| `ControlCoreHelloSchema` · `ControlCoreHello` · `CONTROL_CORE_VERSION` | immutable wire vocabulary |
+| `@kolu/surface-daemon` | Everything below. The root value-re-exports `daemonMain` and `daemonProcessMain`. |
+| [`@kolu/surface-daemon/home`](#kolusurface-daemonhome) | `daemonHome`, `resolveDaemonHome` and the home path types. |
+| [`@kolu/surface-daemon/lifetime`](#kolusurface-daemonlifetime) | `DaemonLifetime`, `DaemonLifetimeInfo`, `lifetimeInfo`. |
+| [`@kolu/surface-daemon/upgrade-window.testlib`](#kolusurface-daemonupgrade-windowtestlib) | The mixed-version test kit. |
+| `@kolu/surface-daemon/pidGate.testlib` | The pid-gate test seams (the connect-probe override). |
 
-<Snippet src="packages/surface/example/snippets/daemon.ts" region="control-core" />
-
-## The upgrade-window test kit
-
-`@kolu/surface-daemon/upgrade-window.testlib` carries the generic mixed-version
-fixture, registry matchers/sweep/message, watchdog factory,
-`assertRecipeWired`, the bidirectional previous-release harness, process reaper,
-socket wait, and `pinPreviousShapeRecovery`. Its module graph has no workspace
-or external runtime dependency: daemon filenames, state planting, and the spawn
-guard are required injected hooks. Matchers take the consumer registry as a
-parameter; no global registry exists in the framework. A `versionField` records
-the discriminator but does not excuse coverage—the artifact must name a
-disposition test that plants version+1 and observes a typed state.
-The fixture returns independent discriminated `process`, `listener`, and
-`state` arms, so a pid cannot exist without its child and a config path cannot
-exist without its state root.
-
-## The narrow entries — `/home` and `/lifetime`
-
-Two symbols on this package are read by code that must NOT compile a daemon, so
-each has its own entry beside the barrel. The barrel value-re-exports
-`daemonMain` and `daemonProcessMain`, and for a repo that ships raw TypeScript
-that is not a detail: whatever a consumer imports, its `tsc` compiles.
+The repo ships raw TypeScript, so whatever a consumer imports, its `tsc`
+compiles. That is why the two leaves exist.
 
 | entry | carries | what it no longer compiles |
 | --- | --- | --- |
 | `@kolu/surface-daemon/home` | `daemonHome`, `resolveDaemonHome` and the home path types | `daemonMain`, `daemonProcessMain`, the process-signal tier |
 | `@kolu/surface-daemon/lifetime` | `DaemonLifetime`, `DaemonLifetimeInfo`, `lifetimeInfo` | the same |
 
-`DaemonLifetimeInfo` is the serializable projection a daemon PUBLISHES about
-itself, so a browser-safe vocabulary downstream `satisfies`-pins its wire schema
-to it — which is how a module documented browser-safe came to compile a daemon's
-signal handling for an out-of-repo consumer (juspay/kolu#2216). The leaves close
-that.
+### `@kolu/surface-daemon/home`
 
-Both are re-exported from their original homes, so the barrel's surface is
-unchanged and no in-repo caller moved. Honest residual: `/home` still
-value-imports `getRuntimeSocketPath` from `@kolu/surface/unix-socket`, which is
-the module that also carries the socket serve stack — the leaf drops the daemon
-tier, not every node dependency.
+The home path algebra on its own, without the process tier.
+
+- Everything it carries is re-exported from its original home, so the barrel's
+  surface is unchanged and no in-repo caller moves.
+- It still value-imports `getRuntimeSocketPath` from `@kolu/surface/unix-socket`,
+  the module that also carries the socket serve stack. The leaf drops the daemon
+  tier, not every node dependency.
+
+### `@kolu/surface-daemon/lifetime`
+
+The lifetime vocabulary on its own.
+
+- `DaemonLifetimeInfo` is the serializable projection a daemon publishes about
+  itself, so a browser-safe vocabulary downstream `satisfies`-pins its wire
+  schema to it.
+- It is re-exported from its original home too, so the barrel is unchanged.
+
+### `@kolu/surface-daemon/upgrade-window.testlib`
+
+The generic mixed-version fixture: registry matchers, sweep and message, the
+watchdog factory, `assertRecipeWired`, the bidirectional previous-release
+harness, the process reaper, the socket wait, and `pinPreviousShapeRecovery`.
+
+- Its module graph has no workspace or external runtime dependency. Daemon
+  filenames, state planting and the spawn guard are injected hooks, and they are
+  required.
+- Matchers take the consumer registry as a parameter. The framework has no
+  global registry.
+- A `versionField` records the discriminator but does not excuse coverage: the
+  artifact must name a disposition test that plants version+1 and observes a
+  typed state.
+- The fixture returns independent discriminated `process`, `listener` and
+  `state` arms, so a pid cannot exist without its child and a config path cannot
+  exist without its state root.
+
+## The frozen control core
+
+The immutable identity and drain verb a supervisor can speak to any resident
+daemon, before it knows whether the versioned application surface is compatible.
+
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`controlCoreFragment(opts)`](#controlcorefragmentopts) | `.` | Server deps for the frozen `hello` and awaited `drain`. |
+| [`controlCoreSurface` · `controlCoreProcedureSpec`](#controlcoresurface--controlcoreprocedurespec) | `.` | The standalone fragment surface, and the spec seam beside it. |
+| [`ControlCoreFragment`](#controlcorefragment) | `.` | The `ImplementSurfaceDeps` type of that surface. |
+| [`ControlCoreHelloSchema` · `ControlCoreHello` · `CONTROL_CORE_VERSION`](#controlcorehelloschema--controlcorehello--control_core_version) | `.` | The immutable wire vocabulary. |
+
+### `controlCoreFragment(opts)`
+
+The server deps that implement the immutable `core.hello` identity and
+`core.drain` verb.
+
+`controlCoreFragment({ stateRoot, surfaceVersion, startedAt, commit, buildId,
+onDrain })`
+
+<Snippet src="packages/surface/example/snippets/daemon.ts" region="control-core" />
+
+- It is served beside the versioned application surface, composed as the sibling
+  `control`. The two members sit at the wire tags `surface/control/core/hello`
+  and `surface/control/core/drain`, where nothing the application surface mints
+  can collide with them.
+- The hello fields are fixed:
+  `stateRoot · surfaceVersion · controlCoreVersion · startedAt · commit · buildId`.
+- Build id and commit are one observation. The shared reader accepts both
+  absent, both empty (off-Nix), or both non-empty, and rejects every partial
+  pair before convergence policy runs.
+- Both members are Effect Schema-typed. `hello` declares
+  `ControlCoreHelloSchema` as its output and `drain` declares nothing at all.
+- `commit` and `buildId` are `Schema.optionalKey`: the key is present with a
+  string or absent, never an explicit `undefined` round-tripped through `null`.
+
+#### Refusing to drain
+
+The wire says only `drain(): void`. It does not promise that every daemon is
+drainable.
+
+- A daemon whose durable state cannot survive a drain implements the verb as a
+  refusal: its `onDrain` throws, as kaval's does.
+- Such a daemon declares the supervisor capability `not-drainable`, which makes
+  a policy-driven invocation unrepresentable.
+- The refusal leaves the daemon and its owned resources alive.
+- The refusal is a defect, not a member error. `drain` declares no error schema,
+  so `controlCoreFragment` runs the hook under `Effect.promise` and an undeclared
+  throw stays a defect. There is no `PRECONDITION_FAILED`-style code for a
+  supervisor to narrow on.
+- Why: [Why the framework takes values, not loose fields](/surface/the-daemon-spine#why-the-framework-takes-values-not-loose-fields).
+
+### `controlCoreSurface` · `controlCoreProcedureSpec`
+
+The fragment as a standalone surface (`procedures: { core: … }`), plus the spec
+seam a daemon uses when it retains extra frozen members of its own.
+
+### `ControlCoreFragment`
+
+The `ImplementSurfaceDeps` type of `controlCoreSurface`, which is what
+`controlCoreFragment` satisfies.
+
+### `ControlCoreHelloSchema` · `ControlCoreHello` · `CONTROL_CORE_VERSION`
+
+The immutable wire vocabulary of the hello payload.
+
+- `CONTROL_CORE_VERSION` is frozen at `"1.0"`. It is not an application contract
+  version: it versions the hello payload, whose six fields are byte-pinned in
+  `controlCore.test.ts`.
+- The fragment does not version within a protocol epoch. A daemon from a
+  different epoch cannot be asked anything, because its first frame is
+  undecodable. A supervisor observes that as `unspeakable-protocol`, never as an
+  incompatible version.
+- Why: [What a frozen contract survives, and what it does not](/surface/the-daemon-spine#what-a-frozen-contract-survives-and-what-it-does-not).
 
 ## The on-disk home
 
-`daemonHome({ app, placement, instance?, socketFile? })` is the one call that
-decides where a daemon's files live. It creates the directory `0700`, verifies
-it is owner-only (throws on a non-private dir), and returns the well-known paths
-with gate and socket side by side — so those two can never drift apart. The
-returned `artifacts` array is a pair of `SharedArtifact` registry entries for
-the gate and socket, so a mixed-version inventory (UW2) is fed by construction.
+Where a daemon's files live, who may read them, and how a stale home is swept.
 
-**This is a spine primitive, not a helper.** `daemonMain({ home })` and the
-supervisor's `createEndpoint({ home, connect: (socketPath) => … })` accept the
-home and derive gate/socket (and, by default, the self-reap anchor) from it —
-loose path strings do not cross consumer → framework. Overrides (CLI `--socket`)
-are absorbed into home construction (`socketOverride`), never sprinkled at call
-sites. `connect` receives the socket path from the framework.
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`daemonHome({ app, placement, instance?, socketFile?, socketOverride? })`](#daemonhomeopts) | `.` | Creates and verifies the home, and returns its paths. |
+| [`resolveDaemonHome(…)`](#resolvedaemonhome) | `.` | The same paths as pure algebra, with no side effect. |
+| [`DaemonHomePaths`](#daemonhomepaths) | `.` | The face the spine speaks. |
+| [`DaemonHome` · `ResolvedDaemonHome` · `DaemonHomeOptions` · `ResolveDaemonHomeOptions` · `DaemonHomePlacement` · `DaemonHomeRuntimeRoot`](#daemonhome--resolveddaemonhome--daemonhomeoptions--resolvedaemonhomeoptions--daemonhomeplacement--daemonhomeruntimeroot) | `.` | The return types and the options types. |
+| [`isPrivateOwnedDir(dir)`](#isprivateowneddirdir) | `.` | The owner-only privacy predicate. |
+| [`runtimeRegimeInForce()`](#runtimeregimeinforce) | `.` | Which runtime drawer this process is in. |
+| [`daemonSweepRegimes()`](#daemonsweepregimes) | `.` | The regimes a daemon sweeps at boot. |
+| [`reapStaleDaemonHomes({ app, gateFile, runtimeRoots })`](#reapstaledaemonhomesopts) | `.` | Removes this app's runtime homes whose owner is gone. |
+| [`SharedArtifact`](#sharedartifact) | `.` | One on-disk file both generations touch. |
 
-| `placement` | Directory |
-| --- | --- |
-| `"state"` | `~/.local/state/<app>/` ($HOME only — ignores `$XDG_STATE_HOME`) — durable across reboots |
-| `"runtime"` | `$XDG_RUNTIME_DIR/<app>/`, falling back to `/tmp/<app>-$UID/` — boot-wiped |
+### `daemonHome(opts)`
 
-Optional `instance` (padi's state-root digest, or a legacy port string) is the
-**only** spelling for a decorated home: dir is `<app>-<instance>/`, gate/socket
-basenames keep the bare app stem (`padi-<digest>/padi.pid`, never
-`padi-<digest>.pid`). Do not stuff a pre-joined name into `app`. Optional
-`socketFile` overrides the socket basename (kaval's historical `pty-host.sock`).
-Optional `runtimeRoot` (`string | null`, pure resolve only) lets discovery
-evaluate under another drawer without mutating `process.env` (`null` forces
-`/tmp`). kaval and padi both ride this API; golden tests pin every derived path
-byte-identical to the pre-migration formula.
-
-A daemon that must outlive user sessions (anything supervised over ssh) takes
-`"state"`: logind deletes the runtime dir with the user's last session, leaving
-an orphan process whose socket and gate have vanished.
+The one call that decides where a daemon's files live:
+`daemonHome({ app, placement, instance?, socketFile? })`.
 
 <Snippet src="packages/surface/example/snippets/daemon.ts" region="home" />
 
-| Export | Role |
+It returns `dir` · `gatePath` · `socketPath` · `file(name)` · `artifacts`.
+
+- It creates the directory `0700` and verifies it is owner-only. A non-private
+  directory throws.
+- Gate and socket come back side by side, so the two cannot drift apart.
+- `artifacts` is a pair of `SharedArtifact` registry entries, one for the gate
+  and one for the socket, so a mixed-version inventory (UW2) is fed by
+  construction.
+- kaval and padi both ride this API. Golden tests pin every derived path
+  byte-identical to the pre-migration formula.
+
+| `placement` | Directory |
 | --- | --- |
-| `daemonHome({ app, placement, instance?, socketFile?, socketOverride? })` | create + verify the home; returns `dir` · `gatePath` · `socketPath` · `file(name)` · `artifacts` |
-| `resolveDaemonHome(…)` | pure path algebra (no mkdir, no env mutation); path helpers, discovery, and the spine consume this |
-| `DaemonHomePaths` | the face the spine speaks (`dir` · `gatePath` · `socketPath`) |
-| `DaemonHome` · `ResolvedDaemonHome` · `DaemonHomeOptions` · `ResolveDaemonHomeOptions` · `DaemonHomePlacement` · `DaemonHomeRuntimeRoot` | return types and options |
-| `isPrivateOwnedDir(dir)` | owner-only privacy predicate (shared with the pid gate) |
-| `runtimeRegimeInForce()` | `"xdg"` or `"tmp"` — the ONE answer to "which runtime drawer is this process in?". Discovery narrows its scan to it; `pathShapeRoot` renders from it |
-| `daemonSweepRegimes()` | the regimes a daemon sweeps at boot — the one in force plus the `/tmp` fallback, which is the one nothing wipes |
-| `reapStaleDaemonHomes({ app, gateFile, runtimeRoots })` | remove this app's runtime homes under `runtimeRoots` whose gate proves the owner is gone. Keeps a live holder, a gateless home (a daemon mid-boot looks the same) and an unreadable gate; reports a root it cannot list; never throws. Returns `{ removed, skipped }` (`StaleHomeSweep` · `StaleHomeSkip`). Roots are a PARAMETER, never the ambient env — a sweep that read the environment could only be tested against the developer's real `/tmp` |
-| `SharedArtifact` | one shared on-disk file both generations touch (inventory entry shape) |
+| `"state"` | `~/.local/state/<app>/` ($HOME only, ignoring `$XDG_STATE_HOME`) — durable across reboots |
+| `"runtime"` | `$XDG_RUNTIME_DIR/<app>/`, falling back to `/tmp/<app>-$UID/` — boot-wiped |
+
+A daemon that must outlive user sessions, which includes anything supervised
+over ssh, takes `"state"`. logind deletes the runtime directory with the user's
+last session, leaving an orphan process whose socket and gate have vanished.
+
+#### The optional arguments
+
+- `instance` (padi's state-root digest, or a legacy port string) is the only
+  spelling for a decorated home. The directory is `<app>-<instance>/`, and the
+  gate and socket basenames keep the bare app stem (`padi-<digest>/padi.pid`,
+  never `padi-<digest>.pid`). Do not stuff a pre-joined name into `app`.
+- `socketFile` overrides the socket basename, as kaval's `pty-host.sock` does.
+- `runtimeRoot` (`string | null`, pure resolve only) lets discovery evaluate
+  under another drawer without mutating `process.env`. `null` forces `/tmp`.
+- `socketOverride` absorbs a command-line override such as `--socket` into home
+  construction, rather than sprinkling it at call sites.
+
+#### What takes a home
+
+A home is a spine primitive. `daemonMain({ home })` and the supervisor's
+`createEndpoint({ home, connect: (socketPath) => … })` take the home and derive
+the gate, the socket and, by default, the self-reap anchor from it. Path strings
+are not passed across the consumer and framework boundary: `connect` receives
+the socket path from the framework.
+
+Why: [Why the framework takes values, not loose fields](/surface/the-daemon-spine#why-the-framework-takes-values-not-loose-fields).
+
+### `resolveDaemonHome(…)`
+
+The pure path algebra behind `daemonHome`: no `mkdir`, no environment mutation.
+Path helpers, discovery and the spine consume this.
+
+### `DaemonHomePaths`
+
+The face the spine speaks: `dir` · `gatePath` · `socketPath`.
+
+### `DaemonHome` · `ResolvedDaemonHome` · `DaemonHomeOptions` · `ResolveDaemonHomeOptions` · `DaemonHomePlacement` · `DaemonHomeRuntimeRoot`
+
+The return types and the options types of the two calls above.
+
+### `isPrivateOwnedDir(dir)`
+
+The owner-only privacy predicate, shared with the pid gate.
+
+### `runtimeRegimeInForce()`
+
+`"xdg"` or `"tmp"`: the one answer to which runtime drawer this process is in.
+Discovery narrows its scan to it, and `pathShapeRoot` renders from it.
+
+### `daemonSweepRegimes()`
+
+The regimes a daemon sweeps at boot: the one in force, plus the `/tmp` fallback,
+which is the one nothing wipes.
+
+### `reapStaleDaemonHomes(opts)`
+
+`reapStaleDaemonHomes({ app, gateFile, runtimeRoots })` removes this app's
+runtime homes under `runtimeRoots` whose gate proves the owner is gone. It
+returns `{ removed, skipped }` (`StaleHomeSweep` · `StaleHomeSkip`).
+
+- It keeps a live holder, a gateless home (a daemon mid-boot looks the same) and
+  an unreadable gate.
+- It reports a root it cannot list, and never throws.
+- The roots are a parameter, never the ambient environment, so a sweep is
+  testable without the developer's real `/tmp`.
+
+### `SharedArtifact`
+
+One shared on-disk file both generations touch: the inventory entry shape.
 
 ## The lifecycle
 
-`daemonMain({ home, … })` is the gate → serve → teardown skeleton. Gate and
-socket come from `home`; the self-reap [anchor](#the-anchor-self-reap) defaults
-to `home.dir` (override when the on-disk identity is not the rendezvous home —
-e.g. padi's state-root). It claims the single-instance gate, serves the
-surface's `{ group, handlers }` over the unix socket, waits for the lifetime to end — or for the anchor to be
-proven gone — then closes the socket, releases the gate, and **returns** a
-`DaemonExit` — it never calls `process.exit`, so the whole lifecycle is drivable
-in-process from a test.
+The gate-to-serve-to-teardown skeleton, the pid gate under it, and the policies
+that decide when a daemon stops.
 
-`daemonProcessMain({ name, run })` is the **bin half of that partition**: for a
-process that exists to *be* the daemon, it runs `run()` (`daemonMain` or a
-wrapper around it) to completion and then **owns the process exit** — the code
-classified from the `DaemonExit` (`already-running`/`shutdown` → `0`,
-`serve-failed` → `1`), a rejection narrated as `name: message` and exited `1`
-(the crash arm is swallow-proof: a failing stderr write cannot block the exit).
-Without it, any live resource or timer the bin never tied to the daemon's
-lifetime keeps the event loop alive after the daemon's *tenure* — what holds it
-alive, per its `lifetime` policy — has ended: an invisible lingering daemon.
-Call it as the bin's **last statement**; it returns synchronously and owns the
-rest of the process's life.
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`daemonMain({ home, processIdentity, readProcessIdentity, … })`](#daemonmainopts) | `.` | The gate, serve and teardown skeleton. |
+| [`daemonProcessMain({ name, run })`](#daemonprocessmain-name-run-) | `.` | The bin half: it owns the process exit. |
+| [`claimPidGate(gatePath, socketPath, self, readProcessIdentity)`](#claimpidgategatepath-socketpath-self-readprocessidentity) | `.` | The named full claim. |
+| [`acquirePidGate(gatePath, self, readProcessIdentity)`](#acquirepidgategatepath-self-readprocessidentity) | `.` | The atomic single-instance claim. |
+| [`ProcessIdentity` · `ReadProcessIdentity`](#processidentity--readprocessidentity) | `.` | The start-qualified identity and its injected reader. |
+| [`readGateIdentity` · `gatePid` · `gateIdentity` · `liveHolderFromRecord` · `liveHolderPid` · `throwIfGateUnreadable` · `identitiesMatch` · `startTimesMatch` · `START_TIME_TOLERANCE_US`](#the-gate-reader) | `.` | The pid-first tolerant gate reader. |
+| [`confirmHeldGate(held, …)`](#confirmheldgateheld-) | `.` | The socket fence for a one-field holder. |
+| [`isHolderLive(pid)`](#isholderlivepid) | `.` | A `kill(0)` liveness probe. |
+| [`socketServeState(socketPath)` · `SOCKET_SERVE_PROBE_MS`](#socketservestatesocketpath--socket_serve_probe_ms) | `.` | The four-way socket probe. |
+| [`stderrLogger()` · `Logger` · `DaemonExit`](#stderrlogger--logger--daemonexit) | `.` | The logging contract and the exit record. |
+| [`daemonLifetimeFromEnv(fallback)` · `DAEMON_BIND_PID_ENV`](#daemonlifetimefromenvfallback--daemon_bind_pid_env) | `.` | Reads the lifetime from the environment. |
+| [`lifetimeInfo(lifetime)` · `DaemonLifetimeInfo`](#lifetimeinfolifetime--daemonlifetimeinfo) | `.` | The serializable projection of a lifetime. |
+| [`anchorGone(path)` · `DaemonShutdownReason`](#anchorgonepath--daemonshutdownreason) | `.` | The proven-absent probe and the shutdown reasons. |
+| [`armRuntimeFaultExit({ done, log, subject, lastRites? })` · `DAEMON_RUNTIME_FAULT_MARKER`](#armruntimefaultexitopts--daemon_runtime_fault_marker) | `.` | Turns a dead runtime into a non-zero exit. |
+| [`DaemonSpec.faultSignal`](#daemonspecfaultsignal) | `.` | The owned-fault stop arm. |
 
-When the process is `boundToPid` (`KOLU_DAEMON_BIND_PID` set), `daemonProcessMain`
-also arms a **sibling** that does not share this event loop. The in-process
-`boundToPid` poll and the SIGTERM handler both live on the daemon's loop; a
-wedged daemon (fd exhaustion, `SIGSTOP`) can neither poll nor honour the signal —
-the field that made this a requirement (juspay/kolu#2178): TERM left every orphan
-up, KILL reaped them. The sibling polls the bind pid on the same cadence, waits
-a grace so the clean `pid-gone` path can finish release, then SIGKILLs if the
-process is still up. It does not SIGTERM: that handler is already gone on the
-clean path, and TERM does not help a wedged loop. It is armed only here, never
-from in-process `daemonMain` tests (those share vitest's pid; a SIGKILL would
-take the runner down), and is disarmed on the clean-exit and crash arms.
+### `daemonMain(opts)`
+
+The gate, serve and teardown skeleton: `daemonMain({ home, … })`, whose full
+options are `{ home, processIdentity, readProcessIdentity, … }`.
 
 <Snippet src="packages/surface/example/snippets/daemon.ts" region="lifecycle" />
 
-| Export | Role |
-| --- | --- |
-| `daemonMain({ home, processIdentity, readProcessIdentity, … })` | the gate → serve → teardown skeleton; gate/socket/default-anchor from `home`; identity is injected (never defaulted); resolves a `DaemonExit` |
-| `daemonProcessMain({ name, run })` | the bin half: run the daemon to completion, then own the process exit (code + crash arm). A `boundToPid` process also gets a sibling that waits a grace then SIGKILLs it if the bind pid dies while this loop cannot |
-| `claimPidGate(gatePath, socketPath, self, readProcessIdentity)` | the named full claim: `acquirePidGate` then `confirmHeldGate` when held — composition roots use this, not the two steps by convention |
-| `acquirePidGate(gatePath, self, readProcessIdentity)` | atomic single-instance claim via `link(2)`; writes `${pid}\t${startUnixUs}\n`; returns `{ kind: "acquired", release }`, `{ kind: "held", pid }`, or `{ kind: "dir-not-private", dir }` |
-| `ProcessIdentity` · `ReadProcessIdentity` | canonical start-qualified identity (`{ pid, startUnixUs }`) and the **sync** injected OS fact reader for the daemon claim path — the spine never imports osfacts. The supervisor's awaitable inject is `ReadProcessIdentityAsync` on `@kolu/surface-daemon-supervisor` (beside `EndpointSpec`), an Effect — the sync one stays here because a synchronous gate claim must not reorder against the boot side effects it guards |
-| `readGateIdentity` · `gatePid` · `gateIdentity` · `liveHolderFromRecord` · `liveHolderPid` · `throwIfGateUnreadable` · `identitiesMatch` · `startTimesMatch` · `START_TIME_TOLERANCE_US` | pid-first tolerant reader: pid via legacy `parseInt` (leading digits); start time only from exact `pid\tstart…`; ±2 s match; writers emit `${pid}\t${startUnixUs}\n`. **Three-way law** on the read outcome (exhaustive): `absent` → free; `malformed` → reap; `unreadable` (EACCES/EIO) → **throw** — never collapse into free/stale. `liveHolderFromRecord` takes an already-read observation; `liveHolderPid` reads once then delegates |
-| `confirmHeldGate(held, …)` | one-field (legacy) socket fence only — **one** gate observation drives both liveness and generation; dead socket reclaims; absent / indeterminate wait; two-field match skips (identity is truth) |
-| `isHolderLive(pid)` | `kill(0)` liveness probe for one-field holders and cheap checks |
-| `socketServeState(socketPath)` · `SOCKET_SERVE_PROBE_MS` | four-way socket probe (`serving` · `dead` · `absent` · `indeterminate`) used by the one-field reclaim fence. Timeout is a latency ceiling only — reports `indeterminate`, never authorizes reclaim. Non-ENOENT `lstat` failures throw (fail loud) |
-| `stderrLogger()` · `Logger` · `DaemonExit` | the structural logging contract and the exit record `daemonMain` resolves (its exit-code classification lives inside `daemonProcessMain`) |
-| `daemonLifetimeFromEnv(fallback)` · `DAEMON_BIND_PID_ENV` | resolve the lifetime from `KOLU_DAEMON_BIND_PID` — a valid pid → `boundToPid`, unset → `fallback`, any present-but-invalid value (incl. `""`) throws |
-| `lifetimeInfo(lifetime)` · `DaemonLifetimeInfo` | the serializable projection of a `DaemonLifetime` — the three kinds with the non-wire members dropped (`idleTimeout`'s `isIdle`, `boundToPid`'s `pollMs`); what a daemon publishes about itself for a UI to read |
-| `anchorGone(path)` · `DaemonShutdownReason` | the ENOENT-only "proven absent" probe both ends of the anchor invariant share, and the full shutdown-reason union (`signal` · `abort` · `idle` · `pid-gone` · `anchor-gone` · `runtime-fault`) |
-| `armRuntimeFaultExit({ done, log, subject, lastRites? })` · `DAEMON_RUNTIME_FAULT_MARKER` | observe a served runtime's `done` and hand back the `AbortSignal` to pass as `DaemonSpec.faultSignal`. A rejection is FATAL: it logs the WHOLE error (marked, stack intact), runs the daemon's last rites (padi captures its final session), and ends the tenure as `reason: "runtime-fault"` — a non-zero exit **through the ordinary teardown**, so the socket closes and the gate releases before the process ends. Last rites that throw are logged and the exit still happens |
-| `DaemonSpec.faultSignal` | the owned-fault stop arm, separate from `signal` because they mean opposite things: `signal` is a graceful stop (exit 0), `faultSignal` is structural wiring death (exit non-zero). Omitting it leaves a runtime fault nowhere to go — the zombie class (process alive, gate held, socket answering, runtime dead) |
+- It claims the single-instance gate, serves the surface's `{ group, handlers }`
+  over the unix socket, waits for the lifetime to end or for the anchor to be
+  proven gone, then closes the socket and releases the gate.
+- Gate and socket come from `home`. The self-reap
+  [anchor](#the-anchor-self-reap) defaults to `home.dir`. Override it when the
+  on-disk identity is not the rendezvous home, as padi's state-root is.
+- Identity is injected, never defaulted.
+- It resolves a `DaemonExit` and never calls `process.exit`, so the whole
+  lifecycle is drivable in-process from a test.
 
-`lifetime` is the policy that distinguishes tenants — three honest constructors,
-not `forever` plus flags:
+### `daemonProcessMain({ name, run })`
+
+The bin half, for a process that exists to be the daemon. It runs `run()`
+(`daemonMain`, or a wrapper around it) to completion and then owns the process
+exit.
+
+- The exit code is classified from the `DaemonExit`: `already-running` and
+  `shutdown` give `0`, `serve-failed` gives `1`.
+- A rejection is narrated as `name: message` and exits `1`. The crash arm is
+  swallow-proof, so a failing stderr write cannot block the exit.
+- Call it as the bin's last statement. It returns synchronously and owns the
+  rest of the process's life.
+- Without it, a live resource or timer the bin never tied to the daemon's
+  lifetime keeps the event loop alive after the tenure ends, leaving an
+  invisible lingering daemon.
+
+#### The sibling reaper
+
+When the process is `boundToPid` (`KOLU_DAEMON_BIND_PID` set),
+`daemonProcessMain` also arms a sibling that does not share this event loop.
+
+- The in-process `boundToPid` poll and the SIGTERM handler both live on the
+  daemon's loop. A wedged daemon (fd exhaustion, `SIGSTOP`) can neither poll nor
+  honour the signal.
+- The sibling polls the bind pid on the same cadence, waits a grace so the clean
+  `pid-gone` path can finish its release, then SIGKILLs a process that is still
+  up.
+- It does not SIGTERM. That handler is already gone on the clean path, and TERM
+  does not help a wedged loop.
+- It is armed only here, never from in-process `daemonMain` tests, which share
+  vitest's pid. It is disarmed on the clean-exit and crash arms.
+
+### `claimPidGate(gatePath, socketPath, self, readProcessIdentity)`
+
+The named full claim: `acquirePidGate`, then `confirmHeldGate` when the gate is
+held. Composition roots use this, rather than the two steps by convention.
+
+### `acquirePidGate(gatePath, self, readProcessIdentity)`
+
+The atomic single-instance claim, via `link(2)`. It writes
+`${pid}\t${startUnixUs}\n` and returns `{ kind: "acquired", release }`,
+`{ kind: "held", pid }`, or `{ kind: "dir-not-private", dir }`.
+
+### `ProcessIdentity` · `ReadProcessIdentity`
+
+The canonical start-qualified identity (`{ pid, startUnixUs }`) and the sync
+injected reader of that operating-system fact for the daemon claim path. The
+spine never imports osfacts.
+
+- The reader is sync because a synchronous gate claim must not reorder against
+  the boot side effects it guards.
+- The supervisor's awaitable inject is `ReadProcessIdentityAsync` on
+  `@kolu/surface-daemon-supervisor`, beside `EndpointSpec`, and it is an Effect.
+
+### The gate reader
+
+`readGateIdentity` · `gatePid` · `gateIdentity` · `liveHolderFromRecord` ·
+`liveHolderPid` · `throwIfGateUnreadable` · `identitiesMatch` ·
+`startTimesMatch` · `START_TIME_TOLERANCE_US` are the pid-first tolerant reader
+of a gate file.
+
+- The pid is read with a legacy `parseInt` (leading digits). The start time is
+  read only from an exact `pid\tstart…`, and matches within ±2 s.
+- Writers emit `${pid}\t${startUnixUs}\n`.
+- `liveHolderFromRecord` takes an already-read observation. `liveHolderPid`
+  reads once, then delegates.
+
+The read outcome has a three-way law, and it is exhaustive. Never collapse a
+case into free or stale.
+
+| Outcome | Verdict |
+| --- | --- |
+| `absent` | free |
+| `malformed` | reap |
+| `unreadable` (EACCES/EIO) | throw |
+
+### `confirmHeldGate(held, …)`
+
+The socket fence for a one-field (legacy) holder, and nothing more. One gate
+observation drives both liveness and generation.
+
+- A dead socket reclaims.
+- An absent or indeterminate socket waits.
+- A two-field match skips the fence, because identity is truth.
+
+### `isHolderLive(pid)`
+
+A `kill(0)` liveness probe, for one-field holders and cheap checks.
+
+### `socketServeState(socketPath)` · `SOCKET_SERVE_PROBE_MS`
+
+The four-way socket probe (`serving` · `dead` · `absent` · `indeterminate`) that
+the one-field reclaim fence uses.
+
+- `SOCKET_SERVE_PROBE_MS` is a latency ceiling only. A timeout reports
+  `indeterminate` and never authorizes a reclaim.
+- A non-ENOENT `lstat` failure throws, so the probe fails loud.
+
+### `stderrLogger()` · `Logger` · `DaemonExit`
+
+The structural logging contract, and the exit record `daemonMain` resolves. The
+classification of that record into an exit code lives inside
+`daemonProcessMain`.
+
+### `daemonLifetimeFromEnv(fallback)` · `DAEMON_BIND_PID_ENV`
+
+Resolves the lifetime from `DAEMON_BIND_PID_ENV`, which is
+`KOLU_DAEMON_BIND_PID`.
+
+- A valid positive-integer pid selects `boundToPid`. There is no liveness check,
+  so an already-dead pid still selects it and then exits at once.
+- True absence of the variable selects `fallback`. A production daemon cannot be
+  weakened: only a harness or smoke run opts a spawned daemon into dying with
+  it.
+- A set-but-malformed value throws, and never degrades to `fallback`. That
+  covers the empty string (a broken expansion, distinct from unset),
+  non-canonical decimal, fractional, and out of `pid_t` range.
+- A `boundToPid` shutdown resolves `{ kind: "shutdown", reason: "pid-gone" }`,
+  exit code 0. Pid reuse inside the poll window is a documented residual.
+
+#### The three lifetimes
+
+`lifetime` is the policy that distinguishes tenants: three constructors, rather
+than `forever` plus flags.
 
 | `lifetime` | Shuts down when | Tenant |
 | --- | --- | --- |
 | `{ kind: "forever" }` | a signal or external abort | [kaval](/kaval) / padi in production |
 | `{ kind: "idleTimeout", ms, isIdle }` | `ms` of continuous idleness | `odu serve` |
-| `{ kind: "boundToPid", pid, pollMs? }` | the watched `pid` is gone (in-process poll `kill(pid, 0)`). `daemonProcessMain` additionally arms a sibling that SIGKILLs a wedged loop after a grace; constructing this lifetime object is not what arms the sibling — the env/`daemonProcessMain` path is | a test/smoke-spawned kaval/padi — dies with its run |
+| `{ kind: "boundToPid", pid, pollMs? }` | the watched `pid` is gone (in-process poll `kill(pid, 0)`) | a test/smoke-spawned kaval/padi — dies with its run |
 
-Every lifetime is additionally subject to the
-[anchor self-reap](#the-anchor-self-reap) — the table lists only each
-lifetime's *own* trigger.
+- The table lists each lifetime's own trigger. Every lifetime is additionally
+  subject to the [anchor self-reap](#the-anchor-self-reap).
+- `pollMs?` is a test-only seam, the liveness-poll interval. Production omits it
+  and uses the fixed two-second `PID_WATCH_POLL_MS`.
+- The `pid` must be a single-process pid, a positive integer in `pid_t` range.
+  An invalid value throws at consumption, rather than being reclassified into a
+  clean shutdown.
+- Under `boundToPid`, `daemonProcessMain` also arms the
+  [sibling reaper](#the-sibling-reaper). Constructing the lifetime object is not
+  what arms it.
 
-`pollMs?` is a **test-only** seam (the liveness-poll interval); production omits it
-and uses the fixed two-second `PID_WATCH_POLL_MS`. The `pid` must be a single-process
-pid (a positive integer in `pid_t` range) — an invalid value throws at consumption
-rather than being reclassified into a clean shutdown.
+### `lifetimeInfo(lifetime)` · `DaemonLifetimeInfo`
 
-`lifetimeInfo(lifetime)` projects a live `DaemonLifetime` to a serializable
-`DaemonLifetimeInfo` (`{ kind: "forever" } | { kind: "idleTimeout"; ms } | { kind:
-"boundToPid"; pid }`) — dropping the `isIdle` closure and the test-only `pollMs` — so
-a daemon can publish which lifetime it is running under. kaval carries it on its
-`system.version` handshake and padi on its `identity` cell; kolu's Kaval and Padi
-info dialogs each render it as a **lifetime** row (`forever` in production; `bound to
-run pid N` under a test/smoke run).
+Projects a live `DaemonLifetime` to a serializable `DaemonLifetimeInfo`, so a
+daemon can publish which lifetime it is running under.
 
-`daemonLifetimeFromEnv(fallback)` reads `DAEMON_BIND_PID_ENV`
-(`KOLU_DAEMON_BIND_PID`): a valid positive-integer pid value selects `boundToPid`
-(no liveness check — an already-dead pid still selects it, then exits at once),
-**true absence** (the var is UNSET) selects `fallback` (there is deliberately no way
-to *weaken* a production daemon — only a harness/smoke run opts a spawned daemon into
-dying with it). A set-but-malformed value — the empty string (a present-but-invalid
-broken expansion, distinct from unset), non-canonical decimal, fractional, or out of
-`pid_t` range — throws (fail-fast), never silently degrades to `fallback`. A
-`boundToPid` shutdown resolves `{ kind: "shutdown", reason: "pid-gone" }`, exit code
-0. Pid reuse inside the poll window is a documented residual, not engineered around.
+- The shape is `{ kind: "forever" } | { kind: "idleTimeout"; ms } | { kind:
+  "boundToPid"; pid }`: the three kinds with the non-wire members dropped, which
+  are `idleTimeout`'s `isIdle` and `boundToPid`'s `pollMs`.
+- kaval carries it on its `system.version` handshake, and padi on its `identity`
+  cell.
+- kolu's Kaval and Padi info dialogs each render it as a **lifetime** row:
+  `forever` in production, `bound to
+run pid N` under a test or smoke run.
 
-## The owned-runtime-fault exit
+### `anchorGone(path)` · `DaemonShutdownReason`
 
-Every shutdown reason is a *success* (exit 0) except one: `runtime-fault`, raised
-by `DaemonSpec.faultSignal` when the served surface runtime's `done` rejects. It is
-an orderly teardown — listener closed, gate released, last rites run — that scores
-**exit 1**, because the supervisor's only channel for "that was a crash, not a
-stop" is the exit code. Wire it with `armRuntimeFaultExit`; both kaval and padi do.
+The ENOENT-only proven-absent probe both ends of the anchor invariant share, and
+the full shutdown-reason union: `signal` · `abort` · `idle` · `pid-gone` ·
+`anchor-gone` · `runtime-fault`.
 
-Why fatal rather than "log and keep serving": after the `@kolu/surface` poll ruling
-(a poll read's failure is cell-local at every tick, T+0 included) a `done` rejection
-can only be structural wiring death, which does not heal by waiting. The recorded
-failure is juspay/kolu#2101 — a padi that logged one probe timeout and kept its gate
-and socket while its runtime was dead, needing an operator instead of the ~2s
-respawn-and-restore a crash would have produced.
+Every shutdown reason exits 0 except `runtime-fault`, which exits 1.
+
+### `armRuntimeFaultExit(opts)` · `DAEMON_RUNTIME_FAULT_MARKER`
+
+`armRuntimeFaultExit({ done, log, subject, lastRites? })` observes a served
+runtime's `done` and hands back the `AbortSignal` you pass as
+`DaemonSpec.faultSignal`. Both kaval and padi wire `armRuntimeFaultExit`.
+
+- A rejection is fatal. It logs the whole error, marked with
+  `DAEMON_RUNTIME_FAULT_MARKER` and with the stack intact.
+- It then runs the daemon's last rites, for which padi captures its final
+  session. Last rites that throw are logged, and the exit still happens.
+- The tenure ends as `reason: "runtime-fault"`: a non-zero exit through the
+  ordinary teardown, so the listener closes and the gate releases before the
+  process ends.
+- The supervisor's only channel for "that was a crash, not a stop" is the exit
+  code, which is why an orderly teardown still scores exit 1.
+- Why: [Why a runtime fault kills the process](/surface/the-daemon-spine#why-a-runtime-fault-kills-the-process).
+
+### `DaemonSpec.faultSignal`
+
+The owned-fault stop arm, separate from `signal`. `signal` is a graceful stop
+(exit 0) and `faultSignal` is structural wiring death (exit non-zero).
+
+Omitting it leaves a runtime fault nowhere to go, which is the zombie class:
+process alive, gate held, socket answering, runtime dead.
+
+Why: [Why a runtime fault kills the process](/surface/the-daemon-spine#why-a-runtime-fault-kills-the-process).
 
 ## The anchor self-reap
 
-`anchor` defaults to `() => home.dir` — gate, socket, and anchor all ride the
-home. Override only when the on-disk identity is **not** the rendezvous home
-(kaval's anchor is its padi's state-root, learned from a manifest; padi's is
-its state-root). The thunk is armed under **every** lifetime (an independent
-trigger, not a lifetime arm): once the directory has been **proven** gone for
-two consecutive polls (5s apart in production; `anchorPollMs?` is the test
-seam), the daemon reaps itself through the normal teardown — socket unlinked,
-gate released, `{ kind: "shutdown", reason: "anchor-gone" }`, exit code 0 —
-instead of lingering as a zombie holding its sockets and RSS forever after a
-`git worktree remove`.
+`anchor` is the thunk a daemon reaps itself by once its on-disk identity is
+proven gone. Gate, socket and anchor all ride the home: it defaults to
+`() => home.dir`.
 
-Proof is ENOENT-only (`anchorGone(path)`): any other `lstat` failure — EACCES,
-EIO, ENOTDIR — means "I could not read whether it exists", which never counts
-toward a reap. The thunk is re-evaluated every tick, so an anchor learned after
-boot self-corrects (kaval reads the `state-root` manifest its padi writes around
-kaval's own boot). `() => undefined` is the honest spelling for a daemon with
-genuinely no on-disk identity (never reaped). Omitting `anchor` is the normal
-case — it defaults to the home.
+- Override it only when the on-disk identity is not the rendezvous home. kaval's
+  anchor is its padi's state-root, learned from a manifest, and padi's is its
+  own state-root.
+- The thunk is armed under every lifetime. It is an independent trigger, not a
+  lifetime arm.
+- The directory must be proven gone for two consecutive polls, 5s apart in
+  production. `anchorPollMs?` is the test seam.
+- The daemon then reaps itself through the normal teardown: socket unlinked,
+  gate released, `{ kind: "shutdown", reason: "anchor-gone" }`, exit code 0.
+  Without it, a `git worktree remove` leaves a zombie holding its sockets and
+  RSS.
+- Proof is ENOENT-only (`anchorGone(path)`). Any other `lstat` failure (EACCES,
+  EIO, ENOTDIR) means the daemon could not read whether the anchor exists, and
+  never counts toward a reap.
+- The thunk is re-evaluated every tick, so an anchor learned after boot
+  self-corrects. kaval reads the `state-root` manifest its padi writes around
+  kaval's own boot.
+- `() => undefined` is the spelling for a daemon with no on-disk identity. It is
+  never reaped. Omitting `anchor` is the normal case, and defaults to the home.
 
 ## Serving the surface
 
-The listener is `serveOverUnixSocket({ socketPath, group, handlers, log })` from
-`@kolu/surface/unix-socket` — a `@kolu/surface` subpath, not this package. It
-never crashes: every failure mode resolves to a no-op listener with a
-machine-readable `outcome`. `daemonMain` passes its own `log` through, so the
-listener's lifetime (bound / post-listen fault / closed) lands in the daemon's
-journal beside the daemon's own boot and teardown narration.
+The listener is `serveOverUnixSocket({ socketPath, group, handlers, log })`, from
+`@kolu/surface/unix-socket`. That is a `@kolu/surface` subpath, not one of this
+package's.
+
+- It never crashes. Every failure mode resolves to a no-op listener with a
+  machine-readable `outcome`.
+- `daemonMain` passes its own `log` through, so the listener's lifetime (bound,
+  post-listen fault, closed) lands in the daemon's journal beside its boot and
+  teardown narration.
 
 | `outcome.kind` | Meaning |
 | --- | --- |
@@ -303,47 +532,70 @@ journal beside the daemon's own boot and teardown narration.
 
 ## Fronting over stdio
 
-`frontDaemonOverStdio(opts)` is the front half: it adopts-or-spawns the
-gate-held daemon and raw-byte-relays this process's stdio onto its socket, so a
-remote (ssh) session survives the link — the durable counterpart to
-`serveOverStdio`. It relays with `node:net` only, no surface import, keeping the
-daemon closure contract-blind. That blindness is legal only because the stdio
-leg and the socket leg are byte-identical ndjson, which
-`packages/surface/src/links/byteSplice.test.ts` proves on captured raw bytes in
-both directions — including that nothing on the wire is non-JSON binary.
+Adopt a durable daemon from a short-lived front process, so a remote (ssh)
+session survives the link.
+
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`frontDaemonOverStdio(opts)`](#frontdaemonoverstdioopts) | `.` | Adopts or spawns the daemon, and relays this process's stdio to it. |
+| [`reExecAsDetachedDaemon({ stripArgs, stderrLog? })`](#reexecasdetacheddaemon-stripargs-stderrlog-) | `.` | Re-execs this binary as the detached daemon. |
+
+### `frontDaemonOverStdio(opts)`
+
+The front half. It adopts or spawns the gate-held daemon and raw-byte-relays
+this process's stdio onto its socket. It is the durable counterpart to
+`serveOverStdio`.
 
 <Snippet src="packages/surface/example/snippets/daemon.ts" region="front" />
 
-`reExecAsDetachedDaemon({ stripArgs, stderrLog? })` re-execs this binary minus
-the front flag as a detached, `unref`'d process, so it survives the SIGHUP that
-drops the link.
+- It relays with `node:net` only, and imports no surface, which keeps the daemon
+  closure contract-blind.
+- That blindness is legal because the stdio leg and the socket leg are
+  byte-identical ndjson. `packages/surface/src/links/byteSplice.test.ts` proves
+  it on captured raw bytes in both directions, including that nothing on the
+  wire is non-JSON binary.
+
+### `reExecAsDetachedDaemon({ stripArgs, stderrLog? })`
+
+Re-execs this binary, minus the front flag, as a detached and `unref`'d process,
+so it survives the SIGHUP that drops the link.
 
 ## Baked identity
 
-`readBakedIdentity(prefix)` reads a Nix-baked env pair
-(`<PREFIX>_BUILD_ID` / `<PREFIX>_COMMIT_HASH`) into `{ staleKey, navigableCommit }`,
-and returns empty strings when both variables are absent off-nix rather than
-inventing an identity. The pair is joint: both variables must contain non-empty
-values or both must be absent; a half-baked or explicitly empty baked identity
-throws at daemon boot because a Nix build id without its knowable commit (or the
-reverse) is contradictory. See
-[How to bake an identity](/surface/bake-an-identity).
+`readBakedIdentity(prefix)` reads a Nix-baked environment pair
+(`<PREFIX>_BUILD_ID` / `<PREFIX>_COMMIT_HASH`) into
+`{ staleKey, navigableCommit }`.
 
-<Aside type="note" title="Two convergence axes live here">
-  `contractIsNewer` / `contractIsCompatible` (ordered) and `buildsMatch`
-  (match-only, no ordering) live in this package and are re-exported by the
-  supervisor. They remain daemon-domain vocabulary even though the supervisor
-  deliberately depends on `@kolu/surface` to dial the frozen core. Their use is in
-  [How to recycle and upgrade a daemon](/surface/recycle-and-upgrade).
-</Aside>
+- Off Nix, with both variables absent, it returns empty strings rather than
+  inventing an identity.
+- The pair is joint: both variables must hold non-empty values, or both must be
+  absent. A half-baked or explicitly empty baked identity throws at daemon boot,
+  because a build id without its knowable commit is contradictory.
+- How to produce the pair: [How to bake an identity](/surface/bake-an-identity).
+
+### The two convergence axes
+
+`contractIsNewer` and `contractIsCompatible` (ordered) and `buildsMatch`
+(match-only, no ordering) live in this package, and the supervisor re-exports
+them. They are daemon-domain vocabulary, even though the supervisor depends on
+`@kolu/surface` to dial the frozen core. Their use is in
+[How to recycle and upgrade a daemon](/surface/recycle-and-upgrade).
 
 ## Nix recipes
 
-The package's `nix/` directory is public surface too — the build-time half of
+The package's `nix/` directory is public surface too, the build-time half of
 what `readBakedIdentity` reads back. Each file is a function of `{ lib }`:
-`import "${kolu}/packages/surface-daemon/nix/<file>.nix" { inherit lib; }`. All
-of it is pure evaluation (no import-from-derivation), so `nix flake check`
-forces every output without realising a build mid-eval. The how-to is
+`import "${kolu}/packages/surface-daemon/nix/<file>.nix" { inherit lib; }`.
+
+| Recipe | File | What it is |
+| --- | --- | --- |
+| [`mkDaemonIdentity`](#mkdaemonidentity--nixdaemon-identitynix) | `nix/daemon-identity.nix` | Hashes a daemon's behaviour into a build id, and the args that bake it. |
+| [`mkWorkspaceClosure`](#mkworkspaceclosure--nixworkspace-closurenix) | `nix/workspace-closure.nix` | Derives what to hash from the `dependencies` graph. |
+| [`mkProvenAgentSource`](#mkprovenagentsource--nixagent-sourcenix) | `nix/agent-source.nix` | Assembles a remote-agent source tree and proves it. |
+
+All of it is pure evaluation, with no import-from-derivation, so
+`nix flake check` forces every output without realising a build mid-eval.
+The how-to is
 [How to bake an identity](/surface/bake-an-identity).
 
 ### `mkDaemonIdentity` — `nix/daemon-identity.nix`
@@ -354,21 +606,27 @@ commitHash, override ? null }` → `{ buildId, bakeArgs }`.
 | Arg | Role |
 | --- | --- |
 | `name` | the daemon's name, used in this recipe's error messages |
-| `prefix` | its identity-env namespace — `"KAVAL"`, `"PADI"` — the `<PREFIX>` `readBakedIdentity` reads |
+| `prefix` | its identity-env namespace (`"KAVAL"`, `"PADI"`), the `<PREFIX>` that `readBakedIdentity` reads |
 | `root` | the `lib.fileset.toSource` root; must be a common ancestor of `behavioralFileset` |
-| `behavioralFileset` | WHAT counts as this daemon's behaviour — the consumer's own policy decision |
-| `pinnedSources` | behavioural members that are pins, not files: `name → store path`. Every value must be a **string** under `builtins.storeDir`; the assert names the offending attrs |
+| `behavioralFileset` | what counts as this daemon's behaviour, which is the consumer's own policy decision |
+| `pinnedSources` | behavioural members that are pins, not files: `name → store path` |
 | `commitHash` | the navigable git ref this build was made from; `""` throws |
-| `override` | TEST-ONLY: force `buildId` instead of hashing (build-skew arms) |
+| `override` | test-only: force `buildId` instead of hashing (build-skew arms) |
 
 | Return | Value |
 | --- | --- |
-| `buildId` | 64-char sha256 of the `fileset.toSource` store path, plus one sorted `<name>=<store path>` line per `pinnedSources` entry. Platform-independent by construction — it hashes source, never the runtime engine, so a cross-platform comparison is not a false mismatch |
-| `bakeArgs` | the `--set <PREFIX>_BUILD_ID … --set <PREFIX>_COMMIT_HASH …` string to splice into a `makeWrapper` invocation — the pair is emitted together, so the joint invariant cannot be half-baked |
+| `buildId` | 64-char sha256 of the `fileset.toSource` store path, plus one sorted `<name>=<store path>` line per `pinnedSources` entry |
+| `bakeArgs` | the `--set <PREFIX>_BUILD_ID … --set <PREFIX>_COMMIT_HASH …` string to splice into a `makeWrapper` invocation |
 
-With `pinnedSources = { }` the id is `hashString "sha256" "${src}"` —
-**byte-identical** to what this recipe hashed before the pinned arm existed, so
-a workspace-only consumer's live daemon ids do not move.
+- Every `pinnedSources` value must be a string under `builtins.storeDir`. The
+  assert names the offending attrs.
+- `bakeArgs` emits the pair together, so the joint invariant cannot be
+  half-baked.
+- The `buildId` is platform-independent: it hashes source, never the runtime
+  engine, so a cross-platform comparison is not a false mismatch.
+- With `pinnedSources = { }` the id is `hashString "sha256" "${src}"`, which is
+  byte-identical to the unpinned formula, so a workspace-only consumer's live
+  daemon ids do not move.
 
 ### `mkWorkspaceClosure` — `nix/workspace-closure.nix`
 
@@ -379,19 +637,29 @@ hand-kept file list that can silently drift. The file also exports
 
 | Arg | Role |
 | --- | --- |
-| `members` | package name → package dir. A **local** member's dir is a path literal; a **pinned** member's is a string already under `builtins.storeDir` |
-| `pinned` | the member NAMES that are pins — declared, never inferred from how the value is spelled |
-| `mustCover` | name prefixes that must never resolve outside `members` (`[ "@kolu/" ]`) — the by-name tripwire a pinned consumer needs, having no `workspace:` protocol to give a stale map away |
+| `members` | package name → package dir, one path literal per local member and one store-path string per pinned member |
+| `pinned` | the member names that are pins, declared rather than inferred from how the value is spelled |
+| `mustCover` | name prefixes that must never resolve outside `members` (`[ "@kolu/" ]`) |
 
 | Return | Value |
 | --- | --- |
-| `members` | the checked map (same keys), which the two functions below read |
-| `depClosure { entries, stop ? [ ] }` | the member names reachable from `entries` over `dependencies` edges whose target is a member, minus each `stop` entry *and* everything reachable only through it |
-| `identityInputs { entries, stableLeaves ? [ ], isHashedSource ? defaultIsHashedSource }` | the same closure rendered as `mkDaemonIdentity`'s two inputs: `behavioralFileset` (each local member's filtered `src` plus its `package.json`) and `pinnedSources` (the pinned members' store paths). `isHashedSource` defaults to real `.ts`/`.tsx`, dropping `.test.ts` · `.test.tsx` · `.test-d.ts` · `.testlib.ts` |
+| `members` | the checked map, with the same keys, which the two functions below read |
+| `depClosure { entries, stop ? [ ] }` | the member names reachable from `entries` over `dependencies` edges whose target is a member |
+| `identityInputs { entries, stableLeaves ? [ ], isHashedSource ? defaultIsHashedSource }` | the same closure rendered as `mkDaemonIdentity`'s `behavioralFileset` and `pinnedSources` |
 
-`devDependencies` are deliberately not followed — they never ship behaviour.
-The residual failure direction is over-inclusion (one extra id flip), never a
-silent escape. Every mistake is a loud eval failure:
+- `depClosure` subtracts each `stop` entry and everything reachable only through
+  it.
+- `identityInputs` renders `behavioralFileset` as each local member's filtered
+  `src` plus its `package.json`, and `pinnedSources` as the pinned members'
+  store paths. `isHashedSource` defaults to real `.ts` and `.tsx`, dropping
+  `.test.ts` · `.test.tsx` · `.test-d.ts` · `.testlib.ts`.
+- `mustCover` is the by-name tripwire a pinned consumer needs, having no
+  `workspace:` protocol to give a stale map away.
+- `devDependencies` are not followed, because they never ship behaviour. The
+  residual failure direction is over-inclusion (one extra id flip), never a
+  silent escape.
+
+Every mistake is a loud eval failure:
 
 | Failure | Message names |
 | --- | --- |
@@ -403,27 +671,39 @@ silent escape. Every mistake is a loud eval failure:
 
 ### `mkProvenAgentSource` — `nix/agent-source.nix`
 
-The third recipe in the same directory, unrelated to identity: it assembles a
-remote-agent source tree and **proves** an agent evaluates from it before the
-path reaches any wrapper. See the file's own header for the prove/expose rule.
+The third recipe in the same directory, unrelated to identity. It assembles a
+remote-agent source tree and proves an agent evaluates from it before the path
+reaches any wrapper. The file's own header carries the prove/expose rule.
 
 Arguments: `{ root, fileset, pkgs, commitHash, agents, flakeNix, closureIndex, pusher? }`.
-The baked tree carries `flake.nix`, `commit-hash`, and `binary-cache.json` —
-`{ substituters, trustedPublicKeys, index }`, the caches derived from
-`flakeNix`'s own `nixConfig` and `index` from **`closureIndex`**: `{ repo,
-branch }` (a GitHub branch the `publish-closure` action writes
-`<commitHash>/<system>/<attr>.json` to; `rawBase` is derived) or an explicit
-`null`. It is required — no default — and a malformed one fails the binder's
-eval. `@kolu/surface-remote` reads it as `readBakedDeclaration(…).index` (with `rev`, its `commit-hash`), and
-`provisionAgent` looks the binder's own build up there before staging anything
-([Publish your daemon content-addressed](/surface/publish-content-addressed)).
 
-**`pusher`** (optional, default `null`) says how the declaration's first
-substituter is pushed, and is emitted as a `pusher` field **only when given** —
-`null` bakes the byte-identical declaration it baked before the option existed.
-`{ kind = "attic"; }` is the publisher's attic path, spelled out;
-`{ kind = "odu"; }` says the substituter is an odu cache bucket, which states
-its own push origin and bucket in its `nix-cache-info` (`Odu-Origin`,
-`Odu-Bucket`) for `odu cache push --cache <substituter>` to read — so no
-address is spelled here and none can drift. Any other shape — an unknown kind,
-an extra key, the retired `bucket` or `origin` — fails the binder's eval.
+- The baked tree carries `flake.nix`, `commit-hash` and `binary-cache.json`.
+- `binary-cache.json` is `{ substituters, trustedPublicKeys, index }`. The caches
+  are derived from `flakeNix`'s own `nixConfig`.
+- `index` comes from `closureIndex`, which is `{ repo,
+branch }` or an explicit
+  `null`. The branch is a GitHub branch the `publish-closure` action writes
+  `<commitHash>/<system>/<attr>.json` to, and `rawBase` is derived.
+- `closureIndex` is required, with no default. A malformed one fails the
+  binder's eval.
+- `@kolu/surface-remote` reads it as `readBakedDeclaration(…).index`, with `rev`
+  taken from `commit-hash`. `provisionAgent` looks the binder's own build up
+  there before staging anything
+  ([Publish your daemon content-addressed](/surface/publish-content-addressed)).
+
+#### `pusher`
+
+`pusher` (optional, default `null`) says how the declaration's first substituter
+is pushed. It is emitted as a `pusher` field only when given, so `null` bakes a
+declaration byte-identical to one from a tree that never set it.
+
+| Value | Meaning |
+| --- | --- |
+| `{ kind = "attic"; }` | the publisher's attic path, spelled out |
+| `{ kind = "odu"; }` | the substituter is an odu cache bucket |
+
+- An odu bucket states its own push origin and bucket in its `nix-cache-info`
+  (`Odu-Origin`, `Odu-Bucket`), which `odu cache push --cache <substituter>`
+  reads. No address is spelled here, so none can drift.
+- Any other shape fails the binder's eval: an unknown kind, an extra key, or the
+  retired `bucket` or `origin`.

@@ -1,6 +1,6 @@
 ---
 title: The Right Panel
-description: "The tile's right-hand panel: an Inspector tab with a Compose box and the terminal-CLI reference, and a Code tab. Whether it's open is remembered per tile; which tab and file it shows follow the focused pane — a split included."
+description: "Beside every tile: an Inspector with the agent's state, your branch and CI, a Compose box, the terminal's ports, and a Code tab."
 order: 56
 section: "Files & Code"
 koluHero:
@@ -8,236 +8,160 @@ koluHero:
   headline: Inspect, {compose, drive}.
 ---
 
-import Aside from "../../components/docs/Aside.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 
 Every tile has a **right panel** with two tabs: an **Inspector** and a
-[**Code**](/code-tab) tab. The panel follows whichever **pane** has focus — the
-tile's main terminal, or any split at any depth — so the context you read and the
-repository you browse are always the ones you are looking at.
+[**Code**](/code-tab) tab. The panel follows whichever **pane** has focus, the
+tile's main terminal or any split, so it is always about the terminal you are
+looking at.
 
-## What it shows, in order of urgency
+## What the Inspector shows
 
-The Inspector is ordered by how much a fact wants your attention, not by how the
-data is grouped internally.
+The Inspector reads top to bottom, most urgent first:
 
-**The agent's state leads.** When a terminal is running an agent, the panel opens
-with its status: the agent's name, what it's working on, and a state chip in the
-colour that state wears everywhere else in kolu — violet when it's your turn,
-rust while it's working. A quiet line underneath carries the model, how long it
-has been running, task progress, and how much context it has used. You read "does
-this need me?" off the colour before reading a word.
+| Row | What it carries |
+| --- | --- |
+| the agent | Its name, what it is working on, and a state chip in that state's [colour](/notifications). |
+| under it | The model, how long the agent has been running, its task progress, and how much context it has used. |
+| chips | The **branch** (with a worktree glyph when it is one), the **repo**, the pull request, and one chip rolling up CI, such as `✓ 9 passed`. |
+| under the chips | The pull request's title and the working directory. |
+| the last line | The foreground process and the terminal's colour theme. |
 
-**What you're working on comes next**, as a row of chips: the **branch** in the
-same hue the dock paints on branch labels (worktree glyph when it is one), the
-**repo** (monogram + soft repo-colour frame), the pull request, and a single
-chip rolling up CI — `✓ 9 passed` when everything passed. Below them the PR
-title and the working directory.
+Detail folds away until it is interesting: the per-check list, the repo's root
+and worktree paths, and the terminal CLI sit behind expandable summaries. The
+CI list opens itself when a check **fails or is still running**, with the
+exceptions sorted to the top.
 
-**Detail folds away until it's interesting.** The per-check list, the repo's root
-and worktree paths, and the terminal-CLI reference all sit behind expandable
-summaries. The CI list is the clearest case: nine passing checks stay folded
-behind their rollup, but a check that **fails or is still running expands the
-list on its own, with the exceptions sorted to the top** — you never open a list
-to find good news, and never miss bad news because it was folded away.
+## odu CI
 
-Whatever is left — the foreground process, the terminal's colour theme — sits in
-one quiet line at the very bottom.
+When the checkout uses [odu](https://github.com/juspay/odu) as its CI runner,
+and odu's daemon is running on that host, the chip row carries a second rollup
+beside the forge's checks. It reads `● odu running`, `✓ odu passed` or
+`✕ 2 failed`, with the run's ref. In `abc1234#3` that is the commit's first
+seven characters and the run's ordinal.
 
-## odu CI, when the checkout runs odu
+The readout is about the directory the terminal is in, so `cd` somewhere else
+and it follows. The ref carries a `+dirty` marker when the run tested a working
+tree, so the verdict is about code that was never committed under that hash.
 
-If the checkout uses [odu](https://github.com/juspay/odu) as its CI runner and
-the odu daemon is running on that host, the chip row carries a second rollup —
-`odu`'s own board for **the checkout the terminal is in**, beside the forge's
-checks — the heading that introduces it names odu and links to
-[its site](https://juspay.github.io/odu/), so a reader who has not met the tool
-knows whose CI this is. `cd` somewhere else and the readout follows, because it
-is about the directory the terminal is in rather than the one it started in. It
-reads `● odu running` / `✓ odu passed` / `✕ 2 failed` with the run's ref
-(`abc1234#3` — the commit's first seven characters and the run's ordinal), and
-behind it a disclosure holds two lists: the latest run's **lanes** (one row per
-`recipe@platform`, failures first, with the attempt number when it took more
-than one, the duration and the machine it landed on) and the checkout's **recent
-runs**, newest first, each with **how long it took** — fixed once the run has a
-verdict, ticking for the one still going. The lanes are **open by default** — a run is the thing
-you're watching — and collapse if you'd rather have the rollup alone.
+Behind the chip, a disclosure holds two lists:
 
-Each lane also carries a **timeline bar**, scaled to the run itself: where the
-bar sits says *when* that lane ran, so lanes that overlap are drawn overlapping
-and the long bar nothing sits beside is what the run is waiting on. A lane
-still going has a hatched tail that grows with the clock, and a lane that has
-not started has no bar at all — that empty track is a lane still claiming a
-machine. The scale above the list reads `0` to the run's own elapsed, so it
-stretches as a live run grows.
+| List | Each row |
+| --- | --- |
+| the latest run's **lanes**, open by default | One `recipe@platform`, failures first, with the attempt number when it took more than one, the duration, and the machine it landed on. |
+| the checkout's **recent runs**, newest first | How long the run took, fixed once it has a verdict and ticking while it is still going. |
 
-The summary line states the run's **scope**, because a selection is not a
-pipeline: `3 lanes · ci::unit` is one recipe and its dependencies, not the whole
-DAG with the rest of its lanes missing. A run over the whole pipeline states
-nothing extra (there is nothing to qualify), and `--no-deps` rides the same
-qualifier — a green under it says less about the pipeline, so it describes what
-the run covered rather than being a detail of it.
+Each lane carries a timeline bar scaled to the run, so where the bar sits says
+when that lane ran.
 
-**Every odu surface here opens that run in odu's own web page** — the chip, each
-lane row (its own attempt's log) and each recent-runs row all point at the page
-they are about. **Click a lane to read its log.** The row opens that attempt's
-output in odu's own web page — searchable, coloured, followed live — rather than in a second log
-view built here. odu's daemon listens on the machine the terminal runs on and
-your browser is often somewhere else, so the link goes through the same
-[port forwarding](/remote-hosts#port-forwarding) the Ports section uses: kolu
-opens a door for odu's port and takes the tab through it (when your browser *is*
-on that machine, the row links straight to the daemon instead). So the first
-click opens the door; once it is open the row is an ordinary link, and ⌘-click,
-copy and "open in a new tab" all work on it. A lane that **hasn't started** yet
-has no log to read, so its row opens the run instead. The door is a raw TCP
-relay, so odu's own websocket and its same-origin check pass through it
-unmodified — the log page is live because nothing in between rewrites the
-request, and no odu setting has to be touched for it to work.
+The summary line states the run's scope: `3 lanes · ci::unit` is one recipe and
+its dependencies, not the whole pipeline. A run over the whole pipeline says
+nothing extra, and `--no-deps` carries the same qualifier.
 
-The ref carries a `+dirty` marker when the run tested a **working tree** rather
-than a committed state — the verdict is about code that was never committed
-under that hash, so don't read it as a statement about the commit alone.
+### What a click opens
 
-None of this appears for a checkout odu doesn't know about, and none of it
-appears when the odu daemon isn't running: the Inspector of a terminal outside
-odu's world is exactly what it was. The one case that isn't silence is a readout
-that **fails** — a daemon that answers but whose runs (or core) contract this kolu
-can't read, or a reading that breaks mid-flight. kolu reads only odu's runs, so
-a new version of odu's cache, door or tunnel never trips it. Then a single `odu CI unavailable` line
-names the reason, so an installation to go and look at never hides behind the
-same blank an absent odu draws. While it *is* shown, kolu dials the daemon
-itself and lets go of the connection when you close the panel or look away.
+The chip, each lane row and each recent-runs row open what they are about in
+odu's own web page. A lane row opens that attempt's log. A lane that has not
+started has no log, so its row opens the run.
+
+odu's daemon listens on the machine the terminal runs on, and your browser is
+often somewhere else, so the first click forwards that port to you
+([port forwarding](/remote-hosts#port-forwarding)). After that the row is an
+ordinary link that <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>-click, copy and "open in a new
+tab" work on.
+
+Nothing of this appears for a checkout odu does not know, or when odu's daemon
+is not running. A daemon that answers with runs this kolu cannot read draws one
+`odu CI unavailable` line naming the reason.
 
 ## Compose a prompt
 
-Above all of it is the **Compose** box, a single line at rest that grows into a
-multiline textarea with a **Send** button when you click into it. Write a prompt
-in peace, editing it before it ever reaches the terminal, then **Send** it (or
-<kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd>) straight into the focused pane's input
-line. It's the in-app twin of [`kaval-tui send`](/kaval): it **inserts, it
-doesn't submit** — the text lands in the agent's input box for you to review and
-press Enter yourself, dodging the same paste race the CLI is careful about. Each
-terminal keeps its own draft in your browser, so a half-written prompt survives
+Above the Inspector is the **Compose** box. Click into it and it grows into a
+textarea with a **Send** button. Write your prompt, then click **Send** or press
+<kbd>Cmd</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd> to put it on the focused pane's input
+line.
+
+It inserts, it does not submit: the text lands in the agent's input box for you
+to review and send yourself, like [`kaval-tui send`](/kaval). Each terminal
+keeps its own draft in your browser, so a half-written prompt survives
 switching tiles or reloading.
 
 ## Ports the terminal is serving
 
 When something in a terminal starts listening on a TCP port, a **Ports** section
-appears listing it — the port number and the full command line of the program
-holding it. This is the answer to "where is the thing the agent just ran?",
-without scrolling back through output for a URL that has long since gone by.
-Detection is not a guess at printed text: kolu reads the host's own socket table
-every few seconds, and
-attributes each listener to the terminal whose process subtree holds it. So a
-port appears because something is genuinely listening, and it disappears when
-that stops.
+appears with the port number and the command line of the program holding it.
+The list comes from the host's own socket table, read every few seconds, so a
+port appears because something is listening and goes when that stops.
 
-A port bound to **all interfaces** on the machine running kolu already answers on
-the address you're viewing kolu at, so its row has an **open** link that opens it
-in a new tab.
+| The port is bound to | The row offers |
+| --- | --- |
+| all interfaces on the machine running kolu | **open**, which opens it in a new tab. |
+| loopback only, or any port on a remote host | **forward & open**, which makes the port answer on the machine serving this page and opens the tab. |
 
-A port bound only to **loopback** — or one on a remote host — can't be reached
-from your browser as-is, so kolu opens a door for it. Click **forward & open**
-and kolu makes that port answer on the machine serving this page, then opens the
-tab. The row then carries a teal `⇄ :<port>` pill naming where it answers, a
-copy button for the full address, and a `⨯` that closes the door — one list,
-one row per port.
+A forwarded row then carries a `⇄ :<port>` pill naming where it answers, a copy
+button for the full address, and a `⨯` that stops forwarding the port.
 
-### Servers that detached, and the rest of the host
+Click a printed `localhost` URL in the terminal and a card offers the same
+**forward & open** for whatever is listening on the host, with the printed path
+carried through. [Port forwarding](/remote-hosts#port-forwarding) documents the
+card, the <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd> path for a port kolu
+never saw, and the security note.
 
-Some servers leave the terminal that started them: a tool that daemonizes itself
-(`odu`'s web daemon, anything under `setsid`, a double-forked dev server)
-reparents away from the shell and keeps serving. When the terminal **printed
-that server's URL**, the server is still listed under the terminal, marked
-**detached** — the printed URL says which terminal it belongs with, and the
-host's socket table says it is really listening. The claim is read from what the
-browser has loaded of the terminal's output, so after a reload a server whose URL
-scrolled far back shows under **elsewhere on this host** instead, until you
-scroll back to the URL. For the same reason a URL printed by a tile that was
-[off the canvas at the time](/tiles) is read when you next look at that tile —
-until then its server shows under **elsewhere on this host**.
+### Servers that detached
 
-Below the terminal's own rows, a folded **elsewhere on this host** group counts
-everything else with a story on that machine: your other servers, another
-user's socket that a terminal printed or a door points at, and any door whose
-server has since died. Open it to see them; a row with an open door stays
-visible even while the group is folded, because a door belongs to the machine
-rather than to any one terminal. A row served by another terminal **names that
-terminal**, and the name is a link that takes you there.
+Some servers leave the terminal that started them: a tool that daemonizes
+itself, such as `odu`'s web daemon or anything under `setsid`, keeps serving.
 
-### A printed `localhost` URL is the same door
+- A detached server stays listed under the terminal that **printed its URL**,
+  marked **detached**. After a reload, a server whose URL scrolled far back
+  moves to the group below until you scroll back to it. So does a server whose
+  URL a [tile that was not live](/tiles#which-tiles-are-live) printed, until you
+  next look at that tile.
+- A folded **elsewhere on this host** group holds everything else with a story
+  on that machine: your other servers, another user's socket a terminal printed,
+  and any forwarded port whose server has died.
+- A row with a port forwarded stays visible while the group is folded.
+- A row served by another terminal names it, and the name takes you there.
 
-Agents constantly print `http://localhost:5173/` (and `127.*`, `[::1]`,
-`0.0.0.0`). In your browser that hostname is the **wrong machine** — the laptop
-you are reading kolu from, not the host running the server. Click a loopback URL
-in the terminal and a small card appears at the cursor. When something on the
-host is listening on that port — in this terminal, in another one, or detached
-from all of them — the card says which, shows the owner's command line, and
-offers **forward & open** (and copy), with the printed path carried through the
-door. Only when nothing on the whole host listens there does it say **nothing is
-listening yet**, instead of inventing a forward from text. ⌘/Ctrl-click opens the
-raw URL with no card. Non-loopback links keep the usual open behaviour.
+## Reach a terminal from a shell
 
-The card is **live** — leave it open while a server starts and it upgrades as
-soon as the next scan sees the listener. Printed text never creates a port fact of its own;
-it only looks up what observation already established.
+A folded **Attach** section builds the shell command for the terminal you are
+looking at. Pick a **pane** (the main one, or any split, each its own PTY with
+its own id) and a verb:
 
-[**Port forwarding**](/remote-hosts#port-forwarding) is documented in full under
-[Add another machine](/remote-hosts) — the two mechanisms, the one case that has no door at all, the
-`⌘/Super+K` → **Forward a port…** path for a port kolu never saw, and the security
-note that a forwarded port is unauthenticated on every interface of the machine
-running kolu.
+| Verb | What it does |
+| --- | --- |
+| **attach** | Takes the session over. |
+| **snapshot** | Dumps its scrollback. |
+| **send** | Types a prompt into it. |
 
-## The terminal CLI, documented in place
+One ready-to-copy command line appears, already pinned to this kolu's daemon.
+The pane's id sits beside the pickers, copyable on its own.
 
-An **Attach** section — folded until you open it, since reaching a terminal from
-a shell is something you do occasionally rather than watch — documents the whole
-shell-facing CLI for the terminal you're looking at.
+Underneath, a **Drive one agent from another** callout spells out the send,
+wait, snapshot loop. A folded reference covers the rest of
+[`kaval-tui`](/kaval) (list · create · kill), [`padi-tui`](/padi)
+(status · watch · wait), and the `--socket` argument.
 
-Every command that targets a terminal has the same shape, so the section is
-built that way: pick a **pane** (the main one, or any split — each split is its
-own PTY with its own id) and a **verb** (**attach** to take the session over,
-**snapshot** to dump its scrollback, **send** to type a prompt into it), and one
-ready-to-copy command line appears for that combination, already pinned to this
-kolu's daemon. The pane's id sits beside the pickers, copyable on its own.
+## What the panel remembers
 
-Underneath it, a **Drive one agent from another** callout spells out the send →
-wait → snapshot loop, and a folded reference covers the rest of
-[`kaval-tui`](/kaval) (list · create · kill), its awareness sibling
-[`padi-tui`](/padi) (status · watch · wait), and the `--socket` argument that
-points those id-less commands at this server.
+Whether the panel is open belongs to the tile. Moving focus between a tile's
+panes never opens or closes it, so the layout does not jump when you click into
+a split.
 
-Closing the panel or switching between Inspector and Code keeps the views
-mounted. On touch devices, dismissing the bottom drawer preserves the Code
-view too. Hidden Code views pause their file queries until you return.
+What the panel shows belongs to the pane. Each pane remembers its own tab, its
+own Code-tab mode and selected file, and its own back and forward history.
+Split a terminal to run an agent in another repo and the chips, directory and
+file tree follow whichever pane you click into.
 
-## What it shows follows your focus
-
-The panel splits its memory in two, and the split is what makes splits work.
-
-**Whether the panel is open belongs to the tile.** Collapse it on a build-log
-tile and it stays collapsed there; leave it open on a branch diff and switching
-back restores it exactly. Moving focus between a tile's panes never opens or
-closes it, so the layout doesn't jump when you click into a split.
-
-**What it shows belongs to the pane.** Each pane — the tile's main terminal and
-every split — remembers its own tab, its own Code-tab mode and selected file, and
-its own back/forward history. Split a terminal to run an agent in another repo and
-the Inspector's directory, branch and repo chips and the Code tab's file tree all
-follow whichever pane you click into; switch back to main and main's own selection
-returns.
-
-**A header line under the tabs names the directory the pane is in**, shared by
-both tabs, so you always know what you are looking at. When the pane is inside a
-git repo its repo root — the directory the Code tree is browsed from — is
-emphasized and the path below it dimmed; when the panel is showing a split, the
-line is prefixed with that split's name.
+A header line under the tabs names the directory the pane is in, with its repo
+root when it is in one, and the split's name when you are reading a split.
 
 All of it rides session restore, so a tile's posture and each pane's selection
-survive a reload. New terminals created in the browser inherit whether the
-previous active tile's panel was open or closed. With no active terminal, the
-new-terminal default applies. The panel **width** and the Code-tab tree/content
-split stay global.
+survive a reload. A new terminal inherits whether the previous active tile's
+panel was open, or the new-terminal default when there was none. The panel
+**width** and the Code tab's tree and content split stay global.
 
 ## Next
 

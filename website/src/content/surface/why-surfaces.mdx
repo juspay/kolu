@@ -7,78 +7,172 @@ section: Basics · Explanation
 
 import SurfaceAnatomy from "../../components/docs/diagrams/SurfaceAnatomy.astro";
 
-Most of what a client shows is live state that lives somewhere else — a load
-average on a server, a list of processes, the tail of a log. The honest way to
-render it is "fetch the current value, subscribe to changes, reconcile each
-change into the view, and re-subscribe when the connection drops." Written by
-hand, that is four or five moving parts per piece of state, and every one of
-them is a place to be subtly wrong: a subscription that never sends a fresh
-snapshot after a reconnect, an error that latches the view, a keyed list that
-re-renders every row when one row changes.
+Most of what a client shows is live state that lives somewhere else: a load
+average on a server, a list of processes, the tail of a log. A surface declares
+that state once.
 
-A **surface** removes the hand-wiring. You declare the shape of the live state
-once, and the framework derives the wire contract, the server handlers, and the
-client hooks from that one declaration. The declaration is the contract.
+The framework derives the wire contract, the server handlers and the client
+hooks from that one declaration.
 
-## One declaration, three derivations
+## What hand-wiring costs
 
-`defineSurface` takes a spec and returns a `Surface`. From it:
+Rendering live state by hand takes four moving parts for every piece of state.
+You fetch the current value, subscribe to changes, reconcile each change into
+the view, and re-subscribe when the connection drops. Each part is a place to be
+subtly wrong:
 
-- the **wire shape** is a flat [Effect RPC](https://effect.website) group — one member per verb, at a string tag like `surface/load/get`, derived from the spec rather than reflected at runtime, because the typed client has to know the shape at compile time;
-- the **server** is `implementSurface(surface, deps)`, which wires every handler and hands you a `ctx` for mutations;
-- the **client** is `surfaceClient(surface, transport)`, whose bound hooks you just read.
+- a subscription that sends no fresh snapshot after a reconnect;
+- an error that latches the view;
+- a keyed list that re-renders every row when one row changes.
+
+A surface removes the hand-wiring. You declare the shape of the live state once,
+and that declaration is the contract.
+
+## What one declaration derives
+
+`defineSurface` takes a spec and returns a `Surface`. Three things come from it:
+
+- the wire shape: a flat [Effect RPC](https://effect.website) group, one member per verb, at a string tag such as `surface/load/get`. It is derived from the spec rather than reflected at runtime, because the typed client has to know the shape at compile time;
+- the server: `implementSurface(surface, deps)`, which wires every handler and hands you a `ctx` for mutations;
+- the client: `surfaceClient(surface, transport)`, whose bound hooks you read.
 
 <SurfaceAnatomy />
 
-The payoff is a rule the codebase actually enforces: adding a piece of live
-state is a **two-file change** — one entry in the shared spec, one entry in the
-server wiring. If that count creeps up, the abstraction is leaking, and it is
-worth stopping to ask why.
+Adding a piece of live state is then a two-file change: one entry in the shared
+spec, one entry in the server wiring. If that count creeps up, the abstraction
+is leaking, and it is worth stopping to ask why.
 
 ## Why four primitives, not one
 
-It is tempting to model everything as one primitive — a cell holding a big
-object, say. The framework deliberately offers four, because the wire shape
-should not lie about what the state *is*:
+It is tempting to model everything as one primitive, a cell holding a big
+object. The framework offers four, because the wire shape should not lie about
+what the state is.
 
 - A **cell** is one value with an identity over time. You can `set` it.
-- A **collection** is many values, each keyed and independently observable. Folding it into a cell of a map would re-render every subscriber whenever any single key changed.
-- A **stream** is a derived view computed from an input the server does not own. You cannot `set` a stream's output without turning it into a cache of unmanaged state — so streams are read-only by construction.
-- An **event** is an occurrence, not a value. Modelling `terminal.onExit` as a stream would force the consumer to render an iterator that yields once and closes; the wire shape would misrepresent the cardinality. Events therefore carry no snapshot and no current value — a handler fires per occurrence.
+- A **collection** is many values, each keyed and independently observable. Folded into a cell of a map, it would re-render every subscriber whenever one key changed.
+- A **stream** is a derived view computed from an input the server does not own. Setting a stream's output would turn it into a cache of unmanaged state, so a stream is read-only.
+- An **event** is an occurrence, not a value. Modelling `terminal.onExit` as a stream would force the consumer to render an iterator that yields once and closes, and the wire shape would misreport the cardinality. An event carries no snapshot and no current value, and a handler fires per occurrence.
 
-A one-off command is not outside these shapes — that is what the fifth member,
-`procedures`, is for: the imperative escape hatch for a plain request/response
-call. What stays a hand-written `Rpc` in the host's own group is only what is
-genuinely outside the model — a bidirectional binary stream, bespoke retry
-plumbing. The wire namespace is flat and every surface member is rooted at
-`surface/`, so those two groups merge without a collision. The surface is not
-trying to be the whole protocol; it is the typed, reactive slice of it.
+A one-off command has a shape here too. The fifth member, `procedures`, is the
+escape hatch for a plain request and response call. What stays a hand-written
+`Rpc` in the host's own group is what the model does not cover, such as a
+bidirectional binary stream or bespoke retry plumbing. The wire namespace is
+flat and every surface member is rooted at `surface/`, so the two groups merge
+without a collision.
 
-## The same shape, everywhere
+## Where the framework stops
 
-The reason this earns its own framework rather than living inside one app is that
-the *same* declaration serves radically different consumers. The real ones:
+A surface covers the typed, reactive part of a protocol. The framework pays the
+wire arithmetic for it:
+[frame chunking](/surface/ref-surface#kolusurfaceframe-chunking) splits an
+oversized payload into frames the wire accepts, and the framework bounds its own
+snapshot frames the same way.
 
-- **[kolu](/)** — one browser talking to one Node server over a single WebSocket.
-- **[kaval](/kaval)** — a long-lived local daemon, consumed by a TUI over a unix socket, with no browser at all.
-- **[drishti](https://github.com/srid/drishti)** — a browser fronting an ssh fleet, one connection per host, every host serving the same surface.
-- **[odu](https://github.com/juspay/odu)** — a CI runner fanning stdio lanes into a unix-socket hub and projecting the surface as MCP tools.
+What a program accepts is the app's business: a size policy cap, an allowed file
+type, the wording of a refusal, where the bytes land on disk. The arithmetic is
+wire physics. The policy is yours.
 
-Daemons and multi-host are not a ladder. **kaval** is a daemon that is not
-multi-host; **drishti** is multi-host that is not a daemon. What they share is the
-surface. Learn it once in one process — the [tutorial](/surface/your-first-surface)
-does exactly that — and the same shape carries all the way out to a fleet.
+## Where the same declaration is used
 
-## The cost, named honestly
+The framework earns its own packages because one declaration serves consumers
+that look nothing alike:
+
+- [kolu](/): one browser talking to one Node server over a single WebSocket.
+- [kaval](/kaval): a long-lived local daemon, consumed by a terminal app over a unix socket, with no browser at all.
+- [drishti](https://github.com/srid/drishti): a browser fronting an ssh fleet, one connection per host, every host serving the same surface.
+- [odu](https://github.com/juspay/odu): a CI runner fanning stdio lanes into a unix-socket hub, projecting the surface as agent tools.
+
+Daemons and multi-host are independent of each other. kaval is a daemon on one
+machine; drishti is multi-host with no daemon. What they share is the surface.
+Learn it once in one process, which is what the
+[tutorial](/surface/your-first-surface) does, and the same shape carries all the
+way out to a fleet.
+
+## Why each face spells a name its own way
+
+The same surface projects to an agent's tool table through
+[`@kolu/surface-mcp`](/surface/ref-surface-mcp) and to shell commands through
+[`@kolu/surface-cli`](/surface/ref-surface-cli). A surface composed with
+[siblings](/surface/ref-surface#composing-siblings) takes names from each one,
+and a sibling's word is relative to its row: `read`, `commit`, `nodes`.
+
+Each face puts the row in front of that word, in the separator that face has. A
+tool name is flat, so it reads `outlines_read`. A shell has a real hierarchy, so
+the key becomes a subcommand, `outlines read`. Gluing the key on with an
+underscore in a shell would reproduce the tool table's constraint where it does
+not apply.
+
+A hand-written tool takes its row's segment exactly as a generated name does, so
+a reader of a tool list never has to know which kind of name it is looking at.
+Only the tools of the bundle root stay bare, having no row to be relative to.
+
+## Why a tool result is carried twice
+
+A tool answer travels in both arms: as text for the model, and as structured
+content for the caller. Carrying it twice roughly doubles the frame of a large
+result. A full 10k-row terminal scrollback measures 1.2 MB before and 2.4 MB
+after. That is the price of MCP's own back-compatibility guidance, that a server
+returning `structuredContent` should also return equivalent text. A tool that
+can return an unbounded payload bounds it at the tool, rather than dropping an
+arm.
+
+An image is the exception. The bytes travel once, as an image block, and the
+facts about them (mime type, dimensions) travel in the structured arm. That rule
+is a contract the caller keeps, not a check the framework makes.
+
+A guard that compares each structured value against the base64 by identity lets
+`detail.data = image.data.slice()` straight through, so it reads as a check
+while catching one spelling of the mistake. The cost of a second copy is
+invisible at the call site and enormous on the wire.
+
+## Why the schema bridge belongs to the framework
+
+Effect ships the converter from a schema to JSON Schema, so the engine is
+bought. The glue around it is load-bearing. The tool list's JSON Schema is read
+by Anthropic, Gemini, Bedrock, Codex and Claude Desktop, and Effect's converter
+diverges from the zod one in ways an agent would notice. The framework owns the
+corrections, so both faces emit a schema those hosts accept.
+
+The table of tools is deliberately cheap to hold. `@kolu/surface-mcp/tools` is a
+subpath that imports no server class and no transport, so a binary whose command
+tree is static hands its one table to both faces. A `--help` run then pays
+nothing for a server it never boots.
+
+## Why a refusal names what failed
+
+An agent acts on a tool list it read some time ago, so a refusal has to tell it
+what to do next.
+
+A call to a name a past roster served is refused by name, never as a bare
+"unknown". The agent made a reasonable call against a name that was real, and
+"unknown" tells it to doubt itself instead of to re-read the list. The refusal
+also says which retirement it was: the sibling left, or it is standing and no
+longer exposes that member.
+
+The record of a retired name outlives its sibling's return, which is what makes
+it survive that return's own departure. Clearing the record on a sibling's
+return read as tidiness and was a defect with a repro
+([juspay/olai#546](https://github.com/juspay/olai/issues/546)). A row that
+unloaded in two steps had its records deleted by the middle step and could never
+earn them back, so names an agent had seen minutes earlier answered "unknown
+tool" forever.
+
+A dead link is named as a link for the same reason. When a dial cannot announce
+that its transport closed, the adapter finds the death by spending a request on
+it, and the message names the stdio transport. An agent reads that on its own
+stdio channel as the MCP server dying, and the misread cost a whole session in
+[kolu#2082](https://github.com/juspay/kolu/issues/2082). A dial that can
+announce its close [supplies one](/surface/ref-surface-mcp#without-onclose).
+
+## What it costs you
 
 The compile-time literal is what makes the end-to-end types work, and it is also
-the constraint: the spec is a **versioned wire contract**, not a place for casual
-edits. Two distinct fields carry that weight. A cell's `patchSchema` sets the
-*wire format* of its patch verb — changing it changes what crosses the socket. A
-cell's `patch` merge function is subtler: it runs on **both** the server and the
-client, so if the two sides deploy different versions of it, neither errors —
-they simply compute divergent state, and the drift surfaces as a view that is
-quietly wrong. Either way the lesson is the same: server and client redeploy
-together, and the surface declaration is treated with the seriousness of a
-protocol. The framework buys you honesty about live data at that price. For
-anything a client renders live, it is a good trade.
+the constraint. The spec is a versioned wire contract, not a place for casual
+edits. Two fields carry that weight:
+
+- a cell's `patchSchema` sets the wire format of its patch verb, so changing it changes what crosses the socket;
+- a cell's `patch` merge function runs on both the server and the client. If the two sides deploy different versions of it, neither errors. They compute divergent state, and the drift shows up as a view that is quietly wrong.
+
+So server and client redeploy together, and you treat the surface declaration
+with the seriousness of a protocol. The framework buys you honesty about live
+data at that price. For anything a client renders live, it is a good trade.

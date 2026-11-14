@@ -8,37 +8,39 @@ section: Basics · How-to
 import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 
-The `.use()` hooks are [SolidJS](https://docs.solidjs.com). A CLI or TUI has no reactive runtime, so it reads
-the surface directly off the typed client. The trick that keeps a CLI small is to
-hold **one transport-blind connection** so every command is written once,
-whether it runs against a local unix socket or a remote box over ssh.
+The `.use()` hooks are [SolidJS](https://docs.solidjs.com). A CLI or TUI has no
+reactive runtime, so it reads the [surface](/surface/glossary) directly off the
+typed client.
 
 ## Hold one connection shape
 
-Model the connection as `{ client, dispose }` and dial it once. Local and remote
-differ only in which link you build; the commands downstream never branch.
+What keeps a CLI small is holding one transport-blind connection, so every
+command is written once, whether it runs against a local unix socket or a remote
+box over ssh. Model the connection as `{ client, dispose }` and dial it once.
+Local and remote differ only in which link you build; the commands downstream
+never branch.
 
 <Snippet src="packages/surface/example/snippets/consume-cli.ts" region="connection" />
 
 ## Call a procedure
 
-A procedure call off the client is an `Effect` — a description of the call, not a
-request already in flight. No hooks, no subscription. Compose it into the
-command's own program and run that once, at the CLI's `main`; then a Ctrl-C, a
-deadline, or a lost race reaches the in-flight call instead of leaving it running
-unobserved.
+A procedure call off the client is an `Effect`, a description of the call
+rather than a request already in flight. No hooks, no subscription. Compose it
+into the command's own program and run that once, at the CLI's `main`. A
+Ctrl-C, a deadline, or a lost race then reaches the in-flight call instead of
+leaving it running unobserved.
 
 <Snippet src="packages/surface/example/snippets/consume-cli.ts" region="calls" />
 
 ## Iterate a stream
 
-A cell, collection, or stream read is a lazy `Stream` — snapshot first, then
-deltas. Running it *is* the subscription; loop it and act on each frame.
+A cell, collection, or stream read is a lazy `Stream`: snapshot first, then
+deltas. Running it is the subscription, so loop it and act on each frame.
 
 <Snippet src="packages/surface/example/snippets/consume-cli.ts" region="iterate" />
 
-For a **raw** (non-descriptor) stream, reach for `unenrolledStreamCall`
-(`@kolu/surface/client`) rather than calling the procedure bare — it carries the
+For a raw (non-descriptor) stream, reach for `unenrolledStreamCall`
+(`@kolu/surface/client`) rather than calling the procedure bare. It carries the
 `STREAM_RETRY` reconnect context, so a dropped transport re-subscribes
 transparently instead of ending the loop.
 
@@ -47,7 +49,7 @@ transparently instead of ending the loop.
 ## Drive a live board with mirrorRemoteSurface
 
 When the CLI is a live dashboard rather than a one-shot query, fold the surface
-into plain callbacks with `mirrorRemoteSurface` (`@kolu/surface/mirror`) — the
+into plain callbacks with `mirrorRemoteSurface` (`@kolu/surface/mirror`), the
 consume-side dual of `implementSurface`. You supply a sink of collection and
 stream callbacks; it keeps them current and hands back the procedures plus a
 `done` promise.

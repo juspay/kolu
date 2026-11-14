@@ -14,10 +14,10 @@ import LinkCard from "../../components/docs/LinkCard.astro";
 import Steps from "../../components/docs/Steps.astro";
 
 The whole point lands in one move: open a repository and start an agent in its
-own tile. Kolu watches what you do, so setup is mostly just using your shell.
+own tile. kolu watches what you do, so setup is mostly just using your shell.
 
 <figure class="doc-shot">
-  <img src="/blog/kolu-evidence-worktree-name-leaf.png" alt="Kolu's New terminal sub-palette with a generated worktree name and a Plain shell choice." loading="lazy" />
+  <img src="/blog/kolu-evidence-worktree-name-leaf.png" alt="kolu's New terminal sub-palette with a generated worktree name and a Plain shell choice." loading="lazy" />
   <figcaption>The New terminal flow names a worktree, then lets you choose a plain shell or an agent.</figcaption>
 </figure>
 
@@ -25,7 +25,7 @@ own tile. Kolu watches what you do, so setup is mostly just using your shell.
 
 1. Open search.
 
-   Press <kbd>Cmd/Super</kbd> + <kbd>K</kbd>. This is kolu's one search box for
+   Press <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd>. This is kolu's one search box for
    terminals, hosts, commands, themes, and shortcuts. Type a branch or machine
    name to jump there.
 
@@ -36,12 +36,11 @@ own tile. Kolu watches what you do, so setup is mostly just using your shell.
 
 3. Pick an agent, or hit Enter for a shell.
 
-   Any agent CLI you have run before, such as `claude`, `codex`, or `opencode`,
-   appears as a launch option. Choose one and kolu creates a fresh worktree and
-   launches the agent in one step. Don't have one installed? If you chose a set
-   when the welcome card asked about [coding agents](/agents), `claude` and the
-   others are already in every new terminal — type `claude` in one once, and it
-   joins the launch options from then on.
+   Any agent CLI you have run before, such as `claude`, `codex`, or
+   `opencode`, appears as a launch option. Choose one and kolu creates a fresh
+   worktree and launches the agent in one step. If you chose a set when the
+   welcome card asked about [coding agents](/agents), those CLIs are already
+   in every new terminal. Run one once and it joins the launch options.
 
 4. Watch the dock.
 
@@ -61,7 +60,7 @@ own tile. Kolu watches what you do, so setup is mostly just using your shell.
 Each terminal you create in a repo is backed by its own git worktree, so several
 branches can be checked out side by side without stashing or re-cloning.
 
-- Press <kbd>Cmd/Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Enter</kbd> to open the New
+- Press <kbd>Cmd</kbd>/<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Enter</kbd> to open the New
   terminal menu directly.
 - The worktree name you type becomes the branch name and shows verbatim on the
   dock row.
@@ -69,7 +68,7 @@ branches can be checked out side by side without stashing or re-cloning.
 - You can run several agents on several branches at once; the dock keeps them
   distinct.
 
-The words for what you just used — canvas, tile, dock, worktree — are on
+The words for what you just used (canvas, tile, dock, worktree) are on
 [Core Concepts](/concepts).
 
 ## Next

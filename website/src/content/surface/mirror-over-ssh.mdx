@@ -9,11 +9,12 @@ import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 import ThreeHopMirror from "../../components/docs/diagrams/ThreeHopMirror.astro";
 
-An agent serves its surface on the machine it runs on. A browser can't reach
-that process. This guide fronts the remote surface with a **local mirror**: you
-dial the host, keep a live local copy of everything it serves, and re-serve that
-copy to browsers over the same contract. The browser only ever talks to the
-local copy; the ssh pipe swaps invisibly behind it.
+An agent serves its surface on the machine it runs on, where a browser cannot
+reach it. This guide fronts that remote surface with a local
+[mirror](/surface/glossary): you dial the host, keep a live local copy of
+everything it serves, and re-serve that copy to browsers.
+
+The browser only ever talks to the local copy. The ssh pipe swaps behind it.
 
 <ThreeHopMirror />
 
@@ -22,17 +23,18 @@ You need the remote agent's `defineSurface(…)` contract and its binary's `.drv
 
 ## 1. Dial the host
 
-A session over ssh is `makeSession` (the transport-agnostic reconnect loop) plugged
-with `sshConnector` (the ssh transport). You own the session — key your own map and
-tear it down yourself; there is no shared pool.
+A [session](/surface/glossary) over ssh is `makeSession` (the
+transport-agnostic reconnect loop) plugged with `sshConnector` (the ssh
+transport). You own the session: key your own map and tear it down yourself.
+There is no shared pool.
 
 <Snippet src="packages/surface/example/snippets/remote.ts" region="dial" />
 
 <Aside type="caution" title="Do not await resolveDrvPath at the call site">
   Pass `resolveDrvPath` as a thunk, not a resolved value. Eager resolution runs
-  the ssh arch-probe *before* the session exists, so an unreachable host throws
-  out of construction. Deferred, the probe runs inside each spawn cycle, where an
-  unreachable host is a retryable `network` fault instead of a crash.
+  the ssh arch-probe before the session exists, so an unreachable host throws
+  out of construction. Deferred, the probe runs inside each spawn cycle, where
+  an unreachable host is a retryable `network` fault instead of a crash.
 </Aside>
 
 ## 2. Pump its frames inward
@@ -43,46 +45,51 @@ verbatim.
 
 <Snippet src="packages/surface/example/snippets/remote.ts" region="pump" />
 
-`makeSink` is a *factory*: it takes `{ seq }` (the spawn counter, not a client)
-and the pump rebuilds it on every spawn, so no per-client fold survives a
+`makeSink` is a factory: it takes `{ seq }` (the spawn counter, not a client),
+and the pump rebuilds it on every spawn. No per-client fold survives a
 reconnect.
 
 ## 3. Re-serve the same surface locally
 
-The mirror runtime's `{ group, handlers }` is what any transport takes — there is
-nothing to finalize and nothing to re-prefix, because a tag carries its own route.
-A `directDispatch` over the runtime is the in-process consumer; a browser reaches
-the same pair over a WebSocket, with the app layer's `acceptSurfaceSocket` gating
-each upgrade and `serveSurfaceSocket` serving it (see
-[@kolu/surface-app](/surface/ref-surface-app)). The browser now consumes the
+The mirror runtime hands you `{ group, handlers }`, the pair any transport
+takes. A `directDispatch` over the runtime is the in-process consumer. A browser
+reaches the same pair over a WebSocket, with the app layer's
+`acceptSurfaceSocket` gating each upgrade and `serveSurfaceSocket` serving it
+(see [@kolu/surface-app](/surface/ref-surface-app)). The browser consumes the
 local copy exactly as if the agent were in-process.
 
 <Snippet src="packages/surface/example/snippets/remote.ts" region="reserve" />
 
-<Aside type="tip" title="reServeSurface packages steps 2 and 3">
-  For the production path, `reServeSurface({ source, policy, session })` wires the
-  pump and the re-serve for one binding and returns `{ surface, group, handlers, done, close }`.
-  `done` settles when the pump exits (and rejects on an unrecoverable fault); `close()`
-  stops the binding — it aborts the pump WITHOUT destroying the caller-owned session and
-  releases the internal runtime's owned sources (idempotent). Its `policy` marks each
-  member `value` (held open and replayed across an upstream drop) or `delta` (a byte or
-  liveness stream that fails through, so the client re-subscribes end-to-end and a
-  snapshot only ever leads a fresh stream).
-  The binding is **demand-gated**: it pins the session when its first downstream
-  subscriber arrives and releases it (after a short grace) when the last leaves, so
-  nothing is dialled while nobody is reading. If you want the link up regardless —
-  because the link's own state is something you display — pin the session yourself.
-</Aside>
+## Package steps 2 and 3 with `reServeSurface`
 
-## Connection health is a host-map concept
+For the production path, `reServeSurface({ source, policy, session })` wires the
+pump and the re-serve for one binding and returns
+`{ surface, group, handlers, done, close }`.
 
-Connection health is state the remote agent **cannot** report — it can't observe
-the link *to* itself. When you serve many hosts as a **host map**
+- `done` settles when the pump exits, and rejects on an unrecoverable fault.
+- `close()` stops the binding. It aborts the pump without destroying the
+  caller-owned session, and releases the internal runtime's owned sources.
+  Calling it again does nothing.
+- `policy` marks each member `value` or `delta`. A `value` member is held open
+  and replayed across an upstream drop. A `delta` member (a byte or liveness
+  stream) fails through, so the client re-subscribes end to end and a snapshot
+  only ever leads a fresh stream.
+
+The binding is demand-gated. It pins the session when its first downstream
+subscriber arrives, and releases it after a short grace when the last one
+leaves, so nothing is dialled while nobody is reading. Pin the session yourself
+if you want the link up regardless, for example when you display the link's own
+state.
+
+## Where connection health comes from
+
+Connection health is state the remote agent cannot report, because it cannot
+observe the link to itself. When you serve many hosts as a host map
 ([serve a map](/surface/serve-a-map)), that health rides each entry as a fine
-`connection` payload — `serveHostMap` produces the coarse dot and the fine word
-from the same session frame in one projection, the ONE authority both derive from
-(see [@kolu/surface-remote](/surface/ref-surface-remote)).
-A **standalone** re-serve like the one above carries no per-host connection state;
-if a real one ever needs it, the mechanism graduates from the host map with that
-consumer in hand. For the model behind this pump, see
+`connection` payload. `serveHostMap` produces the coarse dot and the fine word
+from the same session frame in one projection (see
+[@kolu/surface-remote](/surface/ref-surface-remote)).
+
+A standalone re-serve like the one above carries no per-host connection state.
+For the model behind this pump, see
 [The server half](/surface/the-server-half).

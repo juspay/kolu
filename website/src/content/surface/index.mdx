@@ -1,6 +1,6 @@
 ---
 title: Surface
-description: "A surface is a typed, reactive slice of live state you declare once — the framework derives the contract, the server, and the client. Start here."
+description: "A surface is a typed, reactive slice of live state you declare once, and the framework derives the contract, the server, and the client."
 order: 200
 section: Surface
 koluHero:
@@ -13,11 +13,10 @@ import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 import StrataMap from "../../components/docs/diagrams/StrataMap.astro";
 
-A **surface** is a typed, reactive slice of live state — a handful of values,
-lists, streams, events, and callable procedures — that you declare _once_. From
-that one declaration the framework derives the wire contract, wires the server,
-and binds the client. You stop hand-writing "fetch, then subscribe, then
-reconcile, then reconnect" and just read the values.
+A **surface** is a typed, reactive slice of live state: values, lists, streams,
+events, and callable procedures. You declare it once, and the framework derives
+the wire contract, wires the server, and binds the client. You read the values
+instead of hand-writing fetch, subscribe, reconcile, reconnect.
 
 The same declaration works whether the state lives in the browser tab, in a
 long-lived daemon, or on a fleet of machines across an ssh network. You learn it
@@ -31,9 +30,9 @@ once, in one process, and the same shape carries all the way out.
 
 ## Three strata
 
-The docs are organised as three layers. **Basics** is the foundation.
-**Daemons** and **Multi-host** each build on the basics _independently_ — you can
-go straight to either. You only need the daemon layer for multi-host when a
+The docs are organized as three layers. **Basics** is the foundation.
+**Daemons** and **Multi-host** each build on the basics independently, so you
+can go straight to either. You need the daemon layer for multi-host only when a
 remote box happens to run one.
 
 <StrataMap />
@@ -56,9 +55,9 @@ remote box happens to run one.
   />
 </CardGrid>
 
-The two upper strata are independent doors, not a ladder you must climb: **kaval**
-proves a daemon needn't be multi-host, and **drishti** proves a multi-host fleet
-needn't be daemons. Multi-host assumes the basics; daemons are optional to it.
+The two upper strata are independent doors. **kaval** is a daemon that is not
+multi-host, and **drishti** is a multi-host fleet without daemons. Multi-host
+assumes the basics; daemons are optional to it.
 
 ## What each layer answers
 
@@ -76,6 +75,6 @@ needn't be daemons. Multi-host assumes the basics; daemons are optional to it.
   <LinkCard
     title="Glossary"
     href="/surface/glossary"
-    description="New to the vocabulary? Plain-language definitions of every term — surface, mirror, entries, the daemon spine — each linked to where it's taught."
+    description="New to the vocabulary? Plain-language definitions of every term — surface, mirror, entries, the daemon spine — each linked to where it is taught."
   />
 </CardGrid>

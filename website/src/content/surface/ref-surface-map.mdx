@@ -8,283 +8,623 @@ section: Multi-host · Reference
 import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 
-A dynamic keyed map of remote surfaces — one entry surface, typed once, keyed at
-runtime, served as one. It depends only on `@kolu/surface` and has three public
-subpaths: the declaration, the server, and the client (plus a test-only `/testing`
-subpath, whose `testMembershipId()` mints a branded `MembershipId` for fixtures, and a
-schema-only `/evidence` leaf carrying the failure-evidence vocabulary — `EvidenceLine`,
-`EvidenceLineSchema`, `FailureEvidence`, `FailureEvidenceSchema`, all also re-exported
-from `.` — for a consumer that must not pull the group builder into its bundle).
+A dynamic keyed map of remote surfaces: one entry surface, typed once, keyed at
+runtime, served as one. `@kolu/surface-map` depends only on `@kolu/surface`, and
+its API lives on three public subpaths, the declaration, the server and the
+client, plus two leaves.
 
-## The three halves
+## Declaring, serving and connecting a map
 
-| Export | Subpath | Role |
+Three calls build the map, back it with data, and consume it.
+
+| Export | Subpath | What it is |
 | --- | --- | --- |
-| `defineSurfaceMap({ key, entry, codec, failure, connection?, entriesClient?, name?, siblings? })` | `.` | build a map from a key schema, an entry `Surface<ES>`, the key's string `codec`, a `failure` schema for the domain failure value, an optional `connection` schema for the fine per-entry connection payload (SR9 — carried on the live arms, validated but never enumerated, like `failure`), an optional `entriesClient` policy for the membership collection (SR11), an optional mount `name`, and optional nested `siblings`; returns a `SurfaceMap` |
-| `serveSurfaceMap(map, registry)` | `/server` | back the map with a `MapRegistry`; returns `{ group, handlers, dispose }` |
-| `connectSurfaceMap(map, transport, opts?)` | `/client` | consume the map; returns a `SurfaceMapClient` (with the Solid `useEntry`) |
+| [`defineSurfaceMap({ key, entry, codec, failure, connection?, entriesClient?, name?, siblings? })`](#definesurfacemap-key-entry-codec-failure-connection-entriesclient-name-siblings-) | `.` | Builds a `SurfaceMap` from a key schema, an entry surface and a key codec. |
+| [`SurfaceMap`](#surfacemap) | `.` | The declared value: the wire group, the tag prefix and the membership spec. |
+| [`serveSurfaceMap(map, registry)`](#servesurfacemapmap-registry) | `/server` | Backs the map with a `MapRegistry`; returns `{ group, handlers, dispose }`. |
+| [`connectSurfaceMap(map, transport, opts?)`](#connectsurfacemapmap-transport-opts) | `/client` | Consumes the map; returns a `SurfaceMapClient` with the Solid `useEntry`. |
+| [`ConnectSurfaceMapOptions<Key>`](#connectsurfacemapoptionskey) | `/client` | The optional third argument of `connectSurfaceMap`. |
+| [`testMembershipId()`](#testmembershipid) | `/testing` | Mints a branded `MembershipId` for fixtures. |
+| [`EvidenceLine` / `EvidenceLineSchema` / `FailureEvidence` / `FailureEvidenceSchema`](#evidenceline--evidencelineschema--failureevidence--failureevidenceschema) | `/evidence` | The failure-evidence vocabulary, also re-exported from `.`. |
 
-`defineSurfaceMap`'s `key` schema need not be a branded string — its decoded type
-is `Key`, which can be any validated value (kolu's `HostKey` is a discriminated-sum
-object). Its `failure` schema is required and fixes the domain failure value; `Failure`
-is **inferred** from it (no explicit type args). The optional **`name`** is the sibling
-key the map is mounted under in a combined surface (kolu's `"padi"`, drishti's
-`"hosts"`); it decides the map's own `tagPrefix` at declaration time and drives the
-client's transport slice (below), so no stringly key is written at any connection site.
+### `defineSurfaceMap({ key, entry, codec, failure, connection?, entriesClient?, name?, siblings? })`
 
-The `SurfaceMap` carries `{ keySchema, entry, group, tagPrefix, name?, entriesSpec, codec, siblings }`.
-**`group`** is the key-folded wire group: one `Rpc` per entry-member verb (with a
-canonical-string `mapKey` folded into its payload) plus the two unfolded `entries`
-membership members. A host that serves this map merges that group into its own —
-there is no second "fragment" value to splice and nothing to cast, because a tag
-carries its own route. `tagPrefix` is `"surface/"` for a root-served map and
-`"surface/<name>/"` for a named one, read off the value by both the server's handler
-keys and the client's re-tagging so there is one authority.
+Builds a map from a key schema, an entry surface and the key's codec. It returns
+a `SurfaceMap`.
 
-`entriesSpec` is the membership collection's wire spec, always string-keyed. The domain
-failure schema is the `failure` argument itself — embedded in `entriesSpec.schema` and
-the `entries.get` success schema, so there is no separate `failureSchema` field. There
-is deliberately **no** matching `evidence` option: failure evidence is a fixed
-structural type this package owns (`FailureEvidence` and `EvidenceLine`, both exported
-from `.` and from `/evidence`), not a domain value to parameterize — see `EntryStatus`
-below. Their Effect schemas (`FailureEvidenceSchema`, `EvidenceLineSchema`) are exported
-too: evidence reaches the *map's* wire through the one door `entryStatusSchema` owns,
-but the same line vocabulary is validated by `@kolu/surface-remote`'s
-`ConnectionInfoSchema.log`, which now *is* `EvidenceLineSchema` rather than a re-declared
-twin. The optional **`entriesClient`** (SR11) is the app-typed
-client error policy (`ClientCollectionPolicy<EP>`) threaded onto `entriesSpec.client`,
-so a map-membership subscription failure reaches the app's `connectSurfaceMap`
-`onClientError`; its `EP` is inferred from the value and defaults to `never` (a
-policy-free map — every existing caller — keeps `entriesSpec.client` unfillable). The
-membership collection has no per-key origin, so its interpreter fires origin-free.
+| Option | Meaning |
+| --- | --- |
+| `key` | The key schema. Its decoded type is `Key`, which can be any validated value. |
+| `entry` | The entry `Surface<ES>` that every key serves. |
+| `codec` | The key's string `codec`. |
+| `failure` | Required. The schema for the domain failure value. |
+| `connection?` | The schema for the fine per-entry connection payload (SR9). |
+| `entriesClient?` | The client error policy for the membership collection (SR11). |
+| `name?` | The sibling key the map is mounted under in a combined surface. |
+| `siblings?` | Nested sibling surfaces, served per key. See [Nested siblings](#nested-siblings). |
 
-`connectSurfaceMap`'s `transport` must be the **branded** parent handle (e.g.
-`conn.transport` from `connectSurfaces`) or an in-process `directDispatch` — any
-other wire dispatch throws. The scoping key derives from **`map.name`**: a named
-map is re-tagged onto `surface/<name>/…` *after* the half-open guard, so it
-inherits the parent's watchdog by construction; a nameless map is served at the
-transport root and not re-tagged. There is no `siblingKey` argument — the key
-comes from the declaration. Scoping is now a **tag rewrite over the resolved
-dispatch**, never a re-wrap of the transport value, so there is no step left that
-could strip the half-open brand.
-
-`connectSurfaceMap`'s optional third argument is `ConnectSurfaceMapOptions<Key>`,
-whose `onClientError?: (policy, err, origin?: { key: Key }) => void` is the app's
-client error interpreter — the keyed-map counterpart to `connectSurfaces`'
-`onClientError` (see the
-[core reference](/surface/ref-surface#declaring-a-client-error-policy--definesurfacewithpolicy)).
-`@kolu/surface-map` is where a `{ key }` **origin** exists, so — unlike the origin-free
-base interpreter — this one carries it: a per-key entry member's declared
-`client.onError` fires with `origin = { key }` (injected by the per-key client
-builder, which holds the decoded key), while the membership `entries` collection (no
-per-key origin) fires with `origin` omitted. So an origin-requiring policy arm is only
-reachable where the key exists, and the base `buildSurfaceClient` stays
-origin-agnostic. Required in practice when the entry surface carries a policy — a
-declared policy with no interpreter throws at construction.
+- The `key` schema need not be a branded string. kolu's `HostKey` is a
+  discriminated-sum object.
+- `failure` fixes the domain failure value, and `Failure` is inferred from it,
+  with no explicit type args.
+- `connection` is carried on the live arms, validated but never enumerated, like
+  `failure`.
+- `name` is kolu's `"padi"` or drishti's `"hosts"`. It decides the map's own
+  `tagPrefix` at declaration time and drives the client's transport slice, so no
+  stringly key is written at any connection site.
+- `entriesClient` is the app-typed client error policy
+  (`ClientCollectionPolicy<EP>`), threaded onto `entriesSpec.client`, so a
+  map-membership subscription failure reaches the app's `connectSurfaceMap`
+  `onClientError`. Its `EP` is inferred from the value and defaults to `never`,
+  so a policy-free map keeps `entriesSpec.client` unfillable.
+- The membership collection has no per-key origin, so its interpreter fires
+  origin-free.
+- There is no matching `evidence` option. Failure evidence is a fixed structural
+  type this package owns, not a domain value to parameterize.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="define" />
 
+### `SurfaceMap`
+
+The declared value:
+`{ keySchema, entry, group, tagPrefix, name?, entriesSpec, codec, siblings }`.
+
+- `group` is the key-folded wire group: one `Rpc` per entry-member verb, with a
+  canonical-string `mapKey` folded into its payload, plus the two unfolded
+  `entries` membership members.
+- A host that serves this map merges that group into its own. There is no second
+  "fragment" value to splice and nothing to cast, because a tag carries its own
+  route.
+- `tagPrefix` is `"surface/"` for a root-served map and `"surface/<name>/"` for a
+  named one. Both the server's handler keys and the client's re-tagging read it
+  off the value, so there is one authority.
+- `entriesSpec` is the membership collection's wire spec, always string-keyed.
+- The domain failure schema is the `failure` argument given to `defineSurfaceMap`,
+  embedded in
+  `entriesSpec.schema` and the `entries.get` success schema, so there is no
+  separate `failureSchema` field.
+
+### `serveSurfaceMap(map, registry)`
+
+Backs the map with a [`MapRegistry`](#mapregistryk). It returns
+`{ group, handlers, dispose }`.
+
+- It stamps a fresh [`membershipId`](#membershipid) when a key enters membership,
+  drops it when the key leaves, and publishes it on the `warming`, `connected`
+  and `failed` arms alike.
+- Its `statusOf` seam states a fault's empty `evidence` once, exactly as it
+  already supplies the fault's `kind` and `membershipId`.
+- It delivers a removal and a same-key re-add as two non-coalesced membership
+  events.
+
+### `connectSurfaceMap(map, transport, opts?)`
+
+Consumes the map and returns a [`SurfaceMapClient`](#the-client).
+
+- `transport` must be the branded parent handle (for example `conn.transport`
+  from `connectSurfaces`) or an in-process `directDispatch`. Any other wire
+  dispatch throws.
+- The scoping key derives from `map.name`: there is no `siblingKey` argument, the
+  key comes from the declaration.
+- A named map is re-tagged onto `surface/<name>/…` after the half-open guard, so
+  it inherits the parent's watchdog. A nameless map is served at the transport
+  root and not re-tagged.
+- Scoping is a tag rewrite over the resolved dispatch, never a re-wrap of the
+  transport value, so no step can strip the half-open brand.
+- Pass `opts` whenever the entry surface carries a policy: a declared policy with
+  no interpreter throws at construction.
+
+### `ConnectSurfaceMapOptions<Key>`
+
+The optional third argument of `connectSurfaceMap`. Its
+`onClientError?: (policy, err, origin?: { key: Key }) => void` is the app's client
+error interpreter, the keyed-map counterpart to `connectSurfaces`'
+`onClientError` (see the
+[core reference](/surface/ref-surface#declaring-a-client-error-policy--definesurfacewithpolicy)).
+
+- A map is where a `{ key }` origin exists, so this interpreter carries one,
+  unlike the origin-free base interpreter.
+- A per-key entry member's declared `client.onError` fires with
+  `origin = { key }`, injected by the per-key client builder, which holds the
+  decoded key.
+- The membership `entries` collection has no per-key origin, so it fires with
+  `origin` omitted.
+- An origin-requiring policy arm is therefore only reachable where the key
+  exists, and the base `buildSurfaceClient` stays origin-agnostic.
+
+### `testMembershipId()`
+
+Mints a branded `MembershipId` for fixtures. It is the test-only subpath, and
+tests use it rather than a literal.
+
+### `EvidenceLine` / `EvidenceLineSchema` / `FailureEvidence` / `FailureEvidenceSchema`
+
+The failure-evidence vocabulary. It sits on the schema-only `/evidence` leaf and
+is re-exported from `.`, so a consumer that must not pull the group builder into
+its bundle imports the leaf.
+
+- `FailureEvidence = readonly { source: "local" | "remote"; line: string }[]`: the
+  retained output tail of the episode that failed.
+- `EvidenceLine.source` says where the line came from. `"local"` is the serving
+  process's own output (provisioning, lifecycle chatter), `"remote"` is the far
+  end's forwarded output.
+- The source is a field, never an in-band `[local] ` prefix a reader would have
+  to parse back off the string.
+- `FailureEvidenceSchema` and `EvidenceLineSchema` are module consts, not
+  functions of a domain schema.
+- `@kolu/surface-remote`'s `LogEntry` is `EvidenceLine` and its `LogEntrySchema`
+  is `EvidenceLineSchema`, so that package's `ConnectionInfoSchema.log` validates
+  the same line vocabulary rather than a re-declared twin.
+- Evidence reaches the map's wire through the one door `entryStatusSchema` owns.
+- `@kolu/surface-remote`'s `SessionState.log` is structurally exactly
+  `FailureEvidence`, so the producer passes its retained tail straight through,
+  with no injection and no second evidence pipe.
+
 ## Nested siblings
 
-An entry may carry whole **sibling surfaces** beside the entry surface — a second
+An entry may carry whole sibling surfaces beside the entry surface: a second
 daemon the entry's own socket already serves, re-served through the map and
-addressed per key. `siblings: { odu: oduSurface }` makes every member of that
-surface reachable as `entry(host).odu.streams.checkout.use(…)`, typed from odu's own
-spec. A map that declares none mints not one extra tag: a sibling-free map is
-byte-identical to one defined before siblings existed.
+addressed per key.
 
-The tag grammar is one segment of nesting, no more. An entry member of a map
-mounted as `padi` is `surface/padi/<member>/<verb>`; a sibling member is
-`surface/padi/<sibling>/<member>/<verb>`. Upstream — on the entry's own socket,
-where that daemon is a plain sibling of its host surface — the same member is
-`surface/<sibling>/<member>/<verb>`, so the map hop is a **re-tag** between the
-two, derived from the framework's one sibling rule applied twice
-(`mapSiblingTagPrefix`) rather than spelled as string surgery. Both halves of the
-rewrite live in the solid-free `./define`, beside the walk that mints the tags, so
-the contract, the server and the client cannot drift.
+- `siblings: { odu: oduSurface }` makes every member of that surface reachable as
+  `entry(host).odu.streams.checkout.use(…)`, typed from odu's own spec.
+- A map whose `siblings` is absent mints not one extra tag.
+- A sibling is declared as a whole `Surface`, not as a spec fragment, because it
+  is a different program's contract with its own release cadence and version.
+- Why: [Why a sibling is a whole surface](/surface/entry-contracts#why-a-sibling-is-a-whole-surface).
 
-Everything else about a sibling member is an entry member's: it folds the SAME
+| Entry | What it covers |
+| --- | --- |
+| [The sibling tag grammar](#the-sibling-tag-grammar) | How a sibling's wire tags nest, one segment deep, and where the re-tag derives from. |
+| [What a sibling face carries](#what-a-sibling-face-carries) | The six subtrees a sibling face is, and what stays the entry's. |
+| [Sibling names that are refused](#sibling-names-that-are-refused) | The two keys refused at declaration, and the reserved name that is not. |
+
+### The sibling tag grammar
+
+The grammar is one segment of nesting, no more.
+
+| Member | Tag |
+| --- | --- |
+| An entry member of a map mounted as `padi` | `surface/padi/<member>/<verb>` |
+| A sibling member of that map | `surface/padi/<sibling>/<member>/<verb>` |
+| The same sibling member upstream, on the entry's own socket | `surface/<sibling>/<member>/<verb>` |
+
+- Upstream, that daemon is a plain sibling of its host surface, so the map hop is
+  a re-tag between the two.
+- The re-tag derives from the framework's one sibling rule applied twice
+  (`mapSiblingTagPrefix`), rather than string surgery.
+- Both halves of the rewrite live in the solid-free `./define`, beside the walk
+  that mints the tags, so the contract, the server and the client cannot drift.
+
+### What a sibling face carries
+
+Everything else about a sibling member is an entry member's: it folds the same
 `mapKey` into its payload, routes to that key's own session, and rides the same
-membership gates. A sibling FACE is therefore the six bound subtrees (`cells` ·
-`collections` · `streams` · `events` · `procedures` · `rpc`) and nothing more —
-`state` and `clock` stay the entry's, since membership and the clock offset are
-facts of the key and a surface served under that entry has no second membership of
-its own. Under `useEntry` a sibling's subscriptions re-key by exactly the entry's
-rule (`{enc, membershipId}`), and the per-key clients — the entry's and each
-sibling's — are cached and disposed as ONE value, never as a parallel cache that
-could outlive the entry's.
+membership gates.
 
-Two names are refused at **declaration**, where the name is the defect: a sibling
-key that is not a legal tag segment (the same check `composeSurfaceContracts`
-applies at the same seam), and one that collides with an entry face member
-(`ENTRY_FACE_MEMBERS` — `cells`, `streams`, `state`, …), which would shadow the
-entry's own subtree and hand a consumer the sibling where it asked for the entry.
-The reserved `entries` name is NOT refused for a sibling's member: a sibling's
-members live one segment below the map's membership collection, so a sibling that
-publishes its own `entries` collection cannot shadow the map's.
+- A sibling face is the six bound subtrees (`cells`, `collections`, `streams`,
+  `events`, `procedures`, `rpc`) and nothing more.
+- `state` and `clock` stay the entry's. Membership and the clock offset are facts
+  of the key, and a surface served under that entry has no second membership of
+  its own.
+- Under `useEntry` a sibling's subscriptions re-key by exactly the entry's rule
+  (`{enc, membershipId}`).
+- The per-key clients, the entry's and each sibling's, are cached and disposed as
+  one value, never as a parallel cache that could outlive the entry's.
 
-**Why a sibling rather than more members on the entry surface?** Because it is a
-different program's contract — its own release cadence, its own version, its own
-clock. Folding it into the entry spec would make that contract part of the entry's:
-one spec two daemons must agree about, and a version skew in either that the other
-has to carry. That is also why a sibling is declared as a whole `Surface` and not
-as a spec fragment.
+### Sibling names that are refused
+
+Two names are refused at declaration, where the name is the defect.
+
+- A sibling key that is not a legal tag segment, by the same check
+  `composeSurfaceContracts` applies at the same seam.
+- A sibling key that collides with an entry face member (`ENTRY_FACE_MEMBERS`:
+  `cells`, `streams`, `state`, and the rest), which would shadow the entry's own
+  subtree and hand a consumer the sibling where it asked for the entry.
+- The reserved `entries` name is not refused for a sibling's member. A sibling's
+  members live one segment below the map's membership collection, so a sibling
+  that publishes its own `entries` collection cannot shadow the map's.
 
 ## The client
 
-`SurfaceMapClient` exposes `entries` (the one membership authority), `live`
-(resolved transport liveness), `codec` (the one key-identity authority), and two
-lenses onto an entry.
+`SurfaceMapClient` exposes the membership authority, transport liveness, the key
+codec, and two lenses onto an entry.
 
 | Member | Returns |
 | --- | --- |
-| `entries` | `ReadOnlyBoundCollection<Key, EntryStatus>` — the single membership authority; **read-only** (the map server is the sole writer — no client `upsert`/`delete`) |
-| `live` | `Accessor<boolean>` — resolved transport liveness for the membership strip |
-| `codec` | `KeyCodec<Key>` — the one key-identity authority; `encode`/`decode` the canonical wire string |
-| `entry(key)` | `Entry<ES>` — the pure point lens (no owner, no I/O, total) |
-| `useEntry(keyAccessor)` | `Entry<ES>` — the Solid lens; re-keys on key change **and on a same-key membership re-add** (a new `membershipId`); throws ownerless |
-| `dispose()` | tear down |
+| [`entries`](#entries) | `ReadOnlyBoundCollection<Key, EntryStatus>` — the single membership authority. |
+| [`live`](#live) | `Accessor<boolean>` — resolved transport liveness for the membership strip. |
+| [`codec`](#keycodeck) | `KeyCodec<Key>` — the one key-identity authority. |
+| [`entry(key)`](#entrykey) | `Entry<ES>` — the pure point lens (no owner, no I/O, total). |
+| [`useEntry(keyAccessor)`](#useentrykeyaccessor) | `Entry<ES>` — the Solid lens; throws ownerless. |
+| [`dispose()`](#dispose) | Tears the client down. |
+| [`scopedByEntry(client, active, build)`](#scopedbyentryclient-active-build) | Per-key state retained across switches, from `/client`. |
+| [`watchByEntry(client, cell, items, onRaise)`](#watchbyentryclient-cell-items-onraise) | Per-member attention, watched eagerly, from `/client`. |
+
+### `entries`
+
+`ReadOnlyBoundCollection<Key, EntryStatus>`, the single membership authority. It
+is read-only: the map server is the sole writer, so there is no client `upsert`
+or `delete`.
+
+Its value type is [`ObservedEntryStatus`](#entrystate-and-observedentrystatus):
+every value it hands out has already been through `floorOnLiveness`.
+
+### `live`
+
+`Accessor<boolean>`: resolved transport liveness, for the membership strip.
+
+### `entry(key)`
+
+`Entry<ES>`, the pure point lens. It takes no owner, does no I/O, and is total.
+
+It is a partial application of the key: a per-key `SurfaceClient<ES>`, cached by
+the entry's `{encodedKey,
+membershipId}` identity, so two views of one live member
+share one upstream subscription. The lens itself stays owner-free, and an
+imperative call reads the pending identity and routes identically by encoded key.
 
 An `Entry<ES>` carries `cells` / `collections` / `streams` / `events` /
 `procedures` (the same bound hooks a single surface has), one named face per
-declared nested sibling (`entry.odu.…` — see [Nested siblings](#nested-siblings)),
-plus:
+declared nested sibling (`entry.odu.…`, see
+[Nested siblings](#nested-siblings)), plus:
 
 | Member | Returns |
 | --- | --- |
-| `procedures` | the entry's declared procedures, bound and typed from the spec — `entry.procedures.<ns>.<verb>(input)`; folds `{ mapKey }` per call so the caller never passes the key |
-| `rpc` | the raw member face (`rpc.surface.<member>.<verb>`) — the addressing-layer escape hatch only, typed `unknown` per leaf (see below). The map folds no reserved `system/*` member, so per-entry liveness rides the `entries` authority instead |
-| `clock.toLocal(remoteMs)` | reproject a host-stamped epoch: `number \| null` (null when the entry has no offset yet) |
-| `state()` | `EntryState` = `ObservedEntryStatus \| { kind: "not-a-member" }` — a total fold over `entries`, never nullable |
+| [`procedures`](#entrykeyprocedures) | The entry's declared procedures, bound and typed from the spec. |
+| [`rpc`](#entrykeyrpc) | The raw member face (`rpc.surface.<member>.<verb>`), typed `unknown` per leaf. |
+| [`clock.toLocal(remoteMs)`](#entrykeyclocktolocalremotems) | A host-stamped epoch in the local clock: `number \| null`. |
+| [`state()`](#entrykeystate) | `EntryState` — a total fold over `entries`, never nullable. |
 
-`entry(key)` is a partial application of the key: a per-key `SurfaceClient<ES>`,
-cached by the entry's **`{encodedKey, membershipId}`** identity (see the
-membership note below), so two views of one *live* member share one upstream
-subscription. `useEntry` re-keys its reactive subscription whenever that identity
-changes — an **active-key switch** (the encoded key changes: the old key's
-subscriptions dispose, the new key's populate synchronously) **and** a **same-key
-membership re-add or authority restart** (a new `membershipId` for the same
-encoded key). It also canonicalizes its accessor's key by its encoded string, so a
-same-key **re-decode** of the *same* membership reads as a no-op, never a re-key.
-The pure `entry(key)` point lens itself stays owner-free (an imperative call reads
-the pending identity and routes identically by encoded key); the `{encodedKey,
-membershipId}` re-key is the *reactive* `.use()` lifetime `useEntry` drives.
+### `useEntry(keyAccessor)`
+
+`Entry<ES>`, the Solid lens. It throws when called outside a reactive owner.
+
+- It re-keys its reactive subscription whenever the entry's
+  `{encodedKey, membershipId}` identity changes.
+- An active-key switch (the encoded key changes) disposes the old key's
+  subscriptions, and the new key's populate synchronously.
+- A same-key membership re-add or authority restart (a new `membershipId` for the
+  same encoded key) re-keys too.
+- It canonicalizes its accessor's key by its encoded string, so a same-key
+  re-decode of the same membership reads as a no-op, never a re-key.
+- The `{encodedKey, membershipId}` re-key is the reactive `.use()` lifetime
+  `useEntry` drives.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="useentry" />
 
-Declared procedures ride `entry.procedures.<ns>.<verb>(input)` — a **narrow**
-mapped type over the entry spec's `procedures`, so it types straight from the
-declaration with **no cast**, while dodging the union-budget overflow (TS2590) a
-second precise mapped type over an abstract entry spec would trip. The
-key-injecting **dispatch** folds `{ mapKey }` into every call and rewrites the tag
-onto the map's own prefix, so the caller never passes the key. A procedure's
-**declared error schema** (`ProcedureSpec.error`) rides the folded member too, so
-a tagged error raised behind the map's keyed proxy arrives at the outer client
-with its `_tag` and data intact — the map hop never demotes a declared error to a
-defect. `entry.rpc` stays typed **`unknown`** per leaf — it is the structural
-addressing face, and a declared procedure never needs it.
+### `dispose()`
+
+Tears the client down.
+
+### `entry(key).procedures`
+
+The entry's declared procedures, bound and typed from the entry spec:
+`entry.procedures.<ns>.<verb>(input)`.
+
+- It is a narrow mapped type over the entry spec's `procedures`, so it types
+  straight from the declaration with no cast. It also dodges the union-budget
+  overflow (TS2590) that a second precise mapped type over an abstract entry spec
+  would trip.
+- The key-injecting dispatch folds `{ mapKey }` into every call and rewrites the
+  tag onto the map's own prefix, so the caller never passes the key.
+- A procedure's declared error schema (`ProcedureSpec.error`) rides the folded
+  member, so a tagged error raised behind the map's keyed proxy arrives at the
+  outer client with its `_tag` and data intact. The map hop never demotes a
+  declared error to a defect.
+- A call on an absent key is a typed rejection (`MapKeyUnknown`), the one-shot
+  twin of a sub's typed stream-end.
+
+### `entry(key).rpc`
+
+The raw member face, `rpc.surface.<member>.<verb>`. It is the addressing-layer
+escape hatch only, and stays typed `unknown` per leaf.
+
+- A declared procedure never needs it.
+- The map folds no reserved `system/*` member, so per-entry liveness rides the
+  `entries` authority instead, and reaching a `system/*` member through
+  `entry.rpc` fails at the map hop.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="rpc" />
 
-## `scopedByEntry` — per-key state retained by membership
+### `entry(key).clock.toLocal(remoteMs)`
 
-The second export of `/client`. It is the **retained-owner dual** of `useEntry`:
-where `useEntry` disposes the old key's world on every switch (right for cheap
-wire subscriptions), `scopedByEntry` builds a per-key reactive owner for the
-client's *own* state and keeps it across switches — the focused tile, the camera,
-per-host view posture — so switching hosts restores the world you left. Built over
-[`@solid-primitives/keyed`](https://primitives.solidjs.community/package/keyed)'s
-`keyArray` (the ecosystem's retained-per-key-root primitive), keyed by membership.
+Reprojects a host-stamped timestamp into the local clock through the entry's
+measured offset: `remoteMs − offset`. It returns `number | null`.
+
+- It returns `null`, never a silent identity, whenever the entry has no measured
+  offset: `warming`, `failed`, `unobservable` and `not-a-member`.
+- A `connected` entry whose `clockOffset` is still `null` also reads `null`, since
+  the link is live but the offset is not yet probed. Readiness is decoupled from
+  the offset.
+- The `number | null` type forces the caller to render a pending "—" rather than
+  fall back to the raw remote value.
+- It reads only `.kind`, never `.failure`, and folds the membership collection, so
+  it re-answers as the entry connects.
+
+### `entry(key).state()`
+
+`EntryState` = `ObservedEntryStatus | { kind: "not-a-member" }`: a total fold over
+`entries`, never nullable. See [Entry status](#entry-status).
+
+### `scopedByEntry(client, active, build)`
+
+Per-key client state, retained across key switches. It is the retained-owner dual
+of `useEntry`, and `watchByEntry` is its eager twin. Where `useEntry` disposes the
+old key's world on every switch (right for cheap wire subscriptions), this keeps
+the focused tile, the camera or a per-host view posture, so switching hosts
+restores the world you left.
 
 ```
 scopedByEntry(client, active, build) → { active(): T | undefined, get(key): T | undefined }
 ```
 
-- **`active: Accessor<K | null>`** is app policy — `null` means *nothing selected*
-  (drishti's fleet grid; kolu never). It is not the map's business which key matters.
-- **`build(key, ctx)`** runs **once per key on its first activation**; its return
-  value is that key's owned world. `ctx.isActive` is an `Accessor<boolean>` — the
-  active-only discipline (WebGL release/re-acquire, center-on-active) lives *inside*
-  the owner, not as a bridge between two independently-timed lifecycles.
-- **Lifetime is `entries` membership, not the wire.** An owner is built **lazily**
-  (a never-visited background host costs nothing), **retained** across every
-  switch-away, and **disposed** the instant its key leaves `entries`. A
-  removed-then-re-added host is a fresh member — lazy again, never resurrected.
-- **`active()`** returns the active key's world, or **`undefined`** for both a
-  `null` active *and* an active key that is not a current member (a removal race; a
-  dev-mode `console.warn` names the vanished key). **`get(key)`** is a background
-  peek at any key's world (W5 attention rollups) that **never creates** an owner —
-  `undefined` when the key was never activated or is not a member.
-- Throws if called outside a reactive owner — it holds a `keyArray` of per-key
-  roots that must be disposed with the app.
-
-Keys are folded to their canonical wire string through `client.codec` (below), not
-compared by `===`: two logically-equal keys from independent decodes need not be
-reference-equal.
+- `active: Accessor<K | null>` is app policy. `null` means nothing is selected
+  (drishti's fleet grid; kolu never).
+- `build(key, ctx)` runs once per key on its first activation, and its return
+  value is that key's owned world.
+- `ctx.isActive` is an `Accessor<boolean>`, so the active-only discipline (WebGL
+  release and re-acquire, centre-on-active) lives inside the owner.
+- Lifetime is `entries` membership, not the wire. An owner is built lazily, so a
+  never-visited background host costs nothing. It is retained across every
+  switch-away, and disposed the instant its key leaves `entries`.
+- A removed-then-re-added host is a fresh member: lazy again, never resurrected.
+- `active()` returns the active key's world, or `undefined` for both a `null`
+  active and an active key that is not a current member (a removal race, where a
+  dev-mode `console.warn` names the vanished key).
+- `get(key)` is a background peek at any key's world (W5 attention rollups) that
+  never creates an owner. It returns `undefined` when the key was never activated
+  or is not a member.
+- It throws when called outside a reactive owner, because it holds a `keyArray`
+  of per-key roots that must be disposed with the app.
+- Keys are folded to their canonical wire string through `client.codec`, not
+  compared by `===`: two logically-equal keys from independent decodes need not be
+  reference-equal.
+- It is built over [`@solid-primitives/keyed`](https://primitives.solidjs.community/package/keyed)'s
+  `keyArray`, keyed by membership.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="scopedbyentry" />
 
-## `watchByEntry` — per-member attention, watched eagerly
+### `watchByEntry(client, cell, items, onRaise)`
 
-The third export of `/client`, and `scopedByEntry`'s eager twin on the **same**
-shared membership kernel (codec identity, the `entries` view, retained-per-key
-roots disposed on membership exit). Where `scopedByEntry` is lazy — an owner is
-built on a key's first activation — `watchByEntry` is **eager**: every member
-gets a root the moment it joins, because a background host is precisely the one
-you need to hear from.
+Per-member attention, watched eagerly. It shares `scopedByEntry`'s membership
+kernel (codec identity, the `entries` view, retained-per-key roots disposed on
+membership exit), but every member gets a root the moment it joins, because a
+background host is the one you need to hear from.
 
 ```
 watchByEntry(client, cell, items, onRaise) → { get(key): { kind: "live" | "stale"; value } | undefined }
 ```
 
-- **`cell(entry)`** selects the per-entry cell to watch (`e => e.cells.urgency`)
-  — a get-only `WatchableCell<A>` whose `.use()` yields the current value and the
-  raw `Subscription` (whose `updated` carries the change pairs).
-- **`items(value)`** extracts **stable** `PropertyKey` ids from the cell value
-  (`v => v.awaitingIds`). Ids are `string`/`number`/`symbol`, never objects — the
-  set-diff compares by value, and object ids (rebuilt fresh per frame) would compare
-  by reference and re-raise every frame, so an object-id `items` is a compile error.
-  Stability is the app's one obligation — it is what makes "same item, not a new
-  one" decidable.
-- **`onRaise(key, raised, value)`** fires for newly-raised ids. Raise detection is
-  a pure set-diff over the framework's `updated` `{ prev, next }` pairs:
-  `items(next) ∖ items(prev)`. The change-iff-fired law upstream (see
-  `Subscription.updated`) is what makes a plain set-diff trustworthy — no
-  hand-held previous frame, no frame classification, no per-window memory.
-- **`get(key)`** is a point read — `{ kind: "live" | "stale"; value }` — or
-  **`undefined`** when the key is not a member OR has no frame yet (a mirror stays
-  silent until the authority speaks — see
-  [@kolu/surface-remote](/surface/ref-surface-remote)). `live` means our link to
-  the host is up and connected **and** this cell's own subscription is neither
-  errored nor ended; an errored/ended cell reads `stale` (its last value dims)
-  rather than lying live, so a consumer never counts frozen data. `stale` also
-  holds the last value under a down link.
-- There is deliberately **no `total()`**: aggregation is app policy (kolu sums
-  awaiting terminals across live hosts; drishti counts hosts in trouble — a sum
-  would be noise), so the watcher hands facts and each app folds.
-- Throws if called outside a reactive owner — it holds a `keyArray` of per-key
-  roots that must be disposed with the app.
+- `cell(entry)` selects the per-entry cell to watch (`e => e.cells.urgency`): a
+  get-only `WatchableCell<A>` whose `.use()` yields the current value and the raw
+  `Subscription`, whose `updated` carries the change pairs.
+- `items(value)` extracts stable `PropertyKey` ids from the cell value
+  (`v => v.awaitingIds`). Stability is the app's one obligation, and it is what
+  makes "same item, not a new one" decidable.
+- Ids are `string`/`number`/`symbol`, never objects. The set-diff compares by
+  value, so object ids rebuilt fresh per frame would compare by reference and
+  re-raise every frame. An object-id `items` is a compile error.
+- `onRaise(key, raised, value)` fires for newly-raised ids. Raise detection is a
+  pure set-diff over the framework's `updated` `{ prev, next }` pairs:
+  `items(next) ∖ items(prev)`.
+- The change-iff-fired law upstream (see `Subscription.updated`) is what makes a
+  plain set-diff trustworthy: no hand-held previous frame, no frame
+  classification, no per-window memory.
 
-## `EntryStatus<Failure, Conn>` — the projected per-entry status
+#### Reading a watched member
+
+- `get(key)` is a point read: `{ kind: "live" | "stale"; value }`, or `undefined`
+  when the key is not a member or has no frame yet. A mirror stays silent until
+  the authority speaks (see [@kolu/surface-remote](/surface/ref-surface-remote)).
+- `live` means our link to the host is up and connected, and this cell's own
+  subscription is neither errored nor ended.
+- An errored or ended cell reads `stale`, so its last value dims rather than
+  lying live and a consumer never counts frozen data. `stale` also holds the last
+  value under a down link.
+- There is no `total()`: aggregation is app policy, so the watcher hands facts and
+  each app folds. kolu sums awaiting terminals across live hosts, and drishti
+  counts hosts in trouble.
+- It throws when called outside a reactive owner, because it holds a `keyArray`
+  of per-key roots that must be disposed with the app.
+
+## Entry status
+
+The per-entry status types. `EntryStatus` is what the wire carries; the rest are
+what a client reads.
+
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`EntryStatus<Failure, Conn>`](#entrystatusfailure-conn) | `.` | The published per-entry status: `warming`, `connected` or `failed`. |
+| [`MembershipId`](#membershipid) | `.` | The branded, never-reused identity of one membership episode. |
+| [`EntryState<Failure, Conn>` / `ObservedEntryStatus<Failure, Conn>`](#entrystate-and-observedentrystatus) | `.` | The total client read, and what a client can honestly say. |
+| [`UnobservableEntry`](#unobservableentry) | `.` | The client-only arm, minted by the liveness floor. |
+| [`FailureRecord<Failure>`](#failurerecordfailure) | `.` | A failure and its evidence as one value. |
+| [`isSettling(state)`](#issettlingstate) | `.` | True for `warming` and `unobservable`. |
+
+### `EntryStatus<Failure, Conn>`
+
+The status the map publishes for one key.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="entrystatus" />
 
-- **Absence from `entries` is "not a member".** There is no `absent` arm — a collection already expresses absence by not carrying the key. Client reads stay total via an explicit `{ kind: "not-a-member" }` value; the wire never carries it.
-- **Every arm carries a `membershipId`.** `serveSurfaceMap` stamps an opaque, never-reused `crypto.randomUUID()` when a key **enters** membership, drops it when the key leaves, and publishes it on the `warming` / `connected` / `failed` arms alike. The client keys every cached per-key owner on `{encodedKey, membershipId}`, so a same-key remove/re-add (a new id) and an authority restart (fresh ids for every member — the id map is per-server-instance, never reused across a restart) rebuild subscriptions **by construction** — no hand-rolled generation rearm. It is framework identity, not something a display consumer reads (they switch on `kind`, read `failure`/`clockOffset`).
-- **`membershipId` is a branded `MembershipId`, not a bare `string`.** The type is `Schema.String.check(Schema.isMinLength(1)).pipe(Schema.brand("MembershipId"))`, so an empty `""` or a client-fabricated id is a **compile error** — an opaque never-reused identity is unspellable by a consumer (P4). It is produced only two ways: `serveSurfaceMap`'s mint (`decodeMembershipId(crypto.randomUUID())`, the one sanctioned decode — it throws on an empty string, the fail-fast semantic at exactly this boundary) and the wire `entryStatusSchema` decode (the one boundary a status is decoded through). The brand is erased at runtime (the value is the plain string), so keying and serialization are unchanged. Tests mint one through the `testMembershipId()` helper on the `@kolu/surface-map/testing` subpath — never a literal. The transient pre-frame gap (a key seen in the membership keyset before its first status frame) uses the single sanctioned `PENDING_MEMBERSHIP_ID` marker, which is display-only and never keyed against.
-- **The projection contract.** Status is a projection of the resolved session's state, never a second writer: `copying`/`connecting` → `warming`; `connected` → `connected`; a `disconnected` carrying a standing domain failure, or a terminal `failed`, → `failed`; a plain transient `disconnected` (no specific failure) → `warming`. `warming` means in motion (self-heals — an unreachable box retrying at backoff is warming, not failed); `failed` means it needs intervention.
-- **`Failure` is a type parameter.** It defaults to `unknown` and is inferred from the map's `failure` schema; a domain instantiates `EntryStatus<PadiEntryFailure>` at its own map so `.failure` narrows there. The package carries the discriminant, never the enumeration.
-- **`Conn` is the fine connection payload (SR9), carried on the `warming` and `connected` arms.** Optional and inferred from the map's `connection` schema, exactly like `Failure`: the package carries `state.connection` and validates it against that schema, never enumerating what a domain's connection states are. It is the ONE authority the coarse dot (`kind`) and the fine word both derive from — `serveHostMap` produces both from the same `SessionState` frame in one projection, so a "dot connected, word connecting" split (the drishti#102 divergence) has no construction path. A consumer reads the word off the same entry it reads the dot from (`state().connection`), never a second subscription; a map with no `connection` schema simply omits the field. The **`failed` arm carries no `connection` at all** — see the evidence bullets below for why that field's absence is the point rather than an oversight.
-- **The `failed` arm carries a schema-valid domain `failure` value**, validated by the map's own `failure` schema — not a loose object. padi's `PadiEntryFailure` is a `Schema.Union` of `Schema.Struct`s discriminated on a structural `cause` literal, each arm carrying its human `reason` (and the `contract-skew-refused` arm additionally a typed `running`/`expected` version pair), so a consumer reads `state.failure.cause` / `state.failure.reason` (and `.running`/`.expected` on the skew arm) with full narrowing.
-- **The `failed` arm also carries the failure's `evidence`**, and it is **required**: `FailureEvidence = readonly { source: "local" | "remote"; line: string }[]`, the retained output tail of the episode that failed. A failed status without it fails `entryStatusSchema` — enforcement at the codec, so "a reason without its evidence" cannot even be decoded off the wire. `EvidenceLine.source` says **where** the line came from — `"local"` is the serving process's own output (provisioning, lifecycle chatter), `"remote"` is the far end's forwarded output — and it is a **field**, never an in-band `[local] ` prefix a reader would have to parse back off the string. The two together are `FailureRecord<Failure>`, exported from `.`.
-- **Evidence is a fixed structural type the package owns, not a third generic.** Unlike `Failure` and `Conn`, evidence is not domain volatility: any transport that can fail can produce provenance-tagged output lines, and `@kolu/surface-remote`'s `SessionState.log` is structurally exactly this — so the producer passes its retained tail straight through, with no injection and no second evidence pipe. There is only one vocabulary to keep straight, and only one definition of it: `@kolu/surface-remote`'s `LogEntry` **is** `EvidenceLine` and its `LogEntrySchema` **is** `EvidenceLineSchema`, so "the two drifted" has no spelling rather than a pin that watches for it. Both live in the schema-only `/evidence` leaf, so a browser-bundle-constrained consumer can hold the schema without pulling the group builder. The schema is a module const, not a function of a domain schema.
-- **Evidence rides the failure record, and the `failed` arm has no `connection` field.** `floorOnLiveness` takes the live arms off `connection` entirely over a dead link while passing the failure record through, so evidence carried there survives the floor **by construction** with the reason it belongs to, and `entry.connection?.log` on a failed entry no longer compiles. `[]` is a real value with one meaning — the failure genuinely produced no output — minted only by the seam that knows; it is never a fallback for "we couldn't see it". [Why the pairing is a shape rather than a convention](/surface/entry-contracts/) is the explanation page's job.
-- **The framework fixes only the shape, not the fields.** `failure` is whatever the map's `failure` schema (`WireSchema<Failure>`) accepts — a bare string, a code-only object, or a discriminated union are all valid; the package fixes only that `failure` is a sibling field on the `failed` arm (never a second `kind`), validated by that schema. The `reason` field is padi's own convention (a human string, never parsed for control flow), not a framework guarantee — a domain whose schema carries no `reason` is equally well-formed.
-- **`EntryState<Failure, Conn>` = `ObservedEntryStatus<Failure, Conn> | { kind: "not-a-member" }`**, and **`ObservedEntryStatus<Failure, Conn>` = `EntryStatus<Failure, Conn> | UnobservableEntry`**. Both live in the solid-free contract module, so a node consumer re-exports them type-only. `EntryStatus` is the **published** (wire) type and is unchanged; `ObservedEntryStatus` is what a CLIENT can honestly say, and it is the value type of the client's `entries` collection — every value that collection hands out has already been through `floorOnLiveness`.
-- **`UnobservableEntry` — the client-only arm, minted by the liveness floor.** `{ kind: "unobservable"; membershipId: MembershipId; published: "warming" | "connected" }`. It means "our link to the publisher is dead", and it exists so that a consumer which **times** an entry (a deadline, an escalation, a "failed to start" verdict) cannot mistake our own outage for a real, self-healing campaign — a conflation that certified a healthy daemon dead in [kolu#2129](https://github.com/juspay/kolu/pull/2129). It is an arm rather than a flag on `warming` deliberately: a flag can be ignored, an arm is a compile error at every `.exhaustive()`. It carries **no** `clockOffset` and **no** `connection`, so nothing green is paintable and no frozen live word can keep narrating; `membershipId` rides through (the floor is about liveness, not identity). There is **no `failed` inhabitant of `published`** — a post-mortem does not go stale like a live claim, so `failed` passes the floor untouched. It has **no wire schema**: it is a projection of the consumer's own transport, so `entryStatusSchema` has no arm to encode it into and a floored value can never be republished.
-- **`isSettling(state): boolean`** — the spin-only consumer's one call, true for `warming` and `unobservable`. Exported from `.` so splitting the arm costs a spinner nothing; anything that puts a clock on an entry must still narrow the union itself.
+- Absence from `entries` is "not a member". There is no `absent` arm, because a
+  collection already expresses absence by not carrying the key. Client reads stay
+  total through an explicit `{ kind: "not-a-member" }` value, which the wire never
+  carries.
+- Every arm carries a [`membershipId`](#membershipid).
+- `Failure` is a type parameter. It defaults to `unknown` and is inferred from the
+  map's `failure` schema, so a domain instantiates `EntryStatus<PadiEntryFailure>`
+  at its own map and `.failure` narrows there. The package carries the
+  discriminant, never the enumeration.
+- The framework fixes only the shape, not the fields. `failure` is whatever the
+  map's `failure` schema (`WireSchema<Failure>`) accepts: a bare string, a
+  code-only object or a discriminated union are all valid.
+- The package fixes only that `failure` is a sibling field on the `failed` arm,
+  never a second `kind`, validated by that schema.
 
-## `MapRegistry<K>` — the server seam
+#### The projection contract
+
+Status is a projection of the resolved session's state, never a second writer.
+
+| Session state | Published arm |
+| --- | --- |
+| `copying` / `connecting` | `warming` |
+| `connected` | `connected` |
+| A `disconnected` carrying a standing domain failure, or a terminal `failed` | `failed` |
+| A plain transient `disconnected`, with no specific failure | `warming` |
+
+`warming` means in motion, and self-heals: an unreachable box retrying at backoff
+is warming, not failed. `failed` means it needs intervention.
+
+#### `Conn`, the fine connection payload
+
+`Conn` (SR9) is carried on the `warming` and `connected` arms. It is optional and
+inferred from the map's `connection` schema, exactly like `Failure`.
+
+- The package carries `state.connection` and validates it against that schema,
+  never enumerating what a domain's connection states are.
+- It is the one authority both the coarse dot (`kind`) and the fine word derive
+  from. `serveHostMap` produces both from the same `SessionState` frame in one
+  projection.
+- A consumer reads the word off the same entry it reads the dot from
+  (`state().connection`), never a second subscription.
+- A map with no `connection` schema simply omits the field.
+- The `failed` arm carries no `connection` at all.
+- Why: [Why the connection word and the dot have one source](/surface/entry-contracts#why-the-connection-word-and-the-dot-have-one-source).
+
+#### The `failed` arm
+
+It carries a schema-valid domain `failure` value, validated by the map's own
+`failure` schema, not a loose object. It also carries that failure's `evidence`,
+and the evidence is required.
+
+- padi's `PadiEntryFailure` is a `Schema.Union` of `Schema.Struct`s discriminated
+  on a structural `cause` literal, each arm carrying its human `reason`. The
+  `contract-skew-refused` arm additionally carries a typed `running`/`expected`
+  version pair.
+- A consumer therefore reads `state.failure.cause` and `state.failure.reason`
+  (and `.running`/`.expected` on the skew arm) with full narrowing.
+- The `reason` field is padi's own convention, a human string never parsed for
+  control flow, not a framework guarantee. A domain whose schema carries no
+  `reason` is equally well-formed.
+- A failed status without `evidence` fails `entryStatusSchema`, so "a reason
+  without its evidence" cannot be decoded off the wire.
+- The failure and its evidence together are a
+  [`FailureRecord<Failure>`](#failurerecordfailure).
+- `floorOnLiveness` takes the live arms off `connection` entirely over a dead
+  link while passing the failure record through, so evidence survives the floor
+  with the reason it belongs to. `entry.connection?.log` on a failed entry does
+  not compile.
+- `[]` is a real value with one meaning, that the failure genuinely produced no
+  output. It is minted only by the seam that knows, never as a fallback for "we
+  could not see it".
+- [Why the pairing is a shape rather than a convention](/surface/entry-contracts/)
+  is the explanation page's job.
+
+### `MembershipId`
+
+The identity of one membership episode. It is a branded `MembershipId`, not a
+bare `string`:
+`Schema.String.check(Schema.isMinLength(1)).pipe(Schema.brand("MembershipId"))`.
+
+- `serveSurfaceMap` stamps an opaque, never-reused `crypto.randomUUID()` when a
+  key enters membership, drops it when the key leaves, and publishes it on the
+  `warming` / `connected` / `failed` arms alike.
+- The client keys every cached per-key owner on `{encodedKey, membershipId}`, so a
+  same-key remove and re-add rebuilds subscriptions, with no hand-rolled
+  generation rearm.
+- An authority restart does the same: the id map is per-server-instance, so every
+  member gets a fresh id and none is reused across a restart.
+- It is framework identity, not something a display consumer reads. Display
+  consumers switch on `kind` and read `failure` or `clockOffset`.
+- An empty `""` or a client-fabricated id is a compile error, because an opaque
+  never-reused identity is unspellable by a consumer (P4).
+- It is produced two ways: `serveSurfaceMap`'s mint
+  (`decodeMembershipId(crypto.randomUUID())`, the one sanctioned decode, which
+  throws on an empty string) and the wire `entryStatusSchema` decode, the one
+  boundary a status is decoded through.
+- The brand is erased at runtime (the value is the plain string), so keying and
+  serialization are unchanged.
+- Tests mint one through the `testMembershipId()` helper on the
+  `@kolu/surface-map/testing` subpath, never a literal.
+- The transient pre-frame gap (a key seen in the membership keyset before its
+  first status frame) uses the single sanctioned `PENDING_MEMBERSHIP_ID` marker,
+  which is display-only and never keyed against.
+
+### `EntryState` and `ObservedEntryStatus`
+
+`EntryState<Failure, Conn>` = `ObservedEntryStatus<Failure, Conn> | { kind: "not-a-member" }`,
+and `ObservedEntryStatus<Failure, Conn>` = `EntryStatus<Failure, Conn> | UnobservableEntry`.
+
+- Both live in the solid-free contract module, so a node consumer re-exports them
+  type-only.
+- `EntryStatus` is the published (wire) type.
+- `ObservedEntryStatus` is what a client can honestly say, and it is the value
+  type of the client's `entries` collection. Every value that collection hands out
+  has already been through `floorOnLiveness`.
+
+### `UnobservableEntry`
+
+The client-only arm, minted by the liveness floor:
+`{ kind: "unobservable"; membershipId: MembershipId; published: "warming" | "connected" }`.
+It means our link to the publisher is dead.
+
+- It is an arm rather than a flag on `warming`, so every `.exhaustive()` must say
+  what it does while blind.
+- A consumer that times an entry (a deadline, an escalation, a "failed to start"
+  verdict) therefore cannot mistake our own outage for a real, self-healing
+  campaign ([kolu#2129](https://github.com/juspay/kolu/pull/2129)).
+- It carries no `clockOffset` and no `connection`, so nothing green is paintable
+  and no frozen live word can keep narrating. `membershipId` rides through, since
+  the floor is about liveness, not identity.
+- `published` has no `failed` inhabitant: a post-mortem does not go stale like a
+  live claim, so `failed` passes the floor untouched.
+- It has no wire schema. It is a projection of the consumer's own transport, so
+  `entryStatusSchema` has no arm to encode it into and a floored value can never
+  be republished.
+- The floor applies to both `entry(key).state()` and the `entries` projection.
+
+### `FailureRecord<Failure>`
+
+`{ failure, evidence }`: the reason and its evidence as one named value.
+
+- `EntryConnectionState`'s `failed` arm is one.
+- Its `disconnected` arm carries an optional `refuse: FailureRecord`. Present is a
+  standing refuse, which publishes as `failed`; absent is a transient drop, which
+  publishes as `warming`.
+- Because the pair is one value rather than two correlated fields, a reason
+  without its evidence is unspellable, and `state.refuse !== undefined` narrows it
+  with no hand-written predicate.
+- Evidence is a fixed structural type the package owns, not a third type
+  parameter: see
+  [the evidence vocabulary](#evidenceline--evidencelineschema--failureevidence--failureevidenceschema).
+
+### `isSettling(state)`
+
+`isSettling(state): boolean` is the spin-only consumer's one call, true for
+`warming` and `unobservable`. It is exported from `.`, so splitting the arm costs
+a spinner nothing. Anything that puts a clock on an entry must still narrow the
+union itself.
+
+<Aside type="caution" title="No status renders green over a dead transport">
+  A server-published claim is only as trustworthy as your link to the publisher.
+  With that link dead (`live === false`), both live arms floor to
+  `{ kind: "unobservable", membershipId, published }`. `live` is a required
+  argument, so the fold cannot forget to floor.
+</Aside>
+
+## The server seam
+
+What a host implements to back a map, and the errors a folded member declares.
+
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`MapRegistry<K>`](#mapregistryk) | `/server` | The membership and resolution seam `serveSurfaceMap` reads. |
+| [`EntrySession` / `EntryFault`](#entrysession--entryfault) | `/server` | What `resolve(key)` returns: a kind-tagged sum. |
+| [`MapRejectionSchema`](#maprejectionschema) | `.` | The map's declared rejection vocabulary. |
+
+### `MapRegistry<K>`
 
 ```ts
 interface MapRegistry<K, Prov = "copying", Failure = unknown, Conn = unknown> {
@@ -297,23 +637,93 @@ interface MapRegistry<K, Prov = "copying", Failure = unknown, Conn = unknown> {
 }
 ```
 
-- The registry is the **one writer of membership**; `entries` is that truth published; status is derived from each resolved session's state.
-- **A departure and a same-key re-add are separate, non-coalesced transitions.** When a key leaves and its spelling returns, the registry must publish the removal and the re-add as two distinct membership events (the returning member carries a fresh `membershipId`), never fold them into one coalesced upsert. A coalesced re-add would let a client-side adapter retain the departed member's old `membershipId` and, with it, the stale per-key subscription — defeating the `{encodedKey, membershipId}` rebuild. `serveSurfaceMap` delivers them non-coalesced; a hand-rolled `MapRegistry` must too.
-- A call carries its key in every frame: an unknown key is a **typed rejection** (unary — `MapKeyUnknown`) or an **immediate typed end** (stream), because membership loss mid-stream is ordinary and only a one-shot call cannot end gracefully. A key that leaves membership mid-stream ends its subs **before** the session is destroyed — so no socket-error frame follows a typed end.
-- **The map's declared rejection vocabulary** is `MapRejectionSchema` — the union of `MapKeyNonCanonical`, `MapKeyUnknown` and `MapEntryFailed`. The classes live in **`@kolu/surface/errors`**, not here: a map entry's call crosses the same re-serving parent hop as every other surface error, so both ends must have been built from one schema for the `_tag` and its data to survive serialize → deserialize → re-serialize. Location is structure. The union is declared on **every** folded member, streaming ones included — a non-canonical wire key is a real rejection on any verb, and a stream whose error channel did not declare it would flatten it into a defect.
-- **A folded member also declares the transport deaths its forward relays.** The map raises none of them itself: `unaryHandler` / `forwardStream` hand the call straight to `session.dispatch`, so whatever the **entry's own link** fails with becomes that member's failure — `SurfaceStdioTransportClosed` when the leg's subprocess/socket is gone (the daemon behind the entry is respawning), `SurfaceRelayTransportLost` when a re-serve's middle hop drops. Both are on every folded member's error channel alongside `MapRejectionSchema` (and alongside the entry's own declared error when it has one). Undeclared, they were encoded against a union that does not contain them and reached the caller as an **opaque string defect** carrying only the parse prose — the exact flattening the declaration exists to kill, and the reason a caller could not tell a respawning daemon (*not yet*) from a terminal fault (*never*). `SurfaceTransportRetired` is deliberately **absent**: it is the browser socket's own 4001 retirement, raised by the consumer's link, never carried up through a forward.
-- `resolve` returns `EntrySession` (`{ kind: "session", dispatch, state, connection? }`) or `EntryFault` (`{ kind: "fault", failure }`, a schema-valid domain value) — a kind-tagged sum, so a consumer switches on the tag rather than on field presence. **`dispatch` is the erased `SurfaceDispatch`** the map forwards member calls to, by tag: whatever minted it — a wire link, `directDispatch`, a mirror — the map never learns. `members()` and `has()` answer from one consistent snapshot. The connection state's `failed` arm **requires** a domain `failure` — "failed with no failure" is unconstructible at the type, not caught by a runtime throw; the serving adapter (`serveHostMap`) fails loud at its own classification seam rather than falling back to a framework `"other"` cause.
-- **`FailureRecord<Failure>` (`{ failure, evidence }`, exported from `.`) is the reason and its evidence as one named value.** `EntryConnectionState`'s `failed` arm *is* one; its `disconnected` arm carries an **optional `refuse: FailureRecord`** — present is a standing refuse (publishes as `failed`), absent is a transient drop (publishes as `warming`). Because the pair is one value rather than two correlated fields, "a reason without its evidence" is unspellable at the shape level, and `state.refuse !== undefined` narrows it with no hand-written predicate.
-- **`EntryFault` carries no evidence.** A fault has no session, hence no retained output tail — a structural fact of the shape, so the one seam that knows it (`serveSurfaceMap`'s `statusOf`) states the `[]` once, exactly as it already supplies the fault's `kind` and `membershipId`. A hand-rolled registry mints `{ kind: "fault", failure }` and nothing else.
+- The registry is the one writer of membership. `entries` is that truth
+  published, and status is derived from each resolved session's state.
+- `members()` and `has()` answer from one consistent snapshot.
+- A departure and a same-key re-add are separate, non-coalesced transitions. When
+  a key leaves and its spelling returns, the registry publishes the removal and
+  the re-add as two distinct membership events, and the returning member carries
+  a fresh `membershipId`.
+- A coalesced re-add would let a client-side adapter retain the departed member's
+  old `membershipId`, and with it the stale per-key subscription, defeating the
+  `{encodedKey, membershipId}` rebuild. `serveSurfaceMap` delivers them
+  non-coalesced, and a hand-rolled `MapRegistry` must too.
+- A call carries its key in every frame. An unknown key is a typed rejection
+  (unary: `MapKeyUnknown`) or an immediate typed end (stream), because membership
+  loss mid-stream is ordinary and only a one-shot call cannot end gracefully.
+- A key that leaves membership mid-stream ends its subs before the session is
+  destroyed, so no socket-error frame follows a typed end.
+
+### `EntrySession` / `EntryFault`
+
+`resolve` returns `EntrySession` (`{ kind: "session", dispatch, state, connection? }`)
+or `EntryFault` (`{ kind: "fault", failure }`, a schema-valid domain value). The
+sum is kind-tagged, so a consumer switches on the tag rather than on field
+presence.
+
+- `dispatch` is the erased `SurfaceDispatch` the map forwards member calls to, by
+  tag. Whatever minted it (a wire link, `directDispatch`, a mirror) the map never
+  learns.
+- The connection state's `failed` arm requires a domain `failure`: "failed with no
+  failure" is unconstructible at the type, not caught by a runtime throw.
+- The serving adapter (`serveHostMap`) fails loud at its own classification seam
+  rather than falling back to a framework `"other"` cause.
+- `EntryFault` carries no evidence. A fault has no session, hence no retained
+  output tail, so a hand-rolled registry mints `{ kind: "fault", failure }` and
+  nothing else.
+
+### `MapRejectionSchema`
+
+The map's declared rejection vocabulary: the union of `MapKeyNonCanonical`,
+`MapKeyUnknown` and `MapEntryFailed`.
+
+- The classes live in `@kolu/surface/errors`, not here. A map entry's call crosses
+  the same re-serving parent hop as every other surface error, so both ends must
+  have been built from one schema for the `_tag` and its data to survive
+  serialize, deserialize and re-serialize.
+- The union is declared on every folded member, streaming ones included. A
+  non-canonical wire key is a real rejection on any verb, and a stream whose error
+  channel did not declare it would flatten it into a defect.
+
+#### Transport deaths a folded member declares
+
+A folded member also declares the transport deaths its forward relays. The map
+raises none of them itself: `unaryHandler` and `forwardStream` hand the call
+straight to `session.dispatch`, so whatever the entry's own link fails with
+becomes that member's failure.
+
+| Error | Raised when |
+| --- | --- |
+| `SurfaceStdioTransportClosed` | The leg's subprocess or socket is gone, such as a daemon behind the entry respawning. |
+| `SurfaceRelayTransportLost` | A re-serve's middle hop drops. |
+
+- Both are on every folded member's error channel, alongside
+  `MapRejectionSchema` and alongside the entry's own declared error when it has
+  one. Declared, they let a caller tell a respawning daemon from a terminal fault.
+- `SurfaceTransportRetired` is deliberately absent. It is the browser socket's own
+  4001 retirement, raised by the consumer's link, and never carried up through a
+  forward.
 
 ## The fold envelope
 
-Every procedure folds as `{ mapKey, input }` — one wire shape for any input.
+Every procedure folds as `{ mapKey, input }`: one wire shape for any input.
 
-- Field constants: `MAP_KEY_FIELD = "mapKey"`, `INPUT_FIELD = "input"`. An entry input that itself carries a `mapKey` field cannot collide with the folded key — it rides nested under `input`.
-- **Void-input rule.** A void-input member carries **no** `input` field at all — the envelope schema is `Schema.Struct({ mapKey })`, not `Schema.Struct({ mapKey, input: Schema.Void })`. Relying on JSON dropping an `undefined` value and on the decoder accepting the missing key is fragile; omitting the field makes "void = no input key" the one representation on both encode and decode.
-- The envelope is a **wrap, not a spread merge**, and its decoded type is `{ mapKey: string, input: <decoded member input> }` — the same decoded side `SurfaceDispatch` carries, so folding is a plain value wrap with no second encode/decode to keep in step.
-- Codec functions `fold(mapKey, input)` / `unfoldInput(wire)` / `unfoldKeyField(wire)` reference these constants, so the envelope shape lives in exactly one place. Misroute-by-collision is unconstructible, not merely unlikely.
+- Field constants: `MAP_KEY_FIELD = "mapKey"`, `INPUT_FIELD = "input"`. An entry
+  input that itself carries a `mapKey` field cannot collide with the folded key,
+  because it rides nested under `input`.
+- A void-input member carries no `input` field at all. The envelope schema is
+  `Schema.Struct({ mapKey })`, not `Schema.Struct({ mapKey, input: Schema.Void })`.
+- Relying on JSON dropping an `undefined` value and on the decoder accepting the
+  missing key is fragile. Omitting the field makes "void = no input key" the one
+  representation on both encode and decode.
+- The envelope is a wrap, not a spread merge. Its decoded type is
+  `{ mapKey: string, input: <decoded member input> }`, the same decoded side
+  `SurfaceDispatch` carries, so folding is a plain value wrap with no second
+  encode or decode to keep in step.
+- The codec functions `fold(mapKey, input)`, `unfoldInput(wire)` and
+  `unfoldKeyField(wire)` reference these constants, so the envelope shape lives in
+  exactly one place. Misroute-by-collision is unconstructible, not merely
+  unlikely.
 
 ## `KeyCodec<K>`
 
@@ -321,34 +731,26 @@ Every procedure folds as `{ mapKey, input }` — one wire shape for any input.
 interface KeyCodec<K> { encode(key: K): string; decode(wire: string): K; }
 ```
 
-Bridges `Key` to the canonical wire string every channel name, dedup key, and
-membership entry is keyed on. For a plain-string key it is the identity pair;
-kolu's `HostKey` passes its own encode/decode. `decode` is paired with
-a decode through `keySchema` and need not validate on its own; `encode` is a bare cheap call
-on the hottest paths (per-key cache lookup, membership fold, per-tick republish).
-The server re-derives and re-validates real `K` from the wire string via
-`codec.decode` then a `keySchema` decode.
+Bridges `Key` to the canonical wire string every channel name, dedup key and
+membership entry is keyed on.
 
-The connected `SurfaceMapClient` re-exposes this codec as its **`codec`** member —
-the one key-identity authority on the client. `scopedByEntry` and any consumer
-keying its own per-entry structure off membership fold a key through it rather than
-trusting `===` reference identity, which the client cannot guarantee across
-independent decodes of the same logical key.
+- For a plain-string key it is the identity pair. kolu's `HostKey` passes its own
+  encode and decode.
+- `decode` is paired with a decode through `keySchema` and need not validate on
+  its own.
+- `encode` is a bare cheap call on the hottest paths: a per-key cache lookup, the
+  membership fold, and the per-tick republish.
+- The server re-derives and re-validates the real `K` from the wire string through
+  `codec.decode`, then a `keySchema` decode.
+- The connected `SurfaceMapClient` re-exposes this codec as its `codec` member,
+  the one key-identity authority on the client. It encodes and decodes the
+  canonical wire string.
+- `scopedByEntry`, and any consumer keying its own per-entry structure off
+  membership, folds a key through it rather than trusting `===` reference
+  identity, which the client cannot guarantee across independent decodes of the
+  same logical key.
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="codec" />
-
-## Typed sub ends and the clock seam
-
-- **`entry(key).procedures`** binds the entry surface's declared procedures, typed from the spec (`entry.procedures.<ns>.<verb>(input)`); the key-injecting dispatch folds `{ mapKey }` into every call and rewrites the tag onto the map's prefix. A narrow mapped type — no cast, and it sidesteps the "union too complex" a second precise mapped type over a generic entry spec trips. An absent-key call is a **typed rejection** (`MapKeyUnknown`), the one-shot twin of a sub's typed stream-end. **`entry(key).rpc`** stays typed `unknown` per leaf — the structural addressing face only; the map folds no reserved `system/*` member, so reaching one through it fails at the map hop by construction.
-- **`entry(key).clock.toLocal(remoteMs)`** reprojects a host-stamped timestamp into the local clock via the entry's measured offset: `remoteMs − offset`. It returns **`null`** (never a silent identity) whenever the entry has no measured offset — `warming`/`failed`/`unobservable`/`not-a-member`, AND a `connected` entry whose `clockOffset` is still `null` (link live, offset not yet probed — readiness is decoupled from the offset); the `number | null` type forces the caller to render a pending "—" rather than fall back to the raw remote value. It reads only `.kind`, never `.failure`, and folds the membership collection so it re-answers as the entry connects.
-
-<Aside type="caution" title="No status renders green over a dead transport">
-  A server-published claim is only as trustworthy as your link to the publisher.
-  With that link dead (`live === false`), both live arms floor to
-  `{ kind: "unobservable", membershipId, published }` — applied to both
-  `entry(key).state()` and the `entries` projection. `live` is a required argument
-  so the fold cannot forget to floor.
-</Aside>
 
 For why the wire is shaped this way, see
 [Entry contracts](/surface/entry-contracts); to serve a map, see

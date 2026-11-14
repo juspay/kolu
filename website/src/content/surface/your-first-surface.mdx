@@ -12,11 +12,12 @@ import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 import Steps from "../../components/docs/Steps.astro";
 
-We are going to build **fleet-top** — a live `top` for your own machine. By the
-end of this page it will run in your browser: load averages and memory in the
-header, a table of processes that updates on its own, and a button that kills a
-process. No polling code, no reconnect handling, no hand-written RPC — you
-declare the shape of the live state once and read it.
+We are going to build **fleet-top**, a live `top` for your own machine. By the
+end of this page it runs in your browser: load and memory in the header, a
+process table that updates on its own, and a button that kills a process.
+
+You write no polling, reconnect or RPC code. You declare the shape of the live
+state once, and read it.
 
 We will get there in two hops. First we consume the surface *in the same
 process*, so you see it work with no network at all. Then we change one line and
@@ -48,18 +49,18 @@ and you will feel it by the end.
 
 ## Declare the surface
 
-A surface is a typed, reactive slice of live state, declared once with
-`defineSurface`. Ours has four members: two **cells** (load and memory — single
+A [surface](/surface/glossary) is a typed, reactive slice of live state, declared once with
+`defineSurface`. Ours has four members: two **cells** (load and memory, single
 values), one **collection** (the processes, keyed by pid), and one **procedure**
-(kill — the single mutation).
+(kill, the single mutation).
 
 <Snippet src="packages/surface/example/fleet-top/part-1/src/common/surface.ts" />
 
 That one declaration is the contract. From it the framework derives the wire
-shape — a flat set of string-tagged members like `surface/load/get` — the server
-handlers, and the client hooks; you never hand-write any of them. (For *why* there are
-four member kinds and not one, see [Why surfaces](/surface/why-surfaces); you do
-not need it to finish here.)
+shape (a flat set of string-tagged members like `surface/load/get`), the server
+handlers and the client hooks. You never hand-write any of them. For *why* there are
+four member kinds and not one, see [Why surfaces](/surface/why-surfaces). You do
+not need it to finish here.
 
 ## Fill in the data
 
@@ -92,27 +93,28 @@ You will see one line, printed from live readings of your machine:
 load 0.42 0.38 0.31 over 8 cores · mem 9.2/16.0 GB · 431 processes
 ```
 
-That is a working surface — defined, served, and consumed — with the transport
-collapsed to nothing. Notice the `snapshot` helper: a cell read is a *stream*
+That is a working surface, defined, served and consumed, with the transport
+collapsed to nothing. Notice the `snapshot` helper. A cell read is a *stream*
 whose first frame is the current snapshot, so running the stream's head *is* the
-one-shot read — and it interrupts the subscription the moment that frame lands.
-That is not an in-process quirk; every link yields the same snapshot-then-deltas
+one-shot read, and it interrupts the subscription the moment that frame lands.
+That is not an in-process quirk. Every link yields the same snapshot-then-deltas
 shape, which is what keeps a reconnect honest (see
 [Reactive honesty](/surface/reactive-honesty)).
 
 ## Put it on a WebSocket
 
 Now the same surface over the wire. `src/server/main.ts` serves the *same*
-`createTop()` engine — the same `{ group, handlers }` pair — over a WebSocket. On
-the client, the only thing that changes from the in-process version is the link:
-`websocketLink` dials (async — building a protocol and its fibers is an effect),
-`createLiveSignal` takes the whole `{ dispatch, wire }` it minted and adds the
-half-open watchdog, then `surfaceClient` binds the hooks.
+`createTop()` engine (the same `{ group, handlers }` pair) over a WebSocket. On
+the client, only the link changes from the in-process version:
+
+- `websocketLink` dials. It is async, because building a protocol and its fibers is an effect.
+- `createLiveSignal` takes the whole `{ dispatch, wire }` it minted and adds the half-open watchdog.
+- `surfaceClient` binds the hooks.
 
 <Snippet src="packages/surface/example/fleet-top/part-1/src/client/wire.ts" />
 
-The result — `app.cells.load`, `app.collections.processes`,
-`app.procedures.process.kill` — is the exact shape `directDispatch` gave us
+The result is `app.cells.load`, `app.collections.processes` and
+`app.procedures.process.kill`: the exact shape `directDispatch` gave us
 in-process. Only the transport changed.
 
 ## Render it live
@@ -124,7 +126,7 @@ changes, only the affected row re-renders.
 <Snippet src="packages/surface/example/fleet-top/part-1/src/client/App.tsx" region="hooks" />
 
 The `kill` handler is a plain procedure call. The rest of `App.tsx` is ordinary
-Solid markup — a header and a table — reading `load.value()`,
+Solid markup, a header and a table, reading `load.value()`,
 `processes.byKey(pid)?.()`, and so on.
 
 ## Watch it move
@@ -141,8 +143,8 @@ own. Find a process you own and click **kill** — the row vanishes as the next
 snapshot lands. You did not write a refresh; the surface pushed the change.
 
 <Aside type="tip" title="What just happened">
-  You declared live state once and consumed it two ways — in-process, then over a
-  WebSocket — with the same call sites. That "same shape, any transport" property
+  You declared live state once and consumed it two ways, in-process and then over a
+  WebSocket, with the same call sites. That "same shape, any transport" property
   is the thread the rest of these docs pull on.
 </Aside>
 

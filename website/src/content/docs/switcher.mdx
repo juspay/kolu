@@ -1,6 +1,6 @@
 ---
 title: The Switcher
-description: "One search box for terminals, hosts, and commands. How root ranking works, which chords deep-link into scoped views, and how the terminal list mirrors the Dock."
+description: "One search box for terminals, hosts and commands: what opens at the root, how hits rank, where the highlight lands, and the chords that scope it."
 order: 44
 section: "The Canvas"
 koluHero:
@@ -12,176 +12,122 @@ import Aside from "../../components/docs/Aside.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 
-The **switcher** is kolu's unified search surface. Press
-<kbd>Cmd/Super</kbd> + <kbd>K</kbd> and type — a branch, a repo, a host, a
-command — without first deciding which drawer to open. Terminals, hosts, and
-commands share one index and one muscle memory; the extra chords are deep links
-into scoped views of the same surface, not separate apps.
+The **switcher** is kolu's search box. Press <kbd>Cmd</kbd>/<kbd>Super</kbd> +
+<kbd>K</kbd> and type a branch, a repo, a host or a command, without first
+deciding which drawer to open. Terminals, hosts and commands share one index.
 
 ## What opens at the root
 
-At the empty root you see:
+| Section | What it lists |
+| --- | --- |
+| **Recent** | The three warmest terminals, interleaved across every connected host, minus the tile that is already active. |
+| **Hosts** | Every machine in the pool, when more than local is configured. Quiet when healthy; `active` only for the canvas host. |
+| **Terminals** | The Terminals group (<kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd>, where **Mod** is <kbd>Cmd</kbd> on macOS and <kbd>Ctrl</kbd> on Linux and Windows) and New terminal. |
+| Command sections | Active Terminal, Canvas, UI and Help, listed separately until you type. |
 
-1. **Recent** — the three **warmest** terminals, interleaved across every
-   **connected** host — **except the tile that is already active**. Warmth is
-   `max(your last visit, server activity)`, so a terminal a background agent is
-   working in can lead the band even if you have not opened it. One seat is
-   always reserved for the terminal you were last in, so no amount of
-   background chatter can push it out of the list; the *highlight* then lands
-   on it, which is what makes ⌘/Super+K → Enter a toggle. Cross-host rows show the
-   same host chip as search hits.
-   Because the active tile is omitted and the highlight starts on the first
-   Recent row, **⌘/Super+K then Enter** toggles between your last two terminals
-   (including across hosts) — the same [default-highlight
-   rule](#where-the-highlight-lands) every scope follows.
-2. **Hosts** — every machine in the pool (when more than local is configured),
-   quiet when healthy; `active` only for the canvas host.
-3. **Terminals** section — the Terminals group (⌘⇧K) and New terminal.
-4. **Further command sections** — Active Terminal, Canvas, UI, Help — as
-   usual, not collapsed into a single “Commands” band until you type.
+Warmth is `max(your last visit, server activity)`, so a terminal a background
+agent is working in can lead Recent. One seat is always reserved for the
+terminal you were last in, and the highlight lands on it, which makes
+<kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd> then <kbd>Enter</kbd> a toggle between your
+last two terminals, across hosts.
 
-Type to search **across every kind at once**. Matching is multi-token: every
-whitespace-separated word must appear somewhere in the row's corpus (repo,
-branch, intent, agent, cwd, host label, command name…). Token order does not
-matter — `kolu auth` finds the same row as `auth kolu`.
+Type to search every kind at once. Every whitespace-separated word must appear
+somewhere in the row's corpus (repo, branch, intent, agent, cwd, host label,
+command name). Order does not matter, so `kolu auth` finds the same row as
+`auth kolu`.
 
-## Terminals across every connected host
+## Terminals from every connected host
 
-The switcher indexes **live tiles on every connected host** in the padi pool —
-not only the machine whose canvas you are viewing. **Splits** are omitted at any
-depth: activating the parent tile brings them with it. The active host's Dock is
-the pane-level navigator: it shows those splits as indented entries and can land
-in one directly. "Tile" here means exactly what the canvas means by it, so a
-split whose parent is gone — which the canvas paints as a tile of its own — is
-listed rather than lost between the two views.
+The switcher indexes live tiles on every connected host, not only the machine
+whose canvas you are viewing. Splits are omitted at any depth: activating the
+parent tile brings them with it. A split whose parent has closed is a tile of
+its own, so it is listed here.
 
-- **Plain shells** appear (no agent required), with the same state pip language
-  as the Dock (shell mark / idle paint).
-- **Repo identity** matches the Dock: each terminal row leads with a solid
-  **monogram tile**, the **repo name** in repo colour, the **branch** in the
-  same branch hue the dock uses, and a thin repo-coloured spine — one paint
-  vocabulary, not a second colour scheme.
-- **Order** is fleet-wide `max(visit, activity)` (visit = last time you made
-  the tile active; activity is the Dock's reprojected clock). Parked rows the
-  activity window would hide are dropped here too.
-- **Cross-host rows** carry **one host chip** in the right rail — the same
-  identity hue + connection-status language as the chrome-bar host strip — so
-  `srid@builder` vs local is obvious without repeating the name in the context
-  line. Selecting one **switches the canvas to that host and activates the
-  terminal** in one step.
+- Plain shells appear, with no agent required, using the same state pip language
+  as the [dock](/dock).
+- Repo identity matches the dock: monogram, repo name, branch.
+- Order is fleet-wide `max(visit, activity)`, where a visit is the last time you
+  made the tile active. Rows the dock's activity window would hide are dropped
+  here too.
+- A terminal on another host carries a **host chip**, such as `srid@builder`.
+  Selecting it switches the canvas to that host and activates the terminal.
 
-### Browse Terminals: flat list, host-grouped headers
+### Browse every host's terminals
 
-**⌘⇧K → Terminals** shows **every connected host's terminals immediately** —
-no host drill required. The list is **visually grouped** under host headers
-(`local · 3 terminals`, `zest · 6 terminals`) with a soft **host-hue wash** and
-monogram so machines stay scannable; active host's group is first; within a
-group, recency order. Hosts with zero terminals still get a header so the fleet
-map is complete.
+<kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd> opens **Terminals** with every connected host already listed.
+Rows are grouped under host headers (`local · 3 terminals`,
+`zest · 6 terminals`). The active host's group is first, rows inside a group are
+in recency order, and a host with no terminals still gets a header.
 
-**Host-scoping is optional.** Click a host header (or use the dock search
-icon) to narrow to that host; the breadcrumb becomes
-`Commands › Terminals › zest`. Backspace on an empty query pops a level.
-
-**Typing filters the whole list flat** across every host (host chips still
-mark foreign rows). At the root, the same multi-token match finds terminals
-without entering Terminals first.
-
-The active host's Dock remains the always-on navigator for the machine you are
-looking at; the switcher is the jump path over the whole fleet.
+Host scoping is optional. Click a host header, or the dock search icon, to
+narrow to that host; the breadcrumb becomes `Commands › Terminals › zest`.
+Typing filters the whole list flat across every host. At the root, the same
+matching finds terminals without entering Terminals first.
 
 ## How results rank
 
-With a non-empty query, hits are ordered by **kind first**, not by how close the
+With a non-empty query, hits are ordered by kind first, not by how close the
 string match is:
 
 | Priority | Kind | Tie-break |
 | --- | --- | --- |
 | 1 | Terminals | Warmth — max(last client visit, server/Dock activity) |
-| 2 | Hosts | Your [host order](/remote-hosts#put-the-tabs-in-your-own-order) |
+| 2 | Hosts | Your [host order](/remote-hosts) |
 | 3 | Commands | Existing section order |
 
-So a branch name outranks a host that happens to share a substring, and both
-outrank a command. There are **no prefix sigils** (`>` commands, `@` hosts) —
-scoping is the existing drill-in path (below), not a mode character.
+So a branch name outranks a host that shares a substring, and both outrank a
+command. There are no prefix sigils (`>` for commands, `@` for hosts).
 
 ## Where the highlight lands
 
-The three **switcher** scopes — ⌘/Super+K, ⌘⇧K, ⌘⇧H — open with the highlight on **the
-row you were last on that isn't the one you are on now**. One rule, so all three
-share a muscle memory: **press the chord, press Enter, you are back where you
-just were.** Press it again and you are back — a two-key toggle for terminals
-and for machines alike.
+All three switcher scopes (<kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd>,
+<kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd>, <kbd>Mod</kbd> + <kbd>Shift</kbd> +
+<kbd>H</kbd>) open with the highlight on the row you were last on that is not
+the one you are on now. Press the chord, press <kbd>Enter</kbd>, and you are
+back where you just were.
 
-"Last on" means **your own trail** and nothing else: which tile you activated,
-which machine you switched to. A background agent printing output does not count
-as you having been there, so a chatty terminal can never take the highlight off
-the one you came from — the toggle works the same whether the workspace is idle
-or busy.
+- "Last on" means your own trail: which tile you activated, which machine you
+  switched to. A background agent printing output does not count.
+- Lists are ordered by warmth, a different number, so the highlighted row is
+  often part-way down, below warmer rows.
+- The **Hosts** list keeps your host order and never re-sorts. In Terminals
+  browse, host headers are fixed and rows inside each host are warmest first.
+- A plain command list has no current row, so it opens on its first entry.
+- The moment you type, the highlight moves to the top match.
+- The rule applies to whichever kind leads the list. When Recent is empty,
+  <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd> leads with machines, and
+  <kbd>Enter</kbd> hops hosts rather than tiles.
 
-That is deliberately a *different* number from the one the list is **ordered**
-by. Empty-root **Recent** ranks by `max(your last visit, that terminal's own
-activity)`, because "what is warm" is the right question for deciding what to
-show you first — and output is a fair answer to it. So the two can disagree, and
-when they do, the order shows you what is happening while the highlight keeps
-pointing home.
-
-Which is why a highlighted row part-way down a list is not a bug — the rows
-above it are simply warmer, or ones you visited longer ago. The **Hosts** list
-makes that plainest: it keeps the order you [arranged the host tabs
-in](/remote-hosts#put-the-tabs-in-your-own-order) and never re-sorts, so the
-highlight is the only thing that moves. In **Terminals** browse the host
-headers are likewise fixed, while the rows inside each host are warmest-first.
-
-Selecting the row you are already on would be a no-op, so no switcher offers it
-as the default. Plain **command** lists carry neither recency nor a "current"
-row, so they still open on their first entry — the rule only has something to
-say where the list is a switcher. And the moment you **type**, recency stops
-mattering: the highlight moves to the top match.
-
-The rule applies to whichever kind **leads** the list, which at root is normally
-Recent. So when no terminal but your own is open, Recent is empty and ⌘/Super+K leads
-with machines instead — the highlight falls through to **the machine you came
-from**, and Enter hops hosts rather than tiles.
-
-## Deep-link chords
+## The chords
 
 | Chord / control | Opens |
 | --- | --- |
-| <kbd>Mod</kbd> + <kbd>K</kbd> | Root — search everything |
+| <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd> | Root — search everything |
 | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd> | **Terminals** — all hosts' terminals under host headers |
 | Dock search icon | **Terminals › active host** — only that machine's terminals |
 | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>H</kbd> | **Hosts** — same host rows as root (switch canvas host) |
 
-**Mod** is <kbd>Cmd</kbd> on macOS and <kbd>Ctrl</kbd> on Linux and Windows. The
-full chord table lives under [Keyboard shortcuts](/keyboard-shortcuts).
+The root search is <kbd>Cmd</kbd> on macOS and <kbd>Super</kbd>
+elsewhere, because <kbd>Ctrl</kbd> + <kbd>K</kbd> belongs to the shell in your
+terminal. The full chord table lives under [Keyboard
+shortcuts](/keyboard-shortcuts).
 
 ## Scoped views
 
-Deep links do not leave the switcher — they **drill in**. Breadcrumbs show the
-path; **Backspace on an empty query** (or the breadcrumb) pops one level back to
-root. Escape closes the whole surface.
+A chord drills in rather than leaving the switcher. Breadcrumbs show the path.
+Backspace on an empty query pops one level back to root, and Escape closes the
+surface.
 
-### Terminals (⌘⇧K / dock search)
+Selecting a terminal row switches host if needed, then activates the terminal.
+Selecting a host in the **Hosts** scope switches the canvas to that host with no reload, the
+same as the [host strip](/remote-hosts). That scope lists the root's host rows,
+in your host order.
 
-⌘⇧K lands on **Terminals** with every connected host already expanded under
-headers — type to filter, or click a header to scope. The **dock search**
-icon opens **Terminals › the host you are viewing** (host-scoped). Selecting
-a row **switches host if needed and activates** the terminal.
-
-### Hosts (⌘⇧H)
-
-**⌘⇧H** opens the **Hosts** scope — the **same host rows** as the root index
-(one source of truth; there is no separate “Switch host” list). Selecting a
-host re-keys the canvas with no reload — same as the [host strip](/remote-hosts).
-
-The rows stay in **your host order** (a machine list that reshuffles under the cursor
-is not one you can learn), and the **highlight** opens on the host you switched
-away from, so **⌘⇧H then Enter** hops between the last two machines the same way
-⌘/Super+K hops between the last two terminals. Until a tab has switched at least once
-there is no such machine, so the highlight falls back to the first *other* row.
-The trail is **per browser tab** — two tabs parked on two machines each keep
-their own way back — and it survives a reload of that tab, not a new one.
+Its highlight opens on the host you switched away from, so <kbd>Mod</kbd> +
+<kbd>Shift</kbd> + <kbd>H</kbd> then <kbd>Enter</kbd> hops
+between the last two machines. Until a tab has switched once there is no such
+machine, and the highlight falls back to the first other row. The trail is per
+browser tab, and survives a reload of that tab but not a new one.
 
 Host status text is quiet by default:
 
@@ -191,42 +137,34 @@ Host status text is quiet by default:
 | Connected, not active | *(none — connected is the default)* |
 | Warming / failed / removed | `connecting` / `failed` / `removed` |
 
-The connection **dot** still carries health color on every row — and it is the
-[whole-chain reading](/remote-hosts), so a reachable host whose terminal daemon is
-down paints amber here too, never green. (The status *text* above stays about the
-connection alone; the dot is where the chain is read.)
+The connection dot carries health colour on every row, and reads the
+[whole chain](/remote-hosts), so a reachable host whose terminal daemon is down
+paints amber here, never green.
 
 ## Reading a row
 
-Every result kind paints the same four slots so a mixed list stays scannable:
+Every result kind paints the same four slots:
 
-1. **Lead** — agent-state pip (terminal; plain shells get the shell mark),
-   connection dot (host), or glyph (command).
-2. **Identity** — for terminals, the **same headline as the Dock**: repo
-   colour eyebrow + **intent first line** when one is set, otherwise the
-   branch. Host rows show `user@host`; commands show the command name.
-   Matched tokens bold in place.
-3. **Context** — one truncating line. When the identity is the intent, the
-   **branch** sits here; otherwise agent summary / foreground (Dock
-   subline). Host status or command description for other kinds. Never
-   carries the host name on a terminal row.
-4. **Right rail** — **host chip** (only when the terminal is on a non-active
-   host — hue ring + label), recency, keybind, drill chevron, and a kind tag
-   (`term` / `host` / `cmd`) **only at the mixed root**.
+1. **Lead** — the agent-state pip for a terminal (plain shells get the shell
+   mark), the connection dot for a host, or a glyph for a command.
+2. **Identity** — for terminals, the same headline as the dock: the intent line
+   when one is set, otherwise the branch. Host rows show `user@host`, commands
+   the command name. Matched tokens are bold in place.
+3. **Context** — one truncating line: the branch when the identity is the
+   intent, otherwise the agent summary or foreground command. Host status or
+   command description for other kinds, and never the host name.
+4. **Right rail** — the host chip (only for a terminal on another host),
+   recency, keybind, drill chevron, and a kind tag (`term` / `host` / `cmd`)
+   only at the mixed root.
 
-## What this is not
-
-- The **dock** is still the always-visible navigator down the left edge —
-  glanceable without opening anything. The switcher is the jump / search path
-  over the **same** terminal set.
-- The **host strip** is still ambient multi-host status; ⌘/Super+K does not replace it.
-- Sleep, restore, and session memory live under [Sessions](/sessions); the
-  switcher only **finds** terminals that already exist on connected hosts.
+The switcher only finds terminals that already exist on connected hosts. Sleep,
+restore and session memory live under [Sessions](/sessions).
 
 <Aside type="note" title="Mobile">
-  On a phone the palette still opens from the chrome sheet, but the **⌘⇧K
-  Terminals deep-link is desktop-gated** (`showsWorkspaceSwitcher`); host
-  switch and root search remain available. See [Mobile](/mobile).
+  On a phone the palette still opens from the chrome sheet, but the
+  <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd>
+  Terminals deep link is desktop only. Host switch and root search remain
+  available. See [Mobile](/mobile).
 </Aside>
 
 ## Next
