@@ -27,3 +27,8 @@ Nothing moved off this page. First use of "surface map" now links to [glossary](
 ## Dropped code spans
 
 `.waterfall/compare.mjs` against `f50641c6a`: 0 missing.
+
+## Review round 1
+
+- Opening cut to 50 words (rule 4): 64 → 34. The three steps this guide takes and drishti as the worked example moved into a second paragraph; the opening keeps what the page is.
+- Checks: lint passes; `house-style.mjs` reports nothing on this page.
