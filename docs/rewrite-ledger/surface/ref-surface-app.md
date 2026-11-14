@@ -147,3 +147,21 @@ Nothing. "the LOOK of an uncaught render throw" is now "the look of an uncaught 
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs`: 0 missing).
+
+## The fault boundary: a throw is not a white tab
+
+- Words: 253 → 275. Before: one 136-word paragraph carrying the three verbs in parentheses. After: an index table, two entries, the three verbs as a list.
+- Heading renamed: `The fault boundary: a throw is not a white tab` → `The fault boundary` (`#the-fault-boundary-a-throw-is-not-a-white-tab` → `#the-fault-boundary`). Its one inbound link was on this page, in the `thrownText(error)` row, and now points at `#the-fault-boundary`.
+- New entries for exports that were only named in prose: `SurfaceFaultBoundary`, `FaultLook`.
+
+### Moved
+
+None.
+
+### Cut
+
+Nothing. The two `LOOK`s are now "look".
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs`: 0 missing).
