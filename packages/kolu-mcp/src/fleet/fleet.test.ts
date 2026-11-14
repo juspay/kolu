@@ -512,7 +512,13 @@ function fakeWorks(): FleetWorks & {
     host: "local",
     mode: "full",
     onGreen: "merge",
-    standing: { who: "agent", what: "agents at work", since: "2026-01-01" },
+    standing: {
+      who: "agent",
+      why: "working",
+      what: "",
+      ref: null,
+      since: "2026-01-01",
+    },
     members: [],
     openQuestions: [],
   });

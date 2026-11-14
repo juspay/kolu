@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { encodeHostKey } from "kolu-common/hostKey";
 import { DEFAULT_PREFERENCES } from "kolu-common/surface";
 import { afterEach, describe, expect, it } from "vitest";
-import type { PersistedWorks } from "kolu-conductor";
+import type { PersistedMembers, PersistedWorks } from "kolu-conductor";
 import {
   decodeStateBackup,
   stateBackupRing,
@@ -70,6 +70,7 @@ function recordingDeps(
     added: [] as string[],
     removed: [] as string[],
     works: [] as PersistedWorks[],
+    members: [] as PersistedMembers[],
   };
   const deps: RestoreServerStateBackupDeps = {
     setPreferences: (v) => calls.preferences.push(v),
@@ -82,8 +83,9 @@ function recordingDeps(
     removeHostKey: async (key) => {
       calls.removed.push(key);
     },
-    restoreWorks: (works) => {
+    restoreWorks: (works, members) => {
       calls.works.push(works);
+      calls.members.push(members);
     },
   };
   return { calls, deps };
@@ -92,6 +94,15 @@ function recordingDeps(
 /** A stored work, built through the ladder's own carry-over shape so these
  *  fixtures cannot drift from what an upgraded file actually holds. */
 function storedWork(id: string, name: string): PersistedWorks {
+  return carriedOver(id, name).works as unknown as PersistedWorks;
+}
+
+/** ... and what kolu knew about its member terminal, out of the same rung. */
+function storedMembers(id: string, name: string): PersistedMembers {
+  return carriedOver(id, name).members as unknown as PersistedMembers;
+}
+
+function carriedOver(id: string, name: string) {
   return worksFromWatched_1_50_0(
     [
       {
@@ -107,7 +118,7 @@ function storedWork(id: string, name: string): PersistedWorks {
       },
     ],
     () => id,
-  ) as unknown as PersistedWorks;
+  );
 }
 
 describe("listServerStateBackups", () => {
@@ -192,6 +203,7 @@ describe("restoreServerStateBackup", () => {
   it("hands the snapshot's WORKS to the live conductor, which is their one writer", async () => {
     // The works as the snapshot holds them...
     store.set("works", storedWork("work-from-backup", "last week's work"));
+    store.set("members", storedMembers("work-from-backup", "last week's work"));
     const file = takeSnapshot();
     // ...and the works this process has moved on to since. A restore must
     // replace them with the snapshot's, through the host rather than behind it.
@@ -203,6 +215,11 @@ describe("restoreServerStateBackup", () => {
     expect(calls.works[0]?.map((one) => one.id)).toEqual(["work-from-backup"]);
     expect(calls.works[0]).toEqual(
       storedWork("work-from-backup", "last week's work"),
+    );
+    // The two keys travel together: works without their members come back as
+    // terminals nobody has read, which rings about everything again.
+    expect(calls.members[0]).toEqual(
+      storedMembers("work-from-backup", "last week's work"),
     );
   });
 

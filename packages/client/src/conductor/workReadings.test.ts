@@ -56,6 +56,7 @@ const work = (over: Partial<Work> = {}): Work => ({
       role: "planner",
       joinedAt: AT,
       leftAt: null,
+      worktree: null,
     },
   ],
   events: [],
@@ -153,7 +154,13 @@ describe("the timeline's words", () => {
   const asked = work({
     decisions: [decision({ answer: { ...answered("Approve"), from: "card" } })],
     members: [
-      { terminal: "local/a", role: "planner", joinedAt: AT, leftAt: null },
+      {
+        terminal: "local/a",
+        role: "planner",
+        joinedAt: AT,
+        leftAt: null,
+        worktree: null,
+      },
     ],
   });
 

@@ -29,7 +29,7 @@ import type {
   ServerStateBackup,
 } from "kolu-common/contract";
 import type { Preferences, ViewerMode } from "kolu-common/surface";
-import type { PersistedWorks } from "kolu-conductor";
+import type { PersistedMembers, PersistedWorks } from "kolu-conductor";
 import { log } from "./log.ts";
 import {
   type DecodedStateBackup,
@@ -96,13 +96,18 @@ export interface RestoreServerStateBackupDeps {
    *  strip's `hosts/add` / `hosts/remove` take, persist hook included. */
   addHostKey: (key: string) => Promise<void>;
   removeHostKey: (key: string) => Promise<void>;
-  /** THE CONDUCTOR'S WORKS, replaced wholesale by the snapshot's. The live
-   *  host is the one writer of that key while this process runs, so a restore
-   *  that wrote it behind the host's back would be overwritten by the host's
-   *  own throttled save within the second — this hands the snapshot TO the
-   *  host, which drops the open asks on them, republishes, writes the key now
-   *  and re-scopes the watch. */
-  restoreWorks: (works: PersistedWorks) => void;
+  /** THE CONDUCTOR'S WORKS AND THE MEMBER BOOKKEEPING THAT GOES WITH THEM,
+   *  replaced wholesale by the snapshot's. The live host is the one writer of
+   *  both keys while this process runs, so a restore that wrote them behind
+   *  the host's back would be overwritten by the host's own throttled save
+   *  within the second — this hands the snapshot TO the host, which drops the
+   *  open asks on the works, re-seeds what it knows about each restored
+   *  member, republishes, writes both keys now and re-scopes the watch.
+   *
+   *  The two travel TOGETHER because they are halves of one restore: works
+   *  without their members come back as terminals nobody has ever read, which
+   *  rings the conversation about every state it was already told about. */
+  restoreWorks: (works: PersistedWorks, members: PersistedMembers) => void;
 }
 
 /** Every persisted key has a restore path: `preferences` and `viewerMode`
@@ -119,8 +124,9 @@ export interface RestoreServerStateBackupDeps {
  *  the agent does not remember — or resume, under a live agent, a session it is
  *  not in. Nothing a person can lose rides on it either: the agent replays its
  *  half on `session/load`, and kolu's half is on screen in front of the person
- *  pressing restore. The works, which outlive any conversation, ARE restored
- *  (`restoreWorks` above).
+ *  pressing restore. The works, which outlive any conversation, ARE restored —
+ *  with the `members` key that says what kolu knows about each of their
+ *  terminals, in the same call (`restoreWorks` above).
  *
  *  Two things a work refers to are outside the ring and say so in the dialog:
  *  the transcript FILE (`<stateDir>/conductor/transcript.json` — the ring
@@ -130,7 +136,7 @@ export interface RestoreServerStateBackupDeps {
  *  gone, plainly. */
 type UnrestoredPersistedKey = Exclude<
   keyof DecodedStateBackup,
-  "preferences" | "viewerMode" | "hosts" | "works" | "conductor"
+  "preferences" | "viewerMode" | "hosts" | "works" | "members" | "conductor"
 >;
 const _everyPersistedKeyRestored: [UnrestoredPersistedKey] extends [never]
   ? true
@@ -158,12 +164,13 @@ export async function restoreServerStateBackup(
     log.info({ file: input.file }, "restoring server state from backup");
     deps.setPreferences(decoded.preferences);
     deps.setViewerMode(decoded.viewerMode);
-    // ... and the Conductor's works, handed to the live host rather than
-    // written to the key under it: it is the one writer of that key while this
-    // process runs, and it has to act on the restored set (drop the asks
-    // nobody can answer, publish, re-scope the watch) for the restore to be
-    // anything a person can see.
-    deps.restoreWorks(decoded.works);
+    // ... and the Conductor's works WITH their members, handed to the live
+    // host rather than written to the keys under it: it is the one writer of
+    // both while this process runs, and it has to act on the restored set
+    // (drop the asks nobody can answer, re-seed what it knows about each
+    // member, publish, re-scope the watch) for the restore to be anything a
+    // person can see.
+    deps.restoreWorks(decoded.works, decoded.members);
 
     // Converge the pool onto the snapshot's fleet. The ADD phase completes
     // before the REMOVE phase begins (a dial failure must not leave the fleet

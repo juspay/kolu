@@ -21,9 +21,11 @@ import {
   type Membership,
   type OnGreen,
   type Waiter,
+  type StandingWhy,
   type Work,
   type WorkEvent,
   type WorkRole,
+  policyOf,
   prOf,
   setupOf,
   standing,
@@ -163,9 +165,13 @@ export function checksBreakdown(tally: ChecksTally): string {
 }
 
 /** WHERE IT STANDS, in the words the card draws: a lead that names the waiter
- *  and the detail after it. The lead comes from the waiter and the detail from
- *  `standing()` — except while CI runs, where the live tally is the only
- *  honest detail there is. */
+ *  and the detail after it.
+ *
+ *  `standing()` answers a TOKEN — who is waited on and why — and every word
+ *  below is this module's, beside the other four word tables. The model used
+ *  to hand out two English phrases and this function re-capitalised one of
+ *  them and discarded the other; now the browser owns all of its own prose and
+ *  the live check tally is mixed in where it belongs. */
 export interface StandingLine {
   readonly who: Waiter | "done";
   readonly lead: string;
@@ -173,7 +179,16 @@ export interface StandingLine {
   readonly since: string;
 }
 
-const DONE_WORD: Record<string, string> = {
+/** THE WORDS FOR WHERE A WORK STANDS — the lead beside the dot, by the reason
+ *  `standing()` gives. `question` and `merge` share "Waiting on you": what
+ *  differs is the detail after it, which is the question's own words or the PR
+ *  to merge. The last four are how a finished work's outcome reads. */
+const WHY_LEAD: Record<StandingWhy, string> = {
+  question: "Waiting on you",
+  merge: "Waiting on you",
+  ci: "CI running",
+  watching: "Watching",
+  working: "Agents at work",
   merged: "Merged",
   closed: "Closed",
   abandoned: "Abandoned",
@@ -184,36 +199,33 @@ export function standingLine(
   work: Work,
   checks: ChecksTally | null,
 ): StandingLine {
-  const at = standing(work);
+  const at = standing(work, policyOf(work));
+  const lead = WHY_LEAD[at.why];
   if (at.who === "done")
-    return {
-      who: "done",
-      lead: DONE_WORD[at.what] ?? "Ended",
-      what: "",
-      since: at.since,
-    };
+    return { who: "done", lead, what: "", since: at.since };
   if (at.who === "ci")
     return {
       who: "ci",
-      lead: "CI running",
+      lead,
+      // The LIVE tally is the only honest detail while checks run: the
+      // timeline says they are running, how many have landed is true only for
+      // the instant it is read.
       what: checks === null ? "" : checksProgress(checks),
       since: at.since,
     };
   if (at.who === "you")
     return {
       who: "you",
-      lead: "Waiting on you",
-      what: at.what,
+      lead,
+      what:
+        at.why === "question"
+          ? at.what
+          : at.ref === null
+            ? "merge the PR"
+            : `merge PR #${at.ref}`,
       since: at.since,
     };
-  // The model's own words for the agents' stretch — "agents at work", or
-  // "watching" for a plain watch — capitalised as a lead.
-  return {
-    who: "agent",
-    lead: at.what.charAt(0).toUpperCase() + at.what.slice(1),
-    what: "",
-    since: at.since,
-  };
+  return { who: "agent", lead, what: "", since: at.since };
 }
 
 /** One stretch of the drawn bar, as a share of the whole life. Percentages
@@ -228,7 +240,7 @@ export function barSegments(
   work: Work,
   now: string,
 ): ReadonlyArray<BarSegment> {
-  const bar = timeBar(work, now);
+  const bar = timeBar(work, policyOf(work), now);
   const total = bar.reduce((sum, stretch) => sum + stretch.ms, 0);
   if (total === 0) return [];
   return bar.map((stretch) => ({
@@ -240,7 +252,7 @@ export function barSegments(
 /** WHERE THE TIME WENT, for a finished card — the three figures in one line,
  *  with the buckets that got none left out. */
 export function timeSpentWords(work: Work, now: string): string {
-  const spent = timeSpent(work, now);
+  const spent = timeSpent(work, policyOf(work), now);
   return (
     [
       { ms: spent.agent, word: "Agents" },

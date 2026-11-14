@@ -17,54 +17,38 @@ import type { ConductorWakeLevel } from "kolu-common/conductor";
 import { describe, expect, it, vi } from "vitest";
 import { holding } from "./held.ts";
 import { wakeText } from "./wakeText.ts";
-import type { MemberWatch } from "./persisted.ts";
+import type { WatchLevel } from "./observation.ts";
 import {
   joinedMember,
-  type LastReading,
   type MemberState,
+  type MemberWatch,
   observed as observedMember,
   restoredMember,
   spokenTo as spokenToMember,
   type WatchJoin,
-  type WatchLevel,
 } from "./members.ts";
 
 const REF = "local/11111111-1111-4111-8111-111111111111";
 const OTHER = "remote:prod/22222222-2222-4222-8222-222222222222";
 
 /** A member as ONE value — the saved bookkeeping and the two runtime fields
- *  flattened together, which is how every rule below reads it. */
-type WatchEntry = MemberWatch & {
-  readonly last: LastReading | null;
-  readonly baselining: boolean;
-};
-
-const flat = (member: MemberState): WatchEntry => ({
-  ...member.watch,
-  last: member.last,
-  baselining: member.baselining,
-});
-
-const deep = (entry: WatchEntry): MemberState => {
-  const { last, baselining, ...watch } = entry;
-  return { watch, last, baselining };
-};
+ *  in one record, which is how every rule below reads it and how the host
+ *  holds it. */
+type WatchEntry = MemberState;
 
 const watchEntry = (_ref: string, joined: WatchJoin): WatchEntry =>
-  flat(joinedMember(joined));
+  joinedMember(joined);
 
-const restoredEntry = (saved: MemberWatch): WatchEntry =>
-  flat(restoredMember(saved));
+const restoredEntry = (saved: MemberWatch): WatchEntry => restoredMember(saved);
 
-const spokenTo = (entry: WatchEntry): WatchEntry =>
-  flat(spokenToMember(deep(entry)));
+const spokenTo = (entry: WatchEntry): WatchEntry => spokenToMember(entry);
 
 const observed = (
   entry: WatchEntry,
   seen: Parameters<typeof observedMember>[1],
 ): { entry: WatchEntry; ring: ConductorWakeLevel | null; drop: boolean } => {
-  const read = observedMember(deep(entry), seen);
-  return { entry: flat(read.member), ring: read.ring, drop: read.drop };
+  const read = observedMember(entry, seen);
+  return { entry: read.member, ring: read.ring, drop: read.drop };
 };
 
 /** HOW EACH MEMBER STANDS, as the works view publishes it — the same fold the
@@ -446,7 +430,6 @@ describe("what is worth waking the Conductor about", () => {
       joined: "created",
       spoken: true,
       ran: false,
-      worktree: null,
     });
     expect(observed(restored, seeing(REF, "asking")).ring).toBeNull();
     // ... and a terminal that moved on while kolu was down still rings.
@@ -463,7 +446,6 @@ describe("what is worth waking the Conductor about", () => {
       joined: "asked",
       spoken: true,
       ran: false,
-      worktree: null,
     });
     expect(observed(restored, seeing(REF, "stopped")).ring).toBe("stopped");
   });
@@ -476,7 +458,6 @@ describe("what is worth waking the Conductor about", () => {
       joined: "created",
       spoken: false,
       ran: true,
-      worktree: null,
     });
     expect(observed(restored, seeing(REF, "stopped")).ring).toBe("ready");
   });
@@ -750,7 +731,6 @@ describe("how long a watched terminal has stood as it stands", () => {
       joined: "created",
       spoken: true,
       ran: false,
-      worktree: null,
     });
 
   it("stamps the level a terminal ENTERED, and keeps the stamp while it stays there", () => {

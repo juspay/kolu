@@ -181,7 +181,7 @@ describe("the 1.50.0 rung — a piece of work is a stored thing", () => {
     // come back as one card and the lone one as its own — rather than three
     // cards nobody recognizes, or one card holding unrelated machines.
     let minted = 0;
-    const works = worksFromWatched_1_50_0(
+    const carried = worksFromWatched_1_50_0(
       [
         entry({
           ref: PLANNER,
@@ -199,6 +199,7 @@ describe("the 1.50.0 rung — a piece of work is a stored thing", () => {
       () => `work-${++minted}`,
     );
 
+    const works = carried.works;
     expect(works.map((one) => one.id)).toEqual(["work-1", "work-2"]);
     const [waterfall, alone] = works as [
       Record<string, unknown>,
@@ -214,32 +215,46 @@ describe("the 1.50.0 rung — a piece of work is a stored thing", () => {
         role: "other",
         joinedAt: "2026-01-01T00:00:00.000Z",
         leftAt: null,
-        watch: {
-          name: "plan the cutover",
-          agent: "claude",
-          told: "stopped",
-          joined: "created-run",
-          spoken: true,
-          ran: true,
-          worktree: null,
-        },
+        worktree: null,
       },
       {
         terminal: IMPL,
         role: "other",
         joinedAt: "2026-01-01T00:10:00.000Z",
         leftAt: null,
-        watch: {
-          name: "the implementor",
-          agent: "claude",
-          told: "stopped",
-          joined: "created-run",
-          spoken: true,
-          ran: true,
-          worktree: null,
-        },
+        worktree: null,
       },
     ]);
+    // ... and what kolu KNEW about each of those terminals comes out as the
+    // `members` key, keyed by the same refs: two keys out of one watch list,
+    // because an entry was always a fact about a work and a fact about a
+    // terminal.
+    expect(carried.members).toEqual({
+      [PLANNER]: {
+        name: "plan the cutover",
+        agent: "claude",
+        told: "stopped",
+        joined: "created-run",
+        spoken: true,
+        ran: true,
+      },
+      [IMPL]: {
+        name: "the implementor",
+        agent: "claude",
+        told: "stopped",
+        joined: "created-run",
+        spoken: true,
+        ran: true,
+      },
+      [ALONE]: {
+        name: "a watch",
+        agent: "claude",
+        told: "stopped",
+        joined: "created-run",
+        spoken: true,
+        ran: true,
+      },
+    });
     // The timeline is never empty: it opens with the carry-over and then says
     // who was there.
     expect(waterfall.events).toEqual([
@@ -277,7 +292,10 @@ describe("the 1.50.0 rung — a piece of work is a stored thing", () => {
     // them as decisions or the card would show a work with no mode and no
     // machine. Nobody was asked — not in a card, not in a chat, not in a
     // request — so `from` is null, which is the only honest value.
-    const [work] = worksFromWatched_1_50_0([entry({ ref: ALONE })], () => "w");
+    const [work] = worksFromWatched_1_50_0(
+      [entry({ ref: ALONE })],
+      () => "w",
+    ).works;
     const decisions = work?.decisions as ReadonlyArray<Record<string, unknown>>;
     expect(decisions.map((one) => one.key)).toEqual(["mode", "host"]);
     expect(decisions[0]?.answer).toEqual({
@@ -295,7 +313,10 @@ describe("the 1.50.0 rung — a piece of work is a stored thing", () => {
   });
 
   it("titles a group whose terminals kolu never read", () => {
-    const [work] = worksFromWatched_1_50_0([entry({ ref: ALONE })], () => "w");
+    const [work] = worksFromWatched_1_50_0(
+      [entry({ ref: ALONE })],
+      () => "w",
+    ).works;
     expect(work?.title).toBe("Carried over");
   });
 

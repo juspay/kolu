@@ -29,6 +29,7 @@ import {
   type ConductorHost,
   type FleetMcpEndpoint,
   type PersistedConductor,
+  type PersistedMembers,
   type PersistedWorks,
   startConductorHost,
 } from "kolu-conductor";
@@ -207,14 +208,20 @@ export function liveServerConductor(): ConductorHost {
     // not riding a browser's frame any more, so a listener that throws is a
     // boot-wiring fault to see rather than a frame to protect.
     membersMoved: (membership) => onMembers?.(membership),
-    // THE THREE RECORDS, each where its volatility says it belongs. The
-    // conversation and the works are keys of the one conf store (one schema,
-    // one ladder — `dev/skills/state/SKILL.md`); the transcript is a file of
-    // its own because it is most of the bytes and it moves on every
-    // keystroke, and it rides the SAME ladder from there
-    // (`transcriptFile.ts`).
+    // THE FOUR RECORDS, each where its volatility says it belongs. The
+    // conversation, the works and what kolu knows about their member
+    // terminals are keys of the one conf store (one schema, one ladder —
+    // `dev/skills/state/SKILL.md`); the transcript is a file of its own
+    // because it is most of the bytes and it moves on every keystroke, and it
+    // rides the SAME ladder from there (`transcriptFile.ts`).
+    //
+    // `members` is its own key beside `works` rather than a field inside one,
+    // because it is the watch's memory of a TERMINAL (what it was called,
+    // what the conversation was told about it) rather than part of what a
+    // work IS — and it moves every time a host is read.
     store: confStore<PersistedConductor>(store, "conductor"),
     works: confStore<PersistedWorks>(store, "works"),
+    members: confStore<PersistedMembers>(store, "members"),
     transcript: transcriptFileStore(
       dirname(store.path),
       TRANSCRIPT_FILE_VERSION,

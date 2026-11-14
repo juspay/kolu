@@ -59,12 +59,11 @@ import {
   type ConductorRow,
   ConductorRowSchema,
   type ConductorState,
-  ConductorWakeLevelSchema,
 } from "kolu-common/conductor";
 import type { CellStore } from "@kolu/surface/server";
 import { Result, Schema } from "effect";
-import { FLEET_WATCH_JOINS } from "kolu-mcp/fleetWatchJoin";
-import { WorkMemberSchema, WorkSchema } from "kolu-work";
+import { WorkSchema } from "kolu-work";
+import { MemberWatchSchema } from "./members.ts";
 
 /** The conversation's SHAPE, as a schema rather than as an interface alone.
  *
@@ -119,83 +118,42 @@ export type PersistedTranscript = typeof PersistedTranscriptSchema.Type;
 /** A state dir with no transcript file yet. */
 export const EMPTY_PERSISTED_TRANSCRIPT: PersistedTranscript = { rows: [] };
 
-/** ONE MEMBER'S WAKE BOOKKEEPING — today's watch-list entry, now a field of the
- *  member it was always about.
- *
- *  Everything here is a fact a restart cannot re-derive: what kolu last saw the
- *  terminal called, whether an agent was ever seen in it (a terminal that never
- *  held one is silent when it goes), the level the conversation has already
- *  been TOLD about, and the three that say how to read the next sighting — how
- *  the terminal came to be a member, whether anything has been said to the
- *  agent in it, and whether a command was ever seen running in it.
- *
- *  `told` is what makes a restart quiet: kolu looks at every member terminal
- *  again, and one that is still stopped for the reason it was stopped before
- *  the restart does not ring a second time. What is NOT here is the held news —
- *  a restart re-reads the world instead of replaying a queue about one that has
- *  moved on — nor the last reading, which is this process's own.
- *
- *  NO DECODING DEFAULTS, here or on any key: the schema says what the file
- *  holds, and making an older file hold it is the ladder's job (`kolu-server`'s
- *  `state.ts`). A file the ladder did not bring here is refused by name, never
- *  read as a guess. */
-export const MemberWatchSchema = Schema.Struct({
-  /** What kolu last saw the terminal called — so a wake can name it even when
-   *  the host it is on has stopped answering. */
-  name: Schema.String,
-  /** The agent kolu detected in it, or `null` for a terminal no agent has ever
-   *  been seen in. STICKY: an agent that exited leaves a shell behind, and the
-   *  fact that one was once there is what makes its death worth telling. */
-  agent: Schema.NullOr(Schema.String),
-  /** The level the conversation has already been told about, or `null`. */
-  told: Schema.NullOr(ConductorWakeLevelSchema),
-  /** How this terminal came to be a member — built from the one tuple the word
-   *  is spelled in (`kolu-mcp/fleetWatchJoin`), which the fleet face's wire
-   *  schema and this module's `WatchJoin` also build from: a join a tool can
-   *  record is a join this file can read back. */
-  joined: Schema.Literals([...FLEET_WATCH_JOINS]),
-  /** Whether the Conductor has said anything to the agent in it. What `ready`
-   *  turns on, and therefore worth surviving a restart: an agent briefed before
-   *  the restart must not ring as a fresh one after it. */
-  spoken: Schema.Boolean,
-  /** Whether a non-shell foreground was ever seen in it — the other half of
-   *  `ended`, and across a restart the only way to know that the command kolu
-   *  typed ever started. */
-  ran: Schema.Boolean,
-  /** THE WORKTREE kolu last read for this terminal, on its host — where its
-   *  work's files are listed from, and where they are copied from when the work
-   *  ends. `null` until a reading has said. Remembered because the terminal may
-   *  be gone by the time the work ends, and the files outlive it. */
-  worktree: Schema.NullOr(Schema.String),
-});
-export type MemberWatch = typeof MemberWatchSchema.Type;
-
-/** A work's member, as kolu stores it: the model's member ({@link
- *  WorkMemberSchema} — the terminal, its role, when it joined and when it left)
- *  plus the watch's own bookkeeping about that terminal.
- *
- *  SPREAD rather than nested-and-re-declared, so a field added to the model's
- *  member arrives here with no edit, and the stored work decodes into a `Work`
- *  by structural widening — which is what lets every pure fold in `kolu-work`
- *  run over the stored value directly. */
-export const StoredMemberSchema = Schema.Struct({
-  ...WorkMemberSchema.fields,
-  watch: MemberWatchSchema,
-});
-export type StoredMember = typeof StoredMemberSchema.Type;
-
-/** A work, as kolu stores it: the model's work with stored members. */
-export const StoredWorkSchema = Schema.Struct({
-  ...WorkSchema.fields,
-  members: Schema.Array(StoredMemberSchema),
-});
-export type StoredWork = typeof StoredWorkSchema.Type;
-
 /** EVERY WORK KOLU REMEMBERS — in progress first, in the order they were
- *  opened, then the finished ones it still keeps (`kolu-work`'s
- *  `FINISHED_KEPT`). The `works` key of `config.json`. */
-export const PersistedWorksSchema = Schema.Array(StoredWorkSchema);
+ *  opened, then the finished ones it still keeps (the host's own retention
+ *  number). The `works` key of `config.json`.
+ *
+ *  The record itself, unadorned: `kolu-work`'s `Work` and nothing bolted onto
+ *  it. What the HOST additionally knows about a member terminal is its own
+ *  key ({@link PersistedMembersSchema}) — a watch field inside the record cost
+ *  five hand-held invariants and a cast per transition, and made a work's
+ *  published value move every time a terminal was renamed. */
+export const PersistedWorksSchema = Schema.Array(WorkSchema);
 export type PersistedWorks = typeof PersistedWorksSchema.Type;
+
+/** WHAT KOLU KNOWS ABOUT EACH MEMBER TERMINAL, by fleet ref — the `members`
+ *  key of `config.json`.
+ *
+ *  Its own key, beside the works rather than inside them, because it is a
+ *  different thing moving on a different clock: a work is what the Conductor
+ *  stated and the human decided, while this is the watch's own memory of a
+ *  terminal (what it is called, what the conversation was told, whether
+ *  anything has been said to it). A reader of the record is never handed it,
+ *  and nothing outside this package can act on one.
+ *
+ *  Keyed by ref, so the member of a work and the terminal the watcher reads
+ *  are the same key; an entry whose ref is no longer an active member is
+ *  dropped where the membership moves, not reconciled later.
+ *
+ *  The VALUE is `./members.ts`'s {@link MemberWatchSchema} — the member minus
+ *  its two runtime fields, taken by subtraction at the write. */
+export const PersistedMembersSchema = Schema.Record(
+  Schema.String,
+  MemberWatchSchema,
+);
+export type PersistedMembers = typeof PersistedMembersSchema.Type;
+
+/** A state dir that has never had a member. */
+export const EMPTY_PERSISTED_MEMBERS: PersistedMembers = {};
 
 /** The re-validations, compiled once. `decodeUnknownResult` is a BRANCH rather
  *  than a throw, which is what lets each failure arm name the FILE — the one
@@ -203,6 +161,7 @@ export type PersistedWorks = typeof PersistedWorksSchema.Type;
 const decodePersisted = Schema.decodeUnknownResult(PersistedConductorSchema);
 const decodeTranscript = Schema.decodeUnknownResult(PersistedTranscriptSchema);
 const decodeWorks = Schema.decodeUnknownResult(PersistedWorksSchema);
+const decodeMembers = Schema.decodeUnknownResult(PersistedMembersSchema);
 
 /** Read the remembered conversation out of kolu-server's state, or CRASH naming
  *  the file.
@@ -255,6 +214,23 @@ export function readPersistedWorks(
   if (Result.isFailure(result)) {
     throw new Error(
       `the remembered works in ${path} do not match schema (${String(result.failure)}). Fix the \`works\` key to recover.`,
+    );
+  }
+  return result.success;
+}
+
+/** Read what kolu remembered about each member terminal, or CRASH naming the
+ *  file — the same stance as the works beside it, for the half of a member
+ *  that cannot be re-derived: a bad value read past is a restart that rings
+ *  the conversation about every member it was already told about. */
+export function readPersistedMembers(
+  store: CellStore<PersistedMembers>,
+  path: string,
+): PersistedMembers {
+  const result = decodeMembers(store.get());
+  if (Result.isFailure(result)) {
+    throw new Error(
+      `the remembered work members in ${path} do not match schema (${String(result.failure)}). Fix the \`members\` key to recover.`,
     );
   }
   return result.success;

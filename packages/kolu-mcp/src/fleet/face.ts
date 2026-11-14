@@ -73,7 +73,7 @@ import {
 import { type FleetHosts, requireHost, requireTerminal } from "./hosts.ts";
 import { hostRoster, overConnectedHosts } from "./overHosts.ts";
 import { fleetTerminalRef, splitFleetTerminalRef } from "./ref.ts";
-import { type FleetWorks, memberWithHost } from "./works.ts";
+import { type FleetWorks, memberWithHost, standingWords } from "./works.ts";
 
 // The four repo-scoped verbs take padi's own input, plus a host. Named off the
 // SCHEMAS padi declares them with, so a field added upstream arrives here
@@ -269,6 +269,14 @@ function worksRows(hosts: FleetHosts, works: FleetWorks): FleetWorksView {
   return {
     works: rows.works.map((work) => ({
       ...work,
+      // THE WORDS ARE THIS FACE'S. `kolu-work` answers a token — who is
+      // waited on and why — and the sentence an agent reads is written here,
+      // where the rest of this resource's vocabulary is.
+      standing: {
+        who: work.standing.who,
+        what: standingWords(work.standing),
+        since: work.standing.since,
+      },
       members: work.members.map((member) =>
         memberWithHost(hosts, fleet, member, splitFleetTerminalRef),
       ),

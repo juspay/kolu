@@ -2,29 +2,16 @@
  * WHAT A WORK SAYS, read off its decisions and its events — never stored
  * beside them.
  *
- * The setup is the clearest case: the human answered the setup questions, the
- * answers are decisions, and the host, the mode, the harness and model per
- * role and what to do on green are READINGS of those decisions. A second copy
- * of any of them would be a place for the two to disagree.
+ * The MECHANISM of a reading lives here: how a decision's answer comes to one
+ * value, which decisions belong to one ask, what the timeline last said about
+ * the PR, which files kolu has seen. The rules that read the WATERFALL'S WORDS
+ * off the same record — the mode, the roles, the setup, who drives — are
+ * `./waterfall.ts`, and this module deliberately imports nothing from there: a
+ * reading of a decision is the same reading whatever words the waterfall
+ * grows.
  */
 
-import {
-  type Decision,
-  ON_GREEN,
-  type OnGreen,
-  type SetupKey,
-  WORK_MODES,
-  type Work,
-  type WorkMode,
-  type WorkEvent,
-  type WorkRole,
-} from "./schema.ts";
-
-/** The latest ANSWERED decision for a setup key. */
-const setupDecision = (work: Work, key: SetupKey): Decision | undefined =>
-  work.decisions.findLast(
-    (one) => one.key === key && one.answer?.how === "answered",
-  );
+import type { Decision, EventKind, Work, WorkEvent } from "./schema.ts";
 
 /** What a decision came to as ONE value: the option picked, else the words
  *  typed, else `null`. */
@@ -33,96 +20,6 @@ export const answerValue = (decision: Decision | undefined): string | null => {
   if (answer === null || answer === undefined || answer.how !== "answered")
     return null;
   return answer.picked[0] ?? answer.text;
-};
-
-const among = <T extends string>(
-  value: string | null,
-  vocabulary: ReadonlyArray<T>,
-): T | null =>
-  value !== null && (vocabulary as ReadonlyArray<string>).includes(value)
-    ? (value as T)
-    : null;
-
-/** The host the work runs on, or `null` until the human has said. */
-export const hostOf = (work: Work): string | null =>
-  answerValue(setupDecision(work, "host"));
-
-/** The mode, or `null` until answered (or answered with words that are no
- *  mode). */
-export const modeOf = (work: Work): WorkMode | null =>
-  among(answerValue(setupDecision(work, "mode")), WORK_MODES);
-
-/** What to do when CI is green — the one place it is written. */
-export const onGreenOf = (work: Work): OnGreen | null =>
-  among(answerValue(setupDecision(work, "on-green")), ON_GREEN);
-
-/** The roles a mode runs, in the order they come in. */
-export const rolesOf = (mode: WorkMode | null): ReadonlyArray<WorkRole> =>
-  mode === "full"
-    ? ["planner", "implementor"]
-    : mode === "trivial"
-      ? ["implementor"]
-      : [];
-
-/** WHO IS TYPING INTO A MEMBER TERMINAL — the Conductor, or the person who
- *  took it over. `null` for a terminal nothing drives: the work has ended, the
- *  terminal is not an active member of it, or its mode is not one the
- *  Conductor runs (a `watch` is the human's own terminal, and a work whose
- *  mode nobody has answered yet runs nothing). */
-export type Driver = "conductor" | "you";
-
-/** The driver, read off the events the way everything else about a work is:
- *  the latest `taken-over`/`handed-back` for that terminal SINCE it last
- *  joined. So the lock ends by itself when the member leaves or the work ends,
- *  it survives a restart (it is in the stored record), and every reader —
- *  browser, MCP, the host's own refusals — reads one answer. */
-export const driverOf = (work: Work, terminal: string): Driver | null => {
-  if (work.endedAt !== null) return null;
-  const mode = modeOf(work);
-  if (mode !== "full" && mode !== "trivial") return null;
-  if (
-    !work.members.some(
-      (one) => one.terminal === terminal && one.leftAt === null,
-    )
-  )
-    return null;
-  for (let at = work.events.length - 1; at >= 0; at -= 1) {
-    const event = work.events[at];
-    if (event === undefined || event.terminal !== terminal) continue;
-    // Back to the join THIS membership started at and no further: a terminal
-    // that left and came back is driven by the Conductor again, whatever was
-    // said about the terminal it used to be.
-    if (event.kind === "joined") break;
-    if (event.kind === "taken-over") return "you";
-    if (event.kind === "handed-back") break;
-  }
-  return "conductor";
-};
-
-export interface SetupReading {
-  readonly host: string | null;
-  readonly mode: WorkMode | null;
-  readonly roles: ReadonlyArray<{
-    readonly role: WorkRole;
-    readonly harness: string | null;
-    readonly model: string | null;
-  }>;
-  readonly onGreen: OnGreen | null;
-}
-
-/** The setup, as the decisions say it. */
-export const setupOf = (work: Work): SetupReading => {
-  const mode = modeOf(work);
-  return {
-    host: hostOf(work),
-    mode,
-    roles: rolesOf(mode).map((role) => ({
-      role,
-      harness: answerValue(setupDecision(work, `${role}.harness` as SetupKey)),
-      model: answerValue(setupDecision(work, `${role}.model` as SetupKey)),
-    })),
-    onGreen: onGreenOf(work),
-  };
 };
 
 /** The decisions of one ask, in the order they were asked. */
@@ -140,12 +37,43 @@ export interface PrReading {
   readonly checks: "running" | "passed" | "failed" | null;
 }
 
+/** THE CHECK CORRESPONDENCE, in ONE table: a forge's rollup word, the event
+ *  it becomes, and what the timeline then SAYS about the checks.
+ *
+ *  One row rather than two tables and a third in the reverse direction, so
+ *  "which event" and "what a reader of the record would then read back" cannot
+ *  disagree — composing the two halves of a row is true by construction, and a
+ *  fourth rollup word is one row here instead of edits in two packages.
+ *
+ *  The KEY is a forge's vocabulary and not the record's: `pending|pass|fail` is
+ *  what a host's record reports, which is an INPUT to a work and never part of
+ *  one. So it is a plain string union local to this table — the observer
+ *  (`kolu-conductor`) indexes it, and nothing stores it. */
+export const CHECK_STEP = {
+  pending: { kind: "checks-running", checks: "running" },
+  pass: { kind: "checks-passed", checks: "passed" },
+  fail: { kind: "checks-failed", checks: "failed" },
+} as const satisfies Readonly<
+  Record<
+    string,
+    {
+      readonly kind: EventKind;
+      readonly checks: NonNullable<PrReading["checks"]>;
+    }
+  >
+>;
+
+/** How each event MOVES the PR reading — the three check rows derived from
+ *  {@link CHECK_STEP} rather than re-listed, plus the two that end it. */
 const PR_STEP: Partial<
   Record<WorkEvent["kind"], Partial<Pick<PrReading, "state" | "checks">>>
 > = {
-  "checks-running": { checks: "running" },
-  "checks-passed": { checks: "passed" },
-  "checks-failed": { checks: "failed" },
+  ...Object.fromEntries(
+    Object.values(CHECK_STEP).map((step) => [
+      step.kind,
+      { checks: step.checks },
+    ]),
+  ),
   merged: { state: "merged" },
   "pr-closed": { state: "closed" },
 };

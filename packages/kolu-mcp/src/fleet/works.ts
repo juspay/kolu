@@ -47,16 +47,18 @@ import {
   OnGreenSchema,
   SetupKeySchema,
   type SetupKey,
+  type Standing,
   type WorkMode,
   WorkModeSchema,
   type WorkOutcome,
+  WorkRefusal,
+  type WorkRefusalKind,
   type WorkRole,
   WorkRoleSchema,
 } from "kolu-work";
 import type { FleetHostState, FleetWatchJoinSchema } from "./fleetSurface.ts";
 import { type FleetHosts, requireTerminal } from "./hosts.ts";
 import { FleetTerminalRefSchema } from "./refSchema.ts";
-import { WORK_REFUSALS } from "./workRefusal.ts";
 
 /** HOW a terminal came to be a member of a work — the fact the server's
  *  watcher needs to decide what its first observation means.
@@ -100,11 +102,11 @@ export interface FleetWorkRow {
   readonly host: string | null;
   readonly mode: WorkMode | null;
   readonly onGreen: OnGreen | null;
-  readonly standing: {
-    readonly who: "agent" | "you" | "ci" | "done";
-    readonly what: string;
-    readonly since: string;
-  };
+  /** WHERE IT STANDS, as `kolu-work` reads it off the timeline — a TOKEN
+   *  (who is waited on and why), never a phrase. The words an agent reads are
+   *  this face's ({@link standingWords}), the card's are the browser's, and
+   *  the model keeps the decision. */
+  readonly standing: Standing;
   readonly members: ReadonlyArray<FleetWorkMemberRow>;
   readonly openQuestions: ReadonlyArray<string>;
 }
@@ -207,42 +209,53 @@ export interface FleetWorks {
 }
 
 /** Why a call about a work was refused, as this face reports it — the kinds
- *  `kolu-conductor` raises, re-declared nowhere: both ends build from the one
- *  tuple in `./workRefusal.ts`. */
+ *  the conductor raises, re-declared nowhere: both ends build from the one
+ *  tuple in `kolu-work`'s `refusal.ts`. */
 export interface WorkRefusalDetail extends Record<string, unknown> {
-  readonly kind: (typeof WORK_REFUSALS)[number];
+  readonly kind: WorkRefusalKind;
   readonly work?: string;
 }
 
-/** A thrown thing READ as the conductor's refusal — structurally, because the
- *  class itself lives in `kolu-conductor` and the arrow points this way: that
- *  package depends on this one, never the other way round. What is checked is
- *  exactly what is used: one of the four kinds, and a sentence. */
-const workRefusalOf = (
-  err: unknown,
-): { kind: WorkRefusalDetail["kind"]; why: string } | null => {
-  if (typeof err !== "object" || err === null) return null;
-  const { kind, why } = err as { kind?: unknown; why?: unknown };
-  if (typeof kind !== "string" || typeof why !== "string") return null;
-  return (WORK_REFUSALS as ReadonlyArray<string>).includes(kind)
-    ? { kind: kind as WorkRefusalDetail["kind"], why }
-    : null;
-};
-
 /** The conductor's refusal, as the failure an agent reads — its own sentence
  *  kept whole, because it names what to do: which setup key was not asked,
- *  which work has ended. Anything else is a fault and says so. */
-const refusalFailure = (err: unknown, work: string): ToolFailure => {
-  const refusal = workRefusalOf(err);
-  return refusal === null
-    ? new ToolFailure(
+ *  which work has ended. Anything else is a fault and says so.
+ *
+ *  `instanceof` the class the host actually threw: every refusal kind is a
+ *  reading of the record, so the class lives in `kolu-work` — which this face
+ *  already depends on — and the duck-typed read that used to stand here
+ *  (because the arrow could not point back) is gone. */
+const refusalFailure = (err: unknown, work: string): ToolFailure =>
+  err instanceof WorkRefusal
+    ? new ToolFailure<WorkRefusalDetail>(err.why, { kind: err.kind, work })
+    : new ToolFailure(
         `kolu could not answer about ${JSON.stringify(work)}: ${String(err)}`,
         { kind: "work-call-failed", work },
-      )
-    : new ToolFailure<WorkRefusalDetail>(refusal.why, {
-        kind: refusal.kind,
-        work,
-      });
+      );
+
+/** WHERE A WORK STANDS, in the words an AGENT reads it in.
+ *
+ *  The model answers a token and every face spells it: the card writes a lead
+ *  and a live check tally, and this writes the half-sentence that follows
+ *  "waiting on". One table here rather than a phrase in the model is what
+ *  lets the two differ without either rewriting the other's prose. */
+export const standingWords = (standing: Standing): string => {
+  switch (standing.why) {
+    case "question":
+      return standing.what;
+    case "merge":
+      return standing.ref === null
+        ? "merge the PR"
+        : `merge PR #${standing.ref}`;
+    case "ci":
+      return "CI running";
+    case "watching":
+      return "watching";
+    case "working":
+      return "agents at work";
+    default:
+      // A finished work: how it ended is the whole answer.
+      return standing.why;
+  }
 };
 
 /** The pre-check, as a sentence. Written HERE rather than passed through the

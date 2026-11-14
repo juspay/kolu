@@ -94,9 +94,8 @@ import {
 import { DAEMON_INVENTORY_SAMPLE_INTERVAL_MS } from "./padi/daemonInventory.ts";
 import { FORWARD_REAP_INTERVAL_MS } from "./portForward/forwards.ts";
 import { conductorSurfaceMembers } from "kolu-conductor/surface";
-import { WorkRefusal } from "kolu-conductor";
 import { ConductorRefused } from "kolu-common/conductorErrors";
-import type { Work } from "kolu-work";
+import { type Work, WorkRefusal } from "kolu-work";
 import {
   liveServerConductor,
   setConductorCellWriter,

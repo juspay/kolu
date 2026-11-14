@@ -42,7 +42,9 @@ import { PersistedHostsSchema } from "kolu-common/hostKey";
 import type { ConductorRow } from "kolu-common/conductor";
 import {
   EMPTY_PERSISTED_CONDUCTOR,
+  EMPTY_PERSISTED_MEMBERS,
   PersistedConductorSchema,
+  PersistedMembersSchema,
   PersistedWorksSchema,
   repointConductorAttachments,
 } from "kolu-conductor";
@@ -322,17 +324,22 @@ export function migratePreferences_1_34_0(
  *  in, the model a person chose and the fleet it touched (its transcript rows
  *  live in their own file since 1.50.0 — see that rung). `works` is the pieces
  *  of work kolu has stored: what the Conductor stated, what the human decided
- *  and what kolu observed, each with its members' per-terminal wake
- *  bookkeeping. Neither is a served cell (`conductor` and `works` are both
- *  assembled from the LIVE record); this is only what a restart has to start
- *  from, and it lives here because kolu-server HOSTS the conversation. Adding
- *  a new domain key requires a migration entry below. */
+ *  and what kolu observed. `members` is what the WATCH knows about each member
+ *  terminal, keyed by fleet ref — what it was last called, the agent seen in
+ *  it, the level the conversation was already told about — kept beside the
+ *  works rather than inside them because it is a fact about a terminal rather
+ *  than part of what a work is, and it moves every time a host is read. None
+ *  of the three is a served cell (all are assembled from the LIVE record);
+ *  this is only what a restart has to start from, and it lives here because
+ *  kolu-server HOSTS the conversation. Adding a new domain key requires a
+ *  migration entry below. */
 const PersistedStateSchema = Schema.Struct({
   preferences: PreferencesSchema,
   hosts: PersistedHostsSchema,
   viewerMode: ViewerModeSchema,
   conductor: PersistedConductorSchema,
   works: PersistedWorksSchema,
+  members: PersistedMembersSchema,
 });
 
 /** The DECODED disk shape. Effect's `Struct.Type` is deep-`readonly`; `Conf` is
@@ -598,6 +605,14 @@ interface WatchedEntry_1_49_0 {
  *  what completes the files this shape was written by, and they stay as they
  *  are when the live code's own empty values move.
  *
+ *  TWO KEYS COME OUT OF ONE WATCH LIST, because that is what the entry always
+ *  was: the half about the WORK (who its members are, when they joined) is a
+ *  work, and the half about the TERMINAL (what it was called, what the
+ *  conversation was told) is the `members` map, keyed by the same fleet ref
+ *  the member names. An entry's two halves must land in both or a carried-over
+ *  terminal comes back as one nobody has ever read — and rings about a state
+ *  it was already told about.
+ *
  *  Exported for `stateMigration.test.ts`, which drives it directly rather than
  *  through a whole ladder walk. */
 export function worksFromWatched_1_50_0(
@@ -605,7 +620,10 @@ export function worksFromWatched_1_50_0(
   /** The work ids to mint, one per group, in group order — injected so a test
    *  can read the result without matching UUIDs. */
   mintId: () => string,
-): ReadonlyArray<Record<string, unknown>> {
+): {
+  readonly works: ReadonlyArray<Record<string, unknown>>;
+  readonly members: Record<string, Record<string, unknown>>;
+} {
   const groups = new Map<string, WatchedEntry_1_49_0[]>();
   for (const entry of watched) {
     const key = entry.root?.ref ?? entry.ref;
@@ -663,17 +681,9 @@ export function worksFromWatched_1_50_0(
         role: "other",
         joinedAt: one.since,
         leftAt: null,
-        watch: {
-          name: one.name,
-          agent: one.agent,
-          told: one.told,
-          joined: one.joined,
-          spoken: one.spoken,
-          ran: one.ran,
-          // No worktree has been read for it yet; the first reading after the
-          // boot says, and until then no files are listed or kept.
-          worktree: null,
-        },
+        // No worktree has been read for it yet; the first reading after the
+        // boot says, and until then no files are listed or kept.
+        worktree: null,
       })),
       events: [
         {
@@ -698,7 +708,19 @@ export function worksFromWatched_1_50_0(
       keptFiles: [],
     });
   }
-  return works;
+  // ... and what kolu knew about each of those terminals, under its own key.
+  const members: Record<string, Record<string, unknown>> = {};
+  for (const entry of watched) {
+    members[entry.ref] = {
+      name: entry.name,
+      agent: entry.agent,
+      told: entry.told,
+      joined: entry.joined,
+      spoken: entry.spoken,
+      ran: entry.ran,
+    };
+  }
+  return { works, members };
 }
 
 /** The 1.50.0 rung's body — A PIECE OF WORK IS A STORED THING, and the
@@ -715,10 +737,13 @@ export function worksFromWatched_1_50_0(
  *     that file is versioned: by THIS ladder, in a rung like this one). The
  *     key is then deleted — a stale copy left behind is a transcript a later
  *     reader could find and believe.
- *  2. THE WATCH LIST BECOMES WORKS ({@link worksFromWatched_1_50_0}), and the
- *     key is deleted. No watched terminal is lost: every entry comes back as a
- *     member of a work in progress, grouped as the panel that wrote the file
- *     drew it.
+ *  2. THE WATCH LIST BECOMES WORKS AND MEMBERS
+ *     ({@link worksFromWatched_1_50_0}), and the key is deleted. No watched
+ *     terminal is lost: every entry comes back as a member of a work in
+ *     progress, grouped as the panel that wrote the file drew it, and what
+ *     kolu knew about that TERMINAL comes back under the `members` key keyed
+ *     by the same ref — so a carried-over terminal is not rung about for a
+ *     state the conversation was already told.
  *
  *  Exported so a test can drive it against a real `Conf` under a temp dir
  *  without walking the whole ladder — the shape `stripLegacyStateKeys_1_31_0`
@@ -745,13 +770,12 @@ export function migrateConductorToWorks_1_50_0(
     );
   }
   store.set("conductor", rest as unknown as PersistedState["conductor"]);
-  store.set(
-    "works",
-    worksFromWatched_1_50_0(
-      (watched ?? []) as ReadonlyArray<WatchedEntry_1_49_0>,
-      randomUUID,
-    ) as unknown as PersistedState["works"],
+  const carried = worksFromWatched_1_50_0(
+    (watched ?? []) as ReadonlyArray<WatchedEntry_1_49_0>,
+    randomUUID,
   );
+  store.set("works", carried.works as unknown as PersistedState["works"]);
+  store.set("members", carried.members as unknown as PersistedState["members"]);
 }
 
 /** The store's `defaults` — hoisted so {@link decodeStateBackup}'s scratch
@@ -777,6 +801,10 @@ const CONF_DEFAULTS: PersistedState = {
   // migration seeds this onto an existing file (from the watch list that
   // preceded it) for the same on-disk-shape reason the keys above give.
   works: [],
+  // ... and nothing known about any member terminal, for the same reason and
+  // out of the same rung: `members` is the watch's own memory, keyed by fleet
+  // ref, and a fresh install has read no host yet.
+  members: EMPTY_PERSISTED_MEMBERS,
 };
 
 /** The migration ladder — hoisted so {@link decodeStateBackup}'s scratch

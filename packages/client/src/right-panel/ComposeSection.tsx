@@ -29,7 +29,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
-import { personInput } from "../conductor/workLock";
+import { personInput } from "../conductor/personInput";
 import { runAction, type UiAction } from "../runAction";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { activePadiRpc } from "../wire";

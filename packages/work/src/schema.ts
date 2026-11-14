@@ -137,6 +137,13 @@ export const WorkMemberSchema = Schema.Struct({
   joinedAt: Schema.String,
   /** When it left the work — closed, released, or gone — or `null`. */
   leftAt: Schema.NullOr(Schema.String),
+  /** WHERE IT WORKED, as kolu first read it off the terminal's record — the
+   *  worktree a work's files are listed from and copied out of when it ends.
+   *  `null` until a reading has said. A fact about the member rather than
+   *  about the watch, because the files outlive the terminal: a work usually
+   *  ends after its terminals are gone, and the path is the only way back to
+   *  what they wrote. */
+  worktree: Schema.NullOr(Schema.String),
 });
 export type WorkMember = typeof WorkMemberSchema.Type;
 

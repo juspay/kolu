@@ -173,20 +173,35 @@ const TileTitleActions: Component<{
 
   return (
     <>
-      {/* THE CONDUCTOR'S MARK — first in the title bar's chrome, right after
-          the title it is about: what part this tile plays, and in which piece
-          of work. The same derivation the dock row reads, so a terminal
-          cannot be a planner in one place and nothing in the other. */}
-      <WorkMark
-        terminal={fleetTerminalRef(encodeHostKey(props.host), props.id)}
-      />
-      {/* THE LOCK, beside the mark: who drives this terminal, and the one
-          control that changes it. Nothing is drawn for a terminal no work
-          drives — which is every terminal outside a waterfall. */}
-      <WorkLock
-        terminal={fleetTerminalRef(encodeHostKey(props.host), props.id)}
-        placement="title"
-      />
+      {/* THE WORK CHROME — the mark and the lock, in ONE bounded group that
+          is the title bar's SHRINKABLE part. Everything else in the action
+          cluster is a fixed control; the tile's own name is a flexible column
+          beside it with a floor (`CanvasTile`'s title grid). Without the cap, a
+          long work title grew the cluster to its max-content and the name's
+          column collapsed to nothing (#2376 review). The group keeps flex's
+          own min-content floor — the ◆ and the Take over control, the parts
+          that never truncate — so squeezing it truncates the words and never
+          slides the control over the mark. Capped in `rem` rather than `%`
+          because a percentage inside an auto-sized grid column resolves
+          against the column this very content is sizing. */}
+      <div class="flex max-w-[36rem] shrink items-center">
+        {/* THE CONDUCTOR'S MARK — right after the title it is about: what
+            part this tile plays, and in which piece of work. The same
+            derivation the dock row reads, so a terminal cannot be a planner
+            in one place and nothing in the other. */}
+        <WorkMark
+          terminal={fleetTerminalRef(encodeHostKey(props.host), props.id)}
+        />
+        {/* THE LOCK, beside the mark: who drives this terminal, and the one
+            control that changes it. It says the DRIVER alone — the mark next
+            to it already names the part and the work. Nothing is drawn for a
+            terminal no work drives, which is every terminal outside a
+            waterfall. */}
+        <WorkLock
+          terminal={fleetTerminalRef(encodeHostKey(props.host), props.id)}
+          placement="title"
+        />
+      </div>
       <Show when={activeArm(meta())?.agent}>
         {(agent) => (
           <button

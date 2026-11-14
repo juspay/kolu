@@ -32,7 +32,7 @@ import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
 // for them and not this module's.
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
-import type { WatchGit, WatchObservation, WatchPr } from "./members.ts";
+import type { WatchGit, WatchObservation, WatchPr } from "./observation.ts";
 
 /** padi's own terminal-id type, read off the urgency cell this module already
  *  takes — the watch list carries plain strings, and the one place they are

@@ -10,7 +10,7 @@ its options.
 ```ts
 Work {
   id, title, repo, branch          // stated by the Conductor when it opens the work
-  members:   Member[]              // terminal, role, joinedAt, leftAt — role stated at create/adopt
+  members:   Member[]              // terminal, role, joinedAt, leftAt, worktree — role stated at create/adopt
   events:    WorkEvent[]           // append-only: what kolu observed (and the Conductor's notes)
   decisions: Decision[]            // every question put to the human about this work, and the answer
   startedAt, endedAt, outcome      // null | merged | closed | abandoned
@@ -30,10 +30,25 @@ else it observes as events.
 
 | module | what |
 | --- | --- |
-| `schema.ts` | the record, the event kinds and what each one's `detail` carries |
+| `schema.ts` | the record, the event kinds and what each one's `detail` carries, and the waterfall's WORDS (`WORK_ROLES`, `WORK_MODES`, `ON_GREEN`, `SETUP_KEYS`) — declared here because the record's schema embeds them |
 | `record.ts` | the transitions: `openWork`, `askQuestions`, `answerAsk`, `dropAsk`, `joinWork`, `leaveWork`, `recordEvent`, `takeOver`/`handBack`, `endWork`, `keepFiles` — the record only grows, bounded by `AGENT_STATES_KEPT` |
-| `readings.ts` | facts read off the record: the setup, who drives a member terminal (`driverOf`), the PR as the timeline last said it (`prOf`), the files seen |
-| `folds.ts` | `waitingOn`, `standing`, `timeBar`, `timeSpent`, `took`, `waitingOnYou` (the tab's number), `membershipOf` (the one derivation every mark reads), `capFinished` (the last 20 finished works) |
+| `readings.ts` | the MECHANISM of a reading: what a decision came to (`answerValue`), the decisions of one ask, the PR as the timeline last said it (`prOf`) with the one check table (`CHECK_STEP`), the files seen |
+| `folds.ts` | `waitingOn`, `standing`, `timeBar`, `timeSpent`, `took`, `capFinished` — each taking a `Policy` (what the waterfall's words mean for this work) rather than reading the setup itself |
+| `waterfall.ts` | the WORDS and every rule over them: `MODE_RUNS` (what each mode runs, needs and drives), `rolesOf`, `setupKeyOf`, `modeOf`/`hostOf`/`onGreenOf`/`setupOf`, `missingSetup` + `foreignSetupWords`, `driverOf`, `membershipOf`, `waitingOnYou`, `policyOf` |
+| `refusal.ts` | why a call about a work is refused — `WORK_REFUSALS` and the `WorkRefusal` every face `instanceof`s |
+
+**The mechanism does not read the vocabulary.** `schema.ts`, `record.ts`,
+`folds.ts` and `readings.ts` import nothing from `waterfall.ts`; the rules that
+need a mode, a role or an on-green live there and read all four. The direction
+is a lint rule (`noRestrictedImports` in `biome.jsonc`), not a comment —
+adding a mode is then ONE row of `MODE_RUNS`, typed by `WorkMode`, instead of
+three tables that each failed open.
+
+**No English crosses this wall.** `standing()` answers a TOKEN — who is waited
+on and why, the question's words or the PR number as needed — and each reader
+spells it: the card writes a lead and a live check tally, the Conductor's
+`works` resource writes a sentence for an agent. The refusal SENTENCES are
+composed by `kolu-conductor`, which names its own tool calls.
 
 **Who is typing into a terminal is a reading too.** The Conductor drives the
 members of a work whose mode is `full` or `trivial`; a person takes one over
@@ -74,8 +89,11 @@ a kolu-domain package, like `kolu-conductor` and `kolu-mcp`.
 Different volatilities, different homes:
 
 - **Storage** is kolu-server's (`packages/server/src/state.ts`): the `works`
-  key of `config.json`, carried by the one migration ladder, and kept files
-  under `<state dir>/works/<id>/`.
+  key of `config.json` (with the `members` key beside it, which is
+  `kolu-conductor`'s own memory of each member terminal), carried by the one
+  migration ladder, and kept files under `<state dir>/works/<id>/`. How many
+  finished works are kept is the host's number too (`FINISHED_KEPT`, beside
+  the cap it applies); `capFinished(works, keep)` takes it.
 - **Observation** is split where its sources are. What a host's frames *mean*
   for a member — a level change, a PR transition, a file that appeared — is
   decided in `kolu-conductor` (pure readings over padi records); the

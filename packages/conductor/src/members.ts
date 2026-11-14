@@ -72,12 +72,13 @@
  * only about the terminal in front of it.
  */
 
-import type {
-  ConductorReadingLevel,
-  ConductorWakeLevel,
+import { Schema } from "effect";
+import {
+  ConductorWakeLevelSchema,
+  type ConductorWakeLevel,
 } from "kolu-common/conductor";
-import type { FLEET_WATCH_JOINS } from "kolu-mcp/fleetWatchJoin";
-import type { MemberWatch } from "./persisted.ts";
+import { FLEET_WATCH_JOINS } from "kolu-mcp/fleetWatchJoin";
+import type { WatchLevel, WatchObservation } from "./observation.ts";
 
 /** HOW A TERMINAL CAME TO BE A MEMBER, which is what the `ready` and `ended`
  *  rules read — the type of the one tuple the word is spelled in
@@ -86,6 +87,59 @@ import type { MemberWatch } from "./persisted.ts";
  *  means are documented there; what matters HERE is that a fourth one cannot
  *  appear in a tool's answer without appearing in these rules. */
 export type WatchJoin = (typeof FLEET_WATCH_JOINS)[number];
+
+/** ONE MEMBER'S WAKE BOOKKEEPING — the half of what kolu knows about a member
+ *  terminal that is WRITTEN DOWN.
+ *
+ *  Declared HERE, in the module that mints every one of them, rather than in
+ *  the persistence module that reads them into a file schema: the generative
+ *  side owns a type, and `./persisted.ts` spreads this into the `members` key
+ *  exactly as it spreads the record's own schemas.
+ *
+ *  Everything here is a fact a restart cannot re-derive: what kolu last saw
+ *  the terminal called, whether an agent was ever seen in it (a terminal that
+ *  never held one is silent when it goes), the level the conversation has
+ *  already been TOLD about, and the three that say how to read the next
+ *  sighting — how the terminal came to be a member, whether anything has been
+ *  said to the agent in it, and whether a command was ever seen running in it.
+ *
+ *  `told` is what makes a restart quiet: kolu looks at every member terminal
+ *  again, and one that is still stopped for the reason it was stopped before
+ *  the restart does not ring a second time. What is NOT here is the held news
+ *  — a restart re-reads the world instead of replaying a queue about one that
+ *  has moved on — nor the last reading, which is this process's own, nor the
+ *  WORKTREE, which is a fact about the member and lives on the record
+ *  (`kolu-work`'s `WorkMemberSchema`) because the files outlive the terminal.
+ *
+ *  NO DECODING DEFAULTS, here or on any key: the schema says what the file
+ *  holds, and making an older file hold it is the ladder's job (`kolu-server`'s
+ *  `state.ts`). A file the ladder did not bring here is refused by name, never
+ *  read as a guess. */
+export const MemberWatchSchema = Schema.Struct({
+  /** What kolu last saw the terminal called — so a wake can name it even when
+   *  the host it is on has stopped answering. */
+  name: Schema.String,
+  /** The agent kolu detected in it, or `null` for a terminal no agent has ever
+   *  been seen in. STICKY: an agent that exited leaves a shell behind, and the
+   *  fact that one was once there is what makes its death worth telling. */
+  agent: Schema.NullOr(Schema.String),
+  /** The level the conversation has already been told about, or `null`. */
+  told: Schema.NullOr(ConductorWakeLevelSchema),
+  /** How this terminal came to be a member — built from the one tuple the word
+   *  is spelled in (`kolu-mcp/fleetWatchJoin`), which the fleet face's wire
+   *  schema and this module's {@link WatchJoin} also build from: a join a tool
+   *  can record is a join the file can read back. */
+  joined: Schema.Literals([...FLEET_WATCH_JOINS]),
+  /** Whether the Conductor has said anything to the agent in it. What `ready`
+   *  turns on, and therefore worth surviving a restart: an agent briefed before
+   *  the restart must not ring as a fresh one after it. */
+  spoken: Schema.Boolean,
+  /** Whether a non-shell foreground was ever seen in it — the other half of
+   *  `ended`, and across a restart the only way to know that the command kolu
+   *  typed ever started. */
+  ran: Schema.Boolean,
+});
+export type MemberWatch = typeof MemberWatchSchema.Type;
 
 /** THE LAST READING of a member terminal — runtime only.
  *
@@ -105,7 +159,7 @@ export type WatchJoin = (typeof FLEET_WATCH_JOINS)[number];
 export interface LastReading {
   readonly level: WatchLevel;
   /** Whether the foreground was the terminal's own shell — padi's answer, or
-   *  `null` for a reading that carried none ({@link WatchObservation}). */
+   *  `null` for a reading that carried none (`./observation.ts`). */
   readonly foregroundShell: boolean | null;
   /** The ISO time this terminal ENTERED {@link LastReading.level} — stamped
    *  by the reading that first saw the level, and CARRIED FORWARD by every
@@ -114,11 +168,13 @@ export interface LastReading {
   readonly since: string;
 }
 
-/** ONE MEMBER, as the host holds it while the process runs: the half that is
- *  written down with the work ({@link MemberWatch}) and the two fields that
- *  are this process's own. */
-export interface MemberState {
-  readonly watch: MemberWatch;
+/** ONE MEMBER, as the host holds it while the process runs — ONE value, not a
+ *  written half and a runtime half held apart.
+ *
+ *  The saved half is taken by SUBTRACTION ({@link saved}), never by listing
+ *  the fields that survive: a field added to {@link MemberWatchSchema} and to
+ *  this record cannot then be left out of what is written. */
+export interface MemberState extends MemberWatch {
   /** The last reading of this terminal in THIS process, or `null` before the
    *  first one. */
   readonly last: LastReading | null;
@@ -128,19 +184,34 @@ export interface MemberState {
   readonly baselining: boolean;
 }
 
-/** A member just joined. Nothing is known about its terminal until the watcher
- *  reads its host — and if it was ADOPTED, the first reading is a baseline
+/** A MEMBER'S SAVED HALF — everything except the two runtime fields.
+ *
+ *  By subtraction rather than by listing what is kept: this is the one place
+ *  the written half is derived, and a field added to the member arrives in the
+ *  file without an edit here. Read at the persist boundary
+ *  (`./memberStore.ts`) and wherever a rule builds the next watch out of this
+ *  one. */
+export const saved = ({
+  last: _last,
+  baselining: _baselining,
+  ...watch
+}: MemberState): MemberWatch => watch;
+
+/** A member's written half, as it stands the moment it joins: nothing is known
+ *  about its terminal until the watcher reads its host. */
+export const joinedWatch = (joined: WatchJoin): MemberWatch => ({
+  name: "",
+  agent: null,
+  told: null,
+  joined,
+  spoken: false,
+  ran: false,
+});
+
+/** A member just joined. If it was ADOPTED, the first reading is a baseline
  *  rather than news ({@link observed}). */
 export const joinedMember = (joined: WatchJoin): MemberState => ({
-  watch: {
-    name: "",
-    agent: null,
-    told: null,
-    joined,
-    spoken: false,
-    ran: false,
-    worktree: null,
-  },
+  ...joinedWatch(joined),
   last: null,
   baselining: joined === "asked",
 });
@@ -154,84 +225,10 @@ export const joinedMember = (joined: WatchJoin): MemberState => ({
  *  one wake a restart owes — the news that waited through a turn, failed to
  *  go, and was written down as still owed. */
 export const restoredMember = (watch: MemberWatch): MemberState => ({
-  watch,
+  ...watch,
   last: null,
   baselining: false,
 });
-
-/** What a terminal is doing, as the watcher reads it off its host.
- *
- *  The four levels a wake shares, the two readings that never ring on their
- *  own (`working` and `shell` are reported rather than dropped because both
- *  MOVE the member — one resets what we were told, the other keeps the name
- *  current and is where `ended` and `exited` are decided), and the two
- *  PRESENCE readings padi publishes before an agent has any transcript:
- *  `starting` and `fresh`.
- *
- *  `ready`, `ended` and `exited` are not in here at all: they are what this
- *  module ANSWERS with. */
-export type WatchLevel = ConductorReadingLevel;
-
-/** WHERE A MEMBER TERMINAL IS WORKING, off its padi record — the worktree the
- *  work's files are listed from, the branch and the repository. `null` for a
- *  terminal whose record says it is in no repository (or one nobody has read
- *  yet). */
-export interface WatchGit {
-  readonly worktree: string;
-  readonly branch: string;
-  readonly repo: string;
-}
-
-/** THE PULL REQUEST a member terminal's record carries, as padi reports it —
- *  the one live fact about a work that kolu cannot see from a terminal's screen
- *  and does not have to ask GitHub for.
- *
- *  What becomes an EVENT is decided against the work's own timeline
- *  (`kolu-work`'s `prOf`), never against the last reading: two members looking
- *  at one PR must record it once, and a restart must record nothing twice. */
-export interface WatchPr {
-  readonly number: number;
-  readonly title: string;
-  readonly state: "open" | "closed" | "merged";
-  /** How its checks stand, or `null` when none have been reported. */
-  readonly checks: "pending" | "pass" | "fail" | null;
-  /** The names of the checks that are failing, when any are. */
-  readonly failing: ReadonlyArray<string>;
-}
-
-/** One reading of one member terminal, for refs on CONNECTED hosts only — a
- *  host that is merely not answering says nothing about its terminals, and
- *  `gone` would be a lie about every one of them. */
-export interface WatchObservation {
-  /** The fleet ref (`host/id`), as the work's members are keyed. */
-  readonly ref: string;
-  /** Its two halves, from the watcher that already holds both — the encoded
-   *  host key it subscribed and the id on that host. Split HERE would be this
-   *  file re-deriving what its caller knows: a host key may itself contain
-   *  slashes (`remote:ssh://box/3`), and one grammar read in two places is one
-   *  of them being wrong about a remote. */
-  readonly host: string;
-  readonly terminalId: string;
-  /** What a person calls the host it is on. */
-  readonly hostName: string;
-  readonly name: string;
-  readonly agent: string | null;
-  readonly level: WatchLevel;
-  /** Whether padi's foreground process IS the terminal's own shell — an idle
-   *  prompt with nothing running in front of it. `null` when the reading has
-   *  no foreground to report: a sleeping terminal (its PTY is released), one
-   *  that is gone, or a record padi has not sampled a foreground for yet.
-   *
-   *  Reported rather than folded into the level because the DECISION it feeds
-   *  is this module's: `ended` is "the command ran and we are back at the
-   *  prompt", which is two readings of this one fact and not a state padi has
-   *  a word for. */
-  readonly foregroundShell: boolean | null;
-  /** The repository this terminal is in, off the same record. */
-  readonly git: WatchGit | null;
-  /** The PR that record carries, if it carries one. */
-  readonly pr: WatchPr | null;
-}
 
 /** What one reading did to one member. `ring` is the wake level this is worth
  *  waking the Conductor about, or `null`; `drop` is a terminal that is not
@@ -305,27 +302,27 @@ const standsAs = (
  * is worth waking the Conductor about.
  *
  * The member carries forward what the reading does not say: a name is kept when
- * a reading has none, an agent is kept for good once one has been seen, `ran`
- * is kept once a command has been seen in front of the shell, and the worktree
- * is kept once a record has named one — the files of a work outlive the
- * terminal that was in it.
+ * a reading has none, an agent is kept for good once one has been seen, and
+ * `ran` is kept once a command has been seen in front of the shell. Where the
+ * terminal is WORKING is not here: the worktree is a fact of the member on the
+ * record (`kolu-work`'s `sawWorktree`), written by the observation loop off the
+ * same reading, because a work's files have to outlive the terminal that wrote
+ * them.
  */
 export const observed = (
   member: MemberState,
   seen: WatchObservation,
 ): Watched => {
-  const watch = member.watch;
-  const named = seen.name === "" ? watch.name : seen.name;
+  const named = seen.name === "" ? member.name : seen.name;
   // STICKY: `null` from a reading means "no agent in it right now", which for
   // a terminal that had one is the agent having exited — the thing its death
   // is worth reporting for.
-  const agent = seen.agent ?? watch.agent;
+  const agent = seen.agent ?? member.agent;
   const moved: MemberWatch = {
-    ...watch,
+    ...saved(member),
     name: named,
     agent,
-    ran: watch.ran || seen.foregroundShell === false,
-    worktree: seen.git?.worktree ?? watch.worktree,
+    ran: member.ran || seen.foregroundShell === false,
   };
   // WHEN THIS LEVEL BEGAN. The clock is read only where the level CHANGES,
   // which is the whole accuracy claim: a reading that says the same thing
@@ -351,7 +348,8 @@ export const observed = (
     const based: MemberWatch = { ...moved, spoken: agent !== null };
     return {
       member: {
-        watch: { ...based, told: standsAs(based, last) },
+        ...based,
+        told: standsAs(based, last),
         last,
         baselining: false,
       },
@@ -362,7 +360,7 @@ export const observed = (
   if (seen.level === "working") {
     // It will stop again, and that stop is news.
     return {
-      member: { watch: { ...moved, told: null }, last, baselining: false },
+      member: { ...moved, told: null, last, baselining: false },
       ring: null,
       drop: false,
     };
@@ -371,8 +369,8 @@ export const observed = (
   // `told` is left exactly as it was — it is set when a wake is DELIVERED —
   // and a level equal to it is the same news twice.
   return {
-    member: { watch: moved, last, baselining: false },
-    ring: stands === null || stands === watch.told ? null : stands,
+    member: { ...moved, last, baselining: false },
+    ring: stands === null || stands === member.told ? null : stands,
     drop,
   };
 };
@@ -397,9 +395,10 @@ export const observed = (
  * did, so the next real stop is news again.
  */
 export const spokenTo = (member: MemberState): MemberState => {
-  const spoken: MemberWatch = { ...member.watch, spoken: true };
+  const spoken: MemberWatch = { ...saved(member), spoken: true };
   return {
-    watch: { ...spoken, told: standsAs(spoken, member.last) ?? spoken.told },
+    ...spoken,
+    told: standsAs(spoken, member.last) ?? spoken.told,
     last: member.last,
     baselining: false,
   };

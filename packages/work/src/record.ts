@@ -287,6 +287,7 @@ export const joinWork = (
           role: joined.role,
           joinedAt: joined.at,
           leftAt: null,
+          worktree: null,
         },
       ],
     },
@@ -298,6 +299,28 @@ export const joinWork = (
       detail: joined.role,
     },
   );
+};
+
+/** WHERE A MEMBER IS WORKING, as the first reading that said it. Nothing is
+ *  appended to the timeline — a worktree is not something that HAPPENED, it is
+ *  where everything else did — and the first answer sticks: a terminal is in
+ *  one worktree for the life of its membership, and the path has to outlive
+ *  the terminal for the work's files to be found when it ends. */
+export const sawWorktree = (
+  work: Work,
+  terminal: string,
+  worktree: string,
+): Work => {
+  const member = activeMember(work, terminal);
+  if (member === undefined || member.worktree !== null) return work;
+  return {
+    ...work,
+    members: work.members.map((one) =>
+      one.terminal === terminal && one.leftAt === null
+        ? { ...one, worktree }
+        : one,
+    ),
+  };
 };
 
 /** A member leaves: its terminal was closed, released, or went away. */

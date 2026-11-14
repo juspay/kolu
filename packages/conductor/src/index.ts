@@ -1,13 +1,18 @@
 /**
  * `kolu-conductor` — the Conductor's SERVER HALF, as a package kolu mounts.
  *
- * The Conductor is one Claude conversation over ACP for a whole fleet. Four
- * things make it work and they are all here: the HOST that owns the ACP child,
- * the transcript and the WORKS ({@link startConductorHost}), the RECORDS that
- * survive a restart (`./persisted`), the per-member wake rules (`./members`),
- * and the STANDING PROMPT the agent is taught. The surface members a browser
- * subscribes to are here too (`./surface`), because an implementation of "what
- * `conductor.prompt` does" belongs with the thing that does it.
+ * The Conductor is one Claude conversation over ACP for a whole fleet. What
+ * makes it work is here, one module per thing that moves on its own clock:
+ * the CONVERSATION and its transcript ({@link startConductorHost}, which also
+ * wires the rest), the WORKS it holds (`./workStore`), what kolu knows about
+ * each member terminal (`./memberStore`, `./members`), what an observation
+ * MEANS to a work (`./observing`), when news reaches a turn (`./wakes`,
+ * `./held`), kolu's own questions (`./asking`), a prompt's files
+ * (`./attachments`), how often any of it hits disk (`./recordWrites`), the
+ * RECORDS that survive a restart (`./persisted`), and the STANDING PROMPT the
+ * agent is taught. The surface members a browser subscribes to are here too
+ * (`./surface`), because an implementation of "what `conductor.prompt` does"
+ * belongs with the thing that does it.
  *
  * ## Why a package, and what that costs the caller
  *
@@ -28,68 +33,92 @@
  *
  * What deliberately did NOT move: the WIRE SCHEMA (`kolu-common`, because the
  * browser reads it too and a browser must not import a package that spawns
- * subprocesses), the RECORD ITSELF (`kolu-work`, which knows nothing of ACP,
- * MCP or a terminal and is read by the browser as well), the migration rung
- * and the `PersistedStateSchema` keys (kolu's one ladder has one home), and
- * the UI.
+ * subprocesses), the RECORD ITSELF and its refusals (`kolu-work`, which knows
+ * nothing of ACP, MCP or a terminal and is read by the browser as well), the
+ * migration rung and the `PersistedStateSchema` keys (kolu's one ladder has
+ * one home), and the UI.
  */
 
+export {
+  type Asking,
+  askForm,
+  asking,
+  otherKey,
+  pickedValues,
+} from "./asking.ts";
+export {
+  type AttachmentChunk,
+  type Attachments,
+  attachments,
+  UNSENT_ATTACHMENT_MS,
+} from "./attachments.ts";
 export {
   type ConductorDeps,
   type ConductorFrameSink,
   type ConductorHost,
   type FleetMcpEndpoint,
   startConductorHost,
-  UNSENT_ATTACHMENT_MS,
 } from "./conductor.ts";
 export { type Held, type HeldSlot, holding } from "./held.ts";
+export { type MemberStore, memberStore } from "./memberStore.ts";
 export {
   joinedMember,
+  joinedWatch,
   type LastReading,
   type MemberState,
-  observed,
-  restoredMember,
-  spokenTo,
-  type Watched,
-  type WatchGit,
-  type WatchJoin,
-  type WatchLevel,
-  type WatchObservation,
-  type WatchPr,
-} from "./members.ts";
-export {
-  EMPTY_PERSISTED_CONDUCTOR,
-  EMPTY_PERSISTED_TRANSCRIPT,
   type MemberWatch,
   MemberWatchSchema,
+  observed,
+  restoredMember,
+  saved,
+  spokenTo,
+  type Watched,
+  type WatchJoin,
+} from "./members.ts";
+export type {
+  WatchGit,
+  WatchLevel,
+  WatchObservation,
+  WatchPr,
+} from "./observation.ts";
+export {
+  fileEvents,
+  type Observing,
+  observing,
+  prEvents,
+  ringEvent,
+} from "./observing.ts";
+export {
+  EMPTY_PERSISTED_CONDUCTOR,
+  EMPTY_PERSISTED_MEMBERS,
+  EMPTY_PERSISTED_TRANSCRIPT,
   type PersistedConductor,
   PersistedConductorSchema,
+  type PersistedMembers,
+  PersistedMembersSchema,
   type PersistedTranscript,
   PersistedTranscriptSchema,
   type PersistedWorks,
   PersistedWorksSchema,
   readPersistedConductor,
+  readPersistedMembers,
   readPersistedTranscript,
   readPersistedWorks,
   repointConductorAttachments,
   ROW_CAP,
-  type StoredMember,
-  StoredMemberSchema,
-  type StoredWork,
-  StoredWorkSchema,
 } from "./persisted.ts";
 export { type HostReading, readingsOf, recordName } from "./readings.ts";
+export { type RecordWrites, recordWrites } from "./recordWrites.ts";
 export { conductorSurfaceMembers } from "./surface.ts";
 export { parseTeaching, teachingLines } from "./teaching.ts";
 export { conductorTranscriptSource } from "./transcriptStream.ts";
 export { type WakeMembership, wakeText } from "./wakeText.ts";
+export { type Wakes, type WakeTurn, wakes } from "./wakes.ts";
+export type { WorkFiles } from "./workFiles.ts";
 export {
-  askForm,
-  missingSetup,
-  otherKey,
-  pickedValues,
-  type SetupAsk,
-  type WorkFiles,
-  WorkRefusal,
-  type WorkRefusalKind,
-} from "./works.ts";
+  FINISHED_KEPT,
+  type MemberAt,
+  type MemberDetail,
+  type WorkStore,
+  workStore,
+} from "./workStore.ts";

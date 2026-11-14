@@ -13,8 +13,12 @@ import {
   joinWork,
   leaveWork,
   membershipOf,
+  missingSetup,
   openAsks,
   openWork,
+  policyOf,
+  type SetupAsk,
+  type SetupKey,
   prOf,
   recordEvent,
   setupOf,
@@ -109,6 +113,46 @@ const setUp = (work: Work, onGreen: "merge" | "hand-over" = "merge"): Work =>
     ]),
   });
 
+describe("what a setup must carry, before any work exists", () => {
+  const ask = (
+    key: SetupKey,
+    options: ReadonlyArray<string>,
+    given?: string,
+  ): SetupAsk => ({
+    key,
+    question: `${key}?`,
+    options,
+    ...(given === undefined ? {} : { given }),
+  });
+
+  it("needs exactly the given mode's keys when the request already said the mode", () => {
+    // "Trivial, implementor claude on claude-sonnet-5-5, hand it over on
+    // green": nobody will be asked which mode, so a trivial waterfall's
+    // planner questions are questions about a role it does not run.
+    expect(
+      missingSetup([
+        ask("host", ["naiveintent"], "naiveintent"),
+        ask("mode", ["trivial", "full"], "trivial"),
+        ask("implementor.harness", ["claude"], "claude"),
+        ask("implementor.model", ["claude-sonnet-5-5"], "claude-sonnet-5-5"),
+        ask("on-green", ["hand-over"], "hand-over"),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("needs every offered mode's keys while the mode is still a question", () => {
+    expect(
+      missingSetup([
+        ask("host", ["naiveintent"]),
+        ask("mode", ["full", "trivial"]),
+        ask("implementor.harness", ["claude"]),
+        ask("implementor.model", ["claude-sonnet-5-5"]),
+        ask("on-green", ["hand-over"]),
+      ]),
+    ).toEqual(["planner.harness", "planner.model"]);
+  });
+});
+
 describe("the setup is a reading of the decisions", () => {
   it("reads host, mode, roles and on-green off the answers, with no second copy", () => {
     const setup = setupOf(setUp(opened()));
@@ -130,8 +174,8 @@ describe("the setup is a reading of the decisions", () => {
       questions: SETUP,
     });
     expect(setupOf(asked).host).toBeNull();
-    expect(waitingOn(asked)).toBe("you");
-    expect(standing(asked).what).toBe("Which host?");
+    expect(waitingOn(asked, policyOf(asked))).toBe("you");
+    expect(standing(asked, policyOf(asked)).what).toBe("Which host?");
   });
 
   it("records a given answer as decided by the request, and asks nothing", () => {
@@ -184,7 +228,7 @@ describe("the setup is a reading of the decisions", () => {
 describe("who a work is waiting on, and since when", () => {
   it("is the agents after setup, you while a question is open, CI while checks run", () => {
     let work = setUp(opened());
-    expect(waitingOn(work)).toBe("agent");
+    expect(waitingOn(work, policyOf(work))).toBe("agent");
     work = askQuestions(work, {
       ask: "plan",
       at: T(14),
@@ -198,9 +242,11 @@ describe("who a work is waiting on, and since when", () => {
         },
       ],
     });
-    expect(standing(work)).toEqual({
+    expect(standing(work, policyOf(work))).toEqual({
       who: "you",
+      why: "question",
       what: "Approve the plan?",
+      ref: null,
       since: T(14),
     });
     work = answerAsk(work, {
@@ -209,7 +255,10 @@ describe("who a work is waiting on, and since when", () => {
       from: "card",
       values: new Map([["q-plan", ["Approve"]]]),
     });
-    expect(standing(work)).toMatchObject({ who: "agent", since: T(18) });
+    expect(standing(work, policyOf(work))).toMatchObject({
+      who: "agent",
+      since: T(18),
+    });
     work = recordEvent(work, {
       at: T(40),
       by: "agent",
@@ -224,9 +273,11 @@ describe("who a work is waiting on, and since when", () => {
       terminal: null,
       detail: "",
     });
-    expect(standing(work)).toEqual({
+    expect(standing(work, policyOf(work))).toEqual({
       who: "ci",
-      what: "CI running",
+      why: "ci",
+      what: "",
+      ref: null,
       since: T(41),
     });
     expect(prOf(work)).toEqual({
@@ -259,19 +310,25 @@ describe("who a work is waiting on, and since when", () => {
       terminal: null,
       detail: "",
     });
-    expect(standing(work)).toEqual({
+    expect(standing(work, policyOf(work))).toEqual({
       who: "you",
-      what: "merge PR #9",
+      why: "merge",
+      what: "",
+      ref: 9,
       since: T(50),
     });
-    expect(waitingOn(setUp(opened(), "merge"))).toBe("agent");
+    expect(
+      waitingOn(setUp(opened(), "merge"), policyOf(setUp(opened(), "merge"))),
+    ).toBe("agent");
   });
 
   it("is done once ended", () => {
     const work = endWork(setUp(opened()), { outcome: "merged", at: T(60) });
-    expect(standing(work)).toEqual({
+    expect(standing(work, policyOf(work))).toEqual({
       who: "done",
-      what: "merged",
+      why: "merged",
+      what: "",
+      ref: null,
       since: T(60),
     });
     expect(endWork(work, { outcome: "closed", at: T(61) })).toBe(work);
@@ -319,7 +376,7 @@ describe("where the time went", () => {
 
   it("cuts the life into stretches by who it waited on, merging neighbours", () => {
     const minute = 60_000;
-    expect(timeBar(story(), T(99))).toEqual([
+    expect(timeBar(story(), policyOf(story()), T(99))).toEqual([
       { who: "you", ms: 1 * minute },
       { who: "agent", ms: 13 * minute },
       { who: "you", ms: 4 * minute },
@@ -327,7 +384,7 @@ describe("where the time went", () => {
       { who: "ci", ms: 6 * minute },
       { who: "agent", ms: 4 * minute },
     ]);
-    expect(timeSpent(story(), T(99))).toEqual({
+    expect(timeSpent(story(), policyOf(story()), T(99))).toEqual({
       agent: 29 * minute,
       you: 5 * minute,
       ci: 6 * minute,
@@ -336,7 +393,7 @@ describe("where the time went", () => {
 
   it("runs a work in progress to now, and its last step stays open", () => {
     const work = setUp(opened());
-    expect(timeSpent(work, T(10)).agent).toBe(9 * 60_000);
+    expect(timeSpent(work, policyOf(work), T(10)).agent).toBe(9 * 60_000);
     expect(took(work, T(10)).at(-1)).toEqual({ ms: 9 * 60_000, open: true });
   });
 });
@@ -371,7 +428,7 @@ describe("the history", () => {
     const works: Work[] = [opened("live")];
     for (let i = 0; i < 23; i++)
       works.push(endWork(opened(`f${i}`), { outcome: "merged", at: T(i + 1) }));
-    const { kept, dropped } = capFinished(works);
+    const { kept, dropped } = capFinished(works, 20);
     expect(kept).toHaveLength(21);
     expect(kept[0]?.id).toBe("live");
     expect(dropped.map((one) => one.id)).toEqual(["f0", "f1", "f2"]);
@@ -558,8 +615,14 @@ describe("the agent-state bound", () => {
       ],
     };
     expect(unbounded.events.length).toBeGreaterThan(bounded.events.length);
-    expect(waitingOn(bounded)).toEqual(waitingOn(unbounded));
-    expect(standing(bounded)).toEqual(standing(unbounded));
-    expect(timeBar(bounded, T(1_000))).toEqual(timeBar(unbounded, T(1_000)));
+    expect(waitingOn(bounded, policyOf(bounded))).toEqual(
+      waitingOn(unbounded, policyOf(unbounded)),
+    );
+    expect(standing(bounded, policyOf(bounded))).toEqual(
+      standing(unbounded, policyOf(unbounded)),
+    );
+    expect(timeBar(bounded, policyOf(bounded), T(1_000))).toEqual(
+      timeBar(unbounded, policyOf(unbounded), T(1_000)),
+    );
   });
 });

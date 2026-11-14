@@ -48,7 +48,14 @@ import {
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
 import { type FleetWorks, serveKoluFleetMcp } from "kolu-mcp";
-import { driverOf, hostOf, modeOf, onGreenOf, standing } from "kolu-work";
+import {
+  driverOf,
+  hostOf,
+  modeOf,
+  onGreenOf,
+  policyOf,
+  standing,
+} from "kolu-work";
 import { dirname } from "node:path";
 import type { KoluBootFlags } from "./bootFlags.ts";
 import { fleetHostsOver } from "./fleet/fleetHosts.ts";
@@ -691,7 +698,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
             host: hostOf(work),
             mode: modeOf(work),
             onGreen: onGreenOf(work),
-            standing: standing(work),
+            standing: standing(work, policyOf(work)),
             members: detail
               .filter((one) => one.work === work.id)
               .map((one) => ({
@@ -1245,8 +1252,8 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         hasLiveHost: (key) => pool.getHandler(key) !== undefined,
         addHostKey: (key) => pool.add(key),
         removeHostKey: (key) => pool.remove(key),
-        restoreWorks: (works) => {
-          liveServerConductor().restoreWorks(works);
+        restoreWorks: (works, members) => {
+          liveServerConductor().restoreWorks(works, members);
         },
       }),
   });

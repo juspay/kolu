@@ -122,9 +122,17 @@ When("I go to the member terminal", async function (this: KoluWorld) {
   });
 });
 
-/** WHO DRIVES IT, read off the banner's own data and its own sentence: the
- *  attribute is what the guard reads, the words are what the person reads,
- *  and a surface where those two disagree is the bug this asserts against. */
+/** WHO DRIVES IT, read off the banner's own data, its own words and its
+ *  tooltip: the attribute is what the guard reads, the words are what the
+ *  person reads, and a surface where those disagree is the bug this asserts
+ *  against.
+ *
+ *  The WHOLE sentence ("Driven by the Conductor · Implementor · <work>")
+ *  lives in the banner's `title` in every placement, but only the phone's
+ *  band draws it: in a tile's title bar the mark beside the banner already
+ *  says `◆ IMPLEMENTOR · <work>`, so the banner there says the driver alone
+ *  and the two read as one line. So the visible words are checked against
+ *  the LEAD and the full sentence against the tooltip. */
 async function expectBanner(
   world: KoluWorld,
   driver: "conductor" | "you",
@@ -142,12 +150,21 @@ async function expectBanner(
         `the lock still reads ${JSON.stringify(last)} rather than ${JSON.stringify(driver)} after ${ms}ms`,
       ),
   });
+  const lead = words.split(" · ")[0] ?? words;
   const reads = ((await banner.first().textContent()) ?? "")
     .replace(/\s+/g, " ")
     .trim();
   assert.ok(
-    reads.includes(words),
-    `the lock reads ${JSON.stringify(reads)}, which does not say ${JSON.stringify(words)}`,
+    reads.includes(lead),
+    `the lock reads ${JSON.stringify(reads)}, which does not say ${JSON.stringify(lead)}`,
+  );
+  const tooltip = ((await banner.first().getAttribute("title")) ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  assert.strictEqual(
+    tooltip,
+    words,
+    `the lock's tooltip reads ${JSON.stringify(tooltip)} rather than ${JSON.stringify(words)}`,
   );
 }
 

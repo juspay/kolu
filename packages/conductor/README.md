@@ -6,9 +6,9 @@ mounts.
 
 Three things make the conversation work and they are all here:
 
-- **the host** (`startConductorHost`) — owns the ACP child, the transcript, the
-  attachments on disk and the throttled record; translates the harness's two
-  refusals into the two errors a caller branches on;
+- **the host** (`startConductorHost`) — owns the ACP child and the transcript,
+  translates the harness's two refusals into the two errors a caller branches
+  on, and WIRES the modules below, one per thing that moves on its own clock;
 - **the record** (`./persisted`) — what survives a restart, and the re-validation
   that refuses a transcript with holes in it rather than drawing one. Its
   session id is resumed only when the rows since the last break show a turn:
@@ -23,6 +23,26 @@ The `koluSurface` members a browser subscribes to are here too (`./surface`),
 because an implementation of "what `conductor.prompt` does" belongs with the
 thing that does it.
 
+### The modules the host wires
+
+| module | what moves it |
+| --- | --- |
+| `conductor.ts` | the CONVERSATION — the ACP child, the transcript, the restart fence, `publishState`, and the facade that returns `ConductorHost` |
+| `workStore.ts` | the works map, open/join/leave/save (end → keep files → cap at `FINISHED_KEPT` → sweep), the driver lock, restore, and publish-what-moved (one helper, an equivalence per collection) |
+| `memberStore.ts` | what kolu knows about each member terminal, by fleet ref — ONE location, saved by subtraction |
+| `members.ts` | pure: what a reading MEANS for a member (`MemberWatchSchema`, `observed`, `spokenTo`) |
+| `observation.ts` | the observation vocabulary alone (`WatchObservation`, `WatchGit`, `WatchPr`) — a leaf both rule modules read |
+| `readings.ts` | pure: a host's frames → one `WatchObservation` per member terminal |
+| `observing.ts` | pure `ringEvent` / `prEvents` / `fileEvents` + the ONE pass per reading that applies them |
+| `wakes.ts` | when news reaches a turn: the held queue, the one-flight flush, the failure episode, the `told` write-back |
+| `held.ts` | the slot discipline under it (ported from olai's `deliveries.ts`) |
+| `asking.ts` | kolu's own questions: the elicitation form, and recording the decisions before anything can answer |
+| `attachments.ts` | a prompt's files on their way up, and the rule that reaps them |
+| `recordWrites.ts` | how often any of it hits disk — one leading-edge timer, one flag per record |
+| `workFiles.ts` | the port kolu-server implements over padi |
+| `persisted.ts` | the four records a restart reads, and the re-validation that refuses a file with holes in it |
+| `wakeText.ts` · `teaching.ts` · `surface.ts` · `transcriptStream.ts` | what the agent reads, what it is taught, and what a browser subscribes to |
+
 ## The works, the watch, the hold and the wake
 
 A PIECE OF WORK is the thing kolu stores (`kolu-work`: the record, the event
@@ -32,15 +52,20 @@ appending what it observes.
 
 - **The works** (`works` / `openWork` / `askAboutWork` / `joinWork` /
   `leaveWork` / `note`) — kept in memory in the order they were opened and
-  saved under `config.json`'s `works` key (`./persisted.ts`'s `StoredWork`).
+  saved under `config.json`'s `works` key — `kolu-work`'s `Work`, unadorned.
   A work OUTLIVES the conversation that opened it: `clearSession` wipes the
   chat and keeps every work, dropping only the questions that chat was
-  holding. Per MEMBER the record keeps what a restart cannot re-derive
-  (`MemberWatch`): the name kolu last saw, whether an agent was ever seen in
-  it, the level the conversation has already been TOLD about, HOW it joined
-  (`created` · `created-run` · `asked`), whether anything has been said to the
-  agent in it, whether a command was ever seen running in it, and the worktree
-  kolu last read for it — where its files are listed and kept from.
+  holding.
+- **What kolu knows about each member TERMINAL** is its own key beside them,
+  `members` (ref → `MemberWatch`, `./members.ts`): the name kolu last saw,
+  whether an agent was ever seen in it, the level the conversation has already
+  been TOLD about, HOW it joined (`created` · `created-run` · `asked`),
+  whether anything has been said to the agent in it, and whether a command was
+  ever seen running in it. Beside the works rather than inside them because it
+  is a fact about a terminal rather than part of what a work is, it moves every
+  time a host is read, and a reader of the record is never handed it. WHERE a
+  member worked is the exception and lives on the record (`WorkMember.worktree`):
+  a work's files have to be findable after its terminals are gone.
 - **The setup is DECISIONS.** `work_open` carries the questions; they go to
   the human as ONE ask row linked to the work (`@kolu/acp-harness`'s
   `askPerson`, the same machinery an agent's elicitation rides), every answer

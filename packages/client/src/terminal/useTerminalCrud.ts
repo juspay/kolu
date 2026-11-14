@@ -27,7 +27,7 @@ import { restartedLabel } from "@kolu/agent-distro/status";
 import { agentLive } from "@kolu/terminal-vocab/agentProjection";
 import { createRestartGuard, type RestartGuard } from "../agents/restartGuard";
 import { usePendingLayouts } from "../canvas/usePendingLayouts";
-import { personInput } from "../conductor/workLock";
+import { personInput } from "../conductor/personInput";
 import { createSharedRoot } from "../createSharedRoot";
 import { exportScrollbackAsPdf } from "../exportScrollbackAsPdf";
 import { exportSessionAsHtml } from "../exportSessionAsHtml";

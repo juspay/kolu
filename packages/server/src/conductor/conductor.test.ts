@@ -74,6 +74,8 @@ import {
   type KeptFile,
   type SetupKey,
   type Work,
+  type WorkMember,
+  WorkRefusal,
   type WorkRole,
 } from "kolu-work";
 import type { Logger } from "pino";
@@ -92,16 +94,14 @@ import {
   type FleetMcpEndpoint,
   type MemberWatch,
   type PersistedConductor,
+  type PersistedMembers,
   type PersistedTranscript,
   type PersistedWorks,
-  type StoredMember,
-  type StoredWork,
   type WatchGit,
   type WatchLevel,
   type WatchObservation,
   type WatchPr,
   type WorkFiles,
-  WorkRefusal,
 } from "kolu-conductor";
 
 const HOME = "/home/tester";
@@ -442,6 +442,10 @@ interface Remembered {
   /** `config.json`'s `works` key — the pieces of work, which outlive the
    *  conversation that opened them. */
   readonly works?: PersistedWorks;
+  /** ... and `config.json`'s `members` key: what kolu knew about each of
+   *  their member terminals, by fleet ref. Its own key, so a fixture says
+   *  what was READ about a terminal apart from what the work claims. */
+  readonly members?: PersistedMembers;
   readonly endpoint?: FleetMcpEndpoint | null;
   readonly root?: string;
 }
@@ -452,6 +456,7 @@ interface Rig {
   record: Counted<PersistedConductor>;
   transcript: Counted<PersistedTranscript>;
   works: Counted<PersistedWorks>;
+  members: Counted<PersistedMembers>;
   files: FakeFiles;
   /** Every frame a reader was actually given, in order. The host publishes
    *  only when the frame says something different from the last one, so this
@@ -481,6 +486,7 @@ function rig(over: Remembered = {}): Rig {
     rows: over.rows ?? [],
   });
   const works = countingStore<PersistedWorks>(over.works ?? []);
+  const members = countingStore<PersistedMembers>(over.members ?? {});
   const files = fakeFiles();
   const published: ConductorState[] = [];
   const membersMoved: boolean[] = [];
@@ -518,6 +524,7 @@ function rig(over: Remembered = {}): Rig {
     store: record.store,
     transcript: transcript.store,
     works: works.store,
+    members: members.store,
     workFiles: files.port,
     storePath: () => join(root, "config.json"),
     transcriptPath: () => join(root, "conductor", "transcript.json"),
@@ -530,6 +537,7 @@ function rig(over: Remembered = {}): Rig {
     record,
     transcript,
     works,
+    members,
     files,
     published: () => published,
     worksPublished: () => worksPublished,
@@ -1250,6 +1258,7 @@ describe("teardown (B2)", () => {
       store: countingStore(EMPTY_PERSISTED_CONDUCTOR).store,
       transcript: countingStore<PersistedTranscript>({ rows: [] }).store,
       works: countingStore<PersistedWorks>([]).store,
+      members: countingStore<PersistedMembers>({}).store,
       workFiles: fakeFiles().port,
       storePath: () => "/state/config.json",
       transcriptPath: () => "/state/conductor/transcript.json",
@@ -1316,6 +1325,7 @@ describe("teardown (B2)", () => {
       store: countingStore(EMPTY_PERSISTED_CONDUCTOR).store,
       transcript: countingStore<PersistedTranscript>({ rows: [] }).store,
       works: countingStore<PersistedWorks>([]).store,
+      members: countingStore<PersistedMembers>({}).store,
       workFiles: fakeFiles().port,
       storePath: () => "/state/config.json",
       transcriptPath: () => "/state/conductor/transcript.json",
@@ -1724,7 +1734,8 @@ describe("a run of NEW SESSION dividers", () => {
 const A = "local/11111111-1111-4111-8111-111111111111";
 const B = "remote:prod/22222222-2222-4222-8222-222222222222";
 
-/** One member's wake bookkeeping, as the record keeps it. */
+/** What kolu knew about one member TERMINAL, as the `members` key keeps it —
+ *  its own record now, beside the works rather than inside one. */
 const storedWatch = (over: Partial<MemberWatch> = {}): MemberWatch => ({
   name: "fix the parser",
   agent: "claude-code",
@@ -1732,30 +1743,35 @@ const storedWatch = (over: Partial<MemberWatch> = {}): MemberWatch => ({
   joined: "created",
   spoken: true,
   ran: false,
-  worktree: null,
   ...over,
 });
 
-/** ... and one stored member: the model's member plus that bookkeeping. */
+/** ... and the whole `members` key for a set of refs. */
+const storedMembers = (
+  refs: Readonly<Record<string, Partial<MemberWatch>>>,
+): PersistedMembers =>
+  Object.fromEntries(
+    Object.entries(refs).map(([ref, over]) => [ref, storedWatch(over)]),
+  );
+
+/** One member of a work, as the record keeps it. */
 const storedMember = (
   terminal: string,
   over: {
     role?: WorkRole;
     leftAt?: string | null;
-    watch?: Partial<MemberWatch>;
+    worktree?: string | null;
   } = {},
-): StoredMember => ({
+): WorkMember => ({
   terminal,
   role: over.role ?? "implementor",
   joinedAt: T0,
   leftAt: over.leftAt ?? null,
-  watch: storedWatch(over.watch),
+  worktree: over.worktree ?? null,
 });
 
 /** A piece of work as a previous kolu-server left it on disk. */
-const storedWork = (
-  over: Partial<StoredWork> & { id: string },
-): StoredWork => ({
+const storedWork = (over: Partial<Work> & { id: string }): Work => ({
   title: "fix the parser",
   repo: "/srv/repo",
   branch: "fix-the-parser",
@@ -2463,17 +2479,18 @@ describe("the news a member terminal makes", () => {
     await r.host.dispose();
     const members = r.works.value()[0]?.members ?? [];
     expect(members.map((one) => one.terminal)).toEqual([A, B]);
-    expect(members.map((one) => one.watch)).toEqual([
-      {
+    // The work says who its members are; the `members` key says what kolu
+    // knows about each of those terminals.
+    expect(r.members.value()).toEqual({
+      [A]: {
         name: "fix the parser",
         agent: "claude-code",
         told: null,
         joined: "created",
         spoken: true,
         ran: false,
-        worktree: null,
       },
-      {
+      [B]: {
         // Nothing has read this one's host yet, so kolu knows nothing about
         // the terminal beyond the fact that it is a member.
         name: "",
@@ -2482,15 +2499,15 @@ describe("the news a member terminal makes", () => {
         joined: "created",
         spoken: true,
         ran: false,
-        worktree: null,
       },
-    ]);
+    });
 
     // ... and when one does go, that is what writes it down.
     const second = rig({
       record: r.record.value(),
       rows: r.transcript.value().rows,
       works: r.works.value(),
+      members: r.members.value(),
     });
     await second.host.prompt("hello", [], [], false);
     const live = second.spawns[0];
@@ -2501,7 +2518,7 @@ describe("the news a member terminal makes", () => {
       expect(live.wakes()).toHaveLength(1);
     });
     await second.host.dispose();
-    expect(second.works.value()[0]?.members[0]?.watch.told).toBe("stopped");
+    expect(second.members.value()[A]?.told).toBe("stopped");
   });
 });
 
@@ -2511,12 +2528,8 @@ describe("the watch across a restart", () => {
     // the conversation was told so before the restart.
     const r = rig({
       record: { ...EMPTY_PERSISTED_CONDUCTOR, cwd: HOME },
-      works: [
-        storedWork({
-          id: "work:carried",
-          members: [storedMember(A, { watch: { told: "stopped" } })],
-        }),
-      ],
+      works: [storedWork({ id: "work:carried", members: [storedMember(A)] })],
+      members: storedMembers({ [A]: { told: "stopped" } }),
     });
     await r.host.prompt("hello", [], [], false);
     const agent = r.spawns[0];
@@ -3281,25 +3294,28 @@ describe("a restored backup of the works", () => {
     const moved = r.membersMoved().length;
     const writes = r.works.writes();
 
-    r.host.restoreWorks([
-      storedWork({
-        id: "work:restored",
-        title: "carried over",
-        members: [storedMember(B)],
-        decisions: [
-          {
-            id: "d1",
-            ask: "ask:gone",
-            at: T0,
-            key: null,
-            question: "Approve the plan?",
-            options: ["Approve"],
-            multiple: false,
-            answer: null,
-          },
-        ],
-      }),
-    ]);
+    r.host.restoreWorks(
+      [
+        storedWork({
+          id: "work:restored",
+          title: "carried over",
+          members: [storedMember(B)],
+          decisions: [
+            {
+              id: "d1",
+              ask: "ask:gone",
+              at: T0,
+              key: null,
+              question: "Approve the plan?",
+              options: ["Approve"],
+              multiple: false,
+              answer: null,
+            },
+          ],
+        }),
+      ],
+      storedMembers({ [B]: {} }),
+    );
 
     // The snapshot's works, and only those.
     expect(r.host.works().map((one) => one.id)).toEqual(["work:restored"]);
@@ -3328,7 +3344,7 @@ describe("a restored backup of the works", () => {
     const r = rig();
     await drivenWork(r);
 
-    r.host.restoreWorks([storedWork({ id: "work:restored" })]);
+    r.host.restoreWorks([storedWork({ id: "work:restored" })], {});
 
     // ONE rule: keep what the stored works name, delete the rest. A per-work
     // delete would leave the orphans of a snapshot nobody here ever had.
@@ -3345,9 +3361,10 @@ describe("a restored backup of the works", () => {
       expect(r.host.readings().get(A)?.level).toBe("working");
     });
 
-    r.host.restoreWorks([
-      storedWork({ id: "work:restored", members: [storedMember(B)] }),
-    ]);
+    r.host.restoreWorks(
+      [storedWork({ id: "work:restored", members: [storedMember(B)] })],
+      storedMembers({ [B]: {} }),
+    );
 
     // Nothing is left to read about it, and its reading leaves the wire.
     expect(r.host.readings().has(A)).toBe(false);

@@ -21,7 +21,7 @@
 import { type Component, createMemo, Show } from "solid-js";
 import { useConductor } from "./useConductor";
 import { useMembership } from "./useWorks";
-import { nudgedTerminal } from "./workLock";
+import { nudgedTerminal } from "./personInput";
 import { LOCK_NUDGE_WORDS, lockWords } from "./workReadings";
 
 const CONTROL_CLASS =
@@ -48,6 +48,12 @@ const WorkLock: Component<{
     return at === undefined || at.driver === null ? undefined : at;
   });
   const nudged = () => nudgedTerminal(props.terminal);
+  /** WHAT THE TITLE BAR SHOWS: the driver alone. The mark immediately before
+   *  it already says `◆ IMPLEMENTOR · <work>`, so repeating the part and the
+   *  work there cost the tile's own name the room it needs — the two read as
+   *  one line, "◆ Implementor · <work> · Driven by the Conductor". The phone
+   *  band has no mark beside it, so it says the whole sentence, and the
+   *  sentence is the tooltip in both. */
 
   return (
     <Show when={driven()}>
@@ -56,9 +62,8 @@ const WorkLock: Component<{
           data-testid="work-lock"
           data-driver={at().driver ?? undefined}
           data-work={at().work}
-          // The nudge RINGS the banner the blocked keystroke was about, so the
-          // eye lands on the control that unblocks it rather than on a toast
-          // in the corner of a different part of the screen.
+          // The whole sentence is always reachable, whichever half is drawn.
+          title={lockWords(at())}
           // ONE `class` binding derived from placement and driver: a
           // `classList` beside a static `class` loses (Solid applies the
           // static one last), which is `HostChipShell`'s worked example.
@@ -70,52 +75,68 @@ const WorkLock: Component<{
             at().driver === "you"
               ? "bg-alert/15 text-alert"
               : "bg-conductor/15 text-conductor"
-          } ${nudged() ? "ring-2 ring-alert animate-pulse" : ""}`}
+          }`}
         >
-          <span class="min-w-0 truncate font-semibold">{lockWords(at())}</span>
-          <Show
-            when={at().driver === "conductor"}
-            fallback={
+          <span class="min-w-0 truncate font-semibold">
+            {props.placement === "bar"
+              ? lockWords(at())
+              : at().driver === "you"
+                ? "Taken over"
+                : "Driven by the Conductor"}
+          </span>
+          {/* The control, and the nudge ANCHORED TO IT — the hint is an
+              absolutely positioned popover rather than a word in the row, so
+              a blocked keystroke rings the one control that unblocks it and
+              moves nothing else on the title bar. */}
+          <span class="relative shrink-0">
+            <Show
+              when={at().driver === "conductor"}
+              fallback={
+                <button
+                  type="button"
+                  data-testid="work-hand-back"
+                  class={`${CONTROL_CLASS} bg-alert/20 text-alert hover:bg-alert/30`}
+                  // Tile chrome lives on a draggable title bar: a press here
+                  // is this control's, never the start of a tile drag.
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    conductor.handBack(props.terminal);
+                  }}
+                >
+                  Hand back
+                </button>
+              }
+            >
               <button
                 type="button"
-                data-testid="work-hand-back"
-                class={`${CONTROL_CLASS} bg-alert/20 text-alert hover:bg-alert/30`}
-                // Tile chrome lives on a draggable title bar: a press here is
-                // this control's, never the start of a tile drag.
+                data-testid="work-take-over"
+                class={`${CONTROL_CLASS} bg-conductor/20 text-conductor hover:bg-conductor/30 ${
+                  nudged() ? "ring-2 ring-alert animate-pulse" : ""
+                }`}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
-                  conductor.handBack(props.terminal);
+                  conductor.takeOver(props.terminal);
                 }}
               >
-                Hand back
+                Take over
               </button>
-            }
-          >
-            <button
-              type="button"
-              data-testid="work-take-over"
-              class={`${CONTROL_CLASS} bg-conductor/20 text-conductor hover:bg-conductor/30`}
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                conductor.takeOver(props.terminal);
-              }}
-            >
-              Take over
-            </button>
-          </Show>
-          {/* The blocked keystroke's one line — beside the control it points
-              at, and never instead of it. */}
-          <Show when={nudged()}>
-            <span
-              data-testid="work-lock-nudge"
-              role="status"
-              class="min-w-0 truncate font-normal normal-case text-alert"
-            >
-              {LOCK_NUDGE_WORDS}
-            </span>
-          </Show>
+            </Show>
+            <Show when={nudged()}>
+              <span
+                data-testid="work-lock-nudge"
+                role="status"
+                class={`absolute z-30 mt-1 whitespace-nowrap rounded-md border border-alert/40 bg-surface-1 px-2 py-1 text-[0.6rem] font-normal normal-case text-alert shadow-lg ${
+                  props.placement === "bar"
+                    ? "bottom-full left-0 mb-1"
+                    : "top-full right-0"
+                }`}
+              >
+                {LOCK_NUDGE_WORDS}
+              </span>
+            </Show>
+          </span>
         </span>
       )}
     </Show>

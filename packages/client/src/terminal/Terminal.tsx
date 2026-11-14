@@ -40,6 +40,7 @@ import {
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { toError } from "@kolu/surface/run-stream";
 import {
+  isReadingReport,
   isTerminalQueryResponse,
   wrapBracketedPaste,
 } from "@kolu/terminal-protocol";
@@ -67,7 +68,7 @@ import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
 import { isDeclared, TERMINAL_NOT_FOUND } from "../rpc/declaredErrors";
-import { personInput } from "../conductor/workLock";
+import { personInput } from "../conductor/personInput";
 import { runAction, runActionPromise, type UiAction } from "../runAction";
 import type { LineRef } from "../ui/lineRef";
 import { isTouch } from "../useMobile";
@@ -1379,10 +1380,12 @@ const Terminal: Component<{
         // THE LOCK is the next gate: xterm's `onData` carries BOTH keys and a
         // text paste, so one check here covers every byte a person types into
         // this terminal. A query response is the terminal answering kolu, not
-        // a person, and is dropped above before the gate ever sees it.
+        // a person, and is dropped above before the gate ever sees it; a
+        // focus or wheel report is a person READING (clicking into the tile,
+        // scrolling a mouse-tracking TUI), so it passes the gate unasked.
         onData={(data) => {
           if (isTerminalQueryResponse(data)) return;
-          if (!personInput(props.terminalId)) return;
+          if (!isReadingReport(data) && !personInput(props.terminalId)) return;
           runAction(
             "send input",
             activePadiRpc.lifecycle

@@ -48,17 +48,26 @@ const WorkMark: Component<{
               : "bg-conductor/15 text-conductor"
           }`}
         >
-          <span aria-hidden="true">◆</span>
-          <span class="uppercase tracking-[0.06em]">
+          {/* The glyph never shrinks; the WORK'S TITLE gives way first,
+              because it is the part a reader can recover from the tooltip,
+              and the part only after it (a far smaller shrink factor) — so a
+              tile squeezed to its last pixels still keeps the ◆. */}
+          <span aria-hidden="true" class="shrink-0">
+            ◆
+          </span>
+          <span class="min-w-0 shrink-[0.1] truncate uppercase tracking-[0.06em]">
             {ROLE_WORD[at().role]}
           </span>
+          {/* No "taken over" in the words: the lock's banner beside this on a
+              tile says the driver, and on a dock row — where there is no
+              banner — the alert ink, `data-driver` and the tooltip say it
+              without costing the row's own name a second phrase. */}
           <span
             class={`min-w-0 truncate font-normal normal-case ${
               at().driver === "you" ? "text-alert/80" : "text-conductor/80"
             }`}
           >
-            · {at().driver === "you" ? "taken over · " : ""}
-            {at().title}
+            · {at().title}
           </span>
         </span>
       )}
