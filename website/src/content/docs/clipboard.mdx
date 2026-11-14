@@ -1,6 +1,6 @@
 ---
 title: Clipboard & Files
-description: "Paste an image with Ctrl+V and drag-and-drop files onto a terminal — kolu saves them server-side and bracketed-pastes the path, so agents that accept paste-as-file-path pick them up."
+description: "Paste an image or drop a file onto a terminal: kolu saves it on the server and pastes its path onto the agent's input line."
 order: 57
 section: "Files & Code"
 koluHero:
@@ -8,15 +8,13 @@ koluHero:
   headline: Hand a {file} to the agent.
 ---
 
-import Aside from "../../components/docs/Aside.astro";
-import Card from "../../components/docs/Card.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 
-Many coding agents — Claude Code, Codex — take a **file path** on their input
-line and read the file themselves. kolu leans on exactly that: paste an image or
-drop a file, and kolu saves it on the server, then types its path into the
-terminal so the agent can pick it up. You never manage a temp file by hand.
+Many coding agents, such as Claude Code and Codex, take a **file path** on
+their input line and read the file themselves. So paste an image or drop a
+file: kolu saves it on the server and types its path into the terminal for the
+agent to pick up.
 
 <figure class="doc-figure">
   <svg viewBox="0 0 720 132" role="img" aria-labelledby="cb-flow-title">
@@ -50,29 +48,27 @@ terminal so the agent can pick it up. You never manage a temp file by hand.
 ## Paste an image
 
 Press <kbd>Ctrl+V</kbd> in a terminal with an image on the clipboard. kolu saves
-the clipboard image server-side and bracketed-pastes its path into the PTY. Any
-agent that accepts a pasted file path (Claude Code, Codex, …) picks it up as if
-you'd typed the path yourself — a screenshot straight into the conversation, no
-intermediate file.
+the image on the server and pastes its path into the terminal. Any agent that
+accepts a pasted file path (Claude Code, Codex, …) picks it up as if you had
+typed the path yourself, so a screenshot goes straight into the conversation.
 
 ## Drag and drop a file
 
-Drag a file from your OS onto a terminal tile. It uploads to the server and its
-path is bracketed-pasted into the PTY, the same way a pasted image is.
+Drag a file from your computer onto a terminal tile. It uploads to the server
+and its path is pasted into the terminal, the same way a pasted image is.
 
-- **Size cap** — 50 MiB per file. Oversize drops are rejected client-side with a
-  toast; they never hit the wire.
-- **Type allowlist** — a curated set covering text, code, structured data, common
-  documents, images, and video. A disallowed type is rejected client-side, also
-  with a toast.
+- **Size cap** — 50 MiB per file. An oversize drop is rejected in the browser
+  with a toast, and never hits the wire.
+- **Type allowlist** — a curated set covering text, code, structured data,
+  common documents, images, and video. A disallowed type is rejected the same
+  way. These are the same image and video types the
+  [Code tab](/code-tab) previews.
 
-<Aside type="tip" title="What the agent sees">
-  Both paths arrive as a <strong>bracketed paste</strong> on the input line — text
-  for you to review, not a submitted command. The agent reads the file from disk
-  when you send your prompt. The same video and image types you can drop are the
-  ones the [Code tab](/code-tab) previews, so drop and preview
-  stay in lockstep.
-</Aside>
+## What the agent sees
+
+Both paths arrive as a **bracketed paste** on the input line: text for you to
+review, not a submitted command. The agent reads the file from disk when you
+send your prompt.
 
 <CardGrid>
   <LinkCard title="Agent detection" href="/agent-detection" description="how kolu knows which agent is running in a terminal" />
