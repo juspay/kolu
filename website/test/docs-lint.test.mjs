@@ -57,13 +57,15 @@ function splitFrontmatter(source) {
 
 // Inline code stands in as one neutral token per word, so its words count but
 // its punctuation (`--flag`, `a.b`, `;`) never reads as a dash, a semicolon or
-// a sentence end. Expressions and JSX attributes are not running text.
+// a sentence end. The token is capitalised so a sentence that opens with code
+// still starts a new sentence. Expressions and JSX attributes are not running
+// text.
 function plain(node) {
   if (node.type === "inlineCode")
     return node.value
       .split(/\s+/)
       .filter(Boolean)
-      .map(() => "x")
+      .map(() => "X")
       .join(" ");
   if (node.type === "text") return node.value;
   if (node.type === "break") return " ";
