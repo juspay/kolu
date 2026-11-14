@@ -34,10 +34,10 @@
 
 | Fact | Where |
 | --- | --- |
-| "A shell has a real hierarchy, so using it beats gluing the key on with an underscore…" plus "one composition, spelled once per face…" | `why-surfaces` (pending; queued in `.waterfall/moved/why-surfaces/ref-surface-cli.md`) |
-| "That is a subtraction at build rather than a refusal at run time… a flag whose help is untrue" | `reactive-honesty` (pending; queued in `.waterfall/moved/reactive-honesty/ref-surface-cli.md`) |
-| "The split is the point…" and "Reporting that on the code that means 'the verb did what it was asked' would make 'I could not find out' indistinguishable from success" | `reactive-honesty` (pending; same file) |
-| "a separate `describe(values)` beside a `connect(values)` is two readings of one decision with nothing holding them together" (full passage; a one-clause version stays in the entry, keeping both code spans) | `reactive-honesty` (pending; same file) |
+| "A shell has a real hierarchy, so using it beats gluing the key on with an underscore…" plus "one composition, spelled once per face…" | `why-surfaces` → "Why each face spells a name its own way" |
+| "That is a subtraction at build rather than a refusal at run time… a flag whose help is untrue" | `reactive-honesty` → `## A face offers only what it can do` |
+| "The split is the point…" and "Reporting that on the code that means 'the verb did what it was asked' would make 'I could not find out' indistinguishable from success" | `reactive-honesty` → `### The same split on the command line` (under `## An empty stream fails loud, never quiet`) |
+| "a separate `describe(values)` beside a `connect(values)` is two readings of one decision with nothing holding them together" (full passage; a one-clause version stays in the entry, keeping both code spans) | `reactive-honesty` → `## A face offers only what it can do`, second paragraph |
 
 ## Cut
 

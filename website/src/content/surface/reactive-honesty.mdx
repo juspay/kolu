@@ -1,171 +1,218 @@
 ---
 title: Reactive honesty
-description: "Why a surface always opens with a snapshot, fails fast on an empty stream, and must be consumed fine-grained — so the view never silently lies."
+description: "Why a surface opens with a snapshot, fails loudly on an empty stream, and reports health as a fact that your app turns into a verdict."
 order: 241
 section: Basics · Explanation
 ---
 
-A live view has one job beyond looking right: it must not *lie*. A frozen number
-that looks like a current reading, a spinner that never resolves, an error banner
-that stays up after the system recovered — each is worse than an obvious crash,
-because the reader trusts it. The surface framework is built around a handful of
-rules whose whole purpose is to make a dishonest view hard to write. Together
-they are what we call reactive honesty.
+A live view can fail in a way a crash cannot: it can lie. A frozen number, a
+spinner that never resolves, an error banner left standing after recovery. The
+reader trusts all three. These rules make a dishonest view hard to write.
 
 ## A stream always opens with a snapshot
 
-Every cell, collection, and stream sends a fresh full snapshot as its first
-frame, and only then deltas. This is not a nicety — it is load-bearing. The
-streaming retry plugin re-invokes the source function on **every reconnect**. If
-the first frame after a reconnect were a delta, the client would apply a change
-on top of stale state and silently diverge. Because the first frame is always a
-snapshot, a reconnect re-seeds from truth. Every server-side helper enforces
-this in code; you cannot wire a source that skips its snapshot.
+Every cell, collection and stream sends a full snapshot as its first frame, and
+only then deltas. The streaming retry plugin re-invokes the source function on
+every reconnect.
+
+If the first frame after a reconnect were a delta, the client would apply a
+change on top of stale state and diverge without saying so. A snapshot first
+means a reconnect re-seeds from truth. Every server-side helper enforces this,
+so you cannot wire a source that skips its snapshot.
 
 ## An empty stream fails loud, never quiet
 
-The counterpart to "always snapshot" is "never a silent empty." When a stream is
-expected to open with a value and instead closes with nothing, that is a link
-failure, and it surfaces as one — the initial read's exception propagates to the
-client on the first frame rather than resolving to an empty view. The framework
-refuses the tempting fallback where a caught error collapses into a quietly
-empty, quietly successful result. An empty that means "the pipe broke" must look
-different from an empty that means "there is genuinely nothing here."
+A stream that is expected to open with a value and instead closes with nothing
+has a broken link, and it says so. The initial read's exception reaches the
+client on the first frame instead of resolving to an empty view.
 
-There is a matching subtlety for keyed reads: asking a collection for a key that
-does not exist *yet* does **not** error. It holds open and yields nothing until
-the first value arrives. "Absent" is a recoverable waiting state, not a failure —
-throwing there once turned a normal empty into a non-retriable error that killed
-the subscription.
+The framework refuses the tempting fallback, where a caught error collapses into
+a quietly empty, quietly successful result. An empty that means "the pipe broke"
+must not look like an empty that means "there is genuinely nothing here".
+
+### Absent is not a failure
+
+Asking a collection for a key that does not exist yet does not error. The read
+holds open and yields nothing until the first value arrives. Absence there is a
+waiting state that recovers on its own. Throwing instead turns a normal empty
+into a non-retriable error that kills the subscription.
+
+### The same split on the command line
+
+A one-shot read of a collection item whose key is not a member is a completed
+read. It answers `{"present":false,"why":"absent"}` at exit `0`, a data frame
+like any other.
+
+A deadline is not an answer at all. Nothing said whether the item is there, and
+a quiet producer reaches it while the item is perfectly alive. Reporting that on
+the code that means "the verb did what it was asked" would make "I could not
+find out" indistinguishable from success. So a deadline takes the endpoint's
+arm, exit `3`, the same code as a dial that never landed, because in both
+nothing answered. See [exit codes](/surface/ref-surface-cli#exit-codes).
 
 ## Consume fine-grained, or the view freezes
 
-The last rule is about how you *read* the surface. Use the bound hooks
-(`.cells.X.use()`, `.collections.X.use()`, `.streams.X.use()`) and each new value
-flows in through [fine-grained reactivity](https://docs.solidjs.com/concepts/intro-to-reactivity) — objects reconciled key-by-key, keyed
-list rows mounted and torn down individually as the key set changes.
+Read a surface through its bound hooks (`.cells.X.use()`,
+`.collections.X.use()`, `.streams.X.use()`). Each new value then flows in
+through [fine-grained reactivity](https://docs.solidjs.com/concepts/intro-to-reactivity):
+objects reconciled key by key, keyed list rows mounted and torn down
+individually as the key set changes.
 
-The anti-pattern is a coarse read that copies the whole thing into your own
-signal and hand-folds updates. Two things go wrong. First, same-shaped frames
-coalesce and the view stops updating — it looks alive and is frozen. Second, and
-worse, a hand-fold tends to grow a latch: a `?? previous` that keeps showing the
-last error even after the system recovered, because your fold never clears it.
-The framework's per-subscription error is self-clearing by construction; a
-hand-rolled one is not.
+The anti-pattern is a coarse read that copies the whole value into your own
+signal and folds updates by hand. Two things go wrong.
+
+Same-shaped frames coalesce and the view stops updating, so it looks alive while
+it is frozen. And a hand-fold grows a latch, a `?? previous` that keeps showing
+the last error after the system recovered, because the fold never clears it. The
+framework's per-subscription error clears itself. A hand-rolled one does not.
 
 ## Health is a fact, not a verdict
 
-`client.health()` returns `{ live, subs }`. `live` is the honest conjunction —
-the transport is up *and* every readiness predicate passes. A subscription error
-stays in `subs`; it is never folded into `live`. That split is the whole point:
-the framework reports *what is true* and leaves the *verdict* — "show the stale
-value while degraded" versus "hard-gate until ready" — to the app. A component
-that dims a status dot reads the fact; it can never be handed a "ready" it did
-not earn.
+`client.health()` returns `{ live, subs }`. `live` is a conjunction: the
+transport is up and every readiness predicate passes. A subscription error stays
+in `subs`, and is never folded into `live`.
+
+That split leaves the verdict to the app. Show the stale value while degraded,
+or hard-gate until ready: the framework reports what is true and you decide what
+it means. A component that dims a status dot reads the fact, and can never be
+handed a "ready" it did not earn.
 
 ## Green is a claim about the page, not about the socket
 
-A fact only helps if somebody reads it, and for years the indicator every app
-draws had *two* inputs to remember: the connection's transport `status`, and a
-`client.health()` call it could simply never make. Apps never made it. A
-collection whose stream had died then rendered as an empty collection, under a
-green light — the socket really was open, and the light really was about the
-socket.
+An indicator drawn from the transport's `status` alone claims only that a socket
+is open. A collection whose stream has died then renders as an empty collection
+under a green light, and the light is not wrong: the socket really is open, and
+the light really is about the socket.
 
-So the connect seams do not hand back a transport status any more. They hand back
-a **readout** — `connecting · live · degraded · reconnecting · retired` — folded
-from both facts, where `degraded` is the state the transport cannot see (a live
-socket over a stopped subscription) and names which subscriptions stopped. Two
-rules ride with it, and both are the framework's rather than any app's: a
-subscription still waiting for its first frame does **not** degrade the readout
-(that is what every page load looks like, and an indicator that ambers on every
-load is one nobody reads), and `needsReload` is true for `retired` and nothing
-else, so no app keeps its own list of which states are terminal.
+So the connect seams hand back a readout instead of a transport status:
+`connecting · live · degraded · reconnecting · retired`, folded from both facts.
+`degraded` is the state the transport cannot see, a live socket over a stopped
+subscription, and it names which subscriptions stopped. The readout is the one
+verdict the framework owns, because it is the one an app most often gets wrong.
 
-What stays the app's is the *look*: what "degraded" is called, what green claims
-in words, which colour each state paints. The framework owns which state is true;
-the app owns what it is called. (The gate is still a separate policy: a `<SurfaceGate>`
-legitimately blocks the body on a pending first frame, which is exactly what the
-readout must not do.)
+Two rules ride with it, and both are the framework's rather than any app's.
+
+- A subscription still waiting for its first frame does not degrade the readout.
+  That is what every page load looks like, and an indicator that ambers on every
+  load is one nobody reads.
+- `needsReload` is true for `retired` and nothing else, so no app keeps its own
+  list of which states are terminal.
+
+What stays yours is the look: what `degraded` is called, what green claims in
+words, which colour each state paints. The gate is a separate policy. A
+`<SurfaceGate>` legitimately blocks the body on a pending first frame, which is
+exactly what the readout must not do.
+
+### Why the overlay waits a second
+
+`presentingDown` is the graced down state, the bit a full-screen overlay gates
+on. An app that reads the raw transport status flashes a full-screen alarm for
+every sub-second forced reconnect, such as a watchdog's half-open recovery or a
+Wi-Fi roam. An app that smooths that by hand re-derives the same number. The
+readout derives the graced bit once, over one baked window, and leaves `status`
+itself instantaneous. See [the readout](/surface/ref-surface#the-readout).
+
+## A face offers only what it can do
+
+A host whose transport cannot push declares `endpoint.streaming: false`. Then
+`watch` is not mounted and `--follow` is not declared anywhere. That is a
+subtraction at build rather than a refusal at run time: a caller finds out what
+a face can do from `--help`, and a flag that parses and then always fails is a
+flag whose help is untrue.
+
+The same rule shapes how a command line dials. `resolve` reads the flags once
+and answers with the endpoint's name beside the thunk that opens it, in one
+step. The name is needed exactly when the dial fails, when there is no
+connection left to ask. A separate `describe(values)` beside a `connect(values)`
+is two readings of one decision, with nothing holding them together.
 
 ## A per-viewer answer is a root RPC, never a cell
 
-A cell is BROADCAST — one value, published to every connected client — so it has
-no shape that can carry a different answer to each viewer. "Which machine is the
-browser asking me from?" is exactly that kind of question: it depends on the
-connection, not on the world. Ask it through a request/response procedure, where
-the caller and the answer are the same act.
+A cell is broadcast. It holds one value, published to every connected client, so
+it has no shape that can carry a different answer to each viewer. "Which machine
+is the browser asking me from?" is exactly that kind of question: it depends on
+the connection, not on the world. Ask it through a request/response procedure,
+where the caller and the answer are the same act.
 
-Kolu learned this building port forwarding. It needed to know whether the browser
-was sitting AT one of its own hosts (so a port there could open on the viewer own
-loopback instead of being tunnelled through a third machine). The fact lives on
-the connection — its peer address, and the forwarded header a trusted local proxy
-appends — and no cell could have carried it.
+Port forwarding needs that answer. A port on the viewer's own machine can open
+on their loopback instead of being tunnelled through a third host, but only if
+the server knows the browser is sitting at one of its own hosts. The fact lives
+on the connection, in its peer address and in the forwarded header a trusted
+local proxy appends. No cell could carry it.
 
-## A poll read may reconcile, but it publishes only by RETURNING
+## A poll read may reconcile, but it publishes only by returning
 
 A poll on a fused cadence (`everyMsOr(interval, edge)`) re-reads on a clock and
-on a change edge. It is fine for that read to DO something first — reconcile
-state, close what has died, tidy up. What it must not do is ANNOUNCE on the edge
-that triggers it: that closes a cycle the reactor will execute forever, and the
+on a change edge. It is fine for that read to do something first: reconcile
+state, close what has died, tidy up. What it must not do is announce on the edge
+that triggers it. That closes a cycle the reactor executes forever, and the
 failure mode is a whole-process freeze that outranks `SIGTERM`.
 
-Kolu shipped exactly that. A cell reconciled its port forwards on the interval
-and announced the result on its own change edge; the first forward a user opened
-froze the server — UI dead, HTTP dead, `SIGKILL` the only way out — and it was
-invisible before then because with nothing to reconcile the pass returned before
-announcing. The fix was not a guard on the announcement but the removal of the
-shape: report by returning, and let the poll publish what the read returns. The
-reactor now detects the cycle and crashes naming the source, so the class costs a
-stack trace rather than an outage.
+The shape hides until it is fatal. A cell that reconciles its port forwards on
+the interval and announces the result on its own change edge returns before
+announcing while there is nothing to reconcile. The first forward a user opens
+freezes the server, with the interface and HTTP dead and `SIGKILL` the only way
+out. The cure is to remove the shape rather than guard the announcement: report
+by returning, and let the poll publish what the read returns.
+
+The reactor also detects the cycle and crashes naming the source, so the class
+costs a stack trace rather than an outage. Naming is why a poll source's
+[`label`](/surface/ref-surface#source-read-install-label-) is required rather
+than a convention. A convention is a rule held by memory, and the next fused
+cell is added by someone who has not read it. The guard would then fire
+anonymously, on exactly the source nobody expected to loop.
 
 ## A round trip carries the backlog, not one frame of it
 
-A subscription's frames are acknowledged: the server sends one, waits to hear it
+A subscription's frames are acknowledged. The server sends one, waits to hear it
 arrived, then sends the next. That is what keeps a slow reader from being
-drowned, and it means the cost of a burst is decided by something you would not
-think to look at — the SHAPE of the chunks the producer emits. One value per
-chunk makes a subscription stop-and-wait: exactly one publish per round trip,
-however much has piled up behind it.
+drowned, and it makes the shape of the chunks a producer emits decide the cost
+of a burst. One value per chunk makes a subscription stop-and-wait: exactly one
+publish per round trip, however much has piled up behind it.
 
-Nothing about that is visible on a laptop, where a round trip is a tenth of a
+Nothing about that shows on a laptop, where a round trip is a tenth of a
 millisecond. Put a real link in the middle and it is the only thing that
-matters: a producer publishing faster than the round trip can never be caught up
-with, so the reader falls behind by (publishes × RTT) and stays there — and the
-lag is independent of bandwidth, so a fatter pipe buys nothing.
+matters. A producer publishing faster than the round trip can never be caught up
+with, so the reader falls behind by (publishes × RTT) and stays there. The lag
+is independent of bandwidth, so a fatter pipe buys nothing.
 
-Olai found this the way you find it: a chat panel in Canada watching an agent in
-India type. The agent finished its answer in ten seconds; the last of it reached
-the screen seventy-two seconds later, at five chunks a second on a 200ms link,
-with the reader watching a paragraph that had been written a minute earlier.
+Measured on a chat panel in Canada watching an agent type in India: the agent
+finished its answer in ten seconds. The last of it reached the screen
+seventy-two seconds later, at five chunks a second over a 200 ms link.
 
-The framework's own producers batch now: what has been published since the last
+The framework's own producers batch. What has been published since the last
 chunk went out rides together, so the ack window fills with the backlog instead
-of one frame of it. It changes nothing about the protocol and nothing about what
-you write — the frames that were going to be sent are sent together. What it
-means for YOUR producers is one line: emit a chunk of what you have, not a chunk
-per value, and a burst costs one round trip instead of one each.
+of one frame of it. That changes nothing about the protocol and nothing about
+what you write. For your own producers it is one line: emit a chunk of what you
+have, not a chunk per value, and a burst costs one round trip instead of one
+each.
 
-**The buffer that does it is bounded, and that is the load-bearing half.** A
-first attempt at this batched into an unbounded one, and the cost was invisible
-until CI found it: a subscription that never blocks stops pushing back, so a
-channel that declared a `highWaterMark` and a drop policy never reached it, and
-that policy quietly stopped meaning anything. The buffer suspends instead — when
-a consumer has genuinely stopped reading, the backlog goes back to sitting in
-the channel, and the channel's own bound is once again the thing that decides
-what happens to it. The rule for a producer with a bound of its own: batching
-belongs to the delivery, but the DECISION about a backlog nobody is reading
-stays where the bound is declared.
+### The buffer that batches is bounded
 
-## The through-line
+An unbounded batching buffer costs more than it saves, and the cost stays
+invisible until a test finds it. A subscription that never blocks stops pushing
+back, so a channel that declared a `highWaterMark` and a drop policy never
+reaches them, and that policy quietly stops meaning anything.
 
-Every rule here is the same instinct applied at a different layer: a caught error
-must surface, never collapse to an empty or default state. Snapshot-then-deltas
-keeps a reconnect from lying about state; fail-fast keeps a broken pipe from
-looking empty; fine-grained consume keeps a recovered view from staying frozen;
-health-as-fact keeps the app from mistaking "up" for "ready"; and a round trip
-that carries the backlog keeps a reader from being told the truth so slowly that
-it has stopped being true. The cost is that you give up the easy fallbacks — the
-`?? {}`, the swallowed error, the "just show nothing," and the unbounded buffer
-that makes a slow reader somebody else's problem. In exchange, when the view says
-a number, the number is real, and it is the number now.
+The buffer suspends instead. When a consumer has genuinely stopped reading, the
+backlog goes back to sitting in the channel, and the channel's own bound is
+again the thing that decides what happens to it. Batching belongs to the
+delivery. The decision about a backlog nobody is reading stays where the bound
+is declared.
+
+## What the rules have in common
+
+Every rule here is the same instinct applied at a different layer: a caught
+error must surface, never collapse into an empty or default state.
+Snapshot-then-deltas keeps a reconnect from lying about state. Fail-fast keeps a
+broken pipe from looking empty. Fine-grained reads keep a recovered view from
+staying frozen.
+
+Health as a fact keeps an app from mistaking "up" for "ready". A round trip that
+carries the backlog keeps a reader from being told the truth too slowly for it
+to still be true.
+
+The cost is the easy fallbacks: the `?? {}`, the swallowed error, the "just show
+nothing", and the unbounded buffer that makes a slow reader somebody else's
+problem. In exchange, when the view shows a number, the number is real, and it
+is the number now.

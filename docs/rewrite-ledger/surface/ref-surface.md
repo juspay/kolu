@@ -89,7 +89,7 @@ None (`.waterfall/compare.mjs … --old-lines 276-568`: 0 missing).
 
 | Fact | Where |
 | --- | --- |
-| The argument for `label` being required ("a rule held by memory… fires anonymously on exactly the source nobody expected to loop") | `reactive-honesty` (pending; queued in `.waterfall/moved/reactive-honesty/ref-surface-03.md`). The entry keeps the facts: required, diagnostics only, no field can silence the guard. |
+| The argument for `label` being required ("a rule held by memory… fires anonymously on exactly the source nobody expected to loop") | `reactive-honesty`, `## A poll read may reconcile, but it publishes only by returning` (final paragraph). The entry keeps the facts: required, diagnostics only, no field can silence the guard. |
 
 ### Cut
 
@@ -310,9 +310,8 @@ None (`.waterfall/compare.mjs --old-lines 1402-1787`: 0 missing).
 
 | Fact | Where |
 | --- | --- |
-| "the one verdict the framework does own, because it is the one an app kept getting wrong" | `reactive-honesty` (pending; queued in `.waterfall/moved/reactive-honesty/ref-surface-09.md`) |
-| "that gap is where the green-light-over-an-empty-collection bug lives" | `reactive-honesty` (pending, same file) |
-| Why `presentingDown` exists: apps flashing a full-screen alarm on every sub-second forced reconnect, and each smoothing it by hand | `reactive-honesty` (pending, same file) |
+| "the one verdict the framework does own, because it is the one an app kept getting wrong" | `reactive-honesty`, `## Green is a claim about the page, not about the socket` |
+| Why `presentingDown` exists: apps flashing a full-screen alarm on every sub-second forced reconnect, and each smoothing it by hand | `reactive-honesty`, `### Why the overlay waits a second` |
 
 ### Cut
 
@@ -322,6 +321,7 @@ None (`.waterfall/compare.mjs --old-lines 1402-1787`: 0 missing).
 | "It is a **thunk** … and that is not decoration" | rationale |
 | "one door, two spellings" (the fact that both spellings mean the same is kept) | rationale |
 | "There is deliberately no way to inject one" → "There is no way to inject one" | rationale |
+| "that gap is where the green-light-over-an-empty-collection bug lives" (queued to `reactive-honesty`) | duplicate — `reactive-honesty`'s `## Green is a claim about the page, not about the socket` already opens with that bug: a collection whose stream has died rendering empty under a green light |
 
 ### Dropped code spans
 
@@ -342,7 +342,7 @@ None (`.waterfall/compare.mjs`: 0 missing).
 
 | Fact | Where |
 | --- | --- |
-| "Chunking is wire physics; what you'll accept is not." | `why-surfaces` (pending; queued in `.waterfall/moved/why-surfaces/ref-surface-10.md`) |
+| "Chunking is wire physics; what you'll accept is not." | `why-surfaces` → "Where the framework stops" |
 
 ### Cut
 
