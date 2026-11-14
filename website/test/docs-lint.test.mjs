@@ -105,9 +105,8 @@ const isSteps = (node) =>
   node.type === "mdxJsxFlowElement" && node.name === "Steps";
 
 /** Every violation on one page, as `line N: message` strings. */
-function lintPage(source, { reference }) {
+function lintPage({ data, body, offset }, { reference }) {
   const problems = [];
-  const { data, body, offset } = splitFrontmatter(source);
   const at = (node) =>
     node.position ? node.position.start.line + offset : "?";
   const report = (node, message) =>
@@ -164,9 +163,10 @@ function lintPage(source, { reference }) {
       );
   };
 
-  // A block is a paragraph, or one list item (its own paragraphs; a nested
-  // list's items are blocks of their own).
-  const block = (node, text, { inSteps }) => {
+  // A block is a paragraph, or one list item: the item's own paragraphs, read
+  // as one. Everything else inside an item (a nested list, a table, a JSX
+  // block) is walked as content of its own.
+  const block = (node, text, inSteps) => {
     const n = words(text);
     pageWords += n;
     if (!inSteps) section.words += n;
@@ -178,7 +178,7 @@ function lintPage(source, { reference }) {
     checkSentences(node, text);
   };
 
-  const walk = (node, ctx) => {
+  const walk = (node, inSteps) => {
     if (isSvg(node) || node.type === "code" || node.type === "mdxjsEsm") return;
     switch (node.type) {
       case "heading": {
@@ -190,19 +190,20 @@ function lintPage(source, { reference }) {
         return;
       }
       case "paragraph": {
-        if (!ctx.inListItem && node.children[0]?.type === "strong")
+        if (node.children[0]?.type === "strong")
           report(
             node,
             "paragraph opens with a bold run-in — use a heading, a list or a table",
           );
-        if (!ctx.inListItem) block(node, plain(node), ctx);
+        block(node, plain(node), inSteps);
         return;
       }
       case "listItem": {
-        const own = node.children.filter((c) => c.type !== "list");
-        block(node, own.map(plain).join(" "), ctx);
+        const isParagraph = (c) => c.type === "paragraph";
+        const text = node.children.filter(isParagraph).map(plain).join(" ");
+        block(node, text, inSteps);
         for (const child of node.children)
-          walk(child, { ...ctx, inListItem: child.type !== "list" });
+          if (!isParagraph(child)) walk(child, inSteps);
         return;
       }
       case "table": {
@@ -221,13 +222,13 @@ function lintPage(source, { reference }) {
         return;
       }
       default: {
-        const inner = isSteps(node) ? { ...ctx, inSteps: true } : ctx;
-        for (const child of node.children ?? []) walk(child, inner);
+        for (const child of node.children ?? [])
+          walk(child, inSteps || isSteps(node));
       }
     }
   };
 
-  walk(parser.parse(body), { inSteps: false, inListItem: false });
+  walk(parser.parse(body), false);
   closeSection();
 
   if (!reference && pageWords > LIMITS.pageWords)
@@ -246,12 +247,13 @@ for (const collection of COLLECTIONS) {
   for (const file of files) {
     const slug = file.replace(/\.mdx?$/, "");
     test(`${collection}/${slug}`, () => {
-      const source = readFileSync(fileURLToPath(new URL(file, dir)), "utf8");
-      const { data } = splitFrontmatter(source);
+      const page = splitFrontmatter(
+        readFileSync(fileURLToPath(new URL(file, dir)), "utf8"),
+      );
       const reference =
         collection === "surface" &&
-        /Reference$/.test(String(data?.section ?? ""));
-      const problems = lintPage(source, { reference });
+        /Reference$/.test(String(page.data?.section ?? ""));
+      const problems = lintPage(page, { reference });
       assert.deepEqual(
         problems,
         [],
