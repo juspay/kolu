@@ -10390,6 +10390,114 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "6abb97f80c2a4a6c6b40d31b5694e47db05be0f9"
+    },
+    {
+      "revisionId": "revision-7626893a7a694fe6d902",
+      "scenarioKey": "scenario-ff8e23d4a492f65bd370",
+      "feature": "features/canvas.feature",
+      "scenario": "A tile parked off the canvas stops taking output until you look again",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "8756c27cbaeac3d393bd247a0895e3ea5d7db5add26d9292e9fe73002f3f092a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "df07bf2715bfd03eec32dfddc754854d8900890d"
+    },
+    {
+      "revisionId": "revision-bc31e8fb23b8f723978d",
+      "scenarioKey": "scenario-b7a0ee2899d52c1436cf",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "A session the Conductor finds idle rings once as ready",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "f7e8429d9ee36d0258dc798f7bb0d32f3ed0f0a02b371c4edb1208854f507025",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8676f68582da1d32e1d89945b351843376568bee"
+    },
+    {
+      "revisionId": "revision-cd55a319080af61af9f3",
+      "scenarioKey": "scenario-9c873638c7f9ef6a135b",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "A wake that rings while the Conductor works waits for the turn to end",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "f3e204199d430d74a3974402843a41cd43dd8471e092a9a2f52e6f1c38aadd24",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8676f68582da1d32e1d89945b351843376568bee"
+    },
+    {
+      "revisionId": "revision-cdced7e6615f07263844",
+      "scenarioKey": "scenario-2dd6a127d71cc3e0121d",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "A watched terminal whose agent asks wakes the idle Conductor",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d0f690bdb5c25cacf0166d3ebd11795662d0f371d5364f6cbedc4ea6dd0a5fcb",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8676f68582da1d32e1d89945b351843376568bee"
+    },
+    {
+      "revisionId": "revision-15f1fe0a56a50429d7d8",
+      "scenarioKey": "scenario-670522edc71a8d758545",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "A Look stays open across the width where the two columns fold",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "0efc91744c290d16969fe9f7bde9e1da57fbd42f74ff0afd6e6b5b9738569271",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "345b209de281947d054a48d8af4141e698e108f9"
+    },
+    {
+      "revisionId": "revision-35ef00f8db4566644040",
+      "scenarioKey": "scenario-b44cb20d43828674b5ac",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "Leaving the conversation and coming back finds it exactly as it was",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "9627d9e3608459c336c58412cb8afcc36541bb1e89dc39cd4d9244f66a4ac71a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "345b209de281947d054a48d8af4141e698e108f9"
+    },
+    {
+      "revisionId": "revision-02f124339aac179c9cb0",
+      "scenarioKey": "scenario-c3ea8c9458e5a5443825",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "The watched terminals are listed, looked at, and pressed to go there",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "fd28edbe284c43a2b1e7868b81e36fb2ec151fa390e87bd713de404ace0f2bf6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "345b209de281947d054a48d8af4141e698e108f9"
+    },
+    {
+      "revisionId": "revision-de532dddb922eee37ac6",
+      "scenarioKey": "scenario-bc167b1613e07ab431b7",
+      "feature": "features/conductor.feature",
+      "scenario": "Look reads the agent's screen from inside the chat",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "12294e41f5c11e9e26ebb7dc0e55cf9b4a344c7ee818fbd87b170795bbac252f",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "345b209de281947d054a48d8af4141e698e108f9"
+    },
+    {
+      "revisionId": "revision-21dfddde661909a00f58",
+      "scenarioKey": "scenario-ff8e23d4a492f65bd370",
+      "feature": "features/canvas.feature",
+      "scenario": "A tile parked off the canvas stops taking output until you look again",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "b10db3a5ec7d7c499ce93bd55c0187369c34d6336d0ed396b08c42379cad7483",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "100ac6b67c3bb979f09b35d27a1af1ebfa98eab5"
     }
   ]
 }

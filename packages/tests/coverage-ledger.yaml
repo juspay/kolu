@@ -3800,7 +3800,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-77b79c5e257d162d02ab]
+    survivorRevisionIds: [revision-cd55a319080af61af9f3]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: A wake that rings while the Conductor works waits for the turn to end"
@@ -3865,7 +3865,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-11493fccc6f705712232]
+    survivorRevisionIds: [revision-02f124339aac179c9cb0]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: The watched terminals are listed and looked at"
@@ -3878,7 +3878,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-11493fccc6f705712232]
+    survivorRevisionIds: [revision-02f124339aac179c9cb0]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: The watched terminals are listed and looked at"
@@ -3891,7 +3891,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-11493fccc6f705712232]
+    survivorRevisionIds: [revision-02f124339aac179c9cb0]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: The watched terminals are listed, looked at, and pressed to go there"
@@ -3917,8 +3917,112 @@ retirements:
     defectSurface: [conductor, agent-detection, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-d0dd016c80ef4dfd05f0]
+    survivorRevisionIds: [revision-bc31e8fb23b8f723978d]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: A session the Conductor finds idle rings once as ready"
       test: Same scenario, same steps, same assertions — only the title and its comment changed. Ready now has two readings, and this one is the INFERENCE — a session kolu did not watch come up (written against the terminal's own shell pid, the adopted or resumed case) whose agent is idle and which the conversation has never spoken to. The DIRECT reading, an agent padi watched arrive whose own state is the `fresh` presence, is a new scenario at the end of the same file, so the title has to say which of the two this one guards.
+  - id: revise-127ba559d2fd6924e4b6
+    revisionId: revision-127ba559d2fd6924e4b6
+    action: revised
+    status: landed
+    promise: A watched terminal whose agent asks wakes the idle Conductor
+    defectSurface: [conductor, agent-detection, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-cdced7e6615f07263844]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: A watched terminal whose agent asks wakes the idle Conductor"
+      test: The same wake, asserted the same way. Only the SETUP moved — the terminal and its agent are made on the host tab rather than from behind the conversation, because a terminal made behind it is never shown (a tile nobody has seen has nothing to hold), so the stand-in agent was being typed at blind. The watch step walks back into the Conductor, and everything the scenario is about (the wake ringing while the user sits in the conversation) happens exactly where it did.
+  - id: revise-d0dd016c80ef4dfd05f0
+    revisionId: revision-d0dd016c80ef4dfd05f0
+    action: revised
+    status: landed
+    promise: A session the Conductor finds idle rings once as ready
+    defectSurface: [conductor, agent-detection, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-bc31e8fb23b8f723978d]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: A session the Conductor finds idle rings once as ready"
+      test: Same steps and same assertions; the terminal is made on the host tab, where its shell pid can be read by typing at it, before the watch step returns to the Conductor. The session files are still written from the harness while the user sits in the conversation, which is the reading this scenario guards.
+  - id: revise-77b79c5e257d162d02ab
+    revisionId: revision-77b79c5e257d162d02ab
+    action: revised
+    status: landed
+    promise: A wake that rings while the Conductor works waits for the turn to end
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-cd55a319080af61af9f3]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: A wake that rings while the Conductor works waits for the turn to end"
+      test: The held-wake assertions are untouched. The terminal and its agent are arranged on the host tab for the same reason as the two above, and the turn that holds the wake is still started and still ends inside the Conductor.
+  - id: revise-11493fccc6f705712232
+    revisionId: revision-11493fccc6f705712232
+    action: revised
+    status: landed
+    promise: The watched terminals are listed, looked at, and pressed to go there
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-02f124339aac179c9cb0]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: The watched terminals are listed, looked at, and pressed to go there"
+      test: Every assertion is the one it was. The terminal is made and typed at on the host tab, because a terminal made from behind the conversation is never shown, so the marker the Look reads was being echoed into a pane nobody was listening to. The watch step walks back into the conversation, where the whole journey this scenario is about still happens.
+  - id: revise-be5a4ab52a3797d96b69
+    revisionId: revision-be5a4ab52a3797d96b69
+    action: revised
+    status: landed
+    promise: Leaving the conversation and coming back finds it exactly as it was
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-35ef00f8db4566644040]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: Leaving the conversation and coming back finds it exactly as it was"
+      test: The retention assertions — the marked pane element, the open Look, the half-typed message — are untouched. Only the arrangement moved to the host tab, where the terminal whose screen the Look reads can actually be typed at.
+  - id: revise-18e78b62fde161b7e085
+    revisionId: revision-18e78b62fde161b7e085
+    action: revised
+    status: landed
+    promise: Look reads the agent's screen from inside the chat
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-de532dddb922eee37ac6]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: Look reads the agent's screen from inside the chat"
+      test: Same card, same Look, same marker computed by the shell. The terminal is made and typed at on the host tab; the adopt step returns to the conversation, which is where everything this scenario asserts is read.
+  - id: revise-d35abeb50d28e5d37781
+    revisionId: revision-d35abeb50d28e5d37781
+    action: revised
+    status: landed
+    promise: A Look stays open across the width where the two columns fold
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-15f1fe0a56a50429d7d8]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-layout.feature
+      symbol: "Scenario: A Look stays open across the width where the two columns fold"
+      test: The resize journey and both fold directions are asserted exactly as before; only the terminal's setup moved to the host tab, for the same reason as the scenarios above.
+  - id: revise-7626893a7a694fe6d902
+    revisionId: revision-7626893a7a694fe6d902
+    action: revised
+    status: landed
+    promise: A tile parked off the canvas stops taking output until you look again
+    defectSurface: [canvas, streaming, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-21dfddde661909a00f58]
+    sameCodePathEvidence:
+      file: packages/tests/features/canvas.feature
+      symbol: "Scenario: A tile parked off the canvas stops taking output until you look again"
+      test: The same journey, with the grace period made observable. Letting go of a tile's feed costs the reader their place in its output, so the grace is now five minutes rather than five seconds — longer than a scenario may wait, and not something to shorten with a knob. The scenario takes over the PAGE's clock and jumps past it, and gains the assertion that the other half of the promise needs — the parked tile is STILL taking output before the jump. Everything after it (the marker printed to a tile nobody is looking at, its absence from that tile's screen, and its arrival when the tile is brought back) is asserted exactly as it was.

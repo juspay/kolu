@@ -199,11 +199,11 @@ const Terminal: Component<{
   const [handle, setHandle] = createSignal<XtermHandle | null>(null);
   const terminalStore = useTerminalStore();
 
-  // Gate zoom on `focused`, not `visible`: in canvas mode every tile is
-  // `visible` (so inactive xterms stay sized), so a `visible` gate let every
-  // tile's capture-phase zoom listener fire at once — Cmd/Ctrl +/- zoomed all
-  // terminals together (#1238). `focused` is true for exactly one tile (the
-  // active one in canvas; the single visible one in mobile), so only it zooms.
+  // Gate zoom on `focused`, not `visible`: a canvas shows many tiles at once,
+  // so a `visible` gate let every shown tile's capture-phase zoom listener
+  // fire at once — Cmd/Ctrl +/- zoomed all terminals together (#1238).
+  // `focused` is true for exactly one tile (the active one in canvas; the
+  // single shown one in mobile), so only it zooms.
   // One predicate for "is this the focused tile" — fed to both the zoom gate
   // and the data-focused attribute the e2e harness reads, so the attribute is
   // provably equal to the gate it stands in for (no divergence on `undefined`).
@@ -217,9 +217,11 @@ const Terminal: Component<{
    *  rather than the single focused tile keeps WebGL on both sides of an A↔B
    *  switch, so the ~7.7% font reflow on focus swap is gone. Terminals outside
    *  the budget fall back to xterm's built-in DOM renderer. The `visible` guard
-   *  keeps mobile (one visible tile) and collapsed splits off WebGL regardless of
-   *  recency. Distinct from `isFocused` (zoom + `data-focused`): a budgeted tile
-   *  holds WebGL even when it isn't the focused one. */
+   *  keeps a pane nobody is looking at off WebGL regardless of recency —
+   *  mobile's one shown tile, a collapsed split, a canvas tile panned out of
+   *  view or covered by a maximized one (kolu#2362). Distinct from `isFocused`
+   *  (zoom + `data-focused`): a budgeted tile holds WebGL even when it isn't
+   *  the focused one. */
   const canUseWebgl = () =>
     props.visible && terminalStore.holdsWebgl(props.terminalId);
   /** Dispatch on user renderer policy:
