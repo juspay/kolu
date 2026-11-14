@@ -1,6 +1,6 @@
 import * as assert from "node:assert";
 import { Then, When } from "@cucumber/cucumber";
-import { pollUntil } from "../support/poll.ts";
+import { pollFor, pollUntil } from "../support/poll.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
 
 When("I click the attention alerts toggle", async function (this: KoluWorld) {
@@ -60,6 +60,23 @@ When(
   },
 );
 
+/** "Is the person looking?" is half `document.hasFocus()`, and a headless page
+ *  cannot be made to lose and regain focus on cue. So the answer is DECLARED
+ *  rather than raced — the same override `render_recovery_steps.ts` uses to
+ *  model an occluded window. `Boolean.bind(null, x)` is a hasFocus() → x with
+ *  no function literal for esbuild's keep-names to decorate. */
+When(
+  /^I simulate the Kolu window (losing|regaining) focus$/,
+  async function (this: KoluWorld, how: string) {
+    await this.page.evaluate((focused) => {
+      Object.defineProperty(document, "hasFocus", {
+        configurable: true,
+        value: Boolean.bind(null, focused),
+      });
+    }, how === "regaining");
+  },
+);
+
 Then(
   "a workspace switcher branch should be notified",
   async function (this: KoluWorld) {
@@ -108,6 +125,56 @@ When("I stub the Badging API", async function (this: KoluWorld) {
     };
   });
 });
+
+/** The sound is the one channel a page cannot show, so the step records it
+ *  instead: every `play()` on a media element pushes its source onto the
+ *  stash and resolves, the way `I stub the Badging API` records the badge.
+ *  The `Audio` the app builds is still the real one — only the noise is
+ *  replaced. Assigned as a property, so no name is inferred for esbuild's
+ *  keep-names to wrap in a `__name(...)` the page does not have. */
+const stubSound = (): void => {
+  window.__soundPlays = [];
+  HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+    // A media element playing a `srcObject` has no `src` to name.
+    window.__soundPlays?.push(this.src ? new URL(this.src).pathname : "");
+    return Promise.resolve();
+  };
+};
+
+/** Installed on THIS page and on every page a navigation loads after it, so a
+ *  reload is heard too — the new page starts with an empty stash, which is
+ *  exactly what "did the reload ring?" needs. */
+When("I stub the notification sound", async function (this: KoluWorld) {
+  await this.page.addInitScript(stubSound);
+  await this.page.evaluate(stubSound);
+});
+
+/** EXACTLY this many, not at least: waits for the count to arrive, then gives
+ *  the page two more frames to ring a second time it should not have. */
+Then(
+  "the notification sound should have played {int} time(s)",
+  async function (this: KoluWorld, expected: number) {
+    // `evaluate` already hands back a serialised copy.
+    const read = () => this.page.evaluate(() => window.__soundPlays ?? []);
+    await pollFor({
+      observe: read,
+      isDone: (plays) => plays.length >= expected,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (plays, elapsedMs) =>
+        new Error(
+          `after ${elapsedMs}ms the notification sound had played ${JSON.stringify(plays)}, wanted ${expected} time(s)`,
+        ),
+    });
+    await this.waitForFrame();
+    await this.waitForFrame();
+    const plays = await read();
+    assert.deepStrictEqual(
+      plays,
+      Array(expected).fill("/sounds/notification.mp3"),
+      `the notification sound played ${JSON.stringify(plays)}, wanted ${expected} time(s)`,
+    );
+  },
+);
 
 Then(
   "the app badge should show {int}",
