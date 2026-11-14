@@ -1267,9 +1267,22 @@ The hook `.use()` drives for a `deltas` collection, exported from
 
 ## The dispatch seam — `@kolu/surface/link`
 
-The face and the links meet at one erased, transport-neutral value. A link
-factory *produces* a `SurfaceDispatch`; the face *consumes* one, and nothing else
-crosses.
+The face and the links meet at one transport-neutral value. A link factory
+produces a `SurfaceDispatch`; the face consumes one, and nothing else crosses.
+
+| Export | What it is |
+| --- | --- |
+| [`SurfaceDispatch`](#surfacedispatch) | The erased `{ unary, stream }` seam both stages compile against. |
+| [`WireStatus`](#wirestatus) | What a transport is doing: `connecting`, `open`, `closed` or `retired`. |
+| [`WatchableWire`](#watchablewire) | What the half-open watchdog needs from a transport. |
+| [`WireTransport`](#wiretransport) | A dispatch and its wire, minted together. |
+| [`brandHalfOpenDispatch` · `isHalfOpenDispatch`](#brandhalfopendispatch--ishalfopendispatch) | The wire brand and its guard. |
+| [`brandDirectDispatch` · `isDirectDispatch`](#branddirectdispatch--isdirectdispatch) | The in-process brand and its guard. |
+
+### `SurfaceDispatch`
+
+The erased seam both stages compile against: a link mints one, a face runs on
+one.
 
 ```ts
 interface SurfaceDispatch {
@@ -1278,24 +1291,48 @@ interface SurfaceDispatch {
 }
 ```
 
-Two rules ride on it. **Payloads are the decoded side** — the face decodes at its
-edge, so a wire dispatcher hands the value to Effect RPC (which encodes it) and
-`directDispatch` hands it straight to a handler, with no encode/decode pair to
-skip. And **`stream` must not emit or end synchronously with the subscribe**: a
-stream that reaches its typed end inside the subscribe evicts the keyed
-subscription cache's slot while the slot is still being built, so N consumers of
-one member each open their own upstream subscription. Every wire dispatch
-satisfies this for free; `directDispatch` satisfies it deliberately, with a yield
-before it touches a handler.
+Two rules ride on it.
 
-| Export | Role |
+- Payloads are the decoded side. The face decodes at its edge, so a wire
+  dispatcher hands the value to Effect RPC (which encodes it) and
+  `directDispatch` hands it straight to a handler, with no encode/decode pair
+  to skip.
+- `stream` must not emit or end synchronously with the subscribe. A stream that
+  reaches its typed end inside the subscribe evicts the keyed subscription
+  cache's slot while the slot is still being built, so N consumers of one member
+  each open their own upstream subscription. Every wire dispatch satisfies this
+  for free; `directDispatch` satisfies it deliberately, with a yield before it
+  touches a handler.
+
+### `WireStatus`
+
+What a transport is doing, published from the protocol's connect and disconnect.
+
+| Value | Meaning |
 | --- | --- |
-| `SurfaceDispatch` | the erased `{ unary, stream }` seam both stages compile against |
-| `WireStatus` | `connecting` · `open` · `closed` · `retired` — published from the PROTOCOL's connect/disconnect, so `open` means "the protocol can send" (not merely "the socket fired `open`"); `retired` is terminal (the server closed a stale tab's socket with `4001`) |
-| `WatchableWire` | `{ status, onStatus, forceReconnect }` — what the half-open watchdog needs from a transport |
-| `WireTransport` | `{ dispatch, wire }`, minted together, so a watchdog provably probes the transport it reconnects |
-| `brandHalfOpenDispatch` · `isHalfOpenDispatch` | the wire brand and its guard |
-| `brandDirectDispatch` · `isDirectDispatch` | the in-process brand (its constant-`true` liveness is honest by construction) |
+| `connecting` | The protocol is dialing. |
+| `open` | The protocol can send, not merely that the socket fired `open`. |
+| `closed` | The transport is down and may re-dial. |
+| `retired` | Terminal: the server closed a stale tab's socket with `4001`. |
+
+### `WatchableWire`
+
+What the half-open watchdog needs from a transport:
+`{ status, onStatus, forceReconnect }`.
+
+### `WireTransport`
+
+A `{ dispatch, wire }` pair, minted together, so a watchdog provably probes the
+transport it reconnects.
+
+### `brandHalfOpenDispatch` · `isHalfOpenDispatch`
+
+The wire brand and its guard.
+
+### `brandDirectDispatch` · `isDirectDispatch`
+
+The in-process brand and its guard. A direct dispatch reports constant `true`
+liveness, because there is no wire to lose.
 
 ## Links
 

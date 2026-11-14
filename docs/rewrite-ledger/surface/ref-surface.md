@@ -150,3 +150,26 @@ reason inside the `.rpc` entry, since it explains the constraint the reader meet
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs --old-lines 649-897`: 0 missing).
+
+## The dispatch seam — `@kolu/surface/link`
+
+- Words (counted by `docs-lint`'s rules): 236 → 325. Growth is the index table and six entry headings. Before: two prose paragraphs and one `| Export | Role |` table with cells up to 60 words. After: index table plus one `###` per export, every block and cell inside the lint's limits.
+- Structure: intro (2 sentences) · index table · `SurfaceDispatch` (the `interface` code block verbatim, plus the two rules as a list) · `WireStatus` (the four values as a table) · `WatchableWire` · `WireTransport` · `brandHalfOpenDispatch` · `isHalfOpenDispatch` · `brandDirectDispatch` · `isDirectDispatch`.
+- `##` heading kept verbatim. No inbound links point into this section.
+- Headings renamed: none. New `###` headings only.
+- Capitals removed: "PROTOCOL" → protocol.
+
+### Moved
+
+None.
+
+### Cut
+
+| Fact | Tag |
+| --- | --- |
+| "erased" as a word for the value in the opening sentence ("one erased, transport-neutral value" → "one transport-neutral value"); the erasure is still stated in the `SurfaceDispatch` entry and the index row | duplicate |
+| "its constant-`true` liveness is honest by construction" rewritten as "reports constant `true` liveness, because there is no wire to lose" | rationale |
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs --old-lines 898-929`: 0 missing).
