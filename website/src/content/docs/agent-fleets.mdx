@@ -134,14 +134,14 @@ A coordinator on your laptop can drive agents on a [remote host](/remote-hosts):
 
 ## What to watch for
 
-- **Submit is a separate step.** The most common failure is a brief that was sent but sits unsubmitted because the Enter was dropped. Watch the settle, then submit.
-- **Terminal ids re-key on a daemon restart.** An id you cached can go stale after a redeploy or a crash-restore. Track a long-lived terminal by its title, which survives, and re-find its current id.
-- **Big pastes fold.** Anything past a couple of lines goes through a file the agent reads, not the prompt box.
-- **You are still in the loop.** A coordinator surfaces to you for a decision it will not make, or a PR that needs your eyes.
+- Submit is a separate step. The most common failure is a brief that was sent but sits unsubmitted because the Enter was dropped. Watch the settle, then submit.
+- Terminal ids change when a daemon restarts. An id you cached can go stale after a redeploy or a crash-restore. Track a long-lived terminal by its title, which survives, and re-find its current id.
+- Big pastes fold. Anything past a couple of lines goes through a file the agent reads, not the prompt box.
+- You are still in the loop. A coordinator comes to you for a decision it will not make, or a PR that needs your eyes.
 
 A coordinator earns its overhead only past a handful of agents. For one quick task, drive the agent yourself: the loop above is the coordinator's move, and you can run it by hand.
 
-## Related
+## Next
 
 <CardGrid>
   <LinkCard title="The Conductor" href="/conductor" description="the coordinator role as a chat — one conversation for the whole fleet" />
