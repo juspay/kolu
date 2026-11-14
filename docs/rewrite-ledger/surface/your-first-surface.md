@@ -21,3 +21,8 @@ None.
 ## Dropped code spans
 
 None (`.waterfall/compare.mjs`: 0 missing).
+
+## Review round 1
+
+- Opening cut to 50 words (rule 4): 65 → 45. The two sentences about writing no polling, reconnect or RPC code moved into a second paragraph, before "We will get there in two hops". No step, command or code block changed.
+- Checks: lint passes; `.waterfall/compare.mjs … f50641c6a` 0 missing; `house-style.mjs` reports nothing on this page.

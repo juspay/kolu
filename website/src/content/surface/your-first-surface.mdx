@@ -14,9 +14,10 @@ import Steps from "../../components/docs/Steps.astro";
 
 We are going to build **fleet-top**, a live `top` for your own machine. By the
 end of this page it runs in your browser: load and memory in the header, a
-process table that updates on its own, and a button that kills a process. You
-write no polling, reconnect or RPC code. You declare the shape of the live state
-once, and read it.
+process table that updates on its own, and a button that kills a process.
+
+You write no polling, reconnect or RPC code. You declare the shape of the live
+state once, and read it.
 
 We will get there in two hops. First we consume the surface *in the same
 process*, so you see it work with no network at all. Then we change one line and
