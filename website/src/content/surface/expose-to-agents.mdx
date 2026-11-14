@@ -8,10 +8,11 @@ section: Basics · How-to
 import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 
-An agent (Claude Code, Codex, opencode) drives a surface through the
-[Model Context Protocol](https://modelcontextprotocol.io): your cells and streams become readable resources, your
-procedures become callable tools. `@kolu/surface-mcp` does the projection; you
-decide what to expose.
+An agent (Claude Code, Codex, opencode) drives a
+[surface](/surface/glossary) through the
+[Model Context Protocol](https://modelcontextprotocol.io): your cells and
+streams become readable resources, and your procedures become callable tools.
+`@kolu/surface-mcp` does the projection; you decide what to expose.
 
 ## 1. Install and import
 
@@ -25,8 +26,8 @@ decide what to expose.
 
 Choose one of two shapes:
 
-- **Serve fresh** when the MCP server is the backend — `buildSurfaceFace(surface, directDispatch(runtime))` over an in-process `implementSurface`.
-- **Bridge a live surface** when a server is already running — dial it over its socket or ssh stdio instead.
+- **Serve fresh** when the MCP server is the backend: `buildSurfaceFace(surface, directDispatch(runtime))` over an in-process `implementSurface`.
+- **Bridge a live surface** when a server is already running: dial it over its socket or ssh stdio instead.
 
 <Snippet src="packages/surface/example/snippets/mcp.ts" region="client" />
 
@@ -39,21 +40,21 @@ key to `"resource"` (cells, collections, streams, events) or a tool (procedures)
 
 <Aside type="caution" title="Leave mutating tools unmarked; mark read-only ones">
   `mutates` defaults to `true`, so a destructive procedure is safe even if you
-  forget to annotate it — a host will ask before running it. The annotation you
-  must *not* forget is `mutates: false` on a genuinely read-only tool; without
-  it, the agent will treat a harmless query as something to confirm.
+  forget to annotate it: a host will ask before running it. The annotation to
+  remember is `mutates: false` on a genuinely read-only tool. Without it, the
+  agent treats a harmless query as something to confirm.
 </Aside>
 
-The map is not the MCP adapter's own shape — it is
+The map is not the MCP adapter's own shape. It is
 [`@kolu/surface/expose`](/surface/ref-surface#per-face-expose-kolusurfaceexpose)'s,
-and `serveSurfaceApp` / `serveOverUnixSocket` take the same one. So the agent
-face and the browser face are curated in the same vocabulary and can be curated
-*differently*: a verb the agent may call is not thereby reachable from a tab
-someone left open.
+and `serveSurfaceApp` and `serveOverUnixSocket` take the same one. So the agent
+face and the browser face are curated in the same vocabulary, and can be
+curated differently: a verb the agent may call is not thereby reachable from a
+tab someone left open.
 
 ## 4. Teach the agent your domain
 
-An expose map says what an agent *may* touch; it says nothing about what any of
+An expose map says what an agent may touch; it says nothing about what any of
 it means. Pass `instructions` and the agent reads it at `initialize`, before it
 calls anything:
 
@@ -82,41 +83,42 @@ throw new ToolFailure(
 );
 ```
 
-The agent receives an `isError` result whose `structuredContent` is that object —
-through the same JSON round-trip a success takes, so a refusal cannot publish a
-shape a success would have been refused for — and a driver branches on `kind`
-instead of matching English. Any other failure
-comes back as its message alone — structure is something you declare, never
-something the adapter guesses from an error's fields.
+The agent receives an `isError` result whose `structuredContent` is that
+object, through the same JSON round-trip a success takes, so a refusal cannot
+publish a shape a success would have been refused for. A driver branches on
+`kind` instead of matching English. Any other failure comes back as its message
+alone: structure is something you declare, never something the adapter guesses
+from an error's fields.
 
 ## 6. Curate a dangerous surface (optional)
 
 If the surface has procedures no agent should reach, do not rely on omission
-alone — project a safe view with `projectSurface` (from `@kolu/surface/project`): drop
-the dangerous procedures, bound the logs, derive read-only verdicts, and expose
-*that* second surface. It is the difference between hiding a control and not
-wiring it at all.
+alone. Project a safe view with `projectSurface` (from `@kolu/surface/project`):
+drop the dangerous procedures, bound the logs, derive read-only verdicts, and
+expose that second surface. It is the difference between hiding a control and
+not wiring it at all.
 
 ## 7. Serve several surfaces on one endpoint
 
-A `core` and no siblings is the ordinary case. When the endpoint should carry a
-**set** of surfaces whose roster moves — one per tenant, per plugin, per open
-document — hand them in as `surfaces` and the sibling key becomes a segment of
-every name that sibling contributes: `surface://collections/tenantA/rows`,
+A `core` and no siblings is the ordinary case. Hand in a `surfaces` map when
+the endpoint should carry a set of surfaces whose roster moves (one per tenant,
+per plugin, per open document). The sibling key then becomes a segment of every
+name that sibling contributes: `surface://collections/tenantA/rows`,
 `tenantA_ops_run`. The core keeps its bare names.
 
 <Snippet src="packages/surface/example/snippets/mcp.ts" region="bundle" />
 
-`served.reroster(surfaces)` replaces the sibling map whole and tells the host both
-lists changed; a subscription the new roster cannot serve is ended, and a call to
-a departed sibling's name is refused by name rather than as an unknown one. The
-core never moves — serving a different core is a different endpoint.
+`served.reroster(surfaces)` replaces the sibling map whole and tells the host
+that both lists changed. A subscription the new roster cannot serve is ended,
+and a call to a departed sibling's name is refused by name rather than as an
+unknown one. The core never moves; serving a different core is a different
+endpoint.
 
-When each sibling has a sentence of its own to teach — "the `chat` sibling shows
-your answer to a person" is true only while `chat` is standing — pass
-`instructions` as a **function** and compose it from the roster the way the tool
-list already is. It is read at each `initialize`, so a host that connects after a
-move is told the roster it gets:
+Each sibling may have a sentence of its own to teach, and "the `chat` sibling
+shows your answer to a person" is true only while `chat` is standing. Pass
+`instructions` as a function and compose it from the roster, the way the tool
+list already is. It is read at each `initialize`, so a host that connects after
+a move is told the roster it gets:
 
 ```ts
 const served = await serveSurfaceAsMcp({
@@ -128,8 +130,9 @@ const served = await serveSurfaceAsMcp({
 });
 ```
 
-A host **already connected** keeps what it was told at its own `initialize`: MCP
-has no `instructions_changed` notification, so only the next host sees the move.
+A host that is already connected keeps what it was told at its own
+`initialize`. MCP has no `instructions_changed` notification, so only the next
+host sees the move.
 
 ## 8. Point the agent at it
 
