@@ -17,14 +17,23 @@ import { measuredCharWidth } from "../internals";
 
 /** What xterm's viewport reserves for its vertical scrollbar when the
  *  `scrollbar.width` option is unset — `ViewportConstants.DEFAULT_SCROLL_BAR_WIDTH`
- *  in the pinned `@xterm/xterm` (`src/browser/shared/Constants.ts`). */
+ *  in the pinned `@xterm/xterm` (`src/browser/shared/Constants.ts`).
+ *
+ *  A COPY of an xterm fact, because the constant is not reachable from outside
+ *  the bundle (`@xterm/addon-fit` imported it; a consumer cannot). So it is
+ *  pinned the way every other xterm fact here is: `internals.test.ts` opens a
+ *  real terminal and compares what this module reserves against the width
+ *  xterm actually renders its scrollbar at. A stale copy costs a terminal one
+ *  or two columns too wide, with its last cells under the scrollbar — too
+ *  quiet to notice without the pin. */
 const DEFAULT_SCROLL_BAR_WIDTH = 14;
 
 /** The CSS pixels xterm's viewport keeps for its vertical scrollbar.
  *
  *  Mirrors `Viewport._getChangeOptions()` in the pinned `@xterm/xterm`: the
  *  bar is hidden only by `scrollbar.showScrollbar === false`, and its width is
- *  `scrollbar.width` or the default. (`@xterm/addon-fit` asked a STALER
+ *  `scrollbar.width` or the default — all three branches pinned against a real
+ *  terminal in `internals.test.ts`. (`@xterm/addon-fit` asked a STALER
  *  question — it keyed off `scrollback === 0` and an `overviewRuler.width`
  *  option this xterm no longer has — which for kolu's options happened to
  *  produce the same 14.) */

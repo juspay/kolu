@@ -10,7 +10,7 @@
  *  ancestor it must invert the scale about the element's border-box top-left
  *  (the fixed point xterm subtracts via `getBoundingClientRect().left`). */
 
-import type { Terminal as XTerm } from "@xterm/xterm";
+import type { ITerminalOptions, Terminal as XTerm } from "@xterm/xterm";
 import { describe, expect, it } from "vitest";
 import {
   cellAtPoint,
@@ -18,6 +18,7 @@ import {
   measuredCharWidth,
   unscaleEventPoint,
 } from "./internals";
+import { measureGridBox } from "./solid/measureBox";
 
 const rect = (left: number, top: number, width: number, height: number) => ({
   left,
@@ -353,6 +354,84 @@ describe("CONTRACT PIN — @xterm/xterm resize parses write queue at old cols be
   });
 });
 
+// ── A real browser xterm, under happy-dom ──────────────────────────────────
+//
+// The pins below ask their questions of an actual `@xterm/xterm` rather than a
+// stand-in, because what they pin is what the shipped library DOES: the
+// measurement it keeps, the cell height it derives, the scrollbar it reserves.
+// happy-dom ships no canvas, so one 2D-context stub with a known `measureText`
+// is all the scaffolding needed to open one.
+/** The width `measureText('W')` answers — FiraCode Nerd Font at 14px, the
+ *  measurement kolu's own terminals produce in Chromium. Deliberately not a
+ *  whole number: the two renderers differ precisely in what they round it to. */
+const MEASURED_WIDTH = 8.6154;
+const MEASURED_ASCENT = 13;
+const MEASURED_DESCENT = 4.6;
+
+/** Enough 2D-context surface for xterm to open under happy-dom, which ships
+ *  no canvas: the char measure (`measureText`) and the DOM renderer's width
+ *  cache (everything else). */
+function stubContext(): CanvasRenderingContext2D {
+  return {
+    canvas: { width: 100, height: 100 },
+    font: "",
+    textBaseline: "",
+    fillStyle: "",
+    measureText: () => ({
+      width: MEASURED_WIDTH,
+      fontBoundingBoxAscent: MEASURED_ASCENT,
+      fontBoundingBoxDescent: MEASURED_DESCENT,
+      actualBoundingBoxAscent: MEASURED_ASCENT,
+      actualBoundingBoxDescent: MEASURED_DESCENT,
+      actualBoundingBoxLeft: 0,
+      actualBoundingBoxRight: MEASURED_WIDTH,
+    }),
+    fillText: () => {},
+    clearRect: () => {},
+    fillRect: () => {},
+    getImageData: () => ({ data: new Uint8ClampedArray(4 * 100 * 100) }),
+    putImageData: () => {},
+    drawImage: () => {},
+    save: () => {},
+    restore: () => {},
+    setTransform: () => {},
+    scale: () => {},
+    translate: () => {},
+  } as unknown as CanvasRenderingContext2D;
+}
+
+/** A REAL `@xterm/xterm`, opened into a host element on that stub — the one
+ *  harness every pin below asks its question of. */
+async function openTerminal(options: ITerminalOptions = {}) {
+  (
+    HTMLCanvasElement.prototype as unknown as { getContext: unknown }
+  ).getContext = () => stubContext();
+  (globalThis as unknown as { OffscreenCanvas: unknown }).OffscreenCanvas =
+    class {
+      constructor(
+        public width: number,
+        public height: number,
+      ) {}
+      public getContext(): CanvasRenderingContext2D {
+        return stubContext();
+      }
+    };
+  // Imported here, not at the top: `CharSizeService` picks its measure
+  // strategy from the globals present when the module loads, so the stubs
+  // above must be installed first for it to measure rather than fall back.
+  const { Terminal: XTermCtor } = await import("@xterm/xterm");
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const term = new XTermCtor({
+    cols: 80,
+    rows: 24,
+    allowProposedApi: true,
+    ...options,
+  });
+  term.open(host);
+  return { term, host };
+}
+
 /**
  * CONTRACT PIN — `_core._charSizeService.width` is xterm's own UNROUNDED
  * character measurement, and it is the number kolu sizes every terminal with
@@ -361,76 +440,12 @@ describe("CONTRACT PIN — @xterm/xterm resize parses write queue at old cols be
  * user's tile: `measuredCharWidth` throws, so an unpinned rename would stop
  * every pane measuring — no grid, no attach, no output.
  *
- * The test opens a REAL `@xterm/xterm` on a canvas stub whose `measureText`
- * answers a known width, so it pins the whole path: the service exists after
- * `open()`, it keeps what the font measurement said, and the accessor reads
- * THAT rather than something a renderer has already rounded.
+ * The terminal is opened on a canvas stub whose `measureText` answers a known
+ * width, so the whole path is pinned: the service exists after `open()`, it
+ * keeps what the font measurement said, and the accessor reads THAT rather
+ * than something a renderer has already rounded.
  */
 describe("CONTRACT PIN — @xterm/xterm exposes its unrounded char measurement", () => {
-  /** The width `measureText('W')` answers — FiraCode Nerd Font at 14px, the
-   *  measurement kolu's own terminals produce in Chromium. Deliberately not a
-   *  whole number: the two renderers differ precisely in what they round it to. */
-  const MEASURED_WIDTH = 8.6154;
-  const MEASURED_ASCENT = 13;
-  const MEASURED_DESCENT = 4.6;
-
-  /** Enough 2D-context surface for xterm to open under happy-dom, which ships
-   *  no canvas: the char measure (`measureText`) and the DOM renderer's width
-   *  cache (everything else). */
-  function stubContext(): CanvasRenderingContext2D {
-    return {
-      canvas: { width: 100, height: 100 },
-      font: "",
-      textBaseline: "",
-      fillStyle: "",
-      measureText: () => ({
-        width: MEASURED_WIDTH,
-        fontBoundingBoxAscent: MEASURED_ASCENT,
-        fontBoundingBoxDescent: MEASURED_DESCENT,
-        actualBoundingBoxAscent: MEASURED_ASCENT,
-        actualBoundingBoxDescent: MEASURED_DESCENT,
-        actualBoundingBoxLeft: 0,
-        actualBoundingBoxRight: MEASURED_WIDTH,
-      }),
-      fillText: () => {},
-      clearRect: () => {},
-      fillRect: () => {},
-      getImageData: () => ({ data: new Uint8ClampedArray(4 * 100 * 100) }),
-      putImageData: () => {},
-      drawImage: () => {},
-      save: () => {},
-      restore: () => {},
-      setTransform: () => {},
-      scale: () => {},
-      translate: () => {},
-    } as unknown as CanvasRenderingContext2D;
-  }
-
-  async function openTerminal() {
-    (
-      HTMLCanvasElement.prototype as unknown as { getContext: unknown }
-    ).getContext = () => stubContext();
-    (globalThis as unknown as { OffscreenCanvas: unknown }).OffscreenCanvas =
-      class {
-        constructor(
-          public width: number,
-          public height: number,
-        ) {}
-        public getContext(): CanvasRenderingContext2D {
-          return stubContext();
-        }
-      };
-    // Imported here, not at the top: `CharSizeService` picks its measure
-    // strategy from the globals present when the module loads, so the stubs
-    // above must be installed first for it to measure rather than fall back.
-    const { Terminal: XTermCtor } = await import("@xterm/xterm");
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const term = new XTermCtor({ cols: 80, rows: 24, allowProposedApi: true });
-    term.open(host);
-    return { term, host };
-  }
-
   it("hands back the font measurement itself, not a renderer's rounding of it", async () => {
     const { term, host } = await openTerminal();
     try {
@@ -471,5 +486,58 @@ describe("CONTRACT PIN — @xterm/xterm exposes its unrounded char measurement",
   it("throws when the private shape is missing", () => {
     const term = { _core: {} } as unknown as XTerm;
     expect(() => measuredCharWidth(term)).toThrow(/CharSizeService/);
+  });
+});
+
+/**
+ * CONTRACT PIN — the scrollbar width kolu reserves is the one xterm RENDERS.
+ *
+ * `solid/measureBox.ts` subtracts a vertical scrollbar from the available
+ * width, following `Viewport._getChangeOptions()`: hidden → 0, else
+ * `scrollbar.width` or xterm's own default of 14. `@xterm/addon-fit` could
+ * `import { ViewportConstants }` for that default; kolu cannot reach it from
+ * outside the bundle, so the number is a COPY — and a copy that goes stale
+ * costs a terminal one or two columns too wide, with its last cells sitting
+ * under the scrollbar.
+ *
+ * So it is not asserted against itself: the test opens a real terminal and
+ * compares what `measureGridBox` reserves against the width xterm actually
+ * gives its vertical scrollbar element. All three branches of the rule are
+ * exercised, so an upstream change to the default, to the option name, or to
+ * the hidden case fails here.
+ */
+describe("CONTRACT PIN — @xterm/xterm reserves the scrollbar width kolu subtracts", () => {
+  /** The width xterm's rendered vertical scrollbar occupies, in CSS px.
+   *  `AbstractScrollbar._renderDomNode` writes it as an inline style, which is
+   *  the only place a layout-free DOM can be asked. */
+  function renderedScrollbarWidth(host: HTMLElement): number {
+    const bar = host.querySelector<HTMLElement>(
+      ".xterm-scrollbar.xterm-vertical",
+    );
+    if (!bar) throw new Error("xterm rendered no vertical scrollbar element");
+    return Number.parseFloat(bar.style.width);
+  }
+
+  it.each([
+    { label: "by default", options: {}, expected: 14 },
+    {
+      label: "with an explicit scrollbar width",
+      options: { scrollbar: { width: 22 } },
+      expected: 22,
+    },
+    {
+      label: "with the scrollbar switched off",
+      options: { scrollbar: { showScrollbar: false } },
+      expected: 0,
+    },
+  ])("reserves what it renders $label", async ({ options, expected }) => {
+    const { term, host } = await openTerminal(options);
+    try {
+      expect(renderedScrollbarWidth(host)).toBe(expected);
+      expect(measureGridBox(term, host)?.scrollbarWidth).toBe(expected);
+    } finally {
+      term.dispose();
+      host.remove();
+    }
   });
 });
