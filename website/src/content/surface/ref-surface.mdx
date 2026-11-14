@@ -1487,14 +1487,14 @@ this schedule. Pre-open retries leave calls pending until the first connection.
 | `shouldRetryStreamError(err)` | the shared fence: retry a transport error, plus the one retryable relay end; never a declared error, never a dead transport |
 | `STREAM_RETRY` · `STREAM_RETRY_DELAY_MS` | the schedule (spaced 1s, forever, gated on the fence) |
 | `fenceStream(stream, { label?, onRetry? })` | apply the fence to a raw stream |
-| `StreamFenceOptions` | that options bag — `label` (the name the [liveness registry](#per-subscription-liveness) records) and `onRetry` |
+| `StreamFenceOptions` | that options bag — `label` (the name the [liveness registry](#per-subscription-liveness-kolusurfacesubscriptions) records) and `onRetry` |
 | `unenrolledStreamCall(procedure, input, { label?, onRetry? })` | call a streaming member with the fence applied and **no** `health()` enrolment |
 
 `onRetry` fires once per retryable failure, between the failed attempt's last
 frame and the next attempt's first — the place to clear a view the fresh snapshot
 will replace.
 
-`label` names the subscription in the [liveness registry](#per-subscription-liveness)
+`label` names the subscription in the [liveness registry](#per-subscription-liveness-kolusurfacesubscriptions)
 below. It is optional and additive; an unlabelled subscription still registers,
 as `"(unlabeled)"`, so a gap in coverage shows up in a diagnostic rather than
 hiding a stream from it. Spell it in the `client.health()` vocabulary — a cell or

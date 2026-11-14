@@ -156,7 +156,17 @@ let
     inherit pkgs src pnpmDeps version;
     pname = "kolu-website-typecheck";
   };
+
+  # Every internal link and #anchor in the built site resolves — the same
+  # script `just website::linkcheck` runs over ./dist. Run over the deploy
+  # artefact itself, so a docs link into the folded-in /atlas/ is checked too.
+  # website/flake.nix exposes this as checks.${system}.linkcheck.
+  linkcheck = pkgs.runCommand "kolu-website-linkcheck"
+    { nativeBuildInputs = [ pkgs.lychee ]; } ''
+    bash ${./linkcheck.sh} ${default}
+    touch $out
+  '';
 in
 {
-  inherit default pnpmDeps typecheck;
+  inherit default pnpmDeps typecheck linkcheck;
 }
