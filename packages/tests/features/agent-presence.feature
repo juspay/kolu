@@ -46,3 +46,20 @@ Feature: An agent that is simply there
     When Oh My Pi leaves the foreground
     Then the tile chrome should not show an agent indicator
     And there should be no page errors
+
+  @presence-registry
+  Scenario: Every registered agent reads as Ready from its foreground alone
+    # Presence is minted from the FOREGROUND, matched against the registry's CLI
+    # grammar — so it is owed to every agent kolu knows, not only to the one
+    # with a faithful fake. This scenario is run once per REGISTERED agent, and
+    # the list comes from the registry at runtime: registering an eighth agent
+    # extends it without touching this file. Each stand-in is a copy of bash
+    # renamed to that agent's own binary name (so `/proc/<pid>/comm` reads it),
+    # which paints a bring-up and then goes quiet — and writes no session, no
+    # breadcrumb, nothing at all.
+    When I stub the Badging API
+    And the dock is expanded
+    And every registered agent is brought up in turn, writing no session
+    Then each registered agent should have read Starting then Ready, asking for nobody
+    And the app badge should never have counted an agent
+    And there should be no page errors

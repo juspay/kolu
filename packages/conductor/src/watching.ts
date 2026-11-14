@@ -33,12 +33,19 @@
  *   STOPPED before it was ever briefed. An agent kolu watched come up has
  *   already been told `ready` off its `fresh` reading, so the `stopped` that
  *   follows when its transcript lands equals what we were told and is silent.
- * - **A SHELL never rings — except the one kolu started a command in.** A
+ * - **A SHELL never rings — except the two kinds that are an ending.** A
  *   terminal with no agent is a prompt somebody left open; it stops being busy
  *   a hundred times an hour and none of them is anything the Conductor can act
  *   on. But a terminal the Conductor created WITH a command, whose command ran
  *   (a non-shell foreground was seen) and which is back at its prompt with no
- *   agent ever detected, is a brief that never started: it rings `ended`.
+ *   agent ever detected, is a brief that never started: it rings `ended`. And
+ *   a terminal an agent WAS seen in, now back at its own shell prompt, is that
+ *   agent having left the foreground — crashed, quit, out of something: it
+ *   rings `exited`. That one exists because EVERY WAIT MUST HAVE A WAY OUT
+ *   THAT RINGS. `agent` is sticky, so before this rule an agent that came up
+ *   (even only as a `starting` presence) and then fell over rang nothing at
+ *   all — not `ended` (an agent was seen), not `gone` (the terminal is still
+ *   there) — and the Conductor sat waiting for a turn that could never end.
  * - **A TERMINAL PUT TO SLEEP rings once, and STAYS on the list.** Its agent
  *   is released with it, which is the end of that agent's work; waking the
  *   terminal puts it back on the ordinary levels, so there is nothing to drop.
@@ -208,13 +215,16 @@ export type WatchedTerminal = Pick<
  *  The four levels a wake shares, the two readings that never ring on their
  *  own (`working` and `shell` are reported rather than dropped because both
  *  MOVE the entry — one resets what we were told, the other keeps the name
- *  current and is where `ended` is decided), and the two PRESENCE readings
- *  padi publishes before an agent has any transcript: `starting` and `fresh`.
+ *  current and is where `ended` and `exited` are decided), and the two
+ *  PRESENCE readings padi publishes before an agent has any transcript:
+ *  `starting` and `fresh`.
  *
- *  `ready` and `ended` are not in here at all: they are what this module
- *  ANSWERS with. `ended` is a conclusion drawn from a `shell` reading, and
- *  `ready` is either a straight rename of a `fresh` one or a conclusion drawn
- *  from a `stopped` — the watcher has no business spelling either word.
+ *  `ready`, `ended` and `exited` are not in here at all: they are what this
+ *  module ANSWERS with. `ended` and `exited` are the two conclusions drawn
+ *  from a `shell` reading — the brief that never started, and the agent that
+ *  left the foreground — and `ready` is either a straight rename of a `fresh`
+ *  one or a conclusion drawn from a `stopped`. The watcher has no business
+ *  spelling any of the three.
  *
  *  READ OFF THE STATE SCHEMA, like {@link ConductorWork}: the level is
  *  published per watched ref, so the words this module decides with and the
@@ -329,17 +339,26 @@ const standsAs = (
       // at this same level, so the say cannot ring about itself.
       return "ready";
     case "shell":
-      // THE BRIEF THAT NEVER STARTED. Every clause is load-bearing: a command
-      // kolu typed (`created-run`), which RAN (a non-shell foreground was
-      // seen), which is over (the prompt is back in front), in a terminal no
-      // agent was EVER detected in. Anything else is a shell, and a shell
-      // never rings. Presence makes the agent stick EARLIER than it used to —
-      // a terminal whose agent came up and exited has `agent` set from the
-      // `starting` reading alone — which is the intended reading of "no agent
-      // ever seen in it": the agent you asked for never appeared at all.
+      // THE PROMPT IS BACK IN FRONT. Which of the two endings this is turns
+      // on whether an agent was EVER seen in this terminal, and the two are
+      // not the same news.
+      //
+      // AN AGENT WAS SEEN: its program has left the foreground and the
+      // terminal is sitting at its own shell prompt, so whatever the
+      // Conductor was waiting for cannot arrive — this rings `exited`
+      // whatever the terminal was created as, because a dead agent is news
+      // about any watched terminal. `told` keeps it to once: a restart
+      // re-reading the same shell is the same ending twice, and the agent
+      // going back to work is what resets it.
+      if (entry.agent !== null)
+        return last.foregroundShell === true ? "exited" : null;
+      // NO AGENT, EVER: the brief that never started. Every clause is
+      // load-bearing — a command kolu typed (`created-run`), which RAN (a
+      // non-shell foreground was seen), which is over (the prompt is back in
+      // front). Anything else is a plain shell, and a plain shell never
+      // rings.
       return entry.joined === "created-run" &&
         entry.ran &&
-        entry.agent === null &&
         last.foregroundShell === true
         ? "ended"
         : null;

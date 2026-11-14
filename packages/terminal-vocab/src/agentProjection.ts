@@ -4,8 +4,8 @@
  * over the schema types, no colours, no labels, no DOM, no OpenTUI, so a new
  * agent state can't drift across the consumers that fold it. Each fold is a
  * switch over the closed state set ({thinking, tool_use, running_background,
- * awaiting_user, waiting} from a transcript, plus the two pre-session
- * presence states {starting, fresh} padi mints from the foreground) with a
+ * awaiting_user, waiting} from a transcript, plus the three pre-session
+ * presence states {starting, fresh, prompted} padi mints itself) with a
  * `state satisfies never` fence, so a literal
  * added to `AgentInfoSchema` compile-fails HERE — beside the schema — rather
  * than in a hand-copied switch downstream. It depends on nothing but the
@@ -97,12 +97,14 @@ export function agentShortName(kind: string): string {
  *  separate.) A `default` is still kept so an unrecognized state surfaces as
  *  `other` (shown verbatim) at runtime rather than throwing.
  *
- *  The two PRESENCE states keep buckets of their own, named as they are: an
+ *  Two of the PRESENCE states keep buckets of their own, named as they are: an
  *  agent coming up (`starting`) and one that is up and has never been prompted
  *  (`fresh`) are neither `waiting` — which is the end of a TURN, and what the
  *  finish nudge and the badges count — nor `working`. Folding `fresh` into
  *  `waiting` would announce every agent somebody merely launched as a finished
- *  one; giving it its own bucket is what lets a driver wait for it by name. */
+ *  one; giving it its own bucket is what lets a driver wait for it by name.
+ *  The third, `prompted`, IS work — something was submitted and nothing has
+ *  answered yet — so it shares `working` with the transcript's busy states. */
 export function agentBucket(
   state: AgentInfo["state"],
 ): "working" | "awaiting" | "waiting" | "starting" | "fresh" | "other" {
@@ -119,6 +121,13 @@ export function agentBucket(
       return "starting";
     case "fresh":
       return "fresh";
+    // SUBMITTED TO, NOT YET HEARD FROM. padi forwarded the keystroke that
+    // submits a prompt and no transcript has spoken since, so the agent is at
+    // work on it as far as anybody can tell — the same bucket a transcript's
+    // `thinking` lands in, so every fold below (urgency, attention, waits, the
+    // Conductor's watch) reads it as work without a case of its own.
+    case "prompted":
+      return "working";
     default:
       // Exhaustiveness fence: a new `AgentInfo["state"]` literal stops this
       // compiling, forcing a bucket decision here instead of falling to `other`.
@@ -282,6 +291,7 @@ export function alertClass(state: AgentInfo["state"]): AlertClass {
     case "thinking":
     case "tool_use":
     case "running_background":
+    case "prompted":
       return "quiet";
     // An agent coming up, or up and never prompted, has done nothing anybody
     // asked for: launching it is not news to the person who launched it.

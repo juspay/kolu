@@ -317,11 +317,11 @@ export function buildPadiSurfaceDeps(deps: {
   disposeStanding = undefined;
   // EF2 — daemon-lifetime finish tracker + standing kaval activity sub. Dual-edge
   // with terminals via `finish.project` (quiet-exit re-folds without an
-  // agent-state change). The same window settles an agent coming up: a
-  // `starting` agent whose screen went quiet is reported back into ITS
-  // terminal's agent detector, which publishes it `fresh`
-  // (`TerminalEndpoint.noteScreenSettled`). A terminal gone by then has no
-  // detector left to tell.
+  // agent-state change). The same window settles an agent padi is waiting on
+  // — `starting`, or `prompted` with no transcript yet: one whose screen went
+  // quiet is reported back into ITS terminal's agent detector, which publishes
+  // it `fresh` (`TerminalEndpoint.noteScreenSettled`). A terminal gone by then
+  // has no detector left to tell.
   const finish = createFinishQuiet({
     log,
     onSettled: (id) => {

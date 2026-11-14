@@ -29,6 +29,10 @@ import type {
   TerminalInfo,
 } from "@kolu/padi-client/surface";
 import {
+  createSubmitScanner,
+  type SubmitScanner,
+} from "@kolu/terminal-protocol";
+import {
   AuthoredActiveSchema,
   AuthoredParkedSchema,
   AuthoredSleepingSchema,
@@ -261,10 +265,18 @@ export class PtyHostTerminalProxy implements TerminalHandle {
    *  facade from `../ptyHost/index.ts` (`makeForwardingClient`), which resolves
    *  the endpoint's live connection on every call. So a daemon recycle (B3) is
    *  invisible here without re-pointing anything, and the proxy never needs to
-   *  re-resolve per verb. */
+   *  re-resolve per verb.
+   *
+   *  `onInput` hears every write this proxy forwards, in order — the ONE seam
+   *  all input to the terminal passes (a browser's keystrokes, `sendInput` from
+   *  a CLI or an MCP driver, a wake's resume line), which is what lets padi
+   *  read a submit off the input it carries ({@link
+   *  LocalTerminalEndpoint.noteInput}) instead of asking each caller to report
+   *  one. */
   constructor(
     private readonly id: TerminalId,
     private readonly client: PtyHostClient,
+    private readonly onInput: (data: string) => void,
   ) {
     this.ready = new Promise<void>((resolve, reject) => {
       this.resolveReady = resolve;
@@ -287,6 +299,7 @@ export class PtyHostTerminalProxy implements TerminalHandle {
   }
 
   write(data: string): void {
+    this.onInput(data);
     void this.ready
       .then(() =>
         runEndpointEdge(
@@ -647,10 +660,16 @@ interface TerminalLifecycle {
    *  is the port sampler's. */
   grid: Channel<TerminalGrid>;
   /** Where {@link LocalTerminalEndpoint.noteScreenSettled} reports that the
-   *  agent coming up in this terminal has gone quiet — the host's quiet
-   *  machinery's route into the agent detectors, as `grid` is the resize
-   *  path's. */
+   *  agent padi is waiting on in this terminal (`starting` / `prompted`) has
+   *  gone quiet — the host's quiet machinery's route into the agent detectors,
+   *  as `grid` is the resize path's. */
   screenSettled: Channel<void>;
+  /** Where {@link LocalTerminalEndpoint.noteInput} reports that a write to
+   *  this terminal SUBMITTED — read by `submits`, which holds the paste state
+   *  across writes. The input-side twin of `screenSettled`: padi carries every
+   *  keystroke, so padi is what knows an agent was handed a prompt. */
+  submitted: Channel<void>;
+  submits: SubmitScanner;
 }
 
 /** Best-effort `foreground` seed from a live `list` entry's `foregroundProcess`
@@ -847,7 +866,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   ): { info: TerminalInfo; wired: Promise<boolean> } {
     const tlog = log.child({ terminal: id });
     const prior = getTerminal(id);
-    const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
+    const proxy = new PtyHostTerminalProxy(id, ptyHostClient, (data) =>
+      this.noteInput(id, data),
+    );
     // The agent layer is decided HERE, once, for every spawn (fresh or wake), and
     // stamped on the record the spawn below reads its PATH from — so the tile's
     // chip and the terminal's PATH are one value. A woken terminal gets the
@@ -979,7 +1000,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
     liveEntry: PtyHostListEntry,
   ): void {
     const tlog = log.child({ terminal: id });
-    const proxy = new PtyHostTerminalProxy(id, ptyHostClient);
+    const proxy = new PtyHostTerminalProxy(id, ptyHostClient, (data) =>
+      this.noteInput(id, data),
+    );
     // Both halves ride ONE entry — snapshot is a required field
     // (`installSnapshotSensors` reads `getTerminal(id)!.snapshot` as `record.meta`).
     const entry: ActiveTerminalProcess = {
@@ -1282,6 +1305,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       // Fed by padi's effective-finish quiet machinery (`noteScreenSettled`),
       // which owns the kaval output-edge window — the producer has no byte feed.
       screenSettled: inMemoryChannel<void>(),
+      // Fed by the terminal's own input seam (`noteInput`): the producer sees
+      // no input, and padi forwards all of it.
+      submitted: inMemoryChannel<void>(),
     };
     // Arm the host-wide port sampler (once per process). Its first pass can only
     // run after this synchronous function returns — by then the lifecycle
@@ -1460,6 +1486,8 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       ports: signals.ports,
       grid: signals.grid,
       screenSettled: signals.screenSettled,
+      submitted: signals.submitted,
+      submits: createSubmitScanner(),
     });
   }
 
@@ -1892,11 +1920,23 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
   }
 
   /** See {@link TerminalEndpoint.noteScreenSettled}. Straight into the
-   *  terminal's own `screenSettled` channel, so the `starting` → `fresh` move
-   *  reaches the record through the agent detector's own emit — the producer
-   *  owns the agent mirror, and a second writer would desync its dedup. */
+   *  terminal's own `screenSettled` channel, so the move to `fresh` reaches the
+   *  record through the agent detector's own emit — the producer owns the
+   *  agent mirror, and a second writer would desync its dedup. */
   noteScreenSettled(id: TerminalId): void {
     this.lifecycles.get(id)?.screenSettled.publish();
+  }
+
+  /** Every write padi forwards to this terminal, in order (the proxy's
+   *  `onInput`). A write that SUBMITS (`createSubmitScanner` — a typed Enter,
+   *  outside a paste) goes to the terminal's `submitted` channel, so a present
+   *  agent nobody has prompted moves to `prompted` through the agent detector's
+   *  own emit, the same road the settle takes. A write landing before the
+   *  sensors are installed (a spawn's resume line) has no lifecycle to tell,
+   *  and no presence it could move. */
+  private noteInput(id: TerminalId, data: string): void {
+    const lc = this.lifecycles.get(id);
+    if (lc?.submits(data)) lc.submitted.publish();
   }
 
   async attach(

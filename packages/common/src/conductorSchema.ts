@@ -442,7 +442,7 @@ const SHARED_LEVELS = ["stopped", "asking", "gone", "asleep"] as const;
 
 /** HOW A WATCHED TERMINAL STANDS when kolu wakes the Conductor about it.
  *
- *  Six values, and every one of them is a thing the Conductor can DO
+ *  Seven values, and every one of them is a thing the Conductor can DO
  *  something about:
  *
  *  - `stopped` — the agent's turn ended and its output went quiet (padi's
@@ -467,6 +467,14 @@ const SHARED_LEVELS = ["stopped", "asking", "gone", "asleep"] as const;
  *    and its agent detection, and NO exit status — so a command that fails
  *    before any non-shell foreground is sampled (`omp: command not found`,
  *    answered by the shell itself) does not ring at all.
+ *  - `exited` — the OTHER half of that pair, and the one a waiting Conductor
+ *    used to die on: an agent WAS seen in this terminal, and now its program
+ *    has left the foreground and the terminal is back at its shell prompt.
+ *    The agent crashed, was quit, or ran out of something. It rings because
+ *    the thing the Conductor was waiting for cannot happen any more — no
+ *    `stopped`, no `asking`, no `gone` will ever follow — and the screen the
+ *    agent left behind is where the reason is. Like `ended` it carries no
+ *    exit status: kolu saw the program go, not why.
  *
  *  Nothing else rings: an agent that is working, a plain shell nobody
  *  created with a command, a host that is merely not answering. */
@@ -474,6 +482,7 @@ export const ConductorWakeLevelSchema = Schema.Literals([
   ...SHARED_LEVELS,
   "ready",
   "ended",
+  "exited",
 ]);
 export type ConductorWakeLevel = typeof ConductorWakeLevelSchema.Type;
 
@@ -492,9 +501,10 @@ export type ConductorWakeLevel = typeof ConductorWakeLevelSchema.Type;
  *  about a terminal whose agent had come up but had not yet written a session,
  *  which is exactly the moment the Conductor is waiting to brief it in.
  *
- *  `ready` and `ended` are NOT in here: they never come off a host, so a
- *  reading that carried one would be a frame nothing can produce. `fresh` is
- *  the reading `ready` is concluded from, and they are not the same word: the
+ *  `ready`, `ended` and `exited` are NOT in here: they never come off a host,
+ *  so a reading that carried one would be a frame nothing can produce.
+ *  `fresh` is the reading `ready` is concluded from, and a `shell` reading is
+ *  where the other two are decided; they are not the same words, because the
  *  conclusion is the watch's ({@link ConductorWakeLevelSchema}). */
 export const ConductorReadingLevelSchema = Schema.Literals([
   ...SHARED_LEVELS,

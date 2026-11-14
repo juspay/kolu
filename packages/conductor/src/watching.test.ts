@@ -7,6 +7,7 @@
  * made the blocking loop it replaces untestable.
  */
 
+import type { ConductorWakeLevel } from "kolu-common/conductor";
 import { describe, expect, it, vi } from "vitest";
 import { holding } from "./held.ts";
 import { wakeText } from "./wakeText.ts";
@@ -299,7 +300,11 @@ describe("what is worth waking the Conductor about", () => {
     ).toBeNull();
   });
 
-  it("never rings ENDED once an agent has been seen — that terminal's news is its agent's", () => {
+  it("rings EXITED when an agent that was seen leaves the foreground", () => {
+    // Not `ended`: an agent WAS in there, so this is that agent's death and
+    // not a brief that never started. It rings whatever the terminal was
+    // created as, because the thing the Conductor was waiting for — a stop,
+    // a question — can never arrive now.
     const made = fresh("created-run");
     const agentUp = observed(made, seeing(REF, "working")).entry;
     expect(agentUp.ran).toBe(false);
@@ -307,15 +312,28 @@ describe("what is worth waking the Conductor about", () => {
       agentUp,
       seeing(REF, "shell", { agent: null, foregroundShell: true }),
     );
-    expect(exited.ring).toBeNull();
+    expect(exited.ring).toBe("exited");
+    // The terminal is still there, so there is nothing to drop — and the
+    // agent stays remembered, which is what made this `exited` and not
+    // `ended`.
+    expect(exited.drop).toBe(false);
+    expect(exited.entry.agent).toBe("claude-code");
+    // ONCE: a restart re-reading the same shell is the same ending twice.
+    const toldAlready: WatchEntry = { ...exited.entry, told: "exited" };
+    expect(
+      observed(
+        toldAlready,
+        seeing(REF, "shell", { agent: null, foregroundShell: true }),
+      ).ring,
+    ).toBeNull();
   });
 
-  it("never rings ENDED for an agent seen only as a PRESENCE that then died", () => {
+  it("rings EXITED for an agent seen only as a PRESENCE that then died", () => {
     // Presence makes the agent stick EARLIER than a transcript ever did: a
-    // `starting` reading alone is kolu having seen an agent in there. So a
-    // terminal whose agent came up and fell over is its AGENT's news, not a
-    // brief that never started — which is exactly what `ended` is reserved
-    // for, and the distinction the sticky agent keeps honest.
+    // `starting` reading alone is kolu having seen an agent in there. That
+    // used to leave a hole with no way out — not `ended` (an agent was seen),
+    // not `gone` (the terminal is still on its host) — and the Conductor
+    // waited forever for a turn that could never come.
     const made = fresh("created-run");
     const coming = observed(made, seeing(REF, "starting")).entry;
     expect(coming.agent).toBe("claude-code");
@@ -323,7 +341,21 @@ describe("what is worth waking the Conductor about", () => {
       coming,
       seeing(REF, "shell", { agent: null, foregroundShell: true }),
     );
-    expect(exited.ring).toBeNull();
+    expect(exited.ring).toBe("exited");
+  });
+
+  it("says nothing when some OTHER program takes the foreground", () => {
+    // A shell reading whose foreground is not the shell is something running
+    // in that terminal — the agent's own `$EDITOR`, a `less` it opened. The
+    // agent has not left: the prompt is not back.
+    const made = fresh("created-run");
+    const agentUp = observed(made, seeing(REF, "working")).entry;
+    expect(
+      observed(
+        agentUp,
+        seeing(REF, "shell", { agent: null, foregroundShell: false }),
+      ).ring,
+    ).toBeNull();
   });
 
   it("rings when a terminal that HELD an agent goes away, and drops it", () => {
@@ -392,6 +424,255 @@ describe("what is worth waking the Conductor about", () => {
       root: null,
     });
     expect(observed(restored, seeing(REF, "stopped")).ring).toBe("ready");
+  });
+});
+
+/**
+ * EVERY WAIT HAS A WAY OUT — the invariant, as a table.
+ *
+ * The Conductor's whole design is "say what you are watching and end your
+ * turn", which is only safe if every state a watched terminal can be left in
+ * has an observable next reading that RINGS. The hole this table was written
+ * for was exactly one missing cell: an agent that came up and then fell over
+ * left a terminal that was not `gone` and could not be `ended`, so nothing
+ * rang ever again.
+ *
+ * So the table IS the test. Down the side, every state the Conductor can be
+ * left waiting in; across the top, every reading that can come next. Each cell
+ * is the wake level that reading rings, or a SILENCE with the reason written
+ * out — and because it is a `Record` of both, a state or a reading added to
+ * the vocabulary without a row or a column fails to compile here rather than
+ * going untested.
+ */
+describe("every state the Conductor can wait in has a way out that rings", () => {
+  /** A silence, with the reason it is one. Spelled as an object so a cell
+   *  cannot say "nothing rings" without saying why. */
+  interface Silent {
+    readonly silent: string;
+  }
+  type Outcome = ConductorWakeLevel | Silent;
+
+  /** THE STATES one can be left waiting in. `prompted` is padi's third
+   *  presence state — something was submitted and no transcript has spoken
+   *  yet — and it is in this table as the `working` READING, which is what it
+   *  reaches the watch as (`agentBucket("prompted")` is `working`): there is
+   *  no separate reading for it to arrive by, and that is the point of the
+   *  row. `stoppedSpoken` and `stoppedUnspoken` are two rows because the one
+   *  rule that reads `spoken` splits them: the first stopped, the second
+   *  never started. */
+  type FromState =
+    | "starting"
+    | "fresh"
+    | "prompted"
+    | "working"
+    | "asking"
+    | "stoppedSpoken"
+    | "stoppedUnspoken"
+    | "asleep";
+
+  /** THE READINGS that can come next. The two `shell` columns are one level
+   *  split by padi's foreground answer, because that one boolean is the whole
+   *  difference between an agent that left and a program it started. */
+  type WayOut =
+    | "starting"
+    | "fresh"
+    | "working"
+    | "stopped"
+    | "asking"
+    | "shellAgentExited"
+    | "shellOtherProgram"
+    | "asleep"
+    | "gone";
+
+  /** A terminal the Conductor created WITH a command — the join that makes
+   *  `ended` reachable at all, so no cell below is silent merely because the
+   *  terminal was the wrong kind. */
+  const created = (): WatchEntry => watchEntry(REF, "created-run");
+
+  /** One reading, taken and ITS WAKE DELIVERED: `told` moves when the turn
+   *  carrying a ring starts, never when the ring is decided, so driving a
+   *  from-state means writing down what the Conductor was actually handed. */
+  const read = (entry: WatchEntry, way: WayOut): WatchEntry => {
+    const seen = observed(entry, reading(way));
+    return seen.ring === null ? seen.entry : { ...seen.entry, told: seen.ring };
+  };
+
+  /** One way out, as a reading. An agent that has left the foreground, a
+   *  terminal that is asleep and one that is gone all report no agent — the
+   *  entry is what remembers there was one. */
+  const reading = (way: WayOut) => {
+    switch (way) {
+      case "shellAgentExited":
+        return seeing(REF, "shell", { agent: null, foregroundShell: true });
+      case "shellOtherProgram":
+        return seeing(REF, "shell", { agent: null, foregroundShell: false });
+      case "asleep":
+        return seeing(REF, "asleep", { agent: null });
+      case "gone":
+        return seeing(REF, "gone", { agent: null });
+      default:
+        return seeing(REF, way);
+    }
+  };
+
+  /** Each from-state, driven there through REAL readings rather than built by
+   *  hand: a state nobody can reach is not a state worth a row. */
+  const FROM: Readonly<Record<FromState, () => WatchEntry>> = {
+    starting: () => read(created(), "starting"),
+    fresh: () => read(read(created(), "starting"), "fresh"),
+    // Something was submitted to the fresh agent, and it is moving.
+    prompted: () => read(spokenTo(FROM.fresh()), "working"),
+    working: () => read(spokenTo(FROM.fresh()), "working"),
+    asking: () => read(FROM.working(), "asking"),
+    stoppedSpoken: () => read(FROM.working(), "stopped"),
+    // The resumed session: kolu's first sight of this agent is an idle, and
+    // nothing in this conversation has ever spoken to it, so it was told
+    // `ready` rather than `stopped`.
+    stoppedUnspoken: () => read(created(), "stopped"),
+    asleep: () => read(FROM.stoppedSpoken(), "asleep"),
+  };
+
+  const STILL_DRAWING: Silent = {
+    silent: "a screen still being drawn is nothing anyone can act on",
+  };
+  const WORKING_IS_NOT_NEWS: Silent = {
+    silent: "working is never news itself; it resets what we were told",
+  };
+  const OTHER_PROGRAM: Silent = {
+    silent:
+      "the agent did not leave — something it started is in front of it, and the prompt is not back",
+  };
+  const TOLD_READY: Silent = {
+    silent: "the Conductor was already told this agent is up and unbriefed",
+  };
+
+  const TABLE: Readonly<Record<FromState, Readonly<Record<WayOut, Outcome>>>> =
+    {
+      starting: {
+        starting: STILL_DRAWING,
+        fresh: "ready",
+        working: WORKING_IS_NOT_NEWS,
+        // Nothing has been said to it, so an idle is an arrival.
+        stopped: "ready",
+        asking: "asking",
+        shellAgentExited: "exited",
+        shellOtherProgram: OTHER_PROGRAM,
+        asleep: "asleep",
+        gone: "gone",
+      },
+      fresh: {
+        starting: STILL_DRAWING,
+        fresh: TOLD_READY,
+        working: WORKING_IS_NOT_NEWS,
+        stopped: TOLD_READY,
+        asking: "asking",
+        shellAgentExited: "exited",
+        shellOtherProgram: OTHER_PROGRAM,
+        asleep: "asleep",
+        gone: "gone",
+      },
+      // Prompted READS AS WORKING, so this row and the one below it are the
+      // same row — which is the invariant being asserted, not a duplication:
+      // an agent that was given something to do has every ending available to
+      // it, including the one where it dies before saying a word.
+      prompted: {
+        starting: STILL_DRAWING,
+        fresh: "ready",
+        working: WORKING_IS_NOT_NEWS,
+        stopped: "stopped",
+        asking: "asking",
+        shellAgentExited: "exited",
+        shellOtherProgram: OTHER_PROGRAM,
+        asleep: "asleep",
+        gone: "gone",
+      },
+      working: {
+        starting: STILL_DRAWING,
+        fresh: "ready",
+        working: WORKING_IS_NOT_NEWS,
+        stopped: "stopped",
+        asking: "asking",
+        shellAgentExited: "exited",
+        shellOtherProgram: OTHER_PROGRAM,
+        asleep: "asleep",
+        gone: "gone",
+      },
+      asking: {
+        starting: STILL_DRAWING,
+        fresh: "ready",
+        working: WORKING_IS_NOT_NEWS,
+        stopped: "stopped",
+        asking: { silent: "the same question, read again, is the same news" },
+        shellAgentExited: "exited",
+        shellOtherProgram: OTHER_PROGRAM,
+        asleep: "asleep",
+        gone: "gone",
+      },
+      stoppedSpoken: {
+        starting: STILL_DRAWING,
+        fresh: "ready",
+        working: WORKING_IS_NOT_NEWS,
+        stopped: { silent: "the same stop, read again, is the same news" },
+        asking: "asking",
+        shellAgentExited: "exited",
+        shellOtherProgram: OTHER_PROGRAM,
+        asleep: "asleep",
+        gone: "gone",
+      },
+      stoppedUnspoken: {
+        starting: STILL_DRAWING,
+        fresh: TOLD_READY,
+        working: WORKING_IS_NOT_NEWS,
+        stopped: TOLD_READY,
+        asking: "asking",
+        shellAgentExited: "exited",
+        shellOtherProgram: OTHER_PROGRAM,
+        asleep: "asleep",
+        gone: "gone",
+      },
+      asleep: {
+        // A terminal that was woken goes back on the ordinary levels, and
+        // every one of them is news again.
+        starting: STILL_DRAWING,
+        fresh: "ready",
+        working: WORKING_IS_NOT_NEWS,
+        stopped: "stopped",
+        asking: "asking",
+        shellAgentExited: "exited",
+        shellOtherProgram: OTHER_PROGRAM,
+        asleep: { silent: "it is still asleep; that was said when it slept" },
+        gone: "gone",
+      },
+    };
+
+  const STATES = Object.keys(TABLE) as ReadonlyArray<FromState>;
+
+  for (const from of STATES) {
+    const ways = TABLE[from];
+    for (const way of Object.keys(ways) as ReadonlyArray<WayOut>) {
+      const expected = ways[way];
+      const said =
+        typeof expected === "string"
+          ? `rings ${expected}`
+          : `is silent — ${expected.silent}`;
+      it(`${from}, then ${way}: ${said}`, () => {
+        const ring = observed(FROM[from](), reading(way)).ring;
+        expect(ring).toBe(typeof expected === "string" ? expected : null);
+      });
+    }
+  }
+
+  it("leaves no state with nothing but silence ahead of it", () => {
+    // The invariant itself, read straight off the table: whatever a watched
+    // terminal is doing, SOMETHING that can happen next rings.
+    for (const from of STATES) {
+      const rings = Object.values(TABLE[from]).filter(
+        (outcome) => typeof outcome === "string",
+      );
+      expect(rings.length, `${from} has no way out that rings`).toBeGreaterThan(
+        0,
+      );
+    }
   });
 });
 

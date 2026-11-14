@@ -31,8 +31,9 @@ The dock has two densities. **Rail** is a narrow strip of one chip per terminal.
 
 A cards row is two lines. The first is the identity line above. The second says
 what that terminal is *doing right now* — an agent's own summary, or the live
-phase when it has not given one (`Running tools`, `Awaiting input`, and
-`Starting` then `Ready` for an agent you have launched but not prompted yet), or
+phase when it has not given one (`Running tools`, `Awaiting input`, `Starting`
+then `Ready` for an agent you have launched but not prompted yet, and `Working`
+from your first Enter until that agent has written anything), or
 the foreground command in a plain shell — and, at its right end, the **model**
 that agent is running on when it reports one. So a fleet spread across several
 models reads without opening the right panel: the status word answers *doing

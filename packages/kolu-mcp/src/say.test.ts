@@ -85,17 +85,20 @@ describe("resolveSay — which keys, and what they do", () => {
     expect(say.delivery).toBe("submitted");
   });
 
-  it("a first prompt TOOK once the fresh agent says anything from a transcript — even a turn already over", () => {
-    // omp writes its first transcript only when the first reply completes, so
-    // the first state kolu can see after briefing it may be `waiting`. Leaving
-    // `fresh` for it is the proof; an agent already mid-conversation must
-    // still be seen working.
-    const fresh = resolveSay(ID, "brief", withAgent("omp", "fresh"));
-    expect(fresh.takes.has("waiting")).toBe(true);
-    expect(fresh.takes.has("working")).toBe(true);
-    expect(fresh.takes.has("fresh")).toBe(false);
-    const idle = resolveSay(ID, "next", withAgent("omp", "waiting"));
-    expect([...idle.takes]).toEqual(["working"]);
+  it("a PROMPTED agent — submitted to, no transcript yet — is WORKING, and a second say steers or queues", () => {
+    // The window between a fresh agent's first submit and its first transcript
+    // line (omp's lasts the whole first reply). Read as idle, a second say here
+    // would press the idle keys into an agent that is working.
+    const omp = resolveSay(ID, "also this", withAgent("omp", "prompted"));
+    expect(omp.working).toBe(true);
+    expect(omp.keys).toEqual(agentVocab("omp").say?.working?.keys);
+    expect(omp.delivery).toBe("steer");
+    const claude = resolveSay(
+      ID,
+      "also this",
+      withAgent("claude-code", "prompted"),
+    );
+    expect(claude.delivery).toBe("queue");
   });
 
   it("a WORKING agent gets its mid-turn keys and its own delivery word", () => {

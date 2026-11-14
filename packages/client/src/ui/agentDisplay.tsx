@@ -88,7 +88,8 @@ export const taskProgressTitle = (progress: TaskProgress): string =>
  *  needs-you violet at reduced strength (same distinction the dock StatePip
  *  draws), vs full-strength `alert` for a genuine `awaiting_user` block —
  *  and `quiet` is the muted family for an agent that is merely PRESENT
- *  (`starting` / `fresh`), which no surface may paint as activity. */
+ *  (`starting` / `fresh`), which no surface may paint as activity. A
+ *  `prompted` agent is not merely present: it was given work, so it is busy. */
 export type AgentStateTone = "busy" | "alert" | "alert-linger" | "quiet";
 export const stateTones: Record<AgentInfo["state"], AgentStateTone> = {
   thinking: "busy",
@@ -104,6 +105,8 @@ export const stateTones: Record<AgentInfo["state"], AgentStateTone> = {
   // say it is there.
   starting: "quiet",
   fresh: "quiet",
+  // Submitted to and not yet heard from: at work, as far as anybody can tell.
+  prompted: "busy",
 };
 
 /** Claude-Code's dynamic-workflow fan-out info, or null. Narrows the

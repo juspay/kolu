@@ -10,7 +10,11 @@ const MODE_TOGGLE_SELECTOR = '[data-testid="dock-mode-toggle"]';
 // Row bucket is the semantic state we assert against — the unified
 // DockRow component carries `data-bucket="awaiting|working|idle|none"`
 // instead of branching its testid by bucket.
-const AWAITING_ROW_SELECTOR =
+// Exported: the presence scenario counts the same two attention surfaces
+// INLINE, per agent, while each stand-in is up — so one quiet claim is read off
+// the selectors the dock's own steps assert against, never a second copy of
+// them.
+export const AWAITING_ROW_SELECTOR =
   '[data-testid="dock-row"][data-bucket="awaiting"]';
 const WORKING_ROW_SELECTOR = '[data-testid="dock-row"][data-bucket="working"]';
 const QUIET_FOREGROUND_SELECTOR = '[data-testid="dock-quiet-foreground"]';
@@ -29,7 +33,7 @@ const MODEL_TAG_SELECTOR = "[data-dock-row] [data-dock-model]";
 const CHROME_DOCK_TOGGLE_SELECTOR = '[data-testid="dock-toggle"]';
 const DOCK_WINDOW_TRIGGER_SELECTOR = '[data-testid="dock-window-trigger"]';
 const HIDDEN_FOOTER_SELECTOR = '[data-testid="dock-hidden-footer"]';
-const NEEDS_YOU_ENTRY_SELECTOR = '[data-testid="dock-needs-you-entry"]';
+export const NEEDS_YOU_ENTRY_SELECTOR = '[data-testid="dock-needs-you-entry"]';
 
 Then("the dock should be visible", async function (this: KoluWorld) {
   await this.page

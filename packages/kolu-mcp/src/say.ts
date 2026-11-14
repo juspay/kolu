@@ -183,11 +183,17 @@ export interface SayPerformance {
   readonly agent: AgentInfo["kind"];
   readonly working: boolean;
   readonly delivery: SayDelivery;
-  /** The buckets whose arrival PROVES the words took ({@link SayTook}) —
-   *  `working` for an agent that was idle mid-conversation; for one that was
-   *  `fresh`, any state only a transcript can say. Unused while `working`. */
-  readonly takes: ReadonlySet<WaitState>;
 }
+
+/** The one bucket whose arrival PROVES the words took ({@link SayTook}), for
+ *  every idle agent alike. An agent idle mid-conversation turns `working` when
+ *  its transcript starts the turn; one that was `fresh` (up, never prompted)
+ *  turns `working` the instant padi forwards the submit, as the `prompted`
+ *  presence — padi's own reading of the input it carried, so a first prompt
+ *  needs no transcript to be seen landing. */
+export const SAY_TAKES: ReadonlySet<WaitState> = new Set<WaitState>([
+  "working",
+]);
 
 /** Whether the words TOOK — the half of this tool's promise the delivery word
  *  cannot answer.
@@ -200,13 +206,9 @@ export interface SayPerformance {
  *  answer, and the one that did not take names the screen read that settles
  *  it.
  *
- *   - `began-working` — the agent began a turn: its bucket turned `working`
- *     — or, for an agent that was `fresh` (up, never prompted), it left the
- *     presence states for ANY state its transcript says. That wider proof is
- *     the only one there is for a first prompt: most agents write no
- *     transcript before it, and omp writes its first one only when the first
- *     reply COMPLETES, so the first thing kolu can see may be the turn already
- *     over. It took.
+ *   - `began-working` — the agent's bucket turned `working`: its transcript
+ *     started a turn, or — for an agent that was `fresh` — padi saw the
+ *     submit go in and published it `prompted`. It took.
  *   - `did-not-begin` — it had not within the cap. The keys WERE sent.
  *   - `not-observable` — the agent was already working, so there is no state
  *     change to watch for; what happens to the words is the recipe's
@@ -250,7 +252,12 @@ export function sayTook(
       return {
         observed: "began-working",
         afterMs: outcome.elapsedMs,
-        note: `The agent began a turn ${outcome.elapsedMs} ms after the keys — it took.`,
+        // A `prompted` agent is one padi SAW the submit reach, before any
+        // transcript: say exactly that, rather than claim a turn it cannot see.
+        note:
+          outcome.agent.state === "prompted"
+            ? `The submit reached the agent ${outcome.elapsedMs} ms after the keys and it is working on it — it took. It has not written a transcript yet, so there is nothing of its reply to read until it does.`
+            : `The agent began a turn ${outcome.elapsedMs} ms after the keys — it took.`,
       };
     case "timeout":
       return {
@@ -395,10 +402,6 @@ export function resolveSay(
     agent: agent.kind,
     working: bucket === "working",
     delivery,
-    takes:
-      bucket === "fresh"
-        ? new Set<WaitState>(["working", "awaiting", "waiting"])
-        : new Set<WaitState>(["working"]),
   };
 }
 
@@ -509,7 +512,7 @@ export const agentSayTool: BespokeTool = {
                                 );
                                 return awaitAgentState(padi, {
                                   id,
-                                  targets: say.takes,
+                                  targets: SAY_TAKES,
                                   timeoutMs: SAY_TAKE_CAP_MS,
                                   signal: signal ?? fiberSignal,
                                 });

@@ -37,10 +37,14 @@ const NAMED_LIMIT = 3;
  *  terminal's (`gone`), one is the terminal kolu was told to sleep (`asleep` —
  *  the agent in it is dead, and that is why it rang), `working` is an agent
  *  visibly moving, `shell` is a prompt with nothing in front of it (so the
- *  words say `no agent`, which is the fact a person is after), and `ended` is
- *  a terminal the Conductor created with a command that ran and came back to a
+ *  words say `no agent`, which is the fact a person is after), `ended` is a
+ *  terminal the Conductor created with a command that ran and came back to a
  *  prompt with no agent ever appearing: the words say WHAT IS MISSING, because
- *  "ended" alone reads like a success.
+ *  "ended" alone reads like a success. `exited` is the other ending — an agent
+ *  that WAS there and whose program left the foreground, leaving the terminal
+ *  at its shell prompt — and the plain word is the honest one: a person
+ *  reading `planner exited` knows both that there was a planner and that there
+ *  is not one now.
  *
  *  The two PRESENCE readings are the agent's standing before it has written a
  *  line of transcript: `starting` is its screen still being drawn, and `fresh`
@@ -63,6 +67,7 @@ export const LEVEL_WORD: Record<
   fresh: "ready",
   asleep: "asleep",
   ended: "ended without an agent",
+  exited: "exited",
 };
 
 /** The one-line news: `planner is up · impl asking`, with `+2 more` when

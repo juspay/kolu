@@ -78,6 +78,7 @@ function startOmpSensor() {
     ports: inMemoryChannel<TerminalPorts>(),
     grid: inMemoryChannel<TerminalGrid>(),
     screenSettled: inMemoryChannel<void>(),
+    submitted: inMemoryChannel<void>(),
   };
   // Two sensors over ONE engine state — the production arrangement, where every
   // registered adapter shares the terminal's `AgentEngineState`. Both are the

@@ -158,7 +158,7 @@ export interface TranscriptEntry {
  *  back to its tool row — the elicitation and the tool call reach the panel as
  *  two independent reports. `toolName` is what the agent CALLED, from the
  *  adapter's own `_meta`, never the title (model-written prose). */
-const ASK_TOOL = "AskUserQuestion";
+export const ASK_TOOL = "AskUserQuestion";
 
 /** Collapse every RUN of consecutive notices with identical text to the first
  *  of them, carrying the count.

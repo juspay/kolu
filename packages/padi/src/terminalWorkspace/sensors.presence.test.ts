@@ -90,6 +90,7 @@ function startHarness() {
     ports: inMemoryChannel<TerminalPorts>(),
     grid: inMemoryChannel<TerminalGrid>(),
     screenSettled: inMemoryChannel<void>(),
+    submitted: inMemoryChannel<void>(),
   };
   const stop = startAgentSensor(
     adapter,
@@ -124,6 +125,10 @@ function startHarness() {
     },
     async settled() {
       signals.screenSettled.publish();
+      await flush();
+    },
+    async submitted() {
+      signals.submitted.publish();
       await flush();
     },
     async writeCrumb(session = SESSION) {
@@ -186,6 +191,63 @@ describe("an agent is present from its foreground alone", () => {
     const h = startHarness();
     await h.foreground({ process: "vim", foregroundPid: AGENT_PID });
     expect(h.agent()).toBe("none-yet");
+    h.stop();
+  });
+});
+
+describe("an agent handed a prompt before it has a transcript", () => {
+  it("is `prompted` the moment a submit reaches a `fresh` agent, and the watcher's first value replaces it", async () => {
+    const h = startHarness();
+    await h.foreground(omp());
+    await h.writeCrumb();
+    await h.settled();
+    expect(h.agent()).toMatchObject({ state: "fresh", sessionId: SESSION });
+    await h.submitted();
+    // padi's own reading of the input it forwarded: no transcript yet, and
+    // the session the agent already named is kept.
+    expect(h.agent()).toMatchObject({ state: "prompted", sessionId: SESSION });
+    h.landTranscript(sessionInfo(SESSION, "waiting"));
+    expect(h.agent()).toMatchObject({ state: "waiting", model: "m" });
+    h.stop();
+  });
+
+  it("a submit into an agent still `starting` prompts it too — a person can type before the screen is done", async () => {
+    const h = startHarness();
+    await h.foreground(omp());
+    await h.submitted();
+    expect(h.agent()).toMatchObject({ state: "prompted" });
+    h.stop();
+  });
+
+  it("a screen that settles again with still no transcript is `fresh` once more", async () => {
+    // A slash command, an Enter into an empty input: something was submitted,
+    // and nothing came of it that a transcript recorded.
+    const h = startHarness();
+    await h.foreground(omp());
+    await h.settled();
+    await h.submitted();
+    await h.settled();
+    expect(h.agent()).toMatchObject({ state: "fresh" });
+    h.stop();
+  });
+
+  it("a submit never moves a session-backed value — the transcript's word stands", async () => {
+    const h = startHarness();
+    await h.foreground(omp());
+    await h.writeCrumb();
+    h.landTranscript(sessionInfo(SESSION, "waiting"));
+    await h.submitted();
+    expect(h.agent()).toMatchObject({ state: "waiting" });
+    h.stop();
+  });
+
+  it("a submit belongs to the process it reached: a new agent process starts over", async () => {
+    const h = startHarness();
+    await h.foreground(omp(AGENT_PID));
+    await h.submitted();
+    await h.foreground(shell);
+    await h.foreground(omp(AGENT_PID + 1));
+    expect(h.agent()).toMatchObject({ state: "starting" });
     h.stop();
   });
 });

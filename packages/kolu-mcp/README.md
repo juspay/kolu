@@ -83,10 +83,10 @@ detects the agent but has no verified recipe), `agent-cannot-be-told-while-worki
 until it is ready, which `wait_agentState` with `until: ["fresh"]` is for, and
 say it then), the asleep refusal, and `text-refused` (empty text). An agent that
 is `fresh` — up, settled, never prompted — is said to like any other idle agent,
-and its first prompt counts as taken the moment it shows ANY state from a
-transcript, not only `working`: that first prompt is what makes most agents
-write a transcript at all, and omp writes its first one only when the first
-reply completes, so the first state kolu can see may be the turn already over.
+and its first prompt is seen taking the instant padi forwards the submit: the
+agent turns `prompted`, a presence state in the `working` bucket, before it has
+written a line of transcript (omp writes its first only when the first reply
+completes). Until that transcript lands a second say treats it as working.
 
 **A refusal is data, not a sentence to parse.** `lifecycle_sendInput` refuses
 four things on purpose, and a driver recovers from each differently — so each

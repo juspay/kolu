@@ -56,7 +56,7 @@ several terminals, and anything that happened while you were busy arrives
 together the moment your turn ends — so ending a turn never loses news, and
 nothing has to be polled for.
 
-A wake says WHICH of six things happened, and they do not mean the same
+A wake says WHICH of seven things happened, and they do not mean the same
 thing. READY: the agent in a watched terminal is UP and has not been told
 anything yet — that is the one you answer by saying its brief. It comes as
 soon as the agent's screen has settled, before the agent has written a word,
@@ -67,15 +67,20 @@ question of its own and will sit there until it is answered. GONE: the
 terminal is no longer there — it was closed, or its host left. ASLEEP: a
 terminal you were watching was put to sleep, so its agent is dead; the entry
 stays on your list, and waking the terminal brings it back to the ordinary
-levels. ENDED: a terminal you created with a `run` command ran that command
+levels. EXITED: the agent that was in a watched terminal is gone from the
+foreground and the terminal is back at its shell prompt — it crashed, it was
+quit, it ran out of something — so nothing more is coming from it: READ THE
+SCREEN to see why it went, and do not wait on that terminal any longer.
+ENDED: a terminal you created with a `run` command ran that command
 and came back to its shell prompt with no agent ever appearing in it, so read
 the screen to see what it said. Each of these rings ONCE: you are told when a
 state is reached, never again for the same state.
 
-What `ended` cannot catch: kolu sees what a terminal is running and whether
-an agent is in it, never a command's exit status, so a command that fails
-before it starts anything of its own — a misspelt binary the shell itself
-refuses — leaves nothing to observe and does not ring. A terminal you created
+What `ended` and `exited` cannot catch: kolu sees what a terminal is running
+and whether an agent is in it, never a command's exit status, so a command
+that fails before it starts anything of its own — a misspelt binary the shell
+itself refuses — leaves nothing to observe and does not ring, and neither
+word tells you HOW it went: the screen does. A terminal you created
 that has said nothing for a long time is one to read the screen of.
 
 What you watch is a list kolu keeps for you, and you can READ it: the

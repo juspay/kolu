@@ -651,14 +651,17 @@ export * from "./transcriptSchema.ts";
  *
  *  7.3 (additive · minor) — an agent is PRESENT before it has a session. The
  *  record's `agent` gains a member, `AgentPresenceSchema` (`kolu-agents/vocab`):
- *  `{ kind, state: "starting" | "fresh", sessionId: string | null }` with every
- *  transcript field `null` — padi now publishes an agent from its FOREGROUND
- *  alone (the registry's `cli` match), `starting` while its screen is drawn and
- *  `fresh` once it has settled and has never been prompted, where a 7.2 padi
- *  published `agent: null` until the agent's transcript existed (most agents
- *  write none until their first prompt). The wait/watch bucket vocabulary
+ *  `{ kind, state: "starting" | "fresh" | "prompted", sessionId: string | null }`
+ *  with every transcript field `null` — padi now publishes an agent from its
+ *  FOREGROUND alone (the registry's `cli` match), `starting` while its screen
+ *  is drawn, `fresh` once it has settled with nothing submitted to it, and
+ *  `prompted` once padi has forwarded a submit to it and no transcript has
+ *  spoken yet, where a 7.2 padi published `agent: null` until the agent's
+ *  transcript existed (most agents write none until their first prompt; omp
+ *  none until its first reply is done). The wait/watch bucket vocabulary
  *  (`WAIT_STATES`) gains `starting` and `fresh` with it: `watch.open`'s and
- *  `watchStates`' `states` accept them, and a state event may carry them.
+ *  `watchStates`' `states` accept them, and a state event may carry them;
+ *  `prompted` buckets as `working`, so it needs no new word on that wire.
  *
  *  A WIDENED EMITTED UNION, so the 5.3 class: a 7.2 decoder refuses a record
  *  whose agent is a presence, and the minor rule is what keeps it from ever
@@ -670,9 +673,10 @@ export * from "./transcriptSchema.ts";
  *  "no agent — a plain shell" about the very terminal it is waiting on, so it
  *  REFUSES one at the gate and convergence respawns the straddler. A consumer
  *  that reads agent state only through the `agentProjection` folds needs no
- *  code change: the folds decide both states (quiet for attention, idle for
- *  urgency, `starting`/`fresh` buckets). One that narrows an `AgentInfo` to one
- *  kind's info must now rule a presence out first (`isAgentPresence`). */
+ *  code change: the folds decide all three states (`starting`/`fresh` quiet for
+ *  attention, idle for urgency, buckets of their own; `prompted` is work). One
+ *  that narrows an `AgentInfo` to one kind's info must now rule a presence out
+ *  first (`isAgentPresence`). */
 export const PADI_SURFACE_VERSION = "7.3";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */

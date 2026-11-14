@@ -29,8 +29,8 @@ tiles. The seventh agent alongside `kolu-claude-code`, `kolu-codex`,
   agent dir (omp rewrites its crumb when a session is created or switched, which
   can land after the preexec hint named `omp`), a `screenScrape` promotion, and
   `presenceSessionId` — the crumb's session id, which the presence padi
-  publishes for an omp that has not been prompted yet (`starting` → `fresh`)
-  carries instead of none.
+  publishes for an omp that has no transcript yet (`starting` → `fresh` →
+  `prompted`, the whole first reply long) carries instead of none.
 - **Watchers** — a per-session transcript watcher (`session-watcher.ts`) built on
   `kolu-io`'s append-robust `subscribeFileAppends` + coalesce schedule. That
   primitive's absent→present floor is what lights the session-backed state for a

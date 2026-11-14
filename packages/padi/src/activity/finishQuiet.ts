@@ -15,20 +15,23 @@
  * phase), it STAYS finished until it leaves the waiting bucket. Mid-waiting TUI
  * noise must not un-finish. Field falsified re-chime-per-quiet-crossing.
  *
- * **The same window settles an agent coming up.** An agent padi has seen in the
- * foreground but whose screen is still being drawn is `starting`; it is `fresh`
- * once that screen goes quiet. "Has this terminal's output gone quiet for the
- * window?" is the question this module already answers for a finished turn, so
- * a `starting` agent is a second KIND of episode on the same tracker and the
- * same kaval edges — not a timer of its own. Its quiet-crossing is reported
- * through `onSettled`, which padi routes back into that terminal's agent
- * detector (`TerminalEndpoint.noteScreenSettled`): the detector owns the agent
- * value, and it is the one that publishes `fresh`. The episode then ends by
- * itself, because the record no longer says `starting`.
+ * **The same window settles an agent coming up — or one prompted for nothing.**
+ * An agent padi has seen in the foreground but whose screen is still being
+ * drawn is `starting`; it is `fresh` once that screen goes quiet. One that was
+ * handed a prompt and has written no transcript is `prompted`; if its screen
+ * goes quiet with still nothing written (a slash command that started no turn)
+ * it is `fresh` again. "Has this terminal's output gone quiet for the window?"
+ * is the question this module already answers for a finished turn, so both are
+ * a second KIND of episode on the same tracker and the same kaval edges — not a
+ * timer of their own. The quiet-crossing is reported through `onSettled`, which
+ * padi routes back into that terminal's agent detector
+ * (`TerminalEndpoint.noteScreenSettled`): the detector owns the agent value,
+ * and it is the one that publishes `fresh`. The episode then ends by itself,
+ * because the record no longer says `starting` or `prompted`.
  *
  * **Boot seed:** already-waiting ids on the first `syncWaiting` go straight to
- * `finished` (discovery is not a transition) — and already-starting ids are
- * reported settled at once, for the same reason.
+ * `finished` (discovery is not a transition) — and ids already waiting on a
+ * settle are reported settled at once, for the same reason.
  *
  * **Feed liveness:** quiet promotion is blocked while the standing kaval activity
  * sub is down (recycle / drop). On reconnect, debouncing episodes are restamped
@@ -67,8 +70,9 @@ export const EFFECTIVE_FINISH_QUIET_MS = 5_000;
 export type FinishEpisodePhase = "debouncing" | "finished";
 
 /** What a quiet episode is ABOUT: a turn that ended (`finish` — the agent is
- *  `waiting`) or an agent coming up (`settle` — it is `starting`). One terminal
- *  is in at most one, because its agent has one state. */
+ *  `waiting`) or a screen padi is waiting to see settle (`settle` — the agent
+ *  is `starting`, or `prompted` with no transcript yet). One terminal is in at
+ *  most one, because its agent has one state. */
 export type QuietEpisodeKind = "finish" | "settle";
 
 type QuietEpisode = { kind: QuietEpisodeKind; phase: FinishEpisodePhase };
@@ -89,9 +93,11 @@ export function waitingIdsOf(
 }
 
 /** Every active terminal this module keeps a quiet episode for, and which kind:
- *  a `waiting` agent's turn is a `finish` episode, a `starting` agent a `settle`
- *  one. Read through the shared `agentBucket` fold, so the membership is the
- *  vocabulary's answer rather than a second list of literals. */
+ *  a `waiting` agent's turn is a `finish` episode; a `starting` agent, and a
+ *  `prompted` one (submitted to, no transcript yet), a `settle` one — a screen
+ *  that goes quiet is what moves either to `fresh`. Read through the shared
+ *  `agentBucket` fold, so the membership is the vocabulary's answer rather than
+ *  a second list of literals. */
 function quietEpisodesOf(
   terminals: ReadonlyMap<TerminalId, PadiTerminal>,
 ): Map<TerminalId, QuietEpisodeKind> {
@@ -107,7 +113,13 @@ function quietEpisodesOf(
       case "starting":
         out.set(id, "settle");
         break;
+      // `prompted` is the one presence state in the `working` bucket: it is
+      // work as far as anybody can tell, but nothing has confirmed it, so a
+      // screen that settles with still no transcript (a slash command that
+      // starts no turn) is what takes it back to `fresh`.
       case "working":
+        if (agent.state === "prompted") out.set(id, "settle");
+        break;
       case "awaiting":
       case "fresh":
       case "other":
@@ -138,9 +150,9 @@ function withFeedHooks<T>(
  * opens a daemon-lifetime kaval activity subscription. Tests pass `standingSub:
  * false` and drive feed hooks / edges themselves.
  *
- * `onSettled` hears each `starting` agent whose screen went quiet — once per
- * episode, from the tracker's own quiet-exit (or at once for an agent already
- * starting when the first real fleet arrives).
+ * `onSettled` hears each `starting` or `prompted` agent whose screen went
+ * quiet — once per episode, from the tracker's own quiet-exit (or at once for
+ * an agent already waiting on a settle when the first real fleet arrives).
  */
 export function createFinishQuiet(opts: {
   log: Logger;
@@ -181,7 +193,7 @@ export function createFinishQuiet(opts: {
   }, 0);
   const keepAlive = genSrc.subscribe(() => {});
 
-  /** Tell padi a `starting` agent's screen has settled. The listener routes into
+  /** Tell padi a screen it was waiting on has settled. The listener routes into
    *  the terminal's own detector; a throw there must not stop the promotion loop
    *  for every other terminal, so it is caught and said here. */
   const reportSettled = (id: TerminalId): void => {

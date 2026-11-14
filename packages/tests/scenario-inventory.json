@@ -10354,6 +10354,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "818160e45131e1362f4d252944425cb6c4399d10"
+    },
+    {
+      "revisionId": "revision-14991f62c1433351ddf3",
+      "scenarioKey": "scenario-fa56ff2c457a6378cd6d",
+      "feature": "features/agent-presence.feature",
+      "scenario": "Every registered agent reads as Ready from its foreground alone",
+      "kind": "scenario",
+      "tags": ["@omp-mock", "@presence-registry"],
+      "bodyHash": "98c3c4649fc1ed7d423ac2e7a888b015f947b610bf05b8859ddaac102e6515c1",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1a94f235035c37d41294d8bffed00c00085c38f0"
     }
   ]
 }

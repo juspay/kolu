@@ -83,14 +83,15 @@ const SessionAgentInfoSchema = Schema.Union(
 );
 
 /** An agent that is HERE but has no session kolu can read yet — the daemon's
- *  process fact ({@link AGENT_PRESENCE_STATES}: `starting`, then `fresh`),
- *  minted for every kind from the foreground alone. Every transcript field is
+ *  process fact ({@link AGENT_PRESENCE_STATES}: `starting`, then `fresh`, then
+ *  `prompted` once something is submitted to it), minted for every kind from
+ *  the foreground and the input padi forwards. Every transcript field is
  *  `null` because there is no transcript; `sessionId` is `null` unless the
  *  agent itself names its session before writing it (omp's `fresh`
- *  breadcrumb — `AgentAdapter.presenceSessionId`).
+ *  breadcrumb, Claude's `sessions/<pid>.json` — `AgentAdapter.presenceSessionId`).
  *
- *  ONE member for every kind rather than two literals in every agent's own
- *  `state` set: no agent package can derive either state from its transcript,
+ *  ONE member for every kind rather than three literals in every agent's own
+ *  `state` set: no agent package can derive any of them from its transcript,
  *  and a presence carries none of an agent's own fields (omp's `sessionPath`,
  *  Claude's `workflow`), so code that narrows to one kind's info must first
  *  rule presence out — which the compiler now asks of it. The state sets are

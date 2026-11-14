@@ -75,6 +75,7 @@ function startHarness(commandRooted: boolean) {
     ports: inMemoryChannel<TerminalPorts>(),
     grid: inMemoryChannel<TerminalGrid>(),
     screenSettled: inMemoryChannel<void>(),
+    submitted: inMemoryChannel<void>(),
   };
   // `currentAgent: "opencode"` models lock 1's argv seed already applied — so
   // this test isolates lock 2 (the shellIdle gate) alone. The trailing

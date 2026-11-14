@@ -27,7 +27,8 @@
  *    title/cwd/cmd     ─►  agent detector ×7                          emit agent (Known<>, argv)
  *                          (presence from the foreground alone; the
  *                          session's watcher refines it)
- *    screenSettled:<id> ─► agent detector (starting → fresh)
+ *    screenSettled:<id> ─► agent detector (starting/prompted → fresh)
+ *    submitted:<id>    ─►  agent detector (starting/fresh → prompted)
  *    commandRun:<id>   ─►  agent-command tracker (sensor only: hint + re-sample)
  *    ports:<id>        ─►  port sensor (dedup)                        emit ports
  *                          (fed host-wide by padi's port sampler, not by a pty tap)
@@ -142,14 +143,21 @@ interface AgentEngineState {
     sample: ForegroundSample;
     value: ProcessSnapshot;
   } | null;
-  /** The foreground pid whose screen padi has seen SETTLE since it came up —
-   *  the one fact that separates an agent `starting` (its screen still being
-   *  drawn) from one that is `fresh` (up, and never prompted). Written when the
-   *  host reports the settle (`SensorSignals.screenSettled`) and compared with
-   *  the CURRENT foreground pid, so a new agent process in the same terminal
-   *  starts over without anything having to clear it. Per TERMINAL, like
-   *  `episode`: one foreground, one screen. */
-  settledPid: number | undefined;
+  /** The last thing padi SAW happen to the current foreground process's
+   *  screen and input — the facts that separate the three presence states: no
+   *  step for this pid is an agent `starting` (its screen still being drawn),
+   *  `settled` is one that is `fresh` (up, nothing submitted since), and
+   *  `submitted` is one that is `prompted` (handed something, no transcript
+   *  yet). Written when the host reports a settle (`SensorSignals
+   *  .screenSettled`) or a submit (`SensorSignals.submitted`), and compared
+   *  with the CURRENT foreground pid, so a new agent process in the same
+   *  terminal starts over without anything having to clear it. The latest
+   *  wins: a submit after a settle is a prompt, a settle after a submit is a
+   *  screen that went quiet again with nothing to show for it. Per TERMINAL,
+   *  like `episode`: one foreground, one screen, one input. */
+  presenceStep:
+    | { readonly pid: number; readonly saw: "settled" | "submitted" }
+    | undefined;
 }
 
 /** The terminal's current agent run, as the ownership arbiter needs to see it. */
@@ -178,7 +186,7 @@ export function freshAgentEngineState(): AgentEngineState {
     currentAgent: null,
     episode: { since: null, pid: undefined, watchedShellIdle: false },
     procSnapshot: null,
-    settledPid: undefined,
+    presenceStep: undefined,
   };
 }
 
@@ -214,14 +222,21 @@ export interface SensorSignals {
    *  from the child, because padi performs every resize and is therefore the
    *  only thing that knows one happened. */
   grid: Channel<TerminalGrid>;
-  /** The host saying this terminal's agent, while `starting`, has gone quiet —
-   *  its screen has settled. Fed by padi's effective-finish quiet machinery
-   *  (`activity/finishQuiet.ts` — the same kaval output-edge window that tells
-   *  a just-stopped agent from a finished one), not by a pty-host tap and not
-   *  by a timer of the producer's own: the producer has no byte-motion feed,
-   *  and a second quiet clock would be a second answer to "has it gone
-   *  quiet?". The agent detectors read it to move `starting` → `fresh`. */
+  /** The host saying this terminal's agent, while `starting` or `prompted`,
+   *  has gone quiet — its screen has settled. Fed by padi's effective-finish
+   *  quiet machinery (`activity/finishQuiet.ts` — the same kaval output-edge
+   *  window that tells a just-stopped agent from a finished one), not by a
+   *  pty-host tap and not by a timer of the producer's own: the producer has no
+   *  byte-motion feed, and a second quiet clock would be a second answer to
+   *  "has it gone quiet?". The agent detectors read it to move the presence to
+   *  `fresh`. */
   screenSettled: Channel<void>;
+  /** The host saying a write it forwarded to this terminal SUBMITTED (a typed
+   *  Enter outside a paste — `@kolu/terminal-protocol`'s `createSubmitScanner`).
+   *  Fed by padi's own input seam, which every keystroke crosses; the producer
+   *  sees no input. The agent detectors read it to move a presence nobody had
+   *  prompted to `prompted`. */
+  submitted: Channel<void>;
 }
 
 /** Read the terminal's current rendered screen as VT-resolved plain text — the
@@ -905,18 +920,42 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
   };
 
   /** Publish this agent's PRESENCE: it is here, and no transcript of it has been
-   *  read. `starting` until the host reports its screen settled for the CURRENT
-   *  foreground process, `fresh` after. `sessionId` is the matched session's id
-   *  when the agent already names one before writing its transcript
-   *  (`AgentAdapter.presenceSessionId`), else `null`. Through `emitAgentValue`,
-   *  so a republish that changes nothing is deduped like every other emit. */
+   *  read. Which of the three states is what padi last SAW of the CURRENT
+   *  foreground process (`AgentEngineState.presenceStep`): nothing yet is
+   *  `starting`, a settled screen `fresh`, a submit `prompted`. `sessionId` is
+   *  the matched session's id when the agent already names one before writing
+   *  its transcript (`AgentAdapter.presenceSessionId`), else `null`. Through
+   *  `emitAgentValue`, so a republish that changes nothing is deduped like
+   *  every other emit. */
   function publishPresence(sessionId: string | null): void {
     const fg = currentForeground.foregroundPid;
-    const settled = fg !== undefined && agentState.settledPid === fg;
+    const step = agentState.presenceStep;
+    const state =
+      fg === undefined || step?.pid !== fg
+        ? "starting"
+        : step.saw === "settled"
+          ? "fresh"
+          : "prompted";
     emitAgentValue(agentState, emit, {
-      info: agentPresence(kind, settled ? "fresh" : "starting", sessionId),
+      info: agentPresence(kind, state, sessionId),
       argv: liveArgv(),
     });
+  }
+
+  /** Record what padi just saw of the current foreground process and, if THIS
+   *  adapter's presence is what is published, republish it — every detector
+   *  records the same step (the write is idempotent), and the one that owns
+   *  the presence moves it. A session-backed value is never touched: once a
+   *  transcript speaks, it is the transcript's word that stands. A step for a
+   *  process no longer in front simply never matches. */
+  function notePresenceStep(saw: "settled" | "submitted"): void {
+    if (stopped) return;
+    const fg = currentForeground.foregroundPid;
+    if (fg === undefined) return;
+    agentState.presenceStep = { pid: fg, saw };
+    const published = agentState.mirror?.info;
+    if (published?.kind === kind && isAgentPresence(published))
+      publishPresence(published.sessionId);
   }
 
   // `reconcile` must never throw. It is called bare from four channel
@@ -1316,22 +1355,16 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     onEvent: () => scheduleCommandRunReconciles(),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
-  // THE SCREEN SETTLED. The host's quiet machinery says this terminal's agent,
-  // while `starting`, went quiet: remember WHICH process settled (every detector
-  // writes the same pid — the write is idempotent), and the one that owns a
-  // `starting` presence republishes it as `fresh`. Nothing here decides quiet; a
-  // settle reported for a process no longer in front simply never matches.
+  // THE SCREEN SETTLED — the host's quiet machinery says this terminal's agent,
+  // `starting` or `prompted`, went quiet — or A WRITE SUBMITTED. Nothing here
+  // decides quiet or what a submit is; it records which happened last.
   const cleanupScreenSettled = signals.screenSettled.consume({
-    onEvent: () => {
-      if (stopped) return;
-      const fg = currentForeground.foregroundPid;
-      if (fg === undefined) return;
-      agentState.settledPid = fg;
-      const published = agentState.mirror?.info;
-      if (published?.kind === kind && published.state === "starting")
-        publishPresence(published.sessionId);
-    },
+    onEvent: () => notePresenceStep("settled"),
     onError: (err) => plog.error({ err }, "screen-settled subscription failed"),
+  });
+  const cleanupSubmitted = signals.submitted.consume({
+    onEvent: () => notePresenceStep("submitted"),
+    onError: (err) => plog.error({ err }, "submitted subscription failed"),
   });
   reconcile();
 
@@ -1343,6 +1376,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     cleanupCwd();
     cleanupCommandRun();
     cleanupScreenSettled();
+    cleanupSubmitted();
     if (registeredForExternal) {
       activations.get(adapter.kind)?.reconcilers.delete(reconcile);
     }

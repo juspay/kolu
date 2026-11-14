@@ -225,6 +225,7 @@ function startTerminal(id: TerminalId, agentPid: number): Harness {
     ports: inMemoryChannel<TerminalPorts>(),
     grid: inMemoryChannel<TerminalGrid>(),
     screenSettled: inMemoryChannel<void>(),
+    submitted: inMemoryChannel<void>(),
   };
   const stop = startAgentSensor(
     codexAdapter,

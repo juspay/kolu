@@ -491,18 +491,25 @@ padi owns the fact that an agent is IN a terminal, and it is a process fact: a
 foreground program the agent registry's own `cli` match recognises gives the
 record an `agent` from that moment, for every kind (`terminalWorkspace/sensors.ts`,
 `publishPresence`). Until that agent's transcript can be read — most agents write
-none before their first prompt — the value is a PRESENCE
-(`kolu-agents/vocab`'s `AgentPresenceSchema`): `starting` while its screen is
-drawn, `fresh` once it has settled. The settle is not a timer of the sensor's:
-the effective-finish quiet window (`activity/finishQuiet.ts`) keeps a second
-kind of episode for a `starting` agent on the same kaval output edges, and its
+none before their first prompt, omp none until its first reply is done — the
+value is a PRESENCE (`kolu-agents/vocab`'s `AgentPresenceSchema`), in one of
+three states, each something padi itself SAW of the current foreground process:
+`starting` while its screen is drawn, `fresh` once it has settled, `prompted`
+once a write padi forwarded to it SUBMITTED (a typed Enter outside a paste —
+`@kolu/terminal-protocol`'s `createSubmitScanner`, run on every write the
+terminal's `PtyHostTerminalProxy` carries). `prompted` buckets as `working`.
+Neither the settle nor the submit is a sensor of its own: the effective-finish
+quiet window (`activity/finishQuiet.ts`) keeps a second kind of episode for a
+`starting` or `prompted` agent on the same kaval output edges, and its
 quiet-crossing is routed back into that terminal's detector
-(`TerminalEndpoint.noteScreenSettled`), which publishes `fresh`. The session's
+(`TerminalEndpoint.noteScreenSettled`), which publishes `fresh` — so a submit
+that started no turn (a slash command) settles back to `fresh`. The session's
 watcher refines the presence with its first real value; an agent that names its
 session before writing it (`AgentAdapter.presenceSessionId` — omp's breadcrumb,
 Claude's session file) carries that id meanwhile. A presence never replaces the
 same agent's own session-backed value (W12's keep-last), its restore target is
-`none` (nothing to resume), and the folds keep it out of every attention list.
+`none` (nothing to resume), and the folds keep `starting`/`fresh` out of every
+attention list.
 
 ## Settle events — the standing subscriptions
 

@@ -120,7 +120,9 @@ you — which is why it is the verb for an agent and this is the fallback.
   agent not yet prompted at all, `starting` (its screen is still being drawn)
   then `fresh` (up, nothing said to it — the moment to brief one you launched).
   An agent is detected from its process the moment it starts, before it writes
-  anything. It matches the state **the instant it connects**, so right after a
+  anything, and it reads `working` from the instant a prompt is submitted to it,
+  before it has written a word of transcript. It matches the state **the
+  instant it connects**, so right after a
   submit it can return on the *previous* turn's `waiting` — wait in two phases:
   `until: ["working"]`, then `until: ["awaiting","waiting"]`.
 

@@ -49,6 +49,12 @@ describe("the wake headline", () => {
     );
   });
 
+  it("says plainly that an agent exited back to its shell", () => {
+    // The other ending: there WAS an agent, its program left the foreground,
+    // and the terminal is at its prompt. The plain word carries both halves.
+    expect(wakeHeadline([event("planner", "exited")])).toBe("planner exited");
+  });
+
   it("names the new levels beside the old ones in one line", () => {
     expect(
       wakeHeadline([event("planner", "ready"), event("impl", "asleep")]),

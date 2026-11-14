@@ -73,24 +73,35 @@ agent gets back to work.
 That an agent is in a terminal and what it has been doing are two different
 facts. The first is the **process**: kolu sees the agent's program come to the
 front the instant it starts. The second is the agent's **session on disk** — and
-most agents write none until you first prompt them. So between launching an agent
-and saying anything to it, the terminal shows it in one of two states of its own:
+most agents write none until you first prompt them — Oh My Pi not until its first
+reply is finished. So between launching an agent and its first word on disk, the
+terminal shows it in one of three states of its own, each something kolu itself
+saw:
 
 | State | Indicator | Meaning |
 | --- | --- | --- |
 | Starting | the agent's mark, no glow | the program is up and its screen is still being drawn |
-| Ready | the agent's mark, no glow | its screen has settled and it has never been prompted |
+| Ready | the agent's mark, no glow | its screen has settled and nothing has been submitted to it |
+| Working | the agent's mark, working glow | a prompt was submitted to it — kolu carries every keystroke, so it sees the Enter go in — and the agent has not written anything yet |
 
 **Ready** is decided by the same quiet window that tells a just-stopped agent
 from a finished one: once the agent has printed nothing for about five seconds,
-it is up. Neither state asks anything of you, so neither raises a badge, a count,
-or a needs-you entry — not on the dock, not on the host tab, not on the app icon.
-The first prompt replaces both with the agent's real state, read from the session
-it then writes; quitting the agent before then ends it as it always did. Where an
-agent names its session before writing it — Claude Code's
-`~/.claude/sessions/<pid>.json`, Oh My Pi's breadcrumb — the ready agent already
-carries that session's id. A terminal woken from sleep with a ready-but-unprompted
-agent comes back to a bare shell: there is no conversation yet to resume.
+it is up. Neither Starting nor Ready asks anything of you, so neither raises a
+badge, a count, or a needs-you entry — not on the dock, not on the host tab, not
+on the app icon. **Working** counts as work everywhere a thinking agent does, from
+the moment you press Enter rather than from the moment the agent's session first
+lands on disk. A submit is a typed Enter: a newline inside a paste, or Alt+Enter,
+is a line of your input, not a prompt. If the screen settles again with still
+nothing written — a slash command that started no turn, an Enter into an empty
+input — the agent is Ready once more.
+
+The agent's session, when it is written, replaces all three with the agent's real
+state; quitting the agent before then ends it as it always did. Where an agent
+names its session before writing it — Claude Code's
+`~/.claude/sessions/<pid>.json`, Oh My Pi's breadcrumb — the agent already
+carries that session's id. A terminal woken from sleep with an agent that never
+wrote a session comes back to a bare shell: there is no conversation yet to
+resume.
 
 ## How detection works
 
@@ -468,9 +479,10 @@ follows it to **the one session this terminal owns** — no candidate list, no
 ownership arbiter, and two `omp` terminals in one repository each show their own
 conversation by construction. State then comes from tailing that session's JSONL
 transcript, exactly as with pi. A brand-new session's breadcrumb is written
-`fresh`, before its JSONL exists — omp writes that only with the first prompt —
-so until then the terminal reads [starting, then ready](#before-the-first-prompt),
-carrying the session id the breadcrumb names.
+`fresh`, before its JSONL exists — omp writes that only when the first reply is
+done — so until then the terminal reads [starting, then ready, then working from
+the Enter on](#before-the-first-prompt), carrying the session id the breadcrumb
+names.
 
 | State | Indicator | Meaning |
 | --- | --- | --- |
