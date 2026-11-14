@@ -1,7 +1,7 @@
 # notifications
 
 - Kind: how-to. Reader: someone running several agents who wants to know which one is waiting, and where.
-- Rewritten from: `f50641c6a`
+- Rewritten from: `f50641c6a`, advanced to `936b36043` by the fold of #2373 (a Conductor question stays quiet while the conversation is on screen in a focused window; now in the Conductor bullet of "Chimes and OS notifications").
 - Words: 1,241 → 916 (`.waterfall/words.mjs`). The plan's target is 800; about 110 words of the page are the agent-state table it did not carry before (see Moved in), so the rewritten old material is near 805.
 - Frontmatter: description 268 → 146 characters. `order`, `section`, `koluHero` unchanged.
 - Second source: `website/src/content/docs/agent-detection.mdx` (state vocabulary and the pre-session states), for the facts this page now owns.

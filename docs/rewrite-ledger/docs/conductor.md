@@ -1,7 +1,7 @@
 # conductor
 
 - Kind: how-to. Reader: someone who wants the Conductor to run work across their terminals.
-- Rewritten from: `f50641c6a`
+- Rewritten from: `f50641c6a`, advanced to `936b36043` by the fold of #2373 (a question stays quiet while the conversation is on screen in a focused window).
 - Words: 7,955 → 1,871
 - Frontmatter: description 251 → 135 characters. `order` 52 → 52.5, so it no longer ties with `sessions` and the sidebar order stays as it was.
 - Second source: `packages/client/src/conductor/helpContent.ts`. The page agrees with it (the example request is the help's own).
@@ -29,7 +29,7 @@ No inbound links pointed at the old anchors from other pages. Same-page links we
 - How kolu knows an agent is `ready` from its process alone, before it writes to disk → `agent-detection` "Before the first prompt" (linked from the wake table).
 - The watched list as tools and a resource (`watch_terminal`, `unwatch_terminal`, `watched`, the baseline a watch answers with) → `mcp` "The Conductor's watched list" (already there; linked).
 - `agent_say` reporting whether the words took, and refusing an agent still starting → `mcp`, the `agent_say` row (already there).
-- The waits the Conductor is not given (`wait_agentState`, `watch_*`) and `wait_outputSettled` being capped → `mcp` "Two faces, one tool table" (already there).
+- The waits the Conductor is not given (`wait_agentState`, `watch_*`) and `wait_outputSettled` being capped → `mcp` "What the Conductor's face changes" (already there).
 - What a needs-you question does across the app → `notifications` (linked).
 
 ## Cut
