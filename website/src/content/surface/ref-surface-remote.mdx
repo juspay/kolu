@@ -269,107 +269,101 @@ An optional per-dial supervision hook. Its verdicts are `adopt`, `refuse(state)`
 
 ## The mirror pump
 
-`pumpRemoteSurface` is the consume-side companion to `makeSession`: it loops over
-each successive client and folds the agent's frames into your sink until the link
-dies. It does NOT pin — who holds the link open is the consumer's question, and
-`reServeSurface` answers it by demand (below), so the pump's first wait is
-legitimately parked before any pin.
+`pumpRemoteSurface` is the consume side of `makeSession`. It folds each successive client's frames into your sink until the link dies, then waits for the next spawn. It pins nothing, so its first wait may legitimately be parked before any pin: `reServeSurface` decides by demand who holds the link open.
 
-| Export | Subpath | Role |
+| Export | Subpath | What it is |
 | --- | --- | --- |
-| `pumpRemoteSurface(opts)` | `.` | per-spawn `mirrorRemoteSurface` into `makeSink()` until each link dies, then await the next spawn. Pins nothing |
-| `SurfaceSink` / `makeSink` | `.` | the sink role and its caller-supplied factory; members receive folded frames (`cells.<n>.set(v)`, `collections.<n>.{upsert,remove}`) |
-| `reServeSurface(opts)` | `.` | policy-driven re-serve for one binding: owns the pump, counts downstream demand, returns a supervised `{ surface, group, handlers, done, close }` — the same value pair `implementSurface` returns, so a host merges it into its own served surface with nothing to re-prefix |
-| `makeClientCursor(session)` | `.` | stateful cursor; `cursor.next(signal?)` blocks until a fresh client (post-reconnect), or wakes early on `signal` abort — the raw-loop primitive under the pump |
+| [`pumpRemoteSurface(opts)`](#pumpremotesurfaceopts) | `.` | Mirrors each spawn into a fresh sink until that link dies. |
+| [`SurfaceSink` / `makeSink`](#surfacesink--makesink) | `.` | The sink role, and the factory you supply for it. |
+| [`reServeSurface(opts)`](#reservesurfaceopts) | `.` | Re-serves one binding downstream, on demand, under a policy. |
+| [`makeClientCursor(session)`](#makeclientcursorsession) | `.` | The raw-loop primitive: wait for the next fresh client. |
 
-`pumpRemoteSurface` opts are `{ source, session, makeSink, liveProcedures?, liveClient?, onLinkDown?, connection?, signal?, log?, onFault? }` — an optional `signal` STOPS the pump (aborting the active spawn's mirror, whose per-key pumps settle via `signal.reason`) without destroying the caller-owned session.
+### `pumpRemoteSurface(opts)`
 
-**`log` vs `onFault` — two channels, deliberately.** `log` is CHATTER (reconnects, link ends): filter it freely, at DEBUG if you like. `onFault` is a structured `MirrorFault` (`{ label, err, scope: "member" | "key" }`) and must be wired at **ERROR** level. A `member`-scoped fault also rejects the mirror's `done`; a `key`-scoped one is deliberately key-local and never reaches `done`, so `onFault` is its ONLY notice. Both are forwarded verbatim from `reServeSurface` through the pump into `mirrorRemoteSurface`. Wiring a projection layer's only channel at DEBUG is what made the juspay/kolu#2101 deploy-#2 freeze mute — the split exists so that cannot recur.
+Per spawn, it runs `mirrorRemoteSurface` into a `makeSink()` until that link dies, then awaits the next spawn. It pins nothing.
 
-**A mirror that fails PROPAGATES out of the pump.** A rejecting `mirror.done` — a member's upstream stream faulting, or your sink throwing — is not reconnected: re-mirroring over a link that is still up would rebuild exactly the mirror that just failed. The pump narrates the death on `log` and rethrows, so the rejection reaches `reServeSurface`'s `done` where the consumer's policy lives (kolu-server: exit for the default host, retire for a guest). The reconnect loop still owns the case it is for — a link that ENDED cleanly.
-`reServeSurface`'s `close()` aborts its pump via that signal and releases its runtime's owned sources; its `done` also rejects on an owned runtime fault. Idempotent. The pump is a **terminal source** (it ends on its own when the session is destroyed): supervision routes through `@kolu/surface`'s `superviseTerminalSource(runtime, terminal)`, the framework combinator that pairs a passive runtime with a terminal driver — `reServeSurface` no longer hand-rolls the teardown.
-The terminal close is attempted first and the runtime close is always attempted afterward; one close failure is rethrown unchanged, while several are surfaced together as an `AggregateError`.
-`makeSink` takes `{ seq }` (the spawn counter, **not** a client) and is rebuilt
-every spawn, so no per-client state survives a reconnect. `onLinkDown` fires after
-holders clear — the cue to drop any per-link local fold so the next spawn rebuilds
-from a fresh snapshot.
+Options: `{ source, session, makeSink, liveProcedures?, liveClient?, onLinkDown?, connection?, signal?, log?, onFault? }`.
 
-A mirror that ends because the **link is still alive** (every subscription
-settled — a far end that closed its streams) is a third way the pump ends: no
-spawn is ever coming, so the wait for the next client would park forever serving
-nothing. Each mirror end therefore races that wait against the framework-reserved
-`system/live` round-trip on the client that just ended; a far end that still
-answers ends the pump (its `done` resolves) instead. A dead transport, or a probe
-that never answers, leaves the ordinary reconnect wait in charge — the session's
-own liveness watchdog owns the half-open case.
+- `signal` stops the pump. It aborts the active spawn's mirror, whose per-key pumps settle via `signal.reason`, and it never destroys the caller-owned session.
+- `makeSink` takes `{ seq }`, the spawn counter, not a client. It is rebuilt every spawn, so no per-client state survives a reconnect.
+- `onLinkDown` fires after holders clear. It is the cue to drop any per-link local fold, so the next spawn rebuilds from a fresh snapshot.
 
-`reServeSurface`'s `policy` (`Record<member, "value" | "delta">`) splits members:
-a `value` member (cell, collection, value pulse) is held open and **replayed**
-across an upstream drop; a `delta` member (byte or liveness stream) **fails
-through** — a **mid-stream** upstream drop ends the downstream stream with
-`SurfaceRelayTransportLost` (`@kolu/surface/errors`), the **one retryable**
-framework error the shared retry fence accepts — so the client re-subscribes
-end-to-end and a snapshot only ever leads a fresh stream. A subscribe **before**
-any live spawn is up **waits** for the next spawn (same pre-connect arm as
-hold-open) rather than raising that retryable end every second — which used to
-spam the journal for the whole provisioning window. Direct callers of
-`relayFailThroughStream` (and its hold-open sibling) must pass an
-**`ObservableHolder`** from `observableHolder()` — the pre-bind wait needs
-`whenChanged()`, which a plain `LiveSpawnHolder` does not expose. This is the
-error whose class both ends were built from, which is what lets its `_tag`
-survive the parent's decode-and-re-encode; a raw re-raise would reach the
-downstream as an opaque, non-retriable failure and strand it. Holding open a byte
-stream is a compile error.
+#### `log` and `onFault`
 
-A collection that declares the `deltas` verb is mirrored through its **single**
-batched snapshot-then-delta stream (folded into the same `{ upsert, remove }`
-sink), one protocol across the wire — instead of the per-key `keys`+`get`
-fan-out, which stays for a collection without the verb. The choice is read from
-the spec, never probed on the link.
+Two channels, with two levels. `log` is chatter (reconnects, link ends), so filter it freely, at debug if you like. `onFault` is a structured `MirrorFault` (`{ label, err, scope: "member" | "key" }`) and must be wired at error level.
 
-**A re-serve is DEMAND-GATED.** Every downstream call enters through one of
-`reServeSurface`'s own handlers, so that is where demand is counted — one gate for
-cells, collections, streams, events and procedures alike, never a notion of demand
-per member kind that could disagree with itself. The session is pinned on the
-crossing from nobody to somebody and released on the way back, and the release
-waits a fixed grace (`RELEASE_GRACE_MS`, 30s) so a consumer whose subscriptions
-re-key crosses zero for free. An upstream nobody is subscribed to is therefore
-never dialled — the point for an upstream that is optional (a daemon most machines
-do not run) and harmless for one that is not: **a parent that wants an always-on
-link pins the session itself**, and the count never reaches zero. kolu-server does
-exactly that per host, because a host's link state is itself something the fleet
-shows and a host that only dialled once a browser subscribed would read
-`connecting` for as long as nobody looked at it.
+- A `member`-scoped fault also rejects the mirror's `done`.
+- A `key`-scoped fault is deliberately key-local and never reaches `done`, so `onFault` is its only notice.
+- Both are forwarded verbatim from `reServeSurface` through the pump into `mirrorRemoteSurface`.
 
-**`absent` frames tell a hold-open subscriber that there is nothing there.** A
-hold-open relay rides out a drop by saying nothing, which is right for a link that
-is coming back and wrong for one that was never there or has been stopped — the
-subscriber keeps painting its last live frame, and a reader cannot tell a still
-board from a dead one. `reServeSurface`'s optional `absent` (`Record<member,
-frame>`) names, per VALUE member, the frame a subscriber gets while the upstream
-is absent: sent ONCE per absence episode, replaced by the next live frame, and a
-value the SOURCE contract declares (odu's `CHECKOUT_NONE`) rather than anything
-this relay invents — the shape of "nothing to say" belongs to the contract, exactly
-as a cell's default does. Absence is read off the SESSION's own `absent` arm, not
-off the client holder going null (which also means "between spawns"), so only a
-session whose connector can tell absence from unreachability ever sends one; every
-other re-serve omits the option. Naming a member that is not a `value`-classified
-stream or event throws at build: a frame nobody could ever receive is worse than
-no frame at all.
+#### How the pump ends
 
-**A REFUSAL is the opposite fact, and never an absent frame.** A daemon that
-answers and speaks a contract this build cannot read is an install to go and look
-at, not a quiet machine — so the admit verdict's standing refusal is published on
-the session itself (`session.refusal()`, the sentence or `null`), and a hold-open
-relay reading it stops holding and FAILS its subscription with
-`SurfaceUpstreamRefused` (`@kolu/surface/errors`), carrying that sentence. Raised
-as a **defect**, deliberately: a streaming member declares no error channel, so a
-typed failure there would reach the subscriber as a complaint about the encoding
-rather than as the far end's words — and a defect is never retried, which is
-right, because no retry unmakes a version skew. Every
-hold-open relay gets the signal, whether or not its member declares an `absent`
-frame — a frame is how a member says "nothing is there", and there is no honest
-frame for "something is there that I cannot read".
+- A rejecting `mirror.done` (a member's upstream stream faulting, or your sink throwing) is not reconnected: re-mirroring over a link that is still up would rebuild exactly the mirror that just failed. The pump narrates the death on `log` and rethrows.
+- That rejection reaches `reServeSurface`'s `done`, where the consumer's policy lives. kolu-server exits for the default host and retires a guest. The reconnect loop still owns the case it is for, a link that ended cleanly.
+- A mirror may also end while the link is still alive, when every subscription has settled and the far end closed its streams. No spawn is coming, so the wait for the next client would park forever serving nothing.
+- Each mirror end therefore races that wait against the framework-reserved `system/live` round-trip on the client that just ended. A far end that still answers ends the pump, and its `done` resolves.
+- A dead transport, or a probe that never answers, leaves the ordinary reconnect wait in charge. The session's own liveness watchdog owns the half-open case.
+
+### `SurfaceSink` / `makeSink`
+
+The sink role and its caller-supplied factory. Its members receive folded frames: `cells.<n>.set(v)`, `collections.<n>.{upsert,remove}`.
+
+- A collection that declares the `deltas` verb is mirrored through its single batched snapshot-then-delta stream, folded into the same `{ upsert, remove }` sink: one protocol across the wire.
+- A collection without the verb keeps the per-key `keys`+`get` fan-out.
+- The choice is read from the spec, never probed on the link.
+
+### `reServeSurface(opts)`
+
+Policy-driven re-serve for one binding. It owns the pump, counts downstream demand, and returns a supervised `{ surface, group, handlers, done, close }`, the same value pair `implementSurface` returns, so a host merges it into its own served surface with nothing to re-prefix.
+
+#### Supervision and `close()`
+
+- `close()` aborts its pump via that signal and releases its runtime's owned sources. It is idempotent.
+- `done` also rejects on an owned runtime fault.
+- The pump is a terminal source: it ends on its own when the session is destroyed. Supervision routes through `@kolu/surface`'s `superviseTerminalSource(runtime, terminal)`, the framework combinator that pairs a passive runtime with a terminal driver.
+- The terminal close is attempted first, and the runtime close is always attempted afterward. One close failure is rethrown unchanged; several are surfaced together as an `AggregateError`.
+
+#### `policy`
+
+`policy` (`Record<member, "value" | "delta">`) splits members by how they survive an upstream drop.
+
+- A `value` member (cell, collection, value pulse) is held open and replayed across the drop.
+- A `delta` member (byte or liveness stream) fails through. A mid-stream upstream drop ends the downstream stream with `SurfaceRelayTransportLost` (`@kolu/surface/errors`), the one retryable framework error the shared retry fence accepts, so the client re-subscribes end to end and a snapshot only ever leads a fresh stream.
+- Both ends were built from that error's class, which is what lets its `_tag` survive the parent's decode-and-re-encode. A raw re-raise would reach the downstream as an opaque, non-retriable failure and strand it.
+- A subscribe before any live spawn is up waits for the next spawn, on the same pre-connect arm as hold-open, rather than raising that retryable end every second.
+- Direct callers of `relayFailThroughStream` (and its hold-open sibling) must pass an `ObservableHolder` from `observableHolder()`. The pre-bind wait needs `whenChanged()`, which a plain `LiveSpawnHolder` does not expose.
+- Holding open a byte stream is a compile error.
+
+#### Demand gating
+
+Every downstream call enters through one of `reServeSurface`'s own handlers, so that is where demand is counted: one gate for cells, collections, streams, events and procedures alike.
+
+- The session is pinned on the crossing from nobody to somebody, and released on the way back.
+- The release waits a fixed grace (`RELEASE_GRACE_MS`, 30s), so a consumer whose subscriptions re-key crosses zero for free.
+- An upstream nobody is subscribed to is therefore never dialled, which is the point for an upstream that is optional, such as a daemon most machines do not run.
+- A parent that wants an always-on link pins the session itself, and the count never reaches zero. kolu-server does that per host. A host's link state is itself something the fleet shows, and a host dialled only once a browser subscribed would read `connecting` while nobody looked at it.
+
+#### `absent` frames
+
+The optional `absent` (`Record<member,
+frame>`) names, per value member, the frame a subscriber gets while the upstream is absent. It tells a hold-open subscriber that there is nothing there.
+
+- A frame is sent once per absence episode, and replaced by the next live frame.
+- The frame is a value the source contract declares (odu's `CHECKOUT_NONE`), never one this relay invents.
+- Absence is read off the session's own `absent` arm, not off the client holder going null, which also means "between spawns". Only a session whose connector can tell absence from unreachability ever sends one, and every other re-serve omits the option.
+- Naming a member that is not a `value`-classified stream or event throws at build.
+
+#### A standing refusal
+
+A daemon that answers and speaks a contract this build cannot read is a refusal, the opposite fact, and never an absent frame. The admit verdict's standing refusal is published on the session itself: `session.refusal()`, the sentence or `null`.
+
+- A hold-open relay reading it stops holding and fails its subscription with `SurfaceUpstreamRefused` (`@kolu/surface/errors`), carrying that sentence.
+- It is raised as a defect, because a streaming member declares no error channel, and a defect is never retried.
+- Every hold-open relay gets the signal, whether or not its member declares an `absent` frame.
+
+### `makeClientCursor(session)`
+
+A stateful cursor, and the raw-loop primitive under the pump. `cursor.next(signal?)` blocks until a fresh client arrives after a reconnect, or wakes early when `signal` aborts.
 
 ## The fleet fan-out
 

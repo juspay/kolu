@@ -25,3 +25,30 @@ None.
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs`: 0 missing).
+
+## The mirror pump
+
+- Old lines 189–292 at `f50641c6a`. Section words: 795 → 1,212. The growth is the index table, the entry headings and prose broken out of three dense paragraphs.
+- Four index rows, four `###` entries (`pumpRemoteSurface(opts)`, `SurfaceSink` / `makeSink`, `reServeSurface(opts)`, `makeClientCursor(session)`), with `####` sections inside the two long ones: `log` and `onFault`, How the pump ends, Supervision and `close()`, `policy`, Demand gating, `absent` frames, A standing refusal.
+- Headings renamed: none (the `##` heading is unchanged). No inbound links point into this section.
+- Comparison: 0 missing.
+
+### Moved
+
+| Fact | Where |
+| --- | --- |
+| Why the `log` / `onFault` split exists (the kolu#2101 incident) | `the-server-half` (pending, queued in `.waterfall/moved/the-server-half/ref-surface-remote.md`) |
+| Why demand is counted in one gate rather than per member kind | `the-server-half` (pending, same queue) |
+| Why an `absent` frame exists, and why its value belongs to the source contract | `the-server-half` (pending, same queue) |
+| Why a refusal is raised as a defect rather than a frame | `the-server-half` (pending, same queue) |
+
+### Cut
+
+| Fact | Tag |
+| --- | --- |
+| "which used to spam the journal for the whole provisioning window" | history |
+| "`reServeSurface` no longer hand-rolls the teardown" | history |
+
+### Dropped code spans
+
+None.
