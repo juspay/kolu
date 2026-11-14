@@ -1,6 +1,6 @@
 ---
 title: The Code Tab
-description: "The Code tab is a file browser scoped to the focused pane's repo: a Pierre tree with git-status tinting, Local/Branch/All views with live diffs, rendered Markdown, inline HTML/SVG/PDF/image/video previews, and file comments."
+description: "A file browser beside the terminal: the focused pane's repo as a tree, live Local and Branch diffs, rendered Markdown and artifacts, and file comments."
 order: 55
 section: "Files & Code"
 koluHero:
@@ -8,109 +8,109 @@ koluHero:
   headline: The files, {beside the work}.
 ---
 
-import Aside from "../../components/docs/Aside.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 
-The **Code tab** lives in the [right panel](/right-panel) and is a file browser
-scoped to the **focused pane's** repo — a Pierre file tree with git-status tinting
-over a syntax-highlighted source view. Focus a split running in another repo and
-the tree follows it; focus back to the tile's main terminal and its own tree and
-selected file return. The panel's header line names the directory the pane — and
-so the tree — is rooted at, with the repo root emphasized. It is how you read what
-an agent is working on without leaving the terminal beside it.
+The **Code tab** is the file browser in the [right panel](/right-panel). It
+shows the repo of whichever **pane** has focus, as a file tree over a
+syntax-highlighted source view, so you can read what an agent is doing.
 
 ## Browse and jump
 
 - Click a `path/to/file.ts:42` reference in terminal output to open that file at
-  that line; a **folder** path (`packages/client/`) is clickable too and reveals
-  the directory in the tree.
-- Rhai scripts (`.rhai`) are recognized and syntax-highlighted in both source
-  and diff views.
-- Big files and diffs highlight on a background worker, so opening a 50k-line
-  lockfile paints immediately and never freezes scrolling.
-- Right-click a file in the tree to **Copy path** or **Download** it — the save
+  that line. A folder path such as `packages/client/` is clickable too, and
+  reveals the directory in the tree.
+- Rhai scripts (`.rhai`) are syntax-highlighted in both source and diff views.
+- Big files and diffs highlight on a background worker, so a 50k-line lockfile
+  paints immediately and never freezes scrolling.
+- Right-click a file in the tree to **Copy path** or **Download** it. The save
   lands under the file's own name, whatever its type, on your machine or a
   [remote host](/remote-hosts). Folders offer no Download, and neither do files
   git reports as deleted.
 
-## Your git changes — live
+## Your git changes, live
 
-A segmented control switches between three views: **All files** (the whole repo),
-**Local** (uncommitted), and **Branch** (vs the base). The Local and Branch
-segments carry a **change-count badge**, so you can see you have, say, 3
-uncommitted files and 12 changes versus your branch base without switching into
+A segmented control switches between three views:
+
+| View | What it lists |
+| --- | --- |
+| **All files** | The whole repo: what git tracks plus anything untracked, minus what your `.gitignore` hides. |
+| **Local** | Your uncommitted changes. |
+| **Branch** | Your changes against the base branch. |
+
+The **Local** and **Branch** segments carry a change-count badge, so you can see
+3 uncommitted files and 12 changes against your base without switching into
 either.
 
-When a directory was replaced by a file of the same name (say, a folder swapped
-for a symlink), or the other way round, that path shows as **one row**. Its diff
-covers the file at that path and every file under it. The badge still counts
-git's changed files, so it can read higher than the rows in the tree. A file
-renamed out of the replaced directory shows inside that row's diff as a plain
-deletion, because a diff of one path cannot pair the rename. A line reference
-copied from that diff names the file the line is in. Comments attach only to the
-path's own file: select text in a file under it and the comment pill says so.
+The changed-file list and its diffs repaint the instant a file changes on disk.
+Updates pause while the panel is hidden or the Inspector is selected, and
+reopening Code refreshes it. The same loop works over the ssh hop to
+[another machine](/remote-hosts).
 
-Each view keeps its own file tree mounted, preserving expanded folders
-and scroll position when you switch away and back. Typing in the filter box
-narrows the tree to the files that match and opens their folders; a folder you
-close while filtering stays closed as git changes come in, until the set of
-matching files changes — a new match opens its folder again, while editing the
-filter to one that matches the same files does not. During loading or an error,
-the previous tree stays visible but dimmed and cannot be clicked. Saving the open file updates its contents in place, preserving the
-viewer and its scroll position.
-
-**All files** shows what git tracks plus anything untracked, and leaves out what
-your `.gitignore` hides — so the tree is your project, not your `node_modules`.
-When you do want to see the hidden ones, the **eye toggle** beside the filter box
-brings them back as dimmed rows, and a fully-ignored directory arrives as a
-single collapsed entry — `node_modules/` is one row, not forty thousand files.
-**Expand that row and kolu reads the one level beneath it from disk**, so you can
-walk down into `node_modules/solid-js/` a click at a time. Each directory you
-open costs one directory read; the ones you never open cost nothing. An ignored
-file listed in its own right opens and renders like any other. The toggle
-remembers itself per browser, and appears only in **All files**, since the diff
-views list changed files where an ignored path can't turn up.
-
-One caveat worth knowing: nothing about an ignored file updates live. kolu
-deliberately doesn't watch inside ignored directories — recursively watching
-`node_modules` is what exhausts a machine's file-watch budget — so neither the
-dimmed rows nor the contents of an ignored file you have open will repaint when
-they change on disk. Collapse a directory and open it again to re-read what is
-inside it, and reselect a file to re-read its contents.
-
-The changed-file list and its diffs repaint **live** the instant a file changes
-on disk — a payload-free repo-change pulse re-running `git status`, with no
-polling. Updates pause while the panel is hidden or the Inspector is selected;
-reopening Code refreshes its retained contents. The same loop works when pointed at
-[another machine](/remote-hosts), so your status and diffs stay live over the
-ssh hop too.
+Saving the open file updates it in place, keeping the viewer and its scroll
+position.
 
 <figure class="doc-shot">
   <img src="/shots/diff-live.webp" alt="The Code tab's file view showing an agent's edit as a live diff, with the file marked modified." loading="lazy" />
   <figcaption>An agent's edit lands and the open file repaints itself — the diff is live.</figcaption>
 </figure>
 
+### Filter the tree
+
+Each view keeps its own tree, so expanded folders and scroll position survive
+switching away and back. Typing in the filter box narrows the tree to matching
+files and opens their folders.
+
+A folder you close while filtering stays closed as git changes come in, until
+the set of matching files changes. During loading or an error the previous tree
+stays visible but dimmed, and cannot be clicked.
+
+### See ignored files
+
+The **eye toggle** beside the filter box brings back what `.gitignore` hides, as
+dimmed rows. A fully-ignored directory arrives as one collapsed entry, so
+`node_modules/` is one row rather than forty thousand files. Expand it and kolu
+reads the one level beneath it from disk, a click at a time. The toggle
+remembers itself per browser, and appears only in **All files**.
+
+Nothing about an ignored file updates live, because kolu does not watch inside
+ignored directories. Collapse a directory and open it again to re-read what is
+inside it, and reselect a file to re-read its contents.
+
+### A folder replaced by a file
+
+When a directory was replaced by a file of the same name, or the other way
+round, that path shows as one row:
+
+- Its diff covers the file at that path and every file under it.
+- The change-count badge still counts git's changed files, so it can read higher
+  than the rows in the tree.
+- A file renamed out of the replaced directory shows inside that row's diff as a
+  plain deletion, because a diff of one path cannot pair the rename.
+- A line reference copied from that diff names the file the line is in.
+- Comments attach only to the path's own file. Select text in a file under it
+  and the comment pill says so.
+
 ## Markdown and artifacts
 
-- **Markdown** (`.md`, `.markdown`, and **`.mdx`**) renders as a reading
-  document with a Source/Rendered toggle that keeps both views alive (flipping
-  is instant and holds your scroll position). A `---` YAML front-matter block
-  renders as a table; a footnote marker opens its definition in a popover where
-  your eye already is. MDX is previewed as Markdown — component tags are not
-  executed and are stripped by the sanitizer (use Source for the raw MDX).
-- Agent-generated **`.html`** and **`.svg`** artifacts preview inline in a
-  sandboxed iframe — and stay sandboxed even when opened on their own in a
-  browser tab, so a file's scripts never get kolu's access; **`.pdf`** opens in
-  the browser's native viewer; images and **video** render as themselves.
-  Everything live-reloads on change, and an external link in an HTML preview
-  opens in a new tab (a link back into kolu itself does not).
+| File | How it opens |
+| --- | --- |
+| `.md`, `.markdown`, `.mdx` | As a reading document, with a Source/Rendered toggle that holds your scroll position in both. A `---` front-matter block renders as a table, and a footnote marker opens its definition in a popover. |
+| `.html` and `.svg` | Inline in a sandboxed iframe. The sandbox holds even when the file is opened on its own browser tab, so its scripts never get kolu's access. |
+| `.pdf` | In the browser's native viewer. |
+| images and video | As themselves. |
+
+MDX is previewed as Markdown: component tags are not executed, and the
+sanitizer strips them. Use **Source** for the raw MDX.
+
+Previews live-reload on change. An external link in an HTML preview opens in a
+new tab, and a link back into kolu itself does not.
 
 ## File comments
 
-Select text in source, a branch diff, or a rendered artifact and pin a quoted
-note to it. The comment tray flushes to Markdown you paste straight back into the
-agent — a way to review a change and hand the agent your notes in its own words.
+Select text in source, a branch diff, or a rendered artifact, and pin a quoted
+note to it. The comment tray flushes to Markdown that you paste straight back
+into the agent, with the file and line it was left on.
 
 <figure class="doc-shot">
   <img src="/shots/comment-handoff.webp" alt="A code-review comment pasted into a Claude Code terminal, quoting the file and line it was left on in the Code tab." loading="lazy" />
