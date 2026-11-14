@@ -23,7 +23,7 @@ icon. An OS notification reaches you when you are looking elsewhere.
 
 ## What each agent state means
 
-Every agent folds onto the same five states, drawn with the same marks wherever
+Every agent's status is shown as one of the same five states, drawn with the same marks wherever
 kolu shows agent status:
 
 | State | Mark | What it means |
@@ -81,7 +81,8 @@ quiet.
 - A backgrounded tab gets a native OS notification when an agent effectively
   finishes (its turn is done and the terminal has been quiet for a few seconds),
   starts waiting on you, or stops to ask you something. Background sub-agents
-  still typing do not chime early, and idle statusline ticks do not re-chime.
+  still typing do not chime early, and an agent's status line redrawing while it
+  sits idle does not chime again.
 - A question or permission prompt reaches you even in the agent's post-turn
   lull, and usually reads *needs your input*.
 - Clicking the notification brings kolu forward. When the agent is on another
@@ -103,10 +104,10 @@ background tile. The badge, the counts and the row washes stay, because they
 read what is actually waiting. kolu remembers the setting across upgrades.
 
 <Aside type="note" title="It fires once per attention episode">
-  kolu tracks each terminal by its own identity, and chimes when it first needs
-  you: on an effective finish, when it starts waiting on you, or when a live
-  question lands over an agent that was already waiting. It then stays quiet
-  until the agent goes fully back to work. A later finish is a fresh episode.
+  kolu chimes when a terminal first needs you: on an effective finish, when it
+  starts waiting on you, or when a live question lands over an agent already
+  waiting. It then stays quiet until the agent goes fully back to work. A later
+  finish is a fresh episode.
 </Aside>
 
 ## Across machines
@@ -130,5 +131,5 @@ On a phone, the same three counts ride the host row in the pull-down sheet; see
 <CardGrid>
   <LinkCard title="The Dock" href="/dock" description="where attention first surfaces, per row" />
   <LinkCard title="Add another machine" href="/remote-hosts" description="attention that rolls up across machines" />
-  <LinkCard title="Troubleshooting" href="/troubleshooting" description="if desktop notifications aren't showing" />
+  <LinkCard title="Troubleshooting" href="/troubleshooting" description="if desktop notifications are not showing" />
 </CardGrid>
