@@ -17,7 +17,11 @@ Feature: The Conductor never blocks
     # The wake is a MACHINE'S line: full width, one line saying who speaks,
     # and the whole account behind a disclosure. The agent answers it, which
     # is the proof the turn kolu started is a real turn.
-    When I create a terminal
+    # The terminal is made where it can be SEEN: a terminal made from behind
+    # the conversation is never shown, so an agent launched there would be
+    # typed at blind. The watch step steps back in.
+    When I leave the conductor for the host tab
+    And I create a terminal
     And a Claude Code session is mocked with state "thinking"
     And I ask the conductor to watch the terminal
     Then the conductor status should say it is watching 1
@@ -38,7 +42,8 @@ Feature: The Conductor never blocks
     #
     # The DIRECT reading — an agent padi watched come up, whose own state is
     # `fresh` — is the scenario at the end of this file.
-    When I create a terminal
+    When I leave the conductor for the host tab
+    And I create a terminal
     And I note the terminal's shell pid
     And I ask the conductor to watch the terminal
     Then the conductor status should say it is watching 1
@@ -51,7 +56,8 @@ Feature: The Conductor never blocks
     # HELD, never injected: the count on the status line says it is waiting,
     # nothing lands in the transcript while the turn runs, and it arrives on
     # its own the moment the turn ends.
-    When I create a terminal
+    When I leave the conductor for the host tab
+    And I create a terminal
     And a Claude Code session is mocked with state "thinking"
     And I ask the conductor to watch the terminal
     Then the conductor status should say it is watching 1
@@ -71,7 +77,8 @@ Feature: The Conductor never blocks
     # ... and the row's NAME is the way to the terminal itself: the same
     # journey the create card's "open tile" makes — leave the conversation,
     # land on that terminal's tile — because it is the same code path.
-    When I create a terminal
+    When I leave the conductor for the host tab
+    And I create a terminal
     And I run "echo kolu-watch-$((6*7))"
     And a Claude Code session is mocked with state "thinking"
     And I ask the conductor to watch the terminal
@@ -143,7 +150,8 @@ Feature: The Conductor never blocks
     #
     # The Look's text is COMPUTED by the shell, so the command line's echo
     # cannot satisfy it: only the terminal's own screen can.
-    When I create a terminal
+    When I leave the conductor for the host tab
+    And I create a terminal
     And I run "echo kolu-watch-$((6*7))"
     And a Claude Code session is mocked with state "thinking"
     And I ask the conductor to watch the terminal

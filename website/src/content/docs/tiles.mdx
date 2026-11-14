@@ -102,13 +102,37 @@ drawn for the wrong width, it stays empty until you reveal it and then paints
 once, correctly. You should never have to nudge the divider to fix a split's
 rendering.
 
-**A pane you can't see isn't attached.** Only the tiles actually on screen hold a
-live feed: on a phone that is the one tile you are looking at, and on the desktop
-a background sub-terminal tab is left alone. A hidden pane also doesn't state its
-size, so opening kolu on a second device no longer reshapes every terminal on the
-host behind it. Bringing a pane back doesn't blank it either — the old screen
-stays up and is replaced the moment the current one arrives — and the activity
-dot is what tells you it changed while you were elsewhere.
+**A pane you can't see isn't attached.** Only the tiles you are actually looking
+at hold a live feed. On a phone that is the one tile on screen. On the desktop
+it is what your canvas is showing: the tile you have **maximized**, every tile
+whose rectangle is **in view**, and the **active** tile wherever you have left
+it — so the keyboard always reaches the terminal you are typing into. A tile
+panned off the edge of the canvas, a tile hidden behind a maximized one, and
+every tile on a canvas the [Conductor](/conductor) is covering are left alone,
+as is a background sub-terminal tab. A tile that leaves your view keeps its feed
+for **five minutes** first, so a trip away — glance at another tile, answer an
+agent, come back — changes nothing at all: nothing stops, so nothing has to be
+started again, and the tile was never behind. (This is about what's on the
+canvas, not about your window: a kolu tab sitting in the background keeps the
+feeds of the tiles it is showing.)
+A hidden pane also
+doesn't state its size, so opening kolu on a second device no longer reshapes
+every terminal on the host behind it. Bringing a pane back doesn't blank it
+either — the old screen stays up and is replaced the moment the current one
+arrives — and the activity dot is what tells you it changed while you were
+elsewhere.
+
+**Why five minutes, and what it costs.** Coming back to a tile that let go puts
+you at the **end** of its output: if you had scrolled up in it, that position is
+gone (scrolling up still fetches the older history). That is the whole reason
+for the wait. A short trip expects to find your place where you left it; after
+five minutes away you are coming back to see what is new, which is the end
+anyway. Two smaller costs ride along: a tile's
+[Ports](/right-panel#servers-that-detached-and-the-rest-of-the-host) section
+learns about a server that left the terminal's process tree from the URL the
+terminal printed, so for a tile you weren't watching that happens when you look
+at it again; and leaving maximized mode gives every tile then on screen its feed
+back at once.
 
 **Resizing costs one repaint, not a replay.** Dragging a divider or opening the
 soft keyboard publishes the new size **once**, after the layout stops moving,

@@ -59,12 +59,17 @@ export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 export const APP_KEY = "Meta";
 
 /** Locator for the app's settled state: a visible terminal screen, a dormant
- *  (sleeping) tile body, or the empty state tip. A canvas holding only sleeping
- *  tiles is fully settled — its tiles render a PTY-less `dormant-tile-body` (no
- *  `.xterm-screen`), and it is NOT the empty state — so the dormant body is the
- *  third settled shape a reload/converge can land on. */
+ *  (sleeping) tile body, the empty state tip, or the Conductor. A canvas
+ *  holding only sleeping tiles is fully settled — its tiles render a PTY-less
+ *  `dormant-tile-body` (no `.xterm-screen`), and it is NOT the empty state —
+ *  so the dormant body is the third settled shape a reload/converge can land
+ *  on. The FOURTH is the Conductor: it is a place you can reload into (the
+ *  selected tab persists), and it covers the canvas — so after a reload that
+ *  lands there NO tile has ever been seen, nothing is inside the grace
+ *  period that would keep a pane shown (kolu#2362), and the page is settled
+ *  when the conversation is up. */
 const SETTLED_SELECTOR =
-  '[data-visible] .xterm-screen, [data-testid="dormant-tile-body"], [data-testid="empty-state"]';
+  '[data-visible] .xterm-screen, [data-testid="dormant-tile-body"], [data-testid="empty-state"], [data-testid="conductor-pane"]';
 /** Touch-device media query — mirrors `isTouch` in packages/client/src/useMobile.ts.
  *  The test package can't import from client src, so the literal is named here to
  *  keep the one place it's duplicated legible and self-documenting. Exported so
@@ -260,9 +265,23 @@ export class KoluWorld extends World {
    *  any surface; the shortcut and the command palette are the only paths.
    *  Returns the new terminal's ID. */
   async createTerminal(timeout = READY_TIMEOUT): Promise<string> {
+    // IS THE WORKSPACE COVERED? The Conductor is a full-window layer over the
+    // host's canvas, and a tile the user has never seen is never shown: a
+    // terminal created from here mounts UNSEEN and leaves the keyboard where
+    // it was (kolu#2362). (Tiles that WERE on screen when the conversation
+    // covered them keep their feed for the grace period — but a brand new
+    // one has nothing to hold.) So there is no visible screen to wait for,
+    // and waiting for one is waiting for something the product deliberately
+    // does not do.
+    const covered = await this.page
+      .locator('[data-testid="conductor-pane"]')
+      .isVisible();
+
     // Wait for app to settle (onMount may still be restoring terminals from server)
-    const settled = this.page.locator(SETTLED_SELECTOR);
-    await settled.first().waitFor({ state: "visible", timeout });
+    if (!covered) {
+      const settled = this.page.locator(SETTLED_SELECTOR);
+      await settled.first().waitFor({ state: "visible", timeout });
+    }
 
     // Snapshot known ids before the shortcut fires.
     const beforeIds = await this.terminalIds();
@@ -295,6 +314,18 @@ export class KoluWorld extends World {
     await newIdHandle.dispose();
     if (newId === null)
       throw new Error("Terminal ID poll resolved without an ID");
+
+    if (covered) {
+      // What IS owed: the terminal's own body is mounted behind the
+      // Conductor, so it is there to be shown the moment the user goes back
+      // to the host tab. (`data-font-size` is this suite's spelling for the
+      // inner terminal container — see `support/buffer.ts`.)
+      await this.page
+        .locator(`[data-terminal-id="${newId}"][data-font-size]`)
+        .first()
+        .waitFor({ state: "attached", timeout });
+      return newId;
+    }
 
     await this.canvas.waitFor({ state: "visible", timeout });
     // Desktop auto-focuses xterm's textarea on mount — the signal that a
