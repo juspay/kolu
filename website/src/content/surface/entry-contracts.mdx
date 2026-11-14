@@ -37,7 +37,7 @@ Two reads of one fact latch out of step. Drishti's fleet view once showed a conn
 
 The floor demotes a `connected` entry when your link dies, so nothing renders green over a dead transport. Demoting it to `warming` merged two opposite facts: "the host is coming up" and "we cannot see the publisher at all".
 
-A consumer that only spins is fine either way. A consumer that times the entry can certify a healthy thing dead. Kolu did: a backgrounded tab lost its socket, the entry dropped to `warming`, and a 30-second boot deadline declared a daemon that had run for twelve hours dead ([kolu#2129](https://github.com/juspay/kolu/pull/2129)).
+A consumer that only spins is fine either way. A consumer that times the entry can certify a healthy thing dead. kolu did: a backgrounded tab lost its socket, the entry dropped to `warming`, and a 30-second boot deadline declared a daemon that had run for twelve hours dead ([kolu#2129](https://github.com/juspay/kolu/pull/2129)).
 
 ### Why an arm and not a flag
 
