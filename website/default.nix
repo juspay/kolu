@@ -161,8 +161,13 @@ let
   # script `just website::linkcheck` runs over ./dist. Run over the deploy
   # artefact itself, so a docs link into the folded-in /atlas/ is checked too.
   # website/flake.nix exposes this as checks.${system}.linkcheck.
+  # lychee builds its HTTP client at startup even with --offline, and that
+  # client refuses to start without CA roots, so the sandbox gets cacert.
   linkcheck = pkgs.runCommand "kolu-website-linkcheck"
-    { nativeBuildInputs = [ pkgs.lychee ]; } ''
+    {
+      nativeBuildInputs = [ pkgs.lychee ];
+      SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
+    } ''
     bash ${./linkcheck.sh} ${default}
     touch $out
   '';
