@@ -355,3 +355,26 @@ None (`.waterfall/compare.mjs`: 0 missing).
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs`: 0 missing).
+
+## Cross-cutting invariants
+
+- Words: 312 → 416. Before: six bullets, one of them 150 words. After: an index table, five `###` entries, one `####` for the un-enrolled refs, and a three-row table for the raw refs.
+- Heading `## Cross-cutting invariants` kept. No inbound links into this section.
+- New headings, all from the bullets' own run-in bold: `Snapshot-then-deltas`, `` `patch` is a cross-runtime contract ``, `The group and the handlers are one route set`, `Raw streams join health`, `The 2-file invariant`, and `#### .use() is the default; the un-enrolled ref is the carve-out`.
+- `.streams.X.unenrolled`, `.collections.X.unenrolledKeys` and `.collections.X.unenrolledDeltas` moved from the 150-word bullet into a table, each with its `iff` condition intact.
+- Capitals written out: `AND`, `NOT`.
+- Code and the old page did not disagree.
+
+### Moved
+
+None.
+
+### Cut
+
+| Fact | Tag |
+| --- | --- |
+| "a deliberate carve-out" → "the carve-out" | rationale |
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs`: 0 missing).

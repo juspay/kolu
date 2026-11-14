@@ -5,7 +5,6 @@ order: 230
 section: Basics · Reference
 ---
 
-import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 
 The core package. You declare a surface with `defineSurface`, serve it with
@@ -2715,9 +2714,49 @@ The bound is per stream. A reconnect re-subscribes every collection at once, so 
 
 ## Cross-cutting invariants
 
-- **Snapshot-then-deltas.** The first frame of every stream is a fresh full snapshot; every server helper enforces it, because the retry fence re-runs the source on each reconnect and a delta-first frame would silently lose state.
-- **`patch` is a cross-runtime contract.** A cell's `patch(current, p)` runs on both the server and the client. Treat any change to it as a wire-format change and redeploy both sides together.
-- **The group and the handlers are one route set.** `implementSurface` (and `implementSurfaces`, and `extendSurface`) asserts the two key sets are equal at boot, so an advertised-but-unanswered tag and an answered-but-unadvertised one are both crashes rather than a runtime 404.
-- **A raw stream joins health through `client.rawStream` / `client.enroll`** so it can't escape `health()`. `unenrolledStreamCall` (`@kolu/surface/client`) applies the retry fence without enrolling, for non-descriptor shapes. Its captured `input` is replayed verbatim on every re-subscribe, so keep it a stable key — a live fact (a viewport, a cursor) would be re-sent stale after a drop.
-- **`.use()` is the default; the un-enrolled ref is a deliberate carve-out.** A stream's `.use()` and a collection's `.use()` drive the subscription AND enrol its `pending`/`error` into `health()` — the transport gate sees them. For the narrow class whose transient re-subscribe is normal and self-healing and so must NOT flicker that gate — a terminal re-attach ([#1591](https://github.com/juspay/kolu/issues/1591)), a change-pulse that drives a requery — reach the raw ref instead: `.streams.X.unenrolled` (a `StreamingProcedure`), `.collections.X.unenrolledKeys` (the raw keys `StreamingProcedure`, present iff the collection declares the `keys` verb), or `.collections.X.unenrolledDeltas` (the raw batched `CollectionDeltasMsg` `StreamingProcedure`, present iff the collection declares the `deltas` verb — the deltas twin of `unenrolledKeys`), passed to `unenrolledStreamCall`. Each is typed from the declaration (no cast) and named so the health carve-out is legible at the call site — not a casual bypass of `.use()`.
-- **The 2-file invariant.** Adding a member is one spec entry plus one wiring entry. If the count creeps up, something is wrong.
+Five rules hold across every member, helper and transport on this page.
+
+| Invariant | What it means |
+| --- | --- |
+| [Snapshot-then-deltas](#snapshot-then-deltas) | The first frame of every stream is a fresh full snapshot. |
+| [`patch` is a cross-runtime contract](#patch-is-a-cross-runtime-contract) | A cell's `patch` runs on both sides, so changing it is a wire-format change. |
+| [The group and the handlers are one route set](#the-group-and-the-handlers-are-one-route-set) | Advertised tags and answered tags must match at boot. |
+| [Raw streams join health](#raw-streams-join-health) | A raw stream still reaches `health()`, through `client.rawStream` / `client.enroll`. |
+| [The 2-file invariant](#the-2-file-invariant) | A member is one spec entry plus one wiring entry. |
+
+### Snapshot-then-deltas
+
+The first frame of every stream is a fresh full snapshot, and every server helper enforces it. The retry fence re-runs the source on each reconnect, so a delta-first frame would silently lose state.
+
+### `patch` is a cross-runtime contract
+
+A cell's `patch(current, p)` runs on both the server and the client. Treat any change to it as a wire-format change, and redeploy both sides together.
+
+### The group and the handlers are one route set
+
+`implementSurface` (and `implementSurfaces`, and `extendSurface`) asserts the two key sets are equal at boot. An advertised-but-unanswered tag and an answered-but-unadvertised one are both crashes rather than a runtime 404.
+
+### Raw streams join health
+
+A raw stream joins health through `client.rawStream` / `client.enroll`, so it cannot escape `health()`.
+
+- `unenrolledStreamCall` (`@kolu/surface/client`) applies the retry fence without enrolling, for non-descriptor shapes.
+- Its captured `input` is replayed verbatim on every re-subscribe, so keep it a stable key. A live fact (a viewport, a cursor) would be re-sent stale after a drop.
+
+#### `.use()` is the default; the un-enrolled ref is the carve-out
+
+A stream's `.use()` and a collection's `.use()` drive the subscription and enrol its `pending` / `error` into `health()`, where the transport gate sees them.
+
+For the narrow class whose transient re-subscribe is normal and self-healing, and so must not flicker that gate (a terminal re-attach, [#1591](https://github.com/juspay/kolu/issues/1591), or a change-pulse that drives a requery), reach the raw ref instead and pass it to `unenrolledStreamCall`:
+
+| Raw ref | What it is |
+| --- | --- |
+| `.streams.X.unenrolled` | A `StreamingProcedure`. |
+| `.collections.X.unenrolledKeys` | The raw keys `StreamingProcedure`, present iff the collection declares the `keys` verb. |
+| `.collections.X.unenrolledDeltas` | The raw batched `CollectionDeltasMsg` `StreamingProcedure`, present iff the collection declares the `deltas` verb. The deltas twin of `unenrolledKeys`. |
+
+Each is typed from the declaration, with no cast, and named so the health carve-out is legible at the call site rather than a casual bypass of `.use()`.
+
+### The 2-file invariant
+
+Adding a member is one spec entry plus one wiring entry. If the count creeps up, something is wrong.
