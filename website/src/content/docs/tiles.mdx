@@ -21,8 +21,8 @@ as the dock, so you can see which repository it belongs to.
 
 ## Splits and tabs
 
-Split a bottom pane with <kbd>Ctrl</kbd> + <kbd>`</kbd>, and add tabs with
-<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>`</kbd>. Every terminal opened under a
+Split a bottom pane with <kbd>Ctrl</kbd> + <kbd>{"`"}</kbd>, and add tabs with
+<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>{"`"}</kbd>. Every terminal opened under a
 tile shows as a tab in that tile's bottom strip, including a split of a split,
 and including one created from the shell with `kolu create --parent <id>`. In
 the [Dock](/dock) the same terminals keep their tree.
@@ -44,7 +44,7 @@ its own id.
 What comes back is what a new terminal would get, coding agents included. The
 old scrollback goes with the old process.
 
-If an agent is working or waiting for you, the first click only asks. Press
+If an agent is working or waiting for you, the first click only asks. Click
 again within a few seconds to confirm. A plain shell restarts on the first
 click, and the same confirmation guards the palette command.
 
@@ -53,13 +53,13 @@ For what the restart does to agents, see
 
 ## Font zoom
 
-Zoom the font with <kbd>Cmd/Ctrl</kbd> + <kbd>+</kbd> / <kbd>-</kbd>. It zooms
+Zoom the font with <kbd>Cmd</kbd>/<kbd>Ctrl</kbd> + <kbd>+</kbd> / <kbd>-</kbd>. It zooms
 only the focused tile and is remembered per terminal.
 
 ## Rendering
 
-- **WebGL rendering** with a canvas fallback, kept on every terminal in your
-  working set at once.
+- **WebGL rendering** with a canvas fallback, kept on your most recently used
+  live tiles up to the browser's limit, so switching between them reloads nothing.
 - **Clickable URLs**. A long URL that wraps across lines survives a resize and
   opens whole.
 - **Unicode 11** and **inline images** (sixel, iTerm2, kitty).
@@ -71,14 +71,14 @@ dropped connection reconnects on its own, and a repaint queued while the window
 was in the background runs when you come back. A terminal printing faster than
 your link can carry costs you one screen, not the whole flood.
 
-A pane whose feed keeps coming back empty says so instead of sitting blank: a
+A pane whose output keeps coming back empty says so instead of sitting blank: a
 message names the pane and tells you kolu is still retrying, and the retries
 continue until output reaches the pane again.
 
 A split you open later, such as a collapsed panel or a background tab, stays
 empty until you reveal it, and then paints once at its real size.
 
-Only the tiles on screen hold a live feed. On a phone that is the tile you are
+Only the tiles on screen receive live output. On a phone that is the tile you are
 looking at, and on the desktop a background split tab is left alone, so opening
 kolu on a second device does not reshape every terminal on the host. Coming back
 to a pane keeps the old screen up until the current one arrives. The activity
@@ -125,7 +125,7 @@ The choice is one setting for every tile, and kolu remembers it.
 ## On touch devices
 
 A **mobile key bar** sends the keys soft keyboards lack: Esc, Tab, arrows and
-Ctrl+C, with two sticky modifiers you tap to arm. The full story is in
+<kbd>Ctrl</kbd> + <kbd>C</kbd>, with two sticky modifiers you tap to arm. The full story is in
 [kolu on a Phone](/mobile).
 
 ## Next

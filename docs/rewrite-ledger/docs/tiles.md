@@ -64,3 +64,8 @@ From `.waterfall/compare.mjs` against `f50641c6a`.
 | --- | --- |
 | `└` | cut, visible on screen (the Dock's tree drawing) |
 | `</kbd>, add tabs with\n<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>` | not a code span: the comparison script reads the two `<kbd>` backticks for <kbd>Ctrl</kbd> + <kbd>`</kbd> as one. Both chords are on the page, unchanged |
+
+## Review round 1
+
+- The split chords used a bare backtick in `<kbd>`, which MDX read as an inline code span across two lines: the rendered page showed `</kbd>, and add tabs with <kbd>…` as code. They are now `<kbd>{"`"}</kbd>`. This bug was on the old page too.
+- "working set" (WebGL) rewritten from `packages/client/src/terminal/useTerminalStore.ts`: kept on the most recently used live tiles up to the browser's limit. "feed" → "output".
