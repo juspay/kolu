@@ -89,7 +89,10 @@ const words = (text) =>
 // which the segmenter would read as a continuation, so it segments a copy with
 // the word capitalised. Word counts are unaffected.
 function sentencesOf(text) {
-  const flat = text.replace(/\s+/g, " ").trim().replace(/\bkolu\b/g, "Kolu");
+  const flat = text
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\bkolu\b/g, "Kolu");
   return [...sentences.segment(flat)]
     .map((s) => s.segment.trim())
     .filter(Boolean);
