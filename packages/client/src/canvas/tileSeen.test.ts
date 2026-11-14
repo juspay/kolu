@@ -52,16 +52,28 @@ describe("tileIsSeen", () => {
     }
   });
 
-  it("sees nothing while the camera is still flying somewhere", () => {
-    // A host switch or a restored session pans the camera; what it sweeps
-    // over on the way is not what the user asked to look at.
-    for (const over of [
-      { mode: "maximized" as CanvasTileMode },
-      { onScreen: true },
-      { active: true, onScreen: false },
-    ]) {
-      expect(tileIsSeen(facts({ ...over, cameraSettled: false }))).toBe(false);
-    }
+  it("does not count a tile the camera is merely flying over", () => {
+    // A host switch or a restored session pans the camera; a tile swept
+    // through the viewport on the way is not one the user asked to look at.
+    expect(tileIsSeen(facts({ onScreen: true, cameraSettled: false }))).toBe(
+      false,
+    );
+  });
+
+  it("keeps the maximized and the active tile seen through a flight", () => {
+    // Neither asks where the camera is — the maximized tile fills the
+    // viewport, and the active tile is the one taking the keystrokes (a
+    // terminal you just created is active while the canvas flies to it).
+    expect(
+      tileIsSeen(
+        facts({ mode: "maximized", onScreen: false, cameraSettled: false }),
+      ),
+    ).toBe(true);
+    expect(
+      tileIsSeen(
+        facts({ active: true, onScreen: false, cameraSettled: false }),
+      ),
+    ).toBe(true);
   });
 });
 
@@ -130,11 +142,16 @@ describe("createHeldSeen", () => {
     expect(changes()).toBe(0);
   });
 
-  it("gives a never-seen tile no hold at all", () => {
-    const { held, setSeen } = harness(false);
-    setSeen(false);
+  it("gives a tile that was never seen nothing to hold", () => {
+    // Off screen at mount: not attached, so time alone owes it nothing — and
+    // the first sighting is the FIRST thing its pane is ever told.
+    const { held, setSeen, changes } = harness(false);
     vi.advanceTimersByTime(SEEN_HOLD_MS * 2);
     expect(held()).toBe(false);
+    expect(changes()).toBe(0);
+    setSeen(true);
+    expect(held()).toBe(true);
+    expect(changes()).toBe(1);
   });
 
   it("restarts the hold on each departure, not each leaving frame", () => {

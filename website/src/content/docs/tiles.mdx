@@ -110,10 +110,11 @@ it — so the keyboard always reaches the terminal you are typing into. A tile
 panned off the edge of the canvas, a tile hidden behind a maximized one, and
 every tile on a canvas the [Conductor](/conductor) is covering are left alone,
 as is a background sub-terminal tab. A tile that leaves your view keeps its feed
-for about **five seconds** first, so flicking across the canvas and back costs
-nothing at all — no pause, no flicker, nothing on the wire. (This is about
-what's on the canvas, not about your window: a kolu tab sitting in the
-background keeps the feeds of the tiles it is showing.) A hidden pane also
+for about **five seconds** first, so flicking across the canvas and back changes
+nothing at all: nothing stops, so nothing has to be started again, and the tile
+was never behind. (This is about what's on the canvas, not about your window: a
+kolu tab sitting in the background keeps the feeds of the tiles it is showing.)
+A hidden pane also
 doesn't state its size, so opening kolu on a second device no longer reshapes
 every terminal on the host behind it. Bringing a pane back doesn't blank it
 either — the old screen stays up and is replaced the moment the current one

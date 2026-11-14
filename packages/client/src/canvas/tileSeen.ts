@@ -54,10 +54,13 @@ export interface TileSeenFacts {
   readonly viewShown: boolean;
   /** Has the camera stopped moving on its own? False during a programmatic
    *  pan — centring on a tile, landing a restored session, the host-switch
-   *  re-centre. A 150 ms flight across the plane sweeps tiles through the
-   *  viewport that nobody asked to see, and attaching each one (then dropping
-   *  it five seconds later) is exactly the cost this module exists to avoid.
-   *  So a tile is judged by the pose the camera LANDS on. */
+   *  re-centre. It qualifies ONE row below, the only row that asks where the
+   *  camera is: a 150 ms flight sweeps tiles through the viewport that nobody
+   *  asked to see, and attaching each one (then dropping it five seconds
+   *  later) is exactly the cost this module exists to avoid, so a tile that
+   *  is merely flown OVER waits for the pose the camera lands on. The
+   *  maximized tile and the active tile never ask: they are seen whatever the
+   *  camera is doing. */
   readonly cameraSettled: boolean;
   /** This tile's render mode (`TerminalCanvas` derives it from the canvas
    *  posture and the active id). */
@@ -72,18 +75,23 @@ export interface TileSeenFacts {
 
 /** Can a user see this tile right now?
  *
- *  - the maximized tile fills the viewport — seen;
+ *  - the maximized tile fills the viewport — seen, camera or no camera;
  *  - a covered tile sits behind it (`visibility: hidden`) — not seen, and by
  *    construction it is not the active one;
- *  - a tiled tile is seen when its rect is in view, or when it is the active
- *    tile that the user has panned away from.
+ *  - the active tile is seen wherever it is parked, so the keyboard always
+ *    reaches the terminal being typed into — including while the canvas is
+ *    still flying towards a terminal just created;
+ *  - any other tiled tile is seen when its rect is in view under a SETTLED
+ *    camera.
+ *
+ *  Only the Conductor (`viewShown`) overrides all of it.
  *
  *  Pure, so each row is a unit test rather than a browser. */
 export function tileIsSeen(facts: TileSeenFacts): boolean {
-  if (!facts.viewShown || !facts.cameraSettled) return false;
+  if (!facts.viewShown) return false;
   if (facts.mode === "maximized") return true;
   if (facts.mode === "covered") return false;
-  return facts.onScreen || facts.active;
+  return facts.active || (facts.onScreen && facts.cameraSettled);
 }
 
 /** `seen`, with the leaving edge delayed by `holdMs` — the accessor a tile
@@ -116,11 +124,10 @@ export function createHeldSeen(
         return;
       }
       // Never seen (or already let go): nothing is attached, so nothing is
-      // owed a grace period.
+      // owed a grace period. (No "already counting down" case to guard: this
+      // effect runs on CHANGES of `seen`, and the `true` that must precede a
+      // second `false` has already cancelled the timer above.)
       if (!held()) return;
-      // Already counting down — a second leaving edge inside the window must
-      // not restart the clock.
-      if (timer !== undefined) return;
       timer = setTimeout(() => {
         timer = undefined;
         setHeld(false);
