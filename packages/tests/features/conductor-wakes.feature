@@ -59,7 +59,7 @@ Feature: The Conductor never blocks
     And the conductor status should say nothing is waiting
     And there should be no page errors
 
-  Scenario: The watched terminals are listed, looked at, and let go
+  Scenario: The watched terminals are listed and looked at
     # The marker is COMPUTED by the shell so the command line's echo cannot
     # satisfy the Look: only the terminal's own screen can.
     When I create a terminal
@@ -71,8 +71,6 @@ Feature: The Conductor never blocks
     Then the watched panel should list the watched terminal
     When I look at the watched terminal
     Then the watched terminal's look should show "kolu-watch-42"
-    When I stop watching the watched terminal
-    Then the conductor status should say nothing is being watched
     And there should be no page errors
 
   Scenario: Two pieces of work count on the tab, and the badge says when it needs you

@@ -11,6 +11,7 @@
  */
 
 import { Effect } from "effect";
+import { agentVocab } from "kolu-agents/vocab";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
@@ -182,6 +183,58 @@ describe("an agent line", () => {
     ).toBe("asleep");
     expect(toggle(el)).toBeNull();
     expect(seam.reads).toEqual([]);
+  });
+
+  it("says the agent is STARTING when its own binary is in front and nothing is detected yet", async () => {
+    // The row used to read "no agent · running omp", which says both halves
+    // of a contradiction at once. The binary is recognised through the agent
+    // registry (`cli.basename`), and the words it is named by come from the
+    // same registry — this test holds no list of its own.
+    const omp = agentVocab("omp");
+    setStanding({
+      kind: "here",
+      meta: {
+        state: "active",
+        agent: null,
+        foreground: { name: omp.cli.basename, title: null, shell: false },
+      } as never,
+    });
+    const el = mount("starting");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(
+      el.querySelector('[data-testid="conductor-look-status"]')?.textContent,
+    ).toBe(`starting ${omp.displayName}`);
+  });
+
+  it("still says 'no agent' for a program that is none of ours, and for the shell", async () => {
+    setStanding({
+      kind: "here",
+      meta: {
+        state: "active",
+        agent: null,
+        foreground: { name: "vim", title: null, shell: false },
+      } as never,
+    });
+    const el = mount("plain");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(
+      el.querySelector('[data-testid="conductor-look-status"]')?.textContent,
+    ).toBe("no agent · running vim");
+
+    unmount();
+    setStanding({
+      kind: "here",
+      meta: {
+        state: "active",
+        agent: null,
+        foreground: { name: "bash", title: null, shell: true },
+      } as never,
+    });
+    const shell = mount("shell");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(
+      shell.querySelector('[data-testid="conductor-look-status"]')?.textContent,
+    ).toBe("no agent · at the shell");
   });
 
   it("says 'terminal gone' for a terminal the roster no longer has, and offers nothing", async () => {

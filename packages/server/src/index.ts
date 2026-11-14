@@ -1080,9 +1080,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     conductor: liveServerConductor,
     log,
   });
-  // The list moves for four reasons — the Conductor watching or unwatching, a
-  // terminal it created being watched for it, a person removing one, a watched
-  // terminal going away — and every one of them republishes the cell. Re-scope
+  // The list moves for three reasons — the Conductor watching or unwatching, a
+  // terminal it created being watched for it, a watched terminal going away —
+  // and every one of them republishes the cell. Re-scope
   // only when the LIST changed: a state frame lands per turn, per model switch
   // and per sign-in step, and re-walking the fleet for a phase change would be
   // work for nothing.

@@ -195,7 +195,7 @@ agent kolu saw in that terminal, how it joined, and the ref's host *as this
 fleet stands now* (`host` / `hostName` / `hostState`, all three `null` for a
 host that is no longer a member). It is the only resource here whose value
 belongs to the conversation rather than to the fleet, and it subscribes: a
-watched terminal that goes away, or one a person removes from the browser,
+watched terminal that goes away — one the human closed, or one that died —
 reaches a conductor that is not calling anything. Without it a restarted
 Conductor could move the list and never read it — the observed result being an
 agent that says it is "not certain" what it is watching and then re-watches

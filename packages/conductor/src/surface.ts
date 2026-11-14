@@ -87,19 +87,6 @@ export function conductorSurfaceMembers(deps: {
             input.steer,
           ),
         ),
-      /** TAKE ONE TERMINAL OFF THE LIST kolu wakes this conversation about —
-       *  the watched panel's remove control.
-       *
-       *  NO BRING-UP, which is why it does not go through the same door as a
-       *  prompt: the list is this server's bookkeeping, and a person tidying
-       *  it up in a panel they are about to close must not have started a
-       *  Claude for it. The host answers whether the entry was there; the wire
-       *  member declares no output, because what a reader needs is the cell it
-       *  is already watching. */
-      unwatch: ({ input }: { input: { ref: string } }) =>
-        ask<void, ConductorUnavailable>(() => {
-          host().unwatchTerminal(input.ref);
-        }),
       /** The chunked upload a prompt's attachments arrive on, ahead of the
        *  prompt that names them — the whole reason no base64 rides a `prompt`
        *  frame. Straight through: the host validates the id, the continuation

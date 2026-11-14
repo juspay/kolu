@@ -12,6 +12,11 @@
  *  "terminal gone", and a sleeping one says "asleep": neither has a live screen,
  *  so neither offers Look.
  *
+ *  A terminal with NO detected agent is read through its foreground program:
+ *  the shell is "no agent · at the shell", and one of kolu's own agent
+ *  binaries is "starting <that agent>" — detection has not landed yet, and
+ *  saying "no agent · running omp" in one breath contradicts itself.
+ *
  *  THE TAIL is what Look opens: the last {@link LOOK_LINES} lines of that
  *  terminal's screen, as read-only text, read with `screen.text { id, tail }`
  *  from the terminal's OWN host and re-read every {@link LOOK_EVERY_MS} ms. It
@@ -59,6 +64,7 @@ import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import {
   type AgentStateTone,
+  agentNameForBinary,
   stateLabels,
   stateTones,
 } from "../ui/agentDisplay";
@@ -156,14 +162,17 @@ const ConductorLook: Component<{
           };
         }
         const front = arm.foreground;
-        return {
-          tone: "none",
-          state: "no agent",
-          doing:
-            front === null || front.shell
-              ? "at the shell"
-              : `running ${front.name}`,
-        };
+        if (front === null || front.shell)
+          return { tone: "none", state: "no agent", doing: "at the shell" };
+        // THE PROGRAM IN FRONT IS ONE OF OURS, and nothing has been detected
+        // in it yet: that is an agent coming up, not a terminal without one.
+        // "no agent · running omp" said both halves of that at once and
+        // believed neither. The recognition is the agent registry's own
+        // `cli.basename` — there is no second list of agent names here.
+        const starting = agentNameForBinary(front.name);
+        return starting === undefined
+          ? { tone: "none", state: "no agent", doing: `running ${front.name}` }
+          : { tone: "none", state: `starting ${starting}`, doing: null };
       }
     }
   });

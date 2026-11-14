@@ -83,10 +83,6 @@ export interface Conductor {
    *  `New session` is the one caller. Two verbs rather than a flag, because
    *  what a person LOSES is the whole of the difference. */
   clearSession(): void;
-  /** Take one terminal off the watch list — the watched panel's remove
-   *  control. The cell's `watched` is where the answer lands, so there is
-   *  nothing to read back here. */
-  unwatch(ref: string): void;
 }
 
 export const useConductor = createSharedRoot<Conductor>(() => {
@@ -207,10 +203,5 @@ export const useConductor = createSharedRoot<Conductor>(() => {
         app.procedures.conductor.clearSession({}),
       );
     },
-    unwatch: (ref) =>
-      ask(
-        "Could not stop watching that terminal",
-        app.procedures.conductor.unwatch({ ref }),
-      ),
   };
 });

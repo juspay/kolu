@@ -955,9 +955,3 @@ export const ConductorTextInputSchema = Schema.Struct({
 });
 
 export const ConductorEmptySchema = Schema.Struct({});
-
-/** Take one terminal off the list kolu wakes the Conductor about — the
- *  watched panel's remove control. `ref` is the fleet ref (`host/id`). */
-export const ConductorUnwatchInputSchema = Schema.Struct({
-  ref: Schema.String,
-});

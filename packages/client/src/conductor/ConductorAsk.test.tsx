@@ -13,19 +13,33 @@
  * human saw INSTEAD of their answer: a form whose fields carry their own
  * labels does not print it, and an ask whose message IS the question (a
  * permission request, a single unlabelled field) still does.
+ *
+ * And the form itself holds ONE ANSWER PER QUESTION: the second half of these
+ * watches what the adapter is handed after a pick, after typed words, and
+ * after both — a single-choice question sends one of them, a multi-choice
+ * question sends the list it is.
  */
 
-import type { AskField, ConductorAskRow } from "kolu-common/conductor";
+import {
+  type AskAnswer,
+  type AskField,
+  type ConductorAskRow,
+  YES_NO,
+} from "kolu-common/conductor";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+/** What the agent is told. A settled card answers nothing — its buttons are
+ *  gone — but a waiting one hands this exactly what it is sending, which is
+ *  the fact the exclusivity tests are about. */
+const answer = vi.hoisted(() => vi.fn());
+
 vi.mock("./useConductor", () => ({
-  // A settled card answers nothing — the form's buttons are gone — so the
-  // conversation face is here only to be constructible.
-  useConductor: () => ({ answer: () => {} }),
+  useConductor: () => ({ answer }),
 }));
 
 import ConductorAsk from "./ConductorAsk";
+import { forgetAskDraft, setAskDraft } from "./drafts";
 
 const choice = (
   key: string,
@@ -39,6 +53,18 @@ const choice = (
   choices: values.map((value) => ({ value, label: value, hint: null })),
   required: true,
   attachedTo: null,
+});
+
+/** The same question asked as a LIST: `choices`, which keeps every option
+ *  pressed and keeps the typed words beside them. */
+const multiChoice = (
+  key: string,
+  label: string | null,
+  values: ReadonlyArray<string>,
+): AskField => ({
+  ...choice(key, label, values),
+  kind: "choices",
+  required: false,
 });
 
 const text = (
@@ -90,6 +116,10 @@ afterEach(() => {
   root?.remove();
   dispose = undefined;
   root = undefined;
+  // The drafts store outlives a mount: a half-filled form left behind would be
+  // the next test's starting state.
+  forgetAskDraft("ask:1");
+  answer.mockClear();
 });
 
 /** Every question line as a person reads it, in order. */
@@ -187,5 +217,131 @@ describe("a settled ask card", () => {
     expect(
       el.querySelector('[data-testid="conductor-ask-submit"]'),
     ).not.toBeNull();
+  });
+});
+
+/** The chip for one option of one question. */
+const option = (el: HTMLElement, field: string, value: string): HTMLElement => {
+  const chip = el.querySelector<HTMLElement>(
+    `[data-testid="conductor-ask-option"][data-field="${field}"][data-value="${value}"]`,
+  );
+  if (chip === null) throw new Error(`no option \`${value}\` for \`${field}\``);
+  return chip;
+};
+
+/** Is that chip showing as pressed? The card's own mark, not its colours. */
+const selected = (el: HTMLElement, field: string, value: string): boolean =>
+  option(el, field, value).hasAttribute("data-active");
+
+/** The "Other" box of the question it is attached to. */
+const otherBox = (el: HTMLElement, field: string): HTMLInputElement => {
+  const box = el.querySelector<HTMLInputElement>(
+    `[data-testid="conductor-ask-other"][data-field="${field}"]`,
+  );
+  if (box === null) throw new Error(`no "Other" box \`${field}\``);
+  return box;
+};
+
+/** Words typed, as the browser delivers them: the value lands on the element
+ *  and one `input` event follows. */
+const type = (box: HTMLInputElement, words: string): void => {
+  box.value = words;
+  box.dispatchEvent(new Event("input", { bubbles: true }));
+};
+
+/** What the adapter was handed by the last Answer press. */
+const sent = (): ReadonlyArray<AskAnswer> => {
+  const call = answer.mock.calls.at(-1);
+  if (call === undefined) throw new Error("the agent was told nothing");
+  return call[1] as ReadonlyArray<AskAnswer>;
+};
+
+const submit = (el: HTMLElement): void => {
+  el.querySelector<HTMLElement>(
+    '[data-testid="conductor-ask-submit"]',
+  )?.click();
+};
+
+describe("a question still waiting", () => {
+  it("sends the typed words alone when they replace a pick", () => {
+    // The session that made this a bug: `OpenCode` pressed, `omp` typed, and
+    // the agent told both.
+    const el = mount(askRow());
+    option(el, "implementor", "omp").click();
+    type(otherBox(el, "implementor_other"), "anthropic/claude-opus-5-5");
+    // The pick let go the moment the words arrived — on screen, before Answer.
+    expect(selected(el, "implementor", "omp")).toBe(false);
+    submit(el);
+    expect(sent()).toEqual([
+      { key: "implementor_other", values: ["anthropic/claude-opus-5-5"] },
+    ]);
+  });
+
+  it("sends the pick alone when it replaces typed words", () => {
+    const el = mount(askRow());
+    type(otherBox(el, "implementor_other"), "anthropic/claude-opus-5-5");
+    option(el, "implementor", "omp").click();
+    expect(selected(el, "implementor", "omp")).toBe(true);
+    expect(otherBox(el, "implementor_other").value).toBe("");
+    submit(el);
+    expect(sent()).toEqual([{ key: "implementor", values: ["omp"] }]);
+  });
+
+  it("sends one answer even if the draft somehow holds both", () => {
+    // Not reachable by clicking — the writers see to that. What is pinned here
+    // is that the ANSWER is derived, so a draft written by anything else still
+    // leaves the agent with one answer, the words the options could not say.
+    const el = mount(askRow());
+    setAskDraft("ask:1", "implementor", ["omp"]);
+    setAskDraft("ask:1", "implementor_other", ["opencode"]);
+    submit(el);
+    expect(sent()).toEqual([
+      { key: "implementor_other", values: ["opencode"] },
+    ]);
+  });
+
+  it("keeps every pick and the typed words for a multi-choice question", () => {
+    const el = mount(
+      askRow({
+        fields: [
+          multiChoice("harnesses", "Harnesses", ["omp", "claude"]),
+          text("harnesses_other", "Other", "harnesses"),
+        ],
+      }),
+    );
+    option(el, "harnesses", "omp").click();
+    option(el, "harnesses", "claude").click();
+    type(otherBox(el, "harnesses_other"), "opencode");
+    expect(selected(el, "harnesses", "omp")).toBe(true);
+    expect(selected(el, "harnesses", "claude")).toBe(true);
+    submit(el);
+    expect(sent()).toEqual([
+      { key: "harnesses", values: ["omp", "claude"] },
+      { key: "harnesses_other", values: ["opencode"] },
+    ]);
+  });
+
+  it("keeps one of Yes and No, and lets typed words replace them", () => {
+    const el = mount(
+      askRow({
+        fields: [
+          {
+            ...choice("green", "On green", []),
+            kind: "boolean",
+          },
+          text("green_other", "Other", "green"),
+        ],
+      }),
+    );
+    // `YES_NO` rather than a spelling of our own: it is what a boolean's chips
+    // carry and what the agent is sent.
+    option(el, "green", YES_NO.yes).click();
+    expect(selected(el, "green", YES_NO.yes)).toBe(true);
+    type(otherBox(el, "green_other"), "only if the PR is mine");
+    expect(selected(el, "green", YES_NO.yes)).toBe(false);
+    submit(el);
+    expect(sent()).toEqual([
+      { key: "green_other", values: ["only if the PR is mine"] },
+    ]);
   });
 });

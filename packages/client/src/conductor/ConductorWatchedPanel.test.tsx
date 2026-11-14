@@ -6,8 +6,9 @@
  * the cell, so nothing here recomputes it) and one row per watched ref under
  * it, each row drawing the terminal's identity plus `ConductorLook`'s live
  * standing. So this mounts over the same seams `ConductorLook.test.tsx` stubs
- * (the fleet index, the padi wire, tips) and asserts the groups, the rows,
- * their Look and their remove control exist and act.
+ * (the fleet index, the padi wire, tips) and asserts the groups, the rows and
+ * their Look exist and act. Nothing here takes a terminal off the list: the
+ * panel is a reading.
  */
 
 import { Effect } from "effect";
@@ -54,8 +55,6 @@ vi.mock("../wire", () => ({
 vi.mock("../settings/useTips", () => ({
   useTips: () => ({ showTipOnce: () => {} }),
 }));
-const verbs = vi.hoisted(() => ({ unwatch: vi.fn() }));
-vi.mock("./useConductor", () => ({ useConductor: () => verbs }));
 
 import ConductorWatchedPanel from "./ConductorWatchedPanel";
 import { ConductorShown } from "./conductorShown";
@@ -104,7 +103,6 @@ const all = (testid: string): HTMLElement[] =>
   );
 
 beforeEach(() => {
-  verbs.unwatch.mockClear();
   setStanding(working());
 });
 
@@ -153,14 +151,26 @@ describe("the watched panel", () => {
   });
 
   it("heads a piece whose root the fleet cannot name with that terminal's id", () => {
-    mount([piece(REF, "", [REF])]);
+    // Two terminals, so the heading is drawn at all — and the root is not one
+    // the fleet index can name, which is the fallback under test.
+    mount([piece(REF, "", [REF, SPLIT_REF])]);
     expect(at("conductor-watched-group-name")?.textContent).toBe(TERMINAL);
   });
 
-  it("removes an entry through the conversation's own verb", () => {
+  it("draws no heading over a lone terminal that the heading would only repeat", () => {
+    // A group of one, named what its only row is named: the heading would say
+    // the same word twice, so there is no heading.
+    mount([piece(REF, TERMINAL, [REF])]);
+    expect(at("conductor-watched-group")).toBeDefined();
+    expect(at("conductor-watched-row")?.dataset.ref).toBe(REF);
+    expect(at("conductor-watched-group-name")).toBeUndefined();
+  });
+
+  it("heads a lone terminal whose piece of work is called something else", () => {
+    // Still one terminal, but the work has a name of its own — that name is
+    // not in the row, so it is worth a heading.
     mount([piece(REF, "fix-parser", [REF])]);
-    at("conductor-watched-remove")?.click();
-    expect(verbs.unwatch).toHaveBeenCalledWith(REF);
+    expect(at("conductor-watched-group-name")?.textContent).toBe("fix-parser");
   });
 
   it("still lists a terminal that is gone, and offers no Look at it", () => {
@@ -175,7 +185,6 @@ describe("the watched panel", () => {
     mount([piece("nonsense", "", ["nonsense"])]);
     expect(at("conductor-watched-row")?.dataset.ref).toBe("nonsense");
     expect(at("conductor-watched-unresolved")).toBeDefined();
-    expect(at("conductor-watched-remove")).toBeDefined();
   });
 
   it("says it in ONE quiet line when there is no work at all — never a zero", () => {

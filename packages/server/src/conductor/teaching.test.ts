@@ -113,6 +113,20 @@ describe("the waterfall's setup questions", () => {
     expect(SCRIPT).toContain("never skip the asking because you asked before");
   });
 
+  it("asks WHICH HOST, and never lets a path or its own machine answer that", () => {
+    // The defect this guards: `waterfall ~/code/odu …` was asked mode,
+    // harness, model and on-green, then opened its planner on the machine the
+    // Conductor runs on — where the harness was not even installed — and the
+    // human had to type where it should have gone.
+    expect(SCRIPT).toContain("which HOST the work runs on");
+    expect(SCRIPT).toContain("unless the request names the host");
+    expect(SCRIPT).toContain("a path does not: the same path exists on");
+    expect(SCRIPT).toContain("NOTHING IS CREATED BEFORE THE HOST IS KNOWN.");
+    expect(SCRIPT).toContain("the host question offers the hosts connected");
+    // ... and outside a waterfall too: any terminal it is about to open.
+    expect(SCRIPT).toContain("never default to zest");
+  });
+
   it("asks what to do on green CI and the mode in that same one form", () => {
     expect(SCRIPT).toContain("what to do when CI is green");
     expect(SCRIPT).toContain("the mode, unless the request already said which");

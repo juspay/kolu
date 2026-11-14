@@ -18,14 +18,30 @@
  *  The field kinds come from `@kolu/acp`'s projection of the agent's JSON
  *  Schema — a browser never reads a `oneOf`. An `attachedTo` field is the
  *  free-text "other" for the field it names, drawn inside that field's block
- *  rather than as a question of its own. */
+ *  rather than as a question of its own.
+ *
+ *  ONE QUESTION, ONE ANSWER. For a single-choice question, the chips and the
+ *  "Other" box beside them are two halves of the SAME question: typing your
+ *  own words replaces the pick, and picking replaces the words. The card that
+ *  read `IMPL HARNESS — OpenCode · omp` — an option pressed AND a name typed —
+ *  told the agent two things and made it ask again. A `choices` question is a
+ *  list by definition and keeps both. */
 
 import {
   type AskAnswer,
+  type AskField,
   type ConductorAskRow,
   YES_NO,
 } from "kolu-common/conductor";
-import { type Component, createMemo, For, Match, Show, Switch } from "solid-js";
+import {
+  batch,
+  type Component,
+  createMemo,
+  For,
+  Match,
+  Show,
+  Switch,
+} from "solid-js";
 import { askLead, askQuestions, askRecord } from "./askRecord";
 import { askDraft, forgetAskDraft, setAskDraft } from "./drafts";
 import { useConductor } from "./useConductor";
@@ -33,6 +49,13 @@ import { useConductor } from "./useConductor";
 /** One option chip. The SELECTED state is layered on through `classList`, so
  *  the shape of a chip is written once and only the two colours branch. */
 const OPTION_CLASS = "rounded-md border px-2.5 py-1 text-fg cursor-pointer";
+
+/** Does this question hold exactly ONE answer? A `choice` offers one of its
+ *  options and a `boolean` is yes or no; only `choices` is a list. The "Other"
+ *  box attached to such a question is an alternative to its chips, never an
+ *  addition to them. */
+const singleAnswer = (field: AskField): boolean =>
+  field.kind === "choice" || field.kind === "boolean";
 
 const ConductorAsk: Component<{ row: ConductorAskRow }> = (props) => {
   const orch = useConductor();
@@ -48,33 +71,69 @@ const ConductorAsk: Component<{ row: ConductorAskRow }> = (props) => {
   const picked = (key: string, value: string): boolean =>
     askDraft(props.row.id, key).includes(value);
 
-  const answers = (): AskAnswer[] =>
-    ask()
+  /**
+   * WHAT IS SENT, derived from the draft in one place.
+   *
+   * The writers below already clear the other half as you act, so the form in
+   * front of you can only hold one of the two. This derivation is what makes
+   * that a property of the ANSWER rather than of the clicking: a draft that
+   * somehow held both — restored from an older store, written by a future
+   * caller — still sends one, and it sends the typed words, because they are
+   * the answer the options could not express.
+   */
+  const answers = (): AskAnswer[] => {
+    const replaced = new Set<string>();
+    for (const field of ask().fields) {
+      if (field.attachedTo === null) continue;
+      if (askDraft(props.row.id, field.key).length === 0) continue;
+      const asked = ask().fields.find((one) => one.key === field.attachedTo);
+      if (asked !== undefined && singleAnswer(asked)) replaced.add(asked.key);
+    }
+    return ask()
       .fields.map((field) => ({
         key: field.key,
-        values: [...askDraft(props.row.id, field.key)],
+        values: replaced.has(field.key)
+          ? []
+          : [...askDraft(props.row.id, field.key)],
       }))
       .filter((answer) => answer.values.length > 0);
+  };
 
   const submit = (): void => {
     orch.answer(props.row.id, answers());
     forgetAskDraft(props.row.id);
   };
 
-  const pick = (key: string, value: string, multiple: boolean): void => {
-    const current = askDraft(props.row.id, key);
-    if (!multiple) {
-      setAskDraft(props.row.id, key, [value]);
+  /** An option pressed. A single-answer question keeps the one pressed last
+   *  and empties its "Other" box; a `choices` question toggles. */
+  const pick = (field: AskField, value: string): void => {
+    const current = askDraft(props.row.id, field.key);
+    if (!singleAnswer(field)) {
+      setAskDraft(
+        props.row.id,
+        field.key,
+        current.includes(value)
+          ? current.filter((v) => v !== value)
+          : [...current, value],
+      );
       return;
     }
-    setAskDraft(
-      props.row.id,
-      key,
-      current.includes(value)
-        ? current.filter((v) => v !== value)
-        : [...current, value],
-    );
+    const other = otherFor(field.key);
+    batch(() => {
+      setAskDraft(props.row.id, field.key, [value]);
+      if (other !== undefined) setAskDraft(props.row.id, other.key, []);
+    });
   };
+
+  /** Words typed into a question's "Other" box. The first character of an own
+   *  answer to a single-answer question drops the pick — one question, one
+   *  answer, and the chips go back to unselected as you watch. */
+  const typeOther = (asked: AskField, other: AskField, text: string): void =>
+    batch(() => {
+      setAskDraft(props.row.id, other.key, text === "" ? [] : [text]);
+      if (text !== "" && singleAnswer(asked))
+        setAskDraft(props.row.id, asked.key, []);
+    });
 
   return (
     <section
@@ -204,13 +263,7 @@ const ConductorAsk: Component<{ row: ConductorAskRow }> = (props) => {
                               "border-accent bg-accent/15": on(),
                               "border-edge-bright bg-surface-2": !on(),
                             }}
-                            onClick={() =>
-                              pick(
-                                field.key,
-                                choice.value,
-                                field.kind === "choices",
-                              )
-                            }
+                            onClick={() => pick(field, choice.value)}
                           >
                             {choice.label}
                           </button>
@@ -236,7 +289,7 @@ const ConductorAsk: Component<{ row: ConductorAskRow }> = (props) => {
                               "border-accent bg-accent/15": on(),
                               "border-edge-bright bg-surface-2": !on(),
                             }}
-                            onClick={() => pick(field.key, value, false)}
+                            onClick={() => pick(field, value)}
                           >
                             {value === YES_NO.yes ? "Yes" : "No"}
                           </button>
@@ -258,13 +311,7 @@ const ConductorAsk: Component<{ row: ConductorAskRow }> = (props) => {
                     value={askDraft(props.row.id, other().key)[0] ?? ""}
                     class="mt-1.5 w-full rounded-md border border-edge-bright bg-surface-0 px-2 py-1 text-fg outline-none focus:border-accent"
                     onInput={(event) =>
-                      setAskDraft(
-                        props.row.id,
-                        other().key,
-                        event.currentTarget.value === ""
-                          ? []
-                          : [event.currentTarget.value],
-                      )
+                      typeOther(field, other(), event.currentTarget.value)
                     }
                   />
                 )}

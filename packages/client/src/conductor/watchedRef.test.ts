@@ -25,7 +25,7 @@ describe("splitting a watched ref", () => {
     expect(splitWatchedRef(`/${ID}`)).toBeNull();
     expect(splitWatchedRef("local/")).toBeNull();
     // A host key that is not canonical, and an id that is not a terminal id:
-    // the panel draws the entry anyway so it can be removed.
+    // the panel draws the entry anyway and says it cannot resolve it.
     expect(splitWatchedRef(`elsewhere/${ID}`)).toBeNull();
     expect(splitWatchedRef("local/not-a-uuid")).toBeNull();
   });

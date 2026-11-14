@@ -14,8 +14,8 @@
  *  browser bundle does not depend on the MCP package), so this is the SECOND
  *  reader of that grammar and it is written to be obviously the same rule;
  *  both halves are then VALIDATED here, which the grammar leaf deliberately
- *  does not do: a ref the browser cannot resolve is still drawn (so a person
- *  can remove it), and that is only possible if the parse answers rather than
+ *  does not do: a ref the browser cannot resolve is still drawn, saying so in
+ *  its own words, and that is only possible if the parse answers rather than
  *  throws. */
 
 import { isEncodedHostKey } from "kolu-common/hostKey";

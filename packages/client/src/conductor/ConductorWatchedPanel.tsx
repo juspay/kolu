@@ -31,10 +31,23 @@
  *
  *  A TERMINAL THAT IS NOT THERE STAYS ON THE LIST. Gone, asleep, or on a host
  *  this browser is not connected to: the row is drawn and says which, because
- *  an entry that vanished from the panel is an entry nobody can remove — and
- *  because the Conductor is still watching it (a terminal that went away is
- *  exactly what it gets woken about). The same goes for a ref this browser
+ *  the Conductor is still watching it (a terminal that went away is exactly
+ *  what it gets woken about) and a panel that hid it would be a panel that
+ *  disagrees with the list it draws. The same goes for a ref this browser
  *  cannot even parse.
+ *
+ *  IT IS A READING, NOT A CONTROL. Nothing here takes a terminal off the
+ *  list: the ways off it are telling the Conductor to stop watching one, or
+ *  closing the terminal — both of which the Conductor hears about. A knob
+ *  beside the row that overrode what the conversation is watching would be an
+ *  override knob, and it also read as "delete this terminal", which it never
+ *  was.
+ *
+ *  A GROUP OF ONE DOES NOT REPEAT ITSELF. The heading names the piece of
+ *  work; when that piece is a single terminal called the same thing, the
+ *  heading says the row's own name back at it, so it is drawn only when the
+ *  group holds more than one terminal or its name differs from its only
+ *  row's.
  *
  *  HOW LONG IT HAS BEEN IN ITS STATE is the one thing kolu cannot say
  *  exactly: a terminal record carries `lastActivityAt` — when the terminal
@@ -57,7 +70,6 @@ import Tip from "../ui/Tip";
 import ConductorLook from "./ConductorLook";
 import { useShownClock } from "./conductorShown";
 import { fleetMentionCandidates } from "./mentionCandidates";
-import { useConductor } from "./useConductor";
 import { splitWatchedRef } from "./watchedRef";
 
 const ConductorWatchedPanel: Component<{
@@ -123,17 +135,20 @@ const ConductorWatchedPanel: Component<{
               >
                 {/* THE HEAD IS THE WORK'S NAME, and the root terminal may not
                     be watched itself (a split is watched while the planner
-                    above it is not) — so it is named, not drawn as a row:
-                    there is nothing here to stop watching. */}
-                <p
-                  data-testid="conductor-watched-group-name"
-                  class="m-0 mb-1 min-w-0 truncate font-mono text-[0.62rem] uppercase tracking-[0.08em] text-fg-3"
-                >
-                  {names().get(piece.root) ??
-                    (piece.name === ""
-                      ? (splitWatchedRef(piece.root)?.id ?? piece.root)
-                      : piece.name)}
-                </p>
+                    above it is not) — so it is named, not drawn as a row. It
+                    is drawn only when it says something the rows beneath it do
+                    not: one terminal under a heading of its own name is the
+                    same word twice. */}
+                <Show when={groupHeading(piece, names())}>
+                  {(head) => (
+                    <p
+                      data-testid="conductor-watched-group-name"
+                      class="m-0 mb-1 min-w-0 truncate font-mono text-[0.62rem] uppercase tracking-[0.08em] text-fg-3"
+                    >
+                      {head()}
+                    </p>
+                  )}
+                </Show>
                 <ul class="m-0 flex list-none flex-col gap-1.5 p-0">
                   <For each={piece.refs}>
                     {(ref) => (
@@ -156,6 +171,32 @@ const ConductorWatchedPanel: Component<{
   );
 };
 
+/** What a watched ref is CALLED on screen: the name the `@` menu would offer
+ *  for it, then the bare terminal id, then the raw ref. ONE computation, so
+ *  the group-of-one rule below compares the words a person actually reads
+ *  rather than a second rendering of them. */
+function refLabel(ref: string, fleetName: string | undefined): string {
+  return fleetName ?? splitWatchedRef(ref)?.id ?? ref;
+}
+
+/** The heading a piece of work is drawn under, or `null` when it would only
+ *  repeat its single row. The name is the fleet's, then the one the server
+ *  last read, then the root's bare id — a heading is never blank. */
+function groupHeading(
+  piece: ConductorState["work"][number],
+  names: ReadonlyMap<string, string>,
+): string | null {
+  const head =
+    names.get(piece.root) ??
+    (piece.name === ""
+      ? (splitWatchedRef(piece.root)?.id ?? piece.root)
+      : piece.name);
+  const only = piece.refs.length === 1 ? piece.refs[0] : undefined;
+  return only !== undefined && refLabel(only, names.get(only)) === head
+    ? null
+    : head;
+}
+
 /** One watched terminal. The top line is its identity and the clock; under it
  *  `ConductorLook` draws how it stands and opens its screen in place.
  *
@@ -163,11 +204,10 @@ const ConductorWatchedPanel: Component<{
  *  name on a Solid component. The JSX transform compiles `ref={value}` into a
  *  ref-binding callback rather than passing the value through, so `props.ref`
  *  inside the component is a function — and every read of the reference
- *  (`splitWatchedRef`, the standing, the remove) silently worked on a function
+ *  (`splitWatchedRef`, the standing, the clock) silently worked on a function
  *  instead of a string, which took the whole page down the moment the panel
  *  opened. */
 function WatchedRow(props: { watchedRef: string; name: string | undefined }) {
-  const orch = useConductor();
   // Gated on the pane being the shown view: "quiet for 4m" ticking behind a
   // host tab would wake this row once a second for nobody.
   const now = useShownClock();
@@ -211,7 +251,7 @@ function WatchedRow(props: { watchedRef: string; name: string | undefined }) {
           data-testid="conductor-watched-name"
           class="min-w-0 max-w-full truncate font-semibold text-fg"
         >
-          {props.name ?? parts()?.id ?? props.watchedRef}
+          {refLabel(props.watchedRef, props.name)}
         </span>
         <Show when={parts()}>
           {(split) => (
@@ -242,16 +282,6 @@ function WatchedRow(props: { watchedRef: string; name: string | undefined }) {
             </Tip>
           )}
         </Show>
-        <span class="flex-1" />
-        <button
-          type="button"
-          data-testid="conductor-watched-remove"
-          aria-label={`Stop watching ${props.name ?? props.watchedRef}`}
-          class="shrink-0 rounded-md border border-edge-bright px-1.5 text-fg-3 hover:text-danger cursor-pointer"
-          onClick={() => orch.unwatch(props.watchedRef)}
-        >
-          ×
-        </button>
       </div>
       <Show
         when={parts()}

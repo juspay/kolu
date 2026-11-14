@@ -1694,12 +1694,6 @@ Then(
   },
 );
 
-When("I stop watching the watched terminal", async function (this: KoluWorld) {
-  await watchedRow(this)
-    .locator('[data-testid="conductor-watched-remove"]')
-    .click();
-});
-
 // ── One reading column, and the side column beside it ──
 //
 // The watched panel has TWO placements and one implementation: a side column

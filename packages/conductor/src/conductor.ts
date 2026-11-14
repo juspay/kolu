@@ -1420,8 +1420,9 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     unwatchTerminal: (ref) => {
       remembered();
       if (!watchList.delete(ref)) return false;
-      // ... and whatever it was about to say goes with it. A person who took
-      // a terminal off the list is not owed one last word about it.
+      // ... and whatever it was about to say goes with it. A conversation
+      // that took a terminal off its own list is not owed one last word
+      // about it.
       heldNews.withdraw(ref);
       publishState();
       schedulePersist();

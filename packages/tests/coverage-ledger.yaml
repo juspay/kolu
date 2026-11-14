@@ -3865,8 +3865,21 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-a0c0e08ef1f12caacb5d]
+    survivorRevisionIds: [revision-43facaa7cf5ced14c579]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
-      symbol: "Scenario: The watched terminals are listed, looked at, and let go"
-      test: The same journey against the same wire — watch a terminal, read its list, Look at its screen, let it go. One step changed because the product stopped saying the thing it asserted. The status line no longer reads `watching 0` after the last terminal is dropped, so the final assertion is that the count and the control that would open an empty panel are both ABSENT rather than that they read zero. The remove verb, the list and the Look are untouched.
+      symbol: "Scenario: The watched terminals are listed and looked at"
+      test: The same journey against the same wire — watch a terminal, read its list, Look at its screen. The let-go half is gone because the product's remove control is gone — the panel is a reading, and a terminal comes off the list when the Conductor unwatches it or the terminal closes, neither of which is a thing a person does in this panel. The list and the Look are asserted unchanged.
+  - id: revise-a0c0e08ef1f12caacb5d
+    revisionId: revision-a0c0e08ef1f12caacb5d
+    action: revised
+    status: landed
+    promise: The watched terminals are listed, looked at, and let go
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-43facaa7cf5ced14c579]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: The watched terminals are listed and looked at"
+      test: The same browser journey through the same wire — watch a terminal, open the watched panel, read the row, Look at the terminal's own screen. Two steps left with the × they drove — the panel no longer carries a control that takes a terminal off the list (an override knob the human asked for a reason for, and there was none), so pressing it and then asserting the empty-watch status line describes a product that no longer exists. Nothing else in the scenario moved, and the "nothing is being watched" assertion itself survives in conductor-layout.feature.
