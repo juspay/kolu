@@ -23,6 +23,12 @@ The three arms exist because the client must tell apart states that look alike b
 - **connected**: live. `clockOffset` is this entry's [clock seam](#why-the-clock-is-per-entry).
 - **failed**: it will not resolve unless someone acts. It is a bounded give-up, or a standing refusal ("another owner holds this host"). The right UI is an actionable card, not an eternal spinner.
 
+### Why the connection word and the dot have one source
+
+A map may declare a `connection` schema, and the live arms then carry that fine payload beside the coarse `kind`: a word such as "connecting" beside the dot a fleet view paints from `kind`. Both derive from one projection of one session frame, so a consumer reads the word off the same entry value it reads the dot from (`state().connection`), never from a second subscription.
+
+Two reads of one fact latch out of step. Drishti's fleet view once showed a connected dot beside a host stuck on "connecting", because the dot and the word came from different places ([srid/drishti#102](https://github.com/srid/drishti/issues/102)). One payload on one arm leaves the two nothing to disagree about.
+
 ## Why there is a fourth arm on your side
 
 `entry(key).state()` has one more arm that the wire never carries: **unobservable**. The client's liveness floor mints it when your own link to the publisher is dead. It means "we cannot see this entry".
@@ -79,6 +85,12 @@ Every member's call folds to one wire shape: `{ mapKey, input }`, whatever the i
 A member that takes no input carries no `input` field at all: `{ mapKey }`, never `{ mapKey, input: undefined }`. The tempting version relies on two accidents: that JSON drops an `undefined` value, and that the decoder accepts the missing key. A schema library that rejects a missing declared-void field would break every void-input call the moment a lockfile drifted onto it.
 
 Omitting the field makes "void = no input key" the one representation, so a dependency bump cannot silently break the wire.
+
+## Why a sibling is a whole surface
+
+An entry can carry a [sibling surface](/surface/ref-surface-map#nested-siblings) beside the entry surface: a second daemon on the same host, re-served through the map and addressed per key. The simpler-looking move is to drop that daemon's members into the entry surface and keep one spec.
+
+A sibling is a different program's contract, with its own release cadence and its own version. Folding its members into the entry spec makes that contract part of the entry's: one spec two daemons must agree about, where a version skew in either is a skew the other has to carry. So a sibling is declared as a whole `Surface`, never as a spec fragment, and each program ships on its own schedule.
 
 ## Why keys are codecs, not strings
 

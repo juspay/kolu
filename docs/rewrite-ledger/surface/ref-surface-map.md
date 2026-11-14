@@ -35,8 +35,8 @@ Inbound links: the only recorded link into this page's headings is same-page, `#
 
 | Fact | Where |
 | --- | --- |
-| "Why a sibling rather than more members on the entry surface?" (its own release cadence, version and clock; one spec two daemons must agree about) | `entry-contracts` (pending: queued in `.waterfall/moved/entry-contracts/ref-surface-map.md`). The reference keeps the short clause. |
-| The drishti#102 "dot connected, word connecting" divergence as the argument for one connection authority | `entry-contracts` (pending, same queue file). The reference keeps the facts. |
+| "Why a sibling rather than more members on the entry surface?" (its own release cadence and version; one spec two daemons must agree about) | `entry-contracts`, "Why a sibling is a whole surface". The reference keeps the short clause. The passage's third item, "its own clock", is not on the explanation page: a sibling face has no clock of its own (this page's "What a sibling face carries" says the clock stays the entry's). |
+| The drishti#102 "dot connected, word connecting" divergence as the argument for one connection authority | `entry-contracts`, "Why the connection word and the dot have one source". The reference keeps the facts. |
 
 ## Cut
 
