@@ -173,3 +173,41 @@ None.
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs --old-lines 898-929`: 0 missing).
+
+## Links
+
+- Words (counted by `docs-lint`'s rules): 2,606 → 2,632. Before: the link table plus ten prose blocks, several over 80 words, with the API facts inside running argument. After: an index table and 15 entries, each a sentence of what it is, a members or options table and a list of facts.
+- Structure: intro (kept, with the [How to choose a link](/surface/choose-a-link) link) · index table (`Link | Import | What it is`, the six old first-column entries verbatim as link text, plus rows for the other entries) · `Every wire link` (the shared `group`/async/`WireLink` facts) · `websocketLink` · `websocketLink().diagnostics` · `stdioLink` · `socketDuplexLink` · `unixSocketLink` · `directDispatch` · `Stream delivery on a wire link` · `The keep-alive numbers — @kolu/surface/keepAlive` · `Failure and re-subscription across re-dials` · `followingWire` (with `####` for `adopt` and `dispose`, a call in flight, and `establishments()`) · `createLoopbackPair() · greetLoopback · stallLoopback` · `The stdio readiness gate — @kolu/surface/links/readiness` (with `####` for the `death` field and who writes the banner) · `serveOverUnixSocket` · `isPrivateOwnedDir(dir): boolean`.
+- New entries for exports that were only named in prose: `createLoopbackPair()` / `greetLoopback` / `stallLoopback`, `isPrivateOwnedDir(dir): boolean`, and the three keep-alive constants as a table (`RPC_PING_INTERVAL_MS`, `RPC_PING_TIMEOUT_MS`, `RPC_PING_FATAL_SILENCE_MS`).
+- The four `classification` verdicts and the two `death` unions became tables instead of sentences.
+
+### Headings renamed
+
+| Old | New | Inbound links |
+| --- | --- | --- |
+| `### A stalled stream consumer holds up only its own stream` (`#a-stalled-stream-consumer-holds-up-only-its-own-stream`) | `### Stream delivery on a wire link` (`#stream-delivery-on-a-wire-link`) | none |
+| `### The keep-alive is a backstop, not the liveness verdict` (`#the-keep-alive-is-a-backstop-not-the-liveness-verdict`) | `### The keep-alive numbers — @kolu/surface/keepAlive` (`#the-keep-alive-numbers--kolusurfacekeepalive`) | none |
+| `### A wire that follows its generations — followingWire` (`#a-wire-that-follows-its-generations--followingwire`) | `` ### `followingWire` `` (`#followingwire`) | `website/src/content/surface/ref-surface-app.mdx:683` (cross) and the same page's Liveness section (`ref-surface.mdx:1825` at `f50641c6a`). Both are owned by other rewriters in this wave and still need the link updated. |
+
+Kept verbatim because they are plain names with inbound links: `### Failure and re-subscription across re-dials`, `### websocketLink().diagnostics`, `### The stdio readiness gate — @kolu/surface/links/readiness`.
+
+### Moved
+
+| Fact | Where |
+| --- | --- |
+| The argument for why a following wire exists ("without somewhere for that fact to stop, it reaches all the way up… the page rebuilds its tree") and "the law every link in this family is held to" | `the-client-half` (pending; queued in `.waterfall/moved/the-client-half/ref-surface-06.md`) |
+| "The gate makes that blind attach unrepresentable rather than merely discouraged" | `the-client-half` (pending; same queue file). The cause it argues from is kept in the entry. |
+
+### Cut
+
+| Fact | Tag |
+| --- | --- |
+| "silence is what the incident behind this seam was made of: a daemon whose listening socket went comatose after a suspend/resume wrote not one error line for the rest of its life" (the `log` option keeps "required, because the alternative default is silence") | history |
+| "That last row is the reason the field exists… before this nothing anywhere recorded that it happened" on `"ended-without-open"`; the behaviour (swallowed, publishes no status, never reaches the server) is kept | history |
+| "It is honest when the thing underneath is a socket the link itself re-dials", "which is the whole claim a roster move makes — the wire never went anywhere", "which is the whole point of this wire" | rationale |
+| "is shaped differently on purpose" on `directDispatch`; the shape itself is kept | rationale |
+| Capitals for emphasis: `PROTOCOL`, `CONNECTIONS`, `LOCAL`, `BOTH`, `BIND-TIME`, `FIRST`, `OWNS` | — (style, no fact) |
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs --old-lines 930-1213`: 0 missing).

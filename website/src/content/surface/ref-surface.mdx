@@ -1339,284 +1339,373 @@ liveness, because there is no wire to lose.
 A link maps a way of reaching the served group to a dispatch. Pick one per
 transport; see [How to choose a link](/surface/choose-a-link).
 
-| Link                                        | Import                            | Reaches                                                 |
-| ------------------------------------------- | --------------------------------- | ------------------------------------------------------- |
-| `websocketLink({ group, url, … })`          | `@kolu/surface/links/websocket`   | a server over a WebSocket (the browser path)            |
-| `stdioLink({ group, read, write, readiness })` | `@kolu/surface/links/stdio`    | a subprocess or ssh stdio pair — **requires a readiness proof** |
-| `socketDuplexLink({ group, socket, describe })` | `@kolu/surface/links/stdio`   | an already-connected LOCAL unix socket (you own the dial, and its `close`) |
-| `unixSocketLink({ group, socketPath })`     | `@kolu/surface/links/unix-socket` | a daemon on the same machine (it dials)                 |
-| `directDispatch(served)`                    | `@kolu/surface/links/direct`      | the in-process handlers, no wire (the identity element) |
-| `followingWire(first)`                      | `@kolu/surface/links/following`   | a **succession** of wire links, as one standing wire (see below) |
+| Link | Import | What it is |
+| --- | --- | --- |
+| [`websocketLink({ group, url, … })`](#websocketlink) | `@kolu/surface/links/websocket` | Reaches a server over a WebSocket (the browser path). |
+| [`websocketLink().diagnostics`](#websocketlinkdiagnostics) | `@kolu/surface/links/websocket` | The link's own dial history and open count. |
+| [`stdioLink({ group, read, write, readiness })`](#stdiolink) | `@kolu/surface/links/stdio` | Reaches a subprocess or ssh stdio pair; takes a readiness proof. |
+| [`socketDuplexLink({ group, socket, describe })`](#socketduplexlink) | `@kolu/surface/links/stdio` | Reaches an already-connected local unix socket you dialled yourself. |
+| [`unixSocketLink({ group, socketPath })`](#unixsocketlink) | `@kolu/surface/links/unix-socket` | Reaches a daemon on the same machine; it dials. |
+| [`directDispatch(served)`](#directdispatch) | `@kolu/surface/links/direct` | Calls the in-process handlers, with no wire. |
+| [`followingWire(first)`](#followingwire) | `@kolu/surface/links/following` | One standing wire over a succession of wire links. |
+| [Stream delivery on a wire link](#stream-delivery-on-a-wire-link) | — | How a stalled consumer affects the rest of the link. |
+| [The keep-alive numbers](#the-keep-alive-numbers--kolusurfacekeepalive) | `@kolu/surface/keepAlive` | The ping interval and silence timeout every wire link runs. |
+| [Failure and re-subscription across re-dials](#failure-and-re-subscription-across-re-dials) | — | What a socket loss does to calls and standing streams. |
+| [`createLoopbackPair()`](#createloopbackpair--greetloopback--stallloopback) | `@kolu/surface/loopback` | Two cross-piped ends for an end-to-end test without a subprocess. |
+| [The stdio readiness gate](#the-stdio-readiness-gate--kolusurfacelinksreadiness) | `@kolu/surface/links/readiness` | The banner a stdio peer writes, and the proof `stdioLink` needs. |
+| [`serveOverUnixSocket`](#serveoverunixsocket) | `@kolu/surface/unix-socket` | Serves a group on a unix socket path. |
+| [`isPrivateOwnedDir(dir)`](#isprivateowneddirdir-boolean) | `@kolu/surface/unix-socket` | The privacy predicate used on a socket's parent directory. |
 
-Every **wire** link takes the served surface's `group` and is **async** — building
-a protocol and its fibers is an effect — returning a `WireLink`:
-`{ dispatch, dispose }`, where `dispose()` releases the link's scope (dial, ping
-and response fibers) and is idempotent. `websocketLink` additionally returns the
-`wire` half, so it satisfies `WireTransport` and can be handed whole to
-`createLiveSignal`.
+### Every wire link
 
-`websocketLink`'s `url` thunk is re-evaluated on every (re)dial, and it is allowed
-to **throw**: a thunk that cannot answer yet (kolu's reads the server's process id
-out of live state) fails that dial as an ordinary `SocketOpenError`, so the
-reconnect schedule backs off and asks again. It does not kill the link — a link
-that stopped dialling would sit `connecting` forever with nothing logged.
+Every wire link takes the served surface's `group` and is async, because
+building a protocol and its fibers is an effect. It returns a `WireLink`:
+`{ dispatch, dispose }`.
 
-### A stalled stream consumer holds up only its own stream
+- `dispose()` releases the link's scope (dial, ping and response fibers) and is
+  idempotent.
+- `websocketLink` additionally returns the `wire` half, so it satisfies
+  `WireTransport` and can be handed whole to `createLiveSignal`.
+- Every wire link runs the keep-alive described
+  [below](#the-keep-alive-numbers--kolusurfacekeepalive). No link factory takes
+  a timing parameter.
 
-Every wire link (`websocketLink`, `stdioLink`, `socketDuplexLink`,
-`unixSocketLink`) delivers stream responses **off its socket reader**, so a
-consumer that stops pulling holds up only its own stream: other streams, unary
-calls and the keep-alive keep flowing, the stalled stream's sender waits on its
-withheld `Ack`, and the consumer resumes where it left off with nothing dropped.
-A subscription that ends — completes, fails, or is interrupted — releases its
-buffer. That delivery is bounded only by the `Ack`, so a client protocol without
-acks is **refused** when the link is built. (Why Effect RPC needs this, and when
-it can go: `packages/surface/src/links/deliveryLanes.ts`.)
+### `websocketLink`
 
-### The keep-alive is a backstop, not the liveness verdict
+Reaches a server over a WebSocket. This is the browser path.
 
-Every wire link runs Effect RPC's pinger with the framework's **own** numbers,
-exported from `@kolu/surface/keepAlive`: a ping every `RPC_PING_INTERVAL_MS`
-(5 s), and the link ends once `RPC_PING_TIMEOUT_MS` (60 s) pass with **no frame
-of any kind** decoded from the peer — so a silent link dies 60–65 s in
-(`RPC_PING_FATAL_SILENCE_MS` is the 65 s worst case). No link factory takes a
-timing parameter.
+- `url` is a thunk, re-evaluated on every dial and re-dial.
+- The thunk is allowed to throw. A thunk that cannot answer yet (kolu's reads
+  the server's process id out of live state) fails that dial as an ordinary
+  `SocketOpenError`, so the reconnect schedule backs off and asks again.
+- A throwing thunk does not kill the link. A link that stopped dialling would
+  sit `connecting` forever with nothing logged.
 
-The numbers sit deliberately **above** the liveness checks that know more:
-the framework watchdog (25 s at its defaults) and ssh's own dead-peer policy
-(30 s by default). Every watchdog is suspension-aware; the rest depends on
-the leg. In a browser, `createLiveSignal` is also wake-aware and
-progress-aware: a probe that times out while frames are still arriving is not
-a verdict. `makeSession`'s heartbeat, on an ssh or same-box arm, does not
-count progress. On a same-box arm it consults a process oracle before it cycles
-anything. A peer that really exits is reported at once by the OS (EOF) on a
-stdio or unix-socket leg. So the pinger only ever ends a link that is alive but
-saying nothing for a minute, after everything above has had its say. On a
-duplex leg that death is `SurfaceStdioTransportClosed` with
-`death: "keepAliveUnanswered"`, named by Effect's `onPingTimeout` hook; on the
-websocket leg it is the same retryable `RpcClientError` as any other socket
-loss.
+### `websocketLink().diagnostics`
 
-### A wire that follows its generations — `followingWire`
-
-Every other link owns a transport for its whole life: dispose it and the dispatch
-it minted is a corpse. That is honest when the thing underneath is a socket the
-link itself re-dials — a reconnect is the same wire carrying on, and
-`websocketLink` already hides it. It is **not** honest when the thing underneath
-has to be *replaced*, because the served member set changed: the `RpcGroup` a
-client resolves its schemas through is fixed when a link is opened, so a wire
-whose siblings move needs a new link at both ends. Without somewhere for that fact
-to stop, it reaches all the way up — every client, every standing subscription and
-every reactive handle built over the old dispatch is dead, and the page rebuilds
-its tree to follow a roster move.
-
-`followingWire({ transport, dispose })` is where it stops. It is a
-`WireTransport` whose `dispatch` and `wire` are **stable values**, over a current
-**generation** — a real link, dialled over a real group — that `adopt` replaces.
-Everything built over the stable halves survives a generation change.
+What a client-side diagnostic needs to prove a wire incident without the
+server's log.
 
 | Member | Answers |
 | --- | --- |
-| `dispatch` / `wire` | the standing halves — the same values for the wire's whole life, and branded half-open exactly as a generation's are, so `createLiveSignal` accepts the pair |
-| `current()` | the generation's own link, for a fact that belongs to a generation rather than to the wire (a [dial history](#websocketlinkdiagnostics)). Read it where you need it; never hold it |
-| `establishments()` / `onEstablished(h)` | how many usable CONNECTIONS this wire has established — 0 before the first, **monotonic across every generation** — and a subscription to that count. See below |
-| `adopt(next)` | take `next` as the generation every call from now on rides, fail what was in flight over the old one, and release it. **Not `async`**: the swap is synchronous and so is every refusal it makes, so the statement a caller writes after it runs only if the wire really moved. What it *returns* is the superseded generation's release — the one asynchronous half, which never rejects (a failed teardown is logged) |
-| `dispose()` | release the generation currently held. Idempotent — a later call gets the **same promise**, and therefore the same verdict, rather than resolving early over a teardown still running. A later `adopt` is refused rather than opening a generation nobody will close |
+| `dialHistory()` | The last 20 dial attempts, oldest first: `startedAt`, `openedAt?`, `endedAt?`, `closeCode?` and a `classification`. |
+| `epoch()` | How many times this wire has reached `open`. |
 
-A **connection epoch** rides on it, and it is the one fact this wire cannot let
-its consumers derive. The status funnel is *deduplicated*, so adopting a
-replacement that is **already open** — the ordinary shape of a roster move, since
-the replacement is dialled before the old one is given up — publishes nothing at
-all, while a brand-new socket is now carrying every call. A generation's own
-[`diagnostics.epoch()`](#websocketlinkdiagnostics) is no answer either: it counts
-*one link's* open edges and starts again at the next generation.
+| `classification` | What it means |
+| --- | --- |
+| `"in-flight"` | Dialing or connected. |
+| `"opened-then-closed"` | The socket opened and then closed. |
+| `"terminal"` | The close classifier retired the wire. |
+| `"ended-without-open"` | A dial that failed before its socket opened. |
 
-`establishments()` counts both edges and only these — a **reconnect** inside the
-held generation, and an **adopt that lands on a connection**. An adopt whose
-replacement is still `connecting` counts when that connection opens; a
-replacement that was never adopted (a dial that failed, a refused adopt) counts
-never, because no new connection was established.
+- An `"ended-without-open"` attempt is swallowed, publishes no status of its own
+  and never reaches the server, so the dial history is the only record of it.
+- Timestamps are `Date.now()`, so they sit beside a server log.
+- Diagnostics ride on the returned link object rather than on `WatchableWire`.
+  Consumers and tests implement `WatchableWire` by hand, and widening it would
+  break every such implementation for a fact only a real link can produce.
 
-What it is *for* is anything whose answer was computed **from** the connection
-rather than merely over it — a viewer identity resolved from the WebSocket
-upgrade's headers is the case that asked for it. Such an answer is stale the
-moment a different socket carries the calls, while every subscription riding that
-socket has healed itself and says nothing. It is **not** a rebuild signal:
-standing subscriptions re-open themselves, which is the whole point of this wire.
+The shapes are exported from `@kolu/surface/links/websocket`: `WebsocketLink`
+(the returned link, a `WireLink` and a `WireTransport`, plus `diagnostics`),
+`WireDiagnostics` (`{ dialHistory, epoch }`), `DialAttempt` (one record) and
+`DialClassification` (the four verdicts above).
 
-The load-bearing half is what `adopt` does to a call **in flight**. A call is
-bound to one link by construction — Effect RPC registers an entry exactly once,
-and an answer can only travel the link its request went out on — so a call that
-was in flight when the generation moved could only park forever. It is therefore
-failed, with an `RpcClientError`: the same shape, and for the same reason, as
-[an established socket failing](#failure-and-re-subscription-across-re-dials)
-one layer down. That is precisely what the
-[retry fence](#the-face-and-its-retry-fence-kolusurfaceclient) re-subscribes on,
-so **standing subscriptions re-open themselves onto the new generation** — the
-framework's one recovery path, not a second one written inside a link. (A link
-that re-subscribed internally would hide the failure the fence must see, which is
-the law every link in this family is held to.)
+### `stdioLink`
 
-A generation's own **drop** is not a generation change and is forwarded unchanged:
-`forceReconnect` reaches the current generation, and its status changes reach the
-standing funnel, so a reader and a watcher can never disagree about what this wire
-is doing. Adopting a generation in the *same* state says nothing at all, which is
-the whole claim a roster move makes — the wire never went anywhere.
+Reaches a subprocess or an ssh stdio pair.
 
-The consumer is [`connectSurfaces`' `redial`](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces).
+- `readiness: StdioReadinessProof` is required. See
+  [the readiness gate](#the-stdio-readiness-gate--kolusurfacelinksreadiness).
+
+### `socketDuplexLink`
+
+Reaches a unix socket you have already dialled. You own the dial and its
+`close`.
+
+- It deliberately takes no readiness proof. It is a documented residual for a
+  local unix rendezvous, where epoch safety is owed by the supervisor's
+  converge-before-dial discipline rather than by a banner over a pipe that never
+  leaves the box.
+- Its `Socket` parameter is what keeps the ssh or subprocess leg from being
+  spelled through it.
+
+### `unixSocketLink`
+
+Reaches a daemon on the same machine. The link dials the `socketPath` itself.
+
+### `directDispatch`
+
+Calls the in-process handlers, with no wire. It is the identity element of this
+family.
+
+- It takes the served surface itself: anything carrying `handlers`, so a
+  `SurfaceRuntime`, a `ServedSurface` or a `serveSurfaceMap` result.
+- A tag it cannot resolve throws loudly rather than resolving `undefined`. An
+  in-process dispatch can only 404 if the face and the runtime were built from
+  different surfaces.
+
+### Stream delivery on a wire link
+
+Every wire link (`websocketLink`, `stdioLink`, `socketDuplexLink`,
+`unixSocketLink`) delivers stream responses off its socket reader.
+
+- A consumer that stops pulling holds up only its own stream. Other streams,
+  unary calls and the keep-alive keep flowing.
+- The stalled stream's sender waits on its withheld `Ack`, and the consumer
+  resumes where it left off with nothing dropped.
+- A subscription that ends (completes, fails, or is interrupted) releases its
+  buffer.
+- Delivery is bounded only by the `Ack`, so a client protocol without acks is
+  refused when the link is built.
+- Why Effect RPC needs this, and when it can go:
+  `packages/surface/src/links/deliveryLanes.ts`.
+
+### The keep-alive numbers — `@kolu/surface/keepAlive`
+
+Every wire link runs Effect RPC's pinger with the framework's own numbers,
+exported from this subpath.
+
+| Constant | Value | Meaning |
+| --- | --- | --- |
+| `RPC_PING_INTERVAL_MS` | 5 s | How often a ping goes out. |
+| `RPC_PING_TIMEOUT_MS` | 60 s | The link ends once this much time passes with no frame of any kind decoded from the peer. |
+| `RPC_PING_FATAL_SILENCE_MS` | 65 s | The worst case, so a silent link dies 60 to 65 s in. |
+
+- No link factory takes a timing parameter.
+- The numbers sit above the liveness checks that know more: the framework
+  watchdog (25 s at its defaults) and ssh's own dead-peer policy (30 s by
+  default).
+- Every watchdog is suspension-aware. The rest depends on the leg.
+- In a browser, `createLiveSignal` is also wake-aware and progress-aware: a
+  probe that times out while frames are still arriving is not a verdict.
+- `makeSession`'s heartbeat, on an ssh or same-box arm, does not count progress.
+  On a same-box arm it consults a process oracle before it cycles anything.
+- A peer that really exits is reported at once by the OS (EOF) on a stdio or
+  unix-socket leg.
+- So the pinger only ever ends a link that is alive but saying nothing for a
+  minute, after everything above has had its say.
+- On a duplex leg that death is `SurfaceStdioTransportClosed` with
+  `death: "keepAliveUnanswered"`, named by Effect's `onPingTimeout` hook. On the
+  websocket leg it is the same retryable `RpcClientError` as any other socket
+  loss.
 
 ### Failure and re-subscription across re-dials
 
 Effect broadcasts failures from established sockets, including the keep-alive
 backstop's (`SocketReadError` with a `ping timeout` cause) and a socket the link
-cycles after an undecodable frame. Registered calls fail
-before the next socket opens. The [retry fence](#the-face-and-its-retry-fence-kolusurfaceclient)
-re-subscribes streams once on the new wire; an unfenced unary receives the error.
-No additional epoch fence wraps the WebSocket dispatch.
+cycles after an undecodable frame.
 
-Pre-open `SocketOpenError` failures are still swallowed by
-`retryTransientErrors: true`. Calls waiting for their first connection remain
-pending across those attempts and send when a socket opens. The diagnostic epoch
-counts open edges; dial history also records attempts that never opened.
+- Registered calls fail before the next socket opens.
+- The [retry fence](#the-face-and-its-retry-fence-kolusurfaceclient)
+  re-subscribes streams once on the new wire; an unfenced unary receives the
+  error.
+- No additional epoch fence wraps the WebSocket dispatch.
+- Pre-open `SocketOpenError` failures are swallowed by
+  `retryTransientErrors: true`.
+- Calls waiting for their first connection remain pending across those attempts
+  and send when a socket opens.
+- The diagnostic epoch counts open edges; dial history also records attempts
+  that never opened.
 
-### `websocketLink().diagnostics`
+### `followingWire`
 
-The link also hands back what a client-side diagnostic needs to prove a wire
-incident without the server's log:
+`followingWire({ transport, dispose })` is one standing wire over a succession
+of real links. Its `dispatch` and `wire` are stable values over a current
+generation, which `adopt` replaces. Everything built over the stable halves
+survives a generation change.
+
+Every other link owns a transport for its whole life: dispose it and the
+dispatch it minted is a corpse. That holds when the thing underneath is a
+socket the link itself re-dials, which `websocketLink` already hides.
+
+It does not hold when the thing underneath has to be replaced, because the
+served member set changed. The `RpcGroup` a client resolves its schemas through
+is fixed when a link is opened, so a wire whose siblings move needs a new link
+at both ends.
 
 | Member | Answers |
 | --- | --- |
-| `dialHistory()` | the last 20 dial attempts, oldest first — `startedAt`, `openedAt?`, `endedAt?`, `closeCode?` and a `classification` |
-| `epoch()` | how many times this wire has reached `open` |
+| `dispatch` / `wire` | The standing halves: the same values for the wire's whole life, branded half-open exactly as a generation's are, so `createLiveSignal` accepts the pair. |
+| `current()` | The generation's own link, for a fact that belongs to a generation rather than to the wire (a [dial history](#websocketlinkdiagnostics)). Read it where you need it; never hold it. |
+| `establishments()` / `onEstablished(h)` | How many usable connections this wire has established, and a subscription to that count. |
+| `adopt(next)` | Take `next` as the generation every call from now on rides, fail what was in flight over the old one, and release it. |
+| `dispose()` | Release the generation currently held. |
 
-`classification` is `"in-flight"` (dialing or connected), `"opened-then-closed"`,
-`"terminal"` (the close classifier retired the wire), or **`"ended-without-open"`**
-— a dial that failed before its socket opened. That last row is the reason the
-field exists: such an attempt is swallowed, publishes no status of its own, and
-never reaches the server at all, so before this nothing anywhere recorded that it
-happened. Timestamps are `Date.now()`, so they sit beside a server log.
+#### `adopt` and `dispose`
 
-It rides on the returned link object rather than on `WatchableWire` deliberately:
-`WatchableWire` is implemented by hand in tests and consumers, and widening it
-would break every such implementation for a fact only a real link can produce.
+- `adopt` is not `async`. The swap is synchronous and so is every refusal it
+  makes, so the statement a caller writes after it runs only if the wire really
+  moved.
+- What `adopt` returns is the superseded generation's release, the one
+  asynchronous half. It never rejects: a failed teardown is logged.
+- `dispose()` is idempotent. A later call gets the same promise, and therefore
+  the same verdict, rather than resolving early over a teardown still running.
+- After `dispose()`, a later `adopt` is refused rather than opening a generation
+  nobody will close.
+- A generation's own drop is not a generation change and is forwarded unchanged.
+  `forceReconnect` reaches the current generation, and its status changes reach
+  the standing funnel, so a reader and a watcher never disagree about what this
+  wire is doing.
+- Adopting a generation in the same state publishes nothing at all.
 
-The shapes are exported from `@kolu/surface/links/websocket`: `WebsocketLink`
-(the returned link — a `WireLink` and a `WireTransport`, plus `diagnostics`),
-`WireDiagnostics` (`{ dialHistory, epoch }`), `DialAttempt` (one record) and
-`DialClassification` (the four verdicts above).
+#### A call in flight when `adopt` runs
 
-`directDispatch(served)` is shaped differently on purpose: it takes the **served
-surface itself** (anything carrying `handlers` — a `SurfaceRuntime`, a
-`ServedSurface`, a `serveSurfaceMap` result) and calls its handlers in-process.
-A tag it cannot resolve throws loudly rather than resolving `undefined`: an
-in-process dispatch can only 404 if the face and the runtime were built from
-different surfaces.
+A call is bound to one link: Effect RPC registers an entry exactly once, and an
+answer can only travel the link its request went out on. A call in flight when
+the generation moved could only park forever, so it is failed with an
+`RpcClientError`.
 
-`createLoopbackPair()` (`@kolu/surface/loopback`) is **not** a link — it produces
-no dispatch. It is two cross-piped `PassThrough` ends you feed *into* one:
-`pair.client` to `stdioLink`, `pair.server` to `serveOverStdio`. The framing is
-the same ndjson the real stdio and socket legs carry, so a loopback round-trip is
-genuine end-to-end evidence without a subprocess. `greetLoopback(pair, describe?)`
-(same module) performs the readiness handshake below over that pair — the server
-half writes the banner, the client half reads it — and hands back the proof
-`stdioLink` needs; `describe` defaults to `"loopback"` and is the name the link
-puts in its transport errors. `stallLoopback(pair)` returns `{ stall, resume }`,
-which cork and uncork BOTH directions: nothing is destroyed and no FIN is sent,
-so it injects only "the peer said nothing for a while" — the shape a starved but
-living peer has from the far end.
+- That is the same shape, for the same reason, as
+  [an established socket failing](#failure-and-re-subscription-across-re-dials)
+  one layer down.
+- It is precisely what the
+  [retry fence](#the-face-and-its-retry-fence-kolusurfaceclient) re-subscribes
+  on, so standing subscriptions re-open themselves onto the new generation.
+- A link never re-subscribes internally. That would hide the failure the fence
+  must see.
+
+#### `establishments()` and the connection epoch
+
+`establishments()` counts usable connections: 0 before the first, and monotonic
+across every generation. A generation's own
+[`diagnostics.epoch()`](#websocketlinkdiagnostics) is a different number, since
+it counts one link's open edges and starts again at the next generation.
+
+- It counts two edges and only these: a reconnect inside the held generation,
+  and an adopt that lands on a connection.
+- An adopt whose replacement is still `connecting` counts when that connection
+  opens.
+- A replacement that was never adopted (a dial that failed, a refused adopt)
+  never counts, because no new connection was established.
+- The status funnel is deduplicated, so adopting a replacement that is already
+  open publishes nothing, while a brand-new socket carries every call. That is
+  the ordinary shape of a roster move, because the replacement is dialled before
+  the old one is given up.
+- Use it for anything whose answer was computed from the connection rather than
+  merely over it. A viewer identity resolved from the WebSocket upgrade's
+  headers is the case that asked for it. Such an answer is stale the moment a
+  different socket carries the calls, while every subscription riding that
+  socket has healed itself and says nothing.
+- It is not a rebuild signal. Standing subscriptions re-open themselves.
+
+The consumer is [`connectSurfaces`' `redial`](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces).
+
+### `createLoopbackPair()` · `greetLoopback` · `stallLoopback`
+
+`createLoopbackPair()` (`@kolu/surface/loopback`) is not a link: it produces no
+dispatch. It is two cross-piped `PassThrough` ends you feed into one.
+
+- Hand `pair.client` to `stdioLink` and `pair.server` to `serveOverStdio`.
+- The framing is the same ndjson the real stdio and socket legs carry, so a
+  loopback round-trip is end-to-end evidence without a subprocess.
+- `greetLoopback(pair, describe?)` (same module) performs the readiness
+  handshake over that pair. The server half writes the banner, the client half
+  reads it, and you get back the proof `stdioLink` needs.
+- `describe` defaults to `"loopback"` and is the name the link puts in its
+  transport errors.
+- `stallLoopback(pair)` returns `{ stall, resume }`, which cork and uncork both
+  directions. Nothing is destroyed and no FIN is sent, so it injects only "the
+  peer said nothing for a while": the shape a starved but living peer has from
+  the far end.
 
 ### The stdio readiness gate — `@kolu/surface/links/readiness`
 
 `stdioLink` takes a required `readiness: StdioReadinessProof`, and the only way
 to obtain one is to read a peer's `ready` banner off the very stream you are
-about to attach to. Building an RPC protocol starts the link's pinger; a peer
-from a **previous protocol epoch** accepts the pipe and then says nothing, so the
-pinger ends the link at its keep-alive backstop — and a consumer that reconnects
-on that retries a peer that will never speak, forever. The gate makes that blind
-attach unrepresentable rather than merely discouraged.
+about to attach to.
 
-The death itself now says which death it was, as data. **Both** tags
-`isDeadTransportError` unions carry a `death` field, under the same name so the
-union is uniformly branchable: `SurfaceStdioTransportClosed` takes a
-`StdioTransportDeath` — `"keepAliveUnanswered"`, `"undecodableFrame"`,
-`"streamEnded"` or `"disposed"` — and `SurfaceTransportRetired` a `RetiredTransportDeath` —
-`"retiredByServer"` or `"disposed"`. A consumer that puts words on a screen
-branches on the field rather than reading `reason`; a duplex leg reports an
-unanswered keep-alive as itself and explicitly declines to claim the peer
-exited. The distinction is diagnostic, not behavioural: the link is dead either
-way, and `neverReconnect` still halts on the first failure. Each field is an
-**optional key**, so a payload from a peer built before it existed still decodes
-— absent means "the producer did not classify", never a defaulted guess.
+| Export | What it does |
+| --- | --- |
+| `writeStdioReadiness(write, verdict)` | Write the one banner line, the first thing a stdio server puts on the wire. |
+| `awaitStdioReadiness({ read, deadlineMs, describe })` | Read it back and mint the proof; rejects `StdioReadinessError` otherwise. |
+| `isStdioReadinessProof(v)` / `isStdioReadinessError(v)` | Narrow a proof (un-forgeable `WeakSet` brand) or a failure. |
+| `StdioReadinessVerdict` | `{ verdict: "ready" }` or `{ verdict: "refused", detail, anomaly }`. |
+| `STDIO_READINESS_KEY` / `STDIO_READINESS_VERSION` | The reserved banner key and its version. |
 
-| Export                                             | What it does                                                                    |
-| -------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `writeStdioReadiness(write, verdict)`              | write the one banner line; the FIRST thing a stdio server puts on the wire       |
-| `awaitStdioReadiness({ read, deadlineMs, describe })` | read it back and mint the proof; rejects `StdioReadinessError` otherwise       |
-| `isStdioReadinessProof(v)` / `isStdioReadinessError(v)` | narrow a proof (un-forgeable `WeakSet` brand) or a failure                   |
-| `StdioReadinessVerdict`                            | `{ verdict: "ready" }` or `{ verdict: "refused", detail, anomaly }`              |
-| `STDIO_READINESS_KEY` / `STDIO_READINESS_VERSION`  | the reserved banner key and its version                                          |
+- The wire form is exactly one newline-terminated JSON line, before any RPC
+  frame: `{"surfaceStdioGate":{"v":1,"verdict":"ready"}}`.
+- `anomaly` on a refusal is opaque to the framework. The app that writes it owns
+  its shape, and the app that reads it decodes it with its own schema.
+- `awaitStdioReadiness` consumes exactly up to and including the first `\n` and
+  unshifts every remaining byte back onto the stream, in paused mode, so a
+  banner and a first frame arriving in one chunk cannot lose the frame.
+- Its failures are classified, never swallowed: `refused` (the peer said no, and
+  why), `undecodable` (the first line was not a banner, with a bounded excerpt),
+  `silent` (the deadline passed) and `closed`.
+- The gate exists because building an RPC protocol starts the link's pinger. A
+  peer from a previous protocol epoch accepts the pipe and then says nothing, so
+  the pinger ends the link at its keep-alive backstop, and a consumer that
+  reconnects on that retries a peer that will never speak.
 
-The wire form is exactly one newline-terminated JSON line, before any RPC frame:
-`{"surfaceStdioGate":{"v":1,"verdict":"ready"}}`. `anomaly` on a refusal is
-**opaque to the framework** — the app that writes it owns its shape, and the app
-that reads it decodes it with its own schema.
+#### Which death it was
 
-`awaitStdioReadiness` consumes exactly up to and including the first `\n` and
-**unshifts every remaining byte back onto the stream**, in paused mode, so a
-banner and a first frame arriving in one chunk cannot lose the frame. Its
-failures are classified — `refused` (the peer said no, and why), `undecodable`
-(the first line was not a banner, with a bounded excerpt), `silent` (the
-deadline passed), `closed` — never swallowed.
+Both tags `isDeadTransportError` unions carry a `death` field, under the same
+name so the union is uniformly branchable.
 
-`serveOverStdio` writes the `ready` banner itself when the process **is** the
-agent (no `transport` override). Over an explicit transport the caller plays the
-server and greets with `writeStdioReadiness` — which is also what a daemon front
-does, after it has converged the daemon it is about to relay to.
+| Tag | `death` values |
+| --- | --- |
+| `SurfaceStdioTransportClosed` | A `StdioTransportDeath`: `"keepAliveUnanswered"`, `"undecodableFrame"`, `"streamEnded"` or `"disposed"`. |
+| `SurfaceTransportRetired` | A `RetiredTransportDeath`: `"retiredByServer"` or `"disposed"`. |
 
-`socketDuplexLink` deliberately takes **no** proof. It is a documented residual
-for a LOCAL unix rendezvous, where epoch safety is owed by the supervisor's
-converge-before-dial discipline rather than by a banner over a pipe that never
-leaves the box; its `Socket` parameter is what keeps the ssh/subprocess leg from
-being spelled through it.
+- A consumer that puts words on a screen branches on the field rather than
+  reading `reason`.
+- A duplex leg reports an unanswered keep-alive as itself and explicitly
+  declines to claim the peer exited.
+- The distinction is diagnostic, not behavioural: the link is dead either way,
+  and `neverReconnect` still halts on the first failure.
+- Each field is an optional key, so a payload from a peer that does not classify
+  still decodes. Absent means the producer did not classify, never a defaulted
+  guess.
 
-Matching serve-side entry points, all taking the same `{ group, handlers }` pair:
-`serveOverStdio` (`@kolu/surface/peer-server`), `serveOverUnixSocket`
-(`@kolu/surface/unix-socket`), and `serveSurfaceSocket`
-(`@kolu/surface-app/server`) for browsers.
+#### Who writes the banner
 
-`serveOverUnixSocket` takes two arguments the others do not — `log`, and the
-optional [per-face `expose`](#per-face-expose-kolusurfaceexpose):
+- `serveOverStdio` writes the `ready` banner itself when the process is the
+  agent (no `transport` override).
+- Over an explicit transport the caller plays the server and greets with
+  `writeStdioReadiness`. That is also what a daemon front does, after it has
+  converged the daemon it is about to relay to.
+
+### `serveOverUnixSocket`
+
+Serves a group on a unix socket path. The matching serve-side entry points all
+take the same `{ group, handlers }` pair: `serveOverStdio`
+(`@kolu/surface/peer-server`), `serveOverUnixSocket` (`@kolu/surface/unix-socket`)
+and `serveSurfaceSocket` (`@kolu/surface-app/server`) for browsers.
+
+`serveOverUnixSocket` takes two arguments the others do not: `log`, and the
+optional [per-face `expose`](#per-face-expose-kolusurfaceexpose).
 
 ```ts
 serveOverUnixSocket({ socketPath, group, handlers, log, expose? })
   : Promise<UnixSocketListener>
 ```
 
-`log` is a `@kolu/log` `Logger` and is **required** — it is where the listener's
-own lifetime is narrated, one structured line each with the `socketPath` in the
-context object:
+`log` is a `@kolu/log` `Logger` and is required, because the alternative default
+is silence. It is where the listener's own lifetime is narrated, one structured
+line each with the `socketPath` in the context object.
 
 | Event | Level | Message |
 | --- | --- | --- |
 | the path is bound and accepting | `info` | `unix-socket listener bound` |
-| a **post-listen** fault on the server (nobody dialing, no handler in flight) | `error` | `unix-socket listener error (post-listen)` — carries the whole `err` |
+| a post-listen fault on the server (nobody dialing, no handler in flight) | `error` | `unix-socket listener error (post-listen)`, carrying the whole `err` |
 | an established peer's socket errors | `debug` | `unix-socket peer error` |
 | `close()` runs (first call only) | `info` | `unix-socket listener closed` |
 
-Required rather than optional because the alternative default is silence, and
-silence is what the incident behind this seam was made of: a daemon whose
-listening socket went comatose after a suspend/resume wrote not one error line
-for the rest of its life. BIND-TIME verdicts are *not* logged here — they are
-`UnixSocketListener.outcome` values, and the app-flavored advice for each
-("pass `--pty-host-socket`") belongs to the caller.
+Bind-time verdicts are not logged here. They are `UnixSocketListener.outcome`
+values, and the app-flavored advice for each ("pass `--pty-host-socket`")
+belongs to the caller.
 
-The same module exports `isPrivateOwnedDir(dir): boolean` — the three-check
-privacy predicate `serveOverUnixSocket` uses on the socket's parent (`lstat`,
-never `stat`; a directory; current-uid owned with no group/other bits). It is
-public so a consumer that did not create the directory can make the **same**
-judgement; olai's vault lock is the first. A failed `lstat` throws (ENOENT,
-EACCES) rather than collapsing to "not private". Returns `true` on platforms
-without uid semantics.
+### `isPrivateOwnedDir(dir): boolean`
+
+The three-check privacy predicate `serveOverUnixSocket` uses on the socket's
+parent directory: `lstat` (never `stat`), a directory, and current-uid owned
+with no group or other bits.
+
+- It is public so a consumer that did not create the directory can make the same
+  judgement. olai's vault lock is the first.
+- A failed `lstat` throws (ENOENT, EACCES) rather than collapsing to "not
+  private".
+- It returns `true` on platforms without uid semantics.
 
 ### Per-face `expose` (`@kolu/surface/expose`)
 
