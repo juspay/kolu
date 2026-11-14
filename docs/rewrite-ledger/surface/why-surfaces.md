@@ -70,3 +70,8 @@ Nothing moved off this page.
 ## Dropped code spans
 
 None (`.waterfall/compare.mjs`: 0 missing).
+
+## Review round 1
+
+- Opening cut to 50 words (rule 4): 51 → 34. The sentence naming what the declaration derives moved into a second paragraph. No fact was cut.
+- Checks: lint passes; `house-style.mjs` reports nothing on this page.
