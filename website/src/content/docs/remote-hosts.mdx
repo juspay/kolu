@@ -48,13 +48,14 @@ already running.
     The host has [Nix installed](https://nixos.asia/en/install) — kolu provisions
     [padi](/padi) there with Nix over ssh. It must be runnable from a
     *non-interactive* ssh session, not only from a login shell. A Linux host
-    needs nothing in its Nix settings: padi arrives content-addressed, which
-    its Nix accepts from any user — pulled by the host itself from kolu's cache
-    when your kolu is a published build, else copied over by kolu. (That form
-    needs Nix 2.17 through 2.34 on the host; a newer Nix is treated like a
-    Mac.) On a Mac, make your user **trusted by its nix-daemon**
-    (`trusted-users`) so kolu can copy them there instead of the Mac building
-    them itself.
+    usually needs nothing in its Nix settings: padi arrives content-addressed,
+    which its Nix accepts from any user — pulled by the host itself from kolu's
+    cache when your kolu is a published build, else copied over by kolu. (Pulled,
+    that form needs Nix 2.17 through 2.34 on the host; copied, it needs the
+    host's Nix and the machine running kolu's on the same side of Nix 2.35.
+    Otherwise the host is treated like a Mac.) On a Mac, make your user
+    **trusted by its nix-daemon** (`trusted-users`) so kolu can copy them there
+    instead of the Mac building them itself.
   </Card>
   <Card title="A Nix-wrapped kolu">
     Launch kolu through its Nix wrapper, which bakes in its exact agent source.
@@ -153,7 +154,10 @@ needs no GitHub access for a profile either, and a path works on every host. A
 profile that lists commands for the host's kind of machine must be built on
 that kind of machine; from a machine of another kind, that host's delivery
 fails, naming the profile ([Built once, by kolu](/agents#built-once-by-kolu)).
-A Mac takes a profile built by kolu only when its Nix trusts the login.
+A Linux host takes it content-addressed, trusting no one, when its Nix and the
+machine running kolu's are on the same side of Nix 2.35; otherwise — and on a
+Mac always — it is sent as built, and taken only when the host's Nix trusts the
+login ([When a delivery fails](/agents#when-a-delivery-fails)).
 
 Each host is a **tab**: **local** is a Home icon plus the machine hostname
 kolu is running on; remotes show the ssh target. Every tab carries a

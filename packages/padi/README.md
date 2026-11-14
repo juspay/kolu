@@ -183,7 +183,8 @@ remote host — reusing the local arm's seam, not a parallel one:
   `publish-closures` job): the host pulls the content-addressed padi from the
   cache itself, so a Linux host on Nix 2.17–2.34 needs no `trusted-users` and no
   cache key. Any other build (a dev checkout, an unpublished rev) takes the
-  sender's own route: rewrite, ship, or build on the host. A deploy of the home-manager module carries
+  sender's own route: rewrite (only when the sender's Nix and the host's are on
+  the same side of Nix 2.35), ship, or build on the host. A deploy of the home-manager module carries
   and GC-roots that closure in the generation itself
   (**`services.kolu.agentPackages`**, required with no default — the set is read
   from `nix/agent-packages.json`, never hand-listed), so the first remote dial
@@ -667,9 +668,11 @@ cache — no flakes and no GitHub egress, for the agents or the profiles; a Linu
 host on Nix 2.17–2.34 needs no Nix settings (its paths are content-addressed);
 a Mac, or a Linux host on Nix 2.35+, must trust the login or the cache's key
 (`closureRoute`, for the package). A profile kolu built is staged by the host's
-system alone (`deliverClosure`): content-addressed to a Linux host, and to a
-Mac as built here — signed by no one, so a Mac takes it only when its Nix
-trusts the login. Two cells, one procedure (`padiSurface` 7.0) and one spawn
+system and the Nix versions involved (`deliverClosure`): content-addressed to a
+Linux host when kolu-server's `nix`, its store's Nix and the host's all handle
+the same form (the same side of Nix 2.35), else as built here — signed by no
+one, so the host takes it only when its Nix trusts the login; to a Mac always
+as built. Two cells, one procedure (`padiSurface` 7.0) and one spawn
 layer carry it; the module is `src/agentDistro/`.
 
 - **`agentDistro` (memory-only, `get`/`set`)** — the Agents setting

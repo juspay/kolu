@@ -791,6 +791,16 @@ let
       export NODE_OPTIONS="--heapsnapshot-near-heap-limit=3 --heapsnapshot-signal=SIGUSR2 ''${NODE_OPTIONS:-}"
     fi'';
 
+  # kolu's pinned `nix`, appended to PATH — never prepended. Nix's CLI computes a
+  # content-addressed rewrite's hash and the daemon it writes to re-verifies it,
+  # and Nix 2.35 changed that hash for a self-referencing path: a CLI and a
+  # daemon on opposite sides of 2.35 refuse each other (#2368). The host that
+  # provides the daemon provides the client, so the host's own `nix` comes
+  # first; this pin only fills in for a service PATH with no `nix` at all
+  # (launchd, a non-NixOS systemd unit). `deliverClosure` checks the versions
+  # that remain either way.
+  hostNixFirstArg = "--suffix PATH : ${pkgs.lib.makeBinPath [ pkgs.nix ]}";
+
   # Base wrapper: single-process Node + tsx loader, env vars, and PATH. The
   # loader form lets SIGTERM reach the server directly so its graceful shutdown
   # exits zero; tsx's CLI parent otherwise exits 143 before the child completes.
@@ -832,7 +842,8 @@ let
       --set KOLU_PADI_BIN "${padi}/bin/padi" \
       ${padiIdentity.bakeArgs} \
       ${agentFlakeRefBakeArg} \
-      --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.gitMinimal pkgs.gh pkgs.openssh pkgs.nix ]} \
+      --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.gitMinimal pkgs.gh pkgs.openssh ]} \
+      ${hostNixFirstArg} \
       --run ${pkgs.lib.escapeShellArg (diagRunHook "")}
   '';
 
@@ -1105,8 +1116,9 @@ let
   # `SURFACE_AGENT_FLAKE_REF` inherited from the caller silently override the source
   # of truth and make the wrapper provision the WRONG agent,
   # which is exactly the override-knob the repo's fail-fast rule forbids. openssh
-  # + nix are on PATH for the provision (resolveHostNix's ssh probe +
-  # provisionAgent's Nix remote-store build / `nix-store` probe and pin).
+  # is on PATH, and a `nix` behind the host's own (`hostNixFirstArg`), for the
+  # provision (resolveHostNix's ssh probe + provisionAgent's Nix remote-store
+  # build / `nix-store` probe and pin).
   mkAgentTuiWrapper = { name, entry }:
     pkgs.runCommand name
       {
@@ -1117,7 +1129,8 @@ let
       makeWrapper ${runtimeTsx}/bin/tsx $out/bin/${name} \
         --add-flags "${kolu}/${entry}" \
         ${agentFlakeRefBakeArg} \
-        --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.openssh pkgs.nix ]}
+        --prefix PATH : ${pkgs.lib.makeBinPath [ runtimeNode pkgs.openssh ]} \
+        ${hostNixFirstArg}
     '';
 
   # kaval-tui (R-4 Phase 1): the terminal-side CLI that dials a running kaval's

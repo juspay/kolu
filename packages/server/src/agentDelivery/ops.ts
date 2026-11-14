@@ -10,9 +10,13 @@
  *
  * A profile is locked and built on THIS machine (`./profiles.ts`), and shipped
  * with `@kolu/surface-remote`'s `deliverClosure` — the same route an agent's
- * closure takes: content-addressed to a Linux host (no trust needed), signed
- * input-addressed to a Mac (which must trust the login), rooted either way.
- * kolu's own words — the GC roots, the trust fix a refusal names — stay here.
+ * closure takes: content-addressed to a Linux host when this machine's Nix and
+ * the host's handle the same form (no trust needed), else sent as built,
+ * which the host takes only when its Nix trusts the login — rooted either
+ * way. A failure is worded by the seat it stopped at: this machine's, when it
+ * could not stage the closure at all; the host's, when the host would not
+ * take it. kolu's own words — the GC roots, the trust fix a refusal names —
+ * stay here.
  */
 
 import type { AgentDistroDelivery } from "@kolu/agent-distro/bake";
@@ -29,7 +33,6 @@ import {
   type FetchText,
   fetchClosureIndex,
   homeGcRoot,
-  isDarwinSystem,
   isLocalHost,
   makeStepBudget,
   PROVISION_STEP_MAX_EXPIRIES,
@@ -120,18 +123,23 @@ export function realDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
         keepalive,
       });
       if (res.ok) return { ok: true, path: res.outPath };
+      if (res.kind === "not-delivered" && res.at === "sender")
+        return {
+          ok: false,
+          message: `the machine running kolu could not stage ${path} for ${label}: ${res.reason}`,
+        };
       const why = `${label} could not take ${path}: ${res.reason}`;
       if (
         res.kind === "failed" ||
-        isLocalHost(ssh) ||
-        !isDarwinSystem(hostNix.system)
+        res.asBuiltBecause === null ||
+        isLocalHost(ssh)
       )
         return { ok: false, message: why };
-      // A Mac takes only the signed form, and this machine's build is signed
-      // by no one: its Nix must trust the login.
+      // Sent as built, and a build here is signed by no one: the host's Nix
+      // must trust the login.
       return {
         ok: false,
-        message: `${why}. ${label} takes a profile built here only when its Nix trusts the login kolu connects as: on ${label}, add it to \`nix.settings.trusted-users\`.`,
+        message: `${why}. ${label} was sent it as built here, signed by no one — ${res.asBuiltBecause} — and takes it only when its Nix trusts the login kolu connects as: on ${label}, add it to \`nix.settings.trusted-users\`.`,
       };
     },
     pull: async ({ ssh, label, hostNix, published, onProgress }) => {
