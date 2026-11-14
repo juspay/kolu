@@ -22,6 +22,18 @@ import { type Accessor, createMemo } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { app } from "../wire";
 
+/** The cell exactly as it arrived — `undefined` until kolu-server's first
+ *  frame lands. This is the ONE subscription; every reading below derives
+ *  from it, so the defaulted view and the "has the server answered yet" view
+ *  can never be two frames that disagree. */
+const useConductorCell = createSharedRoot(() => {
+  // Bare `.use()`: the cell DECLARES its own `onError` policy (`hostToast`,
+  // labelled `conductor`) on the spec, so the use-site carries none and
+  // the one shared interpreter surfaces a failure.
+  const { value } = app.cells.conductor.use();
+  return value;
+});
+
 /** The live conversation state, mirrored once for the whole app.
  *
  *  `DEFAULT_CONDUCTOR_STATE` before the first frame lands — `phase:
@@ -29,13 +41,18 @@ import { app } from "../wire";
  *  has not heard from yet. */
 export const useConductorFacts = createSharedRoot<Accessor<ConductorState>>(
   () => {
-    // Bare `.use()`: the cell DECLARES its own `onError` policy (`hostToast`,
-    // labelled `conductor`) on the spec, so the use-site carries none and
-    // the one shared interpreter surfaces a failure.
-    const { value } = app.cells.conductor.use();
-    return () => value() ?? DEFAULT_CONDUCTOR_STATE;
+    const cell = useConductorCell();
+    return () => cell() ?? DEFAULT_CONDUCTOR_STATE;
   },
 );
+
+/** The open questions' ids — or `undefined` while the server has not
+ *  reported yet. The one reader that must tell those apart is the bell: the
+ *  default's empty list is not a reading, and taking it for one would make
+ *  the real first frame look like questions that just arrived. */
+export function conductorOpenAsks(): readonly string[] | undefined {
+  return useConductorCell()()?.openAsks;
+}
 
 /** The conversation, as a plain read — for the readers that are not holding
  *  the accessor themselves (the chrome-bar entry's badge, the attention arm). */

@@ -61,7 +61,9 @@ function findUnownedStandingSubscriptions(): string[] {
       const windowEnd = Math.min(start + STATEMENT_WINDOW, nextConst);
       const stmt = text.slice(start, windowEnd);
       if (!STANDING_USE_RE.test(stmt)) continue; // not a standing-subscription const
-      if (stmt.includes("createRoot(")) continue; // owned — fine
+      // owned — fine. `createSharedRoot(` is the named form of the same app-lifetime
+      // `createRoot` (see `createSharedRoot.ts`), so it owns just as well.
+      if (/create(Shared)?Root\(/.test(stmt)) continue;
       const line = text.slice(0, start).split("\n").length;
       violations.push(`${file.replace(`${SRC_ROOT}/`, "")}:${line}`);
     }
