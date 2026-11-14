@@ -10390,6 +10390,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "6abb97f80c2a4a6c6b40d31b5694e47db05be0f9"
+    },
+    {
+      "revisionId": "revision-7626893a7a694fe6d902",
+      "scenarioKey": "scenario-ff8e23d4a492f65bd370",
+      "feature": "features/canvas.feature",
+      "scenario": "A tile parked off the canvas stops taking output until you look again",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "8756c27cbaeac3d393bd247a0895e3ea5d7db5add26d9292e9fe73002f3f092a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "df07bf2715bfd03eec32dfddc754854d8900890d"
     }
   ]
 }

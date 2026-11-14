@@ -260,9 +260,21 @@ export class KoluWorld extends World {
    *  any surface; the shortcut and the command palette are the only paths.
    *  Returns the new terminal's ID. */
   async createTerminal(timeout = READY_TIMEOUT): Promise<string> {
+    // IS THE WORKSPACE COVERED? The Conductor is a full-window layer over the
+    // host's canvas, and a canvas nobody is looking at shows no tile: its
+    // panes are not rendered and hold no feed (kolu#2362). So a terminal
+    // created from the Conductor mounts UNSEEN and leaves the keyboard where
+    // it was — there is no visible screen to wait for, and waiting for one is
+    // waiting for something the product deliberately does not do.
+    const covered = await this.page
+      .locator('[data-testid="conductor-pane"]')
+      .isVisible();
+
     // Wait for app to settle (onMount may still be restoring terminals from server)
-    const settled = this.page.locator(SETTLED_SELECTOR);
-    await settled.first().waitFor({ state: "visible", timeout });
+    if (!covered) {
+      const settled = this.page.locator(SETTLED_SELECTOR);
+      await settled.first().waitFor({ state: "visible", timeout });
+    }
 
     // Snapshot known ids before the shortcut fires.
     const beforeIds = await this.terminalIds();
@@ -295,6 +307,18 @@ export class KoluWorld extends World {
     await newIdHandle.dispose();
     if (newId === null)
       throw new Error("Terminal ID poll resolved without an ID");
+
+    if (covered) {
+      // What IS owed: the terminal's own body is mounted behind the
+      // Conductor, so it is there to be shown the moment the user goes back
+      // to the host tab. (`data-font-size` is this suite's spelling for the
+      // inner terminal container — see `support/buffer.ts`.)
+      await this.page
+        .locator(`[data-terminal-id="${newId}"][data-font-size]`)
+        .first()
+        .waitFor({ state: "attached", timeout });
+      return newId;
+    }
 
     await this.canvas.waitFor({ state: "visible", timeout });
     // Desktop auto-focuses xterm's textarea on mount — the signal that a
