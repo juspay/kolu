@@ -19,9 +19,10 @@ export interface Point {
 export interface AnimatePanOptions {
   durationMs?: number;
   easing?: (t: number) => number;
-  /** The tween reached its target (or jumped there under reduced motion).
-   *  NOT called when the controller aborts — an aborted pan has no settled
-   *  pose to report; its canceller owns what happens next. */
+  /** The tween reached its target — including the reduced-motion jump, which
+   *  aborts the controller only because there is nothing left to cancel. A
+   *  tween somebody else CANCELS reports nothing: its canceller owns what
+   *  happens next. */
   onDone?: () => void;
 }
 
@@ -66,12 +67,17 @@ export function animatePan(
   let guard: ReturnType<typeof setTimeout> | undefined;
   let landed = false;
 
-  /** The tween is over: stop both clocks and report ONCE. */
-  function land() {
-    if (landed) return;
+  /** Both clocks off: this tween will not tick again. */
+  function stop() {
     landed = true;
     clearTimeout(guard);
     cancelAnimationFrame(raf);
+  }
+
+  /** The tween is over: stop, and report ONCE. */
+  function land() {
+    if (landed) return;
+    stop();
     opts.onDone?.();
   }
 
@@ -84,16 +90,12 @@ export function animatePan(
     else land();
   }
 
-  controller.signal.addEventListener("abort", () => {
-    landed = true;
-    clearTimeout(guard);
-    cancelAnimationFrame(raf);
-  });
+  controller.signal.addEventListener("abort", stop);
   // Past the tween's own duration plus a background tab's ~1 s timer clamp,
   // no frame is coming that is going to finish this: put the camera where it
   // was going and be done.
   guard = setTimeout(() => {
-    if (controller.signal.aborted || landed) return;
+    if (landed) return;
     onTick(to.x, to.y);
     land();
   }, durationMs + HIDDEN_TAB_GRACE_MS);

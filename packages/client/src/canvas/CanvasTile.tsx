@@ -109,9 +109,9 @@ const CanvasTile: Component<{
    *  tile) mounts no `.tile-aura` at all, so its border animation costs nothing
    *  — CSS animations otherwise keep running for off-screen elements. */
   viewportSize: () => { width: number; height: number } | undefined;
-  /** Is anybody looking at the CANVAS? False while the Conductor covers it
-   *  (`ui/shown.ts`). The shell is told rather than reaching for the fact so
-   *  the tile stays a shell: `TerminalCanvas` asks the one context. */
+  /** Is anybody looking at the CANVAS? (`tileSeen.ts`, `ui/shown.ts`.) Told
+   *  rather than taken from context, so the shell renders outside a `Shown`
+   *  host. */
   viewShown: () => boolean;
   /** Canvas state-aura tier for this tile — drives the `data-aura` hook the
    *  border treatment reads. Optional: undefined renders nothing (treated as
@@ -123,8 +123,11 @@ const CanvasTile: Component<{
   const isMaximized = () => props.mode === "maximized";
   const isCovered = () => props.mode === "covered";
   const draggable = createDraggable(props.id);
+  /** Where this tile is saved to be — undefined while a host switch-back's
+   *  `canvasLayout` metadata is still in flight. */
+  const placed = () => props.getLayout(props.id);
   const layout = () =>
-    props.getLayout(props.id) ?? {
+    placed() ?? {
       x: 0,
       y: 0,
       w: DEFAULT_TILE_W,
@@ -171,17 +174,13 @@ const CanvasTile: Component<{
   // but its aura waits until the viewport has a real layout measurement.
   //
   // ONE geometry fact, two consumers: the aura below and the tile's `seen`
-  // (hence its pane's attach). A tile with NO RESOLVED LAYOUT is not on
-  // screen whatever `layout()`'s fallback box says — on a host switch-back a
-  // returning tile's `canvasLayout` metadata arrives a beat after its id, and
-  // for those frames every unplaced tile would sit at the canvas origin,
-  // which is wherever the camera happens to be pointing. Reading the saved
-  // layout directly (not through the fallback) keeps that frame from
-  // attaching a tile the settled camera does not show.
+  // (hence its pane's attach). An UNPLACED tile is not on screen — it asks
+  // `placed()`, not `layout()`, whose fallback box would put it at the canvas
+  // origin, which is wherever the camera happens to be pointing.
   const onScreen = createMemo(() => {
     const size = props.viewportSize();
     if (!size) return false;
-    const l = props.getLayout(props.id);
+    const l = placed();
     if (!l) return false;
     const { width, height } = size;
     const z = props.zoom();

@@ -570,13 +570,12 @@ Feature: Canvas workspace
 
   Scenario: A tile parked off the canvas stops taking output until you look again
     # kolu#2362: the desktop used to hold an attach stream open for EVERY tile
-    # of the host — one mount attached 9 to 13 terminals and kolu forwarded the
-    # live output of all of them, including the ones nobody could see. A tile
-    # off the edge of the canvas now ends its feed (after a few seconds' grace,
-    # so a flick across the canvas and back costs nothing), and coming back
-    # repaints it from a fresh snapshot — so what it printed meanwhile is on
-    # its screen the moment you can see it again, it just wasn't carried
-    # across the wire while nobody was looking.
+    # of the host, including the ones nobody could see. A tile off the edge of
+    # the canvas now ends its feed (after a few seconds' grace, so a flick
+    # across the canvas and back costs nothing), and coming back repaints it
+    # from a fresh snapshot — so what it printed meanwhile is on its screen
+    # the moment you can see it again, it just wasn't carried across the wire
+    # while nobody was looking.
     #
     # Tile 2 is the one just created, so it holds the active selection — and
     # the ACTIVE tile stays attached wherever it is parked (the keyboard
@@ -584,12 +583,12 @@ Feature: Canvas workspace
     Given I create a terminal
     Then there should be 2 canvas tiles
     When I move canvas tile 1 far out of view
-    Then canvas tile 1 should stop taking live output
-    When I print a marker in canvas tile 1
-    Then canvas tile 1 should not show the marker
+    Then the parked canvas tile should stop taking live output
+    When I print a marker in the parked canvas tile
+    Then the parked canvas tile should not show the marker
     When I move the parked canvas tile back into view
-    Then canvas tile 1 should take live output again
-    And canvas tile 1 should show the marker
+    Then the parked canvas tile should take live output again
+    And the parked canvas tile should show the marker
     And there should be no page errors
 
   @mobile

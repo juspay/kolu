@@ -24,9 +24,10 @@
  *  leaves the margin would make a pan a storm of detach/attach pairs — each
  *  one a serialize and a SIGWINCH on somebody's terminal. So a tile that
  *  stops being seen keeps counting as seen for {@link SEEN_HOLD_MS}, and a
- *  tile seen again inside that window never changes state at all: no detach,
- *  no re-attach, nothing on the wire. A tile that has NEVER been seen has
- *  nothing to hold — it is not attached, and no timer runs for it. */
+ *  tile seen again inside that window never changes state at all: no detach
+ *  and no re-attach, so the feed it already has never stops. A tile that has
+ *  NEVER been seen has nothing to hold — it is not attached, and no timer
+ *  runs for it. */
 
 import {
   type Accessor,
@@ -94,20 +95,17 @@ export function tileIsSeen(facts: TileSeenFacts): boolean {
   return facts.active || (facts.onScreen && facts.cameraSettled);
 }
 
-/** `seen`, with the leaving edge delayed by `holdMs` — the accessor a tile
- *  body's `visible` is driven from.
+/** `seen`, with the leaving edge delayed by {@link SEEN_HOLD_MS} — the
+ *  accessor a tile body's `visible` is driven from.
  *
  *  Becoming seen is IMMEDIATE (a tile panned into view attaches on the frame
- *  it arrives). Stopping is held: the flip to false lands `holdMs` later, and
+ *  it arrives). Stopping is held: the flip to false lands a hold later, and
  *  only if the tile is still unseen then. Seen again inside the window
  *  cancels the timer with nothing observed in between.
  *
  *  Owned by the caller's reactive owner: the timer is cleared when the tile
  *  goes, so a closed tile cannot flip a disposed signal. */
-export function createHeldSeen(
-  seen: Accessor<boolean>,
-  holdMs: number = SEEN_HOLD_MS,
-): Accessor<boolean> {
+export function createHeldSeen(seen: Accessor<boolean>): Accessor<boolean> {
   const [held, setHeld] = createSignal(seen());
   let timer: ReturnType<typeof setTimeout> | undefined;
   const cancel = () => {
@@ -131,7 +129,7 @@ export function createHeldSeen(
       timer = setTimeout(() => {
         timer = undefined;
         setHeld(false);
-      }, holdMs);
+      }, SEEN_HOLD_MS);
     }),
   );
   onCleanup(cancel);

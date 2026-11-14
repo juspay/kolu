@@ -108,10 +108,8 @@ const TerminalCanvas: Component<{
    *  reactivity), not around the render-prop call. */
   renderTileBody: (id: TileId, seen: () => boolean) => JSX.Element;
 }> = (props) => {
-  // The one "is anybody looking at this view" accessor (`ui/shown.ts`),
-  // provided by `App.tsx` over the whole workspace: false while the Conductor
-  // covers the canvas. Asked ONCE here and handed to each tile, so the tile
-  // shell keeps knowing nothing about what sits on top of the canvas.
+  // Asked ONCE here and handed to each tile, so the tile shell keeps knowing
+  // nothing about what sits on top of the canvas (`ui/shown.ts`).
   const canvasShown = useShown();
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
@@ -469,8 +467,6 @@ const TerminalCanvas: Component<{
             viewportSize={() =>
               viewport.mounted() ? viewport.viewportSize() : undefined
             }
-            // Is anybody looking at the canvas at all? The Conductor covers
-            // it without unmounting it, and a covered canvas shows no tile.
             viewShown={canvasShown}
             cameraSettled={viewport.cameraSettled}
             auraTier={() => tileAuraOf(terminalId)}
