@@ -1873,9 +1873,12 @@ describe("what a reading publishes", () => {
     ]);
 
     expect(r.published().length).toBe(before + 1);
-    expect(r.published().at(-1)?.seen.map((one) => one.level)).toEqual([
-      "working",
-    ]);
+    expect(
+      r
+        .published()
+        .at(-1)
+        ?.seen.map((one) => one.level),
+    ).toEqual(["working"]);
   });
 
   it("tells the list's readers when a reading first DETECTS the agent", () => {

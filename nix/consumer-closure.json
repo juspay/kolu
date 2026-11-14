@@ -829,9 +829,11 @@
       "workspace": [
         "@kolu/acp",
         "@kolu/acp-harness",
+        "@kolu/padi-client",
         "@kolu/surface",
         "kolu-agents",
-        "kolu-common"
+        "kolu-common",
+        "kolu-mcp"
       ],
       "external": {
         "effect": "catalog:",

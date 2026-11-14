@@ -1520,7 +1520,10 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         } else {
           watchList.set(one.ref, read.entry);
           if (!sameSaved(saved(entry), saved(read.entry))) persist = true;
-          if (read.entry.name !== entry.name || read.entry.agent !== entry.agent)
+          if (
+            read.entry.name !== entry.name ||
+            read.entry.agent !== entry.agent
+          )
             rows = true;
         }
         // BACK TO WORKING WITHDRAWS WHAT IT WAS GOING TO SAY: held news
