@@ -43,9 +43,11 @@ import {
   type ConductorRow,
   ConductorRowSchema,
   type ConductorState,
+  ConductorWakeLevelSchema,
 } from "kolu-common/conductor";
 import type { CellStore } from "@kolu/surface/server";
 import { Result, Schema } from "effect";
+import { FLEET_WATCH_JOINS } from "kolu-mcp/fleetWatchJoin";
 
 /** The record's SHAPE, as a schema rather than as an interface alone.
  *
@@ -72,6 +74,69 @@ export const PersistedConductorSchema = Schema.Struct({
    *  conversation spans every host, and a bare id would name two terminals on
    *  a two-host fleet. */
   fleet: Schema.Array(Schema.String),
+  /** THE TERMINALS KOLU WAKES THIS CONVERSATION ABOUT, in the order they were
+   *  added — and per entry the facts a restart cannot re-derive: what kolu
+   *  last saw the terminal called, whether an agent was ever seen in it (a
+   *  terminal that never held one drops off in silence when it goes), the
+   *  level the conversation has already been TOLD about, and the three that
+   *  say how to read the next sighting — how it came to be watched, whether
+   *  anything has been said to the agent in it, and whether a command was
+   *  ever seen running in it — and when it joined, which is where a piece of
+   *  work's age is counted from.
+   *
+   *  `told` is what makes a restart quiet: kolu looks at every watched
+   *  terminal again, and one that is still stopped for the reason it was
+   *  stopped before the restart does not ring a second time. What is NOT here
+   *  is the held news — a restart re-reads the world instead of replaying a
+   *  queue about one that has moved on.
+   *
+   *  NO DECODING DEFAULTS, here or on any entry's key: the schema says what
+   *  the file holds, and making an older file hold it is the ladder's job
+   *  (`kolu-server`'s `state.ts`, the 1.49.0 rung — it seeds the key and
+   *  fills an entry's missing `joined`/`spoken`/`ran`/`root`/`since`). A file
+   *  the ladder did not bring here is refused by name, never read as a
+   *  guess. */
+  watched: Schema.Array(
+    Schema.Struct({
+      ref: Schema.String,
+      name: Schema.String,
+      agent: Schema.NullOr(Schema.String),
+      told: Schema.NullOr(ConductorWakeLevelSchema),
+      /** How it came to be watched — built from the one tuple the word is
+       *  spelled in (`kolu-mcp/fleetWatchJoin`), which the fleet face's wire
+       *  schema and this module's `WatchJoin` also build from: a join a tool
+       *  can record is a join this file can read back. What `ended` turns on:
+       *  only a terminal kolu opened WITH a command can be said to have
+       *  finished one. */
+      joined: Schema.Literals([...FLEET_WATCH_JOINS]),
+      /** Whether the Conductor has said anything to the agent in it. What
+       *  `ready` turns on, and therefore worth surviving a restart: an agent
+       *  briefed before the restart must not ring as a fresh one after it. */
+      spoken: Schema.Boolean,
+      /** Whether a non-shell foreground was ever seen in it — the other half
+       *  of `ended`, and across a restart the only way to know that the
+       *  command kolu typed ever started. */
+      ran: Schema.Boolean,
+      /** WHEN IT JOINED THE WATCH LIST, as an ISO time
+       *  (`kolu-conductor`'s `WatchEntry.since`). Saved because a piece of
+       *  work's age is counted from it: a restart that re-stamped every entry
+       *  with boot time would tell a person their hour-old waterfall had just
+       *  started. */
+      since: Schema.String,
+      /** THE PIECE OF WORK it belongs to — the top-level terminal its
+       *  `child-of` edges end at, by fleet ref, and what that terminal was
+       *  last called (`kolu-conductor`'s `WatchRoot`); `null` for an entry
+       *  nothing has read the host of yet.
+       *
+       *  Saved because the alternative is the watching panel coming apart on
+       *  every restart: the edges live on the HOSTS, a host that is away
+       *  cannot be asked, and a boot that forgot the grouping would show four
+       *  separate pieces of work until every machine answered again. */
+      root: Schema.NullOr(
+        Schema.Struct({ ref: Schema.String, name: Schema.String }),
+      ),
+    }),
+  ),
 });
 
 /** The record as a value. Derived from the schema rather than declared beside
@@ -85,6 +150,7 @@ export const EMPTY_PERSISTED_CONDUCTOR: PersistedConductor = {
   model: null,
   rows: [],
   fleet: [],
+  watched: [],
 };
 
 /** The re-validation, compiled once. `decodeUnknownResult` is a BRANCH rather
@@ -158,6 +224,18 @@ function oneDividerPerReset(
 export function persistedFrom(
   state: ConductorState,
   rows: ReadonlyArray<ConductorRow>,
+  /** The watch list as ENTRIES — the cell publishes membership as `work`
+   *  (the refs, grouped) and nothing else about an entry, and what a restart
+   *  needs is the facts beside each one (see the schema). Passed in rather
+   *  than read off the state for exactly that reason: the state is what a
+   *  browser is told, and this is what the next boot resumes from.
+   *
+   *  COPIED FIELD BY FIELD below, because the live entry carries two runtime
+   *  fields the record must not learn (`kolu-conductor`'s `WatchEntry`: the
+   *  last reading, and whether the next one baselines). A spread would write
+   *  them to disk and a later boot would read back a reading of a world that
+   *  has moved on. */
+  watched: ReadonlyArray<PersistedConductor["watched"][number]>,
 ): PersistedConductor {
   return {
     sessionId: state.sessionId,
@@ -165,6 +243,17 @@ export function persistedFrom(
     model: state.model?.id ?? null,
     rows: rows.length > ROW_CAP ? rows.slice(rows.length - ROW_CAP) : rows,
     fleet: state.fleet,
+    watched: watched.map((one) => ({
+      ref: one.ref,
+      name: one.name,
+      agent: one.agent,
+      told: one.told,
+      joined: one.joined,
+      spoken: one.spoken,
+      ran: one.ran,
+      since: one.since,
+      root: one.root,
+    })),
   };
 }
 

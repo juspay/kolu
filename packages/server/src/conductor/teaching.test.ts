@@ -1,17 +1,21 @@
 /**
  * THE STANDING PROMPT, READ OFF ITS FILE.
  *
- * The words moved out of `teaching.ts`'s string literals into
- * `teaching.md`'s wrapped paragraphs so a person can read them. That move must
- * change nothing the Conductor receives: the instructions that existed before
- * the waterfall are pinned, byte for byte, against what the literals rendered
- * for a sample host (`fixtures/teaching-before-waterfall.zest.json`, captured
- * from master at the move). The verbs those words name are checked against the
- * tool registry in `conductor.test.ts`.
+ * The words live in `teaching.md`'s wrapped paragraphs so a person can read
+ * them, and `teaching.ts` renders them one line per paragraph. Everything the
+ * Conductor is told BEFORE the waterfall — who it is, the `host/id` grammar,
+ * where to create, that it never waits, what every wake level means, what it
+ * watches, how it talks to an agent and how it learns whether that took,
+ * questions, briefs, memory, sleeping terminals — is pinned byte for byte
+ * against `fixtures/teaching-before-waterfall.zest.json`, so a reword is
+ * a deliberate change to the fixture rather than a drift nobody reviewed. The
+ * verbs those words name are checked against the tool registry in
+ * `conductor.test.ts`.
  */
 
 import { readFileSync } from "node:fs";
 import { parseTeaching, teachingLines } from "kolu-conductor";
+import { KOLU_FLEET_RECORD_ADDRESS } from "kolu-mcp";
 import { describe, expect, it } from "vitest";
 
 const BEFORE: string[] = JSON.parse(
@@ -30,6 +34,173 @@ describe("the standing prompt", () => {
     const lines = teachingLines("zest");
     expect(lines.join("\n")).not.toContain("{{");
     expect(lines.every((line) => line.startsWith("[kolu] "))).toBe(true);
+  });
+});
+
+describe("the waterfall's two modes", () => {
+  const SCRIPT = teachingLines("zest").join("\n");
+
+  it("names both modes and says the mode is chosen per waterfall", () => {
+    expect(SCRIPT).toContain("FULL");
+    expect(SCRIPT).toContain("TRIVIAL");
+    // The defect this guards: a mode chosen once at setup would make every
+    // later waterfall inherit a shape nobody asked for.
+    expect(SCRIPT).toContain("the mode is chosen for THAT waterfall");
+  });
+
+  it("says a trivial waterfall drops the planner, the approval and the reviews", () => {
+    expect(SCRIPT).toContain(
+      "no planner, no plan, no approval, no review rounds",
+    );
+  });
+
+  it("keeps the planner, approval and review steps marked as the full mode's", () => {
+    const lines = teachingLines("zest");
+    for (const opening of [
+      "[kolu] The planner, in a full waterfall:",
+      "[kolu] Approval, in a full waterfall:",
+      "[kolu] Review rounds, in a full waterfall:",
+    ]) {
+      expect(lines.some((line) => line.startsWith(opening))).toBe(true);
+    }
+  });
+
+  it("gives a trivial waterfall no brief file at all", () => {
+    // The defect this guards: the script used to have the Conductor write
+    // `.waterfall/brief.md` itself, which it cannot do — its hands are kolu's
+    // tools, and none of them writes a file on another host. Trivial says the
+    // brief instead.
+    expect(SCRIPT).toContain("NO BRIEF FILE");
+    expect(SCRIPT).toContain(
+      "you say the request and the standing rules to the implementor yourself",
+    );
+    expect(SCRIPT).not.toContain("you write `.waterfall/brief.md` yourself");
+  });
+
+  it("has the implementor started and briefed in two turns", () => {
+    // A created terminal's agent is not up when the create answers, so the
+    // brief is said on the `ready` wake rather than in the same turn.
+    expect(SCRIPT).toContain("when it wakes you as `ready`");
+  });
+});
+
+describe("the waterfall's setup questions", () => {
+  const SCRIPT = teachingLines("zest").join("\n");
+
+  it("asks the setup for every waterfall rather than once a conversation", () => {
+    // The defect this guards: the script said setup was "once per
+    // conversation", so a second waterfall in the same chat was asked only
+    // for its mode and the planner was launched on the first one's command
+    // line — a harness and a model the human never chose for this work.
+    expect(SCRIPT).toContain("Setup, for EVERY waterfall");
+    expect(SCRIPT).not.toContain("Setup, once per conversation");
+    expect(SCRIPT).toContain(
+      "there is no setup you do once for the conversation",
+    );
+  });
+
+  it("asks the harness and the model as two questions, not one command line", () => {
+    expect(SCRIPT).toContain("which HARNESS runs the implementor");
+    expect(SCRIPT).toContain("which MODEL that harness runs on");
+    expect(SCRIPT).toContain("as a question of its own");
+    // …and the command line is the Conductor's to assemble from the two.
+    expect(SCRIPT).toContain(
+      "YOU build the command line out of the harness and the model",
+    );
+  });
+
+  it("offers the previous answers first and still asks", () => {
+    expect(SCRIPT).toContain("OFFER IT FIRST");
+    expect(SCRIPT).toContain("never skip the asking because you asked before");
+  });
+
+  it("asks WHICH HOST, and never lets a path or its own machine answer that", () => {
+    // The defect this guards: `waterfall ~/code/odu …` was asked mode,
+    // harness, model and on-green, then opened its planner on the machine the
+    // Conductor runs on — where the harness was not even installed — and the
+    // human had to type where it should have gone.
+    expect(SCRIPT).toContain("which HOST the work runs on");
+    expect(SCRIPT).toContain("unless the request names the host");
+    expect(SCRIPT).toContain("a path does not: the same path exists on");
+    expect(SCRIPT).toContain("NOTHING IS CREATED BEFORE THE HOST IS KNOWN.");
+    expect(SCRIPT).toContain("the host question offers the hosts connected");
+    // ... and outside a waterfall too: any terminal it is about to open.
+    expect(SCRIPT).toContain("never default to zest");
+  });
+
+  it("asks what to do on green CI and the mode in that same one form", () => {
+    expect(SCRIPT).toContain("what to do when CI is green");
+    expect(SCRIPT).toContain("the mode, unless the request already said which");
+    expect(SCRIPT).toContain("in ONE form");
+    expect(SCRIPT).toContain("all of one waterfall's setup in a single form");
+  });
+
+  it("keeps every question optioned, with a box for the human's own answer", () => {
+    // The question tool draws only questions that HAVE options, so a typed
+    // answer still needs them: a question without options is a form the
+    // human never sees.
+    expect(SCRIPT).toContain(
+      "a question tool may draw only questions that have options",
+    );
+    expect(SCRIPT).toContain(
+      "a box beside them for an answer of the human's own",
+    );
+  });
+});
+
+describe("a choice put to the human", () => {
+  const SCRIPT = teachingLines("zest").join("\n");
+
+  it("goes through the question form everywhere, not only in a waterfall", () => {
+    // The defect this guards: outside the waterfall the Conductor wrote
+    // "Your options: 1, 2, 3" in prose and waited, so the human answered by
+    // typing a number into the composer — a form drawn by hand.
+    const rule = SCRIPT.split("\n").find((line) =>
+      line.includes("CHOICES ARE BUTTONS"),
+    );
+    expect(rule).toBeDefined();
+    expect(rule).toContain("inside a waterfall or not");
+    expect(rule).toContain("goes through your question tool");
+    expect(rule).toContain("Your prose explains the choice; the form asks it.");
+    // ...and it is said BEFORE the waterfall, where it governs every turn
+    // rather than reading as one of the procedure's steps.
+    expect(SCRIPT.indexOf("CHOICES ARE BUTTONS")).toBeLessThan(
+      SCRIPT.indexOf("THE WATERFALL."),
+    );
+  });
+});
+
+describe("the watch list", () => {
+  const SCRIPT = teachingLines("zest").join("\n");
+
+  it("tells the Conductor to read its own list rather than remember it", () => {
+    // The defect this guards: after a restart it said it was "not certain"
+    // which terminals it watched and then tried to watch two that were gone.
+    // The list is the fleet's, and it is readable.
+    expect(SCRIPT).toContain("`watched` resource");
+    expect(SCRIPT).toContain(
+      "Read it before you act on what you THINK you are",
+    );
+    expect(SCRIPT).toContain("after a restart");
+  });
+});
+
+describe("one terminal's record", () => {
+  const SCRIPT = teachingLines("zest").join("\n");
+
+  it("says the address a record is read at, in full and unescaped", () => {
+    // The defect this guards: the script told the Conductor to read a
+    // terminal's record before reading its screen and never said WHERE, so it
+    // invented addresses and each one came back "unknown resource". The
+    // address is the one the FACE builds from its own served template
+    // (`KOLU_FLEET_RECORD_ADDRESS`), not a literal re-typed here — a renamed
+    // collection moves the address and this test, not the Conductor's turn.
+    // The reference is pasted after the collection exactly as every tool and
+    // wake spells one; the percent-escaped spelling is the one no agent
+    // guesses.
+    expect(SCRIPT).toContain(KOLU_FLEET_RECORD_ADDRESS);
+    expect(SCRIPT).toContain("surface://collections/terminals/remote:prod/");
+    expect(SCRIPT).not.toContain("%2F");
   });
 });
 

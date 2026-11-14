@@ -22,7 +22,7 @@ import MobileHostRow from "./host/MobileHostRow";
 import { ACTIONS } from "./input/actions";
 import { formatKeybind } from "./input/keyboard";
 import { daemonTransportLive, serverDot } from "./kaval/useDaemonStatus";
-import { conductorAsksTotal } from "./conductor/useConductorFacts";
+import { useConductorBadge } from "./conductor/useConductorFacts";
 import {
   enterConductorMode,
   conductorMode,
@@ -46,6 +46,8 @@ const MobileChromeSheet: Component<{
 }> = (props) => {
   const rightPanel = useRightPanel();
   const pwa = useSurfaceApp();
+  // The conversation's one badge — the same derivation the desktop tab wears.
+  const badge = useConductorBadge();
   let settingsTriggerRef!: HTMLButtonElement;
 
   return (
@@ -108,7 +110,7 @@ const MobileChromeSheet: Component<{
           </span>
           <span>Conductor</span>
           {/* Inline, beside the name, for the same reason as the desktop
-              tab's: the corner holds the needs-you count, and the tag is a
+              tab's: the end of the row holds the count, and the tag is a
               constant rather than something that arrives. */}
           <span
             data-testid="conductor-alpha"
@@ -116,12 +118,18 @@ const MobileChromeSheet: Component<{
           >
             alpha
           </span>
-          <Show when={conductorAsksTotal() > 0}>
+          {/* THE SAME ONE BADGE the desktop tab wears, from the same two
+              memos: how many pieces of work are in flight, violet while the
+              conversation is asking you something, and a bare dot when it is
+              asking with nothing in flight. */}
+          <Show when={badge.pieces() > 0 || badge.asking()}>
             <span
               data-testid="conductor-badge"
-              class="ml-auto min-w-5 rounded-full bg-alert px-1.5 text-center text-[0.68rem] font-semibold leading-5 text-surface-0"
+              data-asking={badge.asking() ? "" : undefined}
+              data-work={badge.pieces()}
+              class={`ml-auto rounded-full text-center text-[0.68rem] font-semibold leading-5 text-surface-0 ${badge.asking() ? "bg-alert" : "bg-conductor"} ${badge.pieces() > 0 ? "min-w-5 px-1.5" : "h-2.5 w-2.5 self-center"}`}
             >
-              {conductorAsksTotal()}
+              <Show when={badge.pieces() > 0}>{badge.pieces()}</Show>
             </span>
           </Show>
         </button>

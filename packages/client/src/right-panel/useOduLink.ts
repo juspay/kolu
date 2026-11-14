@@ -44,7 +44,7 @@ import {
 } from "../forwards/openPort";
 import { runAction } from "../runAction";
 import { activeHost, padiMap } from "../wire";
-import { usePanelShown } from "./panelShown";
+import { useShown } from "../ui/shown";
 import { portReach } from "kolu-common/surface";
 
 /** odu web's own page is the door's whole path — the fragment carries the run. */
@@ -125,7 +125,7 @@ export interface OduLinkOutlet {
 /** The Inspector's outlet — opened once, beside the CI readout it belongs to. */
 export function useOduLink(): OduLinkOutlet {
   const host = () => activeHost();
-  const shown = usePanelShown();
+  const shown = useShown();
 
   /** WHERE odu is listening on the active host — odu's OWN greeting, carried
    *  through padi's odu sibling (`entry(h).odu.cells.service`). The daemon's

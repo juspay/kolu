@@ -22,7 +22,7 @@ import {
 import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js";
 import { codeViewItemIdAt } from "@kolu/solid-pierre";
 import { walkShadowRoots } from "../dom/shadowWalk";
-import { usePanelShown } from "../right-panel/panelShown";
+import { useShown } from "../ui/shown";
 import { useComposer } from "./composerState";
 
 /** Debounced live-selection snapshot. The pill placement only needs the
@@ -255,7 +255,7 @@ export function useTextSelection(opts: UseTextSelectionOptions) {
     });
   };
 
-  const shown = usePanelShown();
+  const shown = useShown();
   createEffect(() => {
     if (!shown()) return;
     document.addEventListener("selectionchange", onSelectionChange);

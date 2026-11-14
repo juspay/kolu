@@ -22,13 +22,11 @@ import { decodeHostKey } from "kolu-common/hostKey";
 import type { ConductorToolRow } from "kolu-common/conductor";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
-import { useDockFocus } from "../canvas/dock/useDockFocus";
 import { hostLabel } from "../host/hostChipTone";
-import { selectHostTab } from "../host/selectHostTab";
-import { getClockNow } from "../time/clock";
 import { isDesktop } from "../useMobile";
 import ConductorDiffs from "./ConductorDiffs";
 import ConductorLook from "./ConductorLook";
+import { useShownClock } from "../ui/shown";
 import {
   agentLineSubject,
   callSubject,
@@ -39,6 +37,7 @@ import {
   toolLabel,
   waitedFor,
 } from "./toolCard";
+import { useOpenTile } from "./useOpenTile";
 
 const STATUS_MARK: Record<ConductorToolRow["status"], string> = {
   pending: "·",
@@ -55,24 +54,22 @@ const STATUS_CLASS: Record<ConductorToolRow["status"], string> = {
 };
 
 const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
-  const focus = useDockFocus();
-  const now = getClockNow();
+  const openTileAt = useOpenTile();
+  const now = useShownClock();
 
-  /** READ THE CLOCK ONLY WHILE THE CALL IS RUNNING. `now()` is the app's one
-   *  1 s tick, and a transcript holds every tool call a conversation ever made:
-   *  reading it unconditionally subscribed every finished card to a signal that
-   *  invalidates once a second, so a long session re-ran hundreds of memos for
-   *  a number that cannot change. The status check short-circuits before the
-   *  read, so a settled card holds no subscription at all. */
+  /** READ THE CLOCK ONLY WHILE THE CALL IS RUNNING, AND ONLY WHILE THE PANE
+   *  IS SHOWN. `now()` is the app's one 1 s tick (stopped for a hidden pane by
+   *  `ui/shown.ts`), and a transcript holds every tool call a
+   *  conversation ever made: reading it unconditionally subscribed every
+   *  finished card to a signal that invalidates once a second, so a long
+   *  session re-ran hundreds of memos for a number that cannot change. The
+   *  status check short-circuits before the read, so a settled card holds no
+   *  subscription at all. */
   const clock = () =>
     props.row.status === "in_progress" ? runningFor(props.row, now()) : null;
 
-  /** Go to it. The terminal may be on a machine whose tab is not the selected
-   *  one, so this is a TAB SWITCH and then a focus — `selectHostTab` leaves
-   *  the conversation and lands on that host's canvas in whatever posture it
-   *  was left in (maximized stays maximized), and the focus lands on the tile
-   *  there. The same two steps, in the same order, a palette row or a
-   *  notification click takes. */
+  /** Go to it — `useOpenTile`, which is the same navigation the watched
+   *  panel's row names take, rather than a second one that agrees today. */
   const openTile = (at: { host: string; id: TerminalId } | null) => (
     <Show when={at}>
       {(target) => (
@@ -82,10 +79,7 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
           data-terminal-id={target().id}
           data-host={target().host}
           class="text-[0.7rem] font-semibold text-accent hover:underline cursor-pointer shrink-0"
-          onClick={() => {
-            selectHostTab(decodeHostKey(target().host));
-            focus(target().id);
-          }}
+          onClick={() => openTileAt(target())}
         >
           open tile
         </button>
@@ -350,17 +344,30 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
           return folded("last lines (screenTail)", call.screenTail, false);
         if (call.kind === "screen")
           return folded("screen", call.snapshot, false);
-        return null;
+        // A CARD KOLU RECOGNISED SAYS IT ALL ALREADY. A `create` printed its
+        // answer under its own words as well — `{"id":"remote:naiveintent/…",
+        // "pid":0,…}`, the same facts in JSON beneath the sentence that had
+        // just made them readable. The payload is still here, behind the same
+        // disclosure every other body uses, for whoever wants the wire.
+        return folded("answer", props.row.progress ?? null, true);
       })()}
-      <Show when={props.row.status !== "failed" && props.row.progress}>
+      {/* A GENERIC card's content, live: nothing on this card reads the
+          payload for the reader, so it is drawn. Wrapped and height-capped —
+          the vertical clip is the point, this is a tail and not a transcript
+          — but a horizontal one was a silent loss: an MCP answer arrives here
+          as one minified line and `overflow-hidden` CUT it at the card's
+          edge, so what the agent read was simply gone. `wrap-anywhere` breaks
+          it mid-token instead, which keeps every character on screen and the
+          card at its width. A failed call's content is its reason, drawn
+          above instead. */}
+      <Show
+        when={
+          props.row.kolu === undefined &&
+          props.row.status !== "failed" &&
+          props.row.progress
+        }
+      >
         {(progress) => (
-          // LIVE CONTENT, wrapped and height-capped. The vertical clip is the
-          // point — this is a tail, not a transcript — but a horizontal one
-          // was a silent loss: an MCP answer arrives here as one minified line
-          // and `overflow-hidden` CUT it at the card's edge, so what the agent
-          // read was simply gone. `wrap-anywhere` breaks it mid-token instead,
-          // which keeps every character on screen and the card at its width.
-          // A failed call's content is its reason, drawn above instead.
           <pre class="col-span-full min-w-0 font-mono text-[0.65rem] text-fg-3 whitespace-pre-wrap wrap-anywhere max-h-24 overflow-hidden">
             {progress()}
           </pre>

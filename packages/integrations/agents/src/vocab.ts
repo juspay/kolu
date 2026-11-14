@@ -173,6 +173,9 @@ export type {
   AgentCliGrammar,
   AgentMark,
   AgentResumePolicy,
+  AgentSayDelivery,
+  AgentSayRecipe,
+  AgentSayWhileWorking,
   AgentVocab,
 } from "anyagent";
 export { agentNameHint, stableFlagTokens } from "anyagent";

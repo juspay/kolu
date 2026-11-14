@@ -93,5 +93,15 @@ export const codexVocab: AgentVocab<CodexInfo> = {
     idPattern: UUID_RE,
     ref: (info) => info.sessionId,
   },
+  // Measured: `codex` 0.167.1 (GPT-6-Luna) in a kolu terminal on 2026-11-13.
+  // Idle, text plus one Enter submits. WHILE WORKING, the message is appended
+  // to the transcript as a user row INSIDE the running turn and the same turn
+  // carries on past it under one "Worked for 55s" footer — codex hands it to
+  // the model at the turn's next step rather than opening a new turn.
+  say: {
+    idle: ["Enter"],
+    working: { keys: ["Enter"], delivery: "steer" },
+    verified: "ran codex-cli 0.167.1 in a kolu terminal, 2026-11-13",
+  },
   infoSchema: CodexInfoSchema,
 };

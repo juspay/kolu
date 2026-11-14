@@ -3,6 +3,7 @@
  *  the offset the writer stamped. */
 
 import type {
+  ConductorAskRow,
   ConductorFrame,
   ConductorRow,
   ConductorToolRow,
@@ -15,6 +16,7 @@ import {
   foldNoticeRuns,
   foldToolRuns,
   type TranscriptItem,
+  transcriptText,
 } from "./transcript";
 
 const agentRow = (id: string, seq: number, text: string): ConductorRow => ({
@@ -369,6 +371,41 @@ describe("foldToolRuns", () => {
     expect(settled).toBe(working);
     expect(spoken).toBe(working);
   });
+
+  it("never folds across a wake — the machine's line STARTS a turn", () => {
+    // The calls before the wake belong to the work that was running when the
+    // terminal rang; folding across it would put the answer to the wake in the
+    // same closed Details as whatever came before it.
+    const wake = (id: string, seq: number): ConductorRow => ({
+      id,
+      seq,
+      since: SINCE,
+      kind: "wake",
+      from: "kolu",
+      events: [
+        {
+          ref: `local/${TERMINAL}`,
+          host: "local",
+          terminalId: TERMINAL as never,
+          hostName: "local",
+          name: "planner",
+          agent: "claude-code",
+          level: "stopped",
+          at: SINCE,
+        },
+      ],
+      text: "planner stopped",
+    });
+    expect(
+      drawn([
+        agentRow("a", 1, "Watching."),
+        tool("t1", 2),
+        wake("w", 3),
+        tool("t2", 4),
+        agentRow("b", 5, "Done."),
+      ]),
+    ).toEqual(["a", ["t1"], "w", ["t2"], "b"]);
+  });
 });
 
 describe("foldFailureRuns", () => {
@@ -437,7 +474,7 @@ describe("foldFailureRuns", () => {
             : item.entry.row.id,
     );
 
-  it("says the same failure on six terminals ONCE, with the terminal taken out", () => {
+  it("says the same failure on six terminals ONCE, as a sentence that still reads", () => {
     expect(
       drawn([
         user("u", 0),
@@ -445,7 +482,47 @@ describe("foldFailureRuns", () => {
           unread(`s${i}`, i + 1, `${t}${t}${t}-terminal`),
         ),
       ]),
-    ).toEqual(["u", "screen_text ×6: Terminal not found"]);
+    ).toEqual([
+      "u",
+      // The FIRST reason whole, and a count for the rest — never the stripped
+      // string the six were matched by.
+      "screen_text ×6: Terminal aaa-terminal not found +5 more",
+    ]);
+  });
+
+  it("never draws a reason the id was cut out of — the line would start mid-sentence", () => {
+    // The human's screenshot: `watch_terminal failed 2 times: is not a
+    // terminal on that host`. The id is the first word of this reason, so
+    // stripping it for the comparison left the drawn line headless.
+    const notHere = (id: string, seq: number, terminal: string): ConductorRow =>
+      ({
+        id,
+        seq,
+        since: SINCE,
+        kind: "tool",
+        text: "watch_terminal",
+        status: "failed",
+        tool: "watch_terminal",
+        server: "kolu",
+        progress: `${terminal} is not a terminal on that host`,
+        kolu: {
+          kind: "watch",
+          terminalId: terminal,
+          host: "remote:srid@zest",
+          name: null,
+          watching: true,
+        },
+      }) as unknown as ConductorRow;
+    const lines = drawn([
+      user("u", 0),
+      notHere("f1", 1, "wise-otter"),
+      notHere("f2", 2, "brave-moth"),
+    ]);
+    // Still ONE line for the two: the id is out of the comparison.
+    expect(lines).toHaveLength(2);
+    expect(lines[1]).toBe(
+      "watch_terminal ×2: wise-otter is not a terminal on that host +1 more",
+    );
   });
 
   it("is a run as drawn: a settled call that joined a fold drawn earlier does not split it", () => {
@@ -457,7 +534,11 @@ describe("foldFailureRuns", () => {
         settled("ok", 3),
         unread("s2", 4, "t2"),
       ]),
-    ).toEqual(["u", ["look", "ok"], "screen_text ×2: Terminal not found"]);
+    ).toEqual([
+      "u",
+      ["look", "ok"],
+      "screen_text ×2: Terminal t1 not found +1 more",
+    ]);
   });
 
   it("splits on a different reason, a different tool, and anything drawn between", () => {
@@ -487,5 +568,119 @@ describe("foldFailureRuns", () => {
       ).find((item) => item.kind === "failures")?.key;
     expect(keyOf(2)).toBe("failures:s0");
     expect(keyOf(6)).toBe(keyOf(2));
+  });
+
+  it("folds a generic tool's failures that differ only by a terminal inside a URI", () => {
+    // The human's session: three `ReadMcpResourceTool` cards one under
+    // another, each refusing a different terminal's record address. kolu has
+    // no reading of that tool — there is no subject to cut out — so the only
+    // thing that can match them is the reference inside the URI.
+    const unresolved = (id: string, seq: number, ref: string): ConductorRow =>
+      ({
+        id,
+        seq,
+        since: SINCE,
+        kind: "tool",
+        text: "ReadMcpResourceTool",
+        status: "failed",
+        tool: "ReadMcpResourceTool",
+        server: "kolu",
+        progress: `unknown resource "surface://collections/terminals/${ref}"`,
+      }) as unknown as ConductorRow;
+    const lines = drawn([
+      user("u", 0),
+      unresolved(
+        "r1",
+        1,
+        "remote:gossamer/9ab1c0de-1111-4111-8111-111111111111",
+      ),
+      unresolved(
+        "r2",
+        2,
+        "remote:gossamer/9ab1c0de-2222-4222-8222-222222222222",
+      ),
+      unresolved("r3", 3, "local/9ab1c0de-3333-4333-8333-333333333333"),
+    ]);
+    expect(lines).toEqual([
+      "u",
+      // One line, the first reason whole — the address an agent can read.
+      'ReadMcpResourceTool ×3: unknown resource "surface://collections/terminals/remote:gossamer/9ab1c0de-1111-4111-8111-111111111111" +2 more',
+    ]);
+  });
+});
+
+describe("transcriptText", () => {
+  /** The adapter's wrapper sentence, labelled questions, and an "Other" box
+   *  attached to one of them — the shape an `AskUserQuestion` arrives in. */
+  const askRow = (
+    outcome: ConductorAskRow["ask"]["outcome"],
+  ): ConductorAskRow => ({
+    id: "ask:1",
+    seq: 1,
+    since: "2026-01-01T00:00:00.000Z",
+    kind: "ask",
+    text: "Please answer the following questions.",
+    ask: {
+      fields: [
+        {
+          key: "mode",
+          label: "Mode",
+          hint: null,
+          kind: "choice",
+          choices: [{ value: "trivial", label: "trivial", hint: null }],
+          required: true,
+          attachedTo: null,
+        },
+        {
+          key: "who",
+          label: "Implementor",
+          hint: null,
+          kind: "choice",
+          choices: [{ value: "omp", label: "omp", hint: null }],
+          required: true,
+          attachedTo: null,
+        },
+        {
+          key: "who_other",
+          label: "Other",
+          hint: null,
+          kind: "text",
+          choices: [],
+          required: false,
+          attachedTo: "who",
+        },
+      ],
+      link: null,
+      outcome,
+    },
+  });
+
+  it("carries the questions and the answers, not the word `answered`", () => {
+    // What somebody pasting the conversation into an issue needs: the exchange.
+    expect(
+      transcriptText([
+        askRow({
+          how: "answered",
+          answers: [
+            { key: "mode", values: ["trivial"] },
+            { key: "who", values: ["omp"] },
+            { key: "who_other", values: ["anthropic/claude-opus-5-5"] },
+          ],
+        }),
+      ]),
+    ).toBe(
+      [
+        "ask:",
+        "  Mode — trivial",
+        "  Implementor — omp · anthropic/claude-opus-5-5",
+        "  [answered]",
+      ].join("\n"),
+    );
+  });
+
+  it("says what was asked of a form nobody answered", () => {
+    expect(transcriptText([askRow({ how: "declined", answers: [] })])).toBe(
+      ["ask:", "  Mode", "  Implementor", "  [declined]"].join("\n"),
+    );
   });
 });

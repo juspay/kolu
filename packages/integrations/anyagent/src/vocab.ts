@@ -117,6 +117,61 @@ export interface AgentResumePolicy<Info> {
   readonly ref: (info: Info) => string;
 }
 
+/** What a message handed to a WORKING agent actually does to the turn that is
+ *  running — the half of a say recipe that is about the agent's behaviour
+ *  rather than about keys.
+ *
+ *   - `steer` — the words reach the model INSIDE the running turn (at its next
+ *     tool/model step), so the agent can change course on them. omp, pi, xyne
+ *     and codex show the pending line in a steering pane and consume it there.
+ *   - `queue` — the words wait for the current turn to END and then start a new
+ *     one. claude-code and grok do this: the message is never lost, but it has
+ *     no effect on what the agent is doing right now.
+ *
+ *  The distinction is reported back to the caller rather than hidden, because a
+ *  conductor that told a worker "stop, the plan changed" needs to know whether
+ *  that lands now or in ten minutes — and no keystroke can turn one into the
+ *  other. */
+export type AgentSayDelivery = "steer" | "queue";
+
+/** How to hand this agent words while it is WORKING: which keys submit, and
+ *  what submitting then does ({@link AgentSayDelivery}). `null` on a recipe
+ *  means kolu will not try — see {@link AgentSayRecipe.working}. */
+export interface AgentSayWhileWorking {
+  readonly keys: readonly string[];
+  readonly delivery: AgentSayDelivery;
+}
+
+/** THE per-agent keystroke recipe for "say this to the agent in that terminal"
+ *  — what kolu-mcp's `agent_say` performs so no driver ever has to learn one
+ *  agent's submit ritual (the human having to tell a conductor that omp needed
+ *  a second Enter is the bug this exists to delete).
+ *
+ *  A recipe is the keys that follow the TEXT, never the text itself: the text
+ *  is written by the shared send encoder (`@kolu/terminal-protocol`, bracketed
+ *  paste for multiline), the terminal is then allowed to settle, and only then
+ *  are these keys pressed — the same text → settle → submit discipline
+ *  `lifecycle_sendInput` documents, and the reason a single `Enter` suffices
+ *  for every agent kolu has measured (an Enter fused to the paste is eaten by
+ *  the TUI's paste debounce, which is what a "second Enter" was papering over).
+ *
+ *  `verified` is REQUIRED and says how this recipe is known to be true — the
+ *  agent version and the date it was run here, or the docs URL for an agent
+ *  this machine cannot run. A recipe nobody can source is a guess, and a guess
+ *  typed into someone's half-finished work is worse than a refusal. */
+export interface AgentSayRecipe {
+  /** Keys to press after the text when the agent is idle at its prompt. */
+  readonly idle: readonly string[];
+  /** The same while the agent is WORKING, or `null` when kolu must refuse
+   *  mid-turn for this agent (its TUI drops or mangles input during a turn).
+   *  Not a fallback to `idle`: typing into a TUI that is not listening loses
+   *  the words silently, which is the one outcome worse than a refusal. */
+  readonly working: AgentSayWhileWorking | null;
+  /** How this recipe was established — `"ran omp 18.18.8 on 2026-11-13"`, or a
+   *  documentation URL for an agent that is not installed here. */
+  readonly verified: string;
+}
+
 /** Everything kolu must know about one agent, declared in its own package.
  *  An agent that forgets a facet fails to compile in its own package — the
  *  `satisfies never` fence relocated to the right home. */
@@ -137,6 +192,10 @@ export interface AgentVocab<Info extends AgentInfoShape> {
    *  erases it to `unknown`, which then poisons every schema composed with the
    *  union (the `TerminalSnapshotSchema` decoders). */
   readonly infoSchema: Schema.Codec<Info>;
+  /** How to say something to this agent through its TUI — the keys `agent_say`
+   *  presses after the text, per state. `null` for an agent kolu cannot steer
+   *  at all: the tool then refuses by name instead of guessing keys. */
+  readonly say: AgentSayRecipe | null;
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: `Info` is the existential here — the registry stores vocabs of different `Info` and looks them up by kind, and `AgentVocab<AgentInfoShape>` is NOT a supertype (the resume `ref` is contravariant in `Info`), so the erasure must be `any`.

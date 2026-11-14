@@ -85,5 +85,21 @@ export const grokVocab: AgentVocab<GrokInfo> = {
     idPattern: UUID_RE,
     ref: (info) => info.sessionId,
   },
+  // DOCS-ONLY: grok is the one agent kolu detects that is not installed on the
+  // machine this was written on, so this recipe is xAI's own keyboard
+  // reference rather than a run — https://docs.x.ai/build/keyboard-shortcuts
+  // (read 2026-11-13): Enter sends at the prompt, and "while a turn is
+  // running: Enter queues the prompt; the turn picks up the prompt at its next
+  // tool or model step". Grok also has a send-now chord (Ctrl+Enter / Ctrl+I)
+  // which CANCELS the running turn — not what `agent_say` promises, so it is
+  // deliberately not the recipe. The `steer` follow-up behaviour is a user's
+  // config.toml setting kolu cannot read from here, so the delivery recorded
+  // is the documented DEFAULT.
+  say: {
+    idle: ["Enter"],
+    working: { keys: ["Enter"], delivery: "queue" },
+    verified:
+      "docs only (grok not installed here): https://docs.x.ai/build/keyboard-shortcuts, read 2026-11-13",
+  },
   infoSchema: GrokInfoSchema,
 };

@@ -64,7 +64,11 @@ import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
 import MobilePullChrome from "./MobilePullChrome";
 import ConductorPane from "./conductor/ConductorPane";
-import { conductorMode } from "./conductor/useConductorMode";
+import { Shown } from "./ui/shown";
+import {
+  conductorEverSelected,
+  conductorMode,
+} from "./conductor/useConductorMode";
 import { NEW_TERMINAL_GROUP } from "./palette/newTerminalGroup";
 import { TERMINALS_GROUP_NAME } from "./palette/terminalsGroup";
 import WebcamOverlay from "./recorder/WebcamOverlay";
@@ -746,6 +750,34 @@ const App: Component = () => {
          *  Everything underneath stays mounted, attached and exactly as they
          *  left it.
          *
+         *  AND SO DOES THE CONVERSATION. The pane is mounted on the FIRST
+         *  visit (`conductorEverSelected`, a latch) and then retained: leaving
+         *  for a host tab changes its VISIBILITY, never its existence. A
+         *  `<Show when={conductorMode()}>` here destroyed the pane on every
+         *  switch and built a new one on the way back, which threw away
+         *  everything the person had opened in it — the watched panel, each
+         *  Look, the open folds and failure lines, where they had scrolled to,
+         *  and a half-typed message. Retaining it is the fix at the cause; no
+         *  amount of hoisting individual signals out of the pane is
+         *  (`/solidjs`, "Preserve views and identity").
+         *
+         *  `content-visibility: hidden` rather than `display: none` on an
+         *  out-of-flow, explicitly sized host (`absolute inset-0`): the host
+         *  keeps its geometry, so coming back does not re-lay-out a column of
+         *  cards that had been given no size, while the subtree is skipped —
+         *  not painted, not laid out, not reachable by tab order or
+         *  find-in-page — exactly as the right panel's inactive tab and a
+         *  backgrounded terminal are. `inert` is the input half of the same
+         *  fact: a hidden full-window layer must not take a press meant for
+         *  the canvas under it.
+         *
+         *  Hidden is not the same as asleep, and the pane is told which:
+         *  `Shown` carries the one accessor every piece of work in the
+         *  subtree asks before doing anything — Look's reads, the second
+         *  hand, the `Escape` handler, the follow-the-end scroll, the header's
+         *  popovers (`ui/shown.ts`, the same context the right panel's tabs
+         *  provide for theirs).
+         *
          *  ONE mount for every layout. On a phone it is the same full-height
          *  layer under the pull handle — not a sheet over the page — so it owns
          *  the screen inside the root's safe-area padding, and the handle above
@@ -755,8 +787,19 @@ const App: Component = () => {
          *  `z-[45]` sits above everything the canvas wrapper holds — the
          *  floating dock (`z-30`) and a maximized tile (`z-40`) — and below
          *  the chrome (`z-50`) that carries the tab you leave by. */}
-        <Show when={conductorMode()}>
-          <ConductorPane class="absolute inset-0 z-[45]" />
+        <Show when={conductorEverSelected()}>
+          <div
+            class="absolute inset-0 z-[45]"
+            style={{
+              "content-visibility": conductorMode() ? "visible" : "hidden",
+            }}
+            inert={!conductorMode()}
+            aria-hidden={!conductorMode()}
+          >
+            <Shown.Provider value={conductorMode}>
+              <ConductorPane class="absolute inset-0" />
+            </Shown.Provider>
+          </div>
         </Show>
       </div>
       <IntentEditorDialog

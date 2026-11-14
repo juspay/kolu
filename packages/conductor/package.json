@@ -12,15 +12,19 @@
     "./surface": "./src/surface.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run"
   },
+  "//dependencies": "`@kolu/padi-client` is reached for a terminal's record TYPE and, at its `/attention` leaf, for the one fold that says what padi's urgency id lists MEAN (`frameByClass`/`frameClassOf`) — which the watch's readings (`src/readings.ts`) switch on. Re-declaring a parallel record shape or re-indexing those lists here would be a second answer to what padi already says, and the first one to go stale. `kolu-mcp` is reached ONLY at its `/fleetRef` leaf, the one definition of the `host/id` grammar every watched terminal is named in; that subpath deliberately carries no MCP SDK and no padi-client, which is why the same import is what `@kolu/acp-harness` takes.",
   "dependencies": {
     "@kolu/acp": "workspace:*",
     "@kolu/acp-harness": "workspace:*",
+    "@kolu/padi-client": "workspace:*",
     "@kolu/surface": "workspace:*",
     "effect": "catalog:",
     "kolu-agents": "workspace:*",
     "kolu-common": "workspace:*",
+    "kolu-mcp": "workspace:*",
     "pino": "^10.3.1"
   },
   "devDependencies": {
@@ -28,5 +32,5 @@
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
   },
-  "//scripts": "No test lane of its own, and that is a decision rather than an omission: the Conductor's suites are COMPOSITION tests \u2014 the host against the real fleet MCP door and the real tool registry \u2014 so they live with the composition root in `packages/server`. Stubbing the door to move them is exactly the drift one of those tests was written to stop (an imitation answered 400, the proof passed on it, and a door that could serve nobody looked healthy)."
+  "//scripts": "Its own unit lane holds only the PURE modules — the held queue, the watch list's wake decisions, the wake's account (`watching.test.ts`) — which need no door to be exercised. The Conductor's COMPOSITION suites — the host against the real fleet MCP door and the real tool registry — stay with the composition root in `packages/server`: stubbing the door to move them is exactly the drift one of those tests was written to stop (an imitation answered 400, the proof passed on it, and a door that could serve nobody looked healthy)."
 }
