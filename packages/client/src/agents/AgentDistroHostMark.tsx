@@ -2,7 +2,9 @@
  *  the host's agent state as its treatment (the fold is `agentMarkOf`):
  *
  *   - ready: the mark in the tab's own text colour — and while kolu delivers a
- *     newer set there (the old one still serves), a turning arc around it;
+ *     newer set there (the old one still serves), a turning arc around it; when
+ *     its last update failed, a warning dot (its agents keep working, so the
+ *     mark keeps its plain colour);
  *   - downloading (kolu delivering a first set): the same turning arc;
  *   - failed: the mark in the warning colour, with a warning dot;
  *   - checking (connected, no status yet): the mark dimmed, a turning arc;
@@ -36,6 +38,11 @@ function busy(mark: AgentMark): boolean {
     mark.kind === "checking" ||
     (mark.kind === "ready" && mark.delivering)
   );
+}
+
+/** Its agents keep working, but its last update failed. */
+function updateFailed(mark: AgentMark): boolean {
+  return mark.kind === "ready" && mark.updateFailed !== undefined;
 }
 
 /** A third of a faint ring, turning — still under reduced motion. */
@@ -82,6 +89,7 @@ const AgentDistroHostMark: Component<{
       type="button"
       data-testid={props.measuring ? undefined : "host-agents-mark"}
       data-state={mark().kind}
+      data-update-failed={updateFailed(mark()) ? "" : undefined}
       aria-label={agentMarkLabel(mark(), where())}
       tabIndex={props.measuring ? -1 : undefined}
       onClick={(e) => {
@@ -100,7 +108,7 @@ const AgentDistroHostMark: Component<{
         <Arc />
       </Show>
       <AgentDistroLogo size={13} />
-      <Show when={mark().kind === "failed"}>
+      <Show when={mark().kind === "failed" || updateFailed(mark())}>
         {/* The warning dot, haloed in the strip's own background. */}
         <span
           aria-hidden="true"

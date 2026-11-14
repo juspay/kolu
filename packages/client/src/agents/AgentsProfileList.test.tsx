@@ -185,7 +185,11 @@ describe("the rows", () => {
     ]);
     expect(line()?.dataset.kind).toBe("resolved");
     f.setRows([
-      row("x", { kind: "failed", text: "cannot fetch x: HTTP error 404" }),
+      row("x", {
+        kind: "failed",
+        text: "cannot fetch x: HTTP error 404",
+        detail: [],
+      }),
     ]);
     expect(line()?.dataset.kind).toBe("failed");
     expect(line()?.textContent).toBe(

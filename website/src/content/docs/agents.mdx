@@ -83,11 +83,12 @@ with these, kept up to date:".
 
 Below them is one **fleet line** for every machine at once — "Ready on
 naiveintent and 2 more · buildbox delivering · devbox failed", a coloured dot
-per state. Each machine's name is a link that opens that machine's **host
-details**, where everything true of that machine lives: the build it serves, its
-state and last update, its own events and its own actions
-([On other machines](#on-other-machines)). Settings keeps no per-machine state of
-its own.
+per state. A machine that is ready but whose last update failed is named apart,
+with a warning dot: "zest ready, last update failed". Each machine's name is a
+link that opens that machine's **host details**, where everything true of that
+machine lives: the build it serves, its state and last update, its own events
+and its own actions ([On other machines](#on-other-machines)). Settings keeps no
+per-machine state of its own.
 
 The row ends with **Docs →** and **Provided by agent-distro ↗**.
 
@@ -116,9 +117,11 @@ draws no rows: it is the agents as they ship.
 
 A profile that does not build stays in the list, said in red under its row, and
 while it is there new terminals get no coding agents — a terminal never starts
-without a profile you listed. Fix it (kolu tries again at the next check, and
-when you edit the list), or remove it. A profile that still carries an old
-`agent-distro.nix` is one of these: agent-distro refuses it, and its own
+without a profile you listed. The red line is the cause; when Nix printed more
+(a builder's log, say), it sits under it in a small box that scrolls, with a
+**Copy** button for the whole failure. Fix it (kolu tries again at the next
+check, and when you edit the list), or remove it. A profile that still carries
+an old `agent-distro.nix` is one of these: agent-distro refuses it, and its own
 migration message — the file, and the `plugin.json` extension to move its
 fields into — stands under the row.
 
@@ -271,6 +274,7 @@ name, and the mark's look says where that host stands:
 | plain, in the tab's text colour | ready for new terminals |
 | a turning arc around it | kolu is delivering the agents to it |
 | plain, with a turning arc around it | ready, and kolu is delivering a newer set; the current one keeps serving ([Kept up to date](#kept-up-to-date)) |
+| plain, with a small warning dot | ready — its agents keep working — but its last update failed; hover for who said what, open its host details for the whole cause ([Kept up to date](#kept-up-to-date)) |
 | warning colour with a small dot | the delivery failed — hover for why ([below](#when-a-delivery-fails)) |
 | dimmed, with a turning arc | checking: the host is connected but has not said yet |
 | no mark at all | agents are off, or kolu has not delivered that host any agents |
@@ -338,9 +342,14 @@ agents…". Then:
 
 A look that finds nothing newer says nothing: it shows in that machine's host
 details, as its state's last run ("checked 2h ago, up to date"). A later
-delivery that fails says nothing either — the agents you have keep working — and
-it too stands in that machine's host details, in the warning colour, with the
-cause.
+delivery that fails pops no toast either — the agents you have keep working —
+but the machine's tab mark gains a warning dot, Settings' fleet line names it
+"ready, last update failed", and its host details say "ready · last update
+failed 3m ago" in the warning colour, with the cause written out under it: who
+said it (kolu's delivery, padi, or agent-distro's own updater when it also runs
+there), then the cause itself, wrapped in full, and — when Nix or the copy
+printed more — that output in a small box under it that scrolls and copies. The
+dot and the cause go away once a later run lands, or finds nothing newer.
 
 A terminal keeps the set it started with until you restart it — or until a Nix
 garbage collection on that machine removes that set, which an update leaves
@@ -358,7 +367,7 @@ Each machine's **last five events** are in its host details too, one line each
 with the time and the log's own words (hover a line for all of them). They come
 from agent-distro's update log on that machine, which kolu writes in
 agent-distro's own format. A machine whose update log kolu could not read says
-so there instead.
+so there instead, with padi's words for why under its state.
 
 ## When a delivery fails
 
@@ -381,18 +390,21 @@ signed by no one, so a Mac takes it only when it trusts the login.
 A delivery that fails — agent-distro has not published the agents for that kind
 of machine yet, a profile would not build, the host could not reach the cache,
 the download broke off, a Mac refused —
-carries kolu's words for the cause, with Nix's own line after it. The host gets no agents (kolu never
+carries kolu's words for the cause, with Nix's own output under it. The host gets no agents (kolu never
 compiles them), and its mark turns to the warning colour. kolu tries again on
 its own at the next scheduled time and whenever the machine reconnects (see
 [Kept up to date](#kept-up-to-date)) — or right away: open that machine's host
 details (click the mark, or the machine's name on Settings' fleet line) and
 press **check for newer agents ↻**. Its **agents** section carries the cause in
-full and that "New terminals on &lt;host&gt; get no coding agents until this is
-fixed".
+full — Nix's output in a box under it that scrolls and copies — and that "New
+terminals on &lt;host&gt; get no coding agents until this is fixed". A profile
+that does not build shows the same under its row in Settings
+([Profiles](#profiles)).
 
 A later delivery that fails on a machine that already has agents is different:
-the agents it has keep working, and the failure shows only in that machine's
-host details ([Kept up to date](#kept-up-to-date)).
+the agents it has keep working, so its mark keeps its plain colour with a
+warning dot, and the cause stands in that machine's host details
+([Kept up to date](#kept-up-to-date)).
 
 ## Turning it off
 

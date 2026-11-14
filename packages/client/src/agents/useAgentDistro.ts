@@ -229,9 +229,14 @@ function everyHostAgentStatus(): readonly (HostAgentStatus & {
   ];
 }
 
-/** How `host`'s tab shows its agents — the shared fold over its facts. */
+/** How `host`'s tab shows its agents — the shared fold over its facts, its
+ *  receipt included (a ready host whose last update failed says so). */
 export function hostAgentMark(host: HostKey): AgentMark {
-  return agentMarkOf(hostAgentStatusOf(host), hostAgentChecking(host));
+  return agentMarkOf(
+    hostAgentStatusOf(host),
+    hostAgentChecking(host),
+    hostEntry(host)?.receipt(),
+  );
 }
 
 /** Settings' ONE fleet line: the local machine first, then every remote pool

@@ -20,28 +20,39 @@
  */
 
 import assert from "node:assert";
+import fs from "node:fs";
 import os from "node:os";
-import { Then, When } from "@cucumber/cucumber";
+import path from "node:path";
+import { After, Given, Then, When } from "@cucumber/cucumber";
 import { agentBundleShortHash } from "@kolu/agent-distro/bundle";
 import type {
+  AgentDistroReceipt,
   AgentDistroSetting,
   AgentDistroStatus,
 } from "@kolu/agent-distro/schema";
 import {
   AGENTS_OFF_MEANS,
+  type AgentHostDetail,
+  agentHostDetail,
+  agentMarkOf,
   agentToast,
+  type HostAgentStatus,
+  agentUpdateFailedLine,
   agentsChosenLabel,
   agentsResolvedLine,
   agentsStepHint,
   JUSPAY_PROFILE,
   restartedLabel,
 } from "@kolu/agent-distro/status";
+import { failedUpdateLine } from "@kolu/agent-distro/testing";
 import {
   FIXTURE_CLAUDE_SAYS,
   FIXTURE_LISTING,
   FIXTURE_MARK,
   FIXTURE_PICKER_SAYS,
+  fixtureHistoryLog,
 } from "../support/agentDistroFixture.ts";
+import { stateHomeDir } from "../support/hooks.ts";
 import { waitForPadiCell } from "../support/padiCellWait.ts";
 import { escapeRegExp } from "../support/regexp.ts";
 import { type KoluWorld, POLL_TIMEOUT } from "../support/world.ts";
@@ -597,6 +608,144 @@ Then(
         `${HOST_DETAILS} [data-testid="host-agents"][data-host="${LOCAL_NAME}"]`,
       )
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+// ── A failed update, said where the machine is ─────────────────────────────
+
+/** Why the seeded update failed: long, with an unbroken store path, so the
+ *  host details must wrap it rather than widen. Upstream's updater writes the
+ *  line; kolu never does (its own failures stay in padi's memory). */
+const FAILED_UPDATE_WORDS = `nix build exited 1: /nix/store/${"q".repeat(32)}-agent-distro-claude-code-2.1.319-with-plugins.drv could not be realised — no space left on device`;
+
+/** The update log this scenario seeded, removed when it ends so a later
+ *  scenario on this worker does not inherit a failed last run. */
+let seededHistoryLog: string | undefined;
+
+After(() => {
+  if (seededHistoryLog !== undefined)
+    fs.rmSync(seededHistoryLog, { force: true });
+  seededHistoryLog = undefined;
+});
+
+/** Before Agents are turned on: padi re-reads the receipt when the setting
+ *  changes. Written under this worker's own state home (`stateHomeDir`, the
+ *  `XDG_STATE_HOME` its padi runs with), never the developer's. */
+Given(
+  "this machine's agents update log records a failed update",
+  function (this: KoluWorld) {
+    const file = fixtureHistoryLog(stateHomeDir);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.appendFileSync(file, failedUpdateLine(FAILED_UPDATE_WORDS));
+    seededHistoryLog = file;
+  },
+);
+
+/** This machine's agent facts, from padi's own status and receipt — once the
+ *  receipt says the last run failed. */
+async function failedUpdateHost(): Promise<HostAgentStatus> {
+  const status = await readyWithNoProfiles();
+  const receipt = await padiValue<AgentDistroReceipt>(
+    "agentDistroReceipt/get",
+    (r) => r.lastRun?.outcome === "failed",
+    "a receipt whose last run failed",
+  );
+  return {
+    label: LOCAL_NAME,
+    status,
+    checking: false,
+    receipt,
+    // The phrase is the client's clock; the fold's words around it are what a
+    // step can pin.
+    ago: () => "",
+  };
+}
+
+/** This machine's details as the fold words them. */
+async function failedUpdateDetail(): Promise<AgentHostDetail> {
+  const detail = agentHostDetail({
+    host: await failedUpdateHost(),
+    setting: { enabled: true, profiles: [] },
+  });
+  if (detail?.cause === undefined)
+    throw new Error("the fold gives this machine no cause");
+  return detail;
+}
+
+Then(
+  "the agents section should say the last update failed",
+  async function (this: KoluWorld) {
+    const { state } = await failedUpdateDetail();
+    const line = this.page.locator(AGENTS_STATE);
+    await line.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await this.page.waitForFunction(
+      ([sel, text]) =>
+        document
+          .querySelector(sel as string)
+          ?.textContent?.startsWith(text as string),
+      [AGENTS_STATE, state.text.trimEnd()],
+      { timeout: POLL_TIMEOUT },
+    );
+    assert.strictEqual(
+      await this.page
+        .locator(`${HOST_DETAILS} [data-testid="host-agents-state"]`)
+        .getAttribute("data-tone"),
+      "warn",
+    );
+  },
+);
+
+/** The cause in full — who said it and the whole of its words, never cut —
+ *  and the details panel still does not scroll sideways around it. */
+Then(
+  "the agents section should show that failure's cause in full",
+  async function (this: KoluWorld) {
+    const { cause } = await failedUpdateDetail();
+    assert.ok(cause);
+    assert.ok(
+      cause.headline.includes(FAILED_UPDATE_WORDS),
+      `the fold's cause ${JSON.stringify(cause.headline)} is not the seeded words`,
+    );
+    const text = this.page.locator(
+      `${HOST_DETAILS} [data-testid="host-agents-cause-text"]`,
+    );
+    await text.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    assert.strictEqual(
+      await text.textContent(),
+      `${cause.by}: ${cause.headline}`,
+    );
+    const overflow = await this.page
+      .locator(HOST_DETAILS)
+      .evaluate((el) => el.scrollWidth - el.clientWidth);
+    assert.ok(
+      overflow <= 0,
+      `the host details scroll sideways by ${overflow}px`,
+    );
+  },
+);
+
+/** The mark keeps its plain colour (its agents work) and gains the warning
+ *  dot; its words add who said what. */
+Then(
+  "the host tab's agents mark should warn that its last update failed",
+  async function (this: KoluWorld) {
+    const host = await failedUpdateHost();
+    const mark = agentMarkOf(host.status, host.checking, host.receipt);
+    assert.ok(
+      mark.kind === "ready" && mark.updateFailed !== undefined,
+      "the fold gives this machine no failed update",
+    );
+    const failure = mark.updateFailed;
+    const tab = this.page.locator(
+      `${HOST_AGENTS_MARK}[data-state="ready"][data-update-failed]`,
+    );
+    await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    assert.ok(
+      (await tab.getAttribute("aria-label"))?.includes(
+        agentUpdateFailedLine(failure, LOCAL_NAME),
+      ),
+      "the mark's words do not say the update failed",
+    );
   },
 );
 
