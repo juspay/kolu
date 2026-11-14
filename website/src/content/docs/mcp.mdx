@@ -1,6 +1,6 @@
 ---
 title: MCP
-description: "Connect your coding agent to kolu over MCP — create, drive, and observe terminals from Claude Code, Codex, or any MCP host: send prompts, wait for a turn to end, read the screen, and see which terminals need you."
+description: "Connect your coding agent to kolu over MCP: open terminals, send prompts, wait for a turn to end, read the screen, and see which terminals need you."
 order: 92
 section: Command Line
 koluHero:
@@ -15,27 +15,20 @@ import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 import Steps from "../../components/docs/Steps.astro";
 
+`kolu mcp` connects your coding agent (Claude Code, Codex, or any
+[MCP](https://modelcontextprotocol.io) host) to your running kolu. The agent
+opens a terminal, types a task into it, waits for the reply, reads the screen,
+and sees which terminals need you.
+
 <Aside type="caution" title="alpha">
-  `kolu mcp` is an early preview. The tool set and wiring **may change**; the
-  driving pattern — create, prompt, wait, read — is stable.
+  `kolu mcp` is an early preview. The tool set and wiring may change; the
+  driving pattern (create, prompt, wait, read) is stable.
 </Aside>
 
-`kolu mcp` connects your **coding agent** — Claude Code, Codex, or any
-[MCP](https://modelcontextprotocol.io) host — to your running kolu. Once it's
-wired, the agent can do from code exactly what you do by hand on the canvas:
-**open a terminal, type a task into it, wait for the reply, read the screen, and
-see which terminals need you.** That's what turns one agent into a driver of
-many — a coordinator spawning and steering a fleet of worker agents, each in its
-own terminal, while you sit one layer up.
-
-It runs as a small `kolu mcp` process your agent starts over stdio. Nothing new
-to install if you already run kolu; no browser involved. If no padi is
-reachable when it starts — nothing listening on the resolved socket, or no
-daemon discoverable at all — `kolu mcp` **exits non-zero** before the MCP
-handshake, so a consumer can ask "is kolu usable on this host?" by spawning
-and checking the exit code rather than reimplementing socket discovery. The
-same tool table is also spelled as shell verbs — [`kolu surface`](/terminal-ui)
-projects it to argv for a script, exactly as `kolu mcp` serves it to an agent.
+It runs as a small process your agent starts over stdio. With no padi reachable
+at startup it exits non-zero before the MCP handshake, so a consumer can test
+whether kolu is usable on a host by reading that exit code.
+[`kolu surface`](/terminal-ui) projects the same tool table to argv.
 
 ## Install the skill and server together
 
@@ -55,83 +48,33 @@ For Oh My Pi, pass the repository root as the plugin directory:
 omp -e .
 ```
 
-Use `/skill:kolu` to load the skill. The plugin also registers `kolu mcp`.
-Keep your host's environment forwarding configured for `PADI_SOCKET` when
-connecting to the daemon of the current kolu terminal.
-
-Nix consumers can use `${inputs.kolu}` from a `github:juspay/kolu` input — the
-repository root **is** the plugin. The directory is included in source archives
-and contains the skill, its reference file, and the MCP configuration; no plugin
-build output is needed.
-
-## Two faces, one tool table
-
-[The Conductor](/conductor) — the one chat that drives every terminal on every host — is a consumer of exactly this tool table. It gets no private face and no second expose map: kolu declares the tools **once** and projects them twice.
-
-- **The per-host face is this page.** `kolu mcp` over stdio, serving one host's padi, naming terminals by bare id. It is what an agent running **inside** a terminal uses, what the `.mcp.json` entry below starts, and nothing about it changes.
-- **The fleet face is that same table lifted over every host.** It runs in-process inside kolu-server, and the Conductor reaches it over **streamable HTTP on a loopback listener** gated by a bearer token minted fresh for each kolu-server process — no stdio relay, no ssh child per host, and exactly one MCP server entry for the whole life of the conversation, however many hosts come and go underneath it.
-
-What the fleet projection changes is identity, and only identity:
-
-<div class="doc-scroll">
-
-| | per-host face — `kolu mcp` | fleet face — the Conductor's |
-| --- | --- | --- |
-| naming a terminal | `3f29…` | `local/3f29…`, `remote:nix@prod/9a1b…` — the host, then the id, read apart at the **last** `/` |
-| `lifecycle_create` | opens one here | takes the host to open on, and answers a fleet reference |
-| the repo tools — `git_getStatus` · `git_getDiff` · `fs_listAll` · `fs_readFile` | a repo path | a repo path **and** the host it is on |
-| the waits and the watch | `wait_outputSettled` · `wait_agentState` · `watch_open` · `watch_next` · `watch_close`, all as documented below | **not served.** The Conductor never blocks: kolu-server wakes it. It gets `watch_terminal` / `unwatch_terminal` instead, and keeps `wait_outputSettled` **hard-capped at a few seconds** — the settle between typing and Enter, never a way to sit on an agent |
-| live views | `terminals` · `urgency` · `daemonStatus` · `status` · `identity` | `terminals` · `urgency` · **`hosts`** · **`watched`** |
-
-</div>
-
-`hosts` is the live roster: which machines kolu knows, what each is called, and whether it is warming, connected or failed *now*. It stands in for the three per-host health views rather than fanning them out — `daemonStatus`, `status` and `identity` are facts about **one** host, and in a fleet they are columns of that roster. A call naming a host that is not connected is **refused by name**, saying which host and what state it is in; it is never answered with an empty list, which an agent would read as "nothing is running there".
-
-`watched` is the Conductor's own watch list, read back: one row per watched terminal — its `host/id`, the last name and agent kolu saw in it, how it got on the list, and the state of the host it is on *now* (all three host columns `null` once that host is no longer a member). It moves the list with `watch_terminal` / `unwatch_terminal` and reads it here, so a conversation that restarted knows what it is being woken by instead of guessing. The resource subscribes, so a watched terminal that goes away — or one a person takes off from the browser — reaches it without a call.
-
-One terminal's record is read at `surface://collections/terminals/<host>/<id>` — the reference exactly as a tool, a wake or a resource hands it out, nothing escaped. A reference that names nothing, like any address the fleet face does not serve, is refused in a sentence that says what a record address looks like.
-
-Everything else — every tool below, every refusal, the whole allowlist — is one definition serving both; the single exception is the row above. So if you want to know what the Conductor is capable of, this page is still the answer.
-
-That one exception is worth stating plainly, because it is the only place the
-two faces differ in what they can *do*. An agent in a terminal that calls a
-wait is blocking itself, and that is its own business. [The
-Conductor](/conductor) is a conversation a person is talking to, so a turn of
-its own stuck in a wait is a person stuck behind it. So the unbounded waits
-are simply not on its table: it names what it is watching, ends its turn, and
-kolu-server starts the next one when a watched terminal's agent comes up
-unbriefed, stops, asks or goes. `watch_terminal` and `unwatch_terminal` are
-how it keeps that list (a terminal it creates is added for it);
-`wait_outputSettled` survives with a hard cap, because typing a command and
-submitting it still needs the pause in between.
+Use `/skill:kolu` to load the skill. The plugin also registers `kolu mcp`. Keep
+your host's environment forwarding configured for `PADI_SOCKET`. Nix consumers
+can use `${inputs.kolu}` from a `github:juspay/kolu` input: the repository root
+is the plugin, archived with the skill, its reference file and the MCP
+configuration.
 
 ## Connect it to your agent
 
 <Steps>
 
-1. Make sure the `kolu` binary is on your PATH — if you installed kolu with the
-   home-manager module, it already is (the module puts `kolu` on PATH by
-   default), and **inside a kolu terminal it is put there for you**, on your own
-   machine and on a remote host alike — and in bash and zsh it is re-applied
-   after your dotfiles run, so a `PATH=` line can't remove it (fish and other
-   shells get it at spawn only; see [Inside a kolu
-   terminal](#inside-a-kolu-terminal)). Then register the
-   server with your agent:
+1. Put the `kolu` binary on your PATH. The home-manager module does it, and so
+   does a kolu terminal (see [Inside a kolu
+   terminal](#inside-a-kolu-terminal)). Then register the server:
 
    ```sh
    # Claude Code
    claude mcp add kolu -- kolu mcp
    ```
 
-   No kolu install? Run it straight from the flake instead — same server, one
-   command:
+   No kolu install? Run it straight from the flake instead:
 
    ```sh
    claude mcp add kolu -- nix --refresh run github:juspay/kolu -- mcp
    ```
 
-2. Prefer a config file? Add an `.mcp.json` entry — any MCP host that reads that
-   file will pick it up:
+2. Prefer a config file? Add an `.mcp.json` entry, which any MCP host that reads
+   that file picks up:
 
    ```json
    {
@@ -141,111 +84,123 @@ submitting it still needs the pause in between.
    }
    ```
 
-3. Drive a kolu on **another machine** by adding `--host` — it reaches the remote
-   over ssh, nothing to install there first:
+3. Drive a kolu on another machine by adding `--host`. It reaches the remote
+   over ssh, with nothing installed there first.
 
    ```sh
    claude mcp add kolu-prod -- kolu mcp --host nix@prod
    ```
 
    `kolu mcp` takes the same endpoint flags every verb does, so `--socket <path>`
-   and `--state-root <dir>` name a specific **local** daemon the same way — which
-   is how you point an agent at a development kolu instead of the running one.
+   and `--state-root <dir>` name a specific local daemon.
 
 </Steps>
 
-None of that needs a flag when you are simply running kolu: `kolu mcp` finds this
-machine's kolu on its own. If you also have a development or test kolu up, it
-still picks your everyday one — the daemons differ by where they keep their
-state, and only one of them keeps it where a plain kolu looks. That matters most
-when the thing spawning `kolu mcp` is a **background service** rather than you at
-a shell: there is nobody there to point it at the right daemon, and it no longer
-needs one. If it still can't tell — several kolus are running and none of them is
-the everyday one — it says so and names what it looked for, rather than
-connecting to whichever it found first.
+Without a flag, `kolu mcp` picks your everyday kolu over a development or test
+one. If it cannot tell, it says what it looked for.
 
 ## Inside a kolu terminal
 
-An agent running **in** a kolu terminal needs no step above, and this is true on a
-remote host exactly as it is on your own machine. The terminal is spawned with
-kolu's own CLIs — `kolu`, `kaval-tui`, `padi-tui` — already on its `PATH`, and
-with `$PADI_SOCKET` naming the daemon that owns it. So a plain `.mcp.json` with
-`"command": "kolu"` resolves and connects, with no `--host` flag and nothing
-installed on that machine: an agent you started on a remote host can drive its
-sibling terminals the moment it boots.
+An agent running in a kolu terminal needs no step above, on a remote host as on
+your own machine. The terminal is spawned with kolu's own CLIs (`kolu`,
+`kaval-tui`, `padi-tui`) on its `PATH`, and with `$PADI_SOCKET` naming the
+daemon that owns it. A plain `.mcp.json` with `"command": "kolu"` connects.
 
-The tools it gets are the ones from the **same build** as the daemon serving it —
-they arrive in the closure kolu copies to the host when it dials, and the daemon
-puts them on the terminal's `PATH` through a path it **owns and re-points at
-every start**. So a tool and its daemon can never disagree about the wire between
-them — including after an upgrade: a terminal you opened before kolu was upgraded
-runs the new build's `kolu` the next time it is used, with nothing to reopen. (A
-terminal opened by a kolu *older* than the one that introduced this carries that
-older build's exact path instead, and has to be reopened once.) Your own `PATH`
-is untouched apart from these names taking precedence.
+Those tools match the daemon's own build. After an upgrade, a terminal you
+already have runs the new `kolu` the next time it is used. A terminal opened by
+a kolu older than this mechanism has to be reopened once.
 
-One bound worth stating plainly: **in bash and zsh** kolu re-applies its `PATH`
-entries *after* your dotfiles have run, so an absolute `PATH=…` line in
-`~/.bashrc` or `~/.zshrc` cannot quietly remove the tools. **In fish and any
-other shell** the tools are only put in the terminal's spawn environment — that
-is best-effort, and an absolute `set -x PATH …` in `config.fish` will still drop
-them. Prepend rather than assign there, or add the paths back yourself.
+In bash and zsh, kolu re-applies its `PATH` entries after your dotfiles run, so
+an absolute `PATH=` line in `~/.bashrc` or `~/.zshrc` cannot remove the tools.
+In fish and other shells they are only put in the spawn environment, so an
+absolute `set -x PATH …` in `config.fish` drops them. Prepend rather than assign
+there.
 
 ## Drive a terminal
 
-Driving another agent is a short loop of discrete, observable moves — the same
-rhythm whether you do it by hand or your agent does it in code:
+Driving another agent is a loop:
 
 <Steps>
 
-1. **Create** a terminal for the work (optionally as a split of another, or in a
-   fresh worktree) and keep the `id` it returns.
-2. **Send** the prompt text into it.
-3. **Wait** for the output to settle, then send **Enter** as its own step — text
-   and the submit key are always two separate calls, so a same-breath Enter can't
-   race the paste.
-4. **Wait** for the agent's turn to end, then **read** the screen to see what it
-   said.
-5. Send the next prompt, and repeat — or **kill** the terminal when the work is
-   done.
+1. Create a terminal (optionally as a split, or in a fresh worktree) and keep
+   the `id`.
+2. Send the prompt text into it.
+3. Wait for the output to settle, then send `Enter` as its own step. Combining
+   text and the submit key in one call is a deliberate error, because a
+   same-breath `Enter` can race the paste.
+4. Wait for the turn to end, then read the screen.
+5. Send the next prompt, or kill the terminal.
 
 </Steps>
 
-<Aside type="note" title="Text and Enter are separate steps">
-  Every `send-text` is followed by a settle wait and then a separate `Enter`.
-  Combining the two in one call is a deliberate error — observing the terminal
-  settle *before* submitting is what makes driving reliable.
-</Aside>
+## What the Conductor's face changes
+
+[The Conductor](/conductor), the one chat that drives every terminal on every
+host, consumes this same tool table. kolu declares the tools once and projects
+them twice. The per-host face is this page: `kolu mcp` over stdio, serving one
+host's padi, naming terminals by bare id. The fleet face is that table lifted
+over every host, served inside kolu-server over HTTP on a loopback listener.
+
+<div class="doc-scroll">
+
+| | per-host face — `kolu mcp` | fleet face — the Conductor's |
+| --- | --- | --- |
+| naming a terminal | `3f29…` | `local/3f29…`, `remote:nix@prod/9a1b…`: the host, then the id, read apart at the last `/` |
+| `lifecycle_create` | opens one here | takes the host to open on, and answers a fleet reference |
+| the repo tools — `git_getStatus` · `git_getDiff` · `fs_listAll` · `fs_readFile` | a repo path | a repo path and the host it is on |
+| the waits and the watch | `wait_outputSettled` · `wait_agentState` · `watch_open` · `watch_next` · `watch_close`, all as below | `wait_outputSettled`, hard-capped at a few seconds, plus `watch_terminal` / `unwatch_terminal`. The rest are not served |
+| live views | `terminals` · `urgency` · `daemonStatus` · `status` · `identity` | `terminals` · `urgency` · `hosts` · `watched` |
+
+</div>
+
+A turn of the Conductor's stuck in a wait is a person stuck behind it. It names
+what it is watching, ends its turn, and kolu-server starts the next one. The
+capped `wait_outputSettled` survives because typing a command and submitting it
+needs the pause between.
+
+`hosts` is the live roster: which machines kolu knows, what each is called, and
+whether it is warming, connected or failed. A call naming a host that is not
+connected is refused by name, never with an empty list.
 
 ## What your agent can do
 
-The tools and live views below are what `kolu mcp` gives the agent, and the name
-in the first column is what your agent calls. Eight of them — `screen_text` and
-`screen_image`, `lifecycle_create` and `lifecycle_sendInput`, the two waits and
-the two watch tools — also carry a readable display name a host can show
-instead ("Send input to a terminal").
+The name in the first column of each table below is what your agent calls. Every
+answer is structured data, alongside text for every tool but `screen_image`,
+whose answer is the image.
 
-Every **successful** answer comes back as **structured data**, so your agent acts
-on a field rather than re-reading prose — alongside text for every tool but
-`screen_image`, whose answer is the image itself (its structured arm carries the
-size and mime type, and the picture is not repeated as base64 prose). A refusal carries data
-when the tool has a machine-readable reason to give: `lifecycle_sendInput` labels
-its four refusals `text-and-key`, `key-refused`, `text-refused` or `no-input`,
-and `lifecycle_create` labels its directory refusals (`cwd-and-worktree`,
-`worktree-needs-repo`, `repo-without-worktree`, `blank-field`) and the
-partial-failure report `stopped-partway`, beside the sentence explaining each.
-Other failures arrive as their message alone — including a missing or malformed
-`placement`, which is refused by the tool's own schema before anything runs, so
-the sentence names both spellings and no terminal was created to clean up.
+A refusal carries data when the tool has a machine-readable reason.
+`lifecycle_sendInput` labels its four refusals `text-and-key`, `key-refused`,
+`text-refused` or `no-input`. `lifecycle_create` labels its directory refusals
+(`cwd-and-worktree`, `worktree-needs-repo`, `repo-without-worktree`,
+`blank-field`) and the partial-failure report `stopped-partway`. A bad
+`placement` is refused by the schema, before any terminal is created.
 
 ### Create and drive terminals
 
 | Tool | What it does |
 | --- | --- |
-| `lifecycle_create` | Open a new terminal and return its `id`. **`placement` is required** — `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"…"}` to open it as a split inside that terminal; there is no default, and a call that omits it is refused with both spellings. Optionally: in a working directory (`cwd`) or a **fresh git worktree** (`repo` + `worktree`, cut at `<repo>/.worktrees/<name>`), labelled on the canvas (`intent`), typing a first command at its shell prompt (`run`). One call does what `kolu create --toplevel --repo … --worktree … -- <cmd>` does. A create that fails after the worktree or terminal already landed names the survivors as data (`stopped-partway`), so nothing orphaned goes unnameable. It picks up your [new-terminal theme setting](/theming) like a terminal you open yourself. |
-| `lifecycle_sendInput` | Type into a terminal: text, **or** one named key or chord (`Enter`, `Escape`, `C-c`, arrows…) — never both in one call. |
+| `lifecycle_create` | Open a new terminal and return its `id`. `placement` is required: `{"kind":"toplevel"}` for a tile of its own, or `{"kind":"child-of","parentId":"…"}` for a split inside that terminal. |
+| `lifecycle_sendInput` | Type into a terminal: text, or one named key or chord (`Enter`, `Escape`, `C-c`, arrows…), never both in one call. |
 | `lifecycle_kill` | Close one terminal by `id`. |
-| `agent_say` | Say something to the **agent** in a terminal, idle or mid-turn. kolu knows which agent is in there (see [agent detection](/agent-detection)) and performs its own submit — the keys, in the order and number that agent wants — so a driver never has to learn that one CLI needs a second Enter. A terminal with no agent, or an agent kolu has no recipe for, is refused with the reason rather than typed at blindly. The answer **says whether it took**: for an agent that was idle, whether it began working within a few seconds of the keys — and when it did not, that the keys were sent and the screen is what to read, never the same words sent again; for one already working, how the words were delivered (steered into the turn, or queued behind it) and that taking is not observable from outside. Served by **both** faces, and by the CLI as `kolu surface agent_say <id> --text '…'`. |
+| `agent_say` | Say something to the agent in a terminal, idle or mid-turn. kolu presses that agent's own submit keys, in the order and number it wants. |
+
+`lifecycle_create` also takes a working directory (`cwd`) or a fresh git
+worktree (`repo` + `worktree`, cut at `<repo>/.worktrees/<name>`), a canvas
+label (`intent`), and a first command (`run`). It does what
+`kolu create --toplevel --repo … --worktree … -- <cmd>` does, and the terminal
+picks up your [new-terminal theme setting](/theming). A create that fails midway
+names the survivors as data.
+
+`agent_say` knows which agent is in the terminal (see [agent
+detection](/agent-detection)). It refuses by name for a terminal with no agent,
+an agent kolu has no recipe for, an agent that cannot be told anything mid-turn,
+and an agent whose screen is still being drawn.
+
+Its answer says whether the words took: for an idle agent, whether it began
+working within a few seconds, and if not, that the keys were sent and the screen
+is what to read. For an agent already working, how the words were delivered
+(steered, or queued behind the turn), which is not observable from outside. The
+CLI serves it too: `kolu surface agent_say <id> --text '…'`.
 
 ### Wait for the right moment
 
@@ -254,199 +209,154 @@ the sentence names both spellings and no terminal was created to clean up.
 | `wait_outputSettled` | Block until a terminal's output goes quiet — the turn ended, or it's waiting for input. |
 | `wait_agentState` | Block until the terminal's agent reaches a state you name (`working`, `awaiting`, `waiting`) — a precise done-signal, not a guess from silence. |
 
-Both waits are the **per-host** face's, and an uncapped one is not on [the
-Conductor](/conductor)'s table at all: its `wait_outputSettled` is capped at a
-few seconds and it has no `wait_agentState`.
+Both take two extras that turn a three-call routine into one:
 
-Both take two extras that turn a three-call routine into one call, and both
-exist because the gaps between those calls are where a driving agent gets
-misled:
-
-- **`settledMs`** — also require the output to have been quiet that long. It's
-  an *and*, not a second wait: bytes still arriving keep the wait open, and an
-  agent that goes back to work re-enters it. This is what tells a genuinely
-  finished agent from one whose main loop ended while a background helper is
-  still running — the second reads as done within milliseconds otherwise.
-- **`screenTail: N`** — hand back the last N screen lines *on the signal
-  itself*, read while the wait is still watching. A separate read afterwards
-  can catch a screen that has already moved on.
+- `settledMs` also requires the output to have been quiet that long. Bytes still
+  arriving keep the wait open. This tells a finished agent from one whose main
+  loop ended while a background helper runs on.
+- `screenTail: N` hands back the last N screen lines on the signal itself. A
+  later read can catch a screen that has moved on.
 
 `wait_agentState` with `until: ["awaiting","waiting"]`, `settledMs: 15000` and
 `screenTail: 40` answers "is this worker's turn really over, and what did it
-say?" in one go — the same thing [`kolu debrief`](/agent-fleets) does from a
-shell.
+say?", as [`kolu debrief`](/agent-fleets) does from a shell.
 
-### Supervise several terminals at once
+### Watch many terminals at once
 
-This subscription is the **per-host** face's too — [the
-Conductor](/conductor) is woken by kolu-server instead, and keeps a watched
-list rather than a subscription (below). For an agent that does block, the two
-waits above each watch **one** terminal, and only while the call is open — so
-an agent running several workers used to need a wait per worker, kept re-armed
-by hand, and anything that happened between two waits was invisible. These
-replace that with one subscription:
+The two waits each watch one terminal, while the call is open. A subscription
+watches many, between your agent's calls:
 
 | Tool | What it does |
 | --- | --- |
 | `watch_open` | Start watching — the whole fleet by default, or a named few. You choose the subscription's name. |
-| `watch_next` | Block until any watched terminal needs you, then hand over everything that has happened since you last asked. |
+| `watch_next` | Block until a watched terminal needs you, then hand over everything since your last call. |
 | `watch_close` | Stop watching and discard the queue. |
 
-Anything that happens while your agent is **not** asking is kept for it, so the
-time between two calls is not a blind spot — and the queue lives in kolu's
-background service, so it survives your agent restarting. Reopen with the same
-name and you pick up where you left off. Each event says which terminal and why:
-it's **asking** for input, it **finished** its turn, or it's **gone**.
+Anything that happens while your agent is not asking is kept for it, in kolu's
+background service, so reopening with the same name picks up where you left off.
+Each event says which terminal and why: it is asking for input, it finished its
+turn, or it is gone. Leaving `ids` off is the better default: a subscription
+scoped to the lanes you remembered goes blind to the one you did not.
 
-`ids` is optional, and leaving it off is the better default: a subscription
-scoped to the lanes you remembered goes blind to the one you didn't.
+#### Report a terminal until you deal with it
 
-#### Terminals that keep asking until you deal with them
-
-A settle event fires **once**. An agent that finishes and then sits there for an
-hour is reported at the start of that hour and never again — so a conductor
-that was busy when the report landed loses the terminal entirely. Optional
-parameters on `watch_open` replace that with a level you cannot miss:
+A settle event fires once, so an agent that finishes and then waits is reported
+then and never again. Optional parameters on `watch_open` replace that with a
+level you cannot miss:
 
 | Parameter | What it does |
 | --- | --- |
 | `states` | which agent states to report — any of `working`, `awaiting`, `waiting`. Defaults to `awaiting` + `waiting`, the two that need somebody |
 | `heldForMs` | report a terminal only once it has *held* that state this long. An agent handed more work inside the window is never reported |
-| `nagMs` | re-report it every this many milliseconds for as long as it keeps holding — or spell it as a string: `"30m"` is the same interval, and a count after the slash caps it, `"30m/3"`: three reminders past the first report, then quiet about that terminal until the state changes (a bare interval repeats forever) |
-| `ignoreSelf` | mute the terminal this MCP server is running inside. Refused if the transport cannot identify the caller, and refused if the padi this server is connected to does not know that terminal (another machine's fleet, or a daemon restart that re-keyed them) — pass `ignoreIds` rather than guessing |
-| `ignoreIds` | mute these terminals. Fail-open: a stale id costs nothing, and every new terminal is still watched. Prefer this over `ids`. An `ids` list that is entirely muted is refused rather than hanging silent |
+| `nagMs` | re-report it every this many milliseconds while it keeps holding. A string spells the same interval, `"30m"`, and a count after the slash caps it: `"30m/3"` is three reminders, then quiet until the state changes |
+| `ignoreSelf` | mute the terminal this MCP server runs inside. Refused if the transport cannot identify the caller, or if this server's padi does not know that terminal |
+| `ignoreIds` | mute these terminals. Fail-open: a stale id costs nothing, and every new terminal is still watched. An `ids` list that is entirely muted is refused rather than hanging silent |
 
 ```json
 { "name": "campaign", "states": ["awaiting", "waiting"],
   "heldForMs": 60000, "nagMs": 300000, "ignoreSelf": true }
 ```
 
-A subscription opened this way reports **snapshot** (already in that state when
-you opened — handed over before anything that changed since), **transition** (it
-entered the state and held it), and **nag** (still holding, one interval later).
-Each nag carries `nag.index` (which reminder this is — the first re-report is
-1) and `nag.left` (how many follow — `0` on the last, absent when uncapped),
-so a consumer can tell the final reminder from the others. Reopening after a restart leads with a fresh
-snapshot, so an agent that comes back finds what is standing rather than only
-what happens next — and it inherits the episode's spent nag budget rather
-than re-arming it. The budget belongs to the QUESTION, though: re-specifying
-the filter — including narrowing `states` out and then back — throws away the
-previous subscription's answers and their accounting both, so a changed watch
-starts its count fresh.
+Such a subscription reports three kinds of event. A snapshot is a terminal
+already in that state when you opened, handed over first. A transition is one
+that entered the state and held it. A nag is one still holding, an interval
+later: it carries `nag.index`, which reminder this is (the first re-report is
+1), and `nag.left`, how many follow (`0` on the last, absent when uncapped).
 
-kolu asks each agent for its own state rather than watching its output: an idle
-agent that repaints its prompt every second is still idle, and `heldForMs` times
-the **state**, not the screen. The same knobs are
-[`kolu watch`'s flags](/terminal-ui) from a shell — one implementation, two
-faces.
+Reopening after a restart leads with a fresh snapshot, and inherits the
+episode's spent nag budget. Re-specifying the filter throws away the queued
+events and the nag accounting both. Restarting kolu's background service clears
+the queue, and says so.
 
-Two things to know before adopting them. A subscription answers **one** of the
-two questions, never both: one opened with these parameters reports states, so it
-does **not** report `gone` when a terminal disappears. That is not an oversight —
-this feed is a level, so a terminal that goes away simply stops being reported,
-and nothing is left waiting on it. An agent that specifically needs to hear about
-a terminal *dying* keeps a second subscription without the parameters, or reads
-the `terminals` live view. And reopening a name with **different** parameters
-starts its queue over: the events it held are answers to the question you just
-stopped asking, and the fresh snapshot is what replaces them. Reopening with the
-*same* parameters — the ordinary restart — keeps the queue, as it always has.
+kolu asks each agent for its own state rather than watching its output, so
+`heldForMs` times the state, not the screen. The same knobs are [`kolu watch`'s
+flags](/terminal-ui).
 
-A batch is handed over until your agent confirms it received it, so a reply lost
-to a timeout costs a repeat rather than a missed report. A queue holds the most
-recent 512 events; if your agent stays away long enough to overflow one, the next
-batch comes back with a count of what was dropped rather than quietly losing the
-tail. Restarting kolu's background service itself — an upgrade does it — clears
-subscriptions; the next call says so plainly instead of reporting silence.
+These parameters report states, so they do not report `gone` when a terminal
+disappears. To hear about that, keep a second subscription without them. A batch
+is handed over until your agent confirms it, and a queue holds the most recent
+512 events; overflow it and the next batch carries a count of what was dropped.
 
 ### The Conductor's watched list
 
-The fleet face swaps the subscription for a list kolu-server keeps, because
-the Conductor is not the thing doing the waiting — it is the thing being
-woken.
+The fleet face swaps the subscription for a list kolu-server keeps, because the
+Conductor is the thing being woken rather than the thing waiting.
 
 | Tool | What it does |
 | --- | --- |
-| `watch_terminal` | Add a terminal to the watched list, by its `host/id`. Idempotent; refused by name for a malformed reference, a host that is not a member, or a terminal its host's roster does not have. Answers the whole list back, **and the state that terminal was found in** — the agent in it and how it stands, or that there is no agent, or that it is asleep. That found state is a baseline, not news: it never rings, because the answer has just said it. |
+| `watch_terminal` | Add a terminal to the watched list, by its `host/id`. Idempotent. Answers the whole list back, and the state that terminal was found in. |
 | `unwatch_terminal` | Take one off, and say whether it was there. A terminal that closes drops off by itself, and a terminal the Conductor creates is added without being asked. |
 
-A watched terminal whose agent comes up unbriefed (`ready`), stops, asks, goes,
-is put to sleep, or — for one created with a `run` command — ends back at its
-shell prompt with no agent ever seen, starts a new Conductor turn, carrying
-every terminal that has news. Nothing else does — no timer, and no plain
-shell. [The Conductor](/conductor) has the whole of it.
+`watch_terminal` is refused by name for a malformed reference, a host that is
+not a member, or a terminal its host's roster does not have. The state it
+answers with is the agent in that terminal and how it stands, or that there is
+no agent, or that it is asleep. That found state is a baseline, not news.
+
+The `watched` live view reads the list back, a row per watched terminal. A row
+carries its `host/id`, the last name and agent kolu saw in it, how it got on the
+list, and the state of its host (`null` host columns once that host leaves). The
+view subscribes, so a terminal that goes away reaches the Conductor without a
+call. One record is read at `surface://collections/terminals/<host>/<id>`.
+
+A watched terminal starts a new Conductor turn when its agent comes up unbriefed
+(`ready`), stops, asks, goes, or is put to sleep. So does one created with a
+`run` command that ends at its shell prompt with no agent seen. No timer wakes
+it, and no plain shell. [The Conductor](/conductor) has the rest.
 
 ### Read the screen and the code
 
 | Tool | What it does |
 | --- | --- |
 | `screen_text` | Read a terminal's rendered screen as text; ask for just the last N lines. |
-| `screen_image` | See the same screen as a picture — a themed PNG with the colours, box drawing and highlights text throws away. Ask for the last N rows (up to 200), or omit that for the visible screen. Reach for it when the answer is visual — a TUI's layout, a coloured diff, a pass/fail run; `screen_text` stays the cheaper everyday read, and your agent's host has to be able to show images. CJK and emoji render as empty boxes. |
+| `screen_image` | See the same screen as a themed PNG, with the colours, box drawing and highlights text throws away. Ask for the last N rows (up to 200), or omit that for the visible screen. |
 | `screen_history` | Read the older scrollback above the current screen. |
 | `git_getStatus` · `git_getDiff` | The git status and diff for a terminal's repo. |
 | `fs_listAll` · `fs_readFile` | List and read files in a terminal's project. |
 
-A terminal you put to [sleep](/sessions) has no live screen, and the tools say
-exactly that: a read or a wait aimed at one comes back **"Terminal … is asleep
-— wake it before reading its screen"**, carrying the terminal's id and whether
-it is `sleeping` or `parked`, rather than claiming the terminal does not exist
-or that it died. The waits refuse it up front instead of waiting out their
-window. Waking is yours, not the agent's: an agent either asks you to wake it
-or skips it and tells you how many are asleep.
+Your agent's host has to show images for `screen_image`, and CJK and emoji
+render as empty boxes.
 
-### Watch the whole workspace (live views)
+A terminal you put to [sleep](/sessions) has no live screen. A read or a wait
+aimed at one answers "Terminal … is asleep — wake it before reading its screen",
+with the id and whether it is `sleeping` or `parked`. An agent either asks you
+to wake it or tells you how many are asleep.
+
+### Live views
 
 | Live view | What it shows |
 | --- | --- |
 | `terminals` | The live roster of your terminals — what's open, what each is running, and each agent's state. |
-| `urgency` | Which terminals need attention **now** — the ones waiting on a human or an answer. |
+| `urgency` | Which terminals need attention now — the ones waiting on a human or an answer. |
 | `daemonStatus` · `status` · `identity` | Whether kolu's background service is live, up to date, and hasn't restarted underneath the agent. |
 
-These update live — an agent subscribed to `urgency` is notified the moment a
-worker terminal starts waiting on it.
+An agent subscribed to `urgency` hears the moment a terminal starts waiting.
 
-## It survives kolu restarting underneath it
+## When kolu's background service restarts
 
-kolu's background service restarts routinely — an upgrade does it — and the
-restart deliberately keeps your terminals running, so nothing else notices.
-`kolu mcp` doesn't need restarting alongside it, and your agent doesn't need to
-reconnect: the moment the old connection drops, the next tool call opens a new
-one against the restarted service. Terminals your agent was driving are still
-there afterwards, and their ids still work.
+An upgrade restarts kolu's background service, and the restart keeps your
+terminals running. Your agent does not need to reconnect: the next tool call
+opens a new connection, and the terminals it was driving keep their ids.
 
-_That "the moment it drops" is specific to the default, local connection, which
-is told when the service goes away. Pointed at another machine with `--host`,
-`kolu mcp` does not yet carry the drop announcement, so it still finds out by
-making one call that fails — the retryable failure described below, just after
-an idle gap rather than only mid-call._
-
-If a restart happens to land in the middle of a call, that one call fails and
-says so — that it is the *connection* that dropped, that `kolu mcp` is still
-running, and that retrying will re-open it. Nothing is queued and nothing is
-re-sent behind your back.
+A local connection is told when the service goes away; with `--host`, `kolu mcp`
+finds out by making one call that fails. That call says the connection dropped,
+that `kolu mcp` is still running, and that retrying re-opens it. Nothing is
+queued or re-sent behind your back.
 
 <Aside type="caution" title="A call that died mid-flight has an unknown outcome">
-  "The connection dropped" does not tell you whether the service had already
-  **done the thing** — the reply may simply not have made it back. Reads and the
-  `wait_*` tools are safe to retry regardless. For a *mutating* tool
-  (`lifecycle_create`, `lifecycle_kill`, `lifecycle_sendInput`), check before you
-  repeat it: read the `terminals` roster and see whether the terminal is already
-  there, already gone, or already has your input. Retrying a `lifecycle_create`
-  blind can leave you with two terminals.
+  "The connection dropped" does not tell you whether the service had already done
+  the thing. For a mutating tool (`lifecycle_create`, `lifecycle_kill`,
+  `lifecycle_sendInput`), read the `terminals` roster before you repeat it. Reads
+  and the `wait_*` tools are safe to retry.
 </Aside>
 
 ## What an agent can't touch
 
-`kolu mcp` exposes a **deliberate, reviewed allowlist**. Reads and terminal
-control are in — creating, driving, killing, and observing terminals. Out, by
-design: administering the background service, changing session policy, or
-rearranging your canvas. Anything not on the list is simply unreachable, and
-widening it is a reviewed change, never a runtime toggle. So handing an agent
-your kolu lets it do the work in your terminals without handing it the keys to
-the whole workspace.
-
-Your [theming preferences](/theming) sit on that line: an agent's terminals
-_obey_ the new-terminal theme policy, but the agent can't read or change it —
-only your browser sets it.
+`kolu mcp` exposes a reviewed allowlist. Reads and terminal control are in:
+creating, driving, killing, and observing terminals. Out: administering the
+background service, changing session policy, or rearranging your canvas.
+Widening the list is a reviewed change, never a runtime toggle. An agent's
+terminals obey your [new-terminal theme policy](/theming), which only your
+browser can read or change.
 
 <CardGrid>
   <LinkCard title="Agent Fleets" href="/agent-fleets" description="one coordinator agent driving many workers — the pattern kolu's own development runs on" />
