@@ -118,7 +118,7 @@ body {
    * ── THE HELP COLUMN, THE THIRD TRACK ──────────────────────────────
    *   --container-conductor-help …… 16rem (256px) at
    *     --text-conductor-help (12px): about 37 characters a line, so a
-   *     sentence of the length `conductorHelp.ts` allows is at most the
+   *     sentence of the length `helpContent.ts` allows is at most the
    *     two lines that module's test enforces.
    *
    * On a window that holds all three, the frame is help · conversation ·

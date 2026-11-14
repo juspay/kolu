@@ -1973,7 +1973,7 @@ When(
 
 // ── The help: a column in the gutter, a sheet from the menu ──
 //
-// One set of words in two frames (`conductorHelp.ts`). These steps never read
+// One set of words in two frames (`helpContent.ts`). These steps never read
 // the sentences themselves — a help text is meant to be reworded — they read
 // the SECTIONS it promises and which frame they arrived in, so a rewrite
 // passes and a section quietly dropped does not.

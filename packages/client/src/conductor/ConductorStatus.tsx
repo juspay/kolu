@@ -39,7 +39,7 @@ import ConductorWatchedPanel from "./ConductorWatchedPanel";
 import { conductorWide } from "./conductorLayout";
 import { useShownClock } from "../ui/shown";
 import { STEER_KEYBIND, steerOnOffer } from "./steer";
-import { statusDetail, statusSince } from "./conductorStatus";
+import { statusDetail, statusSince } from "./statusReadout";
 
 /** The line's ink, by what the conversation is doing — the header chip's own
  *  table, moved with it. `asking` outranks `working` on the wire already (a

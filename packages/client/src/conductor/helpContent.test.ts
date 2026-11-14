@@ -18,7 +18,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { helpSections } from "./conductorHelp";
+import { helpSections } from "./helpContent";
 
 const CSS = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "..", "index.css"),

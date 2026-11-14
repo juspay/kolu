@@ -6,7 +6,7 @@
 import type { ConductorRow, ConductorToolRow } from "kolu-common/conductor";
 import { DASH } from "kolu-common/surface";
 import { describe, expect, it } from "vitest";
-import { conductorDoing, statusDetail, statusSince } from "./conductorStatus";
+import { conductorDoing, statusDetail, statusSince } from "./statusReadout";
 
 const AT = "2026-01-01T00:00:00.000Z";
 const NOW = Date.parse(AT);

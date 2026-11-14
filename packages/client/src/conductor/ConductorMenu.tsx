@@ -35,7 +35,7 @@ import InlineConfirmButton from "../ui/InlineConfirmButton";
 import { surface } from "../ui/Surface";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { transcriptText } from "./transcript";
-import { helpSheet } from "./conductorHelp";
+import { helpSheet } from "./helpContent";
 import { conductorHelpColumn } from "./conductorLayout";
 import { useConductor } from "./useConductor";
 
@@ -164,7 +164,7 @@ const ConductorMenu: Component<{
           {/* HOW TO USE, exactly where the help is not already a column: on a
               phone, and on any window too narrow for the column
               (`conductorLayout.ts`). The same words either way
-              (`conductorHelp.ts`) — a menu that opened a second, shorter
+              (`helpContent.ts`) — a menu that opened a second, shorter
               explanation is how two manuals come to disagree. */}
           <Show when={!conductorHelpColumn()}>
             <button

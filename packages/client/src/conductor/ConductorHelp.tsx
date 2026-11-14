@@ -1,5 +1,5 @@
 /** THE HELP, in its two placements — a column beside the conversation, and a
- *  sheet the `⋯` menu opens. One set of words (`conductorHelp.ts`), two
+ *  sheet the `⋯` menu opens. One set of words (`helpContent.ts`), two
  *  frames around it.
  *
  *  THE COLUMN IS A TRACK OF CONSTANT WIDTH, and that is the whole design.
@@ -21,7 +21,7 @@
  *
  *  COLLAPSED IT IS A RAIL with one control, and the control is the only thing
  *  on it: a rail that offered two things to press would be a second menu.
- *  Whether it is open is a device preference (`conductorHelp.ts`), so a person
+ *  Whether it is open is a device preference (`helpContent.ts`), so a person
  *  who shut it finds it shut tomorrow. */
 
 import Dialog from "@corvu/dialog";
@@ -30,12 +30,7 @@ import DocLink from "../ui/DocLink";
 import ModalDialog from "../ui/ModalDialog";
 import { surface } from "../ui/Surface";
 import { useShown } from "../ui/shown";
-import {
-  helpOpen,
-  helpSections,
-  helpSheet,
-  setHelpOpen,
-} from "./conductorHelp";
+import { helpOpen, helpSections, helpSheet, setHelpOpen } from "./helpContent";
 
 /** The words themselves, the same in both placements. `placement` rides as
  *  data only — nothing here branches on it — so a scenario can say WHICH copy

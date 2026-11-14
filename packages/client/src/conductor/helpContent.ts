@@ -33,7 +33,7 @@
  *  own idiom rather than spelled `⌥⏎` at a Linux reader.
  *
  *  SHORT. Each line is one sentence that fits the help column in at most two
- *  lines at its own measure — `conductorHelp.test.ts` does that arithmetic
+ *  lines at its own measure — `helpContent.test.ts` does that arithmetic
  *  from the tokens, so widening the column relaxes the rule and narrowing it
  *  tightens it, and neither can be forgotten. */
 
