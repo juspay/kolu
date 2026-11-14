@@ -58,6 +58,29 @@ describe("what it is doing", () => {
     expect(doing).toBe("wait_outputSettled");
   });
 
+  it("does not name the QUESTION call while its form is on screen", () => {
+    // The call behind an elicitation form stays `pending` for as long as the
+    // form waits on a person, so the line used to read `asking · <the agent's
+    // question tool>` — the machinery's name, over the question the reader is
+    // already looking at. The form is the question; what the turn SAID before
+    // it is the line. The harness marked the row with its agent's own answer,
+    // so nothing here knows which tool it was.
+    const asked = {
+      ...toolRow("t-ask", 3, "pending", "the question tool"),
+      asksThroughForm: true,
+    } as ConductorRow;
+    expect(
+      conductorDoing([
+        userRow("u", 1, "which database?"),
+        agentRow("a", 2, "two of these would work"),
+        asked,
+      ]),
+    ).toBe("two of these would work");
+    // ... and with nothing said before it, the line says nothing rather than
+    // falling back to the call.
+    expect(conductorDoing([userRow("u", 1, "go"), asked])).toBeNull();
+  });
+
   it("falls back to the last thing it SAID when nothing is out", () => {
     const doing = conductorDoing([
       agentRow("a", 1, "first"),

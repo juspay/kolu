@@ -20,6 +20,7 @@ import { describe, expect, test } from "vitest";
 
 import {
   allowedWithoutAsking,
+  asksThroughForm,
   backgroundTaskIn,
   CLAUDE,
   liveModelIn,
@@ -227,6 +228,28 @@ describe("which tool a call is", () => {
         EXIT_PLAN_MODE,
       ),
     ).toBeNull();
+  });
+});
+
+describe("whose question reaches a person as a form", () => {
+  test("the built-in question tool, and nothing else", () => {
+    // The call the adapter renders into an `elicitation/create`: its form is
+    // the question, so the panel draws no card for the call. Everything else
+    // is work and keeps its card — including the OTHER tool that blocks on a
+    // person (`ExitPlanMode`), which arrives as a permission request and not
+    // as a form.
+    expect(asksThroughForm("AskUserQuestion")).toBe(true);
+    expect(asksThroughForm("ExitPlanMode")).toBe(false);
+    expect(asksThroughForm("Read")).toBe(false);
+    expect(asksThroughForm("mcp__kolu__screen_text")).toBe(false);
+    // Named LIKE it is not it: an MCP server may contribute a tool of its own
+    // whose name ends in the same word, and that one draws its card.
+    expect(asksThroughForm("mcp__other__AskUserQuestion")).toBe(false);
+    expect(asksThroughForm("")).toBe(false);
+  });
+
+  test("it is what the leg answers", () => {
+    expect(CLAUDE.asksThroughForm?.("AskUserQuestion")).toBe(true);
   });
 });
 

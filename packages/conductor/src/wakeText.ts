@@ -37,6 +37,8 @@ const STANDS: Readonly<Record<ConductorWakeEvent["level"], string>> = {
     "the terminal was PUT TO SLEEP — the agent in it is gone with it, and whatever it was doing stopped there",
   ended:
     "the command it was started with ENDED — it is back at a shell prompt and no agent was ever seen in it, so the agent you asked for never came up",
+  exited:
+    "its agent EXITED — the program is gone from the foreground and the terminal is back at its shell prompt, so nothing more will come from it; read the screen to see why it went",
 };
 
 /** One terminal's line. The ref comes first because it is what every tool
@@ -68,6 +70,6 @@ export const wakeText = (events: ReadonlyArray<ConductorWakeEvent>): string => {
     `[kolu] I am waking you: ${subject}. You did not ask for this turn — kolu started it.`,
     events.map(lineOf).join("\n"),
     "Look before you act: `screen_text` reads a terminal's screen. To brief, answer or redirect the agent in one, use `agent_say` — kolu does the keystrokes that agent needs, idle or working; a terminal that is READY is one waiting for exactly that. Use `unwatch_terminal` when a terminal's work is done, and `watch_terminal` for one you want to hear about.",
-    "Then END YOUR TURN. Do not wait on anything: kolu wakes you again the moment a watched terminal's agent comes up, stops, asks, sleeps, ends or goes away.",
+    "Then END YOUR TURN. Do not wait on anything: kolu wakes you again the moment a watched terminal's agent comes up, stops, asks, sleeps, exits, ends or goes away.",
   ].join("\n\n");
 };

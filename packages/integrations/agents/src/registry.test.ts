@@ -12,6 +12,7 @@ import { AGENT_DIR_ENV_KEYS, AGENT_PLUGINS } from "./index.ts";
 import {
   AGENT_CLI,
   AGENT_VOCABS,
+  AgentPresenceSchema,
   type AgentInfo,
   AgentInfoSchema,
   AgentKindSchema,
@@ -19,6 +20,7 @@ import {
   agentCliGrammar,
   agentVocab,
   isAgentKind,
+  isAgentPresence,
 } from "./vocab.ts";
 
 const KINDS = Object.keys(AGENT_VOCABS) as AgentKind[];
@@ -50,8 +52,26 @@ describe("AGENT_VOCABS ↔ AGENT_PLUGINS", () => {
 });
 
 describe("AgentInfoSchema — a closed discriminated union", () => {
-  it("has one member per vocab", () => {
-    expect(AgentInfoSchema.members.length).toBe(KINDS.length);
+  it("has one member per vocab, plus the one kind-agnostic presence", () => {
+    const [session, presence] = AgentInfoSchema.members;
+    expect(session.members.length).toBe(KINDS.length);
+    expect(presence).toBe(AgentPresenceSchema);
+  });
+
+  it("decodes a presence state of any kind as a presence, never as that kind's transcript info", () => {
+    for (const kind of KINDS) {
+      const decoded = Schema.decodeUnknownSync(AgentInfoSchema)({
+        kind,
+        state: "fresh",
+        sessionId: null,
+        model: null,
+        summary: null,
+        taskProgress: null,
+        contextTokens: null,
+        startedAt: null,
+      });
+      expect(isAgentPresence(decoded)).toBe(true);
+    }
   });
 
   it("narrows on `kind` per member (kind ↔ Info correlation survives)", () => {

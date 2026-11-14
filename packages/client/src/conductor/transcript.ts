@@ -16,10 +16,11 @@
  *  The READER RULES live here too, beside the rows they read: a run of
  *  identical notices draws as one (`foldNoticeRuns`), the settled tool calls
  *  between two boundaries fold into one "Details" as they settle
- *  (`foldToolRuns`), and the same failure in a row draws as one line with its
- *  count (`foldFailureRuns`). All three are pure, so what the panel draws is
- *  decided in a unit test, and none rewrites a row — `Copy transcript` still
- *  reads them all. */
+ *  (`foldToolRuns`), the same failure in a row draws as one line with its
+ *  count (`foldFailureRuns`), and the call that produced a question draws
+ *  nothing — the ask row IS the question (`asksThroughForm` on the row). All
+ *  of them are pure, so what the panel draws is decided in a unit test, and
+ *  none rewrites a row — `Copy transcript` still reads them all. */
 
 import { isTerminalId } from "@kolu/terminal-vocab/terminalId";
 import {
@@ -167,6 +168,19 @@ export function foldNoticeRuns(
 ): readonly TranscriptEntry[] {
   const entries: TranscriptEntry[] = [];
   for (const row of rows) {
+    // NOT DRAWN AT ALL — and decided HERE, at the one door every row passes
+    // through on its way to being drawn, rather than at the `<Match>` that
+    // would have rendered the card: everything downstream counts entries (the
+    // "Details" fold's number, the failure runs, the keyed list), so a row
+    // suppressed at the render site would still be counted by all of them and
+    // leave a fold that says 4 and opens on 3. Nothing is REWRITTEN: `Copy
+    // transcript` reads the rows themselves and still has the call.
+    //
+    // WHICH call that is came decided: the harness asked the agent's own leg
+    // whether this tool's question reaches a person as a form, and the row
+    // carries the answer. The name it was decided from is one adapter's
+    // spelling and stays upstream of here.
+    if (row.kind === "tool" && row.asksThroughForm === true) continue;
     const last = entries[entries.length - 1];
     if (
       last !== undefined &&

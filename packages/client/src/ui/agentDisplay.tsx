@@ -27,28 +27,6 @@ export function agentMark(kind: AgentInfo["kind"]): AgentMark {
   return agentVocab(kind).mark;
 }
 
-/** The display name of the agent whose BINARY a foreground program is — built
- *  once from the registry itself (`cli.basename`, the same field the host's
- *  `matchesAgent` compares a PTY's foreground against), never a second list of
- *  names to keep in step. `undefined` for a program that is not one of kolu's
- *  agents.
- *
- *  WHAT IT IS FOR: a terminal running `omp` with no agent detected in it YET
- *  is an agent STARTING, not a terminal with no agent in it, and the line that
- *  says so has only the foreground's basename to go on (a browser cannot ask
- *  the kernel anything). It answers the narrow question the basename can
- *  honestly answer — is this one of ours — and nothing about what the agent is
- *  doing, which only detection knows. */
-const AGENT_NAME_BY_BINARY: ReadonlyMap<string, string> = new Map(
-  Object.values(
-    mapAgentVocabs((vocab) => [vocab.cli.basename, vocab.displayName] as const),
-  ),
-);
-
-export function agentNameForBinary(name: string): string | undefined {
-  return AGENT_NAME_BY_BINARY.get(name);
-}
-
 /** Stable per-kind icon components for the command palette, which carries an
  *  `icon: Component`. Built ONCE — a fresh component per call would make
  *  `<Dynamic>` tear down and recreate the SVG on every re-render. */
@@ -108,14 +86,27 @@ export const taskProgressTitle = (progress: TaskProgress): string =>
  *  compact header cluster (AgentIndicator) and the Inspector's status card
  *  paint the same state the same way. `alert-linger` is post-turn `waiting`:
  *  needs-you violet at reduced strength (same distinction the dock StatePip
- *  draws), vs full-strength `alert` for a genuine `awaiting_user` block. */
-export type AgentStateTone = "busy" | "alert" | "alert-linger";
+ *  draws), vs full-strength `alert` for a genuine `awaiting_user` block —
+ *  and `quiet` is the muted family for an agent that is merely PRESENT
+ *  (`starting` / `fresh`), which no surface may paint as activity. A
+ *  `prompted` agent is not merely present: it was given work, so it is busy. */
+export type AgentStateTone = "busy" | "alert" | "alert-linger" | "quiet";
 export const stateTones: Record<AgentInfo["state"], AgentStateTone> = {
   thinking: "busy",
   tool_use: "busy",
   waiting: "alert-linger",
   awaiting_user: "alert",
   running_background: "busy",
+  // THE TWO PRE-SESSION STATES ARE QUIET. An agent that is still coming up,
+  // or is up and has never been prompted, is news to nobody: it has made no
+  // claim on a person's attention, so it must not borrow the working rust or
+  // the needs-you violet. `quiet` is the same muted family the "no agent" dot
+  // uses — the agent's own mark and its word ("Starting" / "Ready") are what
+  // say it is there.
+  starting: "quiet",
+  fresh: "quiet",
+  // Submitted to and not yet heard from: at work, as far as anybody can tell.
+  prompted: "busy",
 };
 
 /** Claude-Code's dynamic-workflow fan-out info, or null. Narrows the

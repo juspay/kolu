@@ -28,7 +28,7 @@ import type {
   TerminalSnapshot,
   TerminalState,
 } from "@kolu/terminal-vocab/schema";
-import { resumeRefFor } from "kolu-agents/vocab";
+import { isAgentPresence, resumeRefFor } from "kolu-agents/vocab";
 import { match, P } from "ts-pattern";
 
 /** How often a same-identity OUTPUT tick may re-stamp recency. The agent-detail
@@ -46,14 +46,16 @@ export const RECENCY_THROTTLE_MS = 60_000;
 /** The identity the recency baseline tracks — kind + session id. A structural
  *  subset of the persisted `AgentIdentity` (which also carries `resumeRef`):
  *  the baseline only ever answers "did the conversation change?", so it needs
- *  no resume ref. */
-export type AgentIdentityRef = { kind: string; sessionId: string };
+ *  no resume ref. `sessionId` is `null` for an agent present with no session
+ *  named yet — a presence that later learns its session id is a NEW identity,
+ *  which is exactly what its first transcript is. */
+export type AgentIdentityRef = { kind: string; sessionId: string | null };
 
 /** The CONVERSATION identity of an agent — the `{kind, sessionId}` pair every
  *  identity comparison and baseline is built from. */
 function identityRef(info: {
   kind: string;
-  sessionId: string;
+  sessionId: string | null;
 }): AgentIdentityRef {
   return { kind: info.kind, sessionId: info.sessionId };
 }
@@ -174,6 +176,10 @@ export function stepRecencyBaseline(
  *  fact kolu owns through the OS:
  *   - `null` (no live agent) → `none`: a quit-to-shell or a never-launched
  *     terminal; wake lands on a BARE SHELL (juspay/kolu#1492);
+ *   - a PRESENCE (an agent up with no session yet: `starting` / `fresh`) →
+ *     `none` too: there is no conversation to resume, and a session id it
+ *     already names (omp's lazy session) has no transcript a resume could
+ *     open. A wake lands on a bare shell, as it did before presence existed;
  *   - an observation → `exact`, pairing its IDENTITY (the adapter matched a
  *     session file / the foreground process — `kind` + `sessionId` + the agent's
  *     own resume ref) with the live process's `stableFlags`-filtered argv.
@@ -194,10 +200,12 @@ export function restoreTargetFor(
 ): RestoreTarget {
   if (observation === null) return { kind: "none" };
   const { info } = observation;
+  if (isAgentPresence(info)) return { kind: "none" };
   return {
     kind: "exact",
     agent: {
-      ...identityRef(info),
+      kind: info.kind,
+      sessionId: info.sessionId,
       // The agent's OWN resume ref (juspay/kolu#1495): for most agents the
       // session id; for pi the transcript PATH (which opens regardless of where
       // pi's session store has moved). Derived by the agent's own vocab, so this

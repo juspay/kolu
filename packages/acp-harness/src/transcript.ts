@@ -224,6 +224,10 @@ export interface ToolMove {
   readonly status?: ConductorToolStatus | undefined;
   readonly server?: string | undefined;
   readonly tool?: string | undefined;
+  /** Whether this call's question reaches the person as a FORM, so the ask row
+   *  is the only place it is drawn. The leg's answer over the tool's
+   *  programmatic name, never the name itself. */
+  readonly asksThroughForm?: boolean | undefined;
   readonly detail?: string | undefined;
   /** The call's ARGUMENTS alone, as the same folded JSON — what a FAILED
    *  call's disclosure shows, so its error is said once, by its reason. */
@@ -676,6 +680,7 @@ export class Transcript {
       status,
       ...pick("server", move.server, held?.server),
       ...pick("tool", move.tool, held?.tool),
+      ...pick("asksThroughForm", move.asksThroughForm, held?.asksThroughForm),
       ...(detail === undefined ? {} : { detail }),
       ...pick("progress", move.progress, held?.progress),
       ...pick("diffs", move.diffs, held?.diffs),

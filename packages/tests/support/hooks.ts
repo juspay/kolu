@@ -10,7 +10,7 @@
  */
 
 import type { ChildProcess } from "node:child_process";
-import { execSync, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as os from "node:os";
@@ -27,6 +27,7 @@ import { chromium } from "playwright";
 import { agentDistroFixtureEnv } from "./agentDistroFixture.ts";
 import { AGENT_DIR_VARS, FAKE_BIN_NAMES } from "./agentHarnessLists.ts";
 import { waitForPadiCell } from "./padiCellWait.ts";
+import { stageRenamedBash } from "./renamed-bash.ts";
 import * as engine from "../screencast/engine.ts";
 import { getRecording } from "../screencast/recordings/index.ts";
 import {
@@ -229,17 +230,9 @@ else process.env.KOLU_OPENCODE_DB = opencodeDbPath;
  *  PATH override we set via the whitelist, so a real codex/opencode
  *  install on the host silently wins against the fake.
  *
- *  Each stub is a copy of `bash`, renamed to `codex` / `opencode`. The
- *  kernel's `/proc/<pid>/comm` (Linux) and sysctl KERN_PROC_PATHNAME
- *  (macOS) both reflect the execve basename, so a bash copy launched as
- *  `.../bin/codex -c "..."` shows up with comm="codex" — satisfying
- *  `readForegroundBasename() === "codex"` without requiring the real
- *  CLI to be installed.
- *
- *  `/bin/sleep` tempted as a simpler stub but fails on nixpkgs: coreutils
- *  ships as a multi-call binary that inspects argv[0] and errors with
- *  "unknown program 'codex'" when renamed. Bash is a single-purpose
- *  binary and copies cleanly.
+ *  Each stub is a renamed copy of `bash` (see `stageRenamedBash` for why a
+ *  copy, and why not `/bin/sleep`), so `readForegroundBasename()` reads
+ *  "codex" without the real CLI being installed.
  *
  *  Paths are surfaced to step definitions via KOLU_FAKE_CODEX_BIN,
  *  KOLU_FAKE_OPENCODE_BIN, KOLU_FAKE_GROK_BIN, KOLU_FAKE_PI_BIN,
@@ -248,14 +241,7 @@ else process.env.KOLU_OPENCODE_DB = opencodeDbPath;
  *  forwarded to the spawned server — the step defs read them directly
  *  and type the absolute path into the pty). */
 const fakeBinDir = mkSubDir("bin");
-const bashPath = execSync("command -v bash", { encoding: "utf8" }).trim();
-const fakeBins: Record<string, string> = {};
-for (const name of FAKE_BIN_NAMES) {
-  const target = path.join(fakeBinDir, name);
-  fs.copyFileSync(bashPath, target);
-  fs.chmodSync(target, 0o755);
-  fakeBins[name] = target;
-}
+const fakeBins = stageRenamedBash(fakeBinDir, FAKE_BIN_NAMES);
 process.env.KOLU_FAKE_CODEX_BIN = fakeBins.codex;
 process.env.KOLU_FAKE_OPENCODE_BIN = fakeBins.opencode;
 process.env.KOLU_FAKE_GROK_BIN = fakeBins.grok;
@@ -803,6 +789,9 @@ const acpFixtureAgent = path.resolve(
   "acp-fixture-agent.ts",
 );
 
+/** ... and the store it remembers prompted sessions in, per worker. */
+const acpFixtureSessions = mkSubDir("acp-sessions");
+
 async function startServerChild(koluServer: string): Promise<void> {
   // Refuse a destructive ssh-leg bind BEFORE spawning the child — the spawn itself is
   // destructive, so the ack cannot wait until after (P2/F1).
@@ -931,7 +920,11 @@ async function startServerChild(koluServer: string): Promise<void> {
           // `KOLU_MCP_BIN` is GONE with the hosting move: the session's one MCP
           // server is kolu-server's own loopback HTTP face, so there is no
           // `kolu mcp` child to name and no path to forward.
-          KOLU_ACP_AGENT: `${process.execPath} ${acpFixtureAgent}`,
+          //
+          // Its one argument is the directory it keeps PROMPTED sessions in —
+          // a per-worker dir that outlives a server respawn, the way a real
+          // adapter's store outlives kolu-server.
+          KOLU_ACP_AGENT: `${process.execPath} ${acpFixtureAgent} ${acpFixtureSessions}`,
         },
       },
     );

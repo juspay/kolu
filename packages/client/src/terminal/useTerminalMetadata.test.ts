@@ -3,6 +3,7 @@ import { Stream } from "effect";
 import { decodeHostKey, encodeHostKey, LOCAL_HOST } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createEffect, createRoot, createSignal } from "solid-js";
+import { createStore } from "solid-js/store";
 import { describe, expect, it, vi } from "vitest";
 
 // `useTerminalMetadata` pulls `padi` (a live surface socket) and `solid-sonner`
@@ -427,6 +428,62 @@ describe("getMetadata clock reprojection (the foreign-clock ingestion boundary)"
     expect(readReprojected(90_000, active)?.lastActivityAt).toBe(
       START - 90_000,
     );
+  });
+
+  it("follows an agent seen before its session into its session (startedAt null → a host epoch), once", async () => {
+    // The real collection hands out STORE PROXIES, not fresh objects, so the
+    // fixture is a store too. An agent present before its transcript exists has
+    // `startedAt: null`; when the transcript lands it gains a host epoch. The
+    // projection must translate it ONCE and settle — sharing the raw agent object
+    // with the projection's own store turned that into an endless re-translation
+    // Solid aborts, after which no record in the host updated again.
+    await createRoot(async (dispose) => {
+      const [records, setRecords] = createStore<
+        Record<string, { cwd: string; agent: Record<string, unknown> }>
+      >({
+        a: {
+          cwd: "/p",
+          agent: {
+            kind: "claude-code",
+            state: "fresh",
+            sessionId: "s1",
+            model: null,
+            summary: null,
+            taskProgress: null,
+            contextTokens: null,
+            startedAt: null,
+          },
+        },
+      });
+      bag.keys = () => tids("a");
+      bag.metaOf = (id) => records[id] as unknown as TestMeta;
+      bag.clockOffset = () => 90_000;
+      const { getMetadata } = useTerminalMetadata({
+        list: () => tids("a").map((id) => ({ id }) as TerminalInfo),
+      });
+      await flush();
+      const a = tids("a")[0] as TerminalId;
+      const agentOf = (id: TerminalId) =>
+        (getMetadata(id) as { agent?: unknown } | undefined)?.agent;
+      expect(agentOf(a)).toMatchObject({ state: "fresh" });
+      setRecords("a", "agent", {
+        kind: "claude-code",
+        state: "thinking",
+        sessionId: "s1",
+        model: "m",
+        summary: null,
+        taskProgress: null,
+        workflow: null,
+        contextTokens: null,
+        startedAt: START,
+      });
+      await flush();
+      expect(agentOf(a)).toMatchObject({
+        state: "thinking",
+        startedAt: START - 90_000,
+      });
+      dispose();
+    });
   });
 });
 

@@ -317,6 +317,15 @@ export interface TerminalEndpoint {
    *  this only publishes the fact. `attach`'s own `resizeTo` publishes itself. */
   noteGrid(id: TerminalId, grid: EndpointGrid): void;
 
+  /** Report that the agent padi is waiting on in this terminal — coming up
+   *  (`starting`), or handed a prompt with no transcript yet (`prompted`) —
+   *  has gone QUIET: padi's effective-finish quiet window
+   *  (`activity/finishQuiet.ts`) saw no output from it for the whole window.
+   *  The terminal's agent detector then publishes it as `fresh`: up, and
+   *  nothing submitted since. Fire-and-forget like {@link noteGrid}; a
+   *  terminal with no live sensor set drops it. */
+  noteScreenSettled(id: TerminalId): void;
+
   readonly fs: TerminalEndpointFs;
   readonly git: TerminalEndpointGit;
 }

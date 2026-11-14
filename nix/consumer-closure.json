@@ -105,6 +105,7 @@
         "@kolu/surface-daemon",
         "@kolu/surface-daemon-supervisor",
         "@kolu/surface-remote",
+        "@kolu/terminal-protocol",
         "@kolu/terminal-vocab",
         "@odu/service-client",
         "anyagent",
@@ -831,6 +832,7 @@
         "@kolu/acp-harness",
         "@kolu/padi-client",
         "@kolu/surface",
+        "@kolu/terminal-vocab",
         "kolu-agents",
         "kolu-common",
         "kolu-mcp"

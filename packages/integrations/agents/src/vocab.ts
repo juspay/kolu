@@ -24,7 +24,12 @@ import {
   resumeFormFor as cliResumeFormFor,
   willResume as cliWillResume,
 } from "anyagent";
-import type { RestoreTarget } from "anyagent/schemas";
+import {
+  AGENT_PRESENCE_STATES,
+  type AgentPresenceState,
+  AgentPresenceStateSchema,
+  type RestoreTarget,
+} from "anyagent/schemas";
 import { Schema } from "effect";
 import { claudeCodeVocab } from "kolu-claude-code/schemas";
 import { codexVocab } from "kolu-codex/schemas";
@@ -50,6 +55,20 @@ export const AGENT_VOCABS = {
  *  literal list. */
 export type AgentKind = keyof typeof AGENT_VOCABS;
 
+/** The keys that SUBMIT a prompt to some registered agent — the last key of
+ *  each agent's own idle say recipe (`AgentSayRecipe.idle`, re-verified per
+ *  agent release), de-duplicated. The registry's answer to "which keystroke
+ *  hands the program in front its prompt", read by padi's input seam to know an
+ *  agent was prompted before its transcript says so; an agent whose submit
+ *  ritual changes moves padi's reading with it in the one edit that changes. */
+export const AGENT_SUBMIT_KEYS: readonly string[] = [
+  ...new Set(
+    Object.values(AGENT_VOCABS as Record<string, AnyAgentVocab>).flatMap(
+      (vocab) => vocab.say?.idle.slice(-1) ?? [],
+    ),
+  ),
+];
+
 /** The `AgentInfo` member for one kind — correlation so `agentVocab(kind)` and
  *  the wire union stay typed per kind. */
 export type AgentInfoOf<K extends AgentKind> =
@@ -69,15 +88,100 @@ type AgentInfoSchemaTuple = readonly [
   ...(typeof AGENT_VOCABS)[AgentKind]["infoSchema"][],
 ];
 
-/** The discriminated `AgentInfo` union, composed from every vocab's schema.
- *  Stays a CLOSED union so consumers can `match(...).exhaustive()` on kind. */
-export const AgentInfoSchema = Schema.Union(
+/** The SESSION-BACKED `AgentInfo` union, composed from every vocab's schema —
+ *  what an agent's own watcher derives from its transcript. */
+const SessionAgentInfoSchema = Schema.Union(
   Object.values(AGENT_VOCABS).map(
     (v) => v.infoSchema,
   ) as unknown as AgentInfoSchemaTuple,
 );
 
+/** THE TWO STATE SETS ARE DISJOINT — the one fact {@link isAgentPresence} and
+ *  the wire decode both rest on. Seven agent schemas rev their own transcript
+ *  states as their CLIs change; one that ever names a presence state would make
+ *  that agent's real session narrow as a presence everywhere the predicate
+ *  guards (no restore target, no transcript, no resume), silently. So a
+ *  colliding literal fails to compile HERE, where the union is composed. */
+type TranscriptPresenceCollision = Extract<
+  typeof SessionAgentInfoSchema.Type.state,
+  AgentPresenceState
+>;
+const _presenceStatesAreNoTranscriptState: [
+  TranscriptPresenceCollision,
+] extends [never]
+  ? true
+  : [
+      "a transcript state collides with a presence state",
+      TranscriptPresenceCollision,
+    ] = true;
+void _presenceStatesAreNoTranscriptState;
+
+/** An agent that is HERE but has no session kolu can read yet — the daemon's
+ *  process fact ({@link AGENT_PRESENCE_STATES}: `starting`, then `fresh`, then
+ *  `prompted` once something is submitted to it), minted for every kind from
+ *  the foreground and the input padi forwards. Every transcript field is
+ *  `null` because there is no transcript; `sessionId` is `null` unless the
+ *  agent itself names its session before writing it (omp's `fresh`
+ *  breadcrumb, Claude's `sessions/<pid>.json` — `AgentAdapter.presenceSessionId`).
+ *
+ *  ONE member for every kind rather than three literals in every agent's own
+ *  `state` set: no agent package can derive any of them from its transcript,
+ *  and a presence carries none of an agent's own fields (omp's `sessionPath`,
+ *  Claude's `workflow`), so code that narrows to one kind's info must first
+ *  rule presence out — which the compiler now asks of it. The state sets are
+ *  disjoint, so the wire decode picks this member exactly when the state is a
+ *  presence state. */
+export const AgentPresenceSchema = Schema.Struct({
+  kind: AgentKindSchema,
+  state: AgentPresenceStateSchema,
+  sessionId: Schema.NullOr(Schema.String),
+  model: Schema.Null,
+  summary: Schema.Null,
+  taskProgress: Schema.Null,
+  contextTokens: Schema.Null,
+  startedAt: Schema.Null,
+});
+export type AgentPresence = typeof AgentPresenceSchema.Type;
+
+/** The discriminated `AgentInfo` union: every vocab's session-backed schema,
+ *  plus {@link AgentPresenceSchema}. Stays a CLOSED union so consumers can
+ *  `match(...).exhaustive()` on kind. */
+export const AgentInfoSchema = Schema.Union([
+  SessionAgentInfoSchema,
+  AgentPresenceSchema,
+]);
+
 export type AgentInfo = typeof AgentInfoSchema.Type;
+
+/** An agent value that came from its own transcript — `AgentInfo` minus
+ *  presence. */
+export type SessionAgentInfo = Exclude<AgentInfo, AgentPresence>;
+
+/** Is this agent value a PRESENCE — an agent with no readable session yet? The
+ *  one test, read off the state (the two state sets are disjoint), so the
+ *  narrowing and the wire decode cannot disagree. */
+export function isAgentPresence(info: AgentInfo): info is AgentPresence {
+  return (AGENT_PRESENCE_STATES as readonly string[]).includes(info.state);
+}
+
+/** Build the presence value for one agent — the ONE constructor, so a field
+ *  added to {@link AgentPresenceSchema} is filled in one place. */
+export function agentPresence(
+  kind: AgentKind,
+  state: AgentPresenceState,
+  sessionId: string | null,
+): AgentPresence {
+  return {
+    kind,
+    state,
+    sessionId,
+    model: null,
+    summary: null,
+    taskProgress: null,
+    contextTokens: null,
+    startedAt: null,
+  };
+}
 
 /** Look up one agent's vocab by kind. */
 export function agentVocab<K extends AgentKind>(
@@ -127,8 +231,9 @@ export function mapAgentVocabs<R>(
 /** The persisted resume ref for a LIVE agent's info — `vocab.resume.ref(info)`.
  *  The single place the kind↔Info correlation lost at a union-typed
  *  `agent.kind` is re-asserted (the one `AnyAgentVocab` widening in the
- *  registry). */
-export function resumeRefFor(agent: AgentInfo): string {
+ *  registry). Takes a SESSION-BACKED info only: a presence has no conversation
+ *  to resume, so the caller rules it out first ({@link isAgentPresence}). */
+export function resumeRefFor(agent: SessionAgentInfo): string {
   const vocab: AnyAgentVocab = AGENT_VOCABS[agent.kind];
   return vocab.resume.ref(agent);
 }

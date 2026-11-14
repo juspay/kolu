@@ -10,7 +10,10 @@ Three things make the conversation work and they are all here:
   attachments on disk and the throttled record; translates the harness's two
   refusals into the two errors a caller branches on;
 - **the record** (`./persisted`) — what survives a restart, and the re-validation
-  that refuses a transcript with holes in it rather than drawing one;
+  that refuses a transcript with holes in it rather than drawing one. Its
+  session id is resumed only when the rows since the last break show a turn:
+  the agent writes nothing for a session until its first prompt, so one nobody
+  spoke into is opened again in silence rather than "lost" with a notice;
 - **the standing prompt** — what the agent is told, once, on the first turn.
   The words are in [`src/teaching.md`](src/teaching.md), one wrapped paragraph
   per instruction, read when kolu-server starts (a missing or malformed file

@@ -19,10 +19,7 @@
  * line-start, partial paste marker) survives chunk boundaries.
  */
 
-import {
-  BRACKETED_PASTE_END,
-  BRACKETED_PASTE_START,
-} from "@kolu/terminal-protocol";
+import { createPasteTracker } from "@kolu/terminal-protocol";
 
 export type EscapeEvent =
   /** Bytes to forward to the PTY, in order relative to the other events. */
@@ -39,23 +36,12 @@ export interface EscapeScanner {
 
 const CR = 0x0d;
 const LF = 0x0a;
-const PASTE_START = Buffer.from(BRACKETED_PASTE_START, "latin1");
-const PASTE_END = Buffer.from(BRACKETED_PASTE_END, "latin1");
 
 /** `--escape` accepts one printable ASCII char (multi-byte or control chars
  *  would break the byte-level machine / steal chords the inner program owns). */
 export function isValidEscapeChar(s: string): boolean {
   return /^[\x20-\x7e]$/.test(s);
 }
-
-/** One step of the incremental marker matcher: the next match position after
- *  seeing byte `b` at position `pos` of `marker`. A failed match can still be
- *  the START of a fresh marker (e.g. the ESC after "\x1b\x1b["), so byte 0 is
- *  re-checked rather than skipped. */
-const advanceMarker = (pos: number, marker: Buffer, b: number): number => {
-  if (b === marker[pos]) return pos + 1;
-  return b === marker[0] ? 1 : 0;
-};
 
 /** `escapeChar` MUST already be a single printable ASCII char — validate it at
  *  the CLI boundary with `isValidEscapeChar` (main.ts does). The byte machine
@@ -69,11 +55,9 @@ export function createEscapeScanner(escapeChar = "~"): EscapeScanner {
   // Saw the escape char at line start; holding it until the command byte
   // (which may arrive in the next chunk) decides its fate.
   let pendingEscape = false;
-  let inPaste = false;
-  // Incremental match positions for the paste markers — a marker split
-  // across stdin chunks must still flip the paste state.
-  let startPos = 0;
-  let endPos = 0;
+  // The paste markers, matched incrementally — a marker split across stdin
+  // chunks must still flip the paste state.
+  const paste = createPasteTracker();
 
   return {
     feed(chunk: Buffer): EscapeEvent[] {
@@ -91,20 +75,14 @@ export function createEscapeScanner(escapeChar = "~"): EscapeScanner {
       const forward = (b: number): void => {
         out.push(b);
         atLineStart = b === CR || b === LF;
-        startPos = advanceMarker(startPos, PASTE_START, b);
-        if (startPos === PASTE_START.length) {
-          inPaste = true;
-          startPos = 0;
-        }
+        paste.step(b);
       };
 
       for (const b of chunk) {
-        if (inPaste) {
+        if (paste.inPaste) {
           out.push(b);
-          endPos = advanceMarker(endPos, PASTE_END, b);
-          if (endPos === PASTE_END.length) {
-            inPaste = false;
-            endPos = 0;
+          paste.step(b);
+          if (!paste.inPaste) {
             // Whatever the paste contained, its tail on the wire is the end
             // marker — not a newline — so the next char is mid-line.
             atLineStart = false;

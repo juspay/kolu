@@ -14,6 +14,7 @@ import type {
   TerminalSnapshot,
 } from "@kolu/terminal-vocab/schema";
 import type { Logger } from "pino";
+import { agentPresence } from "kolu-agents/vocab";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFinishQuiet, waitingIdsOf } from "./finishQuiet.ts";
 
@@ -323,6 +324,147 @@ describe("finishQuiet + recomputeUrgency (EF2 sticky-per-episode)", () => {
     expect(fold(finish, terminalsMap([[A, "waiting"]])).finishedIds).toEqual([
       A,
     ]);
+    finish.dispose();
+  });
+});
+
+/** A terminal whose agent is PRESENT — in front, no session yet. */
+const presentTerminal = (
+  state: "starting" | "fresh" | "prompted",
+): PadiTerminal => activeTerminal(agentPresence("omp", state, null));
+
+const EMPTY_URGENCY = {
+  awaitingIds: [],
+  finishedIds: [],
+  workingIds: [],
+  lingerIds: [],
+};
+
+describe("finishQuiet settles a screen padi is waiting on (starting/prompted → fresh)", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("reports a starting agent settled after one quiet window — once — and never counts it", () => {
+    const settled: TerminalId[] = [];
+    const finish = createFinishQuiet({
+      log: silentLog,
+      idleAfterMs: QUIET,
+      standingSub: false,
+      onSettled: (id) => settled.push(id),
+    });
+    afterBootEmpty(finish);
+    const terms = new Map([[A, presentTerminal("starting")]]);
+    expect(fold(finish, terms)).toEqual(EMPTY_URGENCY);
+    vi.advanceTimersByTime(QUIET - 10);
+    expect(settled).toEqual([]);
+    vi.advanceTimersByTime(10);
+    expect(settled).toEqual([A]);
+    // Settled is not finished: nothing about a launch lands in an attention list.
+    expect(fold(finish, terms)).toEqual(EMPTY_URGENCY);
+    vi.advanceTimersByTime(QUIET * 3);
+    expect(settled).toEqual([A]);
+    // The detector publishes `fresh`; the episode is over.
+    fold(finish, new Map([[A, presentTerminal("fresh")]]));
+    expect(finish.episodeSnapshot()).toEqual([]);
+    finish.dispose();
+  });
+
+  it("output while the screen is still being drawn re-arms the settle", () => {
+    const settled: TerminalId[] = [];
+    const finish = createFinishQuiet({
+      log: silentLog,
+      idleAfterMs: QUIET,
+      standingSub: false,
+      onSettled: (id) => settled.push(id),
+    });
+    afterBootEmpty(finish);
+    fold(finish, new Map([[A, presentTerminal("starting")]]));
+    vi.advanceTimersByTime(QUIET - 10);
+    finish.noteEdge(A);
+    vi.advanceTimersByTime(QUIET - 10);
+    expect(settled).toEqual([]);
+    vi.advanceTimersByTime(10);
+    expect(settled).toEqual([A]);
+    finish.dispose();
+  });
+
+  it("an agent whose transcript lands at `waiting` before it settled starts a FINISH window, not a settled one", () => {
+    const settled: TerminalId[] = [];
+    const finish = createFinishQuiet({
+      log: silentLog,
+      idleAfterMs: QUIET,
+      standingSub: false,
+      onSettled: (id) => settled.push(id),
+    });
+    afterBootEmpty(finish);
+    fold(finish, new Map([[A, presentTerminal("starting")]]));
+    vi.advanceTimersByTime(QUIET - 10);
+    const waiting = terminalsMap([[A, "waiting"]]);
+    expect(fold(finish, waiting).lingerIds).toEqual([A]);
+    vi.advanceTimersByTime(QUIET - 10);
+    expect(settled).toEqual([]);
+    expect(fold(finish, waiting).finishedIds).toEqual([]);
+    vi.advanceTimersByTime(10);
+    expect(fold(finish, waiting).finishedIds).toEqual([A]);
+    expect(settled).toEqual([]);
+    finish.dispose();
+  });
+
+  it("an agent already coming up when the first real fleet arrives is settled at once", () => {
+    const settled: TerminalId[] = [];
+    const finish = createFinishQuiet({
+      log: silentLog,
+      idleAfterMs: QUIET,
+      standingSub: false,
+      onSettled: (id) => settled.push(id),
+    });
+    fold(finish, new Map([[A, presentTerminal("starting")]]));
+    expect(settled).toEqual([A]);
+    finish.dispose();
+  });
+
+  it("a PROMPTED agent counts as working, and a screen that settles with no transcript is reported — once", () => {
+    const settled: TerminalId[] = [];
+    const finish = createFinishQuiet({
+      log: silentLog,
+      idleAfterMs: QUIET,
+      standingSub: false,
+      onSettled: (id) => settled.push(id),
+    });
+    afterBootEmpty(finish);
+    // Up and settled: nothing to watch for.
+    fold(finish, new Map([[A, presentTerminal("fresh")]]));
+    expect(finish.episodeSnapshot()).toEqual([]);
+    // Handed a prompt: it is work, and padi now waits to see whether anything
+    // comes of it.
+    const prompted = new Map([[A, presentTerminal("prompted")]]);
+    expect(fold(finish, prompted).workingIds).toEqual([A]);
+    vi.advanceTimersByTime(QUIET - 10);
+    finish.noteEdge(A);
+    vi.advanceTimersByTime(QUIET - 10);
+    expect(settled).toEqual([]);
+    vi.advanceTimersByTime(10);
+    expect(settled).toEqual([A]);
+    vi.advanceTimersByTime(QUIET * 3);
+    expect(settled).toEqual([A]);
+    finish.dispose();
+  });
+
+  it("a transcript's own working state is not a settle — only padi's `prompted` is", () => {
+    const settled: TerminalId[] = [];
+    const finish = createFinishQuiet({
+      log: silentLog,
+      idleAfterMs: QUIET,
+      standingSub: false,
+      onSettled: (id) => settled.push(id),
+    });
+    afterBootEmpty(finish);
+    fold(finish, new Map([[A, presentTerminal("prompted")]]));
+    // The transcript lands mid-turn: a thinking agent is waited on by nothing.
+    fold(finish, terminalsMap([[A, "thinking"]]));
+    expect(finish.episodeSnapshot()).toEqual([]);
+    vi.advanceTimersByTime(QUIET * 2);
+    expect(settled).toEqual([]);
     finish.dispose();
   });
 });

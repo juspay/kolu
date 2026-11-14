@@ -185,7 +185,7 @@ export const WaitAgentStateArgsSchema = Schema.Struct({
   until: Schema.Array(Schema.Literals(WAIT_STATES))
     .annotate({
       description:
-        "Resolve once the terminal's detected agent enters ANY of these buckets: working (thinking/tool_use), awaiting (needs the human), waiting (idle prompt).",
+        "Resolve once the terminal's detected agent enters ANY of these buckets: working (thinking/tool_use), awaiting (needs the human), waiting (idle prompt, its turn over), starting (the agent came up and its screen is still being drawn), fresh (that screen has settled and nothing has been said to it yet — the one to wait for before briefing a worker you just launched).",
     })
     .check(Schema.isNonEmpty()),
   settledMs: Schema.optionalKey(
@@ -209,7 +209,7 @@ export const waitAgentStateTool: BespokeTool = {
   // force `kolu debrief`'s protocol constants out of the CLI leaf that owns
   // them into a home both faces reach, for defaults each face can just state.
   description:
-    'Block until a terminal\'s detected agent state enters a target bucket (working / awaiting / waiting) — the precise agent-state done-signal. An agent ALREADY in a target bucket resolves immediately. To ask "is this worker\'s turn REALLY over, and what did it say?" in ONE race-free call — the `kolu debrief` protocol — pass until: ["awaiting","waiting"], settledMs: 15000, screenTail: 40; the three-call version (wait for the bucket, wait for quiet, read the screen) has a hole in each gap. Returns {result: "met", met: {agent, elapsedMs, screen?}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}. ONLY "gone" means the terminal is dead: "closed" means this subscription dropped while the terminal was still live, so retry rather than concluding anything about the agent. A terminal that is ASLEEP is REFUSED immediately (an error naming it, with state "sleeping" or "parked") rather than waited on — wake it and wait again. To supervise several terminals without re-arming a wait per turn, prefer watch_open + watch_next.',
+    'Block until a terminal\'s detected agent state enters a target bucket (working / awaiting / waiting / starting / fresh) — the precise agent-state done-signal. An agent ALREADY in a target bucket resolves immediately. To wait for a worker you have just LAUNCHED to be sayable, pass until: ["fresh"]: that is the agent up with its screen settled and nothing said to it yet, which is when agent_say takes (it REFUSES an agent that is still "starting"). To ask "is this worker\'s turn REALLY over, and what did it say?" in ONE race-free call — the `kolu debrief` protocol — pass until: ["awaiting","waiting"], settledMs: 15000, screenTail: 40; the three-call version (wait for the bucket, wait for quiet, read the screen) has a hole in each gap. Returns {result: "met", met: {agent, elapsedMs, screen?}} or {result: "timeout"|"gone"|"closed", elapsedMs?, error?}. ONLY "gone" means the terminal is dead: "closed" means this subscription dropped while the terminal was still live, so retry rather than concluding anything about the agent. A terminal that is ASLEEP is REFUSED immediately (an error naming it, with state "sleeping" or "parked") rather than waited on — wake it and wait again. To supervise several terminals without re-arming a wait per turn, prefer watch_open + watch_next.',
   // Lifted, not composed — same reason as `wait_outputSettled` above,
   // including the AbortSignal the one-form `tryPromise` would leave unmilled
   // (a Ctrl-C on an unbounded argv wait would hang, never the matrix's 130).

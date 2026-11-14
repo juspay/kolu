@@ -317,8 +317,19 @@ export function buildPadiSurfaceDeps(deps: {
   disposeStanding = undefined;
   // EF2 — daemon-lifetime finish tracker + standing kaval activity sub. Dual-edge
   // with terminals via `finish.project` (quiet-exit re-folds without an
-  // agent-state change).
-  const finish = createFinishQuiet({ log });
+  // agent-state change). The same window settles an agent padi is waiting on
+  // — `starting`, or `prompted` with no transcript yet: one whose screen went
+  // quiet is reported back into ITS terminal's agent detector, which publishes
+  // it `fresh` (`TerminalEndpoint.noteScreenSettled`). A terminal gone by then
+  // has no detector left to tell.
+  const finish = createFinishQuiet({
+    log,
+    onSettled: (id) => {
+      const entry = getActiveTerminal(id);
+      if (entry)
+        resolveTerminalEndpoint(entry.meta.location).noteScreenSettled(id);
+    },
+  });
 
   // SETTLE EVENTS → the standing subscriptions. One event source — "a terminal
   // just started needing someone", derived from the SAME urgency level the Dock

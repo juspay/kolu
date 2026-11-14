@@ -754,11 +754,13 @@ describe("a dead adapter (M3)", () => {
     // for a conversation that is gone — a break and a line in the transcript
     // for every crash — or, worse, one the agent still has, which is a panel
     // quietly reverting to an older chat.
+    // A conversation that HAD a turn — one nobody spoke into is opened again
+    // rather than resumed, which is a different question from WHICH id.
     const r = rig({
       sessionId: "sess-remembered",
       cwd: HOME,
       model: null,
-      rows: [],
+      rows: [row("agent:1", 1, "an answer")],
       fleet: [],
       watched: [],
     });

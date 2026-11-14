@@ -18,27 +18,33 @@
  *      teaching.md`) and revs with the procedure — so the help says THAT it
  *      asks and not WHICH, because a list here is a copy of a document this
  *      module cannot see, and the copy is the half that goes stale.
+ *    - The status line names what is running and for how long; the watched
+ *      terminals are the side panel on a wide window and behind the status
+ *      line's count otherwise; a terminal's name goes to it and `Look` peeks
+ *      (`ConductorStatus.tsx`, `ConductorWatchedPanel.tsx`, `ConductorLook.tsx`).
  *    - Enter queues at the agent, the steer chord goes into the running turn
  *      while the status line offers it, and `■ Stop` is beside Send.
- *    - A wake is kolu ringing the conversation when a watched agent comes up,
- *      stops, asks, or is gone / asleep / ended without an agent
- *      (`wake.ts`'s own levels) — drawn as the `kolu ·` line in the
- *      transcript.
+ *    - A wake is kolu ringing the conversation when a watched agent is ready
+ *      — its screen has settled, before it has said a word — stops, asks, or
+ *      leaves (`wake.ts`'s own levels), drawn as the transcript line that
+ *      opens with `kolu`.
  *    - A question arrives as a form, and the tab's badge turns the needs-you
  *      violet while it stands (`ConductorTab.tsx`).
  *
+ *  SKIMMED, NOT READ. Each section is two or three bullets, a phrase each, and
+ *  a bullet is a row of TYPED parts so the panel can draw each kind the way
+ *  the screen does: a key as a keycap, a thing to type as code a person could
+ *  copy, a word the screen shows set off as that word. Prose that names a key
+ *  in letters is prose nobody scans.
+ *
  *  STATIC. No counts, no live data, nothing that has to be re-read while a
  *  turn runs: this is the manual, and the conversation beside it is the state.
- *  The one thing computed is the steer chord, which is printed in the reader's
- *  own idiom rather than spelled `⌥⏎` at a Linux reader.
- *
- *  SHORT. Each line is one sentence that fits the help column in at most two
- *  lines at its own measure — `helpContent.test.ts` does that arithmetic
- *  from the tokens, so widening the column relaxes the rule and narrowing it
- *  tightens it, and neither can be forgotten. */
+ *  The one thing computed is a key's label, printed in the reader's own idiom
+ *  (`formatKeybind`) rather than spelled `⌥⏎` at a Linux reader. */
 
 import { createDisclosure } from "../ui/createDisclosure";
-import { formatKeybind } from "../input/keyboard";
+import { formatKeybind, type Keybind } from "../input/keyboard";
+import { isMac as detectedIsMac } from "../input/platform";
 import { boolPref } from "../persistedPref";
 import { STEER_KEYBIND } from "./steer";
 
@@ -49,73 +55,111 @@ export type HelpSectionId =
   | "ask"
   | "waterfall"
   | "while-it-works"
+  | "terminals"
   | "mid-work"
   | "wakes"
   | "asks";
 
+/** One piece of a bullet, by what it IS rather than how it looks:
+ *
+ *  - `text` — the help's own words;
+ *  - `key` — a key to press, already labelled for this platform;
+ *  - `code` — something to type, verbatim;
+ *  - `screen` — a word the screen itself shows (a button, a line's opener),
+ *    so the help points at what is actually there. */
+export interface HelpPart {
+  readonly kind: "text" | "key" | "code" | "screen";
+  readonly text: string;
+}
+
+/** One bullet: a phrase, as a row of parts. */
+export type HelpItem = readonly HelpPart[];
+
 export interface HelpSection {
   readonly id: HelpSectionId;
   readonly heading: string;
-  /** One sentence a line. Not a paragraph — a paragraph in a 16rem column is
-   *  a wall, and the whole point of this panel is that it is skimmed. */
-  readonly lines: readonly string[];
+  readonly items: readonly HelpItem[];
 }
 
-/** The help, built fresh on each read so the steer chord is printed for the
- *  platform the reader is actually on. */
-export function helpSections(): readonly HelpSection[] {
-  const steer = formatKeybind(STEER_KEYBIND);
+const text = (words: string): HelpPart => ({ kind: "text", text: words });
+const code = (typed: string): HelpPart => ({ kind: "code", text: typed });
+const screen = (word: string): HelpPart => ({ kind: "screen", text: word });
+
+/** The help, with every key labelled for one platform — the reader's own by
+ *  default. */
+export function helpSections(
+  isMac: boolean = detectedIsMac,
+): readonly HelpSection[] {
+  const key = (keybind: Keybind): HelpPart => ({
+    kind: "key",
+    text: formatKeybind(keybind, isMac),
+  });
   return [
     {
       id: "ask",
       heading: "Ask",
-      lines: [
-        "Type what you want it to do.",
-        "@ names a terminal on any host, / runs an agent command.",
+      items: [
+        [text("Type what you want done")],
+        [key({ key: "@" }), text(" a terminal, on any host")],
+        [key({ key: "/" }), text(" an agent command")],
       ],
     },
     {
       id: "waterfall",
-      heading: "Waterfall",
-      lines: [
-        "Say “waterfall <what> in <repo>” to have it built end to end.",
-        "It asks a few setup questions first, then runs on its own.",
+      heading: "Build it end to end",
+      items: [
+        [code("waterfall fix the login error in ~/code/app")],
+        [text("Answer its setup questions; it runs the rest")],
       ],
     },
     {
       id: "while-it-works",
       heading: "While it works",
-      lines: [
-        "The status line says what it is doing, and for how long.",
-        "Work in progress is listed beside the conversation.",
-        "On a narrower window it is behind the status line's count.",
-        "Press a terminal's name to go to it; Look peeks at its screen.",
+      items: [
+        [text("The status line: what it is doing, for how long")],
+        [
+          text(
+            "Its terminals: beside the chat, or behind the status line’s count",
+          ),
+        ],
+      ],
+    },
+    {
+      id: "terminals",
+      heading: "In its terminal list",
+      items: [
+        [text("A name takes you to that terminal")],
+        [screen("Look"), text(" peeks at its screen")],
       ],
     },
     {
       id: "mid-work",
-      heading: "Talk to it mid-work",
-      lines: [
-        "Enter queues your message behind the running turn.",
-        `${steer} steers the turn that is running, when it is offered.`,
-        "Stop, beside Send, ends it.",
+      heading: "Talk to it mid-turn",
+      items: [
+        [key({ key: "Enter" }), text(" queues after the turn")],
+        [key(STEER_KEYBIND), text(" steers the turn, when offered")],
+        [screen("■ Stop"), text(" ends the turn")],
       ],
     },
     {
       id: "wakes",
       heading: "It wakes itself",
-      lines: [
-        "You never have to ask whether it is done.",
-        "kolu wakes it when a watched agent comes up, stops, asks or dies.",
-        "A “kolu ·” line in the conversation is that wake.",
+      items: [
+        [text("When a watched agent is ready, stops, asks or leaves")],
+        [text("Ready: its screen has settled, before it says a word")],
+        [text("A "), screen("kolu"), text(" line in the chat is a wake")],
       ],
     },
     {
       id: "asks",
       heading: "When it asks you",
-      lines: [
-        "It asks through a form in the conversation; answer it there.",
-        "Until you do, the Conductor tab's badge is violet.",
+      items: [
+        [text("Answer the form in the chat")],
+        [
+          text("Until then, the "),
+          screen("Conductor"),
+          text(" tab’s badge is violet"),
+        ],
       ],
     },
   ];

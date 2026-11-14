@@ -10308,6 +10308,66 @@
       "firstSeenSha": "8d3235ec84ab21490936b51c2388d6d677a4ab2e"
     },
     {
+      "revisionId": "revision-d29d4ed1dfe2c3149851",
+      "scenarioKey": "scenario-410e8fca21b3f8b1f193",
+      "feature": "features/agent-presence.feature",
+      "scenario": "An agent that comes up and is never prompted reads as Ready, and asks for nobody",
+      "kind": "scenario",
+      "tags": ["@omp-mock"],
+      "bodyHash": "2fa5720fc98adebc89917ea2f20df23429e9d868f4f0ffa86371c1b911f640b0",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "818160e45131e1362f4d252944425cb6c4399d10"
+    },
+    {
+      "revisionId": "revision-6acebf03fa45358fb3c8",
+      "scenarioKey": "scenario-4cc600e6f78c923fda9f",
+      "feature": "features/agent-presence.feature",
+      "scenario": "The agent leaving the foreground ends its presence",
+      "kind": "scenario",
+      "tags": ["@omp-mock"],
+      "bodyHash": "43edf092ea981ffdffb45f26331e7e24a148b864de8f0e779c71ee5ed46920ce",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "818160e45131e1362f4d252944425cb6c4399d10"
+    },
+    {
+      "revisionId": "revision-d0dd016c80ef4dfd05f0",
+      "scenarioKey": "scenario-b7a0ee2899d52c1436cf",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "A session the Conductor finds idle rings once as ready",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "a73dd3dd7604a1bf139bfa204f7b681ede8f9ddffa20bee32b129c0c544aafef",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "818160e45131e1362f4d252944425cb6c4399d10"
+    },
+    {
+      "revisionId": "revision-dfea6e48355c7cce4b46",
+      "scenarioKey": "scenario-c9515258ad06101c5fe3",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "An agent the Conductor starts rings ready once, and can be spoken to",
+      "kind": "scenario",
+      "tags": ["@omp-mock"],
+      "bodyHash": "5a5a784ee299ed6f1bb8627f435cf3f67b7a8e92e439e3ec9e5aad979bd4a6eb",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "818160e45131e1362f4d252944425cb6c4399d10"
+    },
+    {
+      "revisionId": "revision-14991f62c1433351ddf3",
+      "scenarioKey": "scenario-fa56ff2c457a6378cd6d",
+      "feature": "features/agent-presence.feature",
+      "scenario": "Every registered agent reads as Ready from its foreground alone",
+      "kind": "scenario",
+      "tags": ["@omp-mock", "@presence-registry"],
+      "bodyHash": "98c3c4649fc1ed7d423ac2e7a888b015f947b610bf05b8859ddaac102e6515c1",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1a94f235035c37d41294d8bffed00c00085c38f0"
+    },
+    {
       "revisionId": "revision-acbb6d4c748555c9c613",
       "scenarioKey": "scenario-5074e1abdf2b52b0ff34",
       "feature": "features/agents.feature",

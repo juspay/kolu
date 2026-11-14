@@ -15,10 +15,13 @@
  *  terminal no longer in that roster says "terminal gone", and a sleeping one
  *  says "asleep": neither has a live screen, so neither offers Look.
  *
- *  A terminal with NO detected agent is read through its foreground program:
- *  the shell is "no agent · at the shell", and one of kolu's own agent
- *  binaries is "starting <that agent>" — detection has not landed yet, and
- *  saying "no agent · running omp" in one breath contradicts itself.
+ *  A terminal with NO agent is read through its foreground program: the shell
+ *  is "no agent · at the shell", anything else "no agent · running <name>".
+ *  There is no guess to make here any more — an agent that is COMING UP is on
+ *  the record as one (padi publishes `starting` while its screen is still
+ *  being drawn, `fresh` once it has settled and before anyone has prompted
+ *  it), so this line reads it off the record like every other state, and the
+ *  one case left is a terminal that really has no agent in it.
  *
  *  THE TAIL is what Look opens: the last {@link LOOK_LINES} lines of that
  *  terminal's screen, as read-only text, read with `screen.text { id, tail }`
@@ -68,7 +71,6 @@ import { CONTEXTUAL_TIPS } from "../settings/tips";
 import { useTips } from "../settings/useTips";
 import {
   type AgentStateTone,
-  agentNameForBinary,
   formatTaskProgress,
   stateLabels,
   stateTones,
@@ -90,11 +92,15 @@ const [opened, setOpened] = createStore<Record<string, true | undefined>>({});
 
 /** The dot's paint, per agent tone — the same families the dock pip and the
  *  Inspector's status card use: rust working, violet needs-you, violet at half
- *  strength for an agent that has finished its turn. */
+ *  strength for an agent that has finished its turn, and the muted `fg-3` both
+ *  for an agent that is only PRESENT (`starting` / `fresh`) and for a terminal
+ *  with no agent at all. The two share a dot deliberately: neither is anything
+ *  happening, and the WORDS beside it are what tell them apart. */
 const DOT: Record<AgentStateTone | "none", string> = {
   busy: "bg-busy animate-pulse motion-reduce:animate-none",
   alert: "bg-alert",
   "alert-linger": "bg-alert/50",
+  quiet: "bg-fg-3",
   none: "bg-fg-3",
 };
 
@@ -222,25 +228,18 @@ const ConductorLook: Component<{
             progress: null,
             doing: "at the shell",
           };
-        // THE PROGRAM IN FRONT IS ONE OF OURS, and nothing has been detected
-        // in it yet: that is an agent coming up, not a terminal without one.
-        // "no agent · running omp" said both halves of that at once and
-        // believed neither. The recognition is the agent registry's own
-        // `cli.basename` — there is no second list of agent names here.
-        const starting = agentNameForBinary(front.name);
-        return starting === undefined
-          ? {
-              tone: "none",
-              state: "no agent",
-              progress: null,
-              doing: `running ${front.name}`,
-            }
-          : {
-              tone: "none",
-              state: `starting ${starting}`,
-              progress: null,
-              doing: null,
-            };
+        // NO AGENT IS NOW A FACT, not an absence to read around. padi puts an
+        // `agent` on the record the moment one of its registered CLIs is the
+        // foreground program — `starting` while its screen is still being
+        // drawn, `fresh` once it has settled — so the branch above has
+        // already answered for every agent coming up. What reaches here is a
+        // terminal running something that is not an agent, and it says so.
+        return {
+          tone: "none",
+          state: "no agent",
+          progress: null,
+          doing: `running ${front.name}`,
+        };
       }
     }
   });

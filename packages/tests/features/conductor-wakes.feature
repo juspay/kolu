@@ -29,10 +29,15 @@ Feature: The Conductor never blocks
     And the conductor transcript should show a row of kind "agent" saying "woke"
     And there should be no page errors
 
-  Scenario: An agent that comes up in a watched terminal rings once as ready
-    # The seconds between a terminal and its agent are a fact with a name: a
-    # watched terminal whose agent has come up and has not been spoken to yet
-    # rings as READY — never as "stopped" about an agent nobody briefed.
+  Scenario: A session the Conductor finds idle rings once as ready
+    # The INFERRED reading of ready, and the only case left for it: a session
+    # kolu did not watch come up — an adopted or resumed one, written here
+    # against a terminal's own shell pid — whose agent is idle and which this
+    # conversation has never spoken to. It rings READY rather than "stopped",
+    # because an agent nobody briefed has not stopped doing anything.
+    #
+    # The DIRECT reading — an agent padi watched come up, whose own state is
+    # `fresh` — is the scenario at the end of this file.
     When I create a terminal
     And I note the terminal's shell pid
     And I ask the conductor to watch the terminal
@@ -166,3 +171,32 @@ Feature: The Conductor never blocks
     When I open the watched terminals
     Then the watched panel should list the watched terminal
     And nothing on screen should reach past the window's right edge
+
+  @omp-mock
+  Scenario: An agent the Conductor starts rings ready once, and can be spoken to
+    # THE WHOLE LOOP, with nothing mocked between the conversation and the
+    # terminal: the Conductor calls `lifecycle_create` with a command to run,
+    # that command is a coding agent, and the agent comes up with no transcript
+    # of any kind. Its READY here is the DIRECT reading — padi watched the
+    # process arrive and its own state is `fresh` — not the inference the
+    # scenario near the top of this file makes about a session it merely found.
+    #
+    # It rings ONCE: coming up is one piece of news, not a condition to be
+    # reminded about.
+    #
+    # Then the Conductor SPEAKS to it, through the same fleet face, and the
+    # answer says the words were submitted rather than refused — a `fresh` agent
+    # is exactly the agent a conductor briefs. The proof they arrived is on the
+    # terminal's own screen: the stand-in echoes what it hears behind a marker it
+    # assembles at runtime, so nothing kolu typed can spell it.
+    When I ask the conductor to run an agent in a new terminal
+    Then the conductor status should say it is watching 1
+    And the conductor transcript should show a "ready" wake about the watched terminal
+    And the conductor transcript should show exactly one "ready" wake about the watched terminal
+    And the conductor transcript should show a row of kind "agent" saying "woke"
+    When I ask the conductor to tell the agent "take a look at the parser"
+    Then the conductor transcript should show a row of kind "agent" saying "submitted"
+    When I open the watched terminals
+    And I look at the watched terminal
+    Then the watched terminal's look should show "omp-stand-in-heard take a look at the parser"
+    And there should be no page errors

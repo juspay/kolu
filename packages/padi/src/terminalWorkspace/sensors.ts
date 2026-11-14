@@ -24,7 +24,11 @@
  *    cwd:<id>          ─►  git watcher           ─►  PR watcher        emit pr
  *                          emit git
  *    title:<id>        ─►  process observer                           emit foreground
- *    title/cwd/cmd     ─►  agent detector ×3                          emit agent (Known<>, argv)
+ *    title/cwd/cmd     ─►  agent detector ×7                          emit agent (Known<>, argv)
+ *                          (presence from the foreground alone; the
+ *                          session's watcher refines it)
+ *    screenSettled:<id> ─► agent detector (starting/prompted → fresh)
+ *    submitted:<id>    ─►  agent detector (starting/fresh → prompted)
  *    commandRun:<id>   ─►  agent-command tracker (sensor only: hint + re-sample)
  *    ports:<id>        ─►  port sensor (dedup)                        emit ports
  *                          (fed host-wide by padi's port sampler, not by a pty tap)
@@ -53,11 +57,23 @@ import type {
   AgentTerminalState,
   AgentWatcher,
 } from "anyagent";
-import { agentInfoEqual, agentNameHint, stableFlagTokens } from "anyagent";
+import {
+  agentInfoEqual,
+  agentNameHint,
+  matchesAgent,
+  stableFlagTokens,
+} from "anyagent";
 import type { ForgeAdapter, PrResult } from "anyforge";
 import { parseRemoteHost, subscribePr } from "anyforge";
 import { AGENT_PLUGINS } from "kolu-agents";
-import { agentCliGrammar, isAgentBinaryName } from "kolu-agents/vocab";
+import {
+  type AgentKind,
+  agentCliGrammar,
+  agentPresence,
+  isAgentBinaryName,
+  isAgentKind,
+  isAgentPresence,
+} from "kolu-agents/vocab";
 import { type ProcessSnapshot, readProcessSnapshot } from "kolu-io";
 import { subscribeGitInfo } from "kolu-git";
 import type { GitInfo } from "kolu-git/schemas";
@@ -127,6 +143,26 @@ interface AgentEngineState {
     sample: ForegroundSample;
     value: ProcessSnapshot;
   } | null;
+  /** The last thing padi SAW happen to the current foreground process's
+   *  screen and input — the facts that separate the three presence states: no
+   *  step for this pid is an agent `starting` (its screen still being drawn),
+   *  `settled` is one that is `fresh` (up, nothing submitted since), and
+   *  `submitted` is one that is `prompted` (handed something, no transcript
+   *  yet). Written when the host reports a settle (`SensorSignals
+   *  .screenSettled`) or a submit (`SensorSignals.submitted`), and compared
+   *  with the CURRENT foreground pid, so a new agent process in the same
+   *  terminal starts over without anything having to clear it. The latest
+   *  wins: a submit after a settle is a prompt, a settle after a submit is a
+   *  screen that went quiet again with nothing to show for it. Per TERMINAL,
+   *  like `episode`: one foreground, one screen, one input. */
+  presenceStep:
+    | { readonly pid: number; readonly saw: "settled" | "submitted" }
+    | undefined;
+  /** Each agent detector's "the step moved — republish your presence if it is
+   *  yours", registered while the detector runs. The step is ONE terminal-level
+   *  fact recorded by ONE writer ({@link startPresenceStepSensor}); the
+   *  detectors own only the mirror, so this is how the writer reaches them. */
+  presenceListeners: Set<() => void>;
 }
 
 /** The terminal's current agent run, as the ownership arbiter needs to see it. */
@@ -155,6 +191,8 @@ export function freshAgentEngineState(): AgentEngineState {
     currentAgent: null,
     episode: { since: null, pid: undefined, watchedShellIdle: false },
     procSnapshot: null,
+    presenceStep: undefined,
+    presenceListeners: new Set(),
   };
 }
 
@@ -190,6 +228,21 @@ export interface SensorSignals {
    *  from the child, because padi performs every resize and is therefore the
    *  only thing that knows one happened. */
   grid: Channel<TerminalGrid>;
+  /** The host saying this terminal's agent, while `starting` or `prompted`,
+   *  has gone quiet — its screen has settled. Fed by padi's effective-finish
+   *  quiet machinery (`activity/finishQuiet.ts` — the same kaval output-edge
+   *  window that tells a just-stopped agent from a finished one), not by a
+   *  pty-host tap and not by a timer of the producer's own: the producer has no
+   *  byte-motion feed, and a second quiet clock would be a second answer to
+   *  "has it gone quiet?". The agent detectors read it to move the presence to
+   *  `fresh`. */
+  screenSettled: Channel<void>;
+  /** The host saying a write it delivered to this terminal SUBMITTED (one of
+   *  the registry's submit keys, typed outside a paste — `@kolu/terminal-protocol`'s
+   *  `createSubmitScanner`). Fed by padi's own input seam, which every
+   *  keystroke crosses; the producer sees no input. Recorded once per terminal
+   *  ({@link startPresenceStepSensor}) to move a presence to `prompted`. */
+  submitted: Channel<void>;
 }
 
 /** Read the terminal's current rendered screen as VT-resolved plain text — the
@@ -794,6 +847,13 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
   // the dead agent resurrectable. `null` while a session is MATCHED (reset on match) so
   // the next absence always emits.
   let lastAbsenceShellIdle: boolean | null = null;
+  // The absence's OTHER flavor: was THIS adapter's agent binary the foreground?
+  // Part of the same dedup for the same reason — an absence that flips from "some
+  // other program" to "our agent" (or back) is a new answer even when neither the
+  // session key nor the shell-idle flavor moved, and swallowing it would leave the
+  // terminal without the presence its foreground plainly shows. `null` while a
+  // session is matched, reset with `lastAbsenceShellIdle`.
+  let lastAbsenceAgentInFront: boolean | null = null;
   // The most recent watcher-derived info for the matched session — the screen
   // scrape merges against this (not the published metadata, which it may itself
   // have promoted). Null between sessions; reset in `destroyCurrent`.
@@ -828,8 +888,11 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
   // adapter takes is filtered through it. `agentCliGrammar` throws for a kind the
   // registry does not know — an adapter that is not in the registry is a
   // programming error, and failing at install is louder than a silently empty
-  // restore target.
+  // restore target. The same fence narrows the kind a PRESENCE is minted for.
   const grammar = agentCliGrammar(adapter.kind);
+  if (!isAgentKind(adapter.kind))
+    throw new Error(`unknown agent kind: ${adapter.kind}`);
+  const kind: AgentKind = adapter.kind;
   // The live foreground process's allowlisted flag tokens — the ONLY thing a
   // restore replays. `null` = the OS could not be read this time, which is NOT
   // "no flags": `observationFromSample` carries the mirror's flags forward for
@@ -845,6 +908,58 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     return snapshot === null ? null : stableFlagTokens(grammar, snapshot.argv);
   };
   plog.debug("started");
+
+  /** May this adapter publish a PRESENCE over whatever is published now? Yes,
+   *  unless what is published is THIS agent's own session-backed value: an agent
+   *  whose session went unreadable while its binary is still in front is W12's
+   *  can't-tell-ended-from-lost-observer case, and a presence there would clobber
+   *  the very restore target `unknown` exists to keep. Anything else — nothing,
+   *  our own presence, or ANOTHER agent's value (its binary is no longer in
+   *  front; ours is) — gives way to the process fact. */
+  const presenceMayPublish = (): boolean => {
+    const published = agentState.mirror;
+    return (
+      published === null ||
+      published.info.kind !== kind ||
+      isAgentPresence(published.info)
+    );
+  };
+
+  /** Publish this agent's PRESENCE: it is here, and no transcript of it has been
+   *  read. Which of the three states is what padi last SAW of the CURRENT
+   *  foreground process (`AgentEngineState.presenceStep`): nothing yet is
+   *  `starting`, a settled screen `fresh`, a submit `prompted`. `sessionId` is
+   *  the matched session's id when the agent already names one before writing
+   *  its transcript (`AgentAdapter.presenceSessionId`), else `null`. Through
+   *  `emitAgentValue`, so a republish that changes nothing is deduped like
+   *  every other emit. */
+  function publishPresence(sessionId: string | null): void {
+    const fg = currentForeground.foregroundPid;
+    const step = agentState.presenceStep;
+    const state =
+      fg === undefined || step?.pid !== fg
+        ? "starting"
+        : step.saw === "settled"
+          ? "fresh"
+          : "prompted";
+    emitAgentValue(agentState, emit, {
+      info: agentPresence(kind, state, sessionId),
+      argv: liveArgv(),
+    });
+  }
+
+  /** Republish THIS adapter's presence after the terminal's presence step
+   *  moved ({@link startPresenceStepSensor} records it, once per terminal).
+   *  Only the detector that owns a published presence moves it; a
+   *  session-backed value is never touched — once a transcript speaks, it is
+   *  the transcript's word that stands. */
+  const republishPresence = (): void => {
+    if (stopped) return;
+    const published = agentState.mirror?.info;
+    if (published?.kind === kind && isAgentPresence(published))
+      publishPresence(published.sessionId);
+  };
+  agentState.presenceListeners.add(republishPresence);
 
   // `reconcile` must never throw. It is called bare from four channel
   // `onEvent` callbacks — and a throw inside `onEvent` breaks out of
@@ -937,7 +1052,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     // repository, so which one is THIS terminal's is decided by the ownership
     // arbiter — a session belongs to at most one terminal (juspay/kolu#2057).
     const offered = adapter.resolveSessions(state, plog);
-    if (offered === null) {
+    if (offered === null && current !== null) {
       // The adapter could not READ its session store — ignorance, not an
       // answer. Leave the row, the watcher and the ownership claim exactly as
       // they are and wait for the next reconcile; treating this as "offers
@@ -946,10 +1061,17 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
       plog.debug("session store unreadable — holding the previous match");
       return;
     }
+    // With NO session held there is nothing a read fault could hand away, and
+    // what is left to decide — is this agent's binary in front, is the shell
+    // idle — is the PROCESS's answer, which the store has no say in. An agent
+    // whose store does not exist yet (Codex and OpenCode keep SQLite databases
+    // a brand-new install has not created) is still an agent in front of you.
+    if (offered === null)
+      plog.debug("session store unreadable — reading the process alone");
     const next = claimSession(
       adapter.kind,
       terminalId,
-      offered.map((session) => ({
+      (offered ?? []).map((session) => ({
         key: adapter.sessionKey(session),
         // With no episode clock the arbiter cannot judge a date, so do not pay
         // for one — this is per candidate, per terminal, per WAL write.
@@ -962,8 +1084,13 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
       agentState.episode.since,
     );
     const nextKey = next === null ? null : adapter.sessionKey(next);
+    // THE PROCESS FACT: is this agent's own binary the foreground? The registry's
+    // `cli` match (`matchesAgent` — the kernel's basename, or the shell's hint
+    // behind one of this agent's declared shims), never a second list of names.
+    const agentInFront = matchesAgent(state, grammar);
     // The absence FLAVOR is part of the resolution, so dedup on the COMPLETE state
-    // (session key + the foreground's shell-idle flavor), not the key alone. A matched
+    // (session key + the foreground's shell-idle flavor + whether our binary is in
+    // front), not the key alone. A matched
     // resolution dedups on the key as before; an ABSENT one must ALSO re-emit when the
     // flavor flips — a defined-non-shell `unknown` giving way to a shell-idle `null` —
     // so a genuine quit after an ambiguous window still clears even though `current` is
@@ -973,7 +1100,9 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     // flip where `foreground === root` is BUSY, never an idle-shell authoritative null.
     if (
       (current?.key ?? null) === nextKey &&
-      (nextKey !== null || lastAbsenceShellIdle === shellIdle)
+      (nextKey !== null ||
+        (lastAbsenceShellIdle === shellIdle &&
+          lastAbsenceAgentInFront === agentInFront))
     )
       return;
     const hadCurrent = current !== null;
@@ -1003,12 +1132,23 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
       // tap's onError does NOT reset the last foreground sample (local.ts), so a dead
       // observer always shows the stale DEFINED agent pid here, never a false shell-idle.
       lastAbsenceShellIdle = shellIdle;
+      lastAbsenceAgentInFront = agentInFront;
       if (hadCurrent)
         plog.debug(
           shellIdle
             ? "agent session ended (shell idle)"
             : "agent foreground unresolvable but defined — keeping last (unknown)",
         );
+      // AN AGENT IS HERE, and nothing of its has been read: presence is a PROCESS
+      // fact, so its binary in front is enough. Most agents write no transcript
+      // until their first prompt, and waiting for one made a freshly launched
+      // agent invisible to everything that waits for an agent before speaking to
+      // it. The one thing a presence never replaces is this agent's OWN
+      // session-backed value (`presenceMayPublish` — the W12 keep-last below).
+      if (agentInFront && presenceMayPublish()) {
+        publishPresence(null);
+        return;
+      }
       // ONLY when THIS adapter owns the emitted tile (the mirror narrow). When no
       // adapter owns it (a launch mid-resolution), nothing is emitted, so kolu keeps
       // its value rather than seeing an ambiguous null.
@@ -1021,6 +1161,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     // A matched resolution resets the absence flavor: the NEXT absence — whatever its
     // shell-idle-ness — is a fresh transition that must emit rather than dedup.
     lastAbsenceShellIdle = null;
+    lastAbsenceAgentInFront = null;
     plog.debug({ session: nextKey }, "agent session matched");
     current = {
       key: nextKey,
@@ -1071,6 +1212,22 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
       ),
       stopPoll: startScreenScrapePoll(),
     };
+    // A MATCHED SESSION WITH NOTHING TO READ YET — its transcript has not landed
+    // (omp's lazy session, Claude's session file ahead of its JSONL). The agent is
+    // still here: publish its presence, carrying the session id when the agent
+    // names one before writing it. The watcher's first real value replaces it.
+    //
+    // Unlike the no-session branch, this one may replace THIS agent's own
+    // session-backed value: a NEW session was matched, which is positive
+    // evidence, not W12's lost observer. The case is real — a new omp on a
+    // reused tty first matches the crumb an earlier omp left there (an old,
+    // finished conversation), until it writes its own `fresh` crumb a beat
+    // later; keeping the old value would show the new agent as that stranger's
+    // finished turn until somebody prompted it. Every watcher reads its source
+    // SYNCHRONOUSLY on creation, so "no info yet" here means "nothing to read",
+    // not "not read yet".
+    if (latestInfo === null)
+      publishPresence(adapter.presenceSessionId?.(next) ?? null);
   }
 
   /** Tear down the matched session's watcher + screen-scrape poll and forget its
@@ -1208,6 +1365,9 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     onEvent: () => scheduleCommandRunReconciles(),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
+  // THE PRESENCE STEP is recorded once per terminal, not here
+  // (`startPresenceStepSensor`); this detector only republishes its own
+  // presence when told the step moved (`republishPresence`, registered above).
   reconcile();
 
   return () => {
@@ -1217,6 +1377,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     cleanupForeground();
     cleanupCwd();
     cleanupCommandRun();
+    agentState.presenceListeners.delete(republishPresence);
     if (registeredForExternal) {
       activations.get(adapter.kind)?.reconcilers.delete(reconcile);
     }
@@ -1225,6 +1386,49 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     // next.
     releaseTerminal(adapter.kind, terminalId);
     plog.debug("stopped");
+  };
+}
+
+/** THE PRESENCE STEP — what padi last SAW of the terminal's current foreground
+ *  process: its screen settling (`screenSettled`, from the host's quiet
+ *  machinery) or a write that submitted (`submitted`, from the host's input
+ *  seam). One terminal-level fact, so ONE consumer records it against the
+ *  foreground pid of the moment, and then tells every agent detector
+ *  (`AgentEngineState.presenceListeners`) — the one owning a published
+ *  presence republishes it in its new state. Nothing here decides quiet or what
+ *  a submit is. */
+export function startPresenceStepSensor(
+  agentState: AgentEngineState,
+  terminalId: TerminalId,
+  signals: Pick<SensorSignals, "foreground" | "screenSettled" | "submitted">,
+  log: Logger,
+): () => void {
+  const plog = log.child({ provider: "presence", terminal: terminalId });
+  let foregroundPid: number | undefined;
+  const note = (saw: "settled" | "submitted"): void => {
+    if (foregroundPid === undefined) return;
+    agentState.presenceStep = { pid: foregroundPid, saw };
+    for (const republish of agentState.presenceListeners) republish();
+  };
+  const stops = [
+    signals.foreground.consume({
+      onEvent: (fg) => {
+        foregroundPid = fg.foregroundPid;
+      },
+      onError: (err) => plog.error({ err }, "foreground subscription failed"),
+    }),
+    signals.screenSettled.consume({
+      onEvent: () => note("settled"),
+      onError: (err) =>
+        plog.error({ err }, "screen-settled subscription failed"),
+    }),
+    signals.submitted.consume({
+      onEvent: () => note("submitted"),
+      onError: (err) => plog.error({ err }, "submitted subscription failed"),
+    }),
+  ];
+  return () => {
+    for (const stop of stops) stop();
   };
 }
 
@@ -1343,11 +1547,18 @@ export function startSensors(
   );
   const stopPorts = startPortSensor(terminalId, signals, emit, log);
   const stopGrid = startGridSensor(terminalId, signals, emit, log);
+  const stopPresenceStep = startPresenceStepSensor(
+    agentState,
+    terminalId,
+    signals,
+    log,
+  );
   return () => {
     stopCwd();
     stopAgentCommand();
     stopGit();
     stopPr();
+    stopPresenceStep();
     for (const stop of stopAgents) stop();
     stopProcess();
     stopPorts();

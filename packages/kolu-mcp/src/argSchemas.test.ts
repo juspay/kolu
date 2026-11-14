@@ -337,12 +337,12 @@ describe("the wait tools' args → the JSON Schema a host reads", () => {
     expect(schema.required).toEqual(["name"]);
   });
 
-  it("wait_agentState advertises the three buckets as a literal enum", () => {
+  it("wait_agentState advertises the five buckets as a literal enum", () => {
     const until = property(toInputSchema(WaitAgentStateArgsSchema), "until");
     expect(until.type).toBe("array");
     expect(until.items).toEqual({
       type: "string",
-      enum: ["working", "awaiting", "waiting"],
+      enum: ["working", "awaiting", "waiting", "starting", "fresh"],
     });
     expect(until.minItems).toBe(1);
     expect(until.description).toMatch(/working \(thinking\/tool_use\)/);

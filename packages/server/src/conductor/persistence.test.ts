@@ -1,7 +1,7 @@
 /**
  * THE RECORD — kolu-server's `conductor` key, through the real `config.json`.
  *
- * Four things, and each is a different kind of promise:
+ * Five things, and each is a different kind of promise:
  *  - a ROUND TRIP: a conversation written by one process comes back whole to
  *    the next one — its rows, the session it IS and the fleet it was working
  *    with — through the same `Conf` the host map and the preferences ride;
@@ -12,7 +12,11 @@
  *    re-implementation of it;
  *  - FAIL-LOUD: a parseable-but-wrong record refuses by name instead of being
  *    normalized into a transcript with holes in it;
- *  - the BYTES of an attachment land beside the file, never inside it.
+ *  - the BYTES of an attachment land beside the file, never inside it;
+ *  - WHAT IS RESUMED: a session nobody spoke into comes back as a new one in
+ *    silence, and one that had a turn and is lost still says so — through
+ *    the real harness and a scripted adapter whose sessions are as lazy as
+ *    the pinned one's.
  *
  * The store is kolu-server's own module singleton, under the test harness's
  * ephemeral `KOLU_STATE_DIR` (`test:daemon` sets it) — the same thing
@@ -21,10 +25,16 @@
  * would prove something about a store nothing ships.
  */
 
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { AGENT_ENV } from "@kolu/acp/engine";
-import type { Harness, HarnessChange, HarnessOptions } from "@kolu/acp-harness";
+import {
+  type Harness,
+  type HarnessChange,
+  type HarnessOptions,
+  startHarness,
+} from "@kolu/acp-harness";
 import { confStore } from "@kolu/surface/server";
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { Schema } from "effect";
@@ -32,8 +42,9 @@ import {
   DEFAULT_CONDUCTOR_STATE,
   type ConductorFrame,
   type ConductorRow,
+  type ConductorState,
 } from "kolu-common/conductor";
-import type { Logger } from "pino";
+import pino, { type Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type FleetMcpEndpoint as LiveFleetMcpEndpoint,
@@ -779,4 +790,151 @@ describe("an attachment's bytes", () => {
     expect(kept).toEqual(chip);
     expect(kept.path).toBe(written.path);
   });
+});
+
+describe("a session nobody spoke into, across a restart", () => {
+  /** THE REAL CHAIN this time — `startHarness` over the e2e suite's scripted
+   *  adapter — because the defect lived between the two: the adapter answers
+   *  `session/new` with an id and writes nothing until the first prompt (the
+   *  pinned `claude-agent-acp` does exactly that, measured), so a stubbed
+   *  harness could only ever agree with whatever this file assumed. The
+   *  fixture keeps its prompted sessions in `sessions`, a directory that
+   *  outlives each adapter process the way `~/.claude/projects/` does; `home`
+   *  is a real directory because the adapter is really spawned in it. */
+  const FIXTURE = join(
+    import.meta.dirname,
+    "../../../tests/support/acp-fixture-agent.ts",
+  );
+  let scratch = "";
+  let sessions = "";
+  let home = "";
+
+  beforeEach(() => {
+    scratch = mkdtempSync(join(tmpdir(), "kolu-conductor-resume-"));
+    sessions = join(scratch, "sessions");
+    home = join(scratch, "home");
+    mkdirSync(sessions);
+    mkdirSync(home);
+    process.env[AGENT_ENV] = `${process.execPath} ${FIXTURE} ${sessions}`;
+  });
+  afterEach(() => {
+    rmSync(scratch, { recursive: true, force: true });
+  });
+
+  /** One kolu-server's conversation, up — the first reader brings it up —
+   *  with the state it last published. */
+  const boot = async (): Promise<{
+    host: ConductorHost;
+    state: () => ConductorState;
+    settled: () => Promise<void>;
+    /** The agent has answered, and its turn is over. */
+    answered: () => Promise<void>;
+  }> => {
+    let state: ConductorState | null = null;
+    let spoke = false;
+    const host = startConductorHost({
+      log: pino({ level: "silent" }),
+      home,
+      hostName: "test-box",
+      fleetMcp: () => liveEndpoint,
+      proveFleetMcp: proveFleetMcpEndpoint,
+      publish: (next) => {
+        state = next;
+      },
+      watchListMoved: () => {},
+      store: conductorStore,
+      storePath: () => store.path,
+      stateRoot,
+      spawn: startHarness,
+    });
+    host.watch((frame) => {
+      if (frame.kind === "delta")
+        spoke ||= frame.upserts.some((row) => row.kind === "agent");
+    });
+    const until = (holds: () => boolean, what: string) =>
+      vi.waitFor(
+        () => {
+          if (!holds()) throw new Error(`${what}: ${JSON.stringify(state)}`);
+        },
+        { timeout: 20_000, interval: 25 },
+      );
+    const idle = () => state?.phase === "idle" && state.sessionId !== null;
+    const settled = () => until(idle, "never idle with a session");
+    await settled();
+    return {
+      host,
+      settled,
+      answered: () => until(() => spoke && idle(), "never answered"),
+      state: () => {
+        if (state === null) throw new Error("nothing was published");
+        return state;
+      },
+    };
+  };
+
+  const onDisk = (): PersistedConductor => {
+    const file: unknown = JSON.parse(readFileSync(store.path, "utf8"));
+    if (typeof file !== "object" || file === null || !("conductor" in file))
+      throw new Error("kolu-server's state kept no conductor record");
+    return Schema.decodeUnknownSync(PersistedConductorSchema)(file.conductor);
+  };
+  const says = (rows: ReadonlyArray<ConductorRow>, kind: string): string[] =>
+    rows.flatMap((r) => (r.kind === kind && "text" in r ? [r.text] : []));
+
+  it("comes back as a NEW session in silence, every time, with the transcript as it was", async () => {
+    // A conversation that HAD a turn, then a fresh session over it that
+    // nobody has typed into yet — the state a person leaves the panel in
+    // after starting a new session and walking away.
+    const first = await boot();
+    await first.host.prompt("say hello", [], [], false);
+    await first.answered();
+    await first.host.newSession();
+    await first.settled();
+    const unprompted = first.state().sessionId;
+    await first.host.dispose();
+    const before = onDisk();
+    expect(before.sessionId).toBe(unprompted);
+    expect(says(before.rows, "divider")).toHaveLength(1);
+
+    // Two restarts, because the defect repeated: each restart's replacement
+    // session was itself one nobody had spoken into.
+    let last = before.sessionId;
+    for (const _restart of [1, 2]) {
+      const again = await boot();
+      const opened = again.state().sessionId;
+      await again.host.dispose();
+      const after = onDisk();
+      expect(after.rows).toEqual(before.rows);
+      // A conversation is open — a new one, under the id the agent gave it.
+      expect(after.sessionId).toBe(opened);
+      expect(opened).not.toBe(last);
+      last = opened;
+    }
+  }, 60_000);
+
+  it("still says so when a conversation that HAD a turn cannot be loaded", async () => {
+    const first = await boot();
+    await first.host.prompt("say hello", [], [], false);
+    await first.answered();
+    const spoken = first.state().sessionId;
+    await first.host.dispose();
+    if (spoken === null) throw new Error("no session was open");
+
+    // It loads while the agent still has it: same id, nothing said.
+    const resumed = await boot();
+    expect(resumed.state().sessionId).toBe(spoken);
+    await resumed.host.dispose();
+    expect(says(onDisk().rows, "notice")).toEqual([]);
+
+    // ... and when the agent has lost it, the loss is on screen.
+    rmSync(join(sessions, spoken));
+    const lost = await boot();
+    expect(lost.state().sessionId).not.toBe(spoken);
+    await lost.host.dispose();
+    const after = onDisk();
+    expect(says(after.rows, "divider")).toEqual(["new session"]);
+    expect(says(after.rows, "notice")).toEqual([
+      `the previous conversation could not be resumed, so this is a new one: \`session/load\` failed: Resource not found: ${spoken}`,
+    ]);
+  }, 60_000);
 });

@@ -145,6 +145,21 @@ const FLEET_ADDRESSES = fleetAddresses();
  *  addresses nothing answers. */
 export const KOLU_FLEET_RECORD_ADDRESS = `${FLEET_ADDRESSES.recordPrefix}<host>/<id>`;
 
+/** EVERY STATIC RESOURCE THIS FACE SERVES, by address — the cells and the
+ *  terminal collection's key set. Exported, with {@link isKoluFleetAddress},
+ *  for the same test {@link KOLU_FLEET_RECORD_ADDRESS} is: the teaching script
+ *  gives each resource it names its address, and a renamed resource has to
+ *  turn that test red rather than teach a dead address. */
+export const KOLU_FLEET_RESOURCES: ReadonlyArray<string> = [
+  ...FLEET_ADDRESSES.served,
+].sort();
+
+/** Whether a `resources/read` of this URI reaches something on this face — a
+ *  served resource, or one terminal's record — by the very routing the face
+ *  reads with, so the answer cannot drift from what a read would do. */
+export const isKoluFleetAddress = (uri: string): boolean =>
+  routeOf(uri, FLEET_ADDRESSES).kind !== "unknown";
+
 /** WHERE A RECORD IS READ — the sentence every refusal on this face ends with,
  *  and the one the teaching script states to the Conductor. */
 function recordAddress(): string {

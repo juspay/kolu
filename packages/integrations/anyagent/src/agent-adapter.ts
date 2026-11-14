@@ -85,14 +85,15 @@ export interface AgentWatcher {
   destroy(): void;
 }
 
-/** Minimal shape every concrete AgentInfo variant satisfies. Used only to
- *  constrain `agentInfoEqual` — NOT to be extended by integrations directly.
- *  Each integration defines its own full schema (ClaudeCodeInfo, OpenCodeInfo)
- *  which happens to match this shape. */
-export interface AgentInfoShape {
+/** The fields EVERY published agent value carries — a watcher's session-backed
+ *  `Info` and the daemon's pre-session presence alike — which is the set
+ *  `agentInfoEqual` compares. `sessionId` is `null` only on a presence value
+ *  whose agent names no session yet (see `AGENT_PRESENCE_STATES`); a watcher
+ *  never publishes one, which is what {@link AgentInfoShape} pins. */
+export interface AgentInfoFields {
   kind: string;
   state: string;
-  sessionId: string;
+  sessionId: string | null;
   /** The model the SESSION is running — one shared meaning across
    *  integrations: derived from the newest message that NAMES one
    *  (session-scoped), never from the newest event of any kind, which blanks
@@ -120,6 +121,15 @@ export interface AgentInfoShape {
    *  `agentInfoEqual` so its first resolution dispatches even if nothing else
    *  changed. */
   startedAt: number | null;
+}
+
+/** Minimal shape every concrete AgentInfo variant a WATCHER yields satisfies —
+ *  {@link AgentInfoFields} with the session named, because a watcher exists
+ *  only for a session it matched. NOT to be extended by integrations directly:
+ *  each integration defines its own full schema (ClaudeCodeInfo, OpenCodeInfo)
+ *  which happens to match this shape. */
+export interface AgentInfoShape extends AgentInfoFields {
+  sessionId: string;
 }
 
 /** Agent-detection contract. Type parameters: `Session` is the adapter's
@@ -166,6 +176,16 @@ export interface AgentAdapter<Session, Info extends AgentInfoShape> {
    *  agent-specific (two sessions from different agents don't need to differ —
    *  the kind field already distinguishes adapters). */
   sessionKey(session: Session): string;
+
+  /** Optional: the id of a matched session whose transcript has NOT landed yet —
+   *  "where an integration knows more, it says more". Before an agent is first
+   *  prompted, padi publishes it from its foreground alone (`starting`, then
+   *  `fresh`), with no session; an agent that writes an on-disk anchor naming
+   *  its session before the transcript (omp's `fresh` breadcrumb) declares this
+   *  so the presence carries that id instead of `null`. Consulted only while
+   *  the session's watcher has published nothing. Agents with no such anchor
+   *  omit it. */
+  presenceSessionId?(session: Session): string;
 
   /** Epoch-ms the session came into being, or null when the adapter cannot say.
    *  Same meaning as the `startedAt` on `AgentInfoShape` — the age of the
@@ -289,13 +309,14 @@ export function matchesAgent(
   );
 }
 
-/** Structural equality over every field of the shared `AgentInfoShape` (see
+/** Structural equality over every field of the shared `AgentInfoFields` (see
  *  its definition for the canonical field set; `taskProgress` compared
- *  deep, the rest by identity). One implementation serves every adapter — if
+ *  deep, the rest by identity). One implementation serves every adapter and
+ *  the daemon's presence values alike — if
  *  a new integration wants a different equality contract, its Info shape is
  *  out of bounds anyway and needs to be addressed schema-side, not by forking
  *  the comparator. */
-export function agentInfoEqual<A extends AgentInfoShape>(
+export function agentInfoEqual<A extends AgentInfoFields>(
   a: A | null,
   b: A | null,
 ): boolean {

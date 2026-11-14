@@ -19,10 +19,11 @@ coding agent it recognizes — [Claude Code](https://docs.anthropic.com/en/docs/
 [OpenCode](https://github.com/anomalyco/opencode),
 [Pi](https://github.com/earendil-works/pi-mono),
 [Xyne](https://github.com/xynehq/xyne-cli), or
-[Oh My Pi](https://github.com/can1357/oh-my-pi) (`omp`) — it reads that agent's
-own on-disk session to derive whether it's thinking, running a tool, waiting on
-you, or done. That state paints the tile chrome, the dock row, and the minimap,
-so a glance across a workspace of twenty terminals tells you **who needs you**.
+[Oh My Pi](https://github.com/can1357/oh-my-pi) (`omp`) — that terminal **has an
+agent** from that moment, and kolu then reads the agent's own on-disk session to
+derive whether it's thinking, running a tool, waiting on you, or done. That state
+paints the tile chrome, the dock row, and the minimap, so a glance across a
+workspace of twenty terminals tells you **who needs you**.
 
 There is no agent registry to configure and no per-agent setup. Run a supported
 agent in any terminal and detection lights up on its own. That holds whichever
@@ -66,6 +67,41 @@ agent that needs you never reads as a build still churning. When an agent finish
 in the background and you haven't looked yet, its **whole row washes amber** — and
 a small amber **unread badge** appears on the pip — until you focus it or that
 agent gets back to work.
+
+### Before the first prompt
+
+That an agent is in a terminal and what it has been doing are two different
+facts. The first is the **process**: kolu sees the agent's program come to the
+front the instant it starts. The second is the agent's **session on disk** — and
+most agents write none until you first prompt them — Oh My Pi not until its first
+reply is finished. So between launching an agent and its first word on disk, the
+terminal shows it in one of three states of its own, each something kolu itself
+saw:
+
+| State | Indicator | Meaning |
+| --- | --- | --- |
+| Starting | the agent's mark, no glow | the program is up and its screen is still being drawn |
+| Ready | the agent's mark, no glow | its screen has settled and nothing has been submitted to it |
+| Working | the agent's mark, working glow | a prompt was submitted to it — kolu carries every keystroke, so it sees the Enter go in — and the agent has not written anything yet |
+
+**Ready** is decided by the same quiet window that tells a just-stopped agent
+from a finished one: once the agent has printed nothing for about five seconds,
+it is up. Neither Starting nor Ready asks anything of you, so neither raises a
+badge, a count, or a needs-you entry — not on the dock, not on the host tab, not
+on the app icon. **Working** counts as work everywhere a thinking agent does, from
+the moment you press Enter rather than from the moment the agent's session first
+lands on disk. A submit is a typed Enter: a newline inside a paste, or Alt+Enter,
+is a line of your input, not a prompt. If the screen settles again with still
+nothing written — a slash command that started no turn, an Enter into an empty
+input — the agent is Ready once more.
+
+The agent's session, when it is written, replaces all three with the agent's real
+state; quitting the agent before then ends it as it always did. Where an agent
+names its session before writing it — Claude Code's
+`~/.claude/sessions/<pid>.json`, Oh My Pi's breadcrumb — the agent already
+carries that session's id. A terminal woken from sleep with an agent that never
+wrote a session comes back to a bare shell: there is no conversation yet to
+resume.
 
 ## How detection works
 
@@ -204,7 +240,10 @@ wakes to a bare shell, and padi's log says so once.
 
 kolu finds a Claude session by checking whether `~/.claude/sessions/<foreground-pid>.json`
 exists, then tails its JSONL transcript to derive state. The tile also shows the
-session's title and a running token count.
+session's title and a running token count. Claude writes that session file the
+moment it starts but its transcript only with the first exchange, so a Claude
+that has not been prompted yet reads [starting, then ready](#before-the-first-prompt)
+— already carrying the session id its transcript will be named by.
 
 **Model** and **context tokens** are read from the newest _assistant_ message
 rather than from the newest entry of any kind. A `user` entry is the newest one
@@ -439,7 +478,11 @@ all. When the foreground process is `omp`, kolu reads that process's terminal
 follows it to **the one session this terminal owns** — no candidate list, no
 ownership arbiter, and two `omp` terminals in one repository each show their own
 conversation by construction. State then comes from tailing that session's JSONL
-transcript, exactly as with pi.
+transcript, exactly as with pi. A brand-new session's breadcrumb is written
+`fresh`, before its JSONL exists — omp writes that only when the first reply is
+done — so until then the terminal reads [starting, then ready, then working from
+the Enter on](#before-the-first-prompt), carrying the session id the breadcrumb
+names.
 
 | State | Indicator | Meaning |
 | --- | --- | --- |
@@ -483,10 +526,11 @@ session JSONL, rendering the live branch of omp's entry tree.
 - **Plan approval** — omp's plan-review overlay has no stable on-screen marker
   yet; a deliberate follow-up, like Claude Code's `ExitPlanMode`.
 - **An ephemeral session** — `omp --no-session` writes nothing to disk and no
-  breadcrumb, so there is nothing to bind to (it never enters **Recent agents**
-  and can't be restored on wake). A breadcrumb an *earlier* run left behind in
-  that terminal is ignored too, rather than re-binding the tile to the stale
-  conversation's session.
+  breadcrumb, so there is no session to bind to: the terminal shows Oh My Pi as
+  **ready** and stays there (it never enters **Recent agents** and can't be
+  restored on wake). A breadcrumb an *earlier* run left behind in that terminal
+  is ignored too, rather than re-binding the tile to the stale conversation's
+  session.
 - **A redirected store, on macOS only** — a `PI_CODING_AGENT_DIR` (or
   `OMP_PROFILE`) set on the `omp` process is unrecoverable there, because `ps`
   redacts even same-user process environments since macOS 10.13, so kolu reads

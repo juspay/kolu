@@ -20,6 +20,7 @@ import {
   composeTerminalMetadata,
   LOCAL_LOCATION,
 } from "@kolu/padi-client/vocab";
+import { type AgentPresence, agentPresence } from "kolu-agents/vocab";
 import { describe, expect, it } from "vitest";
 import {
   type HostReading,
@@ -39,6 +40,11 @@ interface Over {
   asleep?: boolean;
   agent?: boolean;
   shellInFront?: boolean;
+  /** padi's PRESENCE for an agent that is in the foreground with no session
+   *  yet — the record a terminal has between the agent program appearing and
+   *  its transcript landing. Mutually exclusive with `agent`, which is an
+   *  agent that HAS a session. */
+  presence?: AgentPresence["state"];
 }
 
 /** One record, the way padi composes one: the authored half (where it is, what
@@ -59,20 +65,25 @@ const record = (over: Over): PadiTerminal =>
       cwd: "/tmp",
       git: { kind: "none" },
       pr: { kind: "pending" },
+      // The PRESENCE arm is built by the registry's own constructor, so a
+      // field added to that shape reaches this fixture rather than letting it
+      // compose a record padi could never publish.
       agent:
-        over.agent === true
-          ? {
-              kind: "claude-code",
-              state: "thinking",
-              sessionId: "ses-A",
-              model: null,
-              summary: null,
-              taskProgress: null,
-              workflow: null,
-              contextTokens: null,
-              startedAt: null,
-            }
-          : null,
+        over.presence !== undefined
+          ? agentPresence("claude-code", over.presence, null)
+          : over.agent === true
+            ? {
+                kind: "claude-code",
+                state: "thinking",
+                sessionId: "ses-A",
+                model: null,
+                summary: null,
+                taskProgress: null,
+                workflow: null,
+                contextTokens: null,
+                startedAt: null,
+              }
+            : null,
       foreground:
         over.shellInFront === undefined
           ? null
@@ -258,11 +269,44 @@ describe("what a host's frames say about each watched terminal", () => {
     expect(seen[0]?.foregroundShell).toBe(true);
   });
 
+  it("reads an agent that is COMING UP and one that is FRESH off the record", () => {
+    // Neither is in any of padi's four lists — there is no transcript yet to
+    // put them there — and before presence the watch said nothing at all about
+    // this terminal, which is exactly the moment the Conductor is waiting for.
+    const seen = readingsOf(
+      reading({
+        watched: [SPLIT, PLANNER],
+        records: {
+          [SPLIT]: { presence: "starting" },
+          [PLANNER]: { presence: "fresh" },
+        },
+      }),
+    );
+    expect(seen.map((one) => one.level)).toEqual(["starting", "fresh"]);
+    // The agent is NAMED on both, which is what makes the entry's agent stick
+    // from the moment the program appears.
+    expect(seen.map((one) => one.agent)).toEqual([
+      "claude-code",
+      "claude-code",
+    ]);
+  });
+
   it("says NOTHING about a terminal in no list whose record has not arrived", () => {
     // Either there is no agent in it or there is one in a state padi puts in
     // no list, and the frames so far cannot tell those apart. The next one
     // says more; a silence is the answer that never misleads.
     expect(readingsOf(reading({ watched: [SPLIT] }))).toEqual([]);
+  });
+
+  it("says NOTHING about an agent in no list whose state is not a presence", () => {
+    // It has a session, so it is past the two presence states, and padi puts
+    // it in none of the four lists: there is nothing honest to say about it,
+    // and that is unchanged by presence existing.
+    expect(
+      readingsOf(
+        reading({ watched: [SPLIT], records: { [SPLIT]: { agent: true } } }),
+      ),
+    ).toEqual([]);
   });
 
   it("carries the name, the agent and the piece of work onto every reading", () => {

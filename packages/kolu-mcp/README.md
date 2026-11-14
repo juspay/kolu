@@ -72,14 +72,23 @@ turn), `"steer"` (the words reach the turn that is running — codex, omp, pi,
 xyne) or `"queue"` (they wait for the current turn to end — claude-code,
 opencode, grok). `took` is whether the words LANDED: for an agent that was
 idle, kolu then watches its state for a hard-capped few seconds
-(`SAY_TAKE_CAP_MS`) and answers `began-working` or `did-not-begin` — the keys
+(`SAY_TAKE_CAP_MS`) and answers `began-working`, `submit-landed` or `did-not-begin` — the keys
 were sent either way, so a say that did not take is an ANSWER naming the screen
 read that settles it, never a refusal that invites typing the prompt a second
 time. For an agent that was already working there is no state change to watch,
 so `took` is `not-observable` and the delivery is the whole story. Refused as
 data, never guessed: `no-agent` (a plain shell), `agent-cannot-be-told` (kolu
 detects the agent but has no verified recipe), `agent-cannot-be-told-while-working`,
-the asleep refusal, and `text-refused` (empty text).
+`agent-starting` (the agent is up but its screen is still being drawn — wait
+until it is ready, which `wait_agentState` with `until: ["fresh"]` is for, and
+say it then), the asleep refusal, and `text-refused` (empty text). An agent that
+is `fresh` — up, settled, never prompted — is said to like any other idle agent.
+Its first prompt answers `submit-landed`, not `began-working`: padi saw the
+Enter reach it (the agent turns `prompted`, a presence state in the `working`
+bucket) before it has written a line of transcript — omp writes its first only
+when the first reply completes — so the answer says the keys got there, not
+that the agent has answered. Until that transcript lands a second say treats it
+as working.
 
 **A refusal is data, not a sentence to parse.** `lifecycle_sendInput` refuses
 four things on purpose, and a driver recovers from each differently — so each
@@ -194,7 +203,11 @@ wrote. A reference that names nothing — and any address this face does not
 serve — is refused *here*, in a sentence that says what a record address looks
 like. Each row carries its own `host` and its `id` / `parentId` as fleet
 references, so a record you read is one you can act on without remembering the
-key it arrived under.
+key it arrived under. What the face serves and how it routes are published —
+`KOLU_FLEET_RESOURCES` (every static address), `KOLU_FLEET_RECORD_ADDRESS` and
+`isKoluFleetAddress` — so the Conductor's teaching script, which names each of
+these addresses, is tested against the face rather than against literals: a
+renamed resource fails that test instead of teaching a dead address.
 
 `watched` (`surface://cells/watched`) is the Conductor reading the list it is
 being woken by — one row per watched reference, carrying the last name and

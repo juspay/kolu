@@ -3909,3 +3909,16 @@ retirements:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: Two pieces of work count on the tab, a split is drawn under its parent, and the badge says when it needs you"
       test: The same journey against the same wire — two unrelated watched terminals count as two pieces of work on the status line and the tab, and the badge turns needs-you while the Conductor asks — with a split of the first terminal watched in between, which is why the title moved. The split joins its parent's piece of work (the count stays 1, the terminals go to 2) and the panel is read for it being drawn under that terminal and named as something other than its id. The later counts move by one terminal for the split; every assertion the scenario made before is still made.
+  - id: rename-18e6a0643be3ff50ab66
+    revisionId: revision-18e6a0643be3ff50ab66
+    action: renamed
+    status: landed
+    promise: An agent that comes up in a watched terminal rings once as ready
+    defectSurface: [conductor, agent-detection, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-d0dd016c80ef4dfd05f0]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: A session the Conductor finds idle rings once as ready"
+      test: Same scenario, same steps, same assertions — only the title and its comment changed. Ready now has two readings, and this one is the INFERENCE — a session kolu did not watch come up (written against the terminal's own shell pid, the adopted or resumed case) whose agent is idle and which the conversation has never spoken to. The DIRECT reading, an agent padi watched arrive whose own state is the `fresh` presence, is a new scenario at the end of the same file, so the title has to say which of the two this one guards.

@@ -43,6 +43,15 @@
  *   watch <id>       — a REAL `watch_terminal` call on the fleet face for
  *                      `local/<id>`, so the watched list moves because the
  *                      Conductor's own tool moved it
+ *   run <command>    — a REAL `lifecycle_create` on the fleet face that TYPES
+ *                      `<command>` at the new terminal's first prompt (the
+ *                      scenario names it, because only the test process knows
+ *                      the stand-in binary's absolute path), and answers
+ *                      `ran: <the tool's answer>` — which carries the fleet
+ *                      ref the create watched
+ *   tell it <words>  — a REAL `agent_say` to the terminal `run` last started,
+ *                      answered verbatim: the tool's report when it landed,
+ *                      its refusal sentence when it did not
  *   work for a while — a turn held open for twelve seconds: long enough for a
  *                      watched terminal to ring while it runs and be HELD
  *   work until steered — a turn held open until a STEER arrives
@@ -55,9 +64,37 @@
  * Turns are served FIFO and one at a time: `queued` is a fact about the agent's
  * own queue, so an adapter that answered out of order could not be used to
  * assert it.
+ *
+ * ITS SESSIONS ARE LAZY, the way the pinned adapter's are: `session/new`
+ * answers a fresh id and writes NOTHING, and only the first prompt puts that
+ * id in the store — so a `session/load` of an id nobody prompted is refused
+ * with the adapter's own `-32002 Resource not found: <id>`, in this process or
+ * the next. Measured against `claude-agent-acp` 0.81.2: an unprompted id has
+ * no file under `~/.claude/projects/` and its load is refused in exactly those
+ * words; a prompted one loads. The store is a directory, named as this
+ * program's one argument, holding one empty file per prompted session — kept
+ * on disk because a restart of kolu-server is a NEW process of this agent.
  */
 
-const SESSION = "kolu-e2e-session";
+import { randomUUID } from "node:crypto";
+import { existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+/** Where this agent remembers the sessions that had a prompt. Required: a
+ *  fixture that silently accepted every id would hide the very defect it is
+ *  here to reproduce. Checked only when this file is the PROGRAM — cucumber's
+ *  `support/**` glob also imports it into the test runner, where it is never
+ *  spoken to and has no argument to read. */
+const STORE = process.argv[2] ?? "";
+if (import.meta.main && !existsSync(STORE)) {
+  throw new Error(
+    `acp-fixture-agent: pass the directory of its session store as the one argument (got ${JSON.stringify(process.argv[2])})`,
+  );
+}
+
+/** The conversation this process is in — minted by `session/new`, or the id a
+ *  `session/load` was allowed to open. */
+let session = "";
 
 const write = (value: unknown): void => {
   process.stdout.write(`${JSON.stringify(value)}\n`);
@@ -75,7 +112,7 @@ const update = (frame: unknown): void => {
   write({
     jsonrpc: "2.0",
     method: "session/update",
-    params: { sessionId: SESSION, update: frame },
+    params: { sessionId: session, update: frame },
   });
 };
 
@@ -95,6 +132,7 @@ interface Incoming {
   readonly result?: unknown;
   readonly error?: unknown;
   readonly params?: {
+    readonly sessionId?: string;
     readonly prompt?: ReadonlyArray<{ readonly text?: string }>;
     /** ACP's own `session/new` field — what kolu-server hands this session.
      *  The fleet face is the ONE entry on it (`type: "http"`, its loopback URL
@@ -112,10 +150,31 @@ interface Incoming {
   };
 }
 
-/** The kolu MCP server this session was handed, remembered from `session/new`.
+/** The kolu MCP server this session was handed, remembered from the open.
  *  `null` until a session is opened, and `null` forever for a kolu that handed
  *  over nothing — which the fleet turn reports rather than papers over. */
 let koluServer: { url: string; headers: Record<string, string> } | null = null;
+
+/** WHAT THE SESSION WAS HANDED, kept — on a `session/new` and on a
+ *  `session/load` alike, because both carry the servers. kolu-server puts
+ *  exactly one MCP server on a session: its own fleet face, at a loopback URL
+ *  with a bearer token minted this boot. A real adapter would connect it here;
+ *  this one keeps the address and dials it when a turn asks for the fleet,
+ *  which is the same proof with less machinery. */
+const takeServers = (message: Incoming): void => {
+  const kolu = (message.params?.mcpServers ?? []).find(
+    (one) => one.name === "kolu" && one.url !== undefined,
+  );
+  koluServer =
+    kolu?.url === undefined
+      ? null
+      : {
+          url: kolu.url,
+          headers: Object.fromEntries(
+            (kolu.headers ?? []).map((h) => [h.name, h.value]),
+          ),
+        };
+};
 
 /** One JSON-RPC call to the fleet's streamable-HTTP door.
  *
@@ -330,7 +389,7 @@ const reportServers = (): void => {
     jsonrpc: "2.0",
     method: "_claude/sdkMessage",
     params: {
-      sessionId: SESSION,
+      sessionId: session,
       message: {
         type: "system",
         subtype: "init",
@@ -375,6 +434,11 @@ const say = (text: string): void => {
 /** The steer the `work until steered` turn is waiting for, while it waits. */
 let awaitingSteer: ((text: string) => void) | null = null;
 
+/** The terminal the `run` verb last STARTED, as the fleet ref the create
+ *  answered with — what `tell it <words>` speaks to. `null` until one is
+ *  started, and the `tell` verb says so rather than inventing a ref. */
+let lastStarted: string | null = null;
+
 const turn = async (
   id: unknown,
   text: string,
@@ -396,6 +460,49 @@ const turn = async (
   if (text.startsWith("watch ")) {
     const terminalId = text.slice("watch ".length).trim();
     say(await callTool("watch_terminal", { id: `local/${terminalId}` }));
+    endTurn(id);
+    return;
+  }
+  if (text.startsWith("run ")) {
+    // THE CONDUCTOR STARTS SOMETHING. A real `lifecycle_create` on the fleet
+    // face, with the command the scenario named typed at the new terminal's
+    // first prompt — the fleet grammar's own `run`. The tool watches what it
+    // created, so the terminal is on the watched list from the moment it
+    // exists and nothing here has to ask for that separately.
+    //
+    // The COMMAND comes from the scenario rather than being baked in here: the
+    // stand-in it starts is a fake agent binary whose absolute path only the
+    // test process knows (the harness seeds it per worker), and a fixture that
+    // guessed `claude` would start whatever that name happens to resolve to on
+    // the box.
+    const answer = await callTool("lifecycle_create", {
+      host: "local",
+      placement: { kind: "toplevel" },
+      cwd: "/tmp",
+      intent: "bring one up",
+      run: text.slice("run ".length).trim(),
+    });
+    lastStarted = /\blocal\/[0-9a-f-]{36}\b/.exec(answer)?.[0] ?? null;
+    say(`ran: ${answer}`);
+    endTurn(id);
+    return;
+  }
+  if (text.startsWith("tell it ")) {
+    // SPEAKING TO THE AGENT IT STARTED — `agent_say` on the fleet face, which
+    // is the verb that knows the keys. The answer is said verbatim, refusal
+    // sentence and all, so a scenario can tell a call that landed from one the
+    // face turned down (an agent still coming up is turned down).
+    if (lastStarted === null) {
+      say("nothing was started to tell");
+      endTurn(id);
+      return;
+    }
+    say(
+      await callTool("agent_say", {
+        id: lastStarted,
+        text: text.slice("tell it ".length).trim(),
+      }),
+    );
     endTurn(id);
     return;
   }
@@ -540,7 +647,7 @@ const turn = async (
     const answered = Promise.withResolvers<void>();
     askClient(
       {
-        sessionId: SESSION,
+        sessionId: session,
         mode: "form",
         message: "Retention in days for the new bucket?",
         requestedSchema: {
@@ -684,38 +791,40 @@ process.stdin.on("data", (chunk: string) => {
           _meta: { steering: { supported: true } },
         });
         continue;
-      case "session/new": {
-        // WHAT THE SESSION WAS HANDED, kept: kolu-server puts exactly one MCP
-        // server on a new session — its own fleet face, at a loopback URL with
-        // a bearer token minted this boot. A real adapter would connect it
-        // here; this one keeps the address and dials it when a turn asks for
-        // the fleet, which is the same proof with less machinery.
-        const kolu = (message.params?.mcpServers ?? []).find(
-          (one) => one.name === "kolu" && one.url !== undefined,
-        );
-        koluServer =
-          kolu?.url === undefined
-            ? null
-            : {
-                url: kolu.url,
-                headers: Object.fromEntries(
-                  (kolu.headers ?? []).map((h) => [h.name, h.value]),
-                ),
-              };
-        respond(message.id, { sessionId: SESSION });
+      case "session/new":
+        session = randomUUID();
+        takeServers(message);
+        respond(message.id, { sessionId: session });
         continue;
-      }
-      case "session/load":
-        // padi keeps the transcript, so a load has nothing to replay — it only
-        // has to accept the id it minted, which is what resume IS.
+      case "session/load": {
+        // An id is a conversation in this store only once it was prompted —
+        // see the module doc. padi keeps the transcript, so a load that IS
+        // one has nothing to replay.
+        const asked = message.params?.sessionId ?? "";
+        if (!existsSync(join(STORE, asked))) {
+          write({
+            jsonrpc: "2.0",
+            id: message.id,
+            error: {
+              code: -32002,
+              message: `Resource not found: ${asked}`,
+              data: { uri: asked },
+            },
+          });
+          continue;
+        }
+        session = asked;
+        takeServers(message);
         respond(message.id, {});
         continue;
+      }
       case "session/set_config_option":
         respond(message.id, {});
         continue;
       case "session/cancel":
         continue;
       case "session/prompt": {
+        writeFileSync(join(STORE, session), "");
         const text = lastLine(message);
         const whole = (message.params?.prompt ?? [])
           .map((block) => block.text ?? "")
@@ -743,5 +852,3 @@ process.stdin.on("data", (chunk: string) => {
     }
   }
 });
-
-export {};

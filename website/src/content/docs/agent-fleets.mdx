@@ -79,7 +79,7 @@ The hardest part of driving an agent isn't sending input; it's knowing when to s
     `kolu wait --until idle:<ms>` blocks until no output byte has arrived for a while. It works on **any** terminal with no setup, but it can't tell "finished" from "stopped to ask you" — both look like silence.
   </Card>
   <Card title="The agent's state changed">
-    `kolu wait --until awaiting,waiting` blocks on padi's real [agent-state](/padi) — `working`, `awaiting` (it's asking you), `waiting` (it just finished). This one _distinguishes_ a finished turn from a blocked question, for the terminals kolu owns.
+    `kolu wait --until awaiting,waiting` blocks on padi's real [agent-state](/padi) — `working`, `awaiting` (it's asking you), `waiting` (it just finished), and, before an agent has been prompted at all, `starting` (still drawing its screen) and `fresh` (up and never prompted — `--until fresh` is how a coordinator waits to brief an agent it just launched). This one _distinguishes_ a finished turn from a blocked question, for the terminals kolu owns.
   </Card>
 </CardGrid>
 

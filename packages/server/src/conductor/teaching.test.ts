@@ -15,7 +15,11 @@
 
 import { readFileSync } from "node:fs";
 import { parseTeaching, teachingLines } from "kolu-conductor";
-import { KOLU_FLEET_RECORD_ADDRESS } from "kolu-mcp";
+import {
+  isKoluFleetAddress,
+  KOLU_FLEET_RECORD_ADDRESS,
+  KOLU_FLEET_RESOURCES,
+} from "kolu-mcp";
 import { describe, expect, it } from "vitest";
 
 const BEFORE: string[] = JSON.parse(
@@ -185,8 +189,12 @@ describe("the watch list", () => {
   });
 });
 
-describe("one terminal's record", () => {
+describe("every address the script teaches", () => {
   const SCRIPT = teachingLines("zest").join("\n");
+  /** Every `surface://…` the Conductor is told, as it is written. */
+  const TAUGHT = [...SCRIPT.matchAll(/surface:\/\/[^\s`"]+/g)].map(
+    ([uri]) => uri,
+  );
 
   it("says the address a record is read at, in full and unescaped", () => {
     // The defect this guards: the script told the Conductor to read a
@@ -199,8 +207,43 @@ describe("one terminal's record", () => {
     // wake spells one; the percent-escaped spelling is the one no agent
     // guesses.
     expect(SCRIPT).toContain(KOLU_FLEET_RECORD_ADDRESS);
-    expect(SCRIPT).toContain("surface://collections/terminals/remote:prod/");
+    expect(SCRIPT).toContain(
+      KOLU_FLEET_RECORD_ADDRESS.replace("<host>/<id>", "remote:prod/"),
+    );
     expect(SCRIPT).not.toContain("%2F");
+  });
+
+  it("names every resource the face serves by its address, where it first names it", () => {
+    // The defect this guards: the script said "the `hosts` resource" and left
+    // the rest to the agent, which read `surface://collections/hosts` — the
+    // roster is a CELL — and was refused. The served list is the FACE's, so a
+    // resource added or renamed there turns this red until the script names
+    // it right.
+    const paragraphs = SCRIPT.split("\n");
+    for (const uri of KOLU_FLEET_RESOURCES) {
+      const name = `\`${uri.split("/").at(-1)}\``;
+      const first = paragraphs.find((line) => line.includes(name));
+      expect(first, `the script never names ${name}`).toBeDefined();
+      expect(first, `${name} is first named without its address`).toContain(
+        `\`${uri}\``,
+      );
+      // ... and named ONCE: a second spelling is a second place to go stale.
+      expect(
+        TAUGHT.filter((taught) => taught === uri),
+        `${uri} is taught more than once`,
+      ).toHaveLength(1);
+    }
+  });
+
+  it("teaches no address the face does not answer", () => {
+    // Built from, or checked against, what the face serves: a resource renamed
+    // there leaves a sentence here that this catches, by the face's own
+    // routing rather than a second copy of it.
+    expect(TAUGHT.length).toBeGreaterThan(0);
+    for (const uri of TAUGHT)
+      expect(isKoluFleetAddress(uri), `${uri} is answered by nothing`).toBe(
+        true,
+      );
   });
 });
 

@@ -218,7 +218,10 @@ machine](/remote-hosts) for adding a machine to the canvas.
 turn — a done-signal read from real padi state, not guessed from terminal
 silence. For a robust driver, wait in two phases: `--until working` for pickup,
 then `--until awaiting,waiting` for turn-end, so a stale previous-turn state
-cannot satisfy the wait early. `--timeout <ms>` fails loud (exit 2), a terminal
+cannot satisfy the wait early. To brief an agent you have just launched,
+`--until fresh` waits for it to be up — its screen settled, nothing said to it
+yet — which padi knows from the process before the agent has written anything.
+`--timeout <ms>` fails loud (exit 2), a terminal
 that exits first exits 3, and `--json` prints `{ id, agent }`. The deeper design
 notes live in the [padi atlas note](https://kolu.dev/atlas/padi.html).
 

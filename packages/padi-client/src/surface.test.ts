@@ -153,8 +153,11 @@ describe("padiSurface contract", () => {
     // error channel: `TerminalNotActive { id, state }` joins `TerminalNotFound`
     // on every member behind it, so a sleeping terminal stops answering "not
     // found" — a widened output a 7.1 decoder would refuse, which is the 5.3
-    // case and therefore a minor.
-    expect(PADI_SURFACE_VERSION).toBe("7.2");
+    // case and therefore a minor. 7.3 lets the record's `agent` be a PRESENCE —
+    // an agent seen in the foreground with no session yet (`starting` /
+    // `fresh`) — and adds those two buckets to the wait/watch vocabulary: a
+    // widened emitted union a 7.2 decoder refuses, the same 5.3 minor.
+    expect(PADI_SURFACE_VERSION).toBe("7.3");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),

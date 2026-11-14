@@ -24,6 +24,10 @@
 
 import { frameByClass, frameClassOf } from "@kolu/padi-client/attention";
 import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
+// The one fold that says what an agent STATE means — the same vocabulary the
+// dock and every wait read, so the two presence readings below are padi's word
+// for them and not this module's.
+import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import type { WatchObservation, WatchRoot } from "./watching.ts";
 
@@ -139,6 +143,15 @@ export const walkRoot = (
  *  - **shell** — in none of the four lists, with a record that says there is no
  *    agent in it. It never rings; what it carries is the name, and the fact
  *    that the prompt is back.
+ *  - **starting** / **fresh** — in none of the four lists, with an agent in it
+ *    that padi has published as a PRESENCE: the agent program is in the
+ *    foreground and its screen is still being drawn, or it has settled and
+ *    nothing has ever been said to it. Read off the record's agent state
+ *    through `agentBucket` — the one fold that says what an agent state MEANS
+ *    — rather than by matching the two literals here, so a presence state
+ *    added to the schema arrives through its own fence. An agent in any OTHER
+ *    state that padi lists nowhere still yields nothing: about that one there
+ *    is honestly nothing to say.
  */
 export const readingsOf = (
   reading: HostReading,
@@ -206,11 +219,22 @@ export const readingsOf = (
         throw new Error(`unhandled attention class: ${String(unknownClass)}`);
       }
     }
-    // In none of the four lists: either there is no agent in it (a shell, which
-    // never rings) or there is one in a state padi puts in no list — and about
-    // that one there is nothing to say.
-    if (record !== undefined && live?.agent == null) {
+    // In none of the four lists. Three cases, and the record tells them apart:
+    // no agent in it (a shell, which never rings), an agent padi has published
+    // as a PRESENCE — up but with no transcript yet — or an agent in some
+    // other state no list holds, about which there is nothing to say.
+    if (record === undefined) continue;
+    const agent = live?.agent ?? null;
+    if (agent === null) {
       seen.push({ ...base, level: "shell" });
+      continue;
+    }
+    // The fold, not a pair of literals read by hand: `agentBucket` is where a
+    // state becomes a word, and its exhaustiveness fence is what keeps a third
+    // presence state from quietly reading as nothing here.
+    const bucket = agentBucket(agent.state);
+    if (bucket === "starting" || bucket === "fresh") {
+      seen.push({ ...base, level: bucket });
     }
   }
   return seen;
