@@ -12,6 +12,7 @@
 
 import * as assert from "node:assert";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { After, Then, When } from "@cucumber/cucumber";
 import {
@@ -385,8 +386,10 @@ let mockCwd: string | null = null;
 let mockSessionFile: string | null = null;
 let mockProjectDir: string | null = null;
 let mockTranscriptPath: string | null = null;
-/** The pid marker file a fake-agent launch writes (`echo $$`), removed on cleanup. */
-let mockAgentPidMarker: string | null = null;
+/** The launched stand-in's private scratch directory (`mkdtemp`, owner-only):
+ *  the pid marker it writes (`echo $$`) and the staged transcript live here,
+ *  never under a guessable name in the shared temp dir. Removed on cleanup. */
+let mockScratchDir: string | null = null;
 /** The launched stand-in's own pid — what its session file is keyed on, and what
  *  `the session ends` waits to see gone. */
 let mockAgentPid: number | null = null;
@@ -408,13 +411,10 @@ function cleanup() {
     mockProjectDir = null;
   }
   mockTranscriptPath = null;
-  if (mockAgentPidMarker && fs.existsSync(mockAgentPidMarker)) {
-    fs.unlinkSync(mockAgentPidMarker);
+  if (mockScratchDir && fs.existsSync(mockScratchDir)) {
+    fs.rmSync(mockScratchDir, { recursive: true, force: true });
   }
-  if (mockStagePath && fs.existsSync(mockStagePath)) {
-    fs.unlinkSync(mockStagePath);
-  }
-  mockAgentPidMarker = null;
+  mockScratchDir = null;
   mockStagePath = null;
   mockAgentPid = null;
 }
@@ -576,9 +576,9 @@ async function startFakeClaude(world: KoluWorld, args = ""): Promise<void> {
   mockProjectDir = path.join(projectsDir, cwd.replace(/[/.]/g, "-"));
   fs.mkdirSync(mockProjectDir, { recursive: true });
   mockTranscriptPath = path.join(mockProjectDir, `${SESSION_ID}.jsonl`);
-  const marker = `/tmp/kolu-claude-agent-pid-${process.pid}-${Date.now()}`;
-  mockAgentPidMarker = marker;
-  mockStagePath = `${marker}.stage`;
+  mockScratchDir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-claude-agent-"));
+  const marker = path.join(mockScratchDir, "pid");
+  mockStagePath = path.join(mockScratchDir, "stage");
 
   const payload = claudeMockPayload({
     sessionsDir,
