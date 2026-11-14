@@ -819,6 +819,13 @@ export const ConductorStateSchema = Schema.Struct({
       name: Schema.String,
       /** The watched refs in this group, in watch order. */
       refs: Schema.Array(Schema.String),
+      /** WHEN THIS PIECE OF WORK STARTED — the ISO time its FIRST terminal
+       *  joined the watch list, which is the earliest `since` of the entries
+       *  in it. kolu knows no other beginning: a waterfall is not declared
+       *  anywhere, and the moment the conversation started watching is the
+       *  moment it became work in flight. Saved with the entry, so the
+       *  duration a panel counts from it survives a restart. */
+      since: Schema.String,
     }),
   ),
   /** The watched terminals whose news is HELD because a turn is running — one

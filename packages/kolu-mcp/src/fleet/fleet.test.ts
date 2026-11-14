@@ -605,6 +605,65 @@ describe("the fleet face over two hosts", () => {
     expect(killed.isError ?? false, JSON.stringify(killed.content)).toBe(false);
   });
 
+  it("reads a record at the reference the face hands out — local and remote, unescaped", async () => {
+    // THE BUG a human hit in a real session: a reference is `host/id`, so the
+    // URI an agent writes by pasting one after the collection has a slash in
+    // its last part — which the adapter's segment rule reads as a SIBLING's
+    // collection and refuses as an unknown resource. Reading one terminal's
+    // record therefore never worked on this face, while the standing prompt
+    // tells the Conductor to do exactly that before it reads a screen. Both
+    // arms, because `local/<id>` carries the slash too.
+    const { fleet } = twoHosts();
+    const mcp = await servedFleet(fleet.hosts);
+    const asked = (ref: string) => `surface://collections/terminals/${ref}`;
+
+    const localUri = asked(`local/${ALPHA_1}`);
+    const local = await mcp.readResource({ uri: localUri });
+    expect(jsonOf(local)).toMatchObject({
+      id: `local/${ALPHA_1}`,
+      host: "local",
+    });
+    // The answer comes back at the address the caller WROTE — an agent handed
+    // a different one reads it as a second, secret spelling.
+    expect(local.contents[0]?.uri).toBe(localUri);
+
+    expect(
+      jsonOf(await mcp.readResource({ uri: asked(`remote:box/${BETA_1}`) })),
+    ).toMatchObject({ id: `remote:box/${BETA_1}`, host: "remote:box" });
+  });
+
+  it("refuses a reference that names nothing, and says what a record address looks like", async () => {
+    const { fleet } = twoHosts();
+    const mcp = await servedFleet(fleet.hosts);
+    const uri = `surface://collections/terminals/local/${BETA_1}`;
+    const refusal = await mcp.readResource({ uri }).then(
+      () => null,
+      (e: unknown) => String(e),
+    );
+    // A reference for a terminal that is not on the host it names is an
+    // answer, not a crash — and the sentence has to carry both halves: that
+    // there is no such record, and the shape of an address that would have
+    // one.
+    expect(refusal).toContain("no terminal record at");
+    expect(refusal).toContain(uri);
+    expect(refusal).toContain('"surface://collections/terminals/<host>/<id>"');
+  });
+
+  it("refuses an address this face does not serve by teaching the record address", async () => {
+    const { fleet } = twoHosts();
+    const mcp = await servedFleet(fleet.hosts);
+    const refusal = await mcp
+      .readResource({ uri: "surface://cells/screens" })
+      .then(
+        () => null,
+        (e: unknown) => String(e),
+      );
+    expect(refusal).toContain("unknown resource");
+    expect(refusal).toContain('"surface://collections/terminals/<host>/<id>"');
+    // And it names what IS there, so the next read is a right one.
+    expect(refusal).toContain('"surface://cells/hosts"');
+  });
+
   it("`hosts` answers the whole roster — every host and its facts — in ONE read", async () => {
     // The question an agent asks first is "which hosts can I use", and the
     // answer has to arrive whole. As a COLLECTION this resource was its key

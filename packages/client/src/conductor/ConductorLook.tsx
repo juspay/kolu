@@ -52,6 +52,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  type JSX,
   onCleanup,
   onMount,
   Show,
@@ -111,6 +112,16 @@ const ConductorLook: Component<{
    *  `conductor-look-toggle`; the watched panel draws the SAME peek under its
    *  own name, so a test can say which of the two it pressed. */
   toggleTestId?: string;
+  /** HOW LONG IT HAS STOOD THIS WAY, drawn between the state and the Look —
+   *  the watched panel's clock, which belongs on this line because this line
+   *  is what it is a duration OF. Absent on the transcript's agent lines,
+   *  which say what a call did and not how long ago.
+   *
+   *  An element rather than a number: what is honest to count differs by
+   *  state (kolu keeps no per-state timestamp — see the watched panel), so
+   *  the words are the caller's and this component only gives them their
+   *  place. */
+  clock?: JSX.Element;
 }> = (props) => {
   const standing = createMemo(() =>
     fleetTerminalStanding(props.host, props.id),
@@ -194,6 +205,7 @@ const ConductorLook: Component<{
           <span class="font-semibold text-fg">{status().state}</span>
           <Show when={status().doing}>{(doing) => <> · {doing()}</>}</Show>
         </span>
+        {props.clock}
         <Show when={lookable()}>
           <button
             type="button"

@@ -372,7 +372,7 @@ function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.48.0";
+const SCHEMA_VERSION = "1.49.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -1084,21 +1084,36 @@ const CONF_MIGRATIONS = {
   // keeps working, so the key is seeded EMPTY, which is the truth about a
   // conversation that has never watched anything.
   //
-  // Numbered 1.48.0, not the 1.46.0 that follows 1.45.0: builds of the watch
-  // list before its release stamped 1.46.0 on files whose entries carry only
-  // `ref`/`name`/`agent`/`told`, and 1.47.0 on files whose entries have no
-  // `root`. This number walks those files through the rung too, and the rung
-  // completes each entry with the reading that claims nothing it did not see
-  // — `joined: "asked"` (no command kolu typed), `spoken: false`, `ran:
-  // false`, and `root: null` (nothing has read the terminal's host, so which
-  // piece of work it is part of is not yet known; the first reading after the
-  // boot says). The schema has no defaults of its own: an entry this rung did
-  // not complete is refused on read, by name.
+  // Numbered 1.49.0, not the 1.46.0 that follows 1.45.0: this ONE rung walks
+  // every shape the watch list has ever had on disk through to the current
+  // one. Builds before its release stamped 1.46.0 on files whose entries
+  // carry only `ref`/`name`/`agent`/`told`, 1.47.0 on files whose entries
+  // have no `root`, and 1.48.0 — a number a running install is sitting on —
+  // on files whose entries have no `since`. A rung numbered at or below a
+  // file's own version never runs, so the number moves UP with the shape
+  // rather than a second rung being added beside this one.
+  //
+  // The rung completes each entry with the reading that claims nothing it did
+  // not see — `joined: "asked"` (no command kolu typed), `spoken: false`,
+  // `ran: false`, and `root: null` (nothing has read the terminal's host, so
+  // which piece of work it is part of is not yet known; the first reading
+  // after the boot says).
+  //
+  // `since` IS THE MOMENT THIS RUNG RUNS, and that is a deliberate choice
+  // between two wrong answers. The join time was never written down, so the
+  // alternatives are an invented past (claiming a piece of work is older than
+  // anything kolu can show) and the epoch (a panel reading "56y"). The boot
+  // that upgrades the file is the earliest instant kolu can honestly vouch
+  // for: the duration it starts counting is "at least this long", and it is
+  // right from the next terminal joining onwards. One stamp for every entry
+  // in the file, read once, so two terminals watched together keep reading as
+  // one piece of work rather than drifting apart by the loop's own
+  // milliseconds.
   //
   // The record is otherwise untouched: the session id, the transcript tail,
   // the fleet and the model a person chose all carry across unchanged, because
   // this is an addition and not a reshape.
-  "1.48.0": (store: Conf<PersistedState>) => {
+  "1.49.0": (store: Conf<PersistedState>) => {
     // Read as an OBJECT rather than as the decoded record: this rung runs
     // against a file written by an older build, whose `conductor` key is
     // exactly the shape the current schema does not yet accept.
@@ -1110,6 +1125,7 @@ const CONF_MIGRATIONS = {
     // A `watched` that is there and is not a list is not an older shape —
     // it is a broken file, left as it is so the read refuses it by name.
     if (watched !== undefined && !Array.isArray(watched)) return;
+    const now = new Date().toISOString();
     store.set("conductor", {
       ...record,
       watched: (watched ?? []).map((entry: Record<string, unknown>) => ({
@@ -1117,6 +1133,7 @@ const CONF_MIGRATIONS = {
         spoken: false,
         ran: false,
         root: null,
+        since: now,
         ...entry,
       })),
     } as unknown as PersistedState["conductor"]);

@@ -29,12 +29,18 @@ const OTHER_TERMINAL = "22222222-2222-4222-8222-222222222222" as TerminalId;
 const OTHER_REF = `local/${OTHER_TERMINAL}`;
 const SPLIT_REF = "local/33333333-3333-4333-8333-333333333333";
 
+/** When the piece of work's first terminal joined the watch list — an hour
+ *  before the clock every test below mounts against, so the heading's age is
+ *  a number a person would read rather than `0s`. */
+const JOINED_AT = new Date(Date.now() - 3_600_000).toISOString();
+
 /** One piece of work, the shape the cell publishes. */
 const piece = (
   root: string,
   name: string,
   refs: readonly string[],
-): ConductorState["work"][number] => ({ root, name, refs });
+  since = JOINED_AT,
+): ConductorState["work"][number] => ({ root, name, refs, since });
 
 const [standing, setStanding] = createSignal<FleetTerminalStanding>({
   kind: "gone",
@@ -54,6 +60,22 @@ vi.mock("../wire", () => ({
 }));
 vi.mock("../settings/useTips", () => ({
   useTips: () => ({ showTipOnce: () => {} }),
+}));
+
+/** WHERE PRESSING A NAME LANDED — the two steps `useOpenTile` takes, caught
+ *  at the same two seams `ConductorToolCard.test.tsx` catches them at. The
+ *  point of the assertion is that the row takes the card's journey, so it is
+ *  read at the card's own boundary rather than through a stub of the shared
+ *  helper, which would prove only that a stub was called. */
+const landed = vi.hoisted(() => ({
+  hosts: [] as HostKey[],
+  focused: [] as TerminalId[],
+}));
+vi.mock("../host/selectHostTab", () => ({
+  selectHostTab: (host: HostKey) => landed.hosts.push(host),
+}));
+vi.mock("../canvas/dock/useDockFocus", () => ({
+  useDockFocus: () => (id: TerminalId) => landed.focused.push(id),
 }));
 
 import ConductorWatchedPanel from "./ConductorWatchedPanel";
@@ -111,6 +133,8 @@ afterEach(() => {
   root?.remove();
   dispose = undefined;
   root = undefined;
+  landed.hosts = [];
+  landed.focused = [];
 });
 
 describe("the watched panel", () => {
@@ -120,9 +144,85 @@ describe("the watched panel", () => {
     expect(row).toBeDefined();
     expect(row?.dataset.ref).toBe(REF);
     expect(at("conductor-watched-agent")?.textContent).toBe("Claude Code");
-    expect(at("conductor-watched-since")?.textContent).toContain("quiet");
+    // The clock is on the LINE THAT REPORTS THE STATE, not floating on the
+    // identity line above it: one line says who, the next says how it stands
+    // and for how long.
+    const clock = at("conductor-watched-since");
+    expect(clock?.textContent).toContain("quiet");
+    expect(at("conductor-look")?.contains(clock ?? null)).toBe(true);
     // The peek is the transcript's own, found under the panel's name.
     expect(at("conductor-watched-look")).toBeDefined();
+  });
+
+  it("ages a piece of work from the heading, counting from when it joined", () => {
+    mount([piece(REF, "fix-parser", [REF, SPLIT_REF])]);
+    // An hour on this browser's clock — the number a person reads, not a
+    // restated ISO stamp.
+    expect(at("conductor-watched-group-since")?.textContent).toContain("1h");
+  });
+
+  it("still ages a piece of work whose heading says nothing", () => {
+    // The group-of-one rule drops the NAME (the heading would say the row's
+    // own word back at it); the age is not a repeat of anything, so it stays.
+    mount([piece(REF, TERMINAL, [REF])]);
+    expect(at("conductor-watched-group-name")).toBeUndefined();
+    expect(at("conductor-watched-group-since")?.textContent).toContain("1h");
+  });
+
+  it("takes you to the terminal when its name is pressed — the card's journey", () => {
+    mount([piece(REF, "fix-parser", [REF])]);
+    const name = at("conductor-watched-name");
+    expect(name?.dataset.opensTile).toBe("true");
+    // The accessible name says what pressing it DOES and still carries the
+    // words on screen. The fleet index is stubbed empty here, so those words
+    // are the terminal's own id — the same fallback every other row test
+    // reads.
+    expect(name?.getAttribute("aria-label")).toBe(`Go to ${TERMINAL}`);
+    name?.click();
+    // The host tab first, then the tile — the two steps, in order.
+    expect(landed.hosts).toEqual([{ kind: "local" }]);
+    expect(landed.focused).toEqual([TERMINAL]);
+  });
+
+  it("offers no way there for a terminal that is gone", () => {
+    setStanding({ kind: "gone" });
+    mount([piece(REF, "fix-parser", [REF])]);
+    const name = at("conductor-watched-name");
+    // Still named — the Conductor is still watching it — with nothing to
+    // press: there is no tile to land on.
+    expect(name?.textContent).toBe(TERMINAL);
+    expect(name?.dataset.opensTile).toBeUndefined();
+    name?.click();
+    expect(landed.hosts).toEqual([]);
+    expect(landed.focused).toEqual([]);
+  });
+
+  it("offers no way there, and no clock, while its host is not connected", () => {
+    setStanding({ kind: "unreachable" });
+    mount([piece(REF, "fix-parser", [REF])]);
+    expect(at("conductor-watched-name")?.dataset.opensTile).toBeUndefined();
+    // Nothing has been read off that machine, so there is no honest duration
+    // to show — and an invented one is the thing this panel must not do.
+    expect(at("conductor-watched-since")).toBeUndefined();
+  });
+
+  it("counts a sleeping terminal's own state, which is the one kolu stamps", () => {
+    setStanding({
+      kind: "here",
+      meta: {
+        state: "sleeping",
+        foreground: null,
+        lastActivityAt: Date.now() - 7_200_000,
+        sleptAt: Date.now() - 125_000,
+        agent: null,
+      } as never,
+    });
+    mount([piece(REF, "fix-parser", [REF])]);
+    // Two minutes asleep, NOT the two hours since it last moved: `sleptAt` is
+    // when this state began, so the duration is the state's own. The seconds
+    // are not pinned — the pane's clock is a 1 s tick of its own, and what
+    // this asserts is the MINUTES it counts from.
+    expect(at("conductor-watched-since")?.textContent).toMatch(/^2m \d+s$/);
   });
 
   it("puts a piece of work's terminals under its root's name, and two pieces side by side", () => {

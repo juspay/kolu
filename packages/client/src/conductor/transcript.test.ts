@@ -569,6 +569,44 @@ describe("foldFailureRuns", () => {
     expect(keyOf(2)).toBe("failures:s0");
     expect(keyOf(6)).toBe(keyOf(2));
   });
+
+  it("folds a generic tool's failures that differ only by a terminal inside a URI", () => {
+    // The human's session: three `ReadMcpResourceTool` cards one under
+    // another, each refusing a different terminal's record address. kolu has
+    // no reading of that tool — there is no subject to cut out — so the only
+    // thing that can match them is the reference inside the URI.
+    const unresolved = (id: string, seq: number, ref: string): ConductorRow =>
+      ({
+        id,
+        seq,
+        since: SINCE,
+        kind: "tool",
+        text: "ReadMcpResourceTool",
+        status: "failed",
+        tool: "ReadMcpResourceTool",
+        server: "kolu",
+        progress: `unknown resource "surface://collections/terminals/${ref}"`,
+      }) as unknown as ConductorRow;
+    const lines = drawn([
+      user("u", 0),
+      unresolved(
+        "r1",
+        1,
+        "remote:gossamer/9ab1c0de-1111-4111-8111-111111111111",
+      ),
+      unresolved(
+        "r2",
+        2,
+        "remote:gossamer/9ab1c0de-2222-4222-8222-222222222222",
+      ),
+      unresolved("r3", 3, "local/9ab1c0de-3333-4333-8333-333333333333"),
+    ]);
+    expect(lines).toEqual([
+      "u",
+      // One line, the first reason whole — the address an agent can read.
+      'ReadMcpResourceTool ×3: unknown resource "surface://collections/terminals/remote:gossamer/9ab1c0de-1111-4111-8111-111111111111" +2 more',
+    ]);
+  });
 });
 
 describe("transcriptText", () => {

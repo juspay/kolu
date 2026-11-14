@@ -35,6 +35,8 @@ import InlineConfirmButton from "../ui/InlineConfirmButton";
 import { surface } from "../ui/Surface";
 import { useAnchoredPopover } from "../ui/useAnchoredPopover";
 import { transcriptText } from "./transcript";
+import { helpSheet } from "./conductorHelp";
+import { conductorHelpColumn } from "./conductorLayout";
 import { useConductor } from "./useConductor";
 
 /** The sentence the confirm asks under. It names every thing that goes,
@@ -159,6 +161,22 @@ const ConductorMenu: Component<{
           >
             Copy transcript
           </button>
+          {/* HOW TO USE, exactly where the help is not already a column: on a
+              phone, and on any window too narrow for the column
+              (`conductorLayout.ts`). The same words either way
+              (`conductorHelp.ts`) — a menu that opened a second, shorter
+              explanation is how two manuals come to disagree. */}
+          <Show when={!conductorHelpColumn()}>
+            <button
+              type="button"
+              role="menuitem"
+              data-testid="conductor-menu-help"
+              class="mt-1 w-full text-left px-2 py-1 rounded-md text-xs text-fg hover:bg-surface-2 cursor-pointer"
+              onClick={() => pick(() => helpSheet.openDialog())}
+            >
+              How to use
+            </button>
+          </Show>
           {/* THE ROSTER — read, never pressed, so it is a section under the
               rows and not a row among them. The tick is the AGENT'S word and
               only its word: `connected` is the agent reporting the server

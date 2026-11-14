@@ -183,11 +183,18 @@ under you*: name, reachability (`warming` · `connected` · `failed`), padi's
 commit, its surface version and boot time. Those last three are why there is no
 fleet `identity`/`status`/`daemonStatus`: they are per-host facts, so they are
 columns of `hosts` rather than three fleet-wide readings of a per-host thing.
-Addressing one terminal percent-encodes the reference —
-`surface://collections/terminals/local%2F3f1c…` — since the adapter addresses a
-collection item by URI segment. Each row carries its own `host` and its `id` /
-`parentId` as fleet references, so a record you read is one you can act on
-without remembering the key it arrived under.
+**One terminal's record is read at the reference as handed out** —
+`surface://collections/terminals/remote:gossamer/9ab1…`, nothing escaped. The
+adapter addresses a collection item by URI *segment* and a reference carries a
+slash, so that URI reads to the generic rule as a sibling's collection and was
+refused as an unknown resource; this face therefore answers `resources/read`
+itself (`src/fleet/recordRead.ts`), re-addressing the reference to the single
+encoded segment the adapter resolves and answering at the address the caller
+wrote. A reference that names nothing — and any address this face does not
+serve — is refused *here*, in a sentence that says what a record address looks
+like. Each row carries its own `host` and its `id` / `parentId` as fleet
+references, so a record you read is one you can act on without remembering the
+key it arrived under.
 
 `watched` (`surface://cells/watched`) is the Conductor reading the list it is
 being woken by — one row per watched reference, carrying the last name and

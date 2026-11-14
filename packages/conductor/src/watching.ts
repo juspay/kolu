@@ -128,6 +128,12 @@ export interface WatchEntry {
   readonly told: ConductorWakeLevel | null;
   /** How it came to be watched. */
   readonly joined: WatchJoin;
+  /** WHEN IT JOINED THE WATCH LIST, as an ISO time. Saved with the entry, so
+   *  a piece of work's age ({@link workOf}) counts from the moment the
+   *  conversation started watching rather than restarting at every boot.
+   *  kolu has no earlier instant to offer: a waterfall is not declared, and
+   *  the terminal itself may be older than the watch on it. */
+  readonly since: string;
   /** Whether the Conductor has SAID anything to the agent in it since it
    *  joined the list ({@link spokenTo}). What `ready` turns on: an agent
    *  nobody has briefed is not an agent that stopped. */
@@ -231,6 +237,10 @@ export const watchEntry = (ref: string, joined: WatchJoin): WatchEntry => ({
   agent: null,
   told: null,
   joined,
+  // THE CLOCK IS READ HERE and nowhere else on this path: the entry is minted
+  // the instant a terminal is put on the list, so this IS the join time, and
+  // a caller passing one in could only ever disagree with it.
+  since: new Date().toISOString(),
   spoken: false,
   ran: false,
   root: null,
@@ -399,6 +409,11 @@ export const spokenTo = (entry: WatchEntry): WatchEntry => {
  * That is the honest answer rather than a placeholder: it was just watched,
  * nothing has looked at its host, and the first reading either leaves it
  * where it is or folds it into the piece of work it belongs to.
+ *
+ * A GROUP IS AS OLD AS ITS EARLIEST MEMBER's place on the list (`since`),
+ * which is what the panel counts a piece of work's duration from. kolu has no
+ * record of when a waterfall was "started" — the first terminal joining the
+ * watch is the beginning it can honestly name.
  */
 export const workOf = (
   entries: Iterable<WatchEntry>,
@@ -409,7 +424,7 @@ export const workOf = (
   // nobody could follow.
   const groups = new Map<
     string,
-    { root: string; name: string; refs: Array<string> }
+    { root: string; name: string; refs: Array<string>; since: string }
   >();
   for (const entry of entries) {
     const root = entry.root?.ref ?? entry.ref;
@@ -419,6 +434,7 @@ export const workOf = (
         root,
         name: entry.root?.name ?? entry.name,
         refs: [entry.ref],
+        since: entry.since,
       });
       continue;
     }
@@ -428,6 +444,13 @@ export const workOf = (
     // record had arrived and carries "" for it — and an empty heading over a
     // group whose root is perfectly well named is the drift that would show.
     if (group.name === "") group.name = entry.root?.name ?? "";
+    // THE PIECE STARTED WHEN ITS EARLIEST MEMBER DID. Insertion order is join
+    // order, so this comparison answers the same as "keep the first" for every
+    // list this module builds — it is written as the MINIMUM because that is
+    // the rule a reader is owed, and an implementor split off a planner must
+    // not be able to make the work look younger than it is. A `toISOString`
+    // stamp is fixed-width UTC, so `<` on the strings is `<` on the instants.
+    if (entry.since < group.since) group.since = entry.since;
   }
   return [...groups.values()];
 };

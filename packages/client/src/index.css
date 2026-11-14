@@ -113,13 +113,39 @@ body {
    * thinks is on screen and the column CSS draws cannot disagree; the
    * sum is pinned against these three tokens in `conductorLayout.test.ts`,
    * so moving a measure without moving the breakpoint fails a test rather
-   * than shipping a side column that overlaps the conversation. */
+   * than shipping a side column that overlaps the conversation.
+   *
+   * ── THE HELP COLUMN, THE THIRD TRACK ──────────────────────────────
+   *   --container-conductor-help …… 16rem (256px) at
+   *     --text-conductor-help (12px): about 37 characters a line, so a
+   *     sentence of the length `conductorHelp.ts` allows is at most the
+   *     two lines that module's test enforces.
+   *
+   * On a window that holds all three, the frame is help · conversation ·
+   * work in progress — and the help's TRACK IS A CONSTANT WIDTH whether
+   * it is open or collapsed. That is the whole trick: collapsed, the
+   * rail sits at the track's start and the rest of the track is margin,
+   * so the space really is given back while the reading column — centred
+   * in a track whose width does not depend on the collapse — does not
+   * move a pixel on the press.
+   *
+   * --breakpoint-conductor-help IS THE THREE TRACKS ADDED UP — the
+   * two-column sum plus the help and the gutter beside it: 69 + 16 + 2 =
+   * 87rem (1392px), so a 1568px window has the frame with room to spare.
+   * Between it and --breakpoint-conductor-wide there are two columns and
+   * the `⋯` menu's `How to use` opens the same words as a sheet, which is
+   * also what a phone gets. `conductorLayout.test.ts` pins this
+   * derivation too. */
   --text-chat: 0.9375rem;
   --text-chat--line-height: 1.7;
+  --text-conductor-help: 0.75rem;
+  --text-conductor-help--line-height: 1.5;
   --container-conductor: 45rem;
   --container-conductor-side: 22rem;
+  --container-conductor-help: 16rem;
   --spacing-conductor-gutter: 2rem;
   --breakpoint-conductor-wide: 69rem;
+  --breakpoint-conductor-help: 87rem;
 }
 
 .chrome-bar-surface {

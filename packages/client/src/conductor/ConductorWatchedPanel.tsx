@@ -36,27 +36,51 @@
  *  disagrees with the list it draws. The same goes for a ref this browser
  *  cannot even parse.
  *
- *  IT IS A READING, NOT A CONTROL. Nothing here takes a terminal off the
- *  list: the ways off it are telling the Conductor to stop watching one, or
- *  closing the terminal — both of which the Conductor hears about. A knob
- *  beside the row that overrode what the conversation is watching would be an
- *  override knob, and it also read as "delete this terminal", which it never
- *  was.
+ *  IT IS A READING, NOT A CONTROL — with ONE exception, and it is a way OUT
+ *  rather than a knob: the row's name takes you to the terminal. Nothing here
+ *  takes a terminal off the list: the ways off it are telling the Conductor to
+ *  stop watching one, or closing the terminal — both of which the Conductor
+ *  hears about. A knob beside the row that overrode what the conversation is
+ *  watching would be an override knob, and it also read as "delete this
+ *  terminal", which it never was.
+ *
+ *  THE NAME IS THE WAY THERE, and it is the SAME way the transcript's create
+ *  card goes (`useOpenTile`): switch to the terminal's host, leave the
+ *  Conductor, focus the tile. Not a second navigation that agrees today. It is
+ *  not offered where there is nowhere to go — a terminal that is gone, or one
+ *  on a host this browser is not connected to — for the reason Look is not
+ *  offered at a screen that cannot be read.
  *
  *  A GROUP OF ONE DOES NOT REPEAT ITSELF. The heading names the piece of
  *  work; when that piece is a single terminal called the same thing, the
- *  heading says the row's own name back at it, so it is drawn only when the
- *  group holds more than one terminal or its name differs from its only
- *  row's.
+ *  heading says the row's own name back at it, so the NAME is drawn only when
+ *  the group holds more than one terminal or its name differs from its only
+ *  row's. The heading's clock is drawn either way: every piece of work has an
+ *  age, including one terminal's.
  *
- *  HOW LONG IT HAS BEEN IN ITS STATE is the one thing kolu cannot say
- *  exactly: a terminal record carries `lastActivityAt` — when the terminal
- *  last produced output — and no per-STATE timestamp, so what the row shows is
- *  "quiet for 4m", labelled as what it is rather than mislabelled as the state's
- *  own age. */
+ *  TWO LINES PER ROW: who it is (name · host · agent), then how it stands and
+ *  for how long, with Look at the end. The second line is `ConductorLook`'s
+ *  own — the clock is handed to it rather than drawn beside it, because the
+ *  duration is a duration OF the state that line reports.
+ *
+ *  WHAT THE CLOCKS COUNT, exactly:
+ *
+ *  - A PIECE OF WORK counts from when its first terminal joined the watch
+ *    list (`work[].since`, saved with the conversation, so a restart does not
+ *    restart the clock). kolu records no other beginning — a waterfall is not
+ *    declared anywhere — and this is the one it can vouch for.
+ *  - A TERMINAL counts from the only per-terminal instant a host keeps:
+ *    `lastActivityAt`, when it last moved, which the row labels "quiet"
+ *    because that is what it measures; and `sleptAt` for a sleeping one,
+ *    which IS when that state began, so the line reads "asleep · 2h".
+ *    There is NO timestamp for an agent's own state — padi's `AgentMemory` is
+ *    those two facts and nothing else — so a working agent gets its quiet
+ *    reading and no invented "working 4m". A state with no honest clock shows
+ *    none. */
 
-import { activeArm } from "@kolu/padi-client/surface";
+import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
 import type { ConductorState } from "kolu-common/conductor";
+import { DASH } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
 import { decodeHostKey } from "kolu-common/hostKey";
 import { agentName } from "../ui/agentDisplay";
@@ -71,6 +95,7 @@ import ConductorLook from "./ConductorLook";
 import { useShownClock } from "./conductorShown";
 import { fleetMentionCandidates } from "./mentionCandidates";
 import { splitWatchedRef } from "./watchedRef";
+import { useOpenTile } from "./useOpenTile";
 
 const ConductorWatchedPanel: Component<{
   /** The pieces of work, as kolu-server publishes them: one entry per
@@ -86,6 +111,12 @@ const ConductorWatchedPanel: Component<{
   placement: "inline" | "side";
 }> = (props) => {
   const fleet = useFleetTerminalIndex();
+  /** The pane's clock, stopped while nobody is looking at it — the ONE tick
+   *  behind every duration drawn here, the groups' ages and the rows' alike.
+   *  Read in the panel so one subscription serves the headings; each row
+   *  reads it again for its own, and a tick therefore invalidates the
+   *  duration texts and nothing else. */
+  const now = useShownClock();
   /** Ref → the name the `@` menu would offer for that terminal. The same
    *  computation, so the name a person reads here is the name they would type
    *  into the composer; a terminal the fleet index has not got is simply
@@ -133,22 +164,41 @@ const ConductorWatchedPanel: Component<{
                 data-root={piece.root}
                 class="min-w-0"
               >
-                {/* THE HEAD IS THE WORK'S NAME, and the root terminal may not
-                    be watched itself (a split is watched while the planner
-                    above it is not) — so it is named, not drawn as a row. It
-                    is drawn only when it says something the rows beneath it do
-                    not: one terminal under a heading of its own name is the
-                    same word twice. */}
-                <Show when={groupHeading(piece, names())}>
-                  {(head) => (
-                    <p
-                      data-testid="conductor-watched-group-name"
-                      class="m-0 mb-1 min-w-0 truncate font-mono text-[0.62rem] uppercase tracking-[0.08em] text-fg-3"
+                {/* THE HEAD IS THE WORK'S NAME AND ITS AGE. The root terminal
+                    may not be watched itself (a split is watched while the
+                    planner above it is not) — so it is named, not drawn as a
+                    row. The NAME is drawn only when it says something the
+                    rows beneath it do not: one terminal under a heading of
+                    its own name is the same word twice. The age is drawn
+                    always, because a piece of work of one terminal has been
+                    going just as long as one of four. */}
+                {/* A `div` and not a `p`: the clock's tooltip wraps its
+                    trigger in a block element, which a paragraph cannot hold
+                    — the browser would close the paragraph early and the
+                    heading would come apart. */}
+                <div class="mb-1 flex min-w-0 items-baseline gap-2">
+                  <Show when={groupHeading(piece, names())}>
+                    {(head) => (
+                      <span
+                        data-testid="conductor-watched-group-name"
+                        class="min-w-0 truncate font-mono text-[0.62rem] uppercase tracking-[0.08em] text-fg-3"
+                      >
+                        {head()}
+                      </span>
+                    )}
+                  </Show>
+                  <Tip
+                    class="shrink-0"
+                    label="How long this piece of work has been going — counted from when its first terminal joined the watch list"
+                  >
+                    <span
+                      data-testid="conductor-watched-group-since"
+                      class="shrink-0 font-mono text-[0.62rem] tabular-nums text-fg-3"
                     >
-                      {head()}
-                    </p>
-                  )}
-                </Show>
+                      {elapsedSince(piece.since, now())}
+                    </span>
+                  </Tip>
+                </div>
                 <ul class="m-0 flex list-none flex-col gap-1.5 p-0">
                   <For each={piece.refs}>
                     {(ref) => (
@@ -197,8 +247,20 @@ function groupHeading(
     : head;
 }
 
-/** One watched terminal. The top line is its identity and the clock; under it
- *  `ConductorLook` draws how it stands and opens its screen in place.
+/** HOW LONG AGO an ISO stamp was, in the compact readout every kolu surface
+ *  uses. The delta is handed over UNCLAMPED: a stamp in this clock's future
+ *  is skew between two machines, and the shared ladder's answer to that is a
+ *  dash rather than a confident `0s`. A stamp that is not a time at all —
+ *  which only a hand-edited record can produce — is the same dash, because
+ *  `Date.parse` answers `NaN` and the ladder has no tier for it. */
+function elapsedSince(iso: string, now: number): string {
+  const at = Date.parse(iso);
+  return Number.isNaN(at) ? DASH : formatElapsedShort(now - at);
+}
+
+/** One watched terminal, in two lines: who it is, then how it stands and for
+ *  how long. The second line is `ConductorLook`'s — the transcript's own peek
+ *  — with this row's clock handed to it.
  *
  *  The fleet reference is `watchedRef` and NOT `ref`: `ref` is a RESERVED prop
  *  name on a Solid component. The JSX transform compiles `ref={value}` into a
@@ -208,13 +270,14 @@ function groupHeading(
  *  instead of a string, which took the whole page down the moment the panel
  *  opened. */
 function WatchedRow(props: { watchedRef: string; name: string | undefined }) {
-  // Gated on the pane being the shown view: "quiet for 4m" ticking behind a
-  // host tab would wake this row once a second for nobody.
+  // Gated on the pane being the shown view: a clock ticking behind a host tab
+  // would wake this row once a second for nobody.
   const now = useShownClock();
+  const openTileAt = useOpenTile();
   const parts = createMemo(() => splitWatchedRef(props.watchedRef));
-  /** The terminal's standing on its host — read ONCE for both the agent name
-   *  and the clock, so the two halves of the line can never describe two
-   *  different frames. */
+  /** The terminal's standing on its host — read ONCE for the agent name, the
+   *  clock and whether there is anywhere to go, so the parts of the row can
+   *  never describe two different frames. */
   const standing = createMemo(() => {
     const split = parts();
     return split === null ? null : fleetTerminalStanding(split.host, split.id);
@@ -228,16 +291,48 @@ function WatchedRow(props: { watchedRef: string; name: string | undefined }) {
     const kind = activeArm(here.meta)?.agent?.kind;
     return kind === undefined ? null : agentName(kind);
   });
-  /** When this terminal last produced output, as the fleet index reprojects
-   *  it onto THIS browser's clock — so the subtraction below is between two
-   *  readings of the same clock. kolu records no timestamp for the agent's
-   *  STATE, so this is the honest nearest thing and the row labels it as what
-   *  it is. */
-  const quietFor = createMemo(() => {
+  /** WHERE THE NAME GOES, or `null` when there is nowhere. A terminal is
+   *  reachable when this browser's fleet index has it — which is exactly "its
+   *  host is connected and the terminal is still in its roster". `gone` and
+   *  `unreachable` are the two the human named; `loading` is the frame before
+   *  the host has answered, and offering a tile that may not exist is worse
+   *  than offering it a moment later. A SLEEPING terminal stays reachable: its
+   *  tile is on the canvas, which is the thing this goes to — that is where
+   *  this rule parts company with Look's, which needs a live screen to read. */
+  const goTo = createMemo(() => {
+    const split = parts();
+    return split !== null && standing()?.kind === "here" ? split : null;
+  });
+  /** HOW LONG IT HAS STOOD THIS WAY, in the words that are true of it.
+   *
+   *  A host keeps TWO instants per terminal and no more (padi's `AgentMemory`
+   *  plus the sleeping arm's own stamp): when it last moved, and when it was
+   *  put to sleep. So a sleeping terminal's reading IS its state's age — the
+   *  line beside it already says "asleep", and this is the bare duration — and
+   *  an awake one gets "quiet", labelled as what it measures. There is no
+   *  timestamp for an agent's state, so a working agent gets no "working 4m":
+   *  the number would be the output clock wearing the state's name. */
+  const clock = createMemo((): { text: string; measures: string } | null => {
     const here = standing();
     if (here === null || here.kind !== "here") return null;
+    // BOTH epochs below are reprojected onto THIS browser's clock by the
+    // fleet index, so each subtraction is between two readings of one clock.
+    // `0` is that index's in-band "never" sentinel for `sleptAt`, which the
+    // ladder's own skew arm answers with a dash rather than "56y".
+    const asleep = sleepingArm(here.meta);
+    if (asleep !== undefined)
+      return {
+        text: formatElapsedShort(now() - asleep.sleptAt),
+        measures: "How long this terminal has been asleep",
+      };
     const last = here.meta.lastActivityAt;
-    return last === null ? null : formatElapsedShort(Math.max(0, now() - last));
+    return last === null
+      ? null
+      : {
+          text: `quiet ${formatElapsedShort(now() - last)}`,
+          measures:
+            "Time since this terminal last moved — kolu records no timestamp for the agent's state itself",
+        };
   });
 
   return (
@@ -246,13 +341,38 @@ function WatchedRow(props: { watchedRef: string; name: string | undefined }) {
       data-ref={props.watchedRef}
       class="min-w-0 rounded-md border border-edge bg-surface-0 px-2 py-1.5 text-[0.72rem]"
     >
+      {/* LINE ONE: WHO IT IS. */}
       <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-        <span
-          data-testid="conductor-watched-name"
-          class="min-w-0 max-w-full truncate font-semibold text-fg"
+        <Show
+          when={goTo()}
+          fallback={
+            <span
+              data-testid="conductor-watched-name"
+              class="min-w-0 max-w-full truncate font-semibold text-fg"
+            >
+              {refLabel(props.watchedRef, props.name)}
+            </span>
+          }
         >
-          {refLabel(props.watchedRef, props.name)}
-        </span>
+          {(target) => (
+            <button
+              type="button"
+              data-testid="conductor-watched-name"
+              // What the row offers, for a test and for a reader of the DOM:
+              // the same name without this attribute is a terminal there is
+              // nowhere to go to.
+              data-opens-tile="true"
+              // The accessible name says what pressing it DOES and still
+              // carries the visible words, so a voice command spoken as they
+              // are read lands on it.
+              aria-label={`Go to ${refLabel(props.watchedRef, props.name)}`}
+              class="min-w-0 max-w-full cursor-pointer truncate rounded-sm font-semibold text-fg underline-offset-2 hover:text-accent hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+              onClick={() => openTileAt(target())}
+            >
+              {refLabel(props.watchedRef, props.name)}
+            </button>
+          )}
+        </Show>
         <Show when={parts()}>
           {(split) => (
             <span class="shrink-0 font-mono text-[0.6rem] uppercase tracking-[0.1em] text-accent">
@@ -270,19 +390,8 @@ function WatchedRow(props: { watchedRef: string; name: string | undefined }) {
             </span>
           )}
         </Show>
-        <Show when={quietFor()}>
-          {(quiet) => (
-            <Tip label="Time since this terminal last produced output — kolu records no timestamp for the agent's state itself">
-              <span
-                data-testid="conductor-watched-since"
-                class="shrink-0 font-mono text-[0.6rem] text-fg-3 tabular-nums"
-              >
-                quiet {quiet()}
-              </span>
-            </Tip>
-          )}
-        </Show>
       </div>
+      {/* LINE TWO: HOW IT STANDS, for how long, and the Look. */}
       <Show
         when={parts()}
         fallback={
@@ -297,13 +406,28 @@ function WatchedRow(props: { watchedRef: string; name: string | undefined }) {
         {(split) => (
           <div class="mt-0.5 text-[0.7rem]">
             {/* The transcript's own peek, in place: the dot, the agent's state
-                and what it says it is doing, and Look. Keyed by the REF, so a
-                panel re-opened later finds the same row still open. */}
+                and what it says it is doing, this row's clock, and Look. Keyed
+                by the REF, so a panel re-opened later finds the same row still
+                open. */}
             <ConductorLook
               rowId={`watched:${props.watchedRef}`}
               host={split().host}
               id={split().id}
               toggleTestId="conductor-watched-look"
+              clock={
+                <Show when={clock()}>
+                  {(reading) => (
+                    <Tip class="shrink-0" label={reading().measures}>
+                      <span
+                        data-testid="conductor-watched-since"
+                        class="shrink-0 font-mono text-[0.6rem] tabular-nums text-fg-3"
+                      >
+                        {reading().text}
+                      </span>
+                    </Tip>
+                  )}
+                </Show>
+              }
             />
           </div>
         )}

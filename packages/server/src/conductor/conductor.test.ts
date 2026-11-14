@@ -49,6 +49,7 @@ import {
   type ConductorAttachment,
   type ConductorFrame,
   type ConductorRow,
+  type ConductorState,
   type ConductorWakeEvent,
   PROMPT_ATTACHMENT_BYTE_CAP,
 } from "kolu-common/conductor";
@@ -1748,7 +1749,11 @@ describe("the news a watched terminal makes", () => {
       expect(r.host.state().held).toEqual([A]);
     });
     await r.host.dispose();
-    expect(r.value().watched).toEqual([
+    // `since` is the moment each joined the list, which this test fixes no
+    // clock for — the entries are compared without it.
+    expect(
+      r.value().watched.map(({ since: _joined, ...rest }) => rest),
+    ).toEqual([
       {
         ref: A,
         name: "fix the parser",
@@ -1804,6 +1809,7 @@ describe("the watch across a restart", () => {
           joined: "created",
           spoken: true,
           ran: false,
+          since: "2026-01-01T00:00:00.000Z",
           root: { ref: A, name: "fix the parser" },
         },
       ],
@@ -1835,6 +1841,13 @@ describe("the pieces of work the cell publishes", () => {
    *  planner opened, which is the case the grouping exists for. */
   const SPLIT = "local/33333333-3333-4333-8333-333333333333";
 
+  /** The pieces as this file compares them: every field but `since`, which is
+   *  the real instant the entry joined the watch list. What that instant is
+   *  (the earliest member's) is `workOf`'s own test in `kolu-conductor`; what
+   *  this file is about is which terminals are grouped with which. */
+  const grouping = (work: ConductorState["work"]) =>
+    work.map(({ since: _joined, ...rest }) => rest);
+
   it("folds a split into its planner's piece of work, and says so again when the name arrives", async () => {
     const r = rig();
     await r.host.prompt("hello", [], [], false);
@@ -1845,11 +1858,15 @@ describe("the pieces of work the cell publishes", () => {
     r.host.watchTerminal(SPLIT, "created");
     // Before anything has been read, each is a piece of work of its own under
     // its own (empty) name: nothing has looked at the host yet.
-    expect(r.host.state().work).toEqual([
+    expect(grouping(r.host.state().work)).toEqual([
       { root: A, name: "", refs: [A] },
       { root: SPLIT, name: "", refs: [SPLIT] },
     ]);
 
+    // The planner went on the list first, so this is the instant the piece of
+    // work it becomes has to keep counting from.
+    const started = r.host.state().work[0]?.since;
+    expect(started).toBeTypeOf("string");
     // The first frame off the host: the planner is top-level, and the split's
     // parent edge ends at it — but that frame landed before the planner's own
     // record did, so its heading is not known yet.
@@ -1860,16 +1877,19 @@ describe("the pieces of work the cell publishes", () => {
       }),
     ]);
     await vi.waitFor(() => {
-      expect(r.host.state().work).toEqual([
+      expect(grouping(r.host.state().work)).toEqual([
         { root: A, name: "", refs: [A, SPLIT] },
       ]);
     });
+    // THE FOLD DID NOT RESTART THE CLOCK: the split joining the planner's
+    // piece of work is not that work beginning.
+    expect(r.host.state().work[0]?.since).toBe(started);
 
     // ... and the record that names the planner reaches the cell, with no
     // level moving and nothing ringing — a heading is not news.
     r.host.observe([seeing(A, "working", { name: "plan the cutover" })]);
     await vi.waitFor(() => {
-      expect(r.host.state().work).toEqual([
+      expect(grouping(r.host.state().work)).toEqual([
         { root: A, name: "plan the cutover", refs: [A, SPLIT] },
       ]);
     });
@@ -1881,7 +1901,7 @@ describe("the pieces of work the cell publishes", () => {
     const agent = await busyWatching(r);
     r.host.observe([seeing(A, "working"), seeing(B, "working")]);
     await vi.waitFor(() => {
-      expect(r.host.state().work).toEqual([
+      expect(grouping(r.host.state().work)).toEqual([
         { root: A, name: "fix the parser", refs: [A] },
         { root: B, name: "fix the parser", refs: [B] },
       ]);

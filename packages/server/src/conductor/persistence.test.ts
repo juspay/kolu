@@ -65,10 +65,11 @@ const OTHER_REF = "remote:prod/22222222-2222-4222-8222-222222222222";
 /** The version this file's ladder pin names. A literal, deliberately: a pin
  *  read off the constant it is pinning asserts nothing. The conductor arrived
  *  at 1.44.0 (master took 1.43.0 for `hostOrder` — see the note on the ladder
- * entry in `state.ts`), 1.45.0 is the rename of its key, and 1.48.0 is the
- * watch list joining the record (1.46.0 and 1.47.0 are the numbers its
- * pre-release builds stamped — see that rung). */
-const STATE_SCHEMA_VERSION = "1.48.0";
+ * entry in `state.ts`), 1.45.0 is the rename of its key, and 1.49.0 is the
+ * watch list joining the record (1.46.0, 1.47.0 and 1.48.0 are the numbers
+ * its earlier builds stamped — one rung walks every one of those shapes
+ * through, see that rung). */
+const STATE_SCHEMA_VERSION = "1.49.0";
 
 const log = {
   debug() {},
@@ -84,6 +85,19 @@ const row = (id: string, seq: number, text = id): ConductorRow => ({
   kind: "agent",
   text,
 });
+
+/** The `since` the watch-list rung writes onto an entry that never recorded
+ *  one: the time the rung RAN, which is what the rung's own comment says it
+ *  chose. Asserted as a window between the instant the test handed the file
+ *  over and now — pinning a literal would be pinning this test's clock, and
+ *  reading it off the record would assert nothing at all. */
+function expectStampedAtBoot(stamped: unknown, after: number): void {
+  expect(typeof stamped).toBe("string");
+  const at = Date.parse(String(stamped));
+  expect(Number.isNaN(at)).toBe(false);
+  expect(at).toBeGreaterThanOrEqual(after);
+  expect(at).toBeLessThanOrEqual(Date.now());
+}
 
 /** kolu-server's state root — where `config.json` is, and where the
  *  conductor's attachments go. Taken off the store rather than off the env
@@ -273,6 +287,7 @@ describe("the conversation survives a restart", () => {
   });
 
   it("keeps the WATCH LIST — with what each terminal was told — and never the held news", async () => {
+    const watchedFrom = Date.now();
     const first = hostOver();
     first.host.watchTerminal(FLEET_REF, "created");
     first.host.watchTerminal(OTHER_REF, "created");
@@ -307,8 +322,9 @@ describe("the conversation survives a restart", () => {
     // Per entry, the facts a restart cannot re-derive — and `told` is the one
     // that makes the restart quiet. The runtime halves of a live entry (the
     // last reading, and whether the next one baselines) are NOT here: a
-    // restart re-reads the world.
-    expect(onDisk.watched).toEqual([
+    // restart re-reads the world. `since` is each terminal's own join time,
+    // so it is checked as a window rather than pinned.
+    expect(onDisk.watched.map(({ since: _joined, ...rest }) => rest)).toEqual([
       {
         ref: FLEET_REF,
         name: "fix the parser",
@@ -334,6 +350,9 @@ describe("the conversation survives a restart", () => {
         root: null,
       },
     ]);
+    for (const entry of onDisk.watched)
+      expectStampedAtBoot(entry.since, watchedFrom);
+
     // THE HELD NEWS IS MEMORY ONLY: a restart re-reads the world rather than
     // replaying a queue about one that has moved on, so there is no such key
     // on disk to replay from.
@@ -482,8 +501,13 @@ describe("the conductor's rungs", () => {
       conductor: held,
       __internal__: { migrations: { version: "1.46.0" } },
     };
+    const before = Date.now();
     const migrated = decodeStateBackup(legacy, "1.46-pre-release");
-    expect(migrated.conductor.watched).toEqual([
+    // The `since` the rung stamps is read off its own clock, so it is checked
+    // as a WINDOW below rather than pinned; everything else is exact.
+    expect(
+      migrated.conductor.watched.map(({ since: _stamped, ...rest }) => rest),
+    ).toEqual([
       {
         ref: FLEET_REF,
         name: "build",
@@ -496,6 +520,8 @@ describe("the conductor's rungs", () => {
       },
       held.watched[1],
     ]);
+    for (const entry of migrated.conductor.watched)
+      expectStampedAtBoot(entry.since, before);
     expect(migrated.conductor.rows).toEqual(held.rows);
   });
 
@@ -534,11 +560,77 @@ describe("the conductor's rungs", () => {
       conductor: held,
       __internal__: { migrations: { version: "1.47.0" } },
     };
+    const before = Date.now();
     const migrated = decodeStateBackup(legacy, "1.47-pre-release");
-    expect(migrated.conductor.watched).toEqual([
-      { ...held.watched[0], root: null },
-    ]);
+    expect(
+      migrated.conductor.watched.map(({ since: _stamped, ...rest }) => rest),
+    ).toEqual([{ ...held.watched[0], root: null }]);
+    expectStampedAtBoot(migrated.conductor.watched[0]?.since, before);
     // ... and nothing else moved: the rung is an addition.
+    expect(migrated.conductor.rows).toEqual(held.rows);
+  });
+
+  it("give a watch list a 1.48.0 build wrote the start time it never recorded", () => {
+    // THE NUMBER A RUNNING INSTALL SITS ON. These entries are complete in
+    // every way the watch list knew about at 1.48.0 — they even carry their
+    // piece of work — and they have no `since`, because nothing was counting
+    // a duration then. The rung is numbered above that version precisely so
+    // it runs for this file; were it still 1.48.0, conf would skip it and the
+    // conductor's schema would refuse the record by name on the next boot.
+    const held = {
+      sessionId: "sess-held",
+      cwd: HOME,
+      model: null,
+      rows: [row("a", 1, "one")],
+      fleet: [FLEET_REF],
+      watched: [
+        {
+          ref: FLEET_REF,
+          name: "plan the cutover",
+          agent: "claude",
+          told: "stopped",
+          joined: "created-run",
+          spoken: true,
+          ran: true,
+          root: { ref: FLEET_REF, name: "plan the cutover" },
+        },
+        {
+          ref: OTHER_REF,
+          name: "the implementor",
+          agent: "claude",
+          told: null,
+          joined: "created-run",
+          spoken: true,
+          ran: true,
+          root: { ref: FLEET_REF, name: "plan the cutover" },
+        },
+      ],
+    };
+    const legacy: unknown = {
+      preferences: (
+        JSON.parse(readFileSync(store.path, "utf8")) as {
+          preferences: unknown;
+        }
+      ).preferences,
+      hosts: [],
+      viewerMode: "dark",
+      conductor: held,
+      __internal__: { migrations: { version: "1.48.0" } },
+    };
+    const before = Date.now();
+    const migrated = decodeStateBackup(legacy, "1.48-era");
+    // Every fact the file recorded is kept — the grouping included — and the
+    // one it never had is the boot's own time.
+    expect(
+      migrated.conductor.watched.map(({ since: _stamped, ...rest }) => rest),
+    ).toEqual(held.watched);
+    for (const entry of migrated.conductor.watched)
+      expectStampedAtBoot(entry.since, before);
+    // ONE STAMP FOR THE WHOLE FILE: two terminals watched as one piece of
+    // work must not come back as two ages a millisecond apart.
+    expect(migrated.conductor.watched[1]?.since).toBe(
+      migrated.conductor.watched[0]?.since,
+    );
     expect(migrated.conductor.rows).toEqual(held.rows);
   });
 

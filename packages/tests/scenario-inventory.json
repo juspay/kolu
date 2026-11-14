@@ -10246,6 +10246,42 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "22e8dc93e23b840e986f049a0841a58c8eaabb39"
+    },
+    {
+      "revisionId": "revision-9fd4f8b3f61bd28beac6",
+      "scenarioKey": "scenario-f317ab033f62238ef993",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "The phone reaches the same words from the menu, inside its 390px",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "1017fcd9e1e8ce92f31bf3f29aed1ff0fe1dc90380b9363179806ad6569d3d10",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5f4e4821e28257ede5725059eca0d3edcd99892c"
+    },
+    {
+      "revisionId": "revision-11493fccc6f705712232",
+      "scenarioKey": "scenario-c3ea8c9458e5a5443825",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "The watched terminals are listed, looked at, and pressed to go there",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "8bd9ff0148044d099bc2baddb395de8783de6aa91adafe2f887e4e7a8797b677",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5f4e4821e28257ede5725059eca0d3edcd99892c"
+    },
+    {
+      "revisionId": "revision-f79507f98c15d19ee617",
+      "scenarioKey": "scenario-6fcf7c2b130313304407",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "The help is the third track, and what you shut stays shut",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "abd2d32b254901240857650e1a7a095de63fbb064641a2ac0291f31822ff8f91",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5f4e4821e28257ede5725059eca0d3edcd99892c"
     }
   ]
 }

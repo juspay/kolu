@@ -21,6 +21,7 @@
  *  decided in a unit test, and none rewrites a row — `Copy transcript` still
  *  reads them all. */
 
+import { isTerminalId } from "@kolu/terminal-vocab/terminalId";
 import {
   appendedText,
   type ConductorFrame,
@@ -28,6 +29,7 @@ import {
   type ConductorSayingSchema,
   type ConductorToolRow,
 } from "kolu-common/conductor";
+import { isEncodedHostKey } from "kolu-common/hostKey";
 import { askLead, askRecord } from "./askRecord";
 import {
   agentLineSubject,
@@ -297,7 +299,7 @@ export function foldToolRuns(
  *  SAME failure by, and the `said` a line would draw. */
 interface Failure {
   readonly tool: string;
-  /** The reason with the terminal it was about taken out — so "Terminal A not
+  /** The reason with every terminal it names taken out — so "Terminal A not
    *  found" and "Terminal B not found" match. For COMPARING only: it is a
    *  sentence with a hole in it, and the hole is often where the sentence
    *  began ("… is not a terminal on that host"). */
@@ -307,22 +309,72 @@ interface Failure {
   readonly row: ConductorToolRow;
 }
 
+/** The ADDRESS-ISH runs of a sentence — everything that is not whitespace or a
+ *  quote. A reason names a terminal either bare (`local/9ab1…`) or inside a
+ *  URI (`unknown resource "surface://collections/terminals/remote:box/9ab1…"`),
+ *  and each of those is one run. */
+const ADDRESS_RUNS = /[^\s"'`]+/g;
+
+/** What a sentence puts AFTER an address and is not part of it. */
+const TRAILING_PUNCTUATION = /[.,;:!?)\]]+$/;
+
+/** One run with the terminal REFERENCE it ends in taken out: the id, and the
+ *  host key in front of it when one is there.
+ *
+ *  Asked of the two vocabularies that own the halves — `isTerminalId` and
+ *  `isEncodedHostKey` — rather than of a shape this file invents, so a run
+ *  that merely looks like one (`surface://collections/terminals/` in front of
+ *  the reference, a path segment called `local` that is not a host) keeps
+ *  whatever is not a reference. That is what lets failures of a tool kolu does
+ *  not recognise fold: their reason differs only inside a URI, which no
+ *  `kolu` reading of the call could have pointed at. */
+function withoutTerminalRef(run: string): string {
+  const addressed = run.replace(TRAILING_PUNCTUATION, "");
+  const punctuation = run.slice(addressed.length);
+  const idAt = addressed.lastIndexOf("/");
+  if (!isTerminalId(addressed.slice(idAt + 1))) return run;
+  // Everything up to and including the separator before the id, minus the
+  // host key when the segment before the id is one.
+  const head = addressed.slice(0, idAt + 1);
+  const hostAt = head.slice(0, -1).lastIndexOf("/");
+  const host = head.slice(hostAt + 1, -1);
+  return (
+    (isEncodedHostKey(host) ? head.slice(0, hostAt + 1) : head) + punctuation
+  );
+}
+
+/** The reason two failures are the SAME failure by: the sentence with every
+ *  terminal taken out of it — the one the CALL was about, when kolu read the
+ *  call at all, and every reference the sentence spells, whether kolu knew
+ *  the tool or not.
+ *
+ *  Both, because they answer different halves. The call's own subject names
+ *  the terminal however the row spells it, including a name that is not an
+ *  id; the run walk catches what a reason mentions on its own — a reference
+ *  inside a URI, in a tool kolu has no reading of at all
+ *  (`ReadMcpResourceTool`, answering `unknown resource
+ *  "surface://collections/terminals/remote:box/9ab1…"` three times about three
+ *  terminals). */
+function failureKey(row: ConductorToolRow, said: string): string {
+  const subject = callSubject(row.kolu);
+  const withoutSubject =
+    subject === null
+      ? said
+      : said
+          .replaceAll(`${subject.host}/${subject.id}`, "")
+          .replaceAll(subject.id, "");
+  return withoutSubject
+    .replace(ADDRESS_RUNS, withoutTerminalRef)
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function failureOf(item: TranscriptItem): Failure | null {
   if (item.kind !== "entry" || item.entry.row.kind !== "tool") return null;
   const row = item.entry.row;
   const said = failureReason(row);
   if (said === null) return null;
-  const subject = callSubject(row.kolu);
-  const key = (
-    subject === null
-      ? said
-      : said
-          .replaceAll(`${subject.host}/${subject.id}`, "")
-          .replaceAll(subject.id, "")
-  )
-    .replace(/\s+/g, " ")
-    .trim();
-  return { tool: toolLabel(row), key, said, row };
+  return { tool: toolLabel(row), key: failureKey(row, said), said, row };
 }
 
 /** The sentence the folded line draws, from the failures it stands for: the

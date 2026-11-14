@@ -3865,7 +3865,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-43facaa7cf5ced14c579]
+    survivorRevisionIds: [revision-11493fccc6f705712232]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: The watched terminals are listed and looked at"
@@ -3878,8 +3878,21 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-43facaa7cf5ced14c579]
+    survivorRevisionIds: [revision-11493fccc6f705712232]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-wakes.feature
       symbol: "Scenario: The watched terminals are listed and looked at"
       test: The same browser journey through the same wire — watch a terminal, open the watched panel, read the row, Look at the terminal's own screen. Two steps left with the × they drove — the panel no longer carries a control that takes a terminal off the list (an override knob the human asked for a reason for, and there was none), so pressing it and then asserting the empty-watch status line describes a product that no longer exists. Nothing else in the scenario moved, and the "nothing is being watched" assertion itself survives in conductor-layout.feature.
+  - id: revise-43facaa7cf5ced14c579
+    revisionId: revision-43facaa7cf5ced14c579
+    action: revised
+    status: landed
+    promise: The watched terminals are listed and looked at
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-11493fccc6f705712232]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: The watched terminals are listed, looked at, and pressed to go there"
+      test: The same journey against the same wire — watch a terminal, open the panel, read the row, Look at its screen — with one more step on the end, which is why the title moved. The row's NAME is now the way to the terminal, so the scenario presses it and then asserts the conversation is left and that terminal's tile is the focused one — the same two assertions the create card's "open tile" scenario makes, because the row and the card take the same code path. Nothing already asserted was dropped.

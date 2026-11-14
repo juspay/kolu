@@ -28,6 +28,11 @@ import { ConductorShown } from "./conductorShown";
 
 const SINCE = "2026-01-01T00:00:00.000Z";
 
+/** When a piece of work's first terminal joined the watch list. The status
+ *  line counts pieces of work rather than ageing them, so any instant does —
+ *  the panel that DRAWS the age is stubbed out above. */
+const WATCHED_SINCE = "2026-01-01T09:00:00.000Z";
+
 const agentRow = (text: string): ConductorRow => ({
   id: "a",
   seq: 1,
@@ -101,8 +106,18 @@ describe("the status line", () => {
     const at = mount({
       watched: ["local/a", "local/b", "local/c"],
       work: [
-        { root: "local/a", name: "fix-parser", refs: ["local/a", "local/b"] },
-        { root: "local/c", name: "docs-pass", refs: ["local/c"] },
+        {
+          root: "local/a",
+          name: "fix-parser",
+          refs: ["local/a", "local/b"],
+          since: WATCHED_SINCE,
+        },
+        {
+          root: "local/c",
+          name: "docs-pass",
+          refs: ["local/c"],
+          since: WATCHED_SINCE,
+        },
       ],
     });
     const button = at("conductor-watching");
@@ -126,7 +141,14 @@ describe("the status line", () => {
   it("says one piece of work and one terminal in the singular", () => {
     const at = mount({
       watched: ["local/a"],
-      work: [{ root: "local/a", name: "fix-parser", refs: ["local/a"] }],
+      work: [
+        {
+          root: "local/a",
+          name: "fix-parser",
+          refs: ["local/a"],
+          since: WATCHED_SINCE,
+        },
+      ],
     });
     expect(at("conductor-watching")?.textContent?.replace(/\s+/g, " ")).toBe(
       "1 piece of work · 1 terminal",

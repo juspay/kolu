@@ -25,6 +25,12 @@ import {
 const REF = "local/11111111-1111-4111-8111-111111111111";
 const OTHER = "remote:prod/22222222-2222-4222-8222-222222222222";
 
+/** When a restored entry joined the watch list. A fixed instant, because the
+ *  rules under test read it only as "the moment this terminal was watched" —
+ *  the one reader that COUNTS from it is `workOf`, which has its own tests
+ *  below. */
+const JOINED_AT = "2026-01-01T00:00:00.000Z";
+
 const seeing = (
   ref: string,
   level: WatchLevel,
@@ -277,6 +283,7 @@ describe("what is worth waking the Conductor about", () => {
       joined: "created",
       spoken: true,
       ran: false,
+      since: JOINED_AT,
       root: null,
     });
     expect(observed(restored, seeing(REF, "asking")).ring).toBeNull();
@@ -295,6 +302,7 @@ describe("what is worth waking the Conductor about", () => {
       joined: "asked",
       spoken: true,
       ran: false,
+      since: JOINED_AT,
       root: null,
     });
     expect(observed(restored, seeing(REF, "stopped")).ring).toBe("stopped");
@@ -309,6 +317,7 @@ describe("what is worth waking the Conductor about", () => {
       joined: "created",
       spoken: false,
       ran: true,
+      since: JOINED_AT,
       root: null,
     });
     expect(observed(restored, seeing(REF, "stopped")).ring).toBe("ready");
@@ -384,6 +393,8 @@ describe("the pieces of work the watch list adds up to", () => {
         root: REF,
         name: "plan the cutover",
         refs: [REF, SPLIT],
+        // The planner joined first, so the piece of work is as old as it is.
+        since: planner.since,
       },
     ]);
   });
@@ -392,8 +403,13 @@ describe("the pieces of work the watch list adds up to", () => {
     const first = read(REF, { name: "plan the cutover" });
     const second = read(OTHER, { name: "fix the flake" });
     expect(workOf([first, second])).toEqual([
-      { root: REF, name: "plan the cutover", refs: [REF] },
-      { root: OTHER, name: "fix the flake", refs: [OTHER] },
+      { root: REF, name: "plan the cutover", refs: [REF], since: first.since },
+      {
+        root: OTHER,
+        name: "fix the flake",
+        refs: [OTHER],
+        since: second.since,
+      },
     ]);
   });
 
@@ -410,7 +426,12 @@ describe("the pieces of work the watch list adds up to", () => {
       root: { ref: PARENT, name: "the cutover" },
     });
     expect(workOf([one, two])).toEqual([
-      { root: PARENT, name: "the cutover", refs: [REF, SPLIT] },
+      {
+        root: PARENT,
+        name: "the cutover",
+        refs: [REF, SPLIT],
+        since: one.since,
+      },
     ]);
   });
 
@@ -427,7 +448,12 @@ describe("the pieces of work the watch list adds up to", () => {
     // Nothing further is observed about either: whatever the watcher last
     // read is what the entries carry.
     expect(workOf([planner, split])).toEqual([
-      { root: REF, name: "plan the cutover", refs: [REF, SPLIT] },
+      {
+        root: REF,
+        name: "plan the cutover",
+        refs: [REF, SPLIT],
+        since: planner.since,
+      },
     ]);
   });
 
@@ -436,10 +462,12 @@ describe("the pieces of work the watch list adds up to", () => {
     // under its own name, and the first reading either leaves it there or
     // folds it into the piece of work it belongs to.
     const fresh = watchEntry(REF, "asked");
-    expect(workOf([fresh])).toEqual([{ root: REF, name: "", refs: [REF] }]);
+    expect(workOf([fresh])).toEqual([
+      { root: REF, name: "", refs: [REF], since: fresh.since },
+    ]);
     const named: WatchEntry = { ...fresh, name: "fix the parser" };
     expect(workOf([named])).toEqual([
-      { root: REF, name: "fix the parser", refs: [REF] },
+      { root: REF, name: "fix the parser", refs: [REF], since: fresh.since },
     ]);
   });
 
@@ -457,7 +485,36 @@ describe("the pieces of work the watch list adds up to", () => {
       root: { ref: PARENT, name: "the cutover" },
     });
     expect(workOf([split, other])).toEqual([
-      { root: PARENT, name: "the cutover", refs: [SPLIT, REF] },
+      {
+        root: PARENT,
+        name: "the cutover",
+        refs: [SPLIT, REF],
+        since: split.since,
+      },
     ]);
+  });
+
+  it("ages a piece of work from its EARLIEST terminal, wherever that one sits", () => {
+    // The planner was watched an hour ago; the implementor it split off
+    // joined a minute ago. The work has been going for the hour — a piece
+    // that reset its clock every time a terminal was added to it would say a
+    // waterfall just started every time it split.
+    const hourAgo = "2026-01-01T10:00:00.000Z";
+    const minuteAgo = "2026-01-01T10:59:00.000Z";
+    const planner: WatchEntry = {
+      ...read(REF, { name: "plan the cutover" }),
+      since: hourAgo,
+    };
+    const split: WatchEntry = {
+      ...read(SPLIT, {
+        name: "write the migration",
+        root: { ref: REF, name: "plan the cutover" },
+      }),
+      since: minuteAgo,
+    };
+    expect(workOf([planner, split])[0]?.since).toBe(hourAgo);
+    // ... and the answer is the EARLIEST, not the first one handed over: a
+    // list that arrived in another order describes the same piece of work.
+    expect(workOf([split, planner])[0]?.since).toBe(hourAgo);
   });
 });

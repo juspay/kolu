@@ -59,9 +59,13 @@ Feature: The Conductor never blocks
     And the conductor status should say nothing is waiting
     And there should be no page errors
 
-  Scenario: The watched terminals are listed and looked at
+  Scenario: The watched terminals are listed, looked at, and pressed to go there
     # The marker is COMPUTED by the shell so the command line's echo cannot
     # satisfy the Look: only the terminal's own screen can.
+    #
+    # ... and the row's NAME is the way to the terminal itself: the same
+    # journey the create card's "open tile" makes — leave the conversation,
+    # land on that terminal's tile — because it is the same code path.
     When I create a terminal
     And I run "echo kolu-watch-$((6*7))"
     And a Claude Code session is mocked with state "thinking"
@@ -71,6 +75,9 @@ Feature: The Conductor never blocks
     Then the watched panel should list the watched terminal
     When I look at the watched terminal
     Then the watched terminal's look should show "kolu-watch-42"
+    When I press the watched terminal's name
+    Then the conductor pane should not be visible
+    And the watched terminal should be the focused tile
     And there should be no page errors
 
   Scenario: Two pieces of work count on the tab, and the badge says when it needs you

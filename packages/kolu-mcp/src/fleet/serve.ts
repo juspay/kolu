@@ -18,6 +18,12 @@
  * obvious door — kolu-server hands it a streamable-HTTP transport on a
  * loopback listener — and a silent stdio default would have the one server a
  * conversation depends on quietly talking to nobody.
+ *
+ * It also takes `resources/read` over from the adapter before answering
+ * anything (`./recordRead.ts`): a terminal's record is addressed by a
+ * reference with a slash in it, which the generic segment rule reads as a
+ * sibling's collection. That is the fourth difference, and the only one that
+ * is about an ADDRESS rather than about where a client comes from.
  */
 
 import { serveSurfaceAsMcp } from "@kolu/surface-mcp";
@@ -28,6 +34,7 @@ import { assertFleetFaceComplete, fleetClientFace } from "./face.ts";
 import { fleetSurface } from "./fleetSurface.ts";
 import type { FleetHosts } from "./hosts.ts";
 import { koluFleetTools } from "./lift.ts";
+import { serveFleetRecordReads } from "./recordRead.ts";
 import type { FleetWatchList } from "./watchList.ts";
 
 export interface ServeKoluFleetMcpOptions {
@@ -54,7 +61,7 @@ export async function serveKoluFleetMcp(
 ): Promise<{ server: Server; close: () => Promise<void> }> {
   const client = fleetClientFace(opts.hosts, opts.watchList);
   assertFleetFaceComplete(client);
-  return serveSurfaceAsMcp({
+  const served = await serveSurfaceAsMcp({
     // The degenerate rooted bundle, exactly as the stdio face serves: one core
     // and no siblings, so every tool name and every `surface://` URI is the
     // plain member name an agent already knows from `kolu mcp`.
@@ -64,4 +71,10 @@ export async function serveKoluFleetMcp(
     serverInfo: opts.serverInfo,
     transport: opts.transport,
   });
+  // A terminal is `host/id` HERE and nowhere else, so the one read whose
+  // address carries a terminal is answered by this face rather than by the
+  // generic segment rule — see `./recordRead.ts`, which also owns this face's
+  // "no such resource" sentence.
+  serveFleetRecordReads(served.server);
+  return served;
 }

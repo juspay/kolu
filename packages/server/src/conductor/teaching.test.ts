@@ -184,6 +184,22 @@ describe("the watch list", () => {
   });
 });
 
+describe("one terminal's record", () => {
+  const SCRIPT = teachingLines("zest").join("\n");
+
+  it("says the address a record is read at, in full and unescaped", () => {
+    // The defect this guards: the script told the Conductor to read a
+    // terminal's record before reading its screen and never said WHERE, so it
+    // invented addresses and each one came back "unknown resource". The
+    // address is a reference pasted after the collection, exactly as every
+    // tool and wake spells one — the percent-escaped spelling is the one no
+    // agent guesses.
+    expect(SCRIPT).toContain("surface://collections/terminals/<host>/<id>");
+    expect(SCRIPT).toContain("surface://collections/terminals/remote:prod/");
+    expect(SCRIPT).not.toContain("%2F");
+  });
+});
+
 describe("parseTeaching", () => {
   it("joins a paragraph's wrapped lines and drops the editor's note", () => {
     expect(

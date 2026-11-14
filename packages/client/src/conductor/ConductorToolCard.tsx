@@ -22,9 +22,7 @@ import { decodeHostKey } from "kolu-common/hostKey";
 import type { ConductorToolRow } from "kolu-common/conductor";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, Show } from "solid-js";
-import { useDockFocus } from "../canvas/dock/useDockFocus";
 import { hostLabel } from "../host/hostChipTone";
-import { selectHostTab } from "../host/selectHostTab";
 import { isDesktop } from "../useMobile";
 import ConductorDiffs from "./ConductorDiffs";
 import ConductorLook from "./ConductorLook";
@@ -39,6 +37,7 @@ import {
   toolLabel,
   waitedFor,
 } from "./toolCard";
+import { useOpenTile } from "./useOpenTile";
 
 const STATUS_MARK: Record<ConductorToolRow["status"], string> = {
   pending: "·",
@@ -55,7 +54,7 @@ const STATUS_CLASS: Record<ConductorToolRow["status"], string> = {
 };
 
 const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
-  const focus = useDockFocus();
+  const openTileAt = useOpenTile();
   const now = useShownClock();
 
   /** READ THE CLOCK ONLY WHILE THE CALL IS RUNNING, AND ONLY WHILE THE PANE
@@ -69,12 +68,8 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
   const clock = () =>
     props.row.status === "in_progress" ? runningFor(props.row, now()) : null;
 
-  /** Go to it. The terminal may be on a machine whose tab is not the selected
-   *  one, so this is a TAB SWITCH and then a focus — `selectHostTab` leaves
-   *  the conversation and lands on that host's canvas in whatever posture it
-   *  was left in (maximized stays maximized), and the focus lands on the tile
-   *  there. The same two steps, in the same order, a palette row or a
-   *  notification click takes. */
+  /** Go to it — `useOpenTile`, which is the same navigation the watched
+   *  panel's row names take, rather than a second one that agrees today. */
   const openTile = (at: { host: string; id: TerminalId } | null) => (
     <Show when={at}>
       {(target) => (
@@ -84,10 +79,7 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
           data-terminal-id={target().id}
           data-host={target().host}
           class="text-[0.7rem] font-semibold text-accent hover:underline cursor-pointer shrink-0"
-          onClick={() => {
-            selectHostTab(decodeHostKey(target().host));
-            focus(target().id);
-          }}
+          onClick={() => openTileAt(target())}
         >
           open tile
         </button>

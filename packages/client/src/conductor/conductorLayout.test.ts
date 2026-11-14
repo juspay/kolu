@@ -46,6 +46,28 @@ describe("the Conductor's two-column breakpoint", () => {
     );
   });
 
+  it("is the two-column sum plus the help's own track", () => {
+    // THE THIRD TRACK, counted exactly once: the help column and the gutter
+    // beside it, on top of the width the other two already need. Its track
+    // is the same width open or collapsed (`ConductorHelp.tsx`), so this one
+    // number is the whole of what the frame costs — and a window below it
+    // gets the `⋯` menu's sheet instead of a squeezed conversation.
+    expect(rem("--breakpoint-conductor-help")).toBe(
+      rem("--breakpoint-conductor-wide") +
+        rem("--container-conductor-help") +
+        rem("--spacing-conductor-gutter"),
+    );
+  });
+
+  it("needs more room for the help than for the side column alone", () => {
+    // The help is the wider decision of the two: a window that cannot hold
+    // the side column cannot hold a third column either, and the menu entry
+    // is what both of those windows get.
+    expect(rem("--breakpoint-conductor-help")).toBeGreaterThan(
+      rem("--breakpoint-conductor-wide"),
+    );
+  });
+
   it("holds 70 to 90 characters a line at the chat's own text size", () => {
     // The column's gutters (1.25rem a side, `px-5` on the reading column) are
     // not text, and an average character in DM Sans is about 0.52em.

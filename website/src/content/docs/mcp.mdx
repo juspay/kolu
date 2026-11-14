@@ -89,6 +89,8 @@ What the fleet projection changes is identity, and only identity:
 
 `watched` is the Conductor's own watch list, read back: one row per watched terminal — its `host/id`, the last name and agent kolu saw in it, how it got on the list, and the state of the host it is on *now* (all three host columns `null` once that host is no longer a member). It moves the list with `watch_terminal` / `unwatch_terminal` and reads it here, so a conversation that restarted knows what it is being woken by instead of guessing. The resource subscribes, so a watched terminal that goes away — or one a person takes off from the browser — reaches it without a call.
 
+One terminal's record is read at `surface://collections/terminals/<host>/<id>` — the reference exactly as a tool, a wake or a resource hands it out, nothing escaped. A reference that names nothing, like any address the fleet face does not serve, is refused in a sentence that says what a record address looks like.
+
 Everything else — every tool below, every refusal, the whole allowlist — is one definition serving both; the single exception is the row above. So if you want to know what the Conductor is capable of, this page is still the answer.
 
 That one exception is worth stating plainly, because it is the only place the

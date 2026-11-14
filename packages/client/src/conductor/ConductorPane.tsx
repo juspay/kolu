@@ -50,7 +50,8 @@ import ConductorStatus from "./ConductorStatus";
 import ConductorStrip from "./ConductorStrip";
 import ConductorTranscript from "./ConductorTranscript";
 import ConductorWatchedPanel from "./ConductorWatchedPanel";
-import { conductorWide } from "./conductorLayout";
+import { ConductorHelpColumn, ConductorHelpSheet } from "./ConductorHelp";
+import { conductorHelpColumn, conductorWide } from "./conductorLayout";
 import { useConductor } from "./useConductor";
 import { exitConductorMode } from "./useConductorMode";
 import { createConductorTranscript } from "./useConductorTranscript";
@@ -212,14 +213,31 @@ const ConductorPane: Component<{
                 );
               }}
             />
-            {/* THE FRAME. Two tracks, declared once and ALWAYS declared: the
-                reading column, and the side column beside it on a window wide
-                enough for both (`conductorLayout.ts`). The second track is
-                `auto`, so with no side column it is simply zero wide — the
-                conversation does not re-flow into a different grid when the
-                panel appears, and the two-column frame on a wide window is
-                constant whether or not anything is being watched. */}
-            <div class="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_auto]">
+            {/* THE FRAME. Tracks declared once and ALWAYS declared: the
+                reading column, the side column beside it on a window wide
+                enough for both, and — one width further out — the HELP as a
+                third track at the head of the row (`conductorLayout.ts`).
+                The side track is `auto`, so with no side column it is simply
+                zero wide: the conversation does not re-flow into a different
+                grid when the panel appears, and the frame on a wide window is
+                constant whether or not anything is being watched.
+
+                THE HELP'S TRACK IS A FIXED WIDTH — its own measure plus the
+                gutter — and it does NOT change when the help is collapsed:
+                the rail sits at the track's start and the rest is margin. So
+                collapsing gives the space back, while the reading column,
+                centred in a track whose width the collapse cannot touch,
+                stays exactly where it was (`ConductorHelp.tsx`). */}
+            <div
+              class={`grid min-h-0 flex-1 ${
+                conductorHelpColumn()
+                  ? "grid-cols-[calc(var(--container-conductor-help)+var(--spacing-conductor-gutter))_minmax(0,1fr)_auto]"
+                  : "grid-cols-[minmax(0,1fr)_auto]"
+              }`}
+            >
+              <Show when={conductorHelpColumn()}>
+                <ConductorHelpColumn />
+              </Show>
               {/* ONE COLUMN FOR ALL THREE. The transcript, the status line and
                   the composer are the same measure and the same centre line,
                   so a reply, what it is doing and what you type to it read as
@@ -287,6 +305,10 @@ const ConductorPane: Component<{
                 </aside>
               </Show>
             </div>
+            {/* THE SAME WORDS AS A SHEET, mounted once and opened from the
+                `⋯` menu wherever the help is not a column — a phone, and any
+                window below the width the column needs. */}
+            <ConductorHelpSheet />
           </>
         }
       >

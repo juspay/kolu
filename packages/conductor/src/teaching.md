@@ -153,6 +153,13 @@ keeping belongs in a file on {{host}}, where the next conversation can read
 it; what belongs on another host is written there by an agent you ask to
 write it.
 
+ONE TERMINAL'S RECORD is read at `surface://collections/terminals/<host>/<id>`:
+the collection, then the reference exactly as kolu hands it to you, nothing
+escaped — `surface://collections/terminals/remote:prod/9ab1…`. That read
+answers what the terminal is called, the agent in it and whether it is awake.
+`surface://collections/terminals` on its own is the live set of references,
+and a reference that names nothing is refused in words that say so.
+
 A terminal can be ASLEEP: its record in the `terminals` resource says
 `"state": "sleeping"` where a live one says `"active"`. A sleeping terminal
 has no screen and no agent state, so reading its screen fails. The refusal

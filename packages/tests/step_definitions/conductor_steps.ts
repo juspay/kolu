@@ -1670,6 +1670,30 @@ When("I look at the watched terminal", async function (this: KoluWorld) {
     .click();
 });
 
+When("I press the watched terminal's name", async function (this: KoluWorld) {
+  // THE ROW'S NAME IS THE WAY TO THE TERMINAL — the same journey the create
+  // card's "open tile" makes, which is why the assertion below is the one
+  // that step's scenario makes about the tile it lands on.
+  await watchedRow(this)
+    .locator('[data-testid="conductor-watched-name"]')
+    .click();
+});
+
+Then(
+  "the watched terminal should be the focused tile",
+  async function (this: KoluWorld) {
+    const id = watchedId(this);
+    await waitForValue(
+      "the active canvas tile after pressing the watched row's name",
+      async () =>
+        (await this.page
+          .locator(`${CANVAS_TILE}[data-active]`)
+          .getAttribute("data-terminal-id")) ?? "absent",
+      id,
+    );
+  },
+);
+
 Then(
   "the watched terminal's look should show {string}",
   async function (this: KoluWorld, text: string) {
@@ -1871,3 +1895,141 @@ When(
     await input.fill(text);
   },
 );
+
+// ── The help: a column in the gutter, a sheet from the menu ──
+//
+// One set of words in two frames (`conductorHelp.ts`). These steps never read
+// the sentences themselves — a help text is meant to be reworded — they read
+// the SECTIONS it promises and which frame they arrived in, so a rewrite
+// passes and a section quietly dropped does not.
+
+const HELP = '[data-testid="conductor-help"]';
+const HELP_TOGGLE = '[data-testid="conductor-help-toggle"]';
+const HELP_CONTENT = '[data-testid="conductor-help-content"]';
+const HELP_SECTION = '[data-testid="conductor-help-section"]';
+const HELP_SHEET = '[data-testid="conductor-help-sheet"]';
+const MENU_HELP = '[data-testid="conductor-menu-help"]';
+
+/** The sections the panel promises, in order — the id each section rides as
+ *  data, not its heading, so rewording a heading is not a broken test. */
+const HELP_SECTIONS = [
+  "ask",
+  "waterfall",
+  "while-it-works",
+  "mid-work",
+  "wakes",
+  "asks",
+];
+
+/** What one copy of the help is showing, as `id,id,…` — or why it is not
+ *  readable, so a failure says which. */
+async function helpSectionsIn(
+  world: KoluWorld,
+  placement: "column" | "sheet",
+): Promise<string> {
+  const copy = `${HELP_CONTENT}[data-placement="${placement}"]`;
+  if ((await world.page.locator(copy).count()) === 0) {
+    return `no ${placement} copy of the help is on screen`;
+  }
+  return (
+    await world.page
+      .locator(`${copy} ${HELP_SECTION}`)
+      .evaluateAll((els) =>
+        els.map((el) => (el as HTMLElement).dataset.section ?? "unnamed"),
+      )
+  ).join(",");
+}
+
+Then(
+  "the conductor help column should be open",
+  async function (this: KoluWorld) {
+    await waitForValue(
+      "the help column's open state",
+      async () =>
+        (await this.page.locator(HELP).getAttribute("data-open")) ?? "absent",
+      "true",
+    );
+  },
+);
+
+Then(
+  "the conductor help column should be a rail with one way back in",
+  async function (this: KoluWorld) {
+    await waitForValue(
+      "the help column's open state",
+      async () =>
+        (await this.page.locator(HELP).getAttribute("data-open")) ?? "absent",
+      "false",
+    );
+    // Collapsed it carries its words no longer, and exactly one control.
+    await waitForCount(this, `${HELP} ${HELP_CONTENT}`, 0);
+    await waitForCount(this, `${HELP} ${HELP_TOGGLE}`, 1);
+  },
+);
+
+Then(
+  "the conductor should have no help column",
+  async function (this: KoluWorld) {
+    await waitForCount(this, HELP, 0);
+  },
+);
+
+When("I collapse the conductor help", async function (this: KoluWorld) {
+  await this.page.locator(`${HELP} ${HELP_TOGGLE}`).click();
+});
+
+When("I reopen the conductor help", async function (this: KoluWorld) {
+  await this.page.locator(`${HELP} ${HELP_TOGGLE}`).click();
+});
+
+When(
+  "I open How to use from the conductor menu",
+  async function (this: KoluWorld) {
+    await this.page.locator(MENU).click();
+    await waitForAtLeastOne(this, MENU_PANEL);
+    await this.page.locator(MENU_HELP).click();
+  },
+);
+
+Then(
+  "the conductor menu should not offer How to use",
+  async function (this: KoluWorld) {
+    // Where the help is already a column, the menu entry would be a second
+    // door to the words standing open beside it.
+    await this.page.locator(MENU).click();
+    await waitForAtLeastOne(this, MENU_PANEL);
+    await waitForCount(this, MENU_HELP, 0);
+    await this.page.locator(MENU).click();
+    await waitForCount(this, MENU_PANEL, 0);
+  },
+);
+
+Then(
+  "the help {word} should teach the conversation, docs and all",
+  async function (this: KoluWorld, placement: string) {
+    assert.ok(
+      placement === "column" || placement === "sheet",
+      `the help has no ${placement} placement`,
+    );
+    await waitForValue(
+      `the sections of the help's ${placement}`,
+      () => helpSectionsIn(this, placement),
+      HELP_SECTIONS.join(","),
+    );
+    const docs = this.page.locator(
+      `${HELP_CONTENT}[data-placement="${placement}"] [data-testid="conductor-help-docs"]`,
+    );
+    await docs.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    assert.match(
+      (await docs.getAttribute("href")) ?? "",
+      /\/conductor\/$/,
+      "the help's Full docs link does not point at the Conductor's own page",
+    );
+  },
+);
+
+Then("the help sheet should be open", async function (this: KoluWorld) {
+  await this.page
+    .locator(HELP_SHEET)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
