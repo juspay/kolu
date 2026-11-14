@@ -36,3 +36,8 @@ Nothing moved off this page.
 ## Dropped code spans
 
 `.waterfall/compare.mjs` reports 0 missing.
+
+## Review round 1
+
+- Aside cut to 50 words (rule 12): "Two hosts still need trust" is now 42 words. The sentence about what those hosts are sent instead moved into the running text under `3. Dial as usual`, and the `closureRoute` link stays in the aside.
+- Checks: lint passes; `house-style.mjs` reports nothing on this page.

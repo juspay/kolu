@@ -130,11 +130,12 @@ entry and has the host pull it; the progress log says
 checkout, a revision CI never published) reads a 404 and takes the usual
 route (rewrite, ship, or build on the host), saying so.
 
+A host the rewrite cannot serve is sent the signed path instead, which needs the
+host to trust your login or your cache's key.
+
 <Aside type="caution" title="Two hosts still need trust">
   The rewrite is written by Nix 2.34, and Nix 2.35 changed how it hashes the
   same paths, so only hosts on Nix **2.17 through 2.34** take the
   content-addressed form. A **macOS** host never does: rewriting a Mach-O breaks
-  its code signature. Both are sent the signed path instead, which needs the
-  host to trust your login or your cache's key
-  ([`closureRoute`](/surface/ref-surface-remote)).
+  its code signature ([`closureRoute`](/surface/ref-surface-remote)).
 </Aside>
