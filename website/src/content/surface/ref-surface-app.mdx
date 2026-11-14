@@ -8,21 +8,35 @@ section: Basics · Reference
 import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 
-The shell delivered *around* a `@kolu/surface` app — the static, installable
-layer for apps you run against your own server (kolu, [drishti](https://github.com/srid/drishti)). Surface is the
-live wire; surface-app is the shell served fresh around it. Exports are grouped
-by subpath.
+The shell around a `@kolu/surface` app: the static, installable layer for apps
+you run against your own server (kolu, [drishti](https://github.com/srid/drishti)).
+Surface is the live wire; surface-app is the shell served fresh around it.
+Exports are grouped by subpath.
 
-## The whole listener, in one call
+## The listener
 
-`serveSurfaceApp` (`@kolu/surface-app/serve`) is the turnkey seam: the shell over
-HTTP and the surface over one WebSocket, in the one correct order — **origin gate
-→ upgrade → stale-tab check → heartbeat enrolment → serve**. It owns the
-`http.Server` (so the `upgrade` event stays yours), mounts `surfaceAppLayer`
-alongside your own routes, stands up the `ws` server, binds, and registers its
-whole teardown on the enclosing `Scope`. `ws` and `@effect/platform-node` are
-**peer** dependencies of the package — an app serving on Node already declares
-both, and a browser-only consumer of `./solid` never pulls them in.
+`serveSurfaceApp` serves the shell over HTTP and the surface over one WebSocket, from one call. The rest of this group is what it hands your app: the connection record, the event union, the upgrade-header allowlist, and the two constants both legs read.
+
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`serveSurfaceApp(opts)`](#servesurfaceappopts) | `/serve` | The whole listener: shell, socket, gates, heartbeat, bind, teardown. |
+| [`SurfaceAppListenFailed`](#surfaceapplistenfailed) | `/serve` | The one failure it reports, `cause` intact. |
+| [`SurfaceAppConnection`](#surfaceappconnection) | `/serve` | One accepted connection, and the handle that can end it. |
+| [`SurfaceAppEvent`](#surfaceappevent) | `/serve` | The tagged union `onEvent` narrates. |
+| [`SurfaceAppHttpMiddleware`](#surfaceapphttpmiddleware) | `/serve` | The shape `middleware` takes. |
+| [`reportSurfaceAppEvent(event)`](#reportsurfaceappeventevent) | `/serve` | The default narration policy, for an `onEvent` to delegate to. |
+| [`checkUpgradeHeaders(names)`](#checkupgradeheadersnames) | `/upgrade-headers` (also re-exported from `/serve`) | The allowlist's grammar, for an app that assembles its list. |
+| [`UpgradeHeadersSource<H>`](#upgradeheaderssourceh) | `/upgrade-headers` (also re-exported from `/serve`) | How a listener obtains its list. |
+| [`pickUpgradeHeaders(request, names)`](#pickupgradeheadersrequest-names) | `/upgrade-headers` | The read half, for a hand-built listener. |
+| [`SURFACE_WS_PATH`](#surface_ws_path) | `.` | `/rpc/ws`, the one path a surface speaks on. |
+| [`surfaceWsUrl(httpBaseUrl)`](#surfacewsurlhttpbaseurl) | `.` | The dial URL from the http(s) base. |
+| [`thrownText(error)`](#throwntexterror) | `.` | An uncaught throw, printed for a bug report. |
+
+The groups below are the pieces `serveSurfaceApp` composes. Reach for them directly when a listener needs something this call does not take: drishti dispatches per host on `?host=`, picking which runtime serves a socket. kolu and this package's example both ride the primitive.
+
+### `serveSurfaceApp(opts)`
+
+`serveSurfaceApp` (`@kolu/surface-app/serve`) is the turnkey seam. It runs the shell over HTTP and the surface over one WebSocket, in one order: origin gate, upgrade, stale-tab check, heartbeat enrolment, serve.
 
 ```ts
 const url = yield* serveSurfaceApp({
@@ -41,72 +55,53 @@ const url = yield* serveSurfaceApp({
 });
 ```
 
-It returns the URL **actually** bound (so `port: 0` reports the port the OS
-gave), and fails with the typed `SurfaceAppListenFailed`, which carries the
-`cause` verbatim — a consumer's port policy reads `cause.code === "EADDRINUSE"`
-rather than matching a message string. The surface runtime's own lifetime is
-**not** owned here: pass `{ group, handlers }` and keep `close`/`done` at the
-composition root that built them.
+- It owns the `http.Server`, so the `upgrade` event stays yours.
+- It mounts `surfaceAppLayer` alongside your own routes, stands up the `ws` server, binds, and registers its whole teardown on the enclosing `Scope`.
+- `ws` and `@effect/platform-node` are peer dependencies of the package. An app serving on Node already declares both, and a browser-only consumer of `./solid` never pulls them in.
+- It returns the URL actually bound, so `port: 0` reports the port the OS gave.
+- It fails with the typed [`SurfaceAppListenFailed`](#surfaceapplistenfailed).
+- The surface runtime's own lifetime is not owned here. Pass `{ group, handlers }` and keep `close` and `done` at the composition root that built them.
+- `clientDist` is optional, and its absence is the dev shape. No bundle means no static route at all, so an unmatched path 404s through the router.
+- The `manifest` is still served without a bundle, because a dev proxy forwards `/manifest.webmanifest` to a server with no built client. The two mount independently.
 
-The generation is [`ServedGenerationSource`](/surface/ref-surface#per-face-expose-kolusurfaceexpose)
-— `{ group, handlers, expose? }` is the generation written at the call, and
-`{ live: () => ({ group, handlers, expose? }) }` is re-read at each accept, as
-a pair. A socket accepted after an
-[`implementRootedSurfaces`](/surface/ref-surface#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces)
-mount is therefore indistinguishable from one accepted on a boot that already
-had that sibling. A connection accepted *before* the roster moved keeps the
-generation it was built over until the client [redials](#a-roster-change-follows-in-place--connredialsurfaces).
-Existing callers that pass values do not change. `serveOverUnixSocket` takes
-the same source.
+#### The generation it serves
 
-`clientDist` is optional, and its absence is the **dev** shape: no bundle means
-no static route at all — an unmatched path 404s through the router — while the
-`manifest` is still served, because a dev proxy forwards `/manifest.webmanifest`
-to a server with no built client. The two mount independently.
+The generation is [`ServedGenerationSource`](/surface/ref-surface#per-face-expose-kolusurfaceexpose). `{ group, handlers, expose? }` is the generation written at the call, and `{ live: () => ({ group, handlers, expose? }) }` is re-read at each accept, as a pair.
 
-Closing the scope **drains before it drops**, in this order: new upgrades are
-refused, every connection's serving stack is closed and awaited (that is what
-releases its RPC fibers and every in-flight subscription it opened), the raw
-sockets are terminated, and the listening socket is closed **last**. So when the
-finalizer resolves, nothing this listener started is still running.
+- A socket accepted after an [`implementRootedSurfaces`](/surface/ref-surface#implementrootedsurfacescore-base-deps) mount is indistinguishable from one accepted on a boot that already had that sibling.
+- A connection accepted before the roster moved keeps the generation it was built over until the client [redials](#connredialsurfaces).
+- `serveOverUnixSocket` takes the same source.
 
-<Aside type="caution" title="The listening socket closes last, deliberately">
-  Asking the server to close while a socket is still open is what made this hang
-  under **Bun**: its `close` callback never fires, so the finalizer never
-  settles and a `SIGINT`'d process never exits. Node tolerates either order, so
-  nothing upstream catches it. Refusing new upgrades is therefore the listener's
-  own job (a `draining` flag), not a side effect of closing early.
-</Aside>
+#### `expose`
 
-<Aside type="caution" title="The inbound frame cap is not a knob">
-  `serveSurfaceApp` sets `ws`'s `maxPayload` to `RPC_MAX_FRAME_BYTES` — the
-  framework's published byte budget, the one `exceedsFrameLimit` publishes to
-  senders — and offers no option to move it. See
-  [`@kolu/surface/frame-limit`](/surface/ref-surface#the-wires-frame-cap-kolusurfaceframe-limit)
-  for why a transport cap
-  that disagrees with that budget breaks the promise in one direction (an app
-  that hand-rolled 8 MiB killed a 10 MiB frame the framework said it would carry)
-  or the wire in the other.
-</Aside>
+`expose` takes the same `ExposeMap` the MCP adapter takes and applies it to the websocket alone. A verb can then be reachable over a trusted unix socket and refused to browsers, without the app keeping a second write path beside the surface. Omit it and the socket serves the whole surface.
 
-The path is fixed at `SURFACE_WS_PATH` (`/rpc/ws`); any other upgrade target is
-destroyed. Both legs read that one constant, so the dial URL and the upgrade
-handler cannot drift.
+The shape, the refusal (`SurfaceMemberNotExposed`), the reserved members it can never gate, and the bind-time validation are all [`@kolu/surface/expose`](/surface/ref-surface#per-face-expose-kolusurfaceexpose)'s.
+
+#### The inbound frame cap
+
+`serveSurfaceApp` sets `ws`'s `maxPayload` to `RPC_MAX_FRAME_BYTES`, the framework's published byte budget, and offers no option to move it. That is the budget `exceedsFrameLimit` publishes to senders. A transport cap that disagrees with it breaks the promise in one direction, or the wire in the other. See [`@kolu/surface/frame-limit`](/surface/ref-surface#the-wires-frame-cap-kolusurfaceframe-limit).
+
+#### Closing the scope
+
+Closing the scope drains before it drops, in this order:
+
+1. New upgrades are refused.
+2. Every connection's serving stack is closed and awaited. That is what releases its RPC fibers and every in-flight subscription it opened.
+3. The raw sockets are terminated.
+4. The listening socket is closed last.
+
+When the finalizer resolves, nothing this listener started is still running.
+
+- The listening socket closes last deliberately. Under Bun, closing the server while a socket is still open means its `close` callback never fires, so the finalizer never settles and a `SIGINT`ed process never exits.
+- Node tolerates either order, so nothing upstream catches that.
+- Refusing new upgrades is therefore the listener's own job (a `draining` flag), not a side effect of closing early.
 
 ### The upgrade's headers — `upgradeHeaders`
 
-A live wire is one websocket, so its one request is the upgrade. A header a
-reverse proxy stamps there (`Tailscale-User-Login`, `X-Forwarded-For`) is
-therefore the only per-**connection** claim about who is calling that the wire
-can carry, and `serveSurfaceApp` — which owns the upgrade — is the only thing on
-this path that can hand one on. (A hand-built listener on
-[`acceptSurfaceSocket`](#accepting-a-browser-socket) stands in its own `upgrade` handler
-holding the request, so it reads what it needs directly; this option has nothing
-to offer it. Same split as `expose`.)
+A live wire is one websocket, so its one request is the upgrade. A header a reverse proxy stamps there (`Tailscale-User-Login`, `X-Forwarded-For`) is the only per-connection claim about who is calling that the wire can carry, and `serveSurfaceApp` owns the upgrade.
 
-`upgradeHeaders` names which ones. Each accepted connection carries those values
-on `SurfaceAppConnection.headers`, keyed by the **spelling used here**, and a
-`services` layer reads them per connection:
+`upgradeHeaders` names which headers to keep. Each accepted connection carries those values on `SurfaceAppConnection.headers`, keyed by the spelling used here, and a `services` layer reads them per connection:
 
 ```ts
 const url = yield* serveSurfaceApp({
@@ -122,170 +117,72 @@ const url = yield* serveSurfaceApp({
 
 | Fact | Shape | Notes |
 | --- | --- | --- |
-| `upgradeHeaders` | `UpgradeHeadersSource<H>` — `ReadonlyArray<H>` \| `() => ReadonlyArray<H>` | the allowlist. **Empty by default** — a header nobody named is not available at all. An array is read once at the bind; a thunk is re-read at each accept |
-| `connection.headers` | `Readonly<Partial<Record<H, string>>>` | the named headers this upgrade carried. Matched case-insensitively against the wire; keyed by the spelling in `upgradeHeaders` |
-| `connection.remoteAddress` | `string \| undefined` | the **direct** TCP peer — the proxy itself, when there is one. Never a guess |
-| `services` | `(connection: SurfaceAppConnection<H>) => Layer.Layer<Svc>` | the per-connection `Layer` those facts are read into. Effect's socket-server protocol forwards no per-request context, so a connection-scoped fact is **provided**, never carried on the request |
+| `upgradeHeaders` | `UpgradeHeadersSource<H>` — `ReadonlyArray<H>` \| `() => ReadonlyArray<H>` | The allowlist, empty by default. An array is read once at the bind; a thunk is re-read at each accept |
+| `connection.headers` | `Readonly<Partial<Record<H, string>>>` | The named headers this upgrade carried. Matched case-insensitively against the wire, keyed by the spelling in `upgradeHeaders` |
+| `connection.remoteAddress` | `string \| undefined` | The direct TCP peer, which is the proxy itself when there is one. Never a guess |
+| `services` | `(connection: SurfaceAppConnection<H>) => Layer.Layer<Svc>` | The per-connection `Layer` those facts are read into |
 
-`H` is inferred from `upgradeHeaders` — the names are the keys, so
-`connection.headers["X-Forwarded-For"]` does not compile when the allowlist said
-`"x-forwarded-for"`. That is deliberate: a header's absence is a load-bearing
-answer here, and an open index would hand a misspelling the same honest-looking
-`undefined` a real absence has.
+- A header nobody named is not available at all.
+- Effect's socket-server protocol forwards no per-request context, so a connection-scoped fact is provided through `services`, never carried on the request.
+- `H` is inferred from `upgradeHeaders`, so `connection.headers["X-Forwarded-For"]` does not compile when the allowlist said `"x-forwarded-for"`. An open index would hand a misspelling the same `undefined` a real absence has.
+- A named header the request did not carry is absent from the record, so `undefined` ("not sent") and `""` ("sent empty") stay different facts.
+- A repeated header arrives folded into one comma-joined string, with the separator node itself uses (`", "`). It is a string, never an array. This seam reports that string; it does not join.
+- `set-cookie` is refused at the allowlist rather than folded into a string nothing could split back apart (RFC 6265 §5.2). It is node's one array-shaped exception, and the one header whose values carry commas of their own. An array reaching this seam is that same defect, and is refused rather than joined.
 
-A named header the request did not carry is **absent** from the record, so
-`undefined` ("not sent") and `""` ("sent empty") stay different facts — which is
-what a consumer deciding whether to trust a proxy claim needs. A repeated header
-arrives folded into one comma-joined string, with the separator node itself uses
-(`", "` — and it is a string, never an array). This seam reports that string; it
-does not join. `set-cookie` — node's one array-shaped exception, and the one
-header whose values carry commas of their own — is **refused at the allowlist**
-rather than folded into a string nothing could split back apart (RFC 6265 §5.2).
-An array reaching this seam is that same defect and is refused, not joined.
+#### What the allowlist refuses
 
-<Aside type="caution" title="An allowlist, because the alternative leaks">
-  The connection used to carry the raw `IncomingMessage`, which is the whole
-  header bag — `Cookie` and `Authorization` included. The allowlist is not a
-  filter over something a `services` layer could still reach: it **is** the
-  access, so the leak has nowhere to be expressed. Naming a header is the app
-  saying it trusts the proxy that writes it, and that is a claim only the app can
-  make. A name outside HTTP's field-name grammar (node's own
-  `validateHeaderName`), or one wire header named **twice** (`X-Forwarded-For`
-  beside `x-forwarded-for`, which would file one value under two keys), is a
-  **defect**: for a fixed array the effect raises it when it runs, before anything
-  binds, so no listener is left behind — deliberately not a
-  `SurfaceAppListenFailed`, which a port-retry policy would loop on forever
-  against something no port can fix.
-</Aside>
+The allowlist is the access, not a filter over a header bag a `services` layer could still reach. `Cookie` and `Authorization` are not on the connection at all. Naming a header is the app saying it trusts the proxy that writes it, and that is a claim only the app can make.
+
+Two things are a defect:
+
+- A name outside HTTP's field-name grammar (node's own `validateHeaderName`).
+- One wire header named twice (`X-Forwarded-For` beside `x-forwarded-for`), which would file one value under two keys.
+
+For a fixed array, the effect raises the defect when it runs, before anything binds, so no listener is left behind. It is deliberately not a `SurfaceAppListenFailed`, which a port-retry policy would loop on forever against something no port can fix.
+
+#### Who may write a named header
+
+This seam reports; it does not authenticate. What reaches `connection.headers` is whatever was on the upgrade, and a client dialling the listener directly can send `Tailscale-User-Login` itself, which `services` then receives as faithfully as a proxy's own.
+
+- Naming a header is sound only when the proxy owns it: it strips or overwrites any inbound copy, and is the only way in (the listener bound to loopback or a tailnet).
+- Naming one the proxy merely passes through hands every caller a claim they wrote about themselves.
+- Nothing here can check that, because the deployment is not visible from the listener. That is why the naming is the app's to do.
+- kolu's `x-forwarded-for` is safe because [`viewerAddressOf`](/surface/ref-surface) weighs the claim against the direct peer. An app that names an identity header gets the value, never that judgment.
 
 ### A live allowlist, read at each accept
 
-The list itself can move while the listener is up. An app whose identity part is
-switched on at runtime does not know its headers at the bind, and a serve that
-came up without that part used to answer its own procedures the moment it was
-switched on while **every** socket — open and new — stayed anonymous until a
-restart. Pass a thunk and the next accept reads the list that is live then, so a
-socket accepted after the switch is indistinguishable from one accepted on a boot
-that already had it — the same confluence claim
-[`ServedGenerationSource`](#the-whole-listener-in-one-call) makes for the served
-set.
+The list itself can move while the listener is up. An app whose identity part is switched on at runtime does not know its headers at the bind. Pass a thunk and the next accept reads the list that is live then, so a socket accepted after the switch is indistinguishable from one accepted on a boot that already had it. That is the same confluence claim [`ServedGenerationSource`](#the-generation-it-serves) makes for the served set.
 
 ```ts
 // re-read at each accept; annotated so `H` stays a literal union
 upgradeHeaders: (): ReadonlyArray<"Tailscale-User-Login"> => identity().headers,
 ```
 
-The two arms are told apart by `typeof` — an array is never callable, so unlike
-the served generation there is nothing here to mistake for a thunk, and no
-wrapper is needed. `H` infers from either — and on either arm it is only as
-narrow as the list's **element type**, so a `ReadonlyArray<string>` (a widely
-typed variable as much as a thunk returning one) widens `H` to `string` and
-every header read compiles again. A literal array, an `as const`, or the return
-annotation above is what keeps the guarantee.
+- The two arms are told apart by `typeof`. An array is never callable, so there is nothing here to mistake for a thunk, and no wrapper is needed.
+- `H` infers from either arm, and on either it is only as narrow as the list's element type.
+- A `ReadonlyArray<string>` (a widely typed variable as much as a thunk returning one) widens `H` to `string`, and every header read compiles again. A literal array, an `as const`, or the return annotation above is what keeps the guarantee.
 
-<Aside type="tip" title="A bad LIVE list refuses itself, never the socket">
-  A name a fixed array cannot carry takes the bind down, because that array **is**
-  the app's composition root and there is nothing else to blame. A live list is
-  different: the bad name belongs to whatever part offered it, and one part's
-  defect must not reach the wire's other tenants. So the socket is **accepted and
-  served** with *no* named headers — every request on it reads as nobody, which is
-  the state an app already defines for "no identity" — and the fault is reported
-  as `UpgradeHeadersRefused`. Terminating would let one part's list take every
-  connection down with it; throwing would take the process.
+#### A live list that refuses itself
 
-  The fault is reported at **each** accept that reads a bad list, for as long as
-  the offering part keeps minting one — each of those accepts really did serve an
-  anonymous connection.
+A bad name in a live list belongs to whatever part offered it, and one part's defect must not reach the wire's other tenants. So the socket is accepted and served with no named headers. Every request on it reads as nobody, which is the state an app already defines for "no identity", and the fault is reported as `UpgradeHeadersRefused`.
 
-  A thunk that simply **throws** takes the identical path, and that is deliberate:
-  a part crashing mid-reload is as bad a part as one that named `set-cookie`, so
-  the rule that decides this is the *blast radius*, not the cause. One arm covers
-  both, and its `error` says which happened — terminating for the crash while
-  serving through the bad name would be an inconsistency nothing could justify to
-  an operator.
+- The fault is reported at each accept that reads a bad list, for as long as the offering part keeps minting one. Each of those accepts really did serve an anonymous connection.
+- A thunk that simply throws takes the identical path, and the event's `error` says which happened.
+- Terminating the socket would let one part's list take every connection down with it, and throwing would take the process.
+- Call `checkUpgradeHeaders(names)` (`@kolu/surface-app/upgrade-headers`) where you mint the list, so the offending part fails there, with the same sentence, before any socket is accepted.
+- A fixed array is the other arm: a name it cannot carry takes the bind down, because that array is the app's composition root and there is nothing else to blame.
 
-  An app that wants that defect loud calls **`checkUpgradeHeaders(names)`**
-  (`@kolu/surface-app/upgrade-headers`) where it *mints* the list, so the
-  offending part fails there, with the same sentence, before any socket is
-  accepted. The accept-time arm is then only the race between an offer and an
-  accept.
-</Aside>
+### `SurfaceAppConnection`
 
-<Aside type="caution" title="Naming a header says who may WRITE it">
-  This seam **reports**; it does not authenticate. What reaches
-  `connection.headers` is whatever was on the upgrade — and a client dialling the
-  listener directly can send `Tailscale-User-Login` itself, which `services`
-  will then receive as faithfully as a proxy's own.
+One accepted connection: `{ id, url, remoteAddress, headers, close }`. It is what a per-connection `services` layer is built from, and the handle that can end the connection.
 
-  So naming a header is sound **only when the proxy owns it**: strips or
-  overwrites any inbound copy, and is the only way in (the listener bound to
-  loopback or a tailnet). Naming one the proxy merely *passes through* hands
-  every caller a claim they wrote about themselves.
+- `Connected` and `Disconnected` carry the same `SurfaceAppConnection` object, so a consumer can pair them by identity.
+- `id` is a listener-scoped ordinal, which is what a log line wants (kolu's per-connection `ws:` field).
+- `services` stays a separate option from `onEvent`: it returns a `Layer`, which is a different kind of thing from narration.
 
-  Nothing here can check that — the deployment is not visible from the listener,
-  which is why the naming is the app's to do. Where the check *can* live, it
-  does, and it is **not** at this seam: kolu's `x-forwarded-for` is safe because
-  [`viewerAddressOf`](/surface/ref-surface) weighs the claim against the direct
-  peer. An app that names an identity header gets the value, never that judgment.
-</Aside>
+### `connection.close(code?, reason?)`
 
-<Aside type="tip" title="`expose` gates THIS face, not the surface">
-  `expose` takes the same `ExposeMap` the MCP adapter takes and applies it to
-  the websocket alone — so a verb can be reachable over a trusted unix socket
-  and refused to browsers, without the app keeping a second write path beside
-  the surface. Omit it and the socket serves the whole surface, as it always
-  did. The shape, the refusal (`SurfaceMemberNotExposed`), the reserved members
-  it can never gate, and the bind-time validation are all
-  [`@kolu/surface/expose`](/surface/ref-surface#per-face-expose-kolusurfaceexpose)'s.
-</Aside>
-
-| Export | Subpath | Role |
-| --- | --- | --- |
-| `serveSurfaceApp(opts)` | `/serve` | the whole listener — shell, socket, gates, heartbeat, bind, teardown. Generation is `ServedGenerationSource` |
-| `SurfaceAppListenFailed` | `/serve` | the one failure it reports, `cause` intact |
-| `SurfaceAppConnection` | `/serve` | one accepted connection's `{ id, url, remoteAddress, headers, close }` — what a per-connection `services` layer is built from, and the handle that can end it |
-| `SurfaceAppEvent` | `/serve` | the tagged union `onEvent` narrates |
-| `SurfaceAppHttpMiddleware` | `/serve` | the shape `middleware` takes — error and response types preserved, adding only `HttpServerRequest` |
-| `checkUpgradeHeaders(names)` | `/upgrade-headers` (also re-exported from `/serve`) | the allowlist's grammar, for an app that ASSEMBLES its list — refuse a bad name where it is minted, rather than at the accept. Returns the names unchanged; throws |
-| `UpgradeHeadersSource<H>` | `/upgrade-headers` (also re-exported from `/serve`) | how a listener obtains its list: `ReadonlyArray<H>` (the app's composition root, checked at the bind) or `() => ReadonlyArray<H>` (live, read at each accept) |
-| `pickUpgradeHeaders(request, names)` | `/upgrade-headers` | the READ half, for a **hand-built** listener holding its own `IncomingMessage`: the named headers that upgrade carried and nothing else. Case-insensitive, keyed by the spelling in `names`, absent when not sent, prototype-free, frozen — re-rolling it is how a listener grows back the `constructor`/`__proto__` and array-value hazards this closes |
-| `reportSurfaceAppEvent(event)` | `/serve` | the default narration policy, exported so an `onEvent` can delegate to it |
-| `SURFACE_WS_PATH` | `.` | `/rpc/ws`, the one path a surface speaks on — both legs import it |
-| `surfaceWsUrl(httpBaseUrl)` | `.` | the dial URL from the http(s) base — the ONE `https:` → `wss:` swap, browser-safe |
-| `thrownText(error)` | `.` | an uncaught throw, printed for a bug report — the Safari/V8/`DOMException` normalization behind the [fault boundary](#the-fault-boundary-a-throw-is-not-a-white-tab), framework-free and never empty |
-
-Observation is **one** option, `onEvent`, taking one tagged union — because every
-consumer has exactly one logger:
-
-| `_tag` | Carries | Default (`reportSurfaceAppEvent`) |
-| --- | --- | --- |
-| `Connected` | `connection` | silent — the accept a live-connection count increments on |
-| `Disconnected` | `connection`, `code`, `reason` | silent — the same connection hung up (peer, reaper, or the app's own `connection.close`), with the close frame's own account of why |
-| `SocketError` | `error`, `url` | loud `console.error` — a transport error |
-| `GenerationRefused` | `error`, `url` | loud `console.error` — a live generation `restrictHandlers` refused. The socket is **terminated**: there is no honest reduced thing to serve when the served set itself is unservable |
-| `UpgradeHeadersRefused` | `error`, `url` | loud `console.error` — a live `upgradeHeaders` could not be produced: it named something unreadable, or the thunk threw. The socket is **served anyway**, with no named headers, and the fault is reported at **each** such accept ([why](#a-live-allowlist-read-at-each-accept)) |
-| `StaleTab` | `claimedPid`, `url` | silent — a server that restarted while a tab was open is ordinary, not a fault |
-| `DisallowedOrigin` | `origin`, `url` | loud `console.warn` — a blocked hijack nobody can see is the one thing a shared gate must not ship |
-| `ServingFailed` | `cause`, `connection` | loud `console.error` — `done` MUST be observed |
-
-`Connected`/`Disconnected` are the pair a live-connection count is built from
-(the package's own example counts its `serverStats.connections` on them). They
-carry the same `SurfaceAppConnection` object both times, so a consumer can pair
-them by identity — or by its `id`, a listener-scoped ordinal that is what a log
-line wants (kolu's per-connection `ws:` field). `services` stays a separate
-option: it returns a `Layer`, which is a different kind of thing from narration.
-
-The sections below are the pieces `serveSurfaceApp` composes; reach for them
-directly when an app's listener needs something the primitive does not take
-today — drishti's per-host `?host=` dispatch, which picks *which* runtime serves
-a socket, is the in-tree case. Both kolu and this package's example ride the
-primitive.
-
-### Ending a connection from the app — `connection.close`
-
-`services` is also where the app *decides* a connection must go — a session that
-logged out, expired, or was revoked. Open the lease **inside the layer**, so the
-layer's release is what closes it:
+`services` is also where the app decides a connection must go: a session that logged out, expired, or was revoked. Open the lease inside the layer, so the layer's release is what closes it:
 
 ```ts
 services: (connection) =>
@@ -302,39 +199,86 @@ services: (connection) =>
   ),
 ```
 
-`connection.close(code?, reason?)` stops serving this socket, releases everything
-the serve owns (the RPC fibers, every in-flight subscription, the per-connection
-`services` layer), and closes the peer with your frame. It is one call end to
-end: `SurfaceSocketServing.close` takes the frame, so the listener's drain
-(`close()`) and the app (`close(code, reason)`) spell close the same way.
+`connection.close(code?, reason?)` stops serving this socket, releases everything the serve owns (the RPC fibers, every in-flight subscription, the per-connection `services` layer), and closes the peer with your frame. `SurfaceSocketServing.close` takes the frame, so the listener's drain (`close()`) and the app (`close(code, reason)`) spell close the same way.
 
 | Fact | Shape | Notes |
 | --- | --- | --- |
-| `connection.close` | `(code?: number, reason?: string) => void` | ends **this** connection — bound to its own serving by the closure that built the record, so there is no id to look up and one connection cannot close another |
-| `code` | `1000` or `3000`–`4999` | `1000` (normal closure) is the default: a caller who passed none made no policy claim. A policy end names its own — `4401` is the application-range code for "session ended" (RFC 6455 §7.4.2) |
-| `reason` | at most 123 UTF-8 bytes | the control-frame payload is 125 bytes, less the two-byte code. Counted in **bytes**, so 42 of `あ` is already over |
-| a bad frame | throws `RangeError` **at your call** | checked before anything changes: the connection stays open, `services` keeps running, and a later valid `close` still works. That is also why `ws`'s own validation cannot be the gate — it runs *after* putting the socket in CLOSING, which strands the peer with no frame and no timer |
-| idempotence | — | the first call owns the frame; a second is a no-op, and so is a call after the peer has already hung up |
+| `connection.close` | `(code?: number, reason?: string) => void` | Ends this connection. The closure that built the record bound it to its own serving, so there is no id to look up and one connection cannot close another |
+| `code` | `1000` or `3000`–`4999` | `1000` (normal closure) is the default, because a caller who passed none made no policy claim. A policy end names its own: `4401` is the application-range code for "session ended" (RFC 6455 §7.4.2) |
+| `reason` | at most 123 UTF-8 bytes | The control-frame payload is 125 bytes, less the two-byte code. Counted in bytes, so 42 of `あ` is already over |
+| a bad frame | throws `RangeError` at your call | Checked before anything changes: the connection stays open, `services` keeps running, and a later valid `close` still works |
+| idempotence | — | The first call owns the frame. A second is a no-op, and so is a call after the peer has already hung up |
 
-It is safe from `services` itself or from a `Connected` handler: the record is
-built **before** the serving exists (the serving is built over
-`services(connection)`, after all), so `close` resolves its serving lazily and the
-accept site closes the peer the moment the serving is there. A close from
-`services` still builds that layer and releases it at once; a close from
-`Connected` means `services` is never called, because no handler could run on
-the connection anyway.
+- `ws`'s own validation cannot be the gate, because it runs after putting the socket in `CLOSING`, which strands the peer with no frame and no timer.
+- Calling it from `services` itself, or from a `Connected` handler, is safe. The record is built before the serving exists (the serving is built over `services(connection)`), so `close` resolves its serving lazily.
+- The accept site then closes the peer the moment the serving is there. A close from `services` still builds that layer and releases it at once.
+- A close from `Connected` means `services` is never called, because no handler could run on the connection anyway.
+- `Disconnected` reports once, and reports what the transport saw: normally the code you passed, because a conforming peer echoes the close frame.
+- It is `1006` when the peer never answered and `ws`'s close timeout dropped it. A peer that answers nothing is exactly what a credential cut can face, so the frame is a request, not a promise.
 
-`Disconnected` reports **once**, and reports what the transport actually saw:
-normally the code you passed, because a conforming peer echoes the close frame —
-but `1006` when the peer never answered and `ws`'s close timeout dropped it. A
-peer that answers nothing is exactly what a credential cut can face, so the frame
-is a request, not a promise.
+#### Closing and the heartbeat
 
-Refusing the heartbeat is **not** a cut: a refused probe counts as alive
-(`@kolu/surface/heartbeat`), so only an unanswered one trips the client's
-watchdog — after `interval + timeout` (25 s at the defaults) — and a client with
-no watchdog (a stdio MCP bridge, a raw socket) never closes. A credential
-decision must not wait on a liveness heuristic.
+Refusing the heartbeat is not a cut: a refused probe counts as alive (`@kolu/surface/heartbeat`), so only an unanswered one trips the client's watchdog, after `interval + timeout` (25 s at the defaults).
+
+A client with no watchdog (a stdio MCP bridge, a raw socket) never closes. A credential decision must not wait on a liveness heuristic.
+
+### `SurfaceAppEvent`
+
+Observation is one option, `onEvent`, taking one tagged union, because every consumer has exactly one logger.
+
+| `_tag` | Carries | Default (`reportSurfaceAppEvent`) |
+| --- | --- | --- |
+| `Connected` | `connection` | silent — the accept a live-connection count increments on |
+| `Disconnected` | `connection`, `code`, `reason` | silent — the same connection hung up (peer, reaper, or the app's own `connection.close`), with the close frame's own account of why |
+| `SocketError` | `error`, `url` | loud `console.error` — a transport error |
+| `GenerationRefused` | `error`, `url` | loud `console.error` — a live generation `restrictHandlers` refused. The socket is terminated |
+| `UpgradeHeadersRefused` | `error`, `url` | loud `console.error` — a live `upgradeHeaders` could not be produced. The socket is served anyway, with no named headers ([why](#a-live-allowlist-read-at-each-accept)) |
+| `StaleTab` | `claimedPid`, `url` | silent — a server that restarted while a tab was open is ordinary, not a fault |
+| `DisallowedOrigin` | `origin`, `url` | loud `console.warn` — a blocked hijack, which a shared gate must never drop in silence |
+| `ServingFailed` | `cause`, `connection` | loud `console.error` — `done` must be observed |
+
+- A refused generation terminates the socket: there is no honest reduced thing to serve when the served set itself is unservable.
+- `Connected` and `Disconnected` are the pair a live-connection count is built from. The package's own example counts its `serverStats.connections` on them.
+
+### `reportSurfaceAppEvent(event)`
+
+The default narration policy, exported so an `onEvent` of your own can delegate to it. The table above is what it prints.
+
+### `SurfaceAppListenFailed`
+
+The one failure `serveSurfaceApp` reports. It carries the `cause` verbatim, so a consumer's port policy reads `cause.code === "EADDRINUSE"` rather than matching a message string.
+
+### `SurfaceAppHttpMiddleware`
+
+The shape `middleware` takes. It wraps every HTTP request, which is an app's bridge to its own logger. Error and response types are preserved, and it adds only `HttpServerRequest`.
+
+### `checkUpgradeHeaders(names)`
+
+The allowlist's grammar, for an app that assembles its list. It returns the names unchanged, and throws on a bad one, so the refusal lands where the list is minted rather than at the accept. It is exported from `/upgrade-headers` and re-exported from `/serve`.
+
+### `UpgradeHeadersSource<H>`
+
+How a listener obtains its list: `ReadonlyArray<H>` (the app's composition root, checked at the bind) or `() => ReadonlyArray<H>` (live, read at each accept).
+
+### `pickUpgradeHeaders(request, names)`
+
+The read half, for a hand-built listener holding its own `IncomingMessage`: the named headers that upgrade carried, and nothing else.
+
+- Case-insensitive, keyed by the spelling in `names`, absent when not sent, prototype-free and frozen.
+- Re-rolling it by hand is how a listener grows back the `constructor` and `__proto__` and array-value hazards this closes.
+- A hand-built listener on [`acceptSurfaceSocket`](#accepting-a-browser-socket) stands in its own `upgrade` handler holding the request, so it reads what it needs directly. `upgradeHeaders` has nothing to offer it, the same split as `expose`.
+
+### `SURFACE_WS_PATH`
+
+`/rpc/ws`, the one path a surface speaks on. Both legs import this constant, so the dial URL and the upgrade handler cannot drift. Any other upgrade target is destroyed.
+
+### `surfaceWsUrl(httpBaseUrl)`
+
+The dial URL from the http(s) base: the one `https:` to `wss:` swap, and browser-safe.
+
+### `thrownText(error)`
+
+An uncaught throw, printed for a bug report. It normalizes a Safari, V8 or `DOMException` throw, is framework-free, and never returns the empty string. The [fault boundary](#the-fault-boundary) is what calls it.
 
 ## Serving the fresh shell
 
