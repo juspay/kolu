@@ -96,7 +96,10 @@ describe("what is worth waking the Conductor about", () => {
   const briefed = (): WatchEntry =>
     spokenTo(observed(fresh(), seeing(REF, "working")).entry);
 
-  it("rings READY the first time an agent nobody has briefed is idle", () => {
+  it("rings READY for an idle agent nobody has briefed — the INFERENCE", () => {
+    // The resumed-session case: kolu's first sight of this agent is an idle,
+    // never a `fresh`, so readiness is concluded from "idle and nobody has
+    // spoken to it" rather than read off the record.
     const up = observed(fresh(), seeing(REF, "stopped"));
     // NOT `stopped`: this agent's turn did not end, it has not been given one.
     expect(up.ring).toBe("ready");
@@ -105,6 +108,57 @@ describe("what is worth waking the Conductor about", () => {
     expect(up.entry.told).toBeNull();
     const toldAlready: WatchEntry = { ...up.entry, told: "ready" };
     expect(observed(toldAlready, seeing(REF, "stopped")).ring).toBeNull();
+  });
+
+  it("says nothing while an agent is COMING UP, and rings READY once it is", () => {
+    // padi publishes the agent the moment its program takes the foreground.
+    // "A process appeared" is not news a Conductor can act on — there is
+    // nothing to say to an agent still drawing its screen.
+    const coming = observed(fresh(), seeing(REF, "starting"));
+    expect(coming.ring).toBeNull();
+    // The reading still MOVES the entry: the agent sticks from here on.
+    expect(coming.entry.agent).toBe("claude-code");
+    // ... and the settled screen is the ring, read straight off the record.
+    const up = observed(coming.entry, seeing(REF, "fresh"));
+    expect(up.ring).toBe("ready");
+    // ONCE: a second `fresh` reading of a terminal already told is silent.
+    const toldAlready: WatchEntry = { ...up.entry, told: "ready" };
+    expect(observed(toldAlready, seeing(REF, "fresh")).ring).toBeNull();
+  });
+
+  it("does not ring a SECOND ready when the fresh agent's transcript lands", () => {
+    // The agent came up, rang `ready`, and nobody has said anything to it yet.
+    // Its transcript arriving puts it in padi's finished list, which reads as
+    // a stop — and the inference above would call that `ready` all over again
+    // if `told` did not already say it.
+    const up = observed(fresh(), seeing(REF, "fresh"));
+    expect(up.ring).toBe("ready");
+    const told: WatchEntry = { ...up.entry, told: "ready" };
+    expect(observed(told, seeing(REF, "stopped")).ring).toBeNull();
+  });
+
+  it("says nothing about a FRESH agent the Conductor has just spoken to", () => {
+    // `agent_say` answers on the keystrokes, so padi still reads the agent as
+    // fresh for a moment. The re-baseline lands on the same `ready` it was
+    // already told, so the say cannot ring about itself.
+    const up = observed(fresh(), seeing(REF, "fresh"));
+    const said = spokenTo({ ...up.entry, told: "ready" });
+    expect(said.spoken).toBe(true);
+    expect(said.told).toBe("ready");
+    expect(observed(said, seeing(REF, "fresh")).ring).toBeNull();
+    // ... and once it has worked, the stop that follows IS news.
+    const worked = observed(said, seeing(REF, "working")).entry;
+    expect(observed(worked, seeing(REF, "stopped")).ring).toBe("stopped");
+  });
+
+  it("BASELINES an asked terminal whose agent has only just come up", () => {
+    // An agent already present counts as spoken to — it is somebody else's
+    // conversation — and the rule reads the AGENT, not its state, so a
+    // presence baselines exactly as a session-backed agent does.
+    const asked = observed(fresh("asked"), seeing(REF, "fresh"));
+    expect(asked.ring).toBeNull();
+    expect(asked.entry.spoken).toBe(true);
+    expect(asked.entry.told).toBe("ready");
   });
 
   it("rings on a stop once the agent has been spoken to, and not twice", () => {
@@ -251,6 +305,22 @@ describe("what is worth waking the Conductor about", () => {
     expect(agentUp.ran).toBe(false);
     const exited = observed(
       agentUp,
+      seeing(REF, "shell", { agent: null, foregroundShell: true }),
+    );
+    expect(exited.ring).toBeNull();
+  });
+
+  it("never rings ENDED for an agent seen only as a PRESENCE that then died", () => {
+    // Presence makes the agent stick EARLIER than a transcript ever did: a
+    // `starting` reading alone is kolu having seen an agent in there. So a
+    // terminal whose agent came up and fell over is its AGENT's news, not a
+    // brief that never started — which is exactly what `ended` is reserved
+    // for, and the distinction the sticky agent keeps honest.
+    const made = fresh("created-run");
+    const coming = observed(made, seeing(REF, "starting")).entry;
+    expect(coming.agent).toBe("claude-code");
+    const exited = observed(
+      coming,
       seeing(REF, "shell", { agent: null, foregroundShell: true }),
     );
     expect(exited.ring).toBeNull();

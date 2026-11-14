@@ -50,6 +50,7 @@ function harness() {
     foreground: inMemoryChannel<ForegroundSample>(),
     ports: inMemoryChannel<TerminalPorts>(),
     grid: inMemoryChannel<TerminalGrid>(),
+    screenSettled: inMemoryChannel<void>(),
   };
   const emitted: TerminalEvent[] = [];
   const stop = startPortSensor(

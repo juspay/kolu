@@ -30,7 +30,11 @@ import {
 
 /** Tone → the card's two paints, one entry per tone so a new bucket is a single
  *  edit here. The linger bucket (post-turn `waiting`) keeps the violet family at
- *  reduced strength, mirroring `AWAITING_LINGER_CLASS` in the header cluster. */
+ *  reduced strength, mirroring `AWAITING_LINGER_CLASS` in the header cluster.
+ *  The quiet bucket is an agent that is only PRESENT (`starting` / `fresh`):
+ *  the card's own neutral edge and the muted `fg-3` the Inspector uses for a
+ *  fact nobody needs to act on — and never the pulse, which is a claim that
+ *  something is running. */
 const TONE: Record<
   AgentStateTone,
   { chip: string; rail: string; pulse: boolean }
@@ -42,6 +46,7 @@ const TONE: Record<
     rail: "border-alert/50",
     pulse: false,
   },
+  quiet: { chip: "bg-fg-3/10 text-fg-3", rail: "border-edge", pulse: false },
 };
 
 const AgentStatusCard: Component<{ agent: AgentInfo }> = (props) => {

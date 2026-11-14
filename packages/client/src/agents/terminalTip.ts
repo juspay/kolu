@@ -188,6 +188,17 @@ function skillTip(facts: TerminalTipFacts, harness: string): TerminalTip {
         return quiet(`${harness} is asking you something`);
       case "other":
         return quiet(`${harness} is in an unknown state`);
+      // STILL COMING UP: the chip types into the agent's input, and an agent
+      // whose screen is still being drawn has no input to type into — the
+      // keystrokes would land in a box that is about to be repainted. The tip
+      // is a moment away, so it waits rather than misfiring.
+      case "starting":
+        return quiet(`${harness} is still starting`);
+      // UP, SETTLED, NEVER PROMPTED — the exact moment this tip is FOR: an
+      // empty input waiting for a first message, which is what the chip
+      // inserts. Same arm as `waiting` (a detected agent between turns that
+      // nobody has spoken to yet).
+      case "fresh":
       case "waiting":
         break;
       default:

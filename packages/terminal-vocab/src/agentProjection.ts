@@ -4,7 +4,9 @@
  * over the schema types, no colours, no labels, no DOM, no OpenTUI, so a new
  * agent state can't drift across the consumers that fold it. Each fold is a
  * switch over the closed state set ({thinking, tool_use, running_background,
- * awaiting_user, waiting}) with a `state satisfies never` fence, so a literal
+ * awaiting_user, waiting} from a transcript, plus the two pre-session
+ * presence states {starting, fresh} padi mints from the foreground) with a
+ * `state satisfies never` fence, so a literal
  * added to `AgentInfoSchema` compile-fails HERE — beside the schema — rather
  * than in a hand-copied switch downstream. It depends on nothing but the
  * `AgentInfo['state']` type: no transport, no renderer, no `@kolu/padi-tui`.
@@ -93,10 +95,17 @@ export function agentShortName(kind: string): string {
  *  routing to idle in a hand-copied switch. (Mirrors `dockModel.ts`'s fence; the
  *  fleet's `waiting` semantics differ from the dock's, so the two buckets stay
  *  separate.) A `default` is still kept so an unrecognized state surfaces as
- *  `other` (shown verbatim) at runtime rather than throwing. */
+ *  `other` (shown verbatim) at runtime rather than throwing.
+ *
+ *  The two PRESENCE states keep buckets of their own, named as they are: an
+ *  agent coming up (`starting`) and one that is up and has never been prompted
+ *  (`fresh`) are neither `waiting` — which is the end of a TURN, and what the
+ *  finish nudge and the badges count — nor `working`. Folding `fresh` into
+ *  `waiting` would announce every agent somebody merely launched as a finished
+ *  one; giving it its own bucket is what lets a driver wait for it by name. */
 export function agentBucket(
   state: AgentInfo["state"],
-): "working" | "awaiting" | "waiting" | "other" {
+): "working" | "awaiting" | "waiting" | "starting" | "fresh" | "other" {
   switch (state) {
     case "thinking":
     case "tool_use":
@@ -106,6 +115,10 @@ export function agentBucket(
       return "awaiting";
     case "waiting":
       return "waiting";
+    case "starting":
+      return "starting";
+    case "fresh":
+      return "fresh";
     default:
       // Exhaustiveness fence: a new `AgentInfo["state"]` literal stops this
       // compiling, forcing a bucket decision here instead of falling to `other`.
@@ -116,8 +129,9 @@ export function agentBucket(
 
 /** Is the agent LIVE — working, or blocked on you — so that ending its process
  *  would cost something (the tile pill's Restart asks twice for exactly this)?
- *  A just-finished agent (`waiting`) is not: its turn is over. Defined FROM
- *  {@link agentBucket}, so its fence decides here too. */
+ *  A just-finished agent (`waiting`) is not: its turn is over. Neither is one
+ *  still coming up or never prompted (`starting` / `fresh`): it has no turn to
+ *  lose. Defined FROM {@link agentBucket}, so its fence decides here too. */
 export function agentLive(state: AgentInfo["state"]): boolean {
   const bucket = agentBucket(state);
   return bucket === "working" || bucket === "awaiting";
@@ -127,6 +141,12 @@ export function agentLive(state: AgentInfo["state"]): boolean {
  *  {@link agentBucket} fold's vocabulary minus `other` (an `other` bucket never
  *  matches a real agent, so accepting it would only ever time out).
  *
+ *  `fresh` is the one a driver that launched an agent waits for: the agent is
+ *  up and nothing has been said to it. `starting` is a target too, for the
+ *  same reason every bucket is — "an agent appeared here" is a fact a script
+ *  may want, and a list that left one bucket out would need a sentence saying
+ *  why.
+ *
  *  Beside the fold it is defined FROM, so the exhaustiveness fence above is also
  *  the fence on this list, and so a face that prints the vocabulary (`kolu
  *  watch --help`, `kolu wait --help`) can read it out of a leaf rather than
@@ -135,6 +155,8 @@ export const WAIT_STATES = [
   "working",
   "awaiting",
   "waiting",
+  "starting",
+  "fresh",
 ] as const satisfies readonly Exclude<
   ReturnType<typeof agentBucket>,
   "other"
@@ -154,7 +176,9 @@ export function isWaitState(token: string): token is WaitState {
  *  need a person. `awaiting` is an agent blocked on you and `waiting` is one
  *  whose turn ended; `working` is the third bucket and is deliberately not in
  *  the default — a feed that announced every terminal the moment it started
- *  thinking is the flood the feature exists to replace.
+ *  thinking is the flood the feature exists to replace. Nor are `starting` and
+ *  `fresh`: an agent somebody launched and has not spoken to is not waiting on
+ *  a person, and a driver that wants to know names `fresh` itself.
  *
  *  A DEFAULT, not a fallback: every face reads this one constant — padi's wire
  *  schema, the engine's decode, and the CLI's own `--help` line — so a change
@@ -259,6 +283,11 @@ export function alertClass(state: AgentInfo["state"]): AlertClass {
     case "tool_use":
     case "running_background":
       return "quiet";
+    // An agent coming up, or up and never prompted, has done nothing anybody
+    // asked for: launching it is not news to the person who launched it.
+    case "starting":
+    case "fresh":
+      return "quiet";
     default:
       // Exhaustiveness fence: a new `AgentInfo["state"]` literal stops this
       // compiling, forcing an alert decision here rather than falling to `quiet`.
@@ -337,6 +366,14 @@ function attentionClassOfState(
       return "working";
     case "waiting":
       return finished ? "finished" : "linger";
+    // QUIET FOR A PERSON'S ATTENTION. An agent coming up, or up and never
+    // prompted, is in no attention list: no badge, no count, no needs-you
+    // strip, no finish chime. Its mark still moves while its screen draws —
+    // `idle` falls through to the byte-motion answer in `attentionActive` —
+    // and stops once it settles, which is the honest picture of a launch.
+    case "starting":
+    case "fresh":
+      return "idle";
     case "other":
       return "idle";
   }
@@ -417,6 +454,10 @@ export function agentUrgency(
       return "need";
     case "working":
       return "work";
+    // A launched agent nobody has spoken to needs nothing from you and is
+    // doing nothing: it ranks with the idle ones.
+    case "starting":
+    case "fresh":
     case "waiting":
     case "other":
       return "idle";

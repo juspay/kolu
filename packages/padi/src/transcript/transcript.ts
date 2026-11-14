@@ -22,6 +22,7 @@ import type {
 } from "@kolu/padi-client/surface";
 import { prValue } from "anyforge/schemas";
 import { AGENT_PLUGINS } from "kolu-agents";
+import { isAgentPresence } from "kolu-agents/vocab";
 import { transcriptToHtml } from "kolu-transcript-html";
 import { log } from "../log.ts";
 import { requireActiveTerminal } from "../terminal-registry.ts";
@@ -33,15 +34,17 @@ import { requireActiveTerminal } from "../terminal-registry.ts";
  *  agent + cwd + git + pr fields are read straight off `entry.snapshot` — no
  *  optional lookup, no `?? ""` / `?? pending` fallback that could mask a
  *  lockstep bug. Raises the DECLARED `TranscriptNoAgent` when the terminal hosts
- *  no agent, `TranscriptNotFound` when the agent's transcript can't be loaded,
- *  and `TerminalNotFound` (via `requireActiveTerminal`) when the id names
- *  nothing live — the three arms `transcript.exportHtml` declares. */
+ *  no agent SESSION — no agent at all, or one present that has not been prompted
+ *  yet and so has written no transcript — `TranscriptNotFound` when the agent's
+ *  transcript can't be loaded, and `TerminalNotFound` (via
+ *  `requireActiveTerminal`) when the id names nothing live — the three arms
+ *  `transcript.exportHtml` declares. */
 export async function exportTranscriptHtml(
   input: ExportTranscriptHtmlInput,
 ): Promise<ExportTranscriptHtmlOutput> {
   const { snapshot: aw } = requireActiveTerminal(input.id);
   const agent = aw.agent;
-  if (!agent) throw new TranscriptNoAgent();
+  if (!agent || isAgentPresence(agent)) throw new TranscriptNoAgent();
   const cwd = aw.cwd;
   // The export names a repo only when one is known; `none` and `unresolved`
   // both export without one.

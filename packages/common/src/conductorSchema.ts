@@ -363,6 +363,16 @@ export const ConductorToolRowSchema = Schema.Struct({
   /** Which MCP server and tool, when the call could be positively named. */
   server: Schema.optionalKey(Schema.String),
   tool: Schema.optionalKey(Schema.String),
+  /** WHAT THE CALL IS, as the agent spells it programmatically
+   *  (`AskUserQuestion`, `mcp__kolu__lifecycle_create`) — never the display
+   *  title, which is model-written prose. Distinct from `tool` above: that one
+   *  is the MCP identity a card NAMES the call by and exists only for the
+   *  servers kolu handed over, so a built-in call has it empty while still
+   *  being something a reader must be able to recognise (the panel draws no
+   *  card for the call that produced an ask form — the form IS the question).
+   *  Optional, like every other field a frame may not carry: a record written
+   *  before this existed decodes unchanged, with no name. */
+  toolName: Schema.optionalKey(Schema.String),
   /** Folded JSON of the call's input and answer — the generic card's body. */
   detail: Schema.optionalKey(Schema.String),
   /** Live incremental content while the call runs. */
@@ -441,9 +451,13 @@ const SHARED_LEVELS = ["stopped", "asking", "gone", "asleep"] as const;
  *  - `gone` — the terminal left its host's roster while that host was
  *    answering.
  *  - `ready` — the agent in it has COME UP and nothing has been said to it
- *    yet. It rings INSTEAD of `stopped` the first time a never-spoken-to
- *    agent is idle, because a fresh agent sitting at its prompt is not a
- *    turn that ended: it is one that has not been given.
+ *    yet. TWO ways to it, and they are not the same claim: a `fresh` reading
+ *    is padi SAYING so (the agent's screen has settled and it has never been
+ *    prompted), while a `stopped` reading of an agent this conversation has
+ *    never spoken to is kolu INFERRING it — the case of a session that was
+ *    already running when the terminal was watched. Either way it rings
+ *    instead of `stopped`, because an agent sitting at its prompt unbriefed
+ *    is not a turn that ended: it is one that has not been given.
  *  - `asleep` — the terminal an agent was seen in was put to sleep, so that
  *    agent is gone with it. The entry stays watched: waking the terminal
  *    brings it back to the ordinary levels.
@@ -466,15 +480,28 @@ export type ConductorWakeLevel = typeof ConductorWakeLevelSchema.Type;
 /** WHAT A WATCHED TERMINAL IS DOING, as the watch READS it off its host: the
  *  four shared levels, plus the two readings that never ring on their own —
  *  `working` (an agent visibly moving) and `shell` (a prompt with nothing in
- *  front of it). Both MOVE the entry, so both are read, and a panel that says
- *  how long a terminal has stood as it stands has to be able to name them.
+ *  front of it) — plus the two PRESENCE readings. Both of the first pair MOVE
+ *  the entry, so both are read, and a panel that says how long a terminal has
+ *  stood as it stands has to be able to name them.
+ *
+ *  `starting` and `fresh` are padi's own presence states, read off the record's
+ *  agent rather than off an urgency list: an agent program is in the foreground
+ *  and its screen is still being drawn (`starting`), or it has settled and
+ *  nothing has ever been said to it (`fresh`). They exist here because they
+ *  arrive BEFORE any transcript does — the watch used to say nothing at all
+ *  about a terminal whose agent had come up but had not yet written a session,
+ *  which is exactly the moment the Conductor is waiting to brief it in.
  *
  *  `ready` and `ended` are NOT in here: they never come off a host, so a
- *  reading that carried one would be a frame nothing can produce. */
+ *  reading that carried one would be a frame nothing can produce. `fresh` is
+ *  the reading `ready` is concluded from, and they are not the same word: the
+ *  conclusion is the watch's ({@link ConductorWakeLevelSchema}). */
 export const ConductorReadingLevelSchema = Schema.Literals([
   ...SHARED_LEVELS,
   "working",
   "shell",
+  "starting",
+  "fresh",
 ]);
 export type ConductorReadingLevel = typeof ConductorReadingLevelSchema.Type;
 

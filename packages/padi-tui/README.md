@@ -77,9 +77,11 @@ wrapper, so run `padi-tui` from `nix run .#padi-tui`, not the raw entrypoint.
 ## wait — the agent-drives-agent done-signal
 
 `wait` blocks until a terminal's agent enters one of the coarse buckets
-`working` · `awaiting` · `waiting` (the shared `agentBucket` fold, so the
-vocabulary matches the Dock), then exits. `--until` is a comma list;
-`--until awaiting,waiting` means "the agent's turn ended".
+`working` · `awaiting` · `waiting` · `starting` · `fresh` (the shared
+`agentBucket` fold, so the vocabulary matches the Dock — `fresh` is an agent up
+and never prompted, the moment to brief one you just launched), then exits.
+`--until` is a comma list; `--until awaiting,waiting` means "the agent's turn
+ended".
 
 ```sh
 id=$(padi-tui create --toplevel -- claude)   # spawn a Claude Code agent

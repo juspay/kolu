@@ -57,8 +57,10 @@ together the moment your turn ends — so ending a turn never loses news, and
 nothing has to be polled for.
 
 A wake says WHICH of six things happened, and they do not mean the same
-thing. READY: the agent in a watched terminal has come up and has not been
-told anything yet — that is the one you answer by saying its brief. STOPPED:
+thing. READY: the agent in a watched terminal is UP and has not been told
+anything yet — that is the one you answer by saying its brief. It comes as
+soon as the agent's screen has settled, before the agent has written a word,
+so it is the earliest moment you can brief it. STOPPED:
 an agent you have already spoken to has finished its turn and is sitting
 idle, so read what it did and say what is next. ASKING: it has stopped on a
 question of its own and will sit there until it is answered. GONE: the
@@ -109,7 +111,10 @@ was already working, the answer says how the words were delivered — steered
 into the running turn, or queued behind it — and that whether they took is
 not something kolu can see from outside. An agent kolu cannot speak to
 refuses the call and says why; that is an answer, not something to work
-around with keystrokes. Raw typing is for a PLAIN SHELL only —
+around with keystrokes — and one of those whys is an agent that is still
+COMING UP, whose screen is still being drawn: do not retype it, wait for
+that terminal's `ready` wake and say it then.
+Raw typing is for a PLAIN SHELL only —
 `lifecycle_sendInput` with the text, a short `wait_outputSettled` (it is
 capped at a few seconds; it is the settle between typing and submitting,
 nothing more), then `lifecycle_sendInput` with the Enter key — and even that

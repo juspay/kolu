@@ -178,6 +178,7 @@ describe("a forged 633;E mark", () => {
       foreground: inMemoryChannel<ForegroundSample>(),
       ports: inMemoryChannel<TerminalPorts>(),
       grid: inMemoryChannel<TerminalGrid>(),
+      screenSettled: inMemoryChannel<void>(),
     };
     const stop = startAgentCommandSensor(
       engine,
@@ -246,6 +247,7 @@ describe("a forged 633;E mark", () => {
       foreground: inMemoryChannel<ForegroundSample>(),
       ports: inMemoryChannel<TerminalPorts>(),
       grid: inMemoryChannel<TerminalGrid>(),
+      screenSettled: inMemoryChannel<void>(),
     };
     const stop = startAgentCommandSensor(
       engine,

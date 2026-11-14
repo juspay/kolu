@@ -21,13 +21,19 @@
 import { activeArm, type TerminalMetadata } from "@kolu/padi-client/vocab";
 import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 
-/** The live-state words shown when an agent gave no summary of its own. */
+/** The live-state words shown when an agent gave no summary of its own. The two
+ *  pre-session states read as what a person sees: an agent `Starting` (its
+ *  screen is still being drawn) and one that is `Ready` (up, never prompted —
+ *  the "fresh" state, named for what it means to the reader rather than for
+ *  how kolu knows it). */
 export const stateLabels: Record<AgentInfo["state"], string> = {
   thinking: "Thinking",
   tool_use: "Running tools",
   waiting: "Waiting for input",
   awaiting_user: "Awaiting input",
   running_background: "Running in background",
+  starting: "Starting",
+  fresh: "Ready",
 };
 
 export type RowSubline = {

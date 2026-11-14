@@ -1,3 +1,4 @@
+import { agentPresence } from "kolu-agents/vocab";
 import { describe, expect, it } from "vitest";
 import {
   type AgentIdentityRef,
@@ -402,6 +403,19 @@ describe("promptedAt — the current agent's first live turn", () => {
     ]);
     expect(out.memory.promptedAt).toBe(900);
   });
+
+  it("is NOT stamped while an agent is only present, and IS on its first turn", () => {
+    const out = driveRecency(undefined, seed(), 999, [
+      { agent: agentPresence("claude-code", "starting", null), at: 1000 },
+      { agent: agentPresence("claude-code", "fresh", null), at: 2000 },
+    ]);
+    expect(out.memory.promptedAt).toBeNull();
+    const prompted = driveRecency(undefined, seed(), 999, [
+      { agent: agentPresence("claude-code", "fresh", null), at: 1000 },
+      { agent: claude("A", "thinking"), at: 3000 },
+    ]);
+    expect(prompted.memory.promptedAt).toBe(3000);
+  });
 });
 
 describe("fold — the observation's argv reaches the restore target", () => {
@@ -490,6 +504,17 @@ describe("restoreTargetFor — the fold owns the discriminated resume target", (
     expect(target.argv).not.toBe(observation.argv);
     (target.argv as string[]).push("--yolo");
     expect(observation.argv).toEqual(["--model", "sonnet"]);
+  });
+
+  it("a PRESENCE → `none`: there is no conversation to resume, even when the agent already names its session", () => {
+    expect(
+      restoreTargetFor(observed(agentPresence("omp", "fresh", "lazy-id"))),
+    ).toEqual({ kind: "none" });
+    expect(
+      restoreTargetFor(
+        observed(agentPresence("claude-code", "starting", null)),
+      ),
+    ).toEqual({ kind: "none" });
   });
 });
 

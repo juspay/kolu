@@ -25,6 +25,28 @@ export const TaskProgressSchema = Schema.Struct({
 
 export type TaskProgress = typeof TaskProgressSchema.Type;
 
+/** The two states an agent is in BEFORE it has a session kolu can read — the
+ *  agent-state vocabulary's answer to "an agent is here, and there is no
+ *  history yet".
+ *
+ *  Presence and history are two facts. That an agent is in a terminal is a
+ *  PROCESS fact: the foreground program is a registered agent CLI, which padi
+ *  can see the moment it execs. What the agent is doing — working or idle,
+ *  its model, its title — is a TRANSCRIPT fact, and most agents write no
+ *  transcript until they are first prompted. Folding the two into one fact
+ *  made a freshly started agent invisible until somebody spoke to it, and a
+ *  driver that waits for the agent before speaking to it waited for ever.
+ *
+ *  - `starting` — the agent program is up and its screen is still being drawn.
+ *  - `fresh` — its screen has settled and it has never been prompted.
+ *
+ *  Kind-agnostic on purpose: the daemon mints these for every agent from the
+ *  foreground alone (the registry's own `cli` match), so no agent package
+ *  declares them in its own `state` set — a transcript can never say either. */
+export const AGENT_PRESENCE_STATES = ["starting", "fresh"] as const;
+export const AgentPresenceStateSchema = Schema.Literals(AGENT_PRESENCE_STATES);
+export type AgentPresenceState = typeof AgentPresenceStateSchema.Type;
+
 /** The agent IDENTITY a terminal can RESUME — the agent `kind` paired with its
  *  native session id under the name `sessionId` (matching the live
  *  `agent.sessionId`) and the RESUME REF the CLI accepts (`resumeRef`).

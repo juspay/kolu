@@ -79,7 +79,14 @@ time. For an agent that was already working there is no state change to watch,
 so `took` is `not-observable` and the delivery is the whole story. Refused as
 data, never guessed: `no-agent` (a plain shell), `agent-cannot-be-told` (kolu
 detects the agent but has no verified recipe), `agent-cannot-be-told-while-working`,
-the asleep refusal, and `text-refused` (empty text).
+`agent-starting` (the agent is up but its screen is still being drawn — wait
+until it is ready, which `wait_agentState` with `until: ["fresh"]` is for, and
+say it then), the asleep refusal, and `text-refused` (empty text). An agent that
+is `fresh` — up, settled, never prompted — is said to like any other idle agent,
+and its first prompt counts as taken the moment it shows ANY state from a
+transcript, not only `working`: that first prompt is what makes most agents
+write a transcript at all, and omp writes its first one only when the first
+reply completes, so the first state kolu can see may be the turn already over.
 
 **A refusal is data, not a sentence to parse.** `lifecycle_sendInput` refuses
 four things on purpose, and a driver recovers from each differently — so each

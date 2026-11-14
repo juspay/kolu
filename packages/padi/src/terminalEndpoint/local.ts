@@ -646,6 +646,11 @@ interface TerminalLifecycle {
    *  publish the PTY's current grid — the record's route, exactly as `ports`
    *  is the port sampler's. */
   grid: Channel<TerminalGrid>;
+  /** Where {@link LocalTerminalEndpoint.noteScreenSettled} reports that the
+   *  agent coming up in this terminal has gone quiet — the host's quiet
+   *  machinery's route into the agent detectors, as `grid` is the resize
+   *  path's. */
+  screenSettled: Channel<void>;
 }
 
 /** Best-effort `foreground` seed from a live `list` entry's `foregroundProcess`
@@ -1274,6 +1279,9 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       // not by a pty-host tap — padi performs every resize, so padi is the only
       // thing that knows one happened.
       grid: inMemoryChannel<TerminalGrid>(),
+      // Fed by padi's effective-finish quiet machinery (`noteScreenSettled`),
+      // which owns the kaval output-edge window — the producer has no byte feed.
+      screenSettled: inMemoryChannel<void>(),
     };
     // Arm the host-wide port sampler (once per process). Its first pass can only
     // run after this synchronous function returns — by then the lifecycle
@@ -1451,6 +1459,7 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
       rootPid: pid,
       ports: signals.ports,
       grid: signals.grid,
+      screenSettled: signals.screenSettled,
     });
   }
 
@@ -1880,6 +1889,14 @@ class LocalTerminalEndpoint implements TerminalEndpoint {
    *  holds its own accumulator). */
   noteGrid(id: TerminalId, grid: EndpointGrid): void {
     this.lifecycles.get(id)?.grid.publish(grid);
+  }
+
+  /** See {@link TerminalEndpoint.noteScreenSettled}. Straight into the
+   *  terminal's own `screenSettled` channel, so the `starting` → `fresh` move
+   *  reaches the record through the agent detector's own emit — the producer
+   *  owns the agent mirror, and a second writer would desync its dedup. */
+  noteScreenSettled(id: TerminalId): void {
+    this.lifecycles.get(id)?.screenSettled.publish();
   }
 
   async attach(

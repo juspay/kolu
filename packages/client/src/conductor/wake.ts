@@ -40,7 +40,15 @@ const NAMED_LIMIT = 3;
  *  words say `no agent`, which is the fact a person is after), and `ended` is
  *  a terminal the Conductor created with a command that ran and came back to a
  *  prompt with no agent ever appearing: the words say WHAT IS MISSING, because
- *  "ended" alone reads like a success. */
+ *  "ended" alone reads like a success.
+ *
+ *  The two PRESENCE readings are the agent's standing before it has written a
+ *  line of transcript: `starting` is its screen still being drawn, and `fresh`
+ *  is that screen settled with nothing ever said to it — which a person reads
+ *  as `ready`, the same plain word the watched panel's rows and the dock use
+ *  for it. `ready` the WAKE level keeps `is up`: the wake line is a sentence
+ *  about a terminal (`planner is up`) and the panel's row is a standing with a
+ *  clock on it (`ready 4s`), so the two stay worded for where they are read. */
 export const LEVEL_WORD: Record<
   ConductorReadingLevel | ConductorWakeLevel,
   string
@@ -51,6 +59,8 @@ export const LEVEL_WORD: Record<
   asking: "asking",
   gone: "gone",
   ready: "is up",
+  starting: "starting",
+  fresh: "ready",
   asleep: "asleep",
   ended: "ended without an agent",
 };

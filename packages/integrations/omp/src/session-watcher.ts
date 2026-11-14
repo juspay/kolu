@@ -7,9 +7,11 @@
  *  only the bytes appended since the last tick (see `todo.ts`).
  *
  *  Pure observer: never creates paths under the agent dir. A session whose
- *  JSONL has not materialized yet (omp's `fresh` crumb) simply emits nothing
- *  until the file lands — the absent→present floor is what lights the tile
- *  then, with no nudge.
+ *  JSONL has not materialized yet (omp's `fresh` crumb) emits nothing until the
+ *  file lands — the absent→present floor is what lights the session-backed
+ *  state then, with no nudge. Until it does, padi shows the agent from its
+ *  foreground alone (`starting` → `fresh`), carrying the session id this
+ *  adapter names through `presenceSessionId`.
  *
  *  Debounce rationale mirrors pi's: during an active turn omp appends per tool
  *  call, so a pure trailing-edge debounce would starve; `createCoalesceSchedule`

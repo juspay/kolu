@@ -18,11 +18,21 @@
  * - **WORKING resets what we were told.** An agent that went back to work will
  *   stop again, and that stop is news. Without the reset a conversation told
  *   once would never hear about the same terminal twice.
- * - **A FRESH AGENT IS `ready`, NOT `stopped`.** Creating a terminal and the
- *   agent in it coming up are seconds apart, and the agent's first idle is
- *   padi's `finishedIds` like any other — so without this rule the Conductor
- *   is told its planner STOPPED before it was ever briefed. While no agent_say
- *   has landed in a watched terminal, an idle agent in it rings `ready`.
+ * - **AN AGENT COMING UP IS NOT NEWS; one that is UP is `ready`.** padi
+ *   publishes an agent as PRESENT the moment its program takes the foreground,
+ *   in two states: `starting` while its screen is still being drawn, and
+ *   `fresh` once that screen has settled with nothing ever said to it. A
+ *   `starting` reading moves the entry and rings nothing — there is nothing to
+ *   say to an agent that is still drawing itself. A `fresh` one rings `ready`,
+ *   DIRECTLY: padi said so, this module did not deduce it.
+ * - **AN IDLE AGENT NOBODY HAS SPOKEN TO IS `ready` TOO — by INFERENCE.** That
+ *   is the OTHER road to the same word, and it is for one case only: an agent
+ *   that was already running when this conversation started watching (a
+ *   resumed session, a terminal a human pointed at), whose first sight is a
+ *   `stopped` and never a `fresh`. Without it the Conductor is told its planner
+ *   STOPPED before it was ever briefed. An agent kolu watched come up has
+ *   already been told `ready` off its `fresh` reading, so the `stopped` that
+ *   follows when its transcript lands equals what we were told and is silent.
  * - **A SHELL never rings — except the one kolu started a command in.** A
  *   terminal with no agent is a prompt somebody left open; it stops being busy
  *   a hundred times an hour and none of them is anything the Conductor can act
@@ -195,14 +205,16 @@ export type WatchedTerminal = Pick<
 
 /** What a terminal is doing, as the watcher reads it off its host.
  *
- *  The four levels a wake shares, plus the two readings that never ring on
- *  their own: `working` and `shell` are reported rather than dropped because
- *  both MOVE the entry — one resets what we were told, the other keeps the
- *  name current and is where `ended` is decided.
+ *  The four levels a wake shares, the two readings that never ring on their
+ *  own (`working` and `shell` are reported rather than dropped because both
+ *  MOVE the entry — one resets what we were told, the other keeps the name
+ *  current and is where `ended` is decided), and the two PRESENCE readings
+ *  padi publishes before an agent has any transcript: `starting` and `fresh`.
  *
- *  `ready` and `ended` are not in here at all: they are CONCLUSIONS this
- *  module draws from a `stopped` and a `shell` reading, and the watcher has
- *  no business spelling either.
+ *  `ready` and `ended` are not in here at all: they are what this module
+ *  ANSWERS with. `ended` is a conclusion drawn from a `shell` reading, and
+ *  `ready` is either a straight rename of a `fresh` one or a conclusion drawn
+ *  from a `stopped` — the watcher has no business spelling either word.
  *
  *  READ OFF THE STATE SCHEMA, like {@link ConductorWork}: the level is
  *  published per watched ref, so the words this module decides with and the
@@ -301,12 +313,30 @@ const standsAs = (
   switch (last.level) {
     case "working":
       return null;
+    case "starting":
+      // THE AGENT IS COMING UP. padi can see the program in the foreground
+      // before its screen has settled, and "a process appeared" is not news a
+      // Conductor can act on — there is nothing to say to an agent that is
+      // still drawing itself. The reading is still taken (it moves the entry:
+      // the agent sticks, the name refreshes, `ran` records that something
+      // non-shell is in front), it just never rings.
+      return null;
+    case "fresh":
+      // READY, READ DIRECTLY. padi says this agent's screen has settled and it
+      // has never been prompted — not inferred from an idle, SAID. It needs no
+      // `spoken` test: a fresh agent is by definition one nothing has been said
+      // to, and the instant something is, {@link spokenTo} re-baselines `told`
+      // at this same level, so the say cannot ring about itself.
+      return "ready";
     case "shell":
       // THE BRIEF THAT NEVER STARTED. Every clause is load-bearing: a command
       // kolu typed (`created-run`), which RAN (a non-shell foreground was
       // seen), which is over (the prompt is back in front), in a terminal no
       // agent was EVER detected in. Anything else is a shell, and a shell
-      // never rings.
+      // never rings. Presence makes the agent stick EARLIER than it used to —
+      // a terminal whose agent came up and exited has `agent` set from the
+      // `starting` reading alone — which is the intended reading of "no agent
+      // ever seen in it": the agent you asked for never appeared at all.
       return entry.joined === "created-run" &&
         entry.ran &&
         entry.agent === null &&
@@ -319,7 +349,13 @@ const standsAs = (
     case "gone":
       return entry.agent === null ? null : "gone";
     case "stopped":
-      // AN AGENT NOBODY HAS SPOKEN TO HAS NOT STOPPED — it has arrived.
+      // AN AGENT NOBODY HAS SPOKEN TO HAS NOT STOPPED — it has arrived. This
+      // is the INFERENCE half of `ready`, and the only case left to it now
+      // that `fresh` is read directly: a session that was ALREADY RUNNING when
+      // this conversation started watching (a resumed agent, a terminal a
+      // human pointed at), whose first idle is the first thing kolu sees. An
+      // agent kolu watched come up has already rung `ready` off its `fresh`
+      // reading, so `told` equals it and this stop does not ring a second one.
       return entry.spoken || entry.agent === null ? "stopped" : "ready";
     case "asking":
       // Asking a person is news about any terminal, agent detected or not.
@@ -410,7 +446,14 @@ export const observed = (
  * ring about the idle it was sitting in when it was briefed, the instant the
  * Conductor's turn ends. So the entry re-baselines at the level it STANDS at —
  * which, now that something has been said to it, is `stopped` rather than
- * `ready`.
+ * `ready` for a terminal read as idle.
+ *
+ * A terminal still standing at its `fresh` reading re-baselines at `ready`,
+ * which is where it already was: padi has not seen the keys yet, and `ready`
+ * is what that reading means whoever has spoken. It was told `ready` when the
+ * agent came up, so the baseline changes nothing and the next reading — the
+ * agent working, or its transcript landing as a stop — is judged as it always
+ * was.
  *
  * A terminal NOBODY HAS READ YET keeps whatever it was told. There is no
  * state to suppress — the baseline is the thing being computed, and there is

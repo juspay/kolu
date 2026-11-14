@@ -14,7 +14,11 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { After, Then, When } from "@cucumber/cucumber";
-import { ACTIVE_TERMINAL, readBufferText } from "../support/buffer.ts";
+import {
+  ACTIVE_TERMINAL,
+  readBufferText,
+  waitForBufferContains,
+} from "../support/buffer.ts";
 import { nudgeDir, nudgeFiles } from "../support/nudge.ts";
 import { pollFor } from "../support/poll.ts";
 import {
@@ -383,6 +387,13 @@ let mockProjectDir: string | null = null;
 let mockTranscriptPath: string | null = null;
 /** The pid marker file a fake-agent launch writes (`echo $$`), removed on cleanup. */
 let mockAgentPidMarker: string | null = null;
+/** The launched stand-in's own pid — what its session file is keyed on, and what
+ *  `the session ends` waits to see gone. */
+let mockAgentPid: number | null = null;
+/** Where a prompt's transcript bytes wait for the stand-in to write them. */
+let mockStagePath: string | null = null;
+/** Distinguishes one scenario's prompts from another's in the heard echo. */
+let promptCounter = 0;
 
 function cleanup() {
   if (mockSessionFile && fs.existsSync(mockSessionFile)) {
@@ -400,19 +411,104 @@ function cleanup() {
   if (mockAgentPidMarker && fs.existsSync(mockAgentPidMarker)) {
     fs.unlinkSync(mockAgentPidMarker);
   }
+  if (mockStagePath && fs.existsSync(mockStagePath)) {
+    fs.unlinkSync(mockStagePath);
+  }
   mockAgentPidMarker = null;
+  mockStagePath = null;
+  mockAgentPid = null;
 }
 
 After(() => {
   cleanup();
 });
 
-/** Write one mock Claude Code session for `pid`: the JSONL transcript first,
- *  then the session file (the "trigger" the SESSIONS_DIR watcher fires on).
- *  Claude Code's session is anchored to the AGENT pid, so the pid is the whole
- *  identity: the plain mock step passes the terminal's shell pid (idle prompt),
- *  the fake-agent step passes the launched agent's own pid. */
-function writeClaudeMock(pid: number, cwd: string, state: MockState): void {
+/** The stand-in's own output markers, each assembled INSIDE bash from two halves
+ *  (see {@link claudeMockPayload}) so the whole string never appears in the
+ *  command line the shell echoes — only the process's own `printf` can satisfy a
+ *  wait on it (dev/skills/e2e-testing). */
+const HEARD_HALVES = ["claude-stand-in", "-heard"] as const;
+const CLAUDE_HEARD_MARKER = HEARD_HALVES.join("");
+
+/**
+ * The fake `claude` process's payload — a bash copy that behaves like Claude
+ * Code's own on-disk lifecycle:
+ *
+ *   - at START it writes `<sessions dir>/<its own pid>.json`, which is exactly
+ *     when and where the real CLI writes it, and then the pid marker the step
+ *     polls (that order, so a step holding the pid is holding a session file
+ *     that already exists);
+ *   - its TRANSCRIPT stays absent until the process is PROMPTED, because
+ *     Claude writes its JSONL at the first prompt and not before. The terminal
+ *     in between is an agent with no session to read — the `starting` / `fresh`
+ *     presence padi publishes off the foreground alone;
+ *   - it stays resident reading stdin, so the tile's foreground really is
+ *     `claude` for the scenario's whole life (a compound command keeps bash
+ *     itself in front, so `/proc/<pid>/comm` stays `claude`).
+ *
+ * Its vocabulary is three lines: `paint <text>` writes one line to the screen
+ * (how a scenario puts Claude's own prompt chrome in front of the server's
+ * screen scrape), `quit` ends the process, and ANY OTHER line is a prompt —
+ * which writes the staged transcript and echoes the words with the heard
+ * marker.
+ *
+ * Quoting: the caller wraps this in single quotes, so the payload uses only
+ * double quotes inside.
+ */
+function claudeMockPayload(opts: {
+  sessionsDir: string;
+  cwd: string;
+  pidMarker: string;
+  transcriptPath: string;
+  stagePath: string;
+}): string {
+  const assembleHeard = `h="${HEARD_HALVES[0]}"; h="$h""${HEARD_HALVES[1]}"`;
+  // `$` + `{` built by concatenation: the linter reads a literal `${` inside a
+  // template string as a mistaken placeholder.
+  const stripPaint = "line=$" + `{ccline#"paint "}`;
+  const sessionJson = [
+    String.raw`printf "{\"pid\":%s,\"sessionId\":\"%s\",\"cwd\":\"%s\",\"startedAt\":%s}\n"`,
+    `"$$" "${SESSION_ID}" "${opts.cwd}" "$(date +%s)000"`,
+    `> "${opts.sessionsDir}/$$.json"`,
+  ].join(" ");
+  const onPrompt = [
+    `if [ -f "${opts.stagePath}" ]`,
+    `then cat "${opts.stagePath}" >> "${opts.transcriptPath}"`,
+    `rm -f "${opts.stagePath}"`,
+    "fi",
+    String.raw`printf "%s %s\n" "$h" "$ccline"`,
+  ].join("; ");
+  const cases = [
+    `"paint "*) ${stripPaint}; printf "%s\\n" "$line" ;;`,
+    "quit) break ;;",
+    `*) ${onPrompt} ;;`,
+  ].join(" ");
+  return [
+    `mkdir -p "${opts.sessionsDir}"`,
+    `mkdir -p "${path.dirname(opts.transcriptPath)}"`,
+    String.raw`printf "\033]0;claude\007"`,
+    sessionJson,
+    `echo $$ > "${opts.pidMarker}"`,
+    assembleHeard,
+    `while IFS= read -r ccline; do case "$ccline" in ${cases} esac; done`,
+    ":",
+  ].join(" ; ");
+}
+
+/** Write a mock Claude Code session for `pid` the way a session kolu never
+ *  watched come up presents itself: the JSONL transcript first, then the
+ *  session file (the "trigger" the SESSIONS_DIR watcher fires on).
+ *
+ *  Used only by the NOTED-terminal step, where the session has to appear while
+ *  the keyboard belongs to the Conductor and no stand-in can be launched: a
+ *  session kolu FINDS (an adopted or resumed one) rather than one it watched
+ *  come up. Every other scenario gets its session file from the stand-in
+ *  itself, keyed to that process's own pid, and its transcript from a prompt. */
+function writeFoundClaudeSession(
+  pid: number,
+  cwd: string,
+  state: MockState,
+): void {
   const sessionsDir = getSessionsDir();
   const projectsDir = getProjectsDir();
   if (!sessionsDir || !projectsDir) {
@@ -420,49 +516,124 @@ function writeClaudeMock(pid: number, cwd: string, state: MockState): void {
       "KOLU_CLAUDE_SESSIONS_DIR and KOLU_CLAUDE_PROJECTS_DIR must be set",
     );
   }
-
   mockCwd = cwd;
-  const encodedCwd = cwd.replace(/[/.]/g, "-");
-
-  // Write the JSONL transcript and project dir BEFORE the session file (the
-  // "trigger"). As of juspay/kolu#1754 the watcher subscribes unconditionally
-  // on the deterministic transcript path and the append-robust floor recovers
-  // a late-appearing JSONL, so the old "waiting on project dir + a second
-  // fs.watch event" fragility is gone — but writing data-then-trigger stays the
-  // clean setup (the tile lights up on the session file without a poll wait).
   fs.mkdirSync(projectsDir, { recursive: true });
-  mockProjectDir = path.join(projectsDir, encodedCwd);
+  mockProjectDir = path.join(projectsDir, cwd.replace(/[/.]/g, "-"));
   fs.mkdirSync(mockProjectDir, { recursive: true });
   mockTranscriptPath = path.join(mockProjectDir, `${SESSION_ID}.jsonl`);
   fs.writeFileSync(mockTranscriptPath, buildTranscript(state));
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  mockSessionFile = path.join(sessionsDir, `${pid}.json`);
+  fs.writeFileSync(
+    mockSessionFile,
+    JSON.stringify({ pid, sessionId: SESSION_ID, cwd, startedAt: Date.now() }),
+  );
+}
+
+/** STAGE the transcript the stand-in writes at its next prompt — the bytes of a
+ *  session already in `state`, plus the sidecar artifacts that state implies (a
+ *  workflow journal, a `/fork` sub-agent). The scenario composes them; the
+ *  PROCESS performs the write that puts a transcript on disk. */
+function stageClaudePrompt(state: MockState): void {
+  if (!mockStagePath || !mockProjectDir) {
+    throw new Error("No Claude stand-in is running — start one first");
+  }
+  fs.writeFileSync(mockStagePath, buildTranscript(state));
   if (state === "running_background") writeWorkflowJournal(mockProjectDir);
   if (state === "orphaned_workflow")
     writeWorkflowJournal(mockProjectDir, { stale: true });
   if (state === "fork") writeForkSubagent(mockProjectDir);
-
-  // Now the trigger — session file last.
-  fs.mkdirSync(sessionsDir, { recursive: true });
-  const sessionData = {
-    pid,
-    sessionId: SESSION_ID,
-    cwd,
-    startedAt: Date.now(),
-  };
-  mockSessionFile = path.join(sessionsDir, `${pid}.json`);
-  fs.writeFileSync(mockSessionFile, JSON.stringify(sessionData));
 }
 
+/**
+ * Start the fake `claude` binary as the terminal's FOREGROUND process, and wait
+ * for the pid it writes — the arrangement's proof. The marker is a file the
+ * PROCESS writes, so no echo of the command line can satisfy it, and a launch
+ * that never ran (a missing binary, an rc still initializing) fails here rather
+ * than surfacing later as an indicator that never lit.
+ *
+ * The fake is a copy of bash, so `-c <script>` keeps it resident and the agent's
+ * own flags ride AFTER the script (bash stops option parsing at `-c`) — the argv
+ * the stable-flag filter sees is exactly `… -c <script> <the flags the scenario
+ * named>`.
+ */
+async function startFakeClaude(world: KoluWorld, args = ""): Promise<void> {
+  const bin = process.env.KOLU_FAKE_CLAUDE_BIN;
+  if (!bin) throw new Error("KOLU_FAKE_CLAUDE_BIN must be set");
+  const sessionsDir = getSessionsDir();
+  const projectsDir = getProjectsDir();
+  if (!sessionsDir || !projectsDir) {
+    throw new Error(
+      "KOLU_CLAUDE_SESSIONS_DIR and KOLU_CLAUDE_PROJECTS_DIR must be set",
+    );
+  }
+  cleanup();
+  // Unique CWD per scenario to avoid parallel worker collisions. Named for the
+  // TEST process, because the agent's own pid is not known until it reports it.
+  const cwd = `/tmp/claude-test-${process.pid}-${Date.now()}`;
+  mockCwd = cwd;
+  fs.mkdirSync(projectsDir, { recursive: true });
+  mockProjectDir = path.join(projectsDir, cwd.replace(/[/.]/g, "-"));
+  fs.mkdirSync(mockProjectDir, { recursive: true });
+  mockTranscriptPath = path.join(mockProjectDir, `${SESSION_ID}.jsonl`);
+  const marker = `/tmp/kolu-claude-agent-pid-${process.pid}-${Date.now()}`;
+  mockAgentPidMarker = marker;
+  mockStagePath = `${marker}.stage`;
+
+  const payload = claudeMockPayload({
+    sessionsDir,
+    cwd,
+    pidMarker: marker,
+    transcriptPath: mockTranscriptPath,
+    stagePath: mockStagePath,
+  });
+  await world.page.keyboard.type(
+    `${bin} -c '${payload}'${args === "" ? "" : ` ${args}`}`,
+  );
+  await world.page.keyboard.press("Enter");
+
+  const agentPid = await pollFor({
+    observe: async () =>
+      fs.existsSync(marker)
+        ? Number(fs.readFileSync(marker, "utf8").trim())
+        : null,
+    isDone: (pid) => pid !== null && Number.isFinite(pid) && pid > 0,
+    onTimeout: (_, ms) =>
+      new Error(`fake claude agent never reported its pid within ${ms}ms`),
+    timeoutMs: POLL_TIMEOUT,
+  }).catch(async (err: Error) => {
+    // Quote the terminal's own last lines: a launch that never ran reads
+    // exactly like a product bug in the bare timeout message.
+    const buffer = await readBufferText(world.page);
+    throw new Error(`${err.message}\n— terminal tail:\n${buffer.slice(-600)}`);
+  });
+  if (agentPid === null) throw new Error("fake claude agent pid missing");
+  mockAgentPid = agentPid;
+  // The session file is the PROCESS's own write (see the payload); this is just
+  // the path cleanup and the nudges need.
+  mockSessionFile = path.join(sessionsDir, `${agentPid}.json`);
+}
+
+/** PROMPT the running stand-in, the way a person does: type a line and wait for
+ *  the process to echo it back with its heard marker. The staged transcript is
+ *  written BEFORE that echo, so a caller that saw it is looking at a session
+ *  file already on disk. */
+async function promptFakeClaude(world: KoluWorld): Promise<void> {
+  promptCounter += 1;
+  const words = `fix the parser ${promptCounter}`;
+  await world.page.keyboard.type(words);
+  await world.page.keyboard.press("Enter");
+  await waitForBufferContains(world.page, `${CLAUDE_HEARD_MARKER} ${words}`);
+}
+
+/** The everyday arrangement, in the order the real agent makes it: the CLI comes
+ *  up (session file, no transcript), then a prompt lands it in `state`. */
 When(
   "a Claude Code session is mocked with state {string}",
   async function (this: KoluWorld, state: string) {
-    cleanup();
-    const pid = await getTerminalPid(this);
-    // Unique CWD per scenario to avoid parallel worker collisions.
-    writeClaudeMock(
-      pid,
-      `/tmp/claude-test-${pid}-${Date.now()}`,
-      state as MockState,
-    );
+    await startFakeClaude(this);
+    stageClaudePrompt(state as MockState);
+    await promptFakeClaude(this);
   },
 );
 
@@ -474,13 +645,18 @@ When("I note the terminal's shell pid", async function (this: KoluWorld) {
   this.notedShellPid = await getTerminalPid(this);
 });
 
+/** A session that APPEARS under a terminal kolu never watched come up — the
+ *  adopted / resumed case, and the only one that cannot launch a stand-in (the
+ *  keyboard belongs to the Conductor by now). Both files are written from here,
+ *  keyed to the terminal's own shell pid, which is the foreground pid padi reads
+ *  while the shell sits idle. */
 When(
   "a Claude Code session is mocked with state {string} on the noted terminal",
   async function (this: KoluWorld, state: string) {
     const pid = this.notedShellPid;
     if (pid === undefined) throw new Error("no terminal's shell pid was noted");
     cleanup();
-    writeClaudeMock(
+    writeFoundClaudeSession(
       pid,
       `/tmp/claude-test-${pid}-${Date.now()}`,
       state as MockState,
@@ -489,15 +665,12 @@ When(
 );
 
 /**
- * Start the fake `claude` binary as the terminal's FOREGROUND process and point
- * a mock session file at ITS pid.
+ * The recent-agents arrangement: a stand-in launched with the FLAGS a scenario
+ * names, prompted into a readable session.
  *
- * This is the only honest way to produce a recent-agents row now: the MRU is fed
- * by a DETECTED LIVE agent (an OS-derived session identity plus the process's
- * argv), never by a captured command line. The fake binary is a copy of bash, so
- * `-c <script>` keeps it resident and the agent's own flags ride AFTER the script
- * (bash stops option parsing at `-c`) — the argv the stable-flag filter sees is
- * exactly `… -c <script> <the flags the scenario named>`.
+ * This is the only honest way to produce a recent-agents row: the MRU is fed by
+ * a DETECTED LIVE agent (an OS-derived session identity plus the process's
+ * argv), never by a captured command line.
  *
  * Waits for kolu to DETECT the agent, so the caller's next step (opening the
  * palette) cannot race the MRU write.
@@ -505,41 +678,10 @@ When(
 When(
   "a fake Claude Code agent is running with the arguments {string}",
   async function (this: KoluWorld, args: string) {
-    const bin = process.env.KOLU_FAKE_CLAUDE_BIN;
-    if (!bin) throw new Error("KOLU_FAKE_CLAUDE_BIN must be set");
-    cleanup();
-    const marker = `/tmp/kolu-claude-agent-pid-${process.pid}-${Date.now()}`;
-    mockAgentPidMarker = marker;
-    // `$$` is the fake binary's own pid (it IS bash) — the pid the session file
-    // must be keyed on. It is escaped (`\\$\\$` in the source → `\$\$` typed)
-    // because the LOGIN shell would otherwise expand it before the fake agent ever
-    // sees it, keying the mock to the shell instead of the agent. A trailing `:`
-    // keeps bash resident as the foreground.
-    const script = `printf '\\033]0;claude\\007'; echo \\$\\$ > ${marker}; sleep 99999 ; :`;
-    const line = `${bin} -c "${script}"${args === "" ? "" : ` ${args}`}`;
-    await this.page.keyboard.type(line);
-    await this.page.keyboard.press("Enter");
+    await startFakeClaude(this, args);
+    stageClaudePrompt("thinking");
+    await promptFakeClaude(this);
 
-    const agentPid = await pollFor({
-      observe: async () =>
-        fs.existsSync(marker)
-          ? Number(fs.readFileSync(marker, "utf8").trim())
-          : null,
-      isDone: (pid) => pid !== null && Number.isFinite(pid) && pid > 0,
-      onTimeout: (_, ms) =>
-        new Error(`fake claude agent never reported its pid within ${ms}ms`),
-      timeoutMs: POLL_TIMEOUT,
-    });
-    if (agentPid === null) throw new Error("fake claude agent pid missing");
-
-    writeClaudeMock(
-      agentPid,
-      `/tmp/claude-test-agent-${process.pid}-${Date.now()}`,
-      "thinking",
-    );
-
-    // Wait for DETECTION (not merely the file write) — the recent-agents MRU is
-    // fed by the detected agent, so the palette must not open before it lands.
     try {
       await pollFor({
         observe: () =>
@@ -594,16 +736,22 @@ function nudgeSessionsDir() {
   nudgeDir(getSessionsDir());
 }
 
-/** Paint a block of lines into the live PTY via a single `printf` invocation.
- *  Used by step definitions that simulate Claude prompts on screen so the
- *  server-side screen-scrape poll sees the rendered chrome. */
+/** Paint a block of lines into the live PTY — one `paint` line per line, spoken
+ *  to the resident stand-in, which writes each to the screen. Used by step
+ *  definitions that simulate Claude prompts on screen so the server-side
+ *  screen-scrape poll sees the rendered chrome.
+ *
+ *  The stand-in holds the foreground for the scenario's whole life, so the
+ *  terminal has no shell to run a `printf` at: the agent paints its own
+ *  dialogs, which is also how the real one does it. */
 async function paintLinesToTerminal(
   page: KoluWorld["page"],
   lines: string[],
 ): Promise<void> {
-  const printf = `printf '%s\\n' ${lines.map((l) => `'${l}'`).join(" ")}`;
-  await page.keyboard.type(printf);
-  await page.keyboard.press("Enter");
+  for (const line of lines) {
+    await page.keyboard.type(`paint ${line}`);
+    await page.keyboard.press("Enter");
+  }
 }
 
 When(
@@ -706,7 +854,31 @@ When(
   },
 );
 
+/** THE AGENT LEAVES. Presence is a PROCESS fact now, so a session that "ends"
+ *  by deleting its files while the binary is still in front has not ended at
+ *  all — the terminal would still carry an agent (its `fresh` presence) and the
+ *  indicator would stay. So the stand-in is told to quit, and the step waits
+ *  until its pid is really gone before the files go with it. */
 When("the Claude Code session ends", async function (this: KoluWorld) {
+  const pid = mockAgentPid;
+  if (pid !== null) {
+    await this.page.keyboard.type("quit");
+    await this.page.keyboard.press("Enter");
+    await pollFor({
+      observe: async () => {
+        try {
+          process.kill(pid, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      isDone: (alive) => alive === false,
+      onTimeout: (_last, ms) =>
+        new Error(`the fake claude (pid ${pid}) was still alive after ${ms}ms`),
+      timeoutMs: POLL_TIMEOUT,
+    });
+  }
   cleanup();
 });
 

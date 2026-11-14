@@ -14,6 +14,11 @@ const AWAITING_ROW_SELECTOR =
   '[data-testid="dock-row"][data-bucket="awaiting"]';
 const WORKING_ROW_SELECTOR = '[data-testid="dock-row"][data-bucket="working"]';
 const QUIET_FOREGROUND_SELECTOR = '[data-testid="dock-quiet-foreground"]';
+// Line 2's STATUS WORDS on an AGENT row. `data-dock-subline` is the shared
+// hook the row package sets on the agent line only (a quiet foreground line
+// does not speak needs-you), so this selector reads the desktop row and the
+// touch drawer alike without naming either surface's own test id.
+const AGENT_SUBLINE_SELECTOR = "[data-dock-row] [data-dock-subline]";
 // Line 2's trailing model tag — the shared hook the row component sets on it
 // (the same kind of hook `data-dock-subline` is), scoped by the row's OTHER
 // shared hook, `data-dock-row`, which `dockRowAttrs` stamps on EVERY row
@@ -601,6 +606,25 @@ Then(
           (el) => el.textContent?.trim() === want,
         ),
       { sel: MODEL_TAG_SELECTOR, want: model },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "the dock agent row should say {string}",
+  async function (this: KoluWorld, words: string) {
+    // Line 2's STATUS WORDS, on an agent row (the quiet foreground line carries
+    // a process title and is a different hook). Polled for the same reason the
+    // model tag is: the words follow the agent record over the wire. The words
+    // themselves are the product's — `rowSubline`'s label for the state — so a
+    // scenario asserts what a person reads, not the state name kolu stores.
+    await this.page.waitForFunction(
+      ({ sel, want }: { sel: string; want: string }) =>
+        Array.from(document.querySelectorAll(sel)).some(
+          (el) => el.textContent?.trim() === want,
+        ),
+      { sel: AGENT_SUBLINE_SELECTOR, want: words },
       { timeout: POLL_TIMEOUT },
     );
   },

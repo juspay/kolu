@@ -485,6 +485,25 @@ the same picture by construction. The fonts come from the Nix closure
 call, because a screenshot in a substitute font would look plausible and be
 wrong. CJK and emoji are outside that font set and render as tofu.
 
+## Agent presence — an agent is here before it has a session
+
+padi owns the fact that an agent is IN a terminal, and it is a process fact: a
+foreground program the agent registry's own `cli` match recognises gives the
+record an `agent` from that moment, for every kind (`terminalWorkspace/sensors.ts`,
+`publishPresence`). Until that agent's transcript can be read — most agents write
+none before their first prompt — the value is a PRESENCE
+(`kolu-agents/vocab`'s `AgentPresenceSchema`): `starting` while its screen is
+drawn, `fresh` once it has settled. The settle is not a timer of the sensor's:
+the effective-finish quiet window (`activity/finishQuiet.ts`) keeps a second
+kind of episode for a `starting` agent on the same kaval output edges, and its
+quiet-crossing is routed back into that terminal's detector
+(`TerminalEndpoint.noteScreenSettled`), which publishes `fresh`. The session's
+watcher refines the presence with its first real value; an agent that names its
+session before writing it (`AgentAdapter.presenceSessionId` — omp's breadcrumb,
+Claude's session file) carries that id meanwhile. A presence never replaces the
+same agent's own session-backed value (W12's keep-last), its restore target is
+`none` (nothing to resume), and the folds keep it out of every attention list.
+
 ## Settle events — the standing subscriptions
 
 padi already computed WHO needs attention: the `urgency` cell's `awaitingIds` (an

@@ -224,6 +224,8 @@ export interface ToolMove {
   readonly status?: ConductorToolStatus | undefined;
   readonly server?: string | undefined;
   readonly tool?: string | undefined;
+  /** The tool's PROGRAMMATIC name, as the agent spelled it. */
+  readonly toolName?: string | undefined;
   readonly detail?: string | undefined;
   /** The call's ARGUMENTS alone, as the same folded JSON — what a FAILED
    *  call's disclosure shows, so its error is said once, by its reason. */
@@ -676,6 +678,7 @@ export class Transcript {
       status,
       ...pick("server", move.server, held?.server),
       ...pick("tool", move.tool, held?.tool),
+      ...pick("toolName", move.toolName, held?.toolName),
       ...(detail === undefined ? {} : { detail }),
       ...pick("progress", move.progress, held?.progress),
       ...pick("diffs", move.diffs, held?.diffs),

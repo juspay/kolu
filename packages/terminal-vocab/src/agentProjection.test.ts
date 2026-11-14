@@ -15,12 +15,17 @@ import {
   agentStatusLabel,
   agentUrgency,
   alertClass,
+  attentionActive,
+  attentionClass,
+  attentionCounted,
   compareAgents,
   DASH,
   fleetStateLabel,
+  isWaitState,
   relativeTime,
   URGENCY_RANK,
   type Urgency,
+  WATCH_DEFAULT_STATES,
 } from "./agentProjection.ts";
 import type { AgentInfo, TerminalSnapshot } from "./schema.ts";
 
@@ -224,5 +229,42 @@ describe("compareAgents (needs-you-first)", () => {
     expect(
       [idle, work, need].sort(compareAgents).map((x) => agentUrgency(x.agent)),
     ).toEqual(["need", "work", "idle"]);
+  });
+});
+
+describe("an agent present with no session yet (starting / fresh)", () => {
+  const PRESENCE = ["starting", "fresh"] as const;
+
+  it("keeps buckets of its own — neither the end of a turn nor work", () => {
+    expect(agentBucket("starting")).toBe("starting");
+    expect(agentBucket("fresh")).toBe("fresh");
+    expect(agentStatusLabel("fresh")).toBe("fresh");
+  });
+
+  it("is QUIET for a person's attention: no list, no badge, no count, no paint", () => {
+    for (const state of PRESENCE) {
+      const agent = agentVal(state, "omp");
+      // The EF2 verdict cannot drag it into `finished` either.
+      expect(attentionClass(agent, false)).toBe("idle");
+      expect(attentionClass(agent, true)).toBe("idle");
+      expect(attentionCounted(attentionClass(agent, true), false)).toBe(false);
+      expect(alertClass(state)).toBe("quiet");
+      expect(agentPaintClass(state)).toBe("none");
+      expect(agentUrgency(agent)).toBe("idle");
+      expect(agentLive(state)).toBe(false);
+    }
+  });
+
+  it("moves only while its screen is drawn — the bytes are the only evidence", () => {
+    const klass = attentionClass(agentVal("starting", "omp"), false);
+    expect(attentionActive(klass, true)).toBe(true);
+    expect(attentionActive(klass, false)).toBe(false);
+  });
+
+  it("is a wait target a driver can name, and not in the default watch", () => {
+    expect(isWaitState("fresh")).toBe(true);
+    expect(isWaitState("starting")).toBe(true);
+    expect(WATCH_DEFAULT_STATES).not.toContain("fresh");
+    expect(WATCH_DEFAULT_STATES).not.toContain("starting");
   });
 });

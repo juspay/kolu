@@ -13,10 +13,36 @@
  */
 
 import assert from "node:assert";
-import { Given, Then, When } from "@cucumber/cucumber";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { After, Given, Then, When } from "@cucumber/cucumber";
+import {
+  ompMockPayload,
+  ompTranscriptPath,
+  stageOmpPrompt,
+} from "../support/agent-mock-omp.ts";
 import { pollFor } from "../support/poll.ts";
 import { padiCall } from "../support/rpcWire.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
+
+/** How long a scenario leaves a landed wake alone before claiming it rang ONCE.
+ *  Wider than the server's own re-report cadence, so a second ring has time to
+ *  arrive and be counted rather than merely not having happened yet. */
+const REPEAT_WAKE_WINDOW_MS = 4_000;
+
+/** The scratch dir behind an agent the CONDUCTOR started (`I ask the conductor
+ *  to run an agent in a new terminal`) — the session bytes it stages for its
+ *  first prompt live inside it. The terminal itself is padi's to reap; this is
+ *  the fixture's own leavings. */
+let conductorAgentCwd: string | null = null;
+
+After(() => {
+  if (conductorAgentCwd && fs.existsSync(conductorAgentCwd)) {
+    fs.rmSync(conductorAgentCwd, { recursive: true, force: true });
+  }
+  conductorAgentCwd = null;
+});
 
 const PANE = '[data-testid="conductor-pane"]';
 /** The conversation's OWN tab, first in the tab row — not a host tab, and not
@@ -1694,6 +1720,134 @@ Then("the wake should be one line from kolu", async function (this: KoluWorld) {
   // send-again that rides it) belongs to words a person typed.
   assert.equal(await wake.locator(USER_MARK).count(), 0);
 });
+
+/** THE CONVERSATION STARTS AN AGENT. The fixture's `run <command>` makes a real
+ *  `lifecycle_create` on the fleet face with that command typed at the new
+ *  terminal's first prompt — and the tool watches what it created, so this one
+ *  step produces a watched terminal whose agent comes up on its own.
+ *
+ *  The command is built HERE because only the test process knows the stand-in's
+ *  absolute path (the harness seeds a renamed bash per worker as
+ *  `KOLU_FAKE_OMP_BIN`, so `/proc/<pid>/comm` reads `omp`), and because the
+ *  stand-in must be the LAZY one: it writes its breadcrumb at launch and its
+ *  session file only when something prompts it. Between those two moments the
+ *  terminal is an agent with no transcript, which is the whole subject of the
+ *  scenario.
+ *
+ *  The terminal it answers with becomes this scenario's watched terminal, so
+ *  every `… about the watched terminal` assertion below is about the one the
+ *  conversation itself started. */
+When(
+  "I ask the conductor to run an agent in a new terminal",
+  async function (this: KoluWorld) {
+    const bin = process.env.KOLU_FAKE_OMP_BIN;
+    if (!bin) throw new Error("KOLU_FAKE_OMP_BIN must be set");
+    const ompDir = process.env.KOLU_OMP_DIR;
+    if (!ompDir) throw new Error("KOLU_OMP_DIR must be set");
+    conductorAgentCwd = fs.mkdtempSync(
+      path.join(os.tmpdir(), `kolu-conductor-omp-${process.pid}-`),
+    );
+    const fixture = ompTranscriptPath({ ompDir, cwd: conductorAgentCwd });
+    const stagePath = path.join(conductorAgentCwd, "omp-session-pending.jsonl");
+    // What its FIRST prompt writes: a session already thinking, which is what
+    // a real omp's first prompt leaves on disk — so `agent_say`'s "did it
+    // take" question has a true answer to find.
+    stageOmpPrompt(stagePath, "thinking");
+    const payload = ompMockPayload({
+      breadcrumbDir: path.join(ompDir, "terminal-sessions"),
+      transcriptPath: fixture.transcriptPath,
+      stagePath,
+    });
+    await enterConductor(this);
+    await sendPrompt(this, `run ${bin} -c '${payload}'`);
+    // The create's own answer names the terminal — read off the row the agent
+    // said it in, so the scenario watches the terminal that really was made
+    // rather than whichever id the canvas happens to show.
+    let inventoryAtTimeout = "(not observed)";
+    const said = await pollFor({
+      observe: async () => {
+        const rows = await this.page
+          .locator(`${TRANSCRIPT} ${ROW}[data-row-kind="agent"]`)
+          .evaluateAll((all) => all.map((row) => row.textContent ?? ""));
+        for (const text of rows) {
+          const ref = /ran:[\s\S]*?\blocal\/([0-9a-f-]{36})\b/.exec(text);
+          if (ref?.[1]) return ref[1];
+        }
+        return null;
+      },
+      isDone: (ref) => ref !== null,
+      timeoutMs: POLL_TIMEOUT,
+      onTick: async () => {
+        inventoryAtTimeout = await transcriptInventory(this);
+      },
+      onTimeout: (_last, ms) =>
+        new Error(
+          `the conductor never answered with a terminal it ran an agent in after ${ms}ms; the transcript holds ${inventoryAtTimeout}`,
+        ),
+    });
+    if (said === null) throw new Error("no terminal ref was answered");
+    this.watchedTerminalId = said;
+  },
+);
+
+/** RINGS ONCE. The claim is about repetition, so it is read after the wake has
+ *  landed AND the conversation has been left alone long enough for a second
+ *  one to arrive: a bare count taken the instant the first lands would pass
+ *  against a server that rings every tick. */
+Then(
+  "the conductor transcript should show exactly one {string} wake about the watched terminal",
+  async function (this: KoluWorld, level: string) {
+    const id = watchedId(this);
+    const count = async (): Promise<number> =>
+      this.page
+        .locator(`${WAKE_ROW} [data-testid="conductor-wake"]`)
+        .evaluateAll(
+          (wakes, want) =>
+            wakes.filter(
+              (wake) =>
+                (wake.getAttribute("data-levels") ?? "")
+                  .split(" ")
+                  .includes(want.level) &&
+                (wake.textContent ?? "").includes(want.ref),
+            ).length,
+          { level, ref: `/${id}` },
+        );
+    let inventoryAtTimeout = "(not observed)";
+    await pollFor({
+      observe: count,
+      isDone: (seen) => seen > 0,
+      timeoutMs: POLL_TIMEOUT,
+      onTick: async () => {
+        inventoryAtTimeout = await transcriptInventory(this);
+      },
+      onTimeout: (_last, ms) =>
+        new Error(
+          `no ${JSON.stringify(level)} wake about ${id} after ${ms}ms; the transcript holds ${inventoryAtTimeout}`,
+        ),
+    });
+    // Then LEAVE IT ALONE. A wake that repeats does so on the server's own
+    // re-report cadence, which is seconds wide, so a count taken the instant
+    // the first one lands would pass against a server that rings every tick.
+    const quiet = Promise.withResolvers<void>();
+    setTimeout(quiet.resolve, REPEAT_WAKE_WINDOW_MS);
+    await quiet.promise;
+    assert.equal(
+      await count(),
+      1,
+      `the agent that came up rang ${JSON.stringify(level)} more than once`,
+    );
+  },
+);
+
+/** SPEAK TO IT — the fixture's `tell it <words>`, which is a real `agent_say`
+ *  on the fleet face against the terminal the conversation started. */
+When(
+  "I ask the conductor to tell the agent {string}",
+  async function (this: KoluWorld, words: string) {
+    await enterConductor(this);
+    await sendPrompt(this, `tell it ${words}`);
+  },
+);
 
 When("I open the wake", async function (this: KoluWorld) {
   await this.page

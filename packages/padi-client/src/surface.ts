@@ -647,8 +647,33 @@ export * from "./transcriptSchema.ts";
  *  7.1 padi, so it REFUSES one at the gate and convergence respawns the
  *  straddler. The two STREAM members keep answering `TerminalNotFound` for a
  *  dormant id — a `StreamSpec` has no error channel to widen, and the client's
- *  attach loop ends on that tag (`requireAttachableTerminal`). */
-export const PADI_SURFACE_VERSION = "7.2";
+ *  attach loop ends on that tag (`requireAttachableTerminal`).
+ *
+ *  7.3 (additive · minor) — an agent is PRESENT before it has a session. The
+ *  record's `agent` gains a member, `AgentPresenceSchema` (`kolu-agents/vocab`):
+ *  `{ kind, state: "starting" | "fresh", sessionId: string | null }` with every
+ *  transcript field `null` — padi now publishes an agent from its FOREGROUND
+ *  alone (the registry's `cli` match), `starting` while its screen is drawn and
+ *  `fresh` once it has settled and has never been prompted, where a 7.2 padi
+ *  published `agent: null` until the agent's transcript existed (most agents
+ *  write none until their first prompt). The wait/watch bucket vocabulary
+ *  (`WAIT_STATES`) gains `starting` and `fresh` with it: `watch.open`'s and
+ *  `watchStates`' `states` accept them, and a state event may carry them.
+ *
+ *  A WIDENED EMITTED UNION, so the 5.3 class: a 7.2 decoder refuses a record
+ *  whose agent is a presence, and the minor rule is what keeps it from ever
+ *  meeting one (a newer binder against a 7.2 padi drains it before consuming
+ *  its surface; an older binder against a 7.3 padi is build-mismatched and
+ *  drains it first). For the gate-only faces (`kolu`, the MCP face — #1313) it
+ *  is the 7.1 obligation: a 7.3 face that waits for `fresh` or says to a fresh
+ *  agent must not be served by a surviving 7.2 padi, which would answer
+ *  "no agent — a plain shell" about the very terminal it is waiting on, so it
+ *  REFUSES one at the gate and convergence respawns the straddler. A consumer
+ *  that reads agent state only through the `agentProjection` folds needs no
+ *  code change: the folds decide both states (quiet for attention, idle for
+ *  urgency, `starting`/`fresh` buckets). One that narrows an `AgentInfo` to one
+ *  kind's info must now rule a presence out first (`isAgentPresence`). */
+export const PADI_SURFACE_VERSION = "7.3";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({

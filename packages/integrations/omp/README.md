@@ -27,11 +27,15 @@ tiles. The seventh agent alongside `kolu-claude-code`, `kolu-codex`,
   padi sensors consume: `resolveSessions`, `createWatcher`, the
   `externalChanges` install over one flat breadcrumb-directory watcher per known
   agent dir (omp rewrites its crumb when a session is created or switched, which
-  can land after the preexec hint named `omp`), and a `screenScrape` promotion.
+  can land after the preexec hint named `omp`), a `screenScrape` promotion, and
+  `presenceSessionId` — the crumb's session id, which the presence padi
+  publishes for an omp that has not been prompted yet (`starting` → `fresh`)
+  carries instead of none.
 - **Watchers** — a per-session transcript watcher (`session-watcher.ts`) built on
   `kolu-io`'s append-robust `subscribeFileAppends` + coalesce schedule. That
-  primitive's absent→present floor is what lights the tile for a `fresh` session
-  whose JSONL has not materialized yet.
+  primitive's absent→present floor is what lights the session-backed state for a
+  `fresh` session whose JSONL has not materialized yet; until it does, padi shows
+  omp from its foreground alone.
 - **The state fold** (`deriveOmpState` in `core.ts`) — one backward walk over the
   transcript tail: `assistant stopReason toolUse` → `tool_use`; `stop` /
   `length` / `error` / `aborted` → `waiting`; a trailing `user`/`toolResult` →
