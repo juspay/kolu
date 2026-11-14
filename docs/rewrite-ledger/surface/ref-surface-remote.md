@@ -37,10 +37,10 @@ None (`.waterfall/compare.mjs`: 0 missing).
 
 | Fact | Where |
 | --- | --- |
-| Why the `log` / `onFault` split exists (the kolu#2101 incident) | `the-server-half` (pending, queued in `.waterfall/moved/the-server-half/ref-surface-remote.md`) |
-| Why demand is counted in one gate rather than per member kind | `the-server-half` (pending, same queue) |
-| Why an `absent` frame exists, and why its value belongs to the source contract | `the-server-half` (pending, same queue) |
-| Why a refusal is raised as a defect rather than a frame | `the-server-half` (pending, same queue) |
+| Why the `log` / `onFault` split exists (the kolu#2101 incident) | `the-server-half`, "Why faults get a channel of their own" |
+| Why demand is counted in one gate rather than per member kind | `the-server-half`, "Why demand is counted in one place" |
+| Why an `absent` frame exists, and why its value belongs to the source contract | `the-server-half`, "Why absence gets a frame of its own" |
+| Why a refusal is raised as a defect rather than a frame | `the-server-half`, "Why a refusal stops the relay" |
 
 ### Cut
 
@@ -116,11 +116,11 @@ Unchanged: the section is a heading and one `<Snippet>`.
 
 | Fact | Where |
 | --- | --- |
-| Why a `network` fault resets the remote run (the kolu#2101 reasoning) | `the-server-half` (pending, queued in `.waterfall/moved/the-server-half/ref-surface-remote.md`) |
-| Why an absence must never age into a terminal failure | `the-server-half` (pending, same queue) |
-| Why the 127 verdict is read off the exit code, not the shell's wording | `the-server-half` (pending, same queue) |
-| Why the pre-connected backstop's bound is baked in | `the-server-half` (pending, same queue) |
-| Why a mirror stays silent rather than relaying a guess | `the-server-half` (pending, same queue) |
+| Why a `network` fault resets the remote run | `the-server-half`, "Why the session sorts silence into kinds" |
+| Why an absence must never age into a terminal failure | `the-server-half`, "Why the session sorts silence into kinds" |
+| Why the 127 verdict is read off the exit code, not the shell's wording | `the-server-half`, "Why the session sorts silence into kinds" |
+| Why the pre-connected backstop's bound is baked in | `the-server-half`, "Why the session sorts silence into kinds" |
+| Why a mirror stays silent rather than relaying a guess | `the-server-half`, "Why values replay and byte streams break" |
 
 ### Cut
 
