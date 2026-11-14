@@ -17,174 +17,255 @@ browser-safe `@kolu/surface-remote/connection`.
 
 ## The session
 
-A session is the reconnect appliance: `makeSession` is the transport-agnostic
-loop, `sshConnector` the ssh plug you hand it. You own each session — there is no
-shared pool; key your own map and `destroy()` them yourself.
+A session is the reconnect appliance. `makeSession` is the transport-agnostic loop, and a connector is the transport you plug into it: `sshConnector` for a remote host, `unixSocketConnector` for a daemon on this machine. You own each session. There is no shared pool: key your own map and `destroy()` each session yourself.
 
-| Export | Subpath | Role |
+| Export | Subpath | What it is |
 | --- | --- | --- |
-| `makeSession(opts)` | `.` | the reconnect/backoff/give-up/watchdog loop; returns a `Session<AgentClient, Prov>`. Owns no transport — you supply `connectOnce` |
-| `sshConnector<S>(opts)` | `.` | the ssh `Connector`: per dial, resolve the `.drv`, provision, spawn `ssh <host> <binary> --stdio`, **await the agent's readiness banner**, then wire stdio to a typed client. Takes the **`surface` as a value**, not a type parameter — Effect RPC builds its client from `surface.group` and the face is re-nested from `surface.spec`, and neither is recoverable from a type alone |
-| `unixSocketConnector(opts)` | `.` | the unix-socket `Connector`: dial a daemon already listening on a path **on this box** and wire the socket to a typed client. Opts are `{ socketPath, group, client, describe }` — `socketPath` is a THUNK because a daemon's path comes from its environment and a connector that captured it once would keep dialling a stale one. It OWNS the socket it dials (handed to `socketDuplexLink` as both halves), so the socket's own `close` resolves the connection's `closed` and the session notices its daemon die — which dialling through `unixSocketLink` would not give it. A dial answering `ENOENT`/`ECONNREFUSED` throws `EndpointAbsentError` — a `ConnectError` SUBCLASS, so every `instanceof ConnectError` path still classifies it, carrying the one extra fact that nothing is serving that path |
-| `dialAgentOnce<S>(opts)` | `.` | one-shot CLI dial: validate the baked source-flake ref, probe the host system, resolve only `packages.<system>.<package>.drvPath`, pin, probe, and return `{ client, dispose }` with the link already proven live. Takes the same `surface` value. `package` (the closure shipped) and `binary` (the program exec'd inside it) are **both required, neither defaulted** — they differ when a host receives more than the daemon (kolu ships `padi-agent`, runs `padi`), and a default of `binary` is precisely how one host silently ended up with two different closures |
-| `SURFACE_AGENT_FLAKE_REF_ENV` / `readBakedAgentSource()` | `.` | the framework-owned wrapper handoff and its sole process-environment adapter; the reader returns the normalized exact source or throws `AgentSourceUnbakedError` |
-| `resolveBakedAgentDrv(host, packageName, opts)` | `.` | resolve from the wrapper-baked source inside a long-lived consumer's own dial/failure boundary, without exposing the environment handoff to that consumer |
-| `resolveAgentDrv(host, flakeRef, packageName, { signal, onProgress, budget })` | `.` | probe the host's Nix (`resolveHostNix`: system + version) and lazily resolve one package as `{ kind: "flake-installable", drvPath, installable, binaryCache }` inside the owning dial's cancellation/progress budget; the installable lets one Nix process own evaluation through remote realisation, so GC cannot break the handoff. The declaration is read from the baked source FIRST — before the host probe and before any evaluation — so a pre-contract wrapper fails with the deterministic `AgentBinaryCacheUnbakedError` instead of whatever transport fault an unreachable host would have reported first. Inside a dial, the connector's bound `ctx.resolveAgentDrv` also forms that dial's `IndexedClosure` from the declaration's `index` + `rev`, the package name and the probed `HostNix`, and hands it to `provisionAgent` as `published` (`null` when the source declares no index, or when the resolver returns a derivation of its own) |
-| `AgentDerivation` / `directAgentDerivation(drvPath, binaryCache)` | `.` | nominal provisioning source: use the validated constructor when the caller owns a direct `.drv`; `resolveAgentDrv` alone constructs the flake-backed arm, so a path cannot be paired with an unrelated installable. Every arm REQUIRES an `AgentBinaryCache` — a cache-blind provisioning path is unspellable |
-| `AgentBinaryCache` / `agentBinaryCache({ substituters, trustedPublicKeys })` | `.` | where provisioning may PREFETCH an agent's binaries from. NOMINAL, like `AgentDerivation`: the smart constructor is the only way to make one, and it rejects an empty or blank declaration — so "validated" is a fact the type carries, not a check each caller repeats |
-| `readBakedDeclaration(flakeRef)` → `Result<BakedDeclaration, AgentBinaryCacheUnbakedError>` | `.` | **prefer this over hand-writing a declaration.** Reads and validates the baked source's `binary-cache.json` sidecar — written by `mkProvenAgentSource` from the agent flake's own `nixConfig` and its `closureIndex` — and, when that names an index, the `commit-hash` beside it. `BakedDeclaration` is `{ caches: AgentBinaryCache; index: ClosureIndex; rev: string } \| { caches; index: null; rev: null }`: both or neither, so an index with no revision is unspellable (a missing or empty `commit-hash` is the typed error). The same channel as `readBakedAgentSource`, so the two source-configuration faults chain: `readBakedAgentSource().andThen(readBakedDeclaration).map((d) => d.caches)` |
-| `ClosureIndex` | `.` | where a source's builds are published: `{ repo, branch, rawBase }` — a GitHub branch served raw, `rawBase` derived by `binary-cache.nix` (nothing in TypeScript spells an index URL). Files are `<rawBase>/<rev>/<system>/<attr>.json` and `<rawBase>/latest/<system>/<attr>.json`, each `PublishedClosure = { rev, ia, ca? }`: the full commit, the signed input-addressed path, and its content-addressed rewrite (absent on darwin) |
-| `closureIndexUrl(index, key, system, attr)` | `.` | the URL of one entry; `key` is `{ rev }` (the publisher's key — a `mkProvenAgentSource` source's `commit-hash`) or `"latest"`. A segment that could climb out of the index (`/`, a leading `.`, empty) throws |
-| `readPublishedClosure(fetchText, index, key, system, attr)` → `Promise<ClosureLookup>` | `.` | one HTTPS GET (`fetchClosureIndex`: `fetch`, 30 s timeout; any `FetchText` for tests). `{ kind: "published", url, entry }` on a 200; `{ kind: "not-published", url }` on the index's own 404 (a dev build, an unpublished revision — a fact, not a fault). Anything else throws a `ClosureIndexError` naming the URL: `kind: "unreadable"` (no answer, another status) or `"malformed"` (not `{ rev, ia, ca? }`, or a rev-keyed entry naming another revision) |
-| `IndexedClosure` | `.` | `ProvisionOptions.published`'s value — where ONE build is published for ONE host: `{ index: Pick<ClosureIndex, "rawBase">; rev: string; attr: string; host: HostNix }`. A plain value: the ssh connector forms it per dial from a baked source; a caller that owns its own `.drv` (`directAgentDerivation`) states it |
-| `closureRoute(hostNix, entry)` → `ClosureRoute` | `.` | which form a host pulls: `{ kind: "content-addressed", storePath }` for a Linux Nix that verifies the content-addressed form the publisher writes, else `{ kind: "signed", storePath, because: "mach-o" \| "nix-line" }` — macOS always (a rewrite breaks Mach-O code signatures), and any other Linux line. The forms are a private table, stated once: each named by the first Nix line that writes it — `2.17` (the oldest line that imports a rewrite) and `2.35` (which hashes a self-referencing path differently, so 2.34 and 2.35 refuse each other's rewrite: `ca hash mismatch importing path`) — and a Nix verifies only its own line's form; publishers rewrite with 2.34.8, so hosts on 2.17–2.34 pull `ca`. The sender's own staging (`deliverClosure`) reads the same table. A Linux entry with no `ca` on the publisher's form throws (a broken publication). `signedBecause(because, hostNix)` words the reason for a refusal message |
-| `isDarwinSystem(system)` → `boolean` | `.` | whether a Nix system tuple names macOS (`*-darwin`) — the one test `closureRoute` and closure staging take the signed, input-addressed form by (a Mach-O rewritten content-addressed loses its code signature); a caller wording a refusal by route asks this rather than spelling the suffix |
-| `Connector` / `Connection` / `ConnectError` | `.` | the transport seam: dial once, return a `Connection` or reject with a classified `ConnectError`. Supply your own for a non-ssh transport. A `Connection` may carry an optional `processAlive` same-box life-oracle (a local/stdio arm supplies it; ssh omits it) — see the liveness-watchdog note below. `ConnectError` takes a fourth, optional `anomaly: unknown` (default `null`): the app's own TYPED verdict for this failure, carried OPAQUELY from the connector that classified it to the binder that renders it, so a binder never has to string-parse `message` to tell "this daemon speaks a previous protocol epoch" from "this host is down" |
-| `EndpointAbsentError` | `.` | a connector's "there is nothing serving there" verdict — ABSENT rather than broken, which puts the session in its quiet `absent` arm instead of escalating toward `failed`. Only a connector that can genuinely TELL may throw it: a unix-path `connect(2)` answers `ENOENT` (no socket file) or `ECONNREFUSED` (a stale file nobody is bound to), and both mean the daemon is not here, where a websocket dial cannot distinguish absence from a network that swallowed the SYN. Exported so a consumer tests for it by class rather than by prose |
-| `Admit` / `AdmitVerdict` | `.` | optional per-dial supervision hook: `adopt` / `refuse(state)` / `replaced(reason)`. Omit and every connection is adopted |
+| [`makeSession(opts)`](#makesessionopts) | `.` | The reconnect, backoff, give-up and watchdog loop. |
+| [`sshConnector<S>(opts)`](#sshconnectorsopts) | `.` | The ssh `Connector`: provisions the agent on a host and dials it. |
+| [`SshKeepalive` / `sshKeepalive(intervalS, countMax)`](#sshkeepalive--sshkeepaliveintervals-countmax) | `.` | The ssh dead-peer policy for a dial. |
+| [`sshDialOpts(keepalive)`](#sshdialoptskeepalive) | `.` | The ssh options to use when you build your own ssh command. |
+| [`unixSocketConnector(opts)`](#unixsocketconnectoropts) | `.` | Dials a daemon listening on a unix socket on this machine. |
+| [`dialAgentOnce<S>(opts)`](#dialagentoncesopts) | `.` | A one-shot dial for a CLI. |
+| [`SURFACE_AGENT_FLAKE_REF_ENV` / `readBakedAgentSource()`](#surface_agent_flake_ref_env--readbakedagentsource) | `.` | The source flake the Nix wrapper bakes, and its reader. |
+| [`resolveBakedAgentDrv(host, packageName, opts)`](#resolvebakedagentdrvhost-packagename-opts) | `.` | Resolves an agent from the baked source inside your own dial. |
+| [`resolveAgentDrv(host, flakeRef, packageName, { signal, onProgress, budget })`](#resolveagentdrvhost-flakeref-packagename--signal-onprogress-budget-) | `.` | Probes a host's Nix and resolves one agent package. |
+| [`AgentDerivation` / `directAgentDerivation(drvPath, binaryCache)`](#agentderivation--directagentderivationdrvpath-binarycache) | `.` | What provisioning ships: a validated derivation. |
+| [`AgentBinaryCache` / `agentBinaryCache({ substituters, trustedPublicKeys })`](#agentbinarycache--agentbinarycache-substituters-trustedpublickeys-) | `.` | Where provisioning may prefetch an agent's binaries from. |
+| [`readBakedDeclaration(flakeRef)` → `Result<BakedDeclaration, AgentBinaryCacheUnbakedError>`](#readbakeddeclarationflakeref--resultbakeddeclaration-agentbinarycacheunbakederror) | `.` | Reads the binary caches and closure index a source declares. |
+| [`ClosureIndex`](#closureindex) | `.` | Where a source's builds are published. |
+| [`closureIndexUrl(index, key, system, attr)`](#closureindexurlindex-key-system-attr) | `.` | The URL of one entry in a closure index. |
+| [`readPublishedClosure(fetchText, index, key, system, attr)` → `Promise<ClosureLookup>`](#readpublishedclosurefetchtext-index-key-system-attr--promiseclosurelookup) | `.` | Looks up one published build. |
+| [`IndexedClosure`](#indexedclosure) | `.` | Where one build is published for one host. |
+| [`closureRoute(hostNix, entry)` → `ClosureRoute`](#closureroutehostnix-entry--closureroute) | `.` | Which form of a published build a host pulls. |
+| [`isDarwinSystem(system)` → `boolean`](#isdarwinsystemsystem--boolean) | `.` | Whether a Nix system tuple names macOS. |
+| [`Connector` / `Connection` / `ConnectError`](#connector--connection--connecterror) | `.` | The transport seam a session dials through. |
+| [`EndpointAbsentError`](#endpointabsenterror) | `.` | A connector's verdict that nothing is serving there. |
+| [`Admit` / `AdmitVerdict`](#admit--admitverdict) | `.` | An optional per-dial supervision hook. |
 
-`sshConnector` opts are `{ surface, host, binary, resolveDrvPath, localEnv, extraArgs?, keepalive? }`:
-`surface` is the `Surface<S>` the remote agent serves, `host` is any
-ssh target (`"localhost"` short-circuits), `binary` the exe name inside the realised
-closure, `resolveDrvPath: ({ signal, onProgress, resolveSystem, resolveAgentDrv }) => Promise<AgentDerivation>` resolves
-the agent derivation for the *target* arch as an `AgentDerivation` inside the
-owning dial's cancellation and progress lifetime. A direct path is
-`directAgentDerivation(drvPath, binaryCache)` — obtain the `binaryCache` with
-`readBakedDeclaration(source)`'s `caches` wherever the deployment bakes an agent source,
-so the declaration comes from your flake's own `nixConfig` rather than a
-hand-typed copy of it; `agentBinaryCache({…})` states one inline when you have
-no baked source. `resolveAgentDrv` returns the
-flake-backed arm that survives local garbage collection. **`localEnv: Record<string, string>` is the REQUIRED env for a
-`localhost` dial's direct spawn** (see the caution below). `dialAgentOnce`'s
-`dispose()` tears down only its own session; it is what `kaval-tui --host`,
-`padi-tui --host`, and `kolu-cli --host` use — and it carries the same required
-`localEnv`. Surface Remote reads the exact, minimal source flake baked by the
-Nix wrapper itself; the package name is the same `binary` value, so the
-executable and derivation cannot drift into two hand-maintained mappings.
+### `makeSession(opts)`
 
-`keepalive?: SshKeepalive` is the dial's ssh **dead-peer policy** —
-`ServerAliveInterval` and `ServerAliveCountMax`, so ssh may go
-`intervalS × countMax` seconds without an answer before it declares the
-**transport** dead and exits non-zero. It defaults to `DEFAULT_SSH_KEEPALIVE`
-(`10 × 3` ≈ 30s), which is what an interactive tool wants: a host that stopped
-answering must stop *looking* connected. **Raise it for an unattended dial whose
-ssh should not be torn down over a slow probe answer** (`sshKeepalive(30, 10)`
-waits five minutes before calling the transport dead). The cost is symmetric: a
-genuinely dead host keeps that dial parked for the same window before the loop
-retries. It is *not* a survival budget for the work riding that ssh — see the
-four bounds below.
+The reconnect loop. It handles backoff, giving up and the liveness watchdog, and returns a `Session<AgentClient, Prov>`.
 
-`sshKeepalive(intervalS, countMax)` is the only way to make one — a validated
-value, not a record you can hand-assemble — so an out-of-range policy throws at
-the literal you wrote rather than at whichever ssh renders it first, and it is
-never clamped (ceiling `MAX_SSH_KEEPALIVE_TOLERANCE_S` = one hour). The policy
-reaches **every** ssh the dial spawns: the arch probe, the cache prefetch, the
-warm validity check, the GC-root pin, the closure ship, the `NIX_SSHOPTS` that
-the remote-store `nix build` forks its own ssh with, and the agent command
-itself. `dialAgentOnce` takes the same option and forwards it. (It also takes
-`liveness`, forwarded to `MakeSessionOptions.liveness` — a passthrough on its own
-merits, **not** this option's other half: see the four bounds below for which
-one decides a connected link.)
+- It owns no transport. You supply `connectOnce`, usually a connector from this section.
+- Its watchdog and timers are described under [Lifecycle invariants](#lifecycle-invariants).
 
-Building your own ssh command outside this package? Use
-`sshDialOpts(keepalive)` — the one exported opt set, and the same one the
-builders above emit: the dead-peer policy **and** this package's `ControlMaster`
-decision (our per-policy socket, or an explicit `ControlPath=none`, never
-silence — see the note below).
+### `sshConnector<S>(opts)`
 
-<Aside type="caution" title="This bounds ssh transport death — it is not a survival budget">
-  `keepalive` answers exactly one question: **how long may ssh get no answer
-  before it declares the transport dead and exits?** Without it, an ssh parked on
-  a half-open socket waits for the OS TCP stack, effectively forever. With it,
-  that becomes an `intervalS × countMax` failure the reconnect loop can retry.
+The ssh `Connector`. On each dial it resolves the `.drv`, provisions it, spawns `ssh <host> <binary> --stdio`, awaits the agent's readiness banner, and then wires stdio to a typed client.
 
-  It is **not** "how long this lane survives an interruption". `keepalive` is
-  one of four independent bounds on how long a link may be silent. On a
-  `connected` link the session's heartbeat decides first (~25s at its
-  defaults), then this option (30s by default), and the link's own keep-alive
-  is a backstop above both (it ends a link that has received nothing for 60s,
-  so 60–65s) — a policy raised past that backstop is inert on a connected link.
-  During `provisioning` the tolerance you *request* is bounded by a separate
-  per-step child-lifetime budget (a 30s deadline for a quick probe, an
-  escalating 120s→960s allowance for a required build, a flat 600s for a
-  speculative copy) that ssh keepalives never reset, since they are protocol
-  traffic and produce no child stdout.
+Options: `{ surface, host, binary, resolveDrvPath, localEnv, extraArgs?, keepalive? }`.
 
-  The full breakdown — all four bounds, their exact figures, and which one
-  decides when — is written **once**, in
-  the `keepalive` option's doc comment on `SshConnectorOptions`
-  (`packages/surface-remote/src/sshConnector.ts`), with the figures pinned
-  against arithmetic, not just prose, by
-  `packages/surface-remote/src/keepaliveOrdering.test.ts`. Read that doc comment
-  before promising anyone a longer silence — it is the account to correct if this
-  page and it ever disagree.
+| Option | Meaning |
+| --- | --- |
+| `surface` | The `Surface<S>` the remote agent serves, passed as a value. |
+| `host` | Any ssh target. `"localhost"` short-circuits ssh. |
+| `binary` | The executable inside the realised closure. It is also the package name, so the two cannot drift apart. |
+| `resolveDrvPath` | Resolves the agent for the target's arch. See [below](#resolvedrvpath-is-deferred). |
+| `localEnv` | Required. The whole environment of a `localhost` dial. See [below](#localenv-on-a-localhost-dial). |
+| `extraArgs?` | Arguments appended after `--stdio` on the agent command. POSIX-quoted for a real remote, verbatim for `localhost`. Their meaning is the caller's concern. |
+| `keepalive?` | An [`SshKeepalive`](#sshkeepalive--sshkeepaliveintervals-countmax). Defaults to `DEFAULT_SSH_KEEPALIVE`. |
 
-  `MAX_SSH_KEEPALIVE_TOLERANCE_S` (one hour) is therefore a ceiling on *how long
-  a dead ssh may go unnoticed*, not a promise that anything survives that long.
-</Aside>
+- `surface` is a value, not a type parameter. Effect RPC builds the client from `surface.group`, and the face is re-nested from `surface.spec`. Neither can be recovered from a type.
+- `resolveDrvPath` runs inside the owning dial's cancellation and progress lifetime. For a direct path, return `directAgentDerivation(drvPath, binaryCache)`. Get the `binaryCache` from `readBakedDeclaration(source)`'s `caches` wherever the deployment bakes an agent source, so it comes from your flake's own `nixConfig`. Use `agentBinaryCache({…})` inline when there is no baked source. `resolveAgentDrv` returns the flake-backed arm, which survives local garbage collection.
+- Inside `resolveDrvPath`, `const sys = await ctx.resolveSystem()` runs the arch probe on this dial's host, signal, progress sink and keepalive policy. There is no options bag to assemble.
+- The package reads the exact, minimal source flake that the Nix wrapper itself bakes.
 
-<Aside type="note" title="A ControlMaster's opener fixes ServerAlive* for its lifetime">
-  The commands one dial issues share a single ssh `ControlMaster` connection, and
-  OpenSSH applies `ServerAliveInterval`/`ServerAliveCountMax` from the process
-  that **opened** the master — every later ssh riding that socket inherits them
-  and silently ignores its own. So the control socket is **keyed by the
-  keepalive policy**: two policies to the same host get two masters rather than
-  one of them quietly getting the other's dead-peer behaviour. The visible
-  consequence is only that a CI-tuned dial and an interactive dial to the same
-  host each keep their own warm connection (`ControlPersist` is 10 minutes, and
-  cross-invocation). Within one dial every ssh carries the same policy by
-  construction — which is why the dial-internal ssh a resolver may need reaches
-  it already bound: `const sys = await ctx.resolveSystem()` runs the arch probe
-  on this dial's host, signal, progress sink and policy, so there is no options
-  bag to assemble and no way to open a second master by omitting one.
-</Aside>
+#### `resolveDrvPath` is deferred
 
-<Aside type="caution" title="The agent must greet before the client attaches">
-  After the spawn, `sshConnector` awaits the agent's readiness banner
-  (`awaitStdioReadiness`, `@kolu/surface/links/readiness`) **raced against the
-  child's own exit**, and only then builds the link — the proof is what
-  `stdioLink` requires. Two consequences for a consumer:
+`resolveDrvPath: ({ signal, onProgress, resolveSystem, resolveAgentDrv }) => Promise<AgentDerivation>` resolves the agent derivation for the target's arch, as an `AgentDerivation`.
 
-  1. **Your agent must greet.** `serveOverStdio` does it for you when the process
-     is the agent; a daemon FRONT (one that relays into a durable daemon) must
-     write the banner itself once it has settled that daemon.
-  2. **A gate failure is a `"remote"` fault, not a `"network"` one.** A refusal, a
-     deadline expiry, or an unrecognisable prelude counts toward the session's
-     bounded **remote** budget and goes terminal in a bounded number of attempts
-     — provided the host stays up: an interleaved `"network"` failure means the
-     host went away and restarts that count. A host that
-     is merely down still fails at spawn/exit *before* the banner and keeps its
-     existing `"network"` retry-forever classification, unchanged. A refusal's
-     opaque `anomaly` rides the `ConnectError`, so a binder can render a typed
-     verdict instead of a spinner.
+Pass `resolveDrvPath` as a thunk. Eager resolution runs the ssh probe before the session exists, so an unreachable host would throw out of construction. Deferred, it becomes a retryable `network` fault inside the spawn cycle.
 
-  The wait is bounded at 3 minutes, derived from the front's own convergence
-  ceilings (takeover reap 120s + 5s, socket-ready 30s, the probe's 8s silence
-  deadline, the front's 10s daemon wait) — not from any ping cadence.
-</Aside>
+#### `localEnv` on a `localhost` dial
 
-<Aside type="caution" title="resolveDrvPath is deferred by contract">
-  Pass `resolveDrvPath` as a thunk. Eager resolution runs the ssh probe before the
-  session exists, so an unreachable host throws out of construction instead of
-  becoming a retryable `network` fault inside the spawn cycle.
-</Aside>
+`localEnv: Record<string, string>` is required. A `localhost` dial runs the agent binary directly with `spawn`, and its environment comes only from `localEnv`.
 
-<Aside type="caution" title="localEnv is REQUIRED — the localhost arm never inherits ambient env">
-  A `localhost` dial runs the agent binary directly via `spawn`, so its env comes from
-  ONE place: `localEnv`. It is a **required** field (on `sshConnector` and
-  `dialAgentOnce` both) — omitting it is a **compile** error, not a review catch, and
-  the localhost arm additionally **throws at runtime** if `localEnv` is ever `undefined`
-  (an untyped caller, an `as any`, a `.d.ts`/build skew) rather than degrading to an
-  ambient inherit — so a locally-hosted agent can never silently inherit the caller's
-  `process.env` (identity vars, secrets, a parent agent's session markers). surface-remote is **policy-free**:
-  it neither composes nor scrubs the env; the consumer hands over a clean one (kolu
-  composes it from a fixed allowlist — `kolu-pty`'s
-  `composeSpawnEnv`/`SPAWN_ENV_ALLOWLIST`). On a **real ssh host** `localEnv` is unused:
-  that child is the LOCAL ssh client, which legitimately inherits the caller's env for
-  `SSH_AUTH_SOCK` / `~/.ssh`; the agent runs remotely with its env owned there. So
-  `buildAgentCommand` returns `env: Record<string, string>` on the localhost arm and
-  `env: undefined` on the ssh arm — one place decides env per arm, so the two can't drift.
-</Aside>
+- Omitting `localEnv` is a compile error, on `sshConnector` and `dialAgentOnce` alike.
+- If `localEnv` is `undefined` at runtime (an untyped caller, an `as any`, a `.d.ts` or build skew), the localhost arm throws. It never falls back to inheriting `process.env`, so a local agent cannot inherit identity variables, secrets or a parent agent's session markers.
+- The package neither composes nor scrubs the environment. The consumer hands over a clean one. kolu composes it from a fixed allowlist: `kolu-pty`'s `composeSpawnEnv`/`SPAWN_ENV_ALLOWLIST`.
+- On a real ssh host, `localEnv` is unused. That child is the local ssh client, which inherits the caller's environment for `SSH_AUTH_SOCK` and `~/.ssh`, and the agent's environment is owned remotely.
+- `buildAgentCommand` returns `env: Record<string, string>` on the localhost arm and `env: undefined` on the ssh arm, so one place decides the environment per arm.
+
+#### The readiness banner
+
+After the spawn, `sshConnector` awaits the agent's readiness banner (`awaitStdioReadiness`, `@kolu/surface/links/readiness`), raced against the child's own exit. Only then does it build the link: the proof is what `stdioLink` requires.
+
+- Your agent must greet. `serveOverStdio` does this when the process is the agent. A daemon front, which relays into a durable daemon, must write the banner itself once it has settled that daemon.
+- A gate failure is a `"remote"` fault, not a `"network"` one. A refusal, a deadline expiry or an unrecognisable prelude counts toward the session's bounded remote budget. It goes terminal after a bounded number of attempts, provided the host stays up.
+- An interleaved `"network"` failure means the host went away, and restarts that count.
+- A host that is merely down fails at spawn or exit before the banner. It keeps its `"network"` classification and is retried forever.
+- A refusal's opaque `anomaly` rides the `ConnectError`, so a binder can render a typed verdict instead of a spinner.
+- The wait is bounded at 3 minutes. That figure comes from the front's own convergence ceilings (takeover reap 120s + 5s, socket-ready 30s, the probe's 8s silence deadline, the front's 10s daemon wait), not from any ping cadence.
+
+### `SshKeepalive` / `sshKeepalive(intervalS, countMax)`
+
+`keepalive?: SshKeepalive` is a dial's ssh dead-peer policy: `ServerAliveInterval` and `ServerAliveCountMax`. ssh may go `intervalS × countMax` seconds without an answer before it declares the transport dead and exits non-zero. Without it, an ssh parked on a half-open socket waits for the OS TCP stack, effectively forever.
+
+| Name | Value |
+| --- | --- |
+| `DEFAULT_SSH_KEEPALIVE` | `10 × 3` ≈ 30s. Right for an interactive tool: a host that stopped answering stops looking connected. |
+| `sshKeepalive(30, 10)` | Five minutes. For an unattended dial whose ssh should not be torn down over a slow probe answer. |
+| `MAX_SSH_KEEPALIVE_TOLERANCE_S` | One hour. The ceiling on how long a dead ssh may go unnoticed. |
+
+- `sshKeepalive(intervalS, countMax)` is the only way to make one. An out-of-range policy throws at the call you wrote, and it is never clamped.
+- The policy reaches every ssh the dial spawns: the arch probe, the cache prefetch, the warm validity check, the GC-root pin, the closure ship, the `NIX_SSHOPTS` that the remote-store `nix build` forks its own ssh with, and the agent command.
+- `dialAgentOnce` takes the same option and forwards it. Its `liveness` option is forwarded to `MakeSessionOptions.liveness`. That is a separate passthrough, not the other half of `keepalive`.
+- The cost is symmetric: a dead host keeps a long-keepalive dial parked for the same window before the loop retries.
+
+#### What `keepalive` does not bound
+
+`keepalive` only answers how long ssh may get no answer before it declares the transport dead. It is not a survival budget for the work riding that ssh. It is one of four independent bounds on how long a link may be silent:
+
+- On a `connected` link, the session's heartbeat decides first (about 25s at its defaults), then `keepalive` (30s by default).
+- The link's own keep-alive is a backstop above both. It ends a link that has received nothing for 60s, so 60–65s. A policy raised past it is inert on a connected link.
+- During `provisioning`, a separate per-step child-lifetime budget bounds the tolerance you request. It is a 30s deadline for a quick probe, an escalating 120s→960s allowance for a required build, and a flat 600s for a speculative copy. ssh keepalives never reset it, since they are protocol traffic and produce no child stdout.
+
+The full breakdown of the four bounds is the `keepalive` option's doc comment on `SshConnectorOptions` (`packages/surface-remote/src/sshConnector.ts`). `packages/surface-remote/src/keepaliveOrdering.test.ts` pins its figures against arithmetic. The doc comment is authoritative: if this page and it disagree, it is the one to correct.
+
+### `sshDialOpts(keepalive)`
+
+The ssh options to use when you build your own ssh command outside this package. It is the same set the builders above emit: the dead-peer policy and this package's `ControlMaster` decision. That decision is a per-policy socket or an explicit `ControlPath=none`, never silence.
+
+- The commands of one dial share a single ssh `ControlMaster` connection.
+- OpenSSH applies `ServerAliveInterval`/`ServerAliveCountMax` from the process that opened the master. Every later ssh on that socket inherits them and ignores its own.
+- So the control socket is keyed by the keepalive policy. Two policies to the same host get two masters, and neither gets the other's dead-peer behaviour.
+- As a result, a CI-tuned dial and an interactive dial to the same host each keep their own warm connection. `ControlPersist` is 10 minutes, and spans invocations.
+- Within one dial, every ssh carries the same policy by construction.
+
+### `unixSocketConnector(opts)`
+
+The unix-socket `Connector`. It dials a daemon that is already listening on a path on this machine, and wires the socket to a typed client.
+
+Options: `{ socketPath, group, client, describe }`.
+
+- `socketPath` is a thunk (a function that returns the path), not a string. A daemon's path comes from its environment, so a path captured once could go stale.
+- The connector owns the socket it dials: it hands it to `socketDuplexLink` as both halves. The socket's own `close` therefore resolves the connection's `closed`, and the session notices when its daemon dies. Dialling through `unixSocketLink` does not give you that.
+- A dial answered with `ENOENT` or `ECONNREFUSED` throws `EndpointAbsentError`. It is a subclass of `ConnectError`, so every `instanceof ConnectError` check still matches it. It adds one fact: nothing is serving that path.
+
+### `dialAgentOnce<S>(opts)`
+
+A one-shot dial for a CLI. It returns `{ client, dispose }` with the link already proven live.
+
+- It validates the baked source-flake ref, probes the host system, resolves only `packages.<system>.<package>.drvPath`, pins it, and probes the link.
+- It takes the same `surface` value as `sshConnector`, and the same required `localEnv`.
+- `package` (the closure shipped) and `binary` (the program run inside it) are both required, and neither defaults to the other. They differ when a host receives more than the daemon: kolu ships `padi-agent` and runs `padi`.
+- `dispose()` tears down only its own session.
+- `kaval-tui --host`, `padi-tui --host` and `kolu-cli --host` use it.
+
+### `SURFACE_AGENT_FLAKE_REF_ENV` / `readBakedAgentSource()`
+
+The framework-owned handoff from the Nix wrapper, and the only adapter that reads it from the process environment. `readBakedAgentSource()` returns the normalized exact source, or throws `AgentSourceUnbakedError`.
+
+### `resolveBakedAgentDrv(host, packageName, opts)`
+
+Resolves an agent from the wrapper-baked source inside a long-lived consumer's own dial and failure boundary. The consumer never sees the environment handoff.
+
+### `resolveAgentDrv(host, flakeRef, packageName, { signal, onProgress, budget })`
+
+Probes the host's Nix and lazily resolves one package, inside the owning dial's cancellation and progress budget. It returns `{ kind: "flake-installable", drvPath, installable, binaryCache }`.
+
+- The probe is `resolveHostNix`: the host's system and Nix version, as a `HostNix`.
+- The installable lets one Nix process own evaluation through remote realisation, so garbage collection cannot break the handoff.
+- It reads the declaration from the baked source first, before the host probe and before any evaluation. A pre-contract wrapper therefore fails with `AgentBinaryCacheUnbakedError`, not with whatever transport fault an unreachable host would have raised.
+- Inside a dial, the connector's bound `ctx.resolveAgentDrv` also forms the dial's `IndexedClosure`. It uses the declaration's `index` and `rev`, the package name and the probed `HostNix`, and passes it to `provisionAgent` as `published`. That is `null` when the source declares no index, or when the resolver returns a derivation of its own.
+
+### `AgentDerivation` / `directAgentDerivation(drvPath, binaryCache)`
+
+The nominal provisioning source.
+
+- Use `directAgentDerivation` when you own a direct `.drv`. It validates its arguments.
+- Only `resolveAgentDrv` constructs the flake-backed arm, so a path cannot be paired with an unrelated installable.
+- Every arm requires an `AgentBinaryCache`. A provisioning path that ignores the cache cannot be written.
+
+### `AgentBinaryCache` / `agentBinaryCache({ substituters, trustedPublicKeys })`
+
+Where provisioning may prefetch an agent's binaries from. It is nominal, like `AgentDerivation`.
+
+- The smart constructor is the only way to make one.
+- It rejects an empty or blank declaration, so a value of this type is always validated.
+
+### `readBakedDeclaration(flakeRef)` → `Result<BakedDeclaration, AgentBinaryCacheUnbakedError>`
+
+Reads and validates the baked source's `binary-cache.json` sidecar, and, when that names an index, the `commit-hash` beside it. Prefer it to writing a declaration by hand.
+
+- `mkProvenAgentSource` writes the sidecar from the agent flake's own `nixConfig` and its `closureIndex`.
+- `BakedDeclaration` is `{ caches: AgentBinaryCache; index: ClosureIndex; rev: string } | { caches; index: null; rev: null }`. Both or neither: an index with no revision cannot be written.
+- A missing or empty `commit-hash` is the typed error.
+- It uses the same channel as `readBakedAgentSource`, so the two source-configuration faults chain: `readBakedAgentSource().andThen(readBakedDeclaration).map((d) => d.caches)`.
+
+### `ClosureIndex`
+
+Where a source's builds are published: `{ repo, branch, rawBase }`, a GitHub branch served raw.
+
+- `binary-cache.nix` derives `rawBase`. Nothing in TypeScript spells an index URL.
+- Files are `<rawBase>/<rev>/<system>/<attr>.json` and `<rawBase>/latest/<system>/<attr>.json`.
+- Each file is a `PublishedClosure = { rev, ia, ca? }`: the full commit, the signed input-addressed path, and its content-addressed rewrite (absent on darwin).
+
+### `closureIndexUrl(index, key, system, attr)`
+
+The URL of one entry.
+
+- `key` is `{ rev }` (the publisher's key, a `mkProvenAgentSource` source's `commit-hash`) or `"latest"`.
+- A segment that could climb out of the index (`/`, a leading `.`, empty) throws.
+
+### `readPublishedClosure(fetchText, index, key, system, attr)` → `Promise<ClosureLookup>`
+
+Looks up one published build with one HTTPS GET. The default fetcher is `fetchClosureIndex`: `fetch`, with a 30 s timeout. Tests pass any `FetchText`.
+
+| Result | When |
+| --- | --- |
+| `{ kind: "published", url, entry }` | a 200 |
+| `{ kind: "not-published", url }` | the index's own 404: a dev build or an unpublished revision. A fact, not a fault. |
+
+Errors: anything else throws a `ClosureIndexError` naming the URL, with `kind: "unreadable"` (no answer, another status) or `"malformed"` (not `{ rev, ia, ca? }`, or a rev-keyed entry naming another revision).
+
+### `IndexedClosure`
+
+The value of `ProvisionOptions.published`: where one build is published for one host. `{ index: Pick<ClosureIndex, "rawBase">; rev: string; attr: string; host: HostNix }`.
+
+- It is a plain value. The ssh connector forms it per dial from a baked source.
+- A caller that owns its own `.drv` (`directAgentDerivation`) states it.
+
+### `closureRoute(hostNix, entry)` → `ClosureRoute`
+
+Which form of a published build a host pulls.
+
+| Route | When |
+| --- | --- |
+| `{ kind: "content-addressed", storePath }` | A Linux Nix that verifies the content-addressed form the publisher writes. |
+| `{ kind: "signed", storePath, because: "mach-o" \| "nix-line" }` | macOS always, since a rewrite breaks Mach-O code signatures. Also any other Linux Nix line. |
+
+- The forms are a private table, each named by the first Nix line that writes it: `2.17` (the oldest line that imports a rewrite) and `2.35`.
+- `2.35` hashes a self-referencing path differently, so 2.34 and 2.35 refuse each other's rewrite: `ca hash mismatch importing path`.
+- A Nix verifies only its own line's form. Publishers rewrite with 2.34.8, so hosts on 2.17–2.34 pull `ca`.
+- The sender's own staging (`deliverClosure`) reads the same table.
+- A Linux entry with no `ca` on the publisher's form throws: the publication is broken.
+- `signedBecause(because, hostNix)` words the reason for a refusal message.
+
+### `isDarwinSystem(system)` → `boolean`
+
+Whether a Nix system tuple names macOS (`*-darwin`). `closureRoute` and closure staging use this one test to take the signed, input-addressed form, because a Mach-O rewritten to content-addressed loses its code signature. Call it to word a refusal by route rather than spelling the suffix.
+
+### `Connector` / `Connection` / `ConnectError`
+
+The transport seam. A `Connector` dials once and returns a `Connection`, or rejects with a classified `ConnectError`. Write your own for a non-ssh transport.
+
+- A `Connection` may carry an optional `processAlive` same-box life-oracle. A local or stdio arm supplies it, and ssh omits it. See the liveness watchdog under [Lifecycle invariants](#lifecycle-invariants).
+- `ConnectError` takes a fourth, optional `anomaly: unknown` (default `null`). It is the app's own typed verdict for the failure, carried opaquely from the connector that classified it to the binder that renders it.
+- A binder therefore never parses `message` to tell "this daemon speaks a previous protocol epoch" from "this host is down".
+
+### `EndpointAbsentError`
+
+A connector's verdict that nothing is serving there: absent rather than broken. It puts the session in its quiet `absent` arm instead of escalating toward `failed`.
+
+- Only a connector that can tell absence apart may throw it. A unix-path `connect(2)` answers `ENOENT` (no socket file) or `ECONNREFUSED` (a stale file nobody is bound to), and both mean the daemon is not here.
+- A websocket dial cannot tell, since it cannot distinguish absence from a network that swallowed the SYN.
+- It is exported so a consumer tests for it by class, not by its message.
+
+### `Admit` / `AdmitVerdict`
+
+An optional per-dial supervision hook. Its verdicts are `adopt`, `refuse(state)` and `replaced(reason)`. Omit it and every connection is adopted.
 
 ## The mirror pump
 
