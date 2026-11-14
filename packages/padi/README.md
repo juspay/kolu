@@ -714,8 +714,9 @@ layer carry it; the module is `src/agentDistro/`.
   kolu-server has reported it is delivering it), `undelivered` (nothing serves
   and kolu-server has not said it is delivering — never read as a delivery
   under way), `error` (the delivery failed and nothing serves: its cause in
-  kolu-server's words, with Nix's own line; or a landed record this host cannot
-  hold, in padi's), `off`, or `unavailable` (an unbaked, from-source padi).
+  kolu-server's words on the first line, Nix's own output on the lines after
+  it — `@kolu/agent-distro/failure`; or a landed record this host cannot hold,
+  in padi's), `off`, or `unavailable` (an unbaked, from-source padi).
   Every other arm about a stack names it (`profiles`), so a reader drops one
   padi has not caught up from. A changed list therefore waits for its own set: no
   terminal starts without a profile the setting names.
@@ -728,6 +729,9 @@ layer carry it; the module is `src/agentDistro/`.
   upstream's own parser). Published at boot, at every delivery report, and when
   the setting changes; readable with agents off. A later delivery that fails
   shows here and in the logs, never as an `error` status while a set serves.
+  A failure's words (the last run's, or `error`'s when the files would not
+  read) are one string, stored and republished verbatim: its first line the
+  cause, any lines after it the evidence (`@kolu/agent-distro/failure`).
 - **`agentDistro.report` (procedure)** — the binding kolu-server's word on a
   delivery to THIS host (`AgentDistroDeliveryReport`, each naming the stack):
   `delivering`, `landed` (the package and the built profiles), or `failed`

@@ -69,6 +69,16 @@ export const FIXTURE_STACK_PROFILE = STAND_IN_PROFILE;
  *  PATH from anything else. */
 export const FIXTURE_MARK = "kolu-e2e-agent-distro";
 
+/** The fixture's update log, relative to the host's state home — upstream's
+ *  `history.log`, which padi reads the receipt off. */
+const HISTORY_LOG = `${FIXTURE_MARK}/history.log`;
+
+/** The fixture's update log on a host whose state home is `stateHome` — where
+ *  a step seeds a line in upstream's format. */
+export function fixtureHistoryLog(stateHome: string): string {
+  return path.join(stateHome, HISTORY_LOG);
+}
+
 let memo: Record<string, string> | undefined;
 
 const script = (file: string, body: string) => {
@@ -108,7 +118,7 @@ function buildFixture(): Record<string, string> {
     JSON.stringify({
       stateHomePlaceholder: PLACEHOLDER,
       state: `${PLACEHOLDER}/${FIXTURE_MARK}/state`,
-      history: `${PLACEHOLDER}/${FIXTURE_MARK}/history.log`,
+      history: `${PLACEHOLDER}/${HISTORY_LOG}`,
       landed: `${PLACEHOLDER}/${FIXTURE_MARK}/landed.json`,
     }),
   );

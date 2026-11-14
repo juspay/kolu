@@ -39,8 +39,10 @@ import {
   agentsChosen,
   agentsChosenLabel,
   agentsHint,
+  agentsHistoryUnreadableMeans,
   agentsResolvedLine,
   agentsStepHint,
+  agentsUpdateFailedMeans,
   firstRunAgentsDone,
   JUSPAY_OFFER,
   JUSPAY_PROFILE,
@@ -360,7 +362,27 @@ describe("agentsResolvedLine — does the profile build", () => {
         JUSPAY_PROFILE,
         profiles({ kind: "failed", message: "error: flake has no lib" }),
       ),
-    ).toEqual({ kind: "failed", text: "error: flake has no lib" });
+    ).toEqual({ kind: "failed", text: "error: flake has no lib", detail: [] });
+  });
+
+  it("failed with Nix's output: the first line is the text, the rest its detail", () => {
+    expect(
+      agentsResolvedLine(
+        JUSPAY_PROFILE,
+        profiles({
+          kind: "failed",
+          message:
+            "cannot build github:juspay/skills for x86_64-linux: error: 1 dependencies failed\nerror: builder for '/nix/store/a.drv' failed\n       > exit 1",
+        }),
+      ),
+    ).toEqual({
+      kind: "failed",
+      text: "cannot build github:juspay/skills for x86_64-linux: error: 1 dependencies failed",
+      detail: [
+        "error: builder for '/nix/store/a.drv' failed",
+        "       > exit 1",
+      ],
+    });
   });
 });
 
@@ -387,6 +409,7 @@ describe("the profile list's rows", () => {
         line: {
           kind: "failed",
           text: "no plugin.json at /home/me/ekala-ai-skills",
+          detail: [],
         },
       },
     ]);
@@ -444,6 +467,22 @@ describe("agentsChosenLabel — the welcome card's done line", () => {
       ]),
     ).toBe(`Agents: juspay + ${EKALA_REF} — no such path`);
   });
+
+  it("a multi-line failure stays one line: its first", () => {
+    expect(
+      agentsChosenLabel(on(EKALA_REF), LISTING, [
+        {
+          reference: EKALA_REF,
+          resolution: {
+            kind: "failed",
+            message: "cannot build ~/ekala: error: no plugin.json\n  at /x\n",
+          },
+        },
+      ]),
+    ).toBe(
+      `Agents: ${EKALA_REF} — cannot build ~/ekala: error: no plugin.json`,
+    );
+  });
 });
 
 describe("agentMarkOf — the one status → treatment fold", () => {
@@ -489,11 +528,62 @@ describe("agentMarkOf — the one status → treatment fold", () => {
     ],
   ];
   for (const [name, status, mark] of cases)
-    it(name, () => expect(agentMarkOf(status, false)).toEqual(mark));
+    it(name, () => expect(agentMarkOf(status, false, undefined)).toEqual(mark));
 
   it("checking wins — derived on the client, no server state", () => {
-    expect(agentMarkOf(undefined, true)).toEqual({ kind: "checking" });
-    expect(agentMarkOf(ready([]), true)).toEqual({ kind: "checking" });
+    expect(agentMarkOf(undefined, true, undefined)).toEqual({
+      kind: "checking",
+    });
+    expect(agentMarkOf(ready([]), true, undefined)).toEqual({
+      kind: "checking",
+    });
+  });
+
+  const withRun = (
+    lastRun: AgentDistroReceipt["lastRun"],
+    error?: string,
+  ): AgentDistroReceipt => ({
+    events: [],
+    ...(lastRun === undefined ? {} : { lastRun }),
+    ...(error === undefined ? {} : { error }),
+  });
+
+  it("ready whose last run failed carries it: its author, its first line, and the rest", () => {
+    expect(
+      agentMarkOf(
+        ready([JUSPAY]),
+        false,
+        withRun({
+          at: 4,
+          outcome: "failed",
+          words: "the juspay profile: cannot build\nerror: builder failed",
+          by: "delivery",
+        }),
+      ),
+    ).toEqual({
+      kind: "ready",
+      stack: "juspay",
+      hash: "nd11nx5f",
+      delivering: false,
+      updateFailed: {
+        by: "delivery",
+        headline: "the juspay profile: cannot build",
+        detail: ["error: builder failed"],
+      },
+    });
+  });
+
+  it("no failed update otherwise: a run that landed, found nothing, or skipped; no receipt; a receipt that would not read", () => {
+    const markWith = (r: AgentDistroReceipt | undefined) =>
+      agentMarkOf(ready([JUSPAY]), false, r);
+    for (const outcome of ["updated", "unchanged", "skipped"] as const)
+      expect(
+        markWith(withRun({ at: 1, outcome, words: "x", by: "log" })),
+      ).not.toHaveProperty("updateFailed");
+    expect(markWith(undefined)).not.toHaveProperty("updateFailed");
+    expect(
+      markWith(withRun(undefined, "the history file is not a history")),
+    ).not.toHaveProperty("updateFailed");
   });
 });
 
@@ -511,25 +601,54 @@ describe("agentMarkLabel", () => {
     ).toBe(
       `The coding agents could not be delivered to box: nix missing\n${AGENTS_DELIVERY_AGAIN}`,
     );
+    expect(
+      agentMarkLabel(
+        { kind: "failed", message: "nix missing\n  at line 3\n" },
+        "box",
+      ),
+    ).toBe(
+      `The coding agents could not be delivered to box: nix missing\n${AGENTS_DELIVERY_AGAIN}`,
+    );
   });
 
   it("ready: the package's hash, with its profiles when it has any", () => {
     expect(
-      agentMarkLabel(agentMarkOf(ready([JUSPAY, EKALA]), false), "box"),
+      agentMarkLabel(
+        agentMarkOf(ready([JUSPAY, EKALA]), false, undefined),
+        "box",
+      ),
     ).toBe(
       "Coding agents ready on box: nd11nx5f with juspay + ekala — new terminals on box start with them",
     );
-    expect(agentMarkLabel(agentMarkOf(ready([]), false), "box")).toBe(
+    expect(
+      agentMarkLabel(agentMarkOf(ready([]), false, undefined), "box"),
+    ).toBe(
       "Coding agents ready on box: nd11nx5f — new terminals on box start with them",
     );
   });
 
   it("ready while a newer set is delivered: a second line says so", () => {
     expect(
-      agentMarkLabel(agentMarkOf(ready([], PKG, true), false), "box")
+      agentMarkLabel(agentMarkOf(ready([], PKG, true), false, undefined), "box")
         ?.split("\n")
         .slice(1),
     ).toEqual([AGENTS_UPDATE_DOWNLOADING]);
+  });
+
+  it("ready whose last update failed: more lines, who said what — its first line only", () => {
+    const mark = agentMarkOf(ready([]), false, {
+      events: [],
+      lastRun: {
+        at: 4,
+        outcome: "failed",
+        words: "nix build exit 1\n  builder log",
+        by: "agent-distro",
+      },
+    });
+    expect(agentMarkLabel(mark, "box")?.split("\n").slice(1)).toEqual([
+      "The last update on box failed. agent-distro's updater said: nix build exit 1",
+      "The agents there keep working. Its host details have the whole cause.",
+    ]);
   });
 
   it("a failure is its cause, then when kolu tries again — each once", () => {
@@ -581,7 +700,8 @@ describe("agentFleetSummary — the ONE fleet line in Settings", () => {
     label: string,
     status: AgentDistroStatus | undefined,
     checking = false,
-  ) => ({ label, status, checking, receipt: undefined, ago: AGO });
+    receipt: AgentDistroReceipt | undefined = undefined,
+  ) => ({ label, status, checking, receipt, ago: AGO });
   /** The groups as the line reads, machines by name. */
   const said = (groups: ReturnType<typeof agentFleetSummary>) =>
     groups.map((g) => ({
@@ -668,6 +788,46 @@ describe("agentFleetSummary — the ONE fleet line in Settings", () => {
 
   it("no machines, no groups", () => {
     expect(agentFleetSummary([])).toEqual([]);
+  });
+
+  it("a ready machine whose last update failed is its own warning group — apart from plain ready, and from a delivery that failed", () => {
+    const profiles = [JUSPAY_PROFILE];
+    const failedRun: AgentDistroReceipt = {
+      events: [],
+      lastRun: { at: 4, outcome: "failed", words: "no route", by: "delivery" },
+    };
+    expect(
+      said(
+        agentFleetSummary([
+          host("naiveintent", ready([JUSPAY])),
+          host("devbox", ready([JUSPAY]), false, failedRun),
+          host("far", { kind: "error", profiles, message: "no route" }),
+          host("box", ready([JUSPAY])),
+        ]),
+      ),
+    ).toEqual([
+      {
+        key: "ready",
+        tone: "ok",
+        lead: "Ready on",
+        hosts: ["naiveintent", "box"],
+        trail: "",
+      },
+      {
+        key: "ready:update-failed",
+        tone: "warn",
+        lead: "",
+        hosts: ["devbox"],
+        trail: "ready, last update failed",
+      },
+      {
+        key: "failed",
+        tone: "warn",
+        lead: "",
+        hosts: ["far"],
+        trail: "failed",
+      },
+    ]);
   });
 });
 
@@ -787,6 +947,88 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
     expect(d?.canCheck).toBe(false);
   });
 
+  it("ready whose last update failed: kolu's words as the cause, that nothing is lost there, and when kolu tries again", () => {
+    const d = detail(
+      ready([JUSPAY]),
+      receipt({
+        lastRun: {
+          at: 5,
+          outcome: "failed",
+          words: "box could not pull the agents: ssh dropped",
+          by: "delivery",
+        },
+      }),
+    );
+    expect(d?.cause).toEqual({
+      by: "kolu's delivery",
+      headline: "box could not pull the agents: ssh dropped",
+      detail: [],
+    });
+    expect(d?.means).toBe(agentsUpdateFailedMeans("devbox", "delivery"));
+    expect(d?.means).toContain(AGENTS_DELIVERY_AGAIN);
+    expect(d?.canCheck).toBe(true);
+  });
+
+  it("ready whose last update failed with evidence: the first line is the cause, the rest its detail — the hover carries the first line only", () => {
+    const d = detail(
+      ready([JUSPAY]),
+      receipt({
+        lastRun: {
+          at: 5,
+          outcome: "failed",
+          words:
+            "the juspay profile: cannot build github:juspay/skills for x86_64-linux: error: 1 dependencies failed\nerror: builder for '/nix/store/a.drv' failed\n       > make: Error 1",
+          by: "delivery",
+        },
+      }),
+    );
+    expect(d?.cause).toEqual({
+      by: "kolu's delivery",
+      headline:
+        "the juspay profile: cannot build github:juspay/skills for x86_64-linux: error: 1 dependencies failed",
+      detail: [
+        "error: builder for '/nix/store/a.drv' failed",
+        "       > make: Error 1",
+      ],
+    });
+    expect(d?.state.title).toBe(
+      "last update failed @5 — kolu's delivery: the juspay profile: cannot build github:juspay/skills for x86_64-linux: error: 1 dependencies failed",
+    );
+  });
+
+  it("ready whose own updater failed: the cause is agent-distro's updater's, and kolu does not promise to retry it", () => {
+    const d = detail(
+      ready([JUSPAY]),
+      receipt({
+        lastRun: {
+          at: 5,
+          outcome: "failed",
+          words: "nix build exit 1",
+          by: "agent-distro",
+        },
+      }),
+    );
+    expect(d?.cause).toEqual({
+      by: "agent-distro's updater",
+      headline: "nix build exit 1",
+      detail: [],
+    });
+    expect(d?.means).toBe(agentsUpdateFailedMeans("devbox", "agent-distro"));
+    expect(d?.means).not.toContain(AGENTS_DELIVERY_AGAIN);
+  });
+
+  it("a failed last update stays the cause while a newer delivery runs", () => {
+    const d = detail(
+      ready([JUSPAY], PKG, true),
+      receipt({
+        lastRun: { at: 5, outcome: "failed", words: "no route", by: "padi" },
+      }),
+    );
+    expect(d?.cause).toEqual({ by: "padi", headline: "no route", detail: [] });
+    expect(d?.state.text).toBe(AGENTS_READY_DELIVERING);
+    expect(d?.canCheck).toBe(false);
+  });
+
   it("failed: the cause in kolu-server's words, what it means there, and a check to try again", () => {
     expect(
       detail({
@@ -801,11 +1043,24 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
         title: "the cache does not hold this package",
         tone: "warn",
       },
-      cause: "the cache does not hold this package",
+      cause: { headline: "the cache does not hold this package", detail: [] },
       means: `New terminals on devbox get no coding agents until this is fixed. ${AGENTS_DELIVERY_AGAIN}`,
       events: [],
       canCheck: true,
     });
+  });
+
+  it("failed with Nix's output: the cause split, and the state's hover is its first line", () => {
+    const d = detail({
+      kind: "error",
+      profiles: [JUSPAY_PROFILE],
+      message: "cannot build x: error: builder failed\n  > exit 1\n",
+    });
+    expect(d?.cause).toEqual({
+      headline: "cannot build x: error: builder failed",
+      detail: ["  > exit 1"],
+    });
+    expect(d?.state.title).toBe("cannot build x: error: builder failed");
   });
 
   it("delivering, checking and off say what they are, with nothing to do from here", () => {
@@ -845,6 +1100,12 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
       title: `${AGENTS_RECEIPT_UNREADABLE} — padi: the history file is not a history`,
       tone: "warn",
     });
+    expect(d?.cause).toEqual({
+      by: "padi",
+      headline: "the history file is not a history",
+      detail: [],
+    });
+    expect(d?.means).toBe(agentsHistoryUnreadableMeans("devbox"));
     expect(d?.events).toEqual([
       {
         when: "",

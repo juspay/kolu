@@ -145,6 +145,18 @@ Feature: Agents come with kolu
     Then the host tab should show no agents mark
     And there should be no page errors
 
+  Scenario: A machine whose last update failed says why in its host details
+    Given the terminal is ready
+    And this machine's agents update log records a failed update
+    When I click the settings button
+    And I turn Agents on
+    And I press Escape
+    And I click the host tab's agents mark
+    Then the agents section should say the last update failed
+    And the agents section should show that failure's cause in full
+    And the host tab's agents mark should warn that its last update failed
+    And there should be no page errors
+
   Scenario: A machine's name on the Agents fleet line opens its details, at a width with no host tabs
     Given the terminal is ready
     When I resize the viewport to 700x1200

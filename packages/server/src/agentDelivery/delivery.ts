@@ -34,6 +34,11 @@
 import { updateDue } from "@juspay/agent-distro/update/due";
 import type { UpdaterSchedule } from "@kolu/agent-distro/bake";
 import {
+  FAILURE_DETAIL_LINES,
+  failureMessage,
+  failureWords,
+} from "@kolu/agent-distro/failure";
+import {
   type DeliveredProfile,
   referencesOf,
   sameStack,
@@ -400,8 +405,20 @@ export function createAgentDelivery(deps: {
     run: Run,
   ): Promise<HostOutcome> => {
     const at = { host: host.label, agentDistroProfiles: stack };
-    const onProgress = (line: string) =>
+    // What the copies narrated — its last FAILURE_DETAIL_LINES lines and a
+    // count of the rest, all a failure can carry — kept so a ship or pull that
+    // fails with a bare reason ("exited with code 1") arrives with what it
+    // printed under it.
+    const narrated: string[] = [];
+    let unnarrated = 0;
+    const onProgress = (line: string) => {
+      narrated.push(line);
+      if (narrated.length > FAILURE_DETAIL_LINES) {
+        narrated.shift();
+        unnarrated++;
+      }
       log.debug({ ...at, line }, "agent-distro delivery");
+    };
     const superseded = async (): Promise<HostOutcome> => {
       log.info(
         { ...at, now: deps.setting().profiles },
@@ -417,8 +434,14 @@ export function createAgentDelivery(deps: {
       }).catch(() => {});
       return "superseded";
     };
-    const failed = async (message: string): Promise<HostOutcome> => {
+    const failed = async (cause: string): Promise<HostOutcome> => {
       if (!current(stack)) return await superseded();
+      // A cause that brings its own evidence (a lock or build failure: Nix's
+      // output) is sent as it is; a bare one gets the narration under it.
+      const message =
+        failureWords(cause).detail.length > 0
+          ? cause
+          : failureMessage(cause, narrated.join("\n"), unnarrated);
       log.warn({ ...at, message }, "agent-distro set not delivered");
       await report(host, { kind: "failed", profiles: stack, message }).catch(
         () => {},

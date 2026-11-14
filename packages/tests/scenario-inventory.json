@@ -10366,6 +10366,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "1a94f235035c37d41294d8bffed00c00085c38f0"
+    },
+    {
+      "revisionId": "revision-acbb6d4c748555c9c613",
+      "scenarioKey": "scenario-5074e1abdf2b52b0ff34",
+      "feature": "features/agents.feature",
+      "scenario": "A machine whose last update failed says why in its host details",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "b26a9a6c8cc912c74f2426d0595ef30857b5fba7783ec33050e6852daed71be9",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "d064a791feb538848f10761c796093e08a40058c"
     }
   ]
 }

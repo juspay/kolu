@@ -1,13 +1,15 @@
 /**
  * Test support: the files agent-distro's package and a built profile describe
  * themselves with, written the way upstream writes them — the inverse of
- * `./listing` and `./profileFile`, at the paths those modules name — and a
- * stand-in for the picker's `--list --json`. Every test that fakes a package
- * or a profile (this package's, padi's, kolu-server's boot read, the e2e
- * fixture) spells "its files" through here, so the layout and the formats are
- * written once on the test side too.
+ * `./listing` and `./profileFile`, at the paths those modules name — a failed
+ * line of a host's update log, and a stand-in for the picker's
+ * `--list --json`. Every test that fakes a package or a profile (this
+ * package's, padi's, kolu-server's boot read, the e2e fixture) spells "its
+ * files" through here, so the layout and the formats are written once on the
+ * test side too.
  */
 
+import { historyLine } from "@juspay/agent-distro/update/history";
 import { versionsFile } from "./bundle.ts";
 import type { AgentVersion } from "./listing.ts";
 import { type ProfileFile, profileFile } from "./profileFile.ts";
@@ -52,6 +54,13 @@ export function readFrom(
     if (text === undefined) throw new Error(`ENOENT: ${path}`);
     return text;
   };
+}
+
+/** A failed run's line in a host's update log, written by upstream's own
+ *  writer as agent-distro's updater appends it — what a fixture seeds to stand
+ *  in for a failed update. */
+export function failedUpdateLine(reason: string, date?: Date): string {
+  return historyLine(`failed: ${reason}`, date);
 }
 
 /** The profile the stand-in `--list --json` reports in effect for any
