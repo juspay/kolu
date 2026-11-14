@@ -32,7 +32,7 @@ Edit the page so it stays true. Do not append a paragraph describing your change
 ## Sentences and words
 
 13. **No sentence over 40 words [lint]**; aim for an average under 20.
-14. **At most one em-dash and one semicolon per sentence. [lint]**
+14. **At most one em-dash and one semicolon per sentence. [lint]** A pair of dashes around an aside counts as two: use parentheses or commas. The lint reads `--` as a dash too, since the site renders it as one.
 15. **Second person, present tense, active voice.** "You press…", "kolu shows…".
 16. **Bold is for words the reader sees on screen** (button and menu labels) and for a term at the point it is defined. Never for emphasis. No ALL-CAPS for emphasis either.
 17. **Plain words first.** An internal name (a package, a daemon, a tool id, a protocol) appears only if the reader types it or sees it, and is explained once in a short clause. Pick one word per thing and keep it.
@@ -117,7 +117,7 @@ A smaller case, showing rule 2. Before: "The model you choose **survives a resta
 >
 > Options: `{ socketPath, group, client, describe }`.
 >
-> - `socketPath` is a thunk — a function that returns the path — not a string. A daemon's path comes from its environment, so a path captured once could go stale.
+> - `socketPath` is a thunk (a function that returns the path), not a string. A daemon's path comes from its environment, so a path captured once could go stale.
 > - The connector owns the socket it dials: it hands it to `socketDuplexLink` as both halves. The socket's own `close` therefore resolves the connection's `closed`, and the session notices when its daemon dies. Dialling through `unixSocketLink` does not give you that.
 > - A dial answered with `ENOENT` or `ECONNREFUSED` throws `EndpointAbsentError`. It is a subclass of `ConnectError`, so every `instanceof ConnectError` check still matches it. It adds one fact: nothing is serving that path.
 
