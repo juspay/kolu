@@ -1803,6 +1803,23 @@ describe("deliverClosure — the route without a build", () => {
       expect(argvs().some(isRewrite)).toBe(false);
     });
 
+    it("a store whose version names no major.minor stops the delivery at its own seat, saying whose Nix it was — nothing rewritten or shipped", async () => {
+      mockNix({
+        senderStore: storeInfoOut("unknown"),
+        rewrite: rewriteOut,
+        ship: okOut(""),
+      });
+      expect(await deliver("ci@croissant")).toMatchObject({
+        ok: false,
+        kind: "not-delivered",
+        at: "sender",
+        reason:
+          'this machine\'s Nix store reported version "unknown", which names no major.minor',
+      });
+      expect(argvs().some(isRewrite)).toBe(false);
+      expect(argvs().some(isShip)).toBe(false);
+    });
+
     for (const [what, link] of [
       ["in another form", () => caRoot("2.35")],
       ["naming no form", () => caRoot().replace(/@2\.17$/, "")],

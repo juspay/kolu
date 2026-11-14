@@ -5,10 +5,10 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  asBuiltBecause,
   closureRoute,
   signedBecause,
   stagingRoute,
-  stagingSignedBecause,
 } from "./closureRoute";
 
 const IA = "/nix/store/1xxnk4wx89kk1cfyfnqgz8hg5msbz0gw-agent-distro-vanilla";
@@ -90,19 +90,19 @@ describe("stagingRoute", () => {
             targetStore,
           });
     const ca = (form: string) => ({ kind: "content-addressed", form });
-    const signed = (because: string) => ({ kind: "signed", because });
+    const asBuilt = (because: string) => ({ kind: "as-built", because });
     expect(seen).toEqual({
       [`${OLD} ${OLD} ${OLD}`]: ca("2.17"),
       [`${NEW} ${NEW} ${NEW}`]: ca("2.35"),
       // This machine's nix and its own store disagree: nothing it rewrites
       // lands, whatever the host runs (#2368).
-      [`${OLD} ${NEW} ${OLD}`]: signed("sender-nix"),
-      [`${OLD} ${NEW} ${NEW}`]: signed("sender-nix"),
-      [`${NEW} ${OLD} ${OLD}`]: signed("sender-nix"),
-      [`${NEW} ${OLD} ${NEW}`]: signed("sender-nix"),
+      [`${OLD} ${NEW} ${OLD}`]: asBuilt("sender-nix"),
+      [`${OLD} ${NEW} ${NEW}`]: asBuilt("sender-nix"),
+      [`${NEW} ${OLD} ${OLD}`]: asBuilt("sender-nix"),
+      [`${NEW} ${OLD} ${NEW}`]: asBuilt("sender-nix"),
       // This machine agrees with itself; the host does not.
-      [`${OLD} ${OLD} ${NEW}`]: signed("target-nix"),
-      [`${NEW} ${NEW} ${OLD}`]: signed("target-nix"),
+      [`${OLD} ${OLD} ${NEW}`]: asBuilt("target-nix"),
+      [`${NEW} ${NEW} ${OLD}`]: asBuilt("target-nix"),
     });
   });
 
@@ -123,21 +123,22 @@ describe("stagingRoute", () => {
     ).toEqual({ kind: "content-addressed", form: "2.35" });
   });
 
-  it("a Nix older than 2.17, or one that reported no version, anywhere is the closure sent as built", () => {
-    for (const old of ["2.16.3", null])
-      for (const nix of [
-        { cli: old, senderStore: "2.34.9", targetStore: "2.34.9" },
-        { cli: "2.34.8", senderStore: old, targetStore: "2.34.9" },
-        { cli: "2.34.8", senderStore: "2.34.9", targetStore: old },
-      ])
-        expect(stagingRoute(nix).kind).toBe("signed");
+  it("a Nix older than 2.17 anywhere, or a store that reported no version, is the closure sent as built", () => {
+    for (const nix of [
+      { cli: "2.16.3", senderStore: "2.34.9", targetStore: "2.34.9" },
+      { cli: "2.34.8", senderStore: "2.16.3", targetStore: "2.34.9" },
+      { cli: "2.34.8", senderStore: "2.34.9", targetStore: "2.16.3" },
+      { cli: "2.34.8", senderStore: null, targetStore: "2.34.9" },
+      { cli: "2.34.8", senderStore: "2.34.9", targetStore: null },
+    ])
+      expect(stagingRoute(nix).kind).toBe("as-built");
   });
 });
 
-describe("stagingSignedBecause", () => {
+describe("asBuiltBecause", () => {
   it("names both Nixes that disagree", () => {
     expect(
-      stagingSignedBecause("sender-nix", {
+      asBuiltBecause("sender-nix", {
         cli: "2.34.8",
         senderStore: "2.35.6",
         targetStore: "2.34.9",
@@ -146,7 +147,7 @@ describe("stagingSignedBecause", () => {
       "this machine's Nix daemon (2.35.6) does not verify the content-addressed form its nix 2.34.8 writes",
     );
     expect(
-      stagingSignedBecause("target-nix", {
+      asBuiltBecause("target-nix", {
         cli: "2.35.6",
         senderStore: "2.35.6",
         targetStore: "2.34.9",
@@ -157,13 +158,15 @@ describe("stagingSignedBecause", () => {
   });
 
   it("never names a version a Nix did not report", () => {
-    const words = stagingSignedBecause("target-nix", {
-      cli: "2.34.8",
-      senderStore: "2.34.8",
-      targetStore: null,
-    });
-    expect(words).toContain("reporting no version");
-    expect(words).not.toContain("null");
+    expect(
+      asBuiltBecause("target-nix", {
+        cli: "2.34.8",
+        senderStore: "2.34.8",
+        targetStore: null,
+      }),
+    ).toBe(
+      "its Nix, which reported no version, does not verify the content-addressed form this machine's Nix 2.34.8 writes",
+    );
   });
 });
 

@@ -27,27 +27,41 @@
  *      NEVER substitutes (the old fused `--realise` did — the #1908 wedge). If
  *      GC races the check, restoration belongs to the required step-5 root
  *      commit, narrated as provisioning.
- *   2. Stage the closure in the sender's store, by the target's SYSTEM:
- *      - a Linux target gets the CONTENT-ADDRESSED form: `nix store
- *        make-content-addressed --json [--from <declared cache>] <out>`
- *        rewrites the closure into the sender's store, reading it from the
- *        local store when it is there and straight from each declared cache
- *        otherwise. A content-addressed path's name IS its content's hash, so
- *        every Nix store takes it from anyone — no `trusted-users`, no
- *        signature, no key (the Nix manual: `make-content-addressed`,
- *        `require-sigs`). Neither the sender's Nix nor the target's needs to
- *        trust anything. The rewritten closure is rooted in the sender's store
- *        behind a link per output path ({@link contentAddressedRoot}), which
- *        is also the record of the rewrite: a warm target is asked about the
- *        content-addressed path, and a new one is shipped it, without reading
- *        the cache again — across restarts too;
- *      - a darwin target keeps the SIGNED input-addressed closure: `nix copy
- *        --from <declared cache>` into the sender's store. Rewriting a Mach-O
- *        file invalidates its code signature, and arm64 macOS kills an
- *        executable whose signature does not verify; `make-content-addressed`
- *        does not re-sign (unverified on a Mac when this route was chosen —
- *        no darwin machine was reachable; if a rewritten bundle is shown to
- *        run there, drop this branch and ship content-addressed everywhere).
+ *   2. Stage the closure in the sender's store, by the target's SYSTEM and
+ *      the Nix versions that would handle a rewrite ({@link chooseStaging}):
+ *      - a Linux target whose Nix and this machine's handle the SAME
+ *        content-addressed form — this machine's `nix` (which computes a
+ *        rewrite's hash, `nix --version`), this machine's store (which
+ *        re-verifies it, `nix store info --json`: its daemon's version) and
+ *        the target's store (which verifies the ship, the same over
+ *        `ssh-ng://`), all asked fresh each delivery — gets the
+ *        CONTENT-ADDRESSED form: `nix store make-content-addressed --json
+ *        [--from <declared cache>] <out>` rewrites the closure into the
+ *        sender's store, reading it from the local store when it is there
+ *        and straight from each declared cache otherwise. A content-addressed
+ *        path's name IS its content's hash, so a store on that form takes it
+ *        from anyone — no `trusted-users`, no signature, no key (the Nix
+ *        manual: `make-content-addressed`, `require-sigs`). But only a store
+ *        on that form: Nix 2.35 changed how a self-referencing path is
+ *        hashed, and a Nix on one side of it refuses the other's rewrite
+ *        (`closureRoute.ts`'s `CA_FORMS`) — so no rewrite is made that one of
+ *        the three is known to refuse. The rewritten closure is rooted in the
+ *        sender's store behind a link per output path and form
+ *        ({@link contentAddressedRoot}), which is also the record of the
+ *        rewrite: a warm target is asked about the content-addressed path,
+ *        in whichever form, and a new one is shipped it, only while its form
+ *        is still the route's, without reading the cache again — across
+ *        restarts too;
+ *      - every other target keeps the input-addressed closure AS BUILT (signed
+ *        when a cache signed it, by no one when this machine built it):
+ *        `nix copy --from <declared cache>` into the sender's store. That is
+ *        a darwin target — rewriting a Mach-O file invalidates its code
+ *        signature, and arm64 macOS kills an executable whose signature does
+ *        not verify; `make-content-addressed` does not re-sign (unverified on
+ *        a Mac when this route was chosen — no darwin machine was reachable;
+ *        if a rewritten bundle is shown to run there, drop that branch) — a
+ *        target whose system nobody named, and a Linux target whose Nix and
+ *        this machine's do not handle one form.
  *      The sender-local store is the one seat where the derivation's REQUIRED
  *      `binaryCache` can act (a remote realisation substitutes per the REMOTE
  *      daemon's own nix.conf; client settings never participate). A miss
@@ -56,10 +70,10 @@
  *      the target — step 4's build would NOT (it copies only the .drv
  *      closure; locally-valid outputs are never consulted, verified live).
  *      Lands cross-arch (copying executes nothing). A content-addressed ship
- *      is taken by any daemon. A darwin target's daemon must trust the ssh
- *      user or the NAR signatures — a refusal narrates the real levers and
- *      step 4 realises on the host. Runs only when the closure is provably
- *      valid LOCALLY.
+ *      is taken by any daemon on its form. A target sent the closure as built
+ *      must trust the ssh user or the NAR signatures — a refusal narrates the
+ *      real levers and step 4 realises on the host. Runs only when the
+ *      closure is provably valid LOCALLY.
  *   4. One `nix build --eval-store auto --store ssh-ng://$host` evaluates
  *      locally, transfers the derivation, and realises it remotely. One Nix
  *      process owns the temporary roots across that whole handoff, so a
@@ -75,7 +89,7 @@
  *      This command is the provisioning commit point: any failure is returned,
  *      and no agent path escapes unrooted.
  *      See `agentGcRootPath` for the "latest"-link semantics.
- *   Spawn: the rooted path (the content-addressed one on a Linux target)
+ *   Spawn: the rooted path (the content-addressed one when it travelled so)
  *      becomes `agentPath`; the caller then spawns
  *      `ssh $host $agentPath/bin/<binary> --stdio` via the connector.
  *
@@ -110,15 +124,17 @@ import {
   readPublishedClosure,
 } from "./closureIndex";
 import {
+  asBuiltBecause,
   type CaForm,
   type ClosureRoute,
   closureRoute,
   isDarwinSystem,
   MACH_O_BECAUSE,
+  namesNixLine,
   type StagingNix,
   signedBecause,
   stagingRoute,
-  stagingSignedBecause,
+  UNKNOWN_SYSTEM_BECAUSE,
 } from "./closureRoute";
 import {
   forEachLine,
@@ -707,10 +723,11 @@ export async function checkValidity(
   return "absent";
 }
 
-/** What a Nix version probe answered: the version (`null` when the store
- *  named none), Nix's words for why it could not say, or the dial's abort. */
-type NixVersionProbe =
-  | { readonly kind: "version"; readonly version: string | null }
+/** What a Nix version probe answered: the version (`V` — a store may name
+ *  none, `nix --version` always names one), Nix's words for why it could not
+ *  say, or the dial's abort. */
+type NixVersionProbe<V extends string | null> =
+  | { readonly kind: "version"; readonly version: V }
   | { readonly kind: "failed"; readonly reason: string }
   | { readonly kind: "aborted" };
 
@@ -721,7 +738,7 @@ type NixVersionProbe =
 async function storeNixVersion(
   remote: { readonly host: string; readonly keepalive: SshKeepalive } | null,
   signal: AbortSignal | undefined,
-): Promise<NixVersionProbe> {
+): Promise<NixVersionProbe<string | null>> {
   const res = await runNix(
     "localhost",
     [
@@ -768,7 +785,7 @@ async function storeNixVersion(
  *  rewrite's hash: the last word of `nix --version` (`nix (Nix) 2.34.8`). */
 async function cliNixVersion(
   signal: AbortSignal | undefined,
-): Promise<NixVersionProbe> {
+): Promise<NixVersionProbe<string>> {
   const res = await runNix("localhost", ["nix", "--version"], {
     policy: probePolicy(),
     signal,
@@ -1534,10 +1551,6 @@ type StagingChoice =
     }
   | { readonly kind: "aborted"; readonly step: string };
 
-/** Why a target whose system nobody named is sent the closure as built. */
-const UNKNOWN_SYSTEM_BECAUSE =
-  "nobody named its Nix system, so it is sent the form every store can run";
-
 /** Decide how the closure travels to a target on `system` (see
  *  {@link stagingRoute}): a darwin target, or one whose system nobody named,
  *  takes it as built; a Linux target takes it content-addressed only when
@@ -1558,23 +1571,30 @@ async function chooseStaging(opts: {
     return { kind: "as-built", because: UNKNOWN_SYSTEM_BECAUSE };
   if (isDarwinSystem(opts.system))
     return { kind: "as-built", because: MACH_O_BECAUSE };
-  // One probe's answer, or the choice its failure makes.
-  const ask = async (
+  // One probe's answer, or the choice its failure makes. A version that names
+  // no `major.minor` is that Nix's fault, stopped here at its seat — never
+  // thrown out of the route below.
+  const ask = async <V extends string | null>(
     at: "sender" | "target",
     what: string,
-    probe: Promise<NixVersionProbe>,
+    probe: Promise<NixVersionProbe<V>>,
   ): Promise<
-    | { readonly kind: "version"; readonly version: string | null }
+    | { readonly kind: "version"; readonly version: V }
     | Extract<StagingChoice, { kind: "unasked" | "aborted" }>
   > => {
     const res = await probe;
     if (res.kind === "aborted")
       return { kind: "aborted", step: `asking ${what} its version` };
-    if (res.kind === "failed") {
-      const reason = `could not ask ${what} its version: ${res.reason}`;
+    const stop = (reason: string) => {
       opts.narrate(reason);
-      return { kind: "unasked", at, reason };
-    }
+      return { kind: "unasked", at, reason } as const;
+    };
+    if (res.kind === "failed")
+      return stop(`could not ask ${what} its version: ${res.reason}`);
+    if (res.version !== null && !namesNixLine(res.version))
+      return stop(
+        `${what} reported version ${JSON.stringify(res.version)}, which names no major.minor`,
+      );
     return res;
   };
   const cli = await ask(
@@ -1607,7 +1627,7 @@ async function chooseStaging(opts: {
   };
   const route = stagingRoute(nix);
   if (route.kind === "content-addressed") return route;
-  const because = stagingSignedBecause(route.because, nix);
+  const because = asBuiltBecause(route.because, nix);
   opts.narrate(`sending the closure as built: ${because}`);
   return { kind: "as-built", because };
 }
