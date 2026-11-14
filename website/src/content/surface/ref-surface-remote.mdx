@@ -367,63 +367,69 @@ A stateful cursor, and the raw-loop primitive under the pump. `cursor.next(signa
 
 ## The fleet fan-out
 
-| Export | Subpath | Role |
+Two exports turn many sessions into one fleet: a keyed pool of sessions, and the adapter that publishes them as a host map.
+
+| Export | Subpath | What it is |
 | --- | --- | --- |
-| `buildRemotePool(opts)` | `.` | keyed `Map<host, { session, handler }>` a `?host=` dispatcher reads; `add`/`remove`/`retire`/`reconnect`/`recheckAll` + per-host socket eviction |
-| `serveHostMap(map, pool, opts)` | `.` | adapt a pool into a `@kolu/surface-map` `MapRegistry`: fuse membership with each session's `onState`, project each state (reading the `clockOffset` the session's own `connected` arm carries) into an entry status |
+| [`buildRemotePool(opts)`](#buildremotepoolopts) | `.` | The keyed pool of sessions a `?host=` dispatcher reads. |
+| [`serveHostMap(map, pool, opts)`](#servehostmapmap-pool-opts) | `.` | Publishes that pool as a `@kolu/surface-map` registry. |
 
-`buildRemotePool` takes `{ buildEntry, persist?, controls? }`; `buildEntry(host)`
-returns the host's `{ session, handler }`. `remove(host)` and `retire(host)` share the
-**same** teardown mechanics (evict sockets, drop membership, destroy the session), and
-differ in two ways: `remove` is the **user's** departure — it calls the `persist` hook
-first — while `retire` is an **internal** shed (a dead session the pool sheds on its
-own) that does **not** persist, so a membership store re-seeds the host next boot; and
-each verb labels its own WebSocket close reason and log line (`host removed` vs
-`host retired`). A pool with no `persist` hook makes them behave the same on disk —
-neither writes — though the close reason and log still name the verb.
-`serveHostMap` takes `{ linkFor, failureOf, connection? }`; `linkFor(host, session)` is built
-once per host and evicted on **either** removal or retirement (both drop live membership).
-There is no `offsetOf` option: `makeSession` measures the far-end clock offset off the
-framework-reserved `system.clockNow` at admit and carries it on the session's own
-`connected` state, which `serveHostMap` reads directly. Readiness is link-liveness: the
-entry is `connected` the moment its link is live, carrying `clockOffset: null` through
-(honest not-yet-measured) until the first probe stamps it — never demoted to `connecting`.
-`failureOf(host, session, state)` is **required and total**: it returns `null` for a
-transient down state (keep the entry warming — a single-meaning null, a classification
-verdict, never a fabrication) and a schema-valid domain `Failure` for a standing one. A
-terminal `failed` state that yields `null` fails loud with `UnclassifiedHostFailureError`
-(a failed entry cannot exist without a domain failure); the distinct member-with-no-session
-(unknown-host) race fails loud with `UnclassifiedHostSessionError`. There is no `"other"`
-fallback cause.
+### `buildRemotePool(opts)`
 
-`failureOf` is invoked **fresh on every resolve** — potentially once per member per
-sibling's tick, with nothing held or cached against a frame. That is safe because the
-O(M²) re-publish risk (every failed member re-publishing on every sibling's tick) is
-closed one layer down: `@kolu/surface-map`'s republish gate compares the published
-status **structurally** (`dequal`), so a classifier that mints a fresh-but-equal literal
-per call — every real one does — is suppressed by the gate itself rather than by an
-adapter-side hold this module would otherwise have to keep in sync with the gate.
+A keyed `Map<host, { session, handler }>` that a `?host=` dispatcher reads. Its verbs are `add`/`remove`/`retire`/`reconnect`/`recheckAll`, plus per-host socket eviction.
 
-At that same classification seam, `serveHostMap` mints the failure's **evidence**: the
-session frame's retained `log` tail — the very frame `failureOf` just classified — is
-stapled onto the published failure record as `evidence` (see `@kolu/surface-map`'s
-`FailureEvidence`). Both down arms get it: a terminal `failed`, and a `disconnected` the
-classifier called a standing refuse (which publishes as `failed` too). A transient
-`disconnected` publishes `warming` and carries neither a reason nor evidence. Because
-`SessionState.log` is structurally identical to `FailureEvidence`, `raw.log` is passed
-straight through — there is no injected evidence hook and no second evidence pipe to keep
-in sync. The tail is pinned at classification (a post-mortem record, not a live view), so
-it survives the client's liveness floor with the reason it belongs to, whereas the live
-`connection` word is dropped over a dead link.
+Options: `{ buildEntry, persist?, controls? }`. `buildEntry(host)` returns the host's `{ session, handler }`.
 
-The fail-loud seams above are genuine producer defects, so they **crash the process** even when
-raised deep in the internal per-member republish: the loop catches synchronously (so one
-member's defect never freezes a sibling's status stream mid-frame) and then rethrows
-out-of-band on the next microtask, an uncaught exception — never a swallowed
-`console.error` that would let the server degrade to a stale-but-healthy status. Together
-they are the server half
-of a host map — see
-[How to serve a map](/surface/serve-a-map).
+#### `remove(host)` and `retire(host)`
+
+Both share the same teardown mechanics: evict sockets, drop membership, destroy the session. They differ in two ways.
+
+- `remove` is the user's departure. It calls the `persist` hook first.
+- `retire` is an internal shed, a dead session the pool sheds on its own. It does not persist, so a membership store re-seeds the host next boot.
+- Each verb labels its own WebSocket close reason and log line: `host removed` or `host retired`.
+- A pool with no `persist` hook makes them behave the same on disk, since neither writes. The close reason and log still name the verb.
+
+### `serveHostMap(map, pool, opts)`
+
+Adapts a pool into a `@kolu/surface-map` `MapRegistry`. It fuses membership with each session's `onState` and projects each state into an entry status, reading the `clockOffset` the session's own `connected` arm carries.
+
+Options: `{ linkFor, failureOf, connection? }`.
+
+- `linkFor(host, session)` is built once per host, and evicted on either removal or retirement, since both drop live membership.
+- There is no `offsetOf` option. `makeSession` measures the far-end clock offset off the framework-reserved `system.clockNow` at admit and carries it on the session's own `connected` state, which `serveHostMap` reads directly.
+- Readiness is link-liveness. The entry is `connected` the moment its link is live, carrying `clockOffset: null` through (honestly not yet measured) until the first probe stamps it, and it is never demoted to `connecting`.
+- Together with `buildRemotePool` it is the server half of a host map. See [How to serve a map](/surface/serve-a-map).
+
+#### `failureOf(host, session, state)`
+
+Required and total. It classifies a down session, and the registry publishes what it returns.
+
+| It returns | For |
+| --- | --- |
+| `null` | A transient down state: keep the entry warming. One meaning only, a classification verdict, never a fabrication. |
+| A schema-valid domain `Failure` | A standing down state. |
+
+- A terminal `failed` state that yields `null` fails loud with `UnclassifiedHostFailureError`: a failed entry cannot exist without a domain failure.
+- The distinct member-with-no-session (unknown-host) race fails loud with `UnclassifiedHostSessionError`.
+- There is no `"other"` fallback cause.
+- It is invoked fresh on every resolve, potentially once per member per sibling's tick, with nothing held or cached against a frame.
+- That is safe because `@kolu/surface-map`'s republish gate compares the published status structurally (`dequal`). A classifier that mints a fresh-but-equal literal per call, as every real one does, is suppressed by the gate rather than by an adapter-side hold this module would have to keep in sync with it.
+
+#### The failure's evidence
+
+At the same classification seam, `serveHostMap` staples the session frame's retained `log` tail, the very frame `failureOf` just classified, onto the published failure record as `evidence` (see `@kolu/surface-map`'s `FailureEvidence`).
+
+- Both down arms get it: a terminal `failed`, and a `disconnected` the classifier called a standing refuse, which publishes as `failed` too.
+- A transient `disconnected` publishes `warming` and carries neither a reason nor evidence.
+- `SessionState.log` is structurally identical to `FailureEvidence`, so `raw.log` is passed straight through. There is no injected evidence hook and no second evidence pipe.
+- The tail is pinned at classification, a post-mortem record rather than a live view, so it survives the client's liveness floor with the reason it belongs to. The live `connection` word is dropped over a dead link.
+
+#### The fail-loud seams
+
+Both unclassified errors are genuine producer defects, so they crash the process even when raised deep in the internal per-member republish.
+
+- The loop catches synchronously, so one member's defect never freezes a sibling's status stream mid-frame.
+- It then rethrows out-of-band on the next microtask, as an uncaught exception, never a swallowed `console.error` that would let the server degrade to a stale-but-healthy status.
 
 ## Connection health — the host-map entry's fine payload
 

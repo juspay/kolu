@@ -52,3 +52,24 @@ None (`.waterfall/compare.mjs`: 0 missing).
 ### Dropped code spans
 
 None.
+
+## The fleet fan-out
+
+- Old lines 293–352 at `f50641c6a`. Section words: 627 → 672.
+- Two index rows, two `###` entries (`buildRemotePool(opts)`, `serveHostMap(map, pool, opts)`), with `####` sections: `remove(host)` and `retire(host)`, `failureOf(host, session, state)`, The failure's evidence, The fail-loud seams. `failureOf`'s two return cases became a table.
+- Headings renamed: none (the `##` heading is unchanged). No inbound links point into this section.
+- Comparison: 0 missing.
+
+### Moved
+
+None. The two short reasons kept (the republish gate, the pinned tail) explain constraints the reader acts on.
+
+### Cut
+
+| Fact | Tag |
+| --- | --- |
+| "the O(M²) re-publish risk (every failed member re-publishing on every sibling's tick) is closed one layer down" as an argument; the behaviour (the structural `dequal` gate) is kept | rationale |
+
+### Dropped code spans
+
+None.
