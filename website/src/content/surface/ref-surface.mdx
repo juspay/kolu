@@ -2528,107 +2528,88 @@ projection vocabulary to reach them.
 
 ## Liveness and health
 
-Liveness is on by construction. The reserved `system/live` member
-(`@kolu/surface/liveness`) is a surface-agnostic round-trip a client watchdog
-calls to tell a live link from a silently half-open one — no app nominates its
-own probe. `probeSurfaceLive(client)` is the one-liner that calls it (it walks
-`.surface.system.live` structurally); the socket and ssh seams default their
-watchdog to it. `probeSurfaceIdentity(client)` is its `system/identity` twin,
-returning the `identified | anonymous` union `implementSurface`'s `identity`
-option declares — both arms carrying `startedAt` (the UPTIME axis) and
-`processId` (the RESTART axis).
+Every surface answers a reserved liveness member, and a client watchdog calls it. `client.health()` reports what is true, and [the readout](#the-readout) folds that into the one verdict a connection indicator may say.
 
-`surfaceProcessId()` (`@kolu/surface/identity`) is that `processId`: a nonce minted
-once per process, on first read. It is what the reserved member answers with, what
-a surface app's client echoes back as `?pid=` on every reconnect, and what
-`gateStaleSocket` compares a reconnecting claim against — one value, read from one
-place, so a stale-tab handshake cannot come to compare two unrelated strings.
-There is deliberately no way to inject one: a process has one identity, and
-anything that wants to stamp a log line with it reads it from here. It is
-DISTINCT from `startedAt` on purpose — two processes can start in the same
-millisecond, and a timestamp read as an identity is a near-miss waiting to
-happen.
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`probeSurfaceLive(client)`](#probesurfaceliveclient--probesurfaceidentityclient) | `@kolu/surface/liveness` | The round trip that tells a live link from a half-open one. |
+| [`probeSurfaceIdentity(client)`](#probesurfaceliveclient--probesurfaceidentityclient) | `@kolu/surface/liveness` | The identity twin of that probe. |
+| [`surfaceProcessId()`](#surfaceprocessid) | `@kolu/surface/identity` | This process's identity nonce. |
+| [`monotonicNow()`](#monotonicnow) | `@kolu/surface/time` | The shared monotonic clock. |
+| [`createLiveSignal(transport, opts)`](#createlivesignaltransport-opts) | `@kolu/surface/solid` | The watchdog-backed live signal for a wire. |
+| [`client.health()`](#clienthealth) | `.` | What is true of the transport and every enrolled subscription. |
 
-`monotonicNow()` (`@kolu/surface/time`) is the shared monotonic-clock primitive
-both the heartbeat's suspension check and a consumer's own dead-man ceiling clock
-read — `performance.now()` where present, else `Date.now()`. It lives in its own
-neutral module (not `@kolu/surface/heartbeat`) so neither the heartbeat nor a
-downstream watchdog reaches into the other for the clock; both import it from here.
+### `probeSurfaceLive(client)` / `probeSurfaceIdentity(client)`
 
-`createLiveSignal(transport, opts)` (`@kolu/surface/solid`) is the sole minter of
-the branded `LiveSignalHandle` — the watchdog-backed `live` paired by construction
-with the `dispatch` it probes. Its one option beyond the heartbeat tuning is
-**`siblingKey?: () => string | undefined`**: on a composed wire, which sibling's
-scoped `system/live` the probe addresses.
+`probeSurfaceLive(client)` calls the reserved `system/live` member: a surface-agnostic round trip a client watchdog uses to tell a live link from a silently half-open one.
 
-It is a **thunk**, re-read on every probe, and that is not decoration. A watchdog
-outlives the wire underneath it when that wire
-[follows a roster](#a-wire-that-follows-its-generations--followingwire): which
-siblings a generation serves is a fact about *that* generation, so a key resolved
-once at construction would keep probing a member the current generation no longer
-carries — and the "unknown tag" answer reads as a dead wire, which is a watchdog
-reporting the opposite of the truth. Resolve to `undefined` **or** omit the
-option — one door, two spellings, and they mean the same thing: the bare
-`surface/system/live`, which is a single-surface wire, or a rooted bundle where
-the root is on every serve this wire can reach. A wire whose roster cannot move
-passes a constant thunk and pays nothing.
+- It walks `.surface.system.live` structurally. No app nominates its own probe.
+- The socket and ssh seams default their watchdog to it.
+- `probeSurfaceIdentity(client)` is the `system/identity` twin. It returns the `identified | anonymous` union that `implementSurface`'s `identity` option declares.
+- Both arms carry `startedAt` (the uptime axis) and `processId` (the restart axis).
 
-`client.health()` returns a **fact**, not a verdict:
-`{ live: boolean, subs: [{ name, pending, error }] }`. `live` is the full
-conjunction of transport-live and every readiness predicate; a subscription
-error stays in `subs` and is never folded into `live`. This is what lets the
-UI stay honest — see [Reactive honesty](/surface/reactive-honesty).
+### `surfaceProcessId()`
+
+The `processId` the reserved identity member answers with: a nonce minted once per process, on first read.
+
+- A surface app's client echoes it back as `?pid=` on every reconnect, and `gateStaleSocket` compares a reconnecting claim against it.
+- There is no way to inject one. A process has one identity, read from one place, so a stale-tab handshake cannot compare two unrelated strings.
+- Anything that stamps a log line with a process identity reads it from here.
+- It is distinct from `startedAt`, because two processes can start in the same millisecond, and a timestamp read as an identity is a near-miss waiting to happen.
+
+### `monotonicNow()`
+
+The shared monotonic-clock primitive: `performance.now()` where present, else `Date.now()`.
+
+- The heartbeat's suspension check and a consumer's own dead-man ceiling clock both read it.
+- It lives in its own neutral module rather than in `@kolu/surface/heartbeat`, so neither the heartbeat nor a downstream watchdog reaches into the other for the clock.
+
+### `createLiveSignal(transport, opts)`
+
+The sole minter of the branded `LiveSignalHandle`: a watchdog-backed `live`, paired by construction with the `dispatch` it probes.
+
+Beyond the heartbeat tuning it takes one option, `siblingKey?: () => string | undefined`: on a composed wire, which sibling's scoped `system/live` the probe addresses.
+
+- `siblingKey` is a thunk, re-read on every probe. A watchdog outlives the wire underneath it when that wire [follows a roster](#followingwire), and which siblings a generation serves is a fact about that generation.
+- A key resolved once at construction would keep probing a member the current generation no longer carries. The "unknown tag" answer then reads as a dead wire, which is the opposite of the truth.
+- Resolve to `undefined` or omit the option: the two spellings mean the same thing, the bare `surface/system/live`. That is a single-surface wire, or a rooted bundle whose root is on every serve this wire can reach.
+- A wire whose roster cannot move passes a constant thunk and pays nothing.
+
+### `client.health()`
+
+Returns a fact, not a verdict: `{ live: boolean, subs: [{ name, pending, error }] }`.
+
+- `live` is the full conjunction of transport-live and every readiness predicate.
+- A subscription error stays in `subs` and is never folded into `live`. That is what lets the UI stay honest. Why: [Reactive honesty](/surface/reactive-honesty).
 
 ### The readout
 
-The fact answers *what is true*; the **readout** (`@kolu/surface/solid`) is the
-one verdict the framework does own, because it is the one an app kept getting
-wrong: what a connection indicator may say. It folds the transport's four states
-together with the fact into five, and `connectSurface` / `connectSurfaces` hand it
-back in place of a transport-only `status`.
+The fact answers what is true. The readout (`@kolu/surface/solid`) is the one verdict the framework owns: what a connection indicator may say. It folds the transport's four states together with the fact into five, and `connectSurface` / `connectSurfaces` hand it back in place of a transport-only `status`.
 
 | Export | Type | Meaning |
 | --- | --- | --- |
 | `SurfaceReadoutStatus` | `"connecting" \| "live" \| "degraded" \| "reconnecting" \| "retired"` | the five states. Type your wording table `Record<SurfaceReadoutStatus, …>` and a new state is a type error in your file, not a silent default |
 | `SurfaceReadout` | `TransportReadout \| DegradedReadout` | `{ status, presentingDown, needsReload }`, plus `stopped` on the degraded arm |
-| `surfaceReadout(status, health, presentingDown)` | `→ SurfaceReadout` | the pure fold — unit-test your look table against every state without a wire. The graced bit is passed IN (the pure fold owns no clock) |
-| `createSurfaceReadout(status, health)` | `→ { readout, dispose }` | the memoized accessor over the two reactive facts, in a root of its own. It also derives `presentingDown` ONCE, so no consumer has to remember the grace policy |
-| `DISCONNECT_OVERLAY_GRACE_MS` | `number` | 1 000. The one grace window `presentingDown` folds over — baked, never a knob |
+| `surfaceReadout(status, health, presentingDown)` | `→ SurfaceReadout` | the pure fold. Unit-test your look table against every state without a wire. The graced bit is passed in, because the pure fold owns no clock |
+| `createSurfaceReadout(status, health)` | `→ { readout, dispose }` | the memoized accessor over the two reactive facts, in a root of its own. It also derives `presentingDown` once, so no consumer has to remember the grace policy |
+| `DISCONNECT_OVERLAY_GRACE_MS` | `number` | 1 000. The one grace window `presentingDown` folds over. Baked, never a knob |
 
-- **`live` is the conjunction.** The socket is live, the fact agrees, and nothing
-  enrolled is erroring. A socket that is open and answering under a dead
-  subscription reads `degraded`, not `live` — that gap is where the
-  green-light-over-an-empty-collection bug lives.
-- **`degraded` names what stopped**: `stopped` carries the erroring subscriptions'
-  own names (`documents.keys`, `terminals[3]`, and across siblings
-  `surfaceApp/buildInfo`), non-empty by type, so an indicator can always say what
-  is missing rather than that "something" is.
-- **Pending does not degrade.** A subscription waiting for its first frame is what
-  every page load looks like. This is a universal default and not app policy —
-  unlike `gateStatus`, the *gate's* verdict, where a pending first frame
-  legitimately blocks the body.
-- **`presentingDown` is the GRACED down-state** — the bit a full-screen overlay
-  gates on. It is `false` while `status` is `live` or `degraded`, and once `status`
-  has been continuously not-live for `DISCONNECT_OVERLAY_GRACE_MS` (1 s) it turns
-  `true`; a recovery flips it back INSTANTLY, with no second window. It exists
-  because every app that read `status` directly flashed a full-screen alarm for
-  every sub-second watchdog forced-reconnect (the half-open recovery, a Wi-Fi
-  roam), and every app that smoothed it by hand re-derived the same number.
-  `createSurfaceReadout` derives it once, from the same window, for `connectSurface`
-  / `connectSurfaces` and every consumer of a readout — so the policy cannot be
-  forgotten. A **retired** readout presents IMMEDIATELY (a retired wire never
-  re-dials; there is nothing a grace window could hold back) — the frozen
-  `retired` readout a disposed connection hands back is `true` for the same
-  reason, and the two cannot disagree.
-- **`status` itself stays INSTANTANEOUS.** The header dot, the heartbeat probe
-  gate and the client read the raw state with no delay; only the overlay gate is
-  graced. Do not debounce `status`.
-- **`needsReload`** is true for `retired` and nothing else: the one state a reload,
-  and only a reload, recovers. Read it rather than keeping a list of which states
-  are terminal — a list read `down` as transient once, and drew "reconnecting…"
-  over a page that never would.
-- **The app owns the look.** Which words, which colours, whether the names go in a
-  tooltip or a strip. The framework owns which state is true.
+- `live` is the conjunction. The socket is live, the fact agrees, and nothing enrolled is erroring. A socket that is open and answering under a dead subscription reads `degraded`, not `live`.
+- `degraded` names what stopped. `stopped` carries the erroring subscriptions' own names (`documents.keys`, `terminals[3]`, and across siblings `surfaceApp/buildInfo`), non-empty by type, so an indicator can always say what is missing rather than that "something" is.
+- Pending does not degrade. A subscription waiting for its first frame is what every page load looks like. This is a universal default, not app policy. It differs from `gateStatus`, the gate's verdict, where a pending first frame legitimately blocks the body.
+- `status` itself stays instantaneous. The header dot, the heartbeat probe gate and the client read the raw state with no delay, and only the overlay gate is graced. Do not debounce `status`.
+- `needsReload` is true for `retired` and nothing else: the one state a reload, and only a reload, recovers. Read it rather than keeping a list of which states are terminal, which can read `down` as transient and draw "reconnecting…" over a page that never would.
+- The app owns the look: which words, which colours, whether the names go in a tooltip or a strip. The framework owns which state is true.
+
+#### `presentingDown` and the grace window
+
+`presentingDown` is the graced down-state, the bit a full-screen overlay gates on.
+
+- It is `false` while `status` is `live` or `degraded`.
+- Once `status` has been continuously not-live for `DISCONNECT_OVERLAY_GRACE_MS` (1 s), it turns `true`. A recovery flips it back instantly, with no second window.
+- `createSurfaceReadout` derives it once, from the same window, for `connectSurface` / `connectSurfaces` and every consumer of a readout, so the policy cannot be forgotten.
+- A `retired` readout presents immediately. A retired wire never re-dials, so there is nothing a grace window could hold back.
+- The frozen `retired` readout a disposed connection hands back is `true` for the same reason, so the two cannot disagree.
 
 ## Recognizing a transport-loss end (for reconnect retry)
 

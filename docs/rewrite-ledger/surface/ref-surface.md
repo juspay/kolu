@@ -195,8 +195,8 @@ Kept verbatim because they are plain names with inbound links: `### Failure and 
 
 | Fact | Where |
 | --- | --- |
-| The argument for why a following wire exists ("without somewhere for that fact to stop, it reaches all the way up… the page rebuilds its tree") and "the law every link in this family is held to" | `the-client-half` (pending; queued in `.waterfall/moved/the-client-half/ref-surface-06.md`) |
-| "The gate makes that blind attach unrepresentable rather than merely discouraged" | `the-client-half` (pending; same queue file). The cause it argues from is kept in the entry. |
+| The argument for why a following wire exists ("without somewhere for that fact to stop, it reaches all the way up… the page rebuilds its tree") and "the law every link in this family is held to" | `the-client-half`, "Why a roster move does not rebuild your page" |
+| "The gate makes that blind attach unrepresentable rather than merely discouraged" | `the-server-half`, "Why a dial waits for the peer to greet". It argues about the dial to a remote peer, which that page owns; `the-client-half` is about the browser facing a fleet. The cause it argues from is kept in the entry. |
 
 ### Cut
 
@@ -296,3 +296,33 @@ None. What is left of each design argument is a short "because" clause inside it
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs --old-lines 1402-1787`: 0 missing).
+
+## Liveness and health
+
+- Words: 1,031 → 1,040. Before: six prose blocks, one of them 95 words, plus a five-row table and eight bullets under `### The readout`. After: an index table, six `###` entries, the readout table kept verbatim, and one `####` for the grace window.
+- Heading `## Liveness and health` kept (inbound `#liveness-and-health`). `### The readout` kept (inbound from `ref-surface-app`).
+- New entries for exports only named in prose: `probeSurfaceLive(client)` / `probeSurfaceIdentity(client)`, `surfaceProcessId()`, `monotonicNow()`, `createLiveSignal(transport, opts)`, `client.health()`. New `####`: `presentingDown` and the grace window.
+- No headings renamed, so no inbound link needs an update.
+- Capitals written out: `UPTIME`/`RESTART` axes, `DISTINCT`, `THUNK`, `GRACED`, `ONCE`, `IN`, `INSTANTLY`, `INSTANTANEOUS`, `IMMEDIATELY`, `NOT`.
+- Code and the old page did not disagree.
+
+### Moved
+
+| Fact | Where |
+| --- | --- |
+| "the one verdict the framework does own, because it is the one an app kept getting wrong" | `reactive-honesty` (pending; queued in `.waterfall/moved/reactive-honesty/ref-surface-09.md`) |
+| "that gap is where the green-light-over-an-empty-collection bug lives" | `reactive-honesty` (pending, same file) |
+| Why `presentingDown` exists: apps flashing a full-screen alarm on every sub-second forced reconnect, and each smoothing it by hand | `reactive-honesty` (pending, same file) |
+
+### Cut
+
+| Fact | Tag |
+| --- | --- |
+| "Liveness is on by construction" as a claim | rationale |
+| "It is a **thunk** … and that is not decoration" | rationale |
+| "one door, two spellings" (the fact that both spellings mean the same is kept) | rationale |
+| "There is deliberately no way to inject one" → "There is no way to inject one" | rationale |
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs`: 0 missing).
