@@ -66,9 +66,10 @@ odu's own web page. A lane row opens that attempt's log. A lane that has not
 started has no log, so its row opens the run.
 
 odu's daemon listens on the machine the terminal runs on, and your browser is
-often somewhere else, so the first click opens a
-[port forwarding](/remote-hosts#port-forwarding) door. After that the row is an
-ordinary link that ⌘-click, copy and "open in a new tab" work on.
+often somewhere else, so the first click forwards that port to you
+([port forwarding](/remote-hosts#port-forwarding)). After that the row is an
+ordinary link that <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>-click, copy and "open in a new
+tab" work on.
 
 Nothing of this appears for a checkout odu does not know, or when odu's daemon
 is not running. A daemon that answers with runs this kolu cannot read draws one
@@ -77,8 +78,8 @@ is not running. A daemon that answers with runs this kolu cannot read draws one
 ## Compose a prompt
 
 Above the Inspector is the **Compose** box. Click into it and it grows into a
-textarea with a **Send** button. Write your prompt, then press **Send** or
-<kbd>Cmd/Ctrl</kbd> + <kbd>Enter</kbd> to put it on the focused pane's input
+textarea with a **Send** button. Write your prompt, then click **Send** or press
+<kbd>Cmd</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd> to put it on the focused pane's input
 line.
 
 It inserts, it does not submit: the text lands in the agent's input box for you
@@ -99,12 +100,13 @@ port appears because something is listening and goes when that stops.
 | loopback only, or any port on a remote host | **forward & open**, which makes the port answer on the machine serving this page and opens the tab. |
 
 A forwarded row then carries a `⇄ :<port>` pill naming where it answers, a copy
-button for the full address, and a `⨯` that closes the door.
+button for the full address, and a `⨯` that stops forwarding the port.
 
 Click a printed `localhost` URL in the terminal and a card offers the same
 **forward & open** for whatever is listening on the host, with the printed path
 carried through. [Port forwarding](/remote-hosts#port-forwarding) documents the
-card, the `⌘/Super+K` path for a port kolu never saw, and the security note.
+card, the <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd> path for a port kolu
+never saw, and the security note.
 
 ### Servers that detached
 
@@ -116,8 +118,8 @@ itself, such as `odu`'s web daemon or anything under `setsid`, keeps serving.
   moves to the group below until you scroll back to it.
 - A folded **elsewhere on this host** group holds everything else with a story
   on that machine: your other servers, another user's socket a terminal printed,
-  and any door whose server has died.
-- A row with an open door stays visible while the group is folded.
+  and any forwarded port whose server has died.
+- A row with a port forwarded stays visible while the group is folded.
 - A row served by another terminal names it, and the name takes you there.
 
 ## Reach a terminal from a shell

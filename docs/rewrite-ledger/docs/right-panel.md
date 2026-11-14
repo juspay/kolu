@@ -71,3 +71,7 @@ From `.waterfall/compare.mjs` against `f50641c6a`.
 | --- | --- |
 | `http://localhost:5173/`, `127.*`, `[::1]`, `0.0.0.0` | cut, duplicate: the printed-`localhost` section is now two sentences and a link to `/remote-hosts#port-forwarding`, which owns the card and the loopback forms |
 | `0` (the timeline scale's left end) | cut, visible on screen |
+
+## Review round 1
+
+- "door" (defined only on `remote-hosts`) replaced with "forward the port". The code span `⌘/Super+K` became the keycaps <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd> (house style).
