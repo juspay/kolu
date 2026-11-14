@@ -8,6 +8,7 @@
  *                            breadcrumb-directory watcher)
  *   - `screen-scrape.ts`   — the awaiting-user dialog detector + promote policy
  *   - `session-watcher.ts` — per-session transcript watch → OmpInfo stream
+ *   - `todo.ts`            — the `todo` list's newest snapshot → taskProgress
  *   - `agent-adapter.ts`   — `AgentAdapter` the sensors consume
  *   - `schemas.ts`         — Effect schemas + types (browser-safe)
  *   - `config.ts`          — env-resolved home paths

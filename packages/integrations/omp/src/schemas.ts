@@ -55,9 +55,11 @@ export const OmpInfoSchema = Schema.Struct({
    *  and fabricating one from the first message would invent a name omp itself
    *  does not have. */
   summary: Schema.NullOr(Schema.String),
-  /** omp's `todo` tool keeps its list in the session's tool traffic rather
-   *  than a first-class count kolu reads — permanently null here; folding it
-   *  is a follow-up. The field is kept for union shape uniformity. */
+  /** Progress through omp's `todo` list: every task across every phase, and
+   *  how many are closed — `completed` or `abandoned`, the count omp's own
+   *  `Overall: N/M done` line prints (a `blocked` task stays open). Read from
+   *  the newest whole-list snapshot in the session (`todo.ts`). Null when the
+   *  session has no list, or omp cleared it. */
   taskProgress: Schema.NullOr(TaskProgressSchema),
   /** Running context-window token count from the newest assistant message's
    *  `usage.input + cacheRead + cacheWrite` — the same "full context the model

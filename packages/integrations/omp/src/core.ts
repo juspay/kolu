@@ -19,7 +19,9 @@
  *
  *  Everything else (`custom` tool-execution markers, `thinking_level_change`,
  *  `title_change`, `compaction`, …) is state-derivation or extension material
- *  and is skipped by the fold's `type === "message"` gate.
+ *  and is skipped by the fold's `type === "message"` gate. The `todo` list —
+ *  its tool results and `user_todo_edit` entries — is read by `todo.ts` over
+ *  the whole file, not by this tail fold.
  *
  *  An assistant message is persisted only when it completes (a mid-turn tail
  *  ends on `user` or `toolResult`, never on a half-written assistant entry),
