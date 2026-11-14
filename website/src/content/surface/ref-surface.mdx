@@ -14,19 +14,57 @@ imported from a `@kolu/surface/*` subpath.
 
 ## Defining a surface
 
-`defineSurface(spec)` declares the whole reactive surface of an app at one site
-and returns a `Surface<S>`. Every schema on the spec is an **Effect Schema** —
-specifically a `WireSchema<T>` (`Schema.Codec<T, unknown, never, never>`): decode
-and encode must require **no** Effect services, because the wire has no
-environment to provide them. That is a type bound, not a convention.
+You declare the whole reactive surface of an app at one site, with
+`defineSurface`, and compose several of them into one wire.
 
-Two spellings are **laws** for a wire field. An optional key is
-`Schema.optionalKey` — never `Schema.optional`, which round-trips an explicit
-`undefined` through `null`. A defaulted key is `Schema.withDecodingDefaultKey` —
-the encoded side stays `T` and the key stays omittable. The other Effect variants
-change the encoded bytes.
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`defineSurface(spec)`](#definesurfacespec) | `.` | Declares a surface and returns a `Surface<S>`. |
+| [`WireSchema<T>`](#wireschemat) | `.` | The schema bound every wire field meets. |
+| [The five member kinds](#the-five-member-kinds) | `.` | `cells`, `collections`, `streams`, `events`, `procedures`. |
+| [Declaring array identity — `arrayKey`](#declaring-array-identity--arraykey) | `.` | The field that identifies an element of an array inside a member's value. |
+| [`Surface<S>`](#surfaces) | `.` | The declared value: `group`, `tagPrefix`, `spec`, `descriptors`. |
+| [`ProcedureSpec.error`](#procedurespecerror) | `.` | A procedure's declared error channel. |
+| [The three reserved members](#the-three-reserved-members) | `.` | `surface/system/{live,identity,clockNow}`, injected by the framework. |
+| [`probeSurfaceClockNow(client)` / `measureSurfaceClockOffset(client)`](#probesurfaceclocknowclient--measuresurfaceclockoffsetclient) | `.` | The raw clock round-trip and the offset it yields. |
+| [Composing siblings](#composing-siblings) | `.` | `composeSurfaceContracts` keys several surfaces into one flat group. |
+| [`mergeDisjointGroups({ <label>: group })`](#mergedisjointgroups-label-group-) | `.` | Merges flat groups and proves no tag was swallowed. |
+| [`isStandaloneRoot(surface)` / `notStandaloneRootDetail(seam, what, tagPrefix, alternative)`](#isstandalonerootsurface--notstandalonerootdetailseam-what-tagprefix-alternative) | `.` | The rooted-root check and its shared sentence. |
+| [Declaring a client error policy — `defineSurfaceWithPolicy`](#declaring-a-client-error-policy--definesurfacewithpolicy) | `.` | Threads an app-typed client error policy through the spec. |
+
+### `defineSurface(spec)`
+
+Declares the whole reactive surface of an app at one site and returns a
+`Surface<S>`.
 
 <Snippet src="packages/surface/example/snippets/surface.ts" region="define" />
+
+- Every schema on the spec is a `WireSchema<T>`.
+- It claims every tag as it walks the spec and throws on a duplicate, then
+  asserts the assembled group's size against the claim count.
+- A member or verb name that is empty or contains `/` is refused outright,
+  because `stream "conn/get"` and `procedure conn.get` would otherwise spell the
+  same tag with different (member, verb) pairs.
+- Plain `defineSurface` is the `TPolicy = never` case of
+  [`defineSurfaceWithPolicy`](#declaring-a-client-error-policy--definesurfacewithpolicy):
+  its `client` slot is unfillable, so callers that declare no policy pay nothing.
+
+### `WireSchema<T>`
+
+The bound every schema on a spec meets. A wire field is an Effect Schema, and
+specifically a `WireSchema<T>` (`Schema.Codec<T, unknown, never, never>`): decode
+and encode must require no Effect services, because the wire has no environment
+to provide them. That is a type bound, not a convention.
+
+Two spellings are fixed for a wire field. The other Effect variants change the
+encoded bytes.
+
+| Kind of key | Spelling |
+| --- | --- |
+| Optional | `Schema.optionalKey`, never `Schema.optional`, which round-trips an explicit `undefined` through `null`. |
+| Defaulted | `Schema.withDecodingDefaultKey`: the encoded side stays `T` and the key stays omittable. |
+
+### The five member kinds
 
 A surface has five member kinds. The first four are the reactive primitives;
 `procedures` is the imperative escape hatch.
@@ -39,26 +77,19 @@ A surface has five member kinds. The first four are the reactive primitives;
 | `events`      | "has X happened?"          | occurrences   | occurrences, **no snapshot**  | no             | no (handler-based) |
 | `procedures`  | "do this now"              | per call      | a return value                | —              | —                  |
 
-Cells, collections, and streams are _state_ — a current value to render. An
-event is an _occurrence_ — a handler fires per yield and there is no current
-value. Anything genuinely outside these shapes (bidirectional binary streams,
-custom retry plumbing) stays outside the surface as a raw `Rpc` in the host's own
-group. For why these four and not one, see
-[Why surfaces](/surface/why-surfaces).
+- Cells, collections, and streams are _state_: a current value to render.
+- An event is an _occurrence_: a handler fires per yield and there is no current
+  value.
+- Anything genuinely outside these shapes (bidirectional binary streams, custom
+  retry plumbing) stays outside the surface as a raw `Rpc` in the host's own
+  group.
+- For why these four and not one, see [Why surfaces](/surface/why-surfaces).
 
 ### Declaring array identity — `arrayKey`
 
 A `CellSpec`, a `StreamSpec` or a `CollectionSpec` may declare
-**`arrayKey?: string`** — the field that identifies an element of an array
-**inside** that member's value (for a collection, inside one entry's value).
-
-It exists because `solid-js/store`'s `reconcile` cannot be told this anywhere
-else, and a framework merging arbitrary app payloads must not guess it (see
-[how a push reconciles](#consuming-in-solidjs)). Undeclared, a frame replaces
-every array element it merges, so a frame that repeats itself still notifies every
-reader of every array. Declared, an array whose elements carry the field is diffed
-by it: a repeated frame notifies nothing, and a reorder moves the objects rather
-than rewriting them.
+`arrayKey?: string`, the field that identifies an element of an array inside
+that member's value (for a collection, inside one entry's value).
 
 ```ts
 streams: {
@@ -66,42 +97,58 @@ streams: {
 }
 ```
 
-**Name a field the schema types required and non-nullable.** The merge decides
-keyed-versus-positional for a whole array from its *first* element's value, so an
-optional field lets whichever row happens to be first decide for every other row
-in that frame. It cannot corrupt anything — an object survives a position only
-when its key matches the one already standing there, so a mismatch replaces
-rather than recycles — but it silently drops that frame back to the undeclared
-behaviour. The schema is where that is made unrepresentable; the merge sees
-values, not schemas.
+- It exists because `solid-js/store`'s `reconcile` cannot be told this anywhere
+  else, and a framework merging arbitrary app payloads must not guess it (see
+  [how a push reconciles](#consuming-in-solidjs)).
+- Undeclared, a frame replaces every array element it merges, so a frame that
+  repeats itself still notifies every reader of every array.
+- Declared, an array whose elements carry the field is diffed by it: a repeated
+  frame notifies nothing, and a reorder moves the objects rather than rewriting
+  them.
 
-Three things it is not:
+#### Name a field the schema types required and non-nullable
 
-- **Not a `CollectionSpec.keySchema`.** That is the dictionary key a collection's
+The merge decides keyed-versus-positional for a whole array from its *first*
+element's value, so an optional field lets whichever row happens to be first
+decide for every other row in that frame.
+
+- It cannot corrupt anything. An object survives a position only when its key
+  matches the one already standing there, so a mismatch replaces rather than
+  recycles.
+- It silently drops that frame back to the undeclared behaviour. The schema is
+  where that is made unrepresentable; the merge sees values, not schemas.
+
+#### Three things `arrayKey` is not
+
+- Not a `CollectionSpec.keySchema`. That is the dictionary key a collection's
   entries are filed under, on the wire and in the store; `arrayKey` names a field
-  inside one value. A collection declares both, and which of its two deliveries
-  applies the `arrayKey` is decided **per call site**: the per-key path
-  (`.use({ keys })`, and any collection whose verbs omit `deltas`) merges an
-  entry's value through the same seam a cell's goes through, so it honours the
-  declaration; the batched `deltas` path replaces each named leaf whole rather
-  than merging — a `fold` consumer may be holding that very object — so there is
-  no merge there for a key to govern.
-- **Not per-array.** One field per member, because `reconcile` takes one, and it
-  reaches every array in the value at every depth. Arrays whose elements do not
-  carry the field are merged by POSITION — the declared reach of the key, not a
-  fallback around it; that too is silent on a repeated frame. Name the field that
-  identifies the arrays whose identity a consumer actually follows, and read the
-  rest by value. It is also identity **wherever it appears**, not only inside
-  arrays: a nested object that happens to carry the field is merged in place
-  while the field reads the same, and replaced whole the moment it reads
-  different.
-- **Not a use-site option.** It is declared on the spec and travels on the
-  member's descriptor, so no `.use()` call site can spell it, override it, or
-  disagree with another call site about it.
+  inside one value. A collection declares both.
+- Not per-array. One field per member, because `reconcile` takes one, and it
+  reaches every array in the value at every depth.
+- Not a use-site option. It is declared on the spec and travels on the member's
+  descriptor, so no `.use()` call site can spell it, override it, or disagree
+  with another call site about it.
 
-### The wire shape — one flat tag namespace
+Which of a collection's two deliveries applies the `arrayKey` is decided per call
+site. The per-key path (`.use({ keys })`, and any collection whose verbs omit
+`deltas`) merges an entry's value through the same seam a cell's goes through, so
+it honours the declaration. The batched `deltas` path replaces each named leaf
+whole rather than merging, since a `fold` consumer may be holding that very
+object, so there is no merge there for a key to govern.
 
-The `Surface<S>` value carries four fields:
+Arrays whose elements do not carry the field are merged by position: that is the
+declared reach of the key, not a fallback around it, and it too is silent on a
+repeated frame. Name the field that identifies the arrays whose identity a
+consumer actually follows, and read the rest by value.
+
+The field is also identity wherever it appears, not only inside arrays: a nested
+object that happens to carry the field is merged in place while the field reads
+the same, and replaced whole the moment it reads different.
+
+### `Surface<S>`
+
+The value `defineSurface` returns. It carries four fields, and the wire it
+describes is one flat tag namespace.
 
 | Field | Meaning |
 | --- | --- |
@@ -110,36 +157,23 @@ The `Surface<S>` value carries four fields:
 | `spec` | the declaration verbatim; read member types back with `SurfaceTypes<typeof surface.spec>` |
 | `descriptors` | the Cell/Collection/Stream/Event handles, for the manual escape hatch |
 
-There is **no router and no nesting on the wire** — only string tags. A cell
-`load` mints `surface/load/get`; a procedure `proc.kill` mints
-`surface/proc/kill`. The `surface/` root is what keeps a surface composable with
-hand-written raw RPC: a host merges `surface.group` with its own group and no host
-tag (`terminal/create`, `git/status`) can collide with a surface member.
+- There is no router and no nesting on the wire, only string tags. A cell `load`
+  mints `surface/load/get`; a procedure `proc.kill` mints `surface/proc/kill`.
+- The `surface/` root is what keeps a surface composable with hand-written raw
+  RPC: a host merges `surface.group` with its own group and no host tag
+  (`terminal/create`, `git/status`) can collide with a surface member.
+- The flatness is checked, not assumed. `RpcGroup.make` is a plain `Map.set`, so
+  a colliding tag is silently overwritten; `defineSurface` claims and counts tags
+  instead.
+- `group` is typed with the erased `Rpc.Any` element. It is assembled from a
+  runtime spec walk, so its type parameter carries nothing a caller could trust.
+- Per-member precision lives in the spec-derived `SurfaceRpcsFor<S>` and its
+  `_tag` projection `SurfaceTags<S>`, and in the bound client faces.
 
-The flatness is enforced, not assumed. `RpcGroup.make` is a plain `Map.set` —
-a colliding tag is silently overwritten — so `defineSurface` claims every tag as
-it walks, throws on a duplicate, and then asserts the assembled group's size
-against the claim count. A name that is empty or contains `/` is refused
-outright, because `stream "conn/get"` and `procedure conn.get` would otherwise
-spell the same tag with different (member, verb) pairs.
+### `ProcedureSpec.error`
 
-`group` is deliberately typed with the erased `Rpc.Any` element: it is assembled
-from a runtime spec walk, so its type parameter carries nothing a caller could
-trust. Per-member precision lives in the spec-derived `SurfaceRpcsFor<S>` and its
-`_tag` projection `SurfaceTags<S>`, and in the bound client faces.
-
-### Declared errors — tagged classes, narrowed by `_tag`
-
-A procedure may declare an **error channel** — `ProcedureSpec.error`, one Effect
-Schema, normally a `Schema.Union` of `Schema.TaggedError`s. A declaring
-handler *fails* with an instance of a declared class; the caller receives it
-decoded, `_tag` and data intact, and narrows on the `_tag`. A typed domain error
-can no longer flatten to an opaque transport failure at a generic hop — through a
-`SurfaceMap`'s keyed proxy and `mirrorRemoteSurface`'s forwarders included.
-
-This replaces the oRPC-era `errors: ErrorMap` keyed by magic code string. A
-procedure call is an `Effect`, so the declared union rides its **error channel**
-and you narrow it there:
+A procedure may declare an error channel: `ProcedureSpec.error`, one Effect
+Schema, normally a `Schema.Union` of `Schema.TaggedError`s.
 
 ```ts
 client.procedures.lifecycle.recycleKaval().pipe(
@@ -147,107 +181,113 @@ client.procedures.lifecycle.recycleKaval().pipe(
 );
 ```
 
-The channel is the declared union **plus** `SurfaceCallFailure` — Effect RPC's
-`RpcClientError` and the framework's own tagged vocabulary. That union is what
-makes the narrowing honest in both directions: a transport death is never
-mistaken for an application rejection, and once you have caught every declared
-tag the compiler still tells you the transport failure is unhandled. Write
-`Effect.orDie` if you mean "any failure here is fatal", and say so on purpose.
-
-An **undeclared** throw is a **defect** (`Effect.die`), not a failure: it crosses
-as an opaque defect, which remains the fail-fast crash-loudly channel. Declare
-exactly the failures a caller can act on; an undeclared spec resolves its error
-channel to `Schema.Never` ("declares no failures").
+- A declaring handler *fails* with an instance of a declared class. The caller
+  receives it decoded, `_tag` and data intact, and narrows on the `_tag`.
+- A typed domain error does not flatten to an opaque transport failure at a
+  generic hop, through a `SurfaceMap`'s keyed proxy and `mirrorRemoteSurface`'s
+  forwarders included.
+- A procedure call is an `Effect`, so the declared union rides its error channel
+  and you narrow it there. There is no `errors: ErrorMap` keyed by a code string.
+- The channel is the declared union plus `SurfaceCallFailure`, which is Effect
+  RPC's `RpcClientError` and the framework's own tagged vocabulary. A transport
+  death is never mistaken for an application rejection, and once you have caught
+  every declared tag the compiler still reports the transport failure as
+  unhandled. Write `Effect.orDie` if you mean "any failure here is fatal".
+- An undeclared throw is a defect (`Effect.die`), not a failure. It crosses as an
+  opaque defect, which remains the fail-fast crash-loudly channel.
+- Declare exactly the failures a caller can act on. An undeclared spec resolves
+  its error channel to `Schema.Never` ("declares no failures").
 
 ### The three reserved members
 
 Every surface also carries three framework-reserved members at
-`surface/system/{live,identity,clockNow}` — injected by `defineSurface`, answered
+`surface/system/{live,identity,clockNow}`, injected by `defineSurface`, answered
 by the server, never declared or implemented by an app (see
-[Liveness](#liveness-and-health)). They share one `system` namespace with any
-app-owned `system` procedures; only a duplicate *tag* is a boot-time collision.
+[Liveness](#liveness-and-health)).
 
-`system/clockNow` (`@kolu/surface/clock-now`) returns the server's own wall clock
-(`{ epochMs }`), so a consumer that binds a remote surface can measure the clock
-offset between the two hosts once at admit. `probeSurfaceClockNow(client)`
-performs the raw round-trip and **fails** with a typed `ClockNowUnavailableError`
-when the member is structurally absent — the check is inside the effect, so an
-absent member arrives on the channel the caller is already handling rather than
-throwing at the moment the probe was merely built. `measureSurfaceClockOffset(client)`
-returns the RTT-compensated offset (`round(remoteEpochMs − (sentMs + rtt/2))`,
-sampling local time at the round-trip midpoint so the one-way latency does not
-bias the result). Both take the value carrying `.surface` (a `SurfaceFace` or a
-bound client) and both are `Effect`s: a caller that gives up cancels the in-flight
-probe by interrupting, so there is no signal to pass. `probeSurfaceLive(client)`
-and `probeSurfaceIdentity(client)` are the same shape.
+- They share one `system` namespace with any app-owned `system` procedures. Only
+  a duplicate *tag* is a boot-time collision.
+- `system/clockNow` (`@kolu/surface/clock-now`) returns the server's own wall
+  clock (`{ epochMs }`), so a consumer that binds a remote surface can measure
+  the clock offset between the two hosts once at admit.
+
+### `probeSurfaceClockNow(client)` / `measureSurfaceClockOffset(client)`
+
+The raw clock round-trip and the offset derived from it.
+
+- `probeSurfaceClockNow(client)` performs the raw round-trip and fails with a
+  typed `ClockNowUnavailableError` when the member is structurally absent. The
+  check is inside the effect, so an absent member arrives on the channel the
+  caller is already handling rather than throwing at the moment the probe was
+  merely built.
+- `measureSurfaceClockOffset(client)` returns the RTT-compensated offset
+  (`round(remoteEpochMs − (sentMs + rtt/2))`), sampling local time at the
+  round-trip midpoint so the one-way latency does not bias the result.
+- Both take the value carrying `.surface` (a `SurfaceFace` or a bound client).
+- Both are `Effect`s: a caller that gives up cancels the in-flight probe by
+  interrupting, so there is no signal to pass.
+- `probeSurfaceLive(client)` and `probeSurfaceIdentity(client)` are the same
+  shape.
 
 ### Composing siblings
 
 `composeSurfaceContracts({ <key>: surface })` keys several standalone surfaces
-into **one flat group** and returns `{ group, siblings }`. Composition is
-per-sibling tag *prefixing* (`surface/<key>/<member>/<verb>`), never a bare
-`RpcGroup.merge`: every surface carries the same three reserved `system/*`
-members, so merging two bare groups would collide them — silently, `merge` being
-last-writer-wins. Each `siblings[key]` is the same `Surface` shape as a
-standalone surface, carrying only its own members at its own `tagPrefix`, which
-is what lets handler binding and client dispatch be keyed by sibling without
-re-deriving the tag rule.
+into one flat group and returns `{ group, siblings }`.
 
-`mergeDisjointGroups({ <label>: group })` merges several flat groups into one and
-**proves** nothing was swallowed. `RpcGroup.merge` is a last-writer-wins
-`Map.set`, so a tag two halves both spell survives once and then answers under
-the other's schema — well-formed, one member short, and invisible downstream. So
-every tag is claimed into one map before any merge runs, and a tag claimed twice
-throws naming the tag *and* both labels (which is why the halves arrive labelled:
-the useful half of a collision report is which two of the caller's own halves
-claimed it). It is the one statement of that proof for every consumer of a
-composed wire — `composeSurfaceContracts` itself, a **rooted bundle**'s root
-beside its siblings
-([`connectSurfaces`' `core`](/surface/ref-surface-app#the-rooted-bundle)),
-a keyed map's group or a host's hand-written root procedures multiplexed on the
-same wire, or a server's served superset.
+- Composition is per-sibling tag *prefixing* (`surface/<key>/<member>/<verb>`),
+  never a bare `RpcGroup.merge`: every surface carries the same three reserved
+  `system/*` members, so merging two bare groups would collide them, silently,
+  `merge` being last-writer-wins.
+- Each `siblings[key]` is the same `Surface` shape as a standalone surface,
+  carrying only its own members at its own `tagPrefix`. That is what lets handler
+  binding and client dispatch be keyed by sibling without re-deriving the tag
+  rule.
 
-*It takes the erasure on itself* — the value type is open, so a precisely-typed
-group (`RpcGroup` is invariant in its element union) goes in without a cast and
-the result is the erased group every serving and transport seam takes. A merge of
-**nothing** is the empty group, the identity: a rooted wire whose sibling roster
-is empty this run composes one, and refusing it would make that wire unspellable.
+### `mergeDisjointGroups({ <label>: group })`
+
+Merges several flat groups into one and proves nothing was swallowed.
+
+- `RpcGroup.merge` is a last-writer-wins `Map.set`, so a tag two halves both
+  spell survives once and then answers under the other's schema: well-formed, one
+  member short, and invisible downstream.
+- Every tag is claimed into one map before any merge runs, and a tag claimed
+  twice throws naming the tag *and* both labels. The halves arrive labelled
+  because the useful half of a collision report is which two of the caller's own
+  halves claimed it.
+- Its consumers are `composeSurfaceContracts` itself, a rooted bundle's root
+  beside its siblings
+  ([`connectSurfaces`' `core`](/surface/ref-surface-app#the-rooted-bundle)), a
+  keyed map's group or a host's hand-written root procedures multiplexed on the
+  same wire, and a server's served superset.
+- The value type is open, so a precisely-typed group (`RpcGroup` is invariant in
+  its element union) goes in without a cast and the result is the erased group
+  every serving and transport seam takes.
+- A merge of nothing is the empty group, the identity. A rooted wire whose
+  sibling roster is empty this run composes one, and refusing it would make that
+  wire unspellable.
+
+### `isStandaloneRoot(surface)` / `notStandaloneRootDetail(seam, what, tagPrefix, alternative)`
 
 `isStandaloneRoot(surface)` and `notStandaloneRootDetail(seam, what, tagPrefix,
-alternative)` are the **one reading of the rooted-root law**, beside the tag
-prefix they are about. A rooted bundle's root must be a *standalone* surface — a
-sibling-scoped one would bind its members at `surface/<key>/…` while every
-sibling prefixes its own key on top of nothing, so the bundle would serve a root
-nobody can address. The three doors that carry a root — `implementRootedSurfaces`
-(serve), `exposeRootedFaces` (gate) and
-[`connectSurfaces`' `core`](/surface/ref-surface-app#the-rooted-bundle) (dial) —
-each ask the predicate and raise **their own error class** with the shared
-sentence, naming the alternative that door can offer. Only the predicate and the
-sentence are shared; nothing else about the three doors is.
+alternative)` are the predicate for a rooted bundle's root and the sentence that
+explains a refusal, beside the tag prefix they are about.
+
+- A rooted bundle's root must be a *standalone* surface. A sibling-scoped one
+  would bind its members at `surface/<key>/…` while every sibling prefixes its
+  own key on top of nothing, so the bundle would serve a root nobody can address.
+- The three doors that carry a root are `implementRootedSurfaces` (serve),
+  `exposeRootedFaces` (gate) and
+  [`connectSurfaces`' `core`](/surface/ref-surface-app#the-rooted-bundle) (dial).
+- Each door asks the predicate and raises its own error class with the shared
+  sentence, naming the alternative that door can offer. Only the predicate and
+  the sentence are shared; nothing else about the three doors is.
 
 ### Declaring a client error policy — `defineSurfaceWithPolicy`
 
-A member can carry an **opaque, app-typed client error policy** on its spec — a
-value the framework never interprets, only **threads to the app's registered
-interpreter** when that member's client subscription fails. The app owns both the
-policy union and the interpreter; `@kolu/surface` names neither.
-
-`defineSurfaceWithPolicy<TPolicy>()(spec)` is the curried form of `defineSurface`
-that threads the app's policy union `TPolicy` through the spec (the two-step call
-pins `TPolicy` explicitly while the spec keeps its precise `const S` inference).
-Plain `defineSurface` is the `TPolicy = never` case — its `client` slot is
-**unfillable**, so existing callers pay nothing.
-
-- **`ClientCellPolicy<TPolicy>`** — a cell's `client` slot. The `onError` policy
-  sits flat, intersected with an `authority` discriminant: `{ onError?: TPolicy } & ({
-  authority?: "server" } | { authority: "local"; coalesceMs?: number })`. There is **no `initial`** — a
-  local-authority cell seeds its store from the mandatory `CellSpec.default`, so
-  "local-authority without a seed" is a type error, not a runtime surprise. The
-  client runtime **sources `authority` and `coalesceMs` from this declaration**, so a
-  bare `.cells.X.use()` inherits them (a use-site value still overrides); declaring
-  `authority: "local"` on the spec is what makes a use-site bag empty.
-- **`ClientCollectionPolicy<TPolicy>`** — a collection's `client` slot, `onError`
-  **only** (a collection's `keys` filter is per-site use-site wiring, not policy).
+A member can carry an opaque, app-typed client error policy on its spec: a value
+the framework never interprets, only threads to the app's registered interpreter
+when that member's client subscription fails. The app owns both the policy union
+and the interpreter; `@kolu/surface` names neither.
 
 ```ts
 type Toast = { kind: "toast"; label: string };
@@ -263,15 +303,36 @@ const surface = defineSurfaceWithPolicy<Toast>()({
 });
 ```
 
-The interpreter is registered at the **connection seam** — `onClientError` on
-`connectSurfaces` (`@kolu/surface-app`) or `connectSurfaceMap` (`@kolu/surface-map`),
-threaded inward to every `buildSurfaceClient`. The base interpreter is **origin-free**
-(`(policy, err) => void`); the `{ key }` origin a keyed map needs is injected in
-`@kolu/surface-map` (see [its reference](/surface/ref-surface-map)). A member that
-declares `client.onError` but whose client was built with **no** interpreter makes
-`buildSurfaceClient` **throw at construction** — a declared policy can never route
-nowhere. The policy is interpreted **per subscription**: a deduped cell fires once,
-a keyed collection's per-key subs each fire.
+- `defineSurfaceWithPolicy<TPolicy>()(spec)` is the curried form of
+  `defineSurface` that threads the app's policy union `TPolicy` through the spec.
+  The two-step call pins `TPolicy` explicitly while the spec keeps its precise
+  `const S` inference.
+- `ClientCellPolicy<TPolicy>` is a cell's `client` slot. The `onError` policy
+  sits flat, intersected with an `authority` discriminant: `{ onError?: TPolicy } & ({
+  authority?: "server" } | { authority: "local"; coalesceMs?: number })`.
+- There is no `initial`. A local-authority cell seeds its store from the
+  mandatory `CellSpec.default`, so "local-authority without a seed" is a type
+  error, not a runtime surprise.
+- The client runtime sources `authority` and `coalesceMs` from this declaration,
+  so a bare `.cells.X.use()` inherits them (a use-site value still overrides).
+  Declaring `authority: "local"` on the spec is what makes a use-site bag empty.
+- `ClientCollectionPolicy<TPolicy>` is a collection's `client` slot, `onError`
+  only: a collection's `keys` filter is per-site use-site wiring, not policy.
+
+#### Registering the interpreter
+
+The interpreter is registered at the connection seam: `onClientError` on
+`connectSurfaces` (`@kolu/surface-app`) or `connectSurfaceMap`
+(`@kolu/surface-map`), threaded inward to every `buildSurfaceClient`.
+
+- The base interpreter is origin-free (`(policy, err) => void`). The `{ key }`
+  origin a keyed map needs is injected in `@kolu/surface-map` (see
+  [its reference](/surface/ref-surface-map)).
+- A member that declares `client.onError` but whose client was built with no
+  interpreter makes `buildSurfaceClient` throw at construction, so a declared
+  policy can never route nowhere.
+- The policy is interpreted per subscription: a deduped cell fires once, a keyed
+  collection's per-key subs each fire.
 
 ## Serving a surface
 
