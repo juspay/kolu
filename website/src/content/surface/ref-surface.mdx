@@ -793,82 +793,215 @@ verb: tear down and settle.
 ## The reactor (reactive bridge)
 
 `@kolu/surface/reactor` is the one exit from a backend signal graph into the
-cell machinery — state is a signal, derived state a computed, and the wire is
-the signal boundary that snapshots and replays. The signals engine is Effect's
-own `Atom`/`AtomRegistry` (`effect/reactivity`), wrapped here and
-lint-banned everywhere else, so this wrapper is the graph's only exit by
-construction. No engine type reaches the public surface: a node's level is a
-`ReadonlyLevel<T>` — `.value` (the TRACKED read: reading it inside a derivation
-is depending on it) and `.peek()` (untracked).
+cell machinery. State is a signal, derived state a computed, and the wire is the
+signal boundary that snapshots and replays.
 
-| Export                      | Signature                                           | Role                                                                                                                                                                                                             |
-| --------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `source(install, initial?)` | `(SourceInstall<T>, T?) → Source<T>`                | an external PUSH input; `install(emit)` returns an uninstall fn, installed lazily on the first subscriber and torn down when the last leaves. `initial` seeds the level (else `undefined` until the first frame) |
-| `source({read, install})`   | `({read, install}) → PollSource<T>`                 | an external POLL input read on a caller-owned cadence (`install(tick)` schedules re-reads). Published via `derived.cell` / `derived.collection`, the bridge owns the policy: a read failure is **cell-local at every tick, T+0 included** — logged loudly, nothing published (no fabricated default), the cadence HELD and retried on the next tick or edge — plus a non-overlap (`inFlight`) guard. It never faults `runtime.done`: connectors and builders do that, periodic reads do not, so a poll read is never the right home for a deterministic boot defect. A consumer that must STOP on a permanent verdict (padi's port sampler on an unreadable platform) owns that decision itself, at whichever tick produces it |
-| `everyMs(ms)`               | `(number) → (tick: () => void) => SourceCleanup`    | the cadence half of a poll `source` — the fixed-interval `install` closure, `source({ read, install: everyMs(5_000) })`. The interval is `unref`'d (a live sampler never keeps the event loop alive) and the returned cleanup clears it — the one home for the unref'd-interval hygiene every interval-driven poll source would otherwise re-spell |
-| `everyMsOr(ms, subscribe)`  | `(number, (tick) => () => void) → (tick: () => void) => SourceCleanup` | the interval+edge cadence fuse: `everyMs`'s interval PLUS an edge `subscribe(tick)` (any change source — a reconnect/state feed, a config-changed hook), for a poll whose value can move faster than its coarse interval. Re-reads on the tick AND the instant `subscribe` fires; both the interval and the subscription tear down on cleanup — the one home for the fuse, previously re-spelled as app-local twins |
-| `source({ read, install, label })` | `PollSourceOptions<T> → PollSource<T>` | the poll source. `label` names it in a loop-guard error — diagnostics only (there is no field that can silence the guard), and REQUIRED, because "name your poll sources" as a convention is a rule held by memory: the next fused cell is added by someone who has not read it, and the guard then fires anonymously on exactly the source nobody expected to loop. **The guard**: each read runs inside an `AsyncLocalStorage` context keyed to its source, so a change edge firing UNDER that context was caused by the read it is about to re-trigger; three consecutive self-caused ticks crash naming the source. A read that ANNOUNCES on the edge that triggers it is an unbounded cycle the reactor executes forever — it froze a production kolu (HTTP dead, `SIGTERM` ignored). Timer, I/O and other cells microtask bursts carry a different context and can never count, however fast or value-equal |
-| `assertCellConverges({ build, kick?, settleMs? })` | `→ Promise<{reads, loop}>` | the authoring-time twin, from `@kolu/surface/assert-cell-converges`: drive a poll source, `kick` the act that would start a cycle, and assert it settles. Generalized from the incident regression, because the defect lived in the JOIN between a read and the edge it was fused with — a place neither module own unit tests can see |
-| `viewerAddressOf({ peerAddress, forwardedFor, hostAddresses })` | `@kolu/surface/viewer-identity` | which machine a viewer is actually at, for an app behind a reverse proxy — the trust gate WHOLE, so the order it rests on is enforced here rather than by each consumer re-reading prose: a header on an untrusted connection is ignored entirely, and on a trusted one the LAST forwarded entry wins. Takes the header as a string or as a list a caller already split — node itself folds a repeated header into one string. Beside it: `viewerIsOnHost`, `normalizeAddress`, `isTrustedLocalPeer`. Pure and total — DNS and interface enumeration stay with the consumer |
-| `scan(src, initial, step)`  | `(Source<F>, S, (state, frame) => S) → ScanNode<S>` | fold a source's occurrences into a level; each emission steps once. A step returning the prev reference (`===`) means "no change" — the level holds and nothing publishes                                        |
-| `computed(fn)`              | `(() => T) → GraphNode<T>`                           | a derived value reading OTHER graph nodes — a private intermediate several wire members can share without any becoming a wire member. Glitch-free by the engine's version-checked lazy pull; nothing to dispose  |
-| `batch(fn)`                 | `(() => T) → T`                                     | group several graph writes into ONE frame so derivations recompute once — the one knob an app reaches for to coalesce a multi-member burst of ctx writes. Every write the bridge itself makes already opens one (the engine has no implicit batch), so this only ever nests |
-| `derived.cell(node)`        | `(GraphNode<T>) → DerivedCell<T>`                   | publish a pre-built graph node (a `scan`, a `computed`) as a cell — the deps for an `implementSurface` `cells.<key>` slot                                                                                        |
-| `derived.cell(($) => …)`    | `(($: SiblingRead<S>) => T) → DerivedComputeCell<S, T>` | publish a SIBLING derivation as a cell; `$` is the typed sibling-read face (`$.someCell(): T`, `$.someCollection(): ReadonlyMap<K, T>`). Reading a sibling is depending on it — the cell recomputes when a sibling it read changed |
-| `derived.collection(node)`  | `(GraphNode<ReadonlyMap<K,V>>) → DerivedCollection` | publish a keyed node (a poll `source` reading a whole `Map`, or a `computed` producing one) as a COLLECTION — the keyed-reconciler wire adapter: it diffs each frame against the last by the collection's `equals` and drives the surface's per-key publishers for exactly the changed + removed keys. Graph-owned (ctx `upsert`/`remove` throw) |
-| `reactiveFamily(opts)`      | `({members, attach, onEvict?}) → ReactiveFamily<K,S>` | a keyed family of member states as a graph SOURCE (SR9). Owns, once for every consumer: membership diff (attach entrants, detach + evict leavers), last-frame hold (a version-signal change edge, O(1) per frame), per-key disposal, and per-member error isolation. `members` is a `Source<readonly K[]>`; `attach(key, set)` subscribes one member's state |
-| `derived.registry(family, resolve)` | `(ReactiveFamily<K,S>, (key, state?) => Entry) → DerivedRegistry<K,Entry>` | the pull-face `MapRegistry` exit over a `reactiveFamily` (SR9) — resolves each member's entry on demand from its cached state and fires `subscribe` on every family change. The split of the old `registryFromFamily` along the source/exit axis |
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`source(install, initial?)`](#sourceinstall-initial) | `/reactor` | An external push input, installed lazily on the first subscriber. |
+| [`source({read, install})`](#sourceread-install) | `/reactor` | An external poll input read on a caller-owned cadence. |
+| [`source({ read, install, label })`](#source-read-install-label-) | `/reactor` | The poll source options, including the loop guard's `label`. |
+| [`everyMs(ms)`](#everymsms) | `/reactor` | The fixed-interval `install` closure for a poll source. |
+| [`everyMsOr(ms, subscribe)`](#everymsorms-subscribe) | `/reactor` | The interval-plus-edge cadence fuse. |
+| [`assertCellConverges({ build, kick?, settleMs? })`](#assertcellconverges-build-kick-settlems-) | `/assert-cell-converges` | Drives a poll source in a test and asserts it settles. |
+| [`viewerAddressOf({ peerAddress, forwardedFor, hostAddresses })`](#vieweraddressof-peeraddress-forwardedfor-hostaddresses-) | `/viewer-identity` | Which machine a viewer is at, behind a reverse proxy. |
+| [`scan(src, initial, step)`](#scansrc-initial-step) | `/reactor` | Folds a source's occurrences into a level. |
+| [`computed(fn)`](#computedfn) | `/reactor` | A derived value reading other graph nodes. |
+| [`batch(fn)`](#batchfn) | `/reactor` | Groups several graph writes into one frame. |
+| [`derived.cell(node)`](#derivedcellnode--derivedcell--) | `/reactor` | Publishes a pre-built graph node as a cell. |
+| [`derived.cell(($) => …)`](#derivedcellnode--derivedcell--) | `/reactor` | Publishes a sibling derivation as a cell. |
+| [`derived.collection(node)`](#derivedcollectionnode) | `/reactor` | Publishes a keyed node as a collection, through a keyed reconciler. |
+| [`reactiveFamily(opts)`](#reactivefamilyopts) | `/reactor` | A keyed family of member states, as a graph source. |
+| [`derived.registry(family, resolve)`](#derivedregistryfamily-resolve) | `/reactor` | The pull-face `MapRegistry` exit over a `reactiveFamily`. |
 
-The `$` face is a plain mapped type over the surface spec (`SiblingRead<S>` in
-`@kolu/surface/define`), typed at the declaration site by the deps slot — no
-`keyof` union explosion. An authored sibling's graph face is a mirror the bridge
-pokes **post-spec-equals**, riding a bridge-owned store wrapper both cell write
-paths pass through (so a missed poke is unwritable, not a rider held by tests); a
-derived sibling reads as its own `computed`, so every chain is a pure computed
-graph — glitch-free by the engine's lazy pull even across a diamond, and a
-suppressed write never pokes. Declaration order is irrelevant: the boot walk
-builds every derived node before it seeds any, so a `derived.cell` may read a
-sibling `derived.cell` via `$` whether declared before or after it — only a
-genuine cycle fails.
+The signals engine is Effect's own `Atom` / `AtomRegistry` (`effect/reactivity`),
+wrapped here and lint-banned everywhere else, so this wrapper is the graph's only
+exit. No engine type reaches the public surface: a node's level is a
+`ReadonlyLevel<T>`, with `.value` (the tracked read, so reading it inside a
+derivation is depending on it) and `.peek()` (untracked).
 
-Guarantees a `derived.cell` rides:
+Streams and events do not ride the graph. A signal conflates same-batch frames,
+and a stream must see every one.
 
-- **Wire-read-only by construction.** A `derived.cell` dep is branded; the boot walk crashes if that cell declares any write verb (`set` / `patch` / `test__set`). The graph is the member's only writer.
-- **Dedup at the member's `equals`, once.** A derived value flows through the member's own `equals → onWrite → store.set → bus.publish` gate (the `connect` seam), so the wire dedup point is unchanged and an `equals`-equal recompute never crosses the wire. `equals` lives on the member's spec.
-- **Never fabricates.** The cell seeds from its node's current level by an eager pull at wiring (a throw at seed time is a boot crash) — truth, never a fabricated default served before the value exists. A compute cell's node is built after every sibling mirror exists, then eager-pulled.
-- **Compute error policy: log-skip-continue.** A throw in a `derived.cell(($) => …)` recompute is logged and the last published value HELD; the next successful recompute heals it (contrast `scan`'s stop-hold, which carries state).
-- **The publish is synchronous with the writer.** A derived cell's `connect` is a `CellConnector` whose acquire subscribes the node on the runtime's own stack, and the graph notifies synchronously — so a graph write and an event published in the same tick reach a consumer in publish order. Teardown is the scope's: `close()` interrupts the connector, which disposes the subscription and the backing node. A POLL-source cell suspends inside the connector for its T+0 seed (a FAILED seed is cell-local — the cell keeps serving its spec default and the cadence retries), and interruption becomes the `AbortSignal` its Promise-shaped `read` sees.
+### `source(install, initial?)`
 
-`scan` carries the **stop-hold error law**: a step that throws stops the
-derivation (its source subscription is disposed), holds the last value (never a
-fabricated reset), logs loudly, and latches `stopped` — a `ReadonlyLevel<boolean>`
-that is **server-observable in phase 0**: it gates the scan from stepping again
-and distinguishes a frozen derivation from a legitimately quiet one. Bridging
-`stopped` into the surface's client-side liveness (folding it into a member's
-`liveWhen`, which in phase 0 receives the serialized cell VALUE, not the signal)
-is a deliberate **later phase** — the "unhealthy-after-N-failures" question; phase
-0 stops loudly and latches but does not yet flip client health. It never heals;
-recovery is a restart. Streams and events deliberately do **not** ride the graph —
-a signal conflates same-batch frames, and a stream must see every one.
+An external push input. Signature: `(SourceInstall<T>, T?) → Source<T>`.
 
-`derived.collection(node)` publishes a keyed node as a collection through a
-**keyed reconciler**: it holds the current map, diffs each new frame against it by
-the collection's value `equals`, and drives the surface's own per-key
-`upsert`/`remove` publishers for exactly the changed and removed keys — so a
-poll-backed collection republishes only what moved. The graph is its one writer
-(the ctx `upsert`/`remove` throw). Two collection opt-ins ride with it:
+- `install(emit)` returns an uninstall function. It is installed lazily on the first subscriber and torn down when the last one leaves.
+- `initial` seeds the level. Without it the level reads `undefined` until the first frame.
 
-- **`CollectionSpec.equals?: (a, b) => boolean`** — per-key value equality, the
-  collection sibling of `CellSpec.equals`. The reconciler's diff predicate,
-  declared once on the spec instead of hand-held at each write site. Omitted ⇒
-  every present key republishes each frame (an always-moving per-tick rate).
-- **`CollectionImplDeps.materializeSiblingView?: boolean`** — a PURE optimization
-  behind `readAll()` for an authored collection whose `readAll` is an EXPENSIVE
-  per-key fold. Set it and the `$`-sibling read returns a per-key cache maintained
-  by the collection's own `upsert`/`remove` writes, instead of re-folding the whole
-  collection on every `$`-read — the fix for a derived member folding `$.<coll>()`
-  on a firehose (O(M²)→O(M) recomputes). SAFE ONLY when every mutation flows
-  through the ctx `upsert`/`remove` seam (the view's single write path).
+### `source({read, install})`
+
+An external poll input, read on a caller-owned cadence. Signature:
+`({read, install}) → PollSource<T>`. `install(tick)` schedules the re-reads.
+
+Publish it through `derived.cell` or `derived.collection`. The bridge owns the
+read-failure policy:
+
+- A read failure is cell-local at every tick, T+0 included. It is logged loudly, nothing is published (no fabricated default), and the cadence is held and retried on the next tick or edge.
+- A non-overlap (`inFlight`) guard keeps two reads from running at once.
+- It never faults `runtime.done`. Connectors and builders do that; periodic reads do not. So a poll read is never the right home for a deterministic boot defect.
+- A consumer that must stop on a permanent verdict (padi's port sampler on an unreadable platform) owns that decision itself, at whichever tick produces it.
+
+### `source({ read, install, label })`
+
+The poll source's full options: `PollSourceOptions<T> → PollSource<T>`.
+
+`label` is required. It names the source in a loop-guard error, and is
+diagnostics only: there is no field that can silence the guard.
+
+#### The loop guard
+
+Each read runs inside an `AsyncLocalStorage` context keyed to its source, so a
+change edge firing under that context was caused by the read it is about to
+re-trigger. Three consecutive self-caused ticks crash, naming the source.
+
+- A read that announces on the edge that triggers it is an unbounded cycle the reactor executes forever. One such cycle froze a kolu process (HTTP dead, `SIGTERM` ignored).
+- Timer, I/O and other cells' microtask bursts carry a different context and can never count toward the three, however fast or value-equal they are.
+
+### `everyMs(ms)`
+
+The cadence half of a poll `source`: the fixed-interval `install` closure.
+Signature: `(number) → (tick: () => void) => SourceCleanup`. Write it as
+`source({ read, install: everyMs(5_000) })`.
+
+- The interval is `unref`'d, so a live sampler never keeps the event loop alive.
+- The returned cleanup clears the interval. This is the one home for the unref'd-interval hygiene every interval-driven poll source would otherwise re-spell.
+
+### `everyMsOr(ms, subscribe)`
+
+The interval-plus-edge cadence fuse, for a poll whose value can move faster than
+its coarse interval. Signature:
+`(number, (tick) => () => void) → (tick: () => void) => SourceCleanup`.
+
+- It is `everyMs`'s interval plus an edge `subscribe(tick)`. The edge is any change source: a reconnect or state feed, a config-changed hook.
+- It re-reads on the tick and the instant `subscribe` fires.
+- Cleanup tears down both the interval and the subscription.
+
+### `assertCellConverges({ build, kick?, settleMs? })`
+
+The authoring-time twin of the loop guard, from
+`@kolu/surface/assert-cell-converges`. Signature: `→ Promise<{reads, loop}>`.
+Drive a poll source, `kick` the act that would start a
+cycle, and assert it settles. Reach for it because the defect lives in the join
+between a read and the edge it is fused with, which neither module's own unit
+tests can see.
+
+### `viewerAddressOf({ peerAddress, forwardedFor, hostAddresses })`
+
+Which machine a viewer is actually at, for an app behind a reverse proxy, from
+`@kolu/surface/viewer-identity`. It is the trust gate whole, so the order it
+rests on is enforced here rather than by each consumer re-reading prose.
+
+- A forwarded header on an untrusted connection is ignored entirely.
+- On a trusted connection the last forwarded entry wins.
+- `forwardedFor` takes the header as a string or as a list a caller already split. Node itself folds a repeated header into one string.
+- Beside it in the same subpath: `viewerIsOnHost`, `normalizeAddress`, `isTrustedLocalPeer`.
+- All of them are pure and total. DNS and interface enumeration stay with the consumer.
+
+### `scan(src, initial, step)`
+
+Folds a source's occurrences into a level; each emission steps once. Signature:
+`(Source<F>, S, (state, frame) => S) → ScanNode<S>`.
+
+- A step returning the previous reference (`===`) means no change: the level holds and nothing publishes.
+
+#### The stop-hold error law
+
+A step that throws stops the derivation, disposes its source subscription, holds
+the last value (never a fabricated reset), logs loudly, and latches `stopped`.
+
+- `stopped` is a `ReadonlyLevel<boolean>`, server-observable in phase 0. It gates the scan from stepping again, and distinguishes a frozen derivation from a legitimately quiet one.
+- A scan never heals. Recovery is a restart.
+- Bridging `stopped` into the surface's client-side liveness, by folding it into a member's `liveWhen`, is a later phase. In phase 0 `liveWhen` receives the serialized cell value, not the signal, so a stopped scan does not flip client health.
+
+### `computed(fn)`
+
+A derived value reading other graph nodes: `(() => T) → GraphNode<T>`. Use it as
+a private intermediate several wire members can share without any of them
+becoming a wire member. It is glitch-free by the engine's version-checked lazy
+pull, and there is nothing to dispose.
+
+### `batch(fn)`
+
+Groups several graph writes into one frame, so derivations recompute once:
+`(() => T) → T`. It is the knob an app reaches for to coalesce a multi-member
+burst of ctx writes. Every write the bridge itself makes already opens a batch
+(the engine has no implicit batch), so this only ever nests.
+
+### `derived.cell(node)` / `derived.cell(($) => …)`
+
+Publishes a graph value as a cell: the deps for an `implementSurface`
+`cells.<key>` slot.
+
+| Form | Signature | What it publishes |
+| --- | --- | --- |
+| `derived.cell(node)` | `(GraphNode<T>) → DerivedCell<T>` | A pre-built graph node (a `scan`, a `computed`). |
+| `derived.cell(($) => …)` | `(($: SiblingRead<S>) => T) → DerivedComputeCell<S, T>` | A sibling derivation. Reading a sibling is depending on it, so the cell recomputes when a sibling it read changed. |
+
+#### The `$` sibling-read face
+
+`$` is the typed sibling-read face: `$.someCell(): T` and
+`$.someCollection(): ReadonlyMap<K, T>`.
+
+- It is a plain mapped type over the surface spec (`SiblingRead<S>` in `@kolu/surface/define`), typed at the declaration site by the deps slot, so there is no `keyof` union explosion.
+- An authored sibling's graph face is a mirror the bridge pokes post-spec-equals, riding a bridge-owned store wrapper both cell write paths pass through, so a missed poke is unwritable rather than a rider held by tests. A suppressed write never pokes.
+- A derived sibling reads as its own `computed`, so every chain is a pure computed graph: glitch-free by the engine's lazy pull, even across a diamond.
+- Declaration order is irrelevant. The boot walk builds every derived node before it seeds any, so a `derived.cell` may read a sibling `derived.cell` via `$` whether declared before or after it. Only a genuine cycle fails.
+
+#### What a derived cell guarantees
+
+- Wire-read-only. A `derived.cell` dep is branded, and the boot walk crashes if that cell declares any write verb (`set` / `patch` / `test__set`). The graph is the member's only writer.
+- Dedup at the member's `equals`, once. A derived value flows through the member's own `equals → onWrite → store.set → bus.publish` gate (the `connect` seam), so the wire dedup point is unchanged and an `equals`-equal recompute never crosses the wire. `equals` lives on the member's spec.
+- It never fabricates. The cell seeds from its node's current level by an eager pull at wiring, so a throw at seed time is a boot crash and no default is served before the value exists. A compute cell's node is built after every sibling mirror exists, then eager-pulled.
+- Compute error policy is log-skip-continue. A throw in a `derived.cell(($) => …)` recompute is logged and the last published value held; the next successful recompute heals it. (`scan`'s stop-hold is different because it carries state.)
+- The publish is synchronous with the writer. A derived cell's `connect` is a `CellConnector` whose acquire subscribes the node on the runtime's own stack, and the graph notifies synchronously, so a graph write and an event published in the same tick reach a consumer in publish order.
+- Teardown is the scope's. `close()` interrupts the connector, which disposes the subscription and the backing node.
+- A poll-source cell suspends inside the connector for its T+0 seed. A failed seed is cell-local: the cell keeps serving its spec default and the cadence retries. Interruption becomes the `AbortSignal` its Promise-shaped `read` sees.
+
+### `derived.collection(node)`
+
+Publishes a keyed node (a poll `source` reading a whole `Map`, or a `computed`
+producing one) as a collection:
+`(GraphNode<ReadonlyMap<K,V>>) → DerivedCollection`. It is the keyed-reconciler
+wire adapter.
+
+- It holds the current map and diffs each new frame against it by the collection's value `equals`, then drives the surface's own per-key `upsert` / `remove` publishers for exactly the changed and removed keys. A poll-backed collection therefore republishes only what moved.
+- The graph is its one writer: the ctx `upsert` / `remove` throw.
+
+#### `CollectionSpec.equals?: (a, b) => boolean`
+
+Per-key value equality, the collection sibling of `CellSpec.equals`. It is the
+reconciler's diff predicate, declared once on the spec instead of hand-held at
+each write site. Omit it and every present key republishes each frame, at an
+always-moving per-tick rate.
+
+#### `CollectionImplDeps.materializeSiblingView?: boolean`
+
+A pure optimization behind `readAll()`, for an authored collection whose
+`readAll` is an expensive per-key fold. Set it and the `$`-sibling read returns a
+per-key cache maintained by the collection's own `upsert` / `remove` writes,
+instead of re-folding the whole collection on every `$`-read. That is the fix for
+a derived member folding `$.<coll>()` on a firehose (O(M²)→O(M) recomputes).
+
+It is safe only when every mutation flows through the ctx `upsert` / `remove`
+seam, the view's single write path.
+
+### `reactiveFamily(opts)`
+
+A keyed family of member states, as a graph source:
+`({members, attach, onEvict?}) → ReactiveFamily<K,S>`.
+
+- `members` is a `Source<readonly K[]>`; `attach(key, set)` subscribes one member's state.
+- It owns, once for every consumer: membership diff (attach entrants, detach and evict leavers), last-frame hold (a version-signal change edge, O(1) per frame), per-key disposal, and per-member error isolation.
+
+### `derived.registry(family, resolve)`
+
+The pull-face `MapRegistry` exit over a `reactiveFamily`:
+`(ReactiveFamily<K,S>, (key, state?) => Entry) → DerivedRegistry<K,Entry>`.
+
+- It resolves each member's entry on demand from its cached state, and fires `subscribe` on every family change.
+- It is the exit half of `registryFromFamily`, split along the source/exit axis.
 
 ## Consuming in SolidJS
 

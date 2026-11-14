@@ -76,3 +76,35 @@ None. No passage was long-form argument once the rhetoric was removed; every rea
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs … --old-lines 276-568`: 0 missing).
+
+## The reactor (reactive bridge)
+
+- Words: 1,857 → 2,084 (`wc -w` over the old lines 569–648 at `f50641c6a` and over the draft). The growth is the index table and 15 entry headings; the prose shrank.
+- Structure before: one intro paragraph, one 15-row table whose cells ran to 160 words, three trailing essays (the `$` face, the `derived.cell` guarantees, `scan`'s stop-hold law) and two bullet opt-ins. After: a short intro, an index table (`Export | Subpath | What it is`), one `###` per export, and `####` sections where an entry exceeded the 300-word limit (`The loop guard`, `The stop-hold error law`, `The $ sibling-read face`, `What a derived cell guarantees`, `CollectionSpec.equals?`, `CollectionImplDeps.materializeSiblingView?`).
+- `derived.cell(node)` and `derived.cell(($) => …)` share one entry, as the old page paired them; both index rows link to `#derivedcellnode--derivedcell--`.
+- Headings renamed with inbound links: none. The `##` heading text is unchanged; every `###`/`####` is new. No inbound link (`.waterfall/anchors.md`) pointed into these lines.
+- Code and the old page did not disagree anywhere in this range.
+
+### Moved
+
+| Fact | Where |
+| --- | --- |
+| The argument for `label` being required ("a rule held by memory… fires anonymously on exactly the source nobody expected to loop") | `reactive-honesty` (pending; queued in `.waterfall/moved/reactive-honesty/ref-surface-03.md`). The entry keeps the facts: required, diagnostics only, no field can silence the guard. |
+
+### Cut
+
+| Fact | Tag |
+| --- | --- |
+| "the one home for the fuse, previously re-spelled as app-local twins" (`everyMsOr`) | history |
+| "(SR9)" on `reactiveFamily` and `derived.registry` | implementation |
+| "The split of the old `registryFromFamily`…" rephrased as a plain statement of the split; the "old" framing | history |
+| "by construction" as a flourish on the lint ban and on the wire-read-only guarantee (the facts stay) | rationale |
+| Capitals for emphasis: `PUSH`, `POLL`, `TRACKED`, `HELD`, `STOP`, `REQUIRED`, `ANNOUNCES`, `UNDER`, `ONE`, `OTHER`, `SIBLING`, `COLLECTION`, `SAFE ONLY`, `PURE`, `EXPENSIVE`, `JOIN`, `LAST`, `WHOLE` | — (style, no fact) |
+
+The incident behind the loop guard stays as one clause ("One such cycle froze a
+kolu process (HTTP dead, `SIGTERM` ignored)"), because it is the constraint's
+short reason and carries the `SIGTERM` span.
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs --old-lines 569-648`: 0 missing).
