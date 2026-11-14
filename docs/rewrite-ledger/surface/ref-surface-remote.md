@@ -135,3 +135,15 @@ Unchanged: the section is a heading and one `<Snippet>`.
 ### Dropped code spans
 
 None.
+
+## Review round 1
+
+- Opening cut to 50 words (rule 4): the subpath sentence moved into a second paragraph, so no fact left the page.
+- B3, the "Why" link of the reference-entry template, one per entry a Moved row came from:
+  - `log and onFault` → [Why faults get a channel of their own](/surface/the-server-half#why-faults-get-a-channel-of-their-own).
+  - `Demand gating` → [Why demand is counted in one place](/surface/the-server-half#why-demand-is-counted-in-one-place).
+  - `absent frames` → [Why absence gets a frame of its own](/surface/the-server-half#why-absence-gets-a-frame-of-its-own).
+  - `A standing refusal` → [Why a refusal stops the relay](/surface/the-server-half#why-a-refusal-stops-the-relay).
+  - `Fault classes and the give-up budget`, `Absence`, `A host with no runnable Nix` and `The pre-connected liveness backstop` → [Why the session sorts silence into kinds](/surface/the-server-half#why-the-session-sorts-silence-into-kinds), one link each (the five lifecycle rows).
+  - `A mirror never fabricates a value` → [Why values replay and byte streams break](/surface/the-server-half#why-values-replay-and-byte-streams-break).
+- Checks: lint passes; `.waterfall/compare.mjs … f50641c6a` 0 missing; `house-style.mjs` reports only this page's pre-existing Nix `realise` family.

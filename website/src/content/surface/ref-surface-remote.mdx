@@ -12,8 +12,10 @@ Run a typed `@kolu/surface` agent on a remote machine over ssh — or read one
 already listening on a unix socket beside you. The package owns provisioning
 (ship a `.drv`, realise it on the target), the long-lived ssh
 subprocess (ref-counting, reconnect, backoff), and the observable state of the
-link's own lifecycle. It has two public subpaths: `@kolu/surface-remote` and the
-browser-safe `@kolu/surface-remote/connection`.
+link's own lifecycle.
+
+It has two public subpaths: `@kolu/surface-remote` and the browser-safe
+`@kolu/surface-remote/connection`.
 
 ## The session
 
@@ -295,6 +297,7 @@ Two channels, with two levels. `log` is chatter (reconnects, link ends), so filt
 - A `member`-scoped fault also rejects the mirror's `done`.
 - A `key`-scoped fault is deliberately key-local and never reaches `done`, so `onFault` is its only notice.
 - Both are forwarded verbatim from `reServeSurface` through the pump into `mirrorRemoteSurface`.
+- Why: [Why faults get a channel of their own](/surface/the-server-half#why-faults-get-a-channel-of-their-own).
 
 #### How the pump ends
 
@@ -342,6 +345,7 @@ Every downstream call enters through one of `reServeSurface`'s own handlers, so 
 - The release waits a fixed grace (`RELEASE_GRACE_MS`, 30s), so a consumer whose subscriptions re-key crosses zero for free.
 - An upstream nobody is subscribed to is therefore never dialled, which is the point for an upstream that is optional, such as a daemon most machines do not run.
 - A parent that wants an always-on link pins the session itself, and the count never reaches zero. kolu-server does that per host. A host's link state is itself something the fleet shows, and a host dialled only once a browser subscribed would read `connecting` while nobody looked at it.
+- Why: [Why demand is counted in one place](/surface/the-server-half#why-demand-is-counted-in-one-place).
 
 #### `absent` frames
 
@@ -352,6 +356,7 @@ frame>`) names, per value member, the frame a subscriber gets while the upstream
 - The frame is a value the source contract declares (odu's `CHECKOUT_NONE`), never one this relay invents.
 - Absence is read off the session's own `absent` arm, not off the client holder going null, which also means "between spawns". Only a session whose connector can tell absence from unreachability ever sends one, and every other re-serve omits the option.
 - Naming a member that is not a `value`-classified stream or event throws at build.
+- Why: [Why absence gets a frame of its own](/surface/the-server-half#why-absence-gets-a-frame-of-its-own).
 
 #### A standing refusal
 
@@ -360,6 +365,7 @@ A daemon that answers and speaks a contract this build cannot read is a refusal,
 - A hold-open relay reading it stops holding and fails its subscription with `SurfaceUpstreamRefused` (`@kolu/surface/errors`), carrying that sentence.
 - It is raised as a defect, because a streaming member declares no error channel, and a defect is never retried.
 - Every hold-open relay gets the signal, whether or not its member declares an `absent` frame.
+- Why: [Why a refusal stops the relay](/surface/the-server-half#why-a-refusal-stops-the-relay).
 
 ### `makeClientCursor(session)`
 
@@ -543,7 +549,7 @@ What a session guarantees about its own state, its children and its retries, and
 | --- | --- | --- |
 | [`onState`](#onstate) | `.` | Snapshot, then every later transition. |
 | [`currentState()`](#currentstate) | `.` | The synchronous twin of `onState`, and the liveness read. |
-| [`currentClient()`](#currentclient) | `.` | The dialing-or-connected client promise. Not a liveness gate. |
+| [`currentClient()`](#currentclient) | `.` | The dialling-or-connected client promise. Not a liveness gate. |
 | [`pin()` / `release()` / `destroy()`](#pin--release--destroy) | `.` | Intent to stay connected, and giving it back. |
 | [Timers and the process lifetime](#timers-and-the-process-lifetime) | `.` | Which of a session's timers can hold a process open. |
 | [The dial's process group](#the-dials-process-group) | `.` | What a connector teardown kills. |
@@ -580,8 +586,8 @@ The synchronous twin of `onState`. It returns the current published `SessionStat
 
 The in-flight or current client promise. It is not a liveness gate.
 
-- It is legitimately non-null while merely dialing: during `connecting` and provisioning, and across an entire reconnect backoff window, because `scheduleReconnect` retains the rejected dial.
-- The pump and `markConnected` handshake depend on that dialing-or-connected meaning.
+- It is legitimately non-null while merely dialling: during `connecting` and provisioning, and across an entire reconnect backoff window, because `scheduleReconnect` retains the rejected dial.
+- The pump and `markConnected` handshake depend on that dialling-or-connected meaning.
 - So `currentClient() !== null` never means the far end is live. Read `currentState().phase` for that.
 
 ### `pin()` / `release()` / `destroy()`
@@ -623,6 +629,7 @@ The budget is a classified ledger (`@kolu/surface`'s [`makeFailureLedger`](/surf
 - Each retry line says what the attempt ran into (`attempt N failed: <reason> — retrying in …`) rather than a fixed label. `network` is a retry class, not proof the host is gone.
 - An agent dial's exit 255 is `transport-failed` only when ssh's stderr named a transport failure, read as whole lines, with a short bounded wait for that line after the exit. A remote agent that exits 255 by itself is an ordinary `exit`.
 - One `network` fault does terminate: a budget-exhausted silent provisioning step. The ssh connector's per-step progress-liveness budget gives up after N consecutive silent kills, surfacing terminal `failed` plus `network`, the honest transport cause. Terminality is the phase, not a rewrite of the cause.
+- Why: [Why the session sorts silence into kinds](/surface/the-server-half#why-the-session-sorts-silence-into-kinds).
 
 ### Absence
 
@@ -632,6 +639,7 @@ Absence is a steady state, not a failure. A connector that throws `EndpointAbsen
 - It re-probes at the reconnect ladder's own ceiling rather than ramping, since nobody's daemon gets started by polling for it.
 - It publishes at debug level. A line per probe at `info` would fill an operator's log with the news that software they do not run is not running.
 - It is never terminal, so the next `pin()` on a daemon that has since started connects normally.
+- Why: [Why the session sorts silence into kinds](/surface/the-server-half#why-the-session-sorts-silence-into-kinds).
 
 ### A host with no runnable Nix
 
@@ -645,6 +653,7 @@ Provisioning realises the agent with the host's own Nix, so a probe whose shell 
 - The 127 case is classified by the exit code, never by the shell's wording: bash, dash and fish word it three different ways.
 - The non-127 case is retried, but bounded, because the host answered. Probe output that is not a nix-system string rejects the same way, commonly a shell startup file printing to stdout.
 - Our own kills and a transient local spawn fault stay untyped retried errors.
+- Why: [Why the session sorts silence into kinds](/surface/the-server-half#why-the-session-sorts-silence-into-kinds).
 
 ### An ssh gate that cannot be answered
 
@@ -653,7 +662,7 @@ Every ssh this package spawns is non-interactive (`BatchMode=yes`, no TTY), so a
 - The arch probe every dial opens with reads those two refusals off ssh's stderr and rejects a `ResolveDrvError` whose resolution is `{ kind: "auth-refused" | "host-key-unverified", failureCause: "remote", terminal: true }`.
 - It is `remote` because the peer was reached and refused us, and terminal because no redial can supply the missing answer. So a password-only host settles on `failed` with an actionable reason in seconds.
 - Classification is conservative. It requires ssh's own exit 255 as well as the stderr text, since a remote command's stderr rides the same stream.
-- Any refusal it does not recognise stays an untyped, retried transport error.
+- Any refusal it does not recognize stays an untyped, retried transport error.
 - The probe is the natural chokepoint: a refusal met later (Nix's own ssh fork, the agent dial) kills that dial, and the redial's probe meets it here.
 
 ### `recheck()` and `reconnect()`
@@ -715,9 +724,10 @@ The fire-and-collect helper (`/` root) that provisioning children run under. It 
 
 While a campaign is coming up, if no progress line arrives and no phase advances for the baked `DEFAULT_PRE_CONNECTED_LIVENESS_MS` (20min), the session cycles the attempt (abort and redial), narrated.
 
-- The bound is not configurable. It must stay above the connector's maximum step-silence budget so the per-step budget always terminalises first; a lower bound would let the backstop reset the budget and loop a silent copy forever.
+- The bound is not configurable. It must stay above the connector's maximum step-silence budget so the per-step budget always ends the step first; a lower bound would let the backstop reset the budget and loop a silent copy forever.
 - It is liveness, so a chatty build resets it every line, and it is never capped.
 - It guards the seam the per-child policies cannot: a wedge in a non-helper await such as `resolveDrvPath`.
+- Why: [Why the session sorts silence into kinds](/surface/the-server-half#why-the-session-sorts-silence-into-kinds).
 
 ### `provisionAgent(opts)` → `ProvisionResult`
 
@@ -904,6 +914,7 @@ A re-served (mirrored) cell serves no frame until the authority's first real fol
 - Its store still seeds the declared default, so `store.get()` is a typed `T`.
 - The framework's `hasSnapshot` gate withholds that seed until the fold writes the authority's first frame. On a mirror the only writer is the fold, never a wire client.
 - So the reader's `T | undefined` ("no frame yet") holds end to end, and the declared default belongs to the one writer.
+- Why: [Why values replay and byte streams break](/surface/the-server-half#why-values-replay-and-byte-streams-break).
 
 <Aside type="caution" title="Shared library">
   `@kolu/surface-remote` is consumed by [drishti](https://github.com/srid/drishti) as well as kolu. Any API-facing
