@@ -4,9 +4,12 @@
  *  The LADDER and the two phrases every surface says with it (`compactDelta`,
  *  `compactPhrase`, `agoPhrase`) moved to `@kolu/terminal-vocab/duration`, so a
  *  package that renders kolu's Dock row can say the Dock's words instead of
- *  inventing a fourth spelling of them. What stayed is the one formatter with a
- *  single caller and an app-shaped rule: the connect overlay's live timer. */
+ *  inventing a fourth spelling of them. What stayed is app-shaped: the one
+ *  formatter with a rule of its own (the connect overlay's live timer), and
+ *  the one reading of an ISO stamp as an elapsed figure that every surface
+ *  drawing a wire stamp goes through. */
 import { compactDelta, dualOf } from "@kolu/terminal-vocab/duration";
+import { DASH } from "kolu-common/surface";
 
 /** A compact elapsed readout for a LIVE, seconds-granularity timer — `"45s"` under a
  *  minute, `"2m 3s"` above (dual-unit so a minutes-long connect still shows its seconds
@@ -37,4 +40,22 @@ export function formatElapsedShort(ms: number): string {
   // `dualOf`, not `dualPhrase`: `d` is already in hand, and re-walking the
   // ladder to render it would throw that walk away on every non-minute tick.
   return dualOf(d);
+}
+
+/** HOW LONG AGO AN ISO STAMP WAS, in the compact readout above — the ONE
+ *  reading of a wire stamp as an elapsed figure, for every surface that draws
+ *  one (the status line's turn clock, the strip's out-list, the watched
+ *  panel's rows).
+ *
+ *  The delta is handed over UNCLAMPED, deliberately. A stamp in this clock's
+ *  future is skew between two machines, and the shared ladder's answer to that
+ *  is a dash rather than a confident `0s` — clamping would hide exactly the
+ *  fact worth seeing. A stamp that is not a time at all is the same dash,
+ *  because `Date.parse` answers `NaN` and the ladder has no tier for it.
+ *
+ *  Always a string: a readout with nothing to say says the dash, so no caller
+ *  carries a second "or nothing" spelling of the same unreadable stamp. */
+export function elapsedSince(iso: string, now: number): string {
+  const at = Date.parse(iso);
+  return Number.isNaN(at) ? DASH : formatElapsedShort(now - at);
 }

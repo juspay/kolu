@@ -17,6 +17,7 @@ import {
   collectEffectVersionRefs,
   validateBetaAssumptions,
 } from "./betaAssumptions";
+import { findCaseCollisions, validateCaseCollisions } from "./caseCollisions";
 import { checkClosureWalksAgree } from "./closureWalk";
 import { collectEffectPins, validateEffectPins } from "./effectPin";
 import {
@@ -211,6 +212,14 @@ const optionalShimSites = [...optionalShims.values()].reduce(
   0,
 );
 
+// No two source modules whose import paths differ only by case (#2364). The
+// fourth whole-repo scan, and the one no Linux lane can catch any other way: a
+// case-insensitive disk folds the pair into one file, so the macOS build picks
+// the wrong module while every Linux build, test and typecheck stays green.
+// The file list is `git ls-files` — what is committed, as `.gitignore` scopes it.
+const trackedFiles = git("ls-files", "-z").split("\0").filter(Boolean);
+validateCaseCollisions(findCaseCollisions(trackedFiles));
+
 // The manifest-closure walk exists in TS and in Nix, and neither can run the
 // other. This makes them answer the same question over the same entries, so a
 // drift fails here instead of downstream — as a daemon that ships new code under
@@ -260,5 +269,5 @@ validateBetaAssumptions(
 );
 
 console.log(
-  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files, ${optionalShimSites} allowlisted Schema.optional shims in ${optionalShims.size} files, effect@${effectVersion} agreed across ${effectPins.length} pin sites, ${betaAssumptions.length} beta-behavior assumptions stamped (${effectVersionRefs.length} evidence citations agreed), ${closureMembers} vendored + daemon-identity closure members walked identically by nix and TS, ${consumerClosureMembers} consumer-closure members emitted fresh, README consumer recipe evaluates to ${consumerRecipeMembers} members`,
+  `e2e governance: ${counts.featureFiles} features, ${counts.declarations} declarations, ${counts.executions} executions (${counts.linuxDefault} Linux default, ${counts.darwinDefault} Darwin default), ${inventory.records.length} immutable revisions, ${runEdgeSites} allowlisted Effect.run* edges in ${runEdges.size} files, ${optionalShimSites} allowlisted Schema.optional shims in ${optionalShims.size} files, ${trackedFiles.length} tracked files with no case-only module collision, effect@${effectVersion} agreed across ${effectPins.length} pin sites, ${betaAssumptions.length} beta-behavior assumptions stamped (${effectVersionRefs.length} evidence citations agreed), ${closureMembers} vendored + daemon-identity closure members walked identically by nix and TS, ${consumerClosureMembers} consumer-closure members emitted fresh, README consumer recipe evaluates to ${consumerRecipeMembers} members`,
 );

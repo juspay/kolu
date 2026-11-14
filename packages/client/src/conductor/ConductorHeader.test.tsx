@@ -15,6 +15,12 @@
  * rows that exist only while they mean something (`Stop` needs a running turn,
  * `Sign in…` needs an agent that is not signed in). Absent rather than
  * disabled: a greyed row is still a row a person reaches for.
+ *
+ * The last block is the ROW'S ONE LINE-HEIGHT. There is no layout in this
+ * environment — happy-dom has no boxes to measure — so what is pinned is the
+ * CAUSE the measured misalignment came from: the row declares one leading and
+ * no child declares a second one. (The numbers themselves were taken in a real
+ * browser: every child's box centre and text centre now land on one pixel.)
  */
 
 import {
@@ -23,9 +29,11 @@ import {
   type ConductorState,
 } from "kolu-common/conductor";
 import { Effect } from "effect";
+import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ConductorHeader from "./ConductorHeader";
+import { Shown } from "../ui/shown";
 
 const verbs = vi.hoisted(() => ({
   clearSession: vi.fn(),
@@ -71,18 +79,23 @@ afterEach(() => {
   writeTextToClipboard.mockClear();
 });
 
-function mount(over: Partial<ConductorState> = {}): {
+function mount(
+  over: Partial<ConductorState> = {},
+  shown: () => boolean = () => true,
+): {
   at: (testid: string) => HTMLElement | undefined;
 } {
   root = document.createElement("div");
   document.body.append(root);
   dispose = render(
     () => (
-      <ConductorHeader
-        state={{ ...DEFAULT_CONDUCTOR_STATE, phase: "idle", ...over }}
-        rows={ROWS}
-        onSignIn={() => {}}
-      />
+      <Shown.Provider value={shown}>
+        <ConductorHeader
+          state={{ ...DEFAULT_CONDUCTOR_STATE, phase: "idle", ...over }}
+          rows={ROWS}
+          onSignIn={() => {}}
+        />
+      </Shown.Provider>
     ),
     root,
   );
@@ -111,6 +124,20 @@ describe("the header's ⋯", () => {
     expect(verbs.clearSession).not.toHaveBeenCalled();
     expect(verbs.newSession).not.toHaveBeenCalled();
     expect(verbs.cancel).not.toHaveBeenCalled();
+  });
+
+  it("takes the menu off the page when the pane stops being the shown view", () => {
+    // The pane is RETAINED behind a host tab, and this menu is PORTALLED to
+    // the document — so hiding the pane hides everything except exactly this.
+    // An open `⋯` panel left over a person's terminals would take their next
+    // click and their next `Escape`.
+    const [shown, setShown] = createSignal(true);
+    const { at } = mount({}, shown);
+    open(at);
+    expect(at("conductor-menu-panel")).toBeDefined();
+
+    setShown(false);
+    expect(at("conductor-menu-panel")).toBeUndefined();
   });
 
   it("wipes only after the confirm step", () => {
@@ -179,5 +206,40 @@ describe("the header's ⋯", () => {
     const text = writeTextToClipboard.mock.calls[0]?.[0] ?? "";
     expect(text).toContain("you: hello");
     expect(text).toContain("agent: hello back");
+  });
+
+  it("holds the tool-server roster — read in here, not a strip on every screen", () => {
+    // `kolu ✓ · plus the agent's own` stood above every conversation all day.
+    // It answers a question a person asks now and then, so it is read behind
+    // the one press that promises *there is more here* — and the tick is
+    // still the AGENT'S word about the server, not kolu's.
+    const { at } = mount({
+      servers: [
+        { name: "kolu", standing: "connected", said: null, where: null },
+        {
+          name: "notes",
+          standing: "unattached",
+          said: "the token expired",
+          where: null,
+        },
+      ],
+    });
+    expect(at("conductor-server")).toBeUndefined();
+
+    open(at);
+
+    const panel = at("conductor-menu-panel");
+    const rows = [
+      ...(panel?.querySelectorAll<HTMLElement>(
+        '[data-testid="conductor-server"]',
+      ) ?? []),
+    ];
+    expect(rows.map((row) => row.dataset.server)).toEqual(["kolu", "notes"]);
+    expect(rows[0]?.dataset.standing).toBe("connected");
+    expect(rows[0]?.textContent).toContain("✓");
+    // The agent's own sentence about why it is not on that server is the
+    // whole answer to the question this section gets opened with.
+    expect(rows[1]?.textContent).toContain("the token expired");
+    expect(panel?.textContent).toContain("plus the agent's own");
   });
 });

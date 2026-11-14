@@ -28,16 +28,18 @@
  *
  * ## Liveness
  *
- * Each aggregate re-subscribes when the ROSTER moves (`FleetHosts.subscribe`)
- * and re-emits when any host's own stream does. That is what makes a host
- * arriving mid-conversation visible: the MCP adapter holds a subscription to
- * `surface://collections/terminals`, and a new host's terminals arrive on it as
- * a `notifications/resources/updated` — no reopened session, no new server.
+ * Each aggregate re-subscribes when the ROSTER moves and re-emits when any
+ * host's own stream does — both of them `overHosts.ts`'s doing, the one
+ * implementation of "a leg per connected host, re-opened as the map moves"
+ * that kolu-server's conductor watch reads through too. That is what makes a
+ * host arriving mid-conversation visible: the MCP adapter holds a subscription
+ * to `surface://collections/terminals`, and a new host's terminals arrive on
+ * it as a `notifications/resources/updated` — no reopened session, no new
+ * server.
  *
  * The merge emits on EVERY host's frame rather than waiting for all of them:
  * one unreachable-but-connected host must not be able to withhold the whole
- * fleet's roster from a read, which is the fail-open rule the watch states one
- * file over.
+ * fleet's roster from a read.
  */
 
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
@@ -65,11 +67,13 @@ import {
   type FleetHost,
   type FleetTerminal,
   type FleetUrgency,
+  type FleetWatched,
   fleetSurface,
 } from "./fleetSurface.ts";
 import { type FleetHosts, requireHost, requireTerminal } from "./hosts.ts";
-import { fleetTerminalRef } from "./ref.ts";
-import { type FleetWatchRegistry, fleetWatchClose } from "./watch.ts";
+import { hostRoster, overConnectedHosts } from "./overHosts.ts";
+import { fleetTerminalRef, splitFleetTerminalRef } from "./ref.ts";
+import type { FleetWatchList } from "./watchList.ts";
 
 // The four repo-scoped verbs take padi's own input, plus a host. Named off the
 // SCHEMAS padi declares them with, so a field added upstream arrives here
@@ -79,26 +83,9 @@ type GitDiffInput = typeof GitDiffInputSchema.Type;
 type FsListAllInput = typeof FsListAllInputSchema.Type;
 type FsFileInput = typeof FsFileInputSchema.Type;
 
-/** The roster, now and on every move. The payload is the host keys; readers
- *  that only need the CHANGE ignore it and re-read what they care about. */
-function hostRoster(hosts: FleetHosts): Stream.Stream<readonly string[]> {
-  return Stream.callback<readonly string[]>((queue) =>
-    Effect.gen(function* () {
-      const push = (): void => {
-        Queue.offerUnsafe(queue, hosts.keys());
-      };
-      // Emit the current roster BEFORE subscribing: a resource read takes the
-      // first frame, and a stream that only spoke on change would make a read
-      // of a quiet fleet hang forever.
-      push();
-      const off = hosts.subscribe(push);
-      yield* Effect.addFinalizer(() => Effect.sync(off));
-    }),
-  );
-}
-
 /** One per-host stream, tagged with its host and merged with its siblings,
- *  re-folded into a fleet-wide value on every frame.
+ *  re-folded into a fleet-wide value on every frame — the FOLD half of
+ *  {@link overConnectedHosts}, which owns following the roster itself.
  *
  *  `mapAccum`, not `scan`: `scan` emits its seed first, and a seeded empty
  *  frame on a resource read is the lie this whole face exists to prevent — an
@@ -111,47 +98,36 @@ function hostRoster(hosts: FleetHosts): Stream.Stream<readonly string[]> {
  *  agent cannot tell from a complete one. Every surface member opens with a
  *  snapshot by contract, so this waits on an obligation rather than on luck,
  *  and it waits only on CONNECTED hosts — one that is not connected is not in
- *  the fold at all, and is refused by name when addressed. After that first
- *  frame every later one is emitted as it arrives.
+ *  the fold at all, and is refused by name when addressed.
  *
- *  Which hosts those are, and the client each is read through, are decided in
- *  ONE pass here. `per` is handed the client and asked only which member to
- *  read: a seam where the caller answered "is this host connected" as well
- *  would have both sides reaching for `hosts.padi`, and `padi() !== null` is
- *  the test — the client is what a fold actually reads, so a roster claiming
- *  `connected` over a client that is gone would make this throw instead of
- *  answering short. A fold is about RIGHT NOW, which is why an absent host is
- *  simply not in it; the standing watch parks that host's leg instead, because
- *  a subscription is about a host over TIME (`watch.ts`).
- */
+ *  A generation with no connected host at all answers `empty` ONCE, which is
+ *  the one thing a fold has to say that a standing watch does not: a read of a
+ *  fleet where nothing is answering must return the empty answer rather than
+ *  hang on a stream that will never speak. */
 function foldHosts<T, F>(
   hosts: FleetHosts,
   per: (padi: PadiSurfaceClient) => Stream.Stream<T, unknown>,
   fold: (seen: ReadonlyMap<string, T>, live: readonly string[]) => F,
   empty: F,
 ): Stream.Stream<F, unknown> {
-  return Stream.switchMap(hostRoster(hosts), () => {
-    const live: string[] = [];
-    const legs: Stream.Stream<readonly [string, T], unknown>[] = [];
-    for (const host of hosts.keys()) {
-      const padi = hosts.padi(host);
-      if (padi === null) continue;
-      live.push(host);
-      legs.push(Stream.map(per(padi), (value) => [host, value] as const));
-    }
-    if (legs.length === 0) return Stream.make(empty);
-    return Stream.mapAccum(
-      Stream.mergeAll(legs, { concurrency: "unbounded" }),
-      () => new Map<string, T>(),
-      (seen, [host, value]) => {
-        seen.set(host, value);
-        return [
-          seen,
-          seen.size < live.length ? [] : [fold(seen, live)],
-        ] as const;
-      },
-    );
-  });
+  return overConnectedHosts(
+    hosts,
+    (_host, padi) => per(padi),
+    (live, frames) =>
+      live.length === 0
+        ? Stream.make(empty)
+        : Stream.mapAccum(
+            frames,
+            () => new Map<string, T>(),
+            (seen, [host, value]) => {
+              seen.set(host, value);
+              return [
+                seen,
+                seen.size < live.length ? [] : [fold(seen, live)],
+              ] as const;
+            },
+          ),
+  );
 }
 
 /** Every terminal on every connected host, host-qualified, in roster order
@@ -272,6 +248,73 @@ function fleetRoster(
   );
 }
 
+/** THE WATCH LIST, AS ROWS — each entry the conversation is woken by, plus
+ *  this fleet's reading of the host it is on.
+ *
+ *  The two halves come from different owners and that is the whole of this
+ *  function: the ENTRY is kolu-server's (the list is persisted with the
+ *  conversation), and whether its host is still here is the POOL's, read at
+ *  the instant of the read like every other member. A ref whose host has left
+ *  keeps its row with three nulls rather than being dropped — "I am watching
+ *  something I can no longer reach" is the answer, and dropping it would read
+ *  as a list that never had it.
+ *
+ *  Both lookups are synchronous and local: no host is dialled to answer this,
+ *  so a fleet with an unreachable member still answers "what am I watching"
+ *  whole. What a terminal is doing RIGHT NOW is `terminals` and the tools;
+ *  this is the list and nothing more. */
+function watchedRows(
+  hosts: FleetHosts,
+  watchList: FleetWatchList,
+): readonly FleetWatched[] {
+  const fleet = new Set(hosts.keys());
+  return watchList.entries().map((entry) => {
+    const split = splitFleetTerminalRef(entry.ref);
+    const host = split !== null && fleet.has(split.host) ? split.host : null;
+    return {
+      ref: entry.ref,
+      host,
+      hostName: host === null ? null : hosts.display(host),
+      hostState: host === null ? null : hosts.state(host),
+      name: entry.name,
+      agent: entry.agent,
+      joined: entry.joined,
+    };
+  });
+}
+
+/** ... now, and on every move of EITHER half. The list moves without the
+ *  conversation touching it (a watched terminal that goes away drops off, a
+ *  person can take one off from the browser) and so does the roster under it,
+ *  so both are subscribed: a reader holding this resource hears a host leave
+ *  as readily as an unwatch.
+ *
+ *  The current rows go out BEFORE either subscription, for the reason
+ *  {@link hostRoster} states: a resource read takes the first frame, and a
+ *  stream that only spoke on change would hang on a conversation watching
+ *  nothing. */
+function fleetWatched(
+  hosts: FleetHosts,
+  watchList: FleetWatchList,
+): Stream.Stream<readonly FleetWatched[]> {
+  return Stream.callback<readonly FleetWatched[]>((queue) =>
+    Effect.gen(function* () {
+      const push = (): void => {
+        Queue.offerUnsafe(queue, watchedRows(hosts, watchList));
+      };
+      push();
+      const offList = watchList.subscribe(push);
+      const offHosts = hosts.subscribe(push);
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          offList();
+          offHosts();
+        }),
+      );
+    }),
+  );
+}
+
 /** The host a repo-scoped verb names, and that host's client. These four verbs
  *  address a repository rather than a terminal, so the host is a field of their
  *  own rather than something a reference carries. */
@@ -317,10 +360,13 @@ function fleetTerminalRow(
   } as FleetTerminal;
 }
 
-/** The whole face. */
+/** The whole face. The watch list arrives beside the hosts because one member
+ *  — `watched` — is about the CONVERSATION rather than about the fleet, and
+ *  it is a port for the same reason the host map is: kolu-server owns the
+ *  list, this package only projects it. */
 export function fleetClientFace(
   hosts: FleetHosts,
-  registry: FleetWatchRegistry,
+  watchList: FleetWatchList,
 ): SurfaceClientCallable {
   return {
     surface: {
@@ -343,6 +389,11 @@ export function fleetClientFace(
         // warming host omitted from it reads as a host that is not yours.
         get: () => fleetRoster(hosts),
       },
+      watched: {
+        // What this conversation is woken by, with each ref's host read as it
+        // stands now — the one member whose value belongs to the conversation.
+        get: () => fleetWatched(hosts, watchList),
+      },
       urgency: { get: () => fleetUrgency(hosts) },
       screen: {
         history: (input: { id: string; before?: number; max: number }) =>
@@ -351,14 +402,20 @@ export function fleetClientFace(
           ),
       },
       lifecycle: {
+        // A KILL THAT LANDED is one the Conductor caused, and the watch list
+        // is told so (`closed`) — otherwise the `gone` it would ring at the
+        // turn's end is a wake about the Conductor's own action. Told at the
+        // reference padi answered with, re-qualified, which is the spelling
+        // the list is keyed by.
         kill: (input: { id: string }) =>
           Effect.flatMap(
             requireTerminal(hosts, input.id),
             ({ host, id, padi }) =>
-              Effect.map(padi.surface.lifecycle.kill({ id }), (info) => ({
-                ...info,
-                id: fleetTerminalRef(host, info.id),
-              })),
+              Effect.map(padi.surface.lifecycle.kill({ id }), (info) => {
+                const ref = fleetTerminalRef(host, info.id);
+                watchList.closed(ref);
+                return { ...info, id: ref };
+              }),
           ),
       },
       git: {
@@ -381,10 +438,12 @@ export function fleetClientFace(
             padi.surface.fs.readFile(rest),
           ),
       },
-      watch: {
-        close: (input: { name: string }) =>
-          fleetWatchClose(registry, input.name),
-      },
+      // No `watch` member: the fleet face no longer serves a standing
+      // subscription at all. The conductor is WOKEN by kolu-server (its watch
+      // list, `watchList.ts`) rather than draining a queue it has to stay in a
+      // call for, and `fleetSurface` dropped the member to match — a face
+      // answering a verb its own spec does not declare is a tool nothing can
+      // reach and a reader cannot explain.
     },
   };
 }

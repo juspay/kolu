@@ -92,6 +92,7 @@ import type {
   Spawn,
 } from "@kolu/acp/engine";
 import type { AskAnswer, AskLink, AuthStatus, Usage } from "@kolu/acp/wire";
+import { Duration } from "effect";
 import { Calls } from "./calls.ts";
 import { type Child, childEnvOf, start as startChild } from "./child.ts";
 import { Fleet, koluCallOf, refineKoluCall } from "./kolu.ts";
@@ -123,6 +124,7 @@ import type {
   ConductorServer,
   ConductorSignIn,
   ConductorState,
+  ConductorWakeEvent,
 } from "./rows.ts";
 import { type Change, says, Transcript } from "./transcript.ts";
 import { type Turn, Turns } from "./turns.ts";
@@ -247,13 +249,18 @@ export interface HarnessOptions {
 }
 
 /** WHAT A HARNESS CAN ANSWER FOR: padi's whole conductor state minus the
- *  three facts it would only be echoing back. `install` and `agentName` are
+ *  six facts it would only be echoing back. `install` and `agentName` are
  *  the ENGINE's, settled when kolu was built, and `cwd` is the directory padi
  *  handed in — a harness that published them would be overwriting the caller's
- *  own answer with a copy of it. */
+ *  own answer with a copy of it. `seen`, `work` and `held` are the SERVER's in
+ *  the same way: how each watched terminal stands and since when, how the
+ *  watched terminals group into the pieces of work that ARE the membership
+ *  list, and whose news is waiting for the turn to end, are facts about
+ *  kolu's watch rather than about the conversation — this end only ever
+ *  learns of them as a {@link Harness.wake}. */
 export type HarnessState = Omit<
   ConductorState,
-  "install" | "agentName" | "cwd"
+  "install" | "agentName" | "cwd" | "seen" | "work" | "held"
 >;
 
 /**
@@ -291,6 +298,25 @@ export interface Harness {
     text: string,
     mentions: ReadonlyArray<ConductorMention>,
     attachments: ReadonlyArray<ConductorAttachment>,
+    /** STEER rather than queue: put the words INTO the turn that is running.
+     *  Honoured only while a turn runs and `state.steers` holds; a steer the
+     *  agent did not take goes out as a plain prompt, so the words are never
+     *  lost — except when the turn it was aimed at was CANCELLED under it,
+     *  which is a refusal rather than a fresh turn nobody asked for. */
+    steer: boolean,
+  ): Promise<{ rowId: string }>;
+  /**
+   * KOLU'S OWN LINE — a turn this end starts because a watched terminal
+   * stopped, asked, or died.
+   *
+   * A turn like any other: it mints a row, waits behind whatever is running,
+   * can be cancelled, refused or go unanswered, and the row carries every
+   * mark a person's message does. What differs is whose words they are, which
+   * is the row's kind and nothing else here.
+   */
+  wake(
+    text: string,
+    events: ReadonlyArray<ConductorWakeEvent>,
   ): Promise<{ rowId: string }>;
   cancel(): Promise<void>;
   answer(
@@ -384,6 +410,16 @@ const STDERR_CAP = 32 * 1024;
  *  is the number the panel drew beside the chip. */
 const ATTACHMENT_CAP = 10 * 1024 * 1024;
 const PROMPT_CAP = 20 * 1024 * 1024;
+
+/** What a message steered into a turn SOMEBODY STOPPED is told.
+ *
+ *  The agent's answer is *nothing to steer*, which it also gives for a turn
+ *  that simply finished — and those two want opposite things done. A turn that
+ *  ended on its own makes these words an ordinary prompt; a turn a person
+ *  cancelled makes starting a fresh one with them this end un-cancelling on
+ *  their behalf. So the words stay on the row, theirs to send again. */
+const CANCELLED_UNDER_IT =
+  "the turn these words were steered into was cancelled, so they were not sent";
 
 /**
  * THE KINDS THAT RE-TELL WHAT WAS SAID — the only frames a replay is dropped
@@ -487,6 +523,43 @@ export const startHarness = async (
     report(transcript.settleAsk(id, outcome));
     publish();
   });
+
+  /**
+   * WHAT THIS AGENT SAID ABOUT TAKING A MESSAGE MID-TURN, read at the
+   * handshake and never again — `steering.advertised` and `queues`, which are
+   * questions about the agent rather than about a request, and a control has
+   * to be drawn (or not drawn) before anybody presses it.
+   *
+   * Both start FALSE, which is the honest state of an agent that has not
+   * spoken yet: a composer offering an interruption an agent never claimed is
+   * a person pressing a button that will be refused.
+   */
+  let advertisedSteering = false;
+  let queuesWhenBusy = false;
+  /**
+   * Whether THIS CONVERSATION has ever held a message behind a running turn.
+   *
+   * IT WITHDRAWS THE INTERRUPTION, and it is the one rule in this file that
+   * works around somebody else's defect rather than stating a rule of its own.
+   * The pinned adapter leaves a turn's `session/prompt` unanswered forever if a
+   * `_session/steering` is injected into any turn of a session that has once
+   * held a queued one — the steered words run and stream, and only a cancel
+   * ends the turn. Measured on the wire by olai, which is where the latch and
+   * its measurement come from (`packages/integrations/claude-code/acp/patches/README.md`).
+   *
+   * WHAT IT COSTS is said out loud because it is not small: after one message
+   * sent while a turn was running, this conversation offers no steer for the
+   * rest of its life. It is the SESSION the adapter poisons, so a new one
+   * clears it ({@link leaving}) — and a turn kolu's own wake started is a turn
+   * like any other, which means a person typing behind one spends the latch
+   * exactly as they would behind anybody else's.
+   */
+  let queuedHere = false;
+  /** When the turns in flight went from none to some — the instant every
+   *  reader's "working · 2m" counts from, and `null` while nothing runs. Kept
+   *  rather than derived because it is a CLOCK reading: the oldest ticket
+   *  knows which row it is for and not when it started. */
+  let busyAt: number | null = null;
 
   let live: { child: Child; connection: ClientConnection } | null = null;
   let activeSession: string | null = null;
@@ -641,6 +714,11 @@ export const startHarness = async (
     signIn,
     identity,
     refusal,
+    // BOTH HALVES IN ONE BIT, so a composer derives nothing: the agent's leg
+    // advertised steering at the handshake, AND this conversation has never
+    // held a message behind a running turn ({@link queuedHere}).
+    steers: advertisedSteering && !queuedHere,
+    busySince: busyAt === null ? null : new Date(busyAt).toISOString(),
   });
 
   const publish = (): void => {
@@ -1418,6 +1496,10 @@ export const startHarness = async (
     // any later conversation that happens to equal it.
     prologue = null;
     taught = false;
+    // ... AND THE INTERRUPTION COMES BACK. The latch is about a SESSION the
+    // adapter poisoned, not about the agent: a conversation that is over
+    // cannot be hung by a steer into it, and the next one starts clean.
+    queuedHere = false;
     model = null;
     usage = null;
     commands = [];
@@ -1863,6 +1945,12 @@ export const startHarness = async (
       initialized.agentInfo === undefined || initialized.agentInfo === null
         ? null
         : `${initialized.agentInfo.name} ${initialized.agentInfo.version}`;
+    // WHAT THIS AGENT TAKES MID-TURN, read ONCE, here. Both are claims the
+    // agent makes about itself at the handshake, and both are read POSITIVELY:
+    // an agent that says nothing is offered no interruption and promises no
+    // queue, which is the direction either is safe to lose in.
+    advertisedSteering = leg.steering?.advertised(initialized) ?? false;
+    queuesWhenBusy = leg.queues(initialized);
     const takes = initialized.agentCapabilities?.promptCapabilities;
     carries = {
       image: takes?.image === true,
@@ -1953,6 +2041,9 @@ export const startHarness = async (
       notice(`the turn could not be run: ${why}`);
     } finally {
       const last = turns.leave(ticket);
+      // ... and the clock stops with the last of them: an idle conversation
+      // counting up from a turn that ended is a panel saying work is going on.
+      if (last) busyAt = null;
       // A turn that ends while ANOTHER is still running has nothing true left
       // to say about the conversation, and saying it anyway marks a working
       // panel idle. Its paragraph is still finished, which is what puts every
@@ -1961,6 +2052,106 @@ export const startHarness = async (
       const head = turns.head;
       if (head !== null) report(transcript.taken(head.key));
       publish();
+    }
+  };
+
+  /** A turn is STARTING, and the clock every reader counts "working · 2m"
+   *  from starts with the FIRST of them: a message sent behind a running turn
+   *  does not restart the stopwatch on work that has been going for a minute. */
+  const openTurn = (key: string): Turn => {
+    if (!turns.busy) busyAt = Date.now();
+    return turns.open(key);
+  };
+
+  /**
+   * Run one prompt as a turn, for a row that is already on screen.
+   *
+   * The ORDINARY LANE, whoever's words they are: a plain `session/prompt`,
+   * which starts a turn this file owns whether or not another is already
+   * running. What the agent does with a second one is the agent's own business
+   * — it holds it behind the first and runs it next, in order.
+   */
+  const send = (
+    key: string,
+    blocks: ReadonlyArray<ContentBlock>,
+    sessionId: string,
+  ): void => {
+    // AT THE AGENT, NEXT IN LINE — this end sent a prompt while a turn of its
+    // own was still in flight. kolu's fact about its own conversation, not a
+    // queue: the message goes out now, on the wire, exactly as it would have.
+    const waiting = turns.busy;
+    // ... AND THE INTERRUPTION IS WITHDRAWN FROM THIS CONVERSATION from this
+    // moment on ({@link queuedHere}): the pinned adapter cannot settle a turn
+    // it steers once a session has queued, and a control that hangs the
+    // conversation is not one to draw.
+    if (waiting) queuedHere = true;
+    if (waiting) report(transcript.queued(key));
+    report(transcript.begins());
+    const ticket = openTurn(key);
+    publish();
+    void runTurn(ticket, blocks, sessionId);
+  };
+
+  /**
+   * Put the words INTO the turn that is running, and say what became of them.
+   *
+   * `handled` means they are accounted for — in the running turn, or marked on
+   * their own row as not delivered — and `prompt` means send them the ordinary
+   * way, which is the safe direction and the only one this fails in.
+   *
+   * THE ONE ANSWER THAT NEEDS THE TICKET is *nothing to steer*. A turn that
+   * simply finished under the steer makes these words an ordinary prompt; a
+   * turn a person STOPPED makes starting a fresh one with them this end
+   * un-cancelling on their behalf. The two are the same answer on the wire and
+   * only the ticket the steer was aimed at tells them apart
+   * ({@link Turn.stopped}).
+   */
+  const steerInto = async (
+    key: string,
+    body: string,
+    aimed: Turn,
+    sessionId: string,
+  ): Promise<"handled" | "prompt"> => {
+    const steering = leg.steering;
+    // Belt to the brace of `state.steers`: an agent with no steering is never
+    // asked, and a caller that got it wrong loses nothing at all.
+    if (steering === null) return "prompt";
+    try {
+      const answered = await request(
+        steering.method,
+        {
+          sessionId,
+          prompt: [{ type: "text", text: body }],
+          ...(steering.meta === undefined ? {} : { _meta: steering.meta }),
+        },
+        // Its own deadline, where a turn has none: this adapter answers a
+        // steer as soon as the message is on the SDK's input, so silence past
+        // it is an agent that stopped listening rather than a slow turn.
+        Duration.toMillis(steering.timeout),
+      );
+      if (steering.taken(answered)) return "handled";
+      if (aimed.stopped) {
+        report(transcript.refused(key));
+        notice(CANCELLED_UNDER_IT);
+        publish();
+        return "handled";
+      }
+      return "prompt";
+    } catch (cause) {
+      // WHICH failure it was is the wire's reading, not ours — it is what
+      // knows whether anything answered — and it is the one fact the row's two
+      // faces are drawn out of.
+      if (cause instanceof HarnessRefused) {
+        report(transcript.refused(key, cause.auth));
+        if (cause.auth) offerSignIn(cause.why);
+      } else {
+        report(transcript.unanswered(key));
+      }
+      notice(
+        `the message could not be steered into the turn: ${messageOf(cause)}`,
+      );
+      publish();
+      return "handled";
     }
   };
 
@@ -1979,35 +2170,85 @@ export const startHarness = async (
    * message works: the bytes are read off that path either way. The browser
    * keeps its own thumbnail for the rows it minted this session; no picture
    * rides this wire.
+   *
+   * STEERING IS THE ASKED-FOR EXCEPTION, and every condition on it is a
+   * condition on the ASK: somebody made the gesture, the agent advertised that
+   * it takes one, this conversation has not spent its latch, and there is a
+   * turn in flight to put the words in. Any of those missing and this is a
+   * plain prompt. An agent that advertises steering but promises NO queue
+   * takes a busy send through steering whether it was asked for or not — a
+   * second ordinary prompt can overwrite such an agent's pending turn, leaving
+   * the first request unanswered forever (olai measured it on opencode).
+   *
+   * AND A MESSAGE WITH FILES ON IT IS NEVER STEERED, whoever asked: the steer
+   * carries one text block, so steering it would deliver the words and drop
+   * the files. The words and the files go together the ordinary way instead.
    */
   const prompt = async (
     text: string,
     mentions: ReadonlyArray<ConductorMention>,
     attachments: ReadonlyArray<ConductorAttachment>,
+    steer: boolean,
   ): Promise<{ rowId: string }> => {
     const sessionId = activeSession;
     if (live === null || sessionId === null) {
       throw new HarnessUnavailable("the agent has no session open");
     }
     const attached = await blocksOf(attachments, carries);
-    // AT THE AGENT, NEXT IN LINE — this end sent a prompt while a turn of its
-    // own was still in flight. kolu's fact about its own conversation, not a
-    // queue: the message goes out now, on the wire, exactly as it would have.
-    const waiting = turns.busy;
     const { key, change } = transcript.user(text, {
       ...(mentions.length === 0 ? {} : { mentions }),
       attachments,
     });
     report(change);
-    if (waiting) report(transcript.queued(key));
-    report(transcript.begins());
-    const ticket = turns.open(key);
-    publish();
-    void runTurn(
-      ticket,
-      [{ type: "text", text: bodyOf(text, mentions) }, ...attached],
-      sessionId,
-    );
+    // WHICH turn a steer is aimed at, read and KEPT: by the time it answers,
+    // that turn may be over. The one the agent is working on, which is the
+    // oldest — the ones behind it have not started, and interrupting a turn
+    // that has not started is nothing at all.
+    const aimed = turns.head;
+    const body = bodyOf(text, mentions);
+    if (
+      (steer || !queuesWhenBusy) &&
+      aimed !== null &&
+      advertisedSteering &&
+      !queuedHere &&
+      // A MESSAGE WITH FILES IS NEVER STEERED. A steer carries ONE text block
+      // and nothing else — that is the shape of `_session/steering` — so
+      // steering a message with a picture on it would deliver the words and
+      // silently drop the picture, which is the one failure a composer with a
+      // chip in it must never have. It goes the ordinary way instead: the
+      // blocks below carry every attachment, and a turn in flight means it
+      // queues rather than vanishes.
+      attached.length === 0
+    ) {
+      // The row is on screen before the round trip: a steer takes a deadline,
+      // and a person's words must not wait on it to be drawn.
+      publish();
+      const went = await steerInto(key, body, aimed, sessionId);
+      // A steer that LANDED starts nothing here — the words are in a turn this
+      // file already owns — so no ticket and no queued mark.
+      if (went === "handled") return { rowId: key };
+    }
+    send(key, [{ type: "text", text: body }, ...attached], sessionId);
+    return { rowId: key };
+  };
+
+  /** KOLU'S OWN LINE — a turn this end starts about watched terminals. A
+   *  prompt in every way that matters: the standing prompt rides it if it is
+   *  the first message of the conversation, it waits behind whatever is
+   *  running, and its row takes every delivery mark a person's does. It is
+   *  never steered: these words are ABOUT a world that has moved, and a turn
+   *  that is still working will be told when it ends. */
+  const wake = async (
+    text: string,
+    events: ReadonlyArray<ConductorWakeEvent>,
+  ): Promise<{ rowId: string }> => {
+    const sessionId = activeSession;
+    if (live === null || sessionId === null) {
+      throw new HarnessUnavailable("the agent has no session open");
+    }
+    const { key, change } = transcript.wake(text, events);
+    report(change);
+    send(key, [{ type: "text", text: bodyOf(text, []) }], sessionId);
     return { rowId: key };
   };
 
@@ -2017,6 +2258,9 @@ export const startHarness = async (
     // The questions this turn was holding go back UNANSWERED rather than being
     // fabricated into an answer the agent never got.
     questions.withdrawAll();
+    // ... and every ticket in flight remembers being stopped, which is what a
+    // steer still on the wire is read against ({@link steerInto}).
+    turns.stopping();
     try {
       await notify(methods.agent.session.cancel, { sessionId });
     } catch (cause) {
@@ -2424,6 +2668,7 @@ export const startHarness = async (
     identity = null;
     activeSession = null;
     turns.drain();
+    busyAt = null;
     // Close the protocol before the process, and before joining anything
     // waiting on it.
     at?.connection.close();
@@ -2444,6 +2689,7 @@ export const startHarness = async (
     alive: () => live !== null && !stopped,
     rows: () => transcript.rows(),
     prompt,
+    wake,
     cancel,
     answer,
     signIn: doSignIn,

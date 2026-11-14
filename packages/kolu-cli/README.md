@@ -35,13 +35,36 @@ kolu watch [id] [--json]      stream terminal changes and output activity
 kolu web [flags]              the web server (the browser face)
 kolu mcp [--socket|--state-root|--host]
                               serve a padi's terminals to a coding agent over MCP (stdio)
-kolu surface <verb> [flags]   the `kolu mcp` tool table as shell verbs (via @kolu/surface-cli)
+kolu surface <verb> [flags]   the `kolu mcp` tool table as shell verbs (via @kolu/surface-cli) —
+                              `agent_say <id> --text …` is how you SPEAK to an agent (below)
 kolu tui                      reserved — the terminal canvas (a later PR)
 ```
 
 `padi-tui` and `kaval-tui` still ship and still work; they retire in a later
 PR. There is **no `kolu attach`** yet — for interactive attach the browser is
 the face, with `kaval-tui attach` as the terminal-side fallback.
+
+## Speaking to an AGENT — `kolu surface agent_say`
+
+```
+kolu surface agent_say <id> --text 'skip the review on this one'
+```
+
+**This is the way to say something to an agent in a terminal**, and it is the
+verb to reach for whenever the target is a detected agent rather than a shell.
+kolu already knows WHICH agent is in there (that is what agent detection is
+for), so it types the words, waits for the TUI to settle, and presses **that
+agent's own submit keys** — you never send an Enter yourself. The answer says
+what it did: the agent, whether it was working, the `delivery` (`submitted`
+· `steer` · `queue`) and whether the words **took** — for an idle agent it
+watches a few seconds for the agent to begin working and says plainly which
+happened. A say that did not take is an answer with a screen read named in it,
+never a silent success.
+
+`kolu send` stays what it always was: type text, or press one named key, at a
+terminal. That is the right verb for a **shell**, a menu, a dialog, or an
+interrupt (`--key Escape`, `--key C-c`) — and it is the three-step submit
+(text · settle · Enter) you drive by hand when nothing is detected in there.
 
 ## The shared endpoint flags — position-independent by construction
 

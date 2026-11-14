@@ -60,6 +60,11 @@ export interface Conductor {
     text: string,
     mentions: readonly ConductorMention[],
     attachments: readonly ConductorAttachment[],
+    /** STEER rather than queue — Alt+Enter, and only where the cell offers it
+     *  (`steer.ts` holds the rule). kolu-server puts the words into the turn
+     *  that is running; a steer the agent did not take goes out as a plain
+     *  prompt, so passing `true` can never lose a message. */
+    steer: boolean,
     settled?: (accepted: boolean) => void,
   ): void;
   cancel(): void;
@@ -112,7 +117,7 @@ export const useConductor = createSharedRoot<Conductor>(() => {
 
   return {
     state,
-    prompt: (text, mentions, attachments, settled) =>
+    prompt: (text, mentions, attachments, steer, settled) =>
       runAction(
         "conductor prompt",
         app.procedures.conductor
@@ -120,6 +125,7 @@ export const useConductor = createSharedRoot<Conductor>(() => {
             text,
             mentions: [...mentions],
             attachments: [...attachments],
+            steer,
           })
           .pipe(
             Effect.tap(() =>

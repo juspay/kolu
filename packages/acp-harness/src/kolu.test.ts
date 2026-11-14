@@ -16,14 +16,8 @@ import type { ConductorKoluCall } from "./rows.ts";
 
 const T = "7f3e0a91-0000-4000-8000-000000000000";
 const PARENT = "11111111-2222-4333-8444-555555555555";
-/** The terminal the production `watch_next` batch was about. */
+/** A terminal on a remote host, as a production ref spelled one. */
 const WATCHED = "39738f3c-5472-44a4-9bc1-2d084fdf526b";
-
-/** The answer a production `watch_next` returned — verbatim, as the
- *  harness's leg handed it to the reader. */
-const PRODUCTION_WATCH_MET = JSON.parse(
-  '{"id":"track-alien-ray","result":"met","met":{"events":[{"seq":1,"id":"remote:naiveintent/39738f3c-5472-44a4-9bc1-2d084fdf526b","kind":"snapshot","state":"waiting","since":1794497117667,"at":1794497134887}],"dropped":0,"ackAfter":1,"elapsedMs":14}}',
-) as unknown;
 
 const NO_SUBJECT = { terminalId: null, host: null };
 
@@ -128,122 +122,42 @@ const CASES: ReadonlyArray<Case> = [
     },
   },
   {
-    why: "an agent-state wait shows the state the agent was caught in",
-    tool: "wait_agentState",
-    input: { id: `local/${T}`, until: ["awaiting", "waiting"] },
-    answer: {
-      id: `local/${T}`,
-      result: "met",
-      met: {
-        agent: { kind: "claude-code", state: "awaiting_user" },
-        elapsedMs: 3000.4,
-      },
-    },
+    why: "a say carries the words put to the agent in that terminal",
+    tool: "agent_say",
+    input: { id: `local/${T}`, text: "skip the review on this one" },
+    answer: { id: `local/${T}`, delivered: "typed" },
     reads: {
-      kind: "settle",
+      kind: "say",
       terminalId: T,
       host: "local",
       name: null,
-      state: "awaiting_user",
-      elapsedMs: 3000,
-      screenTail: null,
+      text: "skip the review on this one",
     },
   },
   {
-    why: "a wait that timed out says so",
-    tool: "wait_agentState",
-    input: { id: `local/${T}`, until: ["waiting"], timeoutMs: 60000 },
-    answer: { id: `local/${T}`, result: "timeout", elapsedMs: 60001 },
+    why: "a watch says that terminal is on the list now",
+    tool: "watch_terminal",
+    input: { id: `local/${T}` },
+    answer: { watching: [`local/${T}`] },
     reads: {
-      kind: "settle",
+      kind: "watch",
       terminalId: T,
       host: "local",
       name: null,
-      state: "timeout",
-      elapsedMs: 60001,
-      screenTail: null,
+      watching: true,
     },
   },
   {
-    why: "a drained batch about one terminal is about that terminal, never the subscription",
-    tool: "watch_next",
-    input: { name: "track-alien-ray", after: 0 },
-    answer: PRODUCTION_WATCH_MET,
+    why: "an unwatch says it is off it, host and all",
+    tool: "unwatch_terminal",
+    input: { id: `remote:naiveintent/${WATCHED}` },
+    answer: { watching: [], removed: true },
     reads: {
-      kind: "settle",
+      kind: "watch",
       terminalId: WATCHED,
       host: "remote:naiveintent",
       name: null,
-      state: "waiting",
-      elapsedMs: 14,
-      screenTail: null,
-    },
-  },
-  {
-    why: "a drain that timed out is about no terminal",
-    tool: "watch_next",
-    input: { name: "track-alien-ray", timeoutMs: 280000 },
-    answer: { id: "track-alien-ray", result: "timeout", elapsedMs: 280001 },
-    reads: {
-      kind: "settle",
-      ...NO_SUBJECT,
-      name: null,
-      state: "timeout",
-      elapsedMs: 280001,
-      screenTail: null,
-    },
-  },
-  {
-    why: "a batch naming several terminals is about none of them",
-    tool: "watch_next",
-    input: { name: "lanes" },
-    answer: {
-      id: "lanes",
-      result: "met",
-      met: {
-        events: [
-          { seq: 1, id: `local/${T}`, kind: "finished", at: 2 },
-          { seq: 2, id: `local/${PARENT}`, kind: "asking", at: 2 },
-        ],
-        dropped: 0,
-        ackAfter: 2,
-        elapsedMs: 40,
-      },
-    },
-    reads: {
-      kind: "settle",
-      ...NO_SUBJECT,
-      name: null,
-      state: "met",
-      elapsedMs: 40,
-      screenTail: null,
-    },
-  },
-  {
-    why: "a batch of several events about one terminal shows the latest",
-    tool: "watch_next",
-    input: { name: "lanes" },
-    answer: {
-      id: "lanes",
-      result: "met",
-      met: {
-        events: [
-          { seq: 1, id: `local/${T}`, kind: "asking", at: 2 },
-          { seq: 2, id: `local/${T}`, kind: "finished", at: 3 },
-        ],
-        dropped: 0,
-        ackAfter: 2,
-        elapsedMs: 40,
-      },
-    },
-    reads: {
-      kind: "settle",
-      terminalId: T,
-      host: "local",
-      name: null,
-      state: "finished",
-      elapsedMs: 40,
-      screenTail: null,
+      watching: false,
     },
   },
 ];
@@ -262,8 +176,9 @@ const TOOLS = [
   "lifecycle_kill",
   "screen_text",
   "wait_outputSettled",
-  "wait_agentState",
-  "watch_next",
+  "agent_say",
+  "watch_terminal",
+  "unwatch_terminal",
 ] as const;
 
 /** What an agent (or a half-written frame) might put in any slot. The valid

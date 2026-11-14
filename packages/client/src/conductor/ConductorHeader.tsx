@@ -1,6 +1,7 @@
-/** The conversation's one-line readout: what it is doing, who it is signed in
- *  as, what it is running on, how full its context is — and the `⋯` that
- *  opens everything else it can be asked.
+/** The conversation's one-line readout: who it is signed in as, what it is
+ *  running on, how full its context is — and the `⋯` that opens everything
+ *  else it can be asked. What it is DOING is not here; it is the status line
+ *  above the composer.
  *
  *  The context meter draws a FRACTION — `148k/1M` — never a percentage. A
  *  window is not a constant (200k and 1M are both ordinary, and a session moves
@@ -14,11 +15,12 @@
  *  acts on its own press. */
 
 import type { ConductorRow, ConductorState } from "kolu-common/conductor";
-import { type Component, createSignal, Show } from "solid-js";
+import { type Component, createEffect, createSignal, Show } from "solid-js";
 import Tip from "../ui/Tip";
 import { isDesktop } from "../useMobile";
 import ConductorMenu from "./ConductorMenu";
 import ConductorSettings from "./ConductorSettings";
+import { useShown } from "../ui/shown";
 
 /** Tokens at the scale a context window is discussed in. Not bytes — these are
  *  the agent's own units, and `148k` is how a person says the number. */
@@ -29,16 +31,12 @@ function tokens(count: number): string {
   return `${millions >= 10 || Number.isInteger(millions) ? Math.round(millions) : millions.toFixed(1)}M`;
 }
 
-/** The chip's ink, by what the conversation is doing. `asking` outranks
- *  `working` on the wire already — a turn stopped on a form is blocked on a
- *  human — so this is a straight lookup, not a second precedence. */
-const PHASE_CLASS: Record<ConductorState["phase"], string> = {
-  offline: "text-fg-3 bg-surface-2",
-  starting: "text-fg-2 bg-surface-2",
-  idle: "text-fg-3 bg-surface-2",
-  working: "text-busy bg-busy/15",
-  asking: "text-surface-0 bg-alert",
-};
+/** NO PHASE CHIP HERE. What the conversation is doing moved to the ONE status
+ *  line directly above the composer (`ConductorStatus`), where a person is
+ *  looking when they are about to speak to it — and where there is room to say
+ *  what it is doing and for how long, not only one word. Two readouts of one
+ *  fact, a column apart, is how a header chip comes to say `working` over a
+ *  conversation that finished. */
 
 const ConductorHeader: Component<{
   state: ConductorState;
@@ -51,6 +49,19 @@ const ConductorHeader: Component<{
   let menuRef!: HTMLButtonElement;
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [menuOpen, setMenuOpen] = createSignal(false);
+  // BOTH POPOVERS WITHDRAW WHEN THE PANE GOES BEHIND A HOST TAB. They are
+  // PORTALLED to the document, so they are not hidden by the pane's own
+  // `content-visibility` — an open `⋯` panel would stay on screen over
+  // somebody's terminals, taking clicks and `Escape` for a conversation that
+  // is no longer the view. Closing them is the retained pane's side of the
+  // bargain: everything IN the pane is kept, everything it put on top of the
+  // page is taken back.
+  const shown = useShown();
+  createEffect(() => {
+    if (shown()) return;
+    setSettingsOpen(false);
+    setMenuOpen(false);
+  });
   const usage = () => props.state.usage;
   const identity = () => props.state.identity;
   /** KNOWN signed in. The cell's rule is that silence is not logged out, so
@@ -62,7 +73,19 @@ const ConductorHeader: Component<{
   };
 
   return (
-    <header class="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-edge">
+    /* ONE TYPE SIZE AND ONE LINE-HEIGHT FOR THE WHOLE ROW, set here and
+       inherited by every child (`leading-4` is a LENGTH, so it does not
+       re-scale per font-size the way an inherited unitless 1.5 does).
+
+       This row read as five different heights because each child carried its
+       own size and its own leading, and two of them sit inside a `Tip`
+       wrapper whose line box was struck at the row's old 16px/24px: a 10px
+       pill baseline-aligned inside a 16px strut sits ~3px BELOW the centre of
+       everything beside it. One inherited line-height removes the strut
+       mismatch; `items-center` then centres every box on one line. A child
+       that needs its own size (the mark) may still set one — what it must
+       never set is its own line-height. */
+    <header class="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-edge font-mono text-[0.65rem] leading-4">
       {/* The mark and the name, on a desktop only: on a phone the pull handle
           right above already reads `◆ Conductor`, and a screen that says the
           same name twice reads as two things. */}
@@ -71,8 +94,13 @@ const ConductorHeader: Component<{
           data-testid="conductor-header-name"
           class="flex items-center gap-2.5"
         >
-          <span class="text-busy text-sm leading-none">◆</span>
-          <span class="font-mono text-[0.65rem] font-extrabold tracking-[0.14em] text-fg-2">
+          {/* Its own SIZE (a mark reads small at the row's 10px), never its own
+              leading — `/4` holds the row's 16px line box, which is what keeps
+              its box the same height as the words beside it. A bare `text-sm`
+              would ship Tailwind's own 20px leading and quietly make this one
+              child a taller line than the row. */}
+          <span class="text-busy text-sm/4">◆</span>
+          <span class="font-extrabold tracking-[0.14em] text-fg-2">
             CONDUCTOR
           </span>
         </span>
@@ -81,30 +109,30 @@ const ConductorHeader: Component<{
           too, or a reader who arrived by ⌘⇧O never passed the chrome-bar tag.
           Not a phase chip — what it is alpha about does not change while the
           conversation runs. */}
-      <Tip label="Alpha: the shape can still change, and a conversation can be lost across a version">
+      <Tip
+        class="flex items-center"
+        label="Alpha: the shape can still change, and a conversation can be lost across a version"
+      >
         <span
           data-testid="conductor-alpha"
-          class="rounded-sm bg-fg-3/15 px-1 py-px font-mono text-[0.6rem] font-semibold uppercase tracking-[0.08em] text-fg-3"
+          class="rounded-sm bg-fg-3/15 px-1 py-px font-semibold uppercase tracking-[0.08em] text-fg-3"
         >
           alpha
         </span>
       </Tip>
-      <span
-        data-testid="conductor-phase"
-        data-phase={props.state.phase}
-        class={`font-mono text-[0.65rem] font-semibold rounded-full px-2 py-px ${PHASE_CLASS[props.state.phase]}`}
-      >
-        {props.state.phase}
-      </span>
+      {/* The phase chip stood here — see the note above this component. */}
       {/* ABSENT when the agent said nothing. Silence is not "logged out" — a
           known logged-out state arrives as its own payload and says so here. */}
       <Show when={identity()}>
         {(who) => (
-          <Tip label={who().account?.email ?? who().detail ?? who().label}>
+          <Tip
+            class="flex items-center"
+            label={who().account?.email ?? who().detail ?? who().label}
+          >
             <span
               data-testid="conductor-identity"
               data-identity-kind={who().kind ?? undefined}
-              class="font-mono text-[0.65rem] text-fg-3 rounded-full border border-edge px-2 py-px truncate max-w-[12rem]"
+              class="text-fg-3 rounded-full border border-edge px-2 py-px truncate max-w-[12rem]"
             >
               {who().kind === "none" ? "not signed in" : who().label}
             </span>
@@ -114,12 +142,16 @@ const ConductorHeader: Component<{
       {/* The agent's name stands in until it has said which model it is on —
           the control is the session's settings door either way, and a door
           that appears only once a model is known is a door you cannot find
-          when the model is the thing you wanted to set. */}
+          when the model is the thing you wanted to set.
+
+          Its dashed line is an UNDERLINE, not a bottom border: a border is
+          part of the box, so it pushed the words half a pixel up off the row's
+          centre line. The affordance has to be free of the layout. */}
       <button
         type="button"
         ref={modelRef}
         data-testid="conductor-model"
-        class="font-mono text-[0.68rem] text-fg-3 hover:text-fg border-b border-dashed border-edge-bright cursor-pointer truncate max-w-[14rem]"
+        class="text-fg-3 hover:text-fg underline decoration-dashed decoration-edge-bright underline-offset-[3px] cursor-pointer truncate max-w-[14rem]"
         onClick={() => setSettingsOpen(!settingsOpen())}
       >
         {props.state.model?.name ?? props.state.agentName}
@@ -127,7 +159,10 @@ const ConductorHeader: Component<{
       <div class="flex-1" />
       <Show when={usage()}>
         {(u) => (
-          <Tip label="Context used — tokens in the window, and how many fit">
+          <Tip
+            class="flex items-center"
+            label="Context used — tokens in the window, and how many fit"
+          >
             <span
               data-testid="conductor-usage"
               class="flex items-center gap-1.5"
@@ -140,7 +175,7 @@ const ConductorHeader: Component<{
                   }}
                 />
               </span>
-              <span class="font-mono text-[0.65rem] text-fg-3">
+              <span class="text-fg-3">
                 {tokens(u().used)}/{tokens(u().size)}
               </span>
             </span>
@@ -149,15 +184,18 @@ const ConductorHeader: Component<{
       </Show>
       {/* A MENU AFFORDANCE, and nothing else. This button used to start a
           new session on the press — a `⋯` that acted, which is the one thing
-          a `⋯` may never do. */}
-      <Tip label="Conversation menu">
+          a `⋯` may never do.
+
+          Its own size, like the mark — a `⋯` at the row's 10px is a speck; the
+          row's `leading-4` keeps its box the same height as the rest. */}
+      <Tip class="flex items-center" label="Conversation menu">
         <button
           type="button"
           ref={menuRef}
           data-testid="conductor-menu"
           aria-haspopup="menu"
           aria-expanded={menuOpen()}
-          class="text-fg-3 hover:text-fg cursor-pointer px-1 leading-none"
+          class="text-fg-3 hover:text-fg cursor-pointer px-1 text-base/4"
           onClick={() => setMenuOpen(!menuOpen())}
         >
           ⋯
@@ -177,6 +215,7 @@ const ConductorHeader: Component<{
         working={props.state.phase === "working"}
         signedIn={signedIn()}
         onSignIn={props.onSignIn}
+        servers={props.state.servers}
       />
     </header>
   );

@@ -181,6 +181,11 @@ export const RUN_EDGE_ALLOWLIST: readonly RunEdge[] = [
     why: "agent delivery's report to a host's padi: `agentDistro.report` is an Effect, but the delivery it serves is driven by Nix child processes and upstream's clock (`./delivery.ts`, `./schedule.ts` — Promise-shaped all the way down, off a timer and the pusher's `onPushed` callback), so `DeliveryHost.report` is the one seam where the padi call is run; it awaits the run, so a padi that refuses the report fails that host's delivery instead of being dropped",
   },
   {
+    path: "packages/server/src/conductor/watcher.ts",
+    sites: 2,
+    why: "the Conductor's watcher: the whole watch — every connected host's standing subscription, each watched terminal's record lineage, and the host-map and watch-list triggers that re-scope them — is ONE long-lived stream, forked once when kolu-server boots (`startConductorWatcher` is called from synchronous wiring that hands down no Effect), and interrupted once by `dispose`, which the shutdown awaits as a Promise",
+  },
+  {
     path: "packages/server/src/index.ts",
     sites: 2,
     why: "the two edges of an orderly async boot (locked decision 1): the reactor's poll dep is `() => Promise<T>` — its ENGINE is Effect's Atom, but its FACE is deliberately synchronous and non-Effect; and binding the listener, since `serveSurfaceApp` is a scoped `Effect` and `bootKoluWeb` is a plain async function with no Effect context to hand it (the node `request`-callback edge this file used to carry is GONE — the primitive owns that boundary now)",

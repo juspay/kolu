@@ -93,7 +93,7 @@ Feature: The Conductor
     And I send the conductor the prompt "say hello"
     Then the conductor transcript should show a row of kind "user" saying "say hello"
     And the conductor transcript should show a row of kind "agent" saying "hello back"
-    And the conductor state chip should read "idle"
+    And the conductor status should read "idle"
     And there should be no page errors
 
   Scenario: The agent really has hold of kolu's own MCP server
@@ -230,7 +230,7 @@ Feature: The Conductor
     Then the conductor transcript should fold 2 tool calls into one closed Details
     And the running tool call should stay in the flow
     When I open the Details fold
-    Then the conductor state chip should read "working"
+    Then the conductor status should read "working"
     And the conductor transcript should show a row of kind "agent" saying "Found what I needed."
     And the Details fold should still be open, holding 3 tool calls
     And there should be no page errors
@@ -308,27 +308,32 @@ Feature: The Conductor
     And there should be no page errors
 
   Scenario: A question the agent asks is answered from the transcript
+    # And the answer STAYS: a settled card is the record of the exchange, so
+    # the question and what was said to it are both still on screen after the
+    # form is gone — not the bare word `answered`.
     When I create a terminal
     And I enter conductor mode
     And I send the conductor the prompt "ask me something"
     Then the conductor should be asking
-    And the conductor tab should show a badge of 1
+    And the conductor tab should show a needs-you dot
     When I answer the conductor's question with "30"
     Then the conductor should not be asking
     And the conductor tab should show no badge
+    And the answered question should read "Retention — 30"
     And there should be no page errors
 
   Scenario: An unanswered question is a needs-you source from the tab row
     # Leave the conversation and its pane is gone — the chrome-bar entry is the
-    # whole of its presence on a host tab, so the badge has to count the asks
-    # without the pane mounted to count them from.
+    # whole of its presence on a host tab, so the ask has to show on the tab
+    # without the pane mounted to show it from. Nothing is being watched here,
+    # so the badge is the violet DOT rather than a count.
     When I create a terminal
     And I enter conductor mode
     And I send the conductor the prompt "ask me something"
     Then the conductor should be asking
     When I press Escape
     Then the conductor pane should not be visible
-    And the conductor tab should show a badge of 1
+    And the conductor tab should show a needs-you dot
     And there should be no page errors
 
   Scenario: A pasted image rides the message as an attachment
@@ -381,7 +386,7 @@ Feature: The Conductor
     And I enter conductor mode
     And I send the conductor the prompt "refuse this"
     Then the conductor transcript should mark a user row "refused"
-    And the conductor state chip should read "idle"
+    And the conductor status should read "idle"
     When I send the conductor the prompt "say hello"
     Then the conductor transcript should show a row of kind "agent" saying "hello back"
     And there should be no page errors

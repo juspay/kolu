@@ -35,6 +35,34 @@ icons, pip glyph, display names, env keys, transcript dispatch, sensor
 registration — is derived. See the "Adding an agent" section of
 `website/src/content/docs/agent-detection.mdx`.
 
+## Saying something to an agent (`AgentVocab.say`)
+
+Every vocab declares **how to hand that agent words through its TUI** — the
+keys to press after the text, per state, and what pressing them does to a turn
+that is already running. kolu-mcp's `agent_say` reads it, so no driver ever
+needs per-agent key knowledge again (a human having to tell a conductor that
+"omp needs a second Enter" is the bug this deletes; the real fix is the SETTLE
+between the paste and the Enter, which `agent_say` performs).
+
+Each recipe carries `verified` — how it is known to be true. Measured by
+**running the agent in a kolu terminal on 2026-11-13**, except grok, which is
+not installed here and is taken from xAI's own keyboard reference.
+
+| Agent | Idle | Working | What working delivery does | Verified |
+| --- | --- | --- | --- | --- |
+| claude-code | `Enter` | `Enter` | **queue** — the running turn finishes first, then the message starts a new one | ran `claude` 2.1.322 |
+| codex | `Enter` | `Enter` | **steer** — the words join the turn that is running | ran `codex-cli` 0.167.1 |
+| opencode | `Enter` | `Enter` | **queue** — the generation completes, then it answers the message | ran `opencode` 2.2.7 |
+| grok | `Enter` | `Enter` | **queue** — "the turn picks up the prompt at its next tool or model step" (its send-now chord CANCELS the turn, so it is deliberately not the recipe) | [docs.x.ai/build/keyboard-shortcuts](https://docs.x.ai/build/keyboard-shortcuts) |
+| pi | `Enter` | `Enter` | **steer** — the line enters pi's steering pane and the turn takes it at its next step | ran `pi` 1.5.2 |
+| omp | `Enter` | `Enter` | **steer** — "Steering · 1", consumed mid-turn (the running answer changed) | ran `omp` 18.18.8 |
+| xyne | `Enter` | `Enter` | **steer** — the pi-derived "Steering:" pane | ran `xyne-cli` 0.4.8-dev |
+
+`working: null` is the honest answer for an agent whose TUI drops input
+mid-turn; `say: null` for one kolu cannot talk to at all. Both are REFUSALS at
+the tool, naming the agent — never a guessed keystroke landing in someone's
+half-finished work.
+
 ## Design
 
 - **Derived, not hand-maintained.** `AgentKind`/`AgentInfoSchema` come from

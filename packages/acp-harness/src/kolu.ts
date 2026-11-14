@@ -146,28 +146,20 @@ const waited = (
     numberAt(answer, "elapsedMs"),
 });
 
-/** The ONE terminal a drained `watch_next` batch is about, and its latest
- *  event — or `null` when there is no such terminal: a batch that timed out
- *  carries no events, and one whose events name several terminals is news
- *  about the fleet, which no single "open tile" can honestly answer. The
- *  events' `id`s are fleet refs; the subscription name in the envelope's own
- *  `id` is not a terminal and is never read as one. */
-const soleWatched = (
-  answer: unknown,
-): { ref: string; latest: unknown } | null => {
-  const events = objectAt(objectAt(answer, "met"), "events");
-  if (!Array.isArray(events) || events.length === 0) return null;
-  const refs = new Set(events.map((event) => stringAt(event, "id")));
-  const [ref] = refs;
-  if (refs.size !== 1 || ref === undefined || ref === null) return null;
-  return { ref, latest: events[events.length - 1] };
-};
-
 /** The tools the loop IS, by the names the `kolu` MCP face registers them
- *  under, each read off the fields that tool really carries. The three ways
- *  of WAITING collapse to one kind, because they draw the same card: who,
- *  what state, how long, and the screen tail folded underneath — but each
- *  says where ITS subject and state are. */
+ *  under, each read off the fields that tool really carries.
+ *
+ *  WHAT THE FLEET FACE SERVES IS WHAT IS HERE. The Conductor's face no longer
+ *  offers the unbounded waits — `wait_agentState` and `watch_next` left with
+ *  the blocking loop they belonged to — so their readings left with them: a
+ *  reading for a tool nothing can call is a card nobody can mint. A ROW
+ *  ALREADY ON DISK KEEPS ITS STORED READING, because this table is consulted
+ *  when a call is HEARD and never when a row is drawn, so a transcript that
+ *  remembers one of those waits still draws it exactly as it did.
+ *
+ *  `wait_outputSettled` stays, hard-capped at the face: the few seconds
+ *  between typing and Enter is a wait, and it draws the same card it always
+ *  did — who, what state, how long, and the screen tail folded underneath. */
 const READINGS: Readonly<Record<string, AnyReading>> = {
   lifecycle_create: {
     kind: "create",
@@ -222,38 +214,23 @@ const READINGS: Readonly<Record<string, AnyReading>> = {
       };
     },
   },
-  wait_agentState: {
-    kind: "settle",
+  agent_say: {
+    kind: "say",
     ref: idOfCall,
-    // `met: {agent, elapsedMs, screen?}` — `agent` is the whole AgentInfo, and
-    // the state worth showing is the one it was caught in.
-    said: (_input, answer) => {
-      const met = objectAt(answer, "met");
-      return {
-        ...waited(answer, stringAt(objectAt(met, "agent"), "state")),
-        screenTail: stringAt(met, "screen"),
-      };
-    },
+    // What was PUT to the agent in that terminal, now — kolu does whatever
+    // keystrokes that agent needs, so the card shows the words and never the
+    // chord they were delivered with.
+    said: (input) => ({ name: null, text: stringAt(input, "text") }),
   },
-  watch_next: {
-    kind: "settle",
-    // NOT the call's `id`: that is the subscription's name, on the input as
-    // `name` and echoed in the answer's `id` slot.
-    ref: (_input, answer) => soleWatched(answer)?.ref ?? null,
-    // The latest event's word when the batch is about one terminal — a state
-    // report's bucket (`waiting`) or a settle edge's kind (`finished`) — and
-    // otherwise the envelope's own `result` (`timeout`, `met`). No screen:
-    // a drain carries none.
-    said: (_input, answer) => {
-      const sole = soleWatched(answer);
-      return {
-        ...waited(
-          answer,
-          sole === null ? null : stringAt(sole.latest, "state", "kind"),
-        ),
-        screenTail: null,
-      };
-    },
+  watch_terminal: {
+    kind: "watch",
+    ref: idOfCall,
+    said: () => ({ name: null, watching: true }),
+  },
+  unwatch_terminal: {
+    kind: "watch",
+    ref: idOfCall,
+    said: () => ({ name: null, watching: false }),
   },
 };
 

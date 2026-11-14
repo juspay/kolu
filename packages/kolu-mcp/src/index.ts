@@ -41,6 +41,21 @@ export {
 } from "./fleet/fleetSurface.ts";
 export type { FleetHosts } from "./fleet/hosts.ts";
 export {
+  FLEET_SETTLE_CAP_MS,
+  KOLU_FLEET_TOOL_NAMES,
+} from "./fleet/lift.ts";
+// WHERE A RECORD IS READ, as the face itself builds the address — published
+// beside the tool names for the same reason: the Conductor's teaching script
+// states this address in its own words, and its test pins the script against
+// this value rather than a literal, so a renamed collection goes red there.
+export { KOLU_FLEET_RECORD_ADDRESS } from "./fleet/recordRead.ts";
+// FOLLOWING EVERY CONNECTED HOST OVER TIME — the combinator the face's own
+// folds are built on, published because kolu-server's conductor watch needs
+// exactly it and a second hand-rolled follow would drift from this one about
+// the thing that matters: which CLIENT a leg is read through. A leaf beside
+// the port, not a package; `fleet/overHosts.ts` says why.
+export { overConnectedHosts } from "./fleet/overHosts.ts";
+export {
   type FleetTerminalRef,
   fleetTerminalRef,
   splitFleetTerminalRef,
@@ -49,7 +64,18 @@ export {
   type ServeKoluFleetMcpOptions,
   serveKoluFleetMcp,
 } from "./fleet/serve.ts";
-export type { FleetWatchEvent } from "./fleet/watch.ts";
+// The conductor's watch list, as this face reaches it — kolu-server implements
+// the port and owns the list (it is persisted with the conversation); the face
+// moves it with two tools and SERVES it as the `watched` resource, which is
+// what `entries` is for. `KOLU_FLEET_TOOL_NAMES` is the static roll of what
+// the fleet face serves, for a consumer (the conductor's teaching script and
+// its test) that needs the names without minting a face.
+export type {
+  FleetWatchEntry,
+  FleetWatchJoin,
+  FleetWatchList,
+  WatchedFound,
+} from "./fleet/watchList.ts";
 export {
   type KoluMcpConnection,
   type ServeKoluMcpOptions,

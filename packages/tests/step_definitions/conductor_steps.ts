@@ -15,6 +15,7 @@
 import assert from "node:assert";
 import { Given, Then, When } from "@cucumber/cucumber";
 import { pollFor } from "../support/poll.ts";
+import { padiCall } from "../support/rpcWire.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 const PANE = '[data-testid="conductor-pane"]';
@@ -26,7 +27,8 @@ const TAB = '[data-testid="conductor-tab"]';
 const MOBILE_HANDLE = '[data-testid="mobile-pull-handle"]';
 const MOBILE_SHEET = '[data-testid="mobile-chrome-sheet"]';
 const BADGE = `${TAB} [data-testid="conductor-badge"]`;
-const CHIP = '[data-testid="conductor-phase"]';
+/** The phase word on the status line above the composer. */
+const PHASE = '[data-testid="conductor-phase"]';
 const TRANSCRIPT = '[data-testid="conductor-transcript"]';
 const ROW = '[data-testid="conductor-row"]';
 const TOOL_CARD = '[data-testid="conductor-tool-card"]';
@@ -243,6 +245,30 @@ When(
       .locator(`[data-testid="conductor-ask-option"][data-value="${value}"]`)
       .click();
     await ask.locator('[data-testid="conductor-ask-submit"]').click();
+  },
+);
+
+Then(
+  "the answered question should read {string}",
+  async function (this: KoluWorld, line: string) {
+    // THE RECORD, read off the settled card: the question and the answer, on
+    // one line. The form is gone by now, so this is the only place either of
+    // them can still be read — a card that collapsed to `answered` fails here.
+    const ask = this.page.locator(ASK).last();
+    await pollFor({
+      observe: async () =>
+        (
+          await ask
+            .locator('[data-testid="conductor-ask-answer"]')
+            .allTextContents()
+        ).map((one) => one.replace(/\s+/g, " ").trim()),
+      isDone: (read) => read.includes(line),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (read, elapsedMs) =>
+        new Error(
+          `after ${elapsedMs}ms the settled question reads ${JSON.stringify(read)}, not ${JSON.stringify(line)}`,
+        ),
+    });
   },
 );
 
@@ -500,6 +526,57 @@ Then(
   },
 );
 
+/** The badge's COLOUR, read as the fact that drives it (`data-asking`) and
+ *  never as a class name: what the tab promises is "this is the needs-you
+ *  badge", and pinning a utility class would pin the paint instead — a
+ *  rename of the token would fail here while the product was fine, and a
+ *  badge that stopped turning violet would pass. */
+Then(
+  "the conductor tab badge should be the needs-you one",
+  async function (this: KoluWorld) {
+    await waitForValue(
+      "conductor badge data-asking",
+      async () =>
+        (await this.page.locator(BADGE).getAttribute("data-asking")) ??
+        "absent",
+      "",
+    );
+  },
+);
+
+Then(
+  "the conductor tab badge should not be the needs-you one",
+  async function (this: KoluWorld) {
+    await waitForValue(
+      "conductor badge data-asking",
+      async () =>
+        (await this.page.locator(BADGE).getAttribute("data-asking")) ??
+        "absent",
+      "absent",
+    );
+  },
+);
+
+Then(
+  "the conductor tab should show a needs-you dot",
+  async function (this: KoluWorld) {
+    // Asking with nothing in flight: the badge is THERE, in the needs-you
+    // colour, and carries NO number — a `0` on a tab is a number every reader
+    // has to parse before ignoring.
+    await waitForValue(
+      "conductor badge as a dot",
+      async () => {
+        const badge = this.page.locator(BADGE);
+        if ((await badge.count()) === 0) return "absent";
+        const asking =
+          (await badge.getAttribute("data-asking")) ?? "not-asking";
+        return `${asking}|${(await badge.textContent()) ?? ""}`;
+      },
+      "|",
+    );
+  },
+);
+
 Then(
   "the conductor transcript should show a row of kind {string} saying {string}",
   async function (this: KoluWorld, kind: string, text: string) {
@@ -661,11 +738,13 @@ Then(
 );
 
 Then(
-  "the conductor state chip should read {string}",
+  "the conductor status should read {string}",
   async function (this: KoluWorld, phase: string) {
+    // The phase word on the ONE status line above the composer — the header's
+    // chip that used to carry it is gone, so the state lives in one place.
     await waitForValue(
-      "conductor state chip",
-      async () => (await this.page.locator(CHIP).textContent())?.trim() ?? "",
+      "the conductor status line's phase",
+      async () => (await this.page.locator(PHASE).textContent())?.trim() ?? "",
       phase,
     );
   },
@@ -734,7 +813,17 @@ Then(
     // row reads `handed`, which is the honest "kolu gave this over and nobody
     // has reported either way", and a conductor that silently fell back to
     // running shell commands itself would sit at exactly that.
-    const row = `[data-testid="conductor-server"][data-server="${server}"]`;
+    //
+    // THE ROSTER IS IN THE `⋯` NOW, not a strip above every conversation, so
+    // this opens the menu the way a person asking the question does. The
+    // panel is portalled and stays up while the poll runs; the second press
+    // puts it away so the scenario's next step meets the conversation and not
+    // a panel over it.
+    const row = `${MENU_PANEL} [data-testid="conductor-server"][data-server="${server}"]`;
+    await this.page.locator(MENU).click();
+    await this.page
+      .locator(MENU_PANEL)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await waitForValue(
       `${row} standing`,
       async () =>
@@ -742,6 +831,8 @@ Then(
         "absent",
       "connected",
     );
+    await this.page.locator(MENU).click();
+    await waitForCount(this, MENU_PANEL, 0);
   },
 );
 
@@ -1298,3 +1389,722 @@ Then(
     );
   },
 );
+
+// ── The Conductor never blocks: wakes, the watched list, the status line ──
+//
+// A watched terminal's agent state comes from the same mocked Claude Code
+// session files the agent-detection scenarios write, so a wake here travels
+// padi's urgency fold, kolu-server's watcher and the ACP wire to the scripted
+// adapter — nothing in the browser is told about it except by the cell and the
+// transcript, which is exactly what a person reads.
+
+const STATUS = '[data-testid="conductor-status"]';
+const WATCHING = '[data-testid="conductor-watching"]';
+const HELD = '[data-testid="conductor-held"]';
+const WATCHED_PANEL = '[data-testid="conductor-watched-panel"]';
+const WATCHED_ROW = '[data-testid="conductor-watched-row"]';
+const WAKE_ROW = `${ROW}[data-row-kind="wake"]`;
+const STEER_HINT = '[data-testid="conductor-steer-hint"]';
+
+/** The number in an element's text — `watching 3`, `2 waiting` — or `absent`
+ *  when the element is not on screen, so a failure says which. */
+async function countIn(world: KoluWorld, selector: string): Promise<string> {
+  const node = world.page.locator(selector);
+  if ((await node.count()) === 0) return "absent";
+  const text = (await node.first().textContent()) ?? "";
+  return text.match(/\d+/)?.[0] ?? `no number in ${JSON.stringify(text)}`;
+}
+
+/** The terminal this scenario watches, or a failure saying the scenario never
+ *  asked for one — every step below is about THAT terminal. */
+function watchedId(world: KoluWorld): string {
+  const id = world.watchedTerminalId;
+  assert.ok(id, "no terminal was watched in this scenario");
+  return id;
+}
+
+/** The watched panel's row for that terminal: its ref is `<host>/<id>`, and
+ *  the id half is the one this scenario knows. */
+function watchedRow(world: KoluWorld) {
+  return world.page.locator(
+    `${WATCHED_PANEL} ${WATCHED_ROW}[data-ref$="/${watchedId(world)}"]`,
+  );
+}
+
+When(
+  "I ask the conductor to watch the terminal",
+  async function (this: KoluWorld) {
+    // THE FOCUSED tile, read before the conversation covers the canvas — the
+    // same reading `adopt the terminal I am in` makes, for the same reason.
+    const id = await this.page
+      .locator(`${CANVAS_TILE}[data-active]`)
+      .getAttribute("data-terminal-id", { timeout: POLL_TIMEOUT });
+    assert.ok(id, "no tile is focused, so there is nothing to watch");
+    this.watchedTerminalId = id;
+    await enterConductor(this);
+    // The fixture answers `watch <id>` with a REAL `watch_terminal` call on the
+    // fleet face it was handed — so the list moves because the tool moved it.
+    await sendPrompt(this, `watch ${id}`);
+  },
+);
+
+When(
+  "I ask the conductor to watch the first terminal",
+  async function (this: KoluWorld) {
+    // The PHONE's spelling: no canvas tile is focused there, so the terminal
+    // is read off the roster the same way `adopt the terminal` reads it.
+    const ids = await this.terminalIds();
+    const id = ids[0];
+    assert.ok(id, "a terminal must exist before the conductor can watch one");
+    this.watchedTerminalId = id;
+    await enterConductor(this);
+    await sendPrompt(this, `watch ${id}`);
+  },
+);
+
+When(
+  "I ask the conductor to watch the terminal I just created",
+  async function (this: KoluWorld) {
+    // The id the CREATE answered with, not whichever tile the canvas has
+    // focused: a scenario that watches two terminals in a row is asking for
+    // two particular ones, and the focus is a different fact.
+    const id = this.createdTerminalIds.at(-1);
+    assert.ok(id, "no terminal was created in this scenario");
+    this.watchedTerminalId = id;
+    await enterConductor(this);
+    await sendPrompt(this, `watch ${id}`);
+  },
+);
+
+When(
+  "I ask the conductor to watch a split of the terminal I just created",
+  async function (this: KoluWorld) {
+    // THROUGH THE DAEMON, the way the dock's split scenarios cut one: this
+    // scenario is about how the conversation DRAWS a split, not how one is
+    // born (`sub-terminal.feature` owns that path). The create answers with
+    // the new terminal's record, which is the id the watch is asked for.
+    const parentId = this.createdTerminalIds.at(-1);
+    assert.ok(parentId, "no terminal was created in this scenario to split");
+    const created = (await padiCall("lifecycle/create", {
+      placement: { kind: "child-of", parentId },
+    })) as { readonly id: string };
+    this.watchedTerminalId = created.id;
+    this.watchedSplitParentId = parentId;
+    await enterConductor(this);
+    await sendPrompt(this, `watch ${created.id}`);
+  },
+);
+
+Then(
+  "the watched split should be drawn under the terminal it is a split of",
+  async function (this: KoluWorld) {
+    const split = watchedId(this);
+    const parent = this.watchedSplitParentId;
+    assert.ok(parent, "no split was watched in this scenario");
+    // ONE READING of the panel's shape — the order the rows are drawn in, and
+    // what each says it hangs under — so a failure prints the tree as drawn
+    // rather than "not nested", which cannot tell a flat list from a split
+    // nested under the wrong row.
+    const shape = async (): Promise<string> =>
+      JSON.stringify(
+        await this.page
+          .locator(`${WATCHED_PANEL} ${WATCHED_ROW}`)
+          .evaluateAll((rows) =>
+            rows.map((row) => ({
+              ref: row.getAttribute("data-ref"),
+              depth: row.getAttribute("data-depth"),
+              under: row.getAttribute("data-parent-ref"),
+              name:
+                row
+                  .querySelector('[data-testid="conductor-watched-name"]')
+                  ?.textContent?.trim() ?? null,
+            })),
+          ),
+      );
+    await waitForValue(
+      "the watched split's place in its group",
+      async () => {
+        const rows = JSON.parse(await shape()) as Array<{
+          ref: string | null;
+          depth: string | null;
+          under: string | null;
+          name: string | null;
+        }>;
+        const at = rows.findIndex((row) => row.ref?.endsWith(`/${split}`));
+        const above = rows.findIndex((row) => row.ref?.endsWith(`/${parent}`));
+        const row = rows[at];
+        if (row === undefined) return `no row for the split: ${await shape()}`;
+        // NEVER A BARE ID: a split has no name of its own, and the uuid is the
+        // one thing a person cannot recognise it by.
+        if (row.name?.includes(split))
+          return `the split is named by its id: ${await shape()}`;
+        return above !== -1 &&
+          above < at &&
+          row.depth === "1" &&
+          row.under === rows[above]?.ref
+          ? "drawn under its parent"
+          : `not under its parent: ${await shape()}`;
+      },
+      "drawn under its parent",
+    );
+  },
+);
+
+Then(
+  "the conductor status should say it is watching {int}",
+  async function (this: KoluWorld, count: number) {
+    // The line says two numbers now — pieces of work and terminals — so the
+    // count is read off the button's own data rather than the first digit in
+    // its sentence.
+    await waitForValue(
+      "the status line's watched terminal count",
+      async () =>
+        (await this.page
+          .locator(`${STATUS} ${WATCHING}`)
+          .getAttribute("data-terminals")) ?? "absent",
+      String(count),
+    );
+  },
+);
+
+Then(
+  "the conductor status should say {int} piece(s) of work",
+  async function (this: KoluWorld, count: number) {
+    await waitForValue(
+      "the status line's pieces of work",
+      async () =>
+        (await this.page
+          .locator(`${STATUS} ${WATCHING}`)
+          .getAttribute("data-work")) ?? "absent",
+      String(count),
+    );
+  },
+);
+
+Then(
+  "the conductor status should say {int} waiting",
+  async function (this: KoluWorld, count: number) {
+    await waitForValue(
+      "the status line's waiting count",
+      () => countIn(this, `${STATUS} ${HELD}`),
+      String(count),
+    );
+  },
+);
+
+Then(
+  "the conductor status should say nothing is waiting",
+  async function (this: KoluWorld) {
+    await waitForCount(this, `${STATUS} ${HELD}`, 0);
+  },
+);
+
+Then(
+  "the conductor transcript should show no wake",
+  async function (this: KoluWorld) {
+    // AN INSTANT, not a wait: the claim is about NOW — the turn is running and
+    // the wake is held — and a poll for zero would pass the moment before one
+    // was wrongly injected.
+    assert.equal(
+      await this.page.locator(WAKE_ROW).count(),
+      0,
+      `a wake landed while the turn ran: ${await transcriptInventory(this)}`,
+    );
+  },
+);
+
+Then(
+  "the conductor transcript should show a wake about the watched terminal",
+  async function (this: KoluWorld) {
+    const id = watchedId(this);
+    // The ACCOUNT names the terminal by its fleet ref; it is in the DOM even
+    // folded (the disclosure hides it, it does not withhold it) — so the
+    // wake is matched on the terminal it is about, not merely on existing.
+    let inventoryAtTimeout = "(not observed)";
+    await pollFor({
+      observe: () =>
+        this.page
+          .locator(WAKE_ROW)
+          .evaluateAll(
+            (rows, want) =>
+              rows.filter((row) => (row.textContent ?? "").includes(want))
+                .length,
+            `/${id}`,
+          ),
+      isDone: (seen) => seen > 0,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (_last, elapsedMs) =>
+        new Error(
+          `no wake about ${id} after ${elapsedMs}ms; the transcript holds ${inventoryAtTimeout}`,
+        ),
+      onTick: async () => {
+        inventoryAtTimeout = await transcriptInventory(this);
+      },
+    });
+  },
+);
+
+Then(
+  "the conductor transcript should show a {string} wake about the watched terminal",
+  async function (this: KoluWorld, level: string) {
+    const id = watchedId(this);
+    let inventoryAtTimeout = "(not observed)";
+    // The LEVEL is read off the wake's own `data-levels`, not its wording:
+    // which words the line uses is the panel's business, which fact rang is
+    // the server's.
+    await pollFor({
+      observe: () =>
+        this.page
+          .locator(`${WAKE_ROW} [data-testid="conductor-wake"]`)
+          .evaluateAll(
+            (wakes, want) =>
+              wakes.filter(
+                (wake) =>
+                  (wake.getAttribute("data-levels") ?? "")
+                    .split(" ")
+                    .includes(want.level) &&
+                  (wake.textContent ?? "").includes(want.ref),
+              ).length,
+            { level, ref: `/${id}` },
+          ),
+      isDone: (seen) => seen > 0,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (_last, elapsedMs) =>
+        new Error(
+          `no ${JSON.stringify(level)} wake about ${id} after ${elapsedMs}ms; the transcript holds ${inventoryAtTimeout}`,
+        ),
+      onTick: async () => {
+        inventoryAtTimeout = await transcriptInventory(this);
+      },
+    });
+  },
+);
+
+Then("the wake should be one line from kolu", async function (this: KoluWorld) {
+  const wake = this.page.locator(WAKE_ROW).last();
+  const headline = wake.locator('[data-testid="conductor-wake-headline"]');
+  await headline.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  assert.match((await wake.textContent()) ?? "", /kolu/);
+  assert.equal(
+    await wake.locator('[data-testid="conductor-wake-text"]').isVisible(),
+    false,
+    "the wake's whole account was open before anybody opened it",
+  );
+  // The machine's line is NOT the human's bubble — a user mark (and the
+  // send-again that rides it) belongs to words a person typed.
+  assert.equal(await wake.locator(USER_MARK).count(), 0);
+});
+
+When("I open the wake", async function (this: KoluWorld) {
+  await this.page
+    .locator(WAKE_ROW)
+    .last()
+    .locator('[data-testid="conductor-wake-toggle"]')
+    .click();
+});
+
+Then(
+  "the wake should give the whole account of the watched terminal",
+  async function (this: KoluWorld) {
+    const text = this.page
+      .locator(WAKE_ROW)
+      .last()
+      .locator('[data-testid="conductor-wake-text"]');
+    await text.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    assert.match(
+      (await text.textContent()) ?? "",
+      new RegExp(`local/${watchedId(this)}`),
+    );
+  },
+);
+
+When("I open the watched terminals", async function (this: KoluWorld) {
+  // PUT THEM ON SCREEN, however this window holds them. On a window wide
+  // enough for two columns the panel is already beside the conversation and
+  // there is nothing to press — the status line carries a readout there, not
+  // a control. Below that width it is the band the control opens. The step
+  // means the same thing in both: the watched terminals are readable now.
+  if ((await this.page.locator(WATCHED_PANEL).count()) === 0) {
+    await this.page.locator(`${STATUS} ${WATCHING}`).click();
+  }
+  await this.page
+    .locator(WATCHED_PANEL)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
+Then(
+  "the watched panel should list the watched terminal",
+  async function (this: KoluWorld) {
+    await watchedRow(this).waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+When("I look at the watched terminal", async function (this: KoluWorld) {
+  await watchedRow(this)
+    .locator('[data-testid="conductor-watched-look"]')
+    .click();
+});
+
+When("I press the watched terminal's name", async function (this: KoluWorld) {
+  // THE ROW'S NAME IS THE WAY TO THE TERMINAL — the same journey the create
+  // card's "open tile" makes, which is why the assertion below is the one
+  // that step's scenario makes about the tile it lands on.
+  await watchedRow(this)
+    .locator('[data-testid="conductor-watched-name"]')
+    .click();
+});
+
+Then(
+  "the watched terminal should be the focused tile",
+  async function (this: KoluWorld) {
+    const id = watchedId(this);
+    await waitForValue(
+      "the active canvas tile after pressing the watched row's name",
+      async () =>
+        (await this.page
+          .locator(`${CANVAS_TILE}[data-active]`)
+          .getAttribute("data-terminal-id")) ?? "absent",
+      id,
+    );
+  },
+);
+
+Then(
+  "the watched terminal's look should show {string}",
+  async function (this: KoluWorld, text: string) {
+    await pollFor({
+      observe: async () =>
+        (
+          (await this.page
+            .locator(`${WATCHED_PANEL} [data-testid="conductor-look-tail"]`)
+            .last()
+            .textContent({ timeout: 1_000 })
+            .catch(() => null)) ?? "(no tail)"
+        )
+          .replace(/\s+/g, " ")
+          .trim(),
+      isDone: (seen) => seen.includes(text),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `the watched terminal's look never showed ${JSON.stringify(text)}; after ${elapsedMs}ms it said ${JSON.stringify(last)}`,
+        ),
+    });
+  },
+);
+
+// ── One reading column, and the side column beside it ──
+//
+// The watched panel has TWO placements and one implementation: a side column
+// that is always on screen on a window wide enough for both measures, and the
+// band the status line's control opens below that width. These steps say
+// which placement is live, because that is the thing a person sees change.
+
+/** The pane's second column — the always-on placement of the watched panel. */
+const SIDE = '[data-testid="conductor-side"]';
+
+Then(
+  "the conductor side column should list the watched terminal",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(`${SIDE} ${WATCHED_ROW}[data-ref$="/${watchedId(this)}"]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the conductor should have no side column",
+  async function (this: KoluWorld) {
+    await waitForCount(this, SIDE, 0);
+  },
+);
+
+Then(
+  "the watched terminals should be behind the status line's control",
+  async function (this: KoluWorld) {
+    // The narrow window's bargain: the list is not standing beside the
+    // conversation, and the way to it is the count on the status line.
+    await waitForCount(this, WATCHED_PANEL, 0);
+    await this.page
+      .locator(`${STATUS} ${WATCHING}`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then(
+  "the conductor status should say nothing is being watched",
+  async function (this: KoluWorld) {
+    // NOT `watching 0`: the count and the control that would open an empty
+    // panel are both absent when there is nothing to count.
+    await waitForCount(this, `${STATUS} ${WATCHING}`, 0);
+  },
+);
+
+Then(
+  "the conductor side column should say nothing is in progress",
+  async function (this: KoluWorld) {
+    await this.page
+      .locator(`${SIDE} [data-testid="conductor-watched-empty"]`)
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+Then("no count on screen should read zero", async function (this: KoluWorld) {
+  // Every readout the conversation keeps about its own work — the status
+  // line and the side column — read whole, and none of them may say `0`.
+  // A zero here is not a small cosmetic thing: it is the conversation
+  // reporting a quantity of nothing, which a reader has to parse before
+  // they can ignore it.
+  const zeros = await this.page.evaluate(
+    ([status, side]) =>
+      [...document.querySelectorAll<HTMLElement>(`${status}, ${side}`)]
+        .map((el) => (el.textContent ?? "").replace(/\s+/g, " ").trim())
+        .filter((text) => /\b0\b/.test(text)),
+    [STATUS, SIDE],
+  );
+  assert.deepEqual(zeros, [], `a readout says zero: ${zeros.join(" / ")}`);
+});
+
+Then("the conductor should offer to steer", async function (this: KoluWorld) {
+  await this.page
+    .locator(STEER_HINT)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});
+
+When(
+  "I steer the conductor with {string}",
+  async function (this: KoluWorld, text: string) {
+    const input = this.page.locator(INPUT);
+    await input.click();
+    await input.fill(text);
+    await this.page.keyboard.press("Alt+Enter");
+  },
+);
+
+Then(
+  "the conductor status should count how long it has been working",
+  async function (this: KoluWorld) {
+    await pollFor({
+      observe: async () =>
+        (
+          (await this.page
+            .locator(`${STATUS} [data-testid="conductor-status-since"]`)
+            .textContent({ timeout: 1_000 })
+            .catch(() => null)) ?? "(absent)"
+        ).trim(),
+      isDone: (seen) => /\d+\s*(s|m|h)/.test(seen),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, elapsedMs) =>
+        new Error(
+          `the status line never counted the turn; after ${elapsedMs}ms it said ${JSON.stringify(last)}`,
+        ),
+    });
+  },
+);
+
+Then(
+  "the conductor header should carry no state chip",
+  async function (this: KoluWorld) {
+    // The state lives in ONE place — the status line above the composer — so
+    // the only `conductor-phase` on screen is the status line's.
+    const phases = this.page.locator(PHASE);
+    assert.equal(await phases.count(), 1);
+    assert.equal(await this.page.locator(`${STATUS} ${PHASE}`).count(), 1);
+  },
+);
+
+When("I mark the conductor pane", async function (this: KoluWorld) {
+  // A JS EXPANDO, not a `data-` attribute: an attribute is markup, and a pane
+  // rebuilt from the same JSX would come back wearing it. A property set on
+  // the node by hand exists only on THAT object, so finding it again is proof
+  // the element itself survived — the identity check `/solidjs` asks for.
+  //
+  // The value is built here, at run time, so it cannot be anything the page's
+  // own source could have put there.
+  const marker = `kolu-pane-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  this.conductorPaneMarker = marker;
+  const pane = this.page.locator(PANE);
+  await pane.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await pane.evaluate((el, value) => {
+    (el as HTMLElement & { koluPaneMarker?: string }).koluPaneMarker = value;
+  }, marker);
+});
+
+Then(
+  "the conductor pane should be the one I marked",
+  async function (this: KoluWorld) {
+    const marker = this.conductorPaneMarker;
+    assert.ok(marker, "no conductor pane was marked");
+    const pane = this.page.locator(PANE);
+    await pane.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const found = await pane.evaluate(
+      (el) => (el as HTMLElement & { koluPaneMarker?: string }).koluPaneMarker,
+    );
+    assert.equal(
+      found,
+      marker,
+      found === undefined
+        ? "the conductor pane came back as a NEW element — it was rebuilt rather than retained, so everything that was open in it was thrown away"
+        : `the conductor pane carries ${JSON.stringify(found)}, not the marker ${JSON.stringify(marker)}`,
+    );
+  },
+);
+
+Then(
+  "the conductor composer should still hold {string}",
+  async function (this: KoluWorld, text: string) {
+    await waitForValue(
+      "the conductor composer's text after the round trip",
+      () => this.page.locator(INPUT).inputValue(),
+      text,
+    );
+  },
+);
+
+When(
+  "I type {string} into the conductor without sending",
+  async function (this: KoluWorld, text: string) {
+    const input = this.page.locator(INPUT);
+    await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await input.click();
+    await input.fill(text);
+  },
+);
+
+// ── The help: a column in the gutter, a sheet from the menu ──
+//
+// One set of words in two frames (`helpContent.ts`). These steps never read
+// the sentences themselves — a help text is meant to be reworded — they read
+// the SECTIONS it promises and which frame they arrived in, so a rewrite
+// passes and a section quietly dropped does not.
+
+const HELP = '[data-testid="conductor-help"]';
+const HELP_TOGGLE = '[data-testid="conductor-help-toggle"]';
+const HELP_CONTENT = '[data-testid="conductor-help-content"]';
+const HELP_SECTION = '[data-testid="conductor-help-section"]';
+const HELP_SHEET = '[data-testid="conductor-help-sheet"]';
+const MENU_HELP = '[data-testid="conductor-menu-help"]';
+
+/** The sections the panel promises, in order — the id each section rides as
+ *  data, not its heading, so rewording a heading is not a broken test. */
+const HELP_SECTIONS = [
+  "ask",
+  "waterfall",
+  "while-it-works",
+  "mid-work",
+  "wakes",
+  "asks",
+];
+
+/** What one copy of the help is showing, as `id,id,…` — or why it is not
+ *  readable, so a failure says which. */
+async function helpSectionsIn(
+  world: KoluWorld,
+  placement: "column" | "sheet",
+): Promise<string> {
+  const copy = `${HELP_CONTENT}[data-placement="${placement}"]`;
+  if ((await world.page.locator(copy).count()) === 0) {
+    return `no ${placement} copy of the help is on screen`;
+  }
+  return (
+    await world.page
+      .locator(`${copy} ${HELP_SECTION}`)
+      .evaluateAll((els) =>
+        els.map((el) => (el as HTMLElement).dataset.section ?? "unnamed"),
+      )
+  ).join(",");
+}
+
+Then(
+  "the conductor help column should be open",
+  async function (this: KoluWorld) {
+    await waitForValue(
+      "the help column's open state",
+      async () =>
+        (await this.page.locator(HELP).getAttribute("data-open")) ?? "absent",
+      "true",
+    );
+  },
+);
+
+Then(
+  "the conductor help column should be a rail with one way back in",
+  async function (this: KoluWorld) {
+    await waitForValue(
+      "the help column's open state",
+      async () =>
+        (await this.page.locator(HELP).getAttribute("data-open")) ?? "absent",
+      "false",
+    );
+    // Collapsed it carries its words no longer, and exactly one control.
+    await waitForCount(this, `${HELP} ${HELP_CONTENT}`, 0);
+    await waitForCount(this, `${HELP} ${HELP_TOGGLE}`, 1);
+  },
+);
+
+Then(
+  "the conductor should have no help column",
+  async function (this: KoluWorld) {
+    await waitForCount(this, HELP, 0);
+  },
+);
+
+When("I collapse the conductor help", async function (this: KoluWorld) {
+  await this.page.locator(`${HELP} ${HELP_TOGGLE}`).click();
+});
+
+When("I reopen the conductor help", async function (this: KoluWorld) {
+  await this.page.locator(`${HELP} ${HELP_TOGGLE}`).click();
+});
+
+When(
+  "I open How to use from the conductor menu",
+  async function (this: KoluWorld) {
+    await this.page.locator(MENU).click();
+    await waitForAtLeastOne(this, MENU_PANEL);
+    await this.page.locator(MENU_HELP).click();
+  },
+);
+
+Then(
+  "the conductor menu should not offer How to use",
+  async function (this: KoluWorld) {
+    // Where the help is already a column, the menu entry would be a second
+    // door to the words standing open beside it.
+    await this.page.locator(MENU).click();
+    await waitForAtLeastOne(this, MENU_PANEL);
+    await waitForCount(this, MENU_HELP, 0);
+    await this.page.locator(MENU).click();
+    await waitForCount(this, MENU_PANEL, 0);
+  },
+);
+
+Then(
+  "the help {word} should teach the conversation, docs and all",
+  async function (this: KoluWorld, placement: string) {
+    assert.ok(
+      placement === "column" || placement === "sheet",
+      `the help has no ${placement} placement`,
+    );
+    await waitForValue(
+      `the sections of the help's ${placement}`,
+      () => helpSectionsIn(this, placement),
+      HELP_SECTIONS.join(","),
+    );
+    const docs = this.page.locator(
+      `${HELP_CONTENT}[data-placement="${placement}"] [data-testid="conductor-help-docs"]`,
+    );
+    await docs.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    assert.match(
+      (await docs.getAttribute("href")) ?? "",
+      /\/conductor\/$/,
+      "the help's Full docs link does not point at the Conductor's own page",
+    );
+  },
+);
+
+Then("the help sheet should be open", async function (this: KoluWorld) {
+  await this.page
+    .locator(HELP_SHEET)
+    .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+});

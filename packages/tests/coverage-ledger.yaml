@@ -3532,7 +3532,7 @@ retirements:
     defectSurface: [conductor, attention-alerts]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-2ceb530d1e89061648f2]
+    survivorRevisionIds: [revision-256383356f3dd3780c16]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: A question the agent asks is answered from the transcript"
@@ -3545,7 +3545,7 @@ retirements:
     defectSurface: [conductor, attention-alerts]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-892646fe7d7ab987fc33]
+    survivorRevisionIds: [revision-356b0e3c05e339d3aa43]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: An unanswered question is a needs-you source from the tab row"
@@ -3605,7 +3605,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-cbb87cd8f78cfc96f063]
+    survivorRevisionIds: [revision-2224bf02d8cdc561b396]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: A prompt round trip draws the agent's answer"
@@ -3618,7 +3618,7 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-e18922e436e8e1b8a4e7]
+    survivorRevisionIds: [revision-9f2ebbff65659ab954de]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: An agent that refuses the turn leaves the conversation ready"
@@ -3683,7 +3683,7 @@ retirements:
     defectSurface: [conductor, attention-alerts]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-2ceb530d1e89061648f2]
+    survivorRevisionIds: [revision-256383356f3dd3780c16]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: A question the agent asks is answered from the transcript"
@@ -3709,7 +3709,7 @@ retirements:
     defectSurface: [conductor, attention-alerts]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-892646fe7d7ab987fc33]
+    survivorRevisionIds: [revision-356b0e3c05e339d3aa43]
     sameCodePathEvidence:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: An unanswered question is a needs-you source from the tab row"
@@ -3753,3 +3753,159 @@ retirements:
       file: packages/tests/features/conductor.feature
       symbol: "Scenario: The agent reads this fleet's terminals through kolu's own MCP face"
       test: The same fleet read over the same loopback face; the MCP tool and resource names are deliberately unchanged and the steps differ only in the entry they open.
+  - id: revise-cbb87cd8f78cfc96f063
+    revisionId: revision-cbb87cd8f78cfc96f063
+    action: revised
+    status: landed
+    promise: A prompt round trip draws the agent's answer
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-2224bf02d8cdc561b396]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: A prompt round trip draws the agent's answer"
+      test: The same phase assertion against the same value; the step names the status line above the composer, where the phase now lives, instead of the header chip this PR removed.
+  - id: revise-e18922e436e8e1b8a4e7
+    revisionId: revision-e18922e436e8e1b8a4e7
+    action: revised
+    status: landed
+    promise: An agent that refuses the turn leaves the conversation ready
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-9f2ebbff65659ab954de]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: An agent that refuses the turn leaves the conversation ready"
+      test: The same phase assertion against the same value; the step names the status line above the composer, where the phase now lives, instead of the header chip this PR removed.
+  - id: revise-0eab55e1aff51efaa073
+    revisionId: revision-0eab55e1aff51efaa073
+    action: revised
+    status: landed
+    promise: The calls fold while the Conductor is still working
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-9c65ee76cc04b7c7de4f]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: The calls fold while the Conductor is still working"
+      test: The same phase assertion against the same value; the step names the status line above the composer, where the phase now lives, instead of the header chip this PR removed.
+  - id: revise-ec124fbc0011f423d7de
+    revisionId: revision-ec124fbc0011f423d7de
+    action: revised
+    status: landed
+    promise: A wake that rings while the Conductor works waits for the turn to end
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-77b79c5e257d162d02ab]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: A wake that rings while the Conductor works waits for the turn to end"
+      test: The same phase assertion against the same value; the step names the status line above the composer, where the phase now lives, instead of the header chip this PR removed.
+  - id: revise-4d83bcaf38144d0f285d
+    revisionId: revision-4d83bcaf38144d0f285d
+    action: revised
+    status: landed
+    promise: The status line says what the Conductor is doing, in one place
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-4bf385c649ba59de9c7a]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: The status line says what the Conductor is doing, in one place"
+      test: The same phase assertion against the same value; the step names the status line above the composer, where the phase now lives, instead of the header chip this PR removed.
+  - id: revise-2ceb530d1e89061648f2
+    revisionId: revision-2ceb530d1e89061648f2
+    action: revised
+    status: landed
+    promise: A question the agent asks is answered from the transcript
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-256383356f3dd3780c16]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: A question the agent asks is answered from the transcript"
+      test: The same answer through the same wire; the revised scenario additionally reads the settled card, which now keeps the question and the answer instead of collapsing to the word `answered`.
+  - id: revise-b3b92d3e13f6d974a94a
+    revisionId: revision-b3b92d3e13f6d974a94a
+    action: revised
+    status: landed
+    promise: A question the agent asks is answered from the transcript
+    defectSurface: [conductor, attention-alerts]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-256383356f3dd3780c16]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: A question the agent asks is answered from the transcript"
+      test: The same elicitation round trip, answered the same way, and the badge still read off the conductor tab with the pane mounted. One assertion changed form because the tab's badge did — it is now a count of the PIECES OF WORK in flight, coloured by the ask, so an ask with nothing watched (which is this scenario) shows the needs-you dot rather than the number 1. The come-off-at-zero rule is asserted unchanged.
+  - id: revise-892646fe7d7ab987fc33
+    revisionId: revision-892646fe7d7ab987fc33
+    action: revised
+    status: landed
+    promise: An unanswered question is a needs-you source from the tab row
+    defectSurface: [conductor, attention-alerts]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-356b0e3c05e339d3aa43]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor.feature
+      symbol: "Scenario: An unanswered question is a needs-you source from the tab row"
+      test: The same journey — ask, leave the conversation, read the tab with the pane unmounted — against the same wire. Only the mark being read changed with the product. The tab now carries ONE badge whose number is the pieces of work in flight and whose colour is the ask, so a question with nothing watched is the violet dot this step now asserts instead of a count of 1.
+  - id: revise-6536e78e09c8abe1df77
+    revisionId: revision-6536e78e09c8abe1df77
+    action: revised
+    status: landed
+    promise: The watched terminals are listed, looked at, and let go
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-11493fccc6f705712232]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: The watched terminals are listed and looked at"
+      test: The same journey against the same wire — watch a terminal, read its list, Look at its screen. The let-go half is gone because the product's remove control is gone — the panel is a reading, and a terminal comes off the list when the Conductor unwatches it or the terminal closes, neither of which is a thing a person does in this panel. The list and the Look are asserted unchanged.
+  - id: revise-a0c0e08ef1f12caacb5d
+    revisionId: revision-a0c0e08ef1f12caacb5d
+    action: revised
+    status: landed
+    promise: The watched terminals are listed, looked at, and let go
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-11493fccc6f705712232]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: The watched terminals are listed and looked at"
+      test: The same browser journey through the same wire — watch a terminal, open the watched panel, read the row, Look at the terminal's own screen. Two steps left with the × they drove — the panel no longer carries a control that takes a terminal off the list (an override knob the human asked for a reason for, and there was none), so pressing it and then asserting the empty-watch status line describes a product that no longer exists. Nothing else in the scenario moved, and the "nothing is being watched" assertion itself survives in conductor-layout.feature.
+  - id: revise-43facaa7cf5ced14c579
+    revisionId: revision-43facaa7cf5ced14c579
+    action: revised
+    status: landed
+    promise: The watched terminals are listed and looked at
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-11493fccc6f705712232]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: The watched terminals are listed, looked at, and pressed to go there"
+      test: The same journey against the same wire — watch a terminal, open the panel, read the row, Look at its screen — with one more step on the end, which is why the title moved. The row's NAME is now the way to the terminal, so the scenario presses it and then asserts the conversation is left and that terminal's tile is the focused one — the same two assertions the create card's "open tile" scenario makes, because the row and the card take the same code path. Nothing already asserted was dropped.
+  - id: revise-6adadf28eb5d658999d7
+    revisionId: revision-6adadf28eb5d658999d7
+    action: revised
+    status: landed
+    promise: Two pieces of work count on the tab, and the badge says when it needs you
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-65aa6a2f05699d25ddea]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-wakes.feature
+      symbol: "Scenario: Two pieces of work count on the tab, a split is drawn under its parent, and the badge says when it needs you"
+      test: The same journey against the same wire — two unrelated watched terminals count as two pieces of work on the status line and the tab, and the badge turns needs-you while the Conductor asks — with a split of the first terminal watched in between, which is why the title moved. The split joins its parent's piece of work (the count stays 1, the terminals go to 2) and the panel is read for it being drawn under that terminal and named as something other than its id. The later counts move by one terminal for the split; every assertion the scenario made before is still made.

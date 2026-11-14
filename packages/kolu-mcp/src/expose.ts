@@ -6,11 +6,17 @@
  * `kolu mcp` serves) and over the whole fleet's `fleetSurface`
  * ({@link KOLU_FLEET_EXPOSE}, what kolu-server serves the conductor).
  *
- * **The tool list has ONE definition.** {@link KOLU_MCP_TOOL_EXPOSE} holds the
- * rows and both maps spread it, because the two faces differ in what a terminal
- * is CALLED, never in what may be done to one. Two lists would be two things to
- * widen, and the day they disagreed an agent would find a verb on one face that
- * the other had quietly dropped.
+ * **The terminal verbs have ONE definition.** {@link KOLU_MCP_TOOL_EXPOSE}
+ * holds the rows and both maps spread it, because the two faces differ in what
+ * a terminal is CALLED, never in what may be done to one. Two lists would be
+ * two things to widen, and the day they disagreed an agent would find a verb on
+ * one face that the other had quietly dropped.
+ *
+ * What the fleet face does NOT get is the standing subscription: `watch.close`
+ * is a row of the stdio map alone, and `fleetSurface` declares no `watch`
+ * member to hold one. That face serves exactly one conversation — the
+ * conductor's — and a conversation sitting in a drain is a conversation a human
+ * cannot speak into. It is woken instead; see {@link KOLU_FLEET_EXPOSE}.
  *
  * **The RESOURCE lists differ, on purpose.** `identity` · `status` ·
  * `daemonStatus` are per-host health facts: fleet-wide there is no single
@@ -24,6 +30,12 @@
  * about a member of it. The stdio face has no `hosts` for the mirror reason: a
  * face serving one padi has one host, and a roster of one is a row an agent
  * would have to read to learn what it already knows.
+ *
+ * The fleet face has one resource the stdio face could not have at all:
+ * `watched` (`surface://cells/watched`), the Conductor's own watch list as
+ * rows. It is per-CONVERSATION rather than per-host, and there is exactly one
+ * conversation behind this map; a face serving many clients would be serving
+ * one of them somebody else's list.
  *
  * **Default deny**: an omitted member is unreachable, full stop. Widening this
  * map is a one-row diff with a review, never a default. The named denials below
@@ -52,7 +64,9 @@
  * the boot-time name-collision gate in `@kolu/surface-mcp` is what guarantees
  * the raw and bespoke spellings can never both register. The composite `wait_*`
  * tools are likewise bespoke (client-side scaffolding, not padiSurface
- * procedures).
+ * procedures), as is `agent_say` — which is a COMPOSITION of
+ * `lifecycle.sendInput` plus the agent's own submit keys, and so has no raw
+ * procedure of its own to supersede.
  *
  * `lifecycle_create` carries the #1872 protection the raw row used to state:
  * there is NO `command`/`env` spawn parameter, so a terminal created through
@@ -65,10 +79,13 @@ import type { PadiSurfaceSpec } from "@kolu/padi-client/surface";
 import type { ExposeMap } from "@kolu/surface/expose";
 import type { FleetSurfaceSpec } from "./fleet/fleetSurface.ts";
 
-/** The TOOL rows — the seven raw procedures BOTH projections mint, written
- *  once. Spread into each map below rather than restated in it: what an agent
- *  may DO is the same on both faces, and a second list is where that stops
- *  being true. */
+/** The TOOL rows BOTH projections mint, written once. Spread into each map
+ *  below rather than restated in it: what an agent may DO to a terminal is the
+ *  same on both faces, and a second list is where that stops being true.
+ *
+ *  The ONE exception is stated as a row of its own below, not hidden here:
+ *  `watch.close` is stdio-only, because the fleet face serves no standing
+ *  subscription at all (see {@link KOLU_FLEET_EXPOSE}). */
 const KOLU_MCP_TOOL_EXPOSE = {
   // ── Read-only tools ──────────────────────────────────────────────────────
   "screen.history": { tool: { mutates: false } },
@@ -82,16 +99,6 @@ const KOLU_MCP_TOOL_EXPOSE = {
   // — see the module doc.
   /** Kill one terminal by id. */
   "lifecycle.kill": { tool: { mutates: true } },
-
-  // ── Standing settle-event subscriptions ──────────────────────────────────
-  // `watch.open` is superseded by the bespoke tool of the same wire name —
-  // it resolves `ignoreSelf` from KAVAL_TERMINAL_ID, which the daemon cannot
-  // (and which the fleet face answers differently again: see `fleet/lift.ts`).
-  /** Drop a subscription and its buffer. */
-  "watch.close": { tool: { mutates: true } },
-  // `watch.drain` is NOT exposed raw: it never blocks (by design — padi holds no
-  // handler open), so an agent handed only that verb would poll. The bespoke
-  // `watch_next` tool is the drain, and it parks on the pulse instead.
 } as const;
 
 export const KOLU_MCP_EXPOSE = {
@@ -106,11 +113,28 @@ export const KOLU_MCP_EXPOSE = {
   identity: "resource",
 
   ...KOLU_MCP_TOOL_EXPOSE,
+
+  // ── Standing settle-event subscriptions (this face only) ─────────────────
+  // `watch.open` is superseded by the bespoke tool of the same wire name —
+  // it resolves `ignoreSelf` from KAVAL_TERMINAL_ID, which the daemon cannot.
+  /** Drop a subscription and its buffer. */
+  "watch.close": { tool: { mutates: true } },
+  // `watch.drain` is NOT exposed raw: it never blocks (by design — padi holds no
+  // handler open), so an agent handed only that verb would poll. The bespoke
+  // `watch_next` tool is the drain, and it parks on the pulse instead.
 } as const satisfies ExposeMap<PadiSurfaceSpec>;
 
-/** The FLEET projection — the same tools over `fleetSurface`, where a terminal
- *  is `host/id`. The three per-host health resources are gone and `hosts` is in
- *  their place; the module doc argues why. */
+/** The FLEET projection — the same terminal verbs over `fleetSurface`, where a
+ *  terminal is `host/id`. The three per-host health resources are gone and
+ *  `hosts` is in their place; the module doc argues why.
+ *
+ *  There is no `watch.close` row and no `watch` member to put one on. This face
+ *  serves ONE conversation — the conductor's — and that conversation may never
+ *  be inside a call that blocks: it says what it watches and ends its turn,
+ *  and kolu-server starts the next one when a watched terminal's agent stops,
+ *  asks, or dies. The watch list is moved by two bespoke tools
+ *  (`watch_terminal` / `unwatch_terminal`, `fleet/watchList.ts`) which address
+ *  a TERMINAL rather than a subscription, so there is nothing here to close. */
 export const KOLU_FLEET_EXPOSE = {
   // ── Resources (subscribable) ─────────────────────────────────────────────
   /** Every terminal on every connected host, keyed `<host>/<id>`. */
@@ -119,6 +143,11 @@ export const KOLU_FLEET_EXPOSE = {
   urgency: "resource",
   /** The live roster, and the per-host health facts as its columns. */
   hosts: "resource",
+  /** What this conversation is woken about — its own watch list, with each
+   *  ref's host as the fleet reads it now. The one resource here whose value
+   *  is the CONVERSATION's: moving the list is two tools, reading it is this,
+   *  and a face that only had the tools left a restarted conductor guessing. */
+  watched: "resource",
 
   ...KOLU_MCP_TOOL_EXPOSE,
 } as const satisfies ExposeMap<FleetSurfaceSpec>;

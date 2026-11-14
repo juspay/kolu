@@ -23,6 +23,7 @@ import {
   agentName,
   agentWorkflow,
   formatContextTokens,
+  formatTaskProgress,
   stateLabels,
   stateTones,
 } from "../ui/agentDisplay";
@@ -93,11 +94,7 @@ const AgentStatusCard: Component<{ agent: AgentInfo }> = (props) => {
           )}
         </Show>
         <Show when={props.agent.taskProgress}>
-          {(tp) => (
-            <span>
-              {tp().completed}/{tp().total} tasks
-            </span>
-          )}
+          {(tp) => <span>{formatTaskProgress(tp())} tasks</span>}
         </Show>
         <Show when={agentWorkflow(props.agent)}>
           {(wf) => (
