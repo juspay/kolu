@@ -73,7 +73,17 @@ export const DEFAULT_MIRROR_SCROLLBACK = 10_000;
  *  a time. Deliberately far below the mirror depth — the whole point is to stop
  *  shipping 10k lines on every host switch (the W9 full-replay cost). The client
  *  seeds its backfill cursor from what it actually received, so the exact value
- *  is a perf knob, not a correctness one. */
+ *  is a perf knob, not a correctness one.
+ *
+ *  **Kept at 1,000 by kolu#2362, deliberately.** That change made the snapshot
+ *  the unit everything else is priced in — a viewer more than one snapshot
+ *  behind is dropped and re-synced ({@link MIN_DATA_BUDGET_CHARS}), and a
+ *  resize now costs each viewer exactly one — so shrinking it to the screen
+ *  alone (the backfill path can serve the rest) would cut both the attach cost
+ *  AND the drop threshold. That is a real option and it is NOT taken here:
+ *  there was no measurement of what a screen-only snapshot does to the scroll-up
+ *  experience, and #2362's Step 0 counters (`deltaChars` / `skipAheads` per
+ *  attachment) are what will answer it with numbers rather than a guess. */
 export const SNAPSHOT_SCROLLBACK = 1_000;
 /** How many exited-PTY exit codes to retain after teardown, so a late
  *  `exit(id)` succeeds with the real code rather than a fabricated
@@ -592,6 +602,57 @@ export interface PtyHost {
   dispose(): void;
 }
 
+/**
+ * One open RESIZE WINDOW — the WITHHOLD-AND-DECIDE policy for a PTY whose grid
+ * just moved (kolu#2362).
+ *
+ * A resize is the one moment kaval KNOWS the bytes about to arrive are a redraw
+ * of a screen it already mirrors: an agent clears its scrollback and reprints
+ * its whole transcript on every SIGWINCH — 0.57–3.5 MB in the sessions measured
+ * on #2362 — and a viewer that watches that arrive byte-for-byte sees its
+ * terminal scroll through the session for seconds before settling at the end it
+ * asked for.
+ *
+ * What the window does NOT do is drop everyone and make them re-snapshot. That
+ * is the right answer for an agent and the wrong one for a plain shell, whose
+ * repaint is a hundred bytes: a reset costs that viewer its scrollback above
+ * the bounded snapshot (until backfill re-fetches it), its selection, and its
+ * scroll position. So the window WITHHOLDS and then DECIDES, with the same
+ * question the byte budget already answers — is catching you up cheaper than
+ * re-sending the screen?
+ *
+ *   · While it is open, parsed output is kept here instead of published.
+ *   · Past the budget ({@link dataBudgetChars}) the kept bytes are DISCARDED and
+ *     `resync` is set, so memory is bounded by the budget, not by the reprint.
+ *   · At close, what fits is PUBLISHED — nobody is reset, nobody loses a line —
+ *     and `resync` instead drops every subscriber through the existing overflow
+ *     path, so each gets exactly one snapshot of the settled screen.
+ *
+ * The invariants, which the tests pin: no byte is delivered twice, none is lost
+ * (a viewer either receives the withheld bytes or a snapshot that already
+ * contains them), and the memory held is at most one budget. The first of those
+ * is held by {@link claimWithheldOverlap}, not by timing — see there.
+ */
+interface ResizeWindow {
+  /** Closes the window {@link RESIZE_WINDOW_MS} after the latest resize — one
+   *  timer, re-armed by a later resize, never extended by output. */
+  timer: ReturnType<typeof setTimeout> | undefined;
+  /** Parsed chunks held back, in arrival order. Empty once `resync` is set. */
+  withheld: string[];
+  /** `withheld`'s total length, so the budget check costs no re-scan. */
+  withheldChars: number;
+  /** The decision, latched as soon as it is forced: this window can no longer
+   *  be settled by replaying what it kept, so its subscribers must re-sync. Set
+   *  by passing the budget, and by a second resize landing inside the window
+   *  (which invalidates everything kept for the grid that just went away). */
+  resync: boolean;
+  /** Attaches parked until this window closes — released after its subscribers
+   *  are settled, so the snapshot they then take already contains the withheld
+   *  bytes their siblings were just sent. Released by teardown too, so a PTY
+   *  that exits mid-window never leaves a fiber parked forever. */
+  waiters: Set<() => void>;
+}
+
 interface Entry {
   id: PtyId;
   proc: pty.IPty;
@@ -619,10 +680,23 @@ interface Entry {
   anchor: MirrorAnchor;
   cwd: string;
   title: string;
+  /** Wall-clock of the last chunk this PTY wrote — the inventory row's idle
+   *  proxy. */
   lastActivity: number;
-  /** Wall-clock until which output is a RESIZE repaint, not work — set by
-   *  `resize()`, read by the meaningful-output edge to exclude the SIGWINCH burst. */
-  resizeMuteUntil: number;
+  /** Length (UTF-16 code units) of the most recent BOUNDED snapshot serialized
+   *  for this PTY — the derived half of the data fan-out's byte budget (see
+   *  `dataBudgetChars`). Written by `boundedSnapshotOf`, which is the one
+   *  producer; 0 until a first attach has taken one, where the baked floor
+   *  governs. Kept on the entry rather than read off the memo because the memo
+   *  is invalidated by every parse and the budget must survive that: the
+   *  question it answers is "what would a fresh snapshot cost", and the last one
+   *  taken is the only evidence available. */
+  lastBoundedSnapshotChars: number;
+  /** The open RESIZE WINDOW, or `undefined` when this PTY is not inside one.
+   *  Its presence IS the predicate "this output is the resize's repaint" — read
+   *  by the meaningful-output edge and by the withhold-and-decide publish path.
+   *  See {@link ResizeWindow} and {@link RESIZE_WINDOW_MS}. */
+  window: ResizeWindow | undefined;
   /** Wall-clock of the last meaningful-output edge published, to throttle it (see
    *  `ACTIVITY_EDGE_THROTTLE_MS`). */
   lastActivityEdgeAt: number;
@@ -679,12 +753,52 @@ const FOREGROUND_SAMPLE_DELAYS_MS = [0, 75, 300, 700, 1200] as const;
  *  of output. Dedup (`lastForegroundKey`) makes a steady foreground free. */
 const FOREGROUND_SAMPLE_THROTTLE_MS = 250;
 
-/** After kaval resizes a PTY, the shell REPAINTS (SIGWINCH) — a genuine byte burst
- *  that is NOT work. Output within this window of a resize is excluded from the
- *  meaningful-output edge. This is the client's old `RESIZE_ACTIVITY_SUPPRESS_MS`
- *  hack, moved to the one process that actually causes the repaint (so every
- *  consumer inherits the exclusion, and the client copy is deleted). */
-const RESIZE_ACTIVITY_MUTE_MS = 600;
+/** The RESIZE WINDOW: how long after a size change kaval treats a PTY's output
+ *  as the SIGWINCH repaint rather than as work (kolu#2362).
+ *
+ *  ONE clock answering one question — "is this output the resize's repaint?" —
+ *  read by both things that ask it: the meaningful-output edge (a repaint is
+ *  not work, the old `RESIZE_ACTIVITY_MUTE_MS`, itself the client's older
+ *  `RESIZE_ACTIVITY_SUPPRESS_MS` moved to the process that causes the repaint)
+ *  and the withhold-and-decide policy below (a repaint is not something a
+ *  viewer should watch arrive byte-for-byte). They were briefly two clocks;
+ *  two clocks that can disagree about one fact is a defect, not a design.
+ *
+ *  It does NOT close early on silence, and that is the whole correction over
+ *  the first spelling of this change. Measured on omp 18.18.8 against a 3.7 MB
+ *  session (the issue's probe, timestamped per read): after a SIGWINCH omp
+ *  writes a few KB within ~4 ms, then goes SILENT for 318–375 ms, and only then
+ *  emits its whole ~3.5 MB reprint in under 100 ms. A window that closed on
+ *  100 ms of quiet would close before the reprint had started, and 99.8% of it
+ *  would arrive as ordinary deltas. The pause is the agent thinking, not the
+ *  agent finished.
+ *
+ *  It is a FLAT span, with no extension. An earlier spelling kept the window
+ *  open while output was still arriving — "a burst is still in flight" — but a
+ *  gap between writes cannot tell a burst from a spinner: any program writing
+ *  more often than the extension's own interval holds the window open to its
+ *  cap. A working agent's spinner does exactly that, so resizing its tile would
+ *  have frozen its output, and the echo of anything typed into it, for seconds.
+ *  A reprint that starts after this span is simply published as it arrives, and
+ *  the per-subscriber byte budget is what spares a viewer the rest of it: one
+ *  drop and one snapshot instead of none. That is the fallback, not the design,
+ *  and it is cheaper than freezing every resized terminal that happens to be
+ *  busy. */
+const RESIZE_WINDOW_MS = 600;
+
+/** The floor under a data subscriber's byte budget, in UTF-16 code units of
+ *  serialized VT text (what `boundedSnapshotOf` produces and what the budget is
+ *  otherwise derived from).
+ *
+ *  The budget says "once more than a fresh snapshot is queued for you, a
+ *  snapshot is the cheaper way to catch you up". That reasoning collapses on a
+ *  nearly-blank screen, whose bounded snapshot is a few hundred bytes — a single
+ *  ordinary PTY read (node-pty hands up 64 KiB at a time) would exceed it and
+ *  every viewer of a freshly-spawned shell would thrash the re-snapshot path.
+ *  Two full reads is the floor: a viewer that is one chunk behind is not behind.
+ *  Baked, not configurable — the fail-fast rule: a derived bound with a baked
+ *  floor, never a knob. */
+const MIN_DATA_BUDGET_CHARS = 128 * 1024;
 
 /** Coalesce the meaningful-output edge to at most one per PTY per window — a
  *  streaming agent produces thousands of chunks/sec, but the edge only needs to
@@ -695,17 +809,19 @@ const RESIZE_ACTIVITY_MUTE_MS = 600;
 const ACTIVITY_EDGE_THROTTLE_MS = 200;
 
 /** Whether an output chunk at `now` should publish a meaningful-output edge:
- *  NOT inside a resize-mute window (the SIGWINCH repaint is not work) AND not
+ *  NOT inside the resize window (the SIGWINCH repaint is not work) AND not
  *  throttle-coalesced with the last edge. Pure so the resize-exclusion + throttle
- *  are unit-testable without a real PTY or a wall clock. */
+ *  are unit-testable without a real PTY or a wall clock.
+ *
+ *  `inResizeWindow` is the WINDOW ITSELF, not a second deadline computed beside
+ *  it: the window already decides when a repaint stops being a repaint, and one
+ *  answer cannot disagree with itself. */
 export function shouldEmitActivityEdge(
   now: number,
-  resizeMuteUntil: number,
+  inResizeWindow: boolean,
   lastEdgeAt: number,
 ): boolean {
-  return (
-    now >= resizeMuteUntil && now - lastEdgeAt >= ACTIVITY_EDGE_THROTTLE_MS
-  );
+  return !inResizeWindow && now - lastEdgeAt >= ACTIVITY_EDGE_THROTTLE_MS;
 }
 
 /** A dynamic loader's basename — glibc's `ld-linux*.so*`, musl's
@@ -963,6 +1079,14 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       if (oldest !== undefined) exitCodes.delete(oldest);
     }
     entries.delete(entry.id);
+    // Close any open resize window, AFTER the delete above: a PTY that exits
+    // mid-window must not leave a fiber parked on a window that will never
+    // close, and releasing them once the id is gone means each re-resolves to
+    // the honest `PtyNotFound` rather than serializing a mirror this teardown
+    // has already disposed. The fan-out is already closed by this point, so
+    // the settle branches are no-ops and only the release and the timer clear
+    // do anything — a dead entry schedules nothing.
+    closeResizeWindow(entry);
     // Announce the membership change AFTER the delete, so a consumer reacting to
     // `exited` that re-checks `has`/`list` sees the PTY already gone.
     inventoryFanOut.publishUnsafe({ kind: "exited", id: entry.id });
@@ -1029,7 +1153,8 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       proc,
       headless,
       serialize,
-      resizeMuteUntil: 0,
+      lastBoundedSnapshotChars: 0,
+      window: undefined,
       lastActivityEdgeAt: 0,
       snapshotCache: undefined,
       boundedSnapshotCache: undefined,
@@ -1043,7 +1168,18 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       exitCode: undefined,
       exitWaiters: new Set(),
       disposables: [],
-      data: new FanOut<string>({ maxQueue: dataMaxQueue }),
+      // The data feed is the one fan-out whose items are PTY reads, so it is
+      // the one that carries a BYTE budget: a viewer more than a fresh snapshot
+      // behind is dropped and re-synced instead of being shown the replay (see
+      // `dataBudgetChars`). The metadata taps below keep the item bound alone —
+      // their items are a cwd, a title, a command line.
+      data: new FanOut<string>({
+        maxQueue: dataMaxQueue,
+        byteBudget: {
+          sizeOf: (chunk) => chunk.length,
+          limit: () => dataBudgetChars(entries.get(id)),
+        },
+      }),
       cwdFanOut: new FanOut<string>(),
       titleFanOut: new FanOut<string>(),
       commandRunFanOut: new FanOut<string>(),
@@ -1191,13 +1327,16 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     entry.disposables.push(
       proc.onData((data: string) => {
         const now = Date.now();
+        // Stamped on arrival, before the parse.
         entry.lastActivity = now;
         // Meaningful-output edge — the resize-aware activity signal every consumer
-        // reads. Resize repaint excluded + throttled (see `shouldEmitActivityEdge`).
+        // reads. Repaint excluded + throttled (see `shouldEmitActivityEdge`); the
+        // exclusion reads the WINDOW itself, so it can never disagree with the
+        // publish path below about whether this output is a repaint.
         if (
           shouldEmitActivityEdge(
             now,
-            entry.resizeMuteUntil,
+            entry.window !== undefined,
             entry.lastActivityEdgeAt,
           )
         ) {
@@ -1230,7 +1369,11 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
           // the discarded rows, re-subscribe the trim pin, bump the generation so
           // every outstanding cursor re-seeds — F3 halt-not-corrupt).
           entry.anchor.reanchorIfReset();
-          entry.data.publishUnsafe(data);
+          // Published — or WITHHELD, when a resize window is open. Either way
+          // the chunk is already in the mirror, which is what lets the window
+          // decide later between replaying it and handing out a snapshot that
+          // already contains it.
+          publishParsed(entry, data);
         });
       }),
     );
@@ -1304,16 +1447,158 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
         0,
         normal.length - entry.headless.rows - start,
       );
-      return {
-        topLine: entry.anchor.baseLine() + start,
-        snapshot: entry.serialize.serialize({ scrollback }),
-      };
+      const snapshot = entry.serialize.serialize({ scrollback });
+      // The cost of a fresh snapshot, remembered — this is what the data
+      // fan-out's byte budget is derived from (`dataBudgetChars`). Recorded
+      // here because this is the one place a bounded snapshot is produced, so
+      // the budget can never be derived from a number no attach ever paid.
+      entry.lastBoundedSnapshotChars = snapshot.length;
+      return { topLine: entry.anchor.baseLine() + start, snapshot };
     })();
     return entry.boundedSnapshotCache;
   }
   function invalidateSnapshot(entry: Entry): void {
     entry.snapshotCache = undefined;
     entry.boundedSnapshotCache = undefined;
+  }
+
+  /** The most a data subscriber may have QUEUED before it is dropped and
+   *  re-synced, in UTF-16 code units (kolu#2362).
+   *
+   *  DERIVED, not configured: once more bytes are queued for a viewer than a
+   *  fresh bounded snapshot would cost, the snapshot IS the cheaper way to make
+   *  it current — and a far better one, because it is the screen the viewer
+   *  wants rather than the history of how the screen got there. That is the
+   *  whole of the policy; {@link MIN_DATA_BUDGET_CHARS} is the floor under it
+   *  for a screen too small to measure sensibly. A PTY that has gone (the map
+   *  lookup is how the budget reaches the entry from inside the fan-out's own
+   *  closure) reads as the floor, which is unreachable in practice: a closed
+   *  fan-out publishes nothing. */
+  function dataBudgetChars(entry: Entry | undefined): number {
+    return Math.max(
+      MIN_DATA_BUDGET_CHARS,
+      entry?.lastBoundedSnapshotChars ?? 0,
+    );
+  }
+
+  /** The ONE door parsed output leaves by: published now, or withheld for the
+   *  open resize window to decide on at close. See {@link ResizeWindow}. */
+  function publishParsed(entry: Entry, data: string): void {
+    const w = entry.window;
+    if (w === undefined) {
+      entry.data.publishUnsafe(data);
+      return;
+    }
+    // Already past the budget: this window can only end in a re-sync, so there
+    // is nothing to gain by keeping another byte.
+    if (w.resync) return;
+    w.withheld.push(data);
+    w.withheldChars += data.length;
+    if (w.withheldChars > dataBudgetChars(entry)) {
+      // Catching the viewers up would now cost more than re-sending the screen,
+      // which is the same question the per-subscriber byte budget answers — one
+      // policy, asked in two places. Drop what we held: it is memory we have
+      // decided not to use.
+      w.withheld.length = 0;
+      w.withheldChars = 0;
+      w.resync = true;
+    }
+  }
+
+  /** Open a resize window, or restart the one already open.
+   *
+   *  A SECOND resize inside an open window discards what was kept and latches
+   *  `resync`: those bytes were written for a grid that has just gone away, and
+   *  replaying them into viewers that are about to be told a new size would
+   *  paint a screen nobody ever had. A drag that walks a PTY through five sizes
+   *  therefore settles once, at the end. */
+  function openResizeWindow(entry: Entry): void {
+    const open: ResizeWindow = entry.window ?? {
+      timer: undefined,
+      withheld: [],
+      withheldChars: 0,
+      resync: false,
+      waiters: new Set(),
+    };
+    if (entry.window !== undefined) {
+      open.withheld.length = 0;
+      open.withheldChars = 0;
+      open.resync = true;
+    }
+    entry.window = open;
+    // ONE timer for the whole window, re-armed from the LATEST resize and never
+    // from output — see {@link RESIZE_WINDOW_MS} for why output must not extend
+    // it.
+    clearTimeout(open.timer);
+    open.timer = setTimeout(() => closeResizeWindow(entry), RESIZE_WINDOW_MS);
+  }
+
+  /** The subscriber about to be registered will serialize the mirror in this
+   *  same synchronous step, so anything the open window is holding is ALSO in
+   *  its snapshot — and would reach it a SECOND time when the window closes.
+   *  Discard what is held and latch `resync`; that is the honest cost, and the
+   *  siblings that were counting on those bytes get one snapshot instead.
+   *
+   *  Called from inside `subscribeWith`'s `read()`, because that is the only
+   *  point at which "registered" and "serialized" are one instant. `attach()`
+   *  already tries to keep this unreachable — an attach whose own `resizeTo`
+   *  opens a FRESH window runs before any chunk can be withheld, and one
+   *  arriving into a window already open PARKS instead — but "unreachable"
+   *  there rests on a fiber not yielding between the resize and the
+   *  registration, which `fanOut.ts`'s own header refuses to assume. So the
+   *  partition's hardest invariant — no byte delivered twice — is held HERE, by
+   *  construction, rather than by timing. */
+  function claimWithheldOverlap(entry: Entry): void {
+    const w = entry.window;
+    if (w === undefined || w.withheldChars === 0) return;
+    w.withheld.length = 0;
+    w.withheldChars = 0;
+    w.resync = true;
+  }
+
+  /** Close the window: SETTLE the existing subscribers, then release the parked
+   *  attaches — in that order, so a released attach serializes a mirror whose
+   *  withheld bytes its siblings have already been sent. Reversed, the snapshot
+   *  would contain bytes that were still queued as deltas elsewhere, and the
+   *  "every byte lands in exactly one of snapshot / deltas" partition would hold
+   *  per subscriber but not across them.
+   *
+   *  Idempotent, and called from teardown too: a PTY that exits mid-window must
+   *  not leave a fiber parked on a window that will never close. On that path
+   *  the fan-out is already closed, so both settle branches are no-ops and only
+   *  the release matters. */
+  function closeResizeWindow(entry: Entry): void {
+    const w = entry.window;
+    if (w === undefined) return;
+    // Cleared FIRST: `publishUnsafe` below must publish, not re-withhold.
+    entry.window = undefined;
+    clearTimeout(w.timer);
+    if (w.resync) {
+      entry.data.dropAllUnsafe();
+    } else {
+      for (const chunk of w.withheld) entry.data.publishUnsafe(chunk);
+    }
+    w.withheld.length = 0;
+    const waiters = [...w.waiters];
+    w.waiters.clear();
+    for (const release of waiters) release();
+  }
+
+  /** Park until this PTY's resize window closes. The finalizer deregisters the
+   *  waiter, so an interrupted attach releases its slot rather than leaving a
+   *  dead callback for the window to invoke. */
+  function awaitResizeWindow(entry: Entry): Effect.Effect<void> {
+    return Effect.suspend(() => {
+      const w = entry.window;
+      if (w === undefined) return Effect.void;
+      return Effect.callback<void>((resume) => {
+        const waiter = (): void => resume(Effect.void);
+        w.waiters.add(waiter);
+        return Effect.sync(() => {
+          w.waiters.delete(waiter);
+        });
+      });
+    });
   }
 
   function attach(
@@ -1344,7 +1629,51 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       // does — which is what makes the process repaint into the new grid. This is
       // the WRITE the `resizeTo` name advertises: it is visible to every other
       // client attached to this PTY, not private to this attachment.
+      // Whether a window was ALREADY open decides what happens next, so it is
+      // read before the resize can open one.
+      const windowWasOpen = entry.window !== undefined;
       if (resizeTo) resize(id, resizeTo.cols, resizeTo.rows);
+      // An attach whose own `resizeTo` opens a FRESH window is not delayed at
+      // all: nothing has been withheld yet, so subscribing and serializing right
+      // here still partitions the byte stream at a single point, and first paint
+      // costs what it always did. It then receives the withheld bytes, or a
+      // re-sync, when the window closes — like every other viewer.
+      //
+      // An attach arriving into a window that was ALREADY open must PARK. The
+      // bytes that window is holding are already in the mirror, so a snapshot
+      // taken now would contain them AND they would arrive again as deltas at
+      // close: the one duplication this design has to rule out — and the one
+      // `claimWithheldOverlap` then rules out structurally, for the race this
+      // check cannot see. Parking costs it the rest of the window; the
+      // mirror parses throughout, so what moves is only WHEN its one reading is
+      // taken.
+      if (!windowWasOpen) return attachNow(id, entry);
+      return Effect.flatMap(awaitResizeWindow(entry), () =>
+        attachNow(id, entry),
+      );
+    });
+  }
+
+  /** The fused subscribe+serialize half of {@link attach}, after any resize
+   *  window it had to wait for has closed.
+   *
+   *  `id` is re-resolved rather than trusting the `entry` the caller parked
+   *  with: a PTY can EXIT while its attach is parked (teardown releases the
+   *  waiters), and that entry's mirror is disposed — serializing it would read
+   *  a dead terminal. Re-resolving gives the same answer an attach to an
+   *  already-gone PTY has always given: `requireEntry` throws `PtyNotFound`,
+   *  which the serving layer carries as a defect because a `StreamSpec` has no
+   *  error channel to declare it on. The parked `entry` is still taken as an
+   *  argument so the common case (same object) needs no second lookup to reason
+   *  about — it is the identity check that makes "the PTY I waited for" and
+   *  "the PTY I serialize" provably the same one. */
+  function attachNow(
+    id: PtyId,
+    parked: Entry,
+  ): Effect.Effect<PtyAttachment, never, Scope.Scope> {
+    return Effect.suspend(() => {
+      const entry = requireEntry(id);
+      if (entry !== parked) throw new PtyNotFound({ id });
       // Subscribe and serialize in ONE synchronous step (`subscribeWith` — the
       // two halves are not separately spellable): no headless parse, and thus no
       // post-parse publish, can interleave between them, so every chunk lands in
@@ -1361,16 +1690,24 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
       // snapshot from the same serialize, so the backfill seed can never drift
       // from the bytes the client received.
       return Effect.map(
-        entry.data.subscribeWith(() => ({
-          ...boundedSnapshotOf(entry),
-          reflowEpoch: entry.anchor.reflowEpoch(),
-          // Read INSIDE the same synchronous reading as the serialize and the
-          // epoch — `resize()` mutates the mirror and invalidates the snapshot
-          // memo, both synchronously, so a grid read out here could describe a
-          // reflow the bytes never saw. The whole point of this field is that it
-          // cannot drift from the snapshot it rides with.
-          grid: { cols: entry.headless.cols, rows: entry.headless.rows },
-        })),
+        entry.data.subscribeWith(() => {
+          // Anything an open window still holds is about to be in this
+          // snapshot, so it must not also be replayed at close. See
+          // `claimWithheldOverlap` — this is the one instant where the
+          // registration and the serialize are the same step, which is what
+          // makes the claim structural rather than lucky.
+          claimWithheldOverlap(entry);
+          return {
+            ...boundedSnapshotOf(entry),
+            reflowEpoch: entry.anchor.reflowEpoch(),
+            // Read INSIDE the same synchronous reading as the serialize and the
+            // epoch — `resize()` mutates the mirror and invalidates the snapshot
+            // memo, both synchronously, so a grid read out here could describe a
+            // reflow the bytes never saw. The whole point of this field is that
+            // it cannot drift from the snapshot it rides with.
+            grid: { cols: entry.headless.cols, rows: entry.headless.rows },
+          };
+        }),
         ({ stream, reading }): PtyAttachment => ({
           snapshot: reading.snapshot,
           topLine: reading.topLine,
@@ -1569,10 +1906,26 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // entry exists and is already at the requested grid, which is exactly the
     // caller's claim satisfied.
     if (cols === prevCols && rows === prevRows) return true;
-    // Open the resize-mute window BEFORE the resize: the SIGWINCH repaint this
-    // triggers is a genuine byte burst that must NOT count as meaningful output
-    // (the reveal/resize "un-finish" regression, killed at the source).
-    entry.resizeMuteUntil = Date.now() + RESIZE_ACTIVITY_MUTE_MS;
+    // A REAL size change opens the RESIZE WINDOW (kolu#2362) — before the
+    // SIGWINCH, so not one byte of the repaint it provokes can escape as
+    // ordinary output.
+    //
+    // The window owns both things that follow from the grid moving: this
+    // output is a repaint and therefore not WORK (the meaningful-output edge
+    // reads the window), and this output is a repaint and therefore not
+    // something a viewer should watch arrive byte-for-byte. An agent reprints
+    // its entire transcript on SIGWINCH — 0.57–3.5 MB in the sessions measured
+    // on #2362, with no synchronized-output wrapper — and a viewer receiving
+    // that byte-for-byte watches the session scroll past for seconds before
+    // landing on the end it asked for.
+    //
+    // What it does NOT do is drop everyone. A plain shell's repaint is a
+    // hundred bytes; resetting its viewers would cost each of them a snapshot,
+    // its scrollback above the bounded window, its selection and its scroll
+    // position — "always resend" in place of "always replay". So the window
+    // WITHHOLDS and decides at close, by the same budget the per-subscriber
+    // bound already uses. See {@link ResizeWindow}.
+    openResizeWindow(entry);
     entry.proc.resize(cols, rows);
     entry.headless.resize(cols, rows);
     // resize() reflows the mirror (reflowCursorLine rewraps lines on a width

@@ -57,7 +57,7 @@ export interface ForeignGridWatcher {
  *  predicates in `@kolu/padi-client/attach` read it: an older padi states no
  *  grid, and an unmeasured or disposed pane has none to compare. Acting on
  *  ignorance would spin the re-attach loop against a pane with nothing to ask
- *  for — the same failure mode `snapshotAnswersGrid`'s absence rule exists to
+ *  for — the same failure mode `snapshotPaintableAt`'s absence rule exists to
  *  avoid. */
 function heldByAnother(deps: ForeignGridDeps): boolean {
   const served = deps.served();

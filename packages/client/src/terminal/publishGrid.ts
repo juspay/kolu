@@ -4,7 +4,8 @@
  * Lifted out of `Terminal.tsx` so the publish POLICY has a single owner a unit
  * test can drive: `Terminal.tsx` supplies the three real facts (the terminal's
  * host connection, the tile's own PTY liveness, the resize RPC) and this module
- * owns what to do with them.
+ * owns what to do with them — WHETHER to publish (the H1 suppression and its K4
+ * latch) and WHEN (the settle window, {@link GRID_SETTLE_MS}).
  */
 
 import type { TerminalGrid } from "@kolu/xterm-kit/solid";
@@ -110,12 +111,36 @@ export function publishGridAction(
   });
 }
 
-/** One pane's grid publisher — {@link publishGridAction} plus the LATCH that
- *  makes its suppression converge (kolu#2101 K4).
+/** How long a pane's grid must hold STILL before it is published.
  *
- *  A factory rather than a module-level map because the latch's lifetime is the
- *  tile's: `Terminal.tsx` builds one inside `onReady`, so it is collected with
- *  the pane and two tiles cannot share a latch by accident.
+ *  A grid CHANGE is not a resize the user asked for — it is one frame of one.
+ *  Dragging a split divider walks the pane through every intermediate box at
+ *  the browser's layout rate (kolu#2362 §5 measured five `lifecycle.resize`
+ *  calls in 220ms across two agent terminals), and a phone raising its soft
+ *  keyboard animates the viewport through a dozen heights. Published per
+ *  change, each one is a real PTY resize: a SIGWINCH, a full repaint from the
+ *  shell or the agent, and — now that kaval re-snapshots its subscribers on a
+ *  real resize — a snapshot fanned out to every viewer. The user wanted the
+ *  LAST one.
+ *
+ *  250ms is baked, with no setting and no knob: long enough to swallow a
+ *  60Hz divider drag and a soft-keyboard animation whole, short enough that the
+ *  PTY is correct long before anyone has read a screenful at the new size. The
+ *  window is re-armed by each change, so a drag costs ONE resize however long it
+ *  lasts, and a pane that has stopped moving publishes a quarter second later.
+ *
+ *  It is a DELAY, never a drop: the last measurement always goes. What the
+ *  window buys is that the intermediate ones do not. */
+export const GRID_SETTLE_MS = 250;
+
+/** One pane's grid publisher — {@link publishGridAction} plus the two things
+ *  that make it converge: the settle window ({@link GRID_SETTLE_MS}) and the
+ *  LATCH that restates a suppressed publish (kolu#2101 K4).
+ *
+ *  A factory rather than a module-level map because both pieces of state have
+ *  the tile's lifetime: `Terminal.tsx` builds one inside `onReady`, so it is
+ *  collected with the pane and two tiles cannot share a latch or a timer by
+ *  accident.
  *
  *  **What the latch holds, and why it cannot go stale.** Exactly one grid: the
  *  LAST measurement a not-connected window dropped. Every later measurement
@@ -126,45 +151,99 @@ export function publishGridAction(
  *  deferred write of an old fact — it is one bit of "this pane still owes the
  *  PTY its size", carrying the answer.
  *
+ *  **The latch bookkeeping happens at FIRE time, not at schedule time.** A
+ *  publish that is still sitting in the settle window owes the PTY nothing yet
+ *  — it has not been dropped, it has not landed, and it is going to be re-read
+ *  from `pending` when the window closes. Clearing `owed` when the window is
+ *  ARMED would leave a host that flips to `connected` mid-window looking at an
+ *  empty latch with a publish still pending, so {@link republishSuppressed}
+ *  would restate nothing and the pending publish would then be suppressed by a
+ *  host state that had since changed back. Both the clear and the re-latch ride
+ *  the fire, where the publish actually meets the host state it is judged
+ *  against.
+ *
  *  **Idempotent by the latch, not by the caller.** {@link republishSuppressed}
  *  is written to be run on every tick of the host-state signal: with nothing
- *  owed it is `Effect.void`, and a successful restatement clears the latch, so
- *  the second and third call after a flip cost nothing. The caller does not have
- *  to detect an EDGE, which is the part that would otherwise be easy to get
- *  wrong (a tile that mounts while the host is already connected has no edge to
- *  observe). */
+ *  owed it does nothing, and a successful restatement clears the latch, so the
+ *  second and third call after a flip cost nothing. The caller does not have to
+ *  detect an EDGE, which is the part that would otherwise be easy to get wrong
+ *  (a tile that mounts while the host is already connected has no edge to
+ *  observe). A restatement does NOT wait out a settle window: it is the
+ *  converged answer for a measurement that stopped moving an outage ago. */
 export interface GridPublisher {
-  /** Publish a measured grid — or latch it, if the host is not connected. */
-  publish: (size: TerminalGrid) => UiAction<void>;
+  /** State the pane's measured grid: remembered now, published once the grid
+   *  has held still for {@link GRID_SETTLE_MS}. */
+  publish: (size: TerminalGrid) => void;
   /** Restate the latched grid, if any. Safe to run on every host-state tick. */
-  republishSuppressed: () => UiAction<void>;
+  republishSuppressed: () => void;
+  /** Drop a publish that has not landed yet — the pane's teardown, and the
+   *  pane being HIDDEN (`shownPane.ts`). Both say the same thing: this
+   *  measurement is no longer owed to the PTY. A tile torn down mid-drag must
+   *  not resize a PTY a quarter second after it is gone, and a pane hidden
+   *  mid-drag must not resize one for a screen nobody is looking at — the
+   *  reveal's attach restates the grid in its `resizeTo`. */
+  cancel: () => void;
 }
 
-export function createGridPublisher(deps: PublishGridDeps): GridPublisher {
+/** {@link PublishGridDeps} plus the edge a DEFERRED publish runs at.
+ *
+ *  The settle fires on a timer, off the pane's call stack, so there is no Solid
+ *  owner left to run under — `runOwnedAction` would throw, and the pane's own
+ *  teardown route to a pending publish is {@link GridPublisher.cancel}, not an
+ *  owned fiber. Injected rather than imported so the policy stays drivable with
+ *  no reactive owner at all. */
+export interface GridPublisherDeps extends PublishGridDeps {
+  readonly run: (action: UiAction<void>) => void;
+}
+
+export function createGridPublisher(deps: GridPublisherDeps): GridPublisher {
   /** The last grid a not-connected window dropped, still owed to the PTY. */
   let owed: TerminalGrid | null = null;
+  /** The grid the settle window is holding, and the timer holding it. */
+  let pending: TerminalGrid | null = null;
+  let settle: ReturnType<typeof setTimeout> | null = null;
 
-  const publish = (size: TerminalGrid): UiAction<void> =>
-    Effect.suspend(() => {
-      // This measurement supersedes whatever was owed — either it lands, and
-      // nothing is owed, or it is suppressed and the callback below re-latches
-      // it. Clearing FIRST is what keeps the latch one grid rather than a queue.
-      owed = null;
-      return publishGridAction(size, deps, (dropped) => {
+  const cancel = () => {
+    if (settle !== null) clearTimeout(settle);
+    settle = null;
+    pending = null;
+  };
+
+  /** The publish, for real. */
+  const fire = (size: TerminalGrid): void => {
+    // This measurement supersedes whatever was owed — either it lands, and
+    // nothing is owed, or it is suppressed and the callback below re-latches
+    // it. Clearing FIRST is what keeps the latch one grid rather than a queue.
+    owed = null;
+    deps.run(
+      publishGridAction(size, deps, (dropped) => {
         owed = dropped;
-      });
-    });
+      }),
+    );
+  };
 
-  const republishSuppressed = (): UiAction<void> =>
-    Effect.suspend(() => {
-      const pending = owed;
-      if (!pending) return Effect.void;
-      if (deps.hostState() !== "connected") return Effect.void;
-      console.info(
-        `terminal ${deps.terminalId}: host entry is connected again — restating the suppressed ${pending.cols}×${pending.rows} grid`,
-      );
-      return publish(pending);
-    });
+  const publish = (size: TerminalGrid): void => {
+    // Re-armed by each change, so N changes inside one window cost ONE publish,
+    // carrying the LAST grid — the pane's actual size, not the frame of the
+    // gesture that happened to arm the timer.
+    pending = size;
+    if (settle !== null) clearTimeout(settle);
+    settle = setTimeout(() => {
+      settle = null;
+      const settled = pending;
+      pending = null;
+      if (settled) fire(settled);
+    }, GRID_SETTLE_MS);
+  };
 
-  return { publish, republishSuppressed };
+  const republishSuppressed = (): void => {
+    if (!owed) return;
+    if (deps.hostState() !== "connected") return;
+    console.info(
+      `terminal ${deps.terminalId}: host entry is connected again — restating the suppressed ${owed.cols}×${owed.rows} grid`,
+    );
+    fire(owed);
+  };
+
+  return { publish, republishSuppressed, cancel };
 }

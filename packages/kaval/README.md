@@ -40,7 +40,7 @@ knows nothing about shell-environment preparation: callers hand it a ready
 | foreground pid | `tcgetpgrp(3)` at the tty       | `getForegroundPid`        |
 | foreground process | node-pty `argv[0]` basename; a dynamic-loader `argv[0]` (`ld-linux…` / `ld-musl-…` / `ld.so`) is resolved to the program it loads, read from `/proc/<fgpid>/cmdline` | `getProcess` · `foreground` stream |
 
-## Three load-bearing properties
+## Four load-bearing properties
 
 **The snapshot is serialized at the consumer's grid — and `attach()` is a
 write.** A serialized screen is bytes laid out *for a specific cols×rows* —
@@ -104,15 +104,58 @@ populates the same slot). It's bounded — strictly smaller than the live mirror
 it shadows, freed on the next data/resize or on teardown — so it adds a fraction
 to the mirror's existing per-terminal footprint, not a new unbounded retention.
 
-**Drop-slow-subscriber.** Each subscriber buffers independently up to
-`maxQueue` (default 10,000) items. A consumer that stops draining — a wedged
-browser tab on the chatty `data` stream — is **dropped** rather than pinning
-server memory without bound. In process the `deltas` stream **fails** with
-`SubscriberOverflow` on its error channel — a drop is told apart from a graceful
-end by the channel it arrives on, not by a flag — and the served wire carries
-that as a typed `overflow` control frame, distinct from a PTY exit, so the client
-re-attaches for a fresh snapshot instead of mistaking the drop for a dead
-terminal and freezing its scrollback.
+**Drop-slow-subscriber, and skip-ahead.** Each subscriber buffers
+independently. The `data` feed's bound is **bytes**: once more is queued for a
+viewer than a fresh bounded snapshot would cost, a snapshot *is* the cheaper way
+to make that viewer current — and a better one, because it is the screen the
+viewer wants rather than the history of how the screen got there. The bound is
+derived from the last bounded snapshot kaval serialized for that PTY, with a
+baked floor, so it tracks the terminal instead of a constant. Every other tap
+(cwd, title, command-run, foreground, inventory, activity) keeps the plain
+`maxQueue` item bound (default 10,000) — their items are a path, a title, a
+command line.
+
+A **real resize** opens a **window**, and the window asks the same question the
+budget does. While it is open, parsed output is **withheld** rather than
+published — the mirror still parses it — because a resize is the one moment
+kaval knows the bytes about to arrive are a redraw of a screen it already holds
+(an agent reprints its entire transcript on `SIGWINCH`). At close it decides:
+what **fits** the budget is simply delivered, so a plain shell's hundred-byte
+repaint costs its viewers nothing — no reset, no lost scrollback, no lost
+selection or scroll position — and anything **larger** is discarded in favour of
+dropping the subscribers, who each get one snapshot of the settled screen.
+
+The window is a **flat 600 ms from the latest resize**. It does not close early
+on silence: an agent writes a few KB within ~4 ms of a `SIGWINCH`, goes quiet
+for 318–375 ms, and only *then* emits its reprint, so quiet is the pause before
+the repaint, not the end of it. It does not stay open late either — an earlier
+spelling extended it while output kept arriving, but a gap between writes cannot
+tell a reprint still landing from a working agent's spinner, which would have
+frozen a resized tile's output for seconds. A reprint that starts after the span
+is published as it arrives, and the per-subscriber byte budget is what spares a
+viewer the rest of it.
+
+A second resize inside a window discards what was kept and restarts the clock.
+An attach whose own `resizeTo` opens a **fresh** window is not delayed at all;
+one arriving into a window already open waits for it, because the bytes that
+window is holding are already in the mirror and would otherwise be delivered
+twice. That last invariant does not rest on the timing: the subscriber's own
+`read()` — the one instant where registering and serializing are the same step —
+discards anything the window still holds and marks it for re-sync, so "no byte
+delivered twice" is true by construction.
+
+That window is also the single answer to "is this output the resize's repaint?":
+the meaningful-output edge reads the same window, so the activity signal and the
+publish path cannot disagree.
+
+A drop — from either rule — arrives at a consumer the same way: in process the
+`deltas` stream **fails** with `SubscriberOverflow` on its error channel — a drop
+is told apart from a graceful end by the channel it arrives on, not by a flag —
+and the served wire carries that as the typed `overflow` control frame, distinct
+from a PTY exit, so the client re-attaches for a fresh snapshot instead of
+mistaking the drop for a dead terminal and freezing its scrollback. No new frame
+kind and no contract bump: the error carries a `reason` (`items` / `bytes` /
+`invalidated`) for the log, and the wire sees what it has seen since contract 5.0.
 
 ## Usage
 

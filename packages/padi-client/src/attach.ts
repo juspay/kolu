@@ -12,49 +12,61 @@
  *
  * Four things are true about this stream that nothing in its schema says:
  *
- *  1. **A snapshot is only valid at the grid it was asked for.** The frame is
- *     bytes already laid out for a specific `cols × rows`. Painting one that
- *     answers a different grid does damage you cannot undo afterwards: a later
+ *  1. **A snapshot is only valid at the grid it was LAID OUT for.** The frame is
+ *     bytes already laid out for a specific `cols × rows`. Painting one laid out
+ *     for a different grid does damage you cannot undo afterwards: a later
  *     SIGWINCH repaints a full-screen app, but nothing rebuilds scrollback that
- *     has already been wrapped at the wrong width. Check with
- *     {@link snapshotAnswersGrid} BEFORE writing a byte; on a mismatch, refuse
- *     the frame and re-attach at the current grid.
+ *     has already been wrapped at the wrong width.
  *
- *  2. **Two things can stale that grid**, and only one of them is your own
- *     resize:
+ *     So, BEFORE writing a byte: ask {@link snapshotLayoutGrid} which grid these
+ *     bytes were laid out at, and paint only if {@link snapshotPaintableAt} says
+ *     that is the grid your pane has NOW. On a mismatch, refuse the frame and
+ *     re-attach at the current grid.
+ *
+ *     NOW — not "the grid you asked at", and that difference is the whole of
+ *     rule 2. The question a consumer actually has is "do these bytes fit the
+ *     box I am about to paint them into"; the grid you asked at is a PROXY for
+ *     it, and was the best one available before contract 5.5 put the real answer
+ *     on the frame. Judging by the proxy refuses frames that are in fact
+ *     perfect: a host that re-serializes you AFTER acting on your resize answers
+ *     at your NEW grid while the attach still remembers the grid it opened at —
+ *     exactly the mid-stream re-snapshot kaval sends every subscriber when a
+ *     real resize reflows the pty. Judged against the asked grid, every resize
+ *     costs a refusal, a screen reset and a second round trip for a snapshot
+ *     that was already right.
+ *
+ *  2. **Three things can make the layout not yours**, and only one of them is
+ *     your own resize:
  *       · you resized while the request was in flight;
  *       · the framework's transport retry re-subscribed by REPLAYING the input
  *         it captured at the first call — so a retry re-sends the ORIGINAL grid
  *         even though your pane has moved on (see `dev/skills/streaming/SKILL.md`,
- *         "A member's input is CAPTURED — never a live fact").
+ *         "A member's input is CAPTURED — never a live fact");
+ *       · another viewer attached at ITS size. `resizeTo` is last-attach-wins on
+ *         a SHARED pty, so the bytes come back serialized at a width you never
+ *         asked for.
  *
- *     Both are LOCAL: the predicate compares the grid you asked at with the grid
- *     you have now, and that is the whole of what it can see.
+ *     The first two move your pane out from under the answer; the third moves
+ *     the answer out from under your pane. ONE comparison catches all three,
+ *     because {@link snapshotLayoutGrid} reads the frame's OWN `grid` whenever
+ *     it states one — a fact from the other side of the wire, not a second local
+ *     measurement of your own box.
  *
- *  2b. **What it does NOT catch, stated because the tempting reading is wrong.**
- *     `resizeTo` is last-attach-wins on a SHARED pty, so another viewer
- *     attaching at its own size reflows the terminal under you. You will not
- *     detect it here and you cannot: your own attach asserted YOUR grid, so the
- *     snapshot you got answers the grid you asked at and this predicate rightly
- *     returns true. What you receive afterwards is reflowed BYTES — no snapshot,
- *     no frame to refuse — rendered at N columns inside your 2N-column pane
- *     until something makes you re-attach. `./surface`'s multi-client contract
- *     states the limit this predicate has. What CLOSES it is a different fact on
- *     a different field: the snapshot frame now carries `grid` — the cols×rows
- *     those bytes were serialized at (contract 5.5). Compare THAT with the grid
- *     you asked at and a foreign resize is visible; see {@link snapshotGridMoved}.
- *     Do not read `snapshotAnswersGrid` as an answer to it.
- *
- *     kolu CONSUMES that — `client/src/terminal/Terminal.tsx` refuses a frame
- *     whose served grid moved, in the same recoverable channel as a locally
- *     stale one. Stated because shipping the detector and not wiring it would
- *     have left this header claiming a gap was closed while the app still
- *     painted the corruption.
+ *  2b. **Against a padi predating 5.5 the third case is invisible, and that is
+ *     the degradation, not a bug.** A frame that states no `grid` falls back to
+ *     the grid you asked at, so the comparison is two LOCAL measurements again
+ *     and a foreign resize passes it: your own attach asserted YOUR grid, so
+ *     asked === current and the frame is painted. What you receive afterwards is
+ *     reflowed BYTES — no snapshot, no frame to refuse — rendered at N columns
+ *     inside your 2N-column pane until something makes you re-attach.
+ *     `./surface`'s multi-client contract states that limit. Fail-open is the
+ *     deliberate half: a rule that refused on silence would refuse every frame a
+ *     5.4 daemon sends, which spends live PTYs to buy a readout.
  *
  *  2c. **A foreign resize AFTER your snapshot sends you no frame at all**, and
- *     this is the half `snapshotGridMoved` cannot reach. It compares the grid a
- *     SNAPSHOT was served at, so it only fires when a foreign resize beat that
- *     snapshot back to you. Once you are attached and streaming, the other
+ *     this is the half no frame-shaped rule can reach. Rule 1 judges the layout
+ *     a SNAPSHOT was serialized at, so it only fires when a foreign resize beat
+ *     that snapshot back to you. Once you are attached and streaming, the other
  *     viewer's attach reflows the pty and you receive — deltas. No snapshot, no
  *     frame to refuse, no error, nothing to time out. You keep painting bytes
  *     laid out for a grid you never asked for, indefinitely.
@@ -99,31 +111,7 @@
 
 import type { EndpointGrid, TerminalAttachFrame } from "./surface.ts";
 
-/** Is this snapshot still describing the pane it will be painted into?
- *
- *  `asked` is the grid the OPEN request carried (`resizeTo`), remembered at the
- *  moment the stream was opened — not re-read, because the answer in flight
- *  belongs to the question that was asked. `current` is the grid the pane has
- *  now.
- *
- *  Both absences are benign and both mean "do not refuse": no request has been
- *  made yet, or the pane has been disposed and released its measurement. A
- *  refusal in either case would spin a re-attach loop against a pane that is not
- *  there — which is the failure mode this predicate's own error path caused when
- *  it was first written as a throw.
- *
- *  Ask it on EVERY `snapshot` frame, including a mid-stream overflow re-attach,
- *  and ask it before writing a byte. What it answers is precisely "did THIS
- *  pane's grid move since we asked" — see 2b above for what that excludes. */
-export function snapshotAnswersGrid(
-  asked: EndpointGrid | null | undefined,
-  current: EndpointGrid | null | undefined,
-): boolean {
-  if (!asked || !current) return true;
-  return asked.cols === current.cols && asked.rows === current.rows;
-}
-
-/** What grid were these bytes laid out at?
+/** What grid were these bytes laid out at, as the FRAME itself states it?
  *
  *  The answer for an OBSERVE-ONLY consumer — one that attaches with no
  *  `resizeTo` because it has no size to assert (a monitor, a read-only pane, a
@@ -140,26 +128,53 @@ export function snapshotGrid(
   return isSnapshotFrame(frame) ? frame.grid : undefined;
 }
 
-/** Did someone ELSE move this terminal?
+/** The grid rule 1 judges a frame by: what layout are these bytes IN?
  *
- *  The honest foreign-resize detector, and the thing {@link snapshotAnswersGrid}
- *  deliberately is not: it compares the grid you ASKED at with the grid the
- *  bytes were actually SERIALIZED at, which is a fact from the other side of the
- *  wire. `resizeTo` is last-attach-wins on a shared pty, so a mismatch here
- *  means another viewer holds the terminal at its own size and your pane is
- *  rendering N columns of content in a 2N-column box.
+ *  Two sources, one question. The frame's own `grid` (contract 5.5) is the
+ *  answer whenever it states one, because it is the only source that can see
+ *  another viewer's resize — it comes from the side of the wire that did the
+ *  serializing. `asked` — the grid your OPEN request carried in `resizeTo` — is
+ *  the fallback, and it is a PROXY rather than a second rule: a padi predating
+ *  5.5 states nothing, so the only evidence left is that the host serialized the
+ *  screen after applying the size you sent.
  *
- *  `false` when either side is absent — an older daemon that sends no grid, or
- *  a consumer that asked at none. Ignorance is not evidence, the same rule
- *  {@link snapshotAnswersGrid} follows, and for the same reason: a detector that
- *  fires on silence would light permanently against a 5.4 padi. */
-export function snapshotGridMoved(
+ *  Absent on both sides for an observe-only consumer against an old daemon:
+ *  nothing claimed, nothing to compare, and {@link snapshotPaintableAt} reads
+ *  that as "do not refuse". */
+export function snapshotLayoutGrid(
   frame: TerminalAttachFrame,
   asked: EndpointGrid | null | undefined,
+): EndpointGrid | null | undefined {
+  return snapshotGrid(frame) ?? asked;
+}
+
+/** May bytes laid out at `laidOutAt` be painted into a pane that is `current`?
+ *
+ *  The whole of rule 1, and the comparison is deliberately against the grid the
+ *  pane has NOW rather than the grid it asked at: a host that re-serializes you
+ *  after acting on your resize answers at your new size while the attach still
+ *  remembers its old one, and those bytes fit the pane exactly. Refusing them
+ *  would buy a reset and a second round trip for a snapshot that was already
+ *  right — per resize, per viewer.
+ *
+ *  Both absences are benign and both mean "do not refuse": nothing has been
+ *  claimed about the layout yet, or the pane has been disposed and released its
+ *  measurement. A refusal in either case would spin a re-attach loop against a
+ *  pane that is not there — which is the failure mode rule 1's first spelling
+ *  caused when it was written to throw.
+ *
+ *  Ask it on EVERY `snapshot` frame, including a mid-stream overflow or
+ *  resize re-attach, and ask it before writing a byte. Ask it a SECOND time if
+ *  your writes land asynchronously (a parser, a scroll-lock buffer the user
+ *  controls), against the layout grid you captured when you accepted the frame:
+ *  a pane that resized while the bytes were in flight ends up with the same
+ *  wrong-width screen as one that never checked at all. */
+export function snapshotPaintableAt(
+  laidOutAt: EndpointGrid | null | undefined,
+  current: EndpointGrid | null | undefined,
 ): boolean {
-  const served = snapshotGrid(frame);
-  if (!served || !asked) return false;
-  return served.cols !== asked.cols || served.rows !== asked.rows;
+  if (!laidOutAt || !current) return true;
+  return laidOutAt.cols === current.cols && laidOutAt.rows === current.rows;
 }
 
 /** Narrow a frame to the snapshot arm — the frames rule 1 governs.

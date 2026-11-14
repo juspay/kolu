@@ -217,7 +217,7 @@ export function servePtyHost(deps: InProcessPtyHostDeps) {
           Stream.fromEffect(
             Effect.sync(() => {
               log.error(
-                { member, id, maxQueue: err.maxQueue },
+                { member, id, reason: err.reason, limit: err.limit },
                 "pty-host: dropped a wedged metadata subscriber; its subscription ends",
               );
             }),

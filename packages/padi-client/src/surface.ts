@@ -1134,6 +1134,15 @@ export const EndpointGridSchema = Schema.Struct({
   rows: PositiveInt,
 });
 
+/** The whole vocabulary of an attach's `cause`, as a list so the one hop that
+ *  reads it (kolu-server's attach telemetry) can walk the causes rather than
+ *  test for one literal and silently fold every later addition into `attach`.
+ *  The wire schema below is minted from it, so the two cannot drift. */
+export const ATTACH_CAUSES = ["attach", "foreign"] as const;
+
+/** Why an attach opened, as the client names it. */
+export type AttachCause = (typeof ATTACH_CAUSES)[number];
+
 /** Attach input: the terminal, plus — optionally — a grid to RESIZE it to
  *  first.
  *
@@ -1168,7 +1177,12 @@ export const EndpointGridSchema = Schema.Struct({
  *    - **on the snapshot frame** — the cols×rows those BYTES were serialized at.
  *      Answers "is what I am about to paint laid out for my pane?", and only at
  *      the moments a snapshot exists (the initial attach, an overflow
- *      re-attach). `./attach`'s `snapshotGridMoved` is that reading.
+ *      re-attach). `./attach` reads it in two steps: `snapshotLayoutGrid`
+ *      resolves the layout the bytes actually carry (the frame's own `grid`,
+ *      falling back to the grid the attach ASKED at, which is all an older
+ *      kaval's frame can tell you), and `snapshotPaintableAt` turns that into
+ *      the verdict — paintable only when the layout is the grid the pane is at
+ *      NOW, never merely the one it asked for.
  *    - **on the terminal record** (`TerminalSnapshot.grid`) — the grid the pty
  *      is at NOW, published by padi's own resize path. Answers "is the terminal
  *      still my size?", CONTINUOUSLY, which is the half the frame cannot cover:
@@ -1210,6 +1224,33 @@ export const PadiTerminalAttachInputSchema = Schema.Struct({
   // wire — `Schema.optional` would round-trip an explicit `undefined` through
   // `null`, which is a value no peer ever sent.
   resizeTo: Schema.optionalKey(EndpointGridSchema),
+  //
+  // `cause` (additive · optional · UN-versioned) — WHY the attach was opened,
+  // for the relaying server's telemetry and for nothing else. kolu-server
+  // counts the PTY resizes a `resizeTo` actually performs (`server/src/padi/
+  // attachTelemetry.ts`), and the one fact it cannot derive from the wire is
+  // whether an open was a user looking at a terminal or the client's
+  // foreign-grid watcher re-asserting a grid some other viewer moved: both are
+  // an ordinary subscribe carrying a grid, byte for byte. Only the client knows
+  // which it just did, so only the client can say.
+  //
+  // A DESCRIPTION, never a command: padi reads `id` and `resizeTo` and nothing
+  // else, so a `cause` changes no behaviour on any hop. That is what makes the
+  // strippable-optional argument airtight here — a peer that drops it (an older
+  // padi decoding a newer client, a client too old to send it) degrades to an
+  // attach whose cause is unknown, which is EXACTLY the reading every log had
+  // before this key existed and the baseline the telemetry is written against.
+  // The `resizeTo` class above, then — absence degrades to an observable
+  // baseline — and not the `nagCount` class, whose absence would make the line
+  // assert something untrue. So NO `PADI_SURFACE_VERSION` bump: the version
+  // exists to drain daemons a consumer cannot be served by, and a bump bought
+  // here would force-recycle a surviving daemon (killing live PTYs) to buy a
+  // telemetry breakdown that degrades gracefully by construction.
+  //
+  // `optionalKey`, never `optional`, for the grid's own reason: an attach that
+  // names no cause omits the key, and no peer ever sends an explicit
+  // `undefined` here.
+  cause: Schema.optionalKey(Schema.Literals(ATTACH_CAUSES)),
 });
 
 /** One frame of the per-subscriber terminal byte stream.
@@ -1264,11 +1305,13 @@ export const PadiTerminalAttachFrameSchema = Schema.Union([
      *      screen). It never learned what size it received, so it sized its
      *      renderer by guess and a mismatched box wrapped the bytes into
      *      garbage. The frame is self-describing now.
-     *    · the FOREIGN-RESIZE reading. Comparing this with the grid you ASKED
-     *      at is the first honest detector of another viewer holding the
-     *      terminal at a different size — precisely what `./attach`'s
-     *      `snapshotAnswersGrid` does NOT claim, because two local measurements
-     *      cannot see it.
+     *    · the FOREIGN-RESIZE reading. Comparing this with the grid the pane is
+     *      at NOW — `./attach`'s `snapshotLayoutGrid` then
+     *      `snapshotPaintableAt` — is the first honest detector of another
+     *      viewer holding the terminal at a different size. Two LOCAL
+     *      measurements cannot see it: what you asked for and what you are
+     *      agree with each other while the bytes on the wire were laid out for
+     *      somebody else.
      *
      *  `Schema.optional`, NOT `optionalKey` — the same call `reflowEpoch` above
      *  makes, for the same reason, and getting it wrong here would have been

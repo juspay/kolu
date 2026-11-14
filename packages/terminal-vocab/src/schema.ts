@@ -525,7 +525,7 @@ export type TerminalGrid = typeof TerminalGridSchema.Type;
  *      workspace leaf (`@kolu/url-shape`) and nothing else, which is the property
  *      that makes it cheap to consume; importing this one would take its closure
  *      from two members to thirteen to share four tokens.
- *    · `@kolu/padi-client/attach`'s `snapshotAnswersGrid`, over `EndpointGrid` —
+ *    · `@kolu/padi-client/attach`'s `snapshotPaintableAt`, over `EndpointGrid` —
  *      a THIRD declaration of `{ cols, rows }`, on padi's own surface, with its
  *      own header claiming to be "the ONE grid rule on this surface". It is
  *      structurally identical and its comparison is not: it answers `true` for a

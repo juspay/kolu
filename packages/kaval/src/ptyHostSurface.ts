@@ -277,7 +277,38 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  *  through. The file's own precedent for OLD-consumer/new-daemon is the major at
  *  the `overflow` variant (`:111-118`): only a major rejects BOTH directions, so
  *  rollback never waves a shape the peer cannot decode through. The recycle is
- *  honest (session parks and restores). */
+ *  honest (session parks and restores).
+ *
+ *  **kolu#2362 rides at 8.0 with NO bump — a BEHAVIOUR change, not a shape
+ *  change.** Nothing on this wire moved: no new frame kind, no new field, no new
+ *  member. Two things the host DOES moved, and both are expressed entirely in
+ *  frames 5.0 already defined.
+ *
+ *  (1) A data subscriber is now dropped on a BYTE budget — "more queued for you
+ *  than a fresh bounded snapshot would cost" — instead of only at 10,000 queued
+ *  chunks. (2) A REAL resize opens a WINDOW (a flat 600 ms from the latest
+ *  resize) during which
+ *  parsed output is WITHHELD rather than published. At close, output that fits
+ *  the budget is simply delivered — nothing visible happens to the consumer at
+ *  all, which is the common case for a plain shell — and output larger than the
+ *  budget is discarded in favour of dropping the subscribers, who then see the
+ *  SAME `overflow` frame they have handled since 5.0 and the same fresh
+ *  snapshot.
+ *
+ *  So there are exactly two consumer-visible differences, both TIMING: deltas
+ *  may arrive up to the window late after a resize, and an attach that lands
+ *  inside a window already open may wait for it (an attach whose OWN `resizeTo`
+ *  opens the window is not delayed).
+ *
+ *  Why that is safe in both skew directions. An OLD consumer against a NEW
+ *  daemon already handles `overflow` (it is 5.0's whole reason for the major) and
+ *  already has no deadline on the first frame — an attach has always waited on a
+ *  remote host over ssh, and the cap is an order of magnitude under the
+ *  supervisor's adoption timeouts. A NEW consumer against an OLD daemon sees
+ *  exactly today's behaviour: fewer overflow frames and no window, which is the
+ *  status quo, not a lie. A version bump would therefore buy nothing and cost a
+ *  forced recycle — killing live PTYs — which is the one price this file keeps
+ *  refusing to pay for something that degrades gracefully. */
 export const PTY_HOST_CONTRACT_VERSION = "8.0";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor

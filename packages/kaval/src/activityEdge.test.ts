@@ -1,8 +1,11 @@
 /**
- * The meaningful-output edge gate — the resize-exclusion + throttle that decides
- * whether an output chunk publishes an activity edge. Pure, so the load-bearing
- * "a resize repaint is not activity" rule (the reveal/resize un-finish regression's
- * root fix) is pinned without a real PTY or a wall clock.
+ * The meaningful-output edge's two exclusions, as a pure predicate: the resize
+ * repaint is not work, and a flood is coalesced to one edge per throttle window.
+ *
+ * The resize exclusion reads the resize WINDOW (a boolean — is one open) rather
+ * than a mute deadline of its own: the window is kaval's single answer to "is
+ * this output the resize's repaint?", and one answer cannot disagree with
+ * itself. See `ptyHost.ts`'s `RESIZE_WINDOW_MS`.
  */
 
 import { describe, expect, it } from "vitest";
@@ -11,26 +14,27 @@ import { shouldEmitActivityEdge } from "./ptyHost.ts";
 const THROTTLE = 200; // ACTIVITY_EDGE_THROTTLE_MS
 
 describe("shouldEmitActivityEdge", () => {
-  it("emits for fresh output outside any mute window", () => {
-    expect(shouldEmitActivityEdge(1000, 0, 0)).toBe(true);
+  it("emits for fresh output with no resize window open", () => {
+    expect(shouldEmitActivityEdge(1000, false, 0)).toBe(true);
   });
 
-  it("EXCLUDES output inside the resize-mute window (the SIGWINCH repaint)", () => {
-    // A resize at t=1000 muted until 1600; the repaint lands at 1050 → excluded.
-    expect(shouldEmitActivityEdge(1050, 1600, 0)).toBe(false);
+  it("EXCLUDES output while a resize window is open (the SIGWINCH repaint)", () => {
+    expect(shouldEmitActivityEdge(1050, true, 0)).toBe(false);
   });
 
-  it("resumes emitting once the resize-mute window has passed", () => {
-    expect(shouldEmitActivityEdge(1600, 1600, 0)).toBe(true);
+  it("resumes emitting once the resize window has closed", () => {
+    expect(shouldEmitActivityEdge(1600, false, 0)).toBe(true);
   });
 
-  it("mute wins even when the throttle would otherwise allow it", () => {
-    // Long since the last edge (throttle satisfied) but still inside the mute.
-    expect(shouldEmitActivityEdge(1050, 1600, 0)).toBe(false);
+  it("the window wins even when the throttle would otherwise allow it", () => {
+    // Long since the last edge (throttle satisfied) but still inside the window.
+    expect(shouldEmitActivityEdge(5000, true, 0)).toBe(false);
   });
 
   it("throttle-coalesces bursts within the window", () => {
-    expect(shouldEmitActivityEdge(1000, 0, 1000 - (THROTTLE - 1))).toBe(false);
-    expect(shouldEmitActivityEdge(1000, 0, 1000 - THROTTLE)).toBe(true);
+    expect(shouldEmitActivityEdge(1000, false, 1000 - (THROTTLE - 1))).toBe(
+      false,
+    );
+    expect(shouldEmitActivityEdge(1000, false, 1000 - THROTTLE)).toBe(true);
   });
 });
