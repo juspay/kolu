@@ -32,6 +32,11 @@ check: install
 build: install
     cd {{ here }} && {{ nix_shell }} pnpm build
 
+# Build, then check every internal link and #anchor in ./dist (lychee from the
+# pinned nixpkgs; the Nix build runs the same script as checks.linkcheck)
+linkcheck: build
+    cd {{ here }} && nix shell --impure --expr '(import {{ root }}/nix/nixpkgs.nix { }).lychee' -c ./linkcheck.sh dist
+
 # Build and serve ./dist locally so the Pagefind search index is available
 search-preview: build
     cd {{ here }} && {{ nix_shell }} pnpm exec astro preview --port 4321

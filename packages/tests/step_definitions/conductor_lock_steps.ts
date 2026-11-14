@@ -21,7 +21,7 @@
 import assert from "node:assert";
 import { After, Then, When } from "@cucumber/cucumber";
 import type { BrowserContext, Page } from "playwright";
-import { OMP_HEARD_MARKER } from "../support/agent-mock-omp.ts";
+import { OMP_HEARD_MARKER, OMP_UP_MARKER } from "../support/agent-mock-omp.ts";
 import { readBufferText } from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
@@ -231,6 +231,27 @@ When(
   },
 );
 
+/** THE STAND-IN IS UP, said where the scenario needs it to be: the marker is
+ *  the last thing its boot prints before the read loop, and it is assembled
+ *  at runtime so only the process itself can put it on the screen. A phone
+ *  shows a terminal it has only just been given — a tile nobody has seen
+ *  takes no output — so this is also the proof that what the browser missed
+ *  has been replayed, which is what the screen comparisons below rest on. */
+Then(
+  "the member terminal should have come up",
+  async function (this: KoluWorld) {
+    await pollFor({
+      observe: () => memberScreen(this),
+      isDone: (screen) => screen.includes(OMP_UP_MARKER),
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (last, ms) =>
+        new Error(
+          `the member terminal never printed the stand-in's up marker after ${ms}ms; its screen tail reads ${JSON.stringify((last ?? "").trim().slice(-300))}`,
+        ),
+    });
+  },
+);
+
 Then(
   "the member terminal should have heard {string}",
   async function (this: KoluWorld, text: string) {
@@ -327,24 +348,29 @@ Then(
 const QUIET_MS = 750;
 
 When("I note the member terminal's screen", async function (this: KoluWorld) {
-  // A SCREEN STILL FILLING IS NOT A BASELINE. The terminal this claim is
-  // about was started moments ago by the conversation, and its own first
-  // lines — the command bash echoes, the stand-in's up marker — are still
-  // arriving; a snapshot taken mid-arrival reads the next of them as the
-  // keystroke that was supposed to be blocked. So wait until two readings a
-  // beat apart agree, and note THAT.
+  // A SCREEN STILL FILLING IS NOT A BASELINE, and AN EMPTY ONE IS NOT A
+  // SCREEN. The terminal this claim is about was started moments ago by the
+  // conversation and was never on anybody's canvas until the step before
+  // this one — a tile nobody has seen takes no output, so the browser holds
+  // NOTHING for it until it is shown and the server replays what it missed.
+  // Two empty readings agree with each other, so quiet alone would note a
+  // blank screen and then read that replay as the keystroke the lock was
+  // supposed to swallow. Wait for output to be there AND to have stopped
+  // moving, and note THAT.
   let last = await memberScreen(this);
   const deadline = Date.now() + POLL_TIMEOUT;
   for (;;) {
     await new Promise((resolve) => setTimeout(resolve, QUIET_MS));
     const now = await memberScreen(this);
-    if (now === last) {
+    if (now === last && now.trim() !== "") {
       notedScreen = now;
       return;
     }
     if (Date.now() > deadline) {
       throw new Error(
-        `the member terminal never stopped printing, so nothing here is a baseline; its screen tail reads ${JSON.stringify(now.trim().slice(-300))}`,
+        now.trim() === ""
+          ? `the member terminal's screen is still empty after ${POLL_TIMEOUT}ms, so there is nothing to compare against`
+          : `the member terminal never stopped printing, so nothing here is a baseline; its screen tail reads ${JSON.stringify(now.trim().slice(-300))}`,
       );
     }
     last = now;

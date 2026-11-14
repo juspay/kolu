@@ -140,3 +140,7 @@ Project rules: Product first-session pages (Start, Quickstart, From a Mac, First
 Five Minutes) stay in Tutorial / How-to voice: a job, then steps, then a link
 out. The `@kolu/surface` site at `kolu.dev/surface` is the four-quadrant home for
 the framework.
+
+Every page in both kolu.dev collections is also held to the `/docs-writing`
+standard (`dev/skills/docs-writing/SKILL.md`): shape limits the build enforces,
+the reference-entry template, and the Surface variants of each rule.

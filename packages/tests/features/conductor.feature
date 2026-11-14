@@ -191,7 +191,8 @@ Feature: The Conductor
     # The other half is the terminal going away: a terminal no longer in the
     # roster says so, and offers nothing to look at — no toggle, no tail, so
     # nothing is read for it.
-    When I create a terminal
+    When I leave the conductor for the host tab
+    And I create a terminal
     And I run "echo kolu-look-$((6*7))"
     And I ask the conductor to adopt the terminal I am in
     Then the conductor transcript should show a "create" tool card
@@ -365,6 +366,48 @@ Feature: The Conductor
     Then the conductor pane should not be visible
     And the conductor tab should show a badge of 1
     And the conductor tab badge should be the needs-you one
+    And there should be no page errors
+
+  Scenario: A question from the Conductor rings when you are not looking at it
+    # The Conductor's question rings the same bell a terminal waiting on you
+    # does — same sound, same Attention alerts switch. The sound is recorded
+    # rather than heard, and whether the window has focus is DECLARED rather
+    # than raced: an Escape pressed against the fixture's question would be a
+    # coin toss about which landed first.
+    #
+    # The second half is the quiet rule. A question that appears in the
+    # conversation you are reading, in a focused window, is already in front
+    # of you — ringing for it is how people learn to ignore the bell. It is a
+    # DIFFERENT question (the harness never reuses an id), so a bell that only
+    # compared ids would ring here; the count staying at one is the rule.
+    #
+    # The third is the reload. That question is still open; leave the
+    # conversation so a host tab is on screen, and reload. The question was
+    # there before the page was, so finding it is a discovery, not an
+    # arrival: the new page must not ring. The tab's needs-you badge is the
+    # proof the server's first frame has landed — the bell reads that same
+    # frame — so silence after it is silence, not a frame still in flight.
+    # The badge reads `1` because the number is what WAITS ON YOU, and an
+    # unanswered question is one such thing.
+    When I create a terminal
+    And I stub the notification sound
+    And I enter conductor mode
+    And I simulate the Kolu window losing focus
+    And I send the conductor the prompt "ask me something"
+    Then the conductor should be asking
+    And the notification sound should have played 1 time
+    When I simulate the Kolu window regaining focus
+    And I answer the conductor's question with "30"
+    Then the conductor should not be asking
+    When I send the conductor the prompt "ask me something"
+    Then the conductor should be asking
+    And the notification sound should have played 1 time
+    When I press Escape
+    Then the conductor pane should not be visible
+    When I reload the page
+    Then the conductor tab should show a badge of 1
+    And the conductor tab badge should be the needs-you one
+    And the notification sound should have played 0 times
     And there should be no page errors
 
   Scenario: A pasted image rides the message as an attachment

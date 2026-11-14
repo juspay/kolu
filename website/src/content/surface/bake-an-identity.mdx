@@ -1,6 +1,6 @@
 ---
 title: How to bake an identity
-description: "Give a daemon a stable identity — a build hash and a git commit — baked in by Nix and read back at runtime, so clients recognise it across restarts."
+description: "Bake a build hash and a git commit into a daemon with Nix, then read them back at runtime so a client knows which build it is talking to."
 order: 310
 section: Daemons · How-to
 ---
@@ -8,10 +8,10 @@ section: Daemons · How-to
 import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 
-A daemon that gets recycled needs to say *which build* it is running, so a
-supervisor can tell "the daemon I shipped" from "an older one still holding the
-gate." That identity is baked in at build time by [Nix](https://nix.dev) and read back at runtime by
-one shared recipe.
+A [daemon](/surface/glossary) that gets recycled has to say which build it is
+running, so a supervisor can tell the daemon you shipped from an older one still
+holding the gate. [Nix](https://nix.dev) bakes that identity in at build time,
+and one shared recipe reads it back at runtime.
 
 ## 1. Bake the pair with Nix
 
@@ -19,39 +19,44 @@ Use `mkDaemonIdentity` (in `@kolu/surface-daemon`'s `nix/daemon-identity.nix`)
 to `--set` two environment variables on the daemon binary, under a prefix of
 your choosing:
 
-- `<PREFIX>_BUILD_ID` — a hash over the daemon's *behavioural* source closure. It flips exactly when a restart would load different wire or behaviour code.
+- `<PREFIX>_BUILD_ID` — a hash over the daemon's behavioural source closure. It flips exactly when a restart would load different wire or behaviour code.
 - `<PREFIX>_COMMIT_HASH` — the git ref the daemon was built from.
 
-Select the behavioural fileset deliberately — it is the slice whose change means
-"a restart behaves differently." Everything outside it (docs, unrelated code) can
+Choose the behavioural fileset deliberately. It is the slice whose change means
+a restart behaves differently. Everything outside it (docs, unrelated code) can
 change without flipping the build id.
 
 ## 2. Derive the fileset — don't list it
 
-Prefer **deriving** the fileset over listing files by hand. A hand-kept list
-drifts silently from what the process actually loads: a new dependency lands,
-nobody edits the list, and a *rebuilt* daemon ships an *unchanged* identity. In a
-pnpm workspace the loadable code is already declared — the transitive
-`dependencies` closure of the daemon's package, the same edges pnpm's isolated
-`node_modules` makes the only resolvable ones at runtime.
+Derive the fileset rather than listing files by hand. A hand-kept list drifts
+from what the process loads: a new dependency lands, nobody edits the list, and
+a rebuilt daemon ships an unchanged identity. In a pnpm workspace the loadable
+code is already declared: the transitive `dependencies` closure of the daemon's
+package, the same edges pnpm's isolated `node_modules` makes resolvable at
+runtime.
+
+### Walk the workspace closure
 
 The recipe that walks it ships in the same package:
 `nix/workspace-closure.nix`. Apply `mkWorkspaceClosure` to a *name → directory*
 `members` map and it hands back two derivations of that graph:
 
-- `depClosure { entries, stop? }` — the member names reachable from `entries`, minus each `stop` entry *and* everything reachable only through it.
+- `depClosure { entries, stop? }` — the member names reachable from `entries`, minus each `stop` entry and everything reachable only through it.
 - `identityInputs { entries, stableLeaves?, isHashedSource? }` — the same closure rendered as the two arguments `mkDaemonIdentity` takes: `behavioralFileset` (each local member's runtime `src` plus its `package.json`) and `pinnedSources` (the members that are pins). `isHashedSource` defaults to real `.ts`/`.tsx` source, dropping `.test.ts` / `.test-d.ts` / `.testlib.ts`.
 
-A member is either **local** — a path in your own repo, whose files go into the
-hashed fileset — or **pinned**: a package reached through a content-addressed
-pin, which contributes its whole store path instead. Which is which is
-**declared**, in `pinned`, as a list of member *names*; it is never guessed from
-how the value is written. A local member's value must be a path literal and a
-pinned one a string already inside the store, and `mkWorkspaceClosure` asserts
-exactly that, so neither kind can be silently mistaken for the other.
+### Declare which members are pinned
 
-Set `mustCover` to the name prefixes that must never resolve outside `members`:
-outside a pnpm workspace there is no `workspace:` protocol to give a stale map
+A member is either **local** (a path in your own repo, whose files go into the
+hashed fileset) or **pinned** (a package reached through a content-addressed
+pin, which contributes its whole store path instead).
+
+You declare which is which in `pinned`, as a list of member *names*; it is never
+guessed from how the value is written. A local member's value must be a path
+literal and a pinned one a string already inside the store. `mkWorkspaceClosure`
+asserts exactly that, so neither kind can be mistaken for the other.
+
+Set `mustCover` to the name prefixes that must never resolve outside `members`.
+Outside a pnpm workspace there is no `workspace:` protocol to give a stale map
 away, and a framework package that quietly resolves from the registry would be
 invisible to the id.
 
@@ -92,36 +97,43 @@ mkDaemonIdentity {
 ```
 
 Here `behavioralFileset` carries the two local members' sources, and
-`pinnedSources` carries `@kolu/surface` — `my-daemon` declares it directly (it
-is what `defineSurface` comes from), so making the spine a stable leaf does not
+`pinnedSources` carries `@kolu/surface`, which `my-daemon` declares directly (it
+is what `defineSurface` comes from). Making the spine a stable leaf does not
 take it out of the closure with it.
 
 `pinnedSources` folds each pinned member in as `<name>=<store path>`, so a pin
-bump lands in the build id exactly like a source edit. The empty case hashes
+bump lands in the build id like a source edit. With no pins it hashes
 byte-identically to the fileset alone, so a workspace-only consumer's live ids
-do not move just because the pinned arm exists.
+do not move.
 
-Every list here is loud at eval time. A `workspace:` edge (or a
-`mustCover`-matching edge) whose target is missing from `members` throws; a
-`stableLeaves` entry that has left the closure throws; a `members` key that
-disagrees with the package's own `name` throws; a `pinned` name that is not a
-`members` key throws, as does a member whose value shape disagrees with its
-declared kind. `stableLeaves` is then the only hand-kept list left, and it is
-pure policy rather than bookkeeping — step 4 is how you choose what goes in it.
+### What fails at eval time
 
-**The alternative: hash a narrowed derivation.** A small daemon that already
-builds from a narrowed derivation of its own can skip the walk entirely and hash
-*that* derivation's store path — `buildId = builtins.hashString "sha256"
+Every list here is checked while Nix evaluates. Each of these throws:
+
+- a `workspace:` edge (or a `mustCover`-matching edge) whose target is missing from `members`;
+- a `stableLeaves` entry that has left the closure;
+- a `members` key that disagrees with the package's own `name`;
+- a `pinned` name that is not a `members` key, or a member whose value shape disagrees with its declared kind.
+
+`stableLeaves` is then the only hand-kept list left, and step 4 is how you
+choose what goes in it.
+
+### The alternative: hash a narrowed derivation
+
+A small daemon that already builds from a narrowed derivation of its own can
+skip the walk entirely and hash that derivation's store path: `buildId = builtins.hashString "sha256"
 (toString inner)`, where `inner` is the unwrapped daemon. This is
-[drishti](https://github.com/srid/drishti)'s shipped pattern, and it is equally
-sanctioned. A store path is platform-dependent, so bake a **per-system id map**
-(`{ x86_64-linux = …; aarch64-darwin = …; }`) rather than a single id: a client
-comparing against a daemon provisioned on another platform looks its peer's
-system up instead of comparing two hashes that could never match. The trade is
-that the id now moves with everything inside the derivation, the runtime engine
-included — a nixpkgs bump rotates it. That is fine when the daemon's staleness
-response is a cheap restart; it is not when staleness costs a human nudge or
-live state (step 4).
+[drishti](https://github.com/srid/drishti)'s shipped pattern.
+
+A store path is platform-dependent, so bake a per-system id map
+(`{ x86_64-linux = …; aarch64-darwin = …; }`) rather than a single id. A client
+comparing against a daemon provisioned on another platform then looks its peer's
+system up, instead of comparing two hashes that could never match.
+
+The trade is that the id moves with everything inside the derivation, the
+runtime engine included, so a nixpkgs bump rotates it. That suits a daemon whose
+staleness response is a cheap restart, and not one where staleness costs a human
+nudge or live state (step 4).
 
 ## 3. Read it back at runtime
 
@@ -130,16 +142,14 @@ the reads share. It returns `{ staleKey, navigableCommit }`:
 
 <Snippet src="packages/surface/example/snippets/identity.ts" region="read" />
 
-`staleKey` is the build hash a supervisor compares; `navigableCommit` is the git
+`staleKey` is the build hash a supervisor compares. `navigableCommit` is the git
 ref you surface as a clickable identity in the UI.
 
-<Aside type="caution" title="Off-nix reads nothing — on purpose">
+<Aside type="caution" title="Outside Nix it reads nothing">
   Run outside the Nix build (a raw `vitest`, a dev process without the env) and
-  `readBakedIdentity` returns empty strings. It shows nothing rather than
-  inventing an identity — the fail-fast rule. Do not paper over it with a
-  fallback build id; an absent identity is a real, readable state. The two env
-  values are one fact: set both or neither. A half-baked pair throws during daemon
-  boot rather than presenting a build whose source cannot be named.
+  `readBakedIdentity` returns empty strings. Do not paper over that with a
+  fallback build id; an absent identity is a readable state. Set both env values
+  or neither: a half-baked pair throws during daemon boot.
 </Aside>
 
 ## 4. Decide what the build id hashes
@@ -147,14 +157,12 @@ ref you surface as a clickable identity in the UI.
 One policy choice is left, and `stableLeaves` is where you spell it: whether the
 daemon-spine code is inside the hashed closure.
 
-- If a contract-compatible spine change is behaviourally interchangeable — because the wire contract version is itself hashed — you can **exclude** the spine from the build id ([kaval](/kaval) does this; the contract version carries the compatibility signal).
-- If you prefer a cheap auto-drain where over-firing is harmless, **include** the whole closure (padi does this).
+- **Exclude** the spine when a contract-compatible spine change is behaviourally interchangeable, because the wire contract version is itself hashed. [kaval](/kaval) does this; the contract version carries the compatibility signal.
+- **Include** the whole closure when you prefer a cheap auto-drain and over-firing is harmless. padi does this.
 
-Pick by what staleness *costs*. Kaval's staleKey drives a human "update
+Pick by what staleness costs. Kaval's `staleKey` drives a human "update
 available" nudge whose only remedy recycles the daemon and kills live PTYs, so
-over-firing is expensive and its slice is narrow. Padi's is a cheap auto-drain,
-so it keys on nearly its whole closure.
-
-Either way, the identity a client reads is now stable and meaningful across
+its slice is narrow. Padi's is a cheap auto-drain, so it keys on nearly its
+whole closure. Either way, the identity a client reads is stable across
 restarts, which is what [recycling and upgrading](/surface/recycle-and-upgrade)
 depends on.

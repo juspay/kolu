@@ -72,6 +72,8 @@ Invoke the **`/ci` skill** — it owns the full CI procedure for this repo: the 
 
 Default to **over-checking**: enumerate the candidate docs and, for each, either edit it or state why it's untouched. "I updated the README and changelog" is not a doc-sync until the changed package's README, the framework inventory, and any user-facing marketing surface were each *considered* (and the skip, if any, justified).
 
+**Edit the page so it stays true — do not append a paragraph or grow a table cell; history belongs in the changelog.** Every docs page is held to the writing standard in the `/docs-writing` skill (`dev/skills/docs-writing/SKILL.md`), and the build fails a page that breaks its shape limits.
+
 ### kolu.dev docs are the canonical product docs
 
 The user-facing description of kolu lives in the **kolu.dev docs** at `website/src/content/docs/` (rendered through `DocsLayout`, grouped by the `section` frontmatter). This is the canonical place a user reads about what kolu does and how to use it — **not** the root `README.md`, which is a slim map that points into these pages.
@@ -80,6 +82,7 @@ The user-facing description of kolu lives in the **kolu.dev docs** at `website/s
 - Keep the README a pointer. Don't re-grow a feature catalog there — add or adjust a bullet under "What it does" that links to the doc page instead.
 - Diagrams are hand-authored **inline SVG** reusing the `ax-d-*` / `doc-figure` classes (the site has no mermaid). Style both light and dark via the `--color-*` CSS tokens — never raw hex.
 - This is the product-docs mirror of the Reference-docs gate in the `/surface` skill (which governs the `@kolu/surface` Reference pages). Same discipline: the record must not lie.
+- Write every page to the `/docs-writing` standard: one reader per page, short paragraphs, lists and tables for parallel things, no history. `website/test/docs-lint.test.mjs` enforces its shape limits on both collections, and `just website::linkcheck` checks every internal link and anchor.
 
 ### Architecture (docs)
 

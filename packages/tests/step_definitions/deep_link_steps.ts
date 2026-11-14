@@ -59,14 +59,22 @@ When(
     await this.page.reload();
     await this.waitForSettled();
     // `waitForSettled` can return after the first terminal paints. A cold boot
-    // is complete only once the route was consumed, every pre-existing terminal
-    // reattached, and the requested one owns focus.
+    // is complete only once the route was consumed, every pre-existing
+    // terminal is MOUNTED, and the requested one owns focus.
+    //
+    // Mounted, not attached: since kolu#2362 a desktop tile holds a live feed
+    // (and so carries `data-visible`) only while it is on screen, so a
+    // restored tile parked off the canvas would never satisfy an
+    // attach-shaped wait. What this step is really waiting for is that the
+    // restored session's terminals exist and the link's target has focus —
+    // and `data-focused` is set on the pane the route landed on, which is the
+    // active tile and therefore attached anyway.
     await this.page.waitForFunction(
       ({ target, ids }) => {
         const terminals = Array.from(
-          document.querySelectorAll("[data-visible][data-terminal-id]"),
+          document.querySelectorAll("[data-terminal-id][data-font-size]"),
         );
-        const attached = new Set(
+        const mounted = new Set(
           terminals
             .map((el) => el.getAttribute("data-terminal-id"))
             .filter((id): id is string => id !== null),
@@ -74,10 +82,11 @@ When(
         return (
           (history.state as { koluRouted?: boolean } | null)?.koluRouted ===
             true &&
-          ids.every((id) => attached.has(id)) &&
+          ids.every((id) => mounted.has(id)) &&
           terminals.some(
             (el) =>
               el.getAttribute("data-terminal-id") === target &&
+              el.hasAttribute("data-visible") &&
               el.hasAttribute("data-focused"),
           )
         );

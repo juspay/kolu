@@ -31,9 +31,10 @@ const RECEDE_INACTIVE_PANE =
 
 const TerminalContent: Component<{
   terminalId: TerminalId;
-  /** Whether this terminal is "active" — controls focus, fit, viewport
-   *  publishing. On the canvas: true for all tiles (always rendered);
-   *  on mobile: true only for the visible tile. */
+  /** Whether a user can SEE this terminal — controls focus, fit, viewport
+   *  publishing and whether the pane holds an attach stream at all. The
+   *  SHELL that places the body answers it: the canvas tile's rect against
+   *  the camera (`canvas/tileSeen.ts`), the touch shells' active tile. */
   visible: boolean;
   /** Whether this terminal should grab keyboard focus. True only for
    *  the selected tile on the canvas; same as `visible` on mobile. Also

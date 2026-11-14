@@ -1,6 +1,6 @@
 ---
 title: kolu on a Phone
-description: "kolu on touch devices: a single fullscreen tile with swipe navigation, a soft-key bar for the keys touch keyboards lack, a bottom-drawer inspector, the two-pane layout for tablets and unfolded foldables, and the host row for multi-host on a phone."
+description: "Run the workspace on a phone or tablet: one fullscreen tile, a soft-key bar, the bottom drawer, and the host row for switching machines."
 order: 63
 section: "Anywhere"
 koluHero:
@@ -12,89 +12,75 @@ import Aside from "../../components/docs/Aside.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 
-kolu runs on phones and tablets, not as a cut-down view but as the same
-workspace re-shaped for a thumb. Two things decide the layout, and they're
-independent: the viewport **size** (a phone gets the drawer layout) and the input
-**modality** (a touch device gets roomier, ≥24px hit targets). A desktop browser
-made narrow is *not* the same as a real phone — kolu keys the layout off the
-**pointer**, so a coarse-pointer screen never masquerades as a desktop.
+kolu runs on phones and tablets: the same workspace, re-shaped for a thumb. The
+viewport size picks the drawer layout, and the input type picks touch-sized hit
+targets (at least 24px).
+
+The two are independent. kolu reads the pointer, so a narrow desktop browser
+still gets the desktop canvas.
 
 ## On a phone
 
-- **One tile at a time**, fullscreen, with **swipe** navigation between
-  terminals instead of a spatial canvas.
-- A two-row **soft-key bar** sends the keys touch keyboards lack — Esc, Tab, the
-  arrows, Ctrl-C, `/`, Enter — with two sticky modifiers you tap to arm. The keys
-  reach whichever terminal (or split) actually has focus.
-- **The Conductor's lock reaches the phone too.** When the tile you are on is a
-  terminal [the Conductor is driving](/tiles), a full-width band sits directly
-  above the soft-key bar — **Driven by the Conductor**, the role and the work —
-  with **Take over** on it, and the key bar sends nothing until you press it.
-  Take over and the band reads **Taken over** with **Hand back** beside it. A
-  terminal no work drives has no band at all.
-- A **bottom-drawer** inspector replaces the desktop right panel; pull the
-  chrome down from the top for app controls.
-- **Only the tile you're looking at is live.** The other terminals on the host
-  keep running, but the phone neither streams their output nor tells them how
-  big its screen is — so opening kolu on a phone no longer reshapes every
-  terminal on the machine behind it, and the soft keyboard rising only affects
-  the terminal you're typing in. Swipe to another tile and it keeps the screen
-  you left, replaced the moment the current one arrives; the activity dot is
-  what says a tile changed while you were elsewhere.
+- **One tile at a time**, fullscreen. You swipe between terminals instead of
+  moving around a canvas.
+- A two-row **soft-key bar** sends the keys touch keyboards lack: Esc, Tab, the
+  arrows, Ctrl-C, `/` and Enter. Two sticky modifiers stay armed until you use
+  them. The keys reach whichever terminal or split has focus.
+- When the tile you are on is a terminal [the Conductor is
+  driving](/tiles#a-terminal-the-conductor-is-driving), a full-width band sits
+  directly above the soft-key bar: **Driven by the Conductor**, the role and
+  the work, with **Take over** on it. The key bar sends nothing until you press
+  it. Take over and the band reads **Taken over**, with **Hand back** beside
+  it. A terminal no work drives has no band at all.
+- A **bottom-drawer** inspector takes the place of the desktop right panel. Pull
+  the chrome down from the top for app controls.
+- Only the tile you are looking at is live. The other terminals on the host keep
+  running, but the phone does not stream their output and does not tell them how
+  big its screen is. So opening kolu on a phone reshapes nothing else on that
+  machine, and the soft keyboard only affects the terminal you type in.
+- Swipe to another tile and you see the screen you left, replaced as soon as the
+  current one arrives. The activity dot tells you a tile changed while you were
+  elsewhere.
 
 ## On a tablet or an unfolded foldable
 
-A wide **touch** screen — an iPad, an Android tablet, a Galaxy Z Fold unfolded —
-gets its own **two-pane** layout: a persistent terminal rail down one side, the
-active terminal filling the rest, with the same touch-sized controls as the
-phone. It's neither the phone's single tile nor the desktop's mouse-driven
-canvas; a real mouse still gets the canvas.
+A wide touch screen (an iPad, an Android tablet, a Galaxy Z Fold unfolded) gets
+a **two-pane** layout: a terminal rail down one side, the active terminal
+filling the rest, with the same touch-sized controls as the phone. A real mouse
+still gets the canvas.
 
-Folding or unfolding the screen keeps the same terminal view. Switching between
-touch and desktop layouts also retains the terminal instead of attaching it again.
-The desktop canvas and split panel have separate layout owners from the touch
-drawer: their gestures and sizing are rebuilt at that boundary. Phone and compact
-share both the terminal view and the drawer.
+Folding or unfolding the screen keeps the same terminal view, and so does
+switching between the touch and desktop layouts.
 
-## Multi-host from a phone
+## Switch machines from the phone
 
-The [multi-host](/remote-hosts) engine works everywhere, and the phone can drive
-it. The pull-down chrome sheet carries a **host row**: a chip per machine with
-the same vocabulary as desktop — Home + machine hostname for local / ssh target for remotes,
-identity colour when active, always-on connection pip (green / amber / red — the
-same [whole-chain reading](/remote-hosts) desktop uses, so an amber "kaval down"
-reads the same on a phone),
-and that machine's attention counts (active · needs you · unread) — a **tap to
-switch** (instant, no reload), and
-a **+** that opens a full-width add-machine section right in the sheet. The
-chrome stays above the canvas in every state, so a still-connecting or
-unreachable host can never strand you with no way back to the host row. The row
-follows the [arrangement you dragged the desktop host tabs
-into](/remote-hosts#put-the-tabs-in-your-own-order) — it is saved on the server,
-so the phone shows the same order; the drag gesture itself is desktop-only.
+The pull-down chrome sheet carries a **host row**, one chip per machine, driving
+the same [multi-host](/remote-hosts) engine as the desktop. Each chip shows the
+machine's name (**Home** plus the hostname for local, the ssh target for a
+remote), a connection pip reading the whole chain as the
+[desktop host tabs](/remote-hosts) do, and that machine's attention counts:
+active, needs you, unread.
 
-Above those chips, first in the sheet and visibly not one of them, sits
-[**`◆ Conductor`**](/conductor) — kolu's one agent chat, which covers every
-host rather than belonging to any, with the same one badge its desktop tab
-wears: how many things are **waiting on you**, in the needs-you violet, and
-absent when the answer is none. Tapping it gives the
-conversation the whole screen under the pull handle, and the handle then reads
-**◆ Conductor**. The sheet opens from there exactly as it does from a host,
-with the Conductor lit and no host lit; tapping a host chip takes you back to
-that machine — and the conversation is kept as you left it, so coming back to
-it finds the same open panels, the same place in the transcript and the same
-half-typed message.
+Tap a chip to switch, with no reload. Tap **+** to open an add-machine section
+inside the sheet. The chrome stays above the canvas in every state, so a host
+that is still connecting or unreachable can never leave you without a way back
+to the row. The row follows the order you dragged the desktop host tabs into,
+which is saved on the server; the drag itself is desktop-only.
 
-The conversation on a phone is **one column** — the transcript, the status
-line and the composer at one measure, with your own messages at that column's
-right edge. A phone is narrower than the width where kolu can stand the work
-in progress beside the conversation, so the cards for the
-[pieces of work](/conductor#the-card) stay the panel that the status line's
-**N pieces of work · M waiting on you** opens, and a count that would read
-zero is **absent**: no `0 pieces of work`, and no control that would open an
-empty list. The composer is one line that grows as
-you type, with **Send** beside it; the steer hint, when a turn can be steered
-into, is on the status line rather than a row of its own.
+## The Conductor on a phone
+
+[**`◆ Conductor`**](/conductor) is the first entry in the pull-down sheet, above
+the host chips. Tap it and the conversation takes the whole screen; tap a host
+chip to go back to that machine.
+
+Its badge is how many things are waiting on you, in the needs-you violet, and
+absent when the answer is none.
+
+A phone is too narrow to stand the [pieces of
+work](/conductor#the-work-card) beside the conversation, so the status line's
+**N pieces of work · M waiting on you** opens their cards above the line. A
+count that would read zero is absent, and so is the control that would open an
+empty list.
 
 ## Next
 

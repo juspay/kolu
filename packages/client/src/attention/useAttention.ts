@@ -59,6 +59,7 @@ import { notify } from "../attentionNotify";
 import { hostLabel } from "../host/hostChipTone";
 import {
   conductorAsksTotal,
+  conductorOpenAsks,
   useConductorFacts,
 } from "../conductor/useConductorFacts";
 import {
@@ -70,6 +71,7 @@ import type { TerminalSubject } from "../terminal/terminalSubject";
 import { nextAfter } from "../ui/nextAfter";
 import { activeHost, preferences, setActiveHost } from "../wire";
 import { createAttentionCore } from "./attentionCore";
+import { createConductorAsks } from "./conductorAsks";
 import {
   hostAskingIds,
   hostFrame,
@@ -191,12 +193,8 @@ export function useAttention(deps: AttentionDeps): {
    *  no host to carry: one conversation covers the whole fleet. It fires the
    *  SAME sound and the SAME notification seam (there is one `Audio`, one
    *  `Notification` and one `setAppBadge` in this client, and this is not a
-   *  second of any of them), and it counts into the same badge below.
-   *
-   *  Attention is a TRANSITION, not a discovery: the first count seen is a
-   *  baseline, and only a RISE fires — reloading a tab onto a conversation
-   *  that has been waiting for an hour must not ring. */
-  let askedBefore: number | undefined;
+   *  second of any of them), and it counts into the same badge below. WHEN it
+   *  fires is `conductorAsks`'s rule. */
   const deliverAsks = (open: number): void => {
     try {
       playSound();
@@ -214,24 +212,17 @@ export function useAttention(deps: AttentionDeps): {
       console.error("useAttention: conductor delivery failed", err);
     }
   };
+  const conductorBell = createConductorAsks({
+    alertsEnabled,
+    isWatched: () => conductorMode() && document.hasFocus(),
+    deliver: deliverAsks,
+  });
   createEffect(() => {
-    const open = conductorAsksTotal();
-    const before = askedBefore;
-    // The baseline moves whether or not we deliver: an ask you watched arrive
-    // is SEEN, so the next rise is the next episode, not this one re-fired the
-    // moment you look away.
-    askedBefore = open;
-    if (before === undefined || open <= before) return;
-    if (!alertsEnabled()) return;
-    // "Seen with your eyes", one level up from a terminal. `watched` above
-    // asks whether the tile receiving input is the one that needs you; the
-    // conversation's questions are in front of you when its entry is the
-    // selected one and the page has focus. Without this, a question you
-    // watched arrive — typed the prompt, saw the ask appear — rang the sound
-    // and raised an OS popup for something already on screen, which is the one
-    // way an attention channel teaches people to ignore it.
-    if (conductorMode() && document.hasFocus()) return;
-    deliverAsks(open);
+    const asks = conductorOpenAsks();
+    // Silence is not an empty list: before the server's first frame there is
+    // nothing to compare against, and the real first frame is the baseline.
+    if (asks === undefined) return;
+    conductorBell.observe(asks);
   });
 
   // The detect→fire ENGINE (`attentionCore`) — unit-tested off the wire. It owns

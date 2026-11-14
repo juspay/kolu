@@ -1,6 +1,6 @@
 ---
 title: Sessions, Sleep & Wake
-description: "How kolu keeps a workspace across reloads, restarts, and crashes — and how sleep parks a terminal without keeping its PTY, agent, or GPU context alive, then wakes it on the exact conversation it was running."
+description: "Your terminals, layout and agents come back after a reload, a restart or a crash — and sleep parks a terminal until you wake it on the same conversation."
 order: 52
 section: "Agents & Attention"
 koluHero:
@@ -12,120 +12,111 @@ import Aside from "../../components/docs/Aside.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 
-A kolu **session** is your whole workspace — the terminals, their layout and
-themes, the maximized posture, the activity-window filter — and it comes back
-where you left it across a reload, a server restart, and even a crash. That
-durability is why you can park work freely: nothing you set up is expensive to
-lose, because it isn't lost.
+A kolu **session** is your whole workspace: the terminals, their layout and
+themes, the maximized posture, and the activity-window filter. It comes back
+where you left it, so parking work costs you nothing.
 
 ## What survives
 
-- A **reload** re-attaches your terminals already-whole; the "Restore session"
-  card only appears after a genuine restart, never as a flash on a normal reload.
-  When it does appear, terminals are grouped by repo with the same **monogram
-  and colour spine** as the live dock, so multi-repo sessions stay scannable.
-- A **kolu-server restart or redeploy** keeps your terminals and session, because
-  the workspace record lives in [padi](/padi), not the web server.
-- A **kaval update** keeps your live terminals — shells, scrollback, and running
-  agents — running across it (see [Kaval](/kaval)); the only sign is a brief "N
-  terminals reattached" note. The one exception is a release that **changes the
-  wire** the daemons speak: that is a flag day, so the daemon left over from
-  before cannot be adopted and is restarted instead. Live shells end there — the
-  session is restored from disk and agents resume on the conversation they were
-  on, exactly as after a restart. The [changelog](/changelog) says so when a
-  release does this.
-- Even an **unclean crash** of the terminal daemon brings your agents back
-  **resumed on their exact prior conversation**, not as bare shells — including
-  agents that were running in a **split** (or any parented terminal). The restore
-  card lists every saved terminal as its own row and offers to resume every agent
-  the host knows how to resume; turning **Resume agent sessions** off wakes bare
-  shells instead.
-- **Start fresh** on the restore card is the one way to throw a saved session
-  away, and it takes two deliberate clicks: the first opens a confirmation
-  naming what goes, and only the second discards. A snapshot is taken before
-  anything is cleared, so a session you discarded on purpose — or by accident —
-  is still recoverable from **Debug → Restore state from backup**.
-- **Restart kaval** — the button, and the same repair [padi](/padi) runs by
-  itself on a stuck daemon — always ends on that card, whatever you did earlier
-  in the tab. Restoring a session, or starting fresh, never hides a later offer.
-- Behind all of this sits a **backup ring**: at every boot, once a day while
-  running, and before **Start fresh** discards anything, the saved-session file
-  is snapshotted into a rotated history — so even a bug that *overwrites* the
-  saved session with a bad value is recoverable. **Debug → Restore state from
-  backup** in the command palette brings a snapshot's terminals back, agents
-  resumed; the snapshot replaces the saved session outright, so any restore rows
-  left over from the session it replaced go with it. The same command restores
-  kolu-server's own store — preferences, the host pool and [the
-  Conductor](/conductor#what-a-backup-of-kolu-holds)'s pieces of work — which is
-  a separate ring and a separate pick, applied live with no restart. See
-  [Troubleshooting](/troubleshooting#kolu-lost-my-session-or-my-settings-look-wrong).
+| What happens | What comes back |
+| --- | --- |
+| A reload | Your terminals re-attach already whole. No restore card appears. |
+| A kolu-server restart or redeploy | Your terminals and your session: the workspace record lives in [padi](/padi), not the web server. |
+| A [kaval](/kaval) update | Your live terminals keep running, with their shells, scrollback and agents. The only sign is a brief **N terminals reattached** note. |
+| A kaval release that changes how kolu's daemons talk to each other | The old daemon cannot be adopted, so it is restarted and live shells end. The session is restored from disk and agents resume. The [changelog](/changelog) says when a release does this. |
+| An unclean crash of the terminal daemon | Every saved terminal, with each agent resumed on its exact prior conversation rather than as a bare shell. Agents in a **split** come back too. |
+
+## The restore card
+
+The **Restore session** card appears after a genuine restart, never as a flash on
+a reload. It lists every saved terminal as its own row, grouped by repo, and
+offers to resume every agent the host knows how to resume. Turning **Resume
+agent sessions** off wakes bare shells instead.
+
+- **Start fresh** is the one way to throw a saved session away, and it takes two
+  deliberate clicks. The first opens a confirmation naming what goes, and only
+  the second discards.
+- **Restart kaval**, the button and the same repair [padi](/padi) runs by itself
+  on a stuck daemon, always ends on this card, whatever you did earlier in the
+  tab. Restoring a session, or starting fresh, never hides a later offer.
+
+## Recover a session from a backup
+
+kolu snapshots the saved-session file into a rotated history at every boot, once
+a day while it runs, and before **Start fresh** discards anything. So a session
+you discarded, or one a bad value overwrote, is still there.
+
+Run **Debug → Restore state from backup** from the command palette to bring a
+snapshot's terminals back, agents resumed. The snapshot replaces the saved
+session outright, so leftover restore rows go with it. See
+[Troubleshooting](/troubleshooting#kolu-lost-my-session-or-my-settings-look-wrong).
+
+The same command restores kolu-server's own store: your preferences, the host
+pool and [the Conductor](/conductor#what-a-backup-of-kolu-holds)'s pieces of
+work. That is a separate ring and a separate pick, and it applies live with no
+restart.
 
 ## Sleep a terminal
 
-Sleeping parks a tile you're done with for now while keeping only the terminals
-you're using live. It's how you keep many agent sessions around without paying
-for all of them.
+Sleeping parks a tile you are done with for now, so only the terminals you are
+using stay live.
 
-- Click the **☾** button on the title bar, or run **Sleep terminal** from the
-  palette.
-- Sleep acts on the **whole family**: the tile and every **split** under it
-  freeze together — one dormant record per member, each keeping its parent edge.
-  Nothing is closed and nothing is lost, so a split does not have to be reopened
-  after you wake the tile.
-- The **PTY, agent process, and GPU/WebGL context are released** for every member
-  — exactly as if you'd closed them — while the tile stays a full canvas citizen:
-  drag, resize, rename, and re-theme it like any other. Only typing is fenced off.
-  A frozen split keeps its tab in the tile's strip, marked **☾**, and its pane
-  shows a compact frozen body with its own **Wake**.
-- Last-known context stays visible: the directory, git branch, and GitHub PR it
-  was on, frozen at sleep.
-- The dock gives every frozen member its own **☾** row, so a slept family reads as
-  exactly what it is, and the dock's ☾ filter hides the lot.
-- **Closing** a sleeping tile discards it **and its splits**, because nothing is
-  running behind any of them.
+Click the **☾** button on the title bar, or run **Sleep terminal** from the
+palette. Then:
 
-## Wake — on the exact conversation
+- Sleep acts on the whole family. The tile and every **split** under it freeze
+  together, each keeping its place under its parent, so a split does not have to be
+  reopened after you wake the tile.
+- The PTY, agent process and GPU context are released for every member, exactly
+  as if you had closed them. The tile can still be dragged, resized, renamed and
+  re-themed. Only typing is fenced off.
+- A frozen split keeps its tab in the tile's strip, marked **☾**, and its pane
+  offers its own **Wake**.
+- Last-known context stays visible: the directory, git branch and GitHub PR the
+  terminal was on, frozen at sleep.
+- The dock gives every frozen member its own **☾** row, and the dock's ☾ filter
+  hides the lot.
+- Closing a sleeping tile discards it and its splits, because nothing is running
+  behind any of them.
+
+## Wake on the exact conversation
 
 Wake respawns the terminal in the same directory and resumes the agent on the
-**exact conversation it was running** — resumed by its own exact-conversation
-form (`claude --resume <id>`, `codex resume <id>`, `opencode --session <id>`,
+exact conversation it was running, never "the most recent conversation in this
+folder". Each agent is resumed by its own exact-conversation form:
+`claude --resume <id>`, `codex resume <id>`, `opencode --session <id>`,
 `xyne --session <id>`, the Grok equivalent, and for pi and Oh My Pi the
-transcript's absolute path, which those two accept verbatim), never "the most
-recent conversation in this folder".
+transcript's absolute path, which those two accept verbatim.
 
-The line wake types is **rendered from facts kolu owns**, never replayed from
-something a shell printed: the agent's own registry entry supplies the binary
-and how it spells resume, the agent's session file supplies the conversation
-id, and the **live agent process's own arguments** supply the flags — filtered
-through that agent's allowlist, so only recognised launch-shape flags (a
-`--model`, a `--dangerously-skip-permissions`, an `--no-alt-screen`) come back
-and a stray path, prompt, or resume marker is dropped.
+The line wake types is built from facts kolu owns. kolu's own entry for that
+agent supplies the binary and how it spells resume, the session file supplies
+the conversation id, and the live agent process's own arguments supply the flags.
+
+Flags are filtered through that agent's allowlist, so only recognized
+launch-shape flags come back (a `--model`, a `--dangerously-skip-permissions`,
+an `--no-alt-screen`). A stray path or prompt is dropped.
 [What a resume may carry](/agent-detection#what-a-resume-may-carry) lists the
 allowlist per agent.
 
-That is also why the line cannot be forged. A command mark is only a *sensor*:
-anyone whose text you display — a `cat`, a curl response, an ssh banner — can
-print the escape sequence, so kolu never lets one become a command it types. The
-one thing wake can no longer replay is a **shell-typed environment prefix**
-(`FOO=1 claude`): that prefix existed only in the typed line, not in the
-process's own arguments, so the agent comes back without it — set the variable
-in your shell profile, or through an [agents profile](/agents), if it must
-survive. A terminal that slept before kolu captured its session id has nothing
-honest to resume and wakes to a bare shell; the flags of a pre-existing saved
-target return on the next live sample. The one exception is deliberate: if you'd
-**quit** the agent to a bare shell before sleeping, waking lands you at that
-shell rather than silently relaunching something you'd closed.
+Wake restores the family the same way: every dormant member respawns on its own
+id, parents first, with each agent resumed on its own conversation. Clicking
+**Wake** on a split wakes its parent and siblings too, because a split cannot
+run under a tile that is still asleep.
 
-Wake restores the **family** the same way: every dormant member re-spawns on its
-own id, parents first, with each split back under the tile it belonged to and
-each member's agent resumed on its own conversation. Pressing **Wake** on a split
-— in its tab or its frozen pane — wakes its parent and siblings too, because a
-split cannot run under a tile that is still asleep.
+## What wake cannot bring back
 
-<Aside type="note" title="Keep the dock to what's awake">
-  The dock's **Filters** row can hide sleeping terminals (and the activity window
-  compresses away ones you slept long ago), so parked sessions don't crowd the
-  list — [The Dock](/dock) covers both filters.
+- A shell-typed environment prefix such as `FOO=1 claude`. That prefix lived only
+  in the typed line, not in the process's arguments. Set the variable in your
+  shell profile, or through an [agents profile](/agents), if it must survive.
+- A conversation for a terminal that slept before kolu captured a session id. It
+  wakes to a bare shell.
+- The agent you had **quit** to a bare shell before sleeping. Waking lands you at
+  that shell rather than relaunching something you closed.
+
+<Aside type="note" title="Keep the dock to what is awake">
+  The dock's **Filters** row can hide sleeping terminals, and the activity window
+  compresses away ones you slept long ago, so parked sessions do not crowd the
+  list. [The Dock](/dock) covers both filters.
 </Aside>
 
 ## Next

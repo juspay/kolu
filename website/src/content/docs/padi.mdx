@@ -1,6 +1,6 @@
 ---
 title: Padi
-description: "padi — the per-host workspace daemon behind kolu. It remembers sessions, terminal records, repo context, restore state, and agent awareness while kaval owns the live PTYs underneath."
+description: "The per-host workspace daemon behind kolu: sessions, terminal records, repo context, restore state and agent awareness, above the kaval that owns the PTYs."
 order: 110
 section: Daemons
 koluHero:
@@ -17,27 +17,17 @@ import Card from "../../components/docs/Card.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 
-<Aside type="caution" title="alpha">
-  `padi` and `padi-tui` are an early preview. Commands, flags, and output
-  formats **will change** before they're finalized for production use; don't
-  script against them yet.
-</Aside>
+`padi` is the per-host daemon that holds what a kolu workspace is: terminals, sessions, restore state, repo context, the code tree, git status, diffs and agent awareness. It sits above [`kaval`](/kaval), which owns the live shells. `padi-tui` reads it from the shell.
 
-`padi` is the per-host daemon that remembers the memory under kolu — what a Kolu
-workspace _is_: terminals, sessions, restore state, repo context, the code tree,
-git status, diffs, and agent awareness. It sits above [`kaval`](/kaval), which
-owns the live PTYs. The split is simple: kaval keeps shells alive; padi keeps the
-workspace legible. The whole layer stack is in [Architecture](/architecture);
-padi is a [@kolu/surface daemon](/surface/the-daemon-spine), with the
-drain-capable [live recycle](/surface/recycle-and-upgrade) that keeps a client
-connected across an upgrade.
+<Aside type="caution" title="alpha">
+  `padi` and `padi-tui` are an early preview. Commands, flags and output
+  formats change before they are finalized for production use, so do not script
+  against them yet.
+</Aside>
 
 ## Where it sits
 
-The browser talks to `kolu-server`, the server binds `padi`, and padi supervises
-its own `kaval`. Restart the web shell and padi still has the workspace. Restart
-padi and kaval still has the PTYs. The layers recover on different clocks because
-they own different state.
+The browser talks to `kolu-server`, the server binds `padi`, and padi supervises its own `kaval`. Restart the web shell and padi still has the workspace. Restart padi and kaval still has the PTYs. The layers recover on different clocks because they own different state.
 
 <figure class="doc-figure">
   <svg viewBox="0 0 760 324" role="img" aria-labelledby="pd-stack-title">
@@ -80,61 +70,27 @@ they own different state.
   </svg>
 </figure>
 
-## Steady-state supervision
+## When kaval stops answering
 
-"padi supervises its own kaval" is continuous, not a boot-time step. Every ten
-seconds padi asks its kaval three read-only questions over the socket, and a
-kaval that cannot answer them in five seconds is not busy — it is stuck. Three
-such answers in a row (about half a minute) and padi runs, by itself, exactly
-what the **Restart kaval** button runs: save the session, stop the stuck daemon,
-start a fresh one, and offer your terminals back for restore. One slow moment
-changes nothing; only a real stretch of silence does.
+padi supervises its kaval continuously, not only at boot. Every ten seconds it asks three read-only questions over the socket, and a kaval that cannot answer them within five seconds counts as stuck.
 
-If three restarts in a row do not produce a daemon that answers, padi stops
-restarting and leaves the card and the button — a hot restart loop is not a
-repair. The kaval-down card is for the genuinely unrepairable now, not for every
-case.
+| What padi sees | What it does |
+| --- | --- |
+| three stuck answers in a row, about half a minute | runs what the **Restart kaval** button runs: saves the session, stops the daemon, starts a fresh one, and offers your terminals back for restore |
+| three restarts that still produce no answering daemon | stops restarting, and leaves the card and the button for you |
+| the connection drops while the daemon still answers | re-makes the line about a second later, backing off to once every half-minute, for as long as it takes |
 
-The line between padi and its kaval can drop while the daemon behind it is
-perfectly healthy — still running, still holding every terminal, still able to
-answer. From the outside that looks exactly like a stuck kaval, and it is the
-opposite: nothing is broken, and there is only a connection to re-make. padi
-re-makes it by itself, about a second after it drops, and keeps trying — backing
-off to once every half-minute — for as long as it takes. It only ever re-makes a
-line to a daemon it has just checked is still answering, so the ordinary outcome
-is that it takes that daemon back *over*: your terminals and the agents inside
-them keep running throughout, there is nothing to restore, and kolu says so once
-before the card clears itself.
+A re-made connection is the ordinary outcome, and it takes the daemon back over. Your terminals and the agents in them keep running, there is nothing to restore, and kolu says so once before the card clears itself.
 
-Two narrower cases end somewhere else, and kolu tells you which one you got
-rather than showing you the same line for all three. If the daemon exits in the
-moment between that check and the re-connect, the re-connect starts a fresh one;
-and if a re-connected daemon turns out to hold terminals kolu cannot account
-for, kolu replaces it deliberately rather than leave terminals it cannot see. In
-both, the message is the restart one — *"kaval was unresponsive — kolu restarted
-it; your session is ready to restore"* — and your session comes back through the
-restore card.
+Two narrower cases end differently, and kolu says which you got. If the daemon exits between the check and the re-connect, the re-connect starts a fresh one. If a re-connected daemon holds terminals kolu cannot account for, kolu replaces it. Both show the restart message, _"kaval was unresponsive — kolu restarted it; your session is ready to restore"_, and your session comes back through the restore card.
 
-A daemon that is genuinely gone is a different fact and gets the different
-answer. Re-making a line to a daemon that is not there would mean starting a new
-one, which is a restart — so padi leaves that to the ten-second check above, and
-to its three-strike limit, which is what keeps a kaval that dies as fast as it
-starts from being restarted forever.
-
-kaval watches itself from the other side of the same wire: it asks its **own**
-address a trivial question on the same cadence, and three unanswered self-checks
-in a row make it exit non-zero rather than sit there accepting connections it
-cannot serve. That covers the case padi cannot — a kaval nobody is currently
-watching — and turns "stuck forever", which nothing handles, into "stopped",
-which the supervisor already handles.
+kaval also watches itself from the other side of the wire. It asks its own address a trivial question on the same cadence, and three unanswered self-checks in a row make it exit non-zero rather than accept connections it cannot serve.
 
 While a host's kaval is down, [that host's dot is amber, not green](/remote-hosts).
 
 ## What padi knows
 
-kaval only knows terminals. padi is where terminal observations become a
-workspace: repo-aware, agent-aware, resumable, and readable from more than one
-face.
+kaval only knows terminals. padi is where terminal observations become a workspace: repo-aware, agent-aware, resumable, and readable from more than one face.
 
 <CardGrid>
   <Card title="terminal registry">
@@ -155,25 +111,21 @@ face.
   </Card>
   <Card title="one host, nothing more">
     padi knows this machine's terminals and nothing about any other. The
-    fleet view — and [the Conductor](/conductor)'s one conversation —
-    are assembled a layer up, by the kolu-server that binds every host's padi.
+    fleet view, and [the Conductor](/conductor)'s one conversation, are
+    assembled a layer up, by the kolu-server that binds every host's padi.
   </Card>
 </CardGrid>
 
-## The thin shell face — `padi-tui`
+## Read the workspace from the shell
 
-<Aside type="note" title="These verbs now live on `kolu` too">
-  The `kolu` command has grown the same terminal verbs — `kolu ls` · `create` ·
-  `send` · `wait` · `snapshot` · `history` · `kill` · `watch` — as a pure padi
-  client, so one command drives a workspace instead of two. `padi-tui` still
-  works and is documented here; new scripts should reach for `kolu`. The loop
-  is on the [agent fleets](/agent-fleets) page.
+<Aside type="note" title="These verbs live on `kolu` too">
+  The `kolu` command has the same terminal verbs as a pure padi client:
+  `kolu ls` · `create` · `send` · `wait` · `snapshot` · `history` · `kill` · `watch`.
+  New scripts should reach for it. The loop is on the [agent
+  fleets](/agent-fleets) page.
 </Aside>
 
-`padi-tui` reads the same workspace surface kolu uses. Where `kaval-tui` shows
-what's running in each PTY, padi-tui shows what each terminal is in: repo, PR,
-checks, foreground command, live byte activity, and agent state. That is the
-state behind the [multi-agent dock](/power-features).
+`padi-tui` reads the same workspace surface kolu uses. Where `kaval-tui` shows what is running in each PTY, padi-tui shows what each terminal is in: repo, pull request, checks, foreground command, live byte activity and agent state. That is the state behind the [multi-agent dock](/power-features).
 
 ```sh
 padi-tui status
@@ -189,55 +141,37 @@ b7c20000  kolu·master         —         codex · waiting   codex             
 c9d40000  kolu·fix/fold       #1408 ✗   —                 nvim              5m
 ```
 
-REPO·BRANCH shows `—` for a terminal outside any repo and `?` while padi has
-not checked its git yet. With `--json`, the repo sits under `.git.info`, and
-`.git.kind` says which case it is: `repo`, `none` or `unresolved`.
-
-**Usually no flag.** padi keys its socket by a digest of its state-root, so
-inside a kolu terminal `$PADI_SOCKET` makes `padi-tui` flag-less — an agent
-driving its siblings never guesses a path. padi also puts the tools themselves on
-that terminal's `$PATH` — `padi-tui`, `kaval-tui`, and the `kolu` whose `mcp`
-face agents connect to — taken from padi's own build. On a **remote** host they
-arrive in the closure kolu provisions, so an agent working there has the whole
-loop available with nothing installed on the box, and can never end up holding a
-tool from a different build than the daemon it is talking to. Elsewhere it autodiscovers the running
-padi — and when several are running (your everyday padi plus a dev or test one),
-it picks the one keyed to the state root your environment names rather than
-asking you to choose; `--socket <path>` or `--state-root <dir>` point it at a
-different local daemon, and `--host <ssh>` reaches a padi on **another machine** — the twin of
-[`kaval-tui --host`](/kaval#reach-a-remote-kaval--over-ssh): it provisions the
-daemon with Nix, runs `padi --stdio` over ssh, and runs every verb unchanged
-against the remote (`padi-tui status --host nix@prod`). Read verbs are safe and
-`create` lands a real terminal on the host (which survives the link); a tui is a
-dial, so it never drains or converges the remote padi. `--host` is mutually
-exclusive with `--socket` / `--state-root`. Pointing kolu's **browser** at a
-remote padi is a separate path that already ships — see [Add another
-machine](/remote-hosts) for adding a machine to the canvas.
-
-`wait <id> --until awaiting,waiting` blocks until a terminal's agent finishes its
-turn — a done-signal read from real padi state, not guessed from terminal
-silence. For a robust driver, wait in two phases: `--until working` for pickup,
-then `--until awaiting,waiting` for turn-end, so a stale previous-turn state
-cannot satisfy the wait early. To brief an agent you have just launched,
-`--until fresh` waits for it to be up — its screen settled, nothing said to it
-yet — which padi knows from the process before the agent has written anything.
-`--timeout <ms>` fails loud (exit 2), a terminal
-that exits first exits 3, and `--json` prints `{ id, agent }`. The deeper design
-notes live in the [padi atlas note](https://kolu.dev/atlas/padi.html).
+REPO·BRANCH shows `—` for a terminal outside any repo, and `?` while padi has not checked its git yet. With `--json`, the repo sits under `.git.info`, and `.git.kind` says which case it is: `repo`, `none` or `unresolved`.
 
 | Command | What it does |
 | --- | --- |
 | `padi-tui status` · `--json` | Print a one-shot workspace snapshot: terminals, repos, agent state, foreground process, and recency. |
 | `padi-tui watch` · `--json` | Follow the workspace live, including state changes and activity indicators. |
 | `padi-tui wait <id> --until awaiting,waiting` · `--timeout <ms>` · `--json` | Block until an agent turn ends using padi's real agent-state fold, not a guess from terminal silence. |
-| `padi-tui create (--toplevel \| --parent <id>) -- claude` · `--worktree <branch>` · `--repo <path>` · `--json` | Create a kolu terminal from the shell, appearing live on the canvas. Placement is **required** and has no default: `--toplevel` for a tile of its own, or `--parent <id>` for a split under any existing terminal (including a split of a split; the canvas flattens descendants into the root tile's tab strip, the Dock keeps the true tree). Add `--worktree` for a worktree'd agent. |
+| `padi-tui create (--toplevel \| --parent <id>) -- claude` · `--worktree <branch>` · `--repo <path>` · `--json` | Create a kolu terminal from the shell, live on the canvas. Placement is required: `--toplevel`, or `--parent <id>` to split under an existing terminal. Add `--worktree` for a worktree'd agent. |
+
+### Which daemon it talks to
+
+- Inside a kolu terminal, `$PADI_SOCKET` makes `padi-tui` flag-less, so an agent driving its siblings never guesses a path. padi keys its socket by a digest of its state-root.
+- padi also puts `padi-tui`, `kaval-tui` and the `kolu` whose `mcp` face agents connect to on that terminal's `$PATH`, taken from padi's own build. On a remote host they arrive in the closure kolu provisions, so a tool can never come from a different build than the daemon it talks to.
+- Elsewhere it finds the running padi by itself. With several running (your everyday padi plus a dev or test one), it picks the one keyed to the state root your environment names.
+- `--socket <path>` and `--state-root <dir>` point it at a different local daemon.
+- `--host <ssh>` reaches a padi on another machine, the twin of [`kaval-tui --host`](/kaval#reach-a-remote-kaval--over-ssh). It provisions the daemon with Nix, runs `padi --stdio` over ssh, and runs every verb unchanged (`padi-tui status --host nix@prod`).
+- Read verbs are safe over `--host`, and `create` lands a real terminal on the host, which survives the link. A tui only dials, so it never drains or converges the remote padi. `--host` is mutually exclusive with `--socket` and `--state-root`.
+
+To point kolu's browser at a remote padi instead, see [Add another machine](/remote-hosts).
+
+### Wait for an agent turn
+
+`wait <id> --until awaiting,waiting` blocks until a terminal's agent finishes its turn, read from real padi state rather than guessed from terminal silence.
+
+- For a robust driver, wait in two phases: `--until working` for pickup, then `--until awaiting,waiting` for turn-end, so a stale previous-turn state cannot satisfy the wait early.
+- `--until fresh` waits for an agent you have just launched to be up, with its screen settled and nothing said to it yet, which padi knows from the process.
+- `--timeout <ms>` fails loud (exit 2). A terminal that exits first exits 3. `--json` prints `{ id, agent }`.
 
 ## Why it is not inside kolu-server
 
-The web server is a face: HTTP, assets, websocket transport. The workspace is a
-daemon: durable folder, terminal registry, session restore, agent awareness.
-Keeping those apart means a deploy can replace the web shell without making the
-workspace disappear.
+The web server is a face: HTTP, assets, websocket transport. The workspace is a daemon: durable folder, terminal registry, session restore, agent awareness. Keeping them apart means a deploy can replace the web shell without making the workspace disappear.
 
 <CardGrid>
   <LinkCard title="architecture" href="/architecture" description="the full stack and survival story" />

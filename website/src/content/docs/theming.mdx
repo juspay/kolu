@@ -1,10 +1,10 @@
 ---
 title: Theming
-description: "200+ terminal color schemes, live preview in the palette, per-tile theming, how a new terminal picks its theme (inherit vs shuffle, including colourful), and the light/dark UI."
+description: "Over 200 terminal colour schemes, previewed live in the palette, one per terminal, plus how a new terminal picks its theme and the light/dark UI."
 order: 45
 section: "The Canvas"
 koluHero:
-  eyebrow: color
+  eyebrow: colour
   headline: Every terminal, its own {palette}.
 ---
 
@@ -14,9 +14,8 @@ import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 
 kolu ships the whole [iTerm2-Color-Schemes](https://github.com/mbadolato/iTerm2-Color-Schemes)
-catalogue — over 200 themes — and lets you set one per terminal. When you run
-many terminals at once, a distinct background is the fastest way to tell them
-apart at a glance.
+catalogue, over 200 themes, and lets you set one per terminal. When you run many
+terminals at once, a distinct background is the fastest way to tell them apart.
 
 <CardGrid>
   <Card title="200+ schemes">
@@ -27,9 +26,9 @@ apart at a glance.
     Browsing themes in the palette previews each one on the active terminal as
     you arrow through, so you pick by what you see.
   </Card>
-  <Card title="Per-tile color">
+  <Card title="Per-tile colour">
     Each terminal keeps its own theme. Title bars and pill swatches derive their
-    colors from it, so contrast is guaranteed on any scheme.
+    colours from it, so contrast is guaranteed on any scheme.
   </Card>
   <Card title="PWA chrome">
     An [installed app](/install-pwa) tints its window chrome from the server
@@ -39,48 +38,49 @@ apart at a glance.
 
 ## How a new terminal gets its theme
 
-Two settings decide what a freshly opened terminal looks like. They split apart
-what used to be a single on/off toggle.
+Two settings decide what a freshly opened terminal looks like.
 
-**New terminal theme** picks the strategy:
+### New terminal theme
 
-- **Inherit** — copy the active terminal's theme. Set one theme you like and
-  every new terminal follows it, exactly the way a new terminal inherits the
-  active one's _size_. With no terminal open there is nothing to copy, so the
+This setting picks the strategy.
+
+- **Inherit** copies the active terminal's theme, the way a new terminal
+  inherits the active one's _size_. Set one theme you like and every new
+  terminal follows it. With no terminal open there is nothing to copy, so the
   first one comes up in the built-in default (Tomorrow Night).
-- **Shuffle** _(default)_ — auto-pick a background perceptually distinct from
+- **Shuffle** _(default)_ auto-picks a background perceptually distinct from
   every other open terminal, so two tiles never come up looking alike.
 
-**Shuffle behaviour** then steers _every_ shuffle — both a shuffled new terminal
-and the <kbd>⌘⇧J</kbd> "shuffle this terminal" shortcut:
+### Shuffle behaviour
 
-- **Auto** _(default)_ — keep picks in the app's current light or dark family, so
-  a tile can't surface as a jarring bright-white panel in a dark workspace.
-- **Dark** / **Light** — force one family regardless of the app theme.
-- **Colourful** — saturated tints only (skip grey / monochrome schemes), across
-  light and dark.
-- **Random** — draw from the whole catalogue.
+This setting steers every shuffle: a shuffled new terminal, and the
+<kbd>Cmd</kbd>/<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>J</kbd> "shuffle this terminal" shortcut.
 
-Both settings govern **every** new terminal, not just the ones you open from the
-UI — a terminal an agent opens through the [MCP server](/mcp) picks up the same
-theme policy, because kolu resolves it on the host where terminals actually live.
+| Option | What you get |
+| --- | --- |
+| **Auto** _(default)_ | Picks stay in the app's current light or dark family, so a tile cannot surface as a bright-white panel in a dark workspace |
+| **Dark** / **Light** | One family, whatever the app theme is |
+| **Colourful** | Saturated tints only, skipping grey and monochrome schemes, across light and dark |
+| **Random** | The whole catalogue |
+
+Both settings govern every new terminal, not just the ones you open yourself. A
+terminal an agent opens through the [MCP server](/mcp) picks up the same theme
+policy, because kolu resolves it on the host where terminals live.
 
 <Aside type="note" title="Switching light/dark is forward-only">
   Flipping the app between light and dark affects terminals you open
-  <em>afterward</em>, never ones already on screen — a theme you chose for a tile
-  is never overwritten out from under you. **Auto** shuffle follows the last
-  light/dark mode a browser reported — the tab you most recently focused, since
-  each tab re-reports on focus — so a terminal an agent opens while no browser is
-  watching stays in the family your last open tab was in.
+  afterward, never ones already on screen. **Auto** shuffle follows the
+  light/dark mode of the browser tab you focused most recently, so a terminal an
+  agent opens while no browser is watching stays in that family.
 </Aside>
 
 ## The app theme
 
-Separate from the per-terminal schemes, the app chrome itself follows a
-**dark / light / system** preference. System tracks your OS setting; the other
+Separate from the per-terminal schemes, the app chrome follows a **dark**,
+**light** or **system** preference. System tracks your OS setting, and the other
 two pin it. This is the family the **Auto** shuffle stays inside.
 
 <CardGrid>
   <LinkCard title="Core concepts" href="/concepts" description="tiles, the dock, and the rest of the vocabulary" />
-  <LinkCard title="Install as an app" href="/install-pwa" description="pin kolu and pick up the per-host chrome color" />
+  <LinkCard title="Install as an app" href="/install-pwa" description="pin kolu and pick up the per-host chrome colour" />
 </CardGrid>
