@@ -78,16 +78,38 @@ continue until output reaches the pane again.
 A split you open later, such as a collapsed panel or a background tab, stays
 empty until you reveal it, and then paints once at its real size.
 
-Only the tiles on screen receive live output. On a phone that is the tile you are
-looking at, and on the desktop a background split tab is left alone, so opening
-kolu on a second device does not reshape every terminal on the host. Coming back
-to a pane keeps the old screen up until the current one arrives. The activity
-dot tells you a terminal changed while you were elsewhere.
-
 Dragging a divider or opening the soft keyboard resizes the terminal once, after
 the layout stops moving. Programs redraw their whole screen at a new size, so
 kolu hands you the finished screen instead of the terminal scrolling through the
 session to reach it.
+
+## Which tiles are live
+
+Only the tiles you are looking at receive live output. On a phone that is the
+tile on screen. On the desktop it is:
+
+- the tile you have maximized;
+- every tile in view on the canvas;
+- the active tile, wherever it is, so your keys always reach the terminal you
+  type into.
+
+A tile panned off the canvas, a tile behind a maximized one, a background split
+tab, and every tile while the [Conductor](/conductor) covers the canvas are left
+alone. This is about the canvas, not the window: a kolu tab in the background of
+your browser keeps its tiles live.
+
+On the desktop, a tile that leaves your view keeps its feed for five minutes. A
+short trip away changes nothing, and you come back to the place you were
+reading. After five minutes the tile lets go, and coming back puts you at the
+end of its output. Scrolling up still fetches the older history. Leaving
+maximized gives every tile then in view its feed back at once.
+
+A tile that is not live does not tell its terminal how big it is, so opening
+kolu on a second device does not reshape every terminal on the host. Coming back
+to a pane keeps the old screen up until the current one arrives. The activity
+dot tells you a terminal changed while you were elsewhere. A server URL the tile
+printed meanwhile reaches [Ports](/right-panel#servers-that-detached) when you
+look at the tile again.
 
 ## A tip under the title bar
 
