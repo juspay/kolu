@@ -158,7 +158,8 @@ export function helpSections(
       id: "files",
       heading: "What it wrote",
       items: [
-        [text("The plan and its notes, opened on the card")],
+        [text("A file opens in the reader, beside the chat")],
+        [screen("Pop out"), text(" gives it a window of its own")],
         [text("Select text to comment, as on the Code tab")],
         [text("Kept when the work ends, after the worktree is gone")],
       ],

@@ -59,33 +59,35 @@ Feature: A piece of work is a stored thing
     And the work should be finished as "merged"
     And there should be no page errors
 
-  Scenario: The plan is approved from the card, and the chat's question settles with it
-    # ONE QUESTION, TWO FACES. The card draws the SAME ask row the transcript
-    # does, so answering it on the card settles the conversation's copy — and
-    # the decision records where the answer came from, which is the only thing
-    # that tells the two apart afterwards.
+  Scenario: The plan is approved from the card while the Conductor sits idle
+    # ONE QUESTION, SEVERAL FACES. The card and the chat draw the work's own
+    # DECISION, so answering it on the card settles the conversation's copy
+    # too — and the decision records where the answer came from, which is the
+    # only thing that tells the faces apart afterwards.
     #
-    # The work is then GOT ON WITH, which is what an approval is for: the
-    # answer releases the `work_open` call, and the member it makes next is
-    # the proof the conversation was not left sitting on the question.
+    # AND NOTHING IS WAITING ON THE HUMAN. The Conductor was answered the
+    # moment the question was put and ended its turn, so it is IDLE while the
+    # card is violet — never `asking`, which is the state its tool call used
+    # to die in after five minutes. The answer reaches it as a wake, and the
+    # member it makes next is the proof it got on with the work.
     Given a repo for the work
     When I ask the conductor to open the work "tidy the lexer"
-    Then the conductor should be asking
+    Then the conductor should not be asking
     And the conductor status should say 1 waiting on you
     When I answer the work's question with "merge" on the card
-    Then the conductor should not be asking
-    And the work should have no open question
+    Then the work should have no open question
     And the conductor status should say nothing is waiting on you
     And the work's decisions should include "merge" answered from the card
     When I ask the conductor to run the implementor in the work's repo
     Then the work column should list the terminal as a member
     And there should be no page errors
 
-  Scenario: A file on the card opens in place, rendered
-    # The files are the worktree's own `.waterfall/`, read live, and one opens
-    # INSIDE the card through the Code tab's viewer — so the plan is read
-    # where the work is, rather than by leaving for the file browser. Rendered
-    # is the claim: a markdown heading arrives as a heading, not as `#`.
+  Scenario: A file on the card opens in the reader, rendered
+    # The files are the worktree's own `.waterfall/`, read live, and pressing
+    # one opens the READER — the Code tab's viewer on the large side of the
+    # Conductor's screen, so the plan is read where the work is rather than
+    # by leaving for the file browser. Rendered is the claim: a markdown
+    # heading arrives as a heading, not as `#`.
     Given a repo for the work
     When I ask the conductor to open the work "read the lexer"
     And I answer the work's question with "hand-over" in the chat
@@ -93,7 +95,7 @@ Feature: A piece of work is a stored thing
     And the implementor writes ".waterfall/plan.md" into the work's repo
     Then the work card should list the file ".waterfall/plan.md"
     When I open the work's file ".waterfall/plan.md"
-    Then the work card should render "The plan" as a heading
+    Then the reader should render "The plan" as a heading
     And the conductor pane should be visible
     And there should be no page errors
 
@@ -134,7 +136,7 @@ Feature: A piece of work is a stored thing
     Then the work's decisions should include "merge" answered from the chat
     And the work card should keep the file ".waterfall/plan.md"
     When I open the work's file ".waterfall/plan.md"
-    Then the work card should render "The plan" as a heading
+    Then the reader should render "The plan" as a heading
     And there should be no page errors
 
   Scenario: A new conversation keeps the work in flight

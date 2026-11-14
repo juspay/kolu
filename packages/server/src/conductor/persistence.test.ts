@@ -254,13 +254,6 @@ function hostOver(): {
           wakes += 1;
           return { rowId: `woke:${wakes}` };
         },
-        // Nothing in this file puts a question to a person — what is under
-        // test is the files the record lives in — so the stub answers the
-        // way a withdrawn ask does: nothing was decided.
-        askPerson: async () => ({
-          outcome: { how: "withdrawn" as const },
-          content: {},
-        }),
         cancel: async () => {},
         answer: async () => true,
         signIn: async () => "signed-in",

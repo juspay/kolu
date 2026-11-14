@@ -36,6 +36,7 @@ export const DOC_SLUGS = [
   "philosophy",
   "power-features",
   "quickstart",
+  "read-a-plan",
   "remote-access",
   "remote-hosts",
   "right-panel",

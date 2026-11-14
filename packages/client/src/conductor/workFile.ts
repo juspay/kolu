@@ -20,8 +20,11 @@ import {
   isBinaryPreviewable,
 } from "kolu-common/preview";
 import type { TerminalId } from "kolu-common/surface";
+import type { Work, WorkRole } from "kolu-work";
+import { fleetTerminalStanding } from "../palette/fleetTerminals";
 import { runActionPromise } from "../runAction";
 import { padiMap } from "../wire";
+import { splitMemberRef } from "./memberRef";
 
 /** WHERE a work's files are read from while it is in progress: the member
  *  terminal whose worktree holds them. `repoPath` is that worktree's root as
@@ -30,6 +33,44 @@ export interface WorkPlace {
   readonly host: string;
   readonly terminalId: TerminalId;
   readonly repoPath: string;
+}
+
+/** THE ORDER A WATERFALL RUNS ITS MEMBERS IN — the same order the card lists
+ *  them, so "the first member with a worktree" means the same thing on both
+ *  faces. */
+const ROLE_ORDER: Record<WorkRole, number> = {
+  planner: 0,
+  implementor: 1,
+  other: 2,
+};
+
+/** WHERE A WORK'S LIVE FILES ARE — the first member whose own git reading
+ *  names a worktree, or `null` once the work has ended (and before any member
+ *  has reported one), when the files are the ones kolu kept.
+ *
+ *  ONE derivation, read by both faces of a file: the card's list and the
+ *  reader that opens one of its rows. A second spelling of "which worktree is
+ *  this work's" is how a card and a reader come to disagree about which copy
+ *  of a plan they are showing. */
+export function workPlaceOf(work: Work): WorkPlace | null {
+  if (work.endedAt !== null) return null;
+  const members = [...work.members].sort(
+    (a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role],
+  );
+  for (const member of members) {
+    const split = splitMemberRef(member.terminal);
+    if (split === null) continue;
+    const standing = fleetTerminalStanding(split.host, split.id);
+    if (standing.kind !== "here") continue;
+    const git = standing.meta.git;
+    if (git.kind !== "repo") continue;
+    return {
+      host: split.host,
+      terminalId: split.id,
+      repoPath: git.info.repoRoot,
+    };
+  }
+  return null;
 }
 
 /** The directory every waterfall writes its plan and its notes into — the one

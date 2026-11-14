@@ -207,8 +207,22 @@ describe("the works", () => {
 
   it("sends every question about a work through `work_ask`, and notes through `work_note`", () => {
     expect(SCRIPT).toContain("`work_ask`");
-    expect(SCRIPT).toContain("from the work's card or from this chat");
+    expect(SCRIPT).toContain(
+      "from the work's card, from this chat or from the reader",
+    );
     expect(SCRIPT).toContain("`work_note`");
+  });
+
+  it("teaches ask, say what you asked, END YOUR TURN — never wait", () => {
+    // THE RULE THIS WHOLE SHAPE RESTS ON. A Conductor that waits for an
+    // answer is a Conductor whose tool call dies at its client's deadline
+    // while a person is still reading the plan.
+    expect(SCRIPT).toContain("ASK, SAY, END YOUR TURN");
+    expect(SCRIPT).toContain("ASKING NEVER WAITS");
+    expect(SCRIPT).toContain("Never wait for an answer, never poll for one");
+    // ... and the approval carries the plan, so the question can be read
+    // where it is answered.
+    expect(SCRIPT).toContain(".waterfall/plan.md` so the question carries");
   });
 
   it("says a terminal the human took over is theirs until a wake says otherwise", () => {

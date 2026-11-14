@@ -140,7 +140,7 @@ async function waitForAtLeastOne(
  *
  *  On a PHONE the tab lives in the pull-down chrome sheet, so the handle is
  *  pulled first — the same two taps a person makes. */
-async function enterConductor(world: KoluWorld): Promise<void> {
+export async function enterConductor(world: KoluWorld): Promise<void> {
   const pane = world.page.locator(PANE);
   if (await pane.isVisible()) return;
   const handle = world.page.locator(MOBILE_HANDLE);
@@ -151,7 +151,10 @@ async function enterConductor(world: KoluWorld): Promise<void> {
   await pane.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
 }
 
-async function sendPrompt(world: KoluWorld, text: string): Promise<void> {
+export async function sendPrompt(
+  world: KoluWorld,
+  text: string,
+): Promise<void> {
   const input = world.page.locator(INPUT);
   await input.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   await input.click();
@@ -1887,7 +1890,7 @@ Then(
  *  nothing to press — the status line carries a readout there, not a control.
  *  Below that width it is the band the control opens. Either way the step
  *  means the same thing: the work is readable now. */
-async function showWorkColumn(world: KoluWorld): Promise<void> {
+export async function showWorkColumn(world: KoluWorld): Promise<void> {
   if ((await world.page.locator(WORK_COLUMN).count()) === 0) {
     await world.page.locator(`${STATUS} ${WORK_COUNT}`).click();
   }
@@ -1905,7 +1908,7 @@ async function showWorkColumn(world: KoluWorld): Promise<void> {
  *  every scenario in a file — so the column a later scenario meets can hold
  *  a card an earlier one opened, and `first()` would quietly be about that
  *  one instead. */
-function workCard(world: KoluWorld) {
+export function workCard(world: KoluWorld) {
   const id = world.workId;
   if (id !== undefined)
     return world.page.locator(`${WORK_COLUMN} ${WORK_CARD}[data-work="${id}"]`);
@@ -1923,7 +1926,7 @@ function workCard(world: KoluWorld) {
  *  A work that has ENDED is below the line in the collapsed `Finished`
  *  section: the SAME card, one disclosure further, so the step that opens a
  *  card means the same thing before and after the work finished. */
-async function openWorkCard(world: KoluWorld): Promise<void> {
+export async function openWorkCard(world: KoluWorld): Promise<void> {
   await showWorkColumn(world);
   const card = workCard(world);
   if (!(await card.isVisible().catch(() => false))) {
@@ -2441,9 +2444,9 @@ When(
   },
 );
 
-/** THE SAME QUESTION, from the two places the human may answer it. The card's
- *  copy is the SAME ask row the chat draws — one record, two faces — so these
- *  two steps differ only in which face they press. */
+/** THE SAME QUESTION, from the two places the human may answer it. Both faces
+ *  draw the WORK'S OWN DECISION — one record, several faces — so these two
+ *  steps differ only in which one they press. */
 When(
   "I answer the work's question with {string} on the card",
   async function (this: KoluWorld, value: string) {
@@ -2463,7 +2466,11 @@ When(
 When(
   "I answer the work's question with {string} in the chat",
   async function (this: KoluWorld, value: string) {
-    const ask = this.page.locator(`${TRANSCRIPT} ${ASK}`).last();
+    // The chat's copy is the question drawn where it was asked: a row of the
+    // transcript, answering the same decision the card does.
+    const ask = this.page
+      .locator(`${TRANSCRIPT} [data-testid="work-question"][data-from="chat"]`)
+      .last();
     await ask.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await ask
       .locator(`[data-testid="conductor-ask-option"][data-value="${value}"]`)
@@ -2859,9 +2866,10 @@ Then(
   },
 );
 
-/** A FILE OPENS IN PLACE. The list is the live `.waterfall/` of the member's
- *  worktree (or, for finished work, what kolu kept) and pressing one opens it
- *  INSIDE the card. */
+/** A FILE ON THE CARD OPENS THE READER. The list is the live `.waterfall/` of
+ *  the member's worktree (or, for finished work, what kolu kept) and pressing
+ *  one row takes the large side of the screen with it — the card is a list,
+ *  not a viewer (`reader/WorkReader.tsx`). */
 When(
   "I open the work's file {string}",
   async function (this: KoluWorld, file: string) {
@@ -2898,14 +2906,12 @@ Then(
   },
 );
 
-/** RENDERED, in the card. The heading has to be a real heading — markdown
+/** RENDERED, IN THE READER. The heading has to be a real heading — markdown
  *  shown as its own source passes a text match and is not what was promised. */
 Then(
-  "the work card should render {string} as a heading",
+  "the reader should render {string} as a heading",
   async function (this: KoluWorld, heading: string) {
-    const view = this.page.locator(
-      `${WORK_COLUMN} [data-testid="work-file-view"]`,
-    );
+    const view = this.page.locator('[data-testid="reader-doc"]');
     await view.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await waitForValue(
       "the headings the opened file renders",

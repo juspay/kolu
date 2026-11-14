@@ -107,7 +107,7 @@ let root: HTMLElement | undefined;
 function mount(row: ConductorAskRow): HTMLElement {
   root = document.createElement("div");
   document.body.append(root);
-  dispose = render(() => <ConductorAsk row={row} from="chat" />, root);
+  dispose = render(() => <ConductorAsk row={row} />, root);
   return root;
 }
 

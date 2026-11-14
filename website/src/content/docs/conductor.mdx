@@ -80,7 +80,7 @@ A **piece of work** is one kolu is storing and has not finished, so a waterfall 
 
 ## What wakes it
 
-The Conductor does not sit waiting on a terminal. It says what it has set going and ends its turn. kolu starts its next turn when one of these happens in a member terminal:
+The Conductor does not sit waiting, on a terminal or on you. It says what it has set going and ends its turn. kolu starts its next turn when one of these happens in a member terminal:
 
 | Wake | What happened |
 | --- | --- |
@@ -94,7 +94,7 @@ The Conductor does not sit waiting on a terminal. It says what it has set going 
 | `taken-over` | You took the terminal over. |
 | `handed-back` | You gave it back. |
 
-Nothing wakes the Conductor just because time passed, and a terminal that belongs to no piece of work never wakes it.
+An answer of yours wakes it too, saying who answered and what. Nothing wakes the Conductor because time passed, and a terminal in no work never wakes it.
 
 An agent can take seconds or minutes to start. So the Conductor creates a terminal, ends its turn, and sends the brief when the terminal reports `ready`.
 
@@ -127,13 +127,11 @@ A work holds its latest **30** agent state changes; older ones fold into one lin
 
 ### Who is typing
 
-While a work is in progress, each member terminal is read-only to you. A border in the Conductor's colour marks it, and typing raises a card offering **Take over**. The work card's terminal row carries both controls too.
-
-Each move writes a line on the work's timeline and wakes the Conductor, which leaves that terminal alone until you hand it back. The lock lives in the stored work, so every device sees it, and it ends when the terminal leaves. [Tiles](/tiles#a-terminal-the-conductor-is-driving) has the rest.
+While a work is in progress, each member terminal is read-only to you. A border in the Conductor's colour marks it, and typing raises a card offering **Take over**; the work card's terminal row carries both controls too. Each move goes on the work's timeline. [Tiles](/tiles#a-terminal-the-conductor-is-driving) has the rest.
 
 ### The work card
 
-On a wide window the works stand in a column beside the chat. On a narrow window, or a phone, the status line's **N pieces of work** opens the same column above it.
+On a wide window the works stand in a column beside the chat, which gives way to [the reader](/read-a-plan) while a file is open. On a narrow window, or a phone, the status line's **N pieces of work** opens the same column above it.
 
 Each work is one card: its title and how long it has run, **repo · host · mode**, `PR #n`, where it stands, and a time bar split by who it has waited on. Violet is you, amber is CI, teal is the agents.
 
@@ -141,9 +139,9 @@ Press the head and it opens:
 
 | Part | What you get |
 | --- | --- |
-| The question waiting for you | The same form the chat shows. Answering it here is answering it there. |
+| The question waiting for you | The same decision the chat and [the reader](/read-a-plan) show. Answering it in any of them answers it. |
 | Terminals | By role: how that agent stands, **Look** for its last lines, the name to go to its tile, and **Take over** or **Hand back**. |
-| Files | The worktree's `.waterfall/` files and the copies kolu kept, rendered in place by the [Code tab](/code-tab)'s viewer. |
+| Files | The worktree's `.waterfall/` files and the copies kolu kept. Click one to open it in [the reader](/read-a-plan). |
 | Pull request | Its number and title, the checks, and a link. |
 | Decisions | One line each: label, then answer, the setup first as **Host**, **Mode**, **Planner**, **Implementor**, **On green**. Click a row for the question and when. |
 | Timeline | One line per event, with its time and duration. A question reads **Asked:**, your answer **You:**. A long line is cut; click it for the rest. |
@@ -159,7 +157,7 @@ The header shows who the agent is signed in as, the **model**, the context used 
 | **New session** | Starts an empty conversation. The messages and their attached files are deleted. The pieces of work stay, because a work is kolu's rather than the conversation's. It asks first, and there is no undo. |
 | **Sign in…** | Shown while the agent is not signed in. |
 | **Copy transcript** | Copies the whole conversation as plain text. |
-| **How to use** | Opens the help. On a wide window the help is a column beside the chat. |
+| **How to use** | Opens the help. On a wide window it is a column beside the chat, folded away while a file is open. |
 | tool servers | `kolu ✓` when kolu's tools are attached, or the agent's reason when they are not. |
 
 In the transcript:
@@ -171,9 +169,9 @@ In the transcript:
 
 ## When it asks you
 
-A question from the Conductor, or a permission its agent needs, appears as a form in the chat. Nothing times out. Dismissing the form is an answer too: the agent is told you declined.
+A question from the Conductor, or a permission its agent needs, appears as a form in the chat and on the work's card. Nothing is held open: the Conductor ends its turn and is idle while you think. Your answer wakes it, and dismissing the form declines. A question about a work outlasts **New session** and a restart; only the chat's copy goes.
 
-The badge on the Conductor tab is how many things are waiting on you: a work stopped on a question or a decision of yours, plus any question asked outside a work. It is violet, and absent at zero. A question chimes, notifies and counts toward the app badge like any [needs-you](/notifications) source, unless the conversation is on screen in a focused window. A turn simply ending makes no sound.
+The badge on the Conductor tab is how many things are waiting on you: a work stopped on a question or a decision of yours, plus any question asked outside a work. It is violet, absent at zero, and a [needs-you](/notifications) source like any terminal.
 
 ## Attach a file
 

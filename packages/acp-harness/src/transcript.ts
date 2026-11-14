@@ -778,18 +778,16 @@ export class Transcript {
    *  string, and `openAsks` is a list of row ids rather than a second
    *  vocabulary that can disagree.
    *
-   *  `work` is the piece of work the question is ABOUT, for kolu's own asks
-   *  (`Harness.askPerson`); `null` for an agent's elicitation, which belongs
-   *  to the conversation alone. On the ROW rather than looked up later,
-   *  because the work's card draws this same row and a link inferred from
-   *  timing is the one that goes wrong when two questions are open. */
+   *  Always the AGENT'S question: kolu's own questions about a piece of work
+   *  are decisions on that work, and the row that says one was asked is
+   *  minted by `kolu-conductor` itself (it carries the `work` this one never
+   *  sets) because nothing in this harness is holding it. */
   ask(
     id: string,
     message: string,
     fields: ReadonlyArray<AskField>,
     link: AskLink | null,
     parent: string | null,
-    work: string | null = null,
   ): Change {
     const closed = this.#close();
     return both(
@@ -799,7 +797,6 @@ export class Transcript {
         text: message,
         ask: { fields, link, outcome: null },
         ...(parent === null ? {} : { parent }),
-        ...(work === null ? {} : { work }),
       }),
     );
   }

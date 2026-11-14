@@ -42,7 +42,6 @@ import {
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Form } from "@kolu/acp";
 import { AGENT_ENV } from "@kolu/acp/engine";
 import type {
   Harness,
@@ -91,6 +90,7 @@ import {
   driverOf,
   type KeptFile,
   type SetupKey,
+  setupOf,
   type Work,
   type WorkMember,
   WorkRefusal,
@@ -140,14 +140,6 @@ const userRow = (id: string, seq: number, text: string): ConductorRow => ({
   attachments: [],
 });
 
-/** One question this conversation put to the human, as the TEST sees it: the
- *  ask's id, the work it names, and the form it is drawn from. */
-interface Asked {
-  readonly id: string;
-  readonly work: string;
-  readonly form: Form;
-}
-
 /** The conversation this host spawned, as the TEST drives it: the options it
  *  was handed, a way to report movement, a way to take the first breath a real
  *  harness takes at the end of its open, and a way to die the way a child that
@@ -183,10 +175,10 @@ interface Spawned {
    *  `null` again. A wake that did not go is the case `told` turns on: news
    *  nobody delivered is still owed. */
   readonly failWakes: (why: string | null) => void;
-  /** EVERY QUESTION KOLU PUT TO THE HUMAN through this conversation
-   *  (`Harness.askPerson`) — one row each, still open until `host.answer`
-   *  settles it or a new session withdraws it. */
-  readonly asks: () => ReadonlyArray<Asked>;
+  /** THE ROWS THIS CONVERSATION WAS ASKED TO DELETE on a wipe — the ids the
+   *  caller holds that this harness never minted, which is how kolu's own
+   *  rows (a question about a work, a notice) leave with the chat. */
+  readonly wiped: () => ReadonlyArray<string>;
 }
 
 function fakeSpawner(): {
@@ -205,18 +197,7 @@ function fakeSpawner(): {
       events: ReadonlyArray<ConductorWakeEvent>;
     }> = [];
     let wakeFails: string | null = null;
-    const asked: Asked[] = [];
-    /** The questions still waiting on somebody, by ask id — the half of
-     *  `questions.ask()` this stand-in models: an id is minted, the caller is
-     *  told it (which is when the WORK writes its decisions), and the promise
-     *  settles when the answer, the decline or the withdrawal arrives. */
-    const open = new Map<
-      string,
-      (settled: {
-        outcome: { how: "answered" | "declined" | "withdrawn" };
-        content: Record<string, string | number | boolean | Array<string>>;
-      }) => void
-    >();
+    const wiped: string[] = [];
     let state: HarnessState = {
       ...DEFAULT_CONDUCTOR_STATE,
       phase: "idle",
@@ -238,19 +219,6 @@ function fakeSpawner(): {
         wakes.push({ text, events });
         return { rowId: `woke:${wakes.length}` };
       },
-      askPerson: async (form, about) => {
-        const id = `kolu:ask:${asked.length + 1}`;
-        const settled = Promise.withResolvers<{
-          outcome: { how: "answered" | "declined" | "withdrawn" };
-          content: Record<string, string | number | boolean | Array<string>>;
-        }>();
-        open.set(id, settled.resolve);
-        asked.push({ id, work: about.work, form });
-        // The id reaches the caller BEFORE anything can answer it — which is
-        // the order the work's decisions are written in.
-        about.known?.(id);
-        return settled.promise;
-      },
       // A CANCEL ENDS THE TURN, which the real harness reports as the state
       // every reader counts from: the last ticket left, so the conversation
       // is idle. Modelled because that edge is what releases the held news —
@@ -259,44 +227,22 @@ function fakeSpawner(): {
         state = { ...state, phase: "idle", busySince: null };
         options.onChange({ kind: "state", state });
       },
-      answer: async (id, answers) => {
-        const settle = open.get(id);
-        if (settle === undefined) return true;
-        open.delete(id);
-        // The registry settles SYNCHRONOUSLY inside `answer`, exactly as the
-        // real one does — which is what lets the host's `answer(…, from)`
-        // write down where the press came from and have the waiting ask read
-        // it in the same tick.
-        settle(
-          answers === null
-            ? { outcome: { how: "declined" }, content: {} }
-            : {
-                outcome: { how: "answered" },
-                content: Object.fromEntries(
-                  answers.map((one) => [one.key, [...one.values]]),
-                ),
-              },
-        );
-        return true;
-      },
+      // NOTHING IS HELD HERE ANY MORE. The only questions that reach a
+      // harness are the AGENT'S own elicitations, and this stand-in never
+      // sends one: kolu's questions about a work are decisions on the work,
+      // answered through `answerWork` with nothing waiting on them.
+      answer: async () => true,
       signIn: async () => "signed-in",
       signInInput: async () => {},
       signInCancel: async () => false,
       setOption: async () => {},
       newSession: async () => {
         sessions += 1;
-        // A NEW CONVERSATION WITHDRAWS WHAT THE OLD ONE ASKED: the promise
-        // behind every open row belonged to the session that is going.
-        for (const settle of open.values())
-          settle({ outcome: { how: "withdrawn" }, content: {} });
-        open.clear();
         leaving?.();
       },
       clearSession: async (held) => {
         sessions += 1;
-        for (const settle of open.values())
-          settle({ outcome: { how: "withdrawn" }, content: {} });
-        open.clear();
+        wiped.push(...held);
         leaving?.();
         // THE REMOVES ARE THE HARNESS'S. The conversation's rows are the
         // harness's own — and so is everything kept beside them — so the wipe
@@ -341,7 +287,7 @@ function fakeSpawner(): {
       failWakes: (why) => {
         wakeFails = why;
       },
-      asks: () => asked,
+      wiped: () => wiped,
     });
     return harness;
   };
@@ -1896,6 +1842,16 @@ const theWork = (r: Rig): Work => {
 const kindsOf = (work: Work): ReadonlyArray<string> =>
   work.events.map((one) => one.kind);
 
+/** The rows a NEW reader would be handed — the snapshot, which is what the
+ *  next person to open the panel actually sees. */
+const served = (host: ConductorHost): ReadonlyArray<ConductorRow> => {
+  const seen: ConductorFrame[] = [];
+  host.watch((frame) => seen.push(frame));
+  const first = seen[0];
+  if (first?.kind !== "snapshot") throw new Error("expected a snapshot");
+  return first.rows;
+};
+
 /** Let whatever the last reading set going finish. A member's `.waterfall/` is
  *  listed ONE call at a time, so a test that fired the next reading while the
  *  first listing was still in flight would be racing that guard rather than
@@ -1921,16 +1877,6 @@ describe("the wipe (`clearSession`)", () => {
     rows: [row("user:1", 1, "hello"), row("agent:2", 2, "hello back")],
   };
 
-  /** The rows a NEW reader would be handed — the snapshot, which is what the
-   *  next person to open the panel actually sees. */
-  const served = (host: ConductorHost): ReadonlyArray<ConductorRow> => {
-    const seen: ConductorFrame[] = [];
-    host.watch((frame) => seen.push(frame));
-    const first = seen[0];
-    if (first?.kind !== "snapshot") throw new Error("expected a snapshot");
-    return first.rows;
-  };
-
   it("leaves an EMPTY conversation — rows, record and fleet together", async () => {
     const r = rig(held);
     r.host.watch(() => {});
@@ -1952,13 +1898,15 @@ describe("the wipe (`clearSession`)", () => {
     expect(r.spawns[0]?.sessions()).toBe(1);
   });
 
-  it("KEEPS every piece of work, and drops the question one had open", async () => {
+  it("KEEPS every piece of work, and the question one had open", async () => {
     // The ruling this whole record exists for: "New session" clears the
     // CONVERSATION. A person pressing it has said they are done with the chat,
-    // not that they stopped caring about a waterfall in flight. What a work
-    // does lose is the question it had open — the promise behind it belonged
-    // to the conversation being deleted — so the decision is recorded as
-    // dropped rather than left waiting on nobody for ever.
+    // not that they stopped caring about a waterfall in flight.
+    //
+    // AND THE QUESTION STAYS WITH IT. Nothing holds a promise behind a
+    // question any more — it is a decision with no answer yet — so the card
+    // still offers it after the wipe, and answering it there wakes whatever
+    // conversation comes next. The chat's copy goes, because the chat went.
     const r = rig(held);
     r.host.watch(() => {});
     await r.host.prompt("still here?", [], [], false);
@@ -1967,16 +1915,15 @@ describe("the wipe (`clearSession`)", () => {
     idle(agent);
     const work = await watchWork(r);
     r.host.joinWork(work, A, "implementor", "created");
-    const asking = r.host.askAboutWork(work, [
+    const { ask } = r.host.askAboutWork(work, [
       {
         header: "Plan approval",
         question: "Approve the plan?",
         options: ["yes", "no"],
       },
     ]);
-    await vi.waitFor(() => {
-      expect(agent.asks()).toHaveLength(1);
-    });
+    // The question is a row in the chat, under the ask's own id.
+    expect(served(r.host).some((one) => one.id === ask)).toBe(true);
 
     await r.host.clearSession();
 
@@ -1986,16 +1933,37 @@ describe("the wipe (`clearSession`)", () => {
     expect(kept.endedAt).toBeNull();
     expect(r.host.memberRefs()).toEqual([A]);
     expect(r.works.value()[0]?.id).toBe(work);
-    // ... and the question went with the conversation. (The two decisions
-    // before it are the setup the request itself answered.)
+    // ... and the question is STILL OPEN. (The two decisions before it are
+    // the setup the request itself answered.)
     expect(
       kept.decisions.find((one) => one.question === "Approve the plan?")
         ?.answer,
-    ).toMatchObject({ how: "dropped" });
-    expect(kindsOf(kept)).toContain("question-dropped");
-    // The caller is told rather than left holding a promise nothing will
-    // settle.
-    await expect(asking).resolves.toMatchObject({ declined: true });
+    ).toBeNull();
+    expect(kindsOf(kept)).not.toContain("question-dropped");
+    // The chat's copy of it went with the rows, which is the one thing a wipe
+    // does take: the card is where it is answered from now.
+    expect(served(r.host)).toEqual([]);
+
+    // ... and answering it AFTER the wipe still lands, and still wakes the
+    // conversation that is there now.
+    expect(
+      r.host.answerWork({
+        work,
+        ask,
+        from: "card",
+        values: new Map([
+          [
+            kept.decisions.find((one) => one.question === "Approve the plan?")
+              ?.id ?? "",
+            ["yes"],
+          ],
+        ]),
+      }),
+    ).toEqual({ settled: true });
+    await vi.waitFor(() => {
+      expect(r.spawns.at(-1)?.wakes()).toHaveLength(1);
+    });
+    expect(r.spawns.at(-1)?.wakes()[0]?.text).toContain("ANSWERED");
   });
 
   it("leaves a REPLACEMENT nothing to fence against", async () => {
@@ -2168,20 +2136,24 @@ describe("opening a piece of work", () => {
     return agent;
   };
 
-  it("creates the work AT ONCE, puts the setup as ONE row, and reads the answers back", async () => {
+  it("creates the work AT ONCE, puts the setup as ONE row, and ANSWERS WITHOUT WAITING", async () => {
     const r = rig();
     const agent = await asked(r);
-    const opening = r.host.openWork({
+    const opened = r.host.openWork({
       title: "fix the parser",
       repo: "/srv/repo",
       branch: "fix-the-parser",
       setup: fullSetup,
     });
-    const ask = await vi.waitFor(() => {
-      const one = agent.asks()[0];
-      if (one === undefined) throw new Error("nothing was asked");
-      return one;
-    });
+
+    // THE CALL IS ALREADY OVER. Nothing is waiting on the human — which is
+    // the whole of this change: the tool that asked has its answer, says what
+    // it asked, and ends its turn.
+    expect(opened.asked).toBe(true);
+    expect(opened.ask).toMatch(/^ask:/);
+    // The setup reads as what the REQUEST gave and nothing else: the rest is
+    // still open, so it is honestly `null` rather than a guess.
+    expect(opened.setup).toMatchObject({ host: "local", mode: null });
 
     // THE WORK EXISTS BEFORE ANYBODY HAS ANSWERED, with the human's own words
     // at the top of its timeline — kolu quotes what it SAW, never the
@@ -2193,32 +2165,40 @@ describe("opening a piece of work", () => {
       by: "you",
       detail: "fix the parser on prod, please",
     });
-    // ... and the row NAMES the work, which is what lets the card draw and
-    // answer the same question the chat does.
-    expect(ask.work).toBe(open.id);
+    // ... and the chat says it was asked, in a row NAMING the work — which is
+    // what lets the transcript draw the same question the card does. The row
+    // is kolu's own: nothing was put to the AGENT at all.
+    expect(served(r.host).find((one) => one.id === opened.ask)).toMatchObject({
+      kind: "ask",
+      work: open.id,
+    });
+    // ... and NOTHING is in the agent's own question registry: this is not an
+    // elicitation, so there is no call to hold open and no deadline on it.
+    expect(r.host.state().openAsks).toEqual([]);
     expect(kindsOf(open)).toContain("question");
     // An answer the REQUEST already gave is a decision, and nobody was asked.
     expect(
       open.decisions.find((one) => one.key === "host")?.answer,
     ).toMatchObject({ how: "answered", picked: ["local"], from: "request" });
 
-    await r.host.answer(
-      ask.id,
-      [
-        { key: fieldOf(r, "mode"), values: ["full"] },
-        { key: fieldOf(r, "planner.harness"), values: ["claude-code"] },
-        { key: fieldOf(r, "planner.model"), values: ["opus"] },
-        { key: fieldOf(r, "implementor.harness"), values: ["claude-code"] },
-        { key: fieldOf(r, "implementor.model"), values: ["sonnet"] },
-        { key: fieldOf(r, "on-green"), values: ["merge"] },
-      ],
-      "card",
-    );
-    const settled = await opening;
+    expect(
+      r.host.answerWork({
+        work: open.id,
+        ask: opened.ask,
+        from: "card",
+        values: new Map([
+          [fieldOf(r, "mode"), ["full"]],
+          [fieldOf(r, "planner.harness"), ["claude-code"]],
+          [fieldOf(r, "planner.model"), ["opus"]],
+          [fieldOf(r, "implementor.harness"), ["claude-code"]],
+          [fieldOf(r, "implementor.model"), ["sonnet"]],
+          [fieldOf(r, "on-green"), ["merge"]],
+        ]),
+      }),
+    ).toEqual({ settled: true });
 
     // THE SETUP IS A READING of those decisions — there is no second copy.
-    expect(settled.declined).toBe(false);
-    expect(settled.setup).toEqual({
+    expect(setupOf(theWork(r))).toEqual({
       host: "local",
       mode: "full",
       roles: [
@@ -2233,41 +2213,49 @@ describe("opening a piece of work", () => {
       answered.decisions.find((one) => one.key === "mode")?.answer,
     ).toMatchObject({ how: "answered", picked: ["full"], from: "card" });
     expect(kindsOf(answered)).toContain("answered");
+    // THE ANSWER WAKES THE CONDUCTOR — the only way one ever reaches it now.
+    await vi.waitFor(() => {
+      expect(agent.wakes()).toHaveLength(1);
+    });
+    const woke = agent.wakes()[0]?.text ?? "";
+    expect(woke).toContain("the human answered a question you asked");
+    expect(woke).toContain("on the work's card");
+    expect(woke).toContain("full");
+    // ... and the row in the chat says how it ended.
+    expect(served(r.host).find((one) => one.id === opened.ask)).toMatchObject({
+      ask: { outcome: { how: "answered" } },
+    });
   });
 
   it("takes the words the human typed instead of an option", async () => {
     const r = rig();
-    const agent = await asked(r);
-    const opening = r.host.openWork({
+    await asked(r);
+    const opened = r.host.openWork({
       title: "fix the parser",
       repo: "/srv/repo",
       branch: "fix-the-parser",
       setup: fullSetup,
     });
-    const ask = await vi.waitFor(() => {
-      const one = agent.asks()[0];
-      if (one === undefined) throw new Error("nothing was asked");
-      return one;
+    // Whatever is not one of the question's own options is what they TYPED in
+    // the box beside them, under that same decision's id.
+    r.host.answerWork({
+      work: opened.work,
+      ask: opened.ask,
+      from: "chat",
+      values: new Map([
+        [fieldOf(r, "mode"), ["trivial"]],
+        [fieldOf(r, "implementor.model"), ["haiku"]],
+        [fieldOf(r, "implementor.harness"), ["claude-code"]],
+        [fieldOf(r, "on-green"), ["hand-over"]],
+      ]),
     });
-    // The "or say it in your own words" box beside the options, which is a
-    // field of its own keyed off the decision.
-    await r.host.answer(
-      ask.id,
-      [
-        { key: fieldOf(r, "mode"), values: ["trivial"] },
-        { key: `${fieldOf(r, "implementor.model")}~other`, values: ["haiku"] },
-        { key: fieldOf(r, "implementor.harness"), values: ["claude-code"] },
-        { key: fieldOf(r, "on-green"), values: ["hand-over"] },
-      ],
-      "chat",
-    );
-    const settled = await opening;
-    expect(settled.setup.mode).toBe("trivial");
+    const setup = setupOf(theWork(r));
+    expect(setup.mode).toBe("trivial");
     // Typed rather than picked, and read back all the same.
-    expect(settled.setup.roles).toEqual([
+    expect(setup.roles).toEqual([
       { role: "implementor", harness: "claude-code", model: "haiku" },
     ]);
-    expect(settled.setup.onGreen).toBe("hand-over");
+    expect(setup.onGreen).toBe("hand-over");
     expect(
       theWork(r).decisions.find((one) => one.key === "implementor.model")
         ?.answer,
@@ -2282,36 +2270,101 @@ describe("opening a piece of work", () => {
   it("ends the work ABANDONED when the human declines the setup", async () => {
     const r = rig();
     const agent = await asked(r);
-    const opening = r.host.openWork({
+    const opened = r.host.openWork({
       title: "fix the parser",
       repo: "/srv/repo",
       branch: "fix-the-parser",
       setup: fullSetup,
     });
-    const ask = await vi.waitFor(() => {
-      const one = agent.asks()[0];
-      if (one === undefined) throw new Error("nothing was asked");
-      return one;
-    });
-    await r.host.answer(ask.id, null, "chat");
-    const settled = await opening;
+    expect(
+      r.host.answerWork({
+        work: opened.work,
+        ask: opened.ask,
+        from: "chat",
+        values: null,
+      }),
+    ).toEqual({ settled: true });
 
-    // A setup nobody answered is a work nobody wanted: the Conductor is told
-    // rather than left holding an id for a card that will never have a member.
-    expect(settled.declined).toBe(true);
+    // A setup nobody answered is a work nobody wanted: the card is closed out
+    // rather than left for a waterfall that will never have a member...
     expect(theWork(r)).toMatchObject({ outcome: "abandoned" });
+    // ... and the Conductor is TOLD, the same way an answer reaches it.
+    await vi.waitFor(() => {
+      expect(agent.wakes()).toHaveLength(1);
+    });
+    expect(agent.wakes()[0]?.text).toContain("DECLINED");
   });
 
   it("asks NOBODY ANYTHING when the request already said it all", async () => {
     const r = rig();
-    const agent = await asked(r);
+    await asked(r);
     const work = await watchWork(r);
     // The whole point of `given`: the human said where and how in the message
     // that started this, and a form putting it back to them is the "you
     // already told me, say it again" this shape removes.
-    expect(agent.asks()).toEqual([]);
+    expect(served(r.host).some((one) => one.kind === "ask")).toBe(false);
     expect(theWork(r).id).toBe(work);
     expect(kindsOf(theWork(r))).not.toContain("question");
+  });
+
+  it("a question nobody answers for longer than a tool call may live costs the Conductor NOTHING", async () => {
+    // THE RED CARD THIS CHANGE EXISTS TO MAKE IMPOSSIBLE. An agent's MCP
+    // client gives up on a tool call that has said nothing for five minutes —
+    // «MCP server "kolu" tool "work_ask" sent no response or progress for
+    // 300s; aborting» — and a person reading a plan takes longer than that.
+    //
+    // HOST LEVEL, with the fake clock: the deadline belongs to the agent's
+    // own MCP client, which no test here runs. What kolu can be held to is
+    // the thing that made the deadline reachable at all — a call of its own
+    // left open across it — so the clock is driven well past 300s with the
+    // question unanswered and the claim is that there was never anything to
+    // abort: the call answered in the same tick it was made, the question is
+    // still open, and the late answer still wakes the conversation.
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "setInterval"] });
+    try {
+      const r = rig();
+      const agent = await asked(r);
+      const work = await watchWork(r);
+      const { ask } = r.host.askAboutWork(work, [
+        {
+          header: "Plan approval",
+          question: "Approve the plan?",
+          options: ["approve", "change it"],
+          file: ".waterfall/plan.md",
+        },
+      ]);
+      // ANSWERED ALREADY — before a single millisecond has passed.
+      expect(ask).toMatch(/^ask:/);
+
+      // Ten minutes of a person reading. Nothing fails, because nothing is
+      // waiting: no call, no promise, no row the agent is holding.
+      vi.setSystemTime(Date.now() + 10 * 60_000);
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      expect(agent.wakes()).toEqual([]);
+      expect(r.host.state().openAsks).toEqual([]);
+      const waiting = theWork(r).decisions.find((one) => one.ask === ask);
+      expect(waiting?.answer).toBeNull();
+      expect(waiting?.file).toBe(".waterfall/plan.md");
+
+      // ... and the answer, whenever it comes, is what starts the next turn.
+      expect(
+        r.host.answerWork({
+          work,
+          ask,
+          from: "reader",
+          values: new Map([[waiting?.id ?? "", ["approve"]]]),
+        }),
+      ).toEqual({ settled: true });
+      await vi.waitFor(() => {
+        expect(agent.wakes()).toHaveLength(1);
+      });
+      const woke = agent.wakes()[0]?.text ?? "";
+      expect(woke).toContain("the human answered a question you asked");
+      expect(woke).toContain("in the reader, with the file open");
+      expect(woke).toContain("approve");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -2562,10 +2615,11 @@ describe("the watch across a restart", () => {
     expect(agent.wakes()[0]?.events[0]?.level).toBe("asking");
   });
 
-  it("drops a question that was still open when kolu stopped", async () => {
-    // The conversation holding that promise is gone, so nobody can answer it
-    // any more — and a decision left `null` would make the card say a person
-    // is being waited on for ever.
+  it("KEEPS a question that was still open when kolu stopped", async () => {
+    // Nothing was ever holding it: a question is a DECISION with no answer
+    // yet, so a restart finds exactly what it left. The human who went to
+    // read the plan overnight comes back to the same button, and answering
+    // it wakes the conversation this boot brings up.
     const r = rig({
       works: [
         storedWork({
@@ -2590,6 +2644,7 @@ describe("the watch across a restart", () => {
               question: "Approve the plan?",
               options: ["yes", "no"],
               multiple: false,
+              file: "",
               answer: null,
             },
           ],
@@ -2597,12 +2652,9 @@ describe("the watch across a restart", () => {
       ],
     });
     const carried = theWork(r);
-    expect(carried.decisions[0]?.answer).toMatchObject({
-      how: "dropped",
-      from: null,
-    });
-    expect(kindsOf(carried)).toEqual(["question", "question-dropped"]);
-    // The work itself is untouched: only the question it could no longer keep.
+    expect(carried.decisions[0]?.answer).toBeNull();
+    expect(kindsOf(carried)).toEqual(["question"]);
+    // The work itself is untouched too.
     expect(carried.endedAt).toBeNull();
   });
 });
@@ -3297,7 +3349,7 @@ describe("taking a driven terminal over, and handing it back", () => {
 });
 
 describe("a restored backup of the works", () => {
-  it("replaces them, drops their open questions, re-scopes and writes NOW", async () => {
+  it("replaces them, keeps their open questions, re-scopes and writes NOW", async () => {
     const r = rig();
     const before = await drivenWork(r);
     const moved = r.membersMoved().length;
@@ -3319,6 +3371,7 @@ describe("a restored backup of the works", () => {
               question: "Approve the plan?",
               options: ["Approve"],
               multiple: false,
+              file: ".waterfall/plan.md",
               answer: null,
             },
           ],
@@ -3329,9 +3382,10 @@ describe("a restored backup of the works", () => {
 
     // The snapshot's works, and only those.
     expect(r.host.works().map((one) => one.id)).toEqual(["work:restored"]);
-    // THE QUESTION IS DROPPED: the conversation that asked it is long gone —
-    // it was asked before the backup was taken — so nobody can answer it.
-    expect(r.host.works()[0]?.decisions[0]?.answer?.how).toBe("dropped");
+    // THE QUESTION COMES BACK OPEN: the snapshot recorded it unanswered, and
+    // that is what the record says. Nothing was holding it, so there is
+    // nothing a restore can have broken — the card still offers it.
+    expect(r.host.works()[0]?.decisions[0]?.answer).toBeNull();
     // The watcher re-scopes: the membership is now the snapshot's.
     expect(r.membersMoved().slice(moved)).toEqual([true]);
     expect(r.host.memberRefs()).toEqual([B]);

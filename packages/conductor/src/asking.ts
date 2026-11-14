@@ -1,192 +1,243 @@
 /**
- * KOLU'S OWN QUESTIONS TO THE HUMAN — minted, recorded before anything can
- * answer them, put as the ONE form an agent's elicitation already draws, and
- * read back.
+ * KOLU'S OWN QUESTIONS TO THE HUMAN — minted, recorded, SAID in the
+ * conversation, and answered later from wherever the person happens to be.
  *
- * Two halves of one concern. The PURE half is the elicitation bridge: a set of
- * questions becomes a `Form`, each with its own "or say it in your own words"
- * box, and the answer comes back split into picks and typed text. That shape
- * revs with `@kolu/acp`, which is why it is spelled in one place. The LIVE
- * half is {@link Asking.put}: the decisions are written when the ask id is
- * MINTED, before anything can answer it, so a person answering from the card
- * the moment it appears cannot land an answer on a work that does not know it
- * was asked.
+ * NOTHING HERE WAITS. A question about a piece of work is a DECISION on that
+ * work with no answer yet: it is written when the ask id is minted, before
+ * anything can answer it, and the call that asked it returns at once. The
+ * Conductor's turn ends; when somebody answers, {@link Asking.answer} records
+ * it and the conversation is WOKEN with what they said.
+ *
+ * That is the whole of why this module no longer touches the agent. Asking
+ * used to be an elicitation whose promise the tool call awaited, which made
+ * the Conductor's turn sit in a wait for as long as a person took to read a
+ * plan — and an MCP client gives up on a tool call that says nothing for five
+ * minutes ("sent no response or progress for 300s; aborting"). A question is
+ * not a tool call that runs slowly; it is a thing the record holds until
+ * somebody answers it, which is what it is now.
+ *
+ * The question is SAID in the transcript too — one row where it was asked, so
+ * the chat reads as a conversation rather than as a card referring to one.
+ * That row is the conversation's log: it is minted when the question goes and
+ * settled with what was said. The WORK is the record, and every face that
+ * offers the question to a person reads it there.
  */
 
-import type { AskChoice, AskField } from "@kolu/acp/wire";
-import type { Form } from "@kolu/acp";
-import type { Harness } from "@kolu/acp-harness";
+import type { AskAnswer, AskChoice, AskField } from "@kolu/acp/wire";
 import {
   answerAsk,
+  type AnswerFrom,
   askQuestions,
   dropAsk,
-  type AnswerFrom,
+  hasOpenAsk,
+  openAsks,
   type Question,
+  type Work,
 } from "kolu-work";
+import type { AnsweredNews } from "./wakeText.ts";
 import type { WorkStore } from "./workStore.ts";
 
-/** The suffix of the free-text field attached to a question — the "or say it
- *  in your own words" box beside the options.
- *
- *  Derived from the decision's own id so the two keys travel together and the
- *  answer can be read back without a second map. `~` because a decision id is
- *  a uuid and never contains one. */
-export const otherKey = (decision: string): string => `${decision}~other`;
-
 /**
- * THE FORM a set of questions is put as — one field per question, each with
- * its own "other" box attached.
+ * THE FIELDS a set of questions is SAID as, in the transcript's row — one per
+ * question, keyed by the decision it belongs to.
  *
- * Shaped exactly like an agent's elicitation, because it IS one as far as
- * everything downstream is concerned: the row is drawn by the same component,
- * answered by the same procedure, and settled by the same registry. What makes
- * it kolu's is that the row names the work (`Harness.askPerson`).
+ * A log of what was asked, not a form: the thing a person presses is drawn
+ * from the work's decisions ({@link ../../client/src/conductor/WorkQuestion.tsx}),
+ * which is the one copy that can be answered. These fields exist so the row,
+ * and the clipboard's copy of the transcript, say what was asked and what was
+ * answered without reaching for the work.
  *
- * Every question is OPTIONAL (`required: false`). A person answering from the
- * card may answer the one question they came for and leave the rest; a
- * required field would refuse that answer at the harness and leave the row up
- * with nothing said about why.
+ * The typed answer rides back under the question's OWN key beside its picks,
+ * so there is no second "other" key to read back.
  */
-export const askForm = (
-  message: string,
+export const askFields = (
   questions: ReadonlyArray<Question>,
-): Form => {
-  const fields: AskField[] = [];
-  for (const one of questions) {
+): ReadonlyArray<AskField> =>
+  questions.map((one) => {
     const choices: AskChoice[] = one.options.map((option) => ({
       value: option,
       label: option,
       hint: null,
     }));
-    fields.push({
+    return {
       key: one.id,
       label: one.question,
       hint: null,
       kind: one.multiple ? "choices" : "choice",
       choices,
+      // Every question is optional: a person may answer the one they came for
+      // and leave the rest, and the record says exactly that about the others.
       required: false,
       attachedTo: null,
-    });
-    fields.push({
-      key: otherKey(one.id),
-      label: "or say it in your own words",
-      hint: null,
-      kind: "text",
-      choices: [],
-      required: false,
-      attachedTo: one.id,
-    });
-  }
-  // A question kolu asked is not a tool call and names no place to go: both are
-  // facts about the form rather than fields somebody forgot.
-  return { message, fields, toolCall: null, link: null };
-};
+    };
+  });
 
-const valuesAt = (
-  value: string | number | boolean | Array<string> | undefined,
-): ReadonlyArray<string> => {
-  if (value === undefined) return [];
-  if (Array.isArray(value)) return value.filter((one) => one !== "");
-  const said = String(value);
-  return said === "" ? [] : [said];
-};
+/** THE DECISIONS THIS ANSWER SETTLED — the ones that were still open when it
+ *  arrived, in the order they were asked. Read BEFORE the record moves,
+ *  because afterwards nothing distinguishes them from the answers the request
+ *  itself gave in the same ask (a `work_open` whose setup was half `given`
+ *  carries both under one id). */
+const stillOpen = (work: Work, ask: string): ReadonlyArray<string> =>
+  work.decisions
+    .filter((one) => one.ask === ask && one.answer === null)
+    .map((one) => one.id);
 
-/** What the human answered one question, as the values `answerAsk` splits into
- *  picks and typed text: whatever they chose, plus whatever they typed in the
- *  box beside it. A question they left alone answers with nothing, which is
- *  what the record then says about it. */
-export const pickedValues = (
-  content: Readonly<Record<string, string | number | boolean | Array<string>>>,
-  decision: string,
-): ReadonlyArray<string> => [
-  ...valuesAt(content[decision]),
-  ...valuesAt(content[otherKey(decision)]),
-];
+/** What a settled ask's row says happened. `dropped` is the row's
+ *  `withdrawn`: the question went away with nobody answering it, which is the
+ *  one ending the transcript already spells. */
+const outcomeOf = (
+  work: Work,
+  settled: ReadonlyArray<string>,
+  how: "answered" | "declined" | "dropped",
+): { how: "answered" | "declined" | "withdrawn"; answers: AskAnswer[] } => ({
+  how: how === "dropped" ? "withdrawn" : how,
+  answers: work.decisions
+    .filter((one) => settled.includes(one.id))
+    .map((one) => {
+      const answer = one.answer;
+      return {
+        key: one.id,
+        // What was picked, plus what was typed — the values the question was
+        // answered with, under the question's own key.
+        values:
+          answer === null || answer.text === null
+            ? (answer?.picked ?? [])
+            : [...answer.picked, answer.text],
+      };
+    }),
+});
+
+/** The news one settled ask makes, for the wake that carries it. Built off
+ *  the record after it moved, so what the Conductor is told is what the card
+ *  shows — and off the questions THIS answer settled, so a setup the request
+ *  half-answered does not read back its own `given` values as news. */
+const newsOf = (
+  work: Work,
+  ask: string,
+  settled: ReadonlyArray<string>,
+  how: "answered" | "declined" | "dropped",
+  from: AnswerFrom | null,
+  at: string,
+): AnsweredNews => ({
+  work: work.id,
+  title: work.title,
+  ask,
+  from,
+  how,
+  at,
+  answers: work.decisions
+    .filter((one) => settled.includes(one.id))
+    .map((one) => ({
+      question: one.header === "" ? one.question : one.header,
+      picked: one.answer?.picked ?? [],
+      text: one.answer?.text ?? null,
+      file: one.file,
+    })),
+});
 
 export interface Asking {
-  /** Put kolu's own questions to the human as ONE ask the work knows about.
-   *  Resolves when the ask has settled, whichever way. */
+  /** Put kolu's own questions to the human as ONE ask the work knows about —
+   *  and ANSWER AT ONCE. `asked` is false when the request had already given
+   *  every answer, which is a set of decisions and nobody asked anything. */
   readonly put: (
-    id: string,
+    work: string,
     message: string,
     questions: ReadonlyArray<Question>,
-  ) => Promise<{ answered: boolean; ask: string }>;
-  /** WHERE A QUESTION WAS ANSWERED FROM, written down BEFORE the answer goes:
-   *  the harness settles the question synchronously inside `answer`, so the
-   *  ask waiting on it reads this in the same tick. A question about no work
-   *  leaves an entry nobody collects — dropped when the next answer under that
-   *  id would be, which cannot happen: an id settles once. */
-  readonly answeredFrom: (ask: string, from: AnswerFrom) => void;
+  ) => { readonly ask: string; readonly asked: boolean };
+  /** The human's answer to one ask, from wherever they gave it — `null`
+   *  values DECLINE the whole ask. Answers the news for the wake, or `null`
+   *  when that ask had nothing open (somebody else got there first). */
+  readonly answer: (answered: {
+    readonly work: Work;
+    readonly ask: string;
+    readonly from: AnswerFrom;
+    readonly values: ReadonlyMap<string, ReadonlyArray<string>> | null;
+  }) => AnsweredNews | null;
+  /** EVERY QUESTION A WORK STILL HAS OPEN, DROPPED — the work ended under
+   *  them, so nobody will ever answer them. The news is the Conductor's: it
+   *  asked, and it is owed the ending whichever ending it was. */
+  readonly drop: (work: Work) => ReadonlyArray<AnsweredNews>;
 }
 
 export const asking = (deps: {
-  readonly ask: <T>(work: (agent: Harness) => Promise<T>) => Promise<T>;
   readonly store: WorkStore;
+  /** KOLU'S QUESTION, SAID in the conversation — one row, minted under the
+   *  ask's own id. */
+  readonly said: (
+    ask: string,
+    work: string,
+    message: string,
+    fields: ReadonlyArray<AskField>,
+  ) => void;
+  /** ... and how it ended, on that same row. */
+  readonly settled: (
+    ask: string,
+    outcome: {
+      how: "answered" | "declined" | "withdrawn";
+      answers: AskAnswer[];
+    },
+  ) => void;
 }): Asking => {
-  /** A map rather than a field because two works can have a question open at
-   *  once, and an entry lives only for the round trip between the press and
-   *  the settlement. */
-  const answeredFrom = new Map<string, AnswerFrom>();
   const nowIso = (): string => new Date().toISOString();
 
   return {
-    answeredFrom: (ask, from) => {
-      answeredFrom.set(ask, from);
-    },
-    put: async (id, message, questions) => {
+    put: (id, message, questions) => {
       const at = nowIso();
-      let askId = "";
-      const settled = await deps.ask((agent) =>
-        // A question the request already answered (`given`) is recorded with
-        // the rest but never drawn: nobody is asked what they already said.
-        agent.askPerson(
-          askForm(
-            message,
-            questions.filter((one) => one.given === undefined),
-          ),
-          {
-            work: id,
-            known: (minted) => {
-              askId = minted;
-              const work = deps.store.get(id);
-              if (work === undefined) return;
-              deps.store.save(
-                askQuestions(work, { ask: minted, at, questions }),
-              );
-              deps.store.changed();
-            },
-          },
-        ),
-      );
-      const settledAt = nowIso();
-      const from = answeredFrom.get(askId) ?? null;
-      answeredFrom.delete(askId);
       const work = deps.store.get(id);
-      if (work !== undefined) {
-        // WITHDRAWN is nobody's answer: the conversation that asked it went
-        // away, so the decision is DROPPED rather than recorded as a refusal
-        // the human never made.
-        deps.store.save(
-          settled.outcome.how === "withdrawn"
-            ? dropAsk(work, askId, settledAt)
-            : answerAsk(work, {
-                ask: askId,
-                at: settledAt,
-                from,
-                values:
-                  settled.outcome.how === "declined"
-                    ? null
-                    : new Map(
-                        questions.map((one) => [
-                          one.id,
-                          pickedValues(settled.content, one.id),
-                        ]),
-                      ),
-              }),
+      // EVERY ANSWER ALREADY GIVEN is a set of decisions the REQUEST made, and
+      // nobody is asked anything: the human said where and how in the message
+      // that started this, and a form putting it back to them is the "you
+      // already told me, say it again" this whole shape removes.
+      const asked = questions.some((one) => one.given === undefined);
+      const ask = asked ? `ask:${crypto.randomUUID()}` : `given:${id}`;
+      if (work === undefined) return { ask, asked: false };
+      // WRITTEN BEFORE ANYTHING CAN ANSWER IT. A person pressing the card the
+      // moment it appears must not land an answer on a work that does not
+      // know it was asked.
+      deps.store.save(askQuestions(work, { ask, at, questions }));
+      deps.store.changed();
+      if (asked) {
+        deps.said(
+          ask,
+          id,
+          message,
+          askFields(questions.filter((one) => one.given === undefined)),
         );
-        deps.store.changed();
       }
-      return { answered: settled.outcome.how === "answered", ask: askId };
+      return { ask, asked };
+    },
+
+    answer: ({ work, ask, from, values }) => {
+      if (!hasOpenAsk(work, ask)) return null;
+      const at = nowIso();
+      const settled = stillOpen(work, ask);
+      const how = values === null ? "declined" : "answered";
+      const answered = answerAsk(work, { ask, at, from, values });
+      deps.store.save(answered);
+      deps.store.changed();
+      deps.settled(ask, outcomeOf(answered, settled, how));
+      return newsOf(answered, ask, settled, how, from, at);
+    },
+
+    drop: (work) => {
+      const open = openAsks(work);
+      if (open.length === 0) return [];
+      const at = nowIso();
+      const settled = new Map(
+        open.map((ask) => [ask, stillOpen(work, ask)] as const),
+      );
+      const dropped = open.reduce((one, ask) => dropAsk(one, ask, at), work);
+      deps.store.save(dropped);
+      deps.store.changed();
+      for (const ask of open) {
+        deps.settled(
+          ask,
+          outcomeOf(dropped, settled.get(ask) ?? [], "dropped"),
+        );
+      }
+      return open.map((ask) =>
+        newsOf(dropped, ask, settled.get(ask) ?? [], "dropped", null, at),
+      );
     },
   };
 };

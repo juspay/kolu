@@ -42,7 +42,7 @@ import { toast } from "solid-sonner";
 import { useDialogStack } from "../ui/useDialogStack";
 import { attachDroppedFiles } from "./attachFiles";
 import { completionOpen } from "./drafts";
-import { useShown } from "../ui/shown";
+import { Shown, useShown } from "../ui/shown";
 import ConductorComposer from "./ConductorComposer";
 import ConductorHeader from "./ConductorHeader";
 import ConductorSignIn from "./ConductorSignIn";
@@ -56,6 +56,8 @@ import { useConductor } from "./useConductor";
 import { exitConductorMode } from "./useConductorMode";
 import { createConductorTranscript } from "./useConductorTranscript";
 import { revealTranscriptRow } from "./transcriptScroll";
+import WorkReader from "./reader/WorkReader";
+import { readerFilled, readerTarget } from "./reader/useReader";
 
 const ConductorPane: Component<{
   class?: string;
@@ -164,6 +166,35 @@ const ConductorPane: Component<{
     });
   };
 
+  /** IS A FILE OPEN. Everything the frame does differently while one is open
+   *  follows from this one fact. */
+  const reading = (): boolean => readerTarget() !== null;
+  /** IS THE CONVERSATION PUT ASIDE — a reader filling the screen, or a window
+   *  too narrow to hold both. The column stays mounted either way; this is
+   *  what makes it zero-wide, skipped and inert. */
+  const chatAside = (): boolean =>
+    reading() && (readerFilled() || !conductorWide());
+  /** The two retained halves of the frame ask the SAME question every other
+   *  retained view in the app asks before doing any work: is anybody looking
+   *  at me? A conversation at zero width and a column of cards behind a
+   *  reader are not, so their clocks stop and their scrolls stand down. */
+  const chatShown = (): boolean => shown() && !chatAside();
+  const cardsShown = (): boolean => shown() && !reading();
+  /** THE FRAME'S TRACKS, spelled out rather than built — Tailwind reads the
+   *  source for its class names, so an arbitrary track list assembled at run
+   *  time is a grid with no CSS behind it. Order is always help ·
+   *  conversation · reader · work; a track with nothing in it is `0px`. */
+  const tracks = (): string => {
+    if (!reading())
+      return conductorHelpColumn()
+        ? "grid-cols-[calc(var(--container-conductor-help)+var(--spacing-conductor-gutter))_minmax(0,1fr)_auto]"
+        : "grid-cols-[minmax(0,1fr)_auto]";
+    if (!conductorWide()) return "grid-cols-[0px_minmax(0,1fr)]";
+    return chatAside()
+      ? "grid-cols-[0px_minmax(0,1fr)_0px]"
+      : "grid-cols-[minmax(0,1fr)_minmax(0,2fr)_0px]";
+  };
+
   return (
     <section
       ref={bindDrop}
@@ -227,81 +258,138 @@ const ConductorPane: Component<{
                 the rail sits at the track's start and the rest is margin. So
                 collapsing gives the space back, while the reading column,
                 centred in a track whose width the collapse cannot touch,
-                stays exactly where it was (`ConductorHelp.tsx`). */}
+                stays exactly where it was (`ConductorHelp.tsx`).
+
+                A FILE OPEN CHANGES WHAT THE TRACKS ARE FOR, and nothing else:
+                the reader takes about two thirds, the conversation keeps the
+                third beside it, the work column gives way to zero and the
+                help folds (`readerTracks`). Everything but the help stays
+                MOUNTED at zero width — `content-visibility: hidden` and
+                `inert`, the same trick `App.tsx` retains this whole pane with
+                — so "← Work" is a width changing back, not a column of cards
+                and a transcript being built again. */}
             <div
-              class={`grid min-h-0 flex-1 ${
-                conductorHelpColumn()
-                  ? "grid-cols-[calc(var(--container-conductor-help)+var(--spacing-conductor-gutter))_minmax(0,1fr)_auto]"
-                  : "grid-cols-[minmax(0,1fr)_auto]"
-              }`}
+              data-testid="conductor-frame"
+              data-reading={reading() ? "" : undefined}
+              class={`grid min-h-0 flex-1 ${tracks()}`}
             >
-              <Show when={conductorHelpColumn()}>
+              <Show when={conductorHelpColumn() && !reading()}>
                 <ConductorHelpColumn />
               </Show>
               {/* ONE COLUMN FOR ALL THREE. The transcript, the status line and
                   the composer are the same measure and the same centre line,
                   so a reply, what it is doing and what you type to it read as
-                  one thing rather than three bands of a window. */}
-              <div class="mx-auto flex min-h-0 w-full min-w-0 max-w-conductor flex-col">
-                <ConductorStrip watching={state().watching} onReveal={reveal} />
-                <Show when={state().signIn}>
-                  {(signIn) => <ConductorSignIn signIn={signIn()} />}
-                </Show>
-                <ConductorTranscript
-                  rows={feed.rows()}
-                  pending={feed.pending()}
-                  error={feed.error()}
-                  containerRef={(el) => {
-                    transcriptEl = el;
+                  one thing rather than three bands of a window.
+
+                  It is never unmounted. A reader filling the screen, or a
+                  window too narrow to hold both, leaves this column at zero
+                  width with its contents skipped and out of reach — the
+                  conversation is one press away, with the half-typed message
+                  and the scroll position still in it. */}
+              <Shown.Provider value={chatShown}>
+                <div
+                  data-testid="conductor-chat"
+                  style={{
+                    "content-visibility": chatAside() ? "hidden" : "visible",
                   }}
-                />
-                {/* A conversation the agent would not OPEN has no composer
+                  inert={chatAside()}
+                  aria-hidden={chatAside() || undefined}
+                  class="mx-auto flex min-h-0 w-full min-w-0 max-w-conductor flex-col overflow-hidden"
+                >
+                  <ConductorStrip
+                    watching={state().watching}
+                    onReveal={reveal}
+                  />
+                  <Show when={state().signIn}>
+                    {(signIn) => <ConductorSignIn signIn={signIn()} />}
+                  </Show>
+                  <ConductorTranscript
+                    rows={feed.rows()}
+                    pending={feed.pending()}
+                    error={feed.error()}
+                    containerRef={(el) => {
+                      transcriptEl = el;
+                    }}
+                  />
+                  {/* A conversation the agent would not OPEN has no composer
                     under it: there is nothing to say to an agent that is not
                     there. The one offer is to ask again for exactly what was
                     refused — and no status line either, because the line
                     reports on a conversation that is running and this one
                     never started. */}
-                <Show
-                  when={state().refusal}
-                  fallback={
-                    <>
-                      <ConductorStatus state={state()} rows={feed.rows()} />
-                      <ConductorComposer state={state()} />
-                    </>
-                  }
-                >
-                  {(why) => (
-                    <div
-                      data-testid="conductor-refusal"
-                      class="border-t border-edge px-5 py-3 text-xs text-fg-2"
-                    >
-                      <p class="mb-2 whitespace-pre-wrap">{why()}</p>
-                      <button
-                        type="button"
-                        data-testid="conductor-retry"
-                        class="rounded-md border border-edge-bright bg-surface-2 hover:bg-surface-3 px-2.5 py-1 text-fg cursor-pointer"
-                        onClick={() => orch.newSession()}
+                  <Show
+                    when={state().refusal}
+                    fallback={
+                      <>
+                        <ConductorStatus state={state()} rows={feed.rows()} />
+                        <ConductorComposer state={state()} />
+                      </>
+                    }
+                  >
+                    {(why) => (
+                      <div
+                        data-testid="conductor-refusal"
+                        class="border-t border-edge px-5 py-3 text-xs text-fg-2"
                       >
-                        Try again
-                      </button>
-                    </div>
-                  )}
-                </Show>
-              </div>
+                        <p class="mb-2 whitespace-pre-wrap">{why()}</p>
+                        <button
+                          type="button"
+                          data-testid="conductor-retry"
+                          class="rounded-md border border-edge-bright bg-surface-2 hover:bg-surface-3 px-2.5 py-1 text-fg cursor-pointer"
+                          onClick={() => orch.newSession()}
+                        >
+                          Try again
+                        </button>
+                      </div>
+                    )}
+                  </Show>
+                </div>
+              </Shown.Provider>
+              {/* THE READER — the file the person is actually here to read,
+                  on the large side of the screen. It is the one thing in the
+                  frame that is MOUNTED ONLY WHILE IT IS OPEN: it is what was
+                  opened, and there is nothing of a reader to keep when no
+                  file is. */}
+              <Show when={readerTarget()}>
+                {(target) => (
+                  <WorkReader
+                    target={target()}
+                    placement="pane"
+                    class="border-s border-edge"
+                  />
+                )}
+              </Show>
               {/* THE WORK, beside the conversation rather than over it. The
                   SAME component the status line's control opens below the
                   breakpoint — one implementation, one piece of state: a card
                   opened here is open there, because `WorkCard` keys what is
                   open by the work's id in a module store, which is what lets
                   the column move between the two placements across a resize
-                  with what a person had open still open. */}
+                  with what a person had open still open.
+
+                  IT GIVES WAY TO THE READER WITHOUT LEAVING: zero width,
+                  skipped and out of reach, so the way back from a file is the
+                  cards exactly as they were — the same ones open, scrolled
+                  where they were, with their clocks stopped while nobody
+                  could see them. */}
               <Show when={conductorWide()}>
-                <aside
-                  data-testid="conductor-side"
-                  class="flex min-h-0 w-conductor-side flex-col overflow-y-auto border-l border-edge ps-conductor-gutter"
-                >
-                  <WorkColumn rows={feed.rows()} placement="side" />
-                </aside>
+                <Shown.Provider value={cardsShown}>
+                  <aside
+                    data-testid="conductor-side"
+                    style={{
+                      "content-visibility": reading() ? "hidden" : "visible",
+                    }}
+                    inert={reading()}
+                    aria-hidden={reading() || undefined}
+                    class={`flex min-h-0 flex-col overflow-y-auto overflow-x-hidden ${
+                      reading()
+                        ? "w-0"
+                        : "w-conductor-side border-l border-edge ps-conductor-gutter"
+                    }`}
+                  >
+                    <WorkColumn placement="side" />
+                  </aside>
+                </Shown.Provider>
               </Show>
             </div>
             {/* THE SAME WORDS AS A SHEET, mounted once and opened from the

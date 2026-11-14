@@ -289,16 +289,15 @@ kolu-server stores: it is woken rather than waiting.
 
 | Tool | What it does |
 | --- | --- |
-| `work_open` | Open a work: its title, repo and branch, with the setup questions it must ask. The unanswered ones reach you as one form, and the answers are stored on the work. Refused when one is missing. |
-| `work_ask` | Ask you something about a work, under a two-or-three-word header, with options and a box of your own. Stored as a decision. |
+| `work_open` | Open a work: its title, repo and branch, with the setup questions it must ask. The unanswered ones reach you as one form. It answers at once; your answers arrive later as a wake. Refused when a question is missing. |
+| `work_ask` | Ask you about a work, under a two-or-three-word header, with options, a box of your own, and the `file` to read. It answers at once; kolu wakes the Conductor with your answer. |
 | `work_adopt` | Add a terminal the Conductor did not create, by its `host/id`, with its role in that work. Answers the state it was found in, a baseline rather than news. Refused for a bad reference or a finished work. |
 | `work_leave` | Take a terminal out of its work. One that closes leaves by itself, and one the Conductor creates joins without asking. |
 | `work_note` | Put a line of plain text on a work's timeline. |
 
-A member terminal starts a new Conductor turn when its agent comes up unbriefed
-(`ready`), stops, asks, goes or is put to sleep. So does a `run` command ending
-with no agent seen, and so does your taking it over or handing it back. No
-timer wakes it. [The Conductor](/conductor) has the rest.
+A member terminal starts a new Conductor turn when its agent comes up, stops,
+asks, goes or sleeps, and so does an answer of yours. No timer wakes it. [The
+Conductor](/conductor) has the rest.
 
 ### Read the screen and the code
 

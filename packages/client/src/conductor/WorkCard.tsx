@@ -18,7 +18,6 @@
 import { activeArm } from "@kolu/padi-client/surface";
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import { prValue } from "anyforge/schemas";
-import type { ConductorAskRow, ConductorRow } from "kolu-common/conductor";
 import { decodeHostKey, isEncodedHostKey } from "kolu-common/hostKey";
 import { DASH } from "kolu-common/surface";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
@@ -42,8 +41,8 @@ import { elapsedSince } from "../time/duration";
 import { agentName } from "../ui/agentDisplay";
 import { useShownClock } from "../ui/shown";
 import Tip from "../ui/Tip";
-import ConductorAsk from "./ConductorAsk";
 import ConductorLook from "./ConductorLook";
+import WorkQuestion from "./WorkQuestion";
 import { splitMemberRef } from "./memberRef";
 import { fleetMentionCandidates } from "./mentionCandidates";
 import { useConductor } from "./useConductor";
@@ -52,7 +51,7 @@ import { useMembership, useSeen } from "./useWorks";
 import WorkBar from "./WorkBar";
 import WorkFiles from "./WorkFiles";
 import { LEVEL_WORD } from "./wake";
-import type { WorkPlace } from "./workFile";
+import { type WorkPlace, workPlaceOf } from "./workFile";
 import {
   answerSource,
   answerWords,
@@ -109,10 +108,6 @@ function toggleCard(id: string): void {
 
 const WorkCard: Component<{
   work: Work;
-  /** The conversation's rows — where the open question about this work is
-   *  drawn FROM. The card never opens a stream of its own: the pane already
-   *  holds the transcript, and the form on a card is that very row. */
-  rows: readonly ConductorRow[];
 }> = (props) => {
   // The column's clock, stopped while nobody is looking at the pane: every
   // duration on this card ticks from it, and a hidden pane ticks for nobody.
@@ -192,23 +187,11 @@ const WorkCard: Component<{
   });
   const checks = createMemo(() => checksTally(livePr()));
 
-  /** WHERE THE LIVE FILES ARE: the first member whose own git reading names a
-   *  worktree. `null` once the work has ended (or before any member has
-   *  reported one), and then the files are the ones kolu kept. */
-  const place = createMemo((): WorkPlace | null => {
-    if (props.work.endedAt !== null) return null;
-    for (const one of members()) {
-      if (one.split === null || one.standing?.kind !== "here") continue;
-      const git = one.standing.meta.git;
-      if (git.kind !== "repo") continue;
-      return {
-        host: one.split.host,
-        terminalId: one.split.id,
-        repoPath: git.info.repoRoot,
-      };
-    }
-    return null;
-  });
+  /** WHERE THE LIVE FILES ARE — the one derivation, shared with the reader a
+   *  file row opens (`workFile.ts`): the card's list and the document it
+   *  opens must be reading the same worktree, and two spellings of "the
+   *  first member with one" is how they come to disagree. */
+  const place = createMemo((): WorkPlace | null => workPlaceOf(props.work));
 
   const at = createMemo(() => standingLine(props.work, checks()));
   /** How long the current wait has run — or, once the work has ended, how
@@ -241,21 +224,14 @@ const WorkCard: Component<{
    *  rows are built here rather than off the record alone. */
   const decided = createMemo(() => decisionRows(props.work, host()));
 
-  /** THE OPEN QUESTION, as the chat's own row. The work's decisions say WHICH
-   *  ask is still open; the row is the transcript's — so the card and the chat
-   *  draw one form and answering either settles it. */
-  const question = createMemo((): ConductorAskRow | undefined => {
-    const open = new Set(
-      props.work.decisions
-        .filter((one) => one.answer === null)
-        .map((one) => one.ask),
-    );
-    if (open.size === 0) return undefined;
-    for (const row of props.rows)
-      if (row.kind === "ask" && open.has(row.id) && row.ask.outcome === null)
-        return row;
-    return undefined;
-  });
+  /** THE OPEN QUESTION — the ask of this work's oldest decision that nobody
+   *  has answered. Read off the RECORD and nothing else: a question is a
+   *  decision with no answer yet, so the card can offer it after a restart,
+   *  after "New session", and while the conversation is down. */
+  const question = createMemo(
+    (): string | undefined =>
+      props.work.decisions.find((one) => one.answer === null)?.ask,
+  );
 
   const steps = createMemo(() =>
     took(props.work, new Date(now()).toISOString()),
@@ -320,9 +296,9 @@ const WorkCard: Component<{
           {/* THE QUESTION, FIRST — a person who opened this card while it was
               violet opened it to answer something. */}
           <Show when={question()}>
-            {(row) => (
-              <div data-testid="work-question" class="mb-2.5">
-                <ConductorAsk row={row()} from="card" />
+            {(ask) => (
+              <div class="mb-2.5">
+                <WorkQuestion work={props.work} ask={ask()} from="card" />
               </div>
             )}
           </Show>

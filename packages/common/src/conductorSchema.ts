@@ -970,18 +970,46 @@ export const ConductorAnswerInputSchema = Schema.Struct({
   /** `null` DECLINES — the agent is told you would not say, never handed a
    *  choice you did not make. */
   answers: Schema.NullOr(Schema.Array(AskAnswer)),
-  /** WHERE the human answered — the work's card or the chat. A question
-   *  about a work is one decision whichever face answered it, and the
-   *  decision records which. A decoding default so a browser served by an
-   *  earlier build, which omits the key, answers from the chat it drew. */
-  from: Schema.Literals(["card", "chat"]).pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed("chat" as const)),
-  ),
 });
 
 export const ConductorAnswerOutputSchema = Schema.Struct({
   /** `false` when somebody else already answered it — a reported state in a
    *  two-tab world, not a fault. */
+  settled: Schema.Boolean,
+});
+
+/** THE HUMAN'S ANSWER TO ONE OF KOLU'S OWN QUESTIONS about a piece of work.
+ *
+ *  Not {@link ConductorAnswerInputSchema}: that one settles a question the
+ *  AGENT is holding a call open for, and this one writes a DECISION onto a
+ *  work. The work is named because the decision lives on it and the ask id
+ *  alone would have to be searched for; `answers` is keyed by the DECISION's
+ *  own id, which is what every face draws its buttons from.
+ *
+ *  A question nobody answered is `answers: null` — declined. A question left
+ *  alone inside an ask that was answered simply has no key here, and the
+ *  record says exactly that about it. */
+export const ConductorAnswerWorkInputSchema = Schema.Struct({
+  work: Schema.String,
+  ask: Schema.String,
+  /** Per decision id: the options picked, and/or the words typed. A bare
+   *  string is the one-value spelling of the same thing. */
+  answers: Schema.NullOr(
+    Schema.Record(
+      Schema.String,
+      Schema.Union([Schema.Array(Schema.String), Schema.String]),
+    ),
+  ),
+  /** WHERE the human was when they answered: the work's card, the chat, the
+   *  reader a file is open in, or that reader popped out into a window of its
+   *  own. One decision whichever face answered it, and the decision records
+   *  which — which is the only thing that tells them apart afterwards. */
+  from: Schema.Literals(["card", "chat", "reader", "popout"]),
+});
+
+export const ConductorAnswerWorkOutputSchema = Schema.Struct({
+  /** `false` when that ask had nothing open any more — somebody else answered
+   *  it first, or the work ended under it. A reported state, not a fault. */
   settled: Schema.Boolean,
 });
 

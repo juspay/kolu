@@ -491,8 +491,6 @@ function fakeWorks(): FleetWorks & {
   /** Every `work_open` that reached the port, and every note. */
   readonly opened: { title: string; setup: readonly string[] }[];
   readonly notes: { work: string; text: string }[];
-  /** The answer the next `open`/`ask` resolves with. */
-  declineNext: boolean;
 } {
   const works = new Map<string, FleetWorkRow>();
   const ended = new Map<string, string>();
@@ -538,7 +536,7 @@ function fakeWorks(): FleetWorks & {
         listeners.delete(cb);
       };
     },
-    open: async (intent: Parameters<FleetWorks["open"]>[0]) => {
+    open: (intent: Parameters<FleetWorks["open"]>[0]) => {
       opened.push({
         title: intent.title,
         setup: intent.setup.map((one) => one.key),
@@ -555,19 +553,12 @@ function fakeWorks(): FleetWorks & {
           { role: "implementor" as const, harness: "omp", model: "sonnet" },
         ],
         onGreen: "merge" as const,
-        declined: self.declineNext,
+        ask: `ask:${id}`,
+        asked: true,
       };
     },
-    ask: async (
-      _work: string,
-      questions: Parameters<FleetWorks["ask"]>[1],
-    ) => ({
-      answers: questions.map((one) => ({
-        question: one.question,
-        picked: self.declineNext ? [] : [one.options[0] ?? ""],
-        text: null,
-      })),
-      declined: self.declineNext,
+    ask: (_work: string, _questions: Parameters<FleetWorks["ask"]>[1]) => ({
+      ask: `ask:${works.size}`,
     }),
     join(
       ref: string,
@@ -657,7 +648,6 @@ function fakeWorks(): FleetWorks & {
     closeds,
     opened,
     notes,
-    declineNext: false,
   };
   return self;
 }
@@ -1228,14 +1218,16 @@ describe("the conductor's pieces of work", () => {
     });
 
     expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
-    // The answer is the setup READ BACK off the decisions, flattened — so the
-    // Conductor never has to remember what the human chose.
+    // The answer is the setup READ BACK off the decisions, flattened — plus
+    // the ask the rest went out as. NOTHING WAITED for the human: the call
+    // answered with `asked`, and their answers arrive as a wake.
     expect(res.structuredContent).toMatchObject({
       work: "work:1",
       host: "local",
       mode: "full",
       onGreen: "merge",
-      declined: false,
+      ask: "ask:work:1",
+      asked: true,
     });
     expect(works.opened).toEqual([
       { title: "a stored piece of work", setup: SETUP.map((one) => one.key) },
@@ -1605,7 +1597,7 @@ describe("the conductor's pieces of work", () => {
     expect(res.structuredContent).toEqual({ left: true, work: "work:1" });
   });
 
-  it("`work_ask` puts questions about a work and answers what the human chose", async () => {
+  it("`work_ask` puts questions about a work and answers AT ONCE", async () => {
     const { fleet } = twoHostFleet();
     const works = fakeWorks();
     works.seed("work:1");
@@ -1620,16 +1612,21 @@ describe("the conductor's pieces of work", () => {
             header: "Plan approval",
             question: "Approve the plan?",
             options: ["approve", "revise"],
+            file: ".waterfall/plan.md",
           },
         ],
       },
     });
 
     expect(res.isError ?? false, JSON.stringify(res.content)).toBe(false);
-    expect(res.structuredContent).toMatchObject({
-      answers: [{ question: "Approve the plan?", picked: ["approve"] }],
-      declined: false,
-    });
+    // THE ASK, and the sentence that says the turn is over. No answers: the
+    // human has not seen the question yet, and the call did not wait to find
+    // out — which is what keeps an MCP client's five-minute tool deadline off
+    // a person reading a plan.
+    const asked = res.structuredContent as { ask: string; said: string };
+    expect(asked.ask).toMatch(/^ask:/);
+    expect(asked.said).toContain("END YOUR TURN");
+    expect(asked).not.toHaveProperty("answers");
   });
 
   it("`work_note` writes one line on the timeline and nothing else", async () => {

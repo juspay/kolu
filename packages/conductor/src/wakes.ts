@@ -19,7 +19,11 @@ import type { Logger } from "pino";
 import { type Held, holding } from "./held.ts";
 import type { MemberState } from "./members.ts";
 import type { WatchObservation } from "./observation.ts";
-import { type WakeMembership, wakeText } from "./wakeText.ts";
+import {
+  type AnsweredNews,
+  type WakeMembership,
+  wakeText,
+} from "./wakeText.ts";
 
 /** THE CONVERSATION, as a wake needs it: whether it can be interrupted right
  *  now, and how to put the words into it.
@@ -49,6 +53,12 @@ export interface Wakes {
   ) => void;
   /** News that came from somewhere other than a reading — a hand-over. */
   readonly hold: (ref: string, event: ConductorWakeEvent) => void;
+  /** THE HUMAN ANSWERED A QUESTION the Conductor asked (or declined it, or
+   *  the work ended under it). Held by the ASK, so two answers that land
+   *  while a turn is running are two pieces of news rather than one
+   *  overwriting the other — an ask settles once, so no slot is ever
+   *  replaced. */
+  readonly answered: (news: AnsweredNews) => void;
   readonly withdraw: (ref: string) => boolean;
   readonly refs: () => ReadonlyArray<string>;
   /** Whether what is waiting about a terminal is a HAND-OVER rather than an
@@ -76,6 +86,12 @@ export const wakes = (deps: {
   readonly log: Logger;
 }): Wakes => {
   const held: Held<ConductorWakeEvent> = holding();
+  /** WHAT THE HUMAN SAID, waiting — a queue of its own, keyed by the ask
+   *  rather than by a terminal. The two are separate lists because they are
+   *  keyed by different things and coalesce differently: a terminal's news is
+   *  replaced by its newer news, while two answers are two answers. They are
+   *  flushed TOGETHER, into one turn. */
+  const answers: Held<AnsweredNews> = holding();
   /** A flush in flight. One at a time, because the whole point of a flush is
    *  that everything waiting leaves in ONE turn — two of them racing would be
    *  two wakes for one boundary. */
@@ -153,18 +169,29 @@ export const wakes = (deps: {
     const conversation = await deps.turn();
     if (!conversation.idle) return;
     const slots = held.waiting();
-    if (slots.length === 0) return;
+    const said = answers.waiting();
+    if (slots.length === 0 && said.length === 0) return;
     const events = slots.map((slot) => slot.value);
+    const answered = said.map((slot) => slot.value);
     held.took(slots);
+    answers.took(said);
     deps.changed();
     try {
-      await conversation.wake(wakeText(events, deps.membership), events);
+      await conversation.wake(
+        wakeText(events, deps.membership, answered),
+        events,
+      );
     } catch (err) {
       // The words never went. They go back on the list — except for a
       // terminal that has rung AGAIN since, whose newer news is the truth
       // and must not be overwritten by this one.
       for (const slot of slots) {
         if (!held.has(slot.ref)) held.hold(slot.ref, slot.value);
+      }
+      // An ask settles once, so nothing newer can have taken its slot: an
+      // answer that could not be delivered goes back exactly as it was.
+      for (const slot of said) {
+        if (!answers.has(slot.ref)) answers.hold(slot.ref, slot.value);
       }
       deps.changed();
       throw err;
@@ -191,7 +218,7 @@ export const wakes = (deps: {
       missedEdge = true;
       return;
     }
-    if (held.waiting().length === 0) return;
+    if (held.waiting().length === 0 && answers.waiting().length === 0) return;
     flushing = true;
     try {
       await deliver();
@@ -203,7 +230,7 @@ export const wakes = (deps: {
       const why = sentenceOf(err);
       if (failure === null) {
         failure = why;
-        const waiting = held.refs();
+        const waiting = [...held.refs(), ...answers.refs()];
         deps.say(
           `kolu could not wake this conversation about ${waiting.length === 0 ? "a terminal working on one of your pieces of work" : waiting.join(", ")} — ${why} — the news is still waiting, and goes out on the next thing that happens: the conversation going idle, the agent coming back up, or the next reading of a member terminal.`,
         );
@@ -223,6 +250,9 @@ export const wakes = (deps: {
     hold: (ref, event) => {
       held.hold(ref, event);
     },
+    answered: (news) => {
+      answers.hold(news.ask, news);
+    },
     withdraw: (ref) => held.withdraw(ref),
     refs: () => held.refs(),
     handoverHeld: (ref) => {
@@ -231,6 +261,10 @@ export const wakes = (deps: {
         waiting?.level === "taken-over" || waiting?.level === "handed-back"
       );
     },
+    // THE FLEET'S NEWS GOES WITH THE CONVERSATION that is being deleted — it
+    // is about terminals a wiped conversation has no memory of. AN ANSWER
+    // DOES NOT: the question belongs to the WORK, which outlives the chat, so
+    // what the human said is still owed to whatever conversation comes next.
     clear: () => {
       held.clear();
     },

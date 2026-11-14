@@ -118,7 +118,7 @@ const ConductorStatus: Component<{
   return (
     <>
       <Show when={opensHere()}>
-        <WorkColumn rows={props.rows} placement="inline" />
+        <WorkColumn placement="inline" />
       </Show>
       <div
         data-testid="conductor-status"

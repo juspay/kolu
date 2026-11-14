@@ -27,7 +27,11 @@
  *  question, so its card said the same words twice (`transcript.ts`). */
 
 import { formatBytes } from "@kolu/byte-units";
-import type { ConductorRow, ConductorToolRow } from "kolu-common/conductor";
+import type {
+  ConductorAskRow,
+  ConductorRow,
+  ConductorToolRow,
+} from "kolu-common/conductor";
 import { Key } from "@solid-primitives/keyed";
 import {
   type Component,
@@ -62,6 +66,28 @@ import {
 } from "./transcriptScroll";
 import { useConductor } from "./useConductor";
 import { wakeHeadline, wakeWhen } from "./wake";
+import { useWorks } from "./useWorks";
+import WorkQuestion from "./WorkQuestion";
+
+/** A QUESTION KOLU ASKED ABOUT A PIECE OF WORK, where it was asked.
+ *
+ *  The row is the conversation's log that the question went out; the WORK is
+ *  what a person answers, so this looks the work up and hands the decision
+ *  itself to the one component every face draws. A work this browser has not
+ *  got (it ended and was swept, or the frame has not arrived) draws nothing
+ *  rather than an empty form: the row above it still says what was asked. */
+const ChatWorkQuestion: Component<{ row: ConductorAskRow }> = (props) => {
+  const works = useWorks();
+  const work = createMemo(() => {
+    const id = props.row.work;
+    return id === undefined ? undefined : works().find((one) => one.id === id);
+  });
+  return (
+    <Show when={work()}>
+      {(one) => <WorkQuestion work={one()} ask={props.row.id} from="chat" />}
+    </Show>
+  );
+};
 
 const ConductorTranscript: Component<{
   rows: readonly ConductorRow[];
@@ -368,8 +394,21 @@ function TranscriptRow(props: { row: ConductorRow; repeat: number }) {
         <Match when={props.row.kind === "tool" && props.row}>
           {(row) => <ConductorToolCard row={row()} />}
         </Match>
+        {/* A QUESTION ABOUT A PIECE OF WORK is drawn off the WORK, not off
+            this row: the row says it was asked here (and goes when the chat
+            goes), while the decision behind it is the thing a person
+            answers — here, on the card, or in the reader. */}
+        <Match
+          when={
+            props.row.kind === "ask" &&
+            props.row.work !== undefined &&
+            props.row
+          }
+        >
+          {(row) => <ChatWorkQuestion row={row()} />}
+        </Match>
         <Match when={props.row.kind === "ask" && props.row}>
-          {(row) => <ConductorAsk row={row()} from="chat" />}
+          {(row) => <ConductorAsk row={row()} />}
         </Match>
         <Match when={props.row.kind === "notice" && props.row}>
           {(row) => (

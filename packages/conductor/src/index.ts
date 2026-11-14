@@ -39,13 +39,7 @@
  * one home), and the UI.
  */
 
-export {
-  type Asking,
-  askForm,
-  asking,
-  otherKey,
-  pickedValues,
-} from "./asking.ts";
+export { type Asking, askFields, asking } from "./asking.ts";
 export {
   type AttachmentChunk,
   type Attachments,

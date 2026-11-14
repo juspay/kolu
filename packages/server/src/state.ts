@@ -664,6 +664,11 @@ export function worksFromWatched_1_50_0(
       question: "Carried over from before kolu stored work",
       options: [value],
       multiple: false,
+      // A question about NO file: this one was never asked at all, and the
+      // key exists because every decision carries it. Written here rather
+      // than left to the record's decoding default so the file this rung
+      // produces is today's shape whole, not a shape a reader completes.
+      file: "",
       answer: {
         at: startedAt,
         how: "answered",

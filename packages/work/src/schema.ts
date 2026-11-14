@@ -19,7 +19,7 @@
  * in a worktree) is read where it lives and never copied in.
  */
 
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 /** What a member is there to do. `other` is a terminal the human asked the
  *  Conductor to keep an eye on without a part in a waterfall. */
@@ -147,11 +147,23 @@ export const WorkMemberSchema = Schema.Struct({
 });
 export type WorkMember = typeof WorkMemberSchema.Type;
 
-/** Where an answer came from: the work's card, the chat, or the request
- *  itself (a setup answer the human's message already gave, recorded without
- *  asking). `null` for a question nobody answered (declined from nowhere, or
- *  dropped with the conversation that asked it). */
-export const ANSWER_FROM = ["card", "chat", "request"] as const;
+/** Where an answer came from: the work's card, the chat, the READER a file is
+ *  read in (or that reader popped out into a window of its own), or the
+ *  request itself (a setup answer the human's message already gave, recorded
+ *  without asking). `null` for a question nobody answered (declined from
+ *  nowhere, or dropped because the work ended under it).
+ *
+ *  The reader and the pop-out are two faces rather than one because they are
+ *  two places a person can be: the question pinned above a plan inside kolu,
+ *  and the same question on a second monitor. Which one they answered from is
+ *  the only thing that tells them apart afterwards. */
+export const ANSWER_FROM = [
+  "card",
+  "chat",
+  "reader",
+  "popout",
+  "request",
+] as const;
 export const AnswerFromSchema = Schema.Literals(ANSWER_FROM);
 export type AnswerFrom = typeof AnswerFromSchema.Type;
 
@@ -189,6 +201,18 @@ export const DecisionSchema = Schema.Struct({
   options: Schema.Array(Schema.String),
   /** Whether more than one option may be picked. */
   multiple: Schema.Boolean,
+  /** THE FILE THIS QUESTION IS ABOUT — worktree-relative, exactly as the
+   *  work's own `file` events spell it (`.waterfall/plan.md`), or `""` for a
+   *  question about no file. A plan approval carries the plan, so every face
+   *  that draws the question can offer the one thing a person must read
+   *  before answering it.
+   *
+   *  A DECODING DEFAULT rather than an optional key: this record is read back
+   *  off a state root written before questions carried files, and the
+   *  alternative to backfilling `""` is a works file that no longer decodes.
+   *  The decoded decision always carries the string, so no reader needs a
+   *  second spelling for "none". */
+  file: Schema.String.pipe(Schema.withDecodingDefaultKey(Effect.succeed(""))),
   answer: Schema.NullOr(DecisionAnswerSchema),
 });
 export type Decision = typeof DecisionSchema.Type;

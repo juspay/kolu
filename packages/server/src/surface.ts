@@ -591,6 +591,56 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
           handOver(() => liveServerConductor().takeOver(input.terminal)),
         handBack: ({ input }: { input: { terminal: string } }) =>
           handOver(() => liveServerConductor().handBack(input.terminal)),
+        // ANSWERING ONE OF KOLU'S OWN QUESTIONS is bound here for exactly the
+        // same reason, and it is the whole of why asking no longer waits: the
+        // question is a DECISION on the work, so answering it is a write to
+        // the record and a wake — never a call into an agent that may be
+        // down, busy, or a session later. A person reading a plan for ten
+        // minutes answers it the same way they would in ten seconds.
+        //
+        // The values arrive keyed by decision id, a bare string being the
+        // one-value spelling; they are normalised to lists HERE, at the wire,
+        // so the record only ever sees one shape.
+        answerWork: ({
+          input,
+        }: {
+          input: {
+            work: string;
+            ask: string;
+            answers: Readonly<
+              Record<string, ReadonlyArray<string> | string>
+            > | null;
+            from: "card" | "chat" | "reader" | "popout";
+          };
+        }) =>
+          Effect.suspend(() => {
+            try {
+              return Effect.succeed(
+                liveServerConductor().answerWork({
+                  work: input.work,
+                  ask: input.ask,
+                  from: input.from,
+                  values:
+                    input.answers === null
+                      ? null
+                      : new Map(
+                          Object.entries(input.answers).map(
+                            ([decision, values]) => [
+                              decision,
+                              typeof values === "string" ? [values] : values,
+                            ],
+                          ),
+                        ),
+                }),
+              );
+            } catch (err) {
+              return err instanceof WorkRefusal
+                ? Effect.fail(
+                    new ConductorRefused({ why: err.message, auth: false }),
+                  )
+                : Effect.die(err);
+            }
+          }),
       },
     },
   };

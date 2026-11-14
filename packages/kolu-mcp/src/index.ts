@@ -78,7 +78,7 @@ export {
 export type {
   FleetFinishedWorkRow,
   FleetWatchJoin,
-  FleetWorkAnswers,
+  FleetWorkAsked,
   FleetWorkIntent,
   FleetWorkMemberRow,
   FleetWorkOpened,

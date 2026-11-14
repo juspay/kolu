@@ -45,7 +45,6 @@ import {
 import { askLead, askQuestions, askRecord } from "./askRecord";
 import { askDraft, forgetAskDraft, setAskDraft } from "./drafts";
 import { useConductor } from "./useConductor";
-import { useWorks } from "./useWorks";
 
 /** One option chip. The SELECTED state is layered on through `classList`, so
  *  the shape of a chip is written once and only the two colours branch. */
@@ -59,15 +58,12 @@ const singleAnswer = (field: AskField): boolean =>
   field.kind === "choice" || field.kind === "boolean";
 
 const ConductorAsk: Component<{
+  /** THE AGENT'S OWN QUESTION, and only ever that: it is holding a call open
+   *  for this one. kolu's questions about a piece of work are decisions on
+   *  that work, drawn by `WorkQuestion` wherever the person happens to be. */
   row: ConductorAskRow;
-  /** WHICH FACE this copy of the form is. A question about a piece of work is
-   *  drawn twice — here in the chat and on the work's card — and answering
-   *  either settles the one question; the work's decision records which face
-   *  the person was looking at. */
-  from: "card" | "chat";
 }> = (props) => {
   const orch = useConductor();
-  const works = useWorks();
   const ask = () => props.row.ask;
   const settled = () => ask().outcome !== null;
   /** The fields that are questions in their own right — an `attachedTo` field
@@ -109,7 +105,7 @@ const ConductorAsk: Component<{
   };
 
   const submit = (): void => {
-    orch.answer(props.row.id, answers(), props.from);
+    orch.answer(props.row.id, answers());
     forgetAskDraft(props.row.id);
   };
 
@@ -144,16 +140,6 @@ const ConductorAsk: Component<{
         setAskDraft(props.row.id, asked.key, []);
     });
 
-  /** The TITLE of the work this question is about, when it names one. The
-   *  link is stated on the row (kolu's `work_ask` puts it there), never
-   *  inferred from timing — so a question that belongs to no work has no
-   *  title here and is the conversation's alone. */
-  const aboutWork = createMemo(() => {
-    const id = props.row.work;
-    if (id === undefined) return undefined;
-    return works().find((one) => one.id === id)?.title;
-  });
-
   return (
     <section
       data-testid="conductor-ask"
@@ -164,21 +150,6 @@ const ConductorAsk: Component<{
       <header class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 mb-1">
         <span class="text-alert text-base leading-none">✱</span>
         <b class="text-[0.78rem]">Conductor asks you</b>
-        {/* WHICH WORK IT IS ABOUT — only in the chat, and only when the ask
-            names one. The card already is the work, so repeating its title
-            there would be the same words twice; in the chat, where questions
-            from several pieces of work land in one column, the title is the
-            whole of how a reader knows which one they are answering for. */}
-        <Show when={props.from === "chat" ? aboutWork() : undefined}>
-          {(title) => (
-            <span
-              data-testid="conductor-ask-work"
-              class="min-w-0 truncate font-mono text-[0.62rem] text-fg-3"
-            >
-              about “{title()}”
-            </span>
-          )}
-        </Show>
       </header>
       {/* The ask's own sentence, only where it says something the fields do
           not — see {@link askLead}. */}
@@ -369,7 +340,7 @@ const ConductorAsk: Component<{
             // DECLINE, not a silent close: the agent is told you would not say,
             // never handed a choice you did not make.
             onClick={() => {
-              orch.answer(props.row.id, null, props.from);
+              orch.answer(props.row.id, null);
               forgetAskDraft(props.row.id);
             }}
           >

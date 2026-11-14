@@ -112,6 +112,7 @@ import {
   conductorConfigDir,
   CONDUCTOR_ENGINE as ENGINE,
 } from "kolu-agents/acp";
+import type { AskAnswer, AskField } from "@kolu/acp/wire";
 import {
   appendedText,
   type ConductorAttachment,
@@ -129,7 +130,7 @@ import {
 import type { MemberReading } from "kolu-common/works";
 import { splitFleetTerminalRef } from "kolu-mcp/fleetRef";
 import {
-  askQuestions,
+  type AnswerFrom,
   endWork,
   foreignSetupWords,
   missingSetup,
@@ -250,9 +251,10 @@ export interface ConductorHost {
    * mode it might run needs ({@link WorkRefusal}, `missing-setup`): a work
    * half set up is a planner launched on a model nobody chose.
    *
-   * Resolves when the human has answered. A setup they DECLINE ends the work
-   * `abandoned` and says so — nothing was created, and the Conductor is told
-   * rather than left holding an id for a work nobody wanted.
+   * ANSWERS AT ONCE, with the setup as it reads NOW — which is whatever the
+   * request already gave and nothing else. `asked` says a form went to the
+   * human: the Conductor ends its turn, and kolu WAKES it with what they
+   * said. Nothing here waits on a person.
    */
   readonly openWork: (intent: {
     readonly title: string;
@@ -264,14 +266,18 @@ export interface ConductorHost {
       readonly options: ReadonlyArray<string>;
       readonly given?: string | undefined;
     }>;
-  }) => Promise<{
+  }) => {
     readonly work: string;
     readonly setup: SetupReading;
-    readonly declined: boolean;
-  }>;
+    readonly ask: string;
+    readonly asked: boolean;
+  };
   /** A QUESTION ABOUT A WORK, put to the human as one ask the work knows about
-   *  — so the answer is a decision kept with the work and the card can draw
-   *  and answer the same row the chat does. */
+   *  — so the answer is a decision kept with the work, and the card, the chat
+   *  and the reader all draw and answer the one decision.
+   *
+   *  Answers the ask's id the moment the question is recorded. The answer
+   *  comes back as a WAKE, whenever the human gets to it. */
   readonly askAboutWork: (
     work: string,
     questions: ReadonlyArray<{
@@ -281,15 +287,29 @@ export interface ConductorHost {
       readonly question: string;
       readonly options: ReadonlyArray<string>;
       readonly multiple?: boolean | undefined;
+      /** The worktree-relative file the question is about — a plan to
+       *  approve, a diff to look at — or absent for a question about none. */
+      readonly file?: string | undefined;
     }>,
-  ) => Promise<{
-    readonly answers: ReadonlyArray<{
-      readonly question: string;
-      readonly picked: ReadonlyArray<string>;
-      readonly text: string | null;
-    }>;
-    readonly declined: boolean;
-  }>;
+  ) => { readonly ask: string };
+  /** THE HUMAN'S ANSWER to one of those questions, from whichever face they
+   *  were looking at. Records the decision, settles the row in the chat, and
+   *  WAKES the conversation with what they said — which is the only way an
+   *  answer ever reaches the Conductor.
+   *
+   *  `values: null` DECLINES the whole ask. `settled: false` means somebody
+   *  else answered it first — a reported state in a two-tab world, not a
+   *  fault. Refused ({@link WorkRefusal}) for a work nobody knows.
+   *
+   *  NEVER goes through the agent: a person must be able to answer while the
+   *  conversation is down, signed out or busy, and the wake is held like any
+   *  other news until there is somebody to tell. */
+  readonly answerWork: (answered: {
+    readonly work: string;
+    readonly ask: string;
+    readonly from: AnswerFrom;
+    readonly values: ReadonlyMap<string, ReadonlyArray<string>> | null;
+  }) => { readonly settled: boolean };
   /** A TERMINAL JOINS A WORK, in a role stated in the same call that created
    *  or adopted it. Refused for a work that is unknown or has ended: a member
    *  of nothing is a terminal nobody is watching.
@@ -329,10 +349,10 @@ export interface ConductorHost {
    *  together or a member comes back as a terminal nobody has ever read.
    *
    *  The running Conductor reloads them rather than being restarted: the works
-   *  are replaced wholesale, every question they had open is dropped (the
-   *  conversations that asked them cannot answer any more), the readers are
-   *  told, the files are written NOW, and the watcher re-scopes to the
-   *  restored membership. */
+   *  are replaced wholesale — with the questions the snapshot recorded, open
+   *  if they were open, because a question is a decision nobody has answered
+   *  and not a promise somebody was holding — the readers are told, the files
+   *  are written NOW, and the watcher re-scopes to the restored membership. */
   readonly restoreWorks: (
     works: PersistedWorks,
     members: PersistedMembers,
@@ -392,19 +412,17 @@ export interface ConductorHost {
     appendTo?: string;
   }) => { path: string; bytes: number };
   readonly cancel: () => Promise<void>;
-  /** ANSWER A QUESTION ON SCREEN — an agent's elicitation, or one kolu asked
-   *  about a work.
-   *
-   *  `from` says WHICH FACE answered: the work's card, or the chat. The two
-   *  draw the same row and answer the same question, and the decision the
-   *  work keeps records which one the human was looking at. */
+  /** ANSWER THE AGENT'S OWN QUESTION — an elicitation it is holding a call
+   *  open for, which is the one kind of question that is answered THROUGH the
+   *  conversation. kolu's own questions about a work are decisions on that
+   *  work and go through {@link Conductor.answerWork} instead: nothing is
+   *  waiting on them, so nothing has to be released. */
   readonly answer: (
     askId: string,
     answers: ReadonlyArray<{
       key: string;
       values: ReadonlyArray<string>;
     }> | null,
-    from: "card" | "chat",
   ) => Promise<boolean>;
   readonly signIn: (
     method: string,
@@ -804,6 +822,15 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     publishWork,
     publishReading,
     membersMoved,
+    // A WORK THAT ENDED TAKES ITS QUESTIONS WITH IT: nobody can answer a
+    // question about a work that is over, so each one is recorded as dropped
+    // and the Conductor is woken with that ending — the same way it is woken
+    // with an answer. Through a thunk because `asks` is built below, off this
+    // very store.
+    ended: (work) => {
+      for (const news of asks.drop(work)) wake.answered(news);
+      void wake.flush();
+    },
     records,
     members,
     log,
@@ -882,7 +909,17 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     log,
   });
 
-  const asks = asking({ ask: (work) => ask(work), store: works });
+  const asks = asking({
+    store: works,
+    // Through thunks rather than by reference: the two row writers are
+    // declared below (they need `applyRows`), and this value is built here.
+    said: (ask, work, message, fields) => {
+      sayAsk(ask, work, message, fields);
+    },
+    settled: (ask, outcome) => {
+      settleAsk(ask, outcome);
+    },
+  });
 
   // ── the remembered records ─────────────────────────────────────────────
 
@@ -1077,6 +1114,60 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
           text,
         },
       ],
+      removes: [],
+      appends: [],
+    });
+  };
+
+  /** KOLU'S OWN QUESTION, SAID IN THE TRANSCRIPT — one row, under the ask's
+   *  own id, naming the work it is about.
+   *
+   *  Minted HERE rather than through the harness for the reason a notice is,
+   *  and for one more: this row is not a question anybody answers through the
+   *  agent. The thing a person presses is drawn from the WORK's decisions and
+   *  answered against them, so a person can answer while the conversation is
+   *  down, busy, or has been wiped and started again. What this row is is the
+   *  conversation's own log of what was asked, where it was asked — which is
+   *  why it goes away with the rows when somebody starts a new session, while
+   *  the question itself stays on the card. */
+  const sayAsk = (
+    ask: string,
+    work: string,
+    message: string,
+    fields: ReadonlyArray<AskField>,
+  ): void => {
+    applyRows({
+      upserts: [
+        {
+          kind: "ask",
+          id: ask,
+          seq: (rows().at(-1)?.seq ?? 0) + 1,
+          since: new Date().toISOString(),
+          text: message,
+          ask: { fields: [...fields], link: null, outcome: null },
+          work,
+        },
+      ],
+      removes: [],
+      appends: [],
+    });
+  };
+
+  /** ... and how it ended, on that same row — read off the decisions that
+   *  settled, so the log and the record cannot disagree. A row that is not
+   *  there any more (the session was wiped under it) changes nothing. */
+  const settleAsk = (
+    ask: string,
+    outcome: {
+      how: "answered" | "declined" | "withdrawn";
+      answers: AskAnswer[];
+    },
+  ): void => {
+    const row = byId.get(ask);
+    if (row === undefined || row.kind !== "ask" || row.ask.outcome !== null)
+      return;
+    applyRows({
+      upserts: [{ ...row, ask: { ...row.ask, outcome } }],
       removes: [],
       appends: [],
     });
@@ -1374,7 +1465,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       remembered();
       return works.membersDetail();
     },
-    openWork: async (intent) => {
+    openWork: (intent) => {
       remembered();
       // BEFORE ANYTHING EXISTS. A work whose setup is half asked is a planner
       // launched on a model nobody chose, and the Conductor cannot fix that
@@ -1424,47 +1515,19 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         multiple: false,
         ...(one.given === undefined ? {} : { given: one.given }),
       }));
-      // EVERY ANSWER ALREADY GIVEN is a set of decisions the REQUEST made, and
-      // nobody is asked anything: the human said where and how in the message
-      // that started this, and a form putting it back to them is the "you
-      // already told me, say it again" this whole shape removes.
-      if (questions.every((one) => one.given !== undefined)) {
-        works.save(
-          askQuestions(works.get(id) ?? opened, {
-            ask: `given:${id}`,
-            at,
-            questions,
-          }),
-        );
-        works.changed();
-        return {
-          work: id,
-          setup: setupOf(works.get(id) ?? opened),
-          declined: false,
-        };
-      }
-      const asked = await asks.put(
-        id,
-        `Setting up «${intent.title}»`,
-        questions,
-      );
-      if (!asked.answered) {
-        // A SETUP NOBODY ANSWERED IS A WORK NOBODY WANTED. Ending it here is
-        // what keeps a declined `work_open` from leaving a card for a
-        // waterfall that will never have a member.
-        const refused = works.get(id);
-        if (refused !== undefined && refused.endedAt === null) {
-          works.save(endWork(refused, { outcome: "abandoned", at: nowIso() }));
-          works.changed();
-        }
-      }
+      const put = asks.put(id, `Setting up «${intent.title}»`, questions);
+      // THE SETUP AS IT READS NOW — whatever the request already gave. A work
+      // whose questions are still open reads as a work with nothing decided,
+      // which is the truth: the Conductor is told what it knows, told that
+      // the rest was asked, and woken when the human says.
       return {
         work: id,
         setup: setupOf(works.get(id) ?? opened),
-        declined: !asked.answered,
+        ask: put.ask,
+        asked: put.asked,
       };
     },
-    askAboutWork: async (id, questions) => {
+    askAboutWork: (id, questions) => {
       remembered();
       const work = works.openAt(id);
       const asked: ReadonlyArray<Question> = questions.map((one) => ({
@@ -1476,8 +1539,9 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         question: one.question,
         options: one.options,
         multiple: one.multiple === true,
+        ...(one.file === undefined ? {} : { file: one.file }),
       }));
-      const settled = await asks.put(
+      return asks.put(
         id,
         // One question IS the message: a heading repeating the only question
         // under it is a row that says everything twice.
@@ -1486,18 +1550,38 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
           : `About «${work.title}»`,
         asked,
       );
-      const after = works.get(id);
-      return {
-        answers: asked.map((one) => {
-          const decision = after?.decisions.find((two) => two.id === one.id);
-          return {
-            question: one.question,
-            picked: decision?.answer?.picked ?? [],
-            text: decision?.answer?.text ?? null,
-          };
-        }),
-        declined: !settled.answered,
-      };
+    },
+    answerWork: ({ work, ask, from, values }) => {
+      remembered();
+      const found = works.get(work);
+      if (found === undefined) {
+        throw new WorkRefusal(
+          "unknown-work",
+          `There is no piece of work called ${JSON.stringify(work)}, so there is nothing to answer about it.`,
+        );
+      }
+      const news = asks.answer({ work: found, ask, from, values });
+      // NOBODY IS WAITING ON THIS ANSWER, so nothing is released by it: it is
+      // recorded, and the conversation is WOKEN with what was said — which is
+      // the whole of how an answer reaches the Conductor.
+      if (news === null) return { settled: false };
+      // A SETUP NOBODY WOULD ANSWER IS A WORK NOBODY WANTED. The decline ends
+      // it here, which is what keeps a refused `work_open` from leaving a card
+      // for a waterfall that will never have a member.
+      const after = works.get(work);
+      if (
+        news.how === "declined" &&
+        after !== undefined &&
+        after.endedAt === null &&
+        after.decisions.some((one) => one.ask === ask && one.key !== null)
+      ) {
+        works.save(endWork(after, { outcome: "abandoned", at: nowIso() }));
+        works.changed();
+      }
+      wake.answered(news);
+      publishState();
+      void wake.flush();
+      return { settled: true };
     },
     joinWork: (id, ref, role, joined) => {
       remembered();
@@ -1572,10 +1656,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       return spool.chunk(chunk);
     },
     cancel: () => ask((agent) => agent.cancel()),
-    answer: (askId, answers, from) => {
-      asks.answeredFrom(askId, from);
-      return ask((agent) => agent.answer(askId, answers));
-    },
+    answer: (askId, answers) => ask((agent) => agent.answer(askId, answers)),
     signIn: (method) => ask((agent) => agent.signIn(method)),
     signInInput: (text) => ask((agent) => agent.signInInput(text)),
     signInCancel: () => ask((agent) => agent.signInCancel()),
@@ -1608,14 +1689,17 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         // memory of `fleet` or of what it had been told, so a strip naming
         // those terminals belongs to a conversation that no longer exists.
         //
-        // THE WORKS STAY. A piece of work outlives the conversation that
-        // opened it — that is the whole point of its being a record of its own
-        // — and a person pressing `New session` has said they are done with
-        // the chat, not that they stopped caring about a waterfall in flight.
-        // What a work DOES lose is any question it had open: the promise
-        // behind it belonged to the conversation being deleted, so the
-        // decision is recorded as dropped rather than left waiting on nobody.
-        works.dropOpenAsks(nowIso());
+        // THE WORKS STAY, AND SO DO THEIR QUESTIONS. A piece of work outlives
+        // the conversation that opened it — that is the whole point of its
+        // being a record of its own — and a person pressing `New session` has
+        // said they are done with the chat, not that they stopped caring
+        // about a waterfall in flight.
+        //
+        // A QUESTION IS NOT THE CONVERSATION'S TO LOSE either, now that
+        // nothing holds a promise behind it: it is a decision with no answer
+        // yet, the card still offers it, and answering it wakes whatever
+        // conversation comes next. Dropping them here is what used to make a
+        // plan approval vanish the moment somebody started fresh.
         wake.clear();
         state = { ...state, fleet: [] };
         publishState();

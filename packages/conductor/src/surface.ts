@@ -95,20 +95,21 @@ export function conductorSurfaceMembers(deps: {
       attach: ({ input }: { input: Parameters<ConductorHost["attach"]>[0] }) =>
         ask(() => host().attach(input)),
       cancel: () => ask(() => host().cancel()),
-      /** The answer, and WHERE it was pressed — the work's card or the chat.
-       *  Both draw the same ask row; the decision the work keeps records
-       *  which face the human was looking at. */
+      /** The answer to the AGENT'S own question — an elicitation it is
+       *  holding a call open for. kolu's own questions about a piece of work
+       *  are decisions on that work and are answered through
+       *  `conductor.answerWork`, which waits on nothing and wakes the
+       *  conversation with what was said. */
       answer: ({
         input,
       }: {
         input: {
           askId: string;
           answers: Parameters<ConductorHost["answer"]>[1];
-          from: Parameters<ConductorHost["answer"]>[2];
         };
       }) =>
         ask(async () => ({
-          settled: await host().answer(input.askId, input.answers, input.from),
+          settled: await host().answer(input.askId, input.answers),
         })),
       signIn: ({ input }: { input: { method: string } }) =>
         ask(async () => ({ outcome: await host().signIn(input.method) })),

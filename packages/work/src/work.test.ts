@@ -652,6 +652,7 @@ describe("what a decision is CALLED, and how long a drawn line may be", () => {
     at: T(0),
     key: null,
     header: "",
+    file: "",
     question: "Approve the plan?",
     options: ["Approve"],
     multiple: false,

@@ -4405,3 +4405,42 @@ retirements:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: A waterfall's card, from the request to the merge"
       test: Every event from the request to the merge is asserted exactly as before. The survivor adds one claim about the decisions the card draws — one line per decision, labelled by its key and never drawn twice — which is the card rework this revision predates.
+  - id: rename-f0776f9f8b0d2c0d6706
+    revisionId: revision-f0776f9f8b0d2c0d6706
+    action: renamed
+    status: landed
+    promise: A file listed on a work card opens, rendered, through the Code tab's own viewer
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-cd0ec4ba01ec2b738dc2]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: A file on the card opens in the reader, rendered"
+      test: The same gesture on the same row, asserted through the same renderer — pressing the file opens it and a markdown heading arrives as a heading. What moved is WHERE it is drawn. The card's own preview box is gone and the row opens the reader, so the scenario's name and its one assertion changed from the card to the reader.
+  - id: revise-85e87531fc638bd49a6a
+    revisionId: revision-85e87531fc638bd49a6a
+    action: revised
+    status: landed
+    promise: A finished work's decisions and its kept files outlive the server, and a kept file still renders
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-97f0a9d092c873e9c286]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: Finished work, its decisions and its kept files outlive the server"
+      test: Identical but for the last assertion's address — kolu's kept copy of the plan is now read in the reader rather than inside the card, so the step that proves it renders names the reader.
+  - id: rename-602ea709e0ad8a4b6c5d
+    revisionId: revision-602ea709e0ad8a4b6c5d
+    action: renamed
+    status: landed
+    promise: A plan approved on the card settles the one decision every face draws, while the Conductor sits idle rather than waiting on it
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-cf4412384174a8349057]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: The plan is approved from the card while the Conductor sits idle"
+      test: The same one-record claim, answered from the same face — the work ends with no open question and the decision records `card`. The survivor adds what changed underneath it — asking no longer holds the Conductor's turn open, so the scenario asserts it is NOT `asking` while the question stands, the state its tool call used to die in.

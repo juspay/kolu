@@ -1,11 +1,14 @@
-/** THE WORK'S FILES — what the agents wrote, opened IN PLACE.
+/** THE WORK'S FILES — what the agents wrote, LISTED on the card and read in
+ *  the reader.
  *
- *  A plan is the thing a person actually wants to read off a card, and the
- *  worst version of that is a link that takes you somewhere else. So a file
- *  opens here, under the list, rendered — and rendered by the SAME viewer the
- *  Code tab uses (`BrowseFileDispatcher`: kolu's markdown, images, HTML
- *  sandbox, and its comments-on-files), not by a second one that would start
- *  identical and drift by a release.
+ *  A plan is the thing a person actually wants to read off a card, and for a
+ *  while it was drawn inside it: a box in the right-hand column, eighty
+ *  pixels less than the column was wide. That is the smallest box on the
+ *  screen for the one document somebody has to read before they approve it —
+ *  a table in it came out one word a line, because a table's columns can
+ *  never be narrower than their longest word and the box left them nothing
+ *  else. So the card is now a LIST, and pressing a row opens the reader
+ *  (`reader/WorkReader.tsx`), which takes the large side of the screen.
  *
  *  While the work is in flight the list is LIVE, read from the member's
  *  worktree one level deep; when it has ended the list is what kolu kept, and
@@ -13,24 +16,16 @@
  *  that is the point of keeping them. */
 
 import { formatBytes } from "@kolu/byte-units";
-import type { FileWithSource, FileWithUrl } from "@kolu/solid-fileview";
 import type { Work } from "kolu-work";
 import {
   type Component,
   createMemo,
   createResource,
-  createSignal,
   For,
   Show,
 } from "solid-js";
-import BrowseFileDispatcher from "../right-panel/BrowseFileDispatcher";
-import { useColorScheme } from "../settings/useColorScheme";
-import {
-  listWorkFiles,
-  readKeptFile,
-  readWorkFile,
-  type WorkPlace,
-} from "./workFile";
+import { openReader, readerTarget } from "./reader/useReader";
+import { listWorkFiles, type WorkPlace } from "./workFile";
 
 const WorkFiles: Component<{
   work: Work;
@@ -39,9 +34,6 @@ const WorkFiles: Component<{
    *  files are the ones kolu kept. */
   place: WorkPlace | null;
 }> = (props) => {
-  const { themeTypeLiteral: theme } = useColorScheme();
-  const [open, setOpen] = createSignal<string | null>(null);
-
   /** The LIVE list, re-read whenever the place moves. A failure is not a
    *  toast: a host that went away while a card was open is exactly the case
    *  where the kept copy is the answer, and the section says so in a line. */
@@ -68,21 +60,14 @@ const WorkFiles: Component<{
           })),
   );
 
-  /** THE OPEN FILE'S BYTES. Keyed on the path AND the place, so opening a
-   *  second file reads it and a work that ends while its card is open falls
-   *  back to the kept copy without the reader doing anything. */
-  const [bytes] = createResource(
-    (): { path: string; place: WorkPlace | null; work: string } | null => {
-      const path = open();
-      return path === null
-        ? null
-        : { path, place: props.place, work: props.work.id };
-    },
-    (target): Promise<FileWithSource | FileWithUrl> =>
-      target.place === null
-        ? readKeptFile(target.work, target.path)
-        : readWorkFile(target.place, target.path),
-  );
+  /** Which row is the one the reader has open — the card says so, so a person
+   *  looking back at the column can see what they left open. */
+  const open = (path: string): boolean => {
+    const target = readerTarget();
+    return (
+      target !== null && target.work === props.work.id && target.path === path
+    );
+  };
 
   return (
     <section data-testid="work-files" class="mt-2.5">
@@ -106,17 +91,18 @@ const WorkFiles: Component<{
                 type="button"
                 data-testid="work-file"
                 data-path={file.path}
-                data-open={open() === file.path ? "" : undefined}
+                data-open={open(file.path) ? "" : undefined}
                 // A KEPT file is kolu's own copy of one the work wrote — the
                 // worktree it came from may be gone.
                 data-kept={props.place === null ? "" : undefined}
-                // Pressing the open file closes it: the list is a toggle, so
-                // a reader can put the card back the way they found it.
+                // One press, one destination: the reader, on this file. The
+                // row is not a toggle — a file you are reading is closed by
+                // going back to the work, which is a button that says so.
                 onClick={() =>
-                  setOpen((was) => (was === file.path ? null : file.path))
+                  openReader({ work: props.work.id, path: file.path })
                 }
                 class={`max-w-full cursor-pointer truncate rounded-md border px-2 py-0.5 font-mono text-[0.62rem] ${
-                  open() === file.path
+                  open(file.path)
                     ? "border-accent bg-accent/15 text-accent"
                     : "border-edge-bright bg-surface-0 text-fg-2 hover:text-fg"
                 }`}
@@ -129,45 +115,6 @@ const WorkFiles: Component<{
             )}
           </For>
         </div>
-      </Show>
-      {/* IN PLACE, and sized: the viewer fills a band under the list rather
-          than the card, so a 900-line plan scrolls inside the card instead of
-          pushing every other work off the column. */}
-      <Show when={open()}>
-        {(path) => (
-          <div
-            data-testid="work-file-view"
-            data-path={path()}
-            class="mt-1.5 flex h-80 min-h-0 flex-col overflow-hidden rounded-lg border border-edge bg-surface-0"
-          >
-            <BrowseFileDispatcher
-              // A kept file is kolu's own copy: no repo behind it, so no
-              // terminal to anchor a comment or resolve a link against.
-              at={
-                props.place === null
-                  ? null
-                  : {
-                      host: props.place.host,
-                      terminalId: props.place.terminalId,
-                    }
-              }
-              filePath={path()}
-              // Same rule as the list above: a resource RE-THROWS its failure
-              // at its reader, and `error` beside it is how the viewer is told
-              // — so the value is only read when there is one.
-              file={bytes.error === undefined ? (bytes() ?? null) : null}
-              error={bytes.error}
-              // The work's OWN files are the vault a `[[wikilink]]` in a plan
-              // resolves against — the only list this card has, and the list
-              // a plan's links actually point into.
-              repoVault={{
-                paths: files().map((file) => file.path),
-                pending: listed.loading,
-              }}
-              theme={theme()}
-            />
-          </div>
-        )}
       </Show>
     </section>
   );

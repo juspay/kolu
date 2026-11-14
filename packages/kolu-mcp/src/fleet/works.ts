@@ -138,7 +138,10 @@ export interface FleetWorkIntent {
   }>;
 }
 
-/** ... and what it answers: the setup as the decisions now READ, flattened. */
+/** ... and what it answers: the work, the setup as the decisions now READ,
+ *  and whether anything was PUT TO THE HUMAN. Nothing here waits for them:
+ *  the setup is whatever the request already gave, and the rest arrives as a
+ *  wake when they answer. */
 export interface FleetWorkOpened {
   readonly work: string;
   readonly host: string | null;
@@ -149,16 +152,17 @@ export interface FleetWorkOpened {
     readonly model: string | null;
   }>;
   readonly onGreen: OnGreen | null;
-  readonly declined: boolean;
+  /** The ask the questions were put as — the id the work's decisions carry. */
+  readonly ask: string;
+  /** Whether a form actually went to the human. `false` when the request had
+   *  already given every answer, which is a set of decisions and nobody was
+   *  asked anything. */
+  readonly asked: boolean;
 }
 
-export interface FleetWorkAnswers {
-  readonly answers: ReadonlyArray<{
-    readonly question: string;
-    readonly picked: ReadonlyArray<string>;
-    readonly text: string | null;
-  }>;
-  readonly declined: boolean;
+/** A question put, and nothing more: the ask it was put as. */
+export interface FleetWorkAsked {
+  readonly ask: string;
 }
 
 /** The Conductor's pieces of work, as the fleet face reaches them.
@@ -172,11 +176,14 @@ export interface FleetWorks {
    *  ended. The `works` resource re-reads on this, which is how a terminal
    *  that went away reaches a conductor that is not calling anything. */
   subscribe(cb: () => void): () => void;
-  /** Open a work and put its setup questions to the human as one ask;
-   *  resolves when they have answered. Rejects with a refusal naming the
-   *  setup keys the mode needs and the call did not ask. */
-  open(intent: FleetWorkIntent): Promise<FleetWorkOpened>;
-  /** Ask the human something about a work; resolves when they answer. */
+  /** OPEN A WORK and put its setup questions to the human as one ask — and
+   *  ANSWER AT ONCE. Nothing here waits on a person: the human's answers
+   *  arrive later, as a wake, and the work carries them as decisions.
+   *  Refused, with nothing created, when the setup does not carry a question
+   *  the mode needs. */
+  open(intent: FleetWorkIntent): FleetWorkOpened;
+  /** Ask the human something about a work — and answer at once, with the ask
+   *  it was put as. The answer comes back as a wake. */
   ask(
     work: string,
     questions: ReadonlyArray<{
@@ -184,8 +191,9 @@ export interface FleetWorks {
       readonly question: string;
       readonly options: ReadonlyArray<string>;
       readonly multiple?: boolean | undefined;
+      readonly file?: string | undefined;
     }>,
-  ): Promise<FleetWorkAnswers>;
+  ): FleetWorkAsked;
   /** A terminal joins a work in a role, saying how it got there. Idempotent:
    *  a terminal already in that work keeps the role it was given first. */
   join(ref: string, work: string, role: WorkRole, joined: FleetWatchJoin): void;
@@ -364,6 +372,12 @@ const WorkAskArgsSchema = Schema.Struct({
           description: "Whether more than one option may be picked.",
         }),
       ),
+      file: Schema.optionalKey(
+        Schema.String.annotate({
+          description:
+            "The file the human must READ to answer this — the plan, for a plan approval — relative to the work's worktree, exactly as the work's own file events spell it (`.waterfall/plan.md`). Every face that draws the question then offers a button that opens it in the reader. Leave it out for a question about no file.",
+        }),
+      ),
     }),
   ).check(Schema.isMinLength(1)),
 });
@@ -491,6 +505,13 @@ function foundState(
   );
 }
 
+/** The sentence every asking tool ends its answer with. ONE place, because
+ *  the two tools say the same thing and the thing they say is the whole rule:
+ *  the question is put, you are not waiting for it, and the answer comes back
+ *  as a turn kolu starts. */
+const ASKED_SAID =
+  "Asked. The question is in front of the human now and NOTHING is waiting on them: say what you asked, END YOUR TURN, and kolu will wake you with their answer — who answered, from where, and what they said. Never poll the `works` resource for it, and never ask the same question again because no answer came back: it is already on the card, and asking twice puts two forms in front of them.";
+
 /** `work_open` — state a piece of work, and ask its setup in one form. */
 export function workOpenTool(works: FleetWorks): BespokeTool {
   return {
@@ -498,11 +519,14 @@ export function workOpenTool(works: FleetWorks): BespokeTool {
     mutates: true,
     title: "Open a piece of work",
     description:
-      "Open a piece of work and ask the human its setup — in ONE form, the whole of it: which host, which mode, which harness and model per role, and what to do when CI is green. kolu puts the questions to the human, records every answer as a DECISION on this work, and answers you with what they chose. The answer is the setup as kolu now reads it back, so you never have to remember what was said: `host`, `mode`, `roles` (harness and model each), `onGreen`. Use `given` for anything the human's request already said — it is recorded as their answer without asking. Refused, with nothing created, when the setup does not carry a question the mode needs. `declined: true` means they would not say, and the work was abandoned. Everything after this names the work it answers with: `lifecycle_create`, `work_adopt`, `work_ask`, `work_note`.",
+      "Open a piece of work and ask the human its setup — in ONE form, the whole of it: which host, which mode, which harness and model per role, and what to do when CI is green. kolu puts the questions to the human, records every one as a DECISION on this work, and ANSWERS YOU AT ONCE: nothing in kolu's tools ever waits for a person. The answer carries the work's id, the setup as kolu reads it back RIGHT NOW (`host`, `mode`, `roles` — harness and model each — `onGreen`; each one `null` while its question is still open), and `asked: true` when a form went to them. Use `given` for anything the human's request already said — it is recorded as their answer without asking, and reads back immediately. Refused, with nothing created, when the setup does not carry a question the mode needs. When `asked` is true, say what you asked and END YOUR TURN: kolu wakes you with every answer, and a setup they decline ends the work as abandoned and tells you the same way. Everything after this names the work it answers with: `lifecycle_create`, `work_adopt`, `work_ask`, `work_note`.",
     handler: (args, _bundle, _signal) => {
       const intent = args as WorkOpenArgs;
-      return Effect.tryPromise({
-        try: () => works.open(intent),
+      return Effect.try({
+        try: () => {
+          const opened = works.open(intent);
+          return opened.asked ? { ...opened, said: ASKED_SAID } : opened;
+        },
         catch: (err: unknown) => refusalFailure(err, intent.title),
       });
     },
@@ -516,11 +540,11 @@ export function workAskTool(works: FleetWorks): BespokeTool {
     mutates: true,
     title: "Ask the human about a piece of work",
     description:
-      "Ask the human one or more questions ABOUT a piece of work — approving a plan, a tradeoff nobody told you how to make, what to do about a failing check. They see one form; each answer is stored as a DECISION on that work and shows on its card, so it survives this conversation. Answer the SAME question from the card or the chat — either settles it. Every question needs a `header` of two or three words — the card draws the decision as `header — answer`, one line — and options (the human also gets a box to type their own answer). Keep your reasoning about the choice in your PROSE, never in the question text: a question that argues its own answer is drawn back to the human as a wall of words. A question about NO work is your own question tool's, not this: it belongs to the conversation alone.",
+      "Ask the human one or more questions ABOUT a piece of work — approving a plan, a tradeoff nobody told you how to make, what to do about a failing check. They see one form; each question is stored as a DECISION on that work and shows on its card, so it survives this conversation and a restart. THIS CALL ANSWERS AT ONCE, with the ask's id: the question does not hold your turn open, and you must not wait for it — say what you asked and end the turn. kolu wakes you when they answer, saying who answered, from where (the card, the chat, the reader) and what; a question they decline, or one whose work ends under it, reaches you the same way. They may answer from the card, the chat or the reader a file is open in — any of them settles the one question. Every question needs a `header` of two or three words — the card draws the decision as `header — answer`, one line — and options (the human also gets a box to type their own answer). Give `file` when the question is about something they must READ before answering — the plan, for a plan approval — and every face offers them a button that opens it. Keep your reasoning about the choice in your PROSE, never in the question text: a question that argues its own answer is drawn back to the human as a wall of words. A question about NO work is your own question tool's, not this: it belongs to the conversation alone.",
     handler: (args, _bundle, _signal) => {
       const { work, questions } = args as WorkAskArgs;
-      return Effect.tryPromise({
-        try: () => works.ask(work, questions),
+      return Effect.try({
+        try: () => ({ ...works.ask(work, questions), said: ASKED_SAID }),
         catch: (err: unknown) => refusalFailure(err, work),
       });
     },

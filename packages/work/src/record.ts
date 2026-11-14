@@ -129,6 +129,9 @@ export interface Question {
   readonly question: string;
   readonly options: ReadonlyArray<string>;
   readonly multiple: boolean;
+  /** The worktree-relative file this question is about (`.waterfall/plan.md`
+   *  for a plan approval), or absent for a question about no file. */
+  readonly file?: string | undefined;
   readonly given?: string | undefined;
 }
 
@@ -152,6 +155,7 @@ export const askQuestions = (
     question: one.question,
     options: [...one.options],
     multiple: one.multiple,
+    file: one.file ?? "",
     answer:
       one.given === undefined
         ? null

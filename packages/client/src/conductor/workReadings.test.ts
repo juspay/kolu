@@ -43,6 +43,7 @@ const decision = (over: Partial<Decision> = {}): Decision => ({
   question: "Approve the plan?",
   options: ["Approve", "Ask for changes"],
   multiple: false,
+  file: "",
   answer: null,
   ...over,
 });

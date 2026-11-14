@@ -68,16 +68,30 @@ export interface Conductor {
     settled?: (accepted: boolean) => void,
   ): void;
   cancel(): void;
-  /** `answers === null` DECLINES — the agent is told you would not say.
+  /** ANSWER THE AGENT'S OWN QUESTION — an elicitation it is holding a call
+   *  open for. `answers === null` DECLINES it.
    *
-   *  `from` is WHICH FACE answered. A question about a piece of work is drawn
-   *  twice — in the chat and on the work's card — and answering either settles
-   *  the one question; the decision the work keeps records which one the
-   *  person was looking at when they answered it. */
-  answer(
-    askId: string,
-    answers: readonly AskAnswer[] | null,
-    from: "card" | "chat",
+   *  kolu's own questions about a piece of work are NOT these: they are
+   *  decisions on the work, answered through {@link Conductor.answerWork}. */
+  answer(askId: string, answers: readonly AskAnswer[] | null): void;
+  /** ANSWER ONE OF KOLU'S OWN QUESTIONS ABOUT A PIECE OF WORK, keyed by the
+   *  DECISION each answer belongs to. `answers === null` declines the whole
+   *  ask.
+   *
+   *  `from` is WHICH FACE answered — the work's card, the chat, the reader a
+   *  file is open in, or that reader in a window of its own. All four draw
+   *  the one decision and any of them settles it; the record keeps which one
+   *  the person was looking at.
+   *
+   *  Nothing is waiting on this: the Conductor was told its question had been
+   *  put and ended its turn, so this writes the decision and kolu WAKES it
+   *  with what was said. That is also why it works while the conversation is
+   *  down — the only failure it can raise is the work's own refusal. */
+  answerWork(
+    work: string,
+    ask: string,
+    answers: Readonly<Record<string, readonly string[]>> | null,
+    from: "card" | "chat" | "reader" | "popout",
   ): void;
   signIn(method: string): void;
   signInInput(text: string): void;
@@ -168,17 +182,39 @@ export const useConductor = createSharedRoot<Conductor>(() => {
       ),
     cancel: () =>
       ask("Could not stop the turn", app.procedures.conductor.cancel({})),
-    answer: (askId, answers, from) =>
+    answer: (askId, answers) =>
       ask(
         "Could not answer",
         app.procedures.conductor.answer({
           askId,
           answers: answers === null ? null : [...answers],
-          from,
         }),
         (result) => {
           // A two-tab world: somebody else got there first. A reported state,
           // not a fault — the row is already settled on screen.
+          if (!result.settled) toast.info("That question was already answered");
+        },
+      ),
+    answerWork: (work, askId, answers, from) =>
+      ask(
+        "Could not answer",
+        app.procedures.conductor.answerWork({
+          work,
+          ask: askId,
+          answers:
+            answers === null
+              ? null
+              : Object.fromEntries(
+                  Object.entries(answers).map(([decision, values]) => [
+                    decision,
+                    [...values],
+                  ]),
+                ),
+          from,
+        }),
+        (result) => {
+          // Two faces of one question — a card and a popped-out reader, say —
+          // and the second one to press is told so rather than failing.
           if (!result.settled) toast.info("That question was already answered");
         },
       ),

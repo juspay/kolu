@@ -42,14 +42,20 @@
  *                      the turn the chat folds while it is still working
  *   open <title>     — a REAL `work_open` (mode `full`, repo /tmp/kolu-e2e)
  *                      that leaves the on-green question for the human: says
- *                      `opening: <title>` at once and `opened: <id>` only
- *                      once the question is answered (`declined` if not)
+ *                      `opening: <title>` and `opened: <id>` in the SAME
+ *                      turn, because asking never waits — whatever they
+ *                      answer arrives later as a wake
  *   run the implementor in <cwd>: <command>
  *                    — a REAL `lifecycle_create` with `work` = the last work
  *                      opened and `role: implementor`, typing `<command>`
  *   ask about the work — a REAL `work_ask` ("Approve the plan?", approve or
- *                      revise) about the last work opened; answers
- *                      `answered: <pick>` or `declined`
+ *                      revise) about the last work opened; says
+ *                      `asked: <ask id>` and ENDS THE TURN. The answer comes
+ *                      back as a wake, which this fixture answers
+ *                      `answered: <what they said>` (or `declined`)
+ *   ask about the plan — a REAL `work_ask` about the last work opened whose
+ *                      question NAMES A FILE (`.waterfall/plan.md`): what
+ *                      makes every face of it offer to open the reader
  *   note <text>      — a REAL `work_note` on the last work opened
  *   watch <id>       — a plain watch: a REAL `work_open` in mode `watch`
  *                      (host and mode given, nothing asked), then `work_adopt`
@@ -502,8 +508,9 @@ const setupFor = (
   return setup;
 };
 
-/** Open a piece of work and remember it. Answers the work's id, or `null`
- *  when the human declined the setup. */
+/** Open a piece of work and remember it. Answers the work's id — the call
+ *  comes back AT ONCE, whether or not a setup question went to the human:
+ *  what they say arrives later, as a wake. */
 const openWork = async (
   title: string,
   mode: "full" | "trivial" | "watch",
@@ -517,7 +524,7 @@ const openWork = async (
   });
   const work = /"work"\s*:\s*"([^"]+)"/.exec(answer)?.[1] ?? null;
   lastWork = work;
-  return /"declined"\s*:\s*true/.test(answer) ? null : work;
+  return work;
 };
 
 const turn = async (
@@ -534,6 +541,16 @@ const turn = async (
     const refs = [...whole.matchAll(/\blocal\/[0-9a-f-]{36}\b/g)].map(
       (one) => one[0],
     );
+    // AN ANSWER IS A WAKE LIKE ANY OTHER — the half of this feature a
+    // scenario can see from the agent's side: the Conductor asked, ended its
+    // turn, and is told later what the human said. The answer is echoed so a
+    // scenario can assert the conversation really was woken WITH IT, rather
+    // than merely that a form settled on screen.
+    const answered = whole.includes("the human ANSWERED")
+      ? (/·\s*[^\n:]+:\s*(.+)/.exec(whole)?.[1]?.trim() ?? "")
+      : null;
+    if (answered !== null) say(`answered: ${answered}`);
+    else if (whole.includes("the human DECLINED")) say("declined");
     say(`woke: ${[...new Set(refs)].join(", ")}`);
     endTurn(id);
     return;
@@ -541,14 +558,15 @@ const turn = async (
   if (text.startsWith("open ")) {
     // THE CONDUCTOR STATES ITS INTENT. One `work_open` whose setup leaves the
     // on-green question for the human, so the card has something to answer —
-    // and the call does not resolve until they do.
+    // and the call ANSWERS AT ONCE: nothing here waits on a person, and the
+    // answer reaches this fixture as a wake.
     const title = text.slice("open ".length).trim();
     say(`opening: ${title}`);
     const work = await openWork(title, "full", {
       repo: "/tmp/kolu-e2e",
       askOnGreen: true,
     });
-    say(work === null ? "declined" : `opened: ${work}`);
+    say(work === null ? "nothing opened" : `opened: ${work}`);
     endTurn(id);
     return;
   }
@@ -584,18 +602,45 @@ const turn = async (
       endTurn(id);
       return;
     }
+    // ASK, SAY WHAT YOU ASKED, END THE TURN. The call answers at once with
+    // the ask's id and nothing else: whatever the human says arrives later,
+    // as the wake handled at the top of this function.
     const answer = await callTool("work_ask", {
       work: lastWork,
       questions: [
-        { question: "Approve the plan?", options: ["approve", "revise"] },
+        {
+          header: "Plan approval",
+          question: "Approve the plan?",
+          options: ["approve", "revise"],
+        },
       ],
     });
-    const picked = /"picked"\s*:\s*\[\s*"([^"]*)"/.exec(answer)?.[1];
-    say(
-      /"declined"\s*:\s*true/.test(answer)
-        ? "declined"
-        : `answered: ${picked ?? ""}`,
-    );
+    const ask = /"ask"\s*:\s*"([^"]+)"/.exec(answer)?.[1] ?? "";
+    say(`asked: ${ask}`);
+    endTurn(id);
+    return;
+  }
+  if (text === "ask about the plan") {
+    if (lastWork === null) {
+      say("no work is open");
+      endTurn(id);
+      return;
+    }
+    // THE QUESTION NAMES THE FILE. That one field is what makes the card and
+    // the chat offer to open the plan in the reader — the question carries
+    // the thing the human has to read before they can answer it.
+    const answer = await callTool("work_ask", {
+      work: lastWork,
+      questions: [
+        {
+          header: "Plan approval",
+          question: "Approve the plan?",
+          options: ["approve", "revise"],
+          file: ".waterfall/plan.md",
+        },
+      ],
+    });
+    say(`asked: ${answer}`);
     endTurn(id);
     return;
   }
@@ -621,7 +666,7 @@ const turn = async (
       host: "local",
     });
     if (work === null) {
-      say("declined");
+      say("nothing opened");
       endTurn(id);
       return;
     }
@@ -651,7 +696,7 @@ const turn = async (
     const command = text.slice("run ".length).trim();
     const work = await openWork(`run ${command}`, "trivial");
     if (work === null) {
-      say("declined");
+      say("nothing opened");
       endTurn(id);
       return;
     }

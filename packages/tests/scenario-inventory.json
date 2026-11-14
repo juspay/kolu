@@ -10978,6 +10978,114 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "435f40325fe94d5834c76e5fe91c672bd43a5101"
+    },
+    {
+      "revisionId": "revision-83ad87b8368d0f08b484",
+      "scenarioKey": "scenario-4687bf5c6639d2db31c1",
+      "feature": "features/conductor-reader.feature",
+      "scenario": "Approving from the question pinned over the plan",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "b11b7f2011e3cc785d94d20584cdcdc7d97681f34423bde4696da5d243d90dbd",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3c4b46f908a715e0215759c584d5329e2b1ff459"
+    },
+    {
+      "revisionId": "revision-cce9a1c60eac6a79870f",
+      "scenarioKey": "scenario-ae94cdf408d38ebb5e41",
+      "feature": "features/conductor-reader.feature",
+      "scenario": "Filling the screen with the plan, and taking the conversation back",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "428b4385139c1f10f878a3a81756f923d37e0cf3d070a661f7567b24f9afaa5d",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3c4b46f908a715e0215759c584d5329e2b1ff459"
+    },
+    {
+      "revisionId": "revision-9bce1109fbf825242f92",
+      "scenarioKey": "scenario-902cf89103a6e6641520",
+      "feature": "features/conductor-reader.feature",
+      "scenario": "On a phone the plan takes the whole screen, with a way back",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "bbf21e07ac0ecd73542f22dbfbdf1d10b683a01cdb3ee0b15a8a6ddf60dfd590",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3c4b46f908a715e0215759c584d5329e2b1ff459"
+    },
+    {
+      "revisionId": "revision-8509cfc479587e451b4f",
+      "scenarioKey": "scenario-894e96652bb61d9d37f9",
+      "feature": "features/conductor-reader.feature",
+      "scenario": "The document is set for reading, and its table is not squeezed",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "313b65399e766df835aac6a4acbccde372fdd4bf01d2fb166bc48b6442cbfb1f",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3c4b46f908a715e0215759c584d5329e2b1ff459"
+    },
+    {
+      "revisionId": "revision-69117a3b34b71c628766",
+      "scenarioKey": "scenario-c6f58ce077d1c5704964",
+      "feature": "features/conductor-reader.feature",
+      "scenario": "The plan moves to a window of its own, and is answered there",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d991606312ed03a4c84e56fe0516c666cbef0dbdac1d53ddf23b9651aa835278",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3c4b46f908a715e0215759c584d5329e2b1ff459"
+    },
+    {
+      "revisionId": "revision-a2c201a39cc031e17fbc",
+      "scenarioKey": "scenario-a2818f3894a231079939",
+      "feature": "features/conductor-reader.feature",
+      "scenario": "The plan opens from the question that is waiting on it",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "730ed36768c74bd212cafab6ed7d0b0e28670d7ba922cd5ac6138ee8fbcd8dff",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3c4b46f908a715e0215759c584d5329e2b1ff459"
+    },
+    {
+      "revisionId": "revision-cd0ec4ba01ec2b738dc2",
+      "scenarioKey": "scenario-94241c5bd73458a1b6c7",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A file on the card opens in the reader, rendered",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "a76ec76698ca66faa76312073bce305b3795b447bbc0b719925e1755b83092c5",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3c4b46f908a715e0215759c584d5329e2b1ff459"
+    },
+    {
+      "revisionId": "revision-97f0a9d092c873e9c286",
+      "scenarioKey": "scenario-d234e3cc6a5f0409382e",
+      "feature": "features/conductor-work.feature",
+      "scenario": "Finished work, its decisions and its kept files outlive the server",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "6d6ee48e80eff855854fa91a5cefd8a72bfa7472231efc4eda089d79f82fc339",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3c4b46f908a715e0215759c584d5329e2b1ff459"
+    },
+    {
+      "revisionId": "revision-cf4412384174a8349057",
+      "scenarioKey": "scenario-b4835b71409370a27e1c",
+      "feature": "features/conductor-work.feature",
+      "scenario": "The plan is approved from the card while the Conductor sits idle",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "71ecf99f792dcf9030ee4d48a2742b483e80c3e26a616265501b70dfa9966d99",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3c4b46f908a715e0215759c584d5329e2b1ff459"
     }
   ]
 }

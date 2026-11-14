@@ -27,7 +27,6 @@ import {
   capFinished,
   deserted,
   driverOf,
-  dropAsk,
   endWork,
   filesSeen,
   finished,
@@ -37,7 +36,6 @@ import {
   keepFailed,
   keepFiles,
   leaveWork,
-  openAsks,
   takeOver as takeOverRecord,
   type Driver,
   type Work,
@@ -116,8 +114,6 @@ export interface WorkStore {
   readonly driven: (ref: string) => MemberAt & { readonly driver: Driver };
   /** The keys changed hands: the act, on the work's timeline. */
   readonly handover: (ref: string, what: "taken-over" | "handed-back") => void;
-  /** Every question every work in progress has open, dropped — the wipe. */
-  readonly dropOpenAsks: (at: string) => void;
   /** EVERY WORK, REPLACED — a restored backup. Answers the refs that are no
    *  longer members of anything, so the caller can drop what it was holding
    *  about them. */
@@ -193,6 +189,12 @@ export const workStore = (deps: {
     reading: MemberReading | null,
   ) => void;
   readonly membersMoved: (membership: boolean) => void;
+  /** THIS SAVE ENDED THE WORK — called once, with the ended record, before
+   *  its files are kept. The one thing that has to happen here and nowhere
+   *  else is the questions it was still holding: nobody can answer a question
+   *  about a work that is over, so they are dropped and the Conductor is told
+   *  (it asked them, and it is owed the ending whichever ending it was). */
+  readonly ended: (work: Work) => void;
   readonly records: RecordWrites<"works" | "members">;
   readonly members: MemberStore;
   readonly log: Logger;
@@ -320,8 +322,13 @@ export const workStore = (deps: {
       before !== undefined &&
       before.endedAt === null &&
       ended.endedAt !== null
-    )
+    ) {
+      // THE QUESTIONS GO WITH IT — the one edge where a question stops being
+      // answerable, because the work it is about is over. Before the files,
+      // so what is written down about the end is complete.
+      deps.ended(ended);
       void closeOut(ended.id);
+    }
   };
 
   /** The work a terminal is an ACTIVE member of, if it is one — and only ever
@@ -373,13 +380,6 @@ export const workStore = (deps: {
             .map((one) => one.terminal),
     );
 
-  /** EVERY OPEN QUESTION GOES, at the edge that found it: the conversation
-   *  holding that promise is gone, so nobody can answer it any more and a
-   *  decision left `null` would make the card say a person is being waited on
-   *  for ever. */
-  const withoutOpenAsks = (work: Work, at: string): Work =>
-    openAsks(work).reduce((one, askId) => dropAsk(one, askId, at), work);
-
   return {
     all: everyWork,
     get: (id) => works.get(id),
@@ -397,16 +397,22 @@ export const workStore = (deps: {
     open: (work) => {
       save(work);
     },
+    // THE QUESTIONS COME BACK OPEN. A question is a decision with no answer
+    // yet and nothing holds a promise behind it, so a restart finds exactly
+    // what it left: the card still offers it, and answering it wakes the
+    // conversation this boot brings up. Dropping them here is what used to
+    // make a plan approval disappear overnight.
     load: (kept, was) => {
-      const at = nowIso();
-      for (const work of kept) works.set(work.id, withoutOpenAsks(work, at));
+      for (const work of kept) works.set(work.id, work);
       deps.members.reseed(activeRefs(), was);
     },
     restore: (kept, was) => {
-      const at = nowIso();
       const before = Object.keys(deps.members.saved());
       works.clear();
-      for (const work of kept) works.set(work.id, withoutOpenAsks(work, at));
+      // The SNAPSHOT'S OWN questions, as it recorded them: a backup taken
+      // while something was open is restored with it open, because that is
+      // what the record says.
+      for (const work of kept) works.set(work.id, work);
       const refs = activeRefs();
       deps.members.reseed(refs, was);
       publishWorks();
@@ -491,12 +497,6 @@ export const workStore = (deps: {
           ? takeOverRecord(found.work, ref, stamp)
           : handBackRecord(found.work, ref, stamp),
       );
-    },
-    dropOpenAsks: (at) => {
-      for (const work of inProgress(everyWork())) {
-        const dropped = withoutOpenAsks(work, at);
-        if (dropped !== work) save(dropped);
-      }
     },
   };
 };

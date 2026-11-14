@@ -18,7 +18,6 @@
  *  from sliding sideways when the first work appears — so what it says when
  *  empty has to be words and not a hole. It never reads `0`. */
 
-import type { ConductorRow } from "kolu-common/conductor";
 import { finished, inProgress } from "kolu-work";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { useWorks } from "./useWorks";
@@ -36,9 +35,6 @@ const Heading: Component<{ words: string }> = (props) => (
 );
 
 const WorkColumn: Component<{
-  /** The conversation's rows — a card draws the open question about its work
-   *  from them, which is the same row the chat draws. */
-  rows: readonly ConductorRow[];
   /** WHERE THIS COPY IS DRAWN, and nothing more. `inline` is the band the
    *  status line's control opens below the two-column breakpoint, separated
    *  from the line by its own top edge; `side` is the always-on column beside
@@ -77,9 +73,7 @@ const WorkColumn: Component<{
       >
         <Heading words="In progress" />
         <div class="flex flex-col gap-2">
-          <For each={live()}>
-            {(work) => <WorkCard work={work} rows={props.rows} />}
-          </For>
+          <For each={live()}>{(work) => <WorkCard work={work} />}</For>
         </div>
       </Show>
       <Show when={done().length > 0}>
@@ -98,9 +92,7 @@ const WorkColumn: Component<{
           </button>
           <Show when={showFinished()}>
             <div class="flex flex-col gap-2">
-              <For each={done()}>
-                {(work) => <WorkCard work={work} rows={props.rows} />}
-              </For>
+              <For each={done()}>{(work) => <WorkCard work={work} />}</For>
             </div>
           </Show>
         </section>

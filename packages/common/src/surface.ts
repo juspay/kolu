@@ -88,6 +88,8 @@ import {
   DEFAULT_CONDUCTOR_STATE,
   ConductorAnswerInputSchema,
   ConductorAnswerOutputSchema,
+  ConductorAnswerWorkInputSchema,
+  ConductorAnswerWorkOutputSchema,
   ConductorAttachInputSchema,
   ConductorAttachOutputSchema,
   ConductorEmptySchema,
@@ -1302,6 +1304,24 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
         input: ConductorAnswerInputSchema,
         output: ConductorAnswerOutputSchema,
         error: Schema.Union([ConductorUnavailable, ConductorRefused]),
+      },
+      /** ANSWER ONE OF KOLU'S OWN QUESTIONS ABOUT A PIECE OF WORK — from the
+       *  card, the chat, the reader or its pop-out window. The decision is
+       *  written on the work and the conversation is WOKEN with what was
+       *  said; nothing was waiting on it, so nothing is released.
+       *
+       *  `ConductorRefused` ALONE, deliberately, exactly as the two hand-over
+       *  verbs are: a person reading a plan must be able to approve it while
+       *  the conversation is down, signed out or busy. The refusals are the
+       *  work's own ("there is no piece of work called…").
+       *
+       *  Answering the same ask twice is NOT a refusal: the loser is told
+       *  `settled: false`, because two tabs (or a card and a pop-out) looking
+       *  at the same question is the ordinary thing. */
+      answerWork: {
+        input: ConductorAnswerWorkInputSchema,
+        output: ConductorAnswerWorkOutputSchema,
+        error: Schema.Union([ConductorRefused]),
       },
       signIn: {
         input: ConductorSignInInputSchema,

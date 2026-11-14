@@ -741,13 +741,14 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       };
     },
     // The host answers with the SETUP READING (host, mode, roles, on-green —
-    // all of it read back off the decisions just recorded); the face's answer
-    // is that reading flattened, so the agent is told what it asked for
-    // without a second shape in between.
-    open: async (intent) => {
-      const { work, setup, declined } =
-        await liveServerConductor().openWork(intent);
-      return { work, ...setup, declined };
+    // all of it read back off the decisions recorded so far) and the ask the
+    // questions went out as; the face's answer is that reading flattened, so
+    // the agent is told what it asked for without a second shape in between.
+    // NOTHING WAITS: the human's answers arrive later, as a wake.
+    open: (intent) => {
+      const { work, setup, ask, asked } =
+        liveServerConductor().openWork(intent);
+      return { work, ...setup, ask, asked };
     },
     ask: (work, questions) =>
       liveServerConductor().askAboutWork(work, questions),
