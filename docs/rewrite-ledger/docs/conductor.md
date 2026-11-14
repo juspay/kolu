@@ -85,3 +85,11 @@ From `.waterfall/compare.mjs` against `f50641c6a`. Each is accounted for above.
 | `└`, `child-of`, `+`, `alpha`, `▦ canvas · ▢ maximized`, `run_in_background` | cut, visible on screen |
 | `Mode — trivial`, `Implementor — omp · anthropic/claude-opus-5-5`, `Please answer the following questions.`, `screen_text failed 6 times: …` | cut, visible on screen |
 | `.git/info/exclude` | cut, implementation |
+
+## Review round 1
+
+- House style: "click" for the tab, the model, a name and the status-line count; keys as `<kbd>Enter</kbd>`, `<kbd>Shift</kbd> + <kbd>Enter</kbd>`, `<kbd>Alt</kbd> + <kbd>Enter</kbd>`, `<kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd>`. The status-line label **↯ Alt+⏎ steers** is quoted as the screen draws it.
+- Glossed: kolu-server ("the kolu process your browser talks to"), harness ("which agent CLI").
+- Restored three facts the first pass cut as implementation: a doubt the implementor stops on goes to the plan, the request or the planner, and only your decisions reach you; something you ask for mid-round waits for the next round; a red check is retried once.
+- "After a restart" now points at the alpha note: an upgrade can still start an empty conversation.
+- The `mcp` heading this ledger's Moved section names is now "How the Conductor's tools differ".
