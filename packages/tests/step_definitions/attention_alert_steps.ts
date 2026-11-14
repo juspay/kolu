@@ -154,8 +154,8 @@ When("I stub the notification sound", async function (this: KoluWorld) {
 Then(
   "the notification sound should have played {int} time(s)",
   async function (this: KoluWorld, expected: number) {
-    const read = () =>
-      this.page.evaluate(() => [...(window.__soundPlays ?? [])]);
+    // `evaluate` already hands back a serialised copy.
+    const read = () => this.page.evaluate(() => window.__soundPlays ?? []);
     await pollFor({
       observe: read,
       isDone: (plays) => plays.length >= expected,
