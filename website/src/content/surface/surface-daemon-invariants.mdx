@@ -1,61 +1,301 @@
 ---
 title: Daemon invariants
-description: "The rules a surface daemon must never break: single-instance, teardown order, a version-agnostic control core, and the ordered-contracts / match-only-builds split."
+description: "The rules a surface daemon holds: single-instance, teardown order, a version-agnostic control core, and ordered contracts with match-only builds."
 order: 322
 section: Daemons · Reference
 ---
 
-The rules the daemon packages hold. They are facts about the machinery, not
-advice — each is enforced in code or by the type system. The reasoning behind
-them is in [The daemon spine](/surface/the-daemon-spine).
+The rules the daemon packages hold. Each one is enforced in code or by the type
+system. The reasoning behind them is in
+[The daemon spine](/surface/the-daemon-spine).
 
 ## Boundary
 
-| Rule | Statement |
+Which half of the spine owns which code, and what that split buys you.
+
+| Rule | What it says |
 | --- | --- |
-| Binary-only | Only daemon *binary* code — serve and front — lives in `@kolu/surface-daemon`. |
-| Client-only | Only *supervising* code lives in `@kolu/surface-daemon-supervisor`; it runs in the client, never the daemon, so it is never a staleKey root. |
-| The package boundary is the hash boundary | A change to the supervisor cannot change what a daemon restart would load; that is the daemon half's job alone. |
+| [Binary-only](#binary-only) | Only daemon binary code lives in `@kolu/surface-daemon`. |
+| [Client-only](#client-only) | Only supervising code lives in `@kolu/surface-daemon-supervisor`. |
+| [The package boundary is the hash boundary](#the-package-boundary-is-the-hash-boundary) | A supervisor change cannot change what a daemon restart loads. |
+
+### Binary-only
+
+Only daemon *binary* code (serve and front) lives in `@kolu/surface-daemon`.
+
+### Client-only
+
+Only *supervising* code lives in `@kolu/surface-daemon-supervisor`. It runs in
+the client, never the daemon, so it is never a `staleKey` root.
+
+### The package boundary is the hash boundary
+
+A change to the supervisor cannot change what a daemon restart would load. That
+is the daemon half's job alone.
 
 ## Lifecycle
 
-| Rule | Statement |
+How a daemon claims its scope, shuts down, and gets reaped.
+
+| Rule | What it says |
 | --- | --- |
-| Single-instance | `acquirePidGate` is an atomic `link(2)` claim. If the gate is `held`, the process exits `0` — another live daemon already serves this scope. |
-| Idempotent adopt | The adopt-or-spawn poll is idempotent under the daemon's own pid-gate, so a racing second claim is a clean no-op. |
-| Teardown ordering | Shutdown is always **stop accepting + disconnect established peers + remove the socket file (the listener `close()`) → release gate → return `DaemonExit` → release the wrapper's resources → exit** — `daemonProcessMain` runs the exit strictly after everything inside its `run()` promise, so the exit cannot preempt a release stage, and a shutting-down daemon no longer leaves still-connected clients being served by a "closed" socket. |
-| No `process.exit` in the skeleton | The rationale is testability, and the partition preserves it completely: `daemonMain` (the value core) still returns a `DaemonExit` and never exits, so the whole lifecycle stays drivable in-process from a test. Process ownership is a different thing and now says so — it lives in `daemonProcessMain`, the bin half, and nowhere else. The socket `close()` is idempotent and safe to call from a `process.on("exit")` handler. |
-| The lingering-daemon state is unspellable in a `daemonProcessMain` bin | A bin that adopts `daemonProcessMain` cannot forget the exit or the crash arm: once its `run()` settles — the tenure ended, resources released — the process ends. A live resource or timer cannot keep a *finished* daemon alive (a run that never settles is a different state: the daemon isn't finished). |
-| A wedged bound-to-pid daemon still dies | `daemonProcessMain` arms a sibling that does not share the daemon's event loop. When `KOLU_DAEMON_BIND_PID` is set, that sibling polls the bind pid, waits a grace for the clean `pid-gone` path, then SIGKILLs if the daemon is still up. It does not SIGTERM — that handler is already gone on the clean path. In-process `daemonMain` tests never arm it — they share the runner's pid. |
-| Every daemon declares its anchor | `DaemonSpec.anchor` is required — a daemon author must answer "which directory's deletion makes me garbage?" to compile. The spine polls it under every lifetime and reaps the daemon (`anchor-gone`, exit 0) once the anchor is proven gone, so a `git worktree remove` can no longer strand a daemon forever. A daemon with genuinely no on-disk identity says so visibly (`() => undefined`); there is no opt-out knob. |
-| Reaping requires proof | Only ENOENT counts as "the anchor is gone" (`anchorGone`), and only after two consecutive polls. An unreadable path (EACCES, EIO, ENOTDIR) is "I could not read whether it exists" — the opposite of proof — and a single miss could be a transient unmount; neither ever reaps. The supervisor side (kolu-server's padi binder) shares the same predicate, so the two ends cannot drift on what "gone" means. |
-| Serves without asking | The daemon serves the `{ group, handlers }` it is handed and asks no questions — no env or spawn policy lives in it. |
-| A route set is one set | The group a daemon advertises and the handlers it binds are asserted equal at boot. An advertised-but-unanswered tag and an answered-but-unadvertised one are both crashes, never a runtime 404. |
-| Frozen within an epoch | The control-core fragment never versions *inside* a protocol epoch. The Effect-4 framing change (oRPC base64+newline → Effect RPC ndjson) was a declared flag day, not a negotiation — negotiation happens inside the protocol being replaced, so a previous-epoch peer cannot be asked anything at all. It is observed as `unspeakable-protocol`, never as an incompatible version. `CONTROL_CORE_VERSION` versions the *payload*, and the payload's six fields did not move (byte-pinned); a value carried inside the frame cannot describe a break in the frame itself. From this epoch forward the frozen contract holds again, unchanged. `controlCore.ts`'s header is the source of truth for this doctrine. |
-| A refusal the wire did not declare is a defect | `core.drain` declares no error schema, so a not-drainable daemon's refusal is an `Effect.die`, not a member failure. A supervisor cannot narrow on it and "handle" it — which is the point: the daemon is not busy, it is not drainable. |
+| [Single-instance](#single-instance) | A second daemon for the same scope exits `0`. |
+| [Idempotent adopt](#idempotent-adopt) | A racing second claim is a clean no-op. |
+| [Teardown ordering](#teardown-ordering) | Shutdown always runs the same seven stages, in order. |
+| [No `process.exit` in the skeleton](#no-processexit-in-the-skeleton) | The value core returns `DaemonExit`; only the bin half exits. |
+| [The lingering-daemon state is unspellable in a `daemonProcessMain` bin](#the-lingering-daemon-state-is-unspellable-in-a-daemonprocessmain-bin) | A finished daemon's process ends, whatever is still live. |
+| [A wedged bound-to-pid daemon still dies](#a-wedged-bound-to-pid-daemon-still-dies) | A sibling off the event loop kills a daemon whose bind pid is gone. |
+| [Every daemon declares its anchor](#every-daemon-declares-its-anchor) | `DaemonSpec.anchor` is required, and the spine reaps on it. |
+| [Reaping requires proof](#reaping-requires-proof) | Only a repeated ENOENT proves an anchor gone. |
+| [Serves without asking](#serves-without-asking) | The daemon holds no env or spawn policy. |
+| [A route set is one set](#a-route-set-is-one-set) | Advertised group and bound handlers are equal at boot. |
+| [Frozen within an epoch](#frozen-within-an-epoch) | The control-core fragment never versions inside a protocol epoch. |
+| [A refusal the wire did not declare is a defect](#a-refusal-the-wire-did-not-declare-is-a-defect) | An undeclared refusal is an `Effect.die`, not a member failure. |
+
+### Single-instance
+
+`acquirePidGate` is an atomic `link(2)` claim. If the gate is `held`, the
+process exits `0`, because another live daemon already serves this scope.
+
+### Idempotent adopt
+
+The adopt-or-spawn poll is idempotent under the daemon's own pid-gate, so a
+racing second claim is a clean no-op.
+
+### Teardown ordering
+
+Shutdown always runs in this order:
+
+1. stop accepting;
+2. disconnect established peers;
+3. remove the socket file (the listener `close()`);
+4. release the gate;
+5. return `DaemonExit`;
+6. release the wrapper's resources;
+7. exit.
+
+- `daemonProcessMain` runs the exit strictly after everything inside its `run()`
+  promise, so the exit cannot preempt a release stage.
+- A shutting-down daemon leaves no still-connected clients being served by a
+  closed socket.
+
+### No `process.exit` in the skeleton
+
+`daemonMain` (the value core) returns a `DaemonExit` and never exits, so the
+whole lifecycle stays drivable in-process from a test.
+
+- Process ownership lives in `daemonProcessMain`, the bin half, and nowhere
+  else.
+- The socket `close()` is idempotent and safe to call from a
+  `process.on("exit")` handler.
+
+### The lingering-daemon state is unspellable in a `daemonProcessMain` bin
+
+A bin that adopts `daemonProcessMain` cannot forget the exit or the crash arm.
+Once its `run()` settles (the tenure ended, resources released) the process
+ends.
+
+- A live resource or timer cannot keep a *finished* daemon alive.
+- A `run()` that never settles is a different state: the daemon is not finished.
+
+### A wedged bound-to-pid daemon still dies
+
+`daemonProcessMain` arms a sibling that does not share the daemon's event loop.
+
+- When `KOLU_DAEMON_BIND_PID` is set, the sibling polls the bind pid, waits a
+  grace for the clean `pid-gone` path, then SIGKILLs if the daemon is still up.
+- It does not SIGTERM, because that handler is already gone on the clean path.
+- In-process `daemonMain` tests never arm it: they share the runner's pid.
+
+### Every daemon declares its anchor
+
+`DaemonSpec.anchor` is required, so a daemon author must answer "which
+directory's deletion makes me garbage?" to compile.
+
+- The spine polls the anchor under every lifetime and reaps the daemon
+  (`anchor-gone`, exit 0) once it is proven gone, so a `git worktree remove`
+  cannot strand a daemon forever.
+- A daemon with genuinely no on-disk identity says so visibly
+  (`() => undefined`). There is no opt-out knob.
+
+### Reaping requires proof
+
+Only ENOENT counts as "the anchor is gone" (`anchorGone`), and only after two
+consecutive polls.
+
+- An unreadable path (EACCES, EIO, ENOTDIR) is "I could not read whether it
+  exists", which is the opposite of proof.
+- A single miss could be a transient unmount. Neither case ever reaps.
+- The supervisor side (kolu-server's padi binder) shares the same predicate, so
+  the two ends cannot drift on what "gone" means.
+
+### Serves without asking
+
+The daemon serves the `{ group, handlers }` it is handed and asks no questions.
+No env or spawn policy lives in it.
+
+### A route set is one set
+
+The group a daemon advertises and the handlers it binds are asserted equal at
+boot. An advertised-but-unanswered tag and an answered-but-unadvertised one are
+both crashes, never a runtime 404.
+
+### Frozen within an epoch
+
+The control-core fragment never versions *inside* a protocol epoch.
+
+- `CONTROL_CORE_VERSION` versions the *payload*, and the payload's six fields
+  are byte-pinned. A value carried inside the frame cannot describe a break in
+  the frame itself.
+- A peer from a previous epoch is observed as `unspeakable-protocol`, never as
+  an incompatible version.
+- `controlCore.ts`'s header is the source of truth for this doctrine.
+
+### A refusal the wire did not declare is a defect
+
+`core.drain` declares no error schema, so a not-drainable daemon's refusal is an
+`Effect.die`, not a member failure. A supervisor cannot narrow on it and handle
+it: the daemon is not busy, it is not drainable.
 
 ## Identity and versioning
 
-| Rule | Statement |
-| --- | --- |
-| Version-agnostic control core | Identity is read over a version-agnostic channel, *before* the versioned handshake, so it stays reachable at a skew. |
-| One probe assembly authority | `probeDaemonIdentityFrom` turns an already-dialed control-core client plus its exit oracle into the complete convergence probe. The socket-path `probeDaemonIdentity` delegates to it; transports do not reconstruct identity or drain fields themselves. |
-| Link loss is not exit | A connector's exit oracle must prove the daemon process exited. A closed transport alone never becomes the stronger `ClosedInfo.kind === "exit"` fact. |
-| Contracts are ordered | Contract versions are ordered — `contractIsCompatible` / `contractIsNewer` reuse `@kolu/surface`'s predicate. |
-| Builds are match-only | Build ids are match-only, with no ordering exported — store hashes do not order. |
-| Honest absence | `readBakedIdentity` returns empty strings only when both identity variables are absent off-nix rather than inventing an identity. The build id and commit are one fact: both must be non-empty or both variables absent; a half-pair or explicitly empty baked value crashes at daemon boot. `readControlCoreHello` enforces the same joint fact on observations: both absent, both empty, or both non-empty; a partial frozen identity is rejected at the shared reader before convergence can make a decision. |
-| A missing frozen route is not a missing daemon | `null` means only an honest absent listener. During a named upgrade window, a live pre-fragment daemon's structured `NOT_FOUND` is an older-build observation; every other hello failure throws. |
-| Not-drainable stays alive | The frozen wire retains `drain(): void`, but a not-drainable daemon refuses a direct call with a typed application error. Its policy cannot invoke drain, and the refusal cannot exit the daemon or touch its owned resources. |
-| A proven skew is named, never collapsed | The endpoint reports "failures flip to `dead` before they throw" with ONE carve-out: a connect rejection that is a `DaemonContractSkewError` reports `incompatible` — carrying `daemonVersion`/`requiredVersion` off the error's own fields — never `dead` (a fresh spawn that skews) and never `degraded` (a refuse-policy survivor that skews). A restart hold does not coerce it: the skew is the restart's terminal verdict. Consumers derive affordances from the state sum, so no restart verb can be offered against a daemon a restart provably cannot fix. |
-| An unspeakable peer is a third observation, not a skew | A daemon from a **previous protocol epoch** cannot report a version at all, so convergence carries a third narrowly-typed observation beside "identity" and "absent". It is raised at exactly two triggers — the peer speaks first in a framing we cannot parse (`undecodable-frame`), or it accepts the connection and says nothing for `UNSPEAKABLE_SILENCE_MS` (`silence`, which is what the previous epoch's server, waiting for its own hello, actually looks like). Every other dial failure stays an ordinary `probe-failed`; `probe-failed` is never widened to absorb one. |
-| An observation may only act on a daemon proven ours | The unspeakable **fact** becomes an unspeakable **verdict** only under two attestations: the gate file at this rendezvous is ours, and the pid it names passed the holder identity law. Uncorroborated it is `probe-failed`, and a foreign socket-squatter keeps the untouched `SocketSquatterForeignError` path — so no disposition can put a SIGTERM near a process we have not proven is our own daemon. That split is what lets the `silence` trigger exist at all: a merely slow peer stops at the fact. |
-| The disposition is takeover, for every policy | A corroborated unspeakable peer is **taken over**, not negotiated with: re-attest that our gate still names the classified pid, `SIGTERM` it (its own in-process shutdown runs — the very thing a drain verb would have requested), wait, escalate to `SIGKILL` only past a stated deadline, then spawn a daemon of this epoch that seeds from disk. The contract-skew policy is not consulted, because an undecodable wire is not a skew and the drain verb does not exist on it. The only refusal left is the residual where the gate stopped naming the classified pid before the kill — then nothing is signalled, and the `unconverged` anomaly carries the `unspeakable-protocol` cause with `socketPath`, `gatePath` and that pid as data. |
+What a supervisor may conclude about the daemon it found, and from what
+evidence.
 
-## The three make-illegal pins
+| Rule | What it says |
+| --- | --- |
+| [Version-agnostic control core](#version-agnostic-control-core) | Identity is read before the versioned handshake. |
+| [One probe assembly authority](#one-probe-assembly-authority) | `probeDaemonIdentityFrom` assembles every convergence probe. |
+| [Link loss is not exit](#link-loss-is-not-exit) | A closed transport alone never proves the process exited. |
+| [Contracts are ordered](#contracts-are-ordered) | Contract versions compare as newer and older. |
+| [Builds are match-only](#builds-are-match-only) | Build ids compare as the same, or not. |
+| [Honest absence](#honest-absence) | Identity is both fields or neither, never invented. |
+| [A missing frozen route is not a missing daemon](#a-missing-frozen-route-is-not-a-missing-daemon) | `null` means an absent listener, nothing else. |
+| [Not-drainable stays alive](#not-drainable-stays-alive) | A refused drain cannot exit the daemon. |
+| [A proven skew is named, never collapsed](#a-proven-skew-is-named-never-collapsed) | A contract skew reports `incompatible`, with both versions. |
+| [An unspeakable peer is a third observation, not a skew](#an-unspeakable-peer-is-a-third-observation-not-a-skew) | A previous-epoch peer is its own observation, at two triggers. |
+| [An observation may only act on a daemon proven ours](#an-observation-may-only-act-on-a-daemon-proven-ours) | Two attestations turn the transport fact into a verdict. |
+| [The disposition is takeover, for every policy](#the-disposition-is-takeover-for-every-policy) | A corroborated unspeakable peer is stopped and replaced. |
+
+### Version-agnostic control core
+
+Identity is read over a version-agnostic channel, *before* the versioned
+handshake, so it stays reachable at a skew.
+
+### One probe assembly authority
+
+`probeDaemonIdentityFrom` turns an already-dialed control-core client plus its
+exit oracle into the complete convergence probe.
+
+- The socket-path `probeDaemonIdentity` delegates to it.
+- Transports do not reconstruct identity or drain fields themselves.
+
+### Link loss is not exit
+
+A connector's exit oracle must prove the daemon process exited. A closed
+transport alone never becomes the stronger `ClosedInfo.kind === "exit"` fact.
+
+### Contracts are ordered
+
+Contract versions are ordered. `contractIsCompatible` and `contractIsNewer`
+reuse `@kolu/surface`'s predicate.
+
+### Builds are match-only
+
+Build ids are match-only, with no ordering exported. Store hashes do not order.
+
+### Honest absence
+
+`readBakedIdentity` returns empty strings only when both identity variables are
+absent off-nix, rather than inventing an identity.
+
+- The build id and commit are one fact: both must be non-empty, or both
+  variables absent. A half-pair or an explicitly empty baked value crashes at
+  daemon boot.
+- `readControlCoreHello` enforces the same joint fact on observations: both
+  absent, both empty, or both non-empty.
+- A partial frozen identity is rejected at the shared reader, before convergence
+  can make a decision.
+
+### A missing frozen route is not a missing daemon
+
+`null` means only an honest absent listener. During a named upgrade window, a
+live pre-fragment daemon's structured `NOT_FOUND` is an older-build observation.
+Every other hello failure throws.
+
+### Not-drainable stays alive
+
+The frozen wire retains `drain(): void`, but a not-drainable daemon refuses a
+direct call with a typed application error. Its policy cannot invoke drain, and
+the refusal cannot exit the daemon or touch its owned resources.
+
+### A proven skew is named, never collapsed
+
+The endpoint flips failures to `dead` before they throw, with one carve-out: a
+connect rejection that is a `DaemonContractSkewError` reports `incompatible`.
+
+- The report carries `daemonVersion` and `requiredVersion` off the error's own
+  fields.
+- It is never `dead` (a fresh spawn that skews) and never `degraded` (a
+  refuse-policy survivor that skews).
+- A restart hold does not coerce it. The skew is the restart's terminal verdict.
+- Consumers derive affordances from the state sum, so no restart verb can be
+  offered against a daemon a restart provably cannot fix.
+
+### An unspeakable peer is a third observation, not a skew
+
+A daemon from a **previous protocol epoch** cannot report a version at all, so
+convergence carries a third narrowly-typed observation beside "identity" and
+"absent".
+
+- It is raised at exactly two triggers: the peer speaks first in a framing we
+  cannot parse (`undecodable-frame`), or it accepts the connection and says
+  nothing for `UNSPEAKABLE_SILENCE_MS` (`silence`).
+- The `silence` trigger is what the previous epoch's server looks like while it
+  waits for its own hello.
+- Every other dial failure stays an ordinary `probe-failed`, and `probe-failed`
+  is never widened to absorb one.
+
+### An observation may only act on a daemon proven ours
+
+The unspeakable **fact** becomes an unspeakable **verdict** only under two
+attestations: the gate file at this rendezvous is ours, and the pid it names
+passed the holder identity law.
+
+- Uncorroborated, it is `probe-failed`.
+- A foreign socket-squatter keeps the `SocketSquatterForeignError` path, so no
+  disposition can put a SIGTERM near a process we have not proven is our own
+  daemon.
+- That split is what lets the `silence` trigger exist at all: a merely slow peer
+  stops at the fact.
+
+### The disposition is takeover, for every policy
+
+A corroborated unspeakable peer is **taken over**, in four steps:
+
+1. re-attest that our gate still names the classified pid;
+2. `SIGTERM` it, so its own in-process shutdown runs (the act a drain verb would
+   have requested);
+3. wait, and escalate to `SIGKILL` only past a stated deadline;
+4. spawn a daemon of this epoch, which seeds from disk.
+
+- The contract-skew policy is not consulted: an undecodable wire is not a skew,
+  and the drain verb does not exist on it.
+- The one refusal left is the residual where the gate stopped naming the
+  classified pid before the kill. Nothing is signalled, and the `unconverged`
+  anomaly carries the `unspeakable-protocol` cause with `socketPath`,
+  `gatePath` and that pid as data.
+
+## Mistakes the kit makes impossible
 
 The supervisor's convergence kit makes three classes of mistake unrepresentable
 rather than merely discouraged:
 
-1. **A drainless daemon cannot declare a drain policy.** The `drain-and-replace` policy arms exist only for a drain-capable handshake; a drainless daemon ([kaval](/kaval)) declaring one is a compile error.
-2. **Contracts order, builds do not.** The ordering predicate exists for contract versions and is simply absent for build ids — you cannot ask whether one build "is newer than" another.
-3. **Identity precedes the handshake.** The control-core identity is probed pre-connect, so a version skew can never hide it.
+1. **A drainless daemon cannot declare a drain policy.** The `drain-and-replace`
+   policy arms exist only for a drain-capable handshake; a drainless daemon
+   ([kaval](/kaval)) declaring one is a compile error.
+2. **Contracts order, builds do not.** The ordering predicate exists for
+   contract versions and is simply absent for build ids: you cannot ask whether
+   one build "is newer than" another.
+3. **Identity precedes the handshake.** The control-core identity is probed
+   pre-connect, so a version skew can never hide it.
