@@ -40,6 +40,7 @@ Nothing on `EndpointSpec` is Promise-shaped.
 - `awaitExit` takes no `AbortSignal` and no `AbortController`. Fiber
   interruption tells a poll-based exit oracle to stop once the drain ceiling has
   won, and interruption cannot be refused.
+- Why: [Why the supervisor is a separate package](/surface/the-daemon-spine#why-the-supervisor-is-a-separate-package).
 
 ## The dial leaf — `/dial`
 
@@ -194,6 +195,7 @@ picks, so compose it for the mode you will hit.
   parent env. Use `true` only for an actual from-source launch (the dev
   nix-shell env). A built forced-detached daemon uses
   `{ inheritParentEnv: false }` and gets `env` alone.
+- Why: [Why the framework takes values, not loose fields](/surface/the-daemon-spine#why-the-framework-takes-values-not-loose-fields).
 
 ### `scrubDaemonNodeOptions(nodeOptions)`
 
@@ -353,7 +355,7 @@ rules the kit enforces are in
 | [`converge(endpoint)`](#convergeendpoint) | `.` | The boot verb: observe, decide, drain, bind. |
 | [`convergeAdmit({ running, budget, drain, awaitExit, … })`](#convergeadmitopts) | `.` | The connector arm of the same policy. |
 | [`probeDaemonIdentity({ capability, drainCeilingMs? })(socketPath)`](#probedaemonidentityoptssocketpath) | `.` | The endpoint's probe of the frozen fragment. |
-| [`probeDaemonIdentityFrom({ client, dispose, capability: "not-drainable" })`<br />`probeDaemonIdentityFrom({ client, dispose, capability: "drainable", awaitExit, drainCeilingMs })`](#probedaemonidentityfromopts) | `.` | The probe assembled from an already-dialed connector. |
+| [`probeDaemonIdentityFrom({ client, dispose, capability: "not-drainable" })`<br />`probeDaemonIdentityFrom({ client, dispose, capability: "drainable", awaitExit, drainCeilingMs })`](#probedaemonidentityfromopts) | `.` | The probe assembled from an already-dialled connector. |
 | [`readControlCoreHello(client)` · `ControlCoreProbeClient`](#readcontrolcorehelloclient--controlcoreprobeclient) | `.` | Reads and validates the frozen hello. |
 | [`dialSocket(socketPath)`](#dialsocketsocketpath) | `.`, `/dial` | The package's own unix-socket dial. |
 | [`isNoListenerError(error)`](#isnolistenererrorerror) | `.` | The shared `ECONNREFUSED`/`ENOENT` classifier. |
@@ -444,7 +446,7 @@ this, so its not-drainable policy reports the existing human nudge.
 
 ### `probeDaemonIdentityFrom(opts)`
 
-The single probe-assembly authority for an already-dialed connector.
+The single probe-assembly authority for an already-dialled connector.
 
 - `probeDaemonIdentityFrom({ client, dispose, capability: "not-drainable" })`
   omits the exit-oracle fields.
@@ -458,7 +460,7 @@ The single probe-assembly authority for an already-dialed connector.
 Reads and validates the frozen hello on its one baked 30 s deadline: the
 frozen-version check, plus the joint `buildId`/`commit` fact.
 
-- `ControlCoreProbeClient` is the already-dialed client shape it takes:
+- `ControlCoreProbeClient` is the already-dialled client shape it takes:
   `client.surface.control.core.hello()`, which is itself an `Effect`.
 
 ### `dialSocket(socketPath)`
@@ -618,3 +620,4 @@ own in-process shutdown, asked for with a signal instead of a message.
   the graceful leg was skipped.
 - The outcome is `recycled`, because the holder was replaced, not adopted.
 - Kaval's `recycle` reaches the same act by the same path.
+- Why: [Recycling a daemon without lying to its clients](/surface/the-daemon-spine#recycling-a-daemon-without-lying-to-its-clients).

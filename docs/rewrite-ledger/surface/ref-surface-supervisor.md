@@ -67,3 +67,11 @@ No API fact is cut. What went:
 None. `.waterfall/compare.mjs` reports 0 missing: every code span, both
 `<Snippet>` tags (`region="endpoint"`, `region="converge"`) and every table
 first-column entry of `f50641c6a` is on the page.
+
+## Review round 1
+
+- B3, the "Why" link of the reference-entry template, one per entry a Moved row came from:
+  - `The face is Effect-native` → [Why the supervisor is a separate package](/surface/the-daemon-spine#why-the-supervisor-is-a-separate-package).
+  - `cfg.env per launch mode` → [Why the framework takes values, not loose fields](/surface/the-daemon-spine#why-the-framework-takes-values-not-loose-fields).
+  - `The takeover` → [Recycling a daemon without lying to its clients](/surface/the-daemon-spine#recycling-a-daemon-without-lying-to-its-clients).
+- Checks: lint passes; `.waterfall/compare.mjs … f50641c6a` 0 missing; `house-style.mjs` reports only the two findings this page already had (`realised` at line 133, `tap` at line 468), neither from the added lines.
