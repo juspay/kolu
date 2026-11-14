@@ -46,8 +46,8 @@ const WorkColumn: Component<{
   placement: "inline" | "side";
 }> = (props) => {
   const works = useWorks();
-  const live = createMemo(() => inProgress(works().works));
-  const done = createMemo(() => finished(works().works));
+  const live = createMemo(() => inProgress(works()));
+  const done = createMemo(() => finished(works()));
 
   return (
     <div

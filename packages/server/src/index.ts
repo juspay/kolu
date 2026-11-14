@@ -48,7 +48,7 @@ import {
   padiHostMap,
 } from "kolu-common/surfacesWithPadi";
 import { type FleetWorks, serveKoluFleetMcp } from "kolu-mcp";
-import { hostOf, modeOf, onGreenOf, standing } from "kolu-work";
+import { driverOf, hostOf, modeOf, onGreenOf, standing } from "kolu-work";
 import { dirname } from "node:path";
 import type { KoluBootFlags } from "./bootFlags.ts";
 import { fleetHostsOver } from "./fleet/fleetHosts.ts";
@@ -678,7 +678,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   const worksReaders = new Set<() => void>();
   const works: FleetWorks = {
     rows: () => {
-      const stored = liveServerConductor().works().works;
+      const stored = liveServerConductor().works();
       const detail = liveServerConductor().membersDetail();
       return {
         works: stored
@@ -703,6 +703,12 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
                 name: one.name === "" ? null : one.name,
                 agent: one.agent,
                 joined: one.joined,
+                // WHOSE KEYBOARD IT IS — a reading of the work's own timeline,
+                // so an agent reading this resource after a restart sees the
+                // hand-over that happened while it was away. `you` means the
+                // person took it over: the agent must not send it input until
+                // it is handed back (a wake says when).
+                driver: driverOf(work, one.ref),
               })),
             // The questions still standing, in the words they were put in: an
             // agent reading its own work must see what the human has not
@@ -758,7 +764,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     check: (work) => {
       const found = liveServerConductor()
         .works()
-        .works.find((one) => one.id === work);
+        .find((one) => one.id === work);
       if (found === undefined) return "unknown-work";
       return found.endedAt !== null ? "work-ended" : null;
     },
@@ -1224,9 +1230,11 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         return s.renew();
       }),
     // The state-backup ring (#1658). Restore drives the two Conf-backed cells'
-    // server-internal writers (returned by `implementKoluSurface` above) and
+    // server-internal writers (returned by `implementKoluSurface` above),
     // converges the pool through the SAME add/remove path the strip's
-    // `hosts/add`/`hosts/remove` take — the pool stays membership's one writer.
+    // `hosts/add`/`hosts/remove` take — the pool stays membership's one writer —
+    // and hands the snapshot's works to the live conversation, which is THEIR
+    // one writer for exactly the same reason.
     listStateBackups: listServerStateBackups,
     restoreStateBackup: (input) =>
       restoreServerStateBackup(input, {
@@ -1237,6 +1245,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         hasLiveHost: (key) => pool.getHandler(key) !== undefined,
         addHostKey: (key) => pool.add(key),
         removeHostKey: (key) => pool.remove(key),
+        restoreWorks: (works) => {
+          liveServerConductor().restoreWorks(works);
+        },
       }),
   });
 

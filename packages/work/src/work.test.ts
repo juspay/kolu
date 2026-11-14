@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  AGENT_STATES_KEPT,
+  AGENT_STATE_KINDS,
   answerAsk,
   askQuestions,
   capFinished,
   deserted,
+  driverOf,
   dropAsk,
   endWork,
+  handBack,
   joinWork,
   leaveWork,
   membershipOf,
@@ -15,6 +19,7 @@ import {
   recordEvent,
   setupOf,
   standing,
+  takeOver,
   timeBar,
   timeSpent,
   took,
@@ -353,8 +358,8 @@ describe("membership", () => {
       work: "w1",
       title: work.title,
       role: "planner",
+      driver: "conductor",
     });
-    expect(deserted(work)).toBe(false);
     work = leaveWork(work, { terminal: "local/p", at: T(5), why: "closed" });
     expect(deserted(work)).toBe(true);
     expect(membershipOf([work]).size).toBe(0);
@@ -371,5 +376,190 @@ describe("the history", () => {
     expect(kept[0]?.id).toBe("live");
     expect(dropped.map((one) => one.id)).toEqual(["f0", "f1", "f2"]);
     expect(waitingOnYou(kept)).toBe(0);
+  });
+});
+
+describe("who drives a member terminal", () => {
+  const driven = (): Work =>
+    joinWork(setUp(opened()), {
+      terminal: "local/p",
+      role: "planner",
+      at: T(2),
+    });
+
+  it("is the Conductor from the moment a member joins a work it runs", () => {
+    expect(driverOf(driven(), "local/p")).toBe("conductor");
+  });
+
+  it("is you once you take it over, and the Conductor again once you hand it back", () => {
+    const mine = takeOver(driven(), "local/p", T(4));
+    expect(driverOf(mine, "local/p")).toBe("you");
+    expect(membershipOf([mine]).get("local/p")?.driver).toBe("you");
+    expect(driverOf(handBack(mine, "local/p", T(6)), "local/p")).toBe(
+      "conductor",
+    );
+  });
+
+  it("ends by itself when the member leaves, and a terminal that rejoins is the Conductor's again", () => {
+    const left = leaveWork(takeOver(driven(), "local/p", T(4)), {
+      terminal: "local/p",
+      at: T(5),
+      why: "released",
+    });
+    expect(driverOf(left, "local/p")).toBeNull();
+    const again = joinWork(left, {
+      terminal: "local/p",
+      role: "planner",
+      at: T(6),
+    });
+    expect(driverOf(again, "local/p")).toBe("conductor");
+  });
+
+  it("nobody drives a terminal that is no member, a watch, or a work that has ended", () => {
+    const work = driven();
+    expect(driverOf(work, "local/elsewhere")).toBeNull();
+    expect(
+      driverOf(endWork(work, { outcome: "merged", at: T(9) }), "local/p"),
+    ).toBeNull();
+    // A `watch` is the human's own terminal: kolu keeps an eye on it and
+    // never types into it, so there is nothing to take over.
+    const watched = joinWork(
+      askQuestions(opened("w-watch"), {
+        ask: "setup",
+        at: T(0),
+        questions: [
+          {
+            id: "q-host",
+            key: "host",
+            question: "Which host?",
+            options: ["naiveintent"],
+            multiple: false,
+            given: "naiveintent",
+          },
+          {
+            id: "q-mode",
+            key: "mode",
+            question: "Which mode?",
+            options: ["watch"],
+            multiple: false,
+            given: "watch",
+          },
+        ],
+      }),
+      { terminal: "local/w", role: "other", at: T(1) },
+    );
+    expect(driverOf(watched, "local/w")).toBeNull();
+    expect(membershipOf([watched]).get("local/w")?.driver).toBeNull();
+  });
+});
+
+describe("the agent-state bound", () => {
+  /** The agent stopping and coming up again, for as long as you like. */
+  const stopping = (work: Work, times: number): Work => {
+    let next = work;
+    for (let i = 0; i < times; i += 1) {
+      next = recordEvent(next, {
+        at: T(20 + i),
+        by: "agent",
+        kind: i % 2 === 0 ? "stopped" : "ready",
+        terminal: "local/p",
+        detail: "",
+      });
+    }
+    return next;
+  };
+
+  it("keeps the most recent 30 agent-state events and counts the rest into one folded event", () => {
+    const work = stopping(
+      joinWork(setUp(opened()), {
+        terminal: "local/p",
+        role: "planner",
+        at: T(2),
+      }),
+      1_000,
+    );
+    const states = work.events.filter((one) =>
+      (AGENT_STATE_KINDS as ReadonlyArray<string>).includes(one.kind),
+    );
+    expect(states).toHaveLength(AGENT_STATES_KEPT);
+    expect(states).toHaveLength(30);
+    const folded = work.events.filter((one) => one.kind === "folded");
+    expect(folded).toHaveLength(1);
+    expect(folded[0]).toMatchObject({
+      by: "kolu",
+      terminal: null,
+      detail: String(1_000 - 30),
+    });
+    // It sits where the oldest event it stands for sat: before every state
+    // event that survived, and after the membership it happened under.
+    const at = work.events.indexOf(folded[0] as (typeof work.events)[number]);
+    expect(work.events.slice(0, at).map((one) => one.kind)).toEqual([
+      "requested",
+      "question",
+      "answered",
+      "joined",
+    ]);
+    // Nothing else is ever folded.
+    expect(work.events.filter((one) => one.kind === "joined")).toHaveLength(1);
+  });
+
+  it("leaves the folds alone: the same work unbounded says the same thing", () => {
+    let base = joinWork(setUp(opened()), {
+      terminal: "local/p",
+      role: "planner",
+      at: T(2),
+    });
+    base = askQuestions(base, {
+      ask: "plan",
+      at: T(14),
+      questions: [
+        {
+          id: "q-plan",
+          key: null,
+          question: "Approve the plan?",
+          options: ["Approve"],
+          multiple: false,
+        },
+      ],
+    });
+    base = answerAsk(base, {
+      ask: "plan",
+      at: T(16),
+      from: "card",
+      values: new Map([["q-plan", ["Approve"]]]),
+    });
+    const bounded = recordEvent(stopping(base, 400), {
+      at: T(900),
+      by: "ci",
+      kind: "checks-running",
+      terminal: "local/p",
+      detail: "",
+    });
+    // The SAME events, with nothing dropped — the bound is the only
+    // difference, and the folds must not be able to tell.
+    const unbounded: Work = {
+      ...bounded,
+      events: [
+        ...base.events,
+        ...Array.from({ length: 400 }, (_at, i) => ({
+          at: T(20 + i),
+          by: "agent" as const,
+          kind: (i % 2 === 0 ? "stopped" : "ready") as "stopped" | "ready",
+          terminal: "local/p",
+          detail: "",
+        })),
+        {
+          at: T(900),
+          by: "ci",
+          kind: "checks-running",
+          terminal: "local/p",
+          detail: "",
+        },
+      ],
+    };
+    expect(unbounded.events.length).toBeGreaterThan(bounded.events.length);
+    expect(waitingOn(bounded)).toEqual(waitingOn(unbounded));
+    expect(standing(bounded)).toEqual(standing(unbounded));
+    expect(timeBar(bounded, T(1_000))).toEqual(timeBar(unbounded, T(1_000)));
   });
 });

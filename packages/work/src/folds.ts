@@ -8,7 +8,7 @@
  * leave disagreeing with the timeline it is drawn from.
  */
 
-import { modeOf, onGreenOf, prOf } from "./readings.ts";
+import { type Driver, driverOf, modeOf, onGreenOf, prOf } from "./readings.ts";
 import type { Decision, Work, WorkEvent, WorkRole } from "./schema.ts";
 
 /** Who the work is waiting on. `agent` covers the Conductor and the agents it
@@ -237,6 +237,11 @@ export interface Membership {
   readonly work: string;
   readonly title: string;
   readonly role: WorkRole;
+  /** Who types into it — `conductor` while kolu drives it, `you` once the
+   *  person has taken it over, `null` for a member of a work the Conductor
+   *  does not drive (a `watch`, or a mode nobody has answered yet). The mark
+   *  and the input guard read this one answer ({@link driverOf}). */
+  readonly driver: Driver | null;
 }
 
 /** THE MEMBERSHIP INDEX — terminal (`host/id`) to the work in progress it is
@@ -254,6 +259,7 @@ export const membershipOf = (
         work: work.id,
         title: work.title,
         role: member.role,
+        driver: driverOf(work, member.terminal),
       });
     }
   }

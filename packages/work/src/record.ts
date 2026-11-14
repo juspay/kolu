@@ -1,14 +1,21 @@
 /**
  * HOW A WORK CHANGES — every transition, as a pure function of the record.
  *
- * The record only grows: an event is appended, a decision gains its answer, a
- * member gains its `leftAt`, the work gains its end. Nothing here removes a
- * fact, which is what lets a reader trust the timeline it is drawn from.
+ * The record only grows — with ONE bound, stated here and nowhere else: a work
+ * whose agent stops and starts for days would otherwise carry thousands of
+ * agent-state events, in `config.json` and on every browser's wire. Past
+ * {@link AGENT_STATES_KEPT} of them the oldest is dropped and COUNTED into one
+ * `folded` event sitting where it sat, so the timeline still says the time
+ * passed and what happened in it is no longer claimed to be remembered.
+ * Everything else — questions, answers, files, the PR, membership, who is
+ * driving, the end — is never folded, which is what lets a reader trust the
+ * timeline it is drawn from.
  */
 
 import type {
   AnswerFrom,
   Decision,
+  EventKind,
   KeptFile,
   SetupKey,
   Work,
@@ -17,10 +24,66 @@ import type {
   WorkRole,
 } from "./schema.ts";
 
-const append = (work: Work, event: WorkEvent): Work => ({
-  ...work,
-  events: [...work.events, event],
-});
+/** HOW A TERMINAL'S AGENT STANDS, as events — the only kinds a work produces
+ *  over and over for as long as it runs, and so the only ones bounded. */
+export const AGENT_STATE_KINDS = [
+  "ready",
+  "stopped",
+  "asking",
+  "exited",
+  "asleep",
+] as const satisfies ReadonlyArray<EventKind>;
+
+const AGENT_STATE: ReadonlySet<string> = new Set(AGENT_STATE_KINDS);
+
+/** How many agent-state events a work keeps. Thirty is what a card's timeline
+ *  can show of them before a reader scrolls past the rest anyway, and the
+ *  `folded` event keeps the count of the ones that went. */
+export const AGENT_STATES_KEPT = 30;
+
+/** Drop the oldest agent-state event and count it into the work's ONE `folded`
+ *  event — created, on the first fold, exactly where that event sat, so the
+ *  timeline's order still says when the folded stretch happened. Mutates the
+ *  array the append above has already copied. */
+const foldOldest = (events: Array<WorkEvent>): void => {
+  const oldest = events.findIndex((one) => AGENT_STATE.has(one.kind));
+  const removed = events[oldest];
+  if (removed === undefined) return;
+  events.splice(oldest, 1);
+  const folded = events.findIndex((one) => one.kind === "folded");
+  const standing = events[folded];
+  if (standing !== undefined) {
+    events[folded] = {
+      ...standing,
+      detail: String(Number(standing.detail) + 1),
+    };
+    return;
+  }
+  events.splice(oldest, 0, {
+    at: removed.at,
+    by: "kolu",
+    kind: "folded",
+    terminal: null,
+    detail: "1",
+  });
+};
+
+/** THE ONE APPEND. Every transition in this module goes through it, so the
+ *  bound cannot be forgotten by a caller or by a transition added later. */
+const append = (work: Work, event: WorkEvent): Work => {
+  const events = [...work.events, event];
+  if (AGENT_STATE.has(event.kind)) {
+    let kept = 0;
+    for (const one of events) if (AGENT_STATE.has(one.kind)) kept += 1;
+    // A loop rather than an `if`: a record restored from a file written by an
+    // older kolu can be over the bound by more than one.
+    while (kept > AGENT_STATES_KEPT) {
+      foldOldest(events);
+      kept -= 1;
+    }
+  }
+  return { ...work, events };
+};
 
 /** A new work, opened on the human's request. `request` is the words kolu
  *  saw the human send ("" when the work was opened off something else). */
@@ -278,6 +341,20 @@ export const deserted = (work: Work): boolean =>
 /** Append one observation. */
 export const recordEvent = (work: Work, event: WorkEvent): Work =>
   append(work, event);
+
+/** THE PERSON TOOK THE KEYS to a member terminal: from here on it is theirs
+ *  to type into and the Conductor keeps its hands off, until
+ *  {@link handBack}. Stated as an event rather than a flag so it is read the
+ *  way everything else about a work is ({@link driverOf}), survives a restart
+ *  with the record, and ends by itself when the member leaves or the work
+ *  does. The caller refuses the cases this cannot see (not a driven member,
+ *  already in that state).  */
+export const takeOver = (work: Work, terminal: string, at: string): Work =>
+  append(work, { at, by: "you", kind: "taken-over", terminal, detail: "" });
+
+/** ... and gave them back. */
+export const handBack = (work: Work, terminal: string, at: string): Work =>
+  append(work, { at, by: "you", kind: "handed-back", terminal, detail: "" });
 
 /** The work ends. Ending an ended work changes nothing. */
 export const endWork = (

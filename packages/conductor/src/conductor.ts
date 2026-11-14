@@ -112,6 +112,7 @@ import {
   type ConductorFrame,
   type ConductorRow,
   type ConductorState,
+  type ConductorReadingLevel,
   type ConductorWakeEvent,
   PROMPT_ATTACHMENT_BYTE_CAP,
   promptAttachmentsTooBig,
@@ -122,17 +123,18 @@ import {
 } from "kolu-common/conductorErrors";
 import type { CellStore } from "@kolu/surface/server";
 import { Schema } from "effect";
-import type { WorksView } from "kolu-common/works";
 import { splitFleetTerminalRef } from "kolu-mcp/fleetRef";
 import {
   answerAsk,
   askQuestions,
   capFinished,
   deserted,
+  driverOf,
   dropAsk,
   endWork,
   filesSeen,
   finished,
+  handBack as handBackRecord,
   inProgress,
   joinWork,
   keepFailed,
@@ -144,6 +146,7 @@ import {
   prOf,
   type Question,
   recordEvent,
+  takeOver as takeOverRecord,
   type SetupKey,
   type SetupReading,
   setupOf,
@@ -228,14 +231,21 @@ export interface ConductorHost {
      *  ordinary prompt when it is not — this end only carries the ask. */
     steer: boolean,
   ) => Promise<{ rowId: string }>;
-  /** EVERY PIECE OF WORK KOLU REMEMBERS, as a browser is told about it — the
-   *  works in progress oldest first, then the finished ones it still keeps,
-   *  and how each member terminal stands.
+  /** EVERY PIECE OF WORK KOLU REMEMBERS, in the WIRE shape (no member watch
+   *  bookkeeping): the works in progress oldest first — a card keeps its
+   *  place — then the finished ones it still keeps, newest first.
    *
    *  Reads the remembered record if nobody has yet; it never starts the agent.
    *  A work OUTLIVES the conversation that opened it, so reading one must not
    *  be a reason to spawn an adapter. */
-  readonly works: () => WorksView;
+  readonly works: () => ReadonlyArray<Work>;
+  /** ... and HOW EACH MEMBER TERMINAL STANDS right now, by fleet ref. Runtime
+   *  only: a terminal nothing has read yet is ABSENT rather than carried at
+   *  zero. */
+  readonly readings: () => ReadonlyMap<
+    string,
+    { readonly level: ConductorReadingLevel; readonly since: string }
+  >;
   /** THE WATCHER'S SCOPE — the active members of every work IN PROGRESS, as
    *  fleet refs. A terminal is watched if and only if it is one of these:
    *  membership is stated, so there is no second list to keep in step. */
@@ -322,6 +332,31 @@ export interface ConductorHost {
   /** ... and a member leaves — its part is done, or the human said so.
    *  Answers whether it was a member of anything. */
   readonly leaveWork: (ref: string) => boolean;
+  /** THE PERSON TAKES THE KEYS to a member terminal the Conductor drives.
+   *
+   *  From here on that terminal is theirs to type into: every one of the
+   *  browser's own input sites refuses while the driver is the Conductor, and
+   *  the Conductor is WOKEN and told to keep its hands off this one until it
+   *  is handed back. Refused ({@link WorkRefusal}) for a terminal that is not
+   *  a member of a work kolu drives (`not-driven`) or is already in that
+   *  state (`already-yours`).
+   *
+   *  It never goes through the agent: a person must be able to take over a
+   *  terminal while the Conductor is down, signed out, or busy — the wake is
+   *  held like any other news and goes out when there is somebody to tell. */
+  readonly takeOver: (terminal: string) => void;
+  /** ... and gives them back. Refused `not-driven`, or `already-conductors`
+   *  when nobody had taken it over. */
+  readonly handBack: (terminal: string) => void;
+  /** EVERY WORK, REPLACED — a restored backup of the server's store.
+   *
+   *  The snapshot has already been decoded through the migration ladder, so
+   *  what arrives is today's shape. The running Conductor reloads it rather
+   *  than being restarted: the works are replaced wholesale, every question
+   *  they had open is dropped (the conversations that asked them cannot
+   *  answer any more), the readers are told, the file is written NOW, and the
+   *  watcher re-scopes to the restored membership. */
+  readonly restoreWorks: (works: PersistedWorks) => void;
   /** THE ONE THING THE CONDUCTOR WRITES ON A TIMELINE that kolu did not
    *  observe: a line of text. Nothing reads a note to decide anything. */
   readonly note: (work: string, text: string) => void;
@@ -475,10 +510,28 @@ export interface ConductorDeps {
    *  and an import of the served ctx would be a cycle (`surface.ts` builds the
    *  cell that seeds itself from this host's first reading). */
   readonly publish: (state: ConductorState) => void;
-  /** PUBLISH THE WORKS — the `works` cell's writer, pushed in for the same
-   *  reason `publish` is. Its own cell rather than a field of the
-   *  conversation's, because a work outlives the conversation. */
-  readonly publishWorks: (view: WorksView) => void;
+  /** PUBLISH ONE PIECE OF WORK — the `works` collection's writer, pushed in
+   *  for the same reason `publish` is. `null` REMOVES it (it fell off the
+   *  history cap, or a restore replaced the set).
+   *
+   *  Per work rather than a view of all of them because a work grows an event
+   *  every time an agent stops: a cell carrying every work would put all of
+   *  them (and the twenty finished) on every browser's wire for one new line
+   *  on one timeline. The host calls this only for what MOVED — works are
+   *  immutable values, so an unchanged one keeps its reference. */
+  readonly publishWork: (id: string, work: Work | null) => void;
+  /** ... and HOW A MEMBER TERMINAL STANDS, by fleet ref — the other
+   *  collection. `null` for a terminal that is no longer a member (there is
+   *  nothing left to read). A terminal nobody has read yet is ABSENT rather
+   *  than carried at zero: "nobody has looked at its host" and "it has stood
+   *  this way for no time" are different facts. */
+  readonly publishReading: (
+    terminal: string,
+    reading: {
+      readonly level: ConductorReadingLevel;
+      readonly since: string;
+    } | null,
+  ) => void;
   /** THE MEMBERSHIP MOVED — the one in-process event this host announces, for
    *  readers that follow the works themselves rather than the browser's
    *  frame. `membership` is true when the SET of member refs changed (a
@@ -656,7 +709,8 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     fleetMcp,
     proveFleetMcp,
     publish,
-    publishWorks,
+    publishWork,
+    publishReading,
     membersMoved,
     store,
     transcript: transcriptStore,
@@ -853,26 +907,81 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
 
   const everyWork = (): ReadonlyArray<StoredWork> => [...works.values()];
 
-  /** What a browser is told: the works in progress oldest first (a card keeps
-   *  its place), then the finished ones newest first, and how each member
-   *  terminal stands right now. A terminal nothing has read yet is ABSENT from
-   *  `seen` rather than carried at zero — "nobody has looked at its host" and
-   *  "it has stood this way for no time" are different facts. */
-  const worksView = (): WorksView => ({
-    works: [...inProgress(everyWork()), ...finished(everyWork())].map((one) =>
+  /** The works a READER is given, in the order a card keeps: in progress
+   *  oldest first, then the finished ones newest first. */
+  const worksRead = (): ReadonlyArray<Work> =>
+    [...inProgress(everyWork()), ...finished(everyWork())].map((one) =>
       bare(one as StoredWork),
-    ),
-    seen: [...runtime.entries()].flatMap(([terminal, at]) =>
-      at.last === null
-        ? []
-        : [{ terminal, level: at.last.level, since: at.last.since }],
-    ),
-  });
+    );
+
+  /** How each member terminal stands, as a reader is told it. A terminal
+   *  nothing has read yet is ABSENT rather than carried at zero — "nobody has
+   *  looked at its host" and "it has stood this way for no time" are
+   *  different facts. */
+  const readingsRead = (): ReadonlyMap<
+    string,
+    { level: ConductorReadingLevel; since: string }
+  > => {
+    const seen = new Map<
+      string,
+      { level: ConductorReadingLevel; since: string }
+    >();
+    for (const [terminal, at] of runtime) {
+      if (at.last === null) continue;
+      seen.set(terminal, { level: at.last.level, since: at.last.since });
+    }
+    return seen;
+  };
+
+  /** WHAT HAS BEEN PUT ON THE WIRE, so only what MOVED goes out again.
+   *
+   *  A work is an immutable value: an untouched one keeps its reference, so
+   *  identity answers "did this one move" without comparing a timeline event
+   *  by event. A reading is a fresh pair every observation, so that one is
+   *  compared by what it says. */
+  const publishedWorks = new Map<string, StoredWork>();
+  const publishedReadings = new Map<string, { level: string; since: string }>();
+
+  /** WHAT MOVED, PUBLISHED — the works whose value changed (or went), and the
+   *  readings that moved with them. One work per change rather than all of
+   *  them: a work grows an event every time an agent stops, and the twenty
+   *  finished ones have nothing to do with it. */
+  const publishMoved = (): void => {
+    for (const [id, work] of works) {
+      if (publishedWorks.get(id) === work) continue;
+      publishedWorks.set(id, work);
+      publishWork(id, bare(work));
+    }
+    for (const id of [...publishedWorks.keys()]) {
+      if (works.has(id)) continue;
+      publishedWorks.delete(id);
+      publishWork(id, null);
+    }
+    readingsChanged();
+  };
 
   /** THE WORKS MOVED — every reader told, and the file owed a write. */
   const worksChanged = (): void => {
-    publishWorks(worksView());
+    publishMoved();
     schedule("works");
+  };
+
+  /** ... and the same for how the member terminals stand. Published beside
+   *  the works rather than inside them because it moves on its own clock: a
+   *  level change is not a change to the record. */
+  const readingsChanged = (): void => {
+    const seen = readingsRead();
+    for (const [terminal, reading] of seen) {
+      const was = publishedReadings.get(terminal);
+      if (was?.level === reading.level && was.since === reading.since) continue;
+      publishedReadings.set(terminal, reading);
+      publishReading(terminal, reading);
+    }
+    for (const terminal of [...publishedReadings.keys()]) {
+      if (seen.has(terminal)) continue;
+      publishedReadings.delete(terminal);
+      publishReading(terminal, null);
+    }
   };
 
   /** The work a terminal is an ACTIVE member of, if it is one — and only ever
@@ -958,6 +1067,83 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
   ): StoredWork => {
     runtime.delete(ref);
     return stored(leaveWork(work, { terminal: ref, at: nowIso(), why }));
+  };
+
+  /** A MEMBER TERMINAL THE CONDUCTOR DRIVES, and who is driving it — or the
+   *  refusal that says it is none. One sentence for every way a take over can
+   *  be about the wrong terminal: it belongs to no work in progress, it has
+   *  left, or its work is a `watch` (the person's own terminal, which kolu
+   *  never types into) or has no mode decided yet. */
+  const drivenMember = (
+    ref: string,
+  ): {
+    work: StoredWork;
+    member: StoredMember;
+    driver: "conductor" | "you";
+  } => {
+    const found = memberAt(ref);
+    const driver = found === undefined ? null : driverOf(found.work, ref);
+    if (found === undefined || driver === null) {
+      throw new WorkRefusal(
+        "not-driven",
+        `kolu's Conductor is not driving ${ref}, so there is nothing to take over or hand back — only an active member of a piece of work in progress that kolu runs (mode full or trivial) is driven.`,
+      );
+    }
+    return { ...found, driver };
+  };
+
+  /** THE KEYS CHANGED HANDS — the event, the file, the readers, and the
+   *  Conductor told.
+   *
+   *  The wake goes through the ordinary held-news path and NOT through
+   *  `ask(agent)`: a person must be able to take a terminal over while the
+   *  agent is down, signed out or mid-turn, so the news waits for somebody to
+   *  tell exactly as a terminal's own news does. */
+  const handover = (
+    found: { work: StoredWork; member: StoredMember },
+    ref: string,
+    what: "taken-over" | "handed-back",
+  ): void => {
+    const at = nowIso();
+    save(
+      stored(
+        what === "taken-over"
+          ? takeOverRecord(found.work, ref, at)
+          : handBackRecord(found.work, ref, at),
+      ),
+    );
+    const split = splitFleetTerminalRef(ref);
+    heldNews.hold(ref, {
+      ref,
+      host: split?.host ?? "",
+      terminalId: split?.id ?? "",
+      hostName: hostNames.get(split?.host ?? "") ?? split?.host ?? "",
+      name: found.member.watch.name,
+      agent: found.member.watch.agent ?? "",
+      level: what,
+      at,
+    });
+    publishState();
+    worksChanged();
+    // NOT on the throttle: who may type into a terminal is the one fact a
+    // restart must not get wrong.
+    writeNow("works");
+    void flush();
+  };
+
+  /** WHAT A PERSON CALLS EACH HOST, as the watcher's readings say it — kept so
+   *  a wake about a terminal nothing is being read from right now (a take
+   *  over) can still say where it is. Empty until the first reading, and the
+   *  encoded host key is the honest fallback. */
+  const hostNames = new Map<string, string>();
+
+  /** Whether what is waiting about a terminal is a HAND-OVER rather than an
+   *  agent state. News about who may type into a terminal is not made untrue
+   *  by the agent in it going back to work, so it is the one slot the
+   *  `working` withdrawal above must leave alone. */
+  const handoverHeld = (ref: string): boolean => {
+    const held = heldNews.peek(ref);
+    return held?.level === "taken-over" || held?.level === "handed-back";
   };
 
   /** WHERE A WORK'S FILES ARE — the first member whose record named a
@@ -1136,6 +1322,12 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         // Not an event of its own: a terminal that went away LEFT the work,
         // and `leaveWork` writes that with its reason.
         return null;
+      case "taken-over":
+      case "handed-back":
+        // Not a reading at all: a person took the keys, and the event for
+        // that was written where it happened ({@link handover}). No reading
+        // ever produces one of these.
+        return null;
     }
   };
 
@@ -1180,17 +1372,26 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         works.set(id, stored(keepFailed(ended, sentenceOf(err), nowIso())));
       }
     }
-    for (const dropped of capFinished(everyWork()).dropped) {
+    for (const dropped of capFinished(everyWork()).dropped)
       works.delete(dropped.id);
-      void workFiles.forget(dropped.id).catch((err: unknown) => {
-        log.warn(
-          { err, work: dropped.id },
-          "kolu-server: the conductor could not delete a dropped work's files",
-        );
-      });
-    }
-    publishWorks(worksView());
+    sweepFiles();
+    worksChanged();
     writeNow("works");
+  };
+
+  /** THE KEPT FILES, RECONCILED TO THE WORKS — one rule, run wherever the set
+   *  of works can shrink: a directory no stored work names is a directory
+   *  nothing can ever read again (a work that fell off the cap, or one a
+   *  restored backup never had). Doing it by reconciliation rather than by
+   *  deleting what this process happened to drop is what makes a restore —
+   *  which replaces the whole set at once — cost the same line. */
+  const sweepFiles = (): void => {
+    void workFiles.sweep([...works.keys()]).catch((err: unknown) => {
+      log.warn(
+        { err },
+        "kolu-server: the conductor could not delete the files of works it no longer keeps",
+      );
+    });
   };
 
   /** PUT KOLU'S OWN QUESTIONS to the human, as ONE ask the work knows about —
@@ -1308,7 +1509,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       }
     }
     if (works.size > 0) {
-      publishWorks(worksView());
+      publishMoved();
       // A RESTORE IS THE MEMBERSHIP MOVING: it went from nothing to whatever
       // the file held, and the watcher has to scope itself to those hosts. It
       // reads the membership itself at boot too, but this edge is also reached
@@ -2007,6 +2208,12 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       for (const event of events) {
         const found = memberAt(event.ref);
         if (found === undefined) continue;
+        // A HAND-OVER IS NOT A STANDING. `told` is what stops kolu ringing
+        // twice about the same agent state, and "the person took this one
+        // over" is not one of those — writing it here would make the next
+        // real stop look like news already delivered.
+        if (event.level === "taken-over" || event.level === "handed-back")
+          continue;
         save(
           withWatch(found.work, event.ref, {
             ...found.member.watch,
@@ -2142,7 +2349,11 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       // conversation spawned to answer "what work is in flight" is a
       // subprocess nobody asked for.
       remembered();
-      return worksView();
+      return worksRead();
+    },
+    readings: () => {
+      remembered();
+      return readingsRead();
     },
     memberRefs: () => {
       remembered();
@@ -2342,6 +2553,79 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       membersMoved(true);
       return true;
     },
+    takeOver: (ref) => {
+      remembered();
+      const found = drivenMember(ref);
+      if (found.driver === "you") {
+        throw new WorkRefusal(
+          "already-yours",
+          `You have already taken over the ${found.member.role} of «${found.work.title}» (${ref}) — hand it back when you are done with it.`,
+        );
+      }
+      handover(found, ref, "taken-over");
+    },
+    handBack: (ref) => {
+      remembered();
+      const found = drivenMember(ref);
+      if (found.driver === "conductor") {
+        throw new WorkRefusal(
+          "already-conductors",
+          `The ${found.member.role} of «${found.work.title}» (${ref}) is already the Conductor's — nobody has taken it over.`,
+        );
+      }
+      handover(found, ref, "handed-back");
+    },
+    restoreWorks: (restored) => {
+      // The record is read FIRST, so a restore into a process that has not
+      // looked at its own file yet cannot be undone by the boot read that
+      // would otherwise follow it.
+      remembered();
+      const at = nowIso();
+      works.clear();
+      for (const work of restored) {
+        // EVERY OPEN QUESTION GOES, exactly as at boot: the conversation that
+        // asked it is gone (it was asked before the snapshot was taken), so
+        // nobody can answer it and a decision left `null` would leave the card
+        // waiting on a person for ever.
+        works.set(
+          work.id,
+          openAsks(work).reduce(
+            (one, askId) => stored(dropAsk(one, askId, at)),
+            work,
+          ),
+        );
+      }
+      // THE RUNTIME BOOKKEEPING IS THE MEMBERSHIP'S. A terminal the snapshot
+      // does not have as a member has nothing left to read — and nothing left
+      // to say. One it DOES have is baselined the way a restart baselines it,
+      // off what the record kept.
+      const members = new Map<string, MemberWatch>();
+      for (const work of works.values()) {
+        if (work.endedAt !== null) continue;
+        for (const member of work.members) {
+          if (member.leftAt === null)
+            members.set(member.terminal, member.watch);
+        }
+      }
+      for (const ref of [...runtime.keys()]) {
+        if (members.has(ref)) continue;
+        runtime.delete(ref);
+        heldNews.withdraw(ref);
+      }
+      for (const [ref, watch] of members) {
+        if (!runtime.has(ref)) runtime.set(ref, restoredMember(watch));
+      }
+      publishMoved();
+      publishState();
+      // The kept files of works this snapshot never had are unreachable from
+      // here on, and the one sweep rule is what deletes them.
+      sweepFiles();
+      // NOT on the throttle: a restore's whole point is that what was there is
+      // gone, and a window where the file still holds it is a window where the
+      // next boot undoes the restore.
+      writeNow("works");
+      membersMoved(true);
+    },
     note: (id, text) => {
       remembered();
       save(
@@ -2420,11 +2704,17 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
           read.member.watch.agent !== found.member.watch.agent
         )
           rows = true;
+        // WHAT A PERSON CALLS THIS HOST, remembered for a wake that is not
+        // about a reading ({@link hostNames}).
+        hostNames.set(one.host, one.hostName);
         // BACK TO WORKING WITHDRAWS WHAT IT WAS GOING TO SAY: held news
         // describes how something STOOD, and this one has stopped standing
         // that way. A terminal that goes away keeps its news — that it went
-        // away is exactly the thing to say.
-        if (one.level === "working") heldNews.withdraw(one.ref);
+        // away is exactly the thing to say, and so is a terminal a person has
+        // taken over: that news is about WHO MAY TYPE, which an agent going
+        // back to work does not answer.
+        if (one.level === "working" && !handoverHeld(one.ref))
+          heldNews.withdraw(one.ref);
         if (changed && read.ring !== null) {
           const event = ringEvent(one.ref, read.ring, stamp);
           if (event !== null) work = append(work, event);
@@ -2487,17 +2777,22 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     newSession: () => ask((agent) => agent.newSession()),
     clearSession: () =>
       ask(async (agent) => {
-        // THE AGENT'S SESSION GOES FIRST, and the divider it mints on the way
-        // out lands in `byId` like any other row — which is the point: the
-        // wipe below takes it with everything else. Wiping first would leave
-        // that mark standing alone over an empty transcript, a rule drawn
-        // between nothing and nothing.
-        await agent.newSession();
-        // Through `applyRows` rather than a `byId.clear()` of its own: that is
-        // where a row's disappearance reaches the readers subscribed now and
-        // the file a restart will read, and a second path that moved rows
-        // without it would be a wipe one reader saw and another did not.
-        applyRows({ upserts: [], removes: [...byId.keys()], appends: [] });
+        // ONE WIPE, AT THE ONE OWNER OF THE ROWS. The harness holds the
+        // conversation — the rows AND everything kept beside them (which call
+        // has been named, what it was armed with, which deaths were
+        // announced) — and `byId` is this module's mirror of what it reports.
+        // A wipe this end did on its own emptied the mirror and left the
+        // owner's copy standing, so the next conversation's first tool call
+        // (an agent numbers them from one again) landed on a row the harness
+        // still held, said nothing new, and was reported to nobody: a wiped
+        // transcript whose next card never appeared.
+        //
+        // The ids go WITH the verb because the mirror can hold rows this
+        // harness never minted — a restart read them out of the file, or the
+        // adapter it replaced minted them — and they come back as removes
+        // through `onChange`, the one path where a row's disappearance reaches
+        // the readers subscribed now and the file a restart will read.
+        await agent.clearSession([...byId.keys()]);
         // ... and the files go with the rows that named them, under the rule
         // the sweep already states. An upload nobody has sent yet is NOT
         // swept: it belongs to the composer, which still has its chips.
@@ -2525,7 +2820,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         heldNews.clear();
         state = { ...state, fleet: [] };
         publishState();
-        publishWorks(worksView());
+        publishMoved();
         // NOT on the throttle. A wipe is the one movement whose whole purpose
         // is that what was there is gone, and a window in which the file
         // still holds it is a window in which the next reader — or the next

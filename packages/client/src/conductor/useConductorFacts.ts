@@ -76,6 +76,6 @@ export const useConductorBadge = createSharedRoot(() => {
   const works = useWorks();
   return {
     /** How many things are waiting on the human. */
-    waiting: createMemo(() => waitingCount(works().works, facts().openAsks)),
+    waiting: createMemo(() => waitingCount(works(), facts().openAsks)),
   };
 });

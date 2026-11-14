@@ -23,7 +23,8 @@ import { dirname } from "node:path";
 import { startHarness } from "@kolu/acp-harness";
 import { confStore } from "@kolu/surface/server";
 import type { ConductorState } from "kolu-common/conductor";
-import type { WorksView } from "kolu-common/works";
+import type { MemberReading } from "kolu-common/works";
+import type { Work } from "kolu-work";
 import {
   type ConductorHost,
   type FleetMcpEndpoint,
@@ -44,11 +45,17 @@ let endpoint: () => FleetMcpEndpoint | null = () => null;
 /** The served `conductor` cell's writer, or `null` until `surface.ts`
  *  registers it. */
 let writeCell: ((state: ConductorState) => void) | null = null;
-/** ...and the served `works` cell's, registered at the same moment. Two
- *  writers because they are two cells: the conversation moves on a keystroke
- *  and the works move when something is observed, and a reader of one has no
- *  business re-rendering for the other. */
-let writeWorks: ((view: WorksView) => void) | null = null;
+/** ...and the served `works` + `memberReadings` COLLECTIONS' writers,
+ *  registered at the same moment. Separate writers because they are separate
+ *  members: the conversation moves on a keystroke, a work when something about
+ *  THAT work is observed, and a member's reading on its terminal's own clock —
+ *  and a reader of one has no business re-receiving the others. `null` value =
+ *  the key is gone (a work that fell off the cap, a terminal that is no longer
+ *  read). */
+let writeWork: ((id: string, work: Work | null) => void) | null = null;
+let writeReading:
+  | ((terminal: string, reading: MemberReading | null) => void)
+  | null = null;
 /** Who follows MEMBERSHIP, or `null` until the boot wires it — the watcher,
  *  which re-scopes its per-host subscriptions when the set of member refs
  *  changes, and the `works` resource's subscribers, which want every change
@@ -96,10 +103,14 @@ export function setConductorCellWriter(
   writeCell = write;
 }
 
-/** ... and the `works` cell's writer, registered in the same call
+/** ... and the two collection writers, registered in the same call
  *  `surface.ts` makes for the conversation's. */
-export function setWorksCellWriter(write: (view: WorksView) => void): void {
-  writeWorks = write;
+export function setWorksCollectionWriters(writers: {
+  work: (id: string, work: Work | null) => void;
+  reading: (terminal: string, reading: MemberReading | null) => void;
+}): void {
+  writeWork = writers.work;
+  writeReading = writers.reading;
 }
 
 /** ... and register who follows MEMBERSHIP ({@link onMembers}). The
@@ -173,16 +184,24 @@ export function liveServerConductor(): ConductorHost {
       }
       writeCell(state);
     },
-    publishWorks: (view) => {
-      if (writeWorks === null) {
+    publishWork: (id, work) => {
+      if (writeWork === null) {
         // Same boot-order crash as the conversation's publish above, for the
-        // same reason: a works frame nobody can receive is the restart's own
+        // same reason: a work frame nobody can receive is the restart's own
         // "here is what was in flight" frame, lost.
         throw new Error(
-          "the conductor published its works before surface.ts registered the works cell writer — implementKoluSurface must run before the first reader",
+          "the conductor published a work before surface.ts registered the works collection writer — implementKoluSurface must run before the first reader",
         );
       }
-      writeWorks(view);
+      writeWork(id, work);
+    },
+    publishReading: (terminal, reading) => {
+      if (writeReading === null) {
+        throw new Error(
+          "the conductor published a member reading before surface.ts registered the memberReadings collection writer — implementKoluSurface must run before the first reader",
+        );
+      }
+      writeReading(terminal, reading);
     },
     // Membership moved, said by the one thing that knows. Unguarded: this is
     // not riding a browser's frame any more, so a listener that throws is a

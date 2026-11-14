@@ -33,8 +33,9 @@
  * that directory. The paths come from a remote host's listing, so they are
  * UNTRUSTED input to this process's disk: both the work id and each path are
  * resolved and checked against the work's own directory before anything is
- * written. `forget` deletes that directory — the 20-work cap dropping a work
- * takes its kept files with it, which is the only reason kolu is allowed to
+ * written. `sweep` deletes every directory under `works/` that no stored work
+ * names — run after the 20-work cap drops one and after a backup restore
+ * replaces the set wholesale, which is the only reason kolu is allowed to
  * delete them.
  */
 
@@ -44,7 +45,8 @@ import type { WorkFiles } from "kolu-conductor";
 import { encodePreviewPath } from "kolu-common/preview";
 import type { FleetHosts } from "kolu-mcp";
 import type { KeptFile } from "kolu-work";
-import { mkdir, rm, stat, writeFile } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
@@ -202,8 +204,35 @@ export function workFilesOverHosts(deps: {
       return kept;
     },
 
-    forget: async (work) => {
-      await rm(workFilesDir(stateRoot, work), { recursive: true, force: true });
+    sweep: async (keep) => {
+      // ONE RULE, run after any cap and after a restore: a kept-files
+      // directory no stored work names is nobody's, so it goes. Stating it as
+      // "delete what is not named" rather than "delete this id" is what makes a
+      // RESTORE safe — the snapshot's works are a different set, not a
+      // difference anyone computed — and it is also the only reason kolu is
+      // allowed to delete these files at all.
+      const wanted = new Set(keep);
+      const root = join(stateRoot, "works");
+      let present: Dirent[];
+      try {
+        present = await readdir(root, { withFileTypes: true });
+      } catch (err) {
+        // Nothing has ever been kept on this machine — the ordinary state of a
+        // fresh install, and nothing to sweep.
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+        throw err;
+      }
+      for (const entry of present) {
+        if (!entry.isDirectory() || wanted.has(entry.name)) continue;
+        log.debug(
+          { work: entry.name },
+          "kolu-server: forgetting the kept files of a work nothing stores",
+        );
+        await rm(workFilesDir(stateRoot, entry.name), {
+          recursive: true,
+          force: true,
+        });
+      }
     },
   };
 }

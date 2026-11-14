@@ -161,12 +161,13 @@ const recordDeps = () => ({
   works: worksStore,
   transcript: transcriptStore,
   transcriptPath: () => transcriptFilePath(stateRoot),
-  publishWorks: () => {},
+  publishWork: () => {},
+  publishReading: () => {},
   membersMoved: () => {},
   workFiles: {
     list: async () => [],
     keep: async () => [],
-    forget: async () => {},
+    sweep: async () => {},
   },
 });
 
@@ -260,6 +261,9 @@ function hostOver(): {
         signInCancel: async () => false,
         setOption: async () => {},
         newSession: async () => {},
+        // The wipe reports the removes itself now (the harness owns the rows);
+        // nothing in this file asks it to.
+        clearSession: async () => {},
         stop: async () => {
           // A real `stop()` lets the session go and publishes one final state
           // saying so. Modelled because this file is where it bites: the flush
@@ -405,7 +409,7 @@ describe("the conversation survives a restart", () => {
     worksStore.set(carried);
 
     const host = hostOver().host;
-    const works = host.works().works;
+    const works = host.works();
     expect(works.map((one) => one.id)).toEqual(["work-restored"]);
     const work = works[0];
     if (work === undefined) throw new Error("the work was not restored");
@@ -426,6 +430,65 @@ describe("the conversation survives a restart", () => {
       throw new Error("kolu-server's state kept no conductor record");
     expect(Object.keys(file.conductor as object)).not.toContain("held");
     expect(host.state().held).toEqual([]);
+    await host.dispose();
+  });
+
+  it("a backup restore replaces the works with the snapshot's, and the host reloads them", async () => {
+    // What this process was running when the person pressed restore.
+    worksStore.set(
+      worksFromWatched_1_50_0(
+        [
+          {
+            ref: FLEET_REF,
+            name: "the work of today",
+            agent: null,
+            told: null,
+            joined: "created",
+            spoken: false,
+            ran: false,
+            since: "2026-02-01T00:00:00.000Z",
+            root: null,
+          },
+        ],
+        () => "work-today",
+      ) as unknown as PersistedWorks,
+    );
+    const host = hostOver().host;
+    expect(host.works().map((one) => one.id)).toEqual(["work-today"]);
+
+    // ...and what the snapshot holds. `restoreWorks` is what `stateBackups.ts`
+    // hands the decoded `works` key to: the live host is that key's one
+    // writer, so a restore that wrote it underneath would be overwritten by
+    // the host's own save within the second.
+    const snapshot = worksFromWatched_1_50_0(
+      [
+        {
+          ref: OTHER_REF,
+          name: "the work of last week",
+          agent: "claude-code",
+          told: null,
+          joined: "asked",
+          spoken: true,
+          ran: false,
+          since: "2026-01-20T00:00:00.000Z",
+          root: null,
+        },
+      ],
+      () => "work-from-backup",
+    ) as unknown as PersistedWorks;
+    host.restoreWorks(snapshot);
+
+    // The host's works ARE the snapshot's — not merged with, not beside.
+    expect(host.works().map((one) => one.id)).toEqual(["work-from-backup"]);
+    expect(host.works().map((one) => one.title)).toEqual([
+      "the work of last week",
+    ]);
+    // The watch follows membership, so it re-scopes onto the restored members
+    // and drops the terminal no restored work names.
+    expect(host.memberRefs()).toEqual([OTHER_REF]);
+    // ...and the key is written NOW, so a crash a moment later comes back to
+    // what the person restored rather than to what they replaced.
+    expect(worksStore.get().map((one) => one.id)).toEqual(["work-from-backup"]);
     await host.dispose();
   });
 });

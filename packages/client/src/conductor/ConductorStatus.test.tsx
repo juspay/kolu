@@ -24,11 +24,11 @@ vi.mock("./WorkColumn", () => ({
   default: () => <div data-testid="work-column" />,
 }));
 
-/** The works the line counts, swapped per test — the cell itself is a wire
- *  mirror, and what this file is about is the sentence over it. */
+/** The works the line counts, swapped per test — the mirror itself is a wire
+ *  collection, and what this file is about is the sentence over it. */
 let works: Work[] = [];
 vi.mock("./useWorks", () => ({
-  useWorks: () => () => ({ works, seen: [] }),
+  useWorks: () => () => works,
 }));
 
 import ConductorStatus from "./ConductorStatus";

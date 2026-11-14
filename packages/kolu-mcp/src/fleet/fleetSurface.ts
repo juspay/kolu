@@ -196,8 +196,13 @@ export const FleetWatchJoinSchema = Schema.Literals([...FLEET_WATCH_JOINS]);
  *  `hostName` / `hostState` are this fleet's reading of the ref's own host
  *  RIGHT NOW, and both are `null` for a host that is no longer a member of the
  *  fleet — precisely the "can I still reach this?" question a restart leaves
- *  open. A member whose host is missing is kept, not dropped: it is part of
- *  the work, and `work_leave` is the only thing left to do with it. */
+ *  open. A member whose host is missing is kept, not dropped: it is part of the
+ *  work, and `work_leave` is the only thing left to do with it.
+ *
+ *  `driver` is WHOSE KEYBOARD IT IS: `conductor` for one this conversation
+ *  drives, `you` for one the person has TAKEN OVER (do not type into it until
+ *  it is handed back — a wake will say when), `null` for a member nothing
+ *  drives (a `watch`-mode work is the person's own terminal). */
 export const FleetWorkMemberSchema = Schema.Struct({
   ref: Schema.String.annotate({
     description:
@@ -209,6 +214,10 @@ export const FleetWorkMemberSchema = Schema.Struct({
   joined: FleetWatchJoinSchema,
   hostName: Schema.NullOr(Schema.String),
   hostState: Schema.NullOr(FleetHostStateSchema),
+  driver: Schema.NullOr(Schema.Literals(["conductor", "you"])).annotate({
+    description:
+      "Who is typing into it: `conductor` (yours to drive), `you` (the person took it over — do not send it input until it is handed back), or null (nothing drives it).",
+  }),
 });
 export type FleetWorkMember = typeof FleetWorkMemberSchema.Type;
 

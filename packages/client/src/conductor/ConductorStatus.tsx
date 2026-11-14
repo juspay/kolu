@@ -89,7 +89,7 @@ const ConductorStatus: Component<{
   // rebuilt (`App.tsx`). Hoisting it to a module would say the opposite: that
   // it has to outlive its own view.
   const [open, setOpen] = createSignal(false);
-  /** WHAT KOLU HAS IN FLIGHT, off the `works` cell — the pieces of work, and
+  /** WHAT KOLU HAS IN FLIGHT, off the `works` collection — the pieces of work, and
    *  how many things are waiting on you.
    *
    *  The second number is the tab's badge, said here in words: a work waiting
@@ -100,13 +100,11 @@ const ConductorStatus: Component<{
    *  not there. */
   const works = useWorks();
   const pieces = createMemo(
-    () => works().works.filter((one) => one.endedAt === null).length,
+    () => works().filter((one) => one.endedAt === null).length,
   );
-  const waiting = createMemo(() =>
-    waitingCount(works().works, props.state.openAsks),
-  );
+  const waiting = createMemo(() => waitingCount(works(), props.state.openAsks));
   const words = createMemo(() =>
-    worksStatusWords(works().works, props.state.openAsks),
+    worksStatusWords(works(), props.state.openAsks),
   );
   const held = () => props.state.held.length;
   /** The column is OPENED from here only below the breakpoint. On a wide

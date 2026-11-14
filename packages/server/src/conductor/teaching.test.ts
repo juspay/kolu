@@ -210,6 +210,14 @@ describe("the works", () => {
     expect(SCRIPT).toContain("from the work's card or from this chat");
     expect(SCRIPT).toContain("`work_note`");
   });
+
+  it("says a terminal the human took over is theirs until a wake says otherwise", () => {
+    expect(SCRIPT).toContain("TAKEN OVER");
+    expect(SCRIPT).toContain("do not send it input");
+    expect(SCRIPT).toContain("HANDED BACK");
+    expect(SCRIPT).toContain("You are always told when it is handed back");
+    expect(SCRIPT).toContain("a `driver`");
+  });
 });
 
 describe("every address the script teaches", () => {

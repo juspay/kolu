@@ -42,6 +42,7 @@ import { type BespokeTool, ToolFailure } from "@kolu/surface-mcp/tools";
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
 import { Effect, Schema } from "effect";
 import {
+  type Driver,
   type OnGreen,
   OnGreenSchema,
   SetupKeySchema,
@@ -82,6 +83,10 @@ export interface FleetWorkMemberRow {
   readonly name: string | null;
   readonly agent: string | null;
   readonly joined: FleetWatchJoin;
+  /** Whose keyboard it is — `kolu-work`'s own reading of the work's timeline
+   *  ({@link Driver}), never a second fact kept beside it. `you` means the
+   *  person took it over and the Conductor must not send it input. */
+  readonly driver: Driver | null;
 }
 
 /** ONE PIECE OF WORK IN PROGRESS, as the port answers it — every field a

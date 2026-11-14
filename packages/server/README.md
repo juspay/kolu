@@ -21,8 +21,10 @@ each daemon keeps — so the fleet you added survives a restart of this process.
 
 `src/conductor/` spawns the ACP adapter, holds its session, keeps its
 transcript, records every piece of work it opens, and serves the whole of it
-as `koluSurface` members: the `conductor` cell, the `works` cell (the stored
-works and how each member terminal stands), the `conductorTranscript` stream
+as `koluSurface` members: the `conductor` cell, the `works` collection (keyed
+by work id) beside the `memberReadings` collection (keyed by terminal ref — how
+each member terminal stands), so what goes on the wire is the one work or the
+one reading that moved, the `conductorTranscript` stream
 and the `conductor` procedure namespace. The protocol itself is
 [`@kolu/acp-harness`](../acp-harness)'s; nothing here spells `session/prompt`.
 
@@ -161,6 +163,18 @@ under `<state dir>/works/<id>/` — read off whichever host the work ran on
 through that daemon's own file read (`src/conductor/workFiles.ts`), served back
 to the browser at `/api/works/<id>/files/<path>` (`src/workFilesRoute.ts`), and
 deleted with the work when it falls off the 20-work history.
+
+The state-backup ring snapshots `config.json`, so `preferences`, `hosts` and
+`works` ride it and every one of them has a restore path
+(`src/stateBackups.ts`); `works` goes through the live host's `restoreWorks`,
+which is the one writer of that key while this process runs — it drops the
+open asks nobody can answer, republishes, writes the key now and re-scopes the
+watch, so a restore is a thing a person can see rather than one the next
+throttled save undoes. `conductor` is the one deliberate exclusion: the
+conversation's other half lives in the agent's own session store, which kolu
+does not back up. The kept files under `<state dir>/works/<id>/` are not in the
+ring either — they are copies on disk, and a restored finished work whose
+kept files were swept since reads them as gone.
 
 A restart resumes the session by its id and re-applies the model. What is not
 restored is anything that was a fact about a subprocess that no longer exists —

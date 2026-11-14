@@ -348,6 +348,10 @@ export interface Harness {
   signInCancel(): Promise<boolean>;
   setOption(id: string, value: string): Promise<void>;
   newSession(): Promise<void>;
+  /** The wipe: a new session at the agent AND this conversation's rows
+   *  deleted, `held` naming the ones the caller holds that the harness never
+   *  minted. */
+  clearSession(held: ReadonlyArray<string>): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -2393,12 +2397,11 @@ export const startHarness = async (
     // rather than after that row has been cleared away.
     leaving();
     activeSession = null;
-    // THE HISTORY STAYS. A conversation ends and another begins in ONE
-    // transcript, with the divider between them — that is the product, and it
-    // is also the only version padi can persist without lying: these rows are
-    // padi's own and a `clear` would remove ids this harness never minted.
-    // The counters are monotonic for the life of the process, so the divider
-    // and everything after it sorts below what is already there.
+    // THE HISTORY STAYS — which is the whole of what separates this verb from
+    // the wipe beside it ({@link clearSession}). A conversation ends and
+    // another begins in ONE transcript, with the divider between them; that is
+    // the product. The counters are monotonic for the life of the process, so
+    // the divider and everything after it sorts below what is already there.
     const mark = transcript.divider("new session");
     report(mark.change);
     // ... and the conversation just left is ENDED at the agent before the next
@@ -2420,6 +2423,42 @@ export const startHarness = async (
       refusedOpen(cause);
       throw cause;
     }
+    publish();
+  };
+
+  /**
+   * ... AND THE WIPE BESIDE IT: the agent's memory is reset AND the
+   * conversation is deleted. Two verbs rather than one with a flag, because
+   * what a person loses is the whole difference between them.
+   *
+   * IT LIVES HERE, not at the caller, because the rows are this harness's and
+   * so is everything kept beside them — which call has been named, what each
+   * was armed with, which deaths have been announced, which calls a turn
+   * walked away from. A caller that emptied its own mirror of the rows left
+   * that standing, and the next conversation's first tool call (an agent
+   * numbers them from one again) landed on a row still held here, said
+   * nothing new, and reached nobody.
+   *
+   * NO DIVIDER IS MINTED: a break is drawn between two conversations a reader
+   * can see, and this one leaves nothing above it to divide.
+   *
+   * THE ROWS GO LAST, once the next conversation is open — an open that is
+   * refused has reset nothing, and a wipe that ran anyway would have traded a
+   * transcript for a failure. `held` is the ids the caller holds that this
+   * instance never minted ({@link Transcript.clear}).
+   */
+  const clearSession = async (held: ReadonlyArray<string>): Promise<void> => {
+    const left = activeSession;
+    leaving();
+    activeSession = null;
+    await release(left);
+    try {
+      await fresh();
+    } catch (cause) {
+      refusedOpen(cause);
+      throw cause;
+    }
+    report(transcript.clear(held));
     publish();
   };
 
@@ -2763,6 +2802,7 @@ export const startHarness = async (
     signInCancel,
     setOption,
     newSession,
+    clearSession,
     stop,
   };
 };

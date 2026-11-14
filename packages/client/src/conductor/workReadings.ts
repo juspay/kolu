@@ -18,6 +18,7 @@ import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import {
   type Decision,
   type EventBy,
+  type Membership,
   type OnGreen,
   type Waiter,
   type Work,
@@ -66,6 +67,45 @@ export const ON_GREEN_WORD: Record<OnGreen, string> = {
   merge: "merge it",
   "hand-over": "hand over",
 };
+
+/** THE LOCK'S BANNER — who drives this terminal, the part it plays and the
+ *  work it plays it in, in the tile's title area and above the phone's key
+ *  bar. The same sentence in both places, from the same membership reading,
+ *  so a person who takes a terminal over on the phone and reads it on the
+ *  desktop is told one thing.
+ *
+ *  A driver of `null` is not a lock at all (a watch, a mode nobody has
+ *  answered yet, a terminal that left) and nothing is drawn for it — which is
+ *  why this answers `""` rather than inventing words for a banner that has no
+ *  reason to exist. */
+export function lockWords(at: Membership): string {
+  if (at.driver === null) return "";
+  const who = at.driver === "you" ? "Taken over" : "Driven by the Conductor";
+  return `${who} · ${ROLE_WORD[at.role]} · ${at.title}`;
+}
+
+/** What a blocked keystroke is told — one line, pointing at the one control
+ *  that unblocks it. Never a silent swallow: a terminal that ignores typing
+ *  without saying why reads as broken. */
+export const LOCK_NUDGE_WORDS =
+  "The Conductor is driving this — Take over to type";
+
+/** MAY A PERSON TYPE into a terminal with this driver? The lock's whole rule,
+ *  in one place: the Conductor DRIVING a terminal is the only thing that
+ *  blocks a person's input. A terminal they have taken over is theirs, a
+ *  terminal whose work drives nothing (a watch, a mode nobody has answered
+ *  yet) never left their hands, and a terminal in no work at all was never
+ *  the Conductor's.
+ *
+ *  Here rather than beside the guard that calls it (`workLock.ts`, which
+ *  reaches the wire for the active host) so the rule is statable — and
+ *  tested — without a browser. `undefined` is the ordinary case: a terminal
+ *  the membership index does not name at all. */
+export function inputAllowed(
+  driver: Membership["driver"] | undefined,
+): boolean {
+  return driver !== "conductor";
+}
 
 /** The repository as a person names it: the last segment of its path. A
  *  watch carries no repo (`""`), and then there is nothing to say. */
@@ -303,6 +343,17 @@ export function eventWords(work: Work, event: WorkEvent): string {
       return `Closed ${event.detail}`;
     case "note":
       return event.detail;
+    // THE LOCK, as the timeline tells it: an act of the person's, named by the
+    // part the terminal plays rather than its ref — the same words the tile's
+    // banner says, in the past tense.
+    case "taken-over":
+      return `You took over the ${role === "" ? "terminal" : role.toLowerCase()}`;
+    case "handed-back":
+      return `You handed the ${role === "" ? "terminal" : role.toLowerCase()} back`;
+    // The bound: a stretch of agent-state events kolu dropped, counted where
+    // they happened, so the timeline still says WHEN the quiet stretch was.
+    case "folded":
+      return `${event.detail} earlier agent state changes`;
     case "ended":
       return `Ended · ${event.detail}`;
     case "kept":

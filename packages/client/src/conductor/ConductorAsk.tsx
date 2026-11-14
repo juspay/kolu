@@ -151,7 +151,7 @@ const ConductorAsk: Component<{
   const aboutWork = createMemo(() => {
     const id = props.row.work;
     if (id === undefined) return undefined;
-    return works().works.find((one) => one.id === id)?.title;
+    return works().find((one) => one.id === id)?.title;
   });
 
   return (

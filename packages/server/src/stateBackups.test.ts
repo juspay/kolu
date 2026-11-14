@@ -12,7 +12,13 @@ import { join } from "node:path";
 import { encodeHostKey } from "kolu-common/hostKey";
 import { DEFAULT_PREFERENCES } from "kolu-common/surface";
 import { afterEach, describe, expect, it } from "vitest";
-import { decodeStateBackup, stateBackupRing, store } from "./state.ts";
+import type { PersistedWorks } from "kolu-conductor";
+import {
+  decodeStateBackup,
+  stateBackupRing,
+  store,
+  worksFromWatched_1_50_0,
+} from "./state.ts";
 import {
   listServerStateBackups,
   type RestoreServerStateBackupDeps,
@@ -36,6 +42,7 @@ afterEach(() => {
   store.set("preferences", DEFAULT_PREFERENCES);
   store.set("hosts", []);
   store.set("viewerMode", "dark");
+  store.set("works", []);
 });
 
 /** Snapshot the CURRENT live store into the ring and hand back the file name. */
@@ -62,6 +69,7 @@ function recordingDeps(
     viewerMode: [] as unknown[],
     added: [] as string[],
     removed: [] as string[],
+    works: [] as PersistedWorks[],
   };
   const deps: RestoreServerStateBackupDeps = {
     setPreferences: (v) => calls.preferences.push(v),
@@ -74,8 +82,32 @@ function recordingDeps(
     removeHostKey: async (key) => {
       calls.removed.push(key);
     },
+    restoreWorks: (works) => {
+      calls.works.push(works);
+    },
   };
   return { calls, deps };
+}
+
+/** A stored work, built through the ladder's own carry-over shape so these
+ *  fixtures cannot drift from what an upgraded file actually holds. */
+function storedWork(id: string, name: string): PersistedWorks {
+  return worksFromWatched_1_50_0(
+    [
+      {
+        ref: "local/t1",
+        name,
+        agent: null,
+        told: null,
+        joined: "created",
+        spoken: false,
+        ran: false,
+        since: "2026-01-01T00:00:00.000Z",
+        root: null,
+      },
+    ],
+    () => id,
+  ) as unknown as PersistedWorks;
 }
 
 describe("listServerStateBackups", () => {
@@ -86,7 +118,7 @@ describe("listServerStateBackups", () => {
     ]);
     const file = takeSnapshot();
     const entry = listServerStateBackups().backups.find((b) => b.file === file);
-    expect(entry?.summary).toEqual({ kind: "state", hosts: 2 });
+    expect(entry?.summary).toEqual({ kind: "state", hosts: 2, works: 0 });
   });
 
   it("lists an unparseable snapshot as unreadable instead of collapsing", () => {
@@ -155,6 +187,23 @@ describe("restoreServerStateBackup", () => {
     expect(calls.viewerMode).toEqual(["light"]);
     expect(calls.added).toEqual([FROM_BACKUP]);
     expect(calls.removed).toEqual([STALE]);
+  });
+
+  it("hands the snapshot's WORKS to the live conductor, which is their one writer", async () => {
+    // The works as the snapshot holds them...
+    store.set("works", storedWork("work-from-backup", "last week's work"));
+    const file = takeSnapshot();
+    // ...and the works this process has moved on to since. A restore must
+    // replace them with the snapshot's, through the host rather than behind it.
+    store.set("works", storedWork("work-today", "today's work"));
+
+    const { calls, deps } = recordingDeps([]);
+    await restoreServerStateBackup({ file }, deps);
+    expect(calls.works).toHaveLength(1);
+    expect(calls.works[0]?.map((one) => one.id)).toEqual(["work-from-backup"]);
+    expect(calls.works[0]).toEqual(
+      storedWork("work-from-backup", "last week's work"),
+    );
   });
 
   it("skips a host that is LIVE but unpersisted — an env seed is not a failed add", async () => {

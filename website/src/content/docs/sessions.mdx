@@ -54,7 +54,10 @@ lose, because it isn't lost.
   saved session with a bad value is recoverable. **Debug → Restore state from
   backup** in the command palette brings a snapshot's terminals back, agents
   resumed; the snapshot replaces the saved session outright, so any restore rows
-  left over from the session it replaced go with it. See
+  left over from the session it replaced go with it. The same command restores
+  kolu-server's own store — preferences, the host pool and [the
+  Conductor](/conductor#what-a-backup-of-kolu-holds)'s pieces of work — which is
+  a separate ring and a separate pick, applied live with no restart. See
   [Troubleshooting](/troubleshooting#kolu-lost-my-session-or-my-settings-look-wrong).
 
 ## Sleep a terminal

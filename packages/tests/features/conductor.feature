@@ -235,6 +235,30 @@ Feature: The Conductor
     And the Details fold should still be open, holding 3 tool calls
     And there should be no page errors
 
+  Scenario: A wipe forgets the calls, so the next turn's cards come back
+    # THE ORDER THIS SUITE USED TO DEPEND ON. The scripted agent sends the
+    # SAME call ids every time it is asked the same thing — which is what a
+    # real agent does, since ids are numbered inside a conversation and the
+    # next one starts at one again. While "New session" emptied only
+    # kolu-server's copy of the rows and left the ACP harness's own row map
+    # standing, those calls were read as repeats of rows nobody was holding
+    # any more: the turn ran and the panel stayed empty. The two fold
+    # scenarios above only passed because the default 4-way split never put
+    # them on one worker, and the Background's wipe between them is exactly
+    # this. Both turns are in ONE scenario here, so the claim holds at any
+    # parallelism and in any order.
+    When I create a terminal
+    And I enter conductor mode
+    And I send the conductor the prompt "work quietly"
+    Then the conductor transcript should fold 2 tool calls into one closed Details
+    When I start a new conductor session
+    Then the conductor transcript should be empty
+    When I send the conductor the prompt "work quietly"
+    Then the conductor transcript should show a row of kind "agent" saying "Found what I needed."
+    And the conductor transcript should fold 2 tool calls into one closed Details
+    And the failed tool call should stay in the flow
+    And there should be no page errors
+
   Scenario: An unrecognised tool gets the generic card, never a kolu one
     # The direction this is safe to fail in. A tool the harness cannot
     # positively name as one of the servers WE handed over must not acquire a

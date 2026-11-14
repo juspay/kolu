@@ -528,9 +528,13 @@ stamps it with the same version and rewrites it at the rung that changes a row's
 shape. The `.waterfall/` files a work produced are copied into
 `<state dir>/works/<id>/` when the work ends, so they outlive the worktree, and
 are served back to the browser at `/api/works/<id>/files/…` behind the same
-same-origin gate as every other `/api` route. What a browser reads is the
-`works` cell on the surface: the works in progress and the last finished ones,
-pushed on every change.
+same-origin gate as every other `/api` route. What a browser reads is **two
+collections** on the surface rather than one cell: `works`, keyed by work id —
+the works in progress and the last finished ones — and `memberReadings`, keyed
+by terminal, carrying how each member terminal stands right now. Two, and keyed,
+because a change then sends the one work (or the one reading) that moved: a cell
+resent every work on every change, which for a fleet with twenty finished works
+behind it meant a 210 KB frame each time an agent went quiet.
 
 ## The packages
 

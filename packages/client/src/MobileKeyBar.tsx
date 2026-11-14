@@ -27,6 +27,7 @@ import {
   toggleStickyAlt,
   toggleStickyCtrl,
 } from "./terminal/stickyModifiers";
+import { personInput } from "./conductor/workLock";
 import { runAction } from "./runAction";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import { isTouch } from "./useMobile";
@@ -101,6 +102,11 @@ const MobileKeyBar: Component = () => {
   function send(data: string) {
     const id = store.focusedId();
     if (!id) return;
+    // THE LOCK — the phone's key bar is a person's keyboard, so it is gated
+    // exactly like xterm's `onData` is, and the banner above the bar is where
+    // the nudge lands. No haptic tick on a blocked key: the finger must not be
+    // told the key went.
+    if (!personInput(id)) return;
     tick();
     runAction(
       "send key",

@@ -31,9 +31,23 @@ else it observes as events.
 | module | what |
 | --- | --- |
 | `schema.ts` | the record, the event kinds and what each one's `detail` carries |
-| `record.ts` | the transitions: `openWork`, `askQuestions`, `answerAsk`, `dropAsk`, `joinWork`, `leaveWork`, `recordEvent`, `endWork`, `keepFiles` — the record only grows |
-| `readings.ts` | facts read off the record: the setup, the PR as the timeline last said it (`prOf`), the files seen |
+| `record.ts` | the transitions: `openWork`, `askQuestions`, `answerAsk`, `dropAsk`, `joinWork`, `leaveWork`, `recordEvent`, `takeOver`/`handBack`, `endWork`, `keepFiles` — the record only grows, bounded by `AGENT_STATES_KEPT` |
+| `readings.ts` | facts read off the record: the setup, who drives a member terminal (`driverOf`), the PR as the timeline last said it (`prOf`), the files seen |
 | `folds.ts` | `waitingOn`, `standing`, `timeBar`, `timeSpent`, `took`, `waitingOnYou` (the tab's number), `membershipOf` (the one derivation every mark reads), `capFinished` (the last 20 finished works) |
+
+**Who is typing into a terminal is a reading too.** The Conductor drives the
+members of a work whose mode is `full` or `trivial`; a person takes one over
+(`takeOver`) and gives it back (`handBack`), and `driverOf` answers
+`"conductor" | "you" | null` off those events since the member last joined. So
+the lock survives a restart, every reader sees one answer, and it ends by
+itself when the member leaves or the work ends.
+
+**One thing is bounded.** An agent that stops and comes up for days would
+otherwise grow a work without limit. The `append` every transition goes
+through keeps the most recent `AGENT_STATES_KEPT` (30) agent-state events
+(`ready`, `stopped`, `asking`, `exited`, `asleep`) and counts the rest into ONE
+`folded` event, sitting where the oldest one it stands for sat. Nothing else is
+ever folded, and the folds above cannot tell the difference.
 
 Nothing computed is stored: "where it stands", the bar and the durations are
 folds over the events at a clock reading the caller passes in.

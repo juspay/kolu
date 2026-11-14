@@ -483,6 +483,12 @@ const SHARED_LEVELS = ["stopped", "asking", "gone", "asleep"] as const;
  *    agent left behind is where the reason is. Like `ended` it carries no
  *    exit status: kolu saw the program go, not why.
  *
+ *  - `taken-over` / `handed-back` — the PERSON took the terminal off the
+ *    Conductor, or gave it back. Not a reading of the terminal at all: it is
+ *    an act, and it rings for the same reason the others do — what the
+ *    Conductor was about to do to that terminal is no longer its to do (or is
+ *    again).
+ *
  *  Nothing else rings: an agent that is working, a plain shell nobody
  *  created with a command, a host that is merely not answering. */
 export const ConductorWakeLevelSchema = Schema.Literals([
@@ -490,6 +496,8 @@ export const ConductorWakeLevelSchema = Schema.Literals([
   "ready",
   "ended",
   "exited",
+  "taken-over",
+  "handed-back",
 ]);
 export type ConductorWakeLevel = typeof ConductorWakeLevelSchema.Type;
 
@@ -992,6 +1000,12 @@ export const ConductorSetOptionInputSchema = Schema.Struct({
 
 export const ConductorTextInputSchema = Schema.Struct({
   text: Schema.String,
+});
+
+/** One terminal, by the `<host>/<id>` ref every face names it with — the input
+ *  of `conductor.takeOver` / `conductor.handBack`. */
+export const ConductorTerminalInputSchema = Schema.Struct({
+  terminal: Schema.String,
 });
 
 export const ConductorEmptySchema = Schema.Struct({});

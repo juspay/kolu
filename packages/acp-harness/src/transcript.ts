@@ -276,8 +276,10 @@ export class Transcript {
   readonly #now: () => number;
   /** Whether the row the CALLER holds last for this conversation is a break —
    *  the only thing this instance can know about rows it never minted, and
-   *  exactly what {@link divider}'s guard needs while its own map is empty. */
-  readonly #endsWithDivider: boolean;
+   *  exactly what {@link divider}'s guard needs while its own map is empty.
+   *  It is also true of a conversation that has just been WIPED ({@link
+   *  clear}): a break over no rows at all breaks nothing either. */
+  #endsWithDivider: boolean;
 
   /**
    * The clock, the WATERMARK and the one fact about the caller's rows this
@@ -306,6 +308,42 @@ export class Transcript {
 
   rows(): ReadonlyArray<ConductorRow> {
     return [...this.#rows.values()];
+  }
+
+  /**
+   * EVERY ROW GOES, and everything this class knows ABOUT them with it.
+   *
+   * The wipe a person asks for by pressing `New session`: that conversation is
+   * deleted rather than divided ({@link divider}). It lives here, beside the
+   * rows, because the rows are not the whole of this state — a call's picked
+   * name, the arguments it was armed with, the deaths already announced, the
+   * calls a turn walked away from, the paragraph still open — and a caller
+   * that emptied its own MIRROR of the rows left all of that standing. An
+   * agent numbers its calls from one in its next conversation, so the first
+   * call of the next turn landed on a row this instance still held, said
+   * nothing new ("a repeat is not a second report"), and was published to
+   * nobody: a wiped conversation whose next tool call draws no card.
+   *
+   * `held` is what the CALLER holds for this conversation and this instance
+   * never minted — rows read back out of its store at boot, or minted by the
+   * harness this one replaced. They are removed in the same change, so ONE
+   * wipe empties both ends of one conversation.
+   *
+   * THE COUNTERS DO NOT GO BACK. Ids and `seq` stay monotonic for the life of
+   * the process, so nothing minted after the wipe can collide with a row a
+   * reader is still holding, or sort above it.
+   */
+  clear(held: ReadonlyArray<string>): Change {
+    const removes = [...this.#rows.keys()];
+    for (const id of held) if (!this.#rows.has(id)) removes.push(id);
+    this.#rows.clear();
+    this.#named.clear();
+    this.#asked.clear();
+    this.#ended.clear();
+    this.#stranded.clear();
+    this.#open = null;
+    this.#endsWithDivider = true;
+    return { ...EMPTY, removes };
   }
 
   /** Everything still out when the turn that started it has ended — the strip

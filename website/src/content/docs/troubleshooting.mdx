@@ -138,11 +138,20 @@ settings, or you discarded one you wanted, open
 the palette with <kbd>Cmd/Super</kbd> + <kbd>K</kbd> → **Debug → Restore state
 from backup**, pick the store — the server's own, or any host's padi — and pick
 a snapshot. Each row says what it holds ("14 terminals", "preferences · 3
-hosts"), so the good snapshot is easy to spot even when the newest ones carry
-the corruption. Restoring a padi snapshot re-spawns its terminals beside your
-current ones (agents resumed, nothing killed); restoring the server store
-applies live with no restart. Every restore snapshots the current state first,
-so a restore is itself undoable.
+hosts · 4 works"), so the good snapshot is easy to spot even when the newest
+ones carry the corruption. Restoring a padi snapshot re-spawns its terminals
+beside your current ones (agents resumed, nothing killed); restoring the server
+store applies live with no restart — your preferences, your host pool and [the
+Conductor](/conductor)'s pieces of work all come back at once, and the running
+Conductor picks the restored works up rather than writing over them. Every
+restore snapshots the current state first, so a restore is itself undoable.
+
+**What a backup does not hold**, so you know before you lean on one: the
+Conductor's **conversation** (its other half lives in the agent's own session
+store, which kolu does not back up — a restored transcript would be a chat the
+agent does not remember) and the **files a finished work kept**, which are
+copies on disk rather than state in the config file. A restored finished work
+whose kept files were deleted since shows them as gone.
 
 If a snapshot cannot be taken — a full disk, a state directory gone read-only —
 **Start fresh** refuses rather than discarding a session it could not copy

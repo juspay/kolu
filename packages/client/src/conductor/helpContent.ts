@@ -57,6 +57,7 @@ export type HelpSectionId =
   | "while-it-works"
   | "the-card"
   | "terminals"
+  | "the-lock"
   | "files"
   | "mid-work"
   | "wakes"
@@ -139,6 +140,15 @@ export function helpSections(
         [text("Each one by the part it plays: planner, implementor")],
         [text("A name takes you to that terminal")],
         [screen("Look"), text(" peeks at its screen")],
+      ],
+    },
+    {
+      id: "the-lock",
+      heading: "Who is typing",
+      items: [
+        [text("A terminal it drives is read-only — reading is not")],
+        [screen("Take over"), text(" on the tile makes it yours to type in")],
+        [screen("Hand back"), text(" returns it; it is told either way")],
       ],
     },
     {

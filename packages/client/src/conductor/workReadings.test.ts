@@ -8,12 +8,21 @@
  * the one that must not be re-derived anywhere else.
  */
 
-import type { Decision, Work, WorkEvent } from "kolu-work";
+import {
+  type Decision,
+  type Work,
+  type WorkEvent,
+  handBack,
+  membershipOf,
+  takeOver,
+} from "kolu-work";
 import { describe, expect, it } from "vitest";
 import {
   answerWords,
   checksTally,
   eventWords,
+  inputAllowed,
+  lockWords,
   repoName,
   setupWords,
   standingLine,
@@ -181,6 +190,74 @@ describe("the timeline's words", () => {
         }),
       ),
     ).toBe("declined");
+  });
+});
+
+describe("the lock, as a person meets it", () => {
+  /** A work the Conductor DRIVES — mode answered, one active planner. The
+   *  driver is read off the record by `kolu-work`; what is tested here is the
+   *  browser's two answers to it: may this person type, and what does the
+   *  banner say. */
+  const driven = work({
+    decisions: [decision({ id: "m", key: "mode", answer: answered("full") })],
+  });
+  const membershipAt = (one: Work) => {
+    const at = membershipOf([one]).get("local/a");
+    if (at === undefined) throw new Error("the planner must be a member");
+    return at;
+  };
+
+  it("blocks a person's input only while the Conductor is driving", () => {
+    // The four cases every input site passes through this one rule.
+    expect(inputAllowed("conductor")).toBe(false);
+    expect(inputAllowed("you")).toBe(true);
+    expect(inputAllowed(null)).toBe(true);
+    expect(inputAllowed(undefined)).toBe(true);
+  });
+
+  it("says who is driving, which part and which work", () => {
+    expect(lockWords(membershipAt(driven))).toBe(
+      "Driven by the Conductor · Planner · Show agent-distro update errors",
+    );
+    // Taken over: the SAME index, read after the act — so the banner, the
+    // dock's mark and the keystroke gate cannot disagree.
+    const mine = takeOver(driven, "local/a", AT);
+    expect(lockWords(membershipAt(mine))).toBe(
+      "Taken over · Planner · Show agent-distro update errors",
+    );
+    expect(inputAllowed(membershipAt(mine).driver)).toBe(true);
+    expect(
+      inputAllowed(membershipAt(handBack(mine, "local/a", AT)).driver),
+    ).toBe(false);
+  });
+
+  it("draws nothing for a work that drives nothing — a watch", () => {
+    const watched = work({
+      decisions: [
+        decision({ id: "m", key: "mode", answer: answered("watch") }),
+      ],
+    });
+    expect(membershipAt(watched).driver).toBe(null);
+    expect(lockWords(membershipAt(watched))).toBe("");
+  });
+
+  it("tells the timeline what the person did, by the part they took", () => {
+    expect(
+      eventWords(
+        driven,
+        event({ kind: "taken-over", by: "you", terminal: "local/a" }),
+      ),
+    ).toBe("You took over the planner");
+    expect(
+      eventWords(
+        driven,
+        event({ kind: "handed-back", by: "you", terminal: "local/a" }),
+      ),
+    ).toBe("You handed the planner back");
+    // The bound's own event: a count, in words, where the stretch happened.
+    expect(eventWords(driven, event({ kind: "folded", detail: "42" }))).toBe(
+      "42 earlier agent state changes",
+    );
   });
 });
 

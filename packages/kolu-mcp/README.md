@@ -213,7 +213,10 @@ renamed resource fails that test instead of teaching a dead address.
 it is being woken by — one row per work IN PROGRESS, carrying its id and
 title, repo and branch, the host and mode, what to do on green, where it
 stands, and its members: each one's reference, role, the last name and agent
-kolu saw in that terminal, how it joined, and the ref's host *as this fleet
+kolu saw in that terminal, how it joined, who is DRIVING it (`driver`:
+`"conductor"`, or `"you"` once the human has taken that terminal over — theirs
+to type into, and not to be sent input until a wake says it was handed back),
+and the ref's host *as this fleet
 stands now* (`host` / `hostName` / `hostState`, all three `null` for a host
 that is no longer a member), plus any question still open with the human; the
 last few FINISHED works follow, with their outcomes. **`onGreen` is read here

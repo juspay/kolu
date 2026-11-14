@@ -10618,6 +10618,78 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "f50641c6a2fc1a70277c4d4038d39048e7a275b2"
+    },
+    {
+      "revisionId": "revision-5f7a7e422642a140c3f9",
+      "scenarioKey": "scenario-7d8c1c59885f60d39f33",
+      "feature": "features/conductor.feature",
+      "scenario": "A wipe forgets the calls, so the next turn's cards come back",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "f9569d4c0b74b4f1f75f1ec21b6bbab029d88655ed274fd139af86b6853ec141",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5ea4ad7d212105a034a7e69311d5b7b377b98954"
+    },
+    {
+      "revisionId": "revision-1c2c5e97a43e98516a8f",
+      "scenarioKey": "scenario-37c9dcaf6939fe4add18",
+      "feature": "features/conductor-lock.feature",
+      "scenario": "A driven terminal takes no keys and no paste, and says why",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "9d094bad4373c7ef6dfcc462c7d00843023cbf3137f8773bb09148048bd18dbe",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5ea4ad7d212105a034a7e69311d5b7b377b98954"
+    },
+    {
+      "revisionId": "revision-85bcdab513ea5f7fd304",
+      "scenarioKey": "scenario-051867c484b34c65e2fb",
+      "feature": "features/conductor-lock.feature",
+      "scenario": "A watch is not a waterfall, so nothing is locked",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "e4eca3365c087421ae9bd258970cf72ca35ac0c5eecc4af7b6ebc0aebb435630",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5ea4ad7d212105a034a7e69311d5b7b377b98954"
+    },
+    {
+      "revisionId": "revision-5156cacfb6baa11933c2",
+      "scenarioKey": "scenario-0b9543370cd36b14663f",
+      "feature": "features/conductor-lock.feature",
+      "scenario": "Take it over, type, hand it back",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "44ef98288e9b50f69d143596bab963f750a7db6b072e27932fe0f0bf3e663fce",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5ea4ad7d212105a034a7e69311d5b7b377b98954"
+    },
+    {
+      "revisionId": "revision-e7fdc3f945687face35d",
+      "scenarioKey": "scenario-12f50daea9c5f11dc73d",
+      "feature": "features/conductor-lock.feature",
+      "scenario": "The other browser is told who is driving",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "2229d820fdd7e921e1dfc8b3f3fd7c6f657ceac536c8420a663883fbbd75bb2e",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5ea4ad7d212105a034a7e69311d5b7b377b98954"
+    },
+    {
+      "revisionId": "revision-81042a395a107dceeef0",
+      "scenarioKey": "scenario-a66c8447fe62d7a653b7",
+      "feature": "features/conductor-lock.feature",
+      "scenario": "The phone's key bar is gated by the band above it",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "cf7e29b175403da19bc946a6a591df8c5aa0e9e04ac1f45f5aea66432ab6193a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5ea4ad7d212105a034a7e69311d5b7b377b98954"
     }
   ]
 }

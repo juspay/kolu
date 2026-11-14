@@ -21,6 +21,7 @@ import {
 import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
+import WorkLock from "../conductor/WorkLock";
 import WorkMark from "../conductor/WorkMark";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
@@ -178,6 +179,13 @@ const TileTitleActions: Component<{
           cannot be a planner in one place and nothing in the other. */}
       <WorkMark
         terminal={fleetTerminalRef(encodeHostKey(props.host), props.id)}
+      />
+      {/* THE LOCK, beside the mark: who drives this terminal, and the one
+          control that changes it. Nothing is drawn for a terminal no work
+          drives — which is every terminal outside a waterfall. */}
+      <WorkLock
+        terminal={fleetTerminalRef(encodeHostKey(props.host), props.id)}
+        placement="title"
       />
       <Show when={activeArm(meta())?.agent}>
         {(agent) => (

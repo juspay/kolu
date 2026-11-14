@@ -46,6 +46,10 @@ const STANDS: Readonly<Record<ConductorWakeEvent["level"], string>> = {
     "the command it was started with ENDED — it is back at a shell prompt and no agent was ever seen in it, so the agent you asked for never came up",
   exited:
     "its agent EXITED — the program is gone from the foreground and the terminal is back at its shell prompt, so nothing more will come from it; read the screen to see why it went",
+  "taken-over":
+    "the person TOOK IT OVER — they are typing into it themselves now, so do not send it input, do not act on what it does, and leave it alone until kolu says it was handed back",
+  "handed-back":
+    "the person HANDED IT BACK — it is yours again, so read the screen before you act on it: what is on it now may be their work rather than the agent's",
 };
 
 /** WHAT A MEMBER TERMINAL IS — the work it belongs to and the part it plays,

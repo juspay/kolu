@@ -80,8 +80,9 @@ export type ViewerHost = typeof ViewerHostSchema.Type;
 
 /** One snapshot in kolu-server's state-backup ring (#1658) — the same shape
  *  discipline as padi's `PadiStateBackupSchema`, with kolu-server's own summary
- *  (the fleet size, this store's real user data). `summary` is a union for the
- *  same reason as padi's: "no hosts" and "did not parse" are different facts. */
+ *  (the fleet size and how many pieces of work it holds — this store's real
+ *  user data). `summary` is a union for the same reason as padi's: "no hosts"
+ *  and "did not parse" are different facts. */
 export const ServerStateBackupSchema = Schema.Struct({
   /** Bare file name under the ring dir — the handle `server/backups/restore`
    *  names. */
@@ -91,7 +92,11 @@ export const ServerStateBackupSchema = Schema.Struct({
   savedAtMs: Schema.Number,
   sizeBytes: Schema.Int,
   summary: Schema.Union([
-    Schema.Struct({ kind: Schema.Literal("state"), hosts: Schema.Int }),
+    Schema.Struct({
+      kind: Schema.Literal("state"),
+      hosts: Schema.Int,
+      works: Schema.Int,
+    }),
     Schema.Struct({ kind: Schema.Literal("unreadable") }),
   ]),
 });

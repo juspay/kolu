@@ -29,6 +29,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal, Show } from "solid-js";
 import { toast } from "solid-sonner";
 import { persistedPref } from "../persistedPref";
+import { personInput } from "../conductor/workLock";
 import { runAction, type UiAction } from "../runAction";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import { activePadiRpc } from "../wire";
@@ -86,6 +87,10 @@ const ComposeSection: Component<{
       // pending (the disabled BUTTON blocks the click path, not the key path),
       // so without this a fast double-chord would dispatch two writes.
       if (sending()) return Effect.void;
+      // THE LOCK — the Compose box is a person writing into an existing
+      // terminal, so it is gated like a keystroke. The draft is KEPT: the
+      // words are still theirs to send once they have taken the terminal over.
+      if (!personInput(props.terminalId)) return Effect.void;
       const data = planComposeSend(draft());
       if (data === null) return Effect.void;
       // Capture the exact text being sent, so the success path clears ONLY this

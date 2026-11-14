@@ -244,6 +244,12 @@ export interface WorkFiles {
     work: string;
     paths: ReadonlyArray<string>;
   }): Promise<ReadonlyArray<KeptFile>>;
-  /** Delete `<stateRoot>/works/<work>` (a work that fell off the history). */
-  forget(work: string): Promise<void>;
+  /** RECONCILE the kept files to the works kolu still has: delete every
+   *  `<stateRoot>/works/<id>` directory whose id is not in `keep`.
+   *
+   *  One rule rather than "delete this work's files", because the set of works
+   *  can shrink in two ways — the history cap drops the oldest finished one,
+   *  and a restored backup replaces the lot — and a per-work delete leaves the
+   *  second one's orphans on disk for ever. A missing root is nothing to do. */
+  sweep(keep: ReadonlyArray<string>): Promise<void>;
 }

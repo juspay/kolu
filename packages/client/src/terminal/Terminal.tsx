@@ -67,6 +67,7 @@ import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
 import { isDeclared, TERMINAL_NOT_FOUND } from "../rpc/declaredErrors";
+import { personInput } from "../conductor/workLock";
 import { runAction, runActionPromise, type UiAction } from "../runAction";
 import type { LineRef } from "../ui/lineRef";
 import { isTouch } from "../useMobile";
@@ -1140,16 +1141,24 @@ const Terminal: Component<{
       name: string,
       failed: (message: string) => string,
     ): UiAction {
-      return Effect.tryPromise(() => file.arrayBuffer()).pipe(
-        Effect.flatMap((buf) =>
-          writeScratchAndPaste(name, bufferToBase64(buf)),
-        ),
-        Effect.catch((err) =>
-          Effect.sync(() => {
-            toast.error(failed(errMsg(err)));
-          }),
-        ),
-      );
+      return Effect.suspend(() => {
+        // THE LOCK, at the one place both upload paths (clipboard image and
+        // drop) deliver through: pasting a file into a terminal the Conductor
+        // drives is a person typing a path into it, so it is gated exactly
+        // like a keystroke and nudges rather than quietly writing a scratch
+        // file nothing will ever paste.
+        if (!personInput(props.terminalId)) return Effect.void;
+        return Effect.tryPromise(() => file.arrayBuffer()).pipe(
+          Effect.flatMap((buf) =>
+            writeScratchAndPaste(name, bufferToBase64(buf)),
+          ),
+          Effect.catch((err) =>
+            Effect.sync(() => {
+              toast.error(failed(errMsg(err)));
+            }),
+          ),
+        );
+      });
     }
 
     function uploadPastedImage(file: File): UiAction {
@@ -1366,8 +1375,14 @@ const Terminal: Component<{
         // over the network get printed as visible garbage. Fold any sticky
         // Ctrl/Alt armed on the mobile key bar into the keystroke (no-op on
         // desktop, where nothing is ever armed).
+        //
+        // THE LOCK is the next gate: xterm's `onData` carries BOTH keys and a
+        // text paste, so one check here covers every byte a person types into
+        // this terminal. A query response is the terminal answering kolu, not
+        // a person, and is dropped above before the gate ever sees it.
         onData={(data) => {
           if (isTerminalQueryResponse(data)) return;
+          if (!personInput(props.terminalId)) return;
           runAction(
             "send input",
             activePadiRpc.lifecycle

@@ -58,7 +58,7 @@ import {
   type ConductorWakeEvent,
   PROMPT_ATTACHMENT_BYTE_CAP,
 } from "kolu-common/conductor";
-import type { WorksView } from "kolu-common/works";
+import type { ConductorReadingLevel } from "kolu-common/conductor";
 import {
   chunkBase64,
   FRAME_CHUNK_BYTES,
@@ -69,7 +69,13 @@ import type { CellStore } from "@kolu/surface/server";
 import type { Form } from "@kolu/acp";
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
 import { KOLU_FLEET_EXPOSE, KOLU_FLEET_TOOL_NAMES } from "kolu-mcp";
-import type { KeptFile, SetupKey, Work, WorkRole } from "kolu-work";
+import {
+  driverOf,
+  type KeptFile,
+  type SetupKey,
+  type Work,
+  type WorkRole,
+} from "kolu-work";
 import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AGENT_ENV } from "@kolu/acp/engine";
@@ -286,6 +292,23 @@ function fakeSpawner(): {
         open.clear();
         leaving?.();
       },
+      clearSession: async (held) => {
+        sessions += 1;
+        for (const settle of open.values())
+          settle({ outcome: { how: "withdrawn" }, content: {} });
+        open.clear();
+        leaving?.();
+        // THE REMOVES ARE THE HARNESS'S. The conversation's rows are the
+        // harness's own — and so is everything kept beside them — so the wipe
+        // reports their disappearance like any other change. `held` is the ids
+        // the caller holds that this conversation never minted.
+        options.onChange({
+          kind: "rows",
+          upserts: [],
+          removes: [...held],
+          appends: [],
+        });
+      },
       stop: async () => {
         stops += 1;
         alive = false;
@@ -359,7 +382,7 @@ function countingStore<T>(initial: T): Counted<T> {
 /** A WORK'S FILES, as the test drives them — kolu-server's port
  *  (`workFiles.ts`) stands over padi's directory listing and remote byte read,
  *  and neither is this file's subject: what is pinned here is WHEN the host
- *  lists, keeps and forgets. */
+ *  lists, keeps and sweeps. */
 interface FakeFiles {
   readonly port: WorkFiles;
   /** What `.waterfall/` holds, as the next listing answers it. */
@@ -371,7 +394,9 @@ interface FakeFiles {
     work: string;
     paths: ReadonlyArray<string>;
   }>;
-  readonly forgotten: () => ReadonlyArray<string>;
+  /** Every reconciliation the host asked for, as the work ids it said to
+   *  KEEP — the one rule that deletes a kept-files directory. */
+  readonly swept: () => ReadonlyArray<ReadonlyArray<string>>;
 }
 
 function fakeFiles(): FakeFiles {
@@ -379,7 +404,7 @@ function fakeFiles(): FakeFiles {
   let listFails: string | null = null;
   const listed: Array<{ host: string; worktree: string }> = [];
   const kept: Array<{ work: string; paths: ReadonlyArray<string> }> = [];
-  const forgotten: string[] = [];
+  const swept: Array<ReadonlyArray<string>> = [];
   return {
     port: {
       list: async (at) => {
@@ -391,8 +416,8 @@ function fakeFiles(): FakeFiles {
         kept.push({ work: at.work, paths: [...at.paths] });
         return at.paths.map((path): KeptFile => ({ path, bytes: path.length }));
       },
-      forget: async (work) => {
-        forgotten.push(work);
+      sweep: async (keep) => {
+        swept.push([...keep]);
       },
     },
     holds: (paths) => {
@@ -403,7 +428,7 @@ function fakeFiles(): FakeFiles {
     },
     listed: () => listed,
     kept: () => kept,
-    forgotten: () => forgotten,
+    swept: () => swept,
   };
 }
 
@@ -432,8 +457,15 @@ interface Rig {
    *  only when the frame says something different from the last one, so this
    *  is what a browser's panel would have been redrawn from. */
   published: () => ConductorState[];
-  /** ... and every works view it published beside them. */
-  worksPublished: () => WorksView[];
+  /** ... and every work the host put on the wire, in order: the id and the
+   *  value, or `null` for one it removed. Per work, because the host tells a
+   *  reader only what MOVED. */
+  worksPublished: () => Array<{ id: string; work: Work | null }>;
+  /** ... and the same for how each member terminal stands. */
+  readingsPublished: () => Array<{
+    terminal: string;
+    reading: { level: ConductorReadingLevel; since: string } | null;
+  }>;
   /** Every "the membership moved" the host announced — `true` when the SET of
    *  member refs changed, `false` when only what kolu knows about one did. */
   membersMoved: () => boolean[];
@@ -451,8 +483,12 @@ function rig(over: Remembered = {}): Rig {
   const works = countingStore<PersistedWorks>(over.works ?? []);
   const files = fakeFiles();
   const published: ConductorState[] = [];
-  const worksPublished: WorksView[] = [];
   const membersMoved: boolean[] = [];
+  const worksPublished: Array<{ id: string; work: Work | null }> = [];
+  const readingsPublished: Array<{
+    terminal: string;
+    reading: { level: ConductorReadingLevel; since: string } | null;
+  }> = [];
   const host = startConductorHost({
     log,
     home: HOME,
@@ -470,8 +506,11 @@ function rig(over: Remembered = {}): Rig {
     publish: (state) => {
       published.push(state);
     },
-    publishWorks: (view) => {
-      worksPublished.push(view);
+    publishWork: (id, work) => {
+      worksPublished.push({ id, work });
+    },
+    publishReading: (terminal, reading) => {
+      readingsPublished.push({ terminal, reading });
     },
     membersMoved: (membership) => {
       membersMoved.push(membership);
@@ -494,6 +533,7 @@ function rig(over: Remembered = {}): Rig {
     files,
     published: () => published,
     worksPublished: () => worksPublished,
+    readingsPublished: () => readingsPublished,
     membersMoved: () => membersMoved,
   };
 }
@@ -731,7 +771,7 @@ describe("the restart fence (B1)", () => {
       ],
     });
     r.host.watch(() => {});
-    expect(r.host.works().works.map((one) => one.id)).toEqual(["work:kept"]);
+    expect(r.host.works().map((one) => one.id)).toEqual(["work:kept"]);
     expect(r.host.memberRefs()).toEqual([A]);
   });
 });
@@ -766,7 +806,7 @@ describe("the remembered records are read on the first reader's edge (B3)", () =
     const r = rig({
       works: [storedWork({ id: "work:1", members: [storedMember(A)] })],
     });
-    expect(r.host.works().works).toHaveLength(1);
+    expect(r.host.works()).toHaveLength(1);
     expect(r.spawns).toHaveLength(0);
   });
 });
@@ -1204,7 +1244,8 @@ describe("teardown (B2)", () => {
       fleetMcp: () => liveEndpoint,
       proveFleetMcp: proveFleetMcpEndpoint,
       publish: () => {},
-      publishWorks: () => {},
+      publishWork: () => {},
+      publishReading: () => {},
       membersMoved: () => {},
       store: countingStore(EMPTY_PERSISTED_CONDUCTOR).store,
       transcript: countingStore<PersistedTranscript>({ rows: [] }).store,
@@ -1269,7 +1310,8 @@ describe("teardown (B2)", () => {
       fleetMcp: () => liveEndpoint,
       proveFleetMcp: proveFleetMcpEndpoint,
       publish: () => {},
-      publishWorks: () => {},
+      publishWork: () => {},
+      publishReading: () => {},
       membersMoved: () => {},
       store: countingStore(EMPTY_PERSISTED_CONDUCTOR).store,
       transcript: countingStore<PersistedTranscript>({ rows: [] }).store,
@@ -1830,7 +1872,7 @@ const busyWatching = async (r: Rig): Promise<Spawned> => {
 /** The one work this host is holding — every test below opens exactly one
  *  unless it says otherwise. */
 const theWork = (r: Rig): Work => {
-  const one = r.host.works().works[0];
+  const one = r.host.works()[0];
   if (one === undefined) throw new Error("no piece of work was opened");
   return one;
 };
@@ -1851,14 +1893,6 @@ const drained = (): Promise<void> => {
 };
 
 describe("the wipe (`clearSession`)", () => {
-  const divider = (id: string, seq: number): ConductorRow => ({
-    id,
-    seq,
-    since: T0,
-    kind: "divider",
-    text: "new session",
-  });
-
   /** A conversation with something to lose: two rows, a session and a
    *  terminal it remembers. */
   const held: Remembered = {
@@ -1942,32 +1976,6 @@ describe("the wipe (`clearSession`)", () => {
     // The caller is told rather than left holding a promise nothing will
     // settle.
     await expect(asking).resolves.toMatchObject({ declined: true });
-  });
-
-  it("takes the divider the agent mints ON ITS WAY OUT with it", async () => {
-    const r = rig(held);
-    r.host.watch(() => {});
-    // Awaited, because the bring-up a subscription triggers is in flight: the
-    // hook below has to be set on the conversation the wipe will ask.
-    await r.host.prompt("still here?", [], [], false);
-    const agent = r.spawns[0];
-    if (agent === undefined) throw new Error("the host spawned nothing");
-    // The real harness reports a `— new session —` row from inside
-    // `newSession`, before it opens the next conversation. The wipe runs the
-    // agent's session change FIRST for exactly this reason: a rule drawn
-    // across an empty transcript is a break between nothing and nothing.
-    agent.onNewSession(() => {
-      agent.push({
-        kind: "rows",
-        upserts: [divider("div-1", 3)],
-        removes: [],
-        appends: [],
-      });
-    });
-
-    await r.host.clearSession();
-    expect(served(r.host)).toEqual([]);
-    expect(r.transcript.value().rows).toEqual([]);
   });
 
   it("leaves a REPLACEMENT nothing to fence against", async () => {
@@ -2327,7 +2335,7 @@ describe("a call about a work that is refused", () => {
     expect(refused.kind).toBe("missing-setup");
     expect(refused.why).toContain("planner.harness");
     // NOTHING WAS CREATED: the refusal is taken before the work exists.
-    expect(r.host.works().works).toEqual([]);
+    expect(r.host.works()).toEqual([]);
   });
 
   it("refuses a member joining a work nobody opened", async () => {
@@ -2597,19 +2605,17 @@ describe("what a reading publishes", () => {
     r.host.observe([
       seeing(A, "shell", { agent: null, foregroundShell: true }),
     ]);
-    const before = r.worksPublished().length;
+    const before = r.readingsPublished().length;
 
     r.host.observe([
       seeing(A, "working", { agent: null, foregroundShell: false }),
     ]);
 
-    expect(r.worksPublished().length).toBe(before + 1);
-    expect(
-      r
-        .worksPublished()
-        .at(-1)
-        ?.seen.map((one) => one.level),
-    ).toEqual(["working"]);
+    // ONE reading, for the one terminal that moved — not every work on the
+    // wire again.
+    expect(r.readingsPublished().slice(before)).toEqual([
+      { terminal: A, reading: { level: "working", since: expect.any(String) } },
+    ]);
   });
 
   it("tells the works' readers when a reading first DETECTS the agent", async () => {
@@ -2933,9 +2939,9 @@ describe("a work that has ended", () => {
     r.host.leaveWork(A);
 
     await vi.waitFor(() => {
-      expect(r.files.forgotten()).toEqual(["work:old-0"]);
+      expect(r.files.swept().at(-1)).not.toContain("work:old-0");
     });
-    const remembered = r.host.works().works.map((one) => one.id);
+    const remembered = r.host.works().map((one) => one.id);
     expect(remembered).toHaveLength(20);
     expect(remembered).not.toContain("work:old-0");
     expect(remembered[0]).toBe(work);
@@ -3150,5 +3156,237 @@ describe("a wake that could not be delivered", () => {
     });
     // Both go together: the one that was owed and the one that just rang.
     expect(agent.wakes()[0]?.events.map((one) => one.ref)).toEqual([A, B]);
+  });
+});
+
+/** A refusal, caught: a kind to branch on and a whole sentence to show. */
+const refused = (run: () => unknown): WorkRefusal => {
+  try {
+    run();
+  } catch (err) {
+    if (err instanceof WorkRefusal) return err;
+    throw err;
+  }
+  throw new Error("nothing was refused");
+};
+
+/** A work kolu RUNS — `full`, every setup answer already given, so nobody is
+ *  asked anything — with one member in it. (A `watch` is the human's own
+ *  terminal: the Conductor never types into one, so there is nothing to take
+ *  over. That is the refusal below.) */
+const drivenWork = async (r: Rig, member = A): Promise<string> => {
+  const given = (key: SetupKey, answer: string) => ({
+    key,
+    question: `${key}?`,
+    options: [answer],
+    given: answer,
+  });
+  const opened = await r.host.openWork({
+    title: "fix the parser",
+    repo: "/srv/repo",
+    branch: "fix-the-parser",
+    setup: [
+      given("host", "local"),
+      given("mode", "full"),
+      given("planner.harness", "omp"),
+      given("planner.model", "Fable 5.2"),
+      given("implementor.harness", "omp"),
+      given("implementor.model", "Opus 5.5"),
+      given("on-green", "merge"),
+    ],
+  });
+  r.host.joinWork(opened.work, member, "implementor", "created");
+  return opened.work;
+};
+
+describe("taking a driven terminal over, and handing it back", () => {
+  it("writes it on the work, and tells the Conductor to keep its hands off", async () => {
+    const r = rig();
+    const agent = await busyWatching(r);
+    const work = await drivenWork(r, B);
+    idle(agent);
+
+    r.host.takeOver(B);
+
+    const driven = r.host.works().find((one) => one.id === work);
+    expect(kindsOf(driven as Work).at(-1)).toBe("taken-over");
+    expect(driverOf(driven as Work, B)).toBe("you");
+    await vi.waitFor(() => {
+      expect(agent.wakes()).toHaveLength(1);
+    });
+    const woke = agent.wakes()[0];
+    expect(woke?.events.map((one) => one.level)).toEqual(["taken-over"]);
+    expect(woke?.text).toContain(B);
+    expect(woke?.text).toContain("the implementor of «fix the parser»");
+    expect(woke?.text).toContain("TOOK IT OVER");
+
+    r.host.handBack(B);
+    const back = r.host.works().find((one) => one.id === work);
+    expect(kindsOf(back as Work).at(-1)).toBe("handed-back");
+    expect(driverOf(back as Work, B)).toBe("conductor");
+    await vi.waitFor(() => {
+      expect(agent.wakes()).toHaveLength(2);
+    });
+    expect(agent.wakes()[1]?.events.map((one) => one.level)).toEqual([
+      "handed-back",
+    ]);
+  });
+
+  it("works while the agent is DOWN — the news waits for somebody to tell", async () => {
+    // No fleet endpoint: nothing can be brought up, so a take over that went
+    // through the conversation could not happen at all. A person must be able
+    // to take a terminal over whether or not kolu's agent is there.
+    const r = rig({ endpoint: null });
+    await drivenWork(r);
+
+    r.host.takeOver(A);
+
+    expect(driverOf(theWork(r), A)).toBe("you");
+    await vi.waitFor(() => {
+      expect(r.host.state().held).toEqual([A]);
+    });
+    // ... and it is on disk at once: who may type into a terminal is the one
+    // fact a restart must not get wrong.
+    expect(r.works.value()?.[0]?.events.at(-1)?.kind).toBe("taken-over");
+  });
+
+  it("refuses a terminal nothing drives, and one already in that state", async () => {
+    const r = rig();
+    await drivenWork(r);
+    // A terminal of no work at all.
+    expect(refused(() => r.host.takeOver(B)).kind).toBe("not-driven");
+    r.host.takeOver(A);
+    expect(refused(() => r.host.takeOver(A)).kind).toBe("already-yours");
+    r.host.handBack(A);
+    expect(refused(() => r.host.handBack(A)).kind).toBe("already-conductors");
+    expect(refused(() => r.host.handBack(A)).why).toContain(
+      "already the Conductor's",
+    );
+  });
+
+  it("refuses a WATCH: that terminal is the person's, and always was", async () => {
+    const r = rig();
+    const work = await watchWork(r);
+    r.host.joinWork(work, A, "other", "asked");
+
+    expect(refused(() => r.host.takeOver(A)).kind).toBe("not-driven");
+    expect(driverOf(theWork(r), A)).toBeNull();
+  });
+});
+
+describe("a restored backup of the works", () => {
+  it("replaces them, drops their open questions, re-scopes and writes NOW", async () => {
+    const r = rig();
+    const before = await drivenWork(r);
+    const moved = r.membersMoved().length;
+    const writes = r.works.writes();
+
+    r.host.restoreWorks([
+      storedWork({
+        id: "work:restored",
+        title: "carried over",
+        members: [storedMember(B)],
+        decisions: [
+          {
+            id: "d1",
+            ask: "ask:gone",
+            at: T0,
+            key: null,
+            question: "Approve the plan?",
+            options: ["Approve"],
+            multiple: false,
+            answer: null,
+          },
+        ],
+      }),
+    ]);
+
+    // The snapshot's works, and only those.
+    expect(r.host.works().map((one) => one.id)).toEqual(["work:restored"]);
+    // THE QUESTION IS DROPPED: the conversation that asked it is long gone —
+    // it was asked before the backup was taken — so nobody can answer it.
+    expect(r.host.works()[0]?.decisions[0]?.answer?.how).toBe("dropped");
+    // The watcher re-scopes: the membership is now the snapshot's.
+    expect(r.membersMoved().slice(moved)).toEqual([true]);
+    expect(r.host.memberRefs()).toEqual([B]);
+    // ... and the file says so immediately, not within the throttle window: a
+    // restore a restart would undo is not a restore.
+    expect(r.works.writes()).toBeGreaterThan(writes);
+    expect(r.works.value()?.map((one) => one.id)).toEqual(["work:restored"]);
+    // The work that was here is GONE from the wire, and the restored one is
+    // on it — each said once, for the one that moved.
+    expect(r.worksPublished().slice(-2)).toEqual([
+      {
+        id: "work:restored",
+        work: expect.objectContaining({ id: "work:restored" }),
+      },
+      { id: before, work: null },
+    ]);
+  });
+
+  it("sweeps the kept files of every work it did not restore", async () => {
+    const r = rig();
+    await drivenWork(r);
+
+    r.host.restoreWorks([storedWork({ id: "work:restored" })]);
+
+    // ONE rule: keep what the stored works name, delete the rest. A per-work
+    // delete would leave the orphans of a snapshot nobody here ever had.
+    await vi.waitFor(() => {
+      expect(r.files.swept().at(-1)).toEqual(["work:restored"]);
+    });
+  });
+
+  it("drops the runtime bookkeeping of a terminal the snapshot has no member for", async () => {
+    const r = rig();
+    await drivenWork(r);
+    r.host.observe([seeing(A, "working")]);
+    await vi.waitFor(() => {
+      expect(r.host.readings().get(A)?.level).toBe("working");
+    });
+
+    r.host.restoreWorks([
+      storedWork({ id: "work:restored", members: [storedMember(B)] }),
+    ]);
+
+    // Nothing is left to read about it, and its reading leaves the wire.
+    expect(r.host.readings().has(A)).toBe(false);
+    expect(r.readingsPublished().at(-1)).toEqual({
+      terminal: A,
+      reading: null,
+    });
+    // The restored member is baselined the way a restart baselines one: the
+    // record's own bookkeeping, nothing read yet.
+    expect(r.host.readings().has(B)).toBe(false);
+    expect(r.host.membersDetail().map((one) => one.ref)).toEqual([B]);
+  });
+});
+
+describe("what the works' readers are told", () => {
+  it("publishes ONLY the work that moved, and every stored one once at boot", async () => {
+    const r = rig({
+      works: [
+        storedWork({ id: "work:one", members: [storedMember(A)] }),
+        storedWork({ id: "work:two" }),
+      ],
+    });
+    // The first read is the boot: every stored work goes out once.
+    r.host.works();
+    expect(r.worksPublished().map((one) => one.id)).toEqual([
+      "work:one",
+      "work:two",
+    ]);
+
+    const before = r.worksPublished().length;
+    r.host.note("work:one", "a line on the timeline");
+
+    // One work moved, so one work went out. The other is the SAME immutable
+    // value and nothing about it was resent.
+    expect(
+      r
+        .worksPublished()
+        .slice(before)
+        .map((one) => one.id),
+    ).toEqual(["work:one"]);
   });
 });

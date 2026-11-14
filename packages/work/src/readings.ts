@@ -64,6 +64,41 @@ export const rolesOf = (mode: WorkMode | null): ReadonlyArray<WorkRole> =>
       ? ["implementor"]
       : [];
 
+/** WHO IS TYPING INTO A MEMBER TERMINAL — the Conductor, or the person who
+ *  took it over. `null` for a terminal nothing drives: the work has ended, the
+ *  terminal is not an active member of it, or its mode is not one the
+ *  Conductor runs (a `watch` is the human's own terminal, and a work whose
+ *  mode nobody has answered yet runs nothing). */
+export type Driver = "conductor" | "you";
+
+/** The driver, read off the events the way everything else about a work is:
+ *  the latest `taken-over`/`handed-back` for that terminal SINCE it last
+ *  joined. So the lock ends by itself when the member leaves or the work ends,
+ *  it survives a restart (it is in the stored record), and every reader —
+ *  browser, MCP, the host's own refusals — reads one answer. */
+export const driverOf = (work: Work, terminal: string): Driver | null => {
+  if (work.endedAt !== null) return null;
+  const mode = modeOf(work);
+  if (mode !== "full" && mode !== "trivial") return null;
+  if (
+    !work.members.some(
+      (one) => one.terminal === terminal && one.leftAt === null,
+    )
+  )
+    return null;
+  for (let at = work.events.length - 1; at >= 0; at -= 1) {
+    const event = work.events[at];
+    if (event === undefined || event.terminal !== terminal) continue;
+    // Back to the join THIS membership started at and no further: a terminal
+    // that left and came back is driven by the Conductor again, whatever was
+    // said about the terminal it used to be.
+    if (event.kind === "joined") break;
+    if (event.kind === "taken-over") return "you";
+    if (event.kind === "handed-back") break;
+  }
+  return "conductor";
+};
+
 export interface SetupReading {
   readonly host: string | null;
   readonly mode: WorkMode | null;

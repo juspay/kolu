@@ -92,6 +92,19 @@ export interface Conductor {
    *  `New session` is the one caller. Two verbs rather than a flag, because
    *  what a person LOSES is the whole of the difference. */
   clearSession(): void;
+  /** TAKE A DRIVEN TERMINAL off the Conductor — `terminal` is its
+   *  `<host>/<id>` ref. The lock is a fact about the WORK (an event on its
+   *  timeline), which is why this is a request of the record rather than a
+   *  local flag: a reload, a second browser and the agent itself all read the
+   *  same answer, and the conversation is woken to stop typing into it.
+   *
+   *  These two declare `ConductorRefused` ALONE on the wire: an agent that is
+   *  down or signed out must not stand between a person and the keyboard of a
+   *  terminal in front of them. */
+  takeOver(terminal: string): void;
+  /** ... and give it back: the Conductor drives it again, and is woken to
+   *  say so. */
+  handBack(terminal: string): void;
 }
 
 export const useConductor = createSharedRoot<Conductor>(() => {
@@ -213,5 +226,18 @@ export const useConductor = createSharedRoot<Conductor>(() => {
         app.procedures.conductor.clearSession({}),
       );
     },
+    // The label IS the report: a refusal here is the work's own sentence
+    // ("that terminal is not driven by a piece of work"), and the banner it
+    // was pressed from is still on screen saying who drives it.
+    takeOver: (terminal) =>
+      ask(
+        "Could not take it over",
+        app.procedures.conductor.takeOver({ terminal }),
+      ),
+    handBack: (terminal) =>
+      ask(
+        "Could not hand it back",
+        app.procedures.conductor.handBack({ terminal }),
+      ),
   };
 });

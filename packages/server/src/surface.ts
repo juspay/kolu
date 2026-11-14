@@ -49,6 +49,7 @@ import {
   type CellStore,
   confStore,
   type ImplementSurfaceDeps,
+  inMemoryCollection,
   inMemoryStore,
   implementSurfacesOnPublisher,
   publisherChannel,
@@ -83,7 +84,7 @@ import {
   surfaces,
 } from "kolu-common/surface";
 import { koluWireGroup } from "kolu-common/surfacesWithPadi";
-import { EMPTY_WORKS_VIEW } from "kolu-common/works";
+import type { MemberReading } from "kolu-common/works";
 import { serverCommit, serverStartedAt, serverVersion } from "./hostname.ts";
 import { log } from "./log.ts";
 import {
@@ -93,10 +94,13 @@ import {
 import { DAEMON_INVENTORY_SAMPLE_INTERVAL_MS } from "./padi/daemonInventory.ts";
 import { FORWARD_REAP_INTERVAL_MS } from "./portForward/forwards.ts";
 import { conductorSurfaceMembers } from "kolu-conductor/surface";
+import { WorkRefusal } from "kolu-conductor";
+import { ConductorRefused } from "kolu-common/conductorErrors";
+import type { Work } from "kolu-work";
 import {
   liveServerConductor,
   setConductorCellWriter,
-  setWorksCellWriter,
+  setWorksCollectionWriters,
 } from "./conductor/live.ts";
 import { store } from "./state.ts";
 
@@ -326,6 +330,25 @@ export interface StoreCellWriters {
   setViewerMode: (value: ViewerMode) => void;
 }
 
+/** THE HAND-OVER BRIDGE — `conductor.takeOver` / `conductor.handBack` as the
+ *  one declared failure they carry. The work refuses with a sentence (not a
+ *  driven member, already yours, already the Conductor's); anything else is a
+ *  bug in the bookkeeping and dies loudly, the same line the conductor's own
+ *  fragment draws for its verbs. `auth: false` — nothing about a hand-over is
+ *  a sign-in. */
+function handOver(act: () => void): Effect.Effect<void, ConductorRefused> {
+  return Effect.suspend(() => {
+    try {
+      act();
+      return Effect.void;
+    } catch (err) {
+      return err instanceof WorkRefusal
+        ? Effect.fail(new ConductorRefused({ why: err.message, auth: false }))
+        : Effect.die(err);
+    }
+  });
+}
+
 /** Serve kolu-server's OWN two sibling surfaces (kolu + surfaceApp) on the shared
  *  `@kolu/padi` publisher, wire the runtime's deliberately-fatal `done`, and return the
  *  built router + kolu ctx. `index.ts`'s boot splices the RE-SERVED `padi` sibling into
@@ -505,13 +528,21 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       // first reader's edge and publishes it through the writer registered
       // below a moment later, the same way `agentDistroStatus` lands on padi.
       conductor: { store: inMemoryStore(conductorMembers.state()) },
-      // THE WORKS. Seeded EMPTY rather than from the host, and that is the
-      // honest seed: the record is read off disk on the host's first reader
-      // (the watch, started right after this surface is served) and published
-      // through the writer registered below. An empty cell before then says
-      // "kolu has not read its works yet", which is true; seeding it would
-      // mean building the conversation at boot merely to draw a column.
-      works: { store: inMemoryStore(EMPTY_WORKS_VIEW) },
+    },
+    // THE WORKS and their members' readings, each EMPTY until the host reads
+    // its record off disk on the first reader's edge (the watch, started right
+    // after this surface is served) and publishes it key by key through the
+    // writers registered below. Empty before then says "kolu has not read its
+    // works yet", which is true; seeding would mean building the conversation
+    // at boot merely to draw a column.
+    //
+    // The map behind each one IS this process's served copy — the host holds
+    // the record, these hold what has been published off it — so `upsert` and
+    // `remove` store as well as fan out (unlike padi's registry-backed
+    // collections, where the registry is the authority and both are no-ops).
+    collections: {
+      works: inMemoryCollection<string, Work>(),
+      memberReadings: inMemoryCollection<string, MemberReading>(),
     },
     streams: {
       // THE CONDUCTOR'S TRANSCRIPT — explicit snapshot-then-deltas. The
@@ -546,7 +577,22 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
       // adapter, no fleet endpoint, or no child) and `ConductorRefused`
       // (the agent said no). Anything else stays a defect and crosses the wire
       // as one.
-      conductor: conductorMembers.procedures,
+      //
+      // The two HAND-OVER verbs are bound HERE rather than in the conductor's
+      // own fragment, because they are the two that never ask the agent
+      // anything: they move the WORK (the act is appended to its timeline) and
+      // then wake the conversation if there is one. A person taking the
+      // keyboard of a terminal in front of them must not be stopped by an
+      // agent that is down or signed out, so the only failure they can raise is
+      // the work's own refusal — `WorkRefusal`, carried over with its sentence
+      // whole, because the sentence names what to do ("it is already yours").
+      conductor: {
+        ...conductorMembers.procedures,
+        takeOver: ({ input }: { input: { terminal: string } }) =>
+          handOver(() => liveServerConductor().takeOver(input.terminal)),
+        handBack: ({ input }: { input: { terminal: string } }) =>
+          handOver(() => liveServerConductor().handBack(input.terminal)),
+      },
     },
   };
 
@@ -629,11 +675,25 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
   setConductorCellWriter((state) => {
     koluSurfaces.ctx.kolu.cells.conductor.set(state);
   });
-  // ...and the works', registered in the same breath. Two cells because a
-  // keystroke in the chat and a member's agent going quiet are two different
-  // movements, and a reader of one has no business re-rendering for the other.
-  setWorksCellWriter((view) => {
-    koluSurfaces.ctx.kolu.cells.works.set(view);
+  // ...and the works', registered in the same breath. Separate members because
+  // a keystroke in the chat, a work moving and a member's agent going quiet are
+  // three different movements, and a reader of one has no business
+  // re-receiving the others. A `null` value is the key GOING — a work that fell
+  // off the twenty-finished cap, or a terminal the watch no longer reads.
+  setWorksCollectionWriters({
+    work: (id, work) => {
+      if (work === null) koluSurfaces.ctx.kolu.collections.works.remove(id);
+      else koluSurfaces.ctx.kolu.collections.works.upsert(id, work);
+    },
+    reading: (terminal, reading) => {
+      if (reading === null)
+        koluSurfaces.ctx.kolu.collections.memberReadings.remove(terminal);
+      else
+        koluSurfaces.ctx.kolu.collections.memberReadings.upsert(
+          terminal,
+          reading,
+        );
+    },
   });
 
   // Observe the surface runtime's `done` and route it into kolu-server's EXISTING

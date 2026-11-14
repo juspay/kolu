@@ -81,7 +81,13 @@ export type EventBy = typeof EventBySchema.Type;
  *  - `pr-opened` — `#<number> <title>`; `merged` · `pr-closed` — `#<number>`;
  *  - `checks-failed` — the failing check names, comma-separated;
  *  - `note` — the Conductor's text; `ended` — the outcome;
- *  - `kept` — how many files were kept; `keep-failed` — why. */
+ *  - `kept` — how many files were kept; `keep-failed` — why;
+ *  - `taken-over` · `handed-back` — nothing: the member terminal the person
+ *    took the keys to (and gave back) is `terminal`, and that pair is what
+ *    {@link driverOf} reads;
+ *  - `folded` — how many agent-state events were dropped to keep a work's
+ *    timeline bounded, as a decimal string. ONE of these per work, sitting
+ *    where the oldest event it stands for sat. */
 export const EVENT_KINDS = [
   "requested",
   "carried-over",
@@ -106,6 +112,9 @@ export const EVENT_KINDS = [
   "ended",
   "kept",
   "keep-failed",
+  "taken-over",
+  "handed-back",
+  "folded",
 ] as const;
 export const EventKindSchema = Schema.Literals(EVENT_KINDS);
 export type EventKind = typeof EventKindSchema.Type;

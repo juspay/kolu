@@ -428,7 +428,24 @@ log.info({ path: stateDir }, "state directory");
 
 /** kolu-server's state-backup ring (#1658) — the one binding every ring verb
  *  rides (boot snapshot here, the daily tick from `bootKoluWeb`, list/restore
- *  from `stateBackups.ts`). Opening it reads nothing and arms nothing. */
+ *  from `stateBackups.ts`). Opening it reads nothing and arms nothing.
+ *
+ *  IT COVERS `config.json` AND NOTHING ELSE — the ring snapshots one file's
+ *  bytes. Two things kolu keeps under this same root are therefore outside it,
+ *  deliberately:
+ *
+ *   - the CONDUCTOR'S TRANSCRIPT (`conductor/transcript.json`): it is most of
+ *     the conversation's bytes and it moves on every keystroke, so ringing it
+ *     would churn the ring for a record whose other half — the agent's own
+ *     session store — kolu does not back up anyway. Restoring kolu's rows
+ *     alone would show a conversation the agent does not remember.
+ *   - the KEPT FILES (`works/<work>/…`): copies of worktree files, not state.
+ *     They are bytes a work produced, bounded by nothing kolu chose, and a
+ *     restore that brought back a `works` key naming files on disk is honest
+ *     about the ones that have been swept since — the card reads them as gone.
+ *
+ *  The restore dialog says both of these in so many words
+ *  (`stateBackups.ts`). */
 export const stateBackupRing = openStateBackupRing(
   join(stateDir, "config.json"),
   log,

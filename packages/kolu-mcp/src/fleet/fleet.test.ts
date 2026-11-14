@@ -580,7 +580,7 @@ function fakeWorks(): FleetWorks & {
         ...one,
         members: [
           ...one.members,
-          { ref, role, name: null, agent: null, joined },
+          { ref, role, name: null, agent: null, joined, driver: "conductor" },
         ],
       });
       moved();
@@ -1693,6 +1693,8 @@ describe("the conductor's pieces of work", () => {
               joined: "asked",
               hostName: "this machine",
               hostState: "connected",
+              // The Conductor drives it — nobody has taken it over.
+              driver: "conductor",
             },
             {
               ref: `remote:box/${BETA_1}`,
@@ -1702,6 +1704,7 @@ describe("the conductor's pieces of work", () => {
               joined: "asked",
               hostName: "box",
               hostState: "connected",
+              driver: "conductor",
             },
           ],
         },

@@ -35,15 +35,30 @@ const WorkMark: Component<{
           data-testid="work-mark"
           data-role={at().role}
           data-work={at().work}
-          title={`${ROLE_WORD[at().role]} of “${at().title}”`}
-          class="me-1 inline-flex min-w-0 shrink items-center gap-1 rounded-sm bg-conductor/15 px-1 font-mono text-[0.58rem] font-semibold leading-[1.4] text-conductor align-[0.05em]"
+          // WHO DRIVES IT, on the mark itself — a dock row is where a person
+          // looks to see what is happening across the fleet, and a terminal
+          // they took over reads as theirs there as well as on its tile.
+          data-driver={at().driver ?? undefined}
+          title={`${ROLE_WORD[at().role]} of “${at().title}”${
+            at().driver === "you" ? " · taken over by you" : ""
+          }`}
+          class={`me-1 inline-flex min-w-0 shrink items-center gap-1 rounded-sm px-1 font-mono text-[0.58rem] font-semibold leading-[1.4] align-[0.05em] ${
+            at().driver === "you"
+              ? "bg-alert/15 text-alert"
+              : "bg-conductor/15 text-conductor"
+          }`}
         >
           <span aria-hidden="true">◆</span>
           <span class="uppercase tracking-[0.06em]">
             {ROLE_WORD[at().role]}
           </span>
-          <span class="min-w-0 truncate font-normal normal-case text-conductor/80">
-            · {at().title}
+          <span
+            class={`min-w-0 truncate font-normal normal-case ${
+              at().driver === "you" ? "text-alert/80" : "text-conductor/80"
+            }`}
+          >
+            · {at().driver === "you" ? "taken over · " : ""}
+            {at().title}
           </span>
         </span>
       )}
