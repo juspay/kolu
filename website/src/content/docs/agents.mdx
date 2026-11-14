@@ -1,6 +1,6 @@
 ---
 title: AI coding agents
-description: "Kolu brings AI coding agents into every new terminal, kept up to date, on the machine running kolu and on every host you add."
+description: "kolu brings AI coding agents into every new terminal, kept up to date, on the machine running kolu and on every host you add."
 order: 49
 section: "Agents & Attention"
 koluHero:
@@ -13,10 +13,10 @@ koluHero:
 import LinkCard from "../../components/docs/LinkCard.astro";
 import Steps from "../../components/docs/Steps.astro";
 
-Kolu can bring the AI coding agents along: **Claude Code, Codex, OpenCode, Pi
-and Oh My Pi**, kept up to date, with nothing to install. Switch them on, open
-a new terminal and type `claude`. It runs, and so do the others. Each starts
-with kolu's own plugin loaded, so it can drive your other kolu terminals.
+kolu can bring the AI coding agents along: **Claude Code, Codex, OpenCode, Pi
+and Oh My Pi**, kept up to date, with nothing to install. Switch them on, open a
+new terminal and type `claude`. Each agent starts with kolu's own plugin loaded,
+so it can drive your other kolu terminals.
 
 The **agents** are a switch: on, every new terminal gets them, as
 [agent-distro](https://github.com/juspay/agent-distro) ships them. **Profiles**
@@ -25,7 +25,7 @@ servers and settings, such as **Juspay**'s (`github:juspay/skills`).
 
 ## First run
 
-Kolu adds no agents until you switch them on. It asks in the **welcome card**
+kolu adds no agents until you switch them on. It asks in the **welcome card**
 whenever no terminals are open, in the palette's **Tutorial**, and in
 **Settings → Agents**.
 
@@ -33,9 +33,9 @@ whenever no terminals are open, in the palette's **Tutorial**, and in
 
 1. Add a profile, if you want one: one click adds **+ Juspay — Juspay skills +
    Kolu, via Juspay's LiteLLM gateway**. The list is otherwise empty.
-2. Press **Turn on ⏎**. It has the keyboard already, and nothing is written
-   until you press it.
-3. Or press **Not now — plain terminals, ask again later**. The question comes
+2. Click **Turn on ⏎**. It has the keyboard already, so <kbd>Enter</kbd> does the
+   same, and nothing is written until you do.
+3. Or click **Not now — plain terminals, ask again later**. The question comes
    back the next time the welcome card appears.
 
 </Steps>
@@ -65,7 +65,7 @@ in red. **✕** removes a row; with two or more, each can also move up or down.
 
 Add one with the field under the list: click it for suggestions, or type a
 flake reference (`github:you/your-profile`) or a path (`~/src/my-profile`, or
-an absolute one) and press **Enter**.
+an absolute one) and press <kbd>Enter</kbd>.
 
 While a profile in the list does not build, new terminals get no coding agents
 at all. Fix it and kolu tries again at the next check and when you edit the

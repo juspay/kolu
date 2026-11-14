@@ -120,3 +120,8 @@ From `.waterfall/compare.mjs` against `f50641c6a`. Twelve reported.
 | `trusted-users` | on the page as `nix.settings.trusted-users`, the name the failure message prints |
 | `nix.conf` | cut: the page now states the requirement positively (a Mac must trust the login or the cache's key), which is the one-line fix the refusal prints |
 | table entry: "dimmed, with a turning arc" | cut, visible on screen |
+
+## Review round 1
+
+- Opening cut to 45 words: "It runs, and so do the others" dropped as duplicate of "Each agent starts…".
+- **Turn on ⏎** and **Not now…** are buttons: "click". <kbd>Enter</kbd> as a keycap. "Kolu" → "kolu" in the description and the first-run paragraph; the button label **+ Juspay — Juspay skills + Kolu…** is quoted as the screen shows it.
