@@ -171,6 +171,13 @@ addressed per key.
 - A map whose `siblings` is absent mints not one extra tag.
 - A sibling is declared as a whole `Surface`, not as a spec fragment, because it
   is a different program's contract with its own release cadence and version.
+- Why: [Why a sibling is a whole surface](/surface/entry-contracts#why-a-sibling-is-a-whole-surface).
+
+| Entry | What it covers |
+| --- | --- |
+| [The sibling tag grammar](#the-sibling-tag-grammar) | How a sibling's wire tags nest, one segment deep, and where the re-tag derives from. |
+| [What a sibling face carries](#what-a-sibling-face-carries) | The six subtrees a sibling face is, and what stays the entry's. |
+| [Sibling names that are refused](#sibling-names-that-are-refused) | The two keys refused at declaration, and the reserved name that is not. |
 
 ### The sibling tag grammar
 
@@ -357,7 +364,7 @@ scopedByEntry(client, active, build) → { active(): T | undefined, get(key): T 
 - `build(key, ctx)` runs once per key on its first activation, and its return
   value is that key's owned world.
 - `ctx.isActive` is an `Accessor<boolean>`, so the active-only discipline (WebGL
-  release and re-acquire, center-on-active) lives inside the owner.
+  release and re-acquire, centre-on-active) lives inside the owner.
 - Lifetime is `entries` membership, not the wire. An owner is built lazily, so a
   never-visited background host costs nothing. It is retained across every
   switch-away, and disposed the instant its key leaves `entries`.
@@ -484,6 +491,7 @@ inferred from the map's `connection` schema, exactly like `Failure`.
   (`state().connection`), never a second subscription.
 - A map with no `connection` schema simply omits the field.
 - The `failed` arm carries no `connection` at all.
+- Why: [Why the connection word and the dot have one source](/surface/entry-contracts#why-the-connection-word-and-the-dot-have-one-source).
 
 #### The `failed` arm
 
@@ -575,6 +583,7 @@ It means our link to the publisher is dead.
 - It has no wire schema. It is a projection of the consumer's own transport, so
   `entryStatusSchema` has no arm to encode it into and a floored value can never
   be republished.
+- The floor applies to both `entry(key).state()` and the `entries` projection.
 
 ### `FailureRecord<Failure>`
 
@@ -601,9 +610,8 @@ union itself.
 <Aside type="caution" title="No status renders green over a dead transport">
   A server-published claim is only as trustworthy as your link to the publisher.
   With that link dead (`live === false`), both live arms floor to
-  `{ kind: "unobservable", membershipId, published }` — applied to both
-  `entry(key).state()` and the `entries` projection. `live` is a required argument
-  so the fold cannot forget to floor.
+  `{ kind: "unobservable", membershipId, published }`. `live` is a required
+  argument, so the fold cannot forget to floor.
 </Aside>
 
 ## The server seam

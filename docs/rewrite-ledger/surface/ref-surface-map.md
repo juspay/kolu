@@ -53,3 +53,12 @@ Inbound links: the only recorded link into this page's headings is same-page, `#
 ## Dropped code spans
 
 None. The comparison script reports 0 missing: every code block, `<Snippet>` tag, inline code span and table first-column entry of the old page is on the new one. Two spans that the old page escaped for a table cell (`ObservedEntryStatus \| { kind: "not-a-member" }`, `number \| null`) now sit in prose with a plain `|`, and the escaped form is kept where it is still inside a cell.
+
+## Review round 1
+
+- B3, the "Why" link of the reference-entry template, one per entry a Moved row came from:
+  - `Nested siblings` (the group's declaration list) → [Why a sibling is a whole surface](/surface/entry-contracts#why-a-sibling-is-a-whole-surface).
+  - `Conn, the fine connection payload` → [Why the connection word and the dot have one source](/surface/entry-contracts#why-the-connection-word-and-the-dot-have-one-source).
+- Index table added for `Nested siblings`, the one group with entries and none. It documents behaviour rather than exports, so it uses `| Entry | What it covers |`, one line per row.
+- Aside cut to 50 words (rule 12): "No status renders green over a dead transport" is now 42 words. The scope it carried, that the floor applies to both `entry(key).state()` and the `entries` projection, moved into the `UnobservableEntry` entry, which owns the floor.
+- Checks: lint passes; `.waterfall/compare.mjs … f50641c6a` 0 missing; `house-style.mjs` reports nothing on this page.
