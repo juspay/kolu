@@ -1,6 +1,6 @@
 ---
 title: Kaval
-description: "kaval — a standalone PTY daemon built on a multi-client PTY-owner primitive — and kaval-tui, its terminal client: list, create, snapshot, attach to, send input to, and kill your terminals from the shell."
+description: "The PTY daemon that owns your shells, and kaval-tui, its shell client: list, create, snapshot, attach to, send input to and kill terminals, locally or over ssh."
 order: 120
 section: Daemons
 koluHero:
@@ -18,42 +18,19 @@ import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 import Steps from "../../components/docs/Steps.astro";
 
+`kaval` (Tamil _kāval_, watch or guard) is a standalone PTY daemon. It owns your shells, mirrors their screens, and serves them over a local unix socket, outliving the clients that come and go. `kaval-tui` is its terminal client: list, create, snapshot, attach, send input, kill.
+
 <Aside type="caution" title="alpha">
-  `kaval` and `kaval-tui` are an early preview. Commands, flags, and output
-  formats **will change** before they're finalized for production use; don't
-  script against them yet.
+  `kaval` and `kaval-tui` are an early preview. Commands, flags and output
+  formats change before they are finalized for production use, so don't script
+  against them yet.
 </Aside>
-
-`kaval` (Tamil _kāval_ — watch, guard; said KAH-val, the first _a_ long, as in
-_father_) is a small, standalone PTY daemon: it owns your shells, mirrors their
-screens, and serves them over a local unix socket — outliving the clients that
-come and go. `kaval-tui` is its terminal client: list your shells, **create** new
-ones, dump their scrollback, attach and type, **send** a prompt to an agent
-running in one, or **kill** them — locally, or on a remote machine over ssh
-(`--host`). Run the pair on a box where kolu has never been installed — a
-tmux/zellij-shaped duo, minus the multiplexer's session model. In kolu's full
-stack, [padi](/padi) is the workspace daemon above kaval, and
-[Architecture](/architecture) shows how the layers survive restarts. Kaval is the
-exemplar daemon of [@kolu/surface](/surface/the-daemon-spine) — the
-single-instance gate, live recycle, and frozen control core it is built on are
-documented there.
-
-That frozen side channel reports kaval's build and boot identity without moving
-its existing pty-host procedures. Kaval deliberately cannot drain: doing so
-would destroy the live PTYs it exists to preserve. A direct drain call is
-refused with a typed error, while padi's not-drainable policy can only keep the
-daemon running and show an update nudge when its build is old.
 
 ## How it fits together
 
-One daemon owns the terminals; everything else is a client. `kolu` no longer runs
-PTYs in-process — its per-host daemon, [`padi`](/padi) (Tamil _paḍi_ — the
-stepped stand a _koḷu_ sits on), spawns and supervises its _own_ `kaval` and
-dials it over a unix socket, exactly as `kaval-tui` does from the shell (the
-kolu-server is just the web shell your browser talks to in front of padi). Same
-daemon, same terminals, many faces — and the link runs _both_ ways: kaval streams
-live updates back to every client, so a terminal you `kaval-tui create` from the
-shell shows up in `kolu` the moment it's born.
+One daemon owns the terminals and everything else is a client. kolu's per-host daemon, [`padi`](/padi), spawns a `kaval` of its own and dials it over a unix socket, exactly as `kaval-tui` does from the shell.
+
+The link runs both ways: kaval streams live updates back to every client, so a terminal you create from the shell shows up in `kolu` the moment it is born. You can also run the pair on a machine where kolu has never been installed.
 
 <figure class="doc-figure">
   <svg viewBox="0 0 760 276" role="img" aria-labelledby="kv-diagram-title">
@@ -106,6 +83,8 @@ shell shows up in `kolu` the moment it's born.
   </svg>
 </figure>
 
+[Architecture](/architecture) shows how the layers survive restarts, and [the daemon spine](/surface/the-daemon-spine) documents the single-instance gate and live recycle kaval is built on.
+
 ## Run the pair
 
 <Steps>
@@ -131,10 +110,7 @@ shell shows up in `kolu` the moment it's born.
 
 ## Drive a running `kolu`
 
-kolu doesn't run terminals in-process anymore — its per-host daemon
-[`padi`](/padi) spawns a kaval of its own and dials it, so kolu is just another
-consumer of it. So the same `kaval-tui` reaches the terminals you have open in
-kolu, from the shell, with **no flags**:
+The terminals you have open in kolu are terminals of a kaval, so the same `kaval-tui` reaches them from the shell with no flags:
 
 ```sh
 kaval-tui list                     # the terminals open in your kolu
@@ -142,38 +118,24 @@ kaval-tui snapshot <id> | grep BUILD-
 kaval-tui history <id> --lines 200 # older scrollback above the screen
 ```
 
-kaval-tui discovers the daemon by scanning the per-user runtime dir — both a
-standalone `kaval` and every kolu (each kolu's `padi` namespaces its kaval by a
-digest of its state-root, and drops a manifest beside the socket so kaval-tui can
-label it back to the kolu it belongs to). One running → it's picked
-automatically. More than one → kaval-tui lists them and asks you to choose with
-`--socket <path>`.
+kaval-tui finds the daemon by scanning the per-user runtime directory, which holds a standalone `kaval` and the kaval of every kolu on the machine. One running daemon is picked automatically. With more than one, kaval-tui lists them, labelled by the kolu they belong to, and asks you to choose with `--socket <path>`.
 
-### An agent inside a terminal locates itself — two env vars
+### Two environment variables inside a terminal
 
-A terminal kaval spawns carries two env vars so an agent running **inside** it can
-find its own daemon and its own tile with no flags to pass (the `$TMUX`
-convention, one for the socket and one for the id):
+A terminal kaval spawns carries two variables, so an agent inside it can find its own daemon and its own tile with no flags to pass:
 
 | Var | Names | An agent uses it to |
 | --- | --- | --- |
-| `$KAVAL_SOCKET` | the socket of the kaval that owns **this** terminal | skip discovery and point straight at its own daemon: `kaval-tui list --socket "$KAVAL_SOCKET"` — the unambiguous answer when several daemons are up |
-| `$KAVAL_TERMINAL_ID` | the id of **this** terminal | act on itself without being told which tile it is: `kaval-tui snapshot "$KAVAL_TERMINAL_ID" --socket "$KAVAL_SOCKET"` reads its own screen |
+| `$KAVAL_SOCKET` | the socket of the kaval that owns this terminal | point straight at its own daemon: `kaval-tui list --socket "$KAVAL_SOCKET"`, the unambiguous answer when several daemons are up |
+| `$KAVAL_TERMINAL_ID` | the id of this terminal | act on itself without being told which tile it is: `kaval-tui snapshot "$KAVAL_TERMINAL_ID" --socket "$KAVAL_SOCKET"` reads its own screen |
 
-A kolu spawned **inside** a kolu terminal re-stamps its own id and socket over the
-inherited ones, so both always name *this* terminal, never the outer. A terminal
-that predates the feature (adopted across an upgrade without a respawn) may lack
-them — fall back to `kaval-tui list`. A raw `kaval-tui create --host` terminal (see
-below) gets `$KAVAL_TERMINAL_ID` but **not** `$KAVAL_SOCKET`: the id is
-path-invariant, while a local socket path means nothing on the remote box.
+- A kolu started inside a kolu terminal re-stamps its own id and socket over the inherited ones, so both always name this terminal.
+- A terminal adopted across an upgrade without a respawn may carry neither. Fall back to `kaval-tui list`.
+- A terminal from `kaval-tui create --host` gets `$KAVAL_TERMINAL_ID` but not `$KAVAL_SOCKET`: the id means the same anywhere, a local socket path does not.
 
 ## Reach a remote `kaval` — over ssh
 
-`--host <ssh>` drives a kaval on **another machine**, with nothing to install
-there first. kaval-tui provisions the daemon with Nix (ships the right-arch build
-over ssh, realises it), runs it, and dials it — every subcommand works exactly as
-it does locally, just pointed at the remote. This is shell-level remote terminal
-control; [From another device](/remote-access) is the separate browser-HTTPS path.
+`--host <ssh>` drives a kaval on another machine, with nothing to install there first. kaval-tui provisions the daemon with Nix (it ships the right-arch build over ssh and realises it), runs it, and dials it. Every subcommand works exactly as it does locally.
 
 ```sh
 kaval-tui create --host nix@prod
@@ -181,141 +143,126 @@ kaval-tui list   --host nix@prod
 kaval-tui attach --host nix@prod <id>
 ```
 
-The remote daemon is **durable**: a terminal you create outlives the ssh link, so
-create on prod and attach to it later — even after you closed the laptop and
-changed networks. One shared daemon per host. `--host` is mutually exclusive with
-`--socket`; it needs passwordless ssh and your user trusted by the remote's Nix
-daemon.
+- The remote daemon is durable: a terminal you create outlives the ssh link, so you can attach to it after closing the laptop and changing networks.
+- There is one shared daemon per host. `--host` is mutually exclusive with `--socket`.
+- It needs passwordless ssh, and your user trusted by the remote machine's Nix daemon.
+- A remote terminal runs in the host's environment: its `$SHELL`, `$HOME` and `$PATH` come from the remote machine.
+- Only your terminal's presentation variables (`TERM`, `COLORTERM`, `LANG`/`LC_*`) cross the wire. Your local environment, and any secrets in it, never does.
 
-A remote terminal runs in the **host's** environment, not yours: its `$SHELL`,
-`$HOME`, and `$PATH` come from the remote machine (so its own commands resolve),
-and only your terminal's _presentation_ vars (`TERM`, `COLORTERM`, `LANG`/`LC_*`)
-are carried across. Your local environment — and any secrets in it — **never
-crosses the wire**.
+This is shell-level remote control. [From another device](/remote-access) is the separate browser path.
 
 ## What `kaval` owns
 
-Under the daemon sits a single primitive — a multi-client PTY owner. One host owns
-any number of PTYs; each PTY is a real shell child paired with a headless screen
-mirror, fanned out to any number of consumers. It owns **only** the PTY: it knows
-nothing about git, pull requests, agent detection, or any wire protocol — those
-compose on top. The same primitive backs kolu's terminals; kaval just serves it
-over a socket. The system split is why [padi](/padi) handles workspace meaning
-while kaval handles terminal survival.
+Under the daemon sits one primitive, a multi-client PTY owner. Each PTY is a real shell child paired with a headless screen mirror, fanned out to any number of consumers. It knows nothing about git, pull requests, agent detection or any wire protocol.
 
 <CardGrid>
   <Card title="race-free, bounded attach">
-    A late-joining client gets a screen snapshot and then live deltas with no gap
-    and no overlap — every byte lands in exactly one of the two, so the screen
-    reconstructs perfectly and then streams. The snapshot is **bounded** to the
-    recent screenful, so a cold or cross-host attach paints instantly instead of
-    replaying the whole 10,000-line mirror; older history streams in on demand as
-    the client scrolls up (`getHistory`).
+    A late-joining client gets a screen snapshot and then live deltas with no
+    gap and no overlap. The snapshot is bounded to the recent screenful, so a
+    cold or cross-host attach paints at once instead of replaying the whole
+    10,000-line mirror. Older history streams in as the client scrolls up
+    (`getHistory`).
 
-    A serialized screen only means anything at the width it was drawn for, so the
-    attach carries **your** grid: the daemon resizes the terminal to it and
-    serializes as one act, and what comes back is always laid out for the screen
-    that will paint it. Because a terminal has one size shared by everyone
-    attached to it, this is **last-attach-wins** — attaching from a differently
-    sized window resizes the terminal for every other viewer too, exactly as
-    resizing your window would.
+    The attach carries your grid: the daemon resizes the terminal to it and
+    serializes as one act. A terminal has one size, so this is
+    last-attach-wins, and attaching from a differently sized window resizes it
+    for every other viewer too.
   </Card>
   <Card title="drop-slow-subscriber">
-    A wedged client that stops draining its output is dropped rather than pinning
-    the daemon's memory without bound — kaval-tui then transparently
-    re-subscribes and gets a fresh snapshot.
+    A wedged client that stops draining its output is dropped, rather than
+    pinning the daemon's memory without bound. kaval-tui then re-subscribes on
+    its own and gets a fresh snapshot.
   </Card>
 </CardGrid>
 
-**taps `kaval` surfaces per terminal**
+kaval surfaces five taps per terminal:
 
 | tap | source |
 | --- | --- |
 | `screen` | snapshot + live deltas |
 | `cwd` | from OSC 7 reports |
 | `title` | from OSC 0/2 changes |
-| `command` | from OSC 633 preexec — a **sensor** (`commandRun`); no consumer may replay it |
+| `command` | from OSC 633 preexec |
 | `exit` | the child's exit code |
 
 ## What lives above it
 
-kaval owns the PTYs and the raw taps above them: screen, cwd, title, command, and
-exit. [`padi`](/padi) is the workspace daemon above it — the layer that folds
-those terminal observations into repo context, PR state, agent state, session
-restore, and the `padi-tui` surface.
-
-So this page stays about kaval: holding shells, attaching safely, detaching like
-ssh, and sending raw bytes. The workspace table, socket discovery, and
-agent-state wait semantics live on [the padi page](/padi).
+[`padi`](/padi) is the workspace daemon above kaval. It folds those terminal observations into repo context, pull request state, agent state, session restore and the `padi-tui` surface. The workspace table, padi's socket discovery and its agent-state waits live there.
 
 <LinkCard title="meet padi and padi-tui" href="/padi" description="workspace memory, agent state, and the shell face above kaval" />
 
 ## Why `kaval-tui send`, not a message bus
 
-Driving one agent from another means typing a prompt and **pressing Enter** — raw
-bytes into the PTY, raw output back — not some agent-to-agent protocol. That's a
-**deliberate choice**, not a missing feature. kolu's rule is to stay out of the
-agent's way: it never edits your `~/.claude` (or codex / opencode) config and
-ships **no per-agent glue**. The terminal is the one interface every agent already
-speaks, so raw input is the honest floor. Run any agent CLI once — `claude`,
-`codex`, whatever ships next week — and it drives the same way, with nothing to
-install and no adapter to write.
+Driving one agent from another means typing a prompt and pressing Enter: raw bytes into the PTY, raw output back. kolu never edits your `~/.claude` (or codex, or opencode) config and ships no per-agent glue. Any agent CLI drives the same way (`claude`, `codex`). A message bus such as `hcom` installs hooks into each agent's config instead.
 
-Tools like `hcom` get a real message bus by going the other way — installing
-**hooks** into each agent's config and routing messages through a shared database,
-one integration per tool. kolu won't take on that setup step or that per-agent
-code — and here's the thing: **it doesn't need to**, because a channel every agent
-already speaks is sitting right there.
+Content travels by file instead. One agent writes a file the other reads, as the `/debate` skill does, and kolu watches the working directory, so a new file arrives as a push. `kaval-tui send` therefore delivers the prompt and nothing bigger.
 
-**The channel is the filesystem.** When one agent hands work to another, it
-doesn't type an essay into the other's terminal — it **writes a file**, and the
-other one reads it. kolu's `/debate` skill (a port of
-[srid/llm-debate](https://github.com/srid/llm-debate)) runs entirely this way:
-agents exchange arguments as numbered markdown files in a shared directory, each
-reading the others' and writing its own by path — _"pass file paths, not pasted
-argument text."_ A turn being done is just its **file existing**. Every agent can
-read and write files with no hook and no adapter; it works headless and across
-machines over ssh; and because kolu already **watches** the working directory, a
-new file is a **push**, not a poll. An inbox is a file; a subscription is a watch
-on a path. That's the whole coordination layer — no bus required.
-
-So `kaval-tui send` stays deliberately dumb: it delivers the **prompt** — "your
-turn, read these files, write that one" — and nothing bigger flows over the wire.
-The one place the screen is genuinely irreplaceable is the interactive prompt:
-when Claude Code stops on an `AskUserQuestion` or a plan-approval menu, that
-question isn't in any log or file until _after_ you answer, so the only way to see
-"it's waiting on you" is to
-[read the rendered screen](https://github.com/juspay/kolu/pull/1160), and you
-answer it with **arrow keys**, not text. A message bus wouldn't help there either.
-Files carry the content, the terminal carries the floor — the full argument is in
-the [hcom vs. kolu note](https://kolu.dev/atlas/hcom-vs-kolu.html).
+The screen is still the only place one thing shows: a Claude Code `AskUserQuestion` or plan-approval menu is in no log or file until after you answer, so you [read the rendered screen](https://github.com/juspay/kolu/pull/1160) and answer with arrow keys. The [hcom vs. kolu note](https://kolu.dev/atlas/hcom-vs-kolu.html) carries the full argument.
 
 ## Commands · `kaval-tui`
 
 <Aside type="note" title="Driving an agent? Reach for `kolu` instead">
-  The `kolu` command carries the same driving verbs — `kolu send` · `wait` ·
-  `snapshot` · `history` · `create` · `kill` — as a pure [padi](/padi) client,
-  so one command covers both daemons. `kaval-tui` still works, and `attach`
-  lives only here for now. The full loop is on the
-  [agent fleets](/agent-fleets) page.
+  The `kolu` command carries the same driving verbs as a pure [padi](/padi)
+  client — `kolu send` · `wait` · `snapshot` · `history` · `create` · `kill` ·
+  `attach` lives only here. The full loop is on the [agent
+  fleets](/agent-fleets) page.
 </Aside>
 
 | Command | What it does |
 | --- | --- |
-| `kaval-tui list` · `--json` | One row per live terminal — id · pid · idle · cmd · cwd. `--json` emits a top-level array for jq. |
-| `kaval-tui create` · `[-- cmd]` · `--env K=V` · `--json` | Spawn a new terminal on the daemon and print its short id — a plain `$SHELL`, or a command you pass (`create -- htop -d 5`). A freshly-started daemon owns nothing, so create is what attach needs first; the daemon then holds the terminal until something kills it. Its environment is a clean canonical base — functional (`HOME`, `PATH`, `SHELL`, …), presentation (`TERM`/`LANG`/…), and login-session capability vars (`XDG_RUNTIME_DIR`, `SSH_AUTH_SOCK`, `TMPDIR`, …) — **not** a copy of your shell's env: a var you exported doesn't follow in (an interactive shell still sources your rc files); add specific vars with `--env K=V` (repeatable). This is deliberate: copying the caller's env leaked an orchestrating agent's identity vars and silently lost its transcript ([#1872](https://github.com/juspay/kolu/issues/1872)). `--json` emits `{ id, pid, cwd }`. |
-| `kaval-tui snapshot <id>` · `--viewport` · `--tail N` | Print a terminal's rendered screen as plain text and exit — built for piping and grepping (a trailer line goes to stderr, so stdout stays clean). Defaults to the full scrollback; `--viewport` prints just the visible screen (the daemon's own last screenful — the right read when driving an agent), `--tail N` the last N rendered lines. |
-| `kaval-tui history <id>` · `--lines N` | Dump the terminal's OLDER scrollback — the mirror content *above* the current screen that `snapshot --viewport` can't show — VT-serialized so colors survive, cursor-paged from the newest older lines back. `--lines N` prints just the one page immediately above the screen; omit it for the full older history, oldest-first. Read-only, takes no TTY. |
-| `kaval-tui attach <id>` · `--escape <char>` | Take the terminal over, full screen. Raw passthrough — every keystroke and chord reaches the inner program; your window size follows along. Detach with the escape below. |
-| `kaval-tui send <id> [text...]` · `--file <path>` · `--paste/--no-paste` · `--key <name>` · `--json` | Write input to a terminal without attaching — a prompt to a Claude Code / Codex / opencode agent running in it, so one agent can drive another. `send` writes exactly the text OR the `--key`s you pass — never both, and no implicit Enter. Submitting is its own step, because a same-breath Enter races the TUI's paste debounce and is dropped: send the text, `wait --until idle:<ms>` to observe the TUI settle, then `send <id> --key Enter`. `--file <path>` reads the text straight from a file (byte-exact, no `"$(cat)"` shell mangling). Multiline / --file / piped-stdin text is sent as one bracketed paste so it doesn't submit line-by-line; `--key` also sends control keys (Escape, C-c, Up…). A write that can't complete fails loud in seconds instead of hanging. Known limitation: a large paste Claude Code folds into a placeholder doesn't reliably submit on Enter (issue #1702); the three-step flow is verified for normal-size prompts. `--json` emits `{ id, bytes, paste, keys }`. |
-| `kaval-tui wait <id> --until <cond>` · `--timeout <ms>` · `--json` | Block until a terminal's raw OUTPUT meets a condition, then exit — the hook-free done-signal for driving an agent that drives another. `--until idle:<ms>` resolves once no output byte has arrived for `<ms>` (the turn ended / it's awaiting you — the common case); `--until match:<regex>` resolves once new output matches (a completion marker or returned-prompt sentinel). `--timeout` fails loud (exit 2) so a wedged agent can't hang the loop; a terminal that exits first exits 3. Keyed on raw PTY bytes, so it needs no shell hooks and works for any terminal — unlike `padi-tui wait`, which reads real agent state off padi. |
-| `kaval-tui kill <id>` | End a terminal the daemon owns — the PTY is torn down, so it drops out of list and any attached client sees the shell exit. `<id>` is the short id or any unique prefix, like snapshot/attach; an id that matches nothing fails loud rather than silently doing nothing. Exits 0 on success. |
+| `kaval-tui list` · `--json` | One row per live terminal — id · pid · idle · cmd · cwd. `--json` emits an array for jq. |
+| [`kaval-tui create` · `[-- cmd]` · `--env K=V` · `--json`](#create-a-terminal) | Spawn a new terminal on the daemon and print its short id. |
+| [`kaval-tui snapshot <id>` · `--viewport` · `--tail N`](#read-a-terminals-screen) | Print a terminal's rendered screen as plain text and exit. |
+| [`kaval-tui history <id>` · `--lines N`](#read-a-terminals-screen) | Dump the scrollback above the current screen. |
+| `kaval-tui attach <id>` · `--escape <char>` | Take the terminal over, full screen. Every keystroke and chord reaches the inner program, and your window size follows along. |
+| [`kaval-tui send <id> [text...]` · `--file <path>` · `--paste/--no-paste` · `--key <name>` · `--json`](#send-input-to-an-agent) | Write input to a terminal without attaching, so one agent can drive another. |
+| [`kaval-tui wait <id> --until <cond>` · `--timeout <ms>` · `--json`](#wait-for-an-agent-to-finish) | Block until a terminal's raw output meets a condition, then exit. |
+| `kaval-tui kill <id>` | End a terminal the daemon owns. The PTY is torn down, so it drops out of `list` and any attached client sees the shell exit. Exits 0 on success. |
 
-## Detaching — the ssh model
+`<id>` is the short id or any unique prefix. An id that matches nothing fails loud rather than silently doing nothing.
 
-While attached, _nothing_ is intercepted except a `~` typed at the start of a line
-(right after Enter — session start counts too). Mid-line tildes, every Ctrl chord,
-and pasted text all pass straight through, so the program inside never loses a key.
+### Create a terminal
+
+`kaval-tui create` spawns a plain `$SHELL`, or a command you pass (`create -- htop -d 5`), and prints its short id. A freshly started daemon owns nothing, so create is what attach needs first.
+
+- The terminal's environment is a clean canonical base: functional (`HOME`, `PATH`, `SHELL`, …), presentation (`TERM`/`LANG`/…), and login-session capability variables (`XDG_RUNTIME_DIR`, `SSH_AUTH_SOCK`, `TMPDIR`, …).
+- It is not a copy of your shell's environment. A variable you exported does not follow in, though an interactive shell still sources your rc files.
+- Add specific variables with `--env K=V`, which repeats.
+- `--json` emits `{ id, pid, cwd }`.
+
+### Read a terminal's screen
+
+`kaval-tui snapshot <id>` prints the rendered screen as plain text and exits, built for piping and grepping. Its trailer line goes to stderr, so stdout stays clean.
+
+- It defaults to the full scrollback. `--viewport` prints just the visible screen, the daemon's own last screenful, which is the right read when driving an agent. `--tail N` prints the last N rendered lines.
+- `kaval-tui history <id>` dumps the older scrollback above the current screen, which `snapshot --viewport` cannot show. It is VT-serialized, so colors survive, and paged from the newest older lines back.
+- `--lines N` prints the one page immediately above the screen. Omit it for the full older history, oldest first.
+- `history` is read-only and takes no TTY.
+
+### Send input to an agent
+
+`kaval-tui send <id>` writes input without attaching, such as a prompt to a `claude`, `codex` or opencode agent running in the terminal.
+
+- `send` writes exactly the text or the `--key`s you pass, never both, and adds no Enter of its own.
+- Submitting is its own step: send the text, `wait --until idle:<ms>` to observe the TUI settle, then `send <id> --key Enter`. A same-breath Enter races the TUI's paste debounce and is dropped.
+- `--file <path>` reads the text straight from a file, byte-exact, with no `"$(cat)"` shell mangling.
+- Multiline text, `--file` and piped stdin go as one bracketed paste, so they do not submit line by line. `--key` also sends control keys (Escape, C-c, Up…).
+- A write that cannot complete fails loud in seconds instead of hanging.
+- `--json` emits `{ id, bytes, paste, keys }`.
+- A paste large enough for Claude Code to fold into a placeholder does not reliably submit on Enter ([#1702](https://github.com/juspay/kolu/issues/1702)). The three-step flow above is verified for normal-size prompts.
+
+### Wait for an agent to finish
+
+`kaval-tui wait <id> --until <cond>` blocks until a terminal's raw output meets a condition, then exits.
+
+- `--until idle:<ms>` resolves once no output byte has arrived for `<ms>`, which means the turn ended or the agent is awaiting you.
+- `--until match:<regex>` resolves once new output matches, such as a completion marker or a returned-prompt sentinel.
+- `--timeout` fails loud (exit 2), so a wedged agent cannot hang the loop. A terminal that exits first exits 3.
+- It is keyed on raw PTY bytes, so it needs no shell hooks and works for any terminal. `padi-tui wait` reads real agent state off padi instead.
+
+## Detach from a terminal
+
+While you are attached, nothing is intercepted except a `~` typed at the start of a line (right after Enter, and the start of the session counts). Mid-line tildes, every Ctrl chord and pasted text pass straight through, so the program inside never loses a key.
 
 | Escape | What it does |
 | --- | --- |
@@ -328,30 +275,14 @@ and pasted text all pass straight through, so the program inside never loses a k
 kaval-tui attach <id> --escape %
 ```
 
-## Fine print
+Detach is client-side: kaval-tui can come and go while the daemon holds the terminal. Restarting the daemon itself ends its terminals.
 
-- A standalone kaval's socket lives at `$XDG_RUNTIME_DIR/kaval/pty-host.sock` (or
-  `/tmp/kaval-$UID/pty-host.sock` when `$XDG_RUNTIME_DIR` is unset) and appears
-  when the daemon boots. `--socket` goes **after the subcommand**
-  (`kaval-tui list --socket …`).
-- A kolu's kaval is spawned by its `padi` and namespaced by a digest of padi's
-  state-root — `$XDG_RUNTIME_DIR/kaval-<digest>/pty-host.sock` — so two kolus on
-  one box never collide. kaval-tui's auto-discovery walks all of them; pass
-  `--socket` only to disambiguate when several daemons are up.
-- Auto-discovery reads **one** of those two directories: the one your own
-  environment puts you in. So a shell with `$XDG_RUNTIME_DIR` set does not list a
-  daemon some other process bound under `/tmp`, and vice versa — name it with
-  `--socket`. (It used to read both every time, which meant scanning the whole of
-  `/tmp` on every call.)
-- Detach is **client-side**: kaval-tui can come and go while the daemon holds the
-  terminal. Restarting the daemon itself still ends its terminals — that
-  persistence is later work.
-- When the program inside exits, kaval-tui exits with the same code. An
-  unreachable daemon is a one-line error, never a hang.
-- `create`, remote `--host`, and `kill` — ending a terminal from the shell — have
-  all shipped: a usable raw multiplexer (beta).
-- The full design — architecture, phasing, and the decisions behind the escape
-  model — lives in the [kaval atlas note](https://kolu.dev/atlas/pty-daemon.html).
-- Stopping a daemon by hand — the gate file, the SIGTERM, and why a second kolu
-  needs its own state root not to take this one over — is in
-  [Operations](/operations).
+## Sockets and limits
+
+- A standalone kaval's socket lives at `$XDG_RUNTIME_DIR/kaval/pty-host.sock`, or at `/tmp/kaval-$UID/pty-host.sock` when `$XDG_RUNTIME_DIR` is unset. It appears when the daemon boots.
+- A kolu's kaval is spawned by its `padi` and named by a digest of padi's state-root, at `$XDG_RUNTIME_DIR/kaval-<digest>/pty-host.sock`, so two kolus on one machine never collide.
+- `--socket` goes after the subcommand (`kaval-tui list --socket …`), and you need it only to choose between daemons.
+- Discovery reads one of those two directories, the one your own environment puts you in. A shell with `$XDG_RUNTIME_DIR` set does not list a daemon bound under `/tmp`, and the reverse holds too.
+- When the program inside a terminal exits, kaval-tui exits with the same code. An unreachable daemon is a one-line error, never a hang.
+- kaval cannot drain: draining would destroy the live PTYs it exists to preserve, so a drain call is refused with a typed error. An old build keeps running, with an update nudge.
+- [Operations](/operations) covers stopping a daemon by hand. The full design is in the [kaval atlas note](https://kolu.dev/atlas/pty-daemon.html).
