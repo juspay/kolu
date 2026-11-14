@@ -1,6 +1,6 @@
 ---
 title: A fleet of surfaces
-description: "Fan out to N boxes through a surface map — entries, chips, useEntry, and per-host presence kept honest and isolated to each box's own chip. You have built a mini-drishti."
+description: "Fan out to N boxes through a surface map: entries, chips, useEntry, and per-host presence isolated to each box's own chip."
 order: 401
 section: Multi-host · Tutorial
 koluHero:
@@ -12,12 +12,14 @@ import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 import Steps from "../../components/docs/Steps.astro";
 
-One mirror gives you one remote box. A **surface map** gives you a whole fleet:
-the same `top` surface, keyed by host, reached through one object. Membership is
-one authoritative list and each host is a chip; when one box drops, its chip —
-and only its chip — reflects the trouble (`warming` while it retries, `failed`
-if it needs you), while the rest keep serving. By the end of this page you will
-be looking at a miniature [drishti](https://github.com/srid/drishti).
+One mirror gives you one remote box. A [surface map](/surface/glossary) gives
+you a whole fleet: the same `top` surface, keyed by host, reached through one
+object. By the end of this page you are looking at a miniature
+[drishti](https://github.com/srid/drishti).
+
+Membership is one authoritative list, and each host is a chip. When one box
+drops, its chip reflects the trouble (`warming` while it retries, `failed` if it
+needs you) while the rest keep serving.
 
 <Aside type="note" title="Same code as part 3">
   This is the same `packages/surface/example/fleet-top/part-3` you ran in
@@ -40,12 +42,13 @@ the identity pair.
 
 On the parent, a `MapRegistry` is the single writer of membership. It lists the
 hosts, and its `resolve(host)` hands the map each host's link plus its projected
-connection state — or a `fault` for an unknown key. `serveSurfaceMap(hostMap, registry)`
-publishes the `entries` membership collection and forwards every key-folded call
-to the right host's link. That forwarding is why a fault on one box is confined
-to that box's chip rather than taking down the page. (The registry lives in
-`src/server/main.ts`; it is a plain object with `members`, `subscribe`, `has`,
-and `resolve`.)
+connection state, or a `fault` for an unknown key.
+
+`serveSurfaceMap(hostMap, registry)` publishes the `entries` membership
+collection and forwards every key-folded call to the right host's link. That
+forwarding keeps a fault on one box confined to that box's chip instead of
+taking down the page. The registry lives in `src/server/main.ts`; it is a plain
+object with `members`, `subscribe`, `has`, and `resolve`.
 
 ## Render the fleet
 
@@ -57,13 +60,12 @@ host's subscriptions and populating the new one's.
 <Snippet src="packages/surface/example/fleet-top/part-3/src/client/App.tsx" region="mapped" />
 
 <Aside type="tip" title="entry.procedures is typed — no cast">
-  Declared procedures ride `entry.procedures.<ns>.<verb>(input)` — the
-  `kill` call above — bound and typed straight from the entry spec, with no cast.
-  The bound `procedures` map is a narrow type that dodges the union-budget overflow
-  (TS2590) a second precise mapped type over a generic entry spec would trip, so
-  the map no longer hands you an untyped edge for declared calls. `entry.rpc` is
-  the structural addressing face — `unknown` per leaf — reserved for the escape
-  hatch; see [Entry contracts](/surface/entry-contracts).
+  Declared procedures ride `entry.procedures.<ns>.<verb>(input)`, like the
+  `kill` call above, bound and typed straight from the entry spec with no cast.
+  The bound `procedures` map is a narrow type, so a declared call is never an
+  untyped edge. `entry.rpc` is the structural addressing face (`unknown` per
+  leaf), kept for the escape hatch; see
+  [Entry contracts](/surface/entry-contracts).
 </Aside>
 
 ## Watch one box drop on its own
@@ -97,17 +99,17 @@ host's subscriptions and populating the new one's.
 
 </Steps>
 
-That last step is the whole point. There is no global error state, no fleet-wide
-spinner: presence is per-entry, and a fault is isolated to the entry that owns
-it — which is exactly why the projection distinguishes `warming` (self-heals)
-from `failed` (needs you). See [Entry contracts](/surface/entry-contracts).
+Presence is per-entry. There is no global error state and no fleet-wide spinner:
+a fault stays with the entry that owns it, which is why the projection separates
+`warming` (self-heals) from `failed` (needs you). See
+[Entry contracts](/surface/entry-contracts).
 
 ## You built a mini-drishti
 
-Look back at what fleet-top became. A surface you declared once (part 1) now runs
-as a durable daemon (part 2), is mirrored from remote boxes over ssh (part 3),
-and is presented as a live, keyed fleet where each host stands or falls on its
-own. Swap "top" for "an agent session" and you have drishti; swap it for
+Look back at what fleet-top became. A surface you declared once (part 1) now
+runs as a durable daemon (part 2) and is mirrored from remote boxes over ssh
+(part 3). It is presented as a live, keyed fleet where each host stands or falls
+on its own. Swap "top" for "an agent session" and you have drishti; swap it for
 "terminals" and you have kolu's own multi-host canvas. The surface is the part
 that did not change.
 
