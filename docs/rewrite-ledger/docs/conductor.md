@@ -2,7 +2,7 @@
 
 - Kind: how-to. Reader: someone who wants the Conductor to run work across their terminals.
 - Rewritten from: `f50641c6a`, advanced to `936b36043` by the fold of #2373 (a question stays quiet while the conversation is on screen in a focused window).
-- Words: 7,955 → 1,871
+- Words: 7,955 → 1,881 (1,871 at the rewrite; the #2373 fold added ten)
 - Frontmatter: description 251 → 135 characters. `order` 52 → 52.5, so it no longer ties with `sessions` and the sidebar order stays as it was.
 - Second source: `packages/client/src/conductor/helpContent.ts`. The page agrees with it (the example request is the help's own).
 
