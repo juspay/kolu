@@ -46,3 +46,13 @@ No `##` anchor that anything links to changed. `/surface/ref-surface-daemon#the-
 ## Dropped code spans
 
 None. `node .waterfall/compare.mjs website/src/content/surface/ref-surface-daemon.mdx f50641c6a` reports 0 missing: every code block, `<Snippet>` tag, inline code span and first-column table entry of the old page is present.
+
+## Review round 1
+
+- B3, the "Why" link of the reference-entry template, one per entry a Moved row came from:
+  - `ControlCoreHelloSchema · ControlCoreHello · CONTROL_CORE_VERSION` → [What a frozen contract survives, and what it does not](/surface/the-daemon-spine#what-a-frozen-contract-survives-and-what-it-does-not). This replaces the page's one existing link, which named the explanation page without an anchor.
+  - `Refusing to drain` → [Why the framework takes values, not loose fields](/surface/the-daemon-spine#why-the-framework-takes-values-not-loose-fields).
+  - `What takes a home` → the same heading (the spine-primitive row).
+  - `armRuntimeFaultExit(opts) · DAEMON_RUNTIME_FAULT_MARKER` → [Why a runtime fault kills the process](/surface/the-daemon-spine#why-a-runtime-fault-kills-the-process).
+  - `DaemonSpec.faultSignal` → the same heading (the zombie-class row).
+- Checks: lint passes; `.waterfall/compare.mjs … f50641c6a` 0 missing; `house-style.mjs` reports only the pre-existing `realising` at line 597.

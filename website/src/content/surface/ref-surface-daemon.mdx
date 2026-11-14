@@ -122,6 +122,7 @@ drainable.
   so `controlCoreFragment` runs the hook under `Effect.promise` and an undeclared
   throw stays a defect. There is no `PRECONDITION_FAILED`-style code for a
   supervisor to narrow on.
+- Why: [Why the framework takes values, not loose fields](/surface/the-daemon-spine#why-the-framework-takes-values-not-loose-fields).
 
 ### `controlCoreSurface` · `controlCoreProcedureSpec`
 
@@ -144,7 +145,7 @@ The immutable wire vocabulary of the hello payload.
   different epoch cannot be asked anything, because its first frame is
   undecodable. A supervisor observes that as `unspeakable-protocol`, never as an
   incompatible version.
-- Why the core is frozen at all: [The daemon spine](/surface/the-daemon-spine).
+- Why: [What a frozen contract survives, and what it does not](/surface/the-daemon-spine#what-a-frozen-contract-survives-and-what-it-does-not).
 
 ## The on-disk home
 
@@ -208,6 +209,8 @@ A home is a spine primitive. `daemonMain({ home })` and the supervisor's
 the gate, the socket and, by default, the self-reap anchor from it. Path strings
 are not passed across the consumer and framework boundary: `connect` receives
 the socket path from the framework.
+
+Why: [Why the framework takes values, not loose fields](/surface/the-daemon-spine#why-the-framework-takes-values-not-loose-fields).
 
 ### `resolveDaemonHome(…)`
 
@@ -471,6 +474,7 @@ runtime's `done` and hands back the `AbortSignal` you pass as
   process ends.
 - The supervisor's only channel for "that was a crash, not a stop" is the exit
   code, which is why an orderly teardown still scores exit 1.
+- Why: [Why a runtime fault kills the process](/surface/the-daemon-spine#why-a-runtime-fault-kills-the-process).
 
 ### `DaemonSpec.faultSignal`
 
@@ -479,6 +483,8 @@ The owned-fault stop arm, separate from `signal`. `signal` is a graceful stop
 
 Omitting it leaves a runtime fault nowhere to go, which is the zombie class:
 process alive, gate held, socket answering, runtime dead.
+
+Why: [Why a runtime fault kills the process](/surface/the-daemon-spine#why-a-runtime-fault-kills-the-process).
 
 ## The anchor self-reap
 
