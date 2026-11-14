@@ -326,3 +326,32 @@ None (`.waterfall/compare.mjs --old-lines 1402-1787`: 0 missing).
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs`: 0 missing).
+
+## Recognizing a transport-loss end (for reconnect retry)
+
+- Words: 1,321 → 1,363. Before: one 110-word opener, two `###` with long prose blocks, two tables and a 220-word closing paragraph. After: an index table, three entries, seven `####` sections, both tables kept verbatim.
+- Headings renamed:
+  - `Recognizing a transport-loss end (for reconnect retry)` → `Transport loss and frame limits` (`#recognizing-a-transport-loss-end-for-reconnect-retry` → `#transport-loss-and-frame-limits`). No inbound links in `.waterfall/anchors.md`.
+  - `Fitting under it (@kolu/surface/frame-chunking)` → `@kolu/surface/frame-chunking` (`#fitting-under-it-kolusurfaceframe-chunking` → `#kolusurfaceframe-chunking`). No inbound links.
+  - `### The wire's frame cap (\`@kolu/surface/frame-limit\`)` kept verbatim (inbound from `ref-surface-app.mdx:85`).
+- New entry for the two predicates that were only named in prose: `isSurfaceStdioTransportClosed(reason)` / `isSurfaceRelayTransportLost(reason)`. New `####`: a malformed frame ends the link; an oversized frame is a closed socket; what a member author owns; what the derivation turns on; what stays with the app; the framework's own stream frames.
+- Capitals written out: `UNCHANGED`, `OUT`, `OUTBOUND STREAM`, `DRAIN`, `OWN`. `BETA-ASSUMPTION` kept (a literal marker).
+- Code and the old page did not disagree.
+
+### Moved
+
+| Fact | Where |
+| --- | --- |
+| "Chunking is wire physics; what you'll accept is not." | `why-surfaces` (pending; queued in `.waterfall/moved/why-surfaces/ref-surface-10.md`) |
+
+### Cut
+
+| Fact | Tag |
+| --- | --- |
+| "The sender no longer lets a `deltas` frame scale with the set" → stated as what the sender does | history |
+| "that arithmetic has more terms than it looks like it has" / "so nobody derives it a third time" kept as the module's purpose, without the flourish | rationale |
+| "rather than rotting a comment" (the test fact is kept) | rationale |
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs`: 0 missing).

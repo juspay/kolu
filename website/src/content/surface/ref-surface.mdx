@@ -2611,35 +2611,28 @@ The fact answers what is true. The readout (`@kolu/surface/solid`) is the one ve
 - A `retired` readout presents immediately. A retired wire never re-dials, so there is nothing a grace window could hold back.
 - The frozen `retired` readout a disposed connection hands back is `true` for the same reason, so the two cannot disagree.
 
-## Recognizing a transport-loss end (for reconnect retry)
+## Transport loss and frame limits
 
-A re-serve relay ends a live downstream with one of two tagged errors on a
-transport loss: `SurfaceStdioTransportClosed` (the raw stdio close) or, when the
-relay catches an upstream death mid-stream and re-raises it wrapped, the
-**retryable** `SurfaceRelayTransportLost`. A client whose stream rides the fence
-re-subscribes on the latter automatically via `STREAM_RETRY`; a consumer that
-dials the re-served surface with a **raw** dispatch (no fence) recognizes them
-with `isSurfaceStdioTransportClosed(reason)` / `isSurfaceRelayTransportLost(reason)`
-(`@kolu/surface/errors`) to retry the subscribe across a reconnect window. Both
-are deliberately tight; the relay re-raises genuine application errors UNCHANGED,
-so neither tag is ever an app error.
+Two ends a link can meet that are not application errors: the upstream of a re-served surface dying, and a frame too large for the decoder. Both are tagged, and both are recoverable by re-dialling or re-subscribing.
+
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`isSurfaceStdioTransportClosed(reason)`](#issurfacestdiotransportclosedreason--issurfacerelaytransportlostreason) | `@kolu/surface/errors` | Recognizes the raw stdio close of a re-served surface. |
+| [`isSurfaceRelayTransportLost(reason)`](#issurfacestdiotransportclosedreason--issurfacerelaytransportlostreason) | `@kolu/surface/errors` | Recognizes the retryable wrapped upstream death. |
+| [The wire's frame cap](#the-wires-frame-cap-kolusurfaceframe-limit) | `@kolu/surface/frame-limit` | The largest ndjson frame a link will carry, and the close code for one over it. |
+| [Fitting under the cap](#kolusurfaceframe-chunking) | `@kolu/surface/frame-chunking` | The sender's arithmetic: chunk sizes, budgets and base64 helpers. |
+
+### `isSurfaceStdioTransportClosed(reason)` / `isSurfaceRelayTransportLost(reason)`
+
+A re-serve relay ends a live downstream with one of two tagged errors on a transport loss: `SurfaceStdioTransportClosed` (the raw stdio close), or the retryable `SurfaceRelayTransportLost` when the relay catches an upstream death mid-stream and re-raises it wrapped.
+
+- A client whose stream rides the fence re-subscribes on `SurfaceRelayTransportLost` automatically, via `STREAM_RETRY`.
+- A consumer that dials the re-served surface with a raw dispatch (no fence) recognizes them with `isSurfaceStdioTransportClosed(reason)` and `isSurfaceRelayTransportLost(reason)`, and retries the subscribe across a reconnect window.
+- Both tags are deliberately tight. The relay re-raises genuine application errors unchanged, so neither tag is ever an app error.
 
 ### The wire's frame cap (`@kolu/surface/frame-limit`)
 
-A malformed JSON line on an ndjson link **ends the link**. The decoder has
-already dropped what was buffered with it, so nothing after that line can be
-trusted: every call then in flight — and every later call — fails, on a stdio
-or unix-socket leg as `SurfaceStdioTransportClosed` with
-`death: "undecodableFrame"`, and the owner re-dials a fresh link. The websocket
-leg cycles its socket instead, and the failed calls are the retryable
-`RpcClientError` the face's fence re-subscribes on the new one. This holds
-whether or not a call was in flight. The daemon identity probe separately
-rejects a malformed first frame.
-
-Every link's ndjson serialization is built here, from one owned constant, rather
-than from Effect's default. The default and this value are the same 16 MiB — the
-point of passing it explicitly is that a future Effect bump cannot move kolu's
-wire silently.
+Every link's ndjson serialization is built here, from one owned constant, rather than from Effect's default. The two values are the same 16 MiB. Passing it explicitly means an Effect bump cannot move kolu's wire silently.
 
 | Export | Type | Meaning |
 | --- | --- | --- |
@@ -2649,39 +2642,35 @@ wire silently.
 | `FRAME_TOO_LARGE_CLOSE_CODE` | `number` | `1009`. |
 | `isFrameTooLargeClose(code)` | `(number) → boolean` | Classifies the frame-cap close distinctly. |
 
-**An oversized frame is not a failed call — it is a closed socket.** Effect's
-server-side decode answers a frame over the cap with `CloseEvent(1009)`, which
-takes every subscription on that multiplexed connection with it. (The client leg
-is asymmetric: an oversized frame arriving server→client surfaces as a broadcast
-`ClientProtocolError`, so the socket survives and the retry fence recovers.)
+The close-on-exceed semantics carry a `BETA-ASSUMPTION` marker stamped with the pinned Effect version (governed by `packages/tests/governance/betaAssumptions.ts`), so an Effect bump must re-measure them before it can land.
 
-Two consequences a member author owns:
+#### A malformed frame ends the link
 
-- **No member's payload may scale with user data.** Chunk it into bounded calls
-  (`scratch.write`'s `appendTo` continuation is the worked example) or cap it
-  with a typed refusal. The cap is a backstop, not a budget. The framework bounds
-  the one member whose size is not the author's to choose — a collection's
-  `deltas` snapshot scales with the number of entries — by splitting it into
-  `RPC_STREAM_CHUNK_BYTES` parts (next section); every other member is still the
-  author's.
-- **Refuse client-side, before send.** A frame that would bust the limit must be
-  rejected with an honest message rather than handed to the transport to die on.
-- `1009` must stay OUT of any `isTerminalClose` set — it is recoverable, and
-  halting the retry schedule on it would strand the tab with no subscriptions.
+A malformed JSON line on an ndjson link ends the link. The decoder has already dropped what was buffered with it, so nothing after that line can be trusted.
 
-The close-on-exceed semantics carry a `BETA-ASSUMPTION` marker stamped with the pinned Effect version
-(governed by `packages/tests/governance/betaAssumptions.ts`), so an Effect bump
-must re-measure them before it can land.
+- Every call then in flight, and every later call, fails. This holds whether or not a call was in flight.
+- On a stdio or unix-socket leg they fail as `SurfaceStdioTransportClosed` with `death: "undecodableFrame"`, and the owner re-dials a fresh link.
+- The websocket leg cycles its socket instead. The failed calls are the retryable `RpcClientError` that the face's fence re-subscribes on the new socket.
+- The daemon identity probe separately rejects a malformed first frame.
 
-### Fitting under it (`@kolu/surface/frame-chunking`)
+#### An oversized frame is a closed socket
 
-The sender's half of the cap. An app that ever puts bytes on the wire — a drop,
-a paste, an attachment — has to cut them so no single frame scales with the
-file, and that arithmetic has more terms than it looks like it has. It lives
-here, once, so nobody derives it a third time: **give it an encoded payload and
-the budget derived from the cap, get legal frames.** (Encoding is the caller's —
-`chunkBase64` splits a base64 *string*, and `base64CharsFor` sizes one before
-you build it.)
+An oversized frame is not a failed call. Effect's server-side decode answers a frame over the cap with `CloseEvent(1009)`, which takes every subscription on that multiplexed connection with it.
+
+- The client leg is asymmetric. An oversized frame arriving server to client surfaces as a broadcast `ClientProtocolError`, so the socket survives and the retry fence recovers.
+- `1009` must stay out of any `isTerminalClose` set. It is recoverable, and halting the retry schedule on it would strand the tab with no subscriptions.
+
+#### What a member author owns
+
+- No member's payload may scale with user data. Chunk it into bounded calls (`scratch.write`'s `appendTo` continuation is the worked example) or cap it with a typed refusal. The cap is a backstop, not a budget.
+- Refuse client-side, before send. A frame that would bust the limit must be rejected with an honest message rather than handed to the transport to die on.
+- The framework bounds the one member whose size is not the author's to choose. A collection's `deltas` snapshot scales with the number of entries, so it is split into `RPC_STREAM_CHUNK_BYTES` parts. Every other member is still the author's.
+
+### `@kolu/surface/frame-chunking`
+
+The sender's half of the cap. An app that ever puts bytes on the wire (a drop, a paste, an attachment) has to cut them so no single frame scales with the file. The arithmetic lives here, once: give it an encoded payload and the budget derived from the cap, and get legal frames.
+
+Encoding is the caller's. `chunkBase64` splits a base64 string, and `base64CharsFor` sizes one before you build it.
 
 | Export | Type | Meaning |
 | --- | --- | --- |
@@ -2693,55 +2682,36 @@ you build it.)
 | `base64CharsFor(rawBytes)` | `(number) → number` | `ceil(R / 3) * 4`. |
 | `base64DecodedLength(data)` | `(string) → number` | Decoded size without decoding — for a size gate that must not materialize a buffer. |
 | `frameBytesFor(base64Chars)` | `(number) → number` | What a frame carrying that payload costs, envelope included. Hand it to `exceedsFrameLimit` for a pre-send refusal. |
-| `RPC_STREAM_CHUNK_BYTES` | `number` | 256 KiB. The budget one OUTBOUND STREAM frame may carry before the framework splits it — a DRAIN bound, far under the 16 MiB cap. See below. |
+| `RPC_STREAM_CHUNK_BYTES` | `number` | 256 KiB. The budget one outbound stream frame may carry before the framework splits it, a drain bound far under the 16 MiB cap. |
 
-Three things the derivation turns on, each of which a re-derivation gets wrong:
+#### What the derivation turns on
 
-- **Two expansions, and only two.** base64 is 4/3; the JSON envelope is a bounded
-  constant. There is no third — base64's alphabet contains no character JSON
-  escapes, so the payload does not grow again inside the JSON string.
-- **The chunk is a multiple of 3.** That is what puts every boundary on a
-  4-character group, and a group is the unit base64 decodes independently. Split
-  off it and the pieces reassemble as a string while decoding to garbage. (A
-  round 4 MiB is *not* divisible by 3; 3 MiB is, and 3 MiB of bytes is exactly
-  4 MiB of base64.)
-- **The chunk does not fill the budget.** ~3.9x headroom, so the number survives
-  a bump that adds envelope fields — while a 50 MB file still costs 17 round
-  trips.
+- Two expansions, and only two. base64 is 4/3, and the JSON envelope is a bounded constant. There is no third: base64's alphabet contains no character JSON escapes, so the payload does not grow again inside the JSON string.
+- The chunk is a multiple of 3. That puts every boundary on a 4-character group, which is the unit base64 decodes independently. Split off it and the pieces reassemble as a string while decoding to garbage. A round 4 MiB is not divisible by 3; 3 MiB is, and 3 MiB of bytes is exactly 4 MiB of base64.
+- The chunk does not fill the budget. About 3.9x of headroom, so the number survives a bump that adds envelope fields, while a 50 MB file still costs 17 round trips.
+- The margin is a test (`frameChunking.test.ts`), not a paragraph. It measures the chunk against the imported cap, so a bump that moved the cap fails there.
 
-The margin is a test (`frameChunking.test.ts`), not a paragraph: it measures the
-chunk against the imported cap, so a bump that moved the cap fails there rather
-than rotting a comment.
+#### What stays with the app
 
-**What stays with the app.** This module pays the arithmetic, not the gate. A
-size policy cap, an extension allowlist, the wording of a refusal, where the
-bytes land on disk — those are the consuming app's (kolu's own live in
-`@kolu/padi-client/upload`). Chunking is wire physics; what you'll accept is not.
+This module pays the arithmetic, not the gate. A size policy cap, an extension allowlist, the wording of a refusal and where the bytes land on disk are the consuming app's. kolu's own live in `@kolu/padi-client/upload`.
 
-**The framework bounds its OWN frames too — a fancier budget.** A collection's
-batched `deltas` snapshot re-sends the whole set on every subscribe and every
-reconnect, so for a long conversation that one frame is megabytes; on a slow link
-everything on the socket — every other subscription and the liveness probe's
-answer — queues behind it for as long as it drains. The sender no longer lets a
-`deltas` frame scale with the set: a snapshot
-(or a large coalesced delta) is split into `RPC_STREAM_CHUNK_BYTES` parts at the
-server, each a separate ack-gated frame, and `buildSurfaceFace` reassembles them
-before any consumer sees a frame — `useCollection`, `fold`, `mirrorRemoteSurface`
-and a `SurfaceMap` fold are all transparent. *Why 256 KiB and not the 16 MiB cap:*
-the cap answers "will the decoder reject this?"; the drain budget answers "will
-the watchdog's probe answer still be stuck behind this frame when its timeout
-fires?". A subscription's frames are ack-gated, so at most one part is in
-flight; 256 KiB drains in ~2 s at a 1 Mbit/s floor plus a ~0.5 s ack round
-trip — a quarter of the 10 s probe timeout, and far inside the link's 60 s
-keep-alive backstop. The bound is **per stream**: a reconnect re-subscribes
-every collection at once, so up to K parts (K = the collections whose snapshot
-exceeds the budget) can share the socket, and the probe answer queues behind all
-K. The keep-alive is never at risk (every decoded part counts as liveness) and
-neither is the browser watchdog (a part landing after its probe launched voids
-the timeout); the ssh-leg watchdog is not progress-aware, so K ≥ 5 large
-snapshots resuming together at the 1 Mbit/s floor can read as a dead host. The
-split and the reassembly both live beside the wire's frame budget (in the
-package's `collectionDeltasFraming` module).
+#### The framework's own stream frames (`RPC_STREAM_CHUNK_BYTES`)
+
+A collection's batched `deltas` snapshot re-sends the whole set on every subscribe and every reconnect, so for a long conversation that one frame is megabytes. On a slow link everything else on the socket queues behind it while it drains, including the liveness probe's answer.
+
+- A snapshot, or a large coalesced delta, is split into `RPC_STREAM_CHUNK_BYTES` parts at the server, each a separate ack-gated frame.
+- `buildSurfaceFace` reassembles them before any consumer sees a frame, so `useCollection`, `fold`, `mirrorRemoteSurface` and a `SurfaceMap` fold are all transparent.
+- The split and the reassembly both live beside the wire's frame budget, in the package's `collectionDeltasFraming` module.
+
+Why 256 KiB rather than the 16 MiB cap: the cap answers whether the decoder will reject a frame, and the drain budget answers whether the watchdog's probe answer is still stuck behind a frame when its timeout fires.
+
+A subscription's frames are ack-gated, so at most one part is in flight. 256 KiB drains in about 2 s at a 1 Mbit/s floor plus a 0.5 s ack round trip, a quarter of the 10 s probe timeout and far inside the link's 60 s keep-alive backstop.
+
+The bound is per stream. A reconnect re-subscribes every collection at once, so up to K parts can share the socket (K being the collections whose snapshot exceeds the budget), and the probe answer queues behind all K.
+
+- The keep-alive is never at risk, because every decoded part counts as liveness.
+- The browser watchdog is not at risk either, because a part landing after its probe launched voids the timeout.
+- The ssh-leg watchdog is not progress-aware, so K ≥ 5 large snapshots resuming together at the 1 Mbit/s floor can read as a dead host.
 
 ## Cross-cutting invariants
 
