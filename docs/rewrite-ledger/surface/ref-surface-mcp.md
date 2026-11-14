@@ -31,13 +31,13 @@ Two of the three asides became entry sections: "A tool name is not reversible to
 
 | Fact | Where |
 | --- | --- |
-| Why a sibling's tool word is row-relative ("putting the row in front of it is what composition is for") | `why-surfaces` (pending: queued in `.waterfall/moved/why-surfaces/ref-surface-mcp.md`) |
-| Why a departed name is refused by name rather than "unknown" ("unknown tells it to doubt itself") | `why-surfaces` (pending, same file) |
-| The `kolu#2082` session lost to a misread transport message | `why-surfaces` (pending, same file) |
-| Why both result arms are carried despite doubling a large frame | `why-surfaces` (pending, same file) |
-| Why the image payload is a documented contract rather than a check | `why-surfaces` (pending, same file) |
-| Why the schema glue is load-bearing (the converter is bought, the glue is owned) | `why-surfaces` (pending, same file) |
-| Why `@kolu/surface-mcp/tools` is its own subpath ("an agent's tool table must not cost the transport") | `why-surfaces` (pending, same file) |
+| Why a sibling's tool word is row-relative ("putting the row in front of it is what composition is for") | `why-surfaces` → "Why each face spells a name its own way" |
+| Why a departed name is refused by name rather than "unknown" ("unknown tells it to doubt itself") | `why-surfaces` → "Why a refusal names what failed" |
+| The `kolu#2082` session lost to a misread transport message | `why-surfaces` → "Why a refusal names what failed" |
+| Why both result arms are carried despite doubling a large frame | `why-surfaces` → "Why a tool result is carried twice" |
+| Why the image payload is a documented contract rather than a check | `why-surfaces` → "Why a tool result is carried twice" |
+| Why the schema glue is load-bearing (the converter is bought, the glue is owned) | `why-surfaces` → "Why the schema bridge belongs to the framework" |
+| Why `@kolu/surface-mcp/tools` is its own subpath ("an agent's tool table must not cost the transport") | `why-surfaces` → "Why the schema bridge belongs to the framework" |
 
 The behaviour each passage argues for stays on this page: the prefix rule, the by-name refusal and the tombstone's lifetime, the two ways a dead connection is found, both result arms with their 1.2 MB → 2.4 MB measurement, the `detail` contract with its `detail.data = image.data.slice()` example, the three `toInputSchema` normalizations and their host readers, and the subpath's zero-SDK-import guarantee.
 
