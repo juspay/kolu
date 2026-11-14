@@ -2,7 +2,7 @@
 
 - Kind: how-to. Reader: someone who wants the Conductor to run work across their terminals.
 - Rewritten from: `f50641c6a`
-- Words: 7,955 → 1,858
+- Words: 7,955 → 1,871
 - Frontmatter: description 251 → 135 characters. `order` 52 → 52.5, so it no longer ties with `sessions` and the sidebar order stays as it was.
 - Second source: `packages/client/src/conductor/helpContent.ts`. The page agrees with it (the example request is the help's own).
 
