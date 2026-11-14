@@ -20,7 +20,7 @@ import Tip from "../ui/Tip";
 import { isDesktop } from "../useMobile";
 import ConductorMenu from "./ConductorMenu";
 import ConductorSettings from "./ConductorSettings";
-import { useConductorShown } from "./conductorShown";
+import { useShown } from "../ui/shown";
 
 /** Tokens at the scale a context window is discussed in. Not bytes — these are
  *  the agent's own units, and `148k` is how a person says the number. */
@@ -56,7 +56,7 @@ const ConductorHeader: Component<{
   // is no longer the view. Closing them is the retained pane's side of the
   // bargain: everything IN the pane is kept, everything it put on top of the
   // page is taken back.
-  const shown = useConductorShown();
+  const shown = useShown();
   createEffect(() => {
     if (shown()) return;
     setSettingsOpen(false);

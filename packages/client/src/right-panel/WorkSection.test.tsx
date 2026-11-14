@@ -38,7 +38,7 @@ import {
   assignColors,
   buildTerminalDisplayInfos,
 } from "../terminal/terminalDisplay";
-import { PanelShown } from "./panelShown";
+import { Shown } from "../ui/shown";
 import WorkSection from "./WorkSection";
 
 /** The section's ONE subscription, as a holder the cases drive: odu's own
@@ -179,15 +179,13 @@ const PI = terminal({
 
 /** Render under a SHOWN panel — the section's subscription is shown-gated, so a
  *  mount without this context would ask for nothing and every odu case would
- *  pass on an empty readout. `panelShown` throws without a provider, which is
+ *  pass on an empty readout. `useShown` throws without a provider, which is
  *  what keeps that mistake from being silent. */
 function paint(body: () => JSX.Element) {
   host = document.createElement("div");
   document.body.append(host);
   dispose = render(
-    () => (
-      <PanelShown.Provider value={() => true}>{body()}</PanelShown.Provider>
-    ),
+    () => <Shown.Provider value={() => true}>{body()}</Shown.Provider>,
     host,
   );
 }
@@ -1063,9 +1061,9 @@ describe("WorkSection odu CI readout", () => {
     document.body.append(host);
     dispose = render(
       () => (
-        <PanelShown.Provider value={shown}>
+        <Shown.Provider value={shown}>
           <WorkSection meta={RESIZE_BUG} />
-        </PanelShown.Provider>
+        </Shown.Provider>
       ),
       host,
     );

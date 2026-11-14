@@ -605,6 +605,27 @@ describe("the fleet face over two hosts", () => {
     expect(killed.isError ?? false, JSON.stringify(killed.content)).toBe(false);
   });
 
+  it("pins the SDK internal a record read is lifted from — a bump that moves it fails HERE", async () => {
+    // Serving this face LIFTS the adapter's own `resources/read` out of the
+    // SDK's private `_requestHandlers` map (`./recordRead.ts`), because the
+    // SDK publishes no getter for a registered handler. An SDK that keeps it
+    // somewhere else makes the next line THROW, naming the assumption — in
+    // `ci::unit`, rather than at a person's kolu-server boot, where the first
+    // symptom would be a Conductor that can read no terminal's record at all.
+    const { fleet } = twoHosts();
+    const mcp = await servedFleet(fleet.hosts);
+    // And what was lifted is the adapter's real reader: the record this face
+    // re-addressed and handed on comes back answered.
+    expect(
+      jsonOf(
+        await mcp.readResource({
+          uri: `surface://collections/terminals/local/${ALPHA_1}`,
+        }),
+      ),
+      "the face served, so the delegate was found — but the record read did not come back through it",
+    ).toMatchObject({ id: `local/${ALPHA_1}` });
+  });
+
   it("reads a record at the reference the face hands out — local and remote, unescaped", async () => {
     // THE BUG a human hit in a real session: a reference is `host/id`, so the
     // URI an agent writes by pasting one after the collection has a slash in

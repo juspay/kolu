@@ -125,6 +125,7 @@ import { wakeText } from "./wakeText.ts";
 import {
   observed,
   restoredEntry,
+  seenOf,
   spokenTo,
   type WatchEntry,
   type WatchedTerminal,
@@ -543,19 +544,21 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
   let missedEdge = false;
 
   /** The state as a READER sees it: whatever the harness last said, plus the
-   *  three fields this server authors and the three the WATCH owns. `watched`,
-   *  `work` and `held` are published from here rather than carried on the
-   *  harness's state for the reason `install` is: each fact has exactly one
-   *  author, and the conversation is not the author of kolu's watch.
+   *  three fields this server authors and the four the WATCH owns. `watched`,
+   *  `seen`, `work` and `held` are published from here rather than carried on
+   *  the harness's state for the reason `install` is: each fact has exactly
+   *  one author, and the conversation is not the author of kolu's watch.
    *
-   *  `work` is DERIVED on every publish rather than kept beside the list
-   *  ({@link workOf}): it is a fold over the same entries, so a second copy
-   *  could only ever be the stale one — and it is what the Conductor tab
-   *  badges, which must not disagree with the panel under it. */
+   *  `work` and `seen` are DERIVED on every publish rather than kept beside
+   *  the list ({@link workOf}, {@link seenOf}): both are folds over the same
+   *  entries, so a second copy could only ever be the stale one — and `work`
+   *  is what the Conductor tab badges, which must not disagree with the panel
+   *  under it. */
   const publishState = (): void => {
     state = {
       ...state,
       watched: [...watchList.keys()],
+      seen: seenOf(watchList.values()),
       work: workOf(watchList.values()),
       held: heldNews.refs(),
     };

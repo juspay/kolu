@@ -21,7 +21,7 @@
  *  for a host tab hides it (`App.tsx`'s out-of-flow host with
  *  `content-visibility: hidden`) rather than unmounting it, so everything a
  *  person had open in here is still open on the way back. The subtree asks
- *  `useConductorShown()` before doing any work, because a retained view that
+ *  `useShown()` before doing any work, because a retained view that
  *  kept reading screens and ticking clocks for nobody would be a worse bug
  *  than the one retention fixes. The transcript subscription is therefore
  *  opened ONCE, on that first visit, and held: it is snapshot-then-deltas and
@@ -42,7 +42,7 @@ import { toast } from "solid-sonner";
 import { useDialogStack } from "../ui/useDialogStack";
 import { attachDroppedFiles } from "./attachFiles";
 import { completionOpen } from "./drafts";
-import { useConductorShown } from "./conductorShown";
+import { useShown } from "../ui/shown";
 import ConductorComposer from "./ConductorComposer";
 import ConductorHeader from "./ConductorHeader";
 import ConductorSignIn from "./ConductorSignIn";
@@ -85,7 +85,7 @@ const ConductorPane: Component<{
   // every dialog (palette, Settings, About, the intent editor, a confirm) for
   // free. Same rule for an open completion menu, which `drafts.ts` publishes
   // for the same reason.
-  const shown = useConductorShown();
+  const shown = useShown();
   const standDown = (): boolean =>
     completionOpen() || dialogStack.openCount() > 0;
   makeEventListener(window, "keydown", (event: KeyboardEvent) => {
@@ -301,7 +301,11 @@ const ConductorPane: Component<{
                   data-testid="conductor-side"
                   class="flex min-h-0 w-conductor-side flex-col overflow-y-auto border-l border-edge ps-conductor-gutter"
                 >
-                  <ConductorWatchedPanel work={state().work} placement="side" />
+                  <ConductorWatchedPanel
+                    work={state().work}
+                    seen={state().seen}
+                    placement="side"
+                  />
                 </aside>
               </Show>
             </div>

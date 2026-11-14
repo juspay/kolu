@@ -21,7 +21,7 @@
  *  terminal's screen, as read-only text, read with `screen.text { id, tail }`
  *  from the terminal's OWN host and re-read every {@link LOOK_EVERY_MS} ms. It
  *  reads only while somebody can see it — open, on screen, in a visible tab,
- *  and in a conductor pane that is the shown view (`useConductorShown`) —
+ *  and in a conductor pane that is the shown view (`useShown`) —
  *  because a transcript can hold a dozen agent lines and each one left open
  *  would otherwise poll a machine forever for a box scrolled out of view, or
  *  for a conversation the reader left ten minutes ago. Closed, nothing is
@@ -70,7 +70,7 @@ import {
   stateTones,
 } from "../ui/agentDisplay";
 import { padiRpcOf } from "../wire";
-import { useConductorShown } from "./conductorShown";
+import { useShown } from "../ui/shown";
 
 /** How much of the screen Look shows. */
 export const LOOK_LINES = 40;
@@ -137,7 +137,7 @@ const ConductorLook: Component<{
   });
   const lookable = () => live() !== undefined;
   const { showTipOnce } = useTips();
-  const shown = useConductorShown();
+  const shown = useShown();
   // The first agent line with something to look at is the moment Look is
   // worth announcing; `showTipOnce` keeps it to once per browser. A pane kept
   // alive behind a host tab must not spend that one announcement on a toast
@@ -252,7 +252,7 @@ const LookTail: Component<{ host: string; id: TerminalId }> = (props) => {
   /** The last read's failure, cleared by the next read that succeeds. */
   const [failure, setFailure] = createSignal<string | null>(null);
 
-  const shown = useConductorShown();
+  const shown = useShown();
   createEffect(() => {
     // THREE GATES, one of them not about this box at all: the pane may be
     // retained behind a host tab, in which case the whole conversation is off

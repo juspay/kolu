@@ -19,7 +19,7 @@
  *  when `!visible` so e2e selectors can assert collapse state without
  *  inspecting widths. */
 
-import { PanelShown } from "./panelShown";
+import { Shown } from "../ui/shown";
 
 import type {
   RightPanelTabKind,
@@ -206,7 +206,7 @@ const RightPanel: Component<{
                 inert={!isActive()}
                 aria-hidden={!isActive()}
               >
-                <PanelShown.Provider value={() => props.visible && isActive()}>
+                <Shown.Provider value={() => props.visible && isActive()}>
                   {match(kind)
                     .with("inspector", () => (
                       <MetadataInspector
@@ -224,7 +224,7 @@ const RightPanel: Component<{
                       />
                     ))
                     .exhaustive()}
-                </PanelShown.Provider>
+                </Shown.Provider>
               </div>
             );
           }}

@@ -18,7 +18,7 @@
 import type { ConductorState } from "kolu-common/conductor";
 import { type Component, For, Show } from "solid-js";
 import { formatElapsedShort } from "../time/duration";
-import { useShownClock } from "./conductorShown";
+import { useShownClock } from "../ui/shown";
 
 const ConductorStrip: Component<{
   watching: ConductorState["watching"];

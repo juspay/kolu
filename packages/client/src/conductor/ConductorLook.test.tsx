@@ -49,7 +49,7 @@ vi.mock("../settings/useTips", () => ({
 }));
 
 import ConductorLook, { LOOK_EVERY_MS, LOOK_LINES } from "./ConductorLook";
-import { ConductorShown } from "./conductorShown";
+import { Shown } from "../ui/shown";
 
 /** An active terminal whose agent is working and says what on. */
 const working = (): FleetTerminalStanding => ({
@@ -90,9 +90,9 @@ function mount(rowId = "row-1"): HTMLElement {
   document.body.append(root);
   dispose = render(
     () => (
-      <ConductorShown.Provider value={shown}>
+      <Shown.Provider value={shown}>
         <ConductorLook rowId={rowId} host="remote:srid@zest" id={TERMINAL} />
-      </ConductorShown.Provider>
+      </Shown.Provider>
     ),
     root,
   );

@@ -89,23 +89,30 @@ and its `claude` behind and spawn a second set beside them.
 
 ### The watch — kolu-server starts turns of its own
 
-`src/conductor/watcher.ts` is why the conversation never has to sit in a wait.
-For each host holding a terminal the Conductor watches, it subscribes that
-host's padi `urgency` fold and `terminals` collection — plus the record of
-each ANCESTOR the watched terminals' `child-of` edges lead to — and hands the
-readings to the conversation (`observe`), which decides what is news, holds it
-while a turn runs, and sends everything waiting as ONE wake when the turn
-ends.
+`src/conductor/watcher.ts` is why the conversation never has to sit in a wait,
+and it is WIRING only. For each host holding a terminal the Conductor watches,
+it subscribes that host's padi `urgency` fold, its `terminals` keys and each
+watched terminal's LINEAGE — its own record and then, recursively, the record
+of whatever its `child-of` edge points at — and hands the frames to
+`kolu-conductor`'s `readings.ts`, which says what they mean. The readings go to
+the conversation (`observe`), which decides what is news, holds it while a turn
+runs, and sends everything waiting as ONE wake when the turn ends.
+
+Following the hosts themselves is not written here either: `kolu-mcp`'s
+`overConnectedHosts` is the one implementation of "a leg per connected host,
+re-opened as the map moves", shared with the fleet face's own folds. A leg
+whose stream ends on its own is re-opened after a few seconds, alone — its
+siblings never notice.
 
 **What a reading carries** is how the terminal stands — working, asking,
 stopped, a shell, asleep, gone — plus the agent in it and whether padi's
 foreground is the terminal's own shell, and the top-level terminal its parent
 edges end at (its PIECE OF WORK: a planner and the implementor it split off
 are one thing going on, and the Conductor tab badges how many there are). The
-walk happens here because this is the one place that holds every watched
-terminal's host — a browser has the edges only of the host it has open, and a
-host that is away has none to walk, so the grouping is derived once and
-remembered on the watch list's entries. The watcher reports; it never
+walk happens on the host's own records because this is the one place that holds
+every watched terminal's host — a browser has the edges only of the host it has
+open, and a host that is away has none to walk, so the grouping is derived once
+and remembered on the watch list's entries. The watch reports; it never
 concludes. Whether a stop is a `ready` (an agent that has come up and has not
 been spoken to), whether a shell is an `ended` (a terminal kolu opened with a
 command, whose command ran and gave the prompt back with no agent ever in it),

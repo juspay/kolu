@@ -41,6 +41,16 @@ export {
 } from "./fleet/fleetSurface.ts";
 export type { FleetHosts } from "./fleet/hosts.ts";
 export {
+  FLEET_SETTLE_CAP_MS,
+  KOLU_FLEET_TOOL_NAMES,
+} from "./fleet/lift.ts";
+// FOLLOWING EVERY CONNECTED HOST OVER TIME — the combinator the face's own
+// folds are built on, published because kolu-server's conductor watch needs
+// exactly it and a second hand-rolled follow would drift from this one about
+// the thing that matters: which CLIENT a leg is read through. A leaf beside
+// the port, not a package; `fleet/overHosts.ts` says why.
+export { overConnectedHosts } from "./fleet/overHosts.ts";
+export {
   type FleetTerminalRef,
   fleetTerminalRef,
   splitFleetTerminalRef,
@@ -61,10 +71,6 @@ export type {
   FleetWatchList,
   WatchedFound,
 } from "./fleet/watchList.ts";
-export {
-  FLEET_SETTLE_CAP_MS,
-  KOLU_FLEET_TOOL_NAMES,
-} from "./fleet/lift.ts";
 export {
   type KoluMcpConnection,
   type ServeKoluMcpOptions,

@@ -43,7 +43,7 @@ import {
   completionQuestion,
   createCompletionHighlight,
 } from "./completion";
-import { useConductorShown } from "./conductorShown";
+import { useShown } from "../ui/shown";
 import {
   clearComposerAttachments,
   composerAttachments,
@@ -175,7 +175,7 @@ const ConductorComposer: Component<{
    *  line above draws its `↯` hint from. */
   const offered = createMemo(() => steerOnOffer(props.state));
   const { showTipOnce } = useTips();
-  const shown = useConductorShown();
+  const shown = useShown();
   // The first conversation that OFFERS steering is the moment the chord is
   // worth announcing — and the only moment it is true. `showTipOnce` keeps it
   // to once per browser, and `shown()` keeps that one announcement from being

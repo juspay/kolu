@@ -25,7 +25,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalRow } from "../palette/fleetTerminals";
 import { setComposerText } from "./drafts";
 import ConductorComposer from "./ConductorComposer";
-import { ConductorShown } from "./conductorShown";
+import { Shown } from "../ui/shown";
 
 /** The index is the ONE thing this test controls: everything downstream of it
  *  — the per-host key computation, the filter, the resolve — stays real, or
@@ -110,9 +110,9 @@ function mount(text: string): {
   document.body.append(root);
   dispose = render(
     () => (
-      <ConductorShown.Provider value={() => true}>
+      <Shown.Provider value={() => true}>
         <ConductorComposer state={STATE} />
-      </ConductorShown.Provider>
+      </Shown.Provider>
     ),
     root,
   );

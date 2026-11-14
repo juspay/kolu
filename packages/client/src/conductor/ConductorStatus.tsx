@@ -37,7 +37,7 @@ import { formatKeybind } from "../input/keyboard";
 import Tip from "../ui/Tip";
 import ConductorWatchedPanel from "./ConductorWatchedPanel";
 import { conductorWide } from "./conductorLayout";
-import { useShownClock } from "./conductorShown";
+import { useShownClock } from "../ui/shown";
 import { STEER_KEYBIND, steerOnOffer } from "./steer";
 import { statusDetail, statusSince } from "./conductorStatus";
 
@@ -70,7 +70,7 @@ const ConductorStatus: Component<{
   /** The transcript as it is drawn — where "what it is doing" is read from. */
   rows: readonly ConductorRow[];
 }> = (props) => {
-  // The 1 s tick, STOPPED while the pane is hidden (`conductorShown.ts`): the
+  // The 1 s tick, STOPPED while the pane is hidden (`ui/shown.ts`): the
   // pane is retained behind a host tab, and a second hand nobody can see is a
   // re-render a second for a readout that is not on screen.
   const now = useShownClock();
@@ -114,7 +114,11 @@ const ConductorStatus: Component<{
   return (
     <>
       <Show when={opensHere()}>
-        <ConductorWatchedPanel work={props.state.work} placement="inline" />
+        <ConductorWatchedPanel
+          work={props.state.work}
+          seen={props.state.seen}
+          placement="inline"
+        />
       </Show>
       <div
         data-testid="conductor-status"

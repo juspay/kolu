@@ -32,8 +32,9 @@ export interface FleetHosts {
   /** That host's padi client, or null while it is not connected.
    *
    *  The VALUE is the link: a host that dropped and came back between two
-   *  calls answers with a DIFFERENT client, which is why every fold over the
-   *  fleet (`face.ts`'s `foldHosts`) re-reads this on each roster move rather
+   *  calls answers with a DIFFERENT client, which is why every standing read
+   *  of the fleet (`overHosts.ts`, which both this face's folds and the
+   *  conductor's watch go through) re-reads this on each roster move rather
    *  than holding a client it was handed once — a stream still running over
    *  the old client is reading a padi that has never heard of it. */
   padi(key: string): PadiSurfaceClient | null;

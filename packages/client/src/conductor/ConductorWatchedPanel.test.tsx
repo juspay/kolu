@@ -17,7 +17,14 @@ import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type {
   FleetTerminalRow,
   FleetTerminalStanding,
@@ -29,10 +36,23 @@ const OTHER_TERMINAL = "22222222-2222-4222-8222-222222222222" as TerminalId;
 const OTHER_REF = `local/${OTHER_TERMINAL}`;
 const SPLIT_REF = "local/33333333-3333-4333-8333-333333333333";
 
+/** THE APP'S 1 s CLOCK, driven by hand. The real one is a single
+ *  app-lifetime interval which also stands down for a hidden DOCUMENT — a
+ *  fact about the browser tab, not about this pane — so the tick itself is
+ *  the seam here, and what the cases pin is which frames the row reads it in.
+ *  Declared before the stamps below, which are made relative to it: two
+ *  clocks a millisecond apart is how `working 4m` becomes `3m 59s`. */
+const clockSeam = vi.hoisted(() => ({
+  at: undefined as (() => number) | undefined,
+  advance: undefined as ((byMs: number) => void) | undefined,
+}));
+
 /** When the piece of work's first terminal joined the watch list — an hour
  *  before the clock every test below mounts against, so the heading's age is
  *  a number a person would read rather than `0s`. */
-const JOINED_AT = new Date(Date.now() - 3_600_000).toISOString();
+const JOINED_AT = new Date(
+  (clockSeam.at?.() ?? Date.now()) - 3_600_000,
+).toISOString();
 
 /** One piece of work, the shape the cell publishes. */
 const piece = (
@@ -42,8 +62,41 @@ const piece = (
   since = JOINED_AT,
 ): ConductorState["work"][number] => ({ root, name, refs, since });
 
+/** ONE WATCHED TERMINAL'S READING, as kolu's watch publishes it: the level it
+ *  was last read at, and when it entered that level. The panel's row clock is
+ *  this and nothing else — there is no per-state stamp on a host to read. */
+const read = (
+  ref: string,
+  level: ConductorState["seen"][number]["level"],
+  agoMs: number,
+): ConductorState["seen"][number] => ({
+  ref,
+  level,
+  since: new Date((clockSeam.at?.() ?? Date.now()) - agoMs).toISOString(),
+});
+
+/** Four minutes of working, which is what every case that does not care about
+ *  the clock is mounted with. */
+const WORKING_4M = [read(REF, "working", 4 * 60_000)];
+
 const [standing, setStanding] = createSignal<FleetTerminalStanding>({
   kind: "gone",
+});
+
+/** `await import` inside the factory rather than a static import: a `vi.mock`
+ *  factory is hoisted above this file's imports, so there is nothing else it
+ *  can read a module from. */
+vi.mock("../time/clock", async (importOriginal) => {
+  const { createSignal } = await import("solid-js");
+  const [now, setNow] = createSignal(Date.now());
+  clockSeam.at = now;
+  clockSeam.advance = (byMs: number) => setNow((previous) => previous + byMs);
+  return {
+    // The REST of the module is real — other readouts in this tree keep their
+    // own clocks, and only the 1 s wall clock this panel reads is driven here.
+    ...(await importOriginal<typeof import("../time/clock")>()),
+    getClockNow: () => now,
+  };
 });
 
 vi.mock("../palette/fleetTerminals", async (importOriginal) => ({
@@ -79,7 +132,7 @@ vi.mock("../canvas/dock/useDockFocus", () => ({
 }));
 
 import ConductorWatchedPanel from "./ConductorWatchedPanel";
-import { ConductorShown } from "./conductorShown";
+import { Shown } from "../ui/shown";
 
 /** An active terminal whose agent is working, as the fleet reports it. */
 const working = (): FleetTerminalStanding => ({
@@ -101,15 +154,26 @@ let root: HTMLElement | undefined;
 
 function mount(
   work: ConductorState["work"],
-  placement: "inline" | "side" = "inline",
+  over: {
+    placement?: "inline" | "side";
+    /** The watch's readings. Defaults to the one terminal every case draws,
+     *  four minutes into working. */
+    seen?: ConductorState["seen"];
+    /** Is the pane the view being read? The rows' clocks are gated on it. */
+    shown?: () => boolean;
+  } = {},
 ): HTMLElement {
   root = document.createElement("div");
   document.body.append(root);
   dispose = render(
     () => (
-      <ConductorShown.Provider value={() => true}>
-        <ConductorWatchedPanel work={work} placement={placement} />
-      </ConductorShown.Provider>
+      <Shown.Provider value={over.shown ?? (() => true)}>
+        <ConductorWatchedPanel
+          work={work}
+          seen={over.seen ?? WORKING_4M}
+          placement={over.placement ?? "inline"}
+        />
+      </Shown.Provider>
     ),
     root,
   );
@@ -147,8 +211,11 @@ describe("the watched panel", () => {
     // The clock is on the LINE THAT REPORTS THE STATE, not floating on the
     // identity line above it: one line says who, the next says how it stands
     // and for how long.
+    // Four minutes of WORKING — the state kolu's watch read and the moment it
+    // read the change, which is the one clock there is. The seconds are not
+    // pinned: the pane's tick is a second hand of its own.
     const clock = at("conductor-watched-since");
-    expect(clock?.textContent).toContain("quiet");
+    expect(clock?.textContent).toMatch(/^working 4m/);
     expect(at("conductor-look")?.contains(clock ?? null)).toBe(true);
     // The peek is the transcript's own, found under the panel's name.
     expect(at("conductor-watched-look")).toBeDefined();
@@ -197,32 +264,51 @@ describe("the watched panel", () => {
     expect(landed.focused).toEqual([]);
   });
 
-  it("offers no way there, and no clock, while its host is not connected", () => {
+  it("shows no duration for a terminal the watch has not read", () => {
     setStanding({ kind: "unreachable" });
-    mount([piece(REF, "fix-parser", [REF])]);
+    // A host that is away produces no readings at all, so this ref is absent
+    // from `seen`. Nothing has been read off that machine, so there is no
+    // honest duration to show — and an invented one is the thing this panel
+    // must not do.
+    mount([piece(REF, "fix-parser", [REF])], { seen: [] });
     expect(at("conductor-watched-name")?.dataset.opensTile).toBeUndefined();
-    // Nothing has been read off that machine, so there is no honest duration
-    // to show — and an invented one is the thing this panel must not do.
     expect(at("conductor-watched-since")).toBeUndefined();
   });
 
-  it("counts a sleeping terminal's own state, which is the one kolu stamps", () => {
+  it("counts every state the same way, the sleeping one included", () => {
     setStanding({
       kind: "here",
       meta: {
         state: "sleeping",
         foreground: null,
         lastActivityAt: Date.now() - 7_200_000,
-        sleptAt: Date.now() - 125_000,
         agent: null,
       } as never,
     });
-    mount([piece(REF, "fix-parser", [REF])]);
-    // Two minutes asleep, NOT the two hours since it last moved: `sleptAt` is
-    // when this state began, so the duration is the state's own. The seconds
-    // are not pinned — the pane's clock is a 1 s tick of its own, and what
-    // this asserts is the MINUTES it counts from.
-    expect(at("conductor-watched-since")?.textContent).toMatch(/^2m \d+s$/);
+    mount([piece(REF, "fix-parser", [REF])], {
+      seen: [read(REF, "asleep", 125_000)],
+    });
+    // Two minutes ASLEEP, not the two hours since this terminal last moved:
+    // the clock counts the state the watch read, and the word beside it is
+    // the watch's own.
+    expect(at("conductor-watched-since")?.textContent).toMatch(/^asleep 2m/);
+  });
+
+  it("stops counting while nobody is looking at the pane", () => {
+    const [shown, setShown] = createSignal(true);
+    mount([piece(REF, "fix-parser", [REF])], {
+      seen: [read(REF, "working", 60_000)],
+      shown,
+    });
+    expect(at("conductor-watched-since")?.textContent).toMatch(/^working 1m/);
+    // A hidden pane is a RETAINED pane: the row is still mounted, so the only
+    // thing between it and a re-render a second is this gate on the clock.
+    setShown(false);
+    clockSeam.advance?.(60_000);
+    expect(at("conductor-watched-since")?.textContent).toMatch(/^working 1m/);
+    // ... and the view coming back catches the clock up.
+    setShown(true);
+    expect(at("conductor-watched-since")?.textContent).toMatch(/^working 2m/);
   });
 
   it("puts a piece of work's terminals under its root's name, and two pieces side by side", () => {
@@ -288,7 +374,7 @@ describe("the watched panel", () => {
   });
 
   it("says it in ONE quiet line when there is no work at all — never a zero", () => {
-    mount([], "side");
+    mount([], { placement: "side" });
     expect(at("conductor-watched-group")).toBeUndefined();
     expect(at("conductor-watched-row")).toBeUndefined();
     // The side column is on screen whether or not anything is being watched,
@@ -305,7 +391,7 @@ describe("the watched panel", () => {
     // on a narrow window, and the always-on side column on a wide one. A
     // second implementation of this list is the thing the `placement` prop
     // exists to make unnecessary, so the rows must not differ by it.
-    mount([piece(REF, "fix-parser", [REF])], "side");
+    mount([piece(REF, "fix-parser", [REF])], { placement: "side" });
     expect(at("conductor-watched-panel")?.dataset.placement).toBe("side");
     expect(at("conductor-watched-row")?.dataset.ref).toBe(REF);
     expect(at("conductor-watched-look")).toBeDefined();

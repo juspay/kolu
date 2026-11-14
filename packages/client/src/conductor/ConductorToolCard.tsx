@@ -26,7 +26,7 @@ import { hostLabel } from "../host/hostChipTone";
 import { isDesktop } from "../useMobile";
 import ConductorDiffs from "./ConductorDiffs";
 import ConductorLook from "./ConductorLook";
-import { useShownClock } from "./conductorShown";
+import { useShownClock } from "../ui/shown";
 import {
   agentLineSubject,
   callSubject,
@@ -59,7 +59,7 @@ const ConductorToolCard: Component<{ row: ConductorToolRow }> = (props) => {
 
   /** READ THE CLOCK ONLY WHILE THE CALL IS RUNNING, AND ONLY WHILE THE PANE
    *  IS SHOWN. `now()` is the app's one 1 s tick (stopped for a hidden pane by
-   *  `conductorShown.ts`), and a transcript holds every tool call a
+   *  `ui/shown.ts`), and a transcript holds every tool call a
    *  conversation ever made: reading it unconditionally subscribed every
    *  finished card to a signal that invalidates once a second, so a long
    *  session re-ran hundreds of memos for a number that cannot change. The

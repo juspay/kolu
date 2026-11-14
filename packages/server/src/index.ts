@@ -1082,7 +1082,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   });
   // The list moves for three reasons — the Conductor watching or unwatching, a
   // terminal it created being watched for it, a watched terminal going away —
-  // and every one of them republishes the cell. Re-scope
+  // and every one of them republishes the cell. Tell the watch
   // only when the LIST changed: a state frame lands per turn, per model switch
   // and per sign-in step, and re-walking the fleet for a phase change would be
   // work for nothing.
@@ -1098,7 +1098,7 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     const key = state.watched.join("\n");
     if (key !== watchedKey) {
       watchedKey = key;
-      conductorWatcher?.rescope();
+      conductorWatcher?.watchListMoved();
     }
     const rows = JSON.stringify(watchList.entries());
     if (rows === watchedRows) return;

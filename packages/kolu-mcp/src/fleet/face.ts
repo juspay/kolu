@@ -28,16 +28,18 @@
  *
  * ## Liveness
  *
- * Each aggregate re-subscribes when the ROSTER moves (`FleetHosts.subscribe`)
- * and re-emits when any host's own stream does. That is what makes a host
- * arriving mid-conversation visible: the MCP adapter holds a subscription to
- * `surface://collections/terminals`, and a new host's terminals arrive on it as
- * a `notifications/resources/updated` — no reopened session, no new server.
+ * Each aggregate re-subscribes when the ROSTER moves and re-emits when any
+ * host's own stream does — both of them `overHosts.ts`'s doing, the one
+ * implementation of "a leg per connected host, re-opened as the map moves"
+ * that kolu-server's conductor watch reads through too. That is what makes a
+ * host arriving mid-conversation visible: the MCP adapter holds a subscription
+ * to `surface://collections/terminals`, and a new host's terminals arrive on
+ * it as a `notifications/resources/updated` — no reopened session, no new
+ * server.
  *
  * The merge emits on EVERY host's frame rather than waiting for all of them:
  * one unreachable-but-connected host must not be able to withhold the whole
- * fleet's roster from a read, which is the fail-open rule the watch states one
- * file over.
+ * fleet's roster from a read.
  */
 
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
@@ -69,6 +71,7 @@ import {
   fleetSurface,
 } from "./fleetSurface.ts";
 import { type FleetHosts, requireHost, requireTerminal } from "./hosts.ts";
+import { hostRoster, overConnectedHosts } from "./overHosts.ts";
 import { fleetTerminalRef, splitFleetTerminalRef } from "./ref.ts";
 import type { FleetWatchList } from "./watchList.ts";
 
@@ -80,26 +83,9 @@ type GitDiffInput = typeof GitDiffInputSchema.Type;
 type FsListAllInput = typeof FsListAllInputSchema.Type;
 type FsFileInput = typeof FsFileInputSchema.Type;
 
-/** The roster, now and on every move. The payload is the host keys; readers
- *  that only need the CHANGE ignore it and re-read what they care about. */
-function hostRoster(hosts: FleetHosts): Stream.Stream<readonly string[]> {
-  return Stream.callback<readonly string[]>((queue) =>
-    Effect.gen(function* () {
-      const push = (): void => {
-        Queue.offerUnsafe(queue, hosts.keys());
-      };
-      // Emit the current roster BEFORE subscribing: a resource read takes the
-      // first frame, and a stream that only spoke on change would make a read
-      // of a quiet fleet hang forever.
-      push();
-      const off = hosts.subscribe(push);
-      yield* Effect.addFinalizer(() => Effect.sync(off));
-    }),
-  );
-}
-
 /** One per-host stream, tagged with its host and merged with its siblings,
- *  re-folded into a fleet-wide value on every frame.
+ *  re-folded into a fleet-wide value on every frame — the FOLD half of
+ *  {@link overConnectedHosts}, which owns following the roster itself.
  *
  *  `mapAccum`, not `scan`: `scan` emits its seed first, and a seeded empty
  *  frame on a resource read is the lie this whole face exists to prevent — an
@@ -112,47 +98,36 @@ function hostRoster(hosts: FleetHosts): Stream.Stream<readonly string[]> {
  *  agent cannot tell from a complete one. Every surface member opens with a
  *  snapshot by contract, so this waits on an obligation rather than on luck,
  *  and it waits only on CONNECTED hosts — one that is not connected is not in
- *  the fold at all, and is refused by name when addressed. After that first
- *  frame every later one is emitted as it arrives.
+ *  the fold at all, and is refused by name when addressed.
  *
- *  Which hosts those are, and the client each is read through, are decided in
- *  ONE pass here. `per` is handed the client and asked only which member to
- *  read: a seam where the caller answered "is this host connected" as well
- *  would have both sides reaching for `hosts.padi`, and `padi() !== null` is
- *  the test — the client is what a fold actually reads, so a roster claiming
- *  `connected` over a client that is gone would make this throw instead of
- *  answering short. A fold is about RIGHT NOW, which is why an absent host is
- *  simply not in it; the standing watch parks that host's leg instead, because
- *  a subscription is about a host over TIME (`watch.ts`).
- */
+ *  A generation with no connected host at all answers `empty` ONCE, which is
+ *  the one thing a fold has to say that a standing watch does not: a read of a
+ *  fleet where nothing is answering must return the empty answer rather than
+ *  hang on a stream that will never speak. */
 function foldHosts<T, F>(
   hosts: FleetHosts,
   per: (padi: PadiSurfaceClient) => Stream.Stream<T, unknown>,
   fold: (seen: ReadonlyMap<string, T>, live: readonly string[]) => F,
   empty: F,
 ): Stream.Stream<F, unknown> {
-  return Stream.switchMap(hostRoster(hosts), () => {
-    const live: string[] = [];
-    const legs: Stream.Stream<readonly [string, T], unknown>[] = [];
-    for (const host of hosts.keys()) {
-      const padi = hosts.padi(host);
-      if (padi === null) continue;
-      live.push(host);
-      legs.push(Stream.map(per(padi), (value) => [host, value] as const));
-    }
-    if (legs.length === 0) return Stream.make(empty);
-    return Stream.mapAccum(
-      Stream.mergeAll(legs, { concurrency: "unbounded" }),
-      () => new Map<string, T>(),
-      (seen, [host, value]) => {
-        seen.set(host, value);
-        return [
-          seen,
-          seen.size < live.length ? [] : [fold(seen, live)],
-        ] as const;
-      },
-    );
-  });
+  return overConnectedHosts(
+    hosts,
+    (_host, padi) => per(padi),
+    (live, frames) =>
+      live.length === 0
+        ? Stream.make(empty)
+        : Stream.mapAccum(
+            frames,
+            () => new Map<string, T>(),
+            (seen, [host, value]) => {
+              seen.set(host, value);
+              return [
+                seen,
+                seen.size < live.length ? [] : [fold(seen, live)],
+              ] as const;
+            },
+          ),
+  );
 }
 
 /** Every terminal on every connected host, host-qualified, in roster order

@@ -43,7 +43,7 @@ import ScrollToBottom from "../terminal/ScrollToBottom";
 import ConductorAsk from "./ConductorAsk";
 import ConductorProse from "./ConductorProse";
 import ConductorToolCard from "./ConductorToolCard";
-import { useConductorShown } from "./conductorShown";
+import { useShown } from "../ui/shown";
 import { thumbnailOf } from "./thumbnails";
 import {
   foldFailureRuns,
@@ -102,7 +102,7 @@ const ConductorTranscript: Component<{
     return `${rows.length}:${last === undefined || last.kind === "plan" ? 0 : last.text.length}`;
   });
 
-  const shown = useConductorShown();
+  const shown = useShown();
   createEffect(
     // `on`, so the body's reads of the ELEMENT are not dependencies and the
     // deps are exactly these three: what was drawn, whether the reader is

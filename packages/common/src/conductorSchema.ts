@@ -456,6 +456,22 @@ export const ConductorWakeLevelSchema = Schema.Literals([
 ]);
 export type ConductorWakeLevel = typeof ConductorWakeLevelSchema.Type;
 
+/** WHAT A WATCHED TERMINAL IS DOING, as the watch READS it off its host: the
+ *  wake levels, plus the two readings that never ring on their own —
+ *  `working` (an agent visibly moving) and `shell` (a prompt with nothing in
+ *  front of it). Both MOVE the entry, so both are read, and a panel that says
+ *  how long a terminal has stood as it stands has to be able to name them.
+ *
+ *  `ready` and `ended` never come off a host — they are conclusions kolu's
+ *  watch draws — so they cannot appear in a reading; they are in the type
+ *  because the wake level this extends is where the words are spelled, and
+ *  spelling four of them twice is how two lists drift. */
+export const ConductorWatchLevelSchema = Schema.Union([
+  ConductorWakeLevelSchema,
+  Schema.Literals(["working", "shell"]),
+]);
+export type ConductorWatchLevel = typeof ConductorWatchLevelSchema.Type;
+
 /** One terminal's part of a wake — what a person sees when the line opens and
  *  what the agent's account is composed from. The ref is joined
  *  (`host/id`) because that is the name the agent acts on; `host` and
@@ -794,6 +810,33 @@ export const ConductorStateSchema = Schema.Struct({
    *  agent and state are read from its host's `terminals` collection. Saved
    *  with the conversation. */
   watched: Schema.Array(Schema.String),
+  /** HOW EACH WATCHED TERMINAL STANDS, and SINCE WHEN — one entry per ref the
+   *  watch has actually read, in watch order.
+   *
+   *  The watcher is the one thing that sees every level change on every host,
+   *  including hosts no browser has opened, so it is the only place that can
+   *  stamp when a terminal ENTERED the state it is in. A browser cannot: it
+   *  would be timing the moment it first noticed, per tab.
+   *
+   *  RUNTIME, which is why a ref can be absent: nothing is remembered across
+   *  a restart, and the first reading after one stamps the level afresh — as
+   *  accurate as the watch's first sight of it, which is the honest answer
+   *  and the only one kolu has. An absent ref is "not read yet", not "0s".
+   *
+   *  Beside `watched` rather than inside `work` because it is a READING and
+   *  those two are membership: a terminal is watched whether or not any host
+   *  has answered about it. */
+  seen: Schema.Array(
+    Schema.Struct({
+      ref: Schema.String,
+      /** What the watch last read in it. */
+      level: ConductorWatchLevelSchema,
+      /** The ISO time it entered that level, by the watcher's clock — kept
+       *  across readings that repeat the level, so the duration counts the
+       *  state and not the poll. */
+      since: Schema.String,
+    }),
+  ),
   /** THE PIECES OF WORK in flight: the watched terminals grouped by the
    *  top-level terminal their parent edges end at.
    *
@@ -856,6 +899,7 @@ export const DEFAULT_CONDUCTOR_STATE: ConductorState = {
   steers: false,
   busySince: null,
   watched: [],
+  seen: [],
   work: [],
   held: [],
 };

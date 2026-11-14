@@ -7,12 +7,13 @@
  * made the blocking loop it replaces untestable.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { holding } from "./held.ts";
 import { wakeText } from "./wakeText.ts";
 import {
   observed,
   restoredEntry,
+  seenOf,
   spokenTo,
   type WatchEntry,
   type WatchJoin,
@@ -321,6 +322,70 @@ describe("what is worth waking the Conductor about", () => {
       root: null,
     });
     expect(observed(restored, seeing(REF, "stopped")).ring).toBe("ready");
+  });
+});
+
+describe("how long a watched terminal has stood as it stands", () => {
+  /** The entry a restart hands back: everything the record kept, nothing that
+   *  was only ever in memory. */
+  const restored = (): WatchEntry =>
+    restoredEntry({
+      ref: REF,
+      name: "fix the parser",
+      agent: "claude-code",
+      told: "stopped",
+      joined: "created",
+      spoken: true,
+      ran: false,
+      since: JOINED_AT,
+      root: null,
+    });
+
+  it("stamps the level a terminal ENTERED, and keeps the stamp while it stays there", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-02-01T10:00:00.000Z"));
+      const up = observed(
+        watchEntry(REF, "created"),
+        seeing(REF, "working"),
+      ).entry;
+      expect(up.last?.since).toBe("2026-02-01T10:00:00.000Z");
+
+      // FOUR MINUTES OF POLLING, saying the same thing each time. The stamp is
+      // the one the first of those readings made: a duration that restarted on
+      // every reading would count the watcher, not the terminal.
+      vi.setSystemTime(new Date("2026-02-01T10:04:00.000Z"));
+      const still = observed(up, seeing(REF, "working")).entry;
+      expect(still.last).toEqual({
+        level: "working",
+        foregroundShell: null,
+        since: "2026-02-01T10:00:00.000Z",
+      });
+
+      // ... and the level CHANGING is what moves it.
+      const stopped = observed(still, seeing(REF, "stopped")).entry;
+      expect(stopped.last?.since).toBe("2026-02-01T10:04:00.000Z");
+      expect(seenOf([stopped])).toEqual([
+        { ref: REF, level: "stopped", since: "2026-02-01T10:04:00.000Z" },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("has nothing to publish about a terminal nobody has read yet", () => {
+    // A RESTART remembers the list and no reading at all, so there is no
+    // duration to draw until kolu looks at the terminal again — at which
+    // point the stamp is its own first sight of the state, which is the only
+    // instant it can honestly claim.
+    const back = restored();
+    expect(back.last).toBeNull();
+    expect(seenOf([back, watchEntry(OTHER, "asked")])).toEqual([]);
+
+    const read = observed(back, seeing(REF, "asking")).entry;
+    expect(seenOf([read])).toEqual([
+      { ref: REF, level: "asking", since: read.last?.since },
+    ]);
   });
 });
 

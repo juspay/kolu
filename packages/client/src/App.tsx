@@ -64,7 +64,7 @@ import { type CanvasMode, canvasMode } from "./kaval/useCanvasMode";
 import MobileKeyBar from "./MobileKeyBar";
 import MobilePullChrome from "./MobilePullChrome";
 import ConductorPane from "./conductor/ConductorPane";
-import { ConductorShown } from "./conductor/conductorShown";
+import { Shown } from "./ui/shown";
 import {
   conductorEverSelected,
   conductorMode,
@@ -772,10 +772,11 @@ const App: Component = () => {
          *  the canvas under it.
          *
          *  Hidden is not the same as asleep, and the pane is told which:
-         *  `ConductorShown` carries the one accessor every piece of work in
-         *  the subtree asks before doing anything — Look's reads, the second
+         *  `Shown` carries the one accessor every piece of work in the
+         *  subtree asks before doing anything — Look's reads, the second
          *  hand, the `Escape` handler, the follow-the-end scroll, the header's
-         *  popovers (`conductorShown.ts`).
+         *  popovers (`ui/shown.ts`, the same context the right panel's tabs
+         *  provide for theirs).
          *
          *  ONE mount for every layout. On a phone it is the same full-height
          *  layer under the pull handle — not a sheet over the page — so it owns
@@ -795,9 +796,9 @@ const App: Component = () => {
             inert={!conductorMode()}
             aria-hidden={!conductorMode()}
           >
-            <ConductorShown.Provider value={conductorMode}>
+            <Shown.Provider value={conductorMode}>
               <ConductorPane class="absolute inset-0" />
-            </ConductorShown.Provider>
+            </Shown.Provider>
           </div>
         </Show>
       </div>

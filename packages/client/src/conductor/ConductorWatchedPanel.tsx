@@ -69,16 +69,27 @@
  *    list (`work[].since`, saved with the conversation, so a restart does not
  *    restart the clock). kolu records no other beginning — a waterfall is not
  *    declared anywhere — and this is the one it can vouch for.
- *  - A TERMINAL counts from the only per-terminal instant a host keeps:
- *    `lastActivityAt`, when it last moved, which the row labels "quiet"
- *    because that is what it measures; and `sleptAt` for a sleeping one,
- *    which IS when that state began, so the line reads "asleep · 2h".
- *    There is NO timestamp for an agent's own state — padi's `AgentMemory` is
- *    those two facts and nothing else — so a working agent gets its quiet
- *    reading and no invented "working 4m". A state with no honest clock shows
- *    none. */
+ *  - A TERMINAL counts from when it ENTERED the state it is in, for EVERY
+ *    state: `working 4m`, `asking 40s`, `asleep 2m`, `stopped 10s`. No host
+ *    stamps a state change, so there was nothing here to read: the instant
+ *    comes from kolu's own watch (`seen`), which is the one thing that
+ *    observes every level change on every host — including the hosts no
+ *    browser has a tab on, which is why it is published rather than timed
+ *    here. It is runtime: a restart re-stamps at the first reading after it,
+ *    which is as accurate as kolu's first sight of the state and is the only
+ *    claim it can make honestly. A terminal the watch has not read yet shows
+ *    no duration at all rather than `0s`.
+ *
+ *  THE WORD BESIDE THE DURATION IS THE WATCH'S, not Look's. They can
+ *  disagree: Look reads THIS browser's live fleet index, the duration comes
+ *  from the server's last reading of that terminal's host, and Look's
+ *  vocabulary is its own ("thinking", "starting claude", "its host is not
+ *  connected"). Pairing one source's word with the other's clock would draw
+ *  "thinking · 4m" where the four minutes are four minutes of something else.
+ *  So the row writes the watch's level with the watch's clock — `working 4m`
+ *  — beside the line Look writes, and each half is true about itself. */
 
-import { activeArm, sleepingArm } from "@kolu/padi-client/surface";
+import { activeArm } from "@kolu/padi-client/surface";
 import type { ConductorState } from "kolu-common/conductor";
 import { DASH } from "kolu-common/surface";
 import { type Component, createMemo, For, Show } from "solid-js";
@@ -92,7 +103,7 @@ import {
 import { formatElapsedShort } from "../time/duration";
 import Tip from "../ui/Tip";
 import ConductorLook from "./ConductorLook";
-import { useShownClock } from "./conductorShown";
+import { useShownClock } from "../ui/shown";
 import { fleetMentionCandidates } from "./mentionCandidates";
 import { splitWatchedRef } from "./watchedRef";
 import { useOpenTile } from "./useOpenTile";
@@ -102,6 +113,10 @@ const ConductorWatchedPanel: Component<{
    *  top-level terminal, carrying the watched refs under it in watch order,
    *  and the groups themselves in the order their first member was added. */
   work: ConductorState["work"];
+  /** HOW EACH WATCHED TERMINAL STANDS and since when, as kolu's watch read it
+   *  — one entry per ref it has actually read, so a ref that is absent is one
+   *  nothing has looked at yet rather than one standing at `0s`. */
+  seen: ConductorState["seen"];
   /** WHERE THIS COPY IS DRAWN, and nothing more — the rows, the names, the
    *  clocks and the Look are identical in both. `inline` is the band the
    *  status line's control opens above itself below the two-column
@@ -127,6 +142,14 @@ const ConductorWatchedPanel: Component<{
     for (const candidate of fleetMentionCandidates(fleet())) {
       byRef.set(`${candidate.host}/${candidate.terminalId}`, candidate.name);
     }
+    return byRef;
+  });
+  /** Ref → the watch's last reading of it, for the rows' clocks. A map rather
+   *  than a scan per row: the whole list is republished on every publish, and
+   *  a row searching it would be the panel's one quadratic read. */
+  const readings = createMemo(() => {
+    const byRef = new Map<string, ConductorState["seen"][number]>();
+    for (const one of props.seen) byRef.set(one.ref, one);
     return byRef;
   });
 
@@ -202,7 +225,11 @@ const ConductorWatchedPanel: Component<{
                 <ul class="m-0 flex list-none flex-col gap-1.5 p-0">
                   <For each={piece.refs}>
                     {(ref) => (
-                      <WatchedRow watchedRef={ref} name={names().get(ref)} />
+                      <WatchedRow
+                        watchedRef={ref}
+                        name={names().get(ref)}
+                        seen={readings().get(ref)}
+                      />
                     )}
                   </For>
                 </ul>
@@ -269,7 +296,13 @@ function elapsedSince(iso: string, now: number): string {
  *  (`splitWatchedRef`, the standing, the clock) silently worked on a function
  *  instead of a string, which took the whole page down the moment the panel
  *  opened. */
-function WatchedRow(props: { watchedRef: string; name: string | undefined }) {
+function WatchedRow(props: {
+  watchedRef: string;
+  name: string | undefined;
+  /** The watch's last reading of this terminal, or `undefined` for one it has
+   *  not read — which is what the row's clock is drawn from. */
+  seen: ConductorState["seen"][number] | undefined;
+}) {
   // Gated on the pane being the shown view: a clock ticking behind a host tab
   // would wake this row once a second for nobody.
   const now = useShownClock();
@@ -303,36 +336,26 @@ function WatchedRow(props: { watchedRef: string; name: string | undefined }) {
     const split = parts();
     return split !== null && standing()?.kind === "here" ? split : null;
   });
-  /** HOW LONG IT HAS STOOD THIS WAY, in the words that are true of it.
+  /** HOW LONG IT HAS STOOD AS IT STANDS, in the watch's own word — `working
+   *  4m`, `asking 40s`, `asleep 2m`, `stopped 10s`. ONE rule for every state,
+   *  because the instant comes from the only thing that sees a state CHANGE:
+   *  kolu's watch, which stamped it when it first read the new level.
    *
-   *  A host keeps TWO instants per terminal and no more (padi's `AgentMemory`
-   *  plus the sleeping arm's own stamp): when it last moved, and when it was
-   *  put to sleep. So a sleeping terminal's reading IS its state's age — the
-   *  line beside it already says "asleep", and this is the bare duration — and
-   *  an awake one gets "quiet", labelled as what it measures. There is no
-   *  timestamp for an agent's state, so a working agent gets no "working 4m":
-   *  the number would be the output clock wearing the state's name. */
+   *  `null` for a terminal the watch has not read in this process — nothing
+   *  has looked at its host, or its host is away — because a row showing no
+   *  duration is the honest answer where `0s` is not.
+   *
+   *  The word is the WATCH'S level and not the state `ConductorLook` prints
+   *  beside it: the two come from different readings on different clocks (see
+   *  the header), and lending one source's clock to the other's word is how a
+   *  row comes to say something neither of them said. */
   const clock = createMemo((): { text: string; measures: string } | null => {
-    const here = standing();
-    if (here === null || here.kind !== "here") return null;
-    // BOTH epochs below are reprojected onto THIS browser's clock by the
-    // fleet index, so each subtraction is between two readings of one clock.
-    // `0` is that index's in-band "never" sentinel for `sleptAt`, which the
-    // ladder's own skew arm answers with a dash rather than "56y".
-    const asleep = sleepingArm(here.meta);
-    if (asleep !== undefined)
-      return {
-        text: formatElapsedShort(now() - asleep.sleptAt),
-        measures: "How long this terminal has been asleep",
-      };
-    const last = here.meta.lastActivityAt;
-    return last === null
-      ? null
-      : {
-          text: `quiet ${formatElapsedShort(now() - last)}`,
-          measures:
-            "Time since this terminal last moved — kolu records no timestamp for the agent's state itself",
-        };
+    const reading = props.seen;
+    if (reading === undefined) return null;
+    return {
+      text: `${reading.level} ${elapsedSince(reading.since, now())}`,
+      measures: `How long kolu's watch has read this terminal as ${reading.level} — counted from the reading that first saw it`,
+    };
   });
 
   return (

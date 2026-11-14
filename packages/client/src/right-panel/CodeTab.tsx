@@ -13,7 +13,7 @@
  * via `FileTree.searchQuery`. `@kolu/solid-pierre` owns the imperative
  * Pierre lifecycle; this component is just data flow + chrome. */
 
-import { usePanelShown } from "./panelShown";
+import { useShown } from "../ui/shown";
 
 import Resizable from "@corvu/resizable";
 import {
@@ -204,7 +204,7 @@ const CodeTab: Component<{
   meta: TerminalMetadata | null;
 }> = (props) => {
   const { themeTypeLiteral: diffTheme } = useColorScheme();
-  const shown = usePanelShown();
+  const shown = useShown();
   leaseCodeQueries(shown);
   const rightPanel = useRightPanel();
   const treeSizes = controlledSizes(() => [

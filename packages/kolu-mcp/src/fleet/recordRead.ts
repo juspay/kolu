@@ -44,9 +44,12 @@
  * `_requestHandlers` (`@modelcontextprotocol/sdk` 1.32.1,
  * `dist/esm/shared/protocol.js`), so the adapter's own `resources/read` is
  * taken out of that map and called as the delegate below. There is no public
- * getter; if a later SDK renames the map, {@link serveFleetRecordReads} throws
- * at BOOT with the sentence below rather than quietly serving a face whose
- * records cannot be read — which is the failure this module exists to end.
+ * getter; if a later SDK keeps it somewhere else, {@link serveFleetRecordReads}
+ * throws the sentence below rather than quietly serving a face whose records
+ * cannot be read — which is the failure this module exists to end. That throw
+ * lands in `ci::unit` before it can land on anybody's boot: `./fleet.test.ts`
+ * serves this face for real, and the case named for this assumption is the
+ * one that goes red when an SDK bump moves the map.
  */
 
 import { messageOf, resolveExpose } from "@kolu/surface-mcp";

@@ -35,6 +35,11 @@ turn; kolu-server watches, and starts a turn when something happens.
   top-level terminal its `child-of` edges end at — its PIECE OF WORK. Spelled
   `watchTerminal`, not `watch`, because `watch` on this host is the transcript
   subscription and has been since there was a transcript.
+- **The reading** (`./readings.ts`, pure) — what ONE host's frames mean: padi's
+  urgency fold, that host's roster and the records read on it become one
+  observation per watched terminal (its level, its name, the agent in it,
+  padi's foreground answer, and the top-level terminal its `child-of` edges end
+  at). kolu-server owns the subscriptions; this owns what they SAY.
 - **The decision** (`./watching.ts`, pure) — one reading of one terminal
   becomes a wake level or nothing:
   - `working` forgets what we were told, so the next stop is news again;
@@ -82,16 +87,20 @@ turn; kolu-server watches, and starts a turn when something happens.
   (`root` · `name` · the watched `refs` in it, in watch order). A planner and
   the implementor it split off are ONE: the canvas already says so, and a
   count derived from the edges cannot drift from what is really running the
-  way a declared one would. The edge is read by kolu-server's watcher — a
+  way a declared one would. The edge is read on the host by kolu-server — a
   browser can walk the parents only of the host it has open — and REMEMBERED
   on the entry, so a host that stops answering keeps the group it was last
   seen in. A terminal nothing has read yet is its own group.
 
 A wake MAY start the agent (that is the feature); reading the list may not
-(`watched()` is bookkeeping). The readings themselves come from kolu-server's
-`conductor/watcher.ts`, over padi's own `urgency` fold and `terminals`
-collection, for refs on CONNECTED hosts only — a host that is not answering
-says nothing about its terminals, and `gone` for one of them would be a lie.
+(`watched()` is bookkeeping). The readings are made HERE, by `./readings.ts`
+(pure): padi's own `urgency` fold, a host's roster and the records that were
+read go in, one observation per watched terminal comes out — its level, its
+name, the agent in it, whether padi's foreground is the terminal's own shell,
+and the top-level terminal its `child-of` edges end at. kolu-server holds the
+subscriptions that produce those frames (`conductor/watcher.ts`, wiring), and
+only for refs on CONNECTED hosts — a host that is not answering says nothing
+about its terminals, and `gone` for one of them would be a lie.
 
 ## Why a package
 

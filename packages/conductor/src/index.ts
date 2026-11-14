@@ -48,6 +48,12 @@ export {
   readPersistedConductor,
   repointConductorAttachments,
 } from "./persisted.ts";
+export {
+  type HostReading,
+  readingsOf,
+  recordName,
+  walkRoot,
+} from "./readings.ts";
 export { conductorSurfaceMembers } from "./surface.ts";
 export { parseTeaching, teachingLines } from "./teaching.ts";
 export { conductorTranscriptSource } from "./transcriptStream.ts";

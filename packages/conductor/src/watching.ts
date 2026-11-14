@@ -7,8 +7,9 @@
  * ever seen in it, whether the Conductor has ever spoken to that agent, how
  * the terminal came to be watched, what the conversation has already been
  * told, and whether it is still there at all — and none of them is a socket.
- * The watcher upstream (`packages/server/src/conductor/watcher.ts`) turns
- * padi's streams into {@link WatchObservation}s; the host downstream
+ * The watch upstream turns padi's streams into {@link WatchObservation}s —
+ * kolu-server holds the subscriptions (`conductor/watcher.ts`) and `./readings.ts`
+ * says what their frames mean; the host downstream
  * (`./conductor.ts`) decides where a ring goes. What is WORTH ringing about is
  * here, where it can be tested by calling a function.
  *
@@ -61,12 +62,21 @@
  * the group it was last seen in.
  */
 
-import type { ConductorState, ConductorWakeLevel } from "kolu-common/conductor";
+import type {
+  ConductorState,
+  ConductorWakeLevel,
+  ConductorWatchLevel,
+} from "kolu-common/conductor";
 
 /** ONE PIECE OF WORK, as the cell publishes it — the shape read straight off
  *  the state schema rather than re-declared beside it, so the thing this
  *  module derives and the thing a browser decodes cannot drift apart. */
 export type ConductorWork = ConductorState["work"][number];
+
+/** ONE WATCHED TERMINAL'S READING, as the cell publishes it — the level and
+ *  the instant it was entered, read off the state schema for the same reason
+ *  {@link ConductorWork} is. */
+export type ConductorSeen = ConductorState["seen"][number];
 
 /** HOW A TERMINAL CAME TO BE WATCHED, which is what the `ready` and `ended`
  *  rules read.
@@ -82,16 +92,29 @@ export type WatchJoin = "created" | "created-run" | "asked";
 
 /** THE LAST READING, as the entry remembers it — runtime only.
  *
- *  Kept because two decisions are made OUTSIDE a reading: {@link spokenTo}
- *  re-baselines `told` at the level the terminal stands at, and `ended` needs
- *  to know whether the foreground is the shell RIGHT NOW rather than whether
- *  it ever was. Not persisted: a restart re-reads the world, and a remembered
- *  reading would be the one thing in this module that could be stale. */
+ *  Kept because THREE things are decided outside a reading: {@link spokenTo}
+ *  re-baselines `told` at the level the terminal stands at, `ended` needs to
+ *  know whether the foreground is the shell RIGHT NOW rather than whether it
+ *  ever was, and the panel says how long this terminal has stood as it stands
+ *  ({@link LastReading.since}). Not persisted: a restart re-reads the world,
+ *  and a remembered reading would be the one thing in this module that could
+ *  be stale.
+ *
+ *  WHICH IS WHY THE DURATION IS AS OLD AS THE PROCESS at worst. kolu's watch
+ *  is what observes a level change at all — no host stamps one — so after a
+ *  restart the first reading is the first sight kolu has of the state, and
+ *  that sight is what the clock counts from. An invented earlier instant
+ *  would be a number nobody saw. */
 export interface LastReading {
   readonly level: WatchLevel;
   /** Whether the foreground was the terminal's own shell — padi's answer, or
    *  `null` for a reading that carried none ({@link WatchObservation}). */
   readonly foregroundShell: boolean | null;
+  /** The ISO time this terminal ENTERED {@link LastReading.level} — stamped
+   *  by the reading that first saw the level, and CARRIED FORWARD by every
+   *  reading that repeats it, so the duration counts the state rather than
+   *  the poll. */
+  readonly since: string;
 }
 
 /** THE TOP-LEVEL TERMINAL one watched terminal belongs to — what makes a
@@ -181,8 +204,12 @@ export type WatchedTerminal = Pick<
  *
  *  Two of the wake levels never come off a host: `ready` and `ended` are
  *  CONCLUSIONS this module draws from a `stopped` and a `shell` reading, and
- *  the watcher has no business spelling either. */
-export type WatchLevel = ConductorWakeLevel | "working" | "shell";
+ *  the watcher has no business spelling either.
+ *
+ *  READ OFF THE STATE SCHEMA, like {@link ConductorWork}: the level is
+ *  published per watched ref, so the words this module decides with and the
+ *  words a browser decodes are one list. */
+export type WatchLevel = ConductorWatchLevel;
 
 /** One reading of one watched terminal, for refs on CONNECTED hosts only — a
  *  host that is merely not answering says nothing about its terminals, and
@@ -331,7 +358,21 @@ export const observed = (
     // that is away takes no readings at all, and the entry keeps the group it
     // was last seen in rather than falling out of its piece of work.
     root: seen.root,
-    last: { level: seen.level, foregroundShell: seen.foregroundShell },
+    // WHEN THIS LEVEL BEGAN. The clock is read only where the level CHANGES,
+    // which is the whole accuracy claim: a reading that says the same thing
+    // again carries the stamp of the one that first said it, so "working 4m"
+    // is four minutes of working rather than four minutes of polling. A
+    // terminal nobody has read yet (`last === null`) gets its stamp here, at
+    // the first sight kolu has of it — including the first sight after a
+    // restart, because nothing about a reading is remembered across one.
+    last: {
+      level: seen.level,
+      foregroundShell: seen.foregroundShell,
+      since:
+        entry.last?.level === seen.level
+          ? entry.last.since
+          : new Date().toISOString(),
+    },
     baselining: false,
   };
   // A terminal that is gone has nothing left to watch, whatever else this
@@ -453,4 +494,34 @@ export const workOf = (
     if (entry.since < group.since) group.since = entry.since;
   }
   return [...groups.values()];
+};
+
+/**
+ * HOW EACH WATCHED TERMINAL STANDS, and since when — the readings the watch
+ * has actually taken, for the panel's per-row clock.
+ *
+ * One entry per terminal kolu has READ in this process, in watch order. A
+ * terminal that has not been read yet is simply absent rather than carried
+ * with an empty level: "nothing has looked at its host" and "it has been in
+ * this state for no time" are different facts, and a row that said `0s` for
+ * the first would be the invented number this whole reading replaces.
+ *
+ * PURE, over the entries, like {@link workOf} — and published rather than
+ * derived in the browser for the reason the grouping is: the watcher is the
+ * one reader of every host, including the ones nobody has a tab on, so it is
+ * the only place a level change can be SEEN at all.
+ */
+export const seenOf = (
+  entries: Iterable<WatchEntry>,
+): ReadonlyArray<ConductorSeen> => {
+  const rows: Array<ConductorSeen> = [];
+  for (const entry of entries) {
+    if (entry.last === null) continue;
+    rows.push({
+      ref: entry.ref,
+      level: entry.last.level,
+      since: entry.last.since,
+    });
+  }
+  return rows;
 };

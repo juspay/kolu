@@ -29,7 +29,7 @@ import { type Component, createEffect, For, Show } from "solid-js";
 import DocLink from "../ui/DocLink";
 import ModalDialog from "../ui/ModalDialog";
 import { surface } from "../ui/Surface";
-import { useConductorShown } from "./conductorShown";
+import { useShown } from "../ui/shown";
 import {
   helpOpen,
   helpSections,
@@ -138,7 +138,7 @@ const sheetChrome = surface({ portalled: true });
  *  `content-visibility` does not hide it, and a help sheet left over somebody
  *  else's terminals would be taking clicks and Escape for a view they left. */
 export const ConductorHelpSheet: Component = () => {
-  const shown = useConductorShown();
+  const shown = useShown();
   createEffect(() => {
     if (!shown()) helpSheet.close();
   });

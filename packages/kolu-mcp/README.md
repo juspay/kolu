@@ -307,5 +307,15 @@ copy of kolu-server's mirror is a copy that can be wrong, so every read is
 forwarded to the host that owns the answer and every value is as fresh as the
 host that gave it.
 
+**Following that port over time** is `overConnectedHosts`
+(`src/fleet/overHosts.ts`), published beside it: a leg per connected host,
+interrupted and re-opened as the map moves, so a leg can only ever exist over
+the client that is current — the thing a hand-rolled follow gets wrong when a
+padi restarts under a mirror that never dropped. Every aggregate member here
+folds through it, and so does kolu-server's conductor watch, which is why it is
+exported. A leaf, not an electricity: the volatility it looks like it owns is
+already encapsulated by the host map behind `FleetHosts`, and nothing outside
+this repo plugs in (the module header runs the three tests).
+
 Plan of record: the kolu-cli Atlas note
 ([kolu.dev/atlas/kolu-cli.html](https://kolu.dev/atlas/kolu-cli.html)).

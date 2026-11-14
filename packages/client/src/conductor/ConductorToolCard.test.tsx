@@ -31,7 +31,7 @@ vi.mock("../canvas/dock/useDockFocus", () => ({
 vi.mock("./ConductorDiffs", () => ({ default: () => null }));
 
 import ConductorToolCard from "./ConductorToolCard";
-import { ConductorShown } from "./conductorShown";
+import { Shown } from "../ui/shown";
 
 const TERMINAL = "11111111-1111-4111-8111-111111111111" as TerminalId;
 
@@ -70,9 +70,9 @@ function mount(host: string | null): HTMLElement {
   document.body.append(root);
   dispose = render(
     () => (
-      <ConductorShown.Provider value={() => true}>
+      <Shown.Provider value={() => true}>
         <ConductorToolCard row={row(host)} />
-      </ConductorShown.Provider>
+      </Shown.Provider>
     ),
     root,
   );
@@ -138,9 +138,9 @@ describe("a failed call", () => {
     document.body.append(root);
     dispose = render(
       () => (
-        <ConductorShown.Provider value={() => true}>
+        <Shown.Provider value={() => true}>
           <ConductorToolCard row={one} />
-        </ConductorShown.Provider>
+        </Shown.Provider>
       ),
       root,
     );
@@ -186,9 +186,9 @@ describe("the payload under a card kolu recognises", () => {
     document.body.append(root);
     dispose = render(
       () => (
-        <ConductorShown.Provider value={() => true}>
+        <Shown.Provider value={() => true}>
           <ConductorToolCard row={one} />
-        </ConductorShown.Provider>
+        </Shown.Provider>
       ),
       root,
     );

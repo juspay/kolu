@@ -26,7 +26,7 @@ vi.mock("./ConductorDiffs", () => ({ default: () => null }));
 
 import ConductorTranscript from "./ConductorTranscript";
 import type { ConductorRow } from "kolu-common/conductor";
-import { ConductorShown } from "./conductorShown";
+import { Shown } from "../ui/shown";
 import { atEnd, pinTranscript, revealTranscriptRow } from "./transcriptScroll";
 
 /** Is the pane the view being read? The pane is RETAINED across a tab switch,
@@ -87,7 +87,7 @@ function mount(): HTMLDivElement {
   setRows = write;
   dispose = render(
     () => (
-      <ConductorShown.Provider value={shown}>
+      <Shown.Provider value={shown}>
         <ConductorTranscript
           rows={rows()}
           pending={false}
@@ -97,7 +97,7 @@ function mount(): HTMLDivElement {
             scroller = el;
           }}
         />
-      </ConductorShown.Provider>
+      </Shown.Provider>
     ),
     root,
   );
@@ -270,7 +270,7 @@ describe("the strip's reveal", () => {
     ];
     dispose = render(
       () => (
-        <ConductorShown.Provider value={() => true}>
+        <Shown.Provider value={() => true}>
           <ConductorTranscript
             rows={rows}
             pending={false}
@@ -279,7 +279,7 @@ describe("the strip's reveal", () => {
               scroller = el;
             }}
           />
-        </ConductorShown.Provider>
+        </Shown.Provider>
       ),
       root,
     );

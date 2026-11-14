@@ -33,7 +33,7 @@ import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ConductorHeader from "./ConductorHeader";
-import { ConductorShown } from "./conductorShown";
+import { Shown } from "../ui/shown";
 
 const verbs = vi.hoisted(() => ({
   clearSession: vi.fn(),
@@ -89,13 +89,13 @@ function mount(
   document.body.append(root);
   dispose = render(
     () => (
-      <ConductorShown.Provider value={shown}>
+      <Shown.Provider value={shown}>
         <ConductorHeader
           state={{ ...DEFAULT_CONDUCTOR_STATE, phase: "idle", ...over }}
           rows={ROWS}
           onSignIn={() => {}}
         />
-      </ConductorShown.Provider>
+      </Shown.Provider>
     ),
     root,
   );
