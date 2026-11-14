@@ -5,9 +5,10 @@ import {
 } from "./bracketedPaste.ts";
 import { createSubmitScanner } from "./submitInput.ts";
 
-/** Feed `writes` in order to one fresh scanner; which of them submitted. */
+/** Feed `writes` in order to one fresh scanner reading `Enter` as the submit
+ *  (every agent kolu drives today); which of them submitted. */
 const scan = (...writes: string[]): boolean[] => {
-  const submits = createSubmitScanner();
+  const submits = createSubmitScanner(["Enter"]);
   return writes.map(submits);
 };
 
@@ -38,5 +39,15 @@ describe("createSubmitScanner — what hands a prompt to the program", () => {
 
   it("an Escape pressed on its own does not swallow the Enter after it", () => {
     expect(scan("\x1b", "\r")).toEqual([false, true]);
+  });
+
+  it("reads whichever keys it is given — the submit key is the agents', not this module's", () => {
+    const submits = createSubmitScanner(["C-s"]);
+    expect([submits("hi\r"), submits("hi\x13")]).toEqual([false, true]);
+  });
+
+  it("refuses a key that is not one code unit, rather than never seeing it", () => {
+    expect(() => createSubmitScanner(["Up"])).toThrow(/one code unit/);
+    expect(() => createSubmitScanner(["Entr"])).toThrow(/one code unit/);
   });
 });

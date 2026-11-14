@@ -78,7 +78,7 @@ import type { AgentInfo } from "@kolu/terminal-vocab/schema";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
 import { Effect, Schema } from "effect";
 import type { AgentSayRecipe } from "kolu-agents/vocab";
-import { agentVocab } from "kolu-agents/vocab";
+import { agentVocab, isAgentPresence } from "kolu-agents/vocab";
 
 export const AgentSayArgsSchema = Schema.Struct({
   id: TerminalIdSchema,
@@ -206,9 +206,15 @@ export const SAY_TAKES: ReadonlySet<WaitState> = new Set<WaitState>([
  *  answer, and the one that did not take names the screen read that settles
  *  it.
  *
- *   - `began-working` — the agent's bucket turned `working`: its transcript
- *     started a turn, or — for an agent that was `fresh` — padi saw the
- *     submit go in and published it `prompted`. It took.
+ *   - `began-working` — its transcript started a turn: the agent itself says
+ *     it is working. It took.
+ *   - `submit-landed` — the agent had written no transcript yet (it was
+ *     `fresh`), and padi saw the submit reach it: it is `prompted`, padi's own
+ *     reading of the input it carried. A DIFFERENT fact from `began-working`,
+ *     and named as one, because it is made by the very keys this tool pressed —
+ *     it says the Enter got there, not that the agent has answered. What comes
+ *     of it arrives with the transcript; the Conductor's watch rings when it
+ *     does.
  *   - `did-not-begin` — it had not within the cap. The keys WERE sent.
  *   - `not-observable` — the agent was already working, so there is no state
  *     change to watch for; what happens to the words is the recipe's
@@ -219,6 +225,11 @@ export const SAY_TAKES: ReadonlySet<WaitState> = new Set<WaitState>([
 export type SayTook =
   | {
       readonly observed: "began-working";
+      readonly afterMs: number;
+      readonly note: string;
+    }
+  | {
+      readonly observed: "submit-landed";
       readonly afterMs: number;
       readonly note: string;
     }
@@ -249,16 +260,19 @@ export function sayTook(
   }
   switch (outcome.kind) {
     case "met":
-      return {
-        observed: "began-working",
-        afterMs: outcome.elapsedMs,
-        // A `prompted` agent is one padi SAW the submit reach, before any
-        // transcript: say exactly that, rather than claim a turn it cannot see.
-        note:
-          outcome.agent.state === "prompted"
-            ? `The submit reached the agent ${outcome.elapsedMs} ms after the keys and it is working on it — it took. It has not written a transcript yet, so there is nothing of its reply to read until it does.`
-            : `The agent began a turn ${outcome.elapsedMs} ms after the keys — it took.`,
-      };
+      // A presence in the `working` bucket is `prompted`: padi's sight of the
+      // submit, before any transcript — said as that, never as a turn.
+      return isAgentPresence(outcome.agent)
+        ? {
+            observed: "submit-landed",
+            afterMs: outcome.elapsedMs,
+            note: `The submit reached the agent ${outcome.elapsedMs} ms after the keys; it has written nothing yet, so this says the Enter got there, not that it has answered. Do not say it again — its reply arrives with its transcript.`,
+          }
+        : {
+            observed: "began-working",
+            afterMs: outcome.elapsedMs,
+            note: `The agent began a turn ${outcome.elapsedMs} ms after the keys — it took.`,
+          };
     case "timeout":
       return {
         observed: "did-not-begin",
@@ -436,7 +450,7 @@ export const agentSayTool: BespokeTool = {
   mutates: true,
   title: "Say something to the agent in a terminal",
   description:
-    'Say this to the agent running in that terminal — kolu knows which agent it is and presses that agent\'s own submit keys, so you never send Enter yourself. Types the text, waits for the terminal to settle (hard-capped), then submits. Answers what it did: the agent, whether it was WORKING, the keys pressed, and the delivery — "steer" (the words reach the running turn), "queue" (they wait for the current turn to end) or "submitted" (it was idle or freshly up, so they start a turn) — AND whether it took: for an agent that was not working kolu watches a few seconds for it to begin working and reports "began-working" or "did-not-begin" (the keys were sent either way — read the screen rather than saying it again). REFUSED, never guessed: a terminal with no agent (a plain shell), an agent with no verified recipe, an agent that cannot be told anything mid-turn, an agent that is still COMING UP (its screen is still being drawn — wait until it is ready), a terminal that is asleep, and empty text.',
+    'Say this to the agent running in that terminal — kolu knows which agent it is and presses that agent\'s own submit keys, so you never send Enter yourself. Types the text, waits for the terminal to settle (hard-capped), then submits. Answers what it did: the agent, whether it was WORKING, the keys pressed, and the delivery — "steer" (the words reach the running turn), "queue" (they wait for the current turn to end) or "submitted" (it was idle or freshly up, so they start a turn) — AND whether it took: for an agent that was not working kolu watches a few seconds and reports "began-working" (its transcript started a turn), "submit-landed" (an agent that has written nothing yet: kolu saw the Enter reach it, and its reply comes with its transcript — do not say it again) or "did-not-begin" (the keys were sent either way — read the screen rather than saying it again). REFUSED, never guessed: a terminal with no agent (a plain shell), an agent with no verified recipe, an agent that cannot be told anything mid-turn, an agent that is still COMING UP (its screen is still being drawn — wait until it is ready), a terminal that is asleep, and empty text.',
   handler: (args, client, signal) => {
     const { id, text } = args as AgentSayArgs;
     const padi = padiOf(client);

@@ -100,6 +100,10 @@ const leg: Leg = {
     return typeof name === "string" ? name : null;
   },
   toolNameOf: () => null,
+  // The fixture's agent puts one question to a person as a form, and this is
+  // its spelling of it — the one member every leg answers in its own
+  // vocabulary.
+  asksThroughForm: (name) => name === "AskUserQuestion",
   allowedWithoutAsking: allowingOurs(spelling),
   parentToolUse: (value) => {
     const parent = meta(value)?.parent;

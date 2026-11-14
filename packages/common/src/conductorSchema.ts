@@ -363,16 +363,17 @@ export const ConductorToolRowSchema = Schema.Struct({
   /** Which MCP server and tool, when the call could be positively named. */
   server: Schema.optionalKey(Schema.String),
   tool: Schema.optionalKey(Schema.String),
-  /** WHAT THE CALL IS, as the agent spells it programmatically
-   *  (`AskUserQuestion`, `mcp__kolu__lifecycle_create`) — never the display
-   *  title, which is model-written prose. Distinct from `tool` above: that one
-   *  is the MCP identity a card NAMES the call by and exists only for the
-   *  servers kolu handed over, so a built-in call has it empty while still
-   *  being something a reader must be able to recognise (the panel draws no
-   *  card for the call that produced an ask form — the form IS the question).
-   *  Optional, like every other field a frame may not carry: a record written
-   *  before this existed decodes unchanged, with no name. */
-  toolName: Schema.optionalKey(Schema.String),
+  /** Whether this call is the one whose question reached the person as a FORM
+   *  — the agent's built-in "ask the human" tool, as that agent's own leg
+   *  names it (`@kolu/acp`'s `Leg.asksThroughForm`). The ask row beside it IS
+   *  that question, drawn with its options and its answer, so a panel draws no
+   *  card for the call: the alternative showed the same words twice, the
+   *  second time as grey machinery. A BOOLEAN rather than the tool's name,
+   *  because the name is one adapter's spelling and nothing downstream of the
+   *  harness should have to know it. Optional, like every other field a frame
+   *  may not carry: a record written before this existed decodes unchanged,
+   *  as a call that asked nothing. */
+  asksThroughForm: Schema.optionalKey(Schema.Boolean),
   /** Folded JSON of the call's input and answer — the generic card's body. */
   detail: Schema.optionalKey(Schema.String),
   /** Live incremental content while the call runs. */

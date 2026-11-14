@@ -109,6 +109,7 @@
       "_meta",
       "advertised",
       "allowedWithoutAsking",
+      "asksThroughForm",
       "attached",
       "backgroundTask",
       "bypassMode",

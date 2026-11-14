@@ -146,6 +146,33 @@ export function agentLive(state: AgentInfo["state"]): boolean {
   return bucket === "working" || bucket === "awaiting";
 }
 
+/** Is padi waiting on this agent's SCREEN to settle — the presence states a
+ *  quiet screen moves to `fresh`? An agent coming up (`starting`), and one
+ *  handed a prompt that no transcript has answered yet (`prompted`): a screen
+ *  that goes quiet is the only thing that can tell either of them what came of
+ *  it. Everything else — `fresh` itself, and every transcript state — has
+ *  nothing to settle. Switches over the closed state set with the same
+ *  `satisfies never` fence as {@link agentBucket}, so a presence state added to
+ *  the vocabulary decides here, beside the others, rather than falling into a
+ *  bucket's arm in padi's quiet module and never settling at all. */
+export function awaitsScreenSettle(state: AgentInfo["state"]): boolean {
+  switch (state) {
+    case "starting":
+    case "prompted":
+      return true;
+    case "fresh":
+    case "thinking":
+    case "tool_use":
+    case "running_background":
+    case "awaiting_user":
+    case "waiting":
+      return false;
+    default:
+      state satisfies never;
+      return false;
+  }
+}
+
 /** The coarse agent buckets a wait or a watch accepts as TARGETS — the
  *  {@link agentBucket} fold's vocabulary minus `other` (an `other` bucket never
  *  matches a real agent, so accepting it would only ever time out).

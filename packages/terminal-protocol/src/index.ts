@@ -20,9 +20,9 @@
  *    the two tables above and shared by `kolu send` and the MCP send tool.
  *  - `snapshotReset`   — the reciprocal reset for modes a replayed
  *    `@xterm/addon-serialize` snapshot can switch on.
- *  - `submitInput`     — whether a write to a terminal SUBMITS (a typed,
- *    unmodified Enter outside a paste), which padi reads to know an agent
- *    was handed a prompt before its transcript says so.
+ *  - `submitInput`     — whether a write to a terminal SUBMITS (one of the
+ *    caller's submit keys, typed unmodified outside a paste), which padi reads
+ *    to know an agent was handed a prompt before its transcript says so.
  *
  * A leaf: zero runtime dependencies, importable from the browser bundle, the
  * pty-host, and the CLI alike — which is exactly why this lives in its own

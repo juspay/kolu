@@ -495,9 +495,11 @@ none before their first prompt, omp none until its first reply is done — the
 value is a PRESENCE (`kolu-agents/vocab`'s `AgentPresenceSchema`), in one of
 three states, each something padi itself SAW of the current foreground process:
 `starting` while its screen is drawn, `fresh` once it has settled, `prompted`
-once a write padi forwarded to it SUBMITTED (a typed Enter outside a paste —
-`@kolu/terminal-protocol`'s `createSubmitScanner`, run on every write the
-terminal's `PtyHostTerminalProxy` carries). `prompted` buckets as `working`.
+once a write padi forwarded to it SUBMITTED (one of the registry's submit keys —
+`kolu-agents`' `AGENT_SUBMIT_KEYS`, the last key of each agent's own say recipe —
+typed outside a paste, read by `@kolu/terminal-protocol`'s `createSubmitScanner`
+on every write the terminal's `PtyHostTerminalProxy` delivers). `prompted`
+buckets as `working`.
 Neither the settle nor the submit is a sensor of its own: the effective-finish
 quiet window (`activity/finishQuiet.ts`) keeps a second kind of episode for a
 `starting` or `prompted` agent on the same kaval output edges, and its

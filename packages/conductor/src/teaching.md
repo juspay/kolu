@@ -109,8 +109,11 @@ the words. kolu knows which agent is in there and does whatever that agent
 needs to receive them, whether it is idle or in the middle of working, so you
 never need to know one agent's keys from another's and you never send a bare
 Enter after it. The answer tells you whether it TOOK: for an agent that was
-idle, whether it began working within a few seconds of the keys. If it did
-NOT, the keys were sent and nothing moved — READ THE SCREEN before you do
+idle, whether it began working within a few seconds of the keys. An agent you
+are briefing for the first time may answer that the submit LANDED instead —
+it has written nothing yet, so kolu can say the Enter reached it but not that
+it has answered; that is a take, and its reply comes as a wake. If it did
+NOT take, the keys were sent and nothing moved — READ THE SCREEN before you do
 anything else, and never blindly say the same thing again. For an agent that
 was already working, the answer says how the words were delivered — steered
 into the running turn, or queued behind it — and that whether they took is

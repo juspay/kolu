@@ -18,9 +18,9 @@
  *  between two boundaries fold into one "Details" as they settle
  *  (`foldToolRuns`), the same failure in a row draws as one line with its
  *  count (`foldFailureRuns`), and the call that produced a question draws
- *  nothing — the ask row IS the question (`ASK_TOOL`). All of them are pure,
- *  so what the panel draws is decided in a unit test, and none rewrites a
- *  row — `Copy transcript` still reads them all. */
+ *  nothing — the ask row IS the question (`asksThroughForm` on the row). All
+ *  of them are pure, so what the panel draws is decided in a unit test, and
+ *  none rewrites a row — `Copy transcript` still reads them all. */
 
 import { isTerminalId } from "@kolu/terminal-vocab/terminalId";
 import {
@@ -148,18 +148,6 @@ export interface TranscriptEntry {
   readonly repeat: number;
 }
 
-/** Claude Code's question tool. The form it produces is the `ask` row, and
- *  that row IS the question — drawn with its options, its answer and its
- *  "Conductor asks you" heading — so the CALL that produced it has nothing
- *  left to say: its card showed the same question a second time, as grey
- *  machinery, immediately above the thing asking it.
- *
- *  Named rather than linked, because the wire carries no edge from an ask row
- *  back to its tool row — the elicitation and the tool call reach the panel as
- *  two independent reports. `toolName` is what the agent CALLED, from the
- *  adapter's own `_meta`, never the title (model-written prose). */
-export const ASK_TOOL = "AskUserQuestion";
-
 /** Collapse every RUN of consecutive notices with identical text to the first
  *  of them, carrying the count.
  *
@@ -187,7 +175,12 @@ export function foldNoticeRuns(
     // suppressed at the render site would still be counted by all of them and
     // leave a fold that says 4 and opens on 3. Nothing is REWRITTEN: `Copy
     // transcript` reads the rows themselves and still has the call.
-    if (row.kind === "tool" && row.toolName === ASK_TOOL) continue;
+    //
+    // WHICH call that is came decided: the harness asked the agent's own leg
+    // whether this tool's question reaches a person as a form, and the row
+    // carries the answer. The name it was decided from is one adapter's
+    // spelling and stays upstream of here.
+    if (row.kind === "tool" && row.asksThroughForm === true) continue;
     const last = entries[entries.length - 1];
     if (
       last !== undefined &&

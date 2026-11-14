@@ -1171,20 +1171,28 @@ export const startHarness = async (
     if (kolu !== null) koluReadings.set(update.toolCallId, kolu);
     if (kolu !== null && fleet.touch(kolu)) publish();
     const armed = leg.backgroundTask(update._meta);
+    // WHETHER THIS CALL'S QUESTION REACHES THE PERSON AS A FORM. The ask row
+    // carries that question already — its options, its answer, its heading —
+    // so a panel that drew the call as well would say the same words twice,
+    // the second time as grey machinery immediately above the thing asking
+    // them. WHICH call that is, is one agent's own spelling of its own
+    // built-in, so the leg answers it and the ROW carries the answer: a name
+    // on the wire would put that spelling in every reader downstream of here.
+    const named = calls.about(update.toolCallId).name;
+    const asksThroughForm =
+      named !== undefined && leg.asksThroughForm?.(named) === true
+        ? true
+        : undefined;
     report(
       transcript.tool(update.toolCallId, {
         title: update.title ?? undefined,
         status: statusOf(update.status),
         server: call?.server,
         tool: call?.tool,
-        // ... and WHAT THE CALL IS, programmatically, beside the MCP identity
-        // a card names it by. The two are not the same question: `tool` is
-        // filled only for the servers kolu handed over, so a BUILT-IN call
-        // (Claude's `AskUserQuestion`) carries nothing a reader could
-        // recognise it by — its title is model-written prose. The name is
-        // already in hand from the `_meta` the leg reads; passing it on is
-        // what lets the panel decide that a call draws no card of its own.
-        toolName: calls.about(update.toolCallId).name,
+        // Absent rather than `false`: every optional field of a tool row means
+        // UNCHANGED, and a call whose name has not arrived yet is not a call
+        // anything has called ordinary.
+        asksThroughForm,
         detail: detailOf(update.rawInput, update.rawOutput),
         asked: detailOf(update.rawInput, undefined),
         progress: progressOf(

@@ -59,13 +59,15 @@ describe("what it is doing", () => {
   });
 
   it("does not name the QUESTION call while its form is on screen", () => {
-    // `AskUserQuestion` stays `pending` for as long as the form waits on a
-    // person, so the line used to read `asking · AskUserQuestion` — the
-    // machinery's name, over the question the reader is already looking at.
-    // The form is the question; what the turn SAID before it is the line.
+    // The call behind an elicitation form stays `pending` for as long as the
+    // form waits on a person, so the line used to read `asking · <the agent's
+    // question tool>` — the machinery's name, over the question the reader is
+    // already looking at. The form is the question; what the turn SAID before
+    // it is the line. The harness marked the row with its agent's own answer,
+    // so nothing here knows which tool it was.
     const asked = {
-      ...toolRow("t-ask", 3, "pending", "AskUserQuestion"),
-      toolName: "AskUserQuestion",
+      ...toolRow("t-ask", 3, "pending", "the question tool"),
+      asksThroughForm: true,
     } as ConductorRow;
     expect(
       conductorDoing([

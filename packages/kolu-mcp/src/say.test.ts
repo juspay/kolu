@@ -18,7 +18,7 @@
 import type { PadiTerminal } from "@kolu/padi-client/surface";
 import { ToolFailure } from "@kolu/surface-mcp";
 import { describe, expect, it } from "vitest";
-import { agentVocab } from "kolu-agents/vocab";
+import { agentPresence, agentVocab } from "kolu-agents/vocab";
 import {
   resolveSay,
   type SayRefusal,
@@ -286,6 +286,18 @@ describe("sayTook — did the keys take, and what the answer says either way", (
     });
     expect(took).toMatchObject({ observed: "began-working", afterMs: 120 });
     expect(took.note).toContain("120");
+  });
+
+  it("a fresh agent padi saw the submit reach is `submit-landed`, never claimed as a turn begun", () => {
+    // The keys this tool pressed are what make it `prompted`, so that reading
+    // proves the Enter got there — not that the agent answered.
+    const took = sayTook("submitted", {
+      kind: "met",
+      agent: agentPresence("omp", "prompted", null),
+      elapsedMs: 3,
+    });
+    expect(took).toMatchObject({ observed: "submit-landed", afterMs: 3 });
+    expect(took.note).toMatch(/not that it has answered/);
   });
 
   it("an idle agent that does NOT start is an ANSWER, not a failure — and it names the screen read", () => {

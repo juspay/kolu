@@ -72,7 +72,7 @@ turn), `"steer"` (the words reach the turn that is running — codex, omp, pi,
 xyne) or `"queue"` (they wait for the current turn to end — claude-code,
 opencode, grok). `took` is whether the words LANDED: for an agent that was
 idle, kolu then watches its state for a hard-capped few seconds
-(`SAY_TAKE_CAP_MS`) and answers `began-working` or `did-not-begin` — the keys
+(`SAY_TAKE_CAP_MS`) and answers `began-working`, `submit-landed` or `did-not-begin` — the keys
 were sent either way, so a say that did not take is an ANSWER naming the screen
 read that settles it, never a refusal that invites typing the prompt a second
 time. For an agent that was already working there is no state change to watch,
@@ -82,11 +82,13 @@ detects the agent but has no verified recipe), `agent-cannot-be-told-while-worki
 `agent-starting` (the agent is up but its screen is still being drawn — wait
 until it is ready, which `wait_agentState` with `until: ["fresh"]` is for, and
 say it then), the asleep refusal, and `text-refused` (empty text). An agent that
-is `fresh` — up, settled, never prompted — is said to like any other idle agent,
-and its first prompt is seen taking the instant padi forwards the submit: the
-agent turns `prompted`, a presence state in the `working` bucket, before it has
-written a line of transcript (omp writes its first only when the first reply
-completes). Until that transcript lands a second say treats it as working.
+is `fresh` — up, settled, never prompted — is said to like any other idle agent.
+Its first prompt answers `submit-landed`, not `began-working`: padi saw the
+Enter reach it (the agent turns `prompted`, a presence state in the `working`
+bucket) before it has written a line of transcript — omp writes its first only
+when the first reply completes — so the answer says the keys got there, not
+that the agent has answered. Until that transcript lands a second say treats it
+as working.
 
 **A refusal is data, not a sentence to parse.** `lifecycle_sendInput` refuses
 four things on purpose, and a driver recovers from each differently — so each

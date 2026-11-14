@@ -55,6 +55,20 @@ export const AGENT_VOCABS = {
  *  literal list. */
 export type AgentKind = keyof typeof AGENT_VOCABS;
 
+/** The keys that SUBMIT a prompt to some registered agent — the last key of
+ *  each agent's own idle say recipe (`AgentSayRecipe.idle`, re-verified per
+ *  agent release), de-duplicated. The registry's answer to "which keystroke
+ *  hands the program in front its prompt", read by padi's input seam to know an
+ *  agent was prompted before its transcript says so; an agent whose submit
+ *  ritual changes moves padi's reading with it in the one edit that changes. */
+export const AGENT_SUBMIT_KEYS: readonly string[] = [
+  ...new Set(
+    Object.values(AGENT_VOCABS as Record<string, AnyAgentVocab>).flatMap(
+      (vocab) => vocab.say?.idle.slice(-1) ?? [],
+    ),
+  ),
+];
+
 /** The `AgentInfo` member for one kind — correlation so `agentVocab(kind)` and
  *  the wire union stay typed per kind. */
 export type AgentInfoOf<K extends AgentKind> =
@@ -81,6 +95,26 @@ const SessionAgentInfoSchema = Schema.Union(
     (v) => v.infoSchema,
   ) as unknown as AgentInfoSchemaTuple,
 );
+
+/** THE TWO STATE SETS ARE DISJOINT — the one fact {@link isAgentPresence} and
+ *  the wire decode both rest on. Seven agent schemas rev their own transcript
+ *  states as their CLIs change; one that ever names a presence state would make
+ *  that agent's real session narrow as a presence everywhere the predicate
+ *  guards (no restore target, no transcript, no resume), silently. So a
+ *  colliding literal fails to compile HERE, where the union is composed. */
+type TranscriptPresenceCollision = Extract<
+  typeof SessionAgentInfoSchema.Type.state,
+  AgentPresenceState
+>;
+const _presenceStatesAreNoTranscriptState: [
+  TranscriptPresenceCollision,
+] extends [never]
+  ? true
+  : [
+      "a transcript state collides with a presence state",
+      TranscriptPresenceCollision,
+    ] = true;
+void _presenceStatesAreNoTranscriptState;
 
 /** An agent that is HERE but has no session kolu can read yet — the daemon's
  *  process fact ({@link AGENT_PRESENCE_STATES}: `starting`, then `fresh`, then

@@ -23,6 +23,7 @@ import {
   freshAgentEngineState,
   type SensorSignals,
   startAgentSensor,
+  startPresenceStepSensor,
 } from "./sensors.ts";
 
 const log = pino({ level: "silent" });
@@ -58,14 +59,21 @@ const sessionInfo = (
   startedAt: null,
 });
 
-function startHarness() {
+/** `store: "unreadable"` is an agent whose session store cannot be read at all
+ *  — Codex's or OpenCode's SQLite database before a brand-new install has
+ *  created it — which the adapter answers with `null`, not `[]`. */
+function startHarness(opts: { store?: "readable" | "unreadable" } = {}) {
   const emits: TerminalEvent[] = [];
   let crumb: string | null = null;
   let land: ((info: AgentInfoShape) => void) | null = null;
   const adapter: AgentAdapter<string, AgentInfoShape> = {
     kind: "omp",
     resolveSessions: (state) =>
-      crumb !== null && state.readForegroundBasename() === "omp" ? [crumb] : [],
+      opts.store === "unreadable"
+        ? null
+        : crumb !== null && state.readForegroundBasename() === "omp"
+          ? [crumb]
+          : [],
     sessionKey: (s) => s,
     sessionStartedAt: () => null,
     presenceSessionId: (s) => s,
@@ -92,9 +100,18 @@ function startHarness() {
     screenSettled: inMemoryChannel<void>(),
     submitted: inMemoryChannel<void>(),
   };
-  const stop = startAgentSensor(
+  // The production arrangement: one engine state per terminal, the step
+  // recorded once for it, the detector republishing its own presence.
+  const engine = freshAgentEngineState();
+  const stopStep = startPresenceStepSensor(
+    engine,
+    "term-1" as TerminalId,
+    signals,
+    log,
+  );
+  const stopAgent = startAgentSensor(
     adapter,
-    freshAgentEngineState(),
+    engine,
     SHELL_PID,
     "/w",
     "term-1" as TerminalId,
@@ -104,6 +121,10 @@ function startHarness() {
     log,
     false,
   );
+  const stop = () => {
+    stopAgent();
+    stopStep();
+  };
   let titles = 0;
   return {
     /** The agent value the record would hold now — the last authoritative one. */
@@ -191,6 +212,17 @@ describe("an agent is present from its foreground alone", () => {
     const h = startHarness();
     await h.foreground({ process: "vim", foregroundPid: AGENT_PID });
     expect(h.agent()).toBe("none-yet");
+    h.stop();
+  });
+
+  it("does not wait on a session store that cannot be read — nor outlive the agent", async () => {
+    const h = startHarness({ store: "unreadable" });
+    await h.foreground(omp());
+    expect(h.agent()).toMatchObject({ kind: "omp", state: "starting" });
+    await h.settled();
+    expect(h.agent()).toMatchObject({ state: "fresh" });
+    await h.foreground(shell);
+    expect(h.agent()).toBeNull();
     h.stop();
   });
 });

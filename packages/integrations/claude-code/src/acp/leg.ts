@@ -111,6 +111,31 @@ export const allowedWithoutAsking = allowingOurs(spelling);
 export const toolNameIn = (meta: Meta): string | null =>
   stringIn(meta, "toolName");
 
+/**
+ * The one built-in call whose QUESTION reaches a person as a form.
+ *
+ * The pinned adapter renders an `AskUserQuestion` into `elicitation/create`,
+ * so the panel is handed the question twice: once as the form a person answers
+ * and once as the tool call that produced it. The form is the question, so the
+ * call draws no card — and WHICH call that is, is this adapter's spelling and
+ * belongs on this file's side of the boundary exactly as {@link toolNameIn}
+ * does.
+ *
+ * Spelled here rather than shared with `../core.ts`'s `AWAITING_USER_TOOLS`
+ * (which names this tool and `ExitPlanMode` together, for a different
+ * question — whether the agent is blocked on a human): this door shares no
+ * module graph with the rest of the package, which is the whole point of
+ * `./acp` being its own export, and one string is cheaper than the import that
+ * would join them.
+ */
+const ASK_USER_QUESTION = "AskUserQuestion";
+
+/** ... and the question `@kolu/acp`'s {@link Leg.asksThroughForm} puts, over
+ *  that one name. An exact match: a tool merely NAMED like it is a tool we do
+ *  not know. */
+export const asksThroughForm = (toolName: string): boolean =>
+  toolName === ASK_USER_QUESTION;
+
 // ── which agent made a call ────────────────────────────────────────────
 
 /**
@@ -799,6 +824,7 @@ export const CLAUDE: Leg = {
   // tool. Reading it would answer for a call nothing has named, which is the
   // one direction this file may not fail in.
   toolNameOf: () => null,
+  asksThroughForm,
   allowedWithoutAsking,
   parentToolUse: parentToolUseIn,
   spawned: spawnedIn,

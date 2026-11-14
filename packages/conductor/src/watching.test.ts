@@ -140,16 +140,28 @@ describe("what is worth waking the Conductor about", () => {
 
   it("says nothing about a FRESH agent the Conductor has just spoken to", () => {
     // `agent_say` answers on the keystrokes, so padi still reads the agent as
-    // fresh for a moment. The re-baseline lands on the same `ready` it was
-    // already told, so the say cannot ring about itself.
+    // fresh for a moment. A fresh agent somebody has spoken to stands as
+    // STOPPED, and the re-baseline lands there, so the say cannot ring about
+    // itself.
     const up = observed(fresh(), seeing(REF, "fresh"));
     const said = spokenTo({ ...up.entry, told: "ready" });
     expect(said.spoken).toBe(true);
-    expect(said.told).toBe("ready");
+    expect(said.told).toBe("stopped");
     expect(observed(said, seeing(REF, "fresh")).ring).toBeNull();
     // ... and once it has worked, the stop that follows IS news.
     const worked = observed(said, seeing(REF, "working")).entry;
     expect(observed(worked, seeing(REF, "stopped")).ring).toBe("stopped");
+  });
+
+  it("a submit that came to nothing is a STOP, never a second `ready`", () => {
+    // Briefed, padi read the submit (`prompted`, a working reading), and the
+    // screen settled back to `fresh` with no transcript — a slash command, an
+    // Enter the TUI ate. "Up and not told anything yet" would be a lie: it was
+    // told something, and this idle is the answer.
+    const up = observed(fresh(), seeing(REF, "fresh"));
+    const said = spokenTo({ ...up.entry, told: "ready" });
+    const prompted = observed(said, seeing(REF, "working")).entry;
+    expect(observed(prompted, seeing(REF, "fresh")).ring).toBe("stopped");
   });
 
   it("BASELINES an asked terminal whose agent has only just come up", () => {
@@ -159,7 +171,7 @@ describe("what is worth waking the Conductor about", () => {
     const asked = observed(fresh("asked"), seeing(REF, "fresh"));
     expect(asked.ring).toBeNull();
     expect(asked.entry.spoken).toBe(true);
-    expect(asked.entry.told).toBe("ready");
+    expect(asked.entry.told).toBe("stopped");
   });
 
   it("rings on a stop once the agent has been spoken to, and not twice", () => {
@@ -574,10 +586,12 @@ describe("every state the Conductor can wait in has a way out that rings", () =>
       // Prompted READS AS WORKING, so this row and the one below it are the
       // same row — which is the invariant being asserted, not a duplication:
       // an agent that was given something to do has every ending available to
-      // it, including the one where it dies before saying a word.
+      // it, including the one where it dies before saying a word, and the one
+      // where the submit came to nothing (`fresh` again: a stop, since it was
+      // spoken to — never a second "not told anything yet").
       prompted: {
         starting: STILL_DRAWING,
-        fresh: "ready",
+        fresh: "stopped",
         working: WORKING_IS_NOT_NEWS,
         stopped: "stopped",
         asking: "asking",
@@ -588,7 +602,7 @@ describe("every state the Conductor can wait in has a way out that rings", () =>
       },
       working: {
         starting: STILL_DRAWING,
-        fresh: "ready",
+        fresh: "stopped",
         working: WORKING_IS_NOT_NEWS,
         stopped: "stopped",
         asking: "asking",
@@ -599,7 +613,7 @@ describe("every state the Conductor can wait in has a way out that rings", () =>
       },
       asking: {
         starting: STILL_DRAWING,
-        fresh: "ready",
+        fresh: "stopped",
         working: WORKING_IS_NOT_NEWS,
         stopped: "stopped",
         asking: { silent: "the same question, read again, is the same news" },
@@ -610,7 +624,10 @@ describe("every state the Conductor can wait in has a way out that rings", () =>
       },
       stoppedSpoken: {
         starting: STILL_DRAWING,
-        fresh: "ready",
+        fresh: {
+          silent:
+            "idle again after what was said is the stop the Conductor was already told",
+        },
         working: WORKING_IS_NOT_NEWS,
         stopped: { silent: "the same stop, read again, is the same news" },
         asking: "asking",
@@ -634,7 +651,10 @@ describe("every state the Conductor can wait in has a way out that rings", () =>
         // A terminal that was woken goes back on the ordinary levels, and
         // every one of them is news again.
         starting: STILL_DRAWING,
-        fresh: "ready",
+        // `spoken` belongs to the terminal, not to one agent process in it, so
+        // a fresh agent in a woken terminal reads as stopped — the same rule
+        // the `stopped` reading has always followed there.
+        fresh: "stopped",
         working: WORKING_IS_NOT_NEWS,
         stopped: "stopped",
         asking: "asking",

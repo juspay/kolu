@@ -46,7 +46,10 @@
 
 import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
 import { source } from "@kolu/surface/reactor";
-import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
+import {
+  agentBucket,
+  awaitsScreenSettle,
+} from "@kolu/terminal-vocab/agentProjection";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Stream } from "effect";
 import type { Logger } from "pino";
@@ -93,11 +96,10 @@ export function waitingIdsOf(
 }
 
 /** Every active terminal this module keeps a quiet episode for, and which kind:
- *  a `waiting` agent's turn is a `finish` episode; a `starting` agent, and a
- *  `prompted` one (submitted to, no transcript yet), a `settle` one — a screen
- *  that goes quiet is what moves either to `fresh`. Read through the shared
- *  `agentBucket` fold, so the membership is the vocabulary's answer rather than
- *  a second list of literals. */
+ *  a `waiting` agent's turn is a `finish` episode; an agent padi is waiting on
+ *  to settle — `starting`, or `prompted` with no transcript yet — a `settle`
+ *  one. Both answers are the shared vocabulary's (`agentBucket`,
+ *  `awaitsScreenSettle`), not a second list of literals here. */
 function quietEpisodesOf(
   terminals: ReadonlyMap<TerminalId, PadiTerminal>,
 ): Map<TerminalId, QuietEpisodeKind> {
@@ -106,25 +108,8 @@ function quietEpisodesOf(
     if (terminal.state !== "active") continue;
     const agent = terminal.agent;
     if (!agent) continue;
-    switch (agentBucket(agent.state)) {
-      case "waiting":
-        out.set(id, "finish");
-        break;
-      case "starting":
-        out.set(id, "settle");
-        break;
-      // `prompted` is the one presence state in the `working` bucket: it is
-      // work as far as anybody can tell, but nothing has confirmed it, so a
-      // screen that settles with still no transcript (a slash command that
-      // starts no turn) is what takes it back to `fresh`.
-      case "working":
-        if (agent.state === "prompted") out.set(id, "settle");
-        break;
-      case "awaiting":
-      case "fresh":
-      case "other":
-        break;
-    }
+    if (awaitsScreenSettle(agent.state)) out.set(id, "settle");
+    else if (agentBucket(agent.state) === "waiting") out.set(id, "finish");
   }
   return out;
 }

@@ -474,6 +474,33 @@ export interface Leg {
   readonly toolNameOf: (toolCallId: string) => string | null;
 
   /**
+   * Whether THIS TOOL — by its programmatic name — is the one whose question
+   * this agent puts to a person as an ELICITATION FORM, rather than a call
+   * that goes and does something.
+   *
+   * A per-agent spelling, and therefore a leg's. The pinned Claude Code
+   * adapter renders its `AskUserQuestion` into `elicitation/create`, and the
+   * form that arrives IS the question — drawn with its options, its answer and
+   * its "asks you" heading. The call behind it then has nothing left to say,
+   * so the harness marks its row and a panel draws no second card carrying the
+   * same words as grey machinery immediately above the thing asking them.
+   * Which tool that is revs on one adapter's clock, which is why the question
+   * is put here and not to a reader downstream: the row a panel reads carries
+   * the ANSWER (a boolean), never the name it was decided from.
+   *
+   * It is asked by NAME rather than over a frame because the name is what the
+   * harness already has in hand for every call ({@link Leg.toolNameIn},
+   * {@link Leg.toolNameOf}), and a call nothing named is never one of these.
+   *
+   * OPTIONAL, and an absent one is the honest nothing — the rule this
+   * package's README states for every member added after the legs were
+   * written. A leg that answers nothing marks no row, and an unmarked row is
+   * DRAWN: a question shown twice is a reader's annoyance, and a call silently
+   * hidden is a transcript that lies about what an agent did.
+   */
+  readonly asksThroughForm?: (toolName: string) => boolean;
+
+  /**
    * The option a permission request is answered with WITHOUT asking a person,
    * or `null` when it is a person's to answer.
    *

@@ -19,12 +19,14 @@
  *   stop again, and that stop is news. Without the reset a conversation told
  *   once would never hear about the same terminal twice.
  * - **AN AGENT COMING UP IS NOT NEWS; one that is UP is `ready`.** padi
- *   publishes an agent as PRESENT the moment its program takes the foreground,
- *   in two states: `starting` while its screen is still being drawn, and
- *   `fresh` once that screen has settled with nothing ever said to it. A
- *   `starting` reading moves the entry and rings nothing — there is nothing to
- *   say to an agent that is still drawing itself. A `fresh` one rings `ready`,
- *   DIRECTLY: padi said so, this module did not deduce it.
+ *   publishes an agent as PRESENT the moment its program takes the foreground:
+ *   `starting` while its screen is still being drawn, `fresh` once that screen
+ *   has settled with nothing submitted since, and `prompted` (read here as
+ *   `working`) once something is. A `starting` reading moves the entry and
+ *   rings nothing — there is nothing to say to an agent that is still drawing
+ *   itself. A `fresh` one rings `ready` DIRECTLY — padi said so, this module
+ *   did not deduce it — unless this conversation has spoken to it: then a
+ *   `fresh` is a submit that came to nothing, and rings `stopped`.
  * - **AN IDLE AGENT NOBODY HAS SPOKEN TO IS `ready` TOO — by INFERENCE.** That
  *   is the OTHER road to the same word, and it is for one case only: an agent
  *   that was already running when this conversation started watching (a
@@ -332,12 +334,16 @@ const standsAs = (
       // non-shell is in front), it just never rings.
       return null;
     case "fresh":
-      // READY, READ DIRECTLY. padi says this agent's screen has settled and it
-      // has never been prompted — not inferred from an idle, SAID. It needs no
-      // `spoken` test: a fresh agent is by definition one nothing has been said
-      // to, and the instant something is, {@link spokenTo} re-baselines `told`
-      // at this same level, so the say cannot ring about itself.
-      return "ready";
+      // UP, SETTLED, NOTHING SUBMITTED SINCE — read directly, not inferred
+      // from an idle. Who has spoken to it decides what that MEANS, by the
+      // same rule as the `stopped` arm below: an agent this conversation never
+      // briefed is READY, the moment to brief it; one it HAS spoken to, back
+      // at `fresh` because the submit started no turn (a slash command, an
+      // Enter its TUI ate), has STOPPED — its idle is the answer to what was
+      // said, and calling it "not told anything yet" would be a lie. A say's
+      // own baseline ({@link spokenTo}) is computed by this same arm, so the
+      // say never rings about itself.
+      return entry.spoken ? "stopped" : "ready";
     case "shell":
       // THE PROMPT IS BACK IN FRONT. Which of the two endings this is turns
       // on whether an agent was EVER seen in this terminal, and the two are
@@ -467,12 +473,11 @@ export const observed = (
  * which, now that something has been said to it, is `stopped` rather than
  * `ready` for a terminal read as idle.
  *
- * A terminal still standing at its `fresh` reading re-baselines at `ready`,
- * which is where it already was: padi has not seen the keys yet, and `ready`
- * is what that reading means whoever has spoken. It was told `ready` when the
- * agent came up, so the baseline changes nothing and the next reading — the
- * agent working, or its transcript landing as a stop — is judged as it always
- * was.
+ * A terminal still standing at its `fresh` reading re-baselines at `stopped`:
+ * padi has not seen the keys yet, and a fresh agent somebody has spoken to
+ * reads as stopped ({@link standsAs}). The next reading — the agent going
+ * `prompted` or working, which resets `told` — is judged as it always was, so
+ * a stop after the brief is news, and so is a submit that came to nothing.
  *
  * A terminal NOBODY HAS READ YET keeps whatever it was told. There is no
  * state to suppress — the baseline is the thing being computed, and there is

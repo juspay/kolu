@@ -158,6 +158,11 @@ interface AgentEngineState {
   presenceStep:
     | { readonly pid: number; readonly saw: "settled" | "submitted" }
     | undefined;
+  /** Each agent detector's "the step moved — republish your presence if it is
+   *  yours", registered while the detector runs. The step is ONE terminal-level
+   *  fact recorded by ONE writer ({@link startPresenceStepSensor}); the
+   *  detectors own only the mirror, so this is how the writer reaches them. */
+  presenceListeners: Set<() => void>;
 }
 
 /** The terminal's current agent run, as the ownership arbiter needs to see it. */
@@ -187,6 +192,7 @@ export function freshAgentEngineState(): AgentEngineState {
     episode: { since: null, pid: undefined, watchedShellIdle: false },
     procSnapshot: null,
     presenceStep: undefined,
+    presenceListeners: new Set(),
   };
 }
 
@@ -231,11 +237,11 @@ export interface SensorSignals {
    *  "has it gone quiet?". The agent detectors read it to move the presence to
    *  `fresh`. */
   screenSettled: Channel<void>;
-  /** The host saying a write it forwarded to this terminal SUBMITTED (a typed
-   *  Enter outside a paste — `@kolu/terminal-protocol`'s `createSubmitScanner`).
-   *  Fed by padi's own input seam, which every keystroke crosses; the producer
-   *  sees no input. The agent detectors read it to move a presence nobody had
-   *  prompted to `prompted`. */
+  /** The host saying a write it delivered to this terminal SUBMITTED (one of
+   *  the registry's submit keys, typed outside a paste — `@kolu/terminal-protocol`'s
+   *  `createSubmitScanner`). Fed by padi's own input seam, which every
+   *  keystroke crosses; the producer sees no input. Recorded once per terminal
+   *  ({@link startPresenceStepSensor}) to move a presence to `prompted`. */
   submitted: Channel<void>;
 }
 
@@ -942,21 +948,18 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     });
   }
 
-  /** Record what padi just saw of the current foreground process and, if THIS
-   *  adapter's presence is what is published, republish it — every detector
-   *  records the same step (the write is idempotent), and the one that owns
-   *  the presence moves it. A session-backed value is never touched: once a
-   *  transcript speaks, it is the transcript's word that stands. A step for a
-   *  process no longer in front simply never matches. */
-  function notePresenceStep(saw: "settled" | "submitted"): void {
+  /** Republish THIS adapter's presence after the terminal's presence step
+   *  moved ({@link startPresenceStepSensor} records it, once per terminal).
+   *  Only the detector that owns a published presence moves it; a
+   *  session-backed value is never touched — once a transcript speaks, it is
+   *  the transcript's word that stands. */
+  const republishPresence = (): void => {
     if (stopped) return;
-    const fg = currentForeground.foregroundPid;
-    if (fg === undefined) return;
-    agentState.presenceStep = { pid: fg, saw };
     const published = agentState.mirror?.info;
     if (published?.kind === kind && isAgentPresence(published))
       publishPresence(published.sessionId);
-  }
+  };
+  agentState.presenceListeners.add(republishPresence);
 
   // `reconcile` must never throw. It is called bare from four channel
   // `onEvent` callbacks — and a throw inside `onEvent` breaks out of
@@ -1049,7 +1052,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     // repository, so which one is THIS terminal's is decided by the ownership
     // arbiter — a session belongs to at most one terminal (juspay/kolu#2057).
     const offered = adapter.resolveSessions(state, plog);
-    if (offered === null) {
+    if (offered === null && current !== null) {
       // The adapter could not READ its session store — ignorance, not an
       // answer. Leave the row, the watcher and the ownership claim exactly as
       // they are and wait for the next reconcile; treating this as "offers
@@ -1058,10 +1061,17 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
       plog.debug("session store unreadable — holding the previous match");
       return;
     }
+    // With NO session held there is nothing a read fault could hand away, and
+    // what is left to decide — is this agent's binary in front, is the shell
+    // idle — is the PROCESS's answer, which the store has no say in. An agent
+    // whose store does not exist yet (Codex and OpenCode keep SQLite databases
+    // a brand-new install has not created) is still an agent in front of you.
+    if (offered === null)
+      plog.debug("session store unreadable — reading the process alone");
     const next = claimSession(
       adapter.kind,
       terminalId,
-      offered.map((session) => ({
+      (offered ?? []).map((session) => ({
         key: adapter.sessionKey(session),
         // With no episode clock the arbiter cannot judge a date, so do not pay
         // for one — this is per candidate, per terminal, per WAL write.
@@ -1355,17 +1365,9 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     onEvent: () => scheduleCommandRunReconciles(),
     onError: (err) => plog.error({ err }, "publisher subscription failed"),
   });
-  // THE SCREEN SETTLED — the host's quiet machinery says this terminal's agent,
-  // `starting` or `prompted`, went quiet — or A WRITE SUBMITTED. Nothing here
-  // decides quiet or what a submit is; it records which happened last.
-  const cleanupScreenSettled = signals.screenSettled.consume({
-    onEvent: () => notePresenceStep("settled"),
-    onError: (err) => plog.error({ err }, "screen-settled subscription failed"),
-  });
-  const cleanupSubmitted = signals.submitted.consume({
-    onEvent: () => notePresenceStep("submitted"),
-    onError: (err) => plog.error({ err }, "submitted subscription failed"),
-  });
+  // THE PRESENCE STEP is recorded once per terminal, not here
+  // (`startPresenceStepSensor`); this detector only republishes its own
+  // presence when told the step moved (`republishPresence`, registered above).
   reconcile();
 
   return () => {
@@ -1375,8 +1377,7 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     cleanupForeground();
     cleanupCwd();
     cleanupCommandRun();
-    cleanupScreenSettled();
-    cleanupSubmitted();
+    agentState.presenceListeners.delete(republishPresence);
     if (registeredForExternal) {
       activations.get(adapter.kind)?.reconcilers.delete(reconcile);
     }
@@ -1385,6 +1386,49 @@ export function startAgentSensor<Session, Info extends AgentInfoShape>(
     // next.
     releaseTerminal(adapter.kind, terminalId);
     plog.debug("stopped");
+  };
+}
+
+/** THE PRESENCE STEP — what padi last SAW of the terminal's current foreground
+ *  process: its screen settling (`screenSettled`, from the host's quiet
+ *  machinery) or a write that submitted (`submitted`, from the host's input
+ *  seam). One terminal-level fact, so ONE consumer records it against the
+ *  foreground pid of the moment, and then tells every agent detector
+ *  (`AgentEngineState.presenceListeners`) — the one owning a published
+ *  presence republishes it in its new state. Nothing here decides quiet or what
+ *  a submit is. */
+export function startPresenceStepSensor(
+  agentState: AgentEngineState,
+  terminalId: TerminalId,
+  signals: Pick<SensorSignals, "foreground" | "screenSettled" | "submitted">,
+  log: Logger,
+): () => void {
+  const plog = log.child({ provider: "presence", terminal: terminalId });
+  let foregroundPid: number | undefined;
+  const note = (saw: "settled" | "submitted"): void => {
+    if (foregroundPid === undefined) return;
+    agentState.presenceStep = { pid: foregroundPid, saw };
+    for (const republish of agentState.presenceListeners) republish();
+  };
+  const stops = [
+    signals.foreground.consume({
+      onEvent: (fg) => {
+        foregroundPid = fg.foregroundPid;
+      },
+      onError: (err) => plog.error({ err }, "foreground subscription failed"),
+    }),
+    signals.screenSettled.consume({
+      onEvent: () => note("settled"),
+      onError: (err) =>
+        plog.error({ err }, "screen-settled subscription failed"),
+    }),
+    signals.submitted.consume({
+      onEvent: () => note("submitted"),
+      onError: (err) => plog.error({ err }, "submitted subscription failed"),
+    }),
+  ];
+  return () => {
+    for (const stop of stops) stop();
   };
 }
 
@@ -1503,11 +1547,18 @@ export function startSensors(
   );
   const stopPorts = startPortSensor(terminalId, signals, emit, log);
   const stopGrid = startGridSensor(terminalId, signals, emit, log);
+  const stopPresenceStep = startPresenceStepSensor(
+    agentState,
+    terminalId,
+    signals,
+    log,
+  );
   return () => {
     stopCwd();
     stopAgentCommand();
     stopGit();
     stopPr();
+    stopPresenceStep();
     for (const stop of stopAgents) stop();
     stopProcess();
     stopPorts();

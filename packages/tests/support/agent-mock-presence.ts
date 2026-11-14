@@ -23,11 +23,11 @@
  *  (never a bare `exec`) keeps bash as the pty's foreground process, so comm
  *  reads the agent's name for as long as the stand-in is resident. */
 
-import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { AGENT_VOCABS } from "kolu-agents";
+import { stageRenamedBash } from "./renamed-bash.ts";
 
 /** One registered agent's stand-in identity: the wire `kind` the tile chrome
  *  renders, and the binary NAME its CLI grammar declares. */
@@ -71,25 +71,22 @@ export function standInGoneLine(kind: string): string {
 }
 
 /** Stage one renamed copy of `bash` per registered agent under a scenario-owned
- *  directory, and hand back the absolute paths keyed by kind. The copy — rather
- *  than a symlink or a wrapper script — is what makes the kernel's
- *  `/proc/<pid>/comm` (and darwin's KERN_PROC_PATHNAME) read the agent's name,
- *  which is the single input padi's sensor gets. */
+ *  directory, and hand back the absolute paths keyed by kind. The rename trick
+ *  itself lives in `stageRenamedBash` — this only picks the directory and
+ *  re-keys the result by wire `kind`. */
 export function stageStandInBins(standIns: readonly PresenceStandIn[]): {
   dir: string;
   bins: Record<string, string>;
 } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-presence-bins-"));
-  const bash = execSync("command -v bash", { encoding: "utf8" }).trim();
+  // Two kinds could, in principle, declare the same basename; staging by name
+  // and re-keying keeps this a plain map over the registry.
+  const staged = stageRenamedBash(
+    dir,
+    standIns.map((s) => s.basename),
+  );
   const bins: Record<string, string> = {};
-  for (const { kind, basename } of standIns) {
-    const target = path.join(dir, basename);
-    // Two kinds could, in principle, declare the same basename; copying twice
-    // is harmless and keeps this loop a plain map over the registry.
-    fs.copyFileSync(bash, target);
-    fs.chmodSync(target, 0o755);
-    bins[kind] = target;
-  }
+  for (const { kind, basename } of standIns) bins[kind] = staged[basename];
   return { dir, bins };
 }
 
