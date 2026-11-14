@@ -211,3 +211,42 @@ Kept verbatim because they are plain names with inbound links: `### Failure and 
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs --old-lines 930-1213`: 0 missing).
+
+## Server-side subpaths (old: `Per-face expose`, `surfaceRpcServerLayer`, `serveOverStdio` lifetime)
+
+- Old lines 1214–1401. Words (`wc -w`): 2,336 → 2,423. The growth is the index table and the entry headings; before, the group was two 100-word table cells, one 190-word cell, three long paragraphs and two `<Aside>`s.
+- Structure: a new `##` group with an 11-row index table, then `### Per-face \`expose\` (\`@kolu/surface/expose\`)` (frozen, verbatim) holding one `####` entry per export, then `### \`surfaceRpcServerLayer(group, handlers)\``, `### \`serveOverUnixSocket\` teardown` and `### \`serveOverStdio\` lifetime`.
+- The two `<Aside>`s became entry sections: "A hand-built serve path gates itself" and "A gated face over a LIVE bundle is rebuilt when the roster moves" → `A gated face over a live bundle`.
+- The nine long cells of the old `| Export | Role |` table became `####` entries, one per export; the old first-column texts are kept verbatim as the index table's link text. The `| Key | Grants |` table stays, with its cells cut to the limit and the detail moved to the list under `What a key grants`.
+- The `serveOverUnixSocket` `close()` paragraph sat inside the `surfaceRpcServerLayer` entry and documents neither of that entry's exports; it is now its own `### \`serveOverUnixSocket\` teardown` entry, facts unchanged.
+
+### Headings renamed
+
+| Old | New | Inbound links |
+| --- | --- | --- |
+| `surfaceRpcServerLayer` — a member's defect is not the wire's | `surfaceRpcServerLayer(group, handlers)` | none |
+| `serveOverStdio` lifetime — selected by construction | `serveOverStdio` lifetime | none |
+
+`### Per-face \`expose\` (\`@kolu/surface/expose\`)` is unchanged (frozen; many inbound links).
+
+### Moved
+
+None. The `disableFatalDefects` reason, the `exposeRootedFaces` disjointness reason and the `exposureMutates` safety-default reason are short "because" clauses attached to their constraints, and stay in their entries.
+
+### Cut
+
+| Fact | Tag |
+| --- | --- |
+| "which is what every face did before this existed" (on omitting `expose`) | history |
+| "The resolved value itself did change: a benign write death used to read `"error"` here and now reads `"end"`" | history |
+| "as before", on who owns the process lifetime under an explicit `transport` | history |
+| "which is what makes 'the same key means the same thing on every face' true rather than aspirational" — the fact is stated plainly | rationale |
+| "the ONE home for it", "and the middle one is the point", "selected by construction", "a member's defect is not the wire's" | rationale |
+| "but there is no listener worth having on the far side of a gate that never took effect" | rationale |
+| Capitals for emphasis: `ONE`, `OWN`, `EXIST`, `LIVE`, `MUTATING` | — (style, no fact) |
+
+The code block's `TYPE` and `NAMESPACE` capitals stay: fenced blocks are copied byte-exact.
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs --old-lines 1214-1401`: 0 missing).

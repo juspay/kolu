@@ -1707,14 +1707,34 @@ with no group or other bits.
   private".
 - It returns `true` on platforms without uid semantics.
 
+## Server-side subpaths
+
+Two subpaths sit under a serve path: `@kolu/surface/expose` gates which members
+a face serves, and `@kolu/surface/server` builds the `RpcServer` half every
+serve site is made of.
+
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`ExposeMap<S>` · `ToolExposure`](#exposemaps--toolexposure) | `/expose` | The map shape a face's allowlist is written in. |
+| [`exposureMutates(exposure)`](#exposuremutatesexposure) | `/expose` | Does this exposure declare a mutating procedure? |
+| [`classifyExpose(spec, map, face?)`](#classifyexposespec-map-face) | `/expose` | The key grammar: what each key of a map names. |
+| [`exposeFace(surface, map)`](#exposefacesurface-map) | `/expose` | Map plus standalone surface to a `FaceExposure`. |
+| [`exposeFaces(surfaces, maps)`](#exposefacessurfaces-maps) | `/expose` | The sibling-bundle twin: one map per sibling. |
+| [`exposeRootedFaces(core, coreMap, siblings, siblingMaps)`](#exposerootedfacescore-coremap-siblings-siblingmaps) | `/expose` | The rooted-bundle twin: root and siblings gated as one face. |
+| [`restrictHandlers(group, handlers, exposure?)`](#restricthandlersgroup-handlers-exposure) | `/expose` | Applies an exposure to a handler record. |
+| [`ServedGeneration` · `ServedGenerationSource` · `restrictServedGeneration(source)`](#servedgeneration--servedgenerationsource--restrictservedgenerationsource) | `/expose` | The triple a listener serves, and how it obtains it. |
+| [`SurfaceMemberNotExposed` · `ExposeMapError`](#surfacemembernotexposed--exposemaperror) | `/expose` | The per-request refusal, and every boot-time refusal. |
+| [`surfaceRpcServerLayer(group, handlers)`](#surfacerpcserverlayergroup-handlers) | `/server` | The `RpcServer` layer, with the defect policy a surface needs. |
+| [`serveOverStdio` lifetime](#serveoverstdio-lifetime) | `.` | What happens after a stdio serve resolves. |
+
 ### Per-face `expose` (`@kolu/surface/expose`)
 
 One surface is usually served by several faces at once, and they do not carry
-the same trust — a local CLI on a `0700` socket is not an anonymous tab someone
-left open. A face therefore takes its **own** default-deny allowlist, in the
+the same trust. A local CLI on a `0700` socket is not an anonymous tab someone
+left open. A face therefore takes its own default-deny allowlist, in the
 same `ExposeMap` shape [`@kolu/surface-mcp`](/surface/ref-surface-mcp) takes.
 
-Three steps, and the middle one is the point:
+Three steps, and the middle one binds the map to its surface:
 
 ```ts
 import { exposeFace } from "@kolu/surface/expose";
@@ -1732,110 +1752,203 @@ serveOverUnixSocket({ socketPath, group, handlers, log, expose: cli });
 ```
 
 Membership is the allowlist. Omit `expose` and the face serves the whole
-surface, which is what every face did before this existed; pass one and every
-member it does not name is refused **on that face** while another face may still
-serve it.
+surface; pass one and every member it does not name is refused on that face,
+while another face may still serve it.
 
-| Export | Role |
-| --- | --- |
-| `ExposeMap<S>` · `ToolExposure` | the map shape — the ONE home for it. `@kolu/surface-mcp` imports it from here rather than re-exporting or declaring its own |
-| `exposureMutates(exposure)` | does this exposure declare a MUTATING procedure? Conservative: anything that does not explicitly say `mutates: false` is mutating. One derivation rather than one per face, because it is a **safety** default — a read-only hint can let a host auto-execute a call unconfirmed, and a rule spelled twice can be relaxed in one place and noticed in neither |
-| `classifyExpose(spec, map, face?)` | **the** key grammar — what each key names, with the member spec it resolved carried on the entry. Every face reads a map through this one function, `serveSurfaceAsMcp` included, which is what makes "the same key means the same thing on every face" true rather than aspirational. `face` is the optional brand a non-framework face stamps on the refusal, at the throw — `@kolu/surface-mcp` passes its adapter name |
-| `exposeFace(surface, map)` | map + standalone surface → `FaceExposure`: the tag set one **wire** face serves, plus the `universe` of tags the surface it was built from advertises |
-| `exposeFaces(surfaces, maps)` | the sibling-bundle twin: one map per sibling, keyed the way the bundle is, over the **standalone** sibling surfaces. A fold of `exposeFace`'s step over `composeSurfaceContracts` — the same composition `implementSurfaces` binds against, so the scoped tags the gate names and the ones the runtime serves come from one walk. A sibling with no map is fully denied; a map for a sibling that does not EXIST is an `ExposeMapError` |
-| `exposeRootedFaces(core, coreMap, siblings, siblingMaps)` | the **rooted-bundle** twin: an unprefixed root surface beside the sibling map, gated as ONE face. It exists so the two halves are never unioned by hand — a set union carries an unwritten precondition (it is sound only while the two groups are disjoint), and when they are not it keeps one copy of the shared tag, `restrictHandlers` still matches, and one member answers under the other's policy. The universe here is `mergeDisjointGroups` of the two halves, so disjointness is *established* by the same counted composition the serve path runs; and the root is refused unless it is **standalone**, the same law `connectSurfaces` states about its own `core`. It gates surfaces only — tags multiplexed on the wire that are not a surface (`connectSurfaces`' `extraGroups`) are not part of any `FaceExposure` and are gated, if at all, by whatever serves them |
-| `restrictHandlers(group, handlers, exposure?)` | apply it — the filter the two faces above call for you. **Total** over an absent exposure: no policy returns the handlers unchanged (the same record, not a copy), so the "omit `expose` = ungated" rule has one implementation. Also where the reserved members are granted, and where the handler record is proved to be exactly the group's |
-| `ServedGeneration` · `ServedGenerationSource` · `restrictServedGeneration(source)` | the triple a listener serves (`group`, `handlers`, `expose?`), and how it obtains it: `{ group, handlers }` at the call, or `{ live: () => triple }` re-read at each accept. Both `serveSurfaceApp` and `serveOverUnixSocket` take the source |
-| `SurfaceMemberNotExposed` · `ExposeMapError` | the per-request refusal, and every boot-time refusal this module raises — a map that names nothing on its surface, and an exposure that does not describe the group being served. `face` carries which door the consumer came through. `SurfaceMemberNotExposed` is matchable **server-side**; over the wire it arrives as an unstructured defect, so a client reads its message text |
+#### What a key grants
 
 | Key | Grants |
 | --- | --- |
-| `"<ns>.<verb>"` → a `ToolExposure` (`"tool"` / `{ tool: { mutates } }`) | that one procedure — split at whichever dot the spec's own procedures resolve at, **uniquely**: a member name may itself contain a `.` (only `/` is refused), so a key two procedures both answer to is refused as ambiguous rather than granted to the first. A malformed `ToolExposure` is refused here too, so the erased call path gets the same `ExposeMapError` the typed one gets at compile time. A wire face reads only the membership — `mutates` describes how an MCP host should *present* a call, not whether this face may make it. "A dot" means the ASCII full stop: a lookalike (`a．b`, `a․b`) reads as a primitive key and refuses as one |
-| `"<member>"` → `"resource"` | the **read** verbs that primitive declares (`get` / `keys` / `deltas` — `@kolu/surface/define`'s `READ_VERBS`, which lives beside the verb vocabulary it partitions), never its writes (`set` / `patch` / `upsert` / `delete` / `test__set`) — the tab reads the cell, the socket writes it. A primitive that must be **writable** on a gated face therefore has no spelling today: `"resource"` is the read word and there is no second one yet (see the note at the end of this section) |
+| `"<ns>.<verb>"` → a `ToolExposure` (`"tool"` / `{ tool: { mutates } }`) | That one procedure, split at whichever dot the spec's own procedures resolve at, uniquely. |
+| `"<member>"` → `"resource"` | The read verbs that primitive declares, never its writes. |
 
-The three reserved `system/*` members are **always** reachable on a gated face
-(per sibling, in a bundle) and are not spellable in a map: a client's heartbeat
-rides `system/live`, its stale-tab handshake `system/identity`, and its clock
-offset `system/clockNow`. Gating those off would not restrict the face, it would
-break the link. That carve-out belongs to `restrictHandlers`, which asks
-`isReservedSurfaceTag` (`@kolu/surface/define`) of each tag as it applies the
-policy — so it holds for **any** `FaceExposure`, including one a consumer
-assembled itself, rather than only the ones the constructors in this family built.
+- A member name may itself contain a `.` (only `/` is refused), so a key two
+  procedures both answer to is refused as ambiguous rather than granted to the
+  first.
+- A malformed `ToolExposure` is refused here too, so the erased call path gets
+  the same `ExposeMapError` the typed one gets at compile time.
+- A wire face reads only the membership. `mutates` describes how an MCP host
+  should present a call, not whether this face may make it.
+- "A dot" means the ASCII full stop. A lookalike (`a．b`, `a․b`) reads as a
+  primitive key and refuses as one.
+- The read verbs are `get` / `keys` / `deltas` (`@kolu/surface/define`'s
+  `READ_VERBS`, which lives beside the verb vocabulary it partitions). The
+  writes are `set` / `patch` / `upsert` / `delete` / `test__set`: the tab reads
+  the cell, the socket writes it.
+- A primitive that must be writable on a gated face has no spelling today:
+  `"resource"` is the read word and there is no second one. It is a known gap,
+  tracked with the feature itself
+  ([#2169](https://github.com/juspay/kolu/issues/2169)).
+- Every key resolves against the surface's own members. A spec table is a plain
+  object literal, so it inherits `Object.prototype`: `toString`, `constructor`,
+  `valueOf` and their siblings name nothing and refuse like any other absent
+  key, while a member a surface really names `toString` stays exposable on
+  every face.
 
-A denied member **answers** — it does not vanish. Every tag stays bound, and the
-denied ones are replaced with a handler that raises `SurfaceMemberNotExposed`
-(`surface: "<tag>" is not exposed on this face`) as a per-request **defect**, in
-the shape its `Rpc` promised (a dying `Stream` for a streaming member). The class
-is matchable in-process; a *client* sees only the message text, because a defect
-crosses the wire unstructured. It is a
-defect and not a typed failure because there is no declared arm to fail into —
-a primitive's `Rpc` has no error channel and a procedure's defaults to
-`Schema.Never` — and because `surfaceRpcServerLayer` runs with
-`disableFatalDefects`, one member's refusal never touches a sibling
-subscription on the same connection.
+#### The reserved members
 
-Every key resolves against the surface's OWN members. A spec table is a plain
-object literal, so it inherits `Object.prototype`: `toString`, `constructor`,
-`valueOf` and their siblings name nothing and refuse like any other absent key,
-while a member a surface really *names* `toString` stays exposable on every face.
+The three reserved `system/*` members are always reachable on a gated face (per
+sibling, in a bundle) and are not spellable in a map: a client's heartbeat rides
+`system/live`, its stale-tab handshake `system/identity`, and its clock offset
+`system/clockNow`. Gating those off would break the link rather than restrict
+the face.
 
-Everything is checked before anything is served, and nothing a map can get wrong
-is a no-op. `exposeFace` throws an `ExposeMapError` on a key that names nothing,
-a key **two** of the spec's procedures answer to, a procedure exposed as
-`"resource"`, a primitive exposed as a tool, a malformed `ToolExposure` (the
-`{ tool: … }` wrapper forgotten), and a key that resolves but grants **nothing** —
-a write-only primitive, whose `"resource"` offers only read verbs the member does
-not declare. `exposeFaces` adds one: a map keyed by a sibling the bundle does not
-have (an omitted sibling is a deliberate full denial; a *misspelled* one is a
-policy nobody reads). `exposeRootedFaces` shares that refusal — naming itself, so
-a reader is not sent to the wrong door — and adds one of its own: a root that is
-not standalone. A surface's prefix is read off the value, so a sibling-scoped
-surface handed in as the root carries `surface/<key>/…` tags, which either collide
-with that sibling or quietly describe a bundle nobody serves.
-`restrictHandlers` throws the
-same class if the exposure's `universe` — the tags the surface it was built from
-advertises — is not *exactly* the set the group being served carries: a
-**different** surface and a merely **partial** one (a bundle exposed with a
-sibling left out, which would silently deny that sibling's `system/live`
-heartbeat) are both caught, in both directions. It also throws if the exposure
-grants a tag the surface does not serve (reachable only on a hand-assembled
-`FaceExposure`, and otherwise ignored in silence), and if the handler
-record is not exactly the group's, the same proof `implementSurface` owes when it
-builds one. None of them degrade to a quieter face, because a gate that matches
-nothing denies everything and still binds — the one failure mode that looks like
-success from outside. On `serveOverUnixSocket` this is the one thing that
-**rejects**: every *transport* verdict comes back as an `outcome` a host can
-survive, but there is no listener worth having on the far side of a gate that
-never took effect.
+That carve-out belongs to `restrictHandlers`, which asks `isReservedSurfaceTag`
+(`@kolu/surface/define`) of each tag as it applies the policy. It therefore
+holds for any `FaceExposure`, including one a consumer assembled itself, and not
+only the ones the constructors in this family built.
 
-<Aside type="note" title="A hand-built serve path gates itself">
-  `serveSurfaceApp` and `serveOverUnixSocket` take `expose` directly; every other
-  serve path calls `restrictHandlers` itself and serves the result. The rule, and
-  why, live in one place — the module header of
-  [`@kolu/surface/expose`](https://github.com/juspay/kolu/blob/master/packages/surface/src/expose.ts).
-</Aside>
+#### What a denied member does
 
-<Aside type="caution" title="A gated face over a LIVE bundle is rebuilt when the roster moves">
-  On an
-  [`implementRootedSurfaces`](#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces)
-  bundle, a mount or a drop changes the served group, so an exposure built for the
-  previous roster no longer set-equals it and `restrictHandlers` **refuses** —
-  loudly, which is the answer a default-deny gate owes here (the alternative is a
-  face that silently denies a whole sibling). A gated serve over a live bundle
-  therefore builds the exposure *and* the restricted record from the current
-  roster, per accepted connection.
+A denied member answers; it does not vanish. Every tag stays bound. The denied
+ones are replaced with a handler that raises `SurfaceMemberNotExposed`
+(`surface: "<tag>" is not exposed on this face`) as a per-request defect, in the
+shape its `Rpc` promised (a dying `Stream` for a streaming member).
 
-  Both listener doors do that when passed
-  `{ live: () => ({ group, handlers, expose }) }` and the thunk rebuilds the
-  exposure from the current roster. A static `expose` next to a live pair is
-  the mismatch `restrictHandlers` refuses.
-</Aside>
+- The class is matchable in-process. A client sees only the message text,
+  because a defect crosses the wire unstructured.
+- It is a defect and not a typed failure because there is no declared arm to
+  fail into: a primitive's `Rpc` has no error channel and a procedure's defaults
+  to `Schema.Never`.
+- `surfaceRpcServerLayer` runs with `disableFatalDefects`, so one member's
+  refusal never touches a sibling subscription on the same connection.
 
-A member that must be **writable** on a gated face has no spelling today — a
-known gap, tracked with the feature itself
-([#2169](https://github.com/juspay/kolu/issues/2169)).
+#### `ExposeMap<S>` · `ToolExposure`
 
-### `surfaceRpcServerLayer` — a member's defect is not the wire's
+The map shape, and the one home for it. `@kolu/surface-mcp` imports it from here
+rather than re-exporting or declaring its own.
+
+#### `exposureMutates(exposure)`
+
+Does this exposure declare a mutating procedure? It is conservative: anything
+that does not explicitly say `mutates: false` is mutating.
+
+One derivation serves every face, because it is a safety default. A read-only
+hint can let a host auto-execute a call unconfirmed, and a rule spelled twice
+can be relaxed in one place and noticed in neither.
+
+#### `classifyExpose(spec, map, face?)`
+
+The key grammar: what each key names, with the member spec it resolved carried
+on the entry.
+
+- Every face reads a map through this one function, `serveSurfaceAsMcp`
+  included, so the same key means the same thing on every face.
+- `face` is the optional brand a non-framework face stamps on the refusal, at
+  the throw. `@kolu/surface-mcp` passes its adapter name.
+
+#### `exposeFace(surface, map)`
+
+Map plus standalone surface gives a `FaceExposure`: the tag set one wire face
+serves, plus the `universe` of tags the surface it was built from advertises.
+
+Everything is checked before anything is served, and nothing a map can get
+wrong is a no-op. It throws an `ExposeMapError` on:
+
+- a key that names nothing;
+- a key two of the spec's procedures answer to;
+- a procedure exposed as `"resource"`, or a primitive exposed as a tool;
+- a malformed `ToolExposure` (the `{ tool: … }` wrapper forgotten);
+- a key that resolves but grants nothing: a write-only primitive, whose
+  `"resource"` offers only read verbs the member does not declare.
+
+#### `exposeFaces(surfaces, maps)`
+
+The sibling-bundle twin: one map per sibling, keyed the way the bundle is, over
+the standalone sibling surfaces.
+
+- It is a fold of `exposeFace`'s step over `composeSurfaceContracts`, the same
+  composition `implementSurfaces` binds against, so the scoped tags the gate
+  names and the ones the runtime serves come from one walk.
+- A sibling with no map is fully denied.
+- A map for a sibling that does not exist is an `ExposeMapError`. An omitted
+  sibling is a deliberate full denial; a misspelled one is a policy nobody
+  reads.
+
+#### `exposeRootedFaces(core, coreMap, siblings, siblingMaps)`
+
+The rooted-bundle twin: an unprefixed root surface beside the sibling map,
+gated as one face. `exposeRootedFaces` exists so the two halves are never
+unioned by hand. A set union is sound only while the two groups are disjoint;
+when they are not it keeps one copy of the shared tag, `restrictHandlers` still
+matches, and one member answers under the other's policy.
+
+- The `universe` here is `mergeDisjointGroups` of the two halves, so
+  disjointness is established by the same counted composition the serve path
+  runs.
+- The root is refused unless it is standalone, the same rule `connectSurfaces`
+  states about its own `core`. A surface's prefix is read off the value, so a
+  sibling-scoped surface handed in as the root carries `surface/<key>/…` tags,
+  which either collide with that sibling or quietly describe a bundle nobody
+  serves.
+- It shares `exposeFaces`' refusal of a map keyed by a sibling the bundle does
+  not have, naming itself in the error so a reader is not sent to the wrong
+  door.
+- It gates surfaces only. Tags multiplexed on the wire that are not a surface
+  (`connectSurfaces`' `extraGroups`) are not part of any `FaceExposure`, and are
+  gated, if at all, by whatever serves them.
+
+#### `restrictHandlers(group, handlers, exposure?)`
+
+Applies an exposure: the filter the two faces above call for you. It is also
+where the reserved members are granted, and where the handler record is proved
+to be exactly the group's.
+
+- It is total over an absent exposure. No policy returns the handlers unchanged
+  (the same record, not a copy), so the "omit `expose` = ungated" rule has one
+  implementation.
+- It throws `ExposeMapError` if the exposure's `universe` (the tags the surface
+  it was built from advertises) is not exactly the set the group being served
+  carries. A different surface and a merely partial one (a bundle exposed with a
+  sibling left out, which would silently deny that sibling's `system/live`
+  heartbeat) are both caught, in both directions.
+- It throws if the exposure grants a tag the surface does not serve, reachable
+  only on a hand-assembled `FaceExposure` and otherwise ignored in silence.
+- It throws if the handler record is not exactly the group's, the same proof
+  `implementSurface` owes when it builds one.
+- None of these degrade to a quieter face. A gate that matches nothing denies
+  everything and still binds, which is the one failure mode that looks like
+  success from outside. On `serveOverUnixSocket` this is the one thing that
+  rejects: every transport verdict comes back as an `outcome` a host can
+  survive.
+
+#### `ServedGeneration` · `ServedGenerationSource` · `restrictServedGeneration(source)`
+
+The triple a listener serves (`group`, `handlers`, `expose?`), and how it
+obtains it: `{ group, handlers }` at the call, or `{ live: () => triple }`
+re-read at each accept. Both `serveSurfaceApp` and `serveOverUnixSocket` take
+the source.
+
+#### `SurfaceMemberNotExposed` · `ExposeMapError`
+
+The per-request refusal, and every boot-time refusal this module raises: a map
+that names nothing on its surface, and an exposure that does not describe the
+group being served. `face` carries which door the consumer came through.
+`SurfaceMemberNotExposed` is matchable server-side; over the wire it arrives as
+an unstructured defect, so a client reads its message text.
+
+#### A hand-built serve path gates itself
+
+`serveSurfaceApp` and `serveOverUnixSocket` take `expose` directly. Every other
+serve path calls `restrictHandlers` itself and serves the result. The rule lives
+in the module header of
+[`@kolu/surface/expose`](https://github.com/juspay/kolu/blob/master/packages/surface/src/expose.ts).
+
+#### A gated face over a live bundle
+
+On an
+[`implementRootedSurfaces`](#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces)
+bundle, a mount or a drop changes the served group, so an exposure built for the
+previous roster no longer set-equals it and `restrictHandlers` refuses, loudly.
+The alternative is a face that silently denies a whole sibling.
+
+A gated serve over a live bundle therefore builds the exposure and the
+restricted record from the current roster, per accepted connection. Both
+listener doors do that when passed `{ live: () => ({ group, handlers, expose }) }`
+and the thunk rebuilds the exposure from the current roster. A static `expose`
+next to a live pair is the mismatch `restrictHandlers` refuses.
+
+### `surfaceRpcServerLayer(group, handlers)`
 
 ```ts
 surfaceRpcServerLayer(group, handlers)
@@ -1848,52 +1961,55 @@ a multiplexed surface requires. A caller supplies only the protocol,
 serialization and transport layers below it, so the policy cannot differ
 between the unix-socket, websocket and stdio legs.
 
-It serves with **`disableFatalDefects: true`**. Effect RPC's default answers an
-unhandled handler defect with a *connection-level* `Defect` message, which fails
-every other in-flight request on that connection and closes the transport — so
-on a surface that multiplexes a dozen members over one socket, one member's bad
-minute is a total blackout. With this on, the defect is delivered as **that
-request's own exit**: the subscriber that asked sees it, loudly, and every
-sibling subscription keeps flowing. Nothing is swallowed — the server still
-reports the cause through Effect's logger, and the failing member still fails.
+- It serves with `disableFatalDefects: true`. Effect RPC's default answers an
+  unhandled handler defect with a connection-level `Defect` message, which fails
+  every other in-flight request on that connection and closes the transport. On
+  a surface that multiplexes a dozen members over one socket, one member's bad
+  minute is a total blackout.
+- With it on, the defect is delivered as that request's own exit: the subscriber
+  that asked sees it, loudly, and every sibling subscription keeps flowing.
+- Nothing is swallowed. The server still reports the cause through Effect's
+  logger, and the failing member still fails.
+- Reach for it only when hand-building a serve path; the three entry points
+  above already go through it.
 
-Reach for it only when hand-building a serve path; the three entry points above
-already go through it.
+### `serveOverUnixSocket` teardown
 
-`serveOverUnixSocket`'s listener `close()` runs the whole ordered teardown:
-it stops accepting, **disconnects every established peer**, and removes the
-socket file. Each severed connection then settles its own serve in the
-event-loop turns behind the call — in-flight subscriptions finalize and
-their timers clear — without `close()` waiting on it. A closed host cannot go on
-serving live peers; a wedged half-open peer is destroyed without drain
-negotiation (its unflushed frames are dropped — a host that closed is
-closed). Closing one listener never touches another listener's connections.
-`close()` stays synchronous, idempotent, and safe from a `process.on("exit")`
-handler.
+The listener's `close()` runs the whole ordered teardown: it stops accepting,
+disconnects every established peer, and removes the socket file.
 
-### `serveOverStdio` lifetime — selected by construction
+- Each severed connection then settles its own serve in the event-loop turns
+  behind the call (in-flight subscriptions finalize and their timers clear)
+  without `close()` waiting on it. A closed host cannot go on serving live
+  peers.
+- A wedged half-open peer is destroyed without drain negotiation, and its
+  unflushed frames are dropped.
+- Closing one listener never touches another listener's connections.
+- `close()` stays synchronous, idempotent, and safe from a
+  `process.on("exit")` handler.
+
+### `serveOverStdio` lifetime
 
 `serveOverStdio({ group, handlers })` never rejects: it resolves a discriminated
 `{ reason: "end" } | { reason: "error", error }` when the read stream ends.
-The `reason` classification is **arm-independent**: clean teardown reads as
-`"end"` from *both* directions — a clean EOF (the peer closed its end) and a
-benign write death (`EPIPE`/`ERR_STREAM_DESTROYED`, the peer's read side
-vanishing mid-push) — while `"error"` is reserved for a genuinely abnormal
-death (a read error, a frame-size limit violation, a non-benign write failure). What
-happens *after* the resolve is selected by the same construction that picks
-the transport:
 
-- **No `transport` override** (the default `process.stdin`/`stdout` — the
-  subprocess-agent case): the process IS the agent, and the framework owns
-  its lifetime. After the returned promise settles — every synchronous
-  post-settle continuation (an `await`-site's `dispose()` + log) still runs —
-  the framework **exits the process**: `0` for `"end"`, `1` for `"error"`.
-  There is no opt-out: a live handle (a poll interval, a watcher) can no
-  longer keep an agent alive after its link died.
-- **Explicit `transport`** (loopback pairs in tests, a socket, any embedded
-  peer): the promise resolves the value and the **caller** owns the process
-  lifetime, as before. *(The resolved value itself did change: a benign
-  write death used to read `"error"` here and now reads `"end"`.)*
+The `reason` classification is arm-independent. Clean teardown reads as `"end"`
+from both directions: a clean EOF (the peer closed its end) and a benign write
+death (`EPIPE`/`ERR_STREAM_DESTROYED`, the peer's read side vanishing
+mid-push). `"error"` is reserved for a genuinely abnormal death (a read error, a
+frame-size limit violation, a non-benign write failure).
+
+What happens after the resolve follows from how the transport was chosen:
+
+- No `transport` override (the default `process.stdin`/`stdout`, the
+  subprocess-agent case): the process is the agent, and the framework owns its
+  lifetime. After the returned promise settles, every synchronous post-settle
+  continuation (an `await`-site's `dispose()` and log) still runs, and then the
+  framework exits the process: `0` for `"end"`, `1` for `"error"`. There is no
+  opt-out, so a live handle (a poll interval, a watcher) cannot keep an agent
+  alive after its link died.
+- Explicit `transport` (loopback pairs in tests, a socket, any embedded peer):
+  the promise resolves the value and the caller owns the process lifetime.
 
 ### The face and its retry fence (`@kolu/surface/client`)
 
