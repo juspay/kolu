@@ -75,3 +75,21 @@ None.
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs`: 0 missing).
+
+## Accepting a browser socket
+
+- Words: 232 → 316. The growth is the index table and six entry headings, which replace two dense paragraphs and a table whose `gateStaleSocket` and `SurfaceSocketServing` cells were essays.
+- Headings renamed: none. `Accepting a browser socket` is kept verbatim, because `ref-surface` links to `#accepting-a-browser-socket`.
+- No asides in this section before or after.
+
+### Moved
+
+None.
+
+### Cut
+
+Nothing.
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs`: 0 missing).

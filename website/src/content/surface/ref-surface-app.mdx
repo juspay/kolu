@@ -474,29 +474,47 @@ The same rule as a request under the hashed prefix. The filename half is `chunkP
 
 ## Accepting a browser socket
 
-`acceptSurfaceSocket` (`@kolu/surface-app/server`) accepts a browser WebSocket
-onto a served surface. It owns the server-side liveness reaper and sequences
-**stale-gate → enrol → serve** in one `accept(...)`, so a socket can never be
-served un-enrolled. It is the server twin of the client's `connectSurface`
-watchdog.
+These are the pieces a hand-built listener assembles when `serveSurfaceApp` does not fit: the accept, the serve, the stale gate and the reaper.
 
-`serveSurfaceSocket({ group, handlers, socket, services? })` is the serve half —
-the browser-facing counterpart of `serveOverStdio` / `serveOverUnixSocket`,
-taking the same `{ group, handlers }` pair `implementSurface` returns (it replaces
-the oRPC `RPCHandler(...).upgrade(ws)` call). `services` is a `Layer` supplying
-whatever this **one** connection's handlers require — the seam a per-viewer fact
-rides (kolu's `viewerAddress` / `forwardedFor`, taken off the upgrade request's
-own socket and headers), because Effect's socket-server protocol has no
-per-request header channel.
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`acceptSurfaceSocket`](#acceptsurfacesocket) | `/server` | Accept, reap and sequence, in one call. |
+| [`serveSurfaceSocket`](#servesurfacesocket) | `/server` | Serve `{ group, handlers }` over one accepted socket. |
+| [`SurfaceSocketServing`](#surfacesocketserving) | `/server` | The handle `serveSurfaceSocket` returns. |
+| [`gateStaleSocket`](#gatestalesocket) | `/server` | The WS-upgrade handshake gate. |
+| [`startWsHeartbeat` · `heartbeatSweep`](#startwsheartbeat--heartbeatsweep) | `/server` | The server-side liveness reaper, and its one sweep. |
+| [`STALE_PROCESS_CLOSE_CODE` · `SERVER_PROCESS_ID_PARAM`](#stale_process_close_code--server_process_id_param) | `/server` | The stale-tab vocabulary the two sides share. |
 
-| Export | Role |
-| --- | --- |
-| `acceptSurfaceSocket` | accept + reap + sequence, in one call |
-| `serveSurfaceSocket` | serve `{ group, handlers }` over one accepted socket, with per-connection `services` |
-| `SurfaceSocketServing` | the handle `serveSurfaceSocket` returns: `close(code?, reason?)` — the ONE close, whether the listener's drain or the app calls it, frame validated first — and `done`, the fault channel to observe |
-| `gateStaleSocket` | the WS-upgrade handshake gate (error-handler-first; close `4001`). It takes **no** live id: it compares the echoed `pid` against this process's `surfaceProcessId()` (`@kolu/surface/identity`) — the same value the reserved `system/identity` member answers with, so the two sides cannot be pointed at different strings |
-| `startWsHeartbeat` · `heartbeatSweep` | the server-side liveness reaper and its one sweep |
-| `STALE_PROCESS_CLOSE_CODE` · `SERVER_PROCESS_ID_PARAM` | the stale-tab vocabulary the gate and the client's close classifier share |
+### `acceptSurfaceSocket`
+
+`acceptSurfaceSocket` (`@kolu/surface-app/server`) accepts a browser WebSocket onto a served surface. It owns the server-side liveness reaper and sequences stale-gate, enrol and serve in one `accept(...)`, so a socket can never be served un-enrolled. It is the server twin of the client's `connectSurface` watchdog.
+
+### `serveSurfaceSocket`
+
+`serveSurfaceSocket({ group, handlers, socket, services? })` is the serve half: the browser-facing counterpart of `serveOverStdio` and `serveOverUnixSocket`. It takes the same `{ group, handlers }` pair `implementSurface` returns, and replaces the oRPC `RPCHandler(...).upgrade(ws)` call.
+
+- `services` is a `Layer` supplying whatever this one connection's handlers require.
+- It is the seam a per-viewer fact rides: kolu's `viewerAddress` and `forwardedFor`, taken off the upgrade request's own socket and headers.
+- Effect's socket-server protocol has no per-request header channel, which is why the fact arrives as a layer.
+
+### `SurfaceSocketServing`
+
+The handle `serveSurfaceSocket` returns: `close(code?, reason?)` and `done`.
+
+- `close` is the one close, whether the listener's drain or the app calls it, and the frame is validated first.
+- `done` is the fault channel to observe.
+
+### `gateStaleSocket`
+
+The WS-upgrade handshake gate (error-handler-first; close `4001`). It takes no live id: it compares the echoed `pid` against this process's `surfaceProcessId()` (`@kolu/surface/identity`). That is the same value the reserved `system/identity` member answers with, so the two sides cannot be pointed at different strings.
+
+### `startWsHeartbeat` · `heartbeatSweep`
+
+The server-side liveness reaper, and its one sweep.
+
+### `STALE_PROCESS_CLOSE_CODE` · `SERVER_PROCESS_ID_PARAM`
+
+The stale-tab vocabulary the gate and the client's close classifier share.
 
 ## Connecting from the client
 
