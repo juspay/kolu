@@ -206,15 +206,48 @@ describe("realDeliveryOps.ship", () => {
     expect(delivered()?.rootPath).not.toBe(args?.rootPath);
   });
 
-  it("a Linux host that would not take it is the route's words, naming the host and the path", async () => {
+  it("a Linux host that would not take a content-addressed closure is the route's words, naming the host and the path", async () => {
     vi.mocked(deliverClosure).mockResolvedValueOnce({
       ok: false,
       kind: "not-delivered",
       reason: "nix copy exit 1",
+      at: "target",
+      signedBecause: null,
     });
     expect(await ship()).toEqual({
       ok: false,
       message: `box could not take ${BUILT}: nix copy exit 1`,
+    });
+  });
+
+  it("a closure this machine could not stage names the machine running kolu, not the host", async () => {
+    vi.mocked(deliverClosure).mockResolvedValueOnce({
+      ok: false,
+      kind: "not-delivered",
+      reason:
+        "ca hash mismatch importing path '/nix/store/hb9w44irkq2r97yl6q0hghgf8f2lxrvg-python3.14-cyclopts-5.4.0'",
+      at: "sender",
+      signedBecause: null,
+    });
+    expect(await ship()).toEqual({
+      ok: false,
+      message: `the machine running kolu could not stage ${BUILT} for box: ca hash mismatch importing path '/nix/store/hb9w44irkq2r97yl6q0hghgf8f2lxrvg-python3.14-cyclopts-5.4.0'`,
+    });
+  });
+
+  it("a Linux host on the other side of Nix 2.35 that refused the closure sent as built is told why, with both versions, and the trust fix", async () => {
+    const because =
+      "its Nix 2.34.9 does not verify the content-addressed form this machine's Nix 2.35.6 writes";
+    vi.mocked(deliverClosure).mockResolvedValueOnce({
+      ok: false,
+      kind: "not-delivered",
+      reason: "lacks a signature by a trusted key",
+      at: "target",
+      signedBecause: because,
+    });
+    expect(await ship()).toEqual({
+      ok: false,
+      message: `box could not take ${BUILT}: lacks a signature by a trusted key. box was sent it as built here, signed by no one — ${because} — and takes it only when its Nix trusts the login kolu connects as: on box, add it to \`nix.settings.trusted-users\`.`,
     });
   });
 
@@ -223,10 +256,13 @@ describe("realDeliveryOps.ship", () => {
       ok: false,
       kind: "not-delivered",
       reason: "lacks a signature by a trusted key",
+      at: "target",
+      signedBecause:
+        "macOS kills a program whose code signature a content-addressed rewrite broke",
     });
     expect(await ship("aarch64-darwin", "ci@mac")).toEqual({
       ok: false,
-      message: `box could not take ${BUILT}: lacks a signature by a trusted key. box takes a profile built here only when its Nix trusts the login kolu connects as: on box, add it to \`nix.settings.trusted-users\`.`,
+      message: `box could not take ${BUILT}: lacks a signature by a trusted key. box was sent it as built here, signed by no one — macOS kills a program whose code signature a content-addressed rewrite broke — and takes it only when its Nix trusts the login kolu connects as: on box, add it to \`nix.settings.trusted-users\`.`,
     });
   });
 

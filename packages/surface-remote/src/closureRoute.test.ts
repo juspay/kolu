@@ -1,9 +1,15 @@
-/** Which form of a published closure a host pulls, from its Nix. */
+/** Which form of a closure travels to a host: the published route, from the
+ *  host's Nix, and the sender's staging, from the three Nixes it involves. */
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { closureRoute, signedBecause } from "./closureRoute";
+import {
+  closureRoute,
+  signedBecause,
+  stagingRoute,
+  stagingSignedBecause,
+} from "./closureRoute";
 
 const IA = "/nix/store/1xxnk4wx89kk1cfyfnqgz8hg5msbz0gw-agent-distro-vanilla";
 const CA = "/nix/store/r6r8xkl3fvi5is4ckfbl6sl1wacz2rak-agent-distro-vanilla";
@@ -66,6 +72,98 @@ describe("signedBecause", () => {
     expect(signedBecause("nix-line", linux("2.35.2"))).toBe(
       "its Nix 2.35.2 cannot verify the content-addressed form the publisher writes (written by Nix 2.34; Nix 2.17 through 2.34 can)",
     );
+  });
+});
+
+describe("stagingRoute", () => {
+  const OLD = "2.34.8";
+  const NEW = "2.35.6";
+
+  it("over every (nix, this machine's store, the host's store) on either side of 2.35: content-addressed only when all three agree, else the first seat that disagrees", () => {
+    const seen: Record<string, unknown> = {};
+    for (const cli of [OLD, NEW])
+      for (const senderStore of [OLD, NEW])
+        for (const targetStore of [OLD, NEW])
+          seen[`${cli} ${senderStore} ${targetStore}`] = stagingRoute({
+            cli,
+            senderStore,
+            targetStore,
+          });
+    const ca = (form: string) => ({ kind: "content-addressed", form });
+    const signed = (because: string) => ({ kind: "signed", because });
+    expect(seen).toEqual({
+      [`${OLD} ${OLD} ${OLD}`]: ca("2.17"),
+      [`${NEW} ${NEW} ${NEW}`]: ca("2.35"),
+      // This machine's nix and its own store disagree: nothing it rewrites
+      // lands, whatever the host runs (#2368).
+      [`${OLD} ${NEW} ${OLD}`]: signed("sender-nix"),
+      [`${OLD} ${NEW} ${NEW}`]: signed("sender-nix"),
+      [`${NEW} ${OLD} ${OLD}`]: signed("sender-nix"),
+      [`${NEW} ${OLD} ${NEW}`]: signed("sender-nix"),
+      // This machine agrees with itself; the host does not.
+      [`${OLD} ${OLD} ${NEW}`]: signed("target-nix"),
+      [`${NEW} ${NEW} ${OLD}`]: signed("target-nix"),
+    });
+  });
+
+  it("patch levels and later lines of one form are the same form", () => {
+    expect(
+      stagingRoute({
+        cli: "2.34.8",
+        senderStore: "2.34.9",
+        targetStore: "2.31.2",
+      }),
+    ).toEqual({ kind: "content-addressed", form: "2.17" });
+    expect(
+      stagingRoute({
+        cli: "2.35.2",
+        senderStore: "2.35.6",
+        targetStore: "2.36.0",
+      }),
+    ).toEqual({ kind: "content-addressed", form: "2.35" });
+  });
+
+  it("a Nix older than 2.17, or one that reported no version, anywhere is the closure sent as built", () => {
+    for (const old of ["2.16.3", null])
+      for (const nix of [
+        { cli: old, senderStore: "2.34.9", targetStore: "2.34.9" },
+        { cli: "2.34.8", senderStore: old, targetStore: "2.34.9" },
+        { cli: "2.34.8", senderStore: "2.34.9", targetStore: old },
+      ])
+        expect(stagingRoute(nix).kind).toBe("signed");
+  });
+});
+
+describe("stagingSignedBecause", () => {
+  it("names both Nixes that disagree", () => {
+    expect(
+      stagingSignedBecause("sender-nix", {
+        cli: "2.34.8",
+        senderStore: "2.35.6",
+        targetStore: "2.34.9",
+      }),
+    ).toBe(
+      "this machine's Nix daemon (2.35.6) does not verify the content-addressed form its nix 2.34.8 writes",
+    );
+    expect(
+      stagingSignedBecause("target-nix", {
+        cli: "2.35.6",
+        senderStore: "2.35.6",
+        targetStore: "2.34.9",
+      }),
+    ).toBe(
+      "its Nix 2.34.9 does not verify the content-addressed form this machine's Nix 2.35.6 writes",
+    );
+  });
+
+  it("never names a version a Nix did not report", () => {
+    const words = stagingSignedBecause("target-nix", {
+      cli: "2.34.8",
+      senderStore: "2.34.8",
+      targetStore: null,
+    });
+    expect(words).toContain("reporting no version");
+    expect(words).not.toContain("null");
   });
 });
 

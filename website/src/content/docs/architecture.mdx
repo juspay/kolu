@@ -628,7 +628,10 @@ _out_. The map, grouped:
   each a repository's `plugin.json` — are the one thing kolu-server builds: it
   locks each reference, builds it with upstream's `lib.mkProfile` at the
   package's revision for the host's system, and ships the result with
-  `surface-remote`'s `deliverClosure`, the route an agent's closure takes. That
+  `surface-remote`'s `deliverClosure`, the route an agent's closure takes —
+  content-addressed to a Linux host only when kolu-server's `nix`, its own
+  store's Nix and the host's are on the same side of Nix 2.35, as built
+  otherwise. That
   host's padi only records the set that landed and points `current` at the
   package),
   and a set of
@@ -646,7 +649,9 @@ route order: a host that already holds it; then **kolu's own closure index** —
 CI (`nix-cache.yml`'s `publish-closures`, the `publish-closure` action)
 publishes every exposed agent content-addressed per master revision, so a dial
 from a published build has the host pull padi from the cache itself, with no
-trust on a Linux host on Nix 2.17–2.34; then the binder's own rewrite and ship;
+trust on a Linux host on Nix 2.17–2.34; then the binder's own rewrite and ship
+(content-addressed when the binder's Nix and the host's are on the same side of
+Nix 2.35, as built otherwise);
 last, one Nix process owning evaluation, transfer, and remote realisation. That closure
 is the daemon **plus the client CLIs a terminal on that host must be able to
 run** (`kaval-tui`, `padi-tui`, `kolu`) — so an agent working on a remote machine
