@@ -22,7 +22,7 @@ import Steps from "../../components/docs/Steps.astro";
 
 <Aside type="caution" title="alpha">
   `kaval` and `kaval-tui` are an early preview. Commands, flags and output
-  formats change before they are finalized for production use, so don't script
+  formats change before they are finalized for production use, so do not script
   against them yet.
 </Aside>
 
@@ -135,7 +135,7 @@ A terminal kaval spawns carries two variables, so an agent inside it can find it
 
 ## Reach a remote `kaval` — over ssh
 
-`--host <ssh>` drives a kaval on another machine, with nothing to install there first. kaval-tui provisions the daemon with Nix (it ships the right-arch build over ssh and realises it), runs it, and dials it. Every subcommand works exactly as it does locally.
+`--host <ssh>` drives a kaval on another machine, with nothing to install there first. kaval-tui provisions the daemon with Nix (it ships the right-arch build over ssh and installs it), runs it, and dials it. Every subcommand works exactly as it does locally.
 
 ```sh
 kaval-tui create --host nix@prod
@@ -235,7 +235,7 @@ The screen is still the only place one thing shows: a Claude Code `AskUserQuesti
 `kaval-tui snapshot <id>` prints the rendered screen as plain text and exits, built for piping and grepping. Its trailer line goes to stderr, so stdout stays clean.
 
 - It defaults to the full scrollback. `--viewport` prints just the visible screen, the daemon's own last screenful, which is the right read when driving an agent. `--tail N` prints the last N rendered lines.
-- `kaval-tui history <id>` dumps the older scrollback above the current screen, which `snapshot --viewport` cannot show. It is VT-serialized, so colors survive, and paged from the newest older lines back.
+- `kaval-tui history <id>` dumps the older scrollback above the current screen, which `snapshot --viewport` cannot show. It is VT-serialized, so colours survive, and paged from the newest older lines back.
 - `--lines N` prints the one page immediately above the screen. Omit it for the full older history, oldest first.
 - `history` is read-only and takes no TTY.
 
