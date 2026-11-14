@@ -167,10 +167,10 @@ agents in your terminals survive the upgrade, because they never stopped.
 </figure>
 
 <Aside type="tip" title="padi drains, kaval waits">
-  A newer client meeting an older padi asks it to _drain_: save its session and
-  exit, while the PTYs stay alive in kaval. An older client meeting a newer padi
-  is refused. Draining kaval would kill the live shells, so an older kaval stays
-  up and asks you to restart it.
+  A newer client asks an older padi to _drain_: save its session and exit, while
+  the PTYs stay alive in kaval. An older client is refused by a newer padi.
+  Draining kaval would kill the live shells, so an older kaval stays up and asks
+  you to restart it.
 </Aside>
 
 ## Compared to tmux and zellij
@@ -511,7 +511,7 @@ the runnable kolu packages, their checks, and the development shells needed to
 work on them. The website, the Surface examples, the Solid Browser example and
 the Odu CI coordinator each have an independent subflake, so none of them enters
 `nix run .`'s evaluation graph. Remote provisioning uses a separate exact-source
-flake that exposes only the packages Kolu's agent manifest names.
+flake that exposes only the packages kolu's agent manifest names.
 
 A dial lands the daemon plus the client CLIs a terminal there must be able to
 run (`kaval-tui`, `padi-tui`, `kolu`). So an agent working on a remote machine
@@ -529,7 +529,7 @@ a padi on a remote host is a first-class feature: see [Add another
 machine](/remote-hosts). That is separate from [From another
 device](/remote-access), which serves today's browser UI over private HTTPS.
 
-## Explore
+## Next
 
 Start with the site pages for the named programs; the atlas links go deeper into
 the working notes behind each piece.
@@ -541,6 +541,6 @@ the working notes behind each piece.
   <LinkCard title="the PTY daemon note" href="https://kolu.dev/atlas/pty-daemon.html" description="kaval's architecture and phasing" />
   <LinkCard title="surface: live data" href="https://kolu.dev/atlas/surface-live-data.html" description="the reactive-surface model, up close" />
   <LinkCard title="electricity" href="https://kolu.dev/atlas/electricity.html" description="the volatility boundaries the packages follow" />
-  <LinkCard title="remote terminals" href="https://kolu.dev/atlas/remote-terminals.html" description="the full arc, including what's still coming" />
+  <LinkCard title="remote terminals" href="https://kolu.dev/atlas/remote-terminals.html" description="the full arc, including what is still coming" />
   <LinkCard title="the repo — juspay/kolu" href="https://github.com/juspay/kolu" description="every daemon, in one tree" />
 </CardGrid>
