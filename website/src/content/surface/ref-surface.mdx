@@ -640,7 +640,7 @@ same [`ServedGenerationSource`](#per-face-expose-kolusurfaceexpose):
 A socket accepted after a mount is indistinguishable from one accepted on a boot
 that already had that sibling. A connection accepted before the roster moved
 keeps the generation it was built over until the client
-[redials](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces).
+[redials](/surface/ref-surface-app#connredialsurfaces).
 The granular accept loop remains the seam for "the app picks which runtime
 serves this socket" (drishti's per-host dispatch).
 
@@ -706,7 +706,7 @@ accepting that: a source nobody drives is damage.
 #### How a client learns the roster moved
 
 This door and
-[`conn.redial`](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces)
+[`conn.redial`](/surface/ref-surface-app#connredialsurfaces)
 are the two ends of one axis, and the framework carries the middle ("the served
 roster is now `[a, c]`") nowhere.
 
@@ -1153,12 +1153,12 @@ bound. It returns a bundle:
 - `clients` is a plain object mutated in place, which is what keeps its identity across a move, and Solid tracks nothing about a plain object's key set.
 - So a `<For each={Object.keys(bundle.clients)}>`, a memo folding `Object.values(…)`, or a hand-written `surfaceClientsHealth(bundle.clients)` is blind to a roster move: it keeps naming departed siblings and never names an arrival. Reach for `bundle.roster()` or `bundle.health()` in any tracking scope.
 - The notification lives on the bundle, beside the mutation, because `reroster` is the only code that knows the key set moved.
-- `moves` is there because the expensive half of following a roster lives one layer up: [`conn.redial`](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces) asks it before it dials, so a roster the connection is already on costs nothing instead of a whole transport churn.
+- `moves` is there because the expensive half of following a roster lives one layer up: [`conn.redial`](/surface/ref-surface-app#connredialsurfaces) asks it before it dials, so a roster the connection is already on costs nothing instead of a whole transport churn.
 
 #### What `reroster` does to each key
 
 `reroster` is what makes a [roster change follow in
-place](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces).
+place](/surface/ref-surface-app#connredialsurfaces).
 
 - A key on both rosters with the same `Surface` value keeps its client, standing subscriptions and all.
 - A key that arrives gets a client built now.
@@ -1587,7 +1587,7 @@ it counts one link's open edges and starts again at the next generation.
   socket has healed itself and says nothing.
 - It is not a rebuild signal. Standing subscriptions re-open themselves.
 
-The consumer is [`connectSurfaces`' `redial`](/surface/ref-surface-app#a-roster-change-follows-in-place--connredialsurfaces).
+The consumer is [`connectSurfaces`' `redial`](/surface/ref-surface-app#connredialsurfaces).
 
 ### `createLoopbackPair()` · `greetLoopback` · `stallLoopback`
 
