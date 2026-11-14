@@ -378,3 +378,15 @@ None.
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs`: 0 missing).
+
+## Review round 1
+
+- B3, the "Why" link of the reference-entry template, one per entry a Moved row came from:
+  - `source({ read, install, label })` → [A poll read may reconcile, but it publishes only by returning](/surface/reactive-honesty#a-poll-read-may-reconcile-but-it-publishes-only-by-returning).
+  - `followingWire` → [Why a roster move does not rebuild your page](/surface/the-client-half#why-a-roster-move-does-not-rebuild-your-page).
+  - `The stdio readiness gate — @kolu/surface/links/readiness` → [Why a dial waits for the peer to greet](/surface/the-server-half#why-a-dial-waits-for-the-peer-to-greet).
+  - `The readout` → [Green is a claim about the page, not about the socket](/surface/reactive-honesty#green-is-a-claim-about-the-page-not-about-the-socket).
+  - `presentingDown and the grace window` → [Why the overlay waits a second](/surface/reactive-honesty#why-the-overlay-waits-a-second).
+  - `What stays with the app` (under `@kolu/surface/frame-chunking`) → [Where the framework stops](/surface/why-surfaces#where-the-framework-stops).
+- Checks: lint passes; `house-style.mjs` reports only the pre-existing `likewise` at line 576. `.waterfall/compare.mjs … f50641c6a` reports the one pre-existing miss, the table entry "a post-listen fault on the server (nobody dialing, no handler in flight)", whose cell this rewrite spells `dialling` under house-style rule 22. No line added in this round touched it.
+- House style in this round: "dialing"/"dialed" → "dialling"/"dialled", "recognised" → "recognized", "normalised"/"normalisation" → "normalized"/"normalization". The one comparison miss is that spelling change in a first-column cell; the entry, its level and its message are unchanged.

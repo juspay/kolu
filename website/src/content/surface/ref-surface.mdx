@@ -849,6 +849,8 @@ The poll source's full options: `PollSourceOptions<T> → PollSource<T>`.
 `label` is required. It names the source in a loop-guard error, and is
 diagnostics only: there is no field that can silence the guard.
 
+Why: [A poll read may reconcile, but it publishes only by returning](/surface/reactive-honesty#a-poll-read-may-reconcile-but-it-publishes-only-by-returning).
+
 #### The loop guard
 
 Each read runs inside an `AsyncLocalStorage` context keyed to its source, so a
@@ -1309,7 +1311,7 @@ What a transport is doing, published from the protocol's connect and disconnect.
 
 | Value | Meaning |
 | --- | --- |
-| `connecting` | The protocol is dialing. |
+| `connecting` | The protocol is dialling. |
 | `open` | The protocol can send, not merely that the socket fired `open`. |
 | `closed` | The transport is down and may re-dial. |
 | `retired` | Terminal: the server closed a stale tab's socket with `4001`. |
@@ -1392,7 +1394,7 @@ server's log.
 
 | `classification` | What it means |
 | --- | --- |
-| `"in-flight"` | Dialing or connected. |
+| `"in-flight"` | Dialling or connected. |
 | `"opened-then-closed"` | The socket opened and then closed. |
 | `"terminal"` | The close classifier retired the wire. |
 | `"ended-without-open"` | A dial that failed before its socket opened. |
@@ -1530,6 +1532,8 @@ at both ends.
 | `adopt(next)` | Take `next` as the generation every call from now on rides, fail what was in flight over the old one, and release it. |
 | `dispose()` | Release the generation currently held. |
 
+Why: [Why a roster move does not rebuild your page](/surface/the-client-half#why-a-roster-move-does-not-rebuild-your-page).
+
 #### `adopt` and `dispose`
 
 - `adopt` is not `async`. The swap is synchronous and so is every refusal it
@@ -1635,6 +1639,7 @@ about to attach to.
   peer from a previous protocol epoch accepts the pipe and then says nothing, so
   the pinger ends the link at its keep-alive backstop, and a consumer that
   reconnects on that retries a peer that will never speak.
+- Why: [Why a dial waits for the peer to greet](/surface/the-server-half#why-a-dial-waits-for-the-peer-to-greet).
 
 #### Which death it was
 
@@ -1686,7 +1691,7 @@ line each with the `socketPath` in the context object.
 | Event | Level | Message |
 | --- | --- | --- |
 | the path is bound and accepting | `info` | `unix-socket listener bound` |
-| a post-listen fault on the server (nobody dialing, no handler in flight) | `error` | `unix-socket listener error (post-listen)`, carrying the whole `err` |
+| a post-listen fault on the server (nobody dialling, no handler in flight) | `error` | `unix-socket listener error (post-listen)`, carrying the whole `err` |
 | an established peer's socket errors | `debug` | `unix-socket peer error` |
 | `close()` runs (first call only) | `info` | `unix-socket listener closed` |
 
@@ -2208,7 +2213,7 @@ framework records what each one has actually received.
 
 ### The tagged-error vocabulary (`@kolu/surface/errors`)
 
-Every error that has to be recognised on the far side of a wire hop lives in one
+Every error that has to be recognized on the far side of a wire hop lives in one
 module all three tiers import, as a `Schema.TaggedError`.
 
 | Class | Meaning | Retryable |
@@ -2343,7 +2348,7 @@ or a redraw.
 | --- | --- | --- |
 | `runStreamScoped(stream, handlers)` | `(Stream<T>, { onFrame, onEnd, onFailure }) → () => void` | Runs the stream on its own fiber, and returns the idempotent, synchronous stopper. |
 | `StreamRunHandlers<T>` | `{ onFrame, onEnd, onFailure }` | The three mutually-exclusive outcomes. |
-| `toError(value)` | `(unknown) → Error` | The one failure normalisation. |
+| `toError(value)` | `(unknown) → Error` | The one failure normalization. |
 
 It is one function, not one `Effect.runFork` per subscription primitive, and it
 owns three rules so nobody re-derives them:
@@ -2353,7 +2358,7 @@ owns three rules so nobody re-derives them:
   interruption exit, not a failure racing the stop.
 - An interruption is never a failure, so an unmount does not register as a
   subscription error in `health()`.
-- A failure is normalised once to an `Error`. A tagged surface error passes
+- A failure is normalized once to an `Error`. A tagged surface error passes
   through with its `_tag` intact, so a caller can narrow on it.
 
 The handlers see frames, then either a typed end or a failure, or silence if the
@@ -2498,7 +2503,7 @@ read one contract by one grammar, as
 `toInputSchema` · `inputSchema` · `unwrapArgs` · `wrapValue` have a module of
 their own behind this subpath, which re-exports them.
 
-- `toInputSchema`'s document is dereferenced, opened, numeric-normalised, and
+- `toInputSchema`'s document is dereferenced, opened, numeric-normalized, and
   enforced to a top-level object.
 - The `wrapped` bit of `inputSchema` says whether a non-object input had to
   travel under one property. It is a union on that bit: the wrapped arm carries
@@ -2599,6 +2604,7 @@ The fact answers what is true. The readout (`@kolu/surface/solid`) is the one ve
 - `status` itself stays instantaneous. The header dot, the heartbeat probe gate and the client read the raw state with no delay, and only the overlay gate is graced. Do not debounce `status`.
 - `needsReload` is true for `retired` and nothing else: the one state a reload, and only a reload, recovers. Read it rather than keeping a list of which states are terminal, which can read `down` as transient and draw "reconnecting…" over a page that never would.
 - The app owns the look: which words, which colours, whether the names go in a tooltip or a strip. The framework owns which state is true.
+- Why: [Green is a claim about the page, not about the socket](/surface/reactive-honesty#green-is-a-claim-about-the-page-not-about-the-socket).
 
 #### `presentingDown` and the grace window
 
@@ -2609,6 +2615,7 @@ The fact answers what is true. The readout (`@kolu/surface/solid`) is the one ve
 - `createSurfaceReadout` derives it once, from the same window, for `connectSurface` / `connectSurfaces` and every consumer of a readout, so the policy cannot be forgotten.
 - A `retired` readout presents immediately. A retired wire never re-dials, so there is nothing a grace window could hold back.
 - The frozen `retired` readout a disposed connection hands back is `true` for the same reason, so the two cannot disagree.
+- Why: [Why the overlay waits a second](/surface/reactive-honesty#why-the-overlay-waits-a-second).
 
 ## Transport loss and frame limits
 
@@ -2693,6 +2700,8 @@ Encoding is the caller's. `chunkBase64` splits a base64 string, and `base64Chars
 #### What stays with the app
 
 This module pays the arithmetic, not the gate. A size policy cap, an extension allowlist, the wording of a refusal and where the bytes land on disk are the consuming app's. kolu's own live in `@kolu/padi-client/upload`.
+
+Why: [Where the framework stops](/surface/why-surfaces#where-the-framework-stops).
 
 #### The framework's own stream frames (`RPC_STREAM_CHUNK_BYTES`)
 
