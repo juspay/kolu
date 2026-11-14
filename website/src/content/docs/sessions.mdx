@@ -23,7 +23,7 @@ where you left it, so parking work costs you nothing.
 | A reload | Your terminals re-attach already whole. No restore card appears. |
 | A kolu-server restart or redeploy | Your terminals and your session: the workspace record lives in [padi](/padi), not the web server. |
 | A [kaval](/kaval) update | Your live terminals keep running, with their shells, scrollback and agents. The only sign is a brief **N terminals reattached** note. |
-| A kaval release that changes the wire the daemons speak | The old daemon cannot be adopted, so it is restarted and live shells end. The session is restored from disk and agents resume. The [changelog](/changelog) says when a release does this. |
+| A kaval release that changes how kolu's daemons talk to each other | The old daemon cannot be adopted, so it is restarted and live shells end. The session is restored from disk and agents resume. The [changelog](/changelog) says when a release does this. |
 | An unclean crash of the terminal daemon | Every saved terminal, with each agent resumed on its exact prior conversation rather than as a bare shell. Agents in a **split** come back too. |
 
 ## The restore card
@@ -60,7 +60,7 @@ Click the **☾** button on the title bar, or run **Sleep terminal** from the
 palette. Then:
 
 - Sleep acts on the whole family. The tile and every **split** under it freeze
-  together, each keeping its parent edge, so a split does not have to be
+  together, each keeping its place under its parent, so a split does not have to be
   reopened after you wake the tile.
 - The PTY, agent process and GPU context are released for every member, exactly
   as if you had closed them. The tile can still be dragged, resized, renamed and
@@ -83,18 +83,18 @@ folder". Each agent is resumed by its own exact-conversation form:
 `xyne --session <id>`, the Grok equivalent, and for pi and Oh My Pi the
 transcript's absolute path, which those two accept verbatim.
 
-The line wake types is built from facts kolu owns: the agent's registry entry
-supplies the binary and how it spells resume, the session file supplies the
-conversation id, and the live agent process's own arguments supply the flags.
+The line wake types is built from facts kolu owns. kolu's own entry for that
+agent supplies the binary and how it spells resume, the session file supplies
+the conversation id, and the live agent process's own arguments supply the flags.
 
-Flags are filtered through that agent's allowlist, so only recognised
+Flags are filtered through that agent's allowlist, so only recognized
 launch-shape flags come back (a `--model`, a `--dangerously-skip-permissions`,
 an `--no-alt-screen`). A stray path or prompt is dropped.
 [What a resume may carry](/agent-detection#what-a-resume-may-carry) lists the
 allowlist per agent.
 
 Wake restores the family the same way: every dormant member respawns on its own
-id, parents first, with each agent resumed on its own conversation. Pressing
+id, parents first, with each agent resumed on its own conversation. Clicking
 **Wake** on a split wakes its parent and siblings too, because a split cannot
 run under a tile that is still asleep.
 
@@ -108,7 +108,7 @@ run under a tile that is still asleep.
 - The agent you had **quit** to a bare shell before sleeping. Waking lands you at
   that shell rather than relaunching something you closed.
 
-<Aside type="note" title="Keep the dock to what's awake">
+<Aside type="note" title="Keep the dock to what is awake">
   The dock's **Filters** row can hide sleeping terminals, and the activity window
   compresses away ones you slept long ago, so parked sessions do not crowd the
   list. [The Dock](/dock) covers both filters.
