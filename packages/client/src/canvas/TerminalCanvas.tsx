@@ -39,6 +39,7 @@ import { useStaleCheck } from "../terminal/staleness";
 import { useTerminalStore } from "../terminal/useTerminalStore";
 import type { TileId } from "../tile/tileContent";
 import { useTileStore } from "../tile/useTileStore";
+import { useShown } from "../ui/shown";
 import CanvasMinimap from "./CanvasMinimap";
 import CanvasTile, { type CanvasTileMode } from "./CanvasTile";
 import Dock from "./dock/Dock";
@@ -100,11 +101,18 @@ const TerminalCanvas: Component<{
   renderTileTitleActions?: (id: TileId) => JSX.Element;
   /** Optional bar between the title bar and the body — the tile tip. */
   renderTileBar?: (id: TileId) => JSX.Element;
-  /** `active` is passed as an accessor so the subtree doesn't remount on
-   *  every focus change — reads happen inside the returned JSX's props
-   *  (fine-grained reactivity), not around the render-prop effect. */
-  renderTileBody: (id: TileId, active: () => boolean) => JSX.Element;
+  /** Render a tile's body, told whether a user can SEE this tile — the fact
+   *  the pane turns into "attach / stop attaching" (`tileSeen.ts`). An
+   *  accessor, not a value, so the subtree doesn't remount when the answer
+   *  changes: reads happen inside the returned JSX's props (fine-grained
+   *  reactivity), not around the render-prop call. */
+  renderTileBody: (id: TileId, seen: () => boolean) => JSX.Element;
 }> = (props) => {
+  // The one "is anybody looking at this view" accessor (`ui/shown.ts`),
+  // provided by `App.tsx` over the whole workspace: false while the Conductor
+  // covers the canvas. Asked ONCE here and handed to each tile, so the tile
+  // shell keeps knowing nothing about what sits on top of the canvas.
+  const canvasShown = useShown();
   const viewport = useCanvasViewport();
   const store = useTerminalStore();
   const tileStore = useTileStore();
@@ -452,7 +460,7 @@ const TerminalCanvas: Component<{
                 : undefined
             }
             renderBar={() => props.renderTileBar?.(tileId)}
-            renderBody={() => props.renderTileBody(tileId, active)}
+            renderBody={(seen) => props.renderTileBody(tileId, seen)}
             getLayout={layoutOf}
             startResize={startResize}
             panX={viewport.panX}
@@ -461,6 +469,10 @@ const TerminalCanvas: Component<{
             viewportSize={() =>
               viewport.mounted() ? viewport.viewportSize() : undefined
             }
+            // Is anybody looking at the canvas at all? The Conductor covers
+            // it without unmounting it, and a covered canvas shows no tile.
+            viewShown={canvasShown}
+            cameraSettled={viewport.cameraSettled}
             auraTier={() => tileAuraOf(terminalId)}
           />
         )}

@@ -41,6 +41,7 @@ import {
   tileTitleBarBorder,
 } from "./tileChrome";
 import { DEFAULT_TILE_H, DEFAULT_TILE_W } from "./tilePlacement";
+import { createHeldSeen, tileIsSeen } from "./tileSeen";
 import { prefersReducedMotion } from "./viewport/animatedPan";
 import { tileTransformCSS } from "./viewport/coordinates";
 
@@ -83,7 +84,10 @@ const CanvasTile: Component<{
   /** Optional bar between the title bar and the body, full width (the tile
    *  tip). It takes its own height; the body shrinks to make room. */
   renderBar?: () => JSX.Element;
-  renderBody: () => JSX.Element;
+  /** Render the tile's body, told whether a user can SEE it — the fact the
+   *  pane turns into "attach / stop attaching" (`tileSeen.ts`, `shownPane.ts`).
+   *  An accessor, so the body subscribes to it rather than re-rendering. */
+  renderBody: (seen: () => boolean) => JSX.Element;
   getLayout: (id: string) => TileLayout | undefined;
   startResize: (
     id: string,
@@ -97,11 +101,18 @@ const CanvasTile: Component<{
   panX: () => number;
   panY: () => number;
   zoom: () => number;
+  /** Has the camera finished a programmatic flight? A tile swept over on the
+   *  way somewhere is not a tile the user asked to see (`tileSeen.ts`). */
+  cameraSettled: () => boolean;
   /** Canvas viewport size in screen pixels. Lets the tile gate its state-aura
    *  to on-screen tiles only: a tile panned out of view (or behind a maximized
    *  tile) mounts no `.tile-aura` at all, so its border animation costs nothing
    *  — CSS animations otherwise keep running for off-screen elements. */
   viewportSize: () => { width: number; height: number } | undefined;
+  /** Is anybody looking at the CANVAS? False while the Conductor covers it
+   *  (`ui/shown.ts`). The shell is told rather than reaching for the fact so
+   *  the tile stays a shell: `TerminalCanvas` asks the one context. */
+  viewShown: () => boolean;
   /** Canvas state-aura tier for this tile — drives the `data-aura` hook the
    *  border treatment reads. Optional: undefined renders nothing (treated as
    *  `"none"`). Resolved by `useTileAura`; this resolver drives only the tile
@@ -158,11 +169,21 @@ const CanvasTile: Component<{
   // ((l.x - panX) * zoom, (l.y - panY) * zoom). Drag delta is ignored — a tile
   // being dragged is on-screen by definition. The shell mounts immediately,
   // but its aura waits until the viewport has a real layout measurement.
+  //
+  // ONE geometry fact, two consumers: the aura below and the tile's `seen`
+  // (hence its pane's attach). A tile with NO RESOLVED LAYOUT is not on
+  // screen whatever `layout()`'s fallback box says — on a host switch-back a
+  // returning tile's `canvasLayout` metadata arrives a beat after its id, and
+  // for those frames every unplaced tile would sit at the canvas origin,
+  // which is wherever the camera happens to be pointing. Reading the saved
+  // layout directly (not through the fallback) keeps that frame from
+  // attaching a tile the settled camera does not show.
   const onScreen = createMemo(() => {
     const size = props.viewportSize();
     if (!size) return false;
+    const l = props.getLayout(props.id);
+    if (!l) return false;
     const { width, height } = size;
-    const l = layout();
     const z = props.zoom();
     const sx = (l.x - props.panX()) * z;
     const sy = (l.y - props.panY()) * z;
@@ -174,6 +195,20 @@ const CanvasTile: Component<{
       sy < height + m
     );
   });
+  // Can a user see this tile — the rule in `tileSeen.ts`, held open for
+  // SEEN_HOLD_MS past its last sighting so a pan across the canvas is not a
+  // storm of detach/attach pairs. The hold is owned here, so it dies with the
+  // tile.
+  const seen = createMemo(() =>
+    tileIsSeen({
+      viewShown: props.viewShown(),
+      cameraSettled: props.cameraSettled(),
+      mode: props.mode,
+      active: props.active,
+      onScreen: onScreen(),
+    }),
+  );
+  const heldSeen = createHeldSeen(seen);
   // One decision — "is the aura showing" — so the `data-aura` host attribute
   // and the `.tile-aura` child can't drift. Only TILED tiles animate: a
   // maximized tile mutes its own aura, a covered tile (behind a maximized
@@ -276,8 +311,11 @@ const CanvasTile: Component<{
   //    yet, no maximized tile exists — a covered tile carrying only `inert`
   //    would paint, flashing the canvas for a frame (regressed in #989, which
   //    dropped the pre-#988 `visibility: hidden`). Keep the subtree mounted
-  //    (`visibility`, not `display`) so xterm keeps writing its buffer and the
-  //    dock previews stay populated (#904).
+  //    (`visibility`, not `display`): the xterm, its scrollback and the tile's
+  //    whole tree survive being covered, so the trip back is a repaint and not
+  //    a rebuild. What a covered tile does NOT do any more is take live output
+  //    — nobody can see it, so its pane ends its attach (`tileSeen.ts`,
+  //    kolu#2362) and the reveal repaints it from a fresh screen.
   //  - A covered tile is the SAME SIZE as the maximized tile (both are
   //    `fullViewportBox`). Switching the active terminal in maximized posture is
   //    then a pure visibility/z-index swap: no tile changes border-box size, so
@@ -287,7 +325,8 @@ const CanvasTile: Component<{
   //    switch would resize BOTH the revealed and the hidden xterm and refit
   //    them: the per-switch "re-render".) Tradeoff: ENTERING maximized posture
   //    now sizes every covered tile's PTY to the viewport grid once — a one-time
-  //    SIGWINCH per tile on the posture toggle, not a per-switch cost.
+  //    SIGWINCH per tile on the posture toggle, not a per-switch cost — and
+  //    LEAVING it hands a feed back to every tile then on screen.
   const presentation = createMemo(
     (): {
       style: JSX.CSSProperties;
@@ -480,7 +519,7 @@ const CanvasTile: Component<{
         {props.renderBar?.()}
 
         {/* Tile body — injected by caller */}
-        {props.renderBody()}
+        {props.renderBody(heldSeen)}
       </div>
 
       {/* Resize handles — 4 edges + 4 corners. Invisible; cursor change is the

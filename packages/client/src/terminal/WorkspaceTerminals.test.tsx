@@ -21,9 +21,11 @@ it("moves the same terminal DOM between desktop and touch shells", () => {
         {(outlet) => (
           <Show
             when={desktop()}
-            fallback={<section data-touch="">{outlet("tile")}</section>}
+            fallback={
+              <section data-touch="">{outlet("tile", () => true)}</section>
+            }
           >
-            <main data-desktop="">{outlet("tile")}</main>
+            <main data-desktop="">{outlet("tile", () => true)}</main>
           </Show>
         )}
       </WorkspaceTerminals>
@@ -71,7 +73,7 @@ it("switches hosts when each pane appears after its id", async () => {
           <For each={ids()}>
             {(id) => (
               <Show when={ready[id]}>
-                <section data-pane={id}>{outlet(id)}</section>
+                <section data-pane={id}>{outlet(id, () => true)}</section>
               </Show>
             )}
           </For>
@@ -99,6 +101,57 @@ it("switches hosts when each pane appears after its id", async () => {
     // A body never starts life outside a real pane (it would measure a bogus
     // grid and re-attach once moved).
     expect(mountedWithoutPane).toEqual([]);
+  } finally {
+    dispose();
+    host.remove();
+  }
+});
+
+it("asks the shell that is placing the body whether it can be seen", () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  // Each shell answers for itself: the canvas from its camera, the touch pane
+  // from its active tile. The body reads whichever shell is placing it now —
+  // and a swap re-points that without rebuilding the body.
+  const [desktop, setDesktop] = createSignal(true);
+  const [onCanvas, setOnCanvas] = createSignal(false);
+  let mounts = 0;
+  const dispose = render(
+    () => (
+      <WorkspaceTerminals
+        ids={["tile"]}
+        renderBody={(_id, seen) => {
+          mounts++;
+          return <output data-seen={seen() ? "" : undefined} />;
+        }}
+      >
+        {(outlet) => (
+          <Show
+            when={desktop()}
+            fallback={
+              <section data-touch="">{outlet("tile", () => true)}</section>
+            }
+          >
+            <main data-desktop="">{outlet("tile", onCanvas)}</main>
+          </Show>
+        )}
+      </WorkspaceTerminals>
+    ),
+    host,
+  );
+  const seen = () => host.querySelector("output")?.hasAttribute("data-seen");
+  try {
+    expect(seen()).toBe(false);
+    setOnCanvas(true);
+    expect(seen()).toBe(true);
+    // The touch shell shows its one tile unconditionally, so the canvas's
+    // answer stops being the body's the moment the shell swaps.
+    setDesktop(false);
+    setOnCanvas(false);
+    expect(seen()).toBe(true);
+    setDesktop(true);
+    expect(seen()).toBe(false);
+    expect(mounts).toBe(1);
   } finally {
     dispose();
     host.remove();

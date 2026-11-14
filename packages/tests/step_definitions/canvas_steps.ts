@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import { Given, Then, When } from "@cucumber/cucumber";
+import { readBufferText, waitForBufferContains } from "../support/buffer.ts";
 import { padiCall } from "../support/rpcWire.ts";
 import {
   ACTIVE_CANVAS_TILE_SELECTOR,
@@ -14,6 +15,12 @@ const MINIMAP_SELECTOR = '[data-testid="canvas-minimap"]';
 const MINIMAP_MAP_SELECTOR = '[data-testid="minimap-map"]';
 const MINIMAP_VIEWPORT_RECT_SELECTOR = '[data-testid="minimap-viewport-rect"]';
 const MINIMAP_ZOOMBAR_SELECTOR = '[data-testid="minimap-zoombar"]';
+/** A canvas TILE — the `CanvasTile` shell, which exists for every tile on the
+ *  canvas whatever its pane is doing. Identity, geometry and counting ask
+ *  THIS. `[data-visible]` answers a different question — is this pane shown,
+ *  and therefore taking live output — and since kolu#2362 a tile panned off
+ *  the edge of the canvas has no such pane while nobody is looking at it. */
+const TILE_SELECTOR = `${CANVAS_SELECTOR} ${CANVAS_TILE_SELECTOR}`;
 
 async function waitForCanvas(world: KoluWorld) {
   await world.page
@@ -55,12 +62,9 @@ Then(
   async function (this: KoluWorld, expected: number) {
     await this.page.waitForFunction(
       ({ sel, count }: { sel: string; count: number }) => {
-        const bg = document.querySelector(sel);
-        if (!bg) return false;
-        const tiles = bg.querySelectorAll("[data-terminal-id][data-visible]");
-        return tiles.length === count;
+        return document.querySelectorAll(sel).length === count;
       },
-      { sel: CANVAS_SELECTOR, count: expected },
+      { sel: TILE_SELECTOR, count: expected },
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -129,9 +133,7 @@ Then(
       (sel: string) => {
         const container = document.querySelector(sel);
         if (!container) return false;
-        const tile = container.querySelector(
-          "[data-terminal-id][data-visible]",
-        );
+        const tile = container.querySelector('[data-testid="canvas-tile"]');
         if (!tile) return false;
         const cRect = container.getBoundingClientRect();
         const tRect = tile.getBoundingClientRect();
@@ -220,9 +222,7 @@ async function waitForTileCenteredInViewport(
       if (!container) return false;
       let tile: HTMLElement | null;
       if (pick === "newest") {
-        const tiles = container.querySelectorAll(
-          "[data-terminal-id][data-visible]",
-        );
+        const tiles = container.querySelectorAll('[data-testid="canvas-tile"]');
         if (tiles.length < 2) return false;
         tile = tiles[tiles.length - 1] as HTMLElement;
       } else {
@@ -272,9 +272,7 @@ Then(
   async function (this: KoluWorld, a: number, b: number) {
     await this.page.waitForFunction(
       ({ sel, i, j }: { sel: string; i: number; j: number }) => {
-        const tiles = document.querySelectorAll(
-          `${sel} [data-terminal-id][data-visible]`,
-        );
+        const tiles = document.querySelectorAll(sel);
         const tileA = tiles.item(i) as HTMLElement | null;
         const tileB = tiles.item(j) as HTMLElement | null;
         if (!tileA || !tileB) return false;
@@ -283,7 +281,7 @@ Then(
         // Snapped top-left must differ on both axes (cascade is diagonal).
         return Math.abs(rA.left - rB.left) > 1 && Math.abs(rA.top - rB.top) > 1;
       },
-      { sel: CANVAS_SELECTOR, i: a - 1, j: b - 1 },
+      { sel: TILE_SELECTOR, i: a - 1, j: b - 1 },
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -369,14 +367,9 @@ Then(
 Then("no two canvas tiles should overlap", async function (this: KoluWorld) {
   await this.page.waitForFunction(
     (sel: string) => {
-      const tiles = Array.from(
-        document.querySelectorAll(`${sel} [data-terminal-id][data-visible]`),
-      ).map((t) => {
-        const wrapper = (t as HTMLElement).closest(
-          "[style*='left']",
-        ) as HTMLElement | null;
-        return (wrapper ?? (t as HTMLElement)).getBoundingClientRect();
-      });
+      const tiles = Array.from(document.querySelectorAll(sel)).map((t) =>
+        (t as HTMLElement).getBoundingClientRect(),
+      );
       for (let i = 0; i < tiles.length; i++) {
         for (let j = i + 1; j < tiles.length; j++) {
           const a = tiles[i];
@@ -391,7 +384,7 @@ Then("no two canvas tiles should overlap", async function (this: KoluWorld) {
       }
       return true;
     },
-    CANVAS_SELECTOR,
+    TILE_SELECTOR,
     { timeout: POLL_TIMEOUT },
   );
 });
@@ -826,16 +819,14 @@ Then("the minimap map should be visible", async function (this: KoluWorld) {
   );
 });
 
-// Terminal ids of every visible canvas tile, in DOM order.
+// Terminal ids of every canvas tile, in DOM order.
 async function getVisibleTileIds(world: KoluWorld): Promise<string[]> {
   return world.page.evaluate(
     (sel: string) =>
-      Array.from(
-        document.querySelectorAll(`${sel} [data-terminal-id][data-visible]`),
-      )
+      Array.from(document.querySelectorAll(sel))
         .map((el) => (el as HTMLElement).getAttribute("data-terminal-id"))
         .filter((id): id is string => id !== null),
-    CANVAS_SELECTOR,
+    TILE_SELECTOR,
   );
 }
 
@@ -974,10 +965,18 @@ When(
     // bubble up to its onSelect handler.
     await this.page.evaluate(
       ({ sel, i }: { sel: string; i: number }) => {
-        const tile = document
-          .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
+        const shell = document
+          .querySelectorAll(sel)
           .item(i) as HTMLElement | null;
-        if (!tile) throw new Error(`canvas tile ${i + 1} not found`);
+        if (!shell) throw new Error(`canvas tile ${i + 1} not found`);
+        // Press the PANE when the tile has one — a live terminal owns the
+        // finer main-vs-split landing. A tile with no shown pane (panned off
+        // the canvas, covered by a maximized sibling) takes the press on its
+        // own shell, which is the tile-chrome selection path.
+        const tile =
+          (shell.querySelector(
+            "[data-terminal-id][data-visible]",
+          ) as HTMLElement | null) ?? shell;
         const rect = tile.getBoundingClientRect();
         tile.dispatchEvent(
           new MouseEvent("mousedown", {
@@ -987,7 +986,7 @@ When(
           }),
         );
       },
-      { sel: CANVAS_SELECTOR, i: index - 1 },
+      { sel: TILE_SELECTOR, i: index - 1 },
     );
     await this.waitForFrame();
   },
@@ -1020,13 +1019,14 @@ Then(
     await this.page.waitForFunction(
       ({ sel, i, w }: { sel: string; i: number; w: string }) => {
         const tile = document
-          .querySelectorAll(
-            `${sel} [data-terminal-id][data-visible]:not([data-sub-terminal])`,
-          )
-          .item(i) as HTMLElement | null;
+          .querySelectorAll(sel)
+          .item(i)
+          ?.querySelector(
+            "[data-terminal-id][data-visible]:not([data-sub-terminal])",
+          ) as HTMLElement | null;
         return tile?.getAttribute("data-renderer") === w;
       },
-      { sel: CANVAS_SELECTOR, i: index - 1, w: want },
+      { sel: TILE_SELECTOR, i: index - 1, w: want },
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -1098,19 +1098,17 @@ Then(
         activeTileSel: string;
         i: number;
       }) => {
-        // The active tile is the one with `data-active` on its
-        // CanvasTile wrapper. Match by tile-rect index: find all
-        // `data-terminal-id[data-visible]` descendants under the canvas
-        // container and pick the nth.
-        const tiles = document.querySelectorAll(
-          `${sel} [data-terminal-id][data-visible]`,
-        );
-        const tile = tiles.item(i) as HTMLElement | null;
+        // The active tile is the one with `data-active` on its CanvasTile
+        // shell — and the shell is also what the index counts, so a tile
+        // whose pane has stopped taking output still holds its place.
+        const tile = document
+          .querySelectorAll(sel)
+          .item(i) as HTMLElement | null;
         if (!tile) return false;
-        return tile.closest(activeTileSel) !== null;
+        return tile.matches(activeTileSel);
       },
       {
-        sel: CANVAS_SELECTOR,
+        sel: TILE_SELECTOR,
         activeTileSel: ACTIVE_CANVAS_TILE_SELECTOR,
         i: index - 1,
       },
@@ -1123,7 +1121,7 @@ Then(
 
 // ── Canvas layout persistence ──
 
-/** Read the position (style.left/top) of the first visible canvas tile. */
+/** Read the position (style.left/top) of the first canvas tile. */
 async function readFirstTilePosition(
   world: KoluWorld,
 ): Promise<{ id: string; left: number; top: number }> {
@@ -1136,13 +1134,10 @@ async function readCanvasTilePosition(
 ): Promise<{ id: string; left: number; top: number }> {
   const result = await world.page.evaluate(
     ({ sel, index }: { sel: string; index: number }) => {
-      const container = document.querySelector(sel);
-      const inner = container?.querySelectorAll(
-        "[data-terminal-id][data-visible]",
-      )[index - 1] as HTMLElement | null;
-      if (!inner) return null;
-      const id = inner.getAttribute("data-terminal-id");
-      const tile = inner.closest("[style*='left']") as HTMLElement | null;
+      const tile = document.querySelectorAll(sel)[index - 1] as
+        | HTMLElement
+        | undefined;
+      const id = tile?.getAttribute("data-terminal-id");
       if (!tile || !id) return null;
       return {
         id,
@@ -1150,9 +1145,9 @@ async function readCanvasTilePosition(
         top: parseFloat(tile.style.top),
       };
     },
-    { sel: CANVAS_SELECTOR, index },
+    { sel: TILE_SELECTOR, index },
   );
-  if (!result) throw new Error("No visible canvas tile found");
+  if (!result) throw new Error("No canvas tile found");
   return result;
 }
 
@@ -1283,22 +1278,17 @@ When(
 When("I record all canvas tile positions", async function (this: KoluWorld) {
   this.recordedTilePositions = await this.page.evaluate((sel: string) => {
     const out: Record<string, { left: number; top: number }> = {};
-    for (const inner of document.querySelectorAll(
-      `${sel} [data-terminal-id][data-visible]`,
-    )) {
-      const id = (inner as HTMLElement).getAttribute("data-terminal-id");
-      const tile = (inner as HTMLElement).closest(
-        "[style*='left']",
-      ) as HTMLElement | null;
-      if (id && tile) {
-        out[id] = {
-          left: parseFloat(tile.style.left),
-          top: parseFloat(tile.style.top),
-        };
-      }
+    for (const el of document.querySelectorAll(sel)) {
+      const tile = el as HTMLElement;
+      const id = tile.getAttribute("data-terminal-id");
+      if (!id) continue;
+      out[id] = {
+        left: parseFloat(tile.style.left),
+        top: parseFloat(tile.style.top),
+      };
     }
     return out;
-  }, CANVAS_SELECTOR);
+  }, TILE_SELECTOR);
 });
 
 Then(
@@ -1403,18 +1393,14 @@ Then(
         wantX: number;
         wantY: number;
       }) => {
-        const container = document.querySelector(sel);
-        const inner = container?.querySelector(
-          "[data-terminal-id][data-visible]",
-        );
-        const tile = inner?.closest("[style*='left']") as HTMLElement | null;
+        const tile = document.querySelector(sel) as HTMLElement | null;
         if (!tile) return false;
         return (
           Math.abs(parseFloat(tile.style.left) - wantX) < 1 &&
           Math.abs(parseFloat(tile.style.top) - wantY) < 1
         );
       },
-      { sel: CANVAS_SELECTOR, wantX: x, wantY: y },
+      { sel: TILE_SELECTOR, wantX: x, wantY: y },
       { timeout: POLL_TIMEOUT },
     );
   },
@@ -1448,15 +1434,19 @@ When(
     // must NOT fire — the negative case for the empty-surface affordance.
     await this.page.evaluate(
       ({ sel, i }: { sel: string; i: number }) => {
-        const tile = document
-          .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
+        const shell = document
+          .querySelectorAll(sel)
           .item(i) as HTMLElement | null;
-        if (!tile) throw new Error(`canvas tile ${i + 1} not found`);
+        if (!shell) throw new Error(`canvas tile ${i + 1} not found`);
+        const tile =
+          (shell.querySelector(
+            "[data-terminal-id][data-visible]",
+          ) as HTMLElement | null) ?? shell;
         tile.dispatchEvent(
           new MouseEvent("dblclick", { bubbles: true, cancelable: true }),
         );
       },
-      { sel: CANVAS_SELECTOR, i: index - 1 },
+      { sel: TILE_SELECTOR, i: index - 1 },
     );
     await this.waitForFrame();
   },
@@ -1618,20 +1608,25 @@ When(
     // xterm.js's `onMount` awaits `document.fonts.load` before creating
     // the `.xterm` DOM node, so on a slow host the element may not exist
     // when this step first fires. Poll until it does, then tag it.
+    //
+    // Addressed by TILE SHELL, not by a shown pane: the scenario tags a tile
+    // that is COVERED by a maximized sibling, and a covered tile takes no
+    // live output (kolu#2362) — but its xterm node is exactly what must
+    // survive, so it is still there to tag.
     await this.page.waitForFunction(
       ({ sel, i }: { sel: string; i: number }) => {
         const tile = document
-          .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
+          .querySelectorAll(sel)
           .item(i) as HTMLElement | null;
         return tile?.querySelector(".xterm") != null;
       },
-      { sel: CANVAS_SELECTOR, i: index - 1 },
+      { sel: TILE_SELECTOR, i: index - 1 },
       { timeout: POLL_TIMEOUT },
     );
     await this.page.evaluate(
       ({ sel, i }: { sel: string; i: number }) => {
         const tile = document
-          .querySelectorAll(`${sel} [data-terminal-id][data-visible]`)
+          .querySelectorAll(sel)
           .item(i) as HTMLElement | null;
         const xterm = tile?.querySelector(".xterm") as HTMLElement | null;
         if (!xterm) throw new Error(`xterm element in tile ${i + 1} not found`);
@@ -1641,7 +1636,7 @@ When(
           window as unknown as { __xtermStabilityTag?: string }
         ).__xtermStabilityTag = tag;
       },
-      { sel: CANVAS_SELECTOR, i: index - 1 },
+      { sel: TILE_SELECTOR, i: index - 1 },
     );
   },
 );
@@ -1721,3 +1716,145 @@ Then("the page should not scroll", async function (this: KoluWorld) {
     `the document is ${seen.scrollWidth}px wide in a ${seen.clientWidth}px window`,
   );
 });
+
+// ── A tile nobody can see takes no live output (kolu#2362) ──
+//
+// The DOM fact underneath is `data-visible` on a pane: it is set exactly while
+// that pane holds an attach stream. These steps drive the product (park a tile
+// off the edge of the canvas, bring it back) and assert what a user would see
+// — output printed while the tile was away is not on its screen, and the trip
+// back repaints it from a fresh snapshot.
+
+/** Where a tile sat before it was parked off-canvas, per world. */
+const parkedTiles = new Map<
+  KoluWorld,
+  { id: string; left: number; top: number }
+>();
+/** The marker printed into a parked tile, per world. */
+const parkedMarkers = new Map<KoluWorld, string>();
+
+/** A tile's own terminal pane — the element that carries the xterm, present
+ *  whether or not the pane is currently shown. */
+const paneOf = (id: string) =>
+  `${CANVAS_TILE_SELECTOR}[data-terminal-id="${id}"] [data-terminal-id][data-font-size]:not([data-sub-terminal])`;
+
+async function canvasTileId(world: KoluWorld, index: number): Promise<string> {
+  return (await readCanvasTilePosition(world, index)).id;
+}
+
+When(
+  "I move canvas tile {int} far out of view",
+  async function (this: KoluWorld, index: number) {
+    const pos = await readCanvasTilePosition(this, index);
+    parkedTiles.set(this, pos);
+    // Far enough that neither the tile nor the 200 px margin around the
+    // viewport can still reach it.
+    await setCanvasLayoutById(this, pos.id, pos.left + 6000, pos.top + 4000);
+  },
+);
+
+When(
+  "I move the parked canvas tile back into view",
+  async function (this: KoluWorld) {
+    const parked = parkedTiles.get(this);
+    assert.ok(parked, "No parked canvas tile — park one out of view first");
+    await setCanvasLayoutById(this, parked.id, parked.left, parked.top);
+  },
+);
+
+Then(
+  "canvas tile {int} should stop taking live output",
+  async function (this: KoluWorld, index: number) {
+    const id = await canvasTileId(this, index);
+    // The grace period deliberately outlives a flick across the canvas
+    // (`tileSeen.ts`'s SEEN_HOLD_MS, 5 s), so this waits through it —
+    // POLL_TIMEOUT is 20 s.
+    await this.page.waitForFunction(
+      ({ shell, shown }: { shell: string; shown: string }) =>
+        document.querySelector(shell) !== null &&
+        document.querySelector(shown) === null,
+      {
+        shell: `${CANVAS_TILE_SELECTOR}[data-terminal-id="${id}"]`,
+        shown: `${paneOf(id)}[data-visible]`,
+      },
+      { timeout: POLL_TIMEOUT },
+    );
+  },
+);
+
+Then(
+  "canvas tile {int} should take live output again",
+  async function (this: KoluWorld, index: number) {
+    const id = await canvasTileId(this, index);
+    await this.page
+      .locator(`${paneOf(id)}[data-visible]`)
+      .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
+  },
+);
+
+When(
+  "I print a marker in canvas tile {int}",
+  async function (this: KoluWorld, index: number) {
+    const id = await canvasTileId(this, index);
+    const stamp = Date.now();
+    const marker = `kolu-e2e-parked-${stamp}`;
+    parkedMarkers.set(this, marker);
+    // The marker is assembled BY THE SHELL from two pieces, so the command
+    // line the shell echoes can never contain it — only `printf`'s own output
+    // can. (Both land in the buffer once the tile is attached again, which is
+    // exactly why the echo must not be able to pass for the output.)
+    const print = (suffix: string) =>
+      `printf '%s%s\\n' 'kolu-e2e' '${suffix}'\r`;
+    await padiCall("lifecycle/sendInput", {
+      id,
+      data: print(`-parked-${stamp}`),
+    });
+    // FENCE, through a tile that IS still attached: once its own marker has
+    // made the whole round trip (PTY → attach stream → this browser), the one
+    // sent a moment earlier would have arrived too, had anything been
+    // listening for it.
+    const fenceId = await this.page.evaluate((parked: string) => {
+      const panes = document.querySelectorAll(
+        "[data-terminal-id][data-font-size][data-visible]:not([data-sub-terminal])",
+      );
+      for (const pane of panes) {
+        const other = pane.getAttribute("data-terminal-id");
+        if (other && other !== parked) return other;
+      }
+      return null;
+    }, id);
+    assert.ok(fenceId, "No attached terminal to fence the parked one against");
+    const fence = `kolu-e2e-fence-${stamp}`;
+    await padiCall("lifecycle/sendInput", {
+      id: fenceId,
+      data: print(`-fence-${stamp}`),
+    });
+    await waitForBufferContains(this.page, fence, {
+      selector: paneOf(fenceId),
+    });
+  },
+);
+
+Then(
+  "canvas tile {int} should not show the marker",
+  async function (this: KoluWorld, index: number) {
+    const id = await canvasTileId(this, index);
+    const marker = parkedMarkers.get(this);
+    assert.ok(marker, "No marker printed — print one first");
+    const screen = await readBufferText(this.page, paneOf(id));
+    assert.ok(
+      !screen.includes(marker),
+      `canvas tile ${index} holds "${marker}", so it was still taking output with nobody looking at it`,
+    );
+  },
+);
+
+Then(
+  "canvas tile {int} should show the marker",
+  async function (this: KoluWorld, index: number) {
+    const id = await canvasTileId(this, index);
+    const marker = parkedMarkers.get(this);
+    assert.ok(marker, "No marker printed — print one first");
+    await waitForBufferContains(this.page, marker, { selector: paneOf(id) });
+  },
+);

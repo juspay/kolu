@@ -303,16 +303,26 @@ const App: Component = () => {
     switchHost: setActiveHost,
   });
 
-  const renderTerminalBody = (id: TerminalId) => (
+  // A body is visible when the SHELL THAT PLACED IT can see it — the canvas
+  // tile's rect against the camera, the touch shells' active tile
+  // (`WorkspaceTerminals`). App does not re-derive it: the old
+  // `visible={isDesktop() || …}` called every desktop tile visible, so one
+  // mount attached every terminal of the host (kolu#2362).
+  const renderTerminalBody = (id: TerminalId, seen: () => boolean) => (
     <TerminalContent
       terminalId={id}
-      visible={isDesktop() || tileStore.isActiveTile(id)}
+      visible={seen()}
       focused={tileStore.isActiveTile(id)}
       theme={getTerminalTheme(id)}
       onCloseTerminal={closeTerminal}
       onFocus={() => store.setActiveSilently(id)}
     />
   );
+
+  /** Is the canvas the view being looked at? The Conductor covers it without
+   *  unmounting it, so this — not the canvas's own existence — is what the
+   *  retained subtree under it reads (`ui/shown.ts`). */
+  const canvasShown = () => !conductorMode();
 
   // The one canvas-surface decision — which surface wins, in what order. The
   // precedence (and the #1034 / F3 correctness it carries) lives in
@@ -671,29 +681,44 @@ const App: Component = () => {
                         class="min-w-0 min-h-0 flex"
                         minSize={0.3}
                       >
-                        <TerminalCanvas
-                          tileIds={tileStore.tileIds()}
-                          getLayout={tileStore.getLayout}
-                          onLayoutChange={tileStore.setLayout}
-                          onAutoArrange={arrange.handleCanvasAutoArrange}
-                          onSelect={tileStore.setActiveSilently}
-                          onClose={(id) => closeTerminal(id)}
-                          {...dockPalette}
-                          renderTileTitle={(id) => (
-                            <TerminalMeta
-                              terminalId={id}
-                              info={store.getDisplayInfo(id)}
-                              meta={store.getMetadata(id)}
-                              unread={store.isUnread(id)}
-                              onOpenIntent={() => intentEditor.openTerminal(id)}
-                            />
-                          )}
-                          renderTileTitleActions={(id) => (
-                            <TileTitleActions id={id} host={activeHost()} />
-                          )}
-                          renderTileBar={(id) => <TileTip id={id} />}
-                          renderTileBody={outlet}
-                        />
+                        {/* IS ANYBODY LOOKING AT THE CANVAS? The Conductor
+                         *  COVERS the workspace instead of replacing it
+                         *  (below), so the canvas stays mounted with its
+                         *  camera, its dock and every tile exactly as they
+                         *  were — and every piece of work under it asks this
+                         *  one accessor before spending anything
+                         *  (`ui/shown.ts`). For a tile that means its pane's
+                         *  attach: reading the conversation for a minute
+                         *  stops the output of the terminals behind it.
+                         *  Provided at its one consumer; a second one (the
+                         *  dock, the inspector) moves it up to the Switch. */}
+                        <Shown.Provider value={canvasShown}>
+                          <TerminalCanvas
+                            tileIds={tileStore.tileIds()}
+                            getLayout={tileStore.getLayout}
+                            onLayoutChange={tileStore.setLayout}
+                            onAutoArrange={arrange.handleCanvasAutoArrange}
+                            onSelect={tileStore.setActiveSilently}
+                            onClose={(id) => closeTerminal(id)}
+                            {...dockPalette}
+                            renderTileTitle={(id) => (
+                              <TerminalMeta
+                                terminalId={id}
+                                info={store.getDisplayInfo(id)}
+                                meta={store.getMetadata(id)}
+                                unread={store.isUnread(id)}
+                                onOpenIntent={() =>
+                                  intentEditor.openTerminal(id)
+                                }
+                              />
+                            )}
+                            renderTileTitleActions={(id) => (
+                              <TileTitleActions id={id} host={activeHost()} />
+                            )}
+                            renderTileBar={(id) => <TileTip id={id} />}
+                            renderTileBody={outlet}
+                          />
+                        </Shown.Provider>
                       </Resizable.Panel>
                       <Show when={!rightPanel.collapsed()}>
                         <Resizable.Handle

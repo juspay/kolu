@@ -59,6 +59,8 @@ describe("CanvasTile shell selection", () => {
           panY={() => 0}
           zoom={() => 1}
           viewportSize={() => ({ width: 500, height: 500 })}
+          viewShown={() => true}
+          cameraSettled={() => true}
         />
       ),
       host,
@@ -106,6 +108,8 @@ describe("CanvasTile shell selection", () => {
           panY={() => 0}
           zoom={() => 1}
           viewportSize={() => ({ width: 500, height: 500 })}
+          viewShown={() => true}
+          cameraSettled={() => true}
         />
       ),
       host,

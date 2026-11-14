@@ -12,6 +12,10 @@ export interface Point {
 export interface AnimatePanOptions {
   durationMs?: number;
   easing?: (t: number) => number;
+  /** The tween reached its target (or jumped there under reduced motion).
+   *  NOT called when the controller aborts — an aborted pan has no settled
+   *  pose to report; its canceller owns what happens next. */
+  onDone?: () => void;
 }
 
 const DEFAULT_DURATION_MS = 150;
@@ -42,6 +46,7 @@ export function animatePan(
   if (prefersReducedMotion() || durationMs <= 0) {
     onTick(to.x, to.y);
     controller.abort();
+    opts.onDone?.();
     return controller;
   }
 
@@ -54,6 +59,7 @@ export function animatePan(
     const e = easing(t);
     onTick(from.x + (to.x - from.x) * e, from.y + (to.y - from.y) * e);
     if (t < 1) raf = requestAnimationFrame(frame);
+    else opts.onDone?.();
   }
 
   controller.signal.addEventListener("abort", () => cancelAnimationFrame(raf));

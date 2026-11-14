@@ -63,10 +63,21 @@ let cleanupGestures: (() => void) | null = null;
 /** In-flight pan animation (if any) — cancelled by any gesture or
  *  instant pan so external input always wins over an ongoing tween. */
 let currentAnim: AbortController | null = null;
+// IS THE CAMERA IN TRANSIT? True only for a PROGRAMMATIC tween — centering on
+// a tile, landing a restored session, the switch-in re-centre. A tile the
+// camera merely flies OVER is not a tile anybody is looking at, so the one
+// consumer (`tileSeen.ts`, through `CanvasTile`) waits for the pose to settle
+// before attaching what it finds there: a 150 ms flight across the canvas must
+// not open — and five seconds later close — a stream per tile on the path. A
+// user's own pan/fling is not in here: that IS them looking around.
+// HOST-SCOPING: host-INDEPENDENT by design — a property of the ONE in-flight
+// animation the module already owns beside it (`currentAnim`), not of a host.
+const [panAnimating, setPanAnimating] = createSignal(false);
 
 function cancelPanAnimation() {
   currentAnim?.abort();
   currentAnim = null;
+  setPanAnimating(false);
 }
 
 // ── rAF-coalesced gesture application ──
@@ -195,6 +206,13 @@ export interface CanvasViewport {
   zoomOut: () => void;
   /** Reset zoom to 100%, keeping the same center point. */
   resetZoom: () => void;
+  /** Has the camera stopped moving under its own steam? False only while a
+   *  PROGRAMMATIC pan tween is running (`centerOnTile` / `panTo`): what such
+   *  a flight sweeps across is not what the user asked to look at, so a tile
+   *  waits for the settled pose before counting itself seen (`tileSeen.ts`).
+   *  A user's own pan is settled by this measure — they are looking as they
+   *  go. */
+  cameraSettled: Accessor<boolean>;
 }
 
 function setContainerRef(el: HTMLDivElement, policy: GesturePolicy) {
@@ -279,6 +297,7 @@ function targetForPoint(
 
 function startAnimatedPan(target: { panX: number; panY: number }) {
   abortTransientInput();
+  setPanAnimating(true);
   currentAnim = animatePan(
     { x: panX(), y: panY() },
     { x: target.panX, y: target.panY },
@@ -288,6 +307,11 @@ function startAnimatedPan(target: { panX: number; panY: number }) {
         setPanY(y);
       });
     },
+    // Reached the target: the pose is the one the user asked for, so the
+    // tiles it shows are the tiles to attach. (An ABORT doesn't land here —
+    // `cancelPanAnimation` clears the flag itself, because whatever cancelled
+    // the tween is the new truth.)
+    { onDone: () => setPanAnimating(false) },
   );
 }
 
@@ -355,6 +379,7 @@ const viewport: CanvasViewport = {
   setPan,
   abortTransientInput,
   mounted: () => observedSize() !== undefined,
+  cameraSettled: () => !panAnimating(),
   viewportSize,
   viewportCenter,
   snapToGrid: snapToGridPure,
