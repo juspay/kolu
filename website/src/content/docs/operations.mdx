@@ -1,6 +1,6 @@
 ---
 title: Operations
-description: "Stop the kolu stack cleanly, roll back to an older release by hand, and run a second kolu beside a live one without touching it — the state roots, gate files, and SIGTERM discipline all three procedures share."
+description: "Stop the kolu daemons cleanly, roll back to an older release by hand, and run a second kolu beside a live one without disturbing it."
 order: 74
 section: Operate
 koluHero:
@@ -15,72 +15,24 @@ import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 import Steps from "../../components/docs/Steps.astro";
 
-Two procedures answer the same question: how do you run kolu *next to* — or
-*instead of* — the kolu already running on this machine, without damaging it?
-Stopping the stack by hand (what a rollback to an older release needs) and
-launching an isolated second instance share one vocabulary, so it is introduced
-once here and used by both.
+Two procedures here run kolu next to, or instead of, the kolu already on this
+machine: stopping the stack by hand (what a rollback needs), and launching an
+isolated second instance. Both act on the [daemons](/architecture), `padi` and
+`kaval`, not the web server, which you can restart freely.
 
-Everything below is about the [daemons](/architecture), not the web server. The
-server is a face you can restart freely; `padi` and `kaval` hold the state, and
-they are what a careless stop or a careless test run damages.
+## Before you start
 
-## Three things to know first
-
-**Two state directories.** `KOLU_STATE_DIR` is the server's config store
-(`~/.config/kolu` by default). `KOLU_PADI_STATE_DIR` is padi's **state root**
-(`~/.local/state/padi`) — saved sessions, `padi.log`, and the anchor for
-everything else. The production launcher supplies both; a bare `padi` with
-neither set refuses to start rather than guess.
-
-**Two logs, and they answer different questions.** The daemons write their own
-files because nothing else owns their output — they are spawned detached. The
-**server** writes to its stdout, and whoever launched it owns that: systemd
-sends it to the journal, and a bare `kolu web` sends it to your terminal, where
-it is lost when the terminal closes.
-
-| Log | Where | What only it can tell you |
-| --- | --- | --- |
-| the server's | its stdout — the journal under systemd | **why a host's daemon was stopped or replaced**: which policy fired, and the evidence behind it |
-| `padi.log.N` | the padi state root, on that host | what one host's daemon did — sessions, terminals, its own view of kaval |
-| `padi.stderr.log` | beside it | crashes pino cannot see: native stderr, uncaught stacks |
-
-The first row is the one people go looking for after a surprise. **The decision
-to stop or replace a padi is the server's, not padi's** — padi's own log records
-only that it was asked to stop, so a restart you did not expect is explained in
-the server's log or nowhere.
-
-<Aside type="tip" title="Running `kolu web` by hand? Capture its output">
-  Under systemd this is already handled. Started from a shell, the server's log
-  exists only in that terminal — so if you are leaving one running, send it
-  somewhere it will survive:
-
-  ```sh
-  kolu web > ~/kolu-server.log 2>&1
-  ```
-
-  Without that, a daemon restart you want to explain later has no record to read.
-</Aside>
-
-The daemon logs are numbered: they roll by size, so the current lines are in
-`padi.log.1` and older rounds in `.2` and up. The un-numbered `padi.log` is an
-artifact of the daemon's start-up check and stays empty — not where the lines go.
-
-Each `config.json` also keeps its own **backup ring**: a `backups/` directory
-beside the file holding the ten most recent boot-time (and daily) snapshots,
-byte-identical restarts skipped. They exist for the day a bug persists a
-bad-but-valid value over good state — restore one from **Debug → Restore state
-from backup** in the command palette, or copy it over `config.json` by hand.
-See [Troubleshooting](/troubleshooting) for the in-app flow.
-
-**The padi state root is an identity.** Its absolute path is hashed to a short
-digest, and that digest names every socket and pid gate the daemons use. Two
-kolus with different padi state roots cannot see each other's daemons at all —
-not because anything refuses them, but because they compute entirely different
-paths.
-
-**Each daemon claims a pid gate** beside its socket, in the per-user runtime
-directory:
+- **Two state directories.** `KOLU_STATE_DIR` is the server's config store
+  (`~/.config/kolu` by default). `KOLU_PADI_STATE_DIR` is padi's state root
+  (`~/.local/state/padi`): saved sessions, `padi.log`, and the anchor for
+  everything else. The production launcher supplies both. A bare `padi` with
+  neither set refuses to start rather than guess.
+- **The padi state root is an identity.** Its absolute path is hashed to a
+  short digest, and that digest names every socket and pid gate the daemons
+  use. Two kolus with different padi state roots compute different paths, so
+  neither can see the other's daemons.
+- **Each daemon claims a pid gate** beside its socket, in the per-user runtime
+  directory.
 
 | File | Holder |
 | --- | --- |
@@ -88,30 +40,60 @@ directory:
 | `<runtime>/kaval-<digest>/kaval.pid` | the kaval daemon under it |
 | `<runtime>/kaval-<digest>/state-root` | the state-root path that digest stands for |
 
-A gate file is one line — the pid, a tab, and the process start time — so
+A gate file is one line: the pid, a tab, and the process start time. So
 `cut -f1` gets you the pid. Runtime directories are wiped on reboot; the state
 roots persist.
 
 `<runtime>` is `$XDG_RUNTIME_DIR` where it is set, which on Linux is
-`/run/user/$UID`. Where it is not (macOS), the daemons fall back to `/tmp` and
-carry your uid in the directory name instead — `/tmp/padi-<digest>-$UID/`. The
-commands below spell the Linux paths; on macOS substitute that shape.
+`/run/user/$UID`. Where it is not set (macOS), the daemons fall back to `/tmp`
+and carry your uid in the directory name instead, as `/tmp/padi-<digest>-$UID/`.
+The commands below spell the Linux paths; on macOS substitute that shape.
+
+## Where the logs are
+
+| Log | Where | What only it can tell you |
+| --- | --- | --- |
+| the server's | its stdout, which is the journal under systemd | why a host's daemon was stopped or replaced: which policy fired, and the evidence behind it |
+| `padi.log.N` | the padi state root, on that host | what one host's daemon did: sessions, terminals, its own view of kaval |
+| `padi.stderr.log` | beside it | crashes pino cannot see: native stderr, uncaught stacks |
+
+The daemons write their own files, because they are spawned detached. Whoever
+launched the server owns its output instead: the journal under systemd, your
+terminal under a bare `kolu web`, where it is lost when the terminal closes.
+Redirect it if you leave one running:
+
+```sh
+kolu web > ~/kolu-server.log 2>&1
+```
+
+The first row is the one people go looking for after a surprise. The decision
+to stop or replace a padi is the server's: padi's own log records only that it
+was asked to stop.
+
+The daemon logs are numbered, and roll by size. Current lines are in
+`padi.log.1`, older rounds in `.2` and up. The un-numbered `padi.log` stays
+empty and is not where the lines go.
+
+Each `config.json` also keeps a backup ring: a `backups/` directory beside the
+file, holding the ten most recent boot-time and daily snapshots. To restore
+one, see
+[Troubleshooting](/troubleshooting#kolu-lost-my-session-or-my-settings-look-wrong).
 
 ## Stop the stack
 
 <Aside type="caution" title="`pkill padi` matches nothing">
-  The daemons are Node processes — their process name is `node` (or
-  `MainThread`), and "padi" appears only in their argv. A bare `pkill padi`
-  silently matches zero processes and looks like it worked. This exact mistake
-  prolonged a real recovery. A `pkill -f padi` pattern does match, but it also
-  matches your editor's buffer name and anything else with the word in its
-  command line; read the pid from the gate file instead.
+  The daemons are Node processes, so their process name is `node` (or
+  `MainThread`) and "padi" appears only in their argv. A bare `pkill padi`
+  matches zero processes and looks like it worked. `pkill -f padi` does match,
+  but it also matches anything else with the word in its command line. Read the
+  pid from the gate file instead.
 </Aside>
 
 <Steps>
 
-1. **Stop the service first.** Otherwise its supervisor restarts the web server,
-   which spawns fresh daemons the moment you kill the ones you meant to stop.
+1. **Stop the service first.** Otherwise its supervisor restarts the web
+   server, which spawns fresh daemons the moment you kill the ones you meant to
+   stop.
 
    ```sh
    systemctl --user stop kolu
@@ -135,58 +117,54 @@ commands below spell the Linux paths; on macOS substitute that shape.
 
 </Steps>
 
-The whole shutdown as one line — service and both daemons, pids read from the
+The whole shutdown as one line, service and both daemons, pids read from the
 gates:
 
 ```sh
 systemctl --user stop kolu; kill -TERM $(cut -f1 /run/user/$UID/padi-*/padi.pid /run/user/$UID/kaval-*/kaval.pid 2>/dev/null) 2>/dev/null
 ```
 
-padi sweeps dead gate directories — its own and its kaval's, under the runtime
-directory and under `/tmp` — once at every start, removing only the ones whose
-gate file names a process that is gone. Between two starts, a daemon that died
-can still leave one behind, so the glob may hand you a pid that no longer
-exists; signalling a dead pid is a harmless error, which is what the
+padi sweeps dead gate directories at every start, its own and its kaval's,
+under the runtime directory and under `/tmp`. It removes only the ones whose
+gate file names a process that is gone, so the glob may still hand you a pid
+that no longer exists. Signalling a dead pid is a harmless error, which the
 redirections absorb. Check with `ps` rather than trusting the exit status.
 
-<Aside type="caution" title="Do not reach for SIGKILL first">
-  SIGTERM is the sanctioned stop because padi's last act on that signal is to
-  persist the live session — its continuous autosave is throttled, so the blob
-  on disk otherwise trails the live workspace by up to half a second, and which
-  terminal is *active* by up to five. SIGKILL skips that final capture and makes
-  the last autosave your recovery point. Keep SIGKILL for a daemon that has
-  already ignored a SIGTERM — or, as kolu's own supervisor does, one it observed
-  stopped, since a stopped process cannot act on SIGTERM at all.
-</Aside>
+Send SIGTERM, not SIGKILL. padi's last act on that signal is to persist the
+live session. Its continuous autosave is throttled, so the blob on disk
+otherwise trails the live workspace by up to half a second, and which terminal
+is active by up to five.
+
+SIGKILL skips that final capture and makes the last autosave your recovery
+point. Keep SIGKILL for a daemon that has already ignored a SIGTERM, or one you
+observed stopped, since a stopped process cannot act on SIGTERM at all.
 
 ## Roll back to an older release
 
 Upgrading is hands-off. When a release changes the protocol the daemons speak,
-the **new** supervisor probes whatever is holding the socket, recognises a
+the new supervisor probes whatever holds the socket, recognises a
 previous-epoch daemon, corroborates it against the gate file and the OS process
-table, and takes it over — on this machine and on each [remote
-host](/remote-hosts). Nothing to run by hand; the story users see is in
+table, and takes it over. That happens on this machine and on each [remote
+host](/remote-hosts), with nothing to run by hand. The story users see is in
 [Troubleshooting](/troubleshooting#how-do-i-update-kolu).
 
-A process holding the socket that the supervisor **cannot** prove is one of its
-own daemons is never signalled. It is refused, and the refusal names the
-holder's pid and command, so you can deal with it by hand. If something holds
-kaval's socket, accepts connections and then says nothing at all, padi takes
-about **90 seconds** to refuse it: three tries, each waiting out a 30-second
-handshake deadline.
+A process holding the socket that the supervisor cannot prove is one of its own
+daemons is never signalled. It is refused, and the refusal names the holder's
+pid and command, so you can deal with it by hand. If something holds kaval's
+socket, accepts connections and then says nothing, padi takes about 90 seconds
+to refuse it: three tries, each waiting out a 30-second handshake deadline.
 
-Going the other way is manual, and for one reason: **that takeover logic exists
-only in the newer binary.** An older kolu has no code for it. It meets the new
-daemon's socket, fails to speak its protocol, and refuses — so you have to clear
-the way yourself.
+Going the other way is manual, because the takeover logic exists only in the
+newer binary. An older kolu meets the new daemon's socket, fails to speak its
+protocol, and refuses, so you clear the way yourself.
 
 <Steps>
 
 1. **Stop the stack** with the procedure above, SIGTERM and all. The final
-   capture it triggers is what the older build will restore from.
+   capture it triggers is what the older build restores from.
 
 2. **Confirm nothing survived** — `ps -p` on the pids you signalled. A daemon
-   still holding its socket will make the older build refuse exactly as before.
+   still holding its socket makes the older build refuse exactly as before.
 
 3. **Start the older version.** It spawns fresh daemons of its own generation
    and restores your terminals from the saved session blobs.
@@ -195,14 +173,10 @@ the way yourself.
 
 ## Run a second kolu beside a live one
 
-<Aside type="caution" title="Prefer a separate machine">
-  A second kolu on this box shares its RAM and its kernel with production. A
-  pile-up of local builds and dev servers once drove the OOM killer to reap the
-  production kaval, taking every terminal with it. An ephemeral box is the safer
-  answer. The knobs below are the floor of isolation, not the ceiling.
-</Aside>
-
-Three environment settings make a `nix run` instance its own thing:
+A second kolu on this box shares its RAM and its kernel with production, so an
+ephemeral box is the safer answer. The settings below are the floor of
+isolation, not the ceiling. Three of them make a `nix run` instance its own
+thing:
 
 ```sh
 export KOLU_STATE_DIR="$HOME/tmp/kolu-test/state"     # server config store (default: ~/.config/kolu)
@@ -210,24 +184,22 @@ export KOLU_PADI_STATE_DIR="$HOME/tmp/kolu-test/padi" # padi state root: session
 nix run github:juspay/kolu -- web --port 8681             # production listens on 7681
 ```
 
-The launcher honours both variables when they are already set, and falls back to
-the production paths when they are not — which is exactly why forgetting one is
+The launcher honours both variables when they are already set, and falls back
+to the production paths when they are not. That is why forgetting one is
 dangerous rather than merely untidy.
 
 <Aside type="caution" title="Sharing a padi state root makes your test a deploy">
-  The supervisor takes over any daemon it can **corroborate**: a gate file under
-  *its own* padi runtime directory naming a pid the OS agrees is holding the
-  socket. Share `KOLU_PADI_STATE_DIR` with production and both instances hash to
-  the same digest — so the test instance reads production's gate, corroborates
-  production's daemon, and SIGTERMs it. Your "local test" has just performed the
-  production upgrade. With its own state root the digest differs, and there is
-  nothing of production's for it to find.
+  The supervisor takes over any daemon it can corroborate: a gate file under its
+  own padi runtime directory naming a pid the OS agrees is holding the socket.
+  Share `KOLU_PADI_STATE_DIR` with production and both instances hash to the
+  same digest, so the test instance reads production's gate and SIGTERMs
+  production's daemon.
 </Aside>
 
-**A different `--port` isolates nothing by itself.** padi and kaval are keyed by
-the digest of the padi state root, not by the listen port; `--port` moves the
-web listener and leaves the daemons exactly where they were. It is there so two
-servers can coexist, not to keep them apart.
+A different `--port` isolates nothing by itself. padi and kaval are keyed by
+the digest of the padi state root, not by the listen port, so `--port` moves the
+web listener and leaves the daemons where they were. It lets two servers
+coexist; it does not keep them apart.
 
 To check your work, ask each running kaval which state root it belongs to:
 
@@ -235,9 +207,9 @@ To check your work, ask each running kaval which state root it belongs to:
 cat /run/user/$UID/kaval-*/state-root
 ```
 
-Two different paths means the two instances are genuinely separate. Your test
-path appearing beside nothing else — or `~/.local/state/padi` appearing twice —
-means they are not.
+Two different paths mean the two instances are genuinely separate. Your test
+path appearing alone, or `~/.local/state/padi` appearing twice, means they are
+not.
 
 <CardGrid>
   <LinkCard title="Deployment" href="/deployment" description="the home-manager service, addresses, logs, and heap diagnostics" />
