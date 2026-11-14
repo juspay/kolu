@@ -56,9 +56,9 @@ import { Effect, Queue, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { KOLU_FLEET_EXPOSE, KOLU_MCP_EXPOSE } from "../expose.ts";
 import { KOLU_MCP_TOOLS } from "../tools.ts";
-import { FLEET_SETTLE_CAP_MS, KOLU_FLEET_TOOL_NAMES } from "./lift.ts";
 import { fleetSurface } from "./fleetSurface.ts";
 import type { FleetHosts } from "./hosts.ts";
+import { FLEET_SETTLE_CAP_MS, KOLU_FLEET_TOOL_NAMES } from "./lift.ts";
 import { serveKoluFleetMcp } from "./serve.ts";
 import type {
   FleetWatchJoin,
@@ -1616,7 +1616,11 @@ describe("the conductor's pieces of work", () => {
       arguments: {
         work: "work:1",
         questions: [
-          { question: "Approve the plan?", options: ["approve", "revise"] },
+          {
+            header: "Plan approval",
+            question: "Approve the plan?",
+            options: ["approve", "revise"],
+          },
         ],
       },
     });

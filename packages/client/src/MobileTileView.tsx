@@ -24,8 +24,6 @@ import Drawer from "@corvu/drawer";
 import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal, For, type JSX, Show } from "solid-js";
 import { DockList } from "./canvas/dock/DockList";
-import WorkLock from "./conductor/WorkLock";
-import { activeTerminalRef } from "./conductor/personInput";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import { useTileStore } from "./tile/useTileStore";
 import { withKeyboardDismiss } from "./ui/dismissSoftKeyboard";
@@ -155,17 +153,6 @@ const MobileTileView: Component<{
             }}
           </For>
         </div>
-        {/* THE LOCK for the terminal the key bar types into — the SAME id
-            `MobileKeyBar` gates (`focusedId`, which can be a split of the
-            active tile), so the band never describes one terminal while the
-            keys are gated for another; a sleeping tile has no input target
-            and falls back to the tile on screen. It sits directly above the
-            key bar, a thumb's width from the key that was blocked. */}
-        <Show when={store.focusedId() ?? store.activeId()}>
-          {(id) => (
-            <WorkLock terminal={activeTerminalRef(id())} placement="bar" />
-          )}
-        </Show>
         {props.bottomBar}
       </div>
 

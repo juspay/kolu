@@ -10906,6 +10906,78 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "4dbdd84874b4e3e239ca50cb9a26bf7eb901c349"
+    },
+    {
+      "revisionId": "revision-6dba393e80ea959c9d5a",
+      "scenarioKey": "scenario-505dde0c1dcbe7b500fd",
+      "feature": "features/conductor-lock.feature",
+      "scenario": "A driven terminal takes no keys and no paste, and the card says why",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "690fb18ae2f9bfe9c6eca88f3119261e3cc1b12e4ce116d6f58c8967bdd77c29",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "435f40325fe94d5834c76e5fe91c672bd43a5101"
+    },
+    {
+      "revisionId": "revision-c301d3d6c52fc6b0fe58",
+      "scenarioKey": "scenario-051867c484b34c65e2fb",
+      "feature": "features/conductor-lock.feature",
+      "scenario": "A watch is not a waterfall, so nothing is locked",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "1b12ca262ebe5744fce9de7b862cfec73c118e2f6d573fec394019a54a148e88",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "435f40325fe94d5834c76e5fe91c672bd43a5101"
+    },
+    {
+      "revisionId": "revision-3622c4a481770306d15d",
+      "scenarioKey": "scenario-cad0982ef45c12f4746f",
+      "feature": "features/conductor-lock.feature",
+      "scenario": "Take it over from the card, type, hand it back from the pill",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "0e29f0775b373ba395f6bae41dc80c937a409aed1acb0043fdd6bc294d90b479",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "435f40325fe94d5834c76e5fe91c672bd43a5101"
+    },
+    {
+      "revisionId": "revision-8ec7273737bb5b67ec60",
+      "scenarioKey": "scenario-12f50daea9c5f11dc73d",
+      "feature": "features/conductor-lock.feature",
+      "scenario": "The other browser is told who is driving",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "e012b5d7d8d06998df6a3de19a58053d33d0d87de8b7cb3bf98dc67c57e1190b",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "435f40325fe94d5834c76e5fe91c672bd43a5101"
+    },
+    {
+      "revisionId": "revision-acafa01d341788f26998",
+      "scenarioKey": "scenario-4d699f594b8cc2ad680c",
+      "feature": "features/conductor-lock.feature",
+      "scenario": "The phone's key bar raises the same card",
+      "kind": "scenario",
+      "tags": ["@mobile"],
+      "bodyHash": "f0c3ba46a01cb4ea0ac6f7b4dad1f59dbf752d244306c1e08bf4e6912d425281",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "435f40325fe94d5834c76e5fe91c672bd43a5101"
+    },
+    {
+      "revisionId": "revision-d1a9e4af19855a77e1b0",
+      "scenarioKey": "scenario-0e4c0afb060bb3ec7b14",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A waterfall's card, from the request to the merge",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "af2e6dea620c5556eadbe201852a3a084be28e9f6ff6beb46cc8e7d9104d81f2",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "435f40325fe94d5834c76e5fe91c672bd43a5101"
     }
   ]
 }

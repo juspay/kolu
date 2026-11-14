@@ -42,10 +42,10 @@
  *  The one thing computed is a key's label, printed in the reader's own idiom
  *  (`formatKeybind`) rather than spelled `⌥⏎` at a Linux reader. */
 
-import { createDisclosure } from "../ui/createDisclosure";
 import { formatKeybind, type Keybind } from "../input/keyboard";
 import { isMac as detectedIsMac } from "../input/platform";
 import { boolPref } from "../persistedPref";
+import { createDisclosure } from "../ui/createDisclosure";
 import { STEER_KEYBIND } from "./steer";
 
 /** The sections, in the order they are read. The id is what a test and a
@@ -146,9 +146,12 @@ export function helpSections(
       id: "the-lock",
       heading: "Who is typing",
       items: [
-        [text("A terminal it drives is read-only — reading is not")],
-        [screen("Take over"), text(" on the tile makes it yours to type in")],
-        [screen("Hand back"), text(" returns it; it is told either way")],
+        [text("A terminal it drives is bordered; reading it is not gated")],
+        [text("Type in it and a card offers "), screen("Take over")],
+        [
+          screen("Hand back"),
+          text(" is the pill in its corner; it is told either way"),
+        ],
       ],
     },
     {

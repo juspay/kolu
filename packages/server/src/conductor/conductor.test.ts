@@ -42,6 +42,8 @@ import {
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Form } from "@kolu/acp";
+import { AGENT_ENV } from "@kolu/acp/engine";
 import type {
   Harness,
   HarnessChange,
@@ -49,25 +51,41 @@ import type {
   HarnessState,
 } from "@kolu/acp-harness";
 import {
-  ATTACHMENT_BYTE_CAP,
-  DEFAULT_CONDUCTOR_STATE,
-  type ConductorAttachment,
-  type ConductorFrame,
-  type ConductorRow,
-  type ConductorState,
-  type ConductorWakeEvent,
-  PROMPT_ATTACHMENT_BYTE_CAP,
-} from "kolu-common/conductor";
-import type { ConductorReadingLevel } from "kolu-common/conductor";
-import {
   chunkBase64,
   FRAME_CHUNK_BYTES,
   frameBytesFor,
 } from "@kolu/surface/frame-chunking";
 import { exceedsFrameLimit } from "@kolu/surface/frame-limit";
 import type { CellStore } from "@kolu/surface/server";
-import type { Form } from "@kolu/acp";
 import { Server as McpServer } from "@modelcontextprotocol/sdk/server/index.js";
+import type { ConductorReadingLevel } from "kolu-common/conductor";
+import {
+  ATTACHMENT_BYTE_CAP,
+  type ConductorAttachment,
+  type ConductorFrame,
+  type ConductorRow,
+  type ConductorState,
+  type ConductorWakeEvent,
+  DEFAULT_CONDUCTOR_STATE,
+  PROMPT_ATTACHMENT_BYTE_CAP,
+} from "kolu-common/conductor";
+import {
+  type ConductorHost,
+  EMPTY_PERSISTED_CONDUCTOR,
+  type FleetMcpEndpoint,
+  type MemberWatch,
+  type PersistedConductor,
+  type PersistedMembers,
+  type PersistedTranscript,
+  type PersistedWorks,
+  startConductorHost,
+  UNSENT_ATTACHMENT_MS,
+  type WatchGit,
+  type WatchLevel,
+  type WatchObservation,
+  type WatchPr,
+  type WorkFiles,
+} from "kolu-conductor";
 import { KOLU_FLEET_EXPOSE, KOLU_FLEET_TOOL_NAMES } from "kolu-mcp";
 import {
   driverOf,
@@ -80,29 +98,11 @@ import {
 } from "kolu-work";
 import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AGENT_ENV } from "@kolu/acp/engine";
 import {
   type FleetMcpEndpoint as LiveFleetMcpEndpoint,
   proveFleetMcpEndpoint,
   startFleetMcpEndpoint,
 } from "../fleet/mcpEndpoint.ts";
-import {
-  EMPTY_PERSISTED_CONDUCTOR,
-  UNSENT_ATTACHMENT_MS,
-  startConductorHost,
-  type ConductorHost,
-  type FleetMcpEndpoint,
-  type MemberWatch,
-  type PersistedConductor,
-  type PersistedMembers,
-  type PersistedTranscript,
-  type PersistedWorks,
-  type WatchGit,
-  type WatchLevel,
-  type WatchObservation,
-  type WatchPr,
-  type WorkFiles,
-} from "kolu-conductor";
 
 const HOME = "/home/tester";
 const HOST = "test-box";
@@ -1968,7 +1968,11 @@ describe("the wipe (`clearSession`)", () => {
     const work = await watchWork(r);
     r.host.joinWork(work, A, "implementor", "created");
     const asking = r.host.askAboutWork(work, [
-      { question: "Approve the plan?", options: ["yes", "no"] },
+      {
+        header: "Plan approval",
+        question: "Approve the plan?",
+        options: ["yes", "no"],
+      },
     ]);
     await vi.waitFor(() => {
       expect(agent.asks()).toHaveLength(1);
@@ -2385,7 +2389,11 @@ describe("a call about a work that is refused", () => {
       (
         await refusalOf(() =>
           r.host.askAboutWork(work, [
-            { question: "Approve?", options: ["yes"] },
+            {
+              header: "Plan approval",
+              question: "Approve?",
+              options: ["yes"],
+            },
           ]),
         )
       ).kind,
@@ -2578,6 +2586,7 @@ describe("the watch across a restart", () => {
               ask: "kolu:ask:1",
               at: T0,
               key: null,
+              header: "Plan approval",
               question: "Approve the plan?",
               options: ["yes", "no"],
               multiple: false,
@@ -3306,6 +3315,7 @@ describe("a restored backup of the works", () => {
               ask: "ask:gone",
               at: T0,
               key: null,
+              header: "Plan approval",
               question: "Approve the plan?",
               options: ["Approve"],
               multiple: false,

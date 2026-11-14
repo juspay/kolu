@@ -122,6 +122,10 @@ export const openWork = (opened: {
 export interface Question {
   readonly id: string;
   readonly key: SetupKey | null;
+  /** The question's short header — the label the decision is drawn under.
+   *  `""` for a setup question (its key names it) and for an asker that gave
+   *  none. */
+  readonly header: string;
   readonly question: string;
   readonly options: ReadonlyArray<string>;
   readonly multiple: boolean;
@@ -144,6 +148,7 @@ export const askQuestions = (
     ask: asked.ask,
     at: asked.at,
     key: one.key,
+    header: one.header,
     question: one.question,
     options: [...one.options],
     multiple: one.multiple,

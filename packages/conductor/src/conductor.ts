@@ -98,10 +98,6 @@
  * {@link ConductorDeps.fleetMcp}.
  */
 
-import {
-  CONDUCTOR_ENGINE as ENGINE,
-  conductorConfigDir,
-} from "kolu-agents/acp";
 import type { NotHere } from "@kolu/acp/engine";
 import {
   type Harness,
@@ -110,23 +106,27 @@ import {
   HarnessUnavailable,
   type HttpServer,
 } from "@kolu/acp-harness";
+import type { CellStore } from "@kolu/surface/server";
+import { Schema } from "effect";
+import {
+  conductorConfigDir,
+  CONDUCTOR_ENGINE as ENGINE,
+} from "kolu-agents/acp";
 import {
   appendedText,
-  ConductorStateSchema,
-  DEFAULT_CONDUCTOR_STATE,
   type ConductorAttachment,
   type ConductorFrame,
+  type ConductorReadingLevel,
   type ConductorRow,
   type ConductorState,
-  type ConductorReadingLevel,
+  ConductorStateSchema,
+  DEFAULT_CONDUCTOR_STATE,
 } from "kolu-common/conductor";
 import {
   ConductorRefused,
   ConductorUnavailable,
 } from "kolu-common/conductorErrors";
 import type { MemberReading } from "kolu-common/works";
-import type { CellStore } from "@kolu/surface/server";
-import { Schema } from "effect";
 import { splitFleetTerminalRef } from "kolu-mcp/fleetRef";
 import {
   askQuestions,
@@ -135,13 +135,13 @@ import {
   missingSetup,
   ON_GREEN,
   openWork as openWorkRecord,
-  recordEvent,
-  setupOf,
   type Question,
+  recordEvent,
   type SetupKey,
   type SetupReading,
-  type Work,
+  setupOf,
   WORK_MODES,
+  type Work,
   WorkRefusal,
   type WorkRole,
 } from "kolu-work";
@@ -153,11 +153,11 @@ import type { WatchJoin } from "./members.ts";
 import type { WatchObservation } from "./observation.ts";
 import { observing } from "./observing.ts";
 import {
-  persistedFrom,
   type PersistedConductor,
   type PersistedMembers,
   type PersistedTranscript,
   type PersistedWorks,
+  persistedFrom,
   readPersistedConductor,
   readPersistedMembers,
   readPersistedTranscript,
@@ -166,9 +166,9 @@ import {
 } from "./persisted.ts";
 import { recordWrites } from "./recordWrites.ts";
 import { teachingLines } from "./teaching.ts";
+import { wakes } from "./wakes.ts";
 import type { WorkFiles } from "./workFiles.ts";
 import { type MemberDetail, workStore } from "./workStore.ts";
-import { wakes } from "./wakes.ts";
 
 /** What a reader of the transcript stream is handed, in order: one snapshot,
  *  then deltas, for as long as it is subscribed. */
@@ -275,6 +275,9 @@ export interface ConductorHost {
   readonly askAboutWork: (
     work: string,
     questions: ReadonlyArray<{
+      /** The question's short header — two or three words, the label its
+       *  decision is drawn under on the card. */
+      readonly header: string;
       readonly question: string;
       readonly options: ReadonlyArray<string>;
       readonly multiple?: boolean | undefined;
@@ -1412,6 +1415,9 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       const questions: ReadonlyArray<Question> = intent.setup.map((one) => ({
         id: crypto.randomUUID(),
         key: one.key,
+        // A setup question's label is its KEY's own name, so it carries no
+        // header of its own.
+        header: "",
         question: one.question,
         options: one.options,
         // One answer each: a setup question with two answers is two questions.
@@ -1466,6 +1472,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         // NOT a setup key: this is a question about the work rather than about
         // how it is run, so no reading is ever taken off it.
         key: null,
+        header: one.header,
         question: one.question,
         options: one.options,
         multiple: one.multiple === true,

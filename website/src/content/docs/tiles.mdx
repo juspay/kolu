@@ -21,32 +21,34 @@ as the dock, so you can see which repository it belongs to.
 
 ## A terminal the Conductor is driving
 
-A terminal that belongs to one of [the
-Conductor](/conductor#what-it-is-working-on)'s pieces of work carries a **◆**
-mark on its title bar, with its role and the work's title. The mark comes from
-the work's own membership, so the title bar and the [dock](/dock) row never
-disagree.
+A thin border in the Conductor's colour around the terminal body means [the
+Conductor](/conductor#who-is-typing) is driving that terminal. Nothing is added
+to the title bar.
 
-While the Conductor is driving that terminal, the tile takes no typing from
-you. The title bar says **Driven by the Conductor**, naming the role and the
-work, with one control: **Take over**. Keys, pasted text, pasted images and
-dropped files are all held back, and typing rings the banner with a line
-pointing at that control rather than swallowing the keystroke.
+Reading works as usual: scroll, select, copy, search, open a link, and click
+the terminal to focus it.
 
-Everything that only reads is untouched: scroll, select, copy, search, **Look**
-and resize.
+Typing is what is held back. Press a key, paste, or drop a file, and a card
+appears over the terminal reading **The Conductor is driving this terminal**
+with the role it plays. Nothing reaches the terminal.
 
-Press **Take over** and the terminal is yours. The banner reads **Taken over**,
-**Hand back** appears beside it, and your keys go through. Both moves go on the
-work's [timeline](/conductor#the-work-card), and the Conductor is told, so the
-agent it directs is never typed at by two people at once.
+The card offers **Take over** and **Dismiss**, and it also closes on
+<kbd>Esc</kbd>, on a click elsewhere, or by itself after a few seconds.
+
+Click **Take over** and the terminal is yours. The border changes, and a
+**You're driving · Hand back** pill sits in the bottom left of the terminal
+body. Click the pill to give it back. Both controls are on each terminal row of
+the [work card](/conductor#the-work-card) too, so you can reach them without
+typing first.
+
+Each move goes on the work's [timeline](/conductor#what-a-work-holds) and wakes
+the Conductor, so the agent it directs is never typed at by two people at once.
 
 The lock is kolu's state on the work rather than a flag in your browser. A
 second device sees the same lock, and it survives a reload and a server
-restart. It ends by itself when the terminal leaves the work or the work ends.
-A terminal the Conductor only keeps an eye on is not locked, and neither are
-the programmatic senders: the `kolu` CLI, the [MCP](/mcp) tools and the
-Conductor itself.
+restart. It ends when the terminal leaves the work or the work ends. A terminal
+the Conductor only watches is not locked, and neither are the `kolu` CLI, the
+[MCP](/mcp) tools or the Conductor itself.
 
 ## Splits and tabs
 

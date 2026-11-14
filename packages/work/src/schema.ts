@@ -179,6 +179,12 @@ export const DecisionSchema = Schema.Struct({
   at: Schema.String,
   /** The setup question this answers, or `null` for any other. */
   key: Schema.NullOr(SetupKeySchema),
+  /** THE QUESTION'S SHORT HEADER — two or three words, which is the label a
+   *  decision is DRAWN under on the card: the question's own words are behind
+   *  a press. `""` for a setup question, whose label is its key's own name,
+   *  and for a question whose asker gave none (then a few words of the
+   *  question stand in). */
+  header: Schema.String,
   question: Schema.String,
   options: Schema.Array(Schema.String),
   /** Whether more than one option may be picked. */

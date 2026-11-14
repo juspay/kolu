@@ -45,8 +45,8 @@ import {
   type Driver,
   type OnGreen,
   OnGreenSchema,
-  SetupKeySchema,
   type SetupKey,
+  SetupKeySchema,
   type Standing,
   type WorkMode,
   WorkModeSchema,
@@ -180,6 +180,7 @@ export interface FleetWorks {
   ask(
     work: string,
     questions: ReadonlyArray<{
+      readonly header: string;
       readonly question: string;
       readonly options: ReadonlyArray<string>;
       readonly multiple?: boolean | undefined;
@@ -349,7 +350,14 @@ const WorkAskArgsSchema = Schema.Struct({
   }),
   questions: Schema.Array(
     Schema.Struct({
-      question: Schema.String.check(Schema.isMinLength(1)),
+      header: Schema.String.check(Schema.isMinLength(1)).annotate({
+        description:
+          'The question\'s SHORT HEADER — two or three words, which is how this decision is labelled on the work\'s card ("Plan approval", "Failing check"). Not a sentence, and not your reasoning.',
+      }),
+      question: Schema.String.check(Schema.isMinLength(1)).annotate({
+        description:
+          "The question itself, in the words the human reads. Ask the question only — your reasoning about it belongs in your prose, not in here.",
+      }),
       options: OptionsSchema,
       multiple: Schema.optionalKey(
         Schema.Boolean.annotate({
@@ -508,7 +516,7 @@ export function workAskTool(works: FleetWorks): BespokeTool {
     mutates: true,
     title: "Ask the human about a piece of work",
     description:
-      "Ask the human one or more questions ABOUT a piece of work — approving a plan, a tradeoff nobody told you how to make, what to do about a failing check. They see one form; each answer is stored as a DECISION on that work and shows on its card, so it survives this conversation. Answer the SAME question from the card or the chat — either settles it. Every question needs options (the human also gets a box to type their own answer). A question about NO work is your own question tool's, not this: it belongs to the conversation alone.",
+      "Ask the human one or more questions ABOUT a piece of work — approving a plan, a tradeoff nobody told you how to make, what to do about a failing check. They see one form; each answer is stored as a DECISION on that work and shows on its card, so it survives this conversation. Answer the SAME question from the card or the chat — either settles it. Every question needs a `header` of two or three words — the card draws the decision as `header — answer`, one line — and options (the human also gets a box to type their own answer). Keep your reasoning about the choice in your PROSE, never in the question text: a question that argues its own answer is drawn back to the human as a wall of words. A question about NO work is your own question tool's, not this: it belongs to the conversation alone.",
     handler: (args, _bundle, _signal) => {
       const { work, questions } = args as WorkAskArgs;
       return Effect.tryPromise({

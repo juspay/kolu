@@ -4314,8 +4314,94 @@ retirements:
     defectSurface: [conductor, mobile, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-c0945245f3062a318325]
+    survivorRevisionIds: [revision-acafa01d341788f26998]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-lock.feature
-      symbol: "Scenario: The phone's key bar is gated by the band above it"
+      symbol: "Scenario: The phone's key bar raises the same card"
       test: This branch's own lock scenario, retired by this merge. Master brought the rule that a tile nobody has seen takes no output, and the phone meets this terminal for the first time in this scenario — so the screen the two key-bar taps are measured against could be noted while it was still empty. The merged revision waits for the stand-in's own up marker before taking that baseline and asserts everything this one did.
+  # THE LOCK'S SECOND FACE. The banner-and-control in the tile's title area
+  # became a thin border around the terminal's own body, a card raised BY
+  # TYPING (Take over, dismissable by Esc and by itself) and a corner pill
+  # while the terminal is yours — so every lock scenario's readings moved
+  # from the header to the terminal, and four of the five titles with them.
+  # Not one claim was dropped: each scenario still proves the key did not
+  # reach the PTY, that the way out is offered, and that it reaches the PTY
+  # once taken over.
+  - id: rename-1c2c5e97a43e98516a8f
+    revisionId: revision-1c2c5e97a43e98516a8f
+    action: renamed
+    status: landed
+    promise: A driven terminal takes no keys and no paste, and says why
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-6dba393e80ea959c9d5a]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-lock.feature
+      symbol: "Scenario: A driven terminal takes no keys and no paste, and the card says why"
+      test: The same two blocked input sites — xterm's keys and a real clipboard paste — each proved against the terminal's own screen, and reading still works. What says why is now the card typing raises rather than a banner standing in the title bar, which is the title's change; the scenario gains the card's two exits (Esc, and going by itself), so the second card is evidence rather than the first one still being up.
+  - id: rename-5156cacfb6baa11933c2
+    revisionId: revision-5156cacfb6baa11933c2
+    action: renamed
+    status: landed
+    promise: Take it over, type, hand it back
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-3622c4a481770306d15d]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-lock.feature
+      symbol: "Scenario: Take it over from the card, type, hand it back from the pill"
+      test: The same round trip and the same evidence — the keystroke lands while the terminal is yours and is swallowed once it is handed back, the dock row says whose it is, and the timeline keeps both acts. Only where the two controls live moved (Take over on the card, Hand back on the corner pill), which is why the title does; the survivor also pins that the dock mark does not cover the terminal's name.
+  - id: revise-e7fdc3f945687face35d
+    revisionId: revision-e7fdc3f945687face35d
+    action: revised
+    status: landed
+    promise: The other browser is told who is driving
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-8ec7273737bb5b67ec60]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-lock.feature
+      symbol: "Scenario: The other browser is told who is driving"
+      test: The same claim against the same collection — a second browser context, given no gesture of its own, follows the driver without a reload. The reading it makes is the terminal's frame rather than the old header banner.
+  - id: rename-c0945245f3062a318325
+    revisionId: revision-c0945245f3062a318325
+    action: renamed
+    status: landed
+    promise: The phone's key bar is gated by the band above it
+    defectSurface: [conductor, mobile, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-acafa01d341788f26998]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-lock.feature
+      symbol: "Scenario: The phone's key bar raises the same card"
+      test: The same phone journey, measured the same way — the stand-in's up marker first, then a blocked key-bar tap that leaves the screen untouched, then the same tap reaching the PTY once the terminal is taken over. The band above the keys is gone with the product; a blocked tap now raises the same card a blocked keystroke does, over the terminal, which is what the title says.
+  - id: revise-85bcdab513ea5f7fd304
+    revisionId: revision-85bcdab513ea5f7fd304
+    action: revised
+    status: landed
+    promise: A watch is not a waterfall, so nothing is locked
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-c301d3d6c52fc6b0fe58]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-lock.feature
+      symbol: "Scenario: A watch is not a waterfall, so nothing is locked"
+      test: The same negative, against the same terminal — no lock, and typing lands. The mark it reads is the dock row's, because the tile's header no longer carries one.
+  - id: revise-ce2564efcc73b4625110
+    revisionId: revision-ce2564efcc73b4625110
+    action: revised
+    status: landed
+    promise: A waterfall's card, from the request to the merge
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-d1a9e4af19855a77e1b0]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: A waterfall's card, from the request to the merge"
+      test: Every event from the request to the merge is asserted exactly as before. The survivor adds one claim about the decisions the card draws — one line per decision, labelled by its key and never drawn twice — which is the card rework this revision predates.

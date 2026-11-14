@@ -1,35 +1,41 @@
 import { describe, expect, it } from "vitest";
 import {
-  AGENT_STATES_KEPT,
   AGENT_STATE_KINDS,
+  AGENT_STATES_KEPT,
   answerAsk,
   askQuestions,
   capFinished,
+  type Decision,
+  decisionLabel,
   deserted,
   driverOf,
   dropAsk,
   endWork,
   handBack,
   joinWork,
+  LINE_LIMIT,
   leaveWork,
   membershipOf,
   missingSetup,
+  oneLine,
   openAsks,
   openWork,
   policyOf,
-  type SetupAsk,
-  type SetupKey,
   prOf,
   recordEvent,
+  SETUP_KEYS,
+  SETUP_ROWS,
+  type SetupAsk,
+  type SetupKey,
   setupOf,
   standing,
   takeOver,
   timeBar,
   timeSpent,
   took,
+  type Work,
   waitingOn,
   waitingOnYou,
-  type Work,
 } from "./index.ts";
 
 const T = (minute: number): string =>
@@ -49,6 +55,7 @@ const SETUP = [
   {
     id: "q-host",
     key: "host",
+    header: "",
     question: "Which host?",
     options: ["naiveintent", "pureintent"],
     multiple: false,
@@ -56,6 +63,7 @@ const SETUP = [
   {
     id: "q-mode",
     key: "mode",
+    header: "",
     question: "Which mode?",
     options: ["full", "trivial"],
     multiple: false,
@@ -63,6 +71,7 @@ const SETUP = [
   {
     id: "q-ph",
     key: "planner.harness",
+    header: "",
     question: "Planner harness?",
     options: ["omp"],
     multiple: false,
@@ -70,6 +79,7 @@ const SETUP = [
   {
     id: "q-pm",
     key: "planner.model",
+    header: "",
     question: "Planner model?",
     options: ["Fable 5.2"],
     multiple: false,
@@ -77,6 +87,7 @@ const SETUP = [
   {
     id: "q-ih",
     key: "implementor.harness",
+    header: "",
     question: "Implementor harness?",
     options: ["omp"],
     multiple: false,
@@ -84,6 +95,7 @@ const SETUP = [
   {
     id: "q-im",
     key: "implementor.model",
+    header: "",
     question: "Implementor model?",
     options: ["Opus 5.5"],
     multiple: false,
@@ -91,6 +103,7 @@ const SETUP = [
   {
     id: "q-green",
     key: "on-green",
+    header: "",
     question: "On green?",
     options: ["merge", "hand-over"],
     multiple: false,
@@ -236,6 +249,7 @@ describe("who a work is waiting on, and since when", () => {
         {
           id: "q-plan",
           key: null,
+          header: "Plan approval",
           question: "Approve the plan?",
           options: ["Approve", "Change it"],
           multiple: false,
@@ -345,6 +359,7 @@ describe("where the time went", () => {
         {
           id: "q",
           key: null,
+          header: "Plan approval",
           question: "Approve?",
           options: ["Approve"],
           multiple: false,
@@ -488,6 +503,7 @@ describe("who drives a member terminal", () => {
           {
             id: "q-host",
             key: "host",
+            header: "",
             question: "Which host?",
             options: ["naiveintent"],
             multiple: false,
@@ -496,6 +512,7 @@ describe("who drives a member terminal", () => {
           {
             id: "q-mode",
             key: "mode",
+            header: "",
             question: "Which mode?",
             options: ["watch"],
             multiple: false,
@@ -573,6 +590,7 @@ describe("the agent-state bound", () => {
         {
           id: "q-plan",
           key: null,
+          header: "Plan approval",
           question: "Approve the plan?",
           options: ["Approve"],
           multiple: false,
@@ -624,5 +642,78 @@ describe("the agent-state bound", () => {
     expect(timeBar(bounded, policyOf(bounded), T(1_000))).toEqual(
       timeBar(unbounded, policyOf(unbounded), T(1_000)),
     );
+  });
+});
+
+describe("what a decision is CALLED, and how long a drawn line may be", () => {
+  const asked = (over: Partial<Decision> = {}): Decision => ({
+    id: "d",
+    ask: "a",
+    at: T(0),
+    key: null,
+    header: "",
+    question: "Approve the plan?",
+    options: ["Approve"],
+    multiple: false,
+    answer: null,
+    ...over,
+  });
+
+  it("labels a setup decision by its key's own name, one label per role", () => {
+    expect(decisionLabel(asked({ key: "host" }))).toBe("Host");
+    expect(decisionLabel(asked({ key: "mode" }))).toBe("Mode");
+    expect(decisionLabel(asked({ key: "on-green" }))).toBe("On green");
+    // A role is ONE row: its harness and its model answer under one label.
+    expect(decisionLabel(asked({ key: "planner.harness" }))).toBe("Planner");
+    expect(decisionLabel(asked({ key: "planner.model" }))).toBe("Planner");
+    expect(decisionLabel(asked({ key: "implementor.harness" }))).toBe(
+      "Implementor",
+    );
+    expect(decisionLabel(asked({ key: "implementor.model" }))).toBe(
+      "Implementor",
+    );
+    // Every key has a row, and no key has two.
+    expect([...SETUP_ROWS].flat().sort()).toEqual([...SETUP_KEYS].sort());
+  });
+
+  it("labels any other decision by its header", () => {
+    expect(decisionLabel(asked({ header: "Plan approval" }))).toBe(
+      "Plan approval",
+    );
+  });
+
+  it("falls back to a few words of the question when there is no header", () => {
+    expect(decisionLabel(asked())).toBe("Approve the plan?");
+    // THE DEFECT THIS GUARDS: a Conductor that reasons inside its question
+    // had that whole paragraph drawn as the row's label.
+    expect(
+      decisionLabel(
+        asked({
+          question:
+            "Full or trivial? I'd pick full: a docs rewrite has choices of scope and voice worth seeing in a plan.",
+        }),
+      ),
+    ).toBe("Full or trivial? I'd pick full: a…");
+  });
+
+  it("cuts a line at a word, says there is more, and leaves a short one alone", () => {
+    expect(oneLine("Checks passed")).toEqual({
+      line: "Checks passed",
+      rest: false,
+    });
+    const whole =
+      "Which host should this run on? ~/code/odu is a different checkout on each machine, so it matters";
+    const long = oneLine(whole);
+    expect(long.rest).toBe(true);
+    expect(long.line.endsWith("…")).toBe(true);
+    expect(long.line.length).toBeLessThanOrEqual(LINE_LIMIT + 1);
+    expect(whole.startsWith(long.line.slice(0, -1))).toBe(true);
+  });
+
+  it("flattens line breaks into the one line, and says the rest is behind it", () => {
+    expect(oneLine("Opened #7\nRewrite the parser")).toEqual({
+      line: "Opened #7 Rewrite the parser",
+      rest: true,
+    });
   });
 });

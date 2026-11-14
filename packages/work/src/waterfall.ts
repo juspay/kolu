@@ -36,12 +36,12 @@
 import { type Policy, type Waiter, waitingOn } from "./folds.ts";
 import { answerValue } from "./readings.ts";
 import {
+  type Decision,
   ON_GREEN,
   type OnGreen,
   SETUP_KEYS,
   type SetupKey,
   WORK_MODES,
-  type Decision,
   type Work,
   type WorkMode,
   type WorkRole,
@@ -49,11 +49,11 @@ import {
 
 export {
   ON_GREEN,
+  type OnGreen,
   SETUP_KEYS,
+  type SetupKey,
   WORK_MODES,
   WORK_ROLES,
-  type OnGreen,
-  type SetupKey,
   type WorkMode,
   type WorkRole,
 } from "./schema.ts";
@@ -125,6 +125,71 @@ export const setupKeyOf = (
 ): SetupKey | null => {
   const spelled = `${role}.${what}`;
   return SETUP_KEYS.find((key) => key === spelled) ?? null;
+};
+
+/** THE LABEL A SETUP DECISION IS DRAWN UNDER — the key's own name, in the
+ *  words a person says. The two keys of one role share a label because a role
+ *  is ONE row on the card: "Implementor — omp · claude-opus-5". */
+export const SETUP_LABEL: Record<SetupKey, string> = {
+  host: "Host",
+  mode: "Mode",
+  "planner.harness": "Planner",
+  "planner.model": "Planner",
+  "implementor.harness": "Implementor",
+  "implementor.model": "Implementor",
+  "on-green": "On green",
+};
+
+/** THE SETUP, GROUPED INTO ROWS, in the order they are drawn — one row per
+ *  label, so a role's harness and its model are one line and never two. Every
+ *  surface that lists the setup reads this order rather than inventing one. */
+export const SETUP_ROWS: ReadonlyArray<ReadonlyArray<SetupKey>> = [
+  ["host"],
+  ["mode"],
+  ["planner.harness", "planner.model"],
+  ["implementor.harness", "implementor.model"],
+  ["on-green"],
+];
+
+/** HOW LONG A DRAWN LINE MAY BE. The card's rows are one line each: a
+ *  decision, a timeline event. Past this the line is cut and the rest sits
+ *  behind a press — never wrapped into a paragraph, which is how the same
+ *  seven facts came to fill a screen three times over. */
+export const LINE_LIMIT = 72;
+
+/** ... and how long a LABEL may be: a few words, not a sentence. */
+export const LABEL_LIMIT = 34;
+
+/** One line of text, and whether anything was left behind it. */
+export interface OneLine {
+  readonly line: string;
+  /** `true` when the line is not the whole of what was given — it was cut, or
+   *  it had line breaks the one line flattened. What a press reveals. */
+  readonly rest: boolean;
+}
+
+/** THE ONE-LINE RULE, in one place. Whitespace (line breaks included) becomes
+ *  single spaces, and anything past `limit` is cut at the last word boundary
+ *  with an ellipsis. */
+export const oneLine = (text: string, limit: number = LINE_LIMIT): OneLine => {
+  const whole = text.trim();
+  const flat = whole.replace(/\s+/g, " ");
+  if (flat.length <= limit) return { line: flat, rest: flat !== whole };
+  const cut = flat.slice(0, limit);
+  const space = cut.lastIndexOf(" ");
+  const kept = space > limit / 2 ? cut.slice(0, space) : cut;
+  return { line: `${kept.replace(/[\s,.;:—-]+$/, "")}…`, rest: true };
+};
+
+/** WHAT A DECISION IS CALLED on a card: the setup key's own name, else the
+ *  header the asker gave it, else the first few words of the question. The
+ *  question itself is never the label — a Conductor that reasons inside its
+ *  question ("Full or trivial? I'd pick full: …") would otherwise have its
+ *  prose drawn as a heading. */
+export const decisionLabel = (decision: Decision): string => {
+  if (decision.key !== null) return SETUP_LABEL[decision.key];
+  const header = decision.header.trim();
+  return oneLine(header === "" ? decision.question : header, LABEL_LIMIT).line;
 };
 
 /** The latest ANSWERED decision for a setup key. */

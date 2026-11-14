@@ -437,26 +437,17 @@ const CanvasTile: Component<{
          *  start a drag on grab. Double-click toggles maximize.
          *
          *  Layout is a 2-column grid: `minmax(0,1fr)` for the identity block,
-         *  `minmax(0,auto)` for the action cluster. `items-start` hugs the
-         *  actions to the top edge. `renderTitle()` is spread across the grid
-         *  via `display:contents`, so `TerminalMeta`'s name row lands in column
-         *  1 of row 1 (beside the actions) while its branch/PR row spans BOTH
+         *  `auto` for the action cluster. `items-start` hugs the actions to the
+         *  top edge. `renderTitle()` is spread across the grid via
+         *  `display:contents`, so `TerminalMeta`'s name row lands in column 1
+         *  of row 1 (beside the actions) while its branch/PR row spans BOTH
          *  columns of row 2 — flowing full-width *under* the top-aligned
          *  actions instead of being boxed into the narrow left column. Without
          *  the span, the branch/PR row truncated early with dead space beneath
-         *  a wide action cluster (agent status + theme + icons).
-         *
-         *  The identity column's FLOOR (`min(12rem,45%)`) is what keeps a WIDE
-         *  action cluster from painting over the name: an `auto` track is
-         *  grown to its max-content before an `fr` track gets anything, so a
-         *  `minmax(0,1fr)` name column is squeezed to nothing whenever the
-         *  actions want the room — which a driven terminal's work chrome does
-         *  (#2376 review). With the floor, the action column takes what is
-         *  left and the cluster's own shrinkable part (the work chrome, `min-w-0`)
-         *  truncates instead. */}
+         *  a wide action cluster (agent status + theme + icons). */}
         <div
           data-testid="canvas-tile-titlebar"
-          class="grid [grid-template-columns:minmax(min(12rem,45%),1fr)_minmax(0,auto)] items-start gap-x-2 px-3 py-1.5 shrink-0 select-none border-l-4"
+          class="grid [grid-template-columns:minmax(0,1fr)_auto] items-start gap-x-2 px-3 py-1.5 shrink-0 select-none border-l-4"
           classList={{
             "cursor-grab active:cursor-grabbing": !isMaximized(),
           }}
@@ -485,7 +476,7 @@ const CanvasTile: Component<{
           {...(props.mode === "tiled" ? draggable.dragActivators : {})}
         >
           <div class="contents">{props.renderTitle()}</div>
-          <div class="col-start-2 row-start-1 flex min-w-0 items-center gap-1">
+          <div class="col-start-2 row-start-1 flex items-center gap-1 shrink-0">
             {props.renderTitleActions?.()}
             <button
               type="button"

@@ -119,8 +119,7 @@ The `works` resource reads them back, so a fresh conversation picks up work in f
 | Part | What is in it |
 | --- | --- |
 | Timeline | Every event kolu saw, append-only, each naming who it was: you, an agent, CI or kolu. An agent coming up, stopping or asking, a `.waterfall/` file, the PR, its checks, the merge. |
-| Decisions | Every question put to you about this work: the options, what you picked, and whether you answered from the card or the chat. |
-| Setup | The host, the mode, the harness and model each role runs on, and what to do when CI goes green. |
+| Decisions | Every question put to you about this work and your answer, the setup included: host, mode, the harness and model per role, and what to do on green. |
 | Members | Each terminal by `host/id`, its role, the agent kolu last saw in it, and who is driving it. |
 | Outcome | **merged**, **closed**, or **abandoned** when every member left and nothing landed. The `.waterfall/` files are copied into kolu as it ends. |
 
@@ -128,9 +127,9 @@ A work holds its latest **30** agent state changes; older ones fold into one lin
 
 ### Who is typing
 
-While a work is in progress, each member terminal is read-only to you until you press **Take over** on its tile. Taking over, and handing back, each write a line on the work's timeline and wake the Conductor: it is told to leave that terminal alone, then to read its screen before using it again.
+While a work is in progress, each member terminal is read-only to you. A border in the Conductor's colour marks it, and typing raises a card offering **Take over**. The work card's terminal row carries both controls too.
 
-Both work while the agent is down or mid-turn. The lock lives in the stored work, so every device sees it, and it ends when the terminal leaves the work. [Tiles](/tiles#a-terminal-the-conductor-is-driving) has the rest.
+Each move writes a line on the work's timeline and wakes the Conductor, which leaves that terminal alone until you hand it back. The lock lives in the stored work, so every device sees it, and it ends when the terminal leaves. [Tiles](/tiles#a-terminal-the-conductor-is-driving) has the rest.
 
 ### The work card
 
@@ -143,12 +142,11 @@ Press the head and it opens:
 | Part | What you get |
 | --- | --- |
 | The question waiting for you | The same form the chat shows. Answering it here is answering it there. |
-| Decisions | Question and answer, newest last, each saying where the answer came from. |
-| Timeline | Every event with its time, and how long that step took. |
-| Terminals | By role: how that agent stands, **Look** for its last lines, and the name to go to its tile. |
+| Terminals | By role: how that agent stands, **Look** for its last lines, the name to go to its tile, and **Take over** or **Hand back**. |
 | Files | The worktree's `.waterfall/` files and the copies kolu kept, rendered in place by the [Code tab](/code-tab)'s viewer. |
-| Setup | Host, mode, the harness and model per role, and what to do on green. |
 | Pull request | Its number and title, the checks, and a link. |
+| Decisions | One line each: label, then answer, the setup first as **Host**, **Mode**, **Planner**, **Implementor**, **On green**. Click a row for the question and when. |
+| Timeline | One line per event, with its time and duration. A question reads **Asked:**, your answer **You:**. A long line is cut; click it for the rest. |
 
 Below them, **Finished** stands collapsed, each with its outcome, its PR and the files kolu kept. A conversation with no work shows no count, and the column reads **Nothing in progress.**
 
@@ -229,7 +227,7 @@ An agent that finished while kolu-server was down still wakes the Conductor, and
 
 ### What a backup of kolu holds
 
-kolu's [rotated snapshots](/troubleshooting#kolu-lost-my-session-or-my-settings-look-wrong) include the pieces of work, so restoring the server store puts back your preferences, your host pool and the works at once, live. Two things are not in them: the conversation, whose other half lives in the agent's own session store, and the files a finished work kept, which are copies on disk.
+kolu's [rotated snapshots](/troubleshooting#kolu-lost-my-session-or-my-settings-look-wrong) include the pieces of work with their members, so restoring the server store puts back your preferences, your host pool and the works at once, live. Two things are not in them: the conversation, whose other half lives in the agent's own session store, and the files a finished work kept, which are copies on disk.
 
 <LinkCard
   title="Agent Fleets"

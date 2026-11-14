@@ -13,24 +13,31 @@
  *  terminal's record — arrives as an argument ({@link ChecksTally}), so every
  *  sentence here is testable without a browser. */
 
-import type { PrInfo } from "anyforge/schemas";
 import { dualPhrase } from "@kolu/terminal-vocab/duration";
+import type { PrInfo } from "anyforge/schemas";
 import {
+  type AnswerFrom,
   type Decision,
+  decisionLabel,
   type EventBy,
   type Membership,
+  ON_GREEN,
   type OnGreen,
-  type Waiter,
-  type StandingWhy,
-  type Work,
-  type WorkEvent,
-  type WorkRole,
+  oneLine,
   policyOf,
   prOf,
+  SETUP_LABEL,
+  SETUP_ROWS,
+  type SetupKey,
+  type StandingWhy,
   setupOf,
   standing,
   timeBar,
   timeSpent,
+  type Waiter,
+  type Work,
+  type WorkEvent,
+  type WorkRole,
   waitingOnYou,
 } from "kolu-work";
 
@@ -86,11 +93,18 @@ export function lockWords(at: Membership): string {
   return `${who} · ${ROLE_WORD[at.role]} · ${at.title}`;
 }
 
-/** What a blocked keystroke is told — one line, pointing at the one control
- *  that unblocks it. Never a silent swallow: a terminal that ignores typing
- *  without saying why reads as broken. */
-export const LOCK_NUDGE_WORDS =
-  "The Conductor is driving this — Take over to type";
+/** THE CARD'S FACE — what a terminal says when a person types at a keyboard
+ *  it does not own. One line: who is driving, and the part this terminal
+ *  plays, which is the whole of what a reader needs before pressing Take
+ *  over. Never a silent swallow — a terminal that ignores typing without
+ *  saying why reads as broken — and never the work's title either, which is
+ *  a sentence the card's own terminal already sits inside.
+ *
+ *  A driver of `null` raises no card (nothing is gated), so this is only
+ *  ever asked about a terminal the Conductor drives. */
+export function lockCardWords(at: Membership): string {
+  return `The Conductor is driving this terminal · ${ROLE_WORD[at.role]}`;
+}
 
 /** MAY A PERSON TYPE into a terminal with this driver? The lock's whole rule,
  *  in one place: the Conductor DRIVING a terminal is the only thing that
@@ -331,13 +345,19 @@ export function eventWords(work: Work, event: WorkEvent): string {
       return `${who} went to sleep`;
     case "file":
       return `Wrote ${event.detail}`;
-    case "question":
-      return askedIn(work, event.detail)?.question ?? "Asked you something";
+    // THE TIMELINE DOES NOT QUOTE QUESTIONS. It names the decision — the
+    // label the Decisions list draws it under — and the answer. The question's
+    // own words are one press away in that list, and saying them here was how
+    // one sentence came to be on the card three times.
+    case "question": {
+      const decision = askedIn(work, event.detail);
+      return `Asked: ${decision === undefined ? "something" : decisionLabel(decision)}`;
+    }
     case "answered": {
       const decision = askedIn(work, event.detail);
       return decision === undefined
         ? "You answered"
-        : `You answered: ${answerWords(decision)}`;
+        : `You: ${answerWords(decision)}`;
     }
     case "question-dropped":
       return "The question went away unanswered";
@@ -375,22 +395,91 @@ export function eventWords(work: Work, event: WorkEvent): string {
   }
 }
 
-/** THE SETUP, as one sentence — host, mode, each role's harness and model,
- *  and what to do on green. A part nobody has answered yet is simply not
- *  there. */
-export function setupWords(work: Work, hostName: string | null): string {
-  const setup = setupOf(work);
-  const parts: string[] = [];
-  const host = hostName ?? setup.host;
-  if (host !== null) parts.push(host);
-  if (setup.mode !== null) parts.push(setup.mode);
-  for (const role of setup.roles) {
-    const how = [role.harness, role.model].filter((one) => one !== null);
-    if (how.length > 0) parts.push(`${role.role} ${how.join("/")}`);
+/** ONE ROW OF THE CARD'S DECISIONS — `label — answer`, one line of it.
+ *
+ *  The setup is NOT a second section saying the same things: its answers are
+ *  the first rows of this one list, labelled by their keys, with a role's
+ *  harness and model on the single row the role owns. Everything else — the
+ *  full question, when it was answered, where from — is behind a press on the
+ *  row, which is what `decisions` carries. */
+export interface DecisionRow {
+  /** The row's own id (its first decision's), for the open-state set. */
+  readonly id: string;
+  readonly key: SetupKey | null;
+  readonly label: string;
+  /** The answer, already cut to one line. */
+  readonly answer: string;
+  /** Whether the answer was cut — the rest is behind the press. */
+  readonly rest: boolean;
+  /** Where the answer came from, for the row's own mark. */
+  readonly from: AnswerFrom | null;
+  /** What the press opens: the question(s) this row stands for, in full. */
+  readonly decisions: ReadonlyArray<Decision>;
+}
+
+/** A setup answer as a PERSON reads it: the host by the name its tab carries
+ *  rather than the ref the human picked, and what to do on green in the words
+ *  the rest of the card uses. */
+function setupAnswer(decision: Decision, hostName: string | null): string {
+  const words = answerWords(decision);
+  if (decision.answer?.how !== "answered") return words;
+  if (decision.key === "host") return hostName ?? words;
+  if (decision.key === "on-green" && isOnGreen(words))
+    return ON_GREEN_WORD[words];
+  return words;
+}
+
+function isOnGreen(word: string): word is OnGreen {
+  return (ON_GREEN as ReadonlyArray<string>).includes(word);
+}
+
+function decisionRow(
+  label: string,
+  answer: string,
+  decisions: ReadonlyArray<Decision>,
+): DecisionRow {
+  const first = decisions[0] as Decision;
+  const cut = oneLine(answer);
+  return {
+    id: first.id,
+    key: first.key,
+    label,
+    answer: cut.line,
+    rest: cut.rest,
+    from:
+      decisions.find((one) => one.answer?.from != null)?.answer?.from ?? null,
+    decisions,
+  };
+}
+
+/** EVERY DECISION THIS WORK HOLDS, as the rows the card draws: the setup
+ *  first, in `SETUP_ROWS` order, then every other question in the order it
+ *  was put. A setup key nobody has answered yet still has a row — "waiting"
+ *  is an answer a person wants to see — and a key never asked has none. */
+export function decisionRows(
+  work: Work,
+  hostName: string | null,
+): ReadonlyArray<DecisionRow> {
+  const rows: DecisionRow[] = [];
+  for (const group of SETUP_ROWS) {
+    const decisions = group
+      .map((key) => work.decisions.findLast((one) => one.key === key))
+      .filter((one): one is Decision => one !== undefined);
+    if (decisions.length === 0) continue;
+    rows.push(
+      decisionRow(
+        SETUP_LABEL[decisions[0]?.key as SetupKey],
+        decisions.map((one) => setupAnswer(one, hostName)).join(" · "),
+        decisions,
+      ),
+    );
   }
-  if (setup.onGreen !== null)
-    parts.push(`on green: ${ON_GREEN_WORD[setup.onGreen]}`);
-  return parts.join(" · ");
+  for (const decision of work.decisions)
+    if (decision.key === null)
+      rows.push(
+        decisionRow(decisionLabel(decision), answerWords(decision), [decision]),
+      );
+  return rows;
 }
 
 /** EVERY ASK ANY WORK OWNS. A question about a work is recorded as that

@@ -31,6 +31,9 @@ Feature: A piece of work is a stored thing
     # request did not already say is put to the human, as ONE question.
     When I answer the work's question with "hand-over" in the chat
     Then the work's decisions should include "hand-over" answered from the chat
+    # ONE LIST, EACH ROW A LINE: the setup's answers are the first rows of the
+    # decisions, labelled by their keys, and nothing is drawn twice.
+    And the work's decisions should be one line each
     # A member is made with its role in the same call — the terminal is an
     # agent that comes up with no transcript at all, which kolu reads as ready.
     When I ask the conductor to run the implementor in the work's repo

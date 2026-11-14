@@ -35,11 +35,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { openStateBackupRing } from "kolu-shared/state-backup";
 import Conf from "conf";
 import { Result, Schema } from "effect";
-import { PersistedHostsSchema } from "kolu-common/hostKey";
 import type { ConductorRow } from "kolu-common/conductor";
+import { PersistedHostsSchema } from "kolu-common/hostKey";
+import {
+  DEFAULT_PREFERENCES,
+  type Preferences,
+  PreferencesSchema,
+  ViewerModeSchema,
+} from "kolu-common/surface";
 import {
   EMPTY_PERSISTED_CONDUCTOR,
   EMPTY_PERSISTED_MEMBERS,
@@ -48,12 +53,7 @@ import {
   PersistedWorksSchema,
   repointConductorAttachments,
 } from "kolu-conductor";
-import {
-  DEFAULT_PREFERENCES,
-  type Preferences,
-  PreferencesSchema,
-  ViewerModeSchema,
-} from "kolu-common/surface";
+import { openStateBackupRing } from "kolu-shared/state-backup";
 import {
   transcriptFilePath,
   writeTranscriptFile,
@@ -659,6 +659,8 @@ export function worksFromWatched_1_50_0(
       ask: `${id}:carried-over`,
       at: startedAt,
       key,
+      // A setup decision: its label is the key's own name.
+      header: "",
       question: "Carried over from before kolu stored work",
       options: [value],
       multiple: false,

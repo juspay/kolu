@@ -10,21 +10,22 @@
 
 import {
   type Decision,
-  type Work,
-  type WorkEvent,
   handBack,
   membershipOf,
   takeOver,
+  type Work,
+  type WorkEvent,
 } from "kolu-work";
 import { describe, expect, it } from "vitest";
 import {
   answerWords,
   checksTally,
+  decisionRows,
   eventWords,
   inputAllowed,
+  lockCardWords,
   lockWords,
   repoName,
-  setupWords,
   standingLine,
   waitingCount,
   workSubtitle,
@@ -38,6 +39,7 @@ const decision = (over: Partial<Decision> = {}): Decision => ({
   ask: "ask-1",
   at: AT,
   key: null,
+  header: "",
   question: "Approve the plan?",
   options: ["Approve", "Ask for changes"],
   multiple: false,
@@ -152,7 +154,12 @@ describe("where it stands", () => {
 
 describe("the timeline's words", () => {
   const asked = work({
-    decisions: [decision({ answer: { ...answered("Approve"), from: "card" } })],
+    decisions: [
+      decision({
+        header: "Plan approval",
+        answer: { ...answered("Approve"), from: "card" },
+      }),
+    ],
     members: [
       {
         terminal: "local/a",
@@ -164,13 +171,15 @@ describe("the timeline's words", () => {
     ],
   });
 
-  it("reads an ask through its decision rather than copying the words", () => {
+  it("names the decision rather than copying the question's words", () => {
+    // THE DEFECT THIS GUARDS: the timeline used to quote the question, so a
+    // sentence a person already read on the card was read to them twice.
     expect(
       eventWords(asked, event({ kind: "question", detail: "ask-1" })),
-    ).toBe("Approve the plan?");
+    ).toBe("Asked: Plan approval");
     expect(
       eventWords(asked, event({ kind: "answered", detail: "ask-1" })),
-    ).toBe("You answered: Approve");
+    ).toBe("You: Approve");
   });
 
   it("names a member by the part it plays", () => {
@@ -238,6 +247,15 @@ describe("the lock, as a person meets it", () => {
     ).toBe(false);
   });
 
+  it("names the Conductor and the part on the card typing raises", () => {
+    // ONE LINE, and no work title in it: the card is centred over the very
+    // terminal it is about, so the words say who holds the keyboard and what
+    // this terminal is for, and nothing a reader can already see.
+    expect(lockCardWords(membershipAt(driven))).toBe(
+      "The Conductor is driving this terminal · Planner",
+    );
+  });
+
   it("draws nothing for a work that drives nothing — a watch", () => {
     const watched = work({
       decisions: [
@@ -268,30 +286,70 @@ describe("the lock, as a person meets it", () => {
   });
 });
 
-describe("the setup, as one sentence", () => {
-  it("states only what has been decided", () => {
-    const set = work({
+describe("the decisions, as the rows a card draws", () => {
+  const set = work({
+    decisions: [
+      decision({
+        id: "h",
+        key: "host",
+        answer: answered("remote:naiveintent"),
+      }),
+      decision({ id: "m", key: "mode", answer: answered("trivial") }),
+      decision({
+        id: "ih",
+        key: "implementor.harness",
+        answer: answered("omp"),
+      }),
+      decision({
+        id: "im",
+        key: "implementor.model",
+        answer: answered("Opus 5.5"),
+      }),
+      decision({ id: "g", key: "on-green", answer: answered("hand-over") }),
+    ],
+  });
+
+  it("draws the setup first, one row per label, the host by its name", () => {
+    expect(
+      decisionRows(set, "naiveintent").map(
+        (row) => `${row.label} — ${row.answer}`,
+      ),
+    ).toEqual([
+      // The ref the human picked is never what a person reads.
+      "Host — naiveintent",
+      "Mode — trivial",
+      // ONE row for the role: its harness and its model, not two questions.
+      "Implementor — omp · Opus 5.5",
+      "On green — hand over",
+    ]);
+    // Nothing asked: no rows at all.
+    expect(decisionRows(work(), null)).toEqual([]);
+  });
+
+  it("keeps the question and where it was answered behind the row", () => {
+    const row = decisionRows(set, "naiveintent")[0];
+    expect(row?.from).toBe("chat");
+    expect(row?.decisions.map((one) => one.question)).toEqual([
+      "Approve the plan?",
+    ]);
+  });
+
+  it("labels a question that is not setup by its header, and cuts a long answer", () => {
+    const asked = work({
       decisions: [
-        decision({ id: "h", key: "host", answer: answered("local") }),
-        decision({ id: "m", key: "mode", answer: answered("trivial") }),
         decision({
-          id: "ih",
-          key: "implementor.harness",
-          answer: answered("omp"),
+          id: "p",
+          header: "Plan approval",
+          answer: answered(
+            "Change it: the rewrite should keep the reference pages as they are and only touch the guides",
+          ),
         }),
-        decision({
-          id: "im",
-          key: "implementor.model",
-          answer: answered("Opus 5.5"),
-        }),
-        decision({ id: "g", key: "on-green", answer: answered("hand-over") }),
       ],
     });
-    expect(setupWords(set, "naiveintent")).toBe(
-      "naiveintent · trivial · implementor omp/Opus 5.5 · on green: hand over",
-    );
-    // Nothing answered: nothing said.
-    expect(setupWords(work(), null)).toBe("");
+    const row = decisionRows(asked, null)[0];
+    expect(row?.label).toBe("Plan approval");
+    expect(row?.rest).toBe(true);
+    expect(row?.answer.endsWith("…")).toBe(true);
   });
 });
 

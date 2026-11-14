@@ -40,41 +40,52 @@ export function activeTerminalRef(id: TerminalId): string {
   return fleetTerminalRef(encActiveHost(), id);
 }
 
-/** THE NUDGE — the terminal whose lock was just typed at. Module level: it
- *  outlives the tile that raised it being re-rendered, and there is exactly
- *  one at a time (a person types into one terminal). */
-const [nudged, setNudged] = createSignal<string | null>(null);
+/** THE CARD — the terminal whose lock was just typed at, and over which the
+ *  "Take over" card is therefore drawn. Module level: it outlives the tile
+ *  that raised it being re-rendered, and there is exactly one at a time (a
+ *  person types into one terminal). */
+const [carded, setCarded] = createSignal<string | null>(null);
 
-/** How long the nudge stays up. Long enough to read one line, short enough
- *  that it is gone before the next thing a person does. A second blocked
- *  keystroke re-arms it rather than letting it expire mid-typing. */
-const NUDGE_MS = 4000;
+/** How long the card stays up by itself. Long enough to read one line and
+ *  reach for Take over, short enough that it is gone before the next thing a
+ *  person does — it is not a dialog, and nothing waits on it. A second
+ *  blocked keystroke re-arms the clock rather than letting it expire
+ *  mid-typing. */
+const CARD_MS = 4000;
 
-let nudgeTimer: ReturnType<typeof setTimeout> | null = null;
+let cardTimer: ReturnType<typeof setTimeout> | null = null;
 
-function raiseNudge(terminal: string): void {
-  setNudged(terminal);
-  clearTimeout(nudgeTimer ?? undefined);
-  nudgeTimer = setTimeout(() => {
-    nudgeTimer = null;
-    setNudged(null);
-  }, NUDGE_MS);
+function raiseLockCard(terminal: string): void {
+  setCarded(terminal);
+  clearTimeout(cardTimer ?? undefined);
+  cardTimer = setTimeout(() => {
+    cardTimer = null;
+    setCarded(null);
+  }, CARD_MS);
 }
 
 /** MAY THIS PERSON'S INPUT GO to `id`? Answers true and lets the caller send;
- *  answers false and raises the nudge that points at Take over.
+ *  answers false and raises the card that offers Take over.
  *
- *  Reads the ONE membership derivation every mark reads, so what the tile's
- *  banner says and what the keyboard does are the same fact. */
+ *  Reads the ONE membership derivation every mark reads, so what the frame
+ *  around the terminal says and what the keyboard does are the same fact. */
 export function personInput(id: TerminalId): boolean {
   const terminal = activeTerminalRef(id);
   if (inputAllowed(useMembership()().get(terminal)?.driver)) return true;
-  raiseNudge(terminal);
+  raiseLockCard(terminal);
   return false;
 }
 
-/** Is the nudge up for this terminal? The banner rings itself and shows its
- *  one line from this. */
-export function nudgedTerminal(terminal: string): boolean {
-  return nudged() === terminal;
+/** Is the card up over this terminal? The frame draws it from this. */
+export function lockCardShown(terminal: string): boolean {
+  return carded() === terminal;
+}
+
+/** TAKEN BACK BY HAND — Esc, a click anywhere else, or Take over itself. The
+ *  timer goes with it, so a card dismissed at three seconds cannot flicker
+ *  back off a clock the person already answered. */
+export function dismissLockCard(): void {
+  clearTimeout(cardTimer ?? undefined);
+  cardTimer = null;
+  setCarded(null);
 }

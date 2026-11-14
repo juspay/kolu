@@ -12,7 +12,7 @@
  * via a fontSize signal, passed to <Xterm> as the fontSize prop.
  */
 
-import { registerTerminalElement } from "./terminalElements";
+import { writeTextToClipboard } from "@kolu/solid-logtail";
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
 import type { ITheme, Terminal as XTerm } from "@xterm/xterm";
@@ -26,17 +26,17 @@ import {
 } from "solid-js";
 import { toast } from "solid-sonner";
 import { match } from "ts-pattern";
-import { writeTextToClipboard } from "@kolu/solid-logtail";
 import { SafeClipboardProvider } from "../ui/clipboard";
+import { registerTerminalElement } from "./terminalElements";
 import "@xterm/xterm/css/xterm.css";
 import { TERMINAL_RESET } from "@kolu/padi/endpoint";
-import { rejectionFor, sizeRejectionFor } from "@kolu/padi-client/upload";
-import { activeArm, type AttachCause } from "@kolu/padi-client/surface";
 import {
   isSnapshotFrame,
   snapshotLayoutGrid,
   snapshotPaintableAt,
 } from "@kolu/padi-client/attach";
+import { type AttachCause, activeArm } from "@kolu/padi-client/surface";
+import { rejectionFor, sizeRejectionFor } from "@kolu/padi-client/upload";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import { toError } from "@kolu/surface/run-stream";
 import {
@@ -58,6 +58,8 @@ import { Effect, type Fiber } from "effect";
 import { DEFAULT_SCROLLBACK } from "kolu-common/config";
 import type { TerminalId } from "kolu-common/surface";
 import { FONT_FAMILY } from "terminal-themes";
+import { activeTerminalRef, personInput } from "../conductor/personInput";
+import WorkLock from "../conductor/WorkLock";
 import {
   ACTIONS,
   matchesAnyShortcut,
@@ -68,7 +70,6 @@ import { createZoom } from "../input/zoom";
 import { refitOnTabVisible } from "../refitOnTabVisible";
 import { openInCodeTab } from "../right-panel/openInCodeTab";
 import { isDeclared, TERMINAL_NOT_FOUND } from "../rpc/declaredErrors";
-import { personInput } from "../conductor/personInput";
 import { runAction, runActionPromise, type UiAction } from "../runAction";
 import type { LineRef } from "../ui/lineRef";
 import { isTouch } from "../useMobile";
@@ -85,11 +86,11 @@ import {
   fileRefAtCell,
 } from "./fileRefLinkProvider";
 import { installTerminalFocusProvenance } from "./focusProvenance";
+import { createForeignGridWatcher } from "./foreignGrid";
 import { handleWebLink } from "./handleWebLink";
-import { trackPrintedPorts } from "./printedPorts";
 import { PrintedUrlCardMount } from "./PrintedUrlCard";
 import { deliverScratchPaste } from "./pasteDelivery";
-import { createForeignGridWatcher } from "./foreignGrid";
+import { trackPrintedPorts } from "./printedPorts";
 import { createGridPublisher } from "./publishGrid";
 import {
   consumeReattachingStream,
@@ -1433,6 +1434,15 @@ const Terminal: Component<{
         data-font-size={fontSize()}
         data-renderer={(handle()?.webgl.hasWebgl() ?? false) ? "webgl" : "dom"}
       />
+      {/* THE LOCK, on the terminal's own BODY — the thin frame that says the
+       *  Conductor is driving this terminal, the card a blocked keystroke
+       *  raises, and the "Hand back" pill while the person has it. Here
+       *  rather than in the tile's title bar (which the phone does not even
+       *  have) because the frame IS the body's edge, and because a card that
+       *  answers typing has to be where the typing went. Nothing is drawn
+       *  for a terminal no work drives, which is every terminal outside a
+       *  waterfall. */}
+      <WorkLock terminal={activeTerminalRef(props.terminalId)} />
       {/* Join card for a printed loopback URL — only while this terminal owns the
        *  open card. Portal-rendered; lives here so App stays a thin shell. */}
       <PrintedUrlCardMount terminalId={props.terminalId} />

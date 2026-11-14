@@ -2802,8 +2802,12 @@ Then(
             `${WORK_COLUMN} [data-testid="work-decision"][data-from="${from}"]`,
           )
           .evaluateAll((all) =>
-            all.map((one) =>
-              (one.textContent ?? "").replace(/\s+/g, " ").trim(),
+            all.map(
+              (one) =>
+                // THE ANSWER AS RECORDED, beside the row's own words: the row
+                // reads "On green — hand over" where the human answered
+                // "hand-over", and it is the answer this step is about.
+                `${one.getAttribute("data-answer") ?? ""} ${(one.textContent ?? "").replace(/\s+/g, " ").trim()}`,
             ),
           ),
       isDone: (read) => read.some((one) => one.includes(text)),
@@ -2813,6 +2817,45 @@ Then(
           `no decision answered from the ${from} reads ${JSON.stringify(text)} after ${ms}ms; the card holds ${JSON.stringify(read)}`,
         ),
     });
+  },
+);
+
+/** ONE LIST, ONE LINE EACH — the addendum's whole point. The setup is not a
+ *  second section saying the same things, and no decision is drawn as the
+ *  paragraph its question was written in: a row that wrapped is a row whose
+ *  label came from prose. */
+Then(
+  "the work's decisions should be one line each",
+  async function (this: KoluWorld) {
+    await openWorkCard(this);
+    const rows = this.page.locator(
+      `${WORK_COLUMN} [data-testid="work-decision-row"]`,
+    );
+    await rows.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const wrapped = await rows.evaluateAll((all) =>
+      all
+        .map((one) => {
+          const style = getComputedStyle(one);
+          const line =
+            Number.parseFloat(style.lineHeight) ||
+            Number.parseFloat(style.fontSize) * 1.5;
+          return one.getBoundingClientRect().height > line * 1.5
+            ? (one.textContent ?? "").replace(/\s+/g, " ").trim()
+            : "";
+        })
+        .filter((one) => one !== ""),
+    );
+    if (wrapped.length > 0)
+      throw new Error(
+        `these decision rows take more than one line: ${JSON.stringify(wrapped)}`,
+      );
+    const setup = await this.page
+      .locator(`${WORK_COLUMN} [data-testid="work-setup"]`)
+      .count();
+    if (setup > 0)
+      throw new Error(
+        "the card still draws a separate Setup section; the setup's answers are decision rows now",
+      );
   },
 );
 
@@ -2884,8 +2927,13 @@ Then(
 );
 
 /** THE MARK EVERYWHERE ELSE. A terminal that belongs to a work carries the
- *  Conductor's mark, its role and the work's title — one derivation, so the
- *  dock row is the cheapest place to prove it reaches outside the pane. */
+ *  Conductor's mark and the part it plays beside its name in the dock — the
+ *  cheapest place to prove the derivation reaches outside the pane.
+ *
+ *  The mark's FACE is "◆ <Role>" and nothing more: a work's title is a
+ *  sentence, and a row whose name was pushed off by it is the bug the mark
+ *  was shrunk to fix (#2376 review). The title is in its tooltip, which is
+ *  where this reads it. */
 Then(
   "the dock row for the member terminal should carry the work's mark as the {string}",
   async function (this: KoluWorld, role: string) {
@@ -2902,12 +2950,12 @@ Then(
       async () => (await mark.getAttribute("data-role")) ?? "absent",
       role,
     );
-    const reads = ((await mark.textContent()) ?? "")
+    const reads = ((await mark.getAttribute("title")) ?? "")
       .replace(/\s+/g, " ")
       .trim();
     assert.ok(
       reads.includes(title),
-      `the dock row's mark reads ${JSON.stringify(reads)}, which does not name the work ${JSON.stringify(title)}`,
+      `the dock row's mark is titled ${JSON.stringify(reads)}, which does not name the work ${JSON.stringify(title)}`,
     );
   },
 );

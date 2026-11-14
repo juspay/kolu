@@ -466,10 +466,10 @@ terminal in that host's padi. A terminal is named `host/id` on that wire.
 
 kolu-server also starts turns itself. It watches the same host records the dock
 is drawn from, and when a work's member stops, asks something or leaves, it
-mints a wake and runs a turn as your own prompt does. News arriving during a
-turn is held and delivered when the turn ends. Works are stored beside the
-conversation, and reach the browser as the keyed collections `works` and
-`memberReadings`. See [the Conductor](/conductor).
+mints a wake and runs a turn as your own prompt does. Works and their member
+terminals are stored beside the conversation, in two keys restored together,
+and reach the browser as the keyed collections `works` and `memberReadings`.
+See [the Conductor](/conductor).
 
 ## The packages
 
@@ -483,8 +483,8 @@ out. The map:
 | --- | --- | --- |
 | `client` | The browser app: SolidJS, xterm.js, Tailwind. | `padi-client`, `surface`, `xterm-kit`, `theme`, `kolu-work`, the `solid-*` leaves |
 | `server` | The Effect HTTP shell: serves the app, the preview route and the websocket, binds one padi per host, and mounts [the Conductor](/conductor). | `padi`, `padi-client`, `conductor`, `kolu-work`, `surface-remote`, `port-forward` |
-| `conductor` | The conversation itself: the ACP child, the transcript, the standing prompt, and the rules of the watch, as pure functions kolu-server feeds. | `acp`, `acp-harness`, `padi-client`, `kolu-work`, `surface` |
-| `kolu-work` | A piece of work as kolu stores it. | `effect` |
+| `conductor` | The conversation itself, split by clock: the ACP child, the transcript, the work and member stores, observation, wakes and asking. | `acp`, `acp-harness`, `padi-client`, `kolu-work`, `surface` |
+| `kolu-work` | A piece of work as kolu stores it, and the waterfall's words. | `effect` |
 | `kolu-cli` | The `kolu` binary: subcommand dispatch and the terminal verbs `ls`, `create`, `send`, `wait`, `snapshot`, `history`, `kill`, `watch`. | `padi`, `padi-client`, `surface-cli` |
 | `kolu-mcp` | The agent face, and the one place the exposed tool list is declared: `kolu mcp`, plus the fleet projection kolu-server serves over a host map. | `padi`, `padi-client`, `surface-mcp`, `conductor`, `kolu-work` |
 | [`padi`](/padi) | The per-host workspace daemon: it owns the terminal domain and serves `padiSurface`. Ships `padi-tui`. | `padi-client`, `surface-daemon`, `surface-remote`, `agent-distro` |

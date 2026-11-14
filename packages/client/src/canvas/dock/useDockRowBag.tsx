@@ -34,14 +34,14 @@
  *  read of one terminal record — so a row's words, its model and its PR cannot
  *  come from two different terminals. */
 
+import type { TerminalMetadata } from "@kolu/padi-client/vocab";
 import type { DockRowProps } from "@kolu/solid-dockrow";
 import { dockRowFacts } from "@kolu/solid-dockrow/rowValues";
-import type { TerminalMetadata } from "@kolu/padi-client/vocab";
 import type { TerminalId } from "kolu-common/surface";
-import { type Accessor, createMemo } from "solid-js";
-import { useStatePip } from "../../terminal/statePipBind";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
+import { type Accessor, createMemo } from "solid-js";
 import WorkMark from "../../conductor/WorkMark";
+import { useStatePip } from "../../terminal/statePipBind";
 import type { TerminalDisplayInfo } from "../../terminal/terminalDisplay";
 import { useTerminalStore } from "../../terminal/useTerminalStore";
 import { encActiveHost } from "../../wire";
@@ -140,15 +140,19 @@ export function useDockRowBag(): (input: {
         return input.combined().info.annotationColor;
       },
       renderLabel: (markdown) => (
-        <>
-          {/* THE CONDUCTOR'S MARK, inline with the row's own words: a
-              terminal that belongs to a piece of work says so here, where it
-              shares the annotation column and truncates with the name rather
-              than covering the recency cell beside it. Nothing is drawn for a
-              terminal that is in no work. */}
+        // THE NAME FIRST, the mark BESIDE it: the row's first line is its
+        // terminal's name on every other row, and a mark drawn before it
+        // read as having replaced it (#2376 review). A flex line inside the
+        // label's own box gives the two separate boxes — the name takes the
+        // room and truncates, the mark keeps its two words — so neither can
+        // ever be drawn over the other. Nothing is drawn for a terminal that
+        // is in no work.
+        <span class="flex min-w-0 items-center gap-1.5">
+          <span data-testid="dock-row-name" class="min-w-0 truncate">
+            {renderRowLabel(markdown)}
+          </span>
           <WorkMark terminal={fleetTerminalRef(encActiveHost(), input.id)} />
-          {renderRowLabel(markdown)}
-        </>
+        </span>
       ),
       get subline() {
         return facts().subline;

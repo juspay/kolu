@@ -2,7 +2,15 @@
  *
  *  A member of a waterfall is READ-ONLY to the person until they take it
  *  over, and these steps say that where it can be seen from outside: the
- *  banner in the tile's title area, and the PTY itself.
+ *  frame around the terminal's body, the card typing raises over it, the
+ *  pill that says the terminal is theirs — and the PTY itself.
+ *
+ *  NOTHING IS IN THE TILE'S HEADER any more, so nothing here reads it. The
+ *  lock's whole resting state is a border on the body (`work-lock`, which
+ *  carries the driver), and the control appears only when a person types
+ *  (`work-lock-card`). Each of them names the terminal it is about in
+ *  `data-lock-terminal` — a fleet ref, so the match is on its `/<id>` tail,
+ *  the same way the work column's member rows are found.
  *
  *  THE PROBE IS THE PTY, not a signal in the browser. The member terminal the
  *  Conductor starts runs the omp stand-in, whose read loop ECHOES every line
@@ -20,17 +28,17 @@
 
 import assert from "node:assert";
 import { After, Then, When } from "@cucumber/cucumber";
-import type { BrowserContext, Page } from "playwright";
+import type { BrowserContext, Locator, Page } from "playwright";
 import { OMP_HEARD_MARKER, OMP_UP_MARKER } from "../support/agent-mock-omp.ts";
 import { readBufferText } from "../support/buffer.ts";
 import { pollFor } from "../support/poll.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 const LOCK = '[data-testid="work-lock"]';
-const NUDGE = '[data-testid="work-lock-nudge"]';
+const CARD = '[data-testid="work-lock-card"]';
+const PILL = '[data-testid="work-hand-back"]';
 const MARK = '[data-testid="work-mark"]';
-const CANVAS_TILE = '[data-testid="canvas-tile"]';
-const WORK_COLUMN = '[data-testid="work-column"]';
+const ROW_NAME = '[data-testid="dock-row-name"]';
 
 /** How long a BLOCKED input is watched before the claim is made. The guard
  *  answers synchronously, but a keystroke that slipped past it would take a
@@ -53,16 +61,12 @@ function memberTerminal(world: KoluWorld): string {
   return `[data-terminal-id="${memberId(world)}"][data-font-size]`;
 }
 
-/** The member's lock banner, wherever this surface draws it: a pill in the
- *  canvas tile's title bar, or — on a phone, which has no canvas and one
- *  terminal on screen — its own band above the key bar. The scoped form is
- *  preferred so a desktop with several tiles cannot read another tile's
- *  banner. */
-async function lockBanner(world: KoluWorld) {
-  const tiles = await world.page.locator(CANVAS_TILE).count();
-  if (tiles === 0) return world.page.locator(LOCK);
-  return world.page.locator(
-    `${CANVAS_TILE}[data-terminal-id="${memberId(world)}"] ${LOCK}`,
+/** One of the lock's three pieces, for THIS member terminal and no other:
+ *  the frame, the card or the pill. The ref's tail is what identifies it —
+ *  the host half is the browser's business, not a test's. */
+function lockPart(world: KoluWorld, testid: string, page?: Page): Locator {
+  return (page ?? world.page).locator(
+    `${testid}[data-lock-terminal$="/${memberId(world)}"]`,
   );
 }
 
@@ -95,7 +99,7 @@ When("I go to the member terminal", async function (this: KoluWorld) {
   const id = memberId(this);
   await this.page
     .locator(
-      `${WORK_COLUMN} [data-testid="work-member"][data-ref$="/${id}"] [data-testid="work-member-name"]`,
+      `[data-testid="work-column"] [data-testid="work-member"][data-ref$="/${id}"] [data-testid="work-member-name"]`,
     )
     .click();
   await pollFor({
@@ -122,82 +126,149 @@ When("I go to the member terminal", async function (this: KoluWorld) {
   });
 });
 
-/** WHO DRIVES IT, read off the banner's own data, its own words and its
- *  tooltip: the attribute is what the guard reads, the words are what the
- *  person reads, and a surface where those disagree is the bug this asserts
- *  against.
- *
- *  The WHOLE sentence ("Driven by the Conductor · Implementor · <work>")
- *  lives in the banner's `title` in every placement, but only the phone's
- *  band draws it: in a tile's title bar the mark beside the banner already
- *  says `◆ IMPLEMENTOR · <work>`, so the banner there says the driver alone
- *  and the two read as one line. So the visible words are checked against
- *  the LEAD and the full sentence against the tooltip. */
-async function expectBanner(
+/** WHO DRIVES IT, read off the frame around the terminal's body — the one
+ *  resting-state mark there is, and the same fact the keystroke gate reads.
+ *  It is what a person sees without typing a thing. */
+async function expectFrame(
   world: KoluWorld,
   driver: "conductor" | "you",
-  words: string,
 ): Promise<void> {
-  const banner = await lockBanner(world);
-  await banner.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  const frame = lockPart(world, LOCK);
+  await frame.first().waitFor({ state: "attached", timeout: POLL_TIMEOUT });
   await pollFor({
     observe: async () =>
-      (await banner.first().getAttribute("data-driver")) ?? "absent",
+      (await frame.first().getAttribute("data-driver")) ?? "absent",
     isDone: (seen) => seen === driver,
     timeoutMs: POLL_TIMEOUT,
     onTimeout: (last, ms) =>
       new Error(
-        `the lock still reads ${JSON.stringify(last)} rather than ${JSON.stringify(driver)} after ${ms}ms`,
+        `the terminal's frame still reads ${JSON.stringify(last)} rather than ${JSON.stringify(driver)} after ${ms}ms`,
       ),
   });
-  const lead = words.split(" · ")[0] ?? words;
-  const reads = ((await banner.first().textContent()) ?? "")
-    .replace(/\s+/g, " ")
-    .trim();
-  assert.ok(
-    reads.includes(lead),
-    `the lock reads ${JSON.stringify(reads)}, which does not say ${JSON.stringify(lead)}`,
-  );
-  const tooltip = ((await banner.first().getAttribute("title")) ?? "")
-    .replace(/\s+/g, " ")
-    .trim();
-  assert.strictEqual(
-    tooltip,
-    words,
-    `the lock's tooltip reads ${JSON.stringify(tooltip)} rather than ${JSON.stringify(words)}`,
-  );
 }
 
 Then(
-  "the member terminal should say the Conductor drives the {string}",
+  "the member terminal should be framed as driven by the Conductor",
+  async function (this: KoluWorld) {
+    await expectFrame(this, "conductor");
+  },
+);
+
+Then(
+  "the member terminal should be framed as yours",
+  async function (this: KoluWorld) {
+    await expectFrame(this, "you");
+  },
+);
+
+/** THE PILL, in a corner of the body — the only thing drawn while a person
+ *  has the terminal, and the way they give it back. */
+Then(
+  "the member terminal should offer to hand back",
+  async function (this: KoluWorld) {
+    const pill = lockPart(this, PILL).first();
+    await pill.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const reads = ((await pill.textContent()) ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    assert.ok(
+      reads.includes("You’re driving") && reads.includes("Hand back"),
+      `the pill reads ${JSON.stringify(reads)}, which does not say you are driving and offer to hand it back`,
+    );
+  },
+);
+
+/** THE CARD typing raises: the sentence, and the control it is there for. */
+Then(
+  "the lock card should offer to take over the {string}",
   async function (this: KoluWorld, role: string) {
-    const title = this.workTitle;
-    assert.ok(title, "this scenario never named its work");
-    await expectBanner(
-      this,
-      "conductor",
-      `Driven by the Conductor · ${role} · ${title}`,
+    const card = lockPart(this, CARD).first();
+    await card.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const reads = ((await card.textContent()) ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    assert.ok(
+      reads.includes(`The Conductor is driving this terminal · ${role}`),
+      `the card reads ${JSON.stringify(reads)}, which does not name the Conductor and the ${role}`,
+    );
+    await card
+      .locator('[data-testid="work-take-over"]')
+      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  },
+);
+
+/** CENTRED OVER THE TERMINAL — over the body the keystroke went to, not in a
+ *  header, not in a band of its own. Containment is the claim a phone and a
+ *  tiled desktop can both make. */
+Then(
+  "the lock card should sit over the member terminal",
+  async function (this: KoluWorld) {
+    const card = await lockPart(this, CARD).first().boundingBox();
+    // The INNER container (the one with the font size) is the terminal's
+    // body — a bare `[data-terminal-id]` also names its dock row, which is a
+    // different box on the other side of the window.
+    const body = await this.page
+      .locator(memberTerminal(this))
+      .first()
+      .boundingBox();
+    assert.ok(card && body, "the card or the terminal has no box on screen");
+    assert.ok(
+      card.x >= body.x - 1 &&
+        card.y >= body.y - 1 &&
+        card.x + card.width <= body.x + body.width + 1 &&
+        card.y + card.height <= body.y + body.height + 1,
+      `the card (${JSON.stringify(card)}) is not over the terminal (${JSON.stringify(body)})`,
     );
   },
 );
 
 Then(
-  "the member terminal should say you took over the {string}",
-  async function (this: KoluWorld, role: string) {
-    const title = this.workTitle;
-    assert.ok(title, "this scenario never named its work");
-    await expectBanner(this, "you", `Taken over · ${role} · ${title}`);
+  "the member terminal should have no lock card",
+  async function (this: KoluWorld) {
+    await pollFor({
+      observe: () => lockPart(this, CARD).count(),
+      isDone: (count) => count === 0,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (_last, ms) =>
+        new Error(`the card was still up ${ms}ms later`),
+    });
   },
 );
 
-When("I take over the member terminal", async function (this: KoluWorld) {
-  const banner = await lockBanner(this);
-  await banner.first().locator('[data-testid="work-take-over"]').click();
+/** The card is a BRIEF thing — it goes by itself, which is also what lets a
+ *  later blocked input raise one that means something. */
+When("the lock card goes by itself", async function (this: KoluWorld) {
+  await pollFor({
+    observe: () => lockPart(this, CARD).count(),
+    isDone: (count) => count === 0,
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (_last, ms) =>
+      new Error(`the card never went by itself; still up ${ms}ms later`),
+  });
 });
 
+/** Esc puts the card away — `I press Escape` is the shared step, pressed at
+ *  the terminal where the card is. The key never reaches the PTY either way
+ *  (a driven terminal takes no keys), so dismissal is all it says. */
+
+/** TAKE OVER IS ON THE CARD, so the card is what this presses — raising it
+ *  first, by typing, when a step has not already. The key that raises it is
+ *  swallowed by the very lock being taken over, which is why it can be any
+ *  key at all. */
+When("I take over the member terminal", async function (this: KoluWorld) {
+  const card = lockPart(this, CARD);
+  if ((await card.count()) === 0) {
+    await this.focusForTyping(`[data-terminal-id="${memberId(this)}"]`);
+    await this.page.keyboard.type("k");
+    await card.first().waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  }
+  await card.first().locator('[data-testid="work-take-over"]').click();
+});
+
+/** HAND BACK IS ON THE PILL, the one thing drawn while the terminal is the
+ *  person's. */
 When("I hand the member terminal back", async function (this: KoluWorld) {
-  const banner = await lockBanner(this);
-  await banner.first().locator('[data-testid="work-hand-back"]').click();
+  await lockPart(this, PILL).first().click();
 });
 
 /** THE KEYBOARD, at the terminal itself. `focusForTyping` is the harness's
@@ -222,21 +293,16 @@ When(
       (value) => navigator.clipboard.writeText(value),
       text,
     );
-    await this.page
-      .locator(`[data-terminal-id="${memberId(this)}"] .xterm-screen`)
-      .first()
-      .click();
-    await this.page.keyboard.press(`${MOD_KEY}+v`);
-    await this.waitForFrame();
+    await this.focusForTyping(`[data-terminal-id="${memberId(this)}"]`);
+    await this.page.keyboard.press(`${MOD_KEY}+KeyV`);
   },
 );
 
 /** THE STAND-IN IS UP, said where the scenario needs it to be: the marker is
  *  the last thing its boot prints before the read loop, and it is assembled
- *  at runtime so only the process itself can put it on the screen. A phone
- *  shows a terminal it has only just been given — a tile nobody has seen
- *  takes no output — so this is also the proof that what the browser missed
- *  has been replayed, which is what the screen comparisons below rest on. */
+ *  at runtime so no step can spell it by accident. Waiting for it says the
+ *  tile is on screen AND the output it missed while nobody watched it has
+ *  been replayed, which is what the screen comparisons below rest on. */
 Then(
   "the member terminal should have come up",
   async function (this: KoluWorld) {
@@ -246,7 +312,7 @@ Then(
       timeoutMs: POLL_TIMEOUT,
       onTimeout: (last, ms) =>
         new Error(
-          `the member terminal never printed the stand-in's up marker after ${ms}ms; its screen tail reads ${JSON.stringify((last ?? "").trim().slice(-300))}`,
+          `the member terminal's stand-in never came up after ${ms}ms; its screen tail reads ${JSON.stringify((last ?? "").trim().slice(-300))}`,
         ),
     });
   },
@@ -255,14 +321,13 @@ Then(
 Then(
   "the member terminal should have heard {string}",
   async function (this: KoluWorld, text: string) {
-    const want = `${OMP_HEARD_MARKER} ${text}`;
     await pollFor({
       observe: () => memberScreen(this),
-      isDone: (screen) => screen.includes(want),
+      isDone: (screen) => screen.includes(`${OMP_HEARD_MARKER} ${text}`),
       timeoutMs: POLL_TIMEOUT,
       onTimeout: (last, ms) =>
         new Error(
-          `the member terminal never answered ${JSON.stringify(want)} after ${ms}ms; its screen tail reads ${JSON.stringify((last ?? "").trim().slice(-300))}`,
+          `the member terminal never heard ${JSON.stringify(text)} after ${ms}ms; its screen tail reads ${JSON.stringify((last ?? "").trim().slice(-300))}`,
         ),
     });
   },
@@ -281,7 +346,7 @@ Then(
       const screen = await memberScreen(this);
       if (screen.includes(text)) {
         throw new Error(
-          `the lock let ${JSON.stringify(text)} through: the member terminal's screen tail reads ${JSON.stringify(screen.trim().slice(-300))}`,
+          `the lock let ${JSON.stringify(text)} through; the member terminal's screen tail reads ${JSON.stringify(screen.trim().slice(-300))}`,
         );
       }
       if (Date.now() >= deadline) return;
@@ -290,33 +355,12 @@ Then(
   },
 );
 
-Then("the lock should nudge", async function (this: KoluWorld) {
-  const banner = await lockBanner(this);
-  const nudge = banner.first().locator(NUDGE);
-  await nudge.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
-  const reads = ((await nudge.textContent()) ?? "").replace(/\s+/g, " ").trim();
-  assert.ok(
-    reads.includes("Take over"),
-    `the nudge reads ${JSON.stringify(reads)}, which does not point at Take over`,
-  );
-});
-
-/** The nudge is a BRIEF thing — it goes by itself, which is also what lets a
- *  later blocked input raise one that means something. */
-When("the lock stops nudging", async function (this: KoluWorld) {
-  const banner = await lockBanner(this);
-  await pollFor({
-    observe: () => banner.first().locator(NUDGE).count(),
-    isDone: (count) => count === 0,
-    timeoutMs: POLL_TIMEOUT,
-    onTimeout: (_last, ms) =>
-      new Error(`the lock's nudge was still up ${ms}ms later`),
-  });
-});
-
 /** READING IS UNTOUCHED. A drag across the terminal selects, exactly as it
  *  does on any other terminal — the lock is about input alone, and a tile a
- *  person cannot even copy out of would be a different (and worse) product. */
+ *  person cannot even copy out of would be a different (and worse) product.
+ *  The card is up while this runs, and the drag starts in a corner it does
+ *  not cover: a card centred over the terminal must not be in the way of
+ *  reading it either. */
 Then(
   "selecting text in the member terminal should still work",
   async function (this: KoluWorld) {
@@ -327,7 +371,7 @@ Then(
     assert.ok(box, "the member terminal has no box on screen to select in");
     await this.page.mouse.move(box.x + 4, box.y + 4);
     await this.page.mouse.down();
-    await this.page.mouse.move(box.x + box.width - 8, box.y + box.height / 2, {
+    await this.page.mouse.move(box.x + box.width - 8, box.y + 12, {
       steps: 12,
     });
     await this.page.mouse.up();
@@ -416,15 +460,17 @@ Then(
   },
 );
 
+function dockRow(world: KoluWorld): string {
+  return `[data-testid="dock-row"][data-terminal-id="${memberId(world)}"]`;
+}
+
 /** THE MARK OUTSIDE THE PANE carries the driver too — the dock is where a
  *  person looks to see what is happening across the fleet, and a terminal
  *  they took over has to read as theirs there. */
 Then(
   "the dock row for the member terminal should be marked as yours",
   async function (this: KoluWorld) {
-    const mark = this.page.locator(
-      `[data-testid="dock-row"][data-terminal-id="${memberId(this)}"] ${MARK}`,
-    );
+    const mark = this.page.locator(`${dockRow(this)} ${MARK}`);
     await mark.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     await pollFor({
       observe: async () => (await mark.getAttribute("data-driver")) ?? "absent",
@@ -438,29 +484,53 @@ Then(
   },
 );
 
+/** THE NAME IS STILL THE ROW'S FIRST LINE. The mark sits BESIDE it, and the
+ *  two have separate boxes that do not meet — the mark drawn over the name
+ *  is the bug this is here for (#2376 review). */
 Then(
-  "the member terminal should carry the work's mark",
+  "the dock row's mark should not cover its name",
+  async function (this: KoluWorld) {
+    const row = dockRow(this);
+    const mark = await this.page.locator(`${row} ${MARK}`).boundingBox();
+    const name = await this.page.locator(`${row} ${ROW_NAME}`).boundingBox();
+    assert.ok(mark && name, "the dock row shows no name beside its mark");
+    assert.ok(
+      name.width > 0,
+      "the dock row's name has no width left — the mark took the row",
+    );
+    const overlaps =
+      mark.x < name.x + name.width &&
+      name.x < mark.x + mark.width &&
+      mark.y < name.y + name.height &&
+      name.y < mark.y + mark.height;
+    assert.ok(
+      !overlaps,
+      `the mark (${JSON.stringify(mark)}) is drawn over the row's name (${JSON.stringify(name)})`,
+    );
+  },
+);
+
+Then(
+  "the dock row for the member terminal should carry the work's mark",
   async function (this: KoluWorld) {
     await this.page
-      .locator(`${CANVAS_TILE}[data-terminal-id="${memberId(this)}"] ${MARK}`)
+      .locator(`${dockRow(this)} ${MARK}`)
       .first()
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
 
-/** NOTHING DRIVES IT. Said about a tile whose mark is already on screen (the
- *  step above), so this cannot pass by looking at a terminal that is not
- *  there. */
+/** NOTHING DRIVES IT. Said about a terminal whose mark is already on screen
+ *  (the step above), so this cannot pass by looking at a terminal that is
+ *  not there. */
 Then(
   "the member terminal should have no lock",
   async function (this: KoluWorld) {
-    const count = await this.page
-      .locator(`${CANVAS_TILE}[data-terminal-id="${memberId(this)}"] ${LOCK}`)
-      .count();
+    const count = await lockPart(this, LOCK).count();
     assert.equal(
       count,
       0,
-      "a terminal no waterfall drives is wearing the Conductor's lock",
+      "a terminal no waterfall drives is wearing the Conductor's frame",
     );
   },
 );
@@ -484,10 +554,9 @@ When(
     // PROVE IT IS REALLY UP, and on the terminal in question: a client still
     // hydrating has no tile at all, and every assertion below would read its
     // absence as a lock that never moved.
-    await page
-      .locator(`${CANVAS_TILE}[data-terminal-id="${memberId(this)}"] ${LOCK}`)
+    await lockPart(this, LOCK, page)
       .first()
-      .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+      .waitFor({ state: "attached", timeout: POLL_TIMEOUT });
   },
 );
 
@@ -512,12 +581,10 @@ async function expectSecondDriver(
   driver: "conductor" | "you",
 ): Promise<void> {
   assert.ok(secondClient, "this scenario never opened a second client");
-  const banner = secondClient.page.locator(
-    `${CANVAS_TILE}[data-terminal-id="${memberId(world)}"] ${LOCK}`,
-  );
+  const frame = lockPart(world, LOCK, secondClient.page);
   await pollFor({
     observe: async () =>
-      (await banner.first().getAttribute("data-driver")) ?? "absent",
+      (await frame.first().getAttribute("data-driver")) ?? "absent",
     isDone: (seen) => seen === driver,
     timeoutMs: POLL_TIMEOUT,
     onTimeout: (last, ms) =>
@@ -526,22 +593,3 @@ async function expectSecondDriver(
       ),
   });
 }
-
-/** THE PHONE'S BAND sits directly above the key bar it gates — the control a
- *  blocked tap is pointed at is then a thumb's width from the key that was
- *  blocked, which is the whole reason it is drawn there rather than in a
- *  title bar the phone does not have. */
-Then(
-  "the lock should sit above the phone's key bar",
-  async function (this: KoluWorld) {
-    const lock = await this.page.locator(LOCK).first().boundingBox();
-    const bar = await this.page
-      .locator('[data-testid="mobile-key-bar"]')
-      .boundingBox();
-    assert.ok(lock && bar, "the phone shows no lock band above its key bar");
-    assert.ok(
-      lock.y + lock.height <= bar.y + 1,
-      `the lock band (bottom ${lock.y + lock.height}) is not above the key bar (top ${bar.y})`,
-    );
-  },
-);
