@@ -203,3 +203,31 @@ Nothing.
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs`: 0 missing).
+
+## OS notifications
+
+- Words: 481 → 528. Before: a 99-word opening paragraph and a 178-word table cell (the longest on the site). After: an index table, two entries and three entry sections, with every cell under 40 words.
+- Headings renamed: none. `OS notifications` is kept. No inbound links point into this section.
+- The `onClick` cell's live path, cold-start handoff, click-id dedup and exactly-once rule are now the `onClick` entry section; the `show` cell's no-op rule and the `tag` discipline are the `show` entry section.
+- "Two landmines are why delivery is a framework piece" became `Where delivery would hang or throw`.
+
+### Moved
+
+None.
+
+### Cut
+
+| Fact | Tag |
+| --- | --- |
+| "(pre-upgrade)", as a gloss on a stale payload | history |
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs`: 0 missing).
+
+## Whole page
+
+- Words: 8,878 → 9,077 (`.waterfall/words.mjs`). The page is a Surface reference, so the 2,500-word page limit does not apply; the growth is index tables and entry headings, against which 34 long blocks, 12 essay cells and a 972-word section are gone.
+- Lint: `surface/ref-surface-app` passes.
+- Comparison against `f50641c6a`: 0 missing.
+- Asides: 11 before, 0 after.
