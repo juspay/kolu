@@ -29,7 +29,7 @@ resolve.
 
 | Fact | Where |
 | --- | --- |
-| "The Effect-4 framing change (oRPC base64+newline → Effect RPC ndjson) was a declared flag day, not a negotiation — negotiation happens inside the protocol being replaced, so a previous-epoch peer cannot be asked anything at all." | `the-daemon-spine` (pending): queued verbatim in `.waterfall/moved/the-daemon-spine/surface-daemon-invariants.md` |
+| "The Effect-4 framing change (oRPC base64+newline → Effect RPC ndjson) was a declared flag day, not a negotiation — negotiation happens inside the protocol being replaced, so a previous-epoch peer cannot be asked anything at all." | `the-daemon-spine`, "What a frozen contract survives, and what it does not" (the flag-day argument; the codec names were dropped there as history) |
 
 ## Cut
 

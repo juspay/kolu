@@ -25,10 +25,11 @@ No `##` anchor that anything links to changed. `/surface/ref-surface-daemon#the-
 
 | Fact | Where it now lives |
 | --- | --- |
-| "The fragment never versions — within a protocol epoch": the Effect-4 flag-day argument (oRPC base64+newline codec → Effect RPC ndjson, why negotiation cannot cross a framing change) | `the-daemon-spine` (pending: queued in `.waterfall/moved/the-daemon-spine/ref-surface-daemon.md`). The wire facts stay here: `CONTROL_CORE_VERSION` frozen at `"1.0"`, the six byte-pinned fields, `unspeakable-protocol`. |
-| Why a drain refusal is a defect: "the frozen fragment's shape is not a consumer's to widen" and the oRPC-era `PRECONDITION_FAILED` comparison | `the-daemon-spine` (pending, same queue file). The defect rule, the absent error schema, `Effect.promise` and the absence of a narrowable code stay here. |
-| "This is a spine primitive, not a helper" framing | `the-daemon-spine` (pending, same queue file). Every API fact of that paragraph stays here under `What takes a home`. |
-| Why a runtime fault is fatal rather than logged: the `@kolu/surface` poll ruling and the juspay/kolu#2101 incident | `the-daemon-spine` (pending, same queue file). The exit codes, the orderly teardown and `armRuntimeFaultExit` stay here. |
+| "The fragment never versions — within a protocol epoch": the flag-day argument (why negotiation cannot cross a framing change) | `the-daemon-spine`, "What a frozen contract survives, and what it does not". The wire facts stay here: `CONTROL_CORE_VERSION` frozen at `"1.0"`, the six byte-pinned fields, `unspeakable-protocol`. The oRPC → Effect RPC codec naming was dropped there as history. |
+| Why a drain refusal is a defect: "the frozen fragment's shape is not a consumer's to widen" | `the-daemon-spine`, "Why the framework takes values, not loose fields". The defect rule, the absent error schema, `Effect.promise` and the absence of a narrowable code stay here. The oRPC-era `PRECONDITION_FAILED` comparison was dropped there as history. |
+| "This is a spine primitive, not a helper" framing | `the-daemon-spine`, "Why the framework takes values, not loose fields". Every API fact of that paragraph stays here under `What takes a home`. |
+| Why a runtime fault is fatal rather than logged: the `@kolu/surface` poll ruling and the juspay/kolu#2101 incident | `the-daemon-spine`, "Why a runtime fault kills the process". The exit codes, the orderly teardown and `armRuntimeFaultExit` stay here. |
+| The zombie class (process alive, gate held, socket answering, runtime dead) as the reason `faultSignal` is separate from `signal` | `the-daemon-spine`, "Why a runtime fault kills the process". Both arms and their exit codes stay here. |
 
 ## Cut
 

@@ -1,83 +1,141 @@
 ---
 title: The daemon spine
-description: "Why a long-lived local process needs a frozen control core and a versioned contract — the spine that lets it be recycled without lying to its clients."
+description: "Why a daemon needs a frozen identity channel, and what that buys you when you upgrade a process that clients are already talking to."
 order: 330
 section: Daemons · Explanation
 ---
 
 import DaemonLifecycle from "../../components/docs/diagrams/DaemonLifecycle.astro";
 
-A surface in a browser tab lives and dies with the tab. A surface in a **daemon**
-outlives every client that connects to it — and, more awkwardly, outlives its own
-code. You will ship a new build while a client is mid-session, and the old
-process is still there, holding the socket, serving the old surface. The daemon
-stratum exists to make that moment safe.
+A surface in a browser tab dies with the tab. A surface in a **daemon** outlives
+every client that connects to it, and outlives its own code. You ship a new
+build while a client is mid-session, and the old process still holds the socket.
+The daemon stratum makes that moment safe.
 
 <DaemonLifecycle />
 
-## The problem a daemon has that a page does not
+## What a daemon must answer that a page does not
 
-A page never has to answer "which version of me are you talking to?" — there is
-only one, and it reloads. A daemon has to answer it constantly, because the
-process a client is attached to and the build you just shipped can be different
-things. If the client cannot tell them apart, an upgrade either drops every
-session or, worse, quietly serves stale behaviour under the new build's name.
+A page never has to say which version of itself you are talking to. There is one
+version, and it reloads. A daemon has to say it constantly, because the process a
+client is attached to and the build you just shipped can be different things. A
+client that cannot tell them apart either drops every session on an upgrade, or
+serves stale behaviour under the new build's name.
 
-So a daemon needs two things a page does not: a way to say *which build it is*
-(covered in [How to bake an identity](/surface/bake-an-identity)), and a small
-part of itself that **never changes shape**, so that question can always be
-asked — even across a version skew. That unchanging part is the spine.
+So a daemon needs two things a page does not. It needs a way to say which build
+it is, which is what [How to bake an identity](/surface/bake-an-identity)
+covers. And it needs a small part of itself that never changes shape, so the
+question can be asked across a version mismatch. That part is the spine.
 
-## The control core is frozen so it survives a skew
+## Why the control core is frozen
 
-Identity is read over a version-agnostic channel, *before* the versioned
-handshake. That ordering is the whole trick: if reading a daemon's identity
-required speaking its current contract, then the one situation where you most
-need the identity — a version mismatch — is exactly when you could not read it.
-By freezing the control core and probing it pre-connect, a supervisor can always
-learn what it is looking at, then decide whether to talk to it, recycle it, or
-drain it.
+Identity is read over a version-agnostic channel, before the versioned
+handshake. That ordering is the whole trick. If reading a daemon's identity
+required speaking its current contract, you could not read it in the one
+situation where you need it most. Freezing the control core and probing it
+before connecting lets a supervisor learn what it is looking at, then decide
+whether to talk to it, recycle it, or drain it.
 
-Everything *behind* the spine is free to churn. The surface can grow cells, the
-handlers can change, the build can be replaced wholesale — as long as the frozen
-core still answers "who are you?" the same way it always has.
+Everything behind the spine is free to churn. The surface can grow cells, the
+handlers can change, the build can be replaced whole. The frozen core still
+answers the same question the same way. The fields it answers with are listed in
+[the daemon reference](/surface/ref-surface-daemon).
 
-## Recycle without lying
+### What a frozen contract survives, and what it does not
 
-With a stable identity and a version-agnostic probe, a live upgrade becomes a
+The frozen contract holds within one protocol epoch, not across a change of
+framing. Version negotiation happens inside the protocol being replaced, so a
+peer from an earlier epoch cannot be asked anything at all. Its first frame does
+not decode. A supervisor reports that as an unspeakable protocol, never as an
+incompatible version, because a value carried inside a frame cannot describe a
+break in the frame itself.
+
+That is why the control core's version number stays put when the framing moves.
+It versions the hello payload, and the payload's fields have not changed. A
+framing change is a declared flag day: you stop every old process once, and from
+there the frozen contract holds again.
+
+## Recycling a daemon without lying to its clients
+
+With a stable identity and a version-agnostic probe, a live upgrade is a
 decision rather than a gamble. `converge` reads the running identity, compares it
-to what you baked, and acts by a declared policy — recycle on skew, or drain the
-newer build in. The client sees a brief reconnect, not a dropped session. The
-contract is the promise the daemon keeps across that swap: a recycle may replace
-every byte of the process, but it must not change what the wire says without
-saying so. This is the same instinct as
-[reactive honesty](/surface/reactive-honesty), one layer down — a recovered
-connection must not silently be talking to a different thing.
+to the build you baked, and acts by a declared policy. The client sees a brief
+reconnect, not a dropped session.
 
-## Why the halves are two packages
+The contract is the promise the daemon keeps across that swap. A recycle may
+replace every byte of the process, but it must not change what the wire says
+without saying so. This is [reactive honesty](/surface/reactive-honesty) one
+layer down: a recovered connection must not quietly be talking to something
+else.
 
-The daemon *binary* code and the *supervising* code are split into two packages,
-and the split is load-bearing, not tidiness. A supervisor runs in the client and
-must never be able to change what a daemon restart loads — so it is kept out of
-the daemon's hashed closure entirely. The package boundary *is* the hash
-boundary: you cannot accidentally make a supervisor edit look like a new daemon
-build, because the supervisor is not in the build id at all.
+A peer whose protocol cannot be spoken is taken over, whatever the policy says.
+Refusing instead looks principled, because the drain verb really is unreachable.
+It is the wrong act: a cross-epoch upgrade then stays unconverged until a person
+stops the old daemon by hand.
+
+## Why a runtime fault kills the process
+
+Every shutdown reason the daemon reports is a success except one. When the
+served runtime dies, the process tears down in order and then exits non-zero,
+because the exit code is the supervisor's only channel for "that was a crash,
+not a stop".
+
+Logging the fault and serving on is the tempting alternative, and it produces a
+zombie: the process alive, the single-instance gate held, the socket answering,
+the runtime behind it dead. A failed poll read is already cell-local at every
+tick, so a dead runtime can only be structural wiring death, which does not heal
+by waiting.
+
+Kolu met the zombie once. A padi logged a probe timeout, kept its gate and
+socket, and needed an operator, where a crash would have been respawned and
+restored in about two seconds
+([kolu#2101](https://github.com/juspay/kolu/pull/2101)).
+
+## Why the supervisor is a separate package
+
+The daemon code and the supervising code are split into two packages, and the
+split is load-bearing. A supervisor runs in the client and must never be able to
+change what a daemon restart loads, so it is kept out of the daemon's hashed
+closure. The package boundary is the hash boundary. A supervisor edit cannot
+look like a new daemon build, because the supervisor is not in the build id.
+
+A supervisor is also written in Effect with no Promise-shaped twin. It composes
+its boot, its recycle and its drain into one fiber tree. A boot that loses a
+race, a restart you abandoned and a drain past its ceiling each tear their own
+work down instead of running on unobserved.
+
+## Why the framework takes values, not loose fields
+
+Three small shapes in this stratum follow one rule: make the wrong combination
+impossible to write rather than forbidden in prose.
+
+- A daemon's **home** is a primitive, not a convenience. The daemon and the
+  supervisor both take a home and derive the gate and the socket from it, so
+  loose path strings never cross from your code into the framework. A command
+  line override is absorbed into the home, never sprinkled at call sites.
+- Launch mode and environment inheritance are one union field, so "inherit the
+  parent environment on a normal launch" is a type error instead of an
+  invariant you have to remember.
+- A drain hook that refuses is a defect rather than a member error. The frozen
+  fragment declares no error schema, because its shape is not a consumer's to
+  widen, and an undeclared throw stays a defect instead of posing as something a
+  supervisor could narrow on and handle.
 
 ## A daemon is not a fleet
 
-It is tempting to assume that "long-lived" and "runs on other machines" travel
-together. They do not. **[kaval](/kaval)** is the proof: a daemon on your own box, one
-process, no ssh, no map — everything in this stratum, none of the
-[multi-host](/surface/across-the-hosts) one. The spine is what a daemon needs to
-be recycled honestly; it says nothing about *where* the daemon runs. That is a
-separate axis, with its own exemplar.
+Long-lived and runs-on-other-machines look like they travel together. They do
+not. [kaval](/kaval) is a daemon on your own machine: one process, no ssh, no
+map. It needs everything in this stratum and none of the
+[multi-host](/surface/across-the-hosts) one. The spine is what a daemon needs in
+order to be recycled honestly. Where the daemon runs is a separate question.
 
-## The trade
+## What freezing costs you
 
-Freezing a control core is a real cost: you are committing to a shape *forever*,
-because the entire recycle story depends on old and new agreeing on how to ask
-"who are you?" Change that, and you break the one channel that was supposed to
-survive change. The daemon stratum accepts a small, permanent rigidity at the
-core in exchange for total freedom to replace everything around it. For a process
-that must be upgraded under load without dropping its clients, that is the trade
-worth making — and the narrowness of the frozen part is what keeps the price low.
+Freezing a control core commits you to a shape for good, because the recycle
+story depends on old and new builds agreeing how to ask who they are. Change
+that, and you break the one channel meant to survive change.
+
+The stratum takes a small permanent rigidity at the core in exchange for freedom
+to replace everything around it. For a process upgraded under load without
+dropping its clients, that is the trade worth making, and the narrowness of the
+frozen part keeps the price low.

@@ -41,9 +41,9 @@ two sentences in the convergence kit's opening, keeping the links to
 
 | Fact | Where |
 | --- | --- |
-| "There is no Promise-shaped twin: a supervisor composes its boot, its recycle and its drain into one fiber tree…" (the long form; the page keeps the short one) | `the-daemon-spine` (pending): `.waterfall/moved/the-daemon-spine/ref-surface-supervisor.md` |
-| "padi's old **refuse** is gone, because reasoning from 'the drain verb is unreachable' to 'leave it standing' left a cross-epoch upgrade permanently unconverged until a human stopped a daemon out of band." | `the-daemon-spine` (pending): same file |
-| "Folding the two together means 'inherit the parent env on a normal launch' is a type error, not a prose invariant a caller must remember." | `the-daemon-spine` (pending): same file |
+| "There is no Promise-shaped twin: a supervisor composes its boot, its recycle and its drain into one fiber tree…" (the long form; the page keeps the short one) | `the-daemon-spine`, "Why the supervisor is a separate package" |
+| "padi's old **refuse** is gone, because reasoning from 'the drain verb is unreachable' to 'leave it standing' left a cross-epoch upgrade permanently unconverged until a human stopped a daemon out of band." | `the-daemon-spine`, "Recycling a daemon without lying to its clients" (written without the history: refusing leaves the upgrade unconverged until a person intervenes) |
+| "Folding the two together means 'inherit the parent env on a normal launch' is a type error, not a prose invariant a caller must remember." | `the-daemon-spine`, "Why the framework takes values, not loose fields" |
 
 ## Cut
 
