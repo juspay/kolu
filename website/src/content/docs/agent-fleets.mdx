@@ -1,6 +1,6 @@
 ---
 title: Agent Fleets
-description: "A way of using kolu where an agent — not a person — drives the work: one coordinator terminal dispatches briefs to worktree'd implementing agents, watches them through padi's agent-state, routes their questions back to itself, and lets you sit one layer up. The pattern kolu's own development runs on."
+description: "One coordinator agent drives many implementing agents, each in its own worktree, and routes their questions to itself so you stay one layer up."
 order: 51
 section: "Agents & Attention"
 koluHero:
@@ -14,45 +14,60 @@ import Aside from "../../components/docs/Aside.astro";
 import Card from "../../components/docs/Card.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
+import Steps from "../../components/docs/Steps.astro";
 
-_This page explains a **pattern** — a way of using kolu — not a feature to turn on. It's the "why" and the shape; the daemons underneath it are described on the [kaval](/kaval) and [padi](/padi) pages, linked throughout._
-
-kolu can be driven by an **agent**, not just a person. Because every terminal kolu owns can be created, prompted, watched, and read from the shell, one agent sitting in a terminal can do to another terminal exactly what you would: open it, type a task, wait for the reply, read it, type the next one. Scale that up and you get a **fleet**: one _coordinator_ agent driving many _implementing_ agents, each in its own worktree, while you stay one layer above all of it.
+kolu can be driven by an agent instead of a person. Every terminal kolu owns can be created, prompted, watched and read from the shell, so one agent can do to another terminal what you would. Scale that up and one coordinator runs a fleet.
 
 <figure class="doc-shot">
   <img src="/shots/islands.webp" alt="A fleet of three agent terminals laid out across the canvas, each with its own repo group in the dock." loading="lazy" />
   <figcaption>Three agents, three repos, one canvas — the dock keeps the roster.</figcaption>
 </figure>
 
-This isn't hypothetical. kolu's own features are built this way — the [remote-terminals work](/blog/remote-terminals) was a coordinator dispatching briefs to agents running inside kolu's terminals, on real hosts, for weeks. This page describes that pattern as something you can use.
+This is a way of using kolu, not a feature you switch on. kolu's own features are built this way: the [remote-terminals work](/blog/remote-terminals) was a coordinator dispatching briefs to agents in kolu's terminals, on real hosts, for weeks.
 
 <Aside type="note" title="alpha">
-  The `kolu` command's terminal verbs are an early preview; commands and flags will change. (They subsume the older `kaval-tui` / `padi-tui` verbs, which still work for now.) The pattern itself — one driver, many agents, questions routed to the driver — is stable.
+  The `kolu` command's terminal verbs are an early preview, and commands and
+  flags will change. The pattern itself (one driver, many agents, questions
+  routed to the driver) is stable.
 </Aside>
 
-## Three layers: you, a coordinator, a fleet
-
-The pattern has three roles, and the point of it is the top one.
+## The three roles
 
 <CardGrid>
-  <Card title="You (the human)">
-    Set the intent and merge the results. You don't watch ten agents; you can't. You talk to **one** agent — the coordinator — and review the pull requests that come out.
+  <Card title="You">
+    Set the intent and merge the results. You talk to one agent, the
+    coordinator, and review the pull requests that come out.
   </Card>
   <Card title="The coordinator">
-    One agent. It breaks the work into briefs, spawns an implementing agent per brief, watches each one, verifies what they claim, and answers their questions. It is the single door that work passes through. It can be an agent in a terminal, driving the others with the `kolu` command — or it can be [**the Conductor**](/conductor), the same role as a chat.
+    One agent. It breaks the work into briefs, spawns an implementing agent per
+    brief, watches each one, verifies what they claim, and answers their
+    questions.
   </Card>
   <Card title="The fleet">
-    One implementing agent per task, each in its **own worktree** so they can't step on each other. They do the work, open PRs, and route anything they're unsure about back _up_ to the coordinator — never to you.
+    One implementing agent per task, each in its own worktree so they cannot
+    step on each other. They do the work, open PRs, and send anything they are
+    unsure about back up to the coordinator.
   </Card>
 </CardGrid>
 
-The reason to add a coordinator at all is **span of attention**. A person can drive one agent well and three agents badly; past a handful, you spend all your time context-switching and none of it thinking. A coordinator doesn't get tired of switching. It holds the state of every agent it spawned, notices the moment one needs input, and only surfaces to you when a PR is ready or a decision is genuinely yours. You trade keystrokes for review.
+## Why add a coordinator
 
-**The coordinator can be a chat.** Everything below describes the pattern with a coordinator sitting in a terminal, driving the others with the `kolu` command — which is how kolu itself was built, and still the way to run it from a shell or a script. [The Conductor](/conductor) is that same role with a conversation in front of it: one of them for your whole fleet, reaching every machine you have, the same tools in its hands, and a panel that tells you which of its questions are waiting for you. Read this page for the shape; read that one for the face.
+Span of attention. A person can drive one agent well and three agents badly. Past a handful, you spend your time context-switching and none of it thinking. A coordinator does not tire of switching: it holds the state of every agent it spawned, notices when one needs input, and surfaces to you when a PR is ready or a decision is yours.
 
-## The loop: create, prompt, wait, read
+The coordinator can be an agent in a terminal, driving the others with the `kolu` command, which is how kolu itself was built. It can also be [the Conductor](/conductor), the same role as a chat, one of them for your whole fleet. Read this page for the shape and that one for the face.
 
-Driving another agent is a loop of discrete moves, because each move is a separate, observable thing. One command — `kolu` — carries every move. The coordinator creates a worktree'd agent, sends it a brief, waits for it to settle, submits, waits for its turn to end, and reads the screen:
+## The drive loop
+
+Driving another agent is a loop of discrete moves. One command, `kolu`, carries every move.
+
+<Steps>
+
+1. Create a worktree'd agent. It appears live on the canvas.
+2. Send it a short brief.
+3. Wait for the terminal to settle, then send Enter as its own command.
+4. Wait for the turn to end, and read the screen.
+
+</Steps>
 
 ```sh
 # spawn an implementing agent in its own worktree — it appears live on the canvas.
@@ -66,64 +81,71 @@ kolu send "$id" --key Enter                                             # 3. sub
 kolu debrief "$id"                                                      # 4. its turn ended, it went quiet, here's the screen
 ```
 
-The one move that surprises people is that **submitting is separate from typing**. An Enter sent in the same breath as the text races the terminal UI's paste-debounce and gets silently dropped, leaving the prompt sitting unsent — so you type the text, watch the UI go quiet, _then_ send Enter as its own command. That's [why a send carries text or a key but never both](/kaval#why-kaval-tui-send-not-a-message-bus). Every verb takes the same endpoint flags (`--socket`, `--state-root`, `--host`) on either side of the verb name, and inside a kolu terminal you pass none at all — the daemon that owns you is already in the environment. Ids accept any unique prefix.
+Submitting is separate from typing. An Enter sent in the same breath as the text races the terminal UI's paste-debounce and is dropped silently, leaving the prompt unsent. So you type the text, watch the UI go quiet, then send Enter on its own: a send carries text or a key, never both ([kaval](/kaval)).
 
-Long briefs don't paste cleanly (kolu folds a big paste into a placeholder that Enter won't submit — [issue #1702](https://github.com/juspay/kolu/issues/1702)). So the coordinator writes the brief to a file and sends a _short_ prompt that points the agent at it, the way the loop above does. The agent reads its own brief.
+Every verb takes the same endpoint flags (`--socket`, `--state-root`, `--host`) on either side of the verb name. Inside a kolu terminal you pass none at all, because the daemon that owns you is already in the environment. Ids accept any unique prefix.
 
-## Knowing when an agent is done — and whether it's asking you
+Long briefs do not paste cleanly, because kolu folds a big paste into a placeholder that Enter will not submit ([issue #1702](https://github.com/juspay/kolu/issues/1702)). So the coordinator writes the brief to a file and sends a short prompt pointing the agent at it. The agent reads its own brief.
 
-The hardest part of driving an agent isn't sending input; it's knowing when to send the next thing. There are two done-signals — one `wait` verb, two kinds of condition — and they answer different questions.
+## Knowing when an agent is done
+
+The hard part is not sending input. It is knowing when to send the next thing. One `wait` verb takes two kinds of condition, and they answer different questions.
 
 <CardGrid>
   <Card title="Output went quiet">
-    `kolu wait --until idle:<ms>` blocks until no output byte has arrived for a while. It works on **any** terminal with no setup, but it can't tell "finished" from "stopped to ask you" — both look like silence.
+    `kolu wait --until idle:<ms>` blocks until no output byte has arrived for a
+    while. It works on any terminal with no setup, but it cannot tell
+    "finished" from "stopped to ask you": both look like silence.
   </Card>
   <Card title="The agent's state changed">
-    `kolu wait --until awaiting,waiting` blocks on padi's real [agent-state](/padi) — `working`, `awaiting` (it's asking you), `waiting` (it just finished), and, before an agent has been prompted at all, `starting` (still drawing its screen) and `fresh` (up and never prompted — `--until fresh` is how a coordinator waits to brief an agent it just launched). This one _distinguishes_ a finished turn from a blocked question, for the terminals kolu owns.
+    `kolu wait --until awaiting,waiting` blocks on the real
+    [agent state](/agent-detection): `working`, `awaiting` (it is asking you),
+    `waiting` (it just finished), `starting` and `fresh` (up and never
+    prompted). This one tells a finished turn from a blocked question.
   </Card>
 </CardGrid>
 
-That distinction is why a coordinator uses the agent-state condition when it can: piling a new task on top of an agent that stopped to **ask a question** is how a fleet wedges. When the state says `awaiting`, the coordinator reads the screen and answers; when it says `waiting`, the turn is genuinely done. Silence alone can't tell you which, so — after any `wait` returns — the coordinator reads the snapshot before it responds.
+A coordinator uses the state condition where it can. Piling a new task on an agent that stopped to ask a question is how a fleet wedges. `--until fresh` is how a coordinator waits to brief an agent it has just launched. After any `wait` returns, it reads the screen before it responds.
 
-### `waiting` is not always "done" — which is why `kolu debrief` exists
+### Why `kolu debrief` waits for quiet as well
 
-There is a third failure the two conditions above can't see between them. Modern agents farm work out to **background subagents**, and an agent's main loop reports its turn as over the moment *it* stops typing — while a subagent it launched is still running, still printing. The state says `waiting`; the work is not done. A coordinator that acts on that signal interrupts real work: the incident behind this was a worker three minutes into a deliberate "wait for it, then push once" plan, nudged off it.
+Agents farm work out to background subagents. An agent's main loop reports its turn as over the moment it stops typing, while a subagent it launched is still running and still printing. The state says `waiting` and the work is not done. A coordinator that acts on that signal interrupts real work.
 
-The fix is to require **both**: the turn is over *and* the terminal has actually gone quiet — then read the screen. `kolu debrief` is that whole protocol as one command:
+So the rule is to require both: the turn is over and the terminal has gone quiet. Then read the screen. `kolu debrief` is that protocol as one command:
 
 ```sh
 kolu debrief "$id"     # blocks until the turn is over AND quiet;
                        # stdout is what the screen says — judge, then act
 ```
 
-It is exactly `kolu wait "$id" --until awaiting,waiting --settled 15000 --snapshot 40`, and those two `wait` flags are usable on their own: `--settled <ms>` adds "…and quiet for this long" to *any* condition, and `--snapshot <N>` makes the wait hand back the screen it settled on. A coordinator driving over [MCP](/mcp) has the same two as `settledMs` and `screenTail` on both wait tools, so this protocol is one call there too. Doing it in one command is not only shorter — it closes a race the three separate commands could not. Output can move in the gap between one `wait` finishing and the next starting, and the screen a separate `snapshot` reads is not the screen the wait settled on. Asked for together, they are judged against the same live subscription: the screen you get back was taken inside the same quiet stretch that ended the turn, and one the terminal moved under is thrown away and retaken. (Use `--snapshot` *without* `--settled` and you still get a screen, just without that promise — nothing asked the terminal to be quiet, so it may still be printing.)
+It is exactly `kolu wait "$id" --until awaiting,waiting --settled 15000 --snapshot 40`. Both flags work on their own: `--settled <ms>` adds "and quiet for this long" to any condition, and `--snapshot <N>` makes the wait hand back the screen it settled on.
 
-## Questions flow up to the coordinator, never out to you
+Asking for them together also closes a race. Output can move in the gap between a `wait` finishing and a separate `snapshot` starting, so the screen you read is not the screen the wait settled on. Asked together, a screen the terminal moved under is retaken. Over [MCP](/mcp) the same two are `settledMs` and `screenTail`.
 
-An implementing agent that hits a real decision has a problem: it's alone in its own terminal, and the human is one layer up and probably asleep. If it pops an interactive question, that question sits unanswered in a PTY nobody is looking at, and the agent stalls.
+## Questions go up, never out
 
-So the discipline is: **an implementing agent routes every question to the coordinator**, using the same drive loop in reverse — it writes to the coordinator's terminal and waits for a ruling. The coordinator is the one door in the [seam](/blog/remote-terminals) the fleet is built on: observation flows _out_ freely (you, or the coordinator, can watch every agent's state at any time), but action and decisions flow _in_ through a single point. That one-door shape is what keeps a fleet autonomous instead of stalling on a dozen unanswered prompts — and it's the same shape kolu uses to [put an agent under a chat app](/architecture).
+An implementing agent that hits a real decision is alone in its own terminal, and you are one layer up and probably asleep. An interactive question there sits unanswered, and the agent stalls.
+
+So it sends every question to the coordinator, using the same loop in reverse: it writes to the coordinator's terminal and waits for a ruling. Observation flows out freely, since anyone can watch any agent's state, but decisions flow in through one door.
 
 ## A fleet can span machines
 
-Nothing about this is local. Because [padi](/padi) binds a per-host daemon over ssh, a coordinator on your laptop can drive agents running on a [remote host](/remote-hosts) — `kolu --host prod send <id> "…"`, `kolu --host prod debrief <id>` — the same loop, a different box. A remote PTY survives the link dropping, so an agent keeps working while your laptop sleeps. The [fleet is a mix of hosts](/remote-hosts); the driving code doesn't change.
+A coordinator on your laptop can drive agents on a [remote host](/remote-hosts): `kolu --host prod send <id> "…"`, `kolu --host prod debrief <id>`. A remote terminal survives the link dropping, so an agent keeps working while your laptop sleeps. The driving code does not change.
 
-## The seams, and when not to bother
+## What to watch for
 
-This pattern is real but not seamless, and it's worth knowing the sharp edges before you lean on it:
-
-- **Submit is a separate step.** The single most common failure is a brief that "was sent" but sits unsubmitted because the Enter got dropped. Watch the settle, then submit.
-- **Terminal ids re-key on a daemon restart.** An id you cached can go stale after a redeploy or a crash-restore; track a long-lived terminal by its **title**, which survives, and re-find its current id.
+- **Submit is a separate step.** The most common failure is a brief that was sent but sits unsubmitted because the Enter was dropped. Watch the settle, then submit.
+- **Terminal ids re-key on a daemon restart.** An id you cached can go stale after a redeploy or a crash-restore. Track a long-lived terminal by its title, which survives, and re-find its current id.
 - **Big pastes fold.** Anything past a couple of lines goes through a file the agent reads, not the prompt box.
-- **The human is still in the loop.** In practice a coordinator still surfaces to you more than the ideal — a decision it won't make, a PR that needs your eyes. That's a feature, not a bug.
+- **You are still in the loop.** A coordinator surfaces to you for a decision it will not make, or a PR that needs your eyes.
 
-And the honest trade-off: a coordinator earns its overhead only past a handful of agents. For one quick task, drive the agent yourself — the loop above _is_ the coordinator's move, and you can run it by hand. The pattern pays off when the number of agents crosses what one person can hold in their head at once, which is exactly the moment you'd otherwise start dropping threads.
+A coordinator earns its overhead only past a handful of agents. For one quick task, drive the agent yourself: the loop above is the coordinator's move, and you can run it by hand.
 
 ## Related
 
 <CardGrid>
-  <LinkCard title="Kaval" href="/kaval" description="the PTY daemon under the drive loop — how a terminal survives, and the two env vars an agent uses to find itself" />
-  <LinkCard title="Padi" href="/padi" description="the per-host workspace daemon every kolu verb talks to — worktree'd agents and the real agent-state done-signal" />
+  <LinkCard title="The Conductor" href="/conductor" description="the coordinator role as a chat — one conversation for the whole fleet" />
+  <LinkCard title="Kaval" href="/kaval" description="the PTY daemon under the drive loop — how a terminal survives" />
+  <LinkCard title="Padi" href="/padi" description="the per-host workspace daemon every kolu verb talks to" />
   <LinkCard title="Add another machine" href="/remote-hosts" description="run the fleet across machines — the same loop over ssh, one tab per host" />
-  <LinkCard title="Seven weeks to a remote terminal" href="/blog/remote-terminals" description="the story of kolu building itself this way, coordinator and all" />
 </CardGrid>
