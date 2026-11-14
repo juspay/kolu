@@ -79,7 +79,13 @@ export type EventBy = typeof EventBySchema.Type;
  *  - `question` · `answered` · `question-dropped` — the ASK id, which is the
  *    pointer into {@link Decision}: the timeline never copies the words;
  *  - `pr-opened` — `#<number> <title>`; `merged` · `pr-closed` — `#<number>`;
- *  - `checks-failed` — the failing check names, comma-separated;
+ *  - `checks-running` · `checks-passed` · `checks-failed` — the head commit
+ *    the checks are about, then (for a failure) the names of the gates that
+ *    are red: `<oid> build, lint`. One grammar, written and read in
+ *    `./readings.ts` ({@link checkDetail}), because the detail is both what
+ *    the card draws and the key that says this check event is already on the
+ *    timeline. A reading from a host that reports no head commit writes the
+ *    names alone, as every check event written before the oid did;
  *  - `note` — the Conductor's text; `ended` — the outcome;
  *  - `kept` — how many files were kept; `keep-failed` — why;
  *  - `taken-over` · `handed-back` — nothing: the member terminal the person

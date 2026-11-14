@@ -108,8 +108,9 @@ const THIRD_REF = "remote:box/33333333-3333-4333-8333-333333333333";
  * list joining the record (1.46.0, 1.47.0 and 1.48.0 are the numbers its
  * earlier builds stamped — one rung walks every one of those shapes through),
  * and 1.50.0 is the rung that turned the watch list into works and moved the
- * transcript into a file of its own. */
-const STATE_SCHEMA_VERSION = "1.50.0";
+ * transcript into a file of its own; 1.51.0 sweeps the check ping-pong out of
+ * the works that rung carried. */
+const STATE_SCHEMA_VERSION = "1.51.0";
 
 const log = {
   debug() {},

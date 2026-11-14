@@ -183,6 +183,56 @@ describe("the timeline's words", () => {
     ).toBe("You: Approve");
   });
 
+  it("never draws an ask id, not even for a question nobody can find", () => {
+    // THE DEFECT THIS GUARDS: `question` carries `ask:29b0…:1` as its detail
+    // — a pointer into the decisions, not words — and an arm that fell back
+    // to the detail would print it on the card.
+    const orphan = event({ kind: "question", detail: "ask:29b0c4f1:1" });
+    for (const kind of ["question", "answered", "question-dropped"] as const)
+      expect(eventWords(asked, { ...orphan, kind })).not.toContain("ask:");
+    expect(eventWords(asked, orphan)).toBe("Asked: something");
+  });
+
+  it("says which commit a check event is about once there are two", () => {
+    const HEAD = "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3";
+    const PUSHED = "9b7e3d1aa5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5";
+    // One commit: the oid is on the record, and saying it would be the
+    // card's loudest word for its least interesting fact.
+    const one = work({
+      events: [
+        event({ kind: "checks-running", by: "ci", detail: HEAD }),
+        event({ kind: "checks-passed", by: "ci", detail: HEAD }),
+      ],
+    });
+    expect(eventWords(one, one.events[0]!)).toBe("CI running");
+    // A push: now the two runs have to be told apart.
+    const pushed = work({
+      events: [
+        ...one.events,
+        event({ kind: "checks-running", by: "ci", detail: PUSHED }),
+        event({
+          kind: "checks-failed",
+          by: "ci",
+          detail: `${PUSHED} ci::biome, ci::unit`,
+        }),
+      ],
+    });
+    expect(eventWords(pushed, pushed.events[0]!)).toBe("CI running · 4f21a9c");
+    expect(eventWords(pushed, pushed.events[1]!)).toBe(
+      "Checks passed · 4f21a9c",
+    );
+    expect(eventWords(pushed, pushed.events[3]!)).toBe(
+      "Checks failed · ci::biome, ci::unit · 9b7e3d1",
+    );
+  });
+
+  it("draws a check event written before commits were recorded", () => {
+    const old = work({
+      events: [event({ kind: "checks-failed", by: "ci", detail: "build" })],
+    });
+    expect(eventWords(old, old.events[0]!)).toBe("Checks failed · build");
+  });
+
   it("names a member by the part it plays", () => {
     expect(
       eventWords(asked, event({ kind: "stopped", terminal: "local/a" })),
@@ -399,6 +449,7 @@ describe("a PR's checks", () => {
         checkRuns: [],
         reviewDecision: null,
         mergeStateStatus: "UNKNOWN",
+        headSha: null,
       }),
     ).toBeNull();
     expect(checksTally(null)).toBeNull();

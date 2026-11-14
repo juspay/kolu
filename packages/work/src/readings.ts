@@ -63,6 +63,87 @@ export const CHECK_STEP = {
   >
 >;
 
+/** The three event kinds a PR's checks become — read off {@link CHECK_STEP},
+ *  so the table stays the one place that says which they are. */
+export type CheckKind = (typeof CHECK_STEP)[keyof typeof CHECK_STEP]["kind"];
+
+const CHECK_KINDS: ReadonlySet<string> = new Set(
+  Object.values(CHECK_STEP).map((step) => step.kind),
+);
+
+/** Whether a kind — a string off a record this build may be older than — is
+ *  one of the three. */
+export const isCheckKind = (kind: string): kind is CheckKind =>
+  CHECK_KINDS.has(kind);
+
+/** THE GRAMMAR OF A CHECK EVENT'S DETAIL: the head commit the checks are
+ *  about, then the gates that are red.
+ *
+ *  `<oid> name, name` — the commit first because it is the part that is
+ *  always there when the forge reported one, and a failing name never
+ *  contains a space. A reading with NO head (a host whose padi predates the
+ *  field) writes the names alone, which is exactly what every check event
+ *  written before this looked like: the reverse reading below answers `null`
+ *  for both, so an old record and an old daemon read the same way without a
+ *  migration having to guess a commit nobody recorded.
+ *
+ *  Written and read in one place because the detail is BOTH what a person
+ *  sees on the card and the key the observer dedups on: a writer and a reader
+ *  that spelled it differently would append an event per frame again. */
+export const checkDetail = (
+  head: string | null,
+  failing: ReadonlyArray<string>,
+): string =>
+  [...(head === null ? [] : [head]), failing.join(", ")]
+    .filter((part) => part !== "")
+    .join(" ");
+
+/** A check event's head commit, or `null` when it names none — which is both
+ *  "a reading from a host that reports no head" and every check event
+ *  written before the commit was recorded at all.
+ *
+ *  Takes the two fields it reads rather than a whole {@link WorkEvent}, so a
+ *  migration walking rows off disk asks the same reader the card does. */
+export const checkHeadOf = (event: {
+  readonly kind: string;
+  readonly detail: string;
+}): string | null => {
+  if (!isCheckKind(event.kind)) return null;
+  const head = /^([0-9a-f]{7,40})(?: |$)/.exec(event.detail)?.[1];
+  return head ?? null;
+};
+
+/** The gates a `checks-failed` event names — the detail with its head commit
+ *  taken off. */
+export const checkFailingOf = (event: {
+  readonly kind: string;
+  readonly detail: string;
+}): ReadonlyArray<string> => {
+  const head = checkHeadOf(event);
+  const rest =
+    head === null ? event.detail : event.detail.slice(head.length).trimStart();
+  return rest === "" ? [] : rest.split(", ");
+};
+
+/** WHAT A CHECK EVENT IS ABOUT, as one key: its kind and the commit it names.
+ *
+ *  The thing a work's timeline holds at most one of. A check event is news
+ *  about ONE PULL REQUEST AT ONE COMMIT, and the work hears about it from
+ *  every member that can see it — so the key is what each of them would
+ *  produce, and the second member to say it adds nothing. Checks RE-RUN on
+ *  the same commit are not news either: nothing about the work moved. A push
+ *  is, and it carries a different commit. */
+export const checkKey = (kind: CheckKind, head: string | null): string =>
+  `${kind}@${head ?? ""}`;
+
+/** Every check event the timeline already holds, keyed by {@link checkKey}. */
+export const checksSeen = (work: Work): ReadonlySet<string> => {
+  const keys = new Set<string>();
+  for (const one of work.events)
+    if (isCheckKind(one.kind)) keys.add(checkKey(one.kind, checkHeadOf(one)));
+  return keys;
+};
+
 /** How each event MOVES the PR reading — the three check rows derived from
  *  {@link CHECK_STEP} rather than re-listed, plus the two that end it. */
 const PR_STEP: Partial<

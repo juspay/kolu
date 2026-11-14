@@ -2624,6 +2624,24 @@ When("the work's pull request goes green", async function (this: KoluWorld) {
   });
 });
 
+/** A PUSH — a new head commit, with its checks starting over. The one thing
+ *  that makes a second `checks-running` real news rather than the same
+ *  reading again: a work's timeline holds one check event per kind per
+ *  commit, so without the new oid this would be silent. */
+When(
+  "the work's pull request is pushed to a new commit",
+  async function (this: KoluWorld) {
+    restatePullRequest(this, {
+      ...statedPullRequest(),
+      head: "9b7e3d1aa5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5",
+      checks: [
+        { name: "build", outcome: "pending" },
+        { name: "tests", outcome: "pending" },
+      ],
+    });
+  },
+);
+
 When("the work's pull request is merged", async function (this: KoluWorld) {
   restatePullRequest(this, { ...statedPullRequest(), state: "merged" });
 });
@@ -2734,6 +2752,35 @@ Then(
       await timelineEvents(this, kind, ""),
       0,
       `the timeline already holds a ${JSON.stringify(kind)} event before anything could have observed one: ${await timelineInventory(this)}`,
+    );
+  },
+);
+
+/** HOW MANY, which is the whole question a check event answers badly when
+ *  two members read one pull request: the count must follow what HAPPENED
+ *  (one run per commit), not how often kolu looked. */
+Then(
+  "the work's timeline should show {int} {string} events",
+  async function (this: KoluWorld, many: number, kind: string) {
+    await openWorkCard(this);
+    let inventoryAtTimeout = "(not observed)";
+    await pollFor({
+      observe: () => timelineEvents(this, kind, ""),
+      isDone: (seen) => seen >= many,
+      timeoutMs: POLL_TIMEOUT,
+      onTick: async () => {
+        await keepWorkCardOpen(this);
+        inventoryAtTimeout = await timelineInventory(this);
+      },
+      onTimeout: (last, ms) =>
+        new Error(
+          `${last} ${JSON.stringify(kind)} events after ${ms}ms, wanted ${many}; the timeline holds ${inventoryAtTimeout}`,
+        ),
+    });
+    assert.equal(
+      await timelineEvents(this, kind, ""),
+      many,
+      `the timeline holds more ${JSON.stringify(kind)} events than the ${many} things that happened: ${await timelineInventory(this)}`,
     );
   },
 );

@@ -44,15 +44,18 @@ not connected, that is the fleet telling you the truth, not an error to retry
 around.
 
 EVERYTHING YOU START BELONGS TO A PIECE OF WORK. Before you open a terminal,
-open the work with `work_open`: its title (what the thing IS, in words a
-person would recognise on a card), the repository's absolute path and the
-branch, AND every setup question in that one call. kolu puts those questions
-to the human as ONE form, keeps each answer as a DECISION on that work, and
-answers you with the setup as it now reads: the host, the mode, the harness
-and model per role, and what to do when CI is green. You never have to
-remember what they chose — read it back. A work is kolu's, not this
-conversation's: it survives a restart and a new session, so the first thing
-you do in a fresh conversation is read the `works` resource
+open the work with `work_open`: its title, the repository's absolute path and
+the branch, AND every setup question in that one call. A TITLE IS A FEW WORDS
+— what the thing IS, as a person would say it out loud: `Rewrite odu's docs`,
+not a sentence, no parentheses, no issue or PR numbers and nothing "like"
+another piece of work. It is read on a card beside a dozen others, and what
+a work was prompted by belongs in the request, which kolu keeps anyway. kolu
+puts those questions to the human as ONE form, keeps each answer as a
+DECISION on that work, and answers you with the setup as it now reads: the
+host, the mode, the harness and model per role, and what to do when CI is
+green. You never have to remember what they chose — read it back. A work is
+kolu's, not this conversation's: it survives a restart and a new session, so
+the first thing you do in a fresh conversation is read the `works` resource
 (`surface://cells/works`) and pick up what is in flight.
 
 Create a terminal ON THE HOST THE WORK IS FOR. `lifecycle_create` takes a

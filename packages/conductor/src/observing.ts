@@ -29,6 +29,9 @@
 import { Schema } from "effect";
 import {
   CHECK_STEP,
+  checkDetail,
+  checkKey,
+  checksSeen,
   endWork,
   filesSeen,
   prOf,
@@ -103,14 +106,34 @@ export const ringEvent = (
   }
 };
 
-/** THE PR, as the timeline learns it — compared against what the timeline
- *  ALREADY says (`prOf`) and never against the last reading.
+/** THE PR, as the timeline learns it — ONE pull request, observed once,
+ *  however many members can see it.
  *
- *  That is what makes two members looking at one PR record it once, and a
- *  restart record nothing twice: the comparison is against the work, which
- *  survives both. A merge or a close ENDS the work here, because the PR is
- *  the one thing that says a piece of work is finished rather than merely
- *  quiet. */
+ *  A WORK HAS ONE PULL REQUEST. The timeline's first `pr-opened` says which,
+ *  and a reading carrying any other number is not this work's PR: it moves
+ *  nothing. (Two members in two worktrees on two branches can each report a
+ *  number; alternating between them would be the same defect as the one
+ *  below, told about the PR instead of its checks.)
+ *
+ *  A CHECK EVENT IS ABOUT A COMMIT, and the timeline holds at most one per
+ *  kind per commit (`kolu-work`'s {@link checkKey}). That is what makes two
+ *  members who DISAGREE — same worktree, same PR, one polled `gh` thirty
+ *  seconds before the other, so one says pending and one says pass — write
+ *  two events between them rather than one per frame for as long as they
+ *  disagree (juspay/kolu#2376: 429 of one real work's 465 events were that
+ *  ping-pong, 327 of them inside one minute). The comparison used to be
+ *  against the LAST check event, which is a reading of whoever spoke last and
+ *  not a fact about the pull request.
+ *
+ *  What it costs: checks re-run on the SAME commit are not news a second
+ *  time, and the first red reading of a commit is the failing list the
+ *  timeline keeps. Both are deliberate — nothing about the work moved — and
+ *  the card's live tally (read off the member's own record, not the timeline)
+ *  still shows what the forge says right now. A PUSH is news: a new head's
+ *  `checks-running` after the old head's `checks-passed` reads as what it is.
+ *
+ *  A merge or a close ENDS the work here, because the PR is the one thing
+ *  that says a piece of work is finished rather than merely quiet. */
 export const prEvents = (
   work: Work,
   ref: string,
@@ -119,7 +142,10 @@ export const prEvents = (
 ): Work => {
   let next = work;
   const known = prOf(next);
-  if (known === null || known.number !== pr.number) {
+  // NOT THIS WORK'S PULL REQUEST. Said plainly rather than recorded: the work
+  // the timeline is about already has one.
+  if (known !== null && known.number !== pr.number) return work;
+  if (known === null) {
     next = recordEvent(next, {
       at,
       by: "agent",
@@ -133,13 +159,13 @@ export const prEvents = (
   // the same row, so they cannot disagree about a check.
   if (pr.checks !== null) {
     const step = CHECK_STEP[pr.checks];
-    if (prOf(next)?.checks !== step.checks) {
+    if (!checksSeen(next).has(checkKey(step.kind, pr.head))) {
       next = recordEvent(next, {
         at,
         by: "ci",
         kind: step.kind,
         terminal: ref,
-        detail: pr.checks === "fail" ? pr.failing.join(", ") : "",
+        detail: checkDetail(pr.head, pr.checks === "fail" ? pr.failing : []),
       });
     }
   }

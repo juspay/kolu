@@ -44,8 +44,9 @@ export interface WatchGit {
  *  and does not have to ask GitHub for.
  *
  *  What becomes an EVENT is decided against the work's own timeline
- *  (`kolu-work`'s `prOf`), never against the last reading: two members looking
- *  at one PR must record it once, and a restart must record nothing twice. */
+ *  (`kolu-work`'s `prOf`, `checksSeen`), never against the last reading: two
+ *  members looking at one PR must record it once, and a restart must record
+ *  nothing twice. */
 export interface WatchPr {
   readonly number: number;
   readonly title: string;
@@ -56,6 +57,14 @@ export interface WatchPr {
   readonly checks: "pending" | "pass" | "fail" | null;
   /** The names of the checks that are failing, when any are. */
   readonly failing: ReadonlyArray<string>;
+  /** THE COMMIT the two fields above are about — the PR's head, off the same
+   *  record. What makes two members' readings of one pull request comparable:
+   *  a check event is news about ONE commit, so the second member to see that
+   *  commit's checks adds nothing and a PUSH adds an event. `null` when the
+   *  reading carries no head (a host whose padi predates the field); then the
+   *  work hears about that PR's checks once per kind, ever, which is the
+   *  honest reading of a source that cannot say which commit it meant. */
+  readonly head: string | null;
 }
 
 /** One reading of one member terminal, for refs on CONNECTED hosts only — a

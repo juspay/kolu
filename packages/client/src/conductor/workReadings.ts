@@ -17,6 +17,8 @@ import { dualPhrase } from "@kolu/terminal-vocab/duration";
 import type { PrInfo } from "anyforge/schemas";
 import {
   type AnswerFrom,
+  checkFailingOf,
+  checkHeadOf,
   type Decision,
   decisionLabel,
   type EventBy,
@@ -316,6 +318,21 @@ export function answerSource(decision: Decision): string | null {
   return from === undefined || from === null ? null : `from the ${from}`;
 }
 
+/** THE COMMIT A CHECK EVENT NAMES, as a person reads it — ` · 4f21a9c`, and
+ *  nothing at all while every check event on the timeline is about the same
+ *  commit. The oid is on the record so a new push's run can be told from the
+ *  one before it; a work that has been pushed once has nothing to tell apart,
+ *  and forty characters of hex beside "CI running" would be the card's
+ *  loudest word for its least interesting fact. */
+function commitWords(work: Work, event: WorkEvent): string {
+  const head = checkHeadOf(event);
+  if (head === null) return "";
+  const heads = new Set(
+    work.events.map(checkHeadOf).filter((one) => one !== null),
+  );
+  return heads.size < 2 ? "" : ` · ${head.slice(0, 7)}`;
+}
+
 /** ONE LINE OF THE TIMELINE. The event's own `detail` is the only text the
  *  record carries; everything else a reader sees is composed here, from the
  *  kind and whatever the event points at (a member's role, an ask's words). */
@@ -363,12 +380,18 @@ export function eventWords(work: Work, event: WorkEvent): string {
       return "The question went away unanswered";
     case "pr-opened":
       return `Opened ${event.detail}`;
+    // A CHECK EVENT IS ABOUT A COMMIT, and says so once there is more than
+    // one: the commit is drawn abbreviated, as a person reads it, and the
+    // timeline's own `detail` is never shown raw — it is a grammar
+    // (`kolu-work`'s `checkDetail`), not a sentence.
     case "checks-running":
-      return "CI running";
+      return `CI running${commitWords(work, event)}`;
     case "checks-passed":
-      return "Checks passed";
-    case "checks-failed":
-      return `Checks failed · ${event.detail}`;
+      return `Checks passed${commitWords(work, event)}`;
+    case "checks-failed": {
+      const failing = checkFailingOf(event);
+      return `Checks failed${failing.length === 0 ? "" : ` · ${failing.join(", ")}`}${commitWords(work, event)}`;
+    }
     case "merged":
       return `Merged ${event.detail}`;
     case "pr-closed":

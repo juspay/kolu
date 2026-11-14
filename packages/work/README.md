@@ -32,7 +32,7 @@ else it observes as events.
 | --- | --- |
 | `schema.ts` | the record, the event kinds and what each one's `detail` carries, and the waterfall's WORDS (`WORK_ROLES`, `WORK_MODES`, `ON_GREEN`, `SETUP_KEYS`) — declared here because the record's schema embeds them |
 | `record.ts` | the transitions: `openWork`, `askQuestions`, `answerAsk`, `dropAsk`, `joinWork`, `leaveWork`, `recordEvent`, `takeOver`/`handBack`, `endWork`, `keepFiles` — the record only grows, bounded by `AGENT_STATES_KEPT` |
-| `readings.ts` | the MECHANISM of a reading: what a decision came to (`answerValue`), the decisions of one ask, the PR as the timeline last said it (`prOf`) with the one check table (`CHECK_STEP`), the files seen |
+| `readings.ts` | the MECHANISM of a reading: what a decision came to (`answerValue`), the decisions of one ask, the PR as the timeline last said it (`prOf`) with the one check table (`CHECK_STEP`), the grammar of a check event's detail (`checkDetail` / `checkHeadOf` / `checkFailingOf`) and the key a timeline holds at most one of (`checkKey`, `checksSeen` — one per kind per head commit), the files seen |
 | `folds.ts` | `waitingOn`, `standing`, `timeBar`, `timeSpent`, `took`, `capFinished` — each taking a `Policy` (what the waterfall's words mean for this work) rather than reading the setup itself |
 | `waterfall.ts` | the WORDS and every rule over them: `MODE_RUNS` (what each mode runs, needs and drives), `rolesOf`, `setupKeyOf`, `modeOf`/`hostOf`/`onGreenOf`/`setupOf`, `missingSetup` + `foreignSetupWords`, `driverOf`, `membershipOf`, `waitingOnYou`, `policyOf` |
 | `refusal.ts` | why a call about a work is refused — `WORK_REFUSALS` and the `WorkRefusal` every face `instanceof`s |

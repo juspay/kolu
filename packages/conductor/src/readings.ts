@@ -108,7 +108,8 @@ const gitOf = (record: PadiTerminal | undefined): WatchGit | null => {
  *  learn a PR closed because the forge stopped answering. The failing check
  *  NAMES come off the same per-check breakdown the rollup is folded from, so
  *  the `checks-failed` event says which gates are red rather than that some
- *  are. */
+ *  are — and the head commit comes off the same record, so a check reading
+ *  says WHICH push it is about. */
 const prOfRecord = (record: PadiTerminal | undefined): WatchPr | null => {
   const live = record?.state === "active" ? record : undefined;
   if (live?.pr.kind !== "ok") return null;
@@ -121,6 +122,7 @@ const prOfRecord = (record: PadiTerminal | undefined): WatchPr | null => {
     failing: pr.checkRuns
       .filter((one) => one.outcome === "fail")
       .map((one) => one.name),
+    head: pr.headSha,
   };
 };
 

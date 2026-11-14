@@ -31,6 +31,7 @@ import { afterEach, describe, expect, it } from "vitest";
 // KOLU_STATE_DIR (set by the `test:unit` script) — unrelated to the fixtures
 // below, which each build their own Conf under a fresh temp dir.
 import {
+  collapseFlappingChecks_1_51_0,
   TRANSCRIPT_FILE_VERSION,
   migrateConductorToWorks_1_50_0,
   stripLegacyStateKeys_1_31_0,
@@ -364,5 +365,137 @@ describe("the 1.50.0 rung — a piece of work is a stored thing", () => {
     expect(
       existsSync(join(dirname(conf.path), "conductor", "transcript.json")),
     ).toBe(false);
+  });
+});
+
+describe("the 1.51.0 rung — the check ping-pong, swept out", () => {
+  const PLANNER = "local/11111111-1111-4111-8111-111111111111";
+  const IMPL = "local/22222222-2222-4222-8222-222222222222";
+  const AT = "2026-01-01T22:30:00.000Z";
+  const HEAD = "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3";
+  const PUSHED = "9b7e3d1aa5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5";
+
+  /** A work shaped like the human's: two members in ONE worktree, and
+   *  hundreds of check events alternating between their two readings of one
+   *  pull request — every `checks-running` naming the implementor, every
+   *  `checks-passed` the planner, several a second. */
+  const flapping = (pairs: number, detail = ""): Record<string, unknown> => ({
+    id: "w-flap",
+    title: "Rewrite odu's docs",
+    events: [
+      {
+        at: "2026-01-01T22:30:00.000Z",
+        by: "you",
+        kind: "requested",
+        terminal: null,
+        detail: "rewrite them",
+      },
+      {
+        at: "2026-01-01T22:30:01.000Z",
+        by: "agent",
+        kind: "pr-opened",
+        terminal: IMPL,
+        detail: "#181 Rewrite odu's docs",
+      },
+      ...Array.from({ length: pairs }, (_, n) => [
+        {
+          at: `2026-01-01T22:35:${String(n % 60).padStart(2, "0")}.100Z`,
+          by: "ci",
+          kind: "checks-running",
+          terminal: IMPL,
+          detail,
+        },
+        {
+          at: `2026-01-01T22:35:${String(n % 60).padStart(2, "0")}.200Z`,
+          by: "ci",
+          kind: "checks-passed",
+          terminal: PLANNER,
+          detail,
+        },
+      ]).flat(),
+      {
+        at: "2026-01-01T22:40:00.000Z",
+        by: "agent",
+        kind: "file",
+        terminal: IMPL,
+        detail: ".waterfall/plan.md",
+      },
+    ],
+  });
+
+  it("keeps the FIRST of each kind and drops the rest, order intact", () => {
+    const conf = makeStore({ works: [flapping(215)] });
+    collapseFlappingChecks_1_51_0(conf as never);
+    const works = conf.get("works") as ReadonlyArray<Record<string, unknown>>;
+    const events = works[0]?.events as ReadonlyArray<Record<string, unknown>>;
+    // 432 events in, 4 out: what was asked for, the PR, the checks running,
+    // the checks passing, the file — and the two check events are the FIRST
+    // ones, so the timeline still says when the checks started.
+    expect(events.map((one) => one.kind)).toEqual([
+      "requested",
+      "pr-opened",
+      "checks-running",
+      "checks-passed",
+      "file",
+    ]);
+    expect(events[2]?.at).toBe("2026-01-01T22:35:00.100Z");
+    expect(events[2]?.terminal).toBe(IMPL);
+    expect(events[3]?.terminal).toBe(PLANNER);
+  });
+
+  it("keeps one of each kind PER COMMIT, so a push survives the sweep", () => {
+    const first = flapping(3, HEAD).events as ReadonlyArray<unknown>;
+    const second = flapping(3, PUSHED).events as ReadonlyArray<
+      Record<string, unknown>
+    >;
+    const conf = makeStore({
+      works: [
+        {
+          id: "w-pushed",
+          title: "Rewrite odu's docs",
+          events: [...first, ...second.filter((one) => one.by === "ci")],
+        },
+      ],
+    });
+    collapseFlappingChecks_1_51_0(conf as never);
+    const works = conf.get("works") as ReadonlyArray<Record<string, unknown>>;
+    const events = works[0]?.events as ReadonlyArray<Record<string, unknown>>;
+    expect(
+      events
+        .filter((one) => one.by === "ci")
+        .map((one) => `${String(one.kind)} ${String(one.detail)}`),
+    ).toEqual([
+      `checks-running ${HEAD}`,
+      `checks-passed ${HEAD}`,
+      `checks-running ${PUSHED}`,
+      `checks-passed ${PUSHED}`,
+    ]);
+  });
+
+  it("leaves a work with nothing to sweep exactly as it was", () => {
+    const tidy = {
+      id: "w",
+      title: "t",
+      events: [
+        {
+          at: AT,
+          by: "ci",
+          kind: "checks-running",
+          terminal: null,
+          detail: "",
+        },
+      ],
+    };
+    const conf = makeStore({ works: [tidy] });
+    collapseFlappingChecks_1_51_0(conf as never);
+    expect(conf.get("works")).toEqual([tidy]);
+  });
+
+  it("walks past a works key this build would refuse", () => {
+    // A rung runs against a file written by an older build: a shape it does
+    // not understand is left alone for the READ to refuse by name.
+    const conf = makeStore({ works: "nonsense" });
+    collapseFlappingChecks_1_51_0(conf as never);
+    expect(conf.get("works")).toBe("nonsense");
   });
 });

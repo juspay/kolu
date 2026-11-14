@@ -63,6 +63,7 @@ const sentinel: SavedActiveTerminal = {
       checkRuns: [],
       reviewDecision: null,
       mergeStateStatus: "UNKNOWN",
+      headSha: null,
     },
   },
   restoreTarget: {

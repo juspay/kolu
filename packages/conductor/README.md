@@ -103,11 +103,15 @@ appending what it observes.
   transitions: a level change that rings is the same word on the card
   (`ready` · `stopped` · `asking` · `exited` · `asleep`); every path in a
   member's `.waterfall/` that `filesSeen` does not already hold becomes a
-  `file` event, listed off a level change rather than a timer; and the PR is
-  compared with `prOf(work)` — the TIMELINE, never the last reading — so two
-  members looking at one PR record it once and a restart records nothing
-  twice. A merge or a close ends the work; so does the last member leaving
-  (`abandoned`).
+  `file` event, listed off a level change rather than a timer; and the PR —
+  ONE per work, the number the timeline learned — is compared with the
+  TIMELINE and never with the last reading: `prOf(work)` for the number and
+  its state, `checksSeen(work)` for the checks, which the timeline holds one
+  of per kind per HEAD COMMIT. So two members looking at one PR record it
+  once even when they disagree (their polls of `gh` are thirty seconds out of
+  step), a restart records nothing twice, and a push — a new head — records a
+  run of its own. A merge or a close ends the work; so does the last member
+  leaving (`abandoned`).
 - **The end** — on the way out the work's files are listed and copied into
   kolu (`WorkFiles`, implemented by kolu-server), so the plan outlives the
   worktree, and the history is capped at the twenty most recently finished;

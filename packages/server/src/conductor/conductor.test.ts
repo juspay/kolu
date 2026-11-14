@@ -2852,6 +2852,7 @@ describe("the timeline a reading writes", () => {
       state: "open",
       checks: null,
       failing: [],
+      head: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
     };
 
     // BOTH members see the same PR, in one frame of the world. The comparison
@@ -2913,6 +2914,7 @@ describe("the timeline a reading writes", () => {
           state: "open",
           checks: "fail",
           failing: ["build", "unit"],
+          head: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
         },
       }),
     ]);
@@ -2922,7 +2924,7 @@ describe("the timeline a reading writes", () => {
     expect(theWork(r).events.at(-1)).toMatchObject({
       kind: "checks-failed",
       by: "ci",
-      detail: "build, unit",
+      detail: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3 build, unit",
     });
   });
 

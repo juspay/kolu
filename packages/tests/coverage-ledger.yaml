@@ -4400,11 +4400,24 @@ retirements:
     defectSurface: [conductor, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-d1a9e4af19855a77e1b0]
+    survivorRevisionIds: [revision-6fc5a36ab7cdb4605f84]
     sameCodePathEvidence:
       file: packages/tests/features/conductor-work.feature
       symbol: "Scenario: A waterfall's card, from the request to the merge"
-      test: Every event from the request to the merge is asserted exactly as before. The survivor adds one claim about the decisions the card draws — one line per decision, labelled by its key and never drawn twice — which is the card rework this revision predates.
+      test: Every event from the request to the merge is asserted exactly as before. The survivor adds one claim about the decisions the card draws — one line per decision, labelled by its key and never drawn twice — which is the card rework this revision predates, and two lines about a push after the checks go green.
+  - id: revise-d1a9e4af19855a77e1b0
+    revisionId: revision-d1a9e4af19855a77e1b0
+    action: revised
+    status: landed
+    promise: A waterfall's card, from the request to the merge
+    defectSurface: [conductor, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-6fc5a36ab7cdb4605f84]
+    sameCodePathEvidence:
+      file: packages/tests/features/conductor-work.feature
+      symbol: "Scenario: A waterfall's card, from the request to the merge"
+      test: The same journey through the same steps, in the same order, asserted the same way — request, the member joining and coming up, the .waterfall file, pr-opened, checks-running, checks-passed, merged, finished as merged. Nothing this revision claimed was dropped. The survivor only adds two lines where this one ended its CI story — the pull request is pushed to a new commit, and the timeline must then hold exactly 2 "checks-running" events. That is the same code path (the observer's PR arm, drawn on the same card's timeline) asserted by COUNT as well as by presence, which is what a check event naming its head commit is for.
   - id: rename-f0776f9f8b0d2c0d6706
     revisionId: revision-f0776f9f8b0d2c0d6706
     action: renamed

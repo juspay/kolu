@@ -54,6 +54,11 @@ Feature: A piece of work is a stored thing
     Then the work's timeline should show a "checks-running" event
     When the work's pull request goes green
     Then the work's timeline should show a "checks-passed" event
+    # A PUSH IS NEWS; LOOKING AGAIN IS NOT. A check event says which commit
+    # it is about, so the new head's run is a second "checks-running" — and
+    # the first commit's, read again on every frame by every member, is not.
+    When the work's pull request is pushed to a new commit
+    Then the work's timeline should show 2 "checks-running" events
     When the work's pull request is merged
     Then the work's timeline should show a "merged" event
     And the work should be finished as "merged"

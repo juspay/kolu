@@ -54,6 +54,7 @@ import {
   repointConductorAttachments,
 } from "kolu-conductor";
 import { openStateBackupRing } from "kolu-shared/state-backup";
+import { checkHeadOf, checkKey, isCheckKind } from "kolu-work";
 import {
   transcriptFilePath,
   writeTranscriptFile,
@@ -390,7 +391,7 @@ function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.50.0";
+const SCHEMA_VERSION = "1.51.0";
 
 /** THE VERSION STAMPED INTO THE TRANSCRIPT FILE
  *  (`<stateDir>/conductor/transcript.json`), and the one a reader accepts.
@@ -783,6 +784,61 @@ export function migrateConductorToWorks_1_50_0(
   );
   store.set("works", carried.works as unknown as PersistedState["works"]);
   store.set("members", carried.members as unknown as PersistedState["members"]);
+}
+
+/** The 1.51.0 rung's body — THE PING-PONG, SWEPT OUT OF THE SAVED WORKS.
+ *
+ *  Two members in one worktree both read the SAME pull request, thirty
+ *  seconds out of step with each other, and the observer used to compare each
+ *  reading with the last check event rather than with a fact about the PR. So
+ *  while the two disagreed — one says the checks are running, one says they
+ *  passed — every frame of the host appended another event, several a second.
+ *  One real work carried 465 events, 429 of them that (juspay/kolu#2376).
+ *
+ *  WHAT THIS KEEPS: the FIRST check event of each kind for each head commit
+ *  the detail names, in the order it was written, and every event that is not
+ *  a check event untouched — the same rule the observer now applies as the
+ *  readings arrive (`kolu-work`'s {@link checkKey}), run over what was
+ *  already written. Nothing else about a work is read or rewritten.
+ *
+ *  Check events written BEFORE the head commit was recorded name none, so
+ *  they all share one key and a work keeps the first `checks-running` and the
+ *  first `checks-passed` it ever saw. That is the honest reading of a record
+ *  that cannot say which push each line was about — and it is exactly what
+ *  the ping-pong was: one PR, one commit, two readers.
+ *
+ *  Exported so a test can drive it against a real `Conf` under a temp dir
+ *  without walking the whole ladder. */
+export function collapseFlappingChecks_1_51_0(
+  store: Conf<PersistedState>,
+): void {
+  // Read as OBJECTS: a rung runs against a file written by an older build,
+  // and a work whose shape this build would refuse must still walk past.
+  const works: unknown = store.get("works");
+  if (!Array.isArray(works)) return;
+  let swept = false;
+  const next = works.map((work: unknown) => {
+    if (typeof work !== "object" || work === null || !("events" in work))
+      return work;
+    const events = work.events;
+    if (!Array.isArray(events)) return work;
+    const seen = new Set<string>();
+    const kept = events.filter((event: unknown) => {
+      if (typeof event !== "object" || event === null) return true;
+      if (!("kind" in event) || !("detail" in event)) return true;
+      const { kind, detail } = event;
+      if (typeof kind !== "string" || typeof detail !== "string") return true;
+      if (!isCheckKind(kind)) return true;
+      const key = checkKey(kind, checkHeadOf({ kind, detail }));
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    if (kept.length === events.length) return work;
+    swept = true;
+    return { ...work, events: kept };
+  });
+  if (swept) store.set("works", next as unknown as PersistedState["works"]);
 }
 
 /** The store's `defaults` — hoisted so {@link decodeStateBackup}'s scratch
@@ -1456,6 +1512,15 @@ const CONF_MIGRATIONS = {
   // the shape 1.49.0 guarantees — rows, watched entries complete — which is
   // exactly what this one reads.
   "1.50.0": migrateConductorToWorks_1_50_0,
+  // THE PING-PONG, SWEPT OUT OF WHAT IS ALREADY SAVED. Two members in one
+  // worktree reading one pull request thirty seconds apart wrote a check
+  // event per frame for as long as they disagreed; the observer now keeps
+  // one per kind per head commit, and this rung applies that same rule to the
+  // works on disk (`collapseFlappingChecks_1_51_0` says exactly what it
+  // keeps). Nothing else about a work is read or rewritten, and the
+  // transcript file is untouched — so TRANSCRIPT_FILE_VERSION stays where it
+  // is.
+  "1.51.0": collapseFlappingChecks_1_51_0,
 };
 
 export const store = new Conf<PersistedState>({

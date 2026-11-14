@@ -31,6 +31,7 @@ describe("PrPip", () => {
       checkRuns: [],
       reviewDecision: null,
       mergeStateStatus: "UNKNOWN",
+      headSha: null,
     });
     try {
       const link = host.querySelector<HTMLAnchorElement>(

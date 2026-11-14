@@ -42,6 +42,11 @@ export interface PrFixture {
     readonly name: string;
     readonly outcome: "pending" | "pass" | "fail";
   }>;
+  /** The head commit the checks above are about — what a scenario changes
+   *  when it wants a PUSH rather than another reading of the same commit (a
+   *  work's timeline holds one check event per kind per commit). Defaults to
+   *  one commit, so a scenario that never mentions a push never has to. */
+  readonly head?: string;
 }
 
 /** gh's `statusCheckRollup` entry for one check — a `CheckRun`, the shape
@@ -82,6 +87,10 @@ export function statePullRequest(repoRoot: string, pr: PrFixture): void {
     // JSON null (`prInfoFromGhView` maps it back to null).
     reviewDecision: "",
     mergeStateStatus: pr.state === "open" ? "CLEAN" : "UNKNOWN",
+    // The commit gh says the PR is at. A scenario that says nothing about
+    // pushes gets the same one every time, which is what makes a second
+    // reading of the same checks the same news.
+    headRefOid: pr.head ?? "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
   };
   fs.writeFileSync(
     path.join(repoRoot, PR_FIXTURE_FILE),

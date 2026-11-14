@@ -39,6 +39,15 @@ describe("the standing prompt", () => {
     expect(lines.join("\n")).not.toContain("{{");
     expect(lines.every((line) => line.startsWith("[kolu] "))).toBe(true);
   });
+
+  it("says what a title is: a few words, no parentheses, no references", () => {
+    // THE DEFECT THIS GUARDS: a real work came out called "Rewrite odu's
+    // docs for human reading (like kolu PR #2375)" — a sentence with its
+    // own provenance in brackets, read on a card beside a dozen others.
+    const script = teachingLines("zest").join("\n");
+    expect(script).toContain("A TITLE IS A FEW WORDS");
+    expect(script).toContain("no parentheses, no issue or PR numbers");
+  });
 });
 
 describe("the waterfall's two modes", () => {
