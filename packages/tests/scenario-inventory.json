@@ -10402,6 +10402,42 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "df07bf2715bfd03eec32dfddc754854d8900890d"
+    },
+    {
+      "revisionId": "revision-bc31e8fb23b8f723978d",
+      "scenarioKey": "scenario-b7a0ee2899d52c1436cf",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "A session the Conductor finds idle rings once as ready",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "f7e8429d9ee36d0258dc798f7bb0d32f3ed0f0a02b371c4edb1208854f507025",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8676f68582da1d32e1d89945b351843376568bee"
+    },
+    {
+      "revisionId": "revision-cd55a319080af61af9f3",
+      "scenarioKey": "scenario-9c873638c7f9ef6a135b",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "A wake that rings while the Conductor works waits for the turn to end",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "f3e204199d430d74a3974402843a41cd43dd8471e092a9a2f52e6f1c38aadd24",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8676f68582da1d32e1d89945b351843376568bee"
+    },
+    {
+      "revisionId": "revision-cdced7e6615f07263844",
+      "scenarioKey": "scenario-2dd6a127d71cc3e0121d",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "A watched terminal whose agent asks wakes the idle Conductor",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "d0f690bdb5c25cacf0166d3ebd11795662d0f371d5364f6cbedc4ea6dd0a5fcb",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "8676f68582da1d32e1d89945b351843376568bee"
     }
   ]
 }

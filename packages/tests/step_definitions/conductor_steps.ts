@@ -195,6 +195,22 @@ When("I enter conductor mode", async function (this: KoluWorld) {
   await enterConductor(this);
 });
 
+/** Back to the machine you came from — the other half of ⌘⇧O's round trip.
+ *  A terminal is SET UP there, where you can see it: a canvas nobody is
+ *  looking at shows no tile, so its panes take no keystroke and carry no
+ *  output (kolu#2362). What the Conductor is watching for — a session file
+ *  appearing, an agent's state changing — still happens while you sit in the
+ *  conversation, which is the thing these scenarios are about. */
+When(
+  "I leave the conductor for the host tab",
+  async function (this: KoluWorld) {
+    const pane = this.page.locator(PANE);
+    if (!(await pane.isVisible())) return;
+    await this.page.keyboard.press(CONDUCTOR_CHORD);
+    await pane.waitFor({ state: "hidden", timeout: POLL_TIMEOUT });
+  },
+);
+
 Given(
   "the conductor is on a fresh conversation",
   async function (this: KoluWorld) {

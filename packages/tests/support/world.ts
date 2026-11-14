@@ -59,12 +59,16 @@ export const MOD_KEY = process.platform === "darwin" ? "Meta" : "Control";
 export const APP_KEY = "Meta";
 
 /** Locator for the app's settled state: a visible terminal screen, a dormant
- *  (sleeping) tile body, or the empty state tip. A canvas holding only sleeping
- *  tiles is fully settled — its tiles render a PTY-less `dormant-tile-body` (no
- *  `.xterm-screen`), and it is NOT the empty state — so the dormant body is the
- *  third settled shape a reload/converge can land on. */
+ *  (sleeping) tile body, the empty state tip, or the Conductor. A canvas
+ *  holding only sleeping tiles is fully settled — its tiles render a PTY-less
+ *  `dormant-tile-body` (no `.xterm-screen`), and it is NOT the empty state —
+ *  so the dormant body is the third settled shape a reload/converge can land
+ *  on. The FOURTH is the Conductor: it is a place you can reload into (the
+ *  selected tab persists), and it covers the canvas, whose tiles are then not
+ *  shown at all (kolu#2362) — so a reload that lands there has no terminal
+ *  screen to paint and is settled when the conversation is up. */
 const SETTLED_SELECTOR =
-  '[data-visible] .xterm-screen, [data-testid="dormant-tile-body"], [data-testid="empty-state"]';
+  '[data-visible] .xterm-screen, [data-testid="dormant-tile-body"], [data-testid="empty-state"], [data-testid="conductor-pane"]';
 /** Touch-device media query — mirrors `isTouch` in packages/client/src/useMobile.ts.
  *  The test package can't import from client src, so the literal is named here to
  *  keep the one place it's duplicated legible and self-documenting. Exported so
