@@ -1,6 +1,6 @@
 ---
 title: Power Features
-description: "Run many agents, keep sessions legible, sleep terminals, export transcripts, record workspaces, and drive kolu from the shell."
+description: "Run many agents, keep sessions legible, export transcripts, record the workspace, and link straight into any view in kolu."
 order: 53
 section: "Agents & Attention"
 koluHero:
@@ -13,17 +13,14 @@ import Card from "../../components/docs/Card.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 
-kolu is built for the moment you are running five agents at once. These are the
-tools that keep that legible.
+These are the tools that keep five agents at once legible: the dock, the keys, sleep and wake, transcripts, recording, and a link to any view.
 
 <CardGrid>
   <Card title="Multi-agent dock">
-    An agent blocked on you appears in the dock's pinned Needs-you strip —
-    without its row moving — washes violet, and shows how long it has been
-    waiting. A finished background agent can fire a
-    toast and
-    [native notification](/troubleshooting#i-am-not-getting-desktop-notifications)
-    that jumps straight to the terminal.
+    An agent blocked on you appears in the dock's pinned Needs-you strip,
+    washes violet, and shows how long it has been waiting. A finished
+    background agent can fire a toast and a
+    [desktop notification](/notifications) that jumps to its terminal.
   </Card>
   <Card title="Keybindings">
     <kbd>Cmd</kbd> + <kbd>T</kbd> opens a terminal, <kbd>Cmd</kbd> +
@@ -31,8 +28,8 @@ tools that keep that legible.
     <kbd>1...9</kbd> jumps, and <kbd>Cmd</kbd> + <kbd>/</kbd> shows shortcuts.
   </Card>
   <Card title="Sessions, sleep & wake">
-    Your whole workspace survives reloads, restarts, and crashes; **sleep** parks
-    a tile without keeping its PTY, agent, or GPU context alive, and **wake**
+    Your whole workspace survives reloads, restarts and crashes. **Sleep** parks
+    a tile without keeping its PTY, agent or GPU context alive, and **wake**
     resumes the exact conversation. Full page: [Sessions, Sleep &
     Wake](/sessions).
   </Card>
@@ -40,41 +37,22 @@ tools that keep that legible.
 
 ## Export a transcript
 
-Run **Export agent session as HTML** from the palette (it appears only when the
-active terminal has an agent session) and pick a **chat log** (just the `Human` /
-`AI` messages), a **full transcript** (with reasoning, tool calls, results, and
-edits collapsed under disclosure blocks), or both.
+Run **Export agent session as HTML** from the palette. It appears only when the active terminal has an agent session. Pick a **chat log** (just the `Human` and `AI` messages), a **full transcript** (reasoning, tool calls, results and edits collapsed under disclosure blocks), or both.
 
-Each file is a **self-contained `.html`** — no external assets, no upload — that
-opens in any browser offline. Under the hood each agent's storage (Claude's JSONL,
-Codex's rollout, OpenCode's SQLite, Grok's `chat_history.jsonl`) normalizes to one
-shape, so the same document design renders all four supported vendors. The
-command appears for Claude, Codex, OpenCode, and Grok sessions — **not yet for
-Xyne**, whose pi-format transcript needs a kolu-side loader before the exporter
-can normalize it.
+Each file is a self-contained `.html` with no external assets and no upload, so it opens in any browser offline. The command appears for Claude, Codex, OpenCode and Grok sessions. It does not appear for Xyne, whose transcript format kolu cannot yet read.
 
 ## Record the workspace
 
-Record the kolu tab — the whole canvas or a single maximized terminal — with your
-mic and an optional webcam picture-in-picture, straight to a local `.webm`.
-Chromium-only, as it uses the File System Access API.
+Record the kolu tab, either the whole canvas or a single maximized terminal, with your mic and an optional webcam picture-in-picture, straight to a local `.webm`. Chromium only: it uses the File System Access API.
 
-- **One-click setup** — a popover on the chrome-bar record button with a mic
-  picker (live level meter), a webcam toggle, and a circular preview.
-- **Streams to disk** — chunks flow continuously into the file, so memory stays
-  flat no matter how long you record; a partial file survives a browser crash.
-- **Pause / resume** — <kbd>⌘⇧.</kbd> toggles; the capsule in the chrome bar shifts
-  red → amber while paused.
-- **Just this tab** — the browser's multi-surface picker collapses to a single
-  "share this tab" confirmation.
+- A popover on the chrome-bar record button sets it up: a mic picker, a webcam toggle, and a preview.
+- It streams to disk: chunks flow into the file as you record, so memory stays flat and a partial file survives a browser crash.
+- <kbd>Cmd</kbd>/<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>.</kbd> pauses and resumes. The capsule in the chrome bar shifts red → amber while paused.
+- It records just this tab: the browser's picker collapses to one "share this tab" confirmation.
 
 ## Link to any view
 
-Every view in kolu has a URL. Anything that can render a link — a conductor
-board, a GitHub issue, a Slack message, a browser bookmark — can point **into**
-kolu with a `#/…` hash link. Click it and the installed app comes to the front
-already showing the right host, terminal, file, or dialog (no PWA? the same link
-opens in any browser).
+Every view in kolu has a URL. Anything that renders a link (a conductor board, a GitHub issue, a Slack message, a bookmark) can point into kolu with a `#/…` hash link. Click it and the app comes to the front showing the right host, terminal, file or dialog. Without kolu installed, the link opens in any browser.
 
 | Link | Lands on |
 | --- | --- |
@@ -84,46 +62,26 @@ opens in any browser).
 | `#/t/<host>/<id>/inspector` | the Inspector tab |
 | `#/settings` | the settings dialog |
 
-`<host>` is the host's key (`local`, or `remote:<target>`); `<id>` is the
-terminal's id. A link to a **split** lands the sub-terminal live, not just its
-parent tile. The right panel follows the focused pane, so a `/code` or
-`/inspector` link to a split opens **that split's** own panel — and `/code`
-resolves `<p>` against the split's own repository.
+`<host>` is the host's key (`local`, or `remote:<target>`), and `<id>` is the terminal's id. A link to a split lands the sub-terminal live, not just its parent tile. The right panel follows the focused pane, so a `/code` or `/inspector` link to a split opens that split's own panel, and `/code` resolves `<p>` against the split's own repository.
 
-- **Durable, not one-shot** — unlike a notification click, a deep link is a
-  bookmark: open it fresh and it navigates there, and the URL stays in the bar.
-  A *reload*, though, no longer re-fires the link — your session is restored to
-  the view you'd reached, so a stale link left in the bar can't yank you back to
-  an old host. The back button likewise never replays a link you already
-  followed — it restores the URL quietly and leaves your view alone.
-- **View-only by law** — the worst a link can do is change what you're looking
-  at. No URL creates a terminal, kills one, writes a file, or sends keys.
-- **Loud on the edges** — a link to a terminal or host that's gone names what it
-  pointed at and lands you on the nearest surviving view; an unknown link shape
-  says so rather than failing silently. A link opened on a cold start waits for
-  the host's terminals to load before deciding anything is missing.
-- **Works from inside a preview** — a `#/…` link in an HTML file previewed in
-  the Code tab routes the surrounding app: preview a conductor dashboard and
-  its lane pills become click-to-jump, straight to each agent's terminal. (The
-  preview stays fully sandboxed — the link is relayed out, and view-only means a
-  hostile page still can't do anything but change what you're looking at.)
+### What a link can and cannot do
 
-<Aside type="note" title="Focus the installed app, don't spawn a second window">
-  When kolu is installed as a [PWA](/install-pwa) on a Chromium browser, an
-  in-scope link focuses the already-open app window (via the manifest's
-  `launch_handler` and the Launch Queue API) instead of opening a duplicate — so
-  a link from your chat or board jumps you straight to the terminal, in the
-  window you already have. Elsewhere the link just opens kolu normally; either
-  way it lands on the right view.
+- It is a bookmark, not a one-shot. Open it fresh and it navigates there, and the URL stays in the bar. A reload restores the view you had reached rather than re-firing the link, and the back button restores the URL quietly without replaying it.
+- It only changes what you look at. No URL creates a terminal, kills one, writes a file, or sends keys.
+- It says when it cannot land. A link to a closed terminal, or to a host that has left, names what it pointed at and lands you on the nearest surviving view. An unknown link shape says so. On a cold start, a link waits for the host's terminals to load before deciding anything is missing.
+- It works from inside a preview. A `#/…` link in an HTML file previewed in the Code tab routes the surrounding app, so a previewed dashboard's lane pills become click-to-jump. The preview stays sandboxed: the link is relayed out, and it can still only change what you are looking at.
+
+<Aside type="note" title="One window, not two">
+  Installed as a [PWA](/install-pwa) on a Chromium browser, kolu focuses the
+  app window you already have instead of opening a duplicate. Elsewhere the
+  link opens kolu normally. Either way it lands on the right view.
 </Aside>
 
 <Aside type="note" title="Drive it from the shell">
-  Every terminal kolu opens is reachable from the `kolu` command itself:
-  `kolu ls`, `create`, `send`, `wait`, `snapshot`, `history`, `kill`, `watch` —
-  locally, or against another machine with `--host`. That is the loop the
-  [agent fleets](/agent-fleets) pattern runs on. The daemons underneath are
-  [`padi`](/padi) and [`kaval`](/kaval), each still shipping its own preview
-  CLI.
+  Every terminal kolu opens is reachable from the `kolu` command: `kolu ls`,
+  `create`, `send`, `wait`, `snapshot`, `history`, `kill`, `watch`, locally or
+  against another machine with `--host`. That is the loop [agent
+  fleets](/agent-fleets) runs on.
 </Aside>
 
 <CardGrid>

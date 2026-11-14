@@ -21,7 +21,7 @@
 import { type Component, createMemo, Show } from "solid-js";
 import { useConductor } from "./useConductor";
 import { useMembership } from "./useWorks";
-import { nudgedTerminal } from "./workLock";
+import { nudgedTerminal } from "./personInput";
 import { LOCK_NUDGE_WORDS, lockWords } from "./workReadings";
 
 const CONTROL_CLASS =

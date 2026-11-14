@@ -25,7 +25,7 @@ import type { TerminalId } from "kolu-common/surface";
 import { type Component, createSignal, For, type JSX, Show } from "solid-js";
 import { DockList } from "./canvas/dock/DockList";
 import WorkLock from "./conductor/WorkLock";
-import { activeTerminalRef } from "./conductor/workLock";
+import { activeTerminalRef } from "./conductor/personInput";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import { useTileStore } from "./tile/useTileStore";
 import { withKeyboardDismiss } from "./ui/dismissSoftKeyboard";

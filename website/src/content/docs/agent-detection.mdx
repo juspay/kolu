@@ -1,6 +1,6 @@
 ---
 title: Agent Detection
-description: "How kolu reads the live state of Claude Code, Codex, Grok, OpenCode, Pi, Xyne, and Oh My Pi from each terminal — the shared state vocabulary shown on the dock and tile, and what each agent can and can't report."
+description: "How kolu recognizes Claude Code, Codex, Grok, OpenCode, Pi, Xyne and Oh My Pi in a terminal, and reads each one's live state from its own session on disk."
 order: 80
 section: Agents
 koluHero:
@@ -13,35 +13,29 @@ import Card from "../../components/docs/Card.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 
-kolu watches the **foreground process** of every terminal. When that process is a
-coding agent it recognizes — [Claude Code](https://docs.anthropic.com/en/docs/claude-code),
-[Codex](https://github.com/openai/codex), [Grok Build](https://x.ai/news/grok-build-cli),
-[OpenCode](https://github.com/anomalyco/opencode),
-[Pi](https://github.com/earendil-works/pi-mono),
-[Xyne](https://github.com/xynehq/xyne-cli), or
-[Oh My Pi](https://github.com/can1357/oh-my-pi) (`omp`) — that terminal **has an
-agent** from that moment, and kolu then reads the agent's own on-disk session to
-derive whether it's thinking, running a tool, waiting on you, or done. That state
-paints the tile chrome, the dock row, and the minimap, so a glance across a
-workspace of twenty terminals tells you **who needs you**.
+kolu watches the foreground process of every terminal. When that process is a
+coding agent it knows, kolu reads that agent's own session on disk to tell
+whether it is thinking, running a tool, waiting on you, or done.
 
-There is no agent registry to configure and no per-agent setup. Run a supported
-agent in any terminal and detection lights up on its own. That holds whichever
-copy of the agent runs — one kolu put on the PATH from [Settings →
-Agents](/agents), or one you installed yourself; detection is unchanged either way.
+There is nothing to configure. Run a supported agent in any terminal and its
+tile, dock row and minimap light up, whether the agent came from
+[Settings → Agents](/agents) or you installed it yourself.
 
-What kolu reads here is what an agent is *doing* — never who may type into it.
-That second fact comes from [the Conductor](/conductor): a terminal it is
-driving as part of a piece of work is read-only to you until you
-[take it over](/tiles), and its dock row and tile say which. Detection is
-unchanged either way; a locked terminal is still watched, still painted, and
-still counted when its agent needs you.
+| Agent | Command |
+| --- | --- |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `claude` |
+| [Codex](https://github.com/openai/codex) | `codex` |
+| [Grok Build](https://x.ai/news/grok-build-cli) | `grok` |
+| [OpenCode](https://github.com/anomalyco/opencode) | `opencode` |
+| [Pi](https://github.com/earendil-works/pi-mono) | `pi` |
+| [Xyne](https://github.com/xynehq/xyne-cli) | `xyne` |
+| [Oh My Pi](https://github.com/can1357/oh-my-pi) | `omp` |
 
 ## One state vocabulary
 
 Every agent folds onto the same small set of states, drawn with the same glyphs
-everywhere kolu shows agent status. The **shape** carries the meaning, so the
-distinction survives a peripheral glance or reduced color sensitivity.
+everywhere kolu shows agent status. What each state asks of you, and where it
+shows up, is on [notifications](/notifications).
 
 <figure class="doc-figure">
   <svg viewBox="0 0 720 96" role="img" aria-labelledby="ad-legend-title">
@@ -69,51 +63,36 @@ distinction survives a peripheral glance or reduced color sensitivity.
   </svg>
 </figure>
 
-The **awaiting-you** hue sits deliberately outside the warm/pending family, so an
-agent that needs you never reads as a build still churning. When an agent finishes
-in the background and you haven't looked yet, its **whole row washes amber** — and
-a small amber **unread badge** appears on the pip — until you focus it or that
-agent gets back to work.
+Some states cannot come from the session file. A multiple-choice question or a
+permission gate is often not written to disk while it is pending. For those
+agents kolu matches the prompt on the rendered screen instead, on the server, so
+it works for background, mobile and remote terminals too.
 
 ### Before the first prompt
 
-That an agent is in a terminal and what it has been doing are two different
-facts. The first is the **process**: kolu sees the agent's program come to the
-front the instant it starts. The second is the agent's **session on disk** — and
-most agents write none until you first prompt them — Oh My Pi not until its first
-reply is finished. So between launching an agent and its first word on disk, the
-terminal shows it in one of three states of its own, each something kolu itself
-saw:
+kolu sees the agent's program the instant it starts. Most agents write no
+session until you first prompt them, and Oh My Pi not until its first reply is
+finished. Between those moments the terminal shows one of three states:
 
 | State | Indicator | Meaning |
 | --- | --- | --- |
 | Starting | the agent's mark, no glow | the program is up and its screen is still being drawn |
 | Ready | the agent's mark, no glow | its screen has settled and nothing has been submitted to it |
-| Working | the agent's mark, working glow | a prompt was submitted to it — kolu carries every keystroke, so it sees the Enter go in — and the agent has not written anything yet |
+| Working | the agent's mark, working glow | you submitted a prompt and the agent has written nothing yet |
 
-**Ready** is decided by the same quiet window that tells a just-stopped agent
-from a finished one: once the agent has printed nothing for about five seconds,
-it is up. Neither Starting nor Ready asks anything of you, so neither raises a
-badge, a count, or a needs-you entry — not on the dock, not on the host tab, not
-on the app icon. **Working** counts as work everywhere a thinking agent does, from
-the moment you press Enter rather than from the moment the agent's session first
-lands on disk. A submit is a typed Enter: a newline inside a paste, or Alt+Enter,
-is a line of your input, not a prompt. If the screen settles again with still
-nothing written — a slash command that started no turn, an Enter into an empty
-input — the agent is Ready once more.
+An agent is ready once it has printed nothing for about five seconds. Starting
+and Ready ask nothing of you, so neither raises a badge, a count or a needs-you
+entry anywhere.
 
-The agent's session, when it is written, replaces all three with the agent's real
-state; quitting the agent before then ends it as it always did. Where an agent
-names its session before writing it — Claude Code's
-`~/.claude/sessions/<pid>.json`, Oh My Pi's breadcrumb — the agent already
-carries that session's id. A terminal woken from sleep with an agent that never
-wrote a session comes back to a bare shell: there is no conversation yet to
-resume.
+Working starts from the Enter you press. A submit is a typed Enter: a
+newline inside a paste, or <kbd>Alt</kbd> + <kbd>Enter</kbd>, is a line of your input. If the screen
+settles again with nothing written, the agent is Ready once more. The session,
+once written, replaces all three with the agent's real state.
 
 ## How detection works
 
-The pipeline is the same for every agent; only the last step — which on-disk store
-holds the session — differs.
+The pipeline is the same for every agent. Only the last step differs, because
+each agent keeps its sessions in its own store.
 
 <figure class="doc-figure">
   <svg viewBox="0 0 720 116" role="img" aria-labelledby="ad-pipe-title">
@@ -148,304 +127,186 @@ holds the session — differs.
   </svg>
 </figure>
 
-kolu asks each terminal for its foreground process id (`tcgetpgrp`, POSIX — Linux
-and macOS alike), matches it against the known agents, and reads that agent's
-session from disk — tailing a JSONL transcript, or querying a SQLite database and
-watching its write-ahead log. Those file-change watches are backed by a low-rate
-stat reconciliation, so if the OS drops the change notification for a fast turn's
-final write, the state self-heals within about a second instead of stranding on
-its last reading. In a normal shell terminal that's enough: the shell
-prints a marker naming each command as it runs — part of kolu's
-[shell integration](/shell-integration) — and the agent's process becomes
-the foreground. When an agent is launched **as the terminal's root process** — no
-shell wrapping it, e.g. `kaval-tui create -- codex` — there is no shell to print
-that marker, so kolu instead **remembers the exact command the terminal was
-spawned with** and uses it as the recognition hint (and reads that root's
-foreground as busy, since the agent *is* the root). It also reads the foreground
-process's own **arguments** — from `/proc` on Linux, and through kolu's baked
-`osfacts` helper on macOS, so the tokens stay exact — for two jobs: a
-nixpkgs-wrapped binary runs as a **dynamic loader** (`ld-linux…` / `ld-musl…` /
-`ld.so`) with the real program as its first argument, so kolu recognises the
-program the loader loads (which is how `opencode` is found even with no shell
-marker naming it), and the arguments' allowlisted flags are what a
-[resume](/sessions) may replay. What a shell *prints* stays a hint: the mark can
-name a shim, never a command. Adding a new agent is one small package that declares its
-`AgentVocab` (name, mark, CLI grammar, resume policy, info schema) and its
-`AgentPlugin` (detection adapter, transcript fetcher, env keys), plus one row in
-the agent registry and the build wiring (`nix/workspace.nix`, lockfile) — no
-shared table anywhere in the tree changes.
+kolu asks each terminal for its foreground process id, matches it against the
+known agents, and reads that agent's session from disk. A JSONL transcript is
+tailed; a SQLite database is queried, with a watch on its write-ahead log for
+live updates. In a shell terminal the shell prints a marker naming each command
+as it runs, part of kolu's [shell integration](/shell-integration).
+
+Two cases need more than that marker. When an agent is the terminal's root
+process, with no shell around it (`kaval-tui create -- codex`), kolu uses the
+command the terminal was spawned with. A nixpkgs-wrapped binary runs as a
+dynamic loader (`ld-linux…`, `ld-musl…`, `ld.so`) with the real program as its
+first argument, so kolu recognizes the program the loader loads, which is how
+`opencode` is found.
+
+### When several agents share a directory
+
+Claude Code, Grok and Oh My Pi tie a conversation to one terminal: the first two
+by process id, Oh My Pi by writing a breadcrumb naming the terminal. Codex,
+OpenCode and Pi record no process id. The only thing on disk linking their
+conversations to a terminal is the working directory, which two agents in one
+repository share.
+
+For those three, kolu treats "most recently updated here" as a shortlist, and
+hands each terminal a conversation no other terminal holds. A terminal keeps it,
+so a second Codex in the same repository cannot take the rows around it. A
+conversation started inside a running agent (its `/new`) looks like someone
+else's, so the tile stays on the previous one until you exit the agent.
 
 ### What a resume may carry
 
-Resuming a conversation after a [sleep or restart](/sessions) is rendered from
-three kinds of **structured fact** kolu already owns — never from a command line
-a shell printed:
+Resuming a conversation after a [sleep or restart](/sessions) is built from
+three facts kolu holds, never from a command line a shell printed:
 
-| fact | where it comes from |
+| Fact | Where it comes from |
 | --- | --- |
 | which agent | the detection adapter that matched this terminal's foreground process |
-| which conversation | the agent's own session file (plus its process, or its per-tty breadcrumb) |
-| which flags | the **live agent process's arguments**, read from the OS and filtered through the agent's allowlist |
+| which conversation | the agent's own session file, plus its process or its breadcrumb |
+| which flags | the live agent process's arguments, filtered through the agent's allowlist |
 
-The filter is an allowlist, and it is the whole security story: a shell's
-`OSC 633;E` command mark is a *sensor*. Anyone whose text you display — a file
-you `cat`, a curl response, an ssh banner — can print that escape sequence, so a
-captured line can never become a command kolu types. Only flags the agent's own
-package declares as launch-shape come back; unknown flags, wrappers, paths,
-positional prompt text and resume markers are dropped. Where `--model` is
-declared as taking a value, the value rides along:
+The filter is an allowlist. Anyone whose text you display can print the escape
+sequence a shell marks commands with, so a captured line never becomes a command
+kolu types. Only flags the agent's own package declares as launch shape come
+back. A flag such as `--model` carries its value:
 
-| the live process runs | wake replays |
+| The live process runs | Wake replays |
 | --- | --- |
 | `claude --plugin-dir P --resume <id> --dangerously-skip-permissions` | `claude --resume <id> --dangerously-skip-permissions` |
 | `omp -e P --resume <path> --model fable` | `omp --resume <path> --model fable` |
 | `ld-linux… …/opencode --standalone --session <id> --model sonnet` | `opencode --session <id> --model sonnet` |
 
-Two consequences worth stating plainly. A **shell-typed environment prefix**
-(`FOO=1 claude`, `AI_PROFILE=… opencode`) is no longer replayed — it lives in the
-typed line, not in the process's arguments; put the variable in your shell
-profile or an [agents profile](/agents). (`AI_PROFILE` set by kolu's own agents
-feature still works: it is in the spawn environment, and it keeps coming back.)
-And a terminal saved by an older kolu keeps its conversation but comes back
-without its old flags once — they return on the next live sample.
-
-A terminal whose live agent kolu cannot render a resume form for (an agent kind
-this build does not know, or a session ref that fails the agent's own shape gate)
-wakes to a bare shell, and padi's log says so once.
-
-<Aside type="note" title="One conversation belongs to one terminal">
-  Claude Code, Grok, and Oh My Pi anchor a conversation to a specific terminal —
-  the first two by process id, Oh My Pi by <strong>recording the terminal
-  itself</strong> (it writes a per-tty breadcrumb naming the session file it is
-  writing to). Codex, OpenCode, and Pi don't — the only
-  thing on disk tying a conversation to a terminal is its <strong>working
-  directory</strong>, which two harnesses in one repository share. kolu therefore
-  treats "most recently updated in this directory" as a <em>shortlist</em> rather
-  than an answer, and hands each terminal a conversation no other terminal already
-  has. These agents write their conversation to disk only after the first
-  exchange, so for the first moments the only thing in that directory is the
-  <em>previous</em> run — a terminal shows it because there is nothing else to
-  show, then moves onto its own the instant that one appears. From then on it
-  <strong>keeps</strong> it: a second Codex starting in the same repo, or one you
-  ran outside kolu, can no longer take over the rows around it. The cost of having
-  no process id to go on: once a terminal has a conversation of its own, starting
-  a fresh one <em>inside</em> that same running Codex or OpenCode (its
-  <code>/new</code>) looks exactly like someone else starting one, so the tile
-  stays on the previous conversation until you exit the agent.
-</Aside>
-
-<Aside type="note" title="Some states can't come from the transcript alone">
-  A "waiting on you" prompt (a multiple-choice question, a permission gate) often
-  isn't written to the session file while it's pending. For agents where that's
-  true, kolu recognizes the prompt on the <strong>rendered screen</strong> instead
-  — matching the framework's own on-screen chrome — and buckets it as
-  <em>awaiting you</em> so the dock pings. It works for background tiles, mobile,
-  and remote terminals alike, because the screen is read server-side.
-</Aside>
+An environment prefix you type in the shell (`FOO=1 claude`) is not replayed,
+because it lives in the typed line rather than the process's arguments. Put the
+variable in your shell profile or in an [agents profile](/agents). The
+`AI_PROFILE` that kolu's own agents feature sets does come back. A terminal
+kolu cannot build a resume for wakes to a bare shell, and padi's log says so.
 
 ## Claude Code
 
-kolu finds a Claude session by checking whether `~/.claude/sessions/<foreground-pid>.json`
-exists, then tails its JSONL transcript to derive state. The tile also shows the
-session's title and a running token count. Claude writes that session file the
-moment it starts but its transcript only with the first exchange, so a Claude
-that has not been prompted yet reads [starting, then ready](#before-the-first-prompt)
-— already carrying the session id its transcript will be named by.
+kolu finds a Claude session by checking whether
+`~/.claude/sessions/<foreground-pid>.json` exists, then tails its JSONL
+transcript. The tile shows the session's title, model and token count, read from
+the newest assistant message. Claude writes its transcript only with the first
+exchange, so an unprompted Claude reads
+[starting, then ready](#before-the-first-prompt).
 
-**Model** and **context tokens** are read from the newest _assistant_ message
-rather than from the newest entry of any kind. A `user` entry is the newest one
-for as long as the agent is generating after a prompt, and again after every
-tool call (a tool result is a `user` entry), so a single-entry reading blanked
-both through most of a working turn — the model tag came and went per tool
-round-trip. State still comes from the newest entry of either kind; the two
-session facts carry forward.
+| State | Read from |
+| --- | --- |
+| Thinking | an API call is in flight |
+| Tool use | Claude is executing tools |
+| Running in background | Claude ended its turn while a dynamic workflow it launched is still running |
+| Awaiting input | an `AskUserQuestion` prompt or a tool-permission gate on the rendered screen |
+| Waiting | finished responding, or interrupted with Esc |
 
-| State | Indicator | Meaning |
-| --- | --- | --- |
-| Thinking | pulsing accent dot | an API call is in flight — Claude is generating |
-| Tool use | pulsing amber dot | Claude is executing tools |
-| Running in background | spinning teal ring | Claude ended its turn while a dynamic workflow it launched is still running — busy-waiting, not blocked on you |
-| Awaiting input | pulsing alert | blocked on you — an `AskUserQuestion` prompt or a tool-permission gate |
-| Waiting | dim dot | finished responding (or interrupted with Esc) and idle |
+What it cannot detect:
 
-The awaiting-input state is the subtle one: while a question or permission prompt
-is pending, the transcript doesn't reveal it, so kolu reads the **rendered screen**
-for the framework's prompt chrome and buckets it as _awaiting you_.
-
-**What it can't detect:**
-
-- **Plan approval (`ExitPlanMode`)** — its on-screen shape has no arrow-nav footer
-  to anchor on yet; a deliberate follow-up.
-- **Streaming progress** — only final state transitions, not intermediate tokens.
-- **Wrapped invocations** — launched via a wrapper (e.g. `script -q out.log claude`),
-  the foreground pid is the wrapper, so the session lookup misses. A
-  **dynamic-loader** wrapper is the one exception: kolu resolves it to the program
-  it loads (see the intro above), so a nixpkgs-wrapped agent is recognised.
-- **Sub-agents** — nested spawns aren't tracked as separate sessions. (When the
-  parent waits on a launched _dynamic workflow_, kolu does surface that workflow's
-  name and live sub-agent count.)
+- Plan approval (`ExitPlanMode`), whose on-screen shape has no arrow-navigation
+  footer to anchor on.
+- Streaming progress. Only state transitions, not intermediate tokens.
+- A wrapped invocation such as `script -q out.log claude`, where the foreground
+  process is the wrapper. A dynamic loader is the one wrapper kolu resolves.
+- Sub-agents. When the parent waits on a dynamic workflow, kolu does show that
+  workflow's name and sub-agent count.
 
 <Aside type="tip" title="When state seems stuck">
-  The command palette has a <strong>Debug → Show Claude transcript</strong> entry
-  (visible only when the active terminal has a Claude session). It shows the
-  server's state-change log beside the raw JSONL events from disk, so you can see
-  where a transition was missed.
+  The command palette has a <strong>Debug → Show Claude transcript</strong>
+  entry when the active terminal has a Claude session. It shows the server's
+  state-change log beside the raw JSONL events, so you can see where a
+  transition was missed.
 </Aside>
 
 ## Codex
 
-When the foreground process is `codex`, kolu queries Codex's threads SQLite
-database (the highest-numbered `~/.codex/state_<N>.sqlite`) for the live threads
-whose working directory matches the terminal — most recently updated first — takes
-the best one no other terminal already holds, and tails that thread's rollout JSONL
-for state and context-token count. Live updates ride a watch on the SQLite
-write-ahead log. Detection includes standalone CLI sessions and daemon-backed
-TUI sessions; non-interactive `codex exec` runs and
-Codex-spawned sub-agents are excluded.
+kolu queries Codex's threads database, the highest-numbered
+`~/.codex/state_<N>.sqlite`, for live threads whose working directory matches the
+terminal, and [takes one no other terminal holds](#when-several-agents-share-a-directory).
+It then tails that thread's rollout JSONL. Standalone and daemon-backed TUI
+sessions are detected; `codex exec` runs and sub-agents are not.
 
-| State | Indicator | Meaning |
-| --- | --- | --- |
-| Thinking | pulsing accent dot | latest lifecycle event is `task_started`, no open tool call |
-| Tool use | spinning amber | a `function_call` is open that isn't an awaiting-user tool |
-| Awaiting input | pulsing alert | every open call is an awaiting-user tool — `request_user_input`, `request_permissions`, or `request_plugin_install` |
-| Waiting | dim dot | latest lifecycle event is `task_complete` or `turn_aborted` (including interruption with Esc), even if a tool call was still open |
+| State | Read from |
+| --- | --- |
+| Thinking | latest lifecycle event is `task_started`, no open tool call |
+| Tool use | a `function_call` is open that is not an awaiting-user tool |
+| Awaiting input | every open call is `request_user_input`, `request_permissions` or `request_plugin_install` |
+| Waiting | latest lifecycle event is `task_complete` or `turn_aborted`, even with a tool call still open |
 
-The context count is Codex's own `last_token_usage.input_tokens` — the number its
-`/status` command shows — not a sum that would double-count cache re-reads.
-
-**What it can't detect (yet):**
-
-- **Task-progress checklist** — Codex has no user-visible todo list to read.
-- **Column-schema changes** — if an upstream release renames a depended-on column,
-  detection returns no match; set `KOLU_CODEX_DB` to pin a known-good database
-  while a fix ships.
-- **Which thread is which** — Codex records no process id, only a thread creation
-  time, so with several threads in one directory kolu can guarantee that no two
-  terminals show the same one and that a terminal ends up on a thread created
-  after its own harness started — not which of several such threads is really its
-  own. A thread started *inside* a running Codex (`/new`) is therefore
-  indistinguishable from one started elsewhere in that directory, so the tile
-  stays on the previous thread until you exit the agent.
+The context count is Codex's own `last_token_usage.input_tokens`, the number its
+`/status` command shows. Codex has no todo list, so a Codex tile shows no task
+progress. If an upstream release renames a column detection depends on, no
+thread matches; set `KOLU_CODEX_DB` to pin a known-good database.
 
 ## Grok
 
-When the foreground process is `grok`, kolu prefers the entry in
-`~/.grok/active_sessions.json` whose pid matches the terminal; with no pid to go
-on it takes the most recently updated session under `~/.grok/sessions/` that no
-other terminal already holds. That
-file is only ever used to **find** a session, never to decide one has ended —
-Grok rewrites the whole list from each session's own point of view, so a session
-starting or ending erases the entries of every other Grok running at that moment.
-Once a terminal is matched, only the process going away — or the terminal moving
-on to something else — ends the match. State comes from
-tailing that session's `events.jsonl` — `phase_changed` for thinking / tool use /
-awaiting you, `turn_ended` for waiting. An open `ask_user_question` promotes to
-_awaiting you_ even mid-tool, so a multiple-choice prompt never reads as "running
-tools".
+kolu prefers the entry in `~/.grok/active_sessions.json` whose process id
+matches the terminal. With no process id to go on it takes the most recently
+updated session under `~/.grok/sessions/` that no other terminal holds. That
+file only ever finds a session, never ends one, because Grok rewrites the whole
+list from each session's own point of view. Only the process going away ends a
+match.
 
-**Resume** uses `grok --resume <uuid>` — the exact conversation kolu observed.
-Launch-shape flags such as `--model` / `-m`,
-`--always-approve`, `--no-plan`, `--no-subagents`, and **`--no-alt-screen`**
-(inline TUI instead of the alternate screen) are kept on the **recent agents**
-list and on sleep/wake resume. **Context tokens** come from `signals.json`
-(`contextTokensUsed`); **task progress** stays null until Grok's plan checklist
-is a stable first-class count. **Transcript export** reads `chat_history.jsonl`
-(unwraps Grok's `<user_query>` harness so the HTML shows the human prompt).
+State comes from tailing that session's `events.jsonl`: `phase_changed` for
+thinking, tool use and awaiting you, `turn_ended` for waiting. An open
+`ask_user_question` reads as awaiting you even mid-tool.
+
+Resume uses `grok --resume <uuid>`. The flags `--model` and `-m`,
+`--always-approve`, `--no-plan`, `--no-subagents` and `--no-alt-screen` (inline
+TUI instead of the alternate screen) are kept on the **Recent agents** list and
+on resume. Context tokens come from `signals.json` (`contextTokensUsed`), and
+task progress stays empty. Transcript export reads `chat_history.jsonl`.
 
 ## OpenCode
 
-Requires **OpenCode 2.0 or later.** When the foreground process is `opencode`
-(the nixpkgs build runs through the glibc loader — kolu resolves that to the
-program it loads), kolu queries OpenCode's SQLite database directly at
-`~/.local/share/opencode/opencode.db` — the 2.x session store, `session_v2` and
-`session_message` — for the live sessions whose directory matches the terminal — most recently updated first — and takes the best
-one no other terminal already holds. The database's write-ahead log drives live
-updates.
+OpenCode 2.0 or later is required. kolu queries OpenCode's SQLite database at
+`~/.local/share/opencode/opencode.db`, the 2.x session store (`session_v2` and
+`session_message`), for live sessions whose directory matches the terminal, and
+[takes one no other terminal holds](#when-several-agents-share-a-directory). The
+database's write-ahead log drives live updates.
 
-| State | Indicator | Meaning |
-| --- | --- | --- |
-| Thinking | pulsing accent dot | latest message is your prompt, or an assistant message not finished with `finish: "stop"` (still streaming, or ended on `tool-calls` / `error`) and no tool running |
-| Tool use | spinning amber | a running tool part other than `question` |
-| Awaiting input | pulsing alert | every running tool part is `question` — blocked on a reply |
-| Waiting | dim dot | latest assistant message is completed with `finish: "stop"` |
+| State | Read from |
+| --- | --- |
+| Thinking | latest message is your prompt, or an assistant message not finished with `finish: "stop"`, and no tool running |
+| Tool use | a running tool part other than `question` |
+| Awaiting input | every running tool part is `question` |
+| Waiting | latest assistant message is completed with `finish: "stop"` |
 
-The tile shows the model from the newest _assistant_ message, and the context
-token count OpenCode's own TUI shows — the newest accounted step's input, output,
-reasoning and cache tokens — so neither blanks while your prompt is the newest
-row. OpenCode 2.x keeps no todo list, so an OpenCode tile shows no task progress.
-
-<Aside type="note" title="Why read SQLite, not an HTTP API?">
-  The OpenCode TUI doesn't expose an HTTP server by default. Reading the SQLite
-  database directly works against the actual TUI users run — no port discovery, no
-  extra process — and WAL mode lets kolu open it read-only without blocking
-  OpenCode's own writes.
-</Aside>
-
-**What it can't detect (yet):**
-
-- **Which session is which** — OpenCode records no process id, only the time its
-  first message was written, so with several sessions in one directory kolu can
-  guarantee that no two terminals show the same one and that a terminal ends up
-  on a session begun after its own harness started — not which of several such
-  sessions is really its own. A session started *inside* a running OpenCode is
-  therefore indistinguishable from one started elsewhere in that directory, so
-  the tile stays on the previous session until you exit the agent.
-- **OpenCode 1.x** — its `session` / `message` tables are not read. Against a
-  database without `session_v2`, no OpenCode tile lights up and padi's log names
-  the missing table on every check.
-- **Non-default database location** — set `KOLU_OPENCODE_DB` to override the path.
+The tile shows the model from the newest assistant message, and the context
+count OpenCode's own TUI shows: the newest accounted step's input, output,
+reasoning and cache tokens. OpenCode 2.x keeps no todo list, so a tile shows no
+task progress. Against a database without `session_v2` no OpenCode tile lights
+up, and padi's log names the missing table. Set `KOLU_OPENCODE_DB` for a
+database elsewhere.
 
 ## Pi
 
-When the foreground process is `pi`, kolu scans the session directory for the
-terminal's working directory — `~/.pi/agent/sessions/--<directory>--/` — offers
-every session there as a candidate, most recently updated first, and binds the
-one no other terminal already holds. State then comes from tailing that
-session's JSONL transcript. A watch over the sessions tree covers the race at
-launch: the shell's marker names `pi` before pi has written its file, so it is
-the tree event — not another prompt — that lights the tile the moment the file
-lands.
+kolu scans the session directory for the terminal's working directory,
+`~/.pi/agent/sessions/--<directory>--/`, and binds the session
+[no other terminal holds](#when-several-agents-share-a-directory). State comes
+from tailing that session's JSONL transcript. A watch over the sessions tree
+lights the tile the moment that file lands.
 
-| State | Indicator | Meaning |
-| --- | --- | --- |
-| Thinking | pulsing accent dot | newest entry is a prompt or a tool result — pi persists an assistant message only when it completes, so a mid-turn tail always reads as work in flight |
-| Tool use | spinning amber | newest assistant message ended `stopReason: "toolUse"` |
-| Waiting | dim dot | newest assistant message ended its turn (`stop` / `length` / `error` / `aborted`) |
+| State | Read from |
+| --- | --- |
+| Thinking | newest entry is a prompt or a tool result; pi persists an assistant message only when it completes |
+| Tool use | newest assistant message ended `stopReason: "toolUse"` |
+| Waiting | newest assistant message ended its turn (`stop`, `length`, `error` or `aborted`) |
 
-**Resume** uses `pi --session` with the transcript's **absolute path** (the
-exact conversation kolu observed — pi accepts both the id and the path; the path
-is spliced because an id alone can no longer be found once the session store was
-moved by a redirect above). Launch-shape flags such as `--model` / `--provider` /
-`--thinking` / `--name` are kept on the **recent agents** list and on sleep/wake
-resume. **Context tokens** come from the newest assistant message's usage
-(`input + cacheRead + cacheWrite` — pi's buckets are disjoint, so the sum is
-the full context the model saw, never a double count). The **title** is the
-session's `/name` when the user set one. **Transcript export** reads the same
-session JSONL.
+Resume uses `pi --session` with the transcript's absolute path, which still
+resolves when the session store has been redirected. The flags `--model`,
+`--provider`, `--thinking` and `--name` are kept on the **Recent agents** list
+and on resume. Context tokens are the newest assistant message's `input`,
+`cacheRead` and `cacheWrite` added up. The title is the session's `/name`.
+Transcript export reads the same JSONL.
 
-**What it can't detect:**
-
-- **Awaiting you** — pi's permission gates and questions are TUI dialogs that
-  never land in the session file, so there is no on-disk signal to fold from.
-- **Task-progress checklist** — pi has no todo primitive to read.
-- **Which session is which** — like Codex and OpenCode, pi records no process
-  id (its session id lives only in the file's name), so with several sessions
-  in one directory kolu can guarantee that no two terminals show the same one
-  and that a terminal ends up on a session created after its own harness
-  started — not which of several such sessions is really its own. A session
-  started *inside* a running pi (its `/new`) is therefore indistinguishable
-  from one started elsewhere in that directory, so the tile stays on the
-  previous session until you exit the agent.
-- **An ephemeral session** — a pi launched with `--no-session` writes
-  nothing to disk, so there is no session to bind to (it never enters
-  **Recent agents** and can't be restored on wake).
-
+Awaiting you is not detected: pi's permission gates and questions are dialogs
+that never reach the session file. Pi has no todo primitive, so there is no task
+progress. A `pi --no-session` run writes nothing to disk, so there is nothing to
+bind to, and it never reaches **Recent agents**.
 
 ### Pi's session-store locations
 
-kolu follows **pi's own precedence** for where sessions live, per terminal —
-it reads the foreground pi process's own arguments and environment, so each
-of these is honoured exactly as pi honours it:
+kolu follows pi's own precedence, reading the foreground pi process's arguments
+and environment:
 
 | Override | Where sessions land |
 | --- | --- |
@@ -455,100 +316,65 @@ of these is honoured exactly as pi honours it:
 | `PI_CODING_AGENT_DIR=<dir>` | `<dir>/sessions` — the config dir moves, sessions with it |
 | _(none)_ | `~/.pi/agent/sessions` |
 
-Only the default bottom row uses per-directory subfolders (`--<directory>--`);
-an explicit override in the first three rows holds the session files flat,
-attributed by each file's header — kolu maps on disk exactly as pi does.
+Only the default bottom row uses per-directory subfolders (`--<directory>--`).
+An override in the first three rows holds the session files flat, attributed by
+each file's header, and detection follows the redirect.
 
-Detection follows the redirect: a pi launched by an agent harness that sets
-`PI_CODING_AGENT_DIR` per run (to a scratch dir, for config isolation) is
-detected in that run's real session store, not in `~/.pi`. Session-file
-updates in any of these stores wake the tile the same way the default tree
-does. Two blind spots where a process's env can't be read: a host that
-hides process environments from kolu itself (e.g. `/proc` mounted
-`hidepid`), and **every macOS host** — `ps` has redacted even same-user
-process environments since macOS 10.13, so a `PI_CODING_AGENT_SESSION_DIR`
-redirect is unrecoverable there (`--session-dir` flags and the default-root
-`settings.json` still resolve). In either case the default tree is scanned,
-and only a pi with a *default* store is found. kolu's own scan root can be
-forced with `KOLU_PI_DIR=<dir>` (where
-`<dir>/sessions` is the tree to scan) — the escape hatch for tests and
-unusual setups, never a replacement for the per-terminal resolution above.
+A process's environment cannot be read on a host that hides it (`/proc` mounted
+`hidepid`), or on macOS, where `ps` redacts even same-user environments. A
+`PI_CODING_AGENT_SESSION_DIR` redirect is then unrecoverable and only the
+default tree is scanned; `--session-dir` flags still resolve. Set
+`KOLU_PI_DIR=<dir>` to force kolu's scan root, whose `sessions` tree is scanned.
 
 ## Oh My Pi
 
-Oh My Pi (`omp`) is a fork of pi that grew its own storage and — the part that
-makes it the easiest agent to pin down — a per-terminal **breadcrumb**: whenever
-it creates or switches sessions it writes `<tty>` → the session file it is
-writing, under its agent directory. So detection is not a directory guess at
-all. When the foreground process is `omp`, kolu reads that process's terminal
-(`/proc/<pid>/fd/0` on Linux, `ps` on macOS), reads the matching breadcrumb, and
-follows it to **the one session this terminal owns** — no candidate list, no
-ownership arbiter, and two `omp` terminals in one repository each show their own
-conversation by construction. State then comes from tailing that session's JSONL
-transcript, exactly as with pi. A brand-new session's breadcrumb is written
-`fresh`, before its JSONL exists — omp writes that only when the first reply is
-done — so until then the terminal reads [starting, then ready, then working from
-the Enter on](#before-the-first-prompt), carrying the session id the breadcrumb
-names.
+Oh My Pi (`omp`) is a fork of pi with its own storage and a per-terminal
+breadcrumb recording which session file that terminal is using. To find it, kolu
+reads the `omp` process's terminal (`/proc/<pid>/fd/0` on Linux, `ps` on macOS)
+and follows the matching breadcrumb. Two `omp` terminals in one repository each
+show their own conversation.
 
-| State | Indicator | Meaning |
-| --- | --- | --- |
-| Thinking | pulsing accent dot | newest entry is a prompt or a tool result — omp persists an assistant message only when it completes |
-| Tool use | spinning amber | newest assistant message ended `stopReason: "toolUse"` |
-| Awaiting input | pulsing alert | a tool-approval dialog (`Allow tool: …`) or an `ask` question is on the rendered screen |
-| Waiting | dim dot | newest assistant message ended its turn (`stop` / `length` / `error` / `aborted`) |
+State comes from tailing that session's JSONL transcript, as with pi. A new
+session's breadcrumb is written before its JSONL exists, because omp writes that
+only when the first reply is done, so until then the terminal reads
+[starting, then ready, then working](#before-the-first-prompt).
 
-Awaiting-you works here because omp paints it: an approval gate or an `ask`
-question renders a bordered dialog kolu recognizes on the **rendered screen**
-(the same mechanism Claude Code uses), while the transcript behind it stays on
-the in-flight tool call. The recognition keys on the default theme's border
-corner (`╭─ Allow tool: …`, `╭─ Ask …`): with a non-default box preset (omp's
-`symbolPreset: ascii`, which draws `+-` corners) the dialog is not recognized
-and the tile stays on **running tools** for the duration of the prompt. A
-recognition loose enough to take any corner risks reading prose as a prompt,
-so the default corner is what kolu commits to recognizing.
+| State | Read from |
+| --- | --- |
+| Thinking | newest entry is a prompt or a tool result; omp persists an assistant message only when it completes |
+| Tool use | newest assistant message ended `stopReason: "toolUse"` |
+| Awaiting input | a tool-approval dialog (`Allow tool: …`) or an `ask` question on the rendered screen |
+| Waiting | newest assistant message ended its turn (`stop`, `length`, `error` or `aborted`) |
 
-**Resume** uses `omp --resume` with the transcript's **absolute path** — the
-exact conversation this terminal's breadcrumb named, and the one reference that
-survives a moved store. Launch-shape flags such as `--model`,
-`--smol`, `--slow`, `--plan`, `--thinking`, `--approval-mode`, and `--profile`
-are kept on the **recent agents** list and on sleep/wake resume. **Context
-tokens** come from the newest assistant message's usage (`input + cacheRead +
-cacheWrite` — disjoint buckets, so the sum is the full context the model saw).
-The **title** is the session's own title slot: the name you set, or the one omp
-auto-generated after the first turn. **Task progress** is omp's `todo` list —
-every `todo` result carries the whole list, and kolu reads the newest one on
-the conversation's live branch (or the newest edit omp records itself), the
-same list omp restores when you reopen the session. It is counted the way omp's
-own `Overall: N/M done` line counts: every task in every phase, with a
-**dropped** task counted done and a **blocked** one still open, so the tile's
-progress bar, the inspector's agent card and omp's own count agree. A cleared
-list, or a session that never made one, shows no progress; a resumed or
-compacted session keeps the list it had, and a `/tree` jump back shows the list
-that point in the conversation had. **Transcript export** reads the same
-session JSONL, rendering the live branch of omp's entry tree.
+Awaiting you is read off the screen, because omp paints a bordered dialog there
+while the transcript stays on the in-flight tool call. Recognition keys on the
+default theme's border corner (`╭─ Allow tool: …`, `╭─ Ask …`). With omp's
+`symbolPreset: ascii`, which draws `+-` corners, the tile stays on running tools
+for the prompt. Plan approval is not detected: its overlay has no stable marker.
 
-**What it can't detect:**
+### What an Oh My Pi tile shows
 
-- **Plan approval** — omp's plan-review overlay has no stable on-screen marker
-  yet; a deliberate follow-up, like Claude Code's `ExitPlanMode`.
-- **An ephemeral session** — `omp --no-session` writes nothing to disk and no
-  breadcrumb, so there is no session to bind to: the terminal shows Oh My Pi as
-  **ready** and stays there (it never enters **Recent agents** and can't be
-  restored on wake). A breadcrumb an *earlier* run left behind in that terminal
-  is ignored too, rather than re-binding the tile to the stale conversation's
-  session.
-- **A redirected store, on macOS only** — a `PI_CODING_AGENT_DIR` (or
-  `OMP_PROFILE`) set on the `omp` process is unrecoverable there, because `ps`
-  redacts even same-user process environments since macOS 10.13, so kolu reads
-  the default directory. A `--profile` flag still resolves — it lives in argv —
-  and `--session-dir` never mattered here: the breadcrumb carries the session's
-  absolute path whatever store it landed in.
+Resume uses `omp --resume` with the transcript's absolute path, which survives a
+moved store. The flags `--model`, `--smol`, `--slow`, `--plan`, `--thinking`,
+`--approval-mode` and `--profile` are kept on the **Recent agents** list and on
+resume. Context tokens are the newest assistant message's `input`, `cacheRead`
+and `cacheWrite` added up. The title is the name you set, or omp's own.
+
+Task progress is omp's `todo` list, read from the newest `todo` result on the
+conversation's live branch. It is counted the way omp's own `Overall: N/M done`
+line counts it, with a dropped task counted done and a blocked one still open. A
+resumed or compacted session keeps its list. Transcript export renders the live
+branch.
+
+An `omp --no-session` run writes no session and no breadcrumb, so the terminal
+shows Oh My Pi as ready and stays there. On macOS a `PI_CODING_AGENT_DIR` or
+`OMP_PROFILE` redirect cannot be read, so the default directory is used; a
+`--profile` flag still resolves.
 
 ### Oh My Pi's agent-directory locations
 
-kolu follows **omp's own precedence**, per terminal, reading the foreground
-`omp` process's own arguments and environment:
+kolu follows omp's own precedence, reading the foreground `omp` process's
+arguments and environment:
 
 | Override | Where the breadcrumb and sessions land |
 | --- | --- |
@@ -558,68 +384,35 @@ kolu follows **omp's own precedence**, per terminal, reading the foreground
 | none of the above, and `$XDG_STATE_HOME/omp` exists | `$XDG_STATE_HOME/omp` (a profile uses `$XDG_STATE_HOME/omp/profiles/<name>`) |
 | _(none)_ | `~/.omp/agent` |
 
-Unlike pi, an unresolvable directory is **not** replaced by a kolu default: the
-breadcrumb is the only anchor kolu has, so a run whose process cannot be read
-simply publishes nothing rather than pointing at a tree this terminal does not
-write to. A named profile that omp itself would refuse (an invalid name) is the
-same answer. The one exception is macOS's redacted environment — an env-var
-redirect (`OMP_PROFILE`, `PI_CODING_AGENT_DIR`) cannot be seen there, so the
-default directory is read and only a plain default-profile `omp` is found, the
-same blind spot pi has. kolu's own default can be forced with
-`KOLU_OMP_DIR=<dir>` — the escape hatch for tests and unusual setups.
+Unlike pi, an unresolvable directory is not replaced by a kolu default: a run
+whose process cannot be read publishes nothing, as does a profile name omp
+itself would refuse. Set `KOLU_OMP_DIR=<dir>` to force kolu's own default.
+
 ## Xyne
 
-When the foreground process is `xyne`, kolu matches the terminal against the
-newest transcript under `~/.xyne/agent/sessions/<encoded-cwd>/` — Xyne writes
-one `<timestamp>_<uuid>.jsonl` transcript (plus a `<name>_summary.json`
-sidecar with the display title) per session, in a directory named after the
-transcript's original working directory with every non-alphanumeric character
-folded to `-`. That newest transcript is the same session `xyne --continue`
-would reopen, so it is the session identity kolu reports.
+kolu matches the terminal against the newest transcript under
+`~/.xyne/agent/sessions/<encoded-cwd>/`. Xyne writes one
+`<timestamp>_<uuid>.jsonl` transcript per session, plus a `<name>_summary.json`
+sidecar holding the display title, in a directory named after the transcript's
+working directory with every non-alphanumeric character folded to `-`. That
+newest transcript is the session `xyne --continue` reopens.
 
-**Xyne's state is always _waiting_.** The persisted transcript carries no live
-phase signal — no event stream, no pid map, no in-progress marker — so kolu
-never claims to know whether Xyne is mid-turn or idle, and the badge sits on
-the dim waiting dot for the session's whole life. The dock row and agent
-inspector still show the **session title** (from the sidecar) and the
-**last-used model** (from the transcript's newest `model_change` entry);
-**task progress** and **context tokens** stay null by the same honesty. A xyne
-badge that reads _waiting_ does not mean it's your turn — it's the floor every
-turn returns to.
+A Xyne terminal always reads waiting, because the transcript carries no live
+phase signal. That does not mean it is your turn. The dock row and the agent
+inspector still show the session title from the sidecar and the last-used model
+from the transcript's newest `model_change` entry. Task progress and context
+tokens stay empty.
 
-**Resume** uses `xyne --session <uuid>` — the exact conversation (including a
-cold-restored terminal from before the reboot; the UUID filename is the id
-upstream's flag takes). **Transcript export** reads the same session JSONL,
-taking token usage from the freshest assistant row's usage.
+Resume uses `xyne --session <uuid>`, including for a terminal restored after a
+reboot. Transcript export reads the same JSONL, taking token usage from the
+freshest assistant row.
 
-## Adding an agent
+## Which agents appear in the palette
 
-Because detection is agent-agnostic, a new CLI doesn't wait on kolu. Once you've
-run a known agent in any terminal it also surfaces in the [command palette](/concepts)
-— as a launch option in the worktree-naming flow and in the **Recent agents**
-group. Only an agent with a **detection adapter** is a candidate. Aider, Goose,
-Gemini and Cursor Agent have none — there is no session for kolu to detect — so
-they never appear there.
-
-Every fact about an agent lives in that agent's own package
-(`packages/integrations/<agent>/`), as two values:
-
-- **`<agent>Vocab`** (browser-safe) — the display name, the brand mark (one 24×24
-  mark serves both the tile chrome and the dock pip), the CLI grammar that
-  recognizes and normalizes an invocation, the resume policy, and the agent's
-  `AgentInfo` schema.
-- **`<agent>Plugin`** (node) — the detection adapter, the transcript fetcher, and
-  the env keys that point detection at fixtures.
-
-They are folded in by **`kolu-agents`**, the one registry that lists kolu's
-agents. Adding an agent is therefore one package plus **one row** in that
-registry. Everything downstream — the kind enum, the `AgentInfo` union, the CLI
-tables, the tile icon, the dock pip, the transcript dispatch, the sensor
-registration, the env-key forwarding — is *derived* from the registry and edited
-by no one. Because `AgentVocab` requires every facet, an agent that forgets its
-resume policy or its mark fails to compile **in its own package**; and a
-`governance` test forbids any other package from depending on an agent package
-directly (`anyagent`, the kernel, names no agent at all).
+Once you have run a known agent in any terminal, it also appears in the
+[command palette](/concepts), as a launch option in the worktree-naming flow and
+in the **Recent agents** group. Aider, Goose, Gemini and Cursor Agent write no
+session kolu can read, so they never appear.
 
 <CardGrid>
   <LinkCard title="Core concepts" href="/concepts" description="the dock, tiles, and how state reaches every navigator" />

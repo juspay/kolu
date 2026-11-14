@@ -1,6 +1,6 @@
 ---
 title: How to recycle and upgrade a daemon
-description: "Replace a running daemon with a new build without dropping connected clients — the converge (probe → decide → enact) sequence over an endpoint."
+description: "Replace a running daemon with a new build without dropping connected clients, using converge: probe the running identity, decide by policy, then enact."
 order: 311
 section: Daemons · How-to
 ---
@@ -8,59 +8,64 @@ section: Daemons · How-to
 import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 
-When you ship a new daemon build, an older one may still be holding the gate with
-clients attached. `converge()` detects the mismatch, decides what to do by your
-declared policy, and enacts it through the endpoint — without the client noticing
-more than a brief reconnect.
+When you ship a new [daemon](/surface/glossary) build, an older one may still be
+holding the gate with clients attached. `converge()` detects the mismatch,
+decides what to do by your declared policy, and enacts it through the endpoint.
+The client sees no more than a brief reconnect.
 
 ## 1. Declare a policy
 
-A `ConvergencePolicy<Cap>` is the consumer's entire convergence surface — who I
-am (`baked`) + how I converge per trigger (contract skew vs same-contract build
-change) +, when drainable, the Cap-gated `drainBudget`. The two shipped shapes:
+A `ConvergencePolicy<Cap>` holds everything a consumer declares about
+convergence: who I am (`baked`), how I converge per trigger (contract skew
+against same-contract build change), and, when drainable, the Cap-gated
+`drainBudget`. Two shapes ship:
 
-- **`recycle-on-skew`** ([kaval](/kaval)): a mismatched daemon is killed and respawned. No budget — a not-drainable policy cannot spell one.
-- **`drain-newer-else-refuse`** (padi): the daemon with the strictly-newer *contract version* wins — it is drained in and replaces the old; an older or equal contract refuses. Budget survives adopts so a cross-supervisor fight terminates as `cross-supervisor`, not a livelock.
+- **`recycle-on-skew`** ([kaval](/kaval)): a mismatched daemon is killed and respawned. It has no budget, because a policy that is not drainable cannot spell one.
+- **`drain-newer-else-refuse`** (padi): the daemon with the strictly newer contract version wins. It is drained in and replaces the old one; an older or equal contract refuses. The budget survives adopts, so a cross-supervisor fight terminates as `cross-supervisor` rather than looping.
 
 ## 2. Converge before you connect
 
-State the policy (and probe) on `createEndpoint`, then call `converge(endpoint)`
-— the only boot verb:
+State the policy (and probe) on `createEndpoint`, then call `converge(endpoint)`,
+the only boot verb:
 
 <Snippet src="packages/surface/example/snippets/supervisor.ts" region="converge" />
 
-`converge` runs three steps: **probe** the running identity (over the
-version-agnostic channel, so a skew can't hide it), **decide** with the pure
-`decide` fold (zero I/O — the policy table), and **enact** through the endpoint's
-private boot methods (budget-gated when drainable). It returns a
-`ConvergenceOutcome` with an optional `ConvergenceAnomaly`; wire it to your own
-status surface and logs. Connector arms use `convergeAdmit` with the same policy.
+`converge` runs three steps:
+
+1. **probe** the running identity, over the version-agnostic channel, so a skew cannot hide it;
+2. **decide** with the pure `decide` fold (no I/O, just the policy table);
+3. **enact** through the endpoint's private boot methods, budget-gated when drainable.
+
+It returns a `ConvergenceOutcome` with an optional `ConvergenceAnomaly`. Wire
+that to your own status surface and logs. Connector arms use `convergeAdmit`
+with the same policy.
 
 `probeDaemonIdentity({ capability: "not-drainable" })(socketPath)` owns a fresh
-local socket dial; the drainable form also requires `drainCeilingMs`. A connector
-that has already dialed a combined client uses `probeDaemonIdentityFrom`
-instead, supplying that client, its disposer, and the transport's stronger exit
-oracle. Both forms assemble the same `ConvergenceProbe`; the client form never
-turns a lost link into honest daemon absence.
+local socket dial; the drainable form also requires `drainCeilingMs`. A
+connector that has already dialled a combined client uses
+`probeDaemonIdentityFrom` instead, supplying that client, its disposer, and the
+transport's stronger exit oracle. Both forms assemble the same
+`ConvergenceProbe`, and the client form never turns a lost link into daemon
+absence.
 
-## 3. What the live recycle does underneath
+## 3. What a recycle does
 
-When the decision is to recycle, the endpoint runs:
+When the decision is to recycle, the endpoint:
 
-1. read the gate under the pid-first law (`readGateIdentity` + injected `readProcessIdentity`, ±2 s start-time match; one-field legacy falls back to `isHolderLive` + socket accept) — is a live survivor holding it?
-2. **kill** it, then `waitForPidGone` — block until the pid is reaped, so the respawn never races a live gate holder;
-3. `driver.spawn()` — a survivable spawn (`systemd-run --user`, or detached `+unref`);
-4. `waitForSocket`, then `connect()` and the identity handshake.
+1. reads the gate under the pid-first law (`readGateIdentity` plus injected `readProcessIdentity`, with a ±2 s start-time match) to see whether a live survivor holds it. A one-field gate falls back to `isHolderLive` and a socket accept.
+2. **kills** it, then runs `waitForPidGone`, so the respawn never races a live gate holder.
+3. calls `driver.spawn()`, a survivable spawn (`systemd-run --user`, or detached `+unref`).
+4. runs `waitForSocket`, then `connect()` and the identity handshake.
 
-For a connected client, the daemon is replaced underneath and the client's
-session loop reconnects — re-running `converge` — with an `onStatus(degraded)`
-bridging the gap. `recycle(endpoint, steps)` wraps this as
+A connected client has its daemon replaced underneath, and its session loop
+reconnects, re-running `converge`, with an `onStatus(degraded)` bridging the
+gap. `recycle(endpoint, steps)` wraps this as
 `capture → drain → recycle → reattach`, so a session can be captured and
 re-adopted live across the kill.
 
-<Aside type="caution" title="Gate on the contract version, never a string ==">
-  The decision keys on ordered contract versions and match-only build ids —
-  never a literal string equality. A newer build with a compatible contract must
-  be recognised as compatible, not "different"; see
+<Aside type="caution" title="Compare contract versions, not strings">
+  The decision keys on ordered contract versions and match-only build ids, never
+  on a literal string equality. A newer build with a compatible contract is
+  recognized as compatible. See
   [Daemon invariants](/surface/surface-daemon-invariants).
 </Aside>

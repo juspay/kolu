@@ -1,7 +1,7 @@
 ---
 title: The Conductor
-description: "One chat for the whole fleet — every terminal on every host. An agent with kolu's own tools in its hands: it opens a piece of work, creates the terminals and briefs them, and ends its turn — and kolu records what it observes and wakes the chat when an agent comes up, stops, asks or dies."
-order: 52
+description: "One chat that runs your fleet: an agent that opens a piece of work, creates terminals on any host, briefs them, and wakes when they finish or ask."
+order: 52.5
 section: "Agents & Attention"
 koluHero:
   eyebrow: a chat, not a terminal
@@ -12,251 +12,237 @@ koluHero:
 
 import Aside from "../../components/docs/Aside.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
+import Steps from "../../components/docs/Steps.astro";
 
-The [agent-fleets](/agent-fleets) pattern needs a coordinator, and until now the coordinator was a terminal: you opened one, typed instructions into a CLI agent, and that agent used kolu's commands to drive the others. It works — kolu was built that way — but the thing you talk to all day was a PTY, with a PTY's shape: scrollback you scroll, output you read, no idea which of its questions were waiting for you.
-
-The **Conductor** is that coordinator as a chat. One of them, covering every machine you have. You talk to it; it creates, briefs, watches and answers the agents in your terminals, wherever those terminals are.
+The **Conductor** is one chat with an agent that runs the agents in your terminals. You say what you want done. It opens a piece of work, creates terminals on whichever host that work belongs on, briefs the agents in them, and answers their questions or brings them to you.
 
 <Aside type="caution" title="alpha">
-  The Conductor is **alpha**, and the word is meant literally: it is early, and nothing about it is settled yet. Its shape is still moving — what the view holds, what the agent is given, how a session is addressed — so a thing you rely on this week may be spelled differently the next. And the conversation itself is **not** durable across a kolu version: upgrading can leave you with a new, empty conversation, with the previous one's transcript gone rather than migrated. Anything you want to keep, keep outside it — in the repository, in a terminal, in a file an agent wrote.
+  The Conductor is alpha, and its shape is still changing. Upgrading kolu can leave you with a new, empty conversation: the old transcript is not carried over. Keep anything you need outside it, in the repository or in a file.
 </Aside>
 
 ## What it is
 
-A single conversation with Claude, held by **kolu-server** — the process your browser is already talking to — and spoken over the [Agent Client Protocol](https://agentclientprotocol.com). Its working directory is the `$HOME` of the machine kolu-server runs on. Its **hands are kolu's own MCP face**: the same tool table [you can point any agent at](/mcp), lifted over every host kolu knows about. So it opens terminals, speaks to the agents in them, reads their screens and kills them — on whichever machine the work belongs on — through exactly the tools documented on the [MCP page](/mcp): nothing special, nothing private. What its face does **not** carry is a way to block: the waits that could sit on an agent forever are not served to it (see [it never waits](#it-never-waits)).
+The Conductor is a conversation with Claude, run by kolu-server (the kolu process your browser talks to) in the `$HOME` of its machine. Its tools are kolu's own [MCP tools](/mcp), across every host: it opens terminals, speaks to their agents, reads their screens and closes them.
 
-A terminal's name on that wire carries its host: `local/3f29…`, `remote:nix@prod/9a1b…`. A live **`hosts`** roster tells the agent which machines are there and which are reachable right now, and it changes while the conversation runs. Add a host mid-turn and its terminals start arriving; take one away and the terminals it was carrying report themselves gone, then the host leaves the roster. Nothing is reopened and nothing is re-taught — the conversation is opened against **one** tool endpoint and keeps exactly that one for its whole life.
+A terminal's name includes its host, such as `local/3f29…` or `remote:nix@prod/9a1b…`. Add a host mid-conversation and its terminals appear. Remove one and its terminals report themselves gone.
 
-<Aside type="note" title="the supervisor lives where you look">
-  There is one conductor, and it runs where kolu-server runs — the machine you point your browser at. The trade is plain: a remote host has **no** conductor of its own, so while the machine running kolu-server is off, nothing is supervising that host. In exchange there is one conversation rather than one per machine, it sees the whole fleet at once, and a question about another host is a question you can ask right here.
-</Aside>
+There is one Conductor, on the machine running kolu-server. While that machine is off, nothing supervises your other hosts.
 
-## It never waits
+## Open it
 
-The first real waterfall ended in the obvious way: the Conductor called a wait on its planner, the wait had no end, and a sentence the human typed in the middle — *we can skip review on this one* — sat marked _queued_ for as long as the planner worked. A coordinator that blocks is a coordinator you cannot reach.
+<Steps>
 
-So the Conductor does not block. It opens the work, says what it has set going and **ends its turn**; kolu starts the next one for it.
+1. Click the **Conductor** tab, the first tab in the chrome bar, marked `◆`. Or press <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd>.
+2. Type what you want done, and press <kbd>Enter</kbd>. For example: `waterfall fix the login error in ~/code/app`.
+3. To get back, click a host tab, or press <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> again to return to the host you came from.
 
-**What wakes it.** Nine things, and the wake says which. **ready** — a member terminal's agent has come up and has not been told anything yet; this is what covers the seconds (or the minutes, behind a `nix develop`) between creating a terminal and the agent in it being there to talk to, so the Conductor creates, ends its turn, and says the brief when the terminal rings ready. It rings the moment kolu reads the agent as [ready](/agent-detection#before-the-first-prompt) — up, its screen settled, never prompted — which kolu knows from the agent's process alone, before the agent has written anything to disk; and in the one case that is not a fresh launch, an agent the Conductor finds already idle in a terminal it has never spoken to (a resumed session), it rings on that. **stopped** — an agent it has already spoken to finished its turn. **asking** — the agent stopped on a question of its own. **gone** — the terminal is not there any more, closed or with its host; it leaves its work. **asleep** — a member terminal was put to sleep, so the agent in it is dead; it rings once and stays in its work, and waking the terminal returns it to the ordinary levels. **exited** — an agent that WAS in a member terminal is gone from the foreground and the terminal is back at its own shell prompt: it crashed, it was quit, it ran out of something, and nothing more is coming from it. **ended** — a terminal the Conductor created with a `run` command ran that command and came back to its shell prompt with no agent ever appearing. **taken over** and **handed back** — [you took one of its terminals over](#who-is-typing), or gave it back; the only two that are about a person rather than an agent, and the only two that say what the Conductor must not do (send that terminal input) rather than what it may. A terminal that belongs to no piece of work never wakes it, and there is **no timer**: nothing wakes the conversation because time passed.
+</Steps>
 
-**Every wait has a way out that rings.** `exited` is there because of a hole that used to swallow whole waterfalls: an agent that came up and then fell over left a terminal that was not `gone` (it is still on its host) and could not be `ended` (an agent HAD been seen in it), so nothing rang and the Conductor sat waiting for a turn that could never end. Each ending now has its word — the agent's program left (`exited`), or none ever came up (`ended`) — and each rings **once**, with the agent going back to work the only thing that re-arms it.
+On a phone, the Conductor is the first entry in the pull-down chrome sheet.
 
-**What `ended` and `exited` cannot see.** kolu reads what a terminal is running and whether an agent is in it; padi exposes no exit status. So a command that fails before anything of its own starts — `omp: command not found`, answered by the shell itself — never shows a foreground to observe and does not ring, and neither word says HOW the thing went: the screen the program left behind does. The limit is real and stated rather than papered over with a timer: a created terminal that has said nothing is one to read the screen of.
+Leaving the Conductor does not close it. When you come back, everything is as you left it, including a half-typed message.
 
-**A wake that cannot be delivered says so.** If kolu cannot wake the conversation — the agent's bring-up is refused, a sign-in is missing — the news is **put back**, not dropped, and one notice row appears in the transcript naming the terminals still waiting and why (one per failure episode, not per retry). The retry is event-driven and has no timer: the next time the conversation falls idle (which includes a respawned agent finishing its bring-up, or a sign-in landing), the next watcher observation, or the end of the next turn you prompt.
+To ask about one terminal, use its tile action **Ask the Conductor about this**.
 
-**One line per wake.** A wake is a machine's message in the transcript — full width on the left, never your bubble and never a "send again" — one line saying who it is about and when, which opens for the rest: each terminal as `host/id`, what it is called, which host it is on, and how it stands. Several terminals can ride one message.
+## Type a message
 
-**News is held while it is busy.** Events that happen during a turn are never injected into it; they are kept, one slot per terminal, newest state only, in the place the first one took — and they go out **together**, as one wake, the moment the turn ends, however it ended, cancelling included. A terminal that goes back to work withdraws its own held slot. What you type is never held behind them: your message goes out as it always did.
+| You type | What happens |
+| --- | --- |
+| text, then <kbd>Enter</kbd> | Sends the message. |
+| <kbd>Shift</kbd> + <kbd>Enter</kbd> | Starts a new line. |
+| `@` | Completes a terminal from any host into a chip. The agent receives its `host/id` and intent. |
+| `/` | Completes one of the agent's own commands. |
+| <kbd>Alt</kbd> + <kbd>Enter</kbd> | Steers the running turn (see below). |
 
-**A restart loses nothing.** The pieces of work are saved — apart from the conversation, so they survive it too; held events are not saved. When kolu-server comes back it looks at each member terminal again, and a state the Conductor had already been told about does not ring a second time.
+When the Conductor puts a choice to you, it arrives as a form: one button per option and a box for your own answer.
 
-## What it is working on
+## Talk to it while it works
 
-kolu stores a **piece of work**: a thing with a name, not a guess about which terminals look related. The Conductor opens one when you ask for something — `work_open`, which states its **title**, the **repo** and the **branch** — and every terminal that joins it does so with a **role**: planner, implementor, or other. The call that creates or adopts a terminal is **refused without a work and a role**, so a member whose part nobody wrote down cannot happen.
+The message box never locks. While a turn is running:
 
-That is the whole of what the Conductor writes, plus a plain **note** it may add to the timeline. Everything else on a work is what **kolu observed**:
+- <kbd>Enter</kbd> queues your message at the agent. It shows as _queued_ and runs when the turn is over. **Stop** cancels the turn, and queued messages still run next.
+- <kbd>Alt</kbd> + <kbd>Enter</kbd> steers: your words go into the running turn, and the Conductor reads them now. The status line shows **↯ Alt+⏎ steers** when you can.
 
-- the **timeline** — append-only, each line saying who it was: you, an agent, CI, or kolu itself. The request that started it; a member's agent coming up, stopping, asking, exiting; a file appearing in that worktree's `.waterfall/`; the PR opening, its checks starting, passing or failing, the merge. The one thing it does not keep for ever is **agent state**: a work holds its latest **30** agent state changes, and older ones fold into one line where they stood — "N earlier agent state changes" — so an agent that stops every minute for a week cannot grow the work without limit. Nothing else folds: every question, answer, file, PR and check event, note, join and leave, take over and hand back, and the ending stay exactly as they happened;
-- the **decisions** — every question put to you *about this work* and the answer you gave: what was asked, the options offered, what you picked and anything you typed, when, and whether you answered from the card or from the chat. The setup answers are decisions like any other — the host, the mode, the harness and model per role, and **what to do when CI goes green** — which is why there is exactly one place that last one is written, and both kolu and the Conductor read it there;
-- the **outcome** — **merged**, **closed** or **abandoned** (every member left and nothing landed) — and, once it ends, the `.waterfall/` files **copied into kolu**, so the plan and the brief outlive the worktree they were written in. kolu keeps the **last 20** finished works, with their files; the 21st falls off and its copies are deleted with it.
-
-A terminal the Conductor **creates** is a member from the moment the call answers. It can adopt one it did not start (`work_adopt`, which it uses when you point it at a terminal) and drop one whose part is done (`work_leave`). A terminal the Conductor **closes** itself (`lifecycle_kill`, say after a merge) leaves in silence — it is never woken about its own close. One that closes any other way leaves too, and that one rings `gone`.
-
-**And the Conductor can read all of it.** The works are a resource of their own — `works`, beside `terminals` and `hosts` — naming every work in progress with its title, repo and branch, its host and mode, where it stands, what to do on green, its members by `host/id` with their roles, the agent kolu last saw in each and **who is driving it** — the Conductor, or you, if you have [taken it over](#who-is-typing) — and any question still open with you; the last few finished works come with their outcomes. The script reads it at the start of every conversation and after a restart, because a conversation's memory is a guess and the resource is the fleet's answer.
-
-**Joining baselines.** A terminal added with `work_adopt` does not ring for the state it was found in — that state is the tool's **answer** instead (the agent in it and how it stands, or that there is no agent, or that it is asleep), so the Conductor is told once, in the turn that asked. The same baselining happens when it **speaks**: saying something to a member withdraws that terminal's held event and re-bases the watch at the state it stands in, so the Conductor is never woken about the agent it has just briefed. Going back to work resets it, so the next stop rings as it always did.
-
-### Who is typing
-
-A terminal the Conductor drives is **read-only to you** until you say otherwise: while a work is in progress in a full or trivial waterfall, each of its member terminals takes no keys, no pasted text, no pasted images and no dropped files from a person. Reading is untouched — scroll, select, copy, search, **Look**, resize — and the tile says why, in place, with one control: **Take over**. The full behaviour on the tile, the dock row and the phone is on [the tile page](/tiles).
-
-**A watch does not lock.** When you ask kolu to keep an eye on a terminal of yours the Conductor is not driving it, so nothing is locked; neither is a work whose mode nobody has answered yet.
-
-**The Conductor is told, and it is a wake like any other.** Taking a terminal over appends **You took over the planner** (or the implementor, whichever it is) to the work's timeline and wakes the conversation with a sentence naming the terminal, its role and the work — *they are typing into it now; do not send it input until it is handed back*. **Hand back** appends the other line and wakes it again to say the terminal is its again, and to read the screen before acting on it: what is on it now may be your work rather than the agent's. Both work while the agent is down, signed out or mid-turn: a person's hand on a keyboard never waits for a conversation to come back.
-
-**It is kolu's state, on the work.** The lock lives in the stored record, so every device sees the same one, it survives a reload and a kolu-server restart, and it ends by itself when the terminal leaves the work or the work ends — there is nothing to unlock afterwards. The programmatic senders — the `kolu` CLI, the [MCP](/mcp) tools, the Conductor itself — are not locked, because the lock is there to stop *accidental* typing, which happens in a browser and nowhere else.
-
-### The card
-
-You can see the work, and on a wide window you are looking at it already. It is **one column in two placements**: on a window wide enough to hold the reading column and it side by side, a **side column** beside the conversation, always on screen; below that width — and on a phone — it is what the status line's **N pieces of work** opens above the line. The same component and the same state: a **Look** you open in one is open in the other, and resizing across the width where the columns fold carries it with you.
-
-**One card per work in progress.** Closed, a card is four things: the **title** and how long the work has been going; **repo · host · mode** on one line (and `PR #n` once there is one); one line saying **where it stands** and for how long — waiting on you in violet, on CI in amber, on the agents in teal, with the live check counts when it is CI ("14 of 23 checks"); and a thin **time bar** split by who the work has been waiting on, in those same three colours, so a work that has spent its afternoon waiting on you looks different at a glance from one that has been working.
-
-Press the head and the card opens:
-
-- the **question** that is waiting for you, if one is — the same form the chat shows, with the same buttons and the same box for an answer of your own. Answering it here is answering it there; a plan is approved from the card or from the chat, and the work records which;
-- **Decisions** — question → answer, newest last, each saying where the answer came from;
-- the **Timeline** — every event with its time, a dot coloured by who it was, and how long that step took; an answer points at the decision it recorded;
-- **Terminals**, by role — the role, how that agent stands and since when, the agent's name, **Look** to read the last lines of its screen right there, and the name itself to go to the tile on its host's tab;
-- **Files** — what is in the worktree's `.waterfall/` now, and the kept copies once the work has ended. A file opens **in place**, rendered: markdown as markdown, images as images, HTML as HTML, through the same viewer the [Code tab](/code-tab) uses, comments on files included. There is no second file viewer in kolu;
-- **Setup** — host, mode, the harness and model each role runs on, and what to do on green, in plain words; it is a reading of the decisions, not a second copy of them;
-- the **pull request** — its number and title, the checks as passed · running · failed, and a link.
-
-Below the works in progress, **Finished** stands collapsed: each one with its outcome, when it ended and its PR, where the time went, the files kolu kept, and the decisions that were taken along the way.
-
-The card is a **reading, not a control** over membership: nothing in it takes a terminal out of a work. The ways out are telling the Conductor to drop one — it has `work_leave` for exactly that — or closing the terminal, which drops it anyway.
-
-**Nothing reads zero.** A conversation with no work has no count on its status line and no control that would open an empty panel; the side column, which stays on screen so the conversation does not jump sideways when the first work appears, says **Nothing in progress.** in one quiet line.
+Steering is offered only when the agent supports it. A steer the agent does not accept is sent as a queued message, so your words are never lost. A message with attachments is always queued. Once one message has been queued in a session, every later one is queued too, until you start a new session.
 
 ## The status line
 
-Directly above the composer, because that is where you look when you are about to type, one line says everything about the conversation's state:
+The line above the message box says what the Conductor is doing:
 
-- whether the Conductor is **working** (visibly moving, what it is doing, and for how long), **asking you**, or **idle**;
-- **N pieces of work · M waiting on you**, when there are any — and a part that would read **zero is simply absent**, the whole line included: no work, no count and no control that would open an empty panel. A **piece of work** is a work kolu is storing and has not finished, so a waterfall on three terminals counts once however its terminals are arranged, and "waiting on you" is how many of them are stopped on a question or a decision of yours. Below the two-column width the line is **pressable** and opens the work column above it; on a wide window that column is already beside you, so the same words are a readout;
-- how many events are **waiting**, when any are;
-- **↯ Alt+⏎ steers**, while a turn is running that it can be steered into. The hint had a row of its own under the composer; a chord that is true only during a running turn belongs on the line that reports the running turn.
+| Part | What it says |
+| --- | --- |
+| state | **working** (on what, and for how long), **asking you**, or **idle** |
+| **N pieces of work · M waiting on you** | what it has in flight, and how many of those are stopped on you. Hidden at zero. On a narrow window, click it to open the work column. |
+| waiting | how many wakes are held until the turn ends |
+| **↯ Alt+⏎ steers** | shown while you can steer |
 
-That line is the only place the state is said. The header's small state chip is gone: one fact, one place. **Stop** stays beside **Send**.
+A **piece of work** is one kolu is storing and has not finished, so a waterfall on three terminals counts once. **M waiting on you** counts those stopped on you.
 
-## Talking while it works
+## What wakes it
 
-<kbd>⏎</kbd> sends as it always did — a plain prompt, which the agent picks up when its turn is over, marked _queued_ until it does. <kbd>Alt+⏎</kbd> **steers**: the words go into the turn that is already running, and the Conductor hears them now.
+The Conductor does not sit waiting on a terminal. It says what it has set going and ends its turn. kolu starts its next turn when one of these happens in a member terminal:
 
-Steering is offered only where the agent's own leg advertises it, and if the agent does not take the message it is sent as a plain prompt — the words are never lost. A message carrying **attachments** is always a plain prompt: the steer carries words only, and silently dropping the files you attached would be worse than arriving a turn later. One limit comes with it, brought over from olai rather than rediscovered: once a message has been queued in a session, that session **queues** everything afterwards, so <kbd>Alt+⏎</kbd> is a plain send until a new session starts.
+| Wake | What happened |
+| --- | --- |
+| `ready` | An agent has started and has not been prompted yet. Also sent for an idle agent the Conductor has never spoken to, such as a resumed session. See [how kolu knows](/agent-detection#before-the-first-prompt). |
+| `stopped` | An agent the Conductor has spoken to finished its turn. |
+| `asking` | The agent stopped to ask a question. |
+| `gone` | The terminal was closed, or its host left. |
+| `asleep` | The terminal was put to sleep. Sent once; the terminal stays in the work. |
+| `exited` | The agent quit or crashed, and the terminal is back at its shell prompt. |
+| `ended` | A `run` command finished and no agent ever appeared. |
+| `taken-over` | You took the terminal over. |
+| `handed-back` | You gave it back. |
 
-The other direction is a tool. The Conductor says something to an agent in a terminal with one call — the terminal and the words — and kolu does whatever that agent needs to receive them, idle or mid-turn. The per-agent knowledge (which keys, how many, in what order) lives with [agent detection](/agent-detection), so the Conductor never has to learn that one CLI needs a second Enter and another does not. An agent kolu cannot speak to is refused with the reason, never guessed at — including one still **starting**, whose screen is still being drawn: the call says so, and the Conductor waits for **ready**. A ready agent, never prompted, is spoken to like any idle one. And the call **says whether it took**: for an agent that was idle, it watches a few seconds for that agent to start working and reports which happened — began working, or did not, in which case the keys were sent and the screen is the thing to read rather than the same words sent again. A ready agent's first prompt answers that the **submit landed** — kolu saw the Enter reach it, which is a take but not yet an answer — and from then the agent reads as [working](/agent-detection#before-the-first-prompt), even though some agents (Oh My Pi) write nothing until that first reply is finished — so a second say while it is still on that reply is a say to a working agent, steered or queued. For one that was already working it reports how the words were delivered, steered or queued, and that taking is not observable from outside. The tool exists because of an Enter that was silently dropped; a say that does not land must not be a silent hang.
+Nothing wakes the Conductor just because time passed, and a terminal that belongs to no piece of work never wakes it.
 
-## The first tab in the chrome bar
+An agent can take seconds or minutes to start. So the Conductor creates a terminal, ends its turn, and sends the brief when the terminal reports `ready`.
 
-The Conductor is a **place** you go, so the chrome bar draws it the way it draws the other places — as a tab. It is the **first** tab in the row, ahead of the [host](/remote-hosts) tabs, with the same shape: the rounded top on the same rail, the same hover, and the same lit belly when it is where you are. What it does not carry is everything that makes a host tab a machine — no connection dot, no host hue (the accent stands in for one), no `+` — and in their place the `◆` mark and the `alpha` tag. It is not a host and kolu does not model it as one; it is the one conversation, and the thing it is about is all of those machines at once.
+A wake shows in the chat as a line starting with **kolu**. Anything that happens during a turn is held, newest state per terminal, and arrives as one wake when the turn ends. Your own messages are never held.
 
-**Exactly one tab looks current.** Selecting the Conductor lights its tab and no host tab is lit while you are in it — you are not on a machine. Which host you came from is still remembered: selecting any host tab leaves the conversation for that machine, and <kbd>⌘⇧O</kbd> (<kbd>Super+Shift+O</kbd> off a Mac) jumps to the Conductor and, pressed again, back to the host tab you were on. Pressing the Conductor's tab while you are already in it does nothing, like any other tab. Which of the two you had open persists the way the active host does, per device.
+What wakes cannot tell it:
 
-**Leaving it does not close it.** The conversation is built once, the first time you go there, and then kept: switching to a host tab hides it rather than throwing it away, so coming back finds exactly what you left — the work card you had opened, each **Look** still open and still showing that terminal's screen, the folds you opened, where you had scrolled to, and a half-typed message still in the box. What it does not do while you are elsewhere is work: a hidden conversation reads no screens, counts no clocks and takes no keystrokes, and an open **⋯** menu closes rather than following you onto the host tab. The same on a phone.
+- A command that fails before anything starts, such as `omp: command not found`, wakes nothing.
+- No wake says whether a program succeeded. The Conductor reads the screen for that.
+- If kolu cannot deliver a wake (the agent will not start, or you are not signed in), it keeps the wake and posts one notice saying why. It tries again when the conversation next goes idle.
 
-The controls that describe a host's canvas — `▦ canvas · ▢ maximized`, the dock toggle and the inspector toggle — are **not drawn** while you are in the Conductor, because there is no canvas on screen for them to describe. The recorder, settings and the command palette stay. Their keyboard shortcuts are unchanged.
+## What it is working on
 
-Its badge is **how many things are waiting on you** — a work stopped on a question or a decision of yours, plus any question the Conductor is asking outside a work — in the needs-you **violet**, and **absent when the answer is none**, whether or not you are in it. It is the one number on the tab: not how much is running, which you can read on the status line, but how much will not move until you say something. Those questions are a [needs-you](/notifications) source like any other, so they chime, raise a system notification and count toward the app badge (which counts the questions themselves, beside every blocked terminal) through the same machinery. A turn merely _ending_ is silent; being asked something is not.
+kolu stores a **piece of work**: a thing with a name, not a guess about which terminals look related. The Conductor opens one with `work_open`, naming its title, repo and branch, and every terminal joins with a **role**: planner, implementor, or other. A create or adopt call is refused without both.
 
-**The view is the chat** — a header, then the conversation in **one reading column**: the transcript, the status line and the composer at the same measure (about 45rem, which is 70 to 90 characters a line at the chat's text size), with your own messages at that column's right edge rather than a screen away from the replies. On a window wide enough for it, the [work column](#the-card) stands beside that column as a second track that is always drawn, so the conversation never slides sideways when the first work appears. No dock, no canvas, no second pane holding a terminal: the terminals are on the host tabs, one keystroke away, and a half-width copy of one here would be a second place to look at the same thing. What the chat does carry is a way to **check on** an agent without leaving it: the card for each terminal the Conductor opened says how that agent is doing, and **Look** shows the last lines of its screen right there (see [the transcript](#the-transcript)). The way to the terminal itself is **open tile** on that same card, which takes you to the terminal's host tab with the tile focused.
+A terminal it creates is a member at once, and it adopts one you point it at. It drops a terminal whose part is done, and one closed any other way leaves with `gone`. The tools are on [the MCP page](/mcp#the-conductors-pieces-of-work).
 
-**How to use it is the third column.** On a window wide enough for all three — the help, the reading column and the work column — a short **help column** stands at the head of the frame: how to ask, how a waterfall is set up, what a piece of work holds and what the card shows you, the chord that steers a running turn, that it wakes itself, and what it looks like when it asks you — a few short bullets under each heading, with keys drawn as keys, an example you can copy, and the words the screen itself uses. Collapse it and it is a thin rail with one way back in, still collapsed on your next visit — and because its column keeps its width either way, collapsing it gives the space back without moving the conversation. Below that width, and on a phone, the same words are what **How to use** in the **⋯** menu opens.
+The `works` resource reads them back, so a fresh conversation picks up work in flight.
 
-**On a phone** the Conductor is the first entry in the pull-down chrome sheet, above the host chips. Tapping it gives the conversation the whole screen under the pull handle, which reads **◆ Conductor** while you are in it — the one place the name is said, so the conversation's header below it carries only the `alpha` tag, the model and the **⋯** menu. The sheet opens from there exactly as it does from a host — the Conductor lit, no host lit — and tapping a host chip takes you back to that machine. The composer is one line that grows as you type, with **Send** beside it and none of the desktop's keyboard hints; a tool card for one of kolu's own calls drops the raw tool name and wraps its title rather than cutting it off; and the inspector toggle is not offered while you are in the Conductor.
+### What a work holds
 
-## The conversation
+| Part | What is in it |
+| --- | --- |
+| Timeline | Every event kolu saw, append-only, each naming who it was: you, an agent, CI or kolu. An agent coming up, stopping or asking, a `.waterfall/` file, the PR, its checks, the merge. |
+| Decisions | Every question put to you about this work: the options, what you picked, and whether you answered from the card or the chat. |
+| Setup | The host, the mode, the harness and model each role runs on, and what to do when CI goes green. |
+| Members | Each terminal by `host/id`, its role, the agent kolu last saw in it, and who is driving it. |
+| Outcome | **merged**, **closed**, or **abandoned** when every member left and nothing landed. The `.waterfall/` files are copied into kolu as it ends. |
 
-### The header
+A work holds its latest **30** agent state changes; older ones fold into one line reading **N earlier agent state changes**. Nothing else folds. kolu keeps the **last 20** finished works with their files.
 
-The agent's name, and then the facts you steer by — but not the state, which lives in [the status line](#the-status-line) above the composer and nowhere else:
+### Who is typing
 
-- **who it is signed in as**, when the agent says — "Claude Max", an API key, a gateway. Silence here is not the same as logged out: an agent that does not report its identity shows nothing, and one that reports it is logged out says so;
-- the **model**, pressable for the session settings;
-- a **context meter**, `148k/1M`. A fraction rather than a percentage, because the window is not a constant — 200k and 1M are both ordinary, and "2%" would read identically in both and mean quite different amounts of work left;
-- a **⋯ menu**, which performs nothing by itself.
+While a work is in progress, each member terminal is read-only to you until you press **Take over** on its tile. Taking over, and handing back, each write a line on the work's timeline and wake the Conductor: it is told to leave that terminal alone, then to read its screen before using it again.
 
-### Session settings
+Both work while the agent is down or mid-turn. The lock lives in the stored work, so every device sees it, and it ends when the terminal leaves the work. [Tiles](/tiles#a-terminal-the-conductor-is-driving) has the rest.
 
-Pressing the model opens the adapter's own settings: the models it offers (with their window sizes), reasoning effort, permission mode, and whatever else it advertises. The controls use the **adapter's** names and values — kolu composes none of them. A change the agent refuses leaves the confirmed value where it was, and says why.
+### The work card
 
-The model you choose **survives a restart**. That is a fix rather than a given: the agent re-asserts its own default over a resumed conversation, so kolu records the switch and re-applies it when the conversation comes back.
+On a wide window the works stand in a column beside the chat. On a narrow window, or a phone, the status line's **N pieces of work** opens the same column above it.
 
-### The ⋯ menu
+Each work is one card: its title and how long it has run, **repo · host · mode**, `PR #n`, where it stands, and a time bar split by who it has waited on. Violet is you, amber is CI, teal is the agents.
 
-Everything kolu can do to the conversation itself, as opposed to the options the agent advertises:
+Press the head and it opens:
 
-- **New session** — a fresh conversation, and an **empty** one. The messages go and the files attached to them are deleted from the machine running kolu; what is left is a blank chat, and the next thing you say teaches the agent its standing prompt again. **The work in flight stays.** A piece of work is kolu's, not the conversation's, so clearing the chat no longer orphans a waterfall halfway through: the cards are still beside you, and the next conversation reads the `works` resource and picks up where the last one left off. There is no undo on the messages, so it asks once before it does it.
-- **Stop**, while a turn is running.
-- **Sign in…**, while the agent is not signed in.
-- **Copy transcript**, always — the conversation as plain text, on the clipboard.
-- the **tool servers** this conversation has, read rather than pressed: `kolu ✓` when the agent has reported the server attached, the agent's own sentence beside the name when it says it is not, and a note that the agent brought its own servers besides. There is no "kolu is missing" row: the fleet endpoint is proved to be answering before the conversation is opened, so an endpoint that is not gets a refusal naming it rather than a chat window that can see nothing. It used to be a strip above every conversation, saying the same thing all day; it is a question you ask now and then, so it is answered behind the one press that promises *there is more here*.
+| Part | What you get |
+| --- | --- |
+| The question waiting for you | The same form the chat shows. Answering it here is answering it there. |
+| Decisions | Question and answer, newest last, each saying where the answer came from. |
+| Timeline | Every event with its time, and how long that step took. |
+| Terminals | By role: how that agent stands, **Look** for its last lines, and the name to go to its tile. |
+| Files | The worktree's `.waterfall/` files and the copies kolu kept, rendered in place by the [Code tab](/code-tab)'s viewer. |
+| Setup | Host, mode, the harness and model per role, and what to do on green. |
+| Pull request | Its number and title, the checks, and a link. |
 
-A conversation kolu could not **resume** after a restart — one that had a turn, which the agent no longer has — is the one case where a `— new session —` rule is drawn across the transcript: the scroll above it is the conversation you were having, and the line says where the agent's memory stops. A new session you ask for yourself leaves no such line, because there is nothing above it to divide from. Nor does a session nobody had typed into yet: the agent keeps nothing for a session until its first message, so after a restart kolu opens a new one in its place without a rule or a notice — nothing was lost.
+Below them, **Finished** stands collapsed, each with its outcome, its PR and the files kolu kept. A conversation with no work shows no count, and the column reads **Nothing in progress.**
 
-### The strip
+## Read the conversation
 
-Above the scroll, and only while something is **out** — a conversation with nothing running has no strip at all, and starts at the top of the column:
+The header shows who the agent is signed in as, the **model**, the context used (as `148k/1M`), and the **⋯** menu. Click the model to change it, or the reasoning effort and permission mode. The model you choose survives a restart.
 
-- **background tasks still running** — a `run_in_background` shell, a monitor, an async subagent — with a live clock. These outlive the turn that started them, which is the whole point of them;
-- **subagents out**, pressable to open their shelf.
+| ⋯ menu item | What it does |
+| --- | --- |
+| **New session** | Starts an empty conversation. The messages and their attached files are deleted. The pieces of work stay, because a work is kolu's rather than the conversation's. It asks first, and there is no undo. |
+| **Sign in…** | Shown while the agent is not signed in. |
+| **Copy transcript** | Copies the whole conversation as plain text. |
+| **How to use** | Opens the help. On a wide window the help is a column beside the chat. |
+| tool servers | `kolu ✓` when kolu's tools are attached, or the agent's reason when they are not. |
 
-### The transcript
+In the transcript:
 
-What you typed sits quoted. What the agent answers is rendered as markdown. Between them:
+- Tool calls between two messages fold into one **Details** line with a count. Running calls, failed calls, questions and your messages always stay outside it.
+- A card for a terminal the Conductor created shows the agent's state, **Look**, and **open tile**, which takes you to the terminal.
+- **Look** shows the last 40 lines of the screen, refreshed about every two seconds while you can see it.
+- A `— new session —` line means kolu could not resume the conversation after a restart. The agent remembers nothing above it.
 
-- a **plan card** when the agent sends one, replaced whole on each update;
-- **tool cards**. Anything kolu cannot name gets a generic card. Anything that is one of kolu's own tools gets a card that knows what it means, and each one that is about a terminal names the **host** it acted on, since an id alone no longer says which machine: `lifecycle_create` shows the terminal's label (or its worktree branch), the directory and the command it started, and — once the call has answered with the terminal it made, not while it is still running — that terminal's host and an **open tile** that takes you to that host's tab with the tile focused; `lifecycle_sendInput` shows the target and what was sent, and `agent_say` the terminal it spoke to and the words; `wait_outputSettled` — the one short wait left — shows how the settle ended and the last lines of the screen folded underneath; `screen_text` shows the snapshot. A call that **failed** says why in one red line under its title — the tool's own sentence, without the code-fence marks or the `surface-mcp:` tag kolu's tool server puts in front of every error — and that line is the only place the error appears: a failed wait or read offers no screen, because there is none, and the folded call under a failed generic card shows what was **asked**, not the answer. A call that is still running carries a clock;
-- **the agent line** on a `lifecycle_create` card that names its terminal: one status line — the agent's state and what it says it is doing, read from the terminal list kolu already keeps for every host, so it costs nothing — and a **Look** button. Look opens the last 40 lines of that terminal's screen as read-only text, read from the terminal's own host and refreshed about every two seconds — only while it is open, on screen, the browser tab is in front, and the Conductor is the view you are on; closed, or left behind on a host tab, nothing is fetched. A read that fails says so rather than showing an empty box, Look stays open across updates to the card and across leaving the conversation and coming back, a terminal that has ended says **terminal gone**, and a sleeping one says **asleep** — neither offers Look, since there is no live screen to read;
-- **file diffs**, trimmed, one box per hunk, click to expand;
-- **asks** — a permission request the agent was not allowed to answer for itself, a question it needs you to settle, a page it needs you to visit — as a form in the flow. Nothing times out. Dismissing one is an answer too: the agent is told you would not say, never handed a choice you did not make. **The form is the question**: the agent's own question tool, which is what puts the form there, draws no card of its own, so a question appears once. **An answered question stays readable**: the card keeps every question with what you said to it on one line (`Mode — trivial`, `Implementor — omp · anthropic/claude-opus-5-5`, the typed "Other" beside the pick it belongs to), and says how it ended — answered, declined, or withdrawn by the agent. A form that carries its own labelled questions leads with them: the sentence some agents send with a form (`Please answer the following questions.`) is the adapter talking about the form, not a question, so it is not printed. A question with nothing to fill in — a permission request, a link — still shows its own words. **Copy transcript** carries the questions and the answers too.
+## When it asks you
 
-The tool calls the Conductor makes between two things said — its own words, a message of yours — fold into one closed **Details** that says how many calls it holds, so the conversation reads as the sentences it is — open it to see the cards. The fold builds **as the calls settle**, so a turn that works for minutes before it says anything shows one **Details** with a growing count and the call in flight, never a wall of finished cards; a fold you open while it works stays open as more calls join it and when the Conductor speaks. Nothing is ever folded across a message of yours. Anything you would miss by having to open it stays out in the flow: a call still running (with its clock — it joins the fold once it settles), a call that failed or was left without an answer, a background task still out, the agent line above, and every question, plan, notice and message of yours. A failure stays news, but the **same failure in a row** is said once: six `screen_text` calls on six sleeping terminals draw as one red line — `screen_text failed 6 times: Terminal is asleep — wake it before reading its screen, …` — that opens to the six cards. **Copy transcript** still copies every call, and pressing a task in the strip opens the fold its row is in.
+A question from the Conductor, or a permission its agent needs, appears as a form in the chat. Nothing times out. Dismissing the form is an answer too: the agent is told you declined.
 
-**Long lists fold.** A list in a reply longer than five items shows its first three and a line reading "and N more"; pressing it opens the rest in place, and that list stays open for the rest of the session (copying the transcript always copies every item).
+The badge on the Conductor tab is how many things are waiting on you: a work stopped on a question or a decision of yours, plus any question asked outside a work. It is violet, and absent at zero. A question chimes, notifies and counts toward the app badge like any [needs-you](/notifications) source, unless the conversation is on screen in a focused window. A turn simply ending makes no sound.
 
-### The composer
+## Attach a file
 
-It never locks, and it is **one line at rest** — it grows with what you type, in every layout, with **Send** (and **Stop**, while a turn runs) beside it. The row of keyboard hints that used to stand under it is gone: the two worth saying are in the placeholder, and the steer chord's hint is on [the status line](#the-status-line) directly above, where the running turn it belongs to is reported.
+Paste an image into the message box, or drop a file onto the chat. A chip shows what is attached, and you can remove it before sending.
 
-`@` completes terminals **from every host** into a chip — the host is shown as you pick, and so is what tells same-named terminals apart (one repo, several branches): the intent you gave it, else the agent in it and its state, else its directory, cut from the left so the part that differs stays in view. The message that goes out carries a structured reference to each one, so the agent gets the terminal's `host/id` and intent rather than a name it has to guess at. `/` completes the agent's own commands. <kbd>⇧⏎</kbd> is a newline, <kbd>⏎</kbd> sends, <kbd>Alt+⏎</kbd> steers into the running turn ([above](#talking-while-it-works)), **Stop** cancels the turn in flight.
+| File | What the agent gets |
+| --- | --- |
+| an image | the image |
+| a text file | its text |
+| anything else | a link to where kolu saved it |
 
-Sending while it works is fine: a plain send goes out immediately and waits **at the agent**, marked _queued_ until it is picked up. Nothing is held on kolu's side, which is also why **Stop** has nothing to throw away — anything queued behind the turn you stopped survives and runs next. A steer is the other choice: it lands **in** the running turn instead of behind it.
+There are two limits: 10 MiB per file and 20 MiB per message. Over either, the message box tells you before anything is sent. An agent that does not accept a kind of file is refused out loud.
 
-A tile action, **Ask the Conductor about this**, opens the conversation with that terminal already mentioned.
+## Sign in
 
-### Attachments
+If the agent is not signed in, the Conductor cannot run a turn. It shows the agent's own ways to sign in.
 
-Paste an image into the composer, or drop a file onto the pane, and it goes up with your message — a chip appears above the box first, so you can see what is attached and take it off again. A screenshot is the obvious case: the agent reads the picture rather than your description of it.
+For Claude, kolu runs Claude's sign-in command, shows its links, and gives you a line to type the code into. The message that was refused is sent again once you are signed in. There is no box for an API key.
 
-What travels depends on what the agent said it could take. An image goes as an image. A text-like file goes as its text, embedded. Anything else goes as a **link to the path** kolu wrote it to, which the agent reads itself — so a 40 MB binary is a filename on the wire, not forty megabytes. An agent that never advertised the kind you attached gets told no, out loud, rather than quietly handed nothing.
+## Run a waterfall
 
-There are two limits — **10 MiB per file, 20 MiB per message** — and crossing either is a sentence in the composer before anything is sent.
+A **waterfall** takes a change from request to merged PR. Ask for one, or ask the Conductor to build something end to end. It has two modes, chosen per waterfall:
 
-A file goes up **as it is attached**, in pieces, and the message that follows carries only its name and where it landed — the bytes never ride the message itself, because one oversized message would take the whole tab's connection down with it. Nothing is kept in the conversation's record either: kolu writes the file into kolu-server's own state directory and remembers where, so the thumbnail stays on screen in the tab that sent it and a conversation reopened tomorrow shows the chip with the file's name and size. A transcript is a thing you scroll through for months, and a base64 screenshot in it is a conversation you cannot load.
+| Mode | What runs |
+| --- | --- |
+| Full | A planner writes a plan, you approve it, an implementor builds it, and the planner reviews the PR. |
+| Trivial | One implementor. No plan, approval, review or brief file. |
 
-## Signing in
+<Steps>
 
-An agent with no credential cannot open a conversation or run a turn, and the protocol has one way of saying so. kolu reads it as its own refusal rather than a generic no, because it is the one refusal with something to do about it: the panel puts the agent's own ways of signing in on screen.
+1. **Setup.** Every time, it asks which host, which agent CLI (the harness) and model run each agent, what to do when CI goes green, and the mode. It skips what your request already says. The questions travel in the call that opens the work, so they arrive as one form.
+2. **Plan** (full only). A planner opens in a fresh worktree, writes `.waterfall/plan.md`, and stops.
+3. **Approve** (full only). The Conductor shows you a summary. You approve, or say what to change.
+4. **Implement.** The implementor opens with the brief in `.waterfall/brief.md` (full), or with your request (trivial). It stops when its PR is open. A doubt it stops on is answered from the plan, the request or the planner; only a decision that is yours comes to you.
+5. **Review** (full only). The planner reviews the PR and the implementor addresses it, until the planner is satisfied. Something you ask for mid-round waits for the next round.
+6. **Finish.** The implementor makes a final refactor pass, then runs CI the way the repo says to run it, fixing it until it is green.
+7. **On green.** The Conductor does what the work's recorded decision says: it merges the PR, or hands it to you.
+8. **Close up.** Once the PR is merged or closed, the Conductor closes the terminals it opened for it.
 
-Claude hands over a command for kolu to run. kolu spawns it in the session's directory, streams its output with the URLs clickable, and gives you one line to type the code into; exit 0 is the whole of success. A message that was refused for want of a signature comes back to the composer and is sent again once you are in.
+</Steps>
 
-There is deliberately **no API-key box**. Where a credential typed into a form would live, how it would be stored and whether it would ever be shown again is a feature with its own argument to make; until it is made, the button is not drawn.
+A path does not choose a host: `~/code/odu` can exist on several machines. So the Conductor always asks which host before it creates a terminal.
 
-## What it knows how to do
+The Conductor never implements anything itself, never starts an agent or opens a PR without your approval, and never closes an implementor before its PR is merged or closed. Its standing instructions are at the top of every new session's transcript.
 
-Every new conversation starts with one standing instruction — visible in the transcript, because the protocol has no system prompt and kolu would rather you could read what your agent was told than not. It says, in short: you are kolu's conductor, and one conversation covers every host; a terminal is named `host/id`; the `hosts` resource is the live roster of machines and it changes under you; **read the `works` resource first**, every conversation and after every restart, because work already in flight is yours to pick up and is not in your memory; open a **piece of work** before you create anything, with its title, repo and branch and its setup questions, and create or adopt each terminal with the **role** it plays, because those calls are refused without them; create a terminal on the host the work is for, and when the human has not said which, ask — the connected hosts as the options — rather than default to your own machine, because a path does not pick a host; **you never wait** — end your turn, and kolu wakes you when a member's agent comes up, stops, asks, is gone, is put to sleep, exits back to its shell prompt, or ended without ever showing an agent, with a sentence on what each of those means; every question **about a piece of work** goes through `work_ask`, so the answer is stored on the work as a decision (a question about no work is this conversation's alone), and what to do on green is read from the work rather than from what you remember agreeing; speak to an agent with one call, let kolu do the keystrokes it needs and read the **answer that says whether it took**, keeping raw typing for a plain shell; the agents' questions come up to you, and you bring the human only the decisions that are theirs; briefs go through files, written by the agents rather than by you, because none of your tools writes a file on another host; and a **sleeping** terminal has no screen to read, so check a terminal's record before reading its screen, skip the sleeping ones and say how many are asleep instead of trying each — and if it reads one anyway, kolu answers that the terminal is **asleep**, never that it is missing, so it reports it as asleep rather than gone.
+## After a restart
 
-**Choices are buttons.** Whenever it puts a choice to you — inside a waterfall or not — the choice arrives as a question form, one option per choice and a box for an answer of your own; its prose explains the choice and the form asks it. It does not end a reply with "Your options: 1, 2, 3" and wait for you to type a number.
+kolu-server restarts when it is upgraded or its service restarts. The conversation comes back with its transcript and its model, and every piece of work comes back too, because a work is stored in its own right rather than inside the conversation.
 
-It also knows **the waterfall** — what it does when you ask for one, or ask it to implement something end to end. A waterfall runs in one of two **modes**, chosen for that waterfall rather than once for the conversation: say which you want in the request, or it asks, two options. **Full** is the list below. **Trivial** is one implementor — no planner, no plan, no approval, no review rounds, and **no brief file**: the Conductor has no tool that writes a file on the host the work is on, so it says the request and the standing rules to the implementor instead. Trivial keeps everything that makes the work land: the refactor pass, the PR, CI once, and what you chose to happen on green.
-
-1. **Setup, every waterfall.** Not once a conversation: every waterfall asks, because the second piece of work is rarely the first one's host, harness, model and on-green answer by default. The questions travel **in the call that opens the work**, so they arrive as one **Conductor asks you** form attached to that work and every answer is stored on it as a decision. It asks which **host** the work runs on — the hosts connected right now, last time's first — unless your request names one; a path does not, because `~/code/odu` can exist on several machines, and nothing is created until the host is known. It asks which **harness** runs the implementor, which **model** that harness runs on — a separate question, not a command line for you to type — what to do when CI goes green (the Conductor merges the PR itself, or hands it to you), and the **mode**, unless your request already said which. A full waterfall asks the same harness and model for the **planner**. The Conductor builds the command line out of the harness and the model you chose; you pick the two, it writes the flags. Every question comes with options and a box beside them for an answer of your own, and last time's answer offered first, so a waterfall that keeps everything is one press per question. Answer from the form in the chat or from the work's card — it is the same question, and the work records which. Outside a waterfall the same holds whenever it is about to open a terminal you have not placed: it asks where, and never assumes the machine kolu-server runs on.
-2. **Plan** (full only). A planner opens on the host you chose, in a fresh worktree. It plans and reviews and never implements; it writes the plan to `.waterfall/plan.md` in that worktree (kept out of git through `.git/info/exclude`) and stops.
-3. **Approve** (full only). The Conductor shows you a short summary and where the full plan is, and asks you — in the same kind of form — to approve it or say what to change, typed in the box beside the two choices; changes go back to the planner until you approve.
-4. **Implement.** In a full waterfall the brief lands in `.waterfall/brief.md`, written by the planner, and the implementor opens as a split of the planner in the same worktree; in a trivial one there is no brief file and the implementor opens in a fresh worktree of its own. Either way the terminal is created **as the work's implementor** — the role is part of the create — with the implementor's command line, and the Conductor **ends its turn**: the agent is not up when the create answers. When that terminal rings **ready**, the Conductor says the brief — its path in a full waterfall, the request and the standing rules themselves in a trivial one — and ends its turn again. It stops when its PR is open. A doubt it stops on is answered from the plan or the request, or by the planner; only a decision that is really yours comes to you.
-5. **Review** (full only). The planner reviews the PR by the repo's own guidelines and posts the review; the implementor addresses it; repeat until the planner is satisfied. Something you ask for mid-round waits for the next round.
-6. **Finish.** The implementor makes one final refactor pass ([the Hickey/Löwy pass](/blog/hickey-lowy/)), then runs CI once, the way the repo's own instructions say to run it, fixing it until green.
-7. **On green**, the Conductor does what the work's recorded decision says: merge the PR, or hand it over to you. How it merges, and what it does when something stands in the way, is its own judgement — and when you tell it what to do with your repository, it does that.
-8. **Close up.** Once the PR is merged or closed, the Conductor closes the terminals it opened for it — the planner and the implementor, or the one implementor — and nothing else.
-
-It never implements anything itself, starts no new agent and opens no new PR without your approval, and never closes an implementor before its PR is merged or closed. It tells you each step in one plain sentence, not in tool names.
-
-It is re-taught on every new session, and it is versioned with the binary — so the law never drifts from the tools it describes.
-
-## When it comes back
-
-kolu-server restarts routinely — an upgrade does it — so a restart is the normal path rather than a crash. The conversation comes back: the session is resumed by its own id, the transcript is what it was, the model you put it on is re-applied, and every **piece of work** comes back with it — its title, its members and their roles, its timeline, its decisions and its setup, because a work is stored in its own right rather than inside the conversation. kolu looks at each member terminal again, so an agent that finished while kolu-server was down still wakes the Conductor, and one it had already been told about does not ring twice. Finished work is there too, the last 20 of it, with the files kolu kept. Held events do not survive; they were never more than news waiting for a turn to end. What else does not come back is anything that was a fact about a subprocess that no longer exists — a turn in flight, a sign-in half done — because a restored one would be a lie with a timestamp on it. A host that was away while kolu-server was down needs nothing either: it rejoins the `hosts` roster when it reconnects, and its terminals flow back into the conversation that is already open.
+An agent that finished while kolu-server was down still wakes the Conductor, and nothing wakes it twice. A running turn and held wakes are lost. While the Conductor is alpha, an upgrade can still start an empty conversation instead (see the note at the top).
 
 ### What a backup of kolu holds
 
-kolu keeps a [rotated ring of snapshots](/troubleshooting#kolu-lost-my-session-or-my-settings-look-wrong) of its own state, and **the pieces of work are in it**. Restoring the server store puts back your preferences, your host pool and the Conductor's works in one move, live and with no restart: the running Conductor is handed the restored set, drops the questions nobody can answer any more, re-publishes the cards and starts watching the members again. Each snapshot row says what it holds, works included — "preferences · 3 hosts · 4 works".
-
-**Two things a work touches are not in a backup, and it is worth knowing before you rely on one.** The **conversation** is not: its other half lives in the agent's own session store, which kolu does not back up, so restoring kolu's transcript or session id alone would show you a conversation the agent does not remember. Nothing you can lose rides on that — the work is what carries the record. The **kept files** are not either: they are copies of worktree files on disk rather than state in the config file, so a restored finished work whose kept files were deleted since reads them as gone, plainly, instead of pretending to hold them.
+kolu's [rotated snapshots](/troubleshooting#kolu-lost-my-session-or-my-settings-look-wrong) include the pieces of work, so restoring the server store puts back your preferences, your host pool and the works at once, live. Two things are not in them: the conversation, whose other half lives in the agent's own session store, and the files a finished work kept, which are copies on disk.
 
 <LinkCard
   title="Agent Fleets"
   href="/agent-fleets"
-  description="The pattern the Conductor is a face for — one driver, many agents, questions routed up."
+  description="The pattern the Conductor runs: one driver, many agents, questions routed up."
 />
 <LinkCard
   title="MCP"
   href="/mcp"
-  description="The tools the Conductor's hands are. The same server you can point any agent at."
+  description="The tools the Conductor uses. The same server you can point any agent at."
 />
 <LinkCard
   title="Add another machine"
   href="/remote-hosts"
-  description="The hosts the one conversation reaches — and what it means that the conductor lives on only one of them."
+  description="The hosts the Conductor reaches."
 />

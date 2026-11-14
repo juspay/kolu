@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting
-description: "Common setup snags: install prompts, notifications, supported agents, updates, and the welcome overlay."
+description: "Fixes for the common snags: install prompts, notifications, supported agents, updates, memory, lost sessions, and the welcome overlay."
 order: 71
 section: Operate
 koluHero:
@@ -13,33 +13,30 @@ import LinkCard from "../../components/docs/LinkCard.astro";
 
 ## I see no one-click Install button
 
-You are probably on plain `http://`: a LAN IP or Tailscale `100.x` address. The
-automatic Install prompt needs HTTPS or loopback/`localhost`; the browser rules
-are in [Install as an App](/install-pwa).
+Open kolu over HTTPS or over `localhost`. The automatic Install prompt needs
+one of the two, and you are probably on plain `http://`, at a LAN IP or a
+Tailscale `100.x` address. For the one-click prompt plus the app badge, use the
+`https://...ts.net` URL from [From another device](/remote-access).
 
-You can still pin manually:
+You can pin manually instead:
 
 - Chrome: menu → Save and share → Create shortcut → Open as window.
 - iOS: Share → Add to Home Screen.
 
-For the one-click prompt plus app badge, open the `https://...ts.net` URL from
-[From another device](/remote-access).
+The browser-by-browser rules are in [Install as an App](/install-pwa).
 
 ## I am not getting desktop notifications
 
-kolu fires a native OS notification when an agent finishes in a terminal you are
-not actively watching. If you are looking at that terminal, the dock surfaces it
-instead and no banner fires. The multi-agent notification flow is part of
-[Power Features](/power-features).
+Check these three, in order:
 
-Past that, check these in order:
-
-1. **Secure context.** Notifications ride a service worker, which needs HTTPS or
-   `localhost`; [From another device](/remote-access) gives kolu a private HTTPS URL.
-2. **Browser permission.** Re-enable notifications from the address-bar lock icon
-   if the browser prompt was dismissed.
-3. **OS permission.** On macOS, the browser and the pinned app can have separate
-   notification entries. Allow the right one and check Focus / Do Not Disturb.
+1. **Secure context.** Notifications ride a service worker, which needs HTTPS
+   or `localhost`. [From another device](/remote-access) gives kolu a private
+   HTTPS URL.
+2. **Browser permission.** Re-enable notifications from the address-bar lock
+   icon if you dismissed the browser prompt.
+3. **OS permission.** On macOS, the browser and the pinned app can have
+   separate notification entries. Allow the right one, and check Focus or Do
+   Not Disturb.
 
 Quick browser check:
 
@@ -49,35 +46,32 @@ navigator.serviceWorker
   .then((r) => r?.showNotification("test"));
 ```
 
-If that banner shows, the OS/browser layer is fine and the "not watching" rule
-above is the likely explanation.
+If that banner shows, the browser and OS layers are fine. kolu fires a native
+notification when an agent finishes in a terminal you are not watching. If you
+are looking at that terminal, the dock surfaces it and no banner fires. See
+[Power Features](/power-features) for the multi-agent flow.
 
 ## Can I use it without Tailscale?
 
-Yes. Locally over `localhost`, everything works, including one-click install,
-because loopback is a secure-context exemption. Tailscale matters when you want
-to reach kolu from another device and keep the install/badge/notification path;
-see [From another device](/remote-access).
+Yes. Over `localhost` everything works, including one-click install, because
+loopback is a secure-context exemption. Tailscale matters when you want to
+reach kolu from another device and keep install, badge and notifications; see
+[From another device](/remote-access).
 
 ## Which agents does kolu support?
 
 Run any agent. The terminal is the interface, so `aider`, `gemini`, or whatever
 ships next week works the moment you run it.
 
-Seven agents get first-class state today: `claude`, `codex`, `opencode`,
-`grok` (Grok Build), `pi`, `xyne`, and `omp` (Oh My Pi). For these, kolu reads
-live agent state into the dock (thinking · tools · waiting · **awaiting you**
-— where the agent's own store carries a signal for it, e.g. Grok's
-`ask_user_question` prompts or Oh My Pi's approval / `ask` dialogs, which kolu
-reads off the rendered screen; pi's gates live in its TUI, so its dock row
-shows the other three). Xyne's on-disk transcript carries no live phase, so a
-Xyne tile lights up with its badge, session title, and last-used model, but
-stays in the plain waiting state. All seven can also export the session as a
-self-contained HTML chat log or full transcript. Other agents still run in
-tiles; they just do not light up the dock.
+Seven get first-class state in the dock: `claude`, `codex`, `opencode`, `grok`
+(Grok Build), `pi`, `xyne`, and `omp` (Oh My Pi). All seven can also export the
+session as a self-contained HTML chat log or full transcript. Other agents run
+in tiles; they just do not light up the dock.
 
-For launching the first one, see [First Five Minutes](/first-five-minutes).
-For running many and exporting transcripts, see [Power Features](/power-features).
+What each agent's row can show, and how kolu reads it, is in [Agent
+detection](/agent-detection). For launching the first one, see [First Five
+Minutes](/first-five-minutes). For running many and exporting transcripts, see
+[Power Features](/power-features).
 
 ## `xyne` runs but no Xyne badge lights up?
 
@@ -85,13 +79,13 @@ Three checks, in order:
 
 1. **A session must exist on disk.** Say at least one thing to Xyne, then look
    under `~/.xyne/agent/sessions/` for a directory named after your working
-   directory with `/` folded to `-` (e.g. `/home/me/proj` → `-home-me-proj`),
-   containing a `<timestamp>_<uuid>.jsonl` transcript. No file, no badge.
-2. **Xyne must be the terminal's foreground process** (or be named by the
-   shell's OSC 633;E preexec hint). If it's running as a background job or
-   inside another TUI, detection stays off.
-3. **kolu only scans `~/.xyne`.** If you point Xyne's home elsewhere through a
-   wrapper, detection can't follow it. Tests and development overrides use
+   directory with `/` folded to `-` (`/home/me/proj` becomes `-home-me-proj`),
+   holding a `<timestamp>_<uuid>.jsonl` transcript. No file, no badge.
+2. **Xyne must be the terminal's foreground process**, or be named by the
+   shell's OSC 633;E preexec hint. Running as a background job, or inside
+   another TUI, keeps detection off.
+3. **kolu only scans `~/.xyne`.** Point Xyne's home elsewhere through a wrapper
+   and detection cannot follow it. Tests and development overrides use
    `KOLU_XYNE_DIR`, which mirrors the same tree shape.
 
 ## How do I update kolu?
@@ -102,122 +96,113 @@ Run the same command again:
 nix --refresh run github:juspay/kolu -- web
 ```
 
-The `--refresh` flag busts Nix's flake cache so you pull the latest commit; it is
-the same command from [Quickstart](/quickstart).
+The `--refresh` flag busts Nix's flake cache so you pull the latest commit. It
+is the same command as in [Quickstart](/quickstart).
 
-A release that **changes the protocol** the long-lived daemons speak is a **flag
-day**, and kolu handles it for you: the daemons still running from before are
-restarted or taken over on their own — on your machine and on each remote host,
-over ssh — with nothing to run by hand. Live shells end when that happens; your
-[session](/sessions) is restored from disk and agents resume on their prior
-conversation. A remote machine kolu cannot settle this way shows **"This host
-runs a kolu from before the protocol change"** instead of connecting: update
-kolu on that machine (or stop its padi), then reconnect.
+A release that changes the protocol the long-lived daemons speak is a flag day,
+and kolu handles it for you. Daemons running from before are restarted or taken
+over on their own, on your machine and on each remote host over ssh. Live
+shells end when that happens; your [session](/sessions) is restored from disk
+and agents resume their prior conversation.
 
-Going *backwards* — to an older release — is the one direction kolu cannot do
-for you, because the takeover code lives only in the newer build. Stop the
-daemons by hand first: [Operations → Roll back to an older
+A remote machine kolu cannot settle this way shows **"This host runs a kolu
+from before the protocol change"** instead of connecting. Update kolu there, or
+stop its padi, then reconnect.
+
+Going backwards, to an older release, is the one direction kolu cannot do for
+you. Stop the daemons by hand first, with [Operations → Roll back to an older
 release](/operations#roll-back-to-an-older-release).
 
 ## I closed the welcome. How do I get it back?
 
-Open the palette with <kbd>Cmd/Super</kbd> + <kbd>K</kbd> and run **Tutorial**
+Open the palette with <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd> and run **Tutorial**
 (alias: "Welcome"). It reopens the welcome overlay while you are working. The
-same palette opens the first terminal flow in
-[First Five Minutes](/first-five-minutes).
+same palette opens the first terminal flow in [First Five
+Minutes](/first-five-minutes).
 
 ## kolu lost my session (or my settings look wrong)
 
-kolu keeps a short history of its own state: at every boot — and once a day
-while running — the server's config store and each host's padi session file are
-copied into a rotated `backups/` ring beside the file (ten deep, unchanged
-files skipped). **Start fresh** on the restore card copies the session file too,
-before it discards anything, so a session thrown away on purpose comes back the
-same way one lost to a bug does. If a bad write ever eats your saved session or
-settings, or you discarded one you wanted, open
-the palette with <kbd>Cmd/Super</kbd> + <kbd>K</kbd> → **Debug → Restore state
-from backup**, pick the store — the server's own, or any host's padi — and pick
-a snapshot. Each row says what it holds ("14 terminals", "preferences · 3
-hosts · 4 works"), so the good snapshot is easy to spot even when the newest
-ones carry the corruption. Restoring a padi snapshot re-spawns its terminals
-beside your current ones (agents resumed, nothing killed); restoring the server
-store applies live with no restart — your preferences, your host pool and [the
-Conductor](/conductor)'s pieces of work all come back at once, and the running
-Conductor picks the restored works up rather than writing over them. Every
-restore snapshots the current state first, so a restore is itself undoable.
+Restore from a backup: open the palette with <kbd>Cmd</kbd>/<kbd>Super</kbd> +
+<kbd>K</kbd>, go to **Debug → Restore state from backup**, pick the store (the
+server's own, or any host's padi), and pick a snapshot. Each row says what it
+holds ("14 terminals", "preferences · 3 hosts · 4 works"), so the good snapshot
+is easy to spot even when the newest ones carry the corruption.
 
-**What a backup does not hold**, so you know before you lean on one: the
-Conductor's **conversation** (its other half lives in the agent's own session
-store, which kolu does not back up — a restored transcript would be a chat the
-agent does not remember) and the **files a finished work kept**, which are
-copies on disk rather than state in the config file. A restored finished work
-whose kept files were deleted since shows them as gone.
+kolu keeps a short history of its own state. At every boot, and once a day
+while running, the server's config store and each host's padi session file are
+copied into a rotated `backups/` ring beside the file, ten deep. **Start
+fresh** on the restore card copies the session file too before discarding
+anything, so a session thrown away on purpose comes back the same way.
 
-If a snapshot cannot be taken — a full disk, a state directory gone read-only —
-**Start fresh** refuses rather than discarding a session it could not copy
-first. Fix what is wrong with the disk and try again; the session is still
-there.
+Restoring a padi snapshot re-spawns its terminals beside your current ones,
+agents resumed and nothing killed. Restoring the server store applies live,
+with no restart. Your preferences, your host pool and [the
+Conductor](/conductor#what-a-backup-of-kolu-holds)'s pieces of work come back
+at once, and the running Conductor takes the restored works rather than writing
+over them. Every restore snapshots the current state first, so a restore is
+itself undoable.
+
+A backup does not hold two things. The Conductor's **conversation** is not in
+it: its other half lives in the agent's own session store, which kolu does not
+back up. The **files a finished work kept** are not either, because they are
+copies on disk rather than state in the config file, so a restored work whose
+kept files have been deleted shows them as gone.
+
+If a snapshot cannot be taken, because the disk is full or a state directory
+has gone read-only, **Start fresh** refuses rather than discarding a session it
+could not copy first. Fix the disk and try again; the session is still there.
 
 ## Something looks stuck, and I want to report it
 
-Open the palette with <kbd>Cmd/Super</kbd> + <kbd>K</kbd> → **Debug → Diagnostic
-info** and press **Copy diagnostics** (the same button lives on any host tab's
-status popover, behind its connection dot). It copies a plain-text block naming:
+Open the palette with <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd> → **Debug →
+Diagnostic info** and click **Copy diagnostics**, then paste the block into
+your issue. The same button lives on any host tab's status popover, behind its
+connection dot.
 
-- **every connection attempt this tab has made** — when each started, whether it
-  ever came up, when it ended and with what close code. An attempt that failed
-  *before* it was established is recorded here and nowhere else: it never reaches
-  your machine, so it is absent from the server's log too;
-- **every live subscription** — what it is, when it opened, when it last heard
-  from your machine, how many updates it has received and how many times it has
-  reconnected. One marked **parked** last heard something older than the
-  connection it is riding on, which is the fingerprint of a tab showing stale
-  state over a connection that reports itself healthy;
-- **every host** as this tab currently believes it, with when that belief last
-  changed;
-- the build this tab is running, the build it is talking to, and the watchdog's
-  last connection check.
+The block names:
 
-The block is read entirely from what the tab already holds — it asks your machine
-nothing — so it still tells the truth when the connection is the thing that is
-wrong. Paste it into your issue. The **Copy JSON** button beside it is the other
-dump: the full per-terminal render state, for a rendering or memory problem
-rather than a connection one.
+- **every connection attempt this tab has made**: when it started, whether it
+  came up, when it ended and with what close code. An attempt that failed
+  before it was established is recorded here and nowhere else;
+- **every live subscription**: what it is, when it opened, when it last heard
+  from your machine, its update and reconnect counts. One marked **parked**
+  last heard something older than the connection it rides on, the fingerprint
+  of a tab showing stale state;
+- **every host** as this tab believes it, with when that belief last changed;
+- the build this tab runs, the build it talks to, and the watchdog's last
+  connection check.
+
+The block is read from what the tab already holds, so it tells the truth even
+when the connection is what is wrong. **Copy JSON** beside it dumps the full
+per-terminal render state, for a rendering or memory problem instead.
 
 ## kolu is using a lot of memory
 
-kolu runs entirely in your browser tab, and its memory grows with two things: how
-many terminals the host you're viewing has open, and how many hosts you are connected
-to. The terminals on the host you're looking at each keep their own scroll-back
-history in the browser, and **every connected host keeps its own per-host state
-warm** — its terminal list, sessions, and the view you last had — so switching back
-is instant. Two machines with a dozen busy terminals between them is a lot of state in
-one tab. That is expected, not a leak.
+Work through these three, in order:
 
-If it climbs higher than feels right, check these in order:
-
-1. **Renderer.** In Settings, the **Renderer** control has three modes — **Auto**,
-   **WebGL**, and **DOM**. Keep it on **Auto** (the default): Auto draws
-   recently-active tiles on the GPU and the rest with the lighter DOM renderer.
-   **DOM** uses the least GPU but noticeably more system RAM; **WebGL** forces every
-   tile onto the GPU and can thrash once you pass ~16 terminals. If you switched it
-   while debugging something, switch it back to Auto.
-2. **Close or sleep what you are done with.** A terminal you will not return to can
-   be closed, or put to **sleep** (the ☾ button) to release its shell and GPU
-   context while the tile stays on the canvas — see
-   [Sessions, Sleep & Wake](/sessions). Disconnecting a
-   [remote host](/remote-hosts) you are not using frees all of its terminals at once.
+1. **Renderer.** In Settings, keep the **Renderer** control on **Auto** (the
+   default). Auto draws recently-active tiles on the GPU and the rest with the
+   lighter DOM renderer. **DOM** uses the least GPU but noticeably more system
+   RAM. **WebGL** forces every tile onto the GPU and can thrash past about 16
+   terminals.
+2. **Close or sleep what you are done with.** A terminal you will not return to
+   can be closed, or put to **sleep** (the ☾ button) to release its shell and
+   GPU context while the tile stays on the canvas; see [Sessions, Sleep &
+   Wake](/sessions). Disconnecting a [remote host](/remote-hosts) frees all of
+   its terminals at once.
 3. **Reload the tab.** Memory freed by closing terminals or hosts is reclaimed
-   immediately on a reload, and your terminals survive it — they live in the kaval
-   daemon, not the tab, so nothing is lost.
+   immediately on a reload, and your terminals survive it: they live in the
+   kaval daemon, not the tab.
+
+Some growth is expected. Every terminal on the host you are viewing keeps its
+scroll-back in the tab, and every connected host keeps its own state warm so
+switching back is instant.
 
 The chrome bar shows a live memory figure for each process (server · client ·
-kaval), so you can watch which one is climbing; **Debug → Diagnostic info** in the
-palette has the per-terminal detail.
-
-If the **server or kaval** figure keeps growing rather than the browser, a
-home-manager deployment can write heap snapshots and periodic process stats.
-See [Deployment → Capture memory
+kaval), so you can watch which one is climbing. **Debug → Diagnostic info** in
+the palette has the per-terminal detail. If the server or kaval figure keeps
+growing rather than the browser, a home-manager deployment can write heap
+snapshots and periodic process stats: see [Deployment → Capture memory
 diagnostics](/deployment#capture-memory-diagnostics).
 
 ## Still stuck?

@@ -97,7 +97,7 @@ export const LOCK_NUDGE_WORDS =
  *  yet) never left their hands, and a terminal in no work at all was never
  *  the Conductor's.
  *
- *  Here rather than beside the guard that calls it (`workLock.ts`, which
+ *  Here rather than beside the guard that calls it (`personInput.ts`, which
  *  reaches the wire for the active host) so the rule is statable — and
  *  tested — without a browser. `undefined` is the ordinary case: a terminal
  *  the membership index does not name at all. */

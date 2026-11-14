@@ -41,7 +41,8 @@ Feature: The Conductor reads as a conversation
     #
     # The marker is COMPUTED by the shell so the command line's echo cannot
     # satisfy the Look: only the terminal's own screen can.
-    When I create a terminal
+    When I leave the conductor for the host tab
+    And I create a terminal
     And I run "echo kolu-watch-$((6*7))"
     And a Claude Code session is mocked with state "thinking"
     And I ask the conductor to watch the terminal

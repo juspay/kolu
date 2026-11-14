@@ -8,21 +8,35 @@ section: Basics · Reference
 import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 
-The shell delivered *around* a `@kolu/surface` app — the static, installable
-layer for apps you run against your own server (kolu, [drishti](https://github.com/srid/drishti)). Surface is the
-live wire; surface-app is the shell served fresh around it. Exports are grouped
-by subpath.
+The shell around a `@kolu/surface` app: the static, installable layer for apps
+you run against your own server (kolu, [drishti](https://github.com/srid/drishti)).
+Surface is the live wire; surface-app is the shell served fresh around it.
+Exports are grouped by subpath.
 
-## The whole listener, in one call
+## The listener
 
-`serveSurfaceApp` (`@kolu/surface-app/serve`) is the turnkey seam: the shell over
-HTTP and the surface over one WebSocket, in the one correct order — **origin gate
-→ upgrade → stale-tab check → heartbeat enrolment → serve**. It owns the
-`http.Server` (so the `upgrade` event stays yours), mounts `surfaceAppLayer`
-alongside your own routes, stands up the `ws` server, binds, and registers its
-whole teardown on the enclosing `Scope`. `ws` and `@effect/platform-node` are
-**peer** dependencies of the package — an app serving on Node already declares
-both, and a browser-only consumer of `./solid` never pulls them in.
+`serveSurfaceApp` serves the shell over HTTP and the surface over one WebSocket, from one call. The rest of this group is what it hands your app: the connection record, the event union, the upgrade-header allowlist, and the two constants both legs read.
+
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`serveSurfaceApp(opts)`](#servesurfaceappopts) | `/serve` | The whole listener: shell, socket, gates, heartbeat, bind, teardown. |
+| [`SurfaceAppListenFailed`](#surfaceapplistenfailed) | `/serve` | The one failure it reports, `cause` intact. |
+| [`SurfaceAppConnection`](#surfaceappconnection) | `/serve` | One accepted connection, and the handle that can end it. |
+| [`SurfaceAppEvent`](#surfaceappevent) | `/serve` | The tagged union `onEvent` narrates. |
+| [`SurfaceAppHttpMiddleware`](#surfaceapphttpmiddleware) | `/serve` | The shape `middleware` takes. |
+| [`reportSurfaceAppEvent(event)`](#reportsurfaceappeventevent) | `/serve` | The default narration policy, for an `onEvent` to delegate to. |
+| [`checkUpgradeHeaders(names)`](#checkupgradeheadersnames) | `/upgrade-headers` (also re-exported from `/serve`) | The allowlist's grammar, for an app that assembles its list. |
+| [`UpgradeHeadersSource<H>`](#upgradeheaderssourceh) | `/upgrade-headers` (also re-exported from `/serve`) | How a listener obtains its list. |
+| [`pickUpgradeHeaders(request, names)`](#pickupgradeheadersrequest-names) | `/upgrade-headers` | The read half, for a hand-built listener. |
+| [`SURFACE_WS_PATH`](#surface_ws_path) | `.` | `/rpc/ws`, the one path a surface speaks on. |
+| [`surfaceWsUrl(httpBaseUrl)`](#surfacewsurlhttpbaseurl) | `.` | The dial URL from the http(s) base. |
+| [`thrownText(error)`](#throwntexterror) | `.` | An uncaught throw, printed for a bug report. |
+
+The groups below are the pieces `serveSurfaceApp` composes. Reach for them directly when a listener needs something this call does not take: drishti dispatches per host on `?host=`, picking which runtime serves a socket. kolu and this package's example both ride the primitive.
+
+### `serveSurfaceApp(opts)`
+
+`serveSurfaceApp` (`@kolu/surface-app/serve`) is the turnkey seam. It runs the shell over HTTP and the surface over one WebSocket, in one order: origin gate, upgrade, stale-tab check, heartbeat enrolment, serve.
 
 ```ts
 const url = yield* serveSurfaceApp({
@@ -41,72 +55,53 @@ const url = yield* serveSurfaceApp({
 });
 ```
 
-It returns the URL **actually** bound (so `port: 0` reports the port the OS
-gave), and fails with the typed `SurfaceAppListenFailed`, which carries the
-`cause` verbatim — a consumer's port policy reads `cause.code === "EADDRINUSE"`
-rather than matching a message string. The surface runtime's own lifetime is
-**not** owned here: pass `{ group, handlers }` and keep `close`/`done` at the
-composition root that built them.
+- It owns the `http.Server`, so the `upgrade` event stays yours.
+- It mounts `surfaceAppLayer` alongside your own routes, stands up the `ws` server, binds, and registers its whole teardown on the enclosing `Scope`.
+- `ws` and `@effect/platform-node` are peer dependencies of the package. An app serving on Node already declares both, and a browser-only consumer of `./solid` never pulls them in.
+- It returns the URL actually bound, so `port: 0` reports the port the OS gave.
+- It fails with the typed [`SurfaceAppListenFailed`](#surfaceapplistenfailed).
+- The surface runtime's own lifetime is not owned here. Pass `{ group, handlers }` and keep `close` and `done` at the composition root that built them.
+- `clientDist` is optional, and its absence is the dev shape. No bundle means no static route at all, so an unmatched path 404s through the router.
+- The `manifest` is still served without a bundle, because a dev proxy forwards `/manifest.webmanifest` to a server with no built client. The two mount independently.
 
-The generation is [`ServedGenerationSource`](/surface/ref-surface#per-face-expose-kolusurfaceexpose)
-— `{ group, handlers, expose? }` is the generation written at the call, and
-`{ live: () => ({ group, handlers, expose? }) }` is re-read at each accept, as
-a pair. A socket accepted after an
-[`implementRootedSurfaces`](/surface/ref-surface#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces)
-mount is therefore indistinguishable from one accepted on a boot that already
-had that sibling. A connection accepted *before* the roster moved keeps the
-generation it was built over until the client [redials](#a-roster-change-follows-in-place--connredialsurfaces).
-Existing callers that pass values do not change. `serveOverUnixSocket` takes
-the same source.
+#### The generation it serves
 
-`clientDist` is optional, and its absence is the **dev** shape: no bundle means
-no static route at all — an unmatched path 404s through the router — while the
-`manifest` is still served, because a dev proxy forwards `/manifest.webmanifest`
-to a server with no built client. The two mount independently.
+The generation is [`ServedGenerationSource`](/surface/ref-surface#per-face-expose-kolusurfaceexpose). `{ group, handlers, expose? }` is the generation written at the call, and `{ live: () => ({ group, handlers, expose? }) }` is re-read at each accept, as a pair.
 
-Closing the scope **drains before it drops**, in this order: new upgrades are
-refused, every connection's serving stack is closed and awaited (that is what
-releases its RPC fibers and every in-flight subscription it opened), the raw
-sockets are terminated, and the listening socket is closed **last**. So when the
-finalizer resolves, nothing this listener started is still running.
+- A socket accepted after an [`implementRootedSurfaces`](/surface/ref-surface#implementrootedsurfacescore-base-deps) mount is indistinguishable from one accepted on a boot that already had that sibling.
+- A connection accepted before the roster moved keeps the generation it was built over until the client [redials](#connredialsurfaces).
+- `serveOverUnixSocket` takes the same source.
 
-<Aside type="caution" title="The listening socket closes last, deliberately">
-  Asking the server to close while a socket is still open is what made this hang
-  under **Bun**: its `close` callback never fires, so the finalizer never
-  settles and a `SIGINT`'d process never exits. Node tolerates either order, so
-  nothing upstream catches it. Refusing new upgrades is therefore the listener's
-  own job (a `draining` flag), not a side effect of closing early.
-</Aside>
+#### `expose`
 
-<Aside type="caution" title="The inbound frame cap is not a knob">
-  `serveSurfaceApp` sets `ws`'s `maxPayload` to `RPC_MAX_FRAME_BYTES` — the
-  framework's published byte budget, the one `exceedsFrameLimit` publishes to
-  senders — and offers no option to move it. See
-  [`@kolu/surface/frame-limit`](/surface/ref-surface#the-wires-frame-cap-kolusurfaceframe-limit)
-  for why a transport cap
-  that disagrees with that budget breaks the promise in one direction (an app
-  that hand-rolled 8 MiB killed a 10 MiB frame the framework said it would carry)
-  or the wire in the other.
-</Aside>
+`expose` takes the same `ExposeMap` the MCP adapter takes and applies it to the websocket alone. A verb can then be reachable over a trusted unix socket and refused to browsers, without the app keeping a second write path beside the surface. Omit it and the socket serves the whole surface.
 
-The path is fixed at `SURFACE_WS_PATH` (`/rpc/ws`); any other upgrade target is
-destroyed. Both legs read that one constant, so the dial URL and the upgrade
-handler cannot drift.
+The shape, the refusal (`SurfaceMemberNotExposed`), the reserved members it can never gate, and the bind-time validation are all [`@kolu/surface/expose`](/surface/ref-surface#per-face-expose-kolusurfaceexpose)'s.
+
+#### The inbound frame cap
+
+`serveSurfaceApp` sets `ws`'s `maxPayload` to `RPC_MAX_FRAME_BYTES`, the framework's published byte budget, and offers no option to move it. That is the budget `exceedsFrameLimit` publishes to senders. A transport cap that disagrees with it breaks the promise in one direction, or the wire in the other. See [`@kolu/surface/frame-limit`](/surface/ref-surface#the-wires-frame-cap-kolusurfaceframe-limit).
+
+#### Closing the scope
+
+Closing the scope drains before it drops, in this order:
+
+1. New upgrades are refused.
+2. Every connection's serving stack is closed and awaited. That is what releases its RPC fibers and every in-flight subscription it opened.
+3. The raw sockets are terminated.
+4. The listening socket is closed last.
+
+When the finalizer resolves, nothing this listener started is still running.
+
+- The listening socket closes last deliberately. Under Bun, closing the server while a socket is still open means its `close` callback never fires, so the finalizer never settles and a `SIGINT`ed process never exits.
+- Node tolerates either order, so nothing upstream catches that.
+- Refusing new upgrades is therefore the listener's own job (a `draining` flag), not a side effect of closing early.
 
 ### The upgrade's headers — `upgradeHeaders`
 
-A live wire is one websocket, so its one request is the upgrade. A header a
-reverse proxy stamps there (`Tailscale-User-Login`, `X-Forwarded-For`) is
-therefore the only per-**connection** claim about who is calling that the wire
-can carry, and `serveSurfaceApp` — which owns the upgrade — is the only thing on
-this path that can hand one on. (A hand-built listener on
-[`acceptSurfaceSocket`](#accepting-a-browser-socket) stands in its own `upgrade` handler
-holding the request, so it reads what it needs directly; this option has nothing
-to offer it. Same split as `expose`.)
+A live wire is one websocket, so its one request is the upgrade. A header a reverse proxy stamps there (`Tailscale-User-Login`, `X-Forwarded-For`) is the only per-connection claim about who is calling that the wire can carry, and `serveSurfaceApp` owns the upgrade.
 
-`upgradeHeaders` names which ones. Each accepted connection carries those values
-on `SurfaceAppConnection.headers`, keyed by the **spelling used here**, and a
-`services` layer reads them per connection:
+`upgradeHeaders` names which headers to keep. Each accepted connection carries those values on `SurfaceAppConnection.headers`, keyed by the spelling used here, and a `services` layer reads them per connection:
 
 ```ts
 const url = yield* serveSurfaceApp({
@@ -122,170 +117,72 @@ const url = yield* serveSurfaceApp({
 
 | Fact | Shape | Notes |
 | --- | --- | --- |
-| `upgradeHeaders` | `UpgradeHeadersSource<H>` — `ReadonlyArray<H>` \| `() => ReadonlyArray<H>` | the allowlist. **Empty by default** — a header nobody named is not available at all. An array is read once at the bind; a thunk is re-read at each accept |
-| `connection.headers` | `Readonly<Partial<Record<H, string>>>` | the named headers this upgrade carried. Matched case-insensitively against the wire; keyed by the spelling in `upgradeHeaders` |
-| `connection.remoteAddress` | `string \| undefined` | the **direct** TCP peer — the proxy itself, when there is one. Never a guess |
-| `services` | `(connection: SurfaceAppConnection<H>) => Layer.Layer<Svc>` | the per-connection `Layer` those facts are read into. Effect's socket-server protocol forwards no per-request context, so a connection-scoped fact is **provided**, never carried on the request |
+| `upgradeHeaders` | `UpgradeHeadersSource<H>` — `ReadonlyArray<H>` \| `() => ReadonlyArray<H>` | The allowlist, empty by default. An array is read once at the bind; a thunk is re-read at each accept |
+| `connection.headers` | `Readonly<Partial<Record<H, string>>>` | The named headers this upgrade carried. Matched case-insensitively against the wire, keyed by the spelling in `upgradeHeaders` |
+| `connection.remoteAddress` | `string \| undefined` | The direct TCP peer, which is the proxy itself when there is one. Never a guess |
+| `services` | `(connection: SurfaceAppConnection<H>) => Layer.Layer<Svc>` | The per-connection `Layer` those facts are read into |
 
-`H` is inferred from `upgradeHeaders` — the names are the keys, so
-`connection.headers["X-Forwarded-For"]` does not compile when the allowlist said
-`"x-forwarded-for"`. That is deliberate: a header's absence is a load-bearing
-answer here, and an open index would hand a misspelling the same honest-looking
-`undefined` a real absence has.
+- A header nobody named is not available at all.
+- Effect's socket-server protocol forwards no per-request context, so a connection-scoped fact is provided through `services`, never carried on the request.
+- `H` is inferred from `upgradeHeaders`, so `connection.headers["X-Forwarded-For"]` does not compile when the allowlist said `"x-forwarded-for"`. An open index would hand a misspelling the same `undefined` a real absence has.
+- A named header the request did not carry is absent from the record, so `undefined` ("not sent") and `""` ("sent empty") stay different facts.
+- A repeated header arrives folded into one comma-joined string, with the separator node itself uses (`", "`). It is a string, never an array. This seam reports that string; it does not join.
+- `set-cookie` is refused at the allowlist rather than folded into a string nothing could split back apart (RFC 6265 §5.2). It is node's one array-shaped exception, and the one header whose values carry commas of their own. An array reaching this seam is that same defect, and is refused rather than joined.
 
-A named header the request did not carry is **absent** from the record, so
-`undefined` ("not sent") and `""` ("sent empty") stay different facts — which is
-what a consumer deciding whether to trust a proxy claim needs. A repeated header
-arrives folded into one comma-joined string, with the separator node itself uses
-(`", "` — and it is a string, never an array). This seam reports that string; it
-does not join. `set-cookie` — node's one array-shaped exception, and the one
-header whose values carry commas of their own — is **refused at the allowlist**
-rather than folded into a string nothing could split back apart (RFC 6265 §5.2).
-An array reaching this seam is that same defect and is refused, not joined.
+#### What the allowlist refuses
 
-<Aside type="caution" title="An allowlist, because the alternative leaks">
-  The connection used to carry the raw `IncomingMessage`, which is the whole
-  header bag — `Cookie` and `Authorization` included. The allowlist is not a
-  filter over something a `services` layer could still reach: it **is** the
-  access, so the leak has nowhere to be expressed. Naming a header is the app
-  saying it trusts the proxy that writes it, and that is a claim only the app can
-  make. A name outside HTTP's field-name grammar (node's own
-  `validateHeaderName`), or one wire header named **twice** (`X-Forwarded-For`
-  beside `x-forwarded-for`, which would file one value under two keys), is a
-  **defect**: for a fixed array the effect raises it when it runs, before anything
-  binds, so no listener is left behind — deliberately not a
-  `SurfaceAppListenFailed`, which a port-retry policy would loop on forever
-  against something no port can fix.
-</Aside>
+The allowlist is the access, not a filter over a header bag a `services` layer could still reach. `Cookie` and `Authorization` are not on the connection at all. Naming a header is the app saying it trusts the proxy that writes it, and that is a claim only the app can make.
+
+Two things are a defect:
+
+- A name outside HTTP's field-name grammar (node's own `validateHeaderName`).
+- One wire header named twice (`X-Forwarded-For` beside `x-forwarded-for`), which would file one value under two keys.
+
+For a fixed array, the effect raises the defect when it runs, before anything binds, so no listener is left behind. It is deliberately not a `SurfaceAppListenFailed`, which a port-retry policy would loop on forever against something no port can fix.
+
+#### Who may write a named header
+
+This seam reports; it does not authenticate. What reaches `connection.headers` is whatever was on the upgrade, and a client dialling the listener directly can send `Tailscale-User-Login` itself, which `services` then receives as faithfully as a proxy's own.
+
+- Naming a header is sound only when the proxy owns it: it strips or overwrites any inbound copy, and is the only way in (the listener bound to loopback or a tailnet).
+- Naming one the proxy merely passes through hands every caller a claim they wrote about themselves.
+- Nothing here can check that, because the deployment is not visible from the listener. That is why the naming is the app's to do.
+- kolu's `x-forwarded-for` is safe because [`viewerAddressOf`](/surface/ref-surface) weighs the claim against the direct peer. An app that names an identity header gets the value, never that judgment.
 
 ### A live allowlist, read at each accept
 
-The list itself can move while the listener is up. An app whose identity part is
-switched on at runtime does not know its headers at the bind, and a serve that
-came up without that part used to answer its own procedures the moment it was
-switched on while **every** socket — open and new — stayed anonymous until a
-restart. Pass a thunk and the next accept reads the list that is live then, so a
-socket accepted after the switch is indistinguishable from one accepted on a boot
-that already had it — the same confluence claim
-[`ServedGenerationSource`](#the-whole-listener-in-one-call) makes for the served
-set.
+The list itself can move while the listener is up. An app whose identity part is switched on at runtime does not know its headers at the bind. Pass a thunk and the next accept reads the list that is live then, so a socket accepted after the switch is indistinguishable from one accepted on a boot that already had it. That is the same confluence claim [`ServedGenerationSource`](#the-generation-it-serves) makes for the served set.
 
 ```ts
 // re-read at each accept; annotated so `H` stays a literal union
 upgradeHeaders: (): ReadonlyArray<"Tailscale-User-Login"> => identity().headers,
 ```
 
-The two arms are told apart by `typeof` — an array is never callable, so unlike
-the served generation there is nothing here to mistake for a thunk, and no
-wrapper is needed. `H` infers from either — and on either arm it is only as
-narrow as the list's **element type**, so a `ReadonlyArray<string>` (a widely
-typed variable as much as a thunk returning one) widens `H` to `string` and
-every header read compiles again. A literal array, an `as const`, or the return
-annotation above is what keeps the guarantee.
+- The two arms are told apart by `typeof`. An array is never callable, so there is nothing here to mistake for a thunk, and no wrapper is needed.
+- `H` infers from either arm, and on either it is only as narrow as the list's element type.
+- A `ReadonlyArray<string>` (a widely typed variable as much as a thunk returning one) widens `H` to `string`, and every header read compiles again. A literal array, an `as const`, or the return annotation above is what keeps the guarantee.
 
-<Aside type="tip" title="A bad LIVE list refuses itself, never the socket">
-  A name a fixed array cannot carry takes the bind down, because that array **is**
-  the app's composition root and there is nothing else to blame. A live list is
-  different: the bad name belongs to whatever part offered it, and one part's
-  defect must not reach the wire's other tenants. So the socket is **accepted and
-  served** with *no* named headers — every request on it reads as nobody, which is
-  the state an app already defines for "no identity" — and the fault is reported
-  as `UpgradeHeadersRefused`. Terminating would let one part's list take every
-  connection down with it; throwing would take the process.
+#### A live list that refuses itself
 
-  The fault is reported at **each** accept that reads a bad list, for as long as
-  the offering part keeps minting one — each of those accepts really did serve an
-  anonymous connection.
+A bad name in a live list belongs to whatever part offered it, and one part's defect must not reach the wire's other tenants. So the socket is accepted and served with no named headers. Every request on it reads as nobody, which is the state an app already defines for "no identity", and the fault is reported as `UpgradeHeadersRefused`.
 
-  A thunk that simply **throws** takes the identical path, and that is deliberate:
-  a part crashing mid-reload is as bad a part as one that named `set-cookie`, so
-  the rule that decides this is the *blast radius*, not the cause. One arm covers
-  both, and its `error` says which happened — terminating for the crash while
-  serving through the bad name would be an inconsistency nothing could justify to
-  an operator.
+- The fault is reported at each accept that reads a bad list, for as long as the offering part keeps minting one. Each of those accepts really did serve an anonymous connection.
+- A thunk that simply throws takes the identical path, and the event's `error` says which happened.
+- Terminating the socket would let one part's list take every connection down with it, and throwing would take the process.
+- Call `checkUpgradeHeaders(names)` (`@kolu/surface-app/upgrade-headers`) where you mint the list, so the offending part fails there, with the same sentence, before any socket is accepted.
+- A fixed array is the other arm: a name it cannot carry takes the bind down, because that array is the app's composition root and there is nothing else to blame.
 
-  An app that wants that defect loud calls **`checkUpgradeHeaders(names)`**
-  (`@kolu/surface-app/upgrade-headers`) where it *mints* the list, so the
-  offending part fails there, with the same sentence, before any socket is
-  accepted. The accept-time arm is then only the race between an offer and an
-  accept.
-</Aside>
+### `SurfaceAppConnection`
 
-<Aside type="caution" title="Naming a header says who may WRITE it">
-  This seam **reports**; it does not authenticate. What reaches
-  `connection.headers` is whatever was on the upgrade — and a client dialling the
-  listener directly can send `Tailscale-User-Login` itself, which `services`
-  will then receive as faithfully as a proxy's own.
+One accepted connection: `{ id, url, remoteAddress, headers, close }`. It is what a per-connection `services` layer is built from, and the handle that can end the connection.
 
-  So naming a header is sound **only when the proxy owns it**: strips or
-  overwrites any inbound copy, and is the only way in (the listener bound to
-  loopback or a tailnet). Naming one the proxy merely *passes through* hands
-  every caller a claim they wrote about themselves.
+- `Connected` and `Disconnected` carry the same `SurfaceAppConnection` object, so a consumer can pair them by identity.
+- `id` is a listener-scoped ordinal, which is what a log line wants (kolu's per-connection `ws:` field).
+- `services` stays a separate option from `onEvent`: it returns a `Layer`, which is a different kind of thing from narration.
 
-  Nothing here can check that — the deployment is not visible from the listener,
-  which is why the naming is the app's to do. Where the check *can* live, it
-  does, and it is **not** at this seam: kolu's `x-forwarded-for` is safe because
-  [`viewerAddressOf`](/surface/ref-surface) weighs the claim against the direct
-  peer. An app that names an identity header gets the value, never that judgment.
-</Aside>
+### `connection.close(code?, reason?)`
 
-<Aside type="tip" title="`expose` gates THIS face, not the surface">
-  `expose` takes the same `ExposeMap` the MCP adapter takes and applies it to
-  the websocket alone — so a verb can be reachable over a trusted unix socket
-  and refused to browsers, without the app keeping a second write path beside
-  the surface. Omit it and the socket serves the whole surface, as it always
-  did. The shape, the refusal (`SurfaceMemberNotExposed`), the reserved members
-  it can never gate, and the bind-time validation are all
-  [`@kolu/surface/expose`](/surface/ref-surface#per-face-expose-kolusurfaceexpose)'s.
-</Aside>
-
-| Export | Subpath | Role |
-| --- | --- | --- |
-| `serveSurfaceApp(opts)` | `/serve` | the whole listener — shell, socket, gates, heartbeat, bind, teardown. Generation is `ServedGenerationSource` |
-| `SurfaceAppListenFailed` | `/serve` | the one failure it reports, `cause` intact |
-| `SurfaceAppConnection` | `/serve` | one accepted connection's `{ id, url, remoteAddress, headers, close }` — what a per-connection `services` layer is built from, and the handle that can end it |
-| `SurfaceAppEvent` | `/serve` | the tagged union `onEvent` narrates |
-| `SurfaceAppHttpMiddleware` | `/serve` | the shape `middleware` takes — error and response types preserved, adding only `HttpServerRequest` |
-| `checkUpgradeHeaders(names)` | `/upgrade-headers` (also re-exported from `/serve`) | the allowlist's grammar, for an app that ASSEMBLES its list — refuse a bad name where it is minted, rather than at the accept. Returns the names unchanged; throws |
-| `UpgradeHeadersSource<H>` | `/upgrade-headers` (also re-exported from `/serve`) | how a listener obtains its list: `ReadonlyArray<H>` (the app's composition root, checked at the bind) or `() => ReadonlyArray<H>` (live, read at each accept) |
-| `pickUpgradeHeaders(request, names)` | `/upgrade-headers` | the READ half, for a **hand-built** listener holding its own `IncomingMessage`: the named headers that upgrade carried and nothing else. Case-insensitive, keyed by the spelling in `names`, absent when not sent, prototype-free, frozen — re-rolling it is how a listener grows back the `constructor`/`__proto__` and array-value hazards this closes |
-| `reportSurfaceAppEvent(event)` | `/serve` | the default narration policy, exported so an `onEvent` can delegate to it |
-| `SURFACE_WS_PATH` | `.` | `/rpc/ws`, the one path a surface speaks on — both legs import it |
-| `surfaceWsUrl(httpBaseUrl)` | `.` | the dial URL from the http(s) base — the ONE `https:` → `wss:` swap, browser-safe |
-| `thrownText(error)` | `.` | an uncaught throw, printed for a bug report — the Safari/V8/`DOMException` normalization behind the [fault boundary](#the-fault-boundary-a-throw-is-not-a-white-tab), framework-free and never empty |
-
-Observation is **one** option, `onEvent`, taking one tagged union — because every
-consumer has exactly one logger:
-
-| `_tag` | Carries | Default (`reportSurfaceAppEvent`) |
-| --- | --- | --- |
-| `Connected` | `connection` | silent — the accept a live-connection count increments on |
-| `Disconnected` | `connection`, `code`, `reason` | silent — the same connection hung up (peer, reaper, or the app's own `connection.close`), with the close frame's own account of why |
-| `SocketError` | `error`, `url` | loud `console.error` — a transport error |
-| `GenerationRefused` | `error`, `url` | loud `console.error` — a live generation `restrictHandlers` refused. The socket is **terminated**: there is no honest reduced thing to serve when the served set itself is unservable |
-| `UpgradeHeadersRefused` | `error`, `url` | loud `console.error` — a live `upgradeHeaders` could not be produced: it named something unreadable, or the thunk threw. The socket is **served anyway**, with no named headers, and the fault is reported at **each** such accept ([why](#a-live-allowlist-read-at-each-accept)) |
-| `StaleTab` | `claimedPid`, `url` | silent — a server that restarted while a tab was open is ordinary, not a fault |
-| `DisallowedOrigin` | `origin`, `url` | loud `console.warn` — a blocked hijack nobody can see is the one thing a shared gate must not ship |
-| `ServingFailed` | `cause`, `connection` | loud `console.error` — `done` MUST be observed |
-
-`Connected`/`Disconnected` are the pair a live-connection count is built from
-(the package's own example counts its `serverStats.connections` on them). They
-carry the same `SurfaceAppConnection` object both times, so a consumer can pair
-them by identity — or by its `id`, a listener-scoped ordinal that is what a log
-line wants (kolu's per-connection `ws:` field). `services` stays a separate
-option: it returns a `Layer`, which is a different kind of thing from narration.
-
-The sections below are the pieces `serveSurfaceApp` composes; reach for them
-directly when an app's listener needs something the primitive does not take
-today — drishti's per-host `?host=` dispatch, which picks *which* runtime serves
-a socket, is the in-tree case. Both kolu and this package's example ride the
-primitive.
-
-### Ending a connection from the app — `connection.close`
-
-`services` is also where the app *decides* a connection must go — a session that
-logged out, expired, or was revoked. Open the lease **inside the layer**, so the
-layer's release is what closes it:
+`services` is also where the app decides a connection must go: a session that logged out, expired, or was revoked. Open the lease inside the layer, so the layer's release is what closes it:
 
 ```ts
 services: (connection) =>
@@ -302,63 +199,101 @@ services: (connection) =>
   ),
 ```
 
-`connection.close(code?, reason?)` stops serving this socket, releases everything
-the serve owns (the RPC fibers, every in-flight subscription, the per-connection
-`services` layer), and closes the peer with your frame. It is one call end to
-end: `SurfaceSocketServing.close` takes the frame, so the listener's drain
-(`close()`) and the app (`close(code, reason)`) spell close the same way.
+`connection.close(code?, reason?)` stops serving this socket, releases everything the serve owns (the RPC fibers, every in-flight subscription, the per-connection `services` layer), and closes the peer with your frame. `SurfaceSocketServing.close` takes the frame, so the listener's drain (`close()`) and the app (`close(code, reason)`) spell close the same way.
 
 | Fact | Shape | Notes |
 | --- | --- | --- |
-| `connection.close` | `(code?: number, reason?: string) => void` | ends **this** connection — bound to its own serving by the closure that built the record, so there is no id to look up and one connection cannot close another |
-| `code` | `1000` or `3000`–`4999` | `1000` (normal closure) is the default: a caller who passed none made no policy claim. A policy end names its own — `4401` is the application-range code for "session ended" (RFC 6455 §7.4.2) |
-| `reason` | at most 123 UTF-8 bytes | the control-frame payload is 125 bytes, less the two-byte code. Counted in **bytes**, so 42 of `あ` is already over |
-| a bad frame | throws `RangeError` **at your call** | checked before anything changes: the connection stays open, `services` keeps running, and a later valid `close` still works. That is also why `ws`'s own validation cannot be the gate — it runs *after* putting the socket in CLOSING, which strands the peer with no frame and no timer |
-| idempotence | — | the first call owns the frame; a second is a no-op, and so is a call after the peer has already hung up |
+| `connection.close` | `(code?: number, reason?: string) => void` | Ends this connection. The closure that built the record bound it to its own serving, so there is no id to look up and one connection cannot close another |
+| `code` | `1000` or `3000`–`4999` | `1000` (normal closure) is the default, because a caller who passed none made no policy claim. A policy end names its own: `4401` is the application-range code for "session ended" (RFC 6455 §7.4.2) |
+| `reason` | at most 123 UTF-8 bytes | The control-frame payload is 125 bytes, less the two-byte code. Counted in bytes, so 42 of `あ` is already over |
+| a bad frame | throws `RangeError` at your call | Checked before anything changes: the connection stays open, `services` keeps running, and a later valid `close` still works |
+| idempotence | — | The first call owns the frame. A second is a no-op, and so is a call after the peer has already hung up |
 
-It is safe from `services` itself or from a `Connected` handler: the record is
-built **before** the serving exists (the serving is built over
-`services(connection)`, after all), so `close` resolves its serving lazily and the
-accept site closes the peer the moment the serving is there. A close from
-`services` still builds that layer and releases it at once; a close from
-`Connected` means `services` is never called, because no handler could run on
-the connection anyway.
+- `ws`'s own validation cannot be the gate, because it runs after putting the socket in `CLOSING`, which strands the peer with no frame and no timer.
+- Calling it from `services` itself, or from a `Connected` handler, is safe. The record is built before the serving exists (the serving is built over `services(connection)`), so `close` resolves its serving lazily.
+- The accept site then closes the peer the moment the serving is there. A close from `services` still builds that layer and releases it at once.
+- A close from `Connected` means `services` is never called, because no handler could run on the connection anyway.
+- `Disconnected` reports once, and reports what the transport saw: normally the code you passed, because a conforming peer echoes the close frame.
+- It is `1006` when the peer never answered and `ws`'s close timeout dropped it. A peer that answers nothing is exactly what a credential cut can face, so the frame is a request, not a promise.
 
-`Disconnected` reports **once**, and reports what the transport actually saw:
-normally the code you passed, because a conforming peer echoes the close frame —
-but `1006` when the peer never answered and `ws`'s close timeout dropped it. A
-peer that answers nothing is exactly what a credential cut can face, so the frame
-is a request, not a promise.
+#### Closing and the heartbeat
 
-Refusing the heartbeat is **not** a cut: a refused probe counts as alive
-(`@kolu/surface/heartbeat`), so only an unanswered one trips the client's
-watchdog — after `interval + timeout` (25 s at the defaults) — and a client with
-no watchdog (a stdio MCP bridge, a raw socket) never closes. A credential
-decision must not wait on a liveness heuristic.
+Refusing the heartbeat is not a cut: a refused probe counts as alive (`@kolu/surface/heartbeat`), so only an unanswered one trips the client's watchdog, after `interval + timeout` (25 s at the defaults).
+
+A client with no watchdog (a stdio MCP bridge, a raw socket) never closes. A credential decision must not wait on a liveness heuristic.
+
+### `SurfaceAppEvent`
+
+Observation is one option, `onEvent`, taking one tagged union, because every consumer has exactly one logger.
+
+| `_tag` | Carries | Default (`reportSurfaceAppEvent`) |
+| --- | --- | --- |
+| `Connected` | `connection` | silent — the accept a live-connection count increments on |
+| `Disconnected` | `connection`, `code`, `reason` | silent — the same connection hung up (peer, reaper, or the app's own `connection.close`), with the close frame's own account of why |
+| `SocketError` | `error`, `url` | loud `console.error` — a transport error |
+| `GenerationRefused` | `error`, `url` | loud `console.error` — a live generation `restrictHandlers` refused. The socket is terminated |
+| `UpgradeHeadersRefused` | `error`, `url` | loud `console.error` — a live `upgradeHeaders` could not be produced. The socket is served anyway, with no named headers ([why](#a-live-allowlist-read-at-each-accept)) |
+| `StaleTab` | `claimedPid`, `url` | silent — a server that restarted while a tab was open is ordinary, not a fault |
+| `DisallowedOrigin` | `origin`, `url` | loud `console.warn` — a blocked hijack, which a shared gate must never drop in silence |
+| `ServingFailed` | `cause`, `connection` | loud `console.error` — `done` must be observed |
+
+- A refused generation terminates the socket: there is no honest reduced thing to serve when the served set itself is unservable.
+- `Connected` and `Disconnected` are the pair a live-connection count is built from. The package's own example counts its `serverStats.connections` on them.
+
+### `reportSurfaceAppEvent(event)`
+
+The default narration policy, exported so an `onEvent` of your own can delegate to it. The table above is what it prints.
+
+### `SurfaceAppListenFailed`
+
+The one failure `serveSurfaceApp` reports. It carries the `cause` verbatim, so a consumer's port policy reads `cause.code === "EADDRINUSE"` rather than matching a message string.
+
+### `SurfaceAppHttpMiddleware`
+
+The shape `middleware` takes. It wraps every HTTP request, which is an app's bridge to its own logger. Error and response types are preserved, and it adds only `HttpServerRequest`.
+
+### `checkUpgradeHeaders(names)`
+
+The allowlist's grammar, for an app that assembles its list. It returns the names unchanged, and throws on a bad one, so the refusal lands where the list is minted rather than at the accept. It is exported from `/upgrade-headers` and re-exported from `/serve`.
+
+### `UpgradeHeadersSource<H>`
+
+How a listener obtains its list: `ReadonlyArray<H>` (the app's composition root, checked at the bind) or `() => ReadonlyArray<H>` (live, read at each accept).
+
+### `pickUpgradeHeaders(request, names)`
+
+The read half, for a hand-built listener holding its own `IncomingMessage`: the named headers that upgrade carried, and nothing else.
+
+- Case-insensitive, keyed by the spelling in `names`, absent when not sent, prototype-free and frozen.
+- Re-rolling it by hand is how a listener grows back the `constructor` and `__proto__` and array-value hazards this closes.
+- A hand-built listener on [`acceptSurfaceSocket`](#accepting-a-browser-socket) stands in its own `upgrade` handler holding the request, so it reads what it needs directly. `upgradeHeaders` has nothing to offer it, the same split as `expose`.
+
+### `SURFACE_WS_PATH`
+
+`/rpc/ws`, the one path a surface speaks on. Both legs import this constant, so the dial URL and the upgrade handler cannot drift. Any other upgrade target is destroyed.
+
+### `surfaceWsUrl(httpBaseUrl)`
+
+The dial URL from the http(s) base: the one `https:` to `wss:` swap, and browser-safe.
+
+### `thrownText(error)`
+
+An uncaught throw, printed for a bug report. It normalizes a Safari, V8 or `DOMException` throw, is framework-free, and never returns the empty string. The [fault boundary](#the-fault-boundary) is what calls it.
 
 ## Serving the fresh shell
 
-`surfaceAppLayer` (`@kolu/surface-app/server`) serves the shell: a `no-store`
-`index.html` that names a content-hashed bundle, `immutable` `/assets/*`, a
-404-on-miss for a stale hash, an SPA fallback, `/sw.js`, and the web manifest.
-Staleness is structurally impossible because the one document that names the
-bundle is always re-fetched.
+These are `HttpRouter` layers (`effect/http`), not framework installers: merge them into your app layer in any order. Routes are ranked by specificity, so your `/rpc/*` route always beats the static `GET /*` catch-all.
 
-These are **`HttpRouter` layers** (`effect/http`), not framework
-installers: merge them into your app layer in any order — routes are ranked by
-specificity, so your `/rpc/*` route always beats the static `GET /*` catch-all.
-`freshStaticLayer` and `surfaceAppLayer` require the platform services that read
-files — `FileSystem`, `Path`, `HttpPlatform` — which on Node come from
-`NodeHttpServer.layerHttpServices`. Both **throw at composition time** if `assetPrefix` is malformed, or would
-capture a shell path (that would put a compressed `index.html` sibling on the
-wire; kolu#1319).
-
-| Export | Subpath | Role |
+| Export | Subpath | What it is |
 | --- | --- | --- |
-| `surfaceAppLayer(opts)` | `/server` | the no-store shell + immutable assets + (optional) manifest, in one layer |
-| `SurfaceAppLayerOptions` | `/server` | that layer's options (optional `clientDist`, `manifest`, `serviceWorker`, the freshness paths) — `ServeSurfaceAppOptions` **extends** it, so the shell half is named once |
-| `freshStaticLayer(opts)` | `/server` | fresh static + optional notification worker |
-| `pwaManifestLayer(manifest, path?)` | `/server` | the web manifest |
+| [`surfaceAppLayer(opts)`](#surfaceapplayeropts) | `/server` | The no-store shell, immutable assets and optional manifest, in one layer. |
+| [`SurfaceAppLayerOptions`](#surfaceapplayeroptions) | `/server` | That layer's options. |
+| [`freshStaticLayer(opts)`](#freshstaticlayeropts) | `/server` | Fresh static files, and an optional notification worker. |
+| [`pwaManifestLayer(manifest, path?)`](#pwamanifestlayermanifest-path) | `/server` | The web manifest. |
+
+### `surfaceAppLayer(opts)`
+
+`surfaceAppLayer` (`@kolu/surface-app/server`) serves the shell: a `no-store` `index.html` that names a content-hashed bundle, `immutable` `/assets/*`, a 404-on-miss for a stale hash, an SPA fallback, `/sw.js`, and the web manifest.
 
 ```ts
 const app = Layer.mergeAll(
@@ -378,52 +313,67 @@ server.on(
 );
 ```
 
-<Aside type="caution" title="Own the `http.Server`; don't let `HttpServer.serve` own it">
-  `NodeHttpServer.makeHandler` on a server you created keeps the `upgrade` event
-  yours. `HttpServer.serve` registers its **own** `upgrade` listener, and Node
-  fans an event out to every listener — so it would also answer a socket
-  `acceptSurfaceSocket` has already upgraded.
-</Aside>
+- Staleness is structurally impossible, because the one document that names the bundle is always re-fetched.
+- It requires the platform services that read files (`FileSystem`, `Path`, `HttpPlatform`), which on Node come from `NodeHttpServer.layerHttpServices`.
+- It throws at composition time if `assetPrefix` is malformed, or would capture a shell path. That would put a compressed `index.html` sibling on the wire (kolu#1319).
 
-<Aside type="note" title="No `304`s, by design">
-  The static layer strips `If-None-Match` / `If-Modified-Since` before the file
-  engine sees them, so every hit is a full `200`. The platform's validator is
-  size+mtime, and in a Nix store every mtime is the epoch — a `304` there could
-  replay a stale same-size shell, which is the bug the whole freshness contract
-  exists to prevent.
-</Aside>
-<Aside type="caution" title="The commit rides the shell, never a bundle define">
-  The build commit is injected as `window.__SURFACE_APP_COMMIT__` onto the
-  `no-store` shell by the `surfaceApp()` plugin — never a bundler define. A
-  define bakes the sha into a content-hashed, `immutable` asset and strands
-  returning browsers. No app writes a sha.
-</Aside>
+#### Own the `http.Server`
+
+`NodeHttpServer.makeHandler` on a server you created keeps the `upgrade` event yours. `HttpServer.serve` registers its own `upgrade` listener, and Node fans an event out to every listener, so it would also answer a socket `acceptSurfaceSocket` has already upgraded.
+
+#### No `304`s
+
+The static layer strips `If-None-Match` and `If-Modified-Since` before the file engine sees them, so every hit is a full `200`. The platform's validator is size and mtime, and in a Nix store every mtime is the epoch, where a `304` could replay a stale same-size shell.
+
+#### The build commit
+
+The build commit is injected as `window.__SURFACE_APP_COMMIT__` onto the `no-store` shell by the `surfaceApp()` plugin, never a bundler define. A define bakes the sha into a content-hashed, `immutable` asset and strands returning browsers. No app writes a sha.
+
+### `SurfaceAppLayerOptions`
+
+That layer's options: an optional `clientDist`, `manifest` and `serviceWorker`, and the freshness paths. `ServeSurfaceAppOptions` extends it, so the shell half is named once.
+
+### `freshStaticLayer(opts)`
+
+`freshStaticLayer` serves fresh static files, plus the optional notification worker. Like `surfaceAppLayer`, it requires `FileSystem`, `Path` and `HttpPlatform`, and throws at composition time on a malformed `assetPrefix` or one that would capture a shell path.
+
+### `pwaManifestLayer(manifest, path?)`
+
+The web manifest, as its own layer. `path?` is where it is served.
 
 ## Building the client dist
 
-`buildSurfaceClient(opts)` (`@kolu/surface-app/bun`) is the Bun-runtime build:
-it produces the dist the static layer above is built to serve, and nothing about
-that dist is the app's to remember. Content-hashed `/assets/*` (entry, split
-chunks, extra assets), the `no-store` shell rewritten to name them, the commit
-injected onto that shell, a `<link rel="modulepreload">` for each chunk the entry
-statically imports, and — since the socket was completed — the precompressed
-siblings and the code splitting every consumer used to bolt on afterwards.
+`buildSurfaceClient(opts)` (`@kolu/surface-app/bun`) is the Bun-runtime build. It produces the dist the static layer above is built to serve, and nothing about that dist is the app's to remember.
 
-| Export | Subpath | Role |
+| Export | Subpath | What it is |
 | --- | --- | --- |
-| `surfaceApp()` | `/vite` | Vite plugin that injects the build commit onto the shell |
-| `buildSurfaceClient(opts)` | `/bun` | the Bun build: hashed assets, rewritten shell, siblings, splitting |
-| `SurfaceClientBuildOptions` | `/bun` | its options — entrypoint, `distDir`, the HTML template + placeholders, `extraAssets`, `publicDir`, `minify`, `commit`, `assetPrefix` |
-| `SurfaceClientBuildResult` | `/bun` | `{ jsHref, assetHrefs, assetPrefix, preloadHrefs, assets }` — every hashed URL the shell now names (the JS entry, one per extra asset, and the entry's static chunks in load order), plus an `AssetReport` per **compressible** asset in the hashed dir (sourcemaps and already-compressed media are skipped, and absent from the report) |
-| `AssetReport` | `/bun` | `{ file, bytes, siblings }` — identity size and each sibling's size, keyed by `Content-Encoding` |
-| `injectShellHead(html, { preloadHrefs, commit })` | `.` | the whole head prelude in one splice — preload links first, then the build identity — for a caller templating its own shell from a build result |
-| `injectShellCommit(html, commit)` | `.` | that same splice with nothing to preload: the build identity alone |
-| `PRECOMPRESSED_ENCODINGS` | `.` | the `[encoding, suffix]` table BOTH halves read: `freshStaticLayer` to negotiate, the builder to emit |
-| `assertAssetPrefix(assetPrefix?)` | `.` | a hashed-asset request prefix, checked and handed back — the one place its shape is judged, so a prefix the build refuses is not one the server accepts |
-| `assetDirOf(assetPrefix?)` | `.` | …and the dist-relative directory that prefix names, which the Bun build reads to choose its `outdir` |
-| `HASHED_NAMING` | `.` | the naming template every hashed output is emitted under (`[name]-[hash].[ext]`). `/bun` hands it to `Bun.build`'s `naming` for entry, chunk and asset alike, so the rule is spelled once |
-| `chunkPattern(module, ext?)` | `.` | that template read backwards — what the split chunk for `module` is CALLED, anchored to the whole filename, for a caller that must name the file BEFORE the build has run. Built FROM `HASHED_NAMING` rather than re-spelled, so the two directions cannot drift. `ext` defaults to `js`; pass `"css"` to name a hashed stylesheet. A RegExp, because callers hand it to a route matcher and print it in a diagnosis |
-| `chunkUrlPattern(module, assetPrefix?, ext?)` | `.` | the same rule as a REQUEST under the hashed prefix — the filename half is `chunkPattern`'s, not a second spelling of it — taken through `assertAssetPrefix` so a prefix the build refuses is not one a matcher accepts |
+| [`surfaceApp()`](#surfaceapp) | `/vite` | Vite plugin that injects the build commit onto the shell. |
+| [`buildSurfaceClient(opts)`](#buildsurfaceclientopts) | `/bun` | The Bun build: hashed assets, rewritten shell, siblings, splitting. |
+| [`SurfaceClientBuildOptions`](#surfaceclientbuildoptions) | `/bun` | Its options. |
+| [`SurfaceClientBuildResult`](#surfaceclientbuildresult) | `/bun` | Every hashed URL the shell now names, plus a report per asset. |
+| [`AssetReport`](#assetreport) | `/bun` | One asset's identity size and its siblings' sizes. |
+| [`injectShellHead(html, { preloadHrefs, commit })`](#injectshellheadhtml--preloadhrefs-commit-) | `.` | The whole head prelude in one splice. |
+| [`injectShellCommit(html, commit)`](#injectshellcommithtml-commit) | `.` | That same splice with nothing to preload. |
+| [`PRECOMPRESSED_ENCODINGS`](#precompressed_encodings) | `.` | The `[encoding, suffix]` table both halves read. |
+| [`assertAssetPrefix(assetPrefix?)`](#assertassetprefixassetprefix) | `.` | A hashed-asset request prefix, checked and handed back. |
+| [`assetDirOf(assetPrefix?)`](#assetdirofassetprefix) | `.` | The dist-relative directory that prefix names. |
+| [`HASHED_NAMING`](#hashed_naming) | `.` | The naming template every hashed output is emitted under. |
+| [`chunkPattern(module, ext?)`](#chunkpatternmodule-ext) | `.` | What the split chunk for a module is called. |
+| [`chunkUrlPattern(module, assetPrefix?, ext?)`](#chunkurlpatternmodule-assetprefix-ext) | `.` | That same rule as a request under the hashed prefix. |
+
+### `surfaceApp()`
+
+The Vite plugin, on `/vite`. It injects the build commit onto the shell.
+
+### `buildSurfaceClient(opts)`
+
+The Bun build. One call writes:
+
+- content-hashed `/assets/*`: the entry, the split chunks and the extra assets;
+- the `no-store` shell, rewritten to name them;
+- the commit, injected onto that shell;
+- a `<link rel="modulepreload">` for each chunk the entry statically imports;
+- the precompressed siblings.
 
 ```ts
 const { jsHref, assets } = await buildSurfaceClient({
@@ -436,158 +386,216 @@ const { jsHref, assets } = await buildSurfaceClient({
 for (const a of assets) console.log(a.file, a.bytes, a.siblings);
 ```
 
-<Aside type="note" title="Neither half is an option">
-  There is no `precompress` flag and no `splitting` flag. A sibling is written
-  only when it beat identity, only under the prefix the layer negotiates, and
-  never for a type the layer refuses — so a flag would only choose between the
-  negotiation working and it having nothing to serve. Splitting is what a
-  dynamic `import()` in your own source already asked for; `splitting: false`
-  used to inline it, which is deferred in evaluation and identical on the wire.
-  With one entrypoint and no dynamic import the output is unchanged.
-</Aside>
+#### Siblings and splitting
 
-<Aside type="note" title="The shell preloads the entry's STATIC chunks, and only those">
-  Splitting hands the entry a chunk it imports at the top — the module the
-  bundler hoisted out because the entry and a deferred chunk both need it. A
-  browser handed only the entry's URL cannot ask for that file until it has
-  fetched **and parsed** the entry, so the split costs one extra round trip on
-  first paint. The build reads its own chunk graph (`Bun.build({ metafile: true })`)
-  and names those files in the shell, transitively, so the fetches start while
-  the HTML is still parsing. A `dynamic-import` chunk is never preloaded —
-  that would fetch on first paint exactly what `import()` was written to defer —
-  and an entry that split into nothing gets no tags at all. A static import that
-  is not a JS module is **refused**, loudly: the bundler emitted a file this
-  build rewrites no placeholder for, so the shell would name it nowhere.
-</Aside>
+There is no `precompress` flag and no `splitting` flag.
 
-<Aside type="tip" title="Moving the bundle out of the app's URL space">
-  `assetPrefix` (default `/assets/`) is the one thing about the dist's shape you
-  may say, and it is here because the right answer is not universal: it is a
-  fact about **whose URL space** sits at `/`. An app serving somebody else's
-  files there — olai serves a person's own directory, so `/assets/notes.md` is
-  one of their pages — cannot leave the bundle on the convention: a miss under
-  the immutable prefix 404s by design rather than reaching the shell, so a whole
-  folder of theirs has no page at all. Pass the same string to the build and to
-  `freshStaticLayer` and the collision is gone; `assetDirOf` derives the
-  dist-relative directory from it, so the hrefs in the shell and the bytes on
-  disk are one setting rather than two that can part. The prefix must start and
-  end with `/` and must not be the root — each refusal throws where it is
-  written. Vite-built clients say the same thing through Vite's own
-  `build.assetsDir`. **Moving the prefix wants a clean `distDir`**: the prune
-  below measures the directory this build wrote and cannot know where the last
-  one put its files, so a rebuild that moves the prefix leaves the vacated
-  directory behind. Deleting a sibling directory on the strength of its name is
-  the alternative, and it would eat a `publicDir` output the day someone moved
-  the prefix onto one.
-</Aside>
+- A sibling is written only when it beat identity, only under the prefix the layer negotiates, and never for a type the layer refuses. A flag would only choose between the negotiation working and it having nothing to serve.
+- Splitting is what a dynamic `import()` in your own source already asked for. `splitting: false` inlines that chunk, which is deferred in evaluation and identical on the wire.
+- With one entrypoint and no dynamic import the output is unchanged.
 
-<Aside type="caution" title="The hashed dir belongs to the build">
-  Every rebuild PRUNES the hashed dir (`<distDir>/assets/` by default) down to
-  what it just produced (plus
-  their sourcemaps and siblings): a hashed file the new shell does not name is
-  unreachable, and leaving it there is what makes a long dev session pay brotli
-  over a growing pile. A sibling that already sits beside an unchanged asset is
-  never recompressed — same name means same bytes. Your app's stable-URL files
-  (icons, fonts, a manifest) belong in `publicDir`, which lands at the dist
-  **root** and is never touched.
-</Aside>
+#### Preloading the entry's static chunks
+
+Splitting hands the entry a chunk it imports at the top: the module the bundler hoisted out because the entry and a deferred chunk both need it. A browser handed only the entry's URL cannot ask for that file until it has fetched and parsed the entry, so the split costs one extra round trip on first paint.
+
+- The build reads its own chunk graph (`Bun.build({ metafile: true })`) and names those files in the shell, transitively, so the fetches start while the HTML is still parsing.
+- A `dynamic-import` chunk is never preloaded. That would fetch on first paint exactly what `import()` was written to defer.
+- An entry that split into nothing gets no tags at all.
+- A static import that is not a JS module is refused, loudly. The bundler emitted a file this build rewrites no placeholder for, so the shell would name it nowhere.
+
+#### The hashed dir
+
+Every rebuild prunes the hashed dir (`<distDir>/assets/` by default) down to what it just produced, plus their sourcemaps and siblings.
+
+- A hashed file the new shell does not name is unreachable, and leaving it there is what makes a long dev session pay brotli over a growing pile.
+- A sibling that already sits beside an unchanged asset is never recompressed: same name means same bytes.
+- Your app's stable-URL files (icons, fonts, a manifest) belong in `publicDir`, which lands at the dist root and is never touched.
+
+### `SurfaceClientBuildOptions`
+
+The build's options: the entrypoint, `distDir`, the HTML template and its placeholders, `extraAssets`, `publicDir`, `minify`, `commit` and `assetPrefix`.
+
+#### `assetPrefix`
+
+`assetPrefix` (default `/assets/`) is the one thing about the dist's shape you may say, and the right answer is not universal: it is a fact about whose URL space sits at `/`.
+
+- An app serving somebody else's files at `/` cannot leave the bundle on the convention. olai serves a person's own directory, so `/assets/notes.md` is one of their pages. A miss under the immutable prefix 404s by design rather than reaching the shell, so a whole folder of theirs would have no page at all.
+- Pass the same string to the build and to `freshStaticLayer`, and the collision is gone. `assetDirOf` derives the dist-relative directory from it, so the hrefs in the shell and the bytes on disk are one setting rather than two that can part.
+- The prefix must start and end with `/`, and must not be the root. Each refusal throws where it is written.
+- Vite-built clients say the same thing through Vite's own `build.assetsDir`.
+- Moving the prefix wants a clean `distDir`. The prune measures the directory this build wrote and cannot know where the last one put its files, so a rebuild that moves the prefix leaves the vacated directory behind.
+
+### `SurfaceClientBuildResult`
+
+`{ jsHref, assetHrefs, assetPrefix, preloadHrefs, assets }`: every hashed URL the shell now names, plus a report per asset.
+
+- The URLs are the JS entry, one per extra asset, and the entry's static chunks in load order.
+- `assets` carries an `AssetReport` per compressible asset in the hashed dir. Sourcemaps and already-compressed media are skipped, and absent from the report.
+
+### `AssetReport`
+
+`{ file, bytes, siblings }`: the identity size and each sibling's size, keyed by `Content-Encoding`.
+
+### `injectShellHead(html, { preloadHrefs, commit })`
+
+The whole head prelude in one splice, for a caller templating its own shell from a build result. Preload links come first, then the build identity.
+
+### `injectShellCommit(html, commit)`
+
+That same splice with nothing to preload: the build identity alone.
+
+### `PRECOMPRESSED_ENCODINGS`
+
+The `[encoding, suffix]` table both halves read: `freshStaticLayer` to negotiate, the builder to emit.
+
+### `assertAssetPrefix(assetPrefix?)`
+
+A hashed-asset request prefix, checked and handed back. It is the one place its shape is judged, so a prefix the build refuses is not one the server accepts.
+
+### `assetDirOf(assetPrefix?)`
+
+The dist-relative directory that prefix names, which the Bun build reads to choose its `outdir`.
+
+### `HASHED_NAMING`
+
+The naming template every hashed output is emitted under (`[name]-[hash].[ext]`). `/bun` hands it to `Bun.build`'s `naming` for entry, chunk and asset alike, so the rule is spelled once.
+
+### `chunkPattern(module, ext?)`
+
+That template read backwards: what the split chunk for `module` is called, anchored to the whole filename, for a caller that must name the file before the build has run.
+
+- It is built from `HASHED_NAMING` rather than re-spelled, so the two directions cannot drift.
+- `ext` defaults to `js`; pass `"css"` to name a hashed stylesheet.
+- It is a RegExp, because callers hand it to a route matcher and print it in a diagnosis.
+
+### `chunkUrlPattern(module, assetPrefix?, ext?)`
+
+The same rule as a request under the hashed prefix. The filename half is `chunkPattern`'s, not a second spelling of it, and it is taken through `assertAssetPrefix` so a prefix the build refuses is not one a matcher accepts.
 
 ## Accepting a browser socket
 
-`acceptSurfaceSocket` (`@kolu/surface-app/server`) accepts a browser WebSocket
-onto a served surface. It owns the server-side liveness reaper and sequences
-**stale-gate → enrol → serve** in one `accept(...)`, so a socket can never be
-served un-enrolled. It is the server twin of the client's `connectSurface`
-watchdog.
+These are the pieces a hand-built listener assembles when `serveSurfaceApp` does not fit: the accept, the serve, the stale gate and the reaper.
 
-`serveSurfaceSocket({ group, handlers, socket, services? })` is the serve half —
-the browser-facing counterpart of `serveOverStdio` / `serveOverUnixSocket`,
-taking the same `{ group, handlers }` pair `implementSurface` returns (it replaces
-the oRPC `RPCHandler(...).upgrade(ws)` call). `services` is a `Layer` supplying
-whatever this **one** connection's handlers require — the seam a per-viewer fact
-rides (kolu's `viewerAddress` / `forwardedFor`, taken off the upgrade request's
-own socket and headers), because Effect's socket-server protocol has no
-per-request header channel.
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`acceptSurfaceSocket`](#acceptsurfacesocket) | `/server` | Accept, reap and sequence, in one call. |
+| [`serveSurfaceSocket`](#servesurfacesocket) | `/server` | Serve `{ group, handlers }` over one accepted socket. |
+| [`SurfaceSocketServing`](#surfacesocketserving) | `/server` | The handle `serveSurfaceSocket` returns. |
+| [`gateStaleSocket`](#gatestalesocket) | `/server` | The WS-upgrade handshake gate. |
+| [`startWsHeartbeat` · `heartbeatSweep`](#startwsheartbeat--heartbeatsweep) | `/server` | The server-side liveness reaper, and its one sweep. |
+| [`STALE_PROCESS_CLOSE_CODE` · `SERVER_PROCESS_ID_PARAM`](#stale_process_close_code--server_process_id_param) | `/server` | The stale-tab vocabulary the two sides share. |
 
-| Export | Role |
-| --- | --- |
-| `acceptSurfaceSocket` | accept + reap + sequence, in one call |
-| `serveSurfaceSocket` | serve `{ group, handlers }` over one accepted socket, with per-connection `services` |
-| `SurfaceSocketServing` | the handle `serveSurfaceSocket` returns: `close(code?, reason?)` — the ONE close, whether the listener's drain or the app calls it, frame validated first — and `done`, the fault channel to observe |
-| `gateStaleSocket` | the WS-upgrade handshake gate (error-handler-first; close `4001`). It takes **no** live id: it compares the echoed `pid` against this process's `surfaceProcessId()` (`@kolu/surface/identity`) — the same value the reserved `system/identity` member answers with, so the two sides cannot be pointed at different strings |
-| `startWsHeartbeat` · `heartbeatSweep` | the server-side liveness reaper and its one sweep |
-| `STALE_PROCESS_CLOSE_CODE` · `SERVER_PROCESS_ID_PARAM` | the stale-tab vocabulary the gate and the client's close classifier share |
+### `acceptSurfaceSocket`
+
+`acceptSurfaceSocket` (`@kolu/surface-app/server`) accepts a browser WebSocket onto a served surface. It owns the server-side liveness reaper and sequences stale-gate, enrol and serve in one `accept(...)`, so a socket can never be served un-enrolled. It is the server twin of the client's `connectSurface` watchdog.
+
+### `serveSurfaceSocket`
+
+`serveSurfaceSocket({ group, handlers, socket, services? })` is the serve half: the browser-facing counterpart of `serveOverStdio` and `serveOverUnixSocket`. It takes the same `{ group, handlers }` pair `implementSurface` returns, and replaces the oRPC `RPCHandler(...).upgrade(ws)` call.
+
+- `services` is a `Layer` supplying whatever this one connection's handlers require.
+- It is the seam a per-viewer fact rides: kolu's `viewerAddress` and `forwardedFor`, taken off the upgrade request's own socket and headers.
+- Effect's socket-server protocol has no per-request header channel, which is why the fact arrives as a layer.
+
+### `SurfaceSocketServing`
+
+The handle `serveSurfaceSocket` returns: `close(code?, reason?)` and `done`.
+
+- `close` is the one close, whether the listener's drain or the app calls it, and the frame is validated first.
+- `done` is the fault channel to observe.
+
+### `gateStaleSocket`
+
+The WS-upgrade handshake gate (error-handler-first; close `4001`). It takes no live id: it compares the echoed `pid` against this process's `surfaceProcessId()` (`@kolu/surface/identity`). That is the same value the reserved `system/identity` member answers with, so the two sides cannot be pointed at different strings.
+
+### `startWsHeartbeat` · `heartbeatSweep`
+
+The server-side liveness reaper, and its one sweep.
+
+### `STALE_PROCESS_CLOSE_CODE` · `SERVER_PROCESS_ID_PARAM`
+
+The stale-tab vocabulary the gate and the client's close classifier share.
 
 ## Connecting from the client
 
-`connectSurface` / `connectSurfaces` (`@kolu/surface-app/solid`) are the turnkey
-single- and multi-surface seams: each builds a socket, a `websocketLink`, the
-`surfaceClient(s)`, and a **default-on liveness heartbeat** in one call. The
-heartbeat probes the framework-reserved `system/live` tag
-(`@kolu/surface/liveness`) over the very dispatch it guards, so no app supplies —
-or forgets — a probe.
+`connectSurface` and `connectSurfaces` (`@kolu/surface-app/solid`) are the turnkey single- and multi-surface seams. Each builds a socket, a `websocketLink`, the `surfaceClient(s)`, and a default-on liveness heartbeat in one call.
 
-Both seams are **async**: the dial is `websocketLink`, and building a protocol and
-its fibers is an effect. Each takes the **surface** (or the sibling map), never a
-separate group — the wire is built from `surface.group` / `composeSurfaceContracts`
-right here, so a client and a wire that disagreed about which members exist is
-unspellable. `connectSurfaces` refuses a call that passes **nothing** — no root
-and no siblings — because such a wire carries no member at all and there is no
-reserved tag for the watchdog to probe.
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`connectSurface(opts)`](#connectsurfaceopts) | `/solid` | The single-surface seam. |
+| [`connectSurfaces(opts)`](#connectsurfacesopts) | `/solid` | The multi-surface seam: siblings, an optional root, and a roster move. |
+| [`conn.redial(surfaces)`](#connredialsurfaces) | `/solid` | Takes a new sibling roster in place. |
+| [`conn.connectionEpoch`](#connconnectionepoch) | `/solid` | How many usable connections this wire has established. |
+| [`createProcessIdEcho()`](#the-stale-tab-handshake) | `/connect` | One `pid` echo, for an app that shares it across wires. |
+| [`createServerLifecycle({ wire, probe })`](#createserverlifecycle-wire-probe-) | `/solid` | The connection lifecycle, from the wire's status and a `processId` probe. |
+| [`createLiveSignal`](#createlivesignal) | `/solid` | The watchdog-backed `LiveSignalHandle` a websocket client requires. |
 
-`url` is **optional on both seams**: omitted, it defaults to
-`surfaceWsUrl(location.origin)` — the page's own origin through the one
-scheme-swap + path derivation, the value a browser consumer spells by hand
-otherwise (never a choice: a browser app dials the origin that served it).
-Omitting it with no `location` in scope (a Node caller) throws loudly, and throws
-*before* anything is dialled — pass the URL you actually mean there.
+The heartbeat probes the framework-reserved `system/live` tag (`@kolu/surface/liveness`) over the very dispatch it guards, so no app supplies a probe, or forgets one.
 
-*`connectSurfaces` required it until [#2222](https://github.com/juspay/kolu/pull/2222),
-so an app with a multi-surface wire spelled at its call site the one line the
-single-surface seam gave it free.*
+### `connectSurface(opts)`
 
-Tags that ride the same wire but are **not** sibling surfaces go in
-`connectSurfaces`' `extraGroups` — a keyed map's group (for
-`connectSurfaceMap(map, conn.transport)`) and a host's hand-written root
-procedures (reached through `conn.transport.dispatch`). The wire's `RpcGroup`
-carries every tag's payload/success schemas, and Effect RPC's flat client resolves
-a call by looking its tag up there, so a tag the group never minted cannot be
-dispatched at all. Each entry must be disjoint from the root, from the composed siblings and from
-every other entry: the merge is `mergeDisjointGroups`
-([`@kolu/surface/define`](/surface/ref-surface#composing-siblings)), which claims
-every half's tags before merging and throws naming the tag *and* the two halves
-that claimed it — and it names each **sibling** by key (`surfaces.<key>`), never
-the composed bundle as one half, so a collision report says *which* sibling.
+The single-surface seam. It returns `{ link, client, readout, dispose }`.
 
-An `extraGroups` entry goes in **as it is**: the option takes an open element
-union, because `RpcGroup` is invariant in that union and a precisely-typed group
-(a host's hand-written root procedures, spelled member by member) is not
-assignable to the erased `RpcGroup<Rpc.Any>` even though every element is one.
-The seam takes that erasure on itself — the same law `mergeDisjointGroups`
-adopted — so no caller writes a double cast at the door onto a safety proof.
+- It is async: the dial is `websocketLink`, and building a protocol and its fibers is an effect.
+- It takes the surface, never a separate group. The wire is built from `surface.group` right here, so a client and a wire that disagree about which members exist is unspellable.
+- `url` is optional. Omitted, it defaults to `surfaceWsUrl(location.origin)`, the page's own origin through the one scheme-swap and path derivation. A browser app dials the origin that served it.
+- Omitting `url` with no `location` in scope (a Node caller) throws loudly, before anything is dialled. Pass the URL you actually mean there.
+- It carries no `connectionEpoch` and needs none. With no generations, its `link.wire.onStatus` open edges are the establishments, undeduplicated.
+
+### `connectSurfaces(opts)`
+
+The multi-surface seam. It takes the sibling map and an optional root, and is async, heartbeated and `url`-defaulting exactly as `connectSurface` is.
+
+- The wire is built from `composeSurfaceContracts` right here, so the same claim holds for a bundle.
+- A call that passes nothing (no root and no siblings) is refused. Such a wire carries no member at all, and there is no reserved tag for the watchdog to probe.
+
+<Snippet src="packages/surface/example/snippets/consume-solid.ts" region="connect" />
+
+#### What the connection carries
+
+`connectSurface` returns `{ link, client, readout, dispose }`; `connectSurfaces` returns `{ link, clients, core, transport, connectionEpoch, readout, health, redial, dispose }`.
+
+| Member | Meaning |
+| --- | --- |
+| `link` | The `WebsocketLink` — `{ dispatch, wire, dispose, diagnostics }`. Read `link.wire` for the status stream and `forceReconnect` |
+| `client` / `clients` | The reactive surface client, or one scoped client per sibling. `clients` is one object for the connection's life, and a `redial` mutates it in place |
+| `core` | (multi only) The root surface's own client when `core` was passed, and typed `undefined` when it was not, so a siblings-only caller reads no optional it has to check |
+| `transport` | (multi only) The branded `LiveSignalHandle`. Pass it whole to `connectSurfaceMap(map, conn.transport)` |
+| `connectionEpoch` | (multi only) How many usable connections this wire has established, as a Solid accessor, so a `createResource` can key on it. See [below](#connconnectionepoch) |
+| `readout` | The [readout](/surface/ref-surface#the-readout): the wire's own four states folded with the subscription-health fact into the five an indicator may report, memoized |
+| `health` | (multi only) The client bundle's own fact over every sibling, and the root under its `name`. It is live when their subs and the shared transport leg all are |
+| `redial` | (multi only) Async: take a new sibling roster in place. See [above](#connredialsurfaces) |
+| `dispose` | Async: stop the heartbeat, tear down standing subscriptions, release the link's scope |
+
+- On the multi seam `link` is the standing wire: `dispatch` and `wire` are the same values across a `redial`, so a consumer may hold them. `diagnostics` is the one leg that belongs to a generation, and reads through to whichever is current.
+- `link.dispose()` is `conn.dispose()`. The wire is the connection's resource and its state gates it, so there is no second, ungated door onto the same release.
+- `link.wire` is a watchable wire, not a socket object such as a `ws: PartySocket`.
+- `core` needs no tag-scoping wrapper: the root's tags are already the bare ones the combined dispatch carries.
+- `connectSurfaceMap(map, conn.transport)` slices the sibling by `map.name` after the guard, so the map inherits this wire's watchdog `live`. `transport` is stable across a `redial`, so a map built over it keeps working.
+- `health` is reactive about the roster too, so a memo bound to it re-folds when a sibling arrives or leaves.
+- `redial` is idempotent: a roster already carried dials nothing. It returns this same connection, retyped.
+
+#### `extraGroups`
+
+Tags that ride the same wire but are not sibling surfaces go in `connectSurfaces`' `extraGroups`: a keyed map's group (for `connectSurfaceMap(map, conn.transport)`), and a host's hand-written root procedures (reached through `conn.transport.dispatch`).
+
+- The wire's `RpcGroup` carries every tag's payload and success schemas, and Effect RPC's flat client resolves a call by looking its tag up there. A tag the group never minted cannot be dispatched at all.
+- Each entry must be disjoint from the root, from the composed siblings and from every other entry.
+- The merge is `mergeDisjointGroups` ([`@kolu/surface/define`](/surface/ref-surface#composing-siblings)), which claims every half's tags before merging, and throws naming the tag and the two halves that claimed it.
+- It names each sibling by key (`surfaces.<key>`), never the composed bundle as one half, so a collision report says which sibling.
+- An entry goes in as it is. The option takes an open element union, because `RpcGroup` is invariant in that union, and a precisely-typed group is not assignable to the erased `RpcGroup<Rpc.Any>` even though every element is one.
+- The seam takes that erasure on itself, the same law `mergeDisjointGroups` adopted, so no caller writes a double cast at the door onto a safety proof.
 
 ### The rooted bundle
 
-A composed wire may also carry an **unprefixed root** surface, through
-`connectSurfaces`' `core: { surface, name }` slot. The siblings are tagged
-`surface/<key>/<member>/<verb>`; the root keeps the bare
-`surface/<member>/<verb>` a standalone surface has. It is a slot on the existing
-seam rather than a second constructor, because a root is data about one wire, not
-a second kind of wire.
+A composed wire may also carry an unprefixed root surface, through `connectSurfaces`' `core: { surface, name }` slot. The siblings are tagged `surface/<key>/<member>/<verb>`; the root keeps the bare `surface/<member>/<verb>` a standalone surface has.
 
 With a `core` present:
 
-- its members join the one dialled group, through the same counted merge
-  `extraGroups` rides;
+- its members join the one dialled group, through the same counted merge `extraGroups` rides;
 - it gets its own typed `surfaceClient`, returned as `conn.core`;
-- it joins the health fold — and therefore the readout — under `name`, so a
-  stopped root subscription is named (`<name>/<sub>`) exactly like a sibling's;
-- **both reserved round-trips address the root's bare tags** —
-  `surface/system/identity` for the echo and `surface/system/live` for the
-  watchdog — which is the path `createSurfaceSocket` and `createLiveSignal`
-  already implement by omitting `siblingKey`. The root is on every serve this wire
-  can reach, so it is the one probe target a wire whose *sibling* set varies per
-  serve can trust.
+- it joins the health fold, and therefore the readout, under `name`, so a stopped root subscription is named (`<name>/<sub>`) exactly like a sibling's;
+- both reserved round-trips address the root's bare tags: `surface/system/identity` for the echo, and `surface/system/live` for the watchdog.
 
 ```ts
 const conn = await connectSurfaces({
@@ -599,47 +607,31 @@ conn.core.cells.plugins.use();       // the root's own typed client
 conn.clients.kolu.cells.terminals.use();
 ```
 
-`surfaces` may then be empty: a wire that carries only its root is an ordinary
-wire. Omit `core` and every one of those sentences reverts — the probes address
-the first sibling's tags, `conn.core` is `undefined`, and the seam behaves exactly
-as it did before the slot existed.
+- That probe path is the one `createSurfaceSocket` and `createLiveSignal` already implement, by omitting `siblingKey`. The root is on every serve this wire can reach, so it is the one probe target a wire whose sibling set varies per serve can trust.
+- `surfaces` may be empty: a wire that carries only its root is an ordinary wire.
+- Omit `core` and every one of those sentences reverts: the probes address the first sibling's tags, and `conn.core` is `undefined`.
+- Whether a wire has a root is a call-site fact, not a runtime one. The seam is two overloads, so `core: enabled ? { … } : undefined` is a type error rather than a `conn.core` that types as a definite client and is `undefined` at runtime.
+- A caller who genuinely wants both shapes branches the call: the two hand back different types.
+- It is a slot on the existing seam rather than a second constructor, because a root is data about one wire, not a second kind of wire.
 
-Whether a wire has a root is a **call-site** fact, not a runtime one: the seam is
-two overloads, so `core: enabled ? { … } : undefined` is a type error rather than
-a `conn.core` that types as a definite client and is `undefined` at runtime. A
-caller who genuinely wants both shapes branches the call — the two hand back
-different types.
+#### Refusals at the seam
 
-Three miswirings are refused at the seam, all of the quiet kind: a `core.surface`
-that is a sibling-**scoped** surface (the client face mints standalone tags
-whatever prefix the value carries, so such a wire would connect and then answer
-nothing — `exposeRootedFaces` states the same law on the serve side); a
-`core.name` that is also a sibling key (the health fold is keyed by that word, so
-one of the two clients would vanish from it in silence); and a `core.name` that is
-empty or carries a `/`. `core.name` is a **label** and not a tag segment — the
-root's members keep their bare tags, so the word never reaches the wire and is
-held to no tag grammar — but it *is* the word a degraded readout says, prefixed
-onto every stopped subscription as `<name>/<sub>`, so a readout that cannot say it
-(`/sub`, or a word indistinguishable from a sibling path) is refused at the door.
+Three miswirings are refused, all of the quiet kind:
 
-### A roster change follows in place — `conn.redial(surfaces)`
+- A `core.surface` that is a sibling-scoped surface. The client face mints standalone tags whatever prefix the value carries, so such a wire would connect and then answer nothing. `exposeRootedFaces` states the same law on the serve side.
+- A `core.name` that is also a sibling key. The health fold is keyed by that word, so one of the two clients would vanish from it in silence.
+- A `core.name` that is empty or carries a `/`.
 
-A new **wire** is dialled, and that part is not negotiable. Effect RPC resolves a
-call's payload/success/error **schemas** by looking its tag up in the `RpcGroup`
-its client was built over, and that group is fixed at the dial (`openWireLink`
-does `RpcClient.make(group, …)` once, over a protocol whose fibers live in the
-link's own scope). A sibling that joins the roster brings tags that group never
-minted, so no client built before it can dispatch them — and the far end has the
-same constraint, because each accepted socket builds its own `RpcServer` over the
-generation it was handed at accept.
+`core.name` is a label and not a tag segment: the root's members keep their bare tags, so the word never reaches the wire and is held to no tag grammar. It is the word a degraded readout says, prefixed onto every stopped subscription as `<name>/<sub>`. A readout that cannot say it (`/sub`, or a word indistinguishable from a sibling path) is refused at the door.
 
-What is **not** a fact about the transport is that the connection had to go with
-it. It used to: `redial` handed back a replacement, and `clients`, `core`,
-`transport`, `readout` and `health` were all dead the moment it resolved. So
-every standing subscription had to be reopened by the app, which meant rebuilding
-the reactive tree, which meant losing local state that has nothing to do with the
-roster — a half-typed editor, an open pane, a scroll position. Now only the wire
-is replaced:
+### `conn.redial(surfaces)`
+
+Takes a new sibling roster in place. A new wire is dialled, and that part is not negotiable.
+
+- Effect RPC resolves a call's payload, success and error schemas by looking its tag up in the `RpcGroup` its client was built over, and that group is fixed at the dial. `openWireLink` does `RpcClient.make(group, …)` once, over a protocol whose fibers live in the link's own scope.
+- A sibling that joins the roster brings tags that group never minted, so no client built before it can dispatch them.
+- The far end has the same constraint, because each accepted socket builds its own `RpcServer` over the generation it was handed at accept.
+- Only the wire is replaced. The connection itself, and every handle you hold off it, stays.
 
 ```ts
 const conn = await connectSurfaces({
@@ -652,90 +644,54 @@ await conn.redial({ kolu: koluSurface });
 conn.clients.kolu.cells.terminals.use();   // the arrival is on the map you hold
 ```
 
-- **`clients` is the same map**, mutated: an arriving sibling appears on it, a
-  departing one is dropped — and the departing one's *client*, which a
-  still-mounted component may hold, refuses **in words** on its next call rather
-  than dialling tags this generation does not serve. A key whose `Surface` value
-  was *replaced* (an edited plugin rebuilt at a new chunk) counts as a departure
-  and an arrival: its client is rebuilt, because one built over the old spec binds
-  members the new one may not have. Mutated in place is what keeps the identity,
-  and the price is that the map is **not reactive** — bind `conn.health` or
-  `conn.readout` (which read the bundle's own roster accessor; see
-  [Consuming in SolidJS](/surface/ref-surface#consuming-in-solidjs)) for anything
-  that must follow the roster, and read the map itself for the clients, after the
-  `redial` resolves.
-- **A roster this connection is already on dials nothing.** "Already on" is the
-  client bundle's own comparison — every key present with the same `Surface`
-  *value*, which is the same test that decides who survives a move — so the door
-  and the move cannot disagree. It matters because the documented pattern is to
-  publish the roster as a cell and drive `redial` off its changes, where a
-  redundant call is ordinary; dialling anyway would fail every call in flight and
-  re-open every standing subscription on the page to arrive back where it started.
-  Refusals still come first: a no-op roster that is *also* illegal is still
-  refused.
-- **`core`, `transport`, `link`, `readout` and `health` keep their identity**, so
-  a consumer holding `conn.link.wire` or `conn.transport` at module scope — as
-  drishti does, for `createServerLifecycle` and `connectSurfaceMap` — keeps
-  holding something live. And `readout` never reads `retired` for a roster move:
-  a move is not a retirement, and saying it was is the second thing every consumer
-  had to work around.
-- **Standing subscriptions re-open themselves.** The wire underneath is a
-  [`followingWire`](/surface/ref-surface#a-wire-that-follows-its-generations--followingwire),
-  whose supersession fails what was in flight with the transport error the
-  per-subscription retry fence already retries on — so the next frame each
-  subscription sees is its fresh snapshot from the new generation. No app code
-  re-subscribes, and there is no second recovery path beside the fence. **Not
-  instantaneously**, and that is the price of one path rather than two: the fence
-  waits one retry interval (`STREAM_RETRY_DELAY_MS`, 1 s — a schedule sized for a
-  *flapping socket*, now also carrying this deliberate move), so every standing
-  subscription reads `pending` across a roster move and its first fresh frame
-  lands about a second later.
+#### The clients map
 
-`redial` re-uses **every option this connection was dialled with** — the `url`
-(thunk included), the heartbeat tuning, `extraGroups`, `onClientError`, the
-socket options — so a consumer cannot drift them by re-spelling the call, which
-is the same failure `connectSurfaces` exists to stop. And it owns the **order**:
-every refusal the new roster earns is raised *before* anything is dialled, the
-replacement wire is dialled *before* the old one is given up, and the handover
-itself — adopt the wire, move the clients, re-fold the health — is synchronous. A
-dial that throws costs you nothing: the connection is untouched and still on its
-current roster. ("Resolved" is the seam's own await, not an open socket:
-`connectSurfaces` hands back a connection whose wire may still be connecting,
-exactly as a first dial does.)
+- `clients` is the same map, mutated. An arriving sibling appears on it, and a departing one is dropped.
+- A departed client, which a still-mounted component may hold, refuses in words on its next call rather than dialling tags this generation does not serve.
+- A key whose `Surface` value was replaced (an edited plugin rebuilt at a new chunk) counts as a departure and an arrival. Its client is rebuilt, because one built over the old spec binds members the new one may not have.
+- Mutating in place is what keeps the identity, and the price is that the map is not reactive.
+- Bind `conn.health` or `conn.readout` for anything that must follow the roster, and read the map itself for the clients, after the `redial` resolves. Both read the bundle's own roster accessor (see [Consuming in SolidJS](/surface/ref-surface#consuming-in-solidjs)).
 
-A `dispose()` that lands while the dial is in flight is terminal and wins: the
-replacement wire is released and the redial rejects, rather than adopting a wire
-onto a connection the caller has already given up.
+#### What keeps its identity
 
-The **root does not move**: only the siblings are re-rostered. The root is the
-member on every serve this wire can reach, which is what makes it the reserved
-probes' target on a bundle whose sibling set varies; a `core` that could change
-would make this a second `connectSurfaces`. Dial a different root by calling
-`connectSurfaces` again. On a **rootless** wire the probes address the *first
-sibling*, and "first" moves with the roster — so the watchdog re-reads its target
-per probe rather than resolving it at the dial.
+- `core`, `transport`, `link`, `readout` and `health` keep their identity, so a consumer holding `conn.link.wire` or `conn.transport` at module scope keeps holding something live. drishti holds exactly those, for `createServerLifecycle` and `connectSurfaceMap`.
+- `readout` never reads `retired` for a roster move: a move is not a retirement.
 
-Two things a caller still has to know. A redial while another is **in flight** is
-refused (this connection dials one wire at a time, so a queue belongs to the
-caller that has two rosters in hand), as is a redial after `dispose`. And the
-returned value is the honest half of an in-place move: it is *this same
-connection*, retyped to the roster it now carries, so a binding still typed on the
-old roster keeps claiming departed keys exist. Re-bind through the result —
-`conn = await conn.redial(next)` — which costs nothing at runtime and keeps the
-type truthful.
+#### Standing subscriptions
 
-### What a roster move does not hide — `conn.connectionEpoch`
+- Standing subscriptions re-open themselves. The wire underneath is a [`followingWire`](/surface/ref-surface#followingwire), whose supersession fails what was in flight with the transport error the per-subscription retry fence already retries on.
+- The next frame each subscription sees is its fresh snapshot from the new generation. No app code re-subscribes, and there is no second recovery path beside the fence.
+- It is not instantaneous. The fence waits one retry interval (`STREAM_RETRY_DELAY_MS`, 1 s, a schedule sized for a flapping socket), so every standing subscription reads `pending` across a roster move and its first fresh frame lands about a second later.
 
-Following the roster in place hides almost everything, which is the point: a
-standing subscription heals itself onto the new wire, and `readout` reads `live`
-throughout, because the page never stopped being connected.
+#### When a redial dials nothing
 
-That is right for anything computed **over** the connection, and wrong for
-anything computed **from** it. A viewer identity resolved from the WebSocket
-upgrade's headers is the case that asked for this
-([juspay/olai#522](https://github.com/juspay/olai/pull/522)): it is stale the
-instant a different socket carries the calls, and nothing else on the connection
-will ever mention that — the subscriptions are fine and the light is green.
+- A roster this connection is already on dials nothing. "Already on" is the client bundle's own comparison: every key present with the same `Surface` value, which is the same test that decides who survives a move.
+- The documented pattern is to publish the roster as a cell and drive `redial` off its changes, where a redundant call is ordinary. Dialling anyway would fail every call in flight and re-open every standing subscription on the page.
+- Refusals still come first: a no-op roster that is also illegal is still refused.
+
+#### Options and order
+
+`redial` re-uses every option this connection was dialled with: the `url` (thunk included), the heartbeat tuning, `extraGroups`, `onClientError` and the socket options. A consumer cannot drift them by re-spelling the call.
+
+- It owns the order. Every refusal the new roster earns is raised before anything is dialled, the replacement wire is dialled before the old one is given up, and the handover (adopt the wire, move the clients, re-fold the health) is synchronous.
+- A dial that throws costs you nothing: the connection is untouched and still on its current roster.
+- "Resolved" is the seam's own await, not an open socket. `connectSurfaces` hands back a connection whose wire may still be connecting, exactly as a first dial does.
+- A `dispose()` that lands while the dial is in flight is terminal and wins. The replacement wire is released and the redial rejects, rather than adopting a wire onto a connection the caller has already given up.
+- A redial while another is in flight is refused, because this connection dials one wire at a time. A queue belongs to the caller that has two rosters in hand. A redial after `dispose` is refused too.
+- The returned value is this same connection, retyped to the roster it now carries. A binding still typed on the old roster keeps claiming departed keys exist, so re-bind through the result: `conn = await conn.redial(next)`.
+
+#### The root does not move
+
+Only the siblings are re-rostered. The root is the member on every serve this wire can reach, which is what makes it the reserved probes' target on a bundle whose sibling set varies.
+
+- A `core` that could change would make this a second `connectSurfaces`. Dial a different root by calling `connectSurfaces` again.
+- On a rootless wire the probes address the first sibling, and "first" moves with the roster, so the watchdog re-reads its target per probe rather than resolving it at the dial.
+
+### `conn.connectionEpoch`
+
+Following the roster in place hides almost everything: a standing subscription heals itself onto the new wire, and `readout` reads `live` throughout, because the page never stopped being connected.
+
+That is right for anything computed over the connection, and wrong for anything computed from it. A viewer identity resolved from the WebSocket upgrade's headers is the case: it is stale the instant a different socket carries the calls, and nothing else on the connection will mention it.
 
 `conn.connectionEpoch` is that fact, as a Solid accessor:
 
@@ -746,207 +702,144 @@ const [viewer] = createResource(conn.connectionEpoch, () =>
 );
 ```
 
-It counts a usable connection being **established**, and only that:
+It counts a usable connection being established, and only that:
 
 | | counts |
 | --- | --- |
-| a **reconnect** inside the current wire generation | ✔ |
-| a **redial** that lands on a connection — *including* the ordinary case where the replacement was already open, which the transport status has nothing to say about | ✔ |
+| a reconnect inside the current wire generation | ✔ |
+| a redial that lands on a connection — including the ordinary case where the replacement was already open, which the transport status has nothing to say about | ✔ |
 | a redial whose replacement is still `connecting` | ✔ when it opens, not when it is adopted |
-| a redial whose **dial failed** | ✘ — no new connection was established, and the one you had is the one you still have |
+| a redial whose dial failed | ✘ — no new connection was established, and the one you had is the one you still have |
 
-It is monotonic for the connection's whole life: it does not restart with the
-underlying link. And it is **not** a rebuild signal — re-fetch what the
-connection itself answered, and leave the tree standing.
+- It reads 0 before the first connection, and is monotonic for the connection's whole life: it does not restart with the underlying link.
+- It is not a rebuild signal. Re-fetch what the connection itself answered, and leave the tree standing.
+- A disposed connection is the one that answers about nothing: its `readout` reads `retired` and its `health` reads not-live, rather than freezing on whatever the disposed memo last computed.
+- The serve side's half of the same contract is [`implementRootedSurfaces`](/surface/ref-surface#implementrootedsurfacescore-base-deps), which is live, because a server's siblings own stores, channels and running sources that must survive a roster change.
+- `serveSurfaceApp` and `serveOverUnixSocket` take a `live` thunk of the generation; `serveSurfaceSocket` reads the pair per accepted connection.
 
-*`connectSurface`, the single-surface seam, carries no such member and needs
-none: with no generations, its `link.wire.onStatus` open edges **are** the
-establishments, undeduplicated.*
+### The readout
 
-A **disposed** connection is the one that answers about nothing: its `readout`
-reads `retired` and its `health` reads not-live, rather than freezing on whatever
-the disposed memo last computed (which would be `live` — green over a closed
-wire).
+A transport `status` answers a question about a socket, and an indicator makes a claim about a page. Those come apart in one place: a socket can be open and answering while a subscription riding it is dead. The fact that knows is `client.health()`.
 
-The serve side's half of the same contract is
-[`implementRootedSurfaces`](/surface/ref-surface#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces),
-which *is* live — a server's siblings own stores, channels and running sources
-that must survive a roster change. `serveSurfaceApp` and `serveOverUnixSocket`
-take a `live` thunk of the generation; `serveSurfaceSocket` reads the pair per
-accepted connection. See the caution on that page.
+Both seams fold the two facts themselves and hand back `readout`, whose `live` is the conjunction.
 
-<Snippet src="packages/surface/example/snippets/consume-solid.ts" region="connect" />
-
-`connectSurface` returns `{ link, client, readout, dispose }`;
-`connectSurfaces` returns
-`{ link, clients, core, transport, connectionEpoch, readout, health, redial, dispose }`.
-
-| Member | Meaning |
-| --- | --- |
-| `link` | the `WebsocketLink` — `{ dispatch, wire, dispose, diagnostics }`. Read `link.wire` for the status stream / `forceReconnect` (was `ws: PartySocket`). On the multi seam it is the **standing** wire: `dispatch` and `wire` are the same values across a `redial`, so a consumer may hold them; `diagnostics` is the one leg that belongs to a generation, and reads through to whichever is current; and `link.dispose()` **is `conn.dispose()`** — the wire is the connection's resource and its state gates it, so there is no second, ungated door onto the same release |
-| `client` / `clients` | the reactive surface client, or one scoped client per sibling. `clients` is one object for the connection's life — a `redial` mutates it in place |
-| `core` | *(multi only)* the root surface's own client when `core` was passed, and typed `undefined` when it was not — so a siblings-only caller reads no optional it has to check. It needs no tag-scoping wrapper: the root's tags are already the bare ones the combined dispatch carries |
-| `transport` | *(multi only)* the branded `LiveSignalHandle` — pass it whole to `connectSurfaceMap(map, conn.transport)`, which slices the sibling by `map.name` **after** the guard so the map inherits this wire's watchdog `live`. Stable across a `redial`, so a map built over it keeps working |
-| `connectionEpoch` | *(multi only)* how many usable **connections** this wire has established — 0 before the first, monotonic for the connection's life — as a Solid accessor, so a `createResource` can key on it. See [below](#what-a-roster-move-does-not-hide--connconnectionepoch) |
-| `readout` | the [readout](/surface/ref-surface#the-readout) — the wire's own four states folded with the subscription-health fact into the five an indicator may report, memoized. Replaces the transport-only `status` this used to hand back |
-| `health` | *(multi only)* the client bundle's own fact over every sibling — and, when a `core` was passed, the root under its `name` — their subs AND-reduced with the shared transport leg. Reactive about the **roster** too, so a memo bound to it re-folds when a sibling arrives or leaves |
-| `redial` | *(multi only)* async: take a NEW sibling roster **in place** — a new wire is dialled over this connection's own options and adopted, the root does not move, and every handle above keeps its identity. Idempotent: a roster already carried dials nothing. See [above](#a-roster-change-follows-in-place--connredialsurfaces). Returns this same connection, retyped |
-| `dispose` | async: stop the heartbeat, tear down standing subscriptions, release the link's scope |
-
-### The readout, not a status
-
-A transport `status` answers a question about a **socket**; an indicator makes a
-claim about a **page**. Those come apart in exactly one place, and it is the
-place that matters: a socket can be open and answering while a subscription
-riding it is dead. The fact that knows — `client.health()` — was a second,
-droppable call, and dropping it is what apps did: a collection whose keys stream
-had died rendered as a collection with nothing in it, under a green light.
-
-So both seams fold the two facts themselves and hand back `readout`, whose `live`
-is the conjunction. `degraded` names what stopped (a non-empty list, so "something
-isn't arriving" is not spellable), pending never degrades, and `needsReload` marks
-the one state a reload — and only a reload — recovers. What each state is *called*
-stays yours: type your wording table `Record<SurfaceReadoutStatus, …>` and a new
-state becomes a type error in your own file.
+- `degraded` names what stopped, as a non-empty list, so "something isn't arriving" is not spellable.
+- `pending` never degrades.
+- `needsReload` marks the one state a reload, and only a reload, recovers.
+- What each state is called stays yours: type your wording table `Record<SurfaceReadoutStatus, …>` and a new state becomes a type error in your own file.
 
 <Snippet src="packages/surface/example/snippets/consume-solid.ts" region="readout" />
 
-A consumer that genuinely wants the socket rather than the page still has it:
-`link.wire.status()` / `link.wire.onStatus`, and (multi only) the branded
-`transport.status`.
+- A consumer that wants the socket rather than the page still has it: `link.wire.status()` and `link.wire.onStatus`, and (multi only) the branded `transport.status`.
+- There is deliberately no `heartbeat: false` on these seams. They mint the watchdog-backed brand `surfaceClient` requires, and a disabled watchdog would mint a branded-but-blind signal.
+- A wire whose liveness another layer owns does not use this seam.
 
-There is deliberately **no** `heartbeat: false` on these seams: they mint the
-watchdog-backed brand `surfaceClient` requires, and a disabled watchdog would mint
-a branded-but-blind signal. A wire whose liveness another layer owns simply does
-not use this seam.
+### The stale-tab handshake
 
-### The stale-tab handshake, and the one option you must spell
+Both seams own the `pid` handshake end to end. On every wire open they probe the framework-reserved `system/identity` member over the link's own dispatch, and feed the `processId` it answers into the echo their URL thunk appends.
 
-Both seams own the `pid` handshake end to end. On every wire **open** they probe
-the framework-reserved `system/identity` member over the link's own dispatch and
-feed the `processId` it answers into the echo their URL thunk appends — so every
-reconnect carries `?pid=<the process that served this page>`, and the server's
-`gateStaleSocket` closes a tab bound to a process that is gone. No app code
-observes an identity, and there is no returned `echo` for an app to feed. (An app
-that shares ONE echo across several wires still creates it —
-`createProcessIdEcho()` from `@kolu/surface-app/connect` — and passes it **in**.)
+- Every reconnect therefore carries `?pid=<the process that served this page>`, and the server's `gateStaleSocket` closes a tab bound to a process that is gone.
+- No app code observes an identity, and there is no returned `echo` for an app to feed.
+- An app that shares one echo across several wires creates it itself, with `createProcessIdEcho()` (`@kolu/surface-app/connect`), and passes it in.
 
-`retired` is **required**, and has no default:
+#### `retired`
+
+`retired` is required, and has no default:
 
 | Option | Effect |
 | --- | --- |
-| `retired: () => void` | run once when the server retires this wire — this tab is bound to a process that no longer exists, the link has stopped dialling for good, and every call on it now fails with `SurfaceTransportRetired`. `retired: reloadForUpdate` is the one-liner; pass your own handler to take the screen instead |
+| `retired: () => void` | Run once when the server retires this wire. This tab is bound to a process that no longer exists, the link has stopped dialling for good, and every call on it now fails with `SurfaceTransportRetired` |
 
-Requiring it does not make an app render anything — nothing at the type level can —
-but it does make the terminal state impossible to be *unaware* of: a wire that
-compiles has been asked what happens when it dies, and answered. The two values a
-connection used to hand back for an app to remember to use — the echo and the
-`status` — were both droppable, and an app that dropped both shipped a tab that
-sat on a dead server looking healthy forever. The echo is no longer an app's to
-drop; the terminal state is no longer an app's to ignore. The third droppable
-value was `client.health()`, and the [readout](#the-readout-not-a-status)
-above is that one paid off: an app can still decline to render a connection, but
-it can no longer render a green one that isn't true.
+- `retired: reloadForUpdate` is the one-liner. Pass your own handler to take the screen instead.
+- Requiring it does not make an app render anything, but a wire that compiles has been asked what happens when it dies, and answered.
 
-`createServerLifecycle({ wire, probe })` derives the connection lifecycle
-(`connecting → connected → disconnected → reconnected / restarted`) from the
-wire's own status stream plus a `processId` probe — pass
-`() => probeSurfaceIdentity(client.rpc)` (`@kolu/surface/identity`), the
-framework-reserved round-trip every surface answers. surface-app declares no
-identity member of its own: it used to ship an `identity.info` beside `buildInfo`,
-which meant two per-process ids in one server and a stale-tab gate that only
-worked while a consumer kept them in step. It observes a
-**`WatchableWire`** — `link.wire` — not a socket object, so the same lifecycle
-rides any transport that can report status and force a re-dial. Deriving a
-lifecycle cannot leave the wire un-watched: it owns a default-on half-open
-watchdog that probes on an interval and calls `wire.forceReconnect()` when a
-probe times out — catching a socket that is TCP-dead with no FIN/RST (laptop
-sleep, Wi-Fi roam, NAT idle-eviction).
+### `createServerLifecycle({ wire, probe })`
+
+It derives the connection lifecycle (`connecting → connected → disconnected → reconnected / restarted`) from the wire's own status stream plus a `processId` probe.
+
+- Pass `() => probeSurfaceIdentity(client.rpc)` (`@kolu/surface/identity`), the framework-reserved round-trip every surface answers.
+- surface-app declares no identity member of its own. An `identity.info` beside `buildInfo` would be two per-process ids in one server, and a stale-tab gate that works only while a consumer keeps them in step.
+- It observes a `WatchableWire` (`link.wire`), not a socket object, so the same lifecycle rides any transport that can report status and force a re-dial.
+- Deriving a lifecycle cannot leave the wire un-watched. It owns a default-on half-open watchdog that probes on an interval and calls `wire.forceReconnect()` when a probe times out, catching a socket that is TCP-dead with no FIN or RST (laptop sleep, Wi-Fi roam, NAT idle-eviction).
 
 | Option | Effect |
 | --- | --- |
-| `livenessProbe` | the watchdog's round-trip — pass `() => probeSurfaceLive(client.rpc)` so it asks the one reserved question, not an app-nominated verb. `probe` answers *which* process; this answers *is it answering at all* |
-| `heartbeat: false` | opt out of the default-on watchdog (only when you wire your own `createHeartbeat`); an object tunes `intervalMs` / `timeoutMs` / `onStale`, and observes every definitive verdict with `onProbeSettled(ok, atMs)` |
-| `onProbeError` | surface a failed identity probe instead of silently holding the prior state |
+| `livenessProbe` | The watchdog's round-trip. Pass `() => probeSurfaceLive(client.rpc)` so it asks the one reserved question, not an app-nominated verb. `probe` answers which process; this answers whether it answers at all |
+| `heartbeat: false` | Opt out of the default-on watchdog, only when you wire your own `createHeartbeat`. An object tunes `intervalMs` and `timeoutMs` and `onStale`, and observes every definitive verdict with `onProbeSettled(ok, atMs)` |
+| `onProbeError` | Surface a failed identity probe instead of silently holding the prior state |
 
-There is no `onStaleRestart` and no `restartCloseCode`. The **link** owns the
-close-code classifier now: a `4001` close retires the wire (status `retired`,
-retry schedule halted, every call failing with `SurfaceTransportRetired`), and the
-lifecycle reads that terminal status as a definitive `restarted`. Nothing is left
-for a consumer to tear down at the decode site.
+- There is no `onStaleRestart` and no `restartCloseCode`. The link owns the close-code classifier.
+- A `4001` close retires the wire: status `retired`, retry schedule halted, every call failing with `SurfaceTransportRetired`. The lifecycle reads that terminal status as a definitive `restarted`, so nothing is left for a consumer to tear down at the decode site.
 
-`onClientError?: (policy, err) => void` is the app's **client error interpreter**
-— the single seam an app registers so a member's spec-declared `client.onError`
-policy (a surface built via
-[`defineSurfaceWithPolicy`](/surface/ref-surface#declaring-a-client-error-policy--definesurfacewithpolicy))
-reaches app code on a subscription failure. Every door in the family takes it in
-the same position: `connectSurface` (to its one client), `connectSurfaces` (threaded
-inward to every sibling *and* the root, via `surfaceClients` → each
-`buildSurfaceClient`), `connectSurfaceMap`, and `surfaceClient` itself for a
-hand-built client. So the app spells **one** interpreter, not one per surface. It is
-optional at the type; a policy-free surface needs none, but a member that *does*
-carry a policy makes `buildSurfaceClient` **throw at construction** if it was
-omitted — a declared policy can never route nowhere.
+### `onClientError`
 
-<Aside type="caution" title="A websocket client requires a watchdog">
-  `surfaceClient` over a websocket requires a watchdog-backed, branded
-  `LiveSignalHandle`; a bare or unbranded wire dispatch throws, because it can
-  half-open. `createLiveSignal` (re-exported on `/solid`, it lives in
-  `@kolu/surface/solid` beside its module-private brand) is the only minter — the
-  seams wrap it; a hand-built client calls it directly, passing the **whole**
-  `{ dispatch, wire }` the link factory minted so the watchdog provably probes
-  the transport it reconnects. There is no `HostSession` export; the per-host
-  fleet seam is `connectSurface`.
-</Aside>
+`onClientError?: (policy, err) => void` is the app's client error interpreter: the single seam an app registers so a member's spec-declared `client.onError` policy reaches app code on a subscription failure. The policy comes from a surface built with [`defineSurfaceWithPolicy`](/surface/ref-surface#declaring-a-client-error-policy--definesurfacewithpolicy).
+
+- Every door in the family takes it in the same position: `connectSurface` (to its one client), `connectSurfaces` (threaded inward to every sibling and the root, via `surfaceClients` → each `buildSurfaceClient`), `connectSurfaceMap`, and `surfaceClient` itself for a hand-built client.
+- So the app spells one interpreter, not one per surface.
+- It is optional at the type. A policy-free surface needs none, but a member that does carry a policy makes `buildSurfaceClient` throw at construction if it was omitted, so a declared policy can never route nowhere.
+
+### `createLiveSignal`
+
+`surfaceClient` over a websocket requires a watchdog-backed, branded `LiveSignalHandle`. A bare or unbranded wire dispatch throws, because it can half-open.
+
+- `createLiveSignal` is the only minter. It is re-exported on `/solid`, and lives in `@kolu/surface/solid` beside its module-private brand.
+- The seams wrap it. A hand-built client calls it directly, passing the whole `{ dispatch, wire }` the link factory minted, so the watchdog provably probes the transport it reconnects.
+- There is no `HostSession` export; the per-host fleet seam is `connectSurface`.
 
 ## The client model
 
-`SurfaceAppProvider` (`@kolu/surface-app/solid`) is the turnkey source that
-handles the stale-tab handshake; its connection source is a union of
-`{ wire, probe }` (the provider derives the lifecycle off the link's
-`WatchableWire` — there is no socket shape to satisfy) or `{ status }` (you
-already did). It takes a typed `controlPlane` whose `buildInfo` cell yields build
-identity, plus `clientCommit={shellCommit()}` — and a **required `fault`**, the
-LOOK of an uncaught render throw (below).
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`SurfaceAppProvider`](#surfaceappprovider) | `/solid` | The turnkey source for the stale-tab handshake and build identity. |
+| [`useSurfaceApp()`](#usesurfaceapp) | `/solid` | The headless model the shell is drawn from. |
 
-`useSurfaceApp()` is the headless model — no styled components ship:
+### `SurfaceAppProvider`
+
+`SurfaceAppProvider` (`@kolu/surface-app/solid`) is the turnkey source that handles the stale-tab handshake.
+
+- Its connection source is a union of `{ wire, probe }` and `{ status }`. Pass the first and the provider derives the lifecycle off the link's `WatchableWire`; pass the second when you already did.
+- There is no socket shape to satisfy.
+- It takes a typed `controlPlane` whose `buildInfo` cell yields build identity, plus `clientCommit={shellCommit()}`.
+- `fault` is required: the look of an uncaught render throw. See [the fault boundary](#the-fault-boundary).
+
+### `useSurfaceApp()`
+
+The headless model. No styled components ship.
 
 | Accessor | Meaning |
 | --- | --- |
 | `status()` | `"live" \| "reconnecting" \| "restarted" \| "down"` |
-| `presentingDown()` | grace-windowed down state — `true` only once `status()` has been not-live for `DISCONNECT_OVERLAY_GRACE_MS` (1 s; re-exported from `@kolu/surface/solid`, and folded into a readout's `presentingDown`) |
+| `presentingDown()` | Grace-windowed down state. `true` only once `status()` has been not-live for `DISCONNECT_OVERLAY_GRACE_MS` (1 s), re-exported from `@kolu/surface/solid` and folded into a readout's `presentingDown` |
 | `server()` | `{ commit, … }` server identity |
-| `reload()` | reload for an update |
-| `setAttention(n)` | OS app badge + title |
-| `canInstallPwa()` | true only in a secure context and not already installed |
+| `reload()` | Reload for an update |
+| `setAttention(n)` | OS app badge and title |
+| `canInstallPwa()` | True only in a secure context, and not already installed |
 
-## The fault boundary: a throw is not a white tab
+## The fault boundary
 
-A client that throws while drawing is not running the code that would draw any
-in-app error surface — Solid unmounts the subtree that faulted, and what a
-reader gets is a blank page with the truth in a console nobody opened. So the
-composition root takes the answer as a **required prop**, the way the connect
-seams require `retired`:
+A client that throws while drawing is not running the code that would draw any in-app error surface. Solid unmounts the subtree that faulted, and what a reader gets is a blank page with the truth in a console nobody opened. So the composition root takes the answer as a required prop, the way the connect seams require `retired`.
+
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`SurfaceFaultBoundary`](#surfacefaultboundary) | `/solid` | Catches, records and prints an uncaught render throw. |
+| [`FaultLook`](#faultlook) | `/solid` | The one thing the app supplies: what that throw looks like. |
+
+### `SurfaceFaultBoundary`
+
+The provider wraps its children in `SurfaceFaultBoundary`:
 
 ```tsx
 <SurfaceAppProvider fault={(text) => <Fault text={text} />} …>
 ```
 
-The provider wraps its children in `SurfaceFaultBoundary`, which owns three
-verbs — it **catches** (an `ErrorBoundary` around the whole shell), **records**
-(one `console.error` naming the moment: a boundary *swallows*, and Solid
-re-throws only when nothing catches, so without that line a faulted page fails
-a browser test as a bare timeout with its "no page errors" assertion green),
-and **prints** (`thrownText`, exported on `.`: the fault arrives as `unknown` —
-a string, an `undefined`, a `DOMException` — and the printer normalizes it,
-puts a Safari-lost message back on the front of its stack, and never returns
-the empty string). The app supplies only the **LOOK** (`FaultLook` —
-`(text: string) => JSX.Element`), handed the printed text verbatim: that text
-is what a bug report is made of, and a LOOK that summarised it would be the
-white tab with extra steps.
+It owns three verbs:
 
-An app whose root plumbing does not ride the provider composes the boundary
-directly:
+- It catches, with an `ErrorBoundary` around the whole shell.
+- It records, with one `console.error` naming the moment. A boundary swallows, and Solid re-throws only when nothing catches, so without that line a faulted page fails a browser test as a bare timeout, with its "no page errors" assertion green.
+- It prints, with [`thrownText`](#throwntexterror), exported on `.`. The fault arrives as `unknown` (a string, an `undefined`, a `DOMException`), and the printer normalizes it, puts a Safari-lost message back on the front of its stack, and never returns the empty string.
+
+An app whose root plumbing does not ride the provider composes the boundary directly:
 
 ```tsx
 render(
@@ -959,59 +852,114 @@ render(
 );
 ```
 
-Requiring the prop does not make an app render anything well — nothing at the
-type level can — but a composition root that compiles has been asked what an
-uncaught throw looks like, and answered.
+### `FaultLook`
+
+The app supplies only the look: `FaultLook` is `(text: string) => JSX.Element`, handed the printed text verbatim.
+
+- That text is what a bug report is made of, and a look that summarized it would be the white tab with extra steps.
+- Requiring the prop does not make an app render anything well, but a composition root that compiles has been asked what an uncaught throw looks like, and answered.
 
 ## Build identity
 
-Build identity is an interface. `defineBuildInfo({ schema, default, isStale? })`
-declares it — `schema` is an Effect `WireSchema<T>`, and the minted cell is
-`verbs: ["get"]`, so build identity is **read-only on the wire** and no client
-can fabricate or hide stale-client state (the server still writes it through
-`ctx.cells.buildInfo.set`). `buildInfoServer({ buildInfo? })` and
-`surfaceAppServer({ buildInfo?, equals? })` (`@kolu/surface-app/surface` /
-`/server`) implement it.
+Build identity is an interface: one export declares it, two implement it.
 
-<Aside type="note" title="buildInfo is a server cell">
-  Read it with `app.cells.buildInfo.use({ authority: "server" })`. The local
-  `{ initial }` shape will not typecheck — build identity is authoritative on the
-  server.
-</Aside>
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`defineBuildInfo({ schema, default, isStale? })`](#definebuildinfo-schema-default-isstale-) | `/surface` | Declares the interface, and mints its cell. |
+| [`buildInfoServer({ buildInfo? })`](#buildinfoserver-buildinfo-) | `/server` | Implements it on its own. |
+| [`surfaceAppServer({ buildInfo?, equals? })`](#surfaceappserver-buildinfo-equals-) | `/server` | Implements it as part of the app server. |
+
+### `defineBuildInfo({ schema, default, isStale? })`
+
+Declares build identity. It lives on `@kolu/surface-app/surface`.
+
+- `schema` is an Effect `WireSchema<T>`.
+- The minted cell is `verbs: ["get"]`, so build identity is read-only on the wire and no client can fabricate or hide stale-client state.
+- The server still writes it, through `ctx.cells.buildInfo.set`.
+- Read it with `app.cells.buildInfo.use({ authority: "server" })`. The local `{ initial }` shape will not typecheck, because build identity is authoritative on the server.
+
+### `buildInfoServer({ buildInfo? })`
+
+Implements the interface on its own, for a server that wants build identity and nothing else.
+
+### `surfaceAppServer({ buildInfo?, equals? })`
+
+Implements it as part of the app server. `equals` decides when two build identities count as the same.
 
 ## Service worker stance
 
-- **No caching service worker, ever** — the ban is on a `fetch` handler that intercepts the network. Definitional for this class of app.
-- By default the package ships `SW_SOURCE`, a self-destructing retirement worker at `/sw.js`, plus `retireServiceWorker()` to retire any worker a prior build registered.
-- The one opt-in is a **fetch-less** notification worker (`NOTIFICATION_SW_SOURCE`), registered via `registerOrRetireServiceWorker()`. An app registers (notify) **or** retires (none) — never both.
-- Gate all service-worker logic on `window.isSecureContext`, never `location.protocol === "https:"`.
+No caching service worker, ever. The ban is on a `fetch` handler that intercepts the network, and it is definitional for this class of app.
+
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`SW_SOURCE`](#sw_source) | `.` | The self-destructing retirement worker, shipped by default. |
+| [`retireServiceWorker()`](#retireserviceworker) | `/lifecycle` | Retires any worker a prior build registered. |
+| [`NOTIFICATION_SW_SOURCE`](#notification_sw_source) | `.` | The one opt-in: a fetch-less notification worker. |
+| [`registerOrRetireServiceWorker()`](#registerorretireserviceworker) | `/lifecycle` | Registers that worker, or retires. |
+
+Gate all service-worker logic on `window.isSecureContext`, never `location.protocol === "https:"`.
+
+### `SW_SOURCE`
+
+The worker the package ships by default: a self-destructing retirement worker at `/sw.js`.
+
+### `retireServiceWorker()`
+
+Retires any worker a prior build registered.
+
+### `NOTIFICATION_SW_SOURCE`
+
+The one opt-in: a fetch-less notification worker.
+
+### `registerOrRetireServiceWorker()`
+
+Registers the notification worker, or retires. An app registers (notify) or retires (none), never both.
 
 ## OS notifications
 
-`createNotify<D>(parse)` (`@kolu/surface-app/notify`) is the last hop of
-cross-host attention: showing an OS notification from a PWA through the origin's
-**one** service worker (the fetch-less `NOTIFICATION_SW_SOURCE` above). `D` is the
-app's own click-routing payload shape — kolu's is a `kind`-discriminated union,
-`{ kind: "host"; host; id } | { kind: "terminal"; host; terminalId }`, so the one
-click router can never cross-deliver the two, and both carry `host` so a click
-switches to the originating host before focusing. `parse(data): D | undefined`
-validates each incoming click envelope; a malformed or stale (pre-upgrade) payload
-is dropped, never routed. It returns a `Notify<D>`:
+`createNotify<D>(parse)` (`@kolu/surface-app/notify`) is the last hop of cross-host attention: showing an OS notification from a PWA through the origin's one service worker.
+
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`createNotify<D>(parse)`](#createnotifydparse) | `/notify` | Builds the app's notification seam. |
+| [`Notify<D>`](#notifyd) | `/notify` | What it returns: permission, show, click. |
+
+### `createNotify<D>(parse)`
+
+It delivers through the fetch-less `NOTIFICATION_SW_SOURCE` worker above, and returns a `Notify<D>`.
+
+- `D` is the app's own click-routing payload shape. kolu's is a `kind`-discriminated union, `{ kind: "host"; host; id } | { kind: "terminal"; host; terminalId }`, so the one click router can never cross-deliver the two.
+- Both arms carry `host`, so a click switches to the originating host before focusing.
+- `parse(data): D | undefined` validates each incoming click envelope. A malformed or stale payload is dropped, never routed.
+
+#### Where delivery would hang or throw
+
+Delivery is a framework piece, one seam at the origin's one service worker, rather than N windows each attempting their own. Two things are why:
+
+- `getRegistration()`, never `.ready`. `navigator.serviceWorker.ready` resolves only when an active worker exists, so in any context where none registers (a dev server, a degraded boot) it hangs forever, silently killing the notification path. `getRegistration()` answers honestly, including "there isn't one".
+- The worker shows it, never `new Notification()`. In an installed (standalone) PWA the page-context constructor throws "Illegal constructor", so delivery must go through `registration.showNotification()`.
+
+### `Notify<D>`
 
 | Method | Role |
 | --- | --- |
-| `requestPermission()` | request OS permission; resolves `true` when granted (idempotent). Delivery is a no-op until granted |
-| `show({ tag, title, body?, icon?, data })` | show — or replace, by `tag` — a notification. A no-op (never a throw or a hang) where there is no worker, no active worker, or no permission; an operational failure is caught and logged, so a caller may fire-and-forget |
-| `onClick(handler)` | subscribe to clicks; the handler receives the clicked notification's **validated** `data`. Covers the live path (the worker retries `postMessage` under an ACK handshake so a still-LOADING window that has not installed its listener yet does not drop the click — the page acks the EXACT delivering worker via `event.source`, so the ack lands even mid worker-replacement) and the cold-start URL handoff (no window open → opens one carrying the payload in `NOTIFICATION_DATA_PARAM` plus a click id in `NOTIFICATION_CLICK_ID_PARAM`, read once at startup; a loading window that never acks is navigated to the same URL as a durable fallback). The click id dedups a live route against a fallback-navigate re-delivery (a bounded `sessionStorage` FIFO), so one click fires exactly one action. Exactly-once is structural, not best-effort: the page routes the LIVE message only when it can both ack the delivering worker (`event.source` present) AND durably record the id (`sessionStorage` writable); if either is missing it stays silent and lets the worker's URL-fallback navigation be the single route (a storage failure is warned, never swallowed into a double-fire). Returns an unsubscribe fn |
+| `requestPermission()` | Request OS permission. It resolves `true` when granted, and is idempotent. Delivery is a no-op until granted |
+| `show({ tag, title, body?, icon?, data })` | Show a notification, or replace the same-`tag` one. A no-op where there is no worker, no active worker, or no permission |
+| `onClick(handler)` | Subscribe to clicks. The handler receives the clicked notification's validated `data`. Returns an unsubscribe fn |
 
-Two landmines are why delivery is a framework piece — one seam at the origin's
-one service worker — rather than N windows each attempting their own:
+#### `show`
 
-- **`getRegistration()`, never `.ready`.** `navigator.serviceWorker.ready` resolves only when an active worker exists — in any context where none registers (a dev server, a degraded boot) it hangs forever, silently killing the notification path. `getRegistration()` answers honestly, including "there isn't one".
-- **The worker shows it, never `new Notification()`.** In an installed (standalone) PWA the page-context constructor throws "Illegal constructor" — delivery must go through `registration.showNotification()`.
+- A no-op here is never a throw or a hang. An operational failure is caught and logged, so a caller may fire-and-forget.
+- The `tag` carries the multi-window discipline: two open windows must not both ping you.
+- A tag-keyed `show` makes the OS replace the same-tag notification instead of stacking a duplicate.
 
-The `tag` carries the multi-window discipline: two open windows must not both ping
-you, and a tag-keyed `show` makes the OS **replace** the same-tag notification
-instead of stacking a duplicate. The click payload comes back to `onClick` as the
-opaque `data` the app routes — the framework does not know what clicking attention
-means.
+#### `onClick`
+
+It covers two paths.
+
+- The live path: the worker retries `postMessage` under an ack handshake, so a still-loading window that has not installed its listener yet does not drop the click. The page acks the exact delivering worker via `event.source`, so the ack lands even mid worker-replacement.
+- The cold-start URL handoff: with no window open, the worker opens one carrying the payload in `NOTIFICATION_DATA_PARAM`, plus a click id in `NOTIFICATION_CLICK_ID_PARAM`, read once at startup. A loading window that never acks is navigated to the same URL as a durable fallback.
+- The click id dedups a live route against a fallback-navigate re-delivery, through a bounded `sessionStorage` FIFO, so one click fires exactly one action.
+- Exactly-once is structural, not best-effort. The page routes the live message only when it can both ack the delivering worker (`event.source` present) and durably record the id (`sessionStorage` writable).
+- If either is missing, the page stays silent and lets the worker's URL-fallback navigation be the single route. A storage failure is warned, never swallowed into a double-fire.
+- The click payload comes back as the opaque `data` the app routes. The framework does not know what clicking attention means.

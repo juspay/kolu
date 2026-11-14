@@ -8,9 +8,10 @@ section: Multi-host · How-to
 import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 
-A fleet multiplies the ways a surface can be quietly wrong: one host runs an
-older agent, two writers disagree about who is a member, one dead host drags the
-whole map down. This guide covers the three habits that keep a fleet honest.
+A fleet multiplies the ways a [surface](/surface/glossary) can be quietly wrong:
+one host runs an older agent, two writers disagree about who is a member, one
+dead host drags the whole map down. This guide covers the three habits that keep
+a fleet honest.
 
 ## Gate every host on contract compatibility
 
@@ -22,54 +23,72 @@ when the majors match and the reported minor is at or above yours.
 
 <Snippet src="packages/surface/example/snippets/remote.ts" region="compat" />
 
-Read the version off the host's identity cell, check it **before** invoking
-anything else, and turn a mismatch into an honest "restart the other side"
-message rather than an opaque schema error from deep in the RPC layer. Surface the
-mismatch as the entry's `failed` cause so the chip shows an actionable card.
+Read the version off the host's identity cell, and check it before you invoke
+anything else. Turn a mismatch into a plain "restart the other side" message
+rather than an opaque schema error from deep in the RPC layer. Surface the
+mismatch as the entry's `failed` cause, so the chip shows an actionable card.
 
 ## Keep one writer of membership
 
 Membership must have exactly one author. In a map, that author is the
-`MapRegistry`: `entries` is the truth it publishes, and status is *derived* from
-each session's connection state — there is no second writer. Do not maintain a
-parallel record of "which hosts exist" beside it.
+`MapRegistry`: `entries` is the truth it publishes, and status is derived from
+each session's connection state. Do not keep a parallel record of which hosts
+exist beside it.
 
-- A key absent from `entries` **is** "not a member" — there is no `absent` status arm to keep in sync.
-- Add, remove, or retire a host through the pool's `add`/`remove`/`retire`; `entries` follows every one.
-- When a host leaves mid-stream — a user `remove` **or** an internal `retire` — its subscriptions complete cleanly (a typed stream end, not an error) **before** the session is destroyed, and the browser socket closes with a normal `1000` close whose reason names the verb (`host removed` / `host retired`). A consumer sees a clean typed end, never a socket-error frame after it.
+- A key absent from `entries` means "not a member". There is no `absent` status
+  arm to keep in sync.
+- Add, remove, or retire a host through the pool's `add`, `remove` and `retire`.
+  `entries` follows every one.
+- When a host leaves mid-stream, through a user `remove` or an internal
+  `retire`, its subscriptions complete cleanly before the session is destroyed.
+  They get a typed stream end, not an error. The browser socket then closes with
+  a normal `1000` close whose reason names the verb (`host removed` or
+  `host retired`), so a consumer never sees a socket-error frame after the end.
+- `remove` and `retire` run the same live teardown, and they answer different
+  questions. `remove` is the user's departure: it forgets the host, and the
+  `persist` hook writes the shrunk set. `retire` is an internal shed of a dead
+  session: it drops the host from live `entries` and leaves the remembered set
+  untouched, so a membership store re-seeds it next boot.
 
-<Aside type="note" title="Live membership vs remembered membership">
-  `remove` and `retire` run the **same** live teardown, but they answer different
-  questions. `remove` is the **user's** departure — it forgets the host (the `persist`
-  hook writes the shrunk set). `retire` is an **internal** shed of a dead session — it
-  drops the host from live `entries` yet leaves the *remembered* set untouched, so a
-  membership store re-seeds it next boot. Live membership (what `entries`/`has` report)
-  is the map's single-writer truth; the remembered set is a separate fact the pool keeps,
-  and a retired host is deliberately in one but not the other.
-</Aside>
+Live membership, which is what `entries` and `has` report, is the map's
+single-writer truth. The remembered set is a separate fact the pool keeps, and a
+retired host is deliberately in one but not the other.
 
 <Aside type="caution" title="Do not hand-roll a membership probe">
   The registry's `subscribe` fires only after `members()` and `has()` reflect the
-  change, so `entries` is always consistent with membership. A second hand-rolled
-  probe re-introduces exactly the dual-authority drift the single-writer rule
-  exists to make unconstructible.
+  change, so `entries` is always consistent with membership. A second,
+  hand-rolled probe re-introduces the dual-authority drift that the
+  single-writer rule exists to prevent.
 </Aside>
 
 ## Isolate each host's failures
 
 A fleet's failures must stay local to the host that had them. `cause` is the
-transport CLASS (not the retry policy); the session state machine isolates two kinds:
+transport class, not the retry policy. The session state machine isolates two
+kinds:
 
-- A **network** fault (host asleep, roaming, VPN down) *normally* retries at capped backoff forever, so a laptop that closes at home reconnects on its own at a café. It projects as `warming` — in motion, no action needed. The ONE terminal exception (#1908): a **budget-exhausted silent provisioning step** — the ssh connector kills a wedged copy/build enough consecutive times that its progress-liveness budget gives up — surfaces terminal `failed` + `network` (the honest transport cause; terminality is the phase, not a rewrite to `remote`).
-- A **remote** fault (the host answered but the attempt failed — e.g. a Nix build on the host failed) is bounded: after a few consecutive failures the session surfaces terminal `failed` + `remote`, and the map shows that one host's chip as needing intervention. The other hosts are untouched.
+- A network fault (host asleep, roaming, VPN down) normally retries at capped
+  backoff forever, so a laptop that closes at home reconnects on its own at a
+  café. It projects as `warming`: in motion, no action needed.
+- A remote fault means the host answered and the attempt failed, such as a Nix
+  build on the host. It is bounded: after a few consecutive failures the session
+  surfaces terminal `failed` with cause `remote`, and the map shows that one
+  host's chip as needing intervention. The other hosts are untouched.
+
+One network case is terminal: a provisioning step that exhausts its budget
+silently. The ssh connector kills a wedged copy or build enough consecutive
+times that its progress-liveness budget gives up, and the session surfaces
+terminal `failed` with cause `network`. Terminality is the phase here, not a
+rewrite of the cause to `remote`.
 
 On a long-running parent, call `recheck()` on every session when the machine
-wakes or regains connectivity — a post-sleep link is often stale (the far end
-dropped the socket but local ssh won't notice until this dial's
-[`keepalive`](/surface/ref-surface-remote) tolerance elapses, ~30s by default and
-longer on a dial tuned for an unattended lane), and `recheck()` force-cycles even
-a `connected` link. Use `reconnect()` for the manual
-"Reconnect" button; it re-arms a `failed` session without disturbing a live one.
+wakes or regains connectivity. A post-sleep link is often stale: the far end
+dropped the socket, and local ssh does not notice until this dial's
+[`keepalive`](/surface/ref-surface-remote) tolerance elapses (about 30s by
+default, and longer on a dial tuned for an unattended lane). `recheck()`
+force-cycles even a `connected` link. Use `reconnect()` for the manual
+**Reconnect** button; it re-arms a `failed` session without disturbing a live
+one.
 
 For why `warming` and `failed` mean exactly this, see
 [Entry contracts](/surface/entry-contracts).

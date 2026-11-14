@@ -97,6 +97,10 @@ Feature: A terminal the Conductor drives is read-only until you take it over
     When I go to the member terminal
     Then the member terminal should say the Conductor drives the "Implementor"
     And the lock should sit above the phone's key bar
+    # The phone is shown this terminal for the first time here — a tile
+    # nobody has seen takes no output — so the stand-in's own up marker is
+    # waited for before anything is measured against the screen.
+    And the member terminal should have come up
     When I note the member terminal's screen
     And I tap the mobile key "slash"
     Then the member terminal's screen should be unchanged

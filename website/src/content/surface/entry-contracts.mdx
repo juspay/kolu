@@ -1,202 +1,130 @@
 ---
 title: Entry contracts
-description: "Why the map's wire is shaped the way it is: EntryStatus arms, the warming=in-motion / failed=needs-intervention split, void-input, and the clock seam."
+description: "Why the map's wire is shaped as it is: the EntryStatus arms, warming versus failed, the void-input envelope, and the per-entry clock."
 order: 432
 section: Multi-host · Explanation
 ---
 
-import Aside from "../../components/docs/Aside.astro";
 import Snippet from "../../components/docs/Snippet.astro";
 
-The [client half](/surface/the-client-half) rests on a small wire contract: the
-shape of one entry's membership and status, and the shape of the frames that carry
-its calls. This page is the deepest *why* under that wire. Every choice here is
-the same principle applied at a different spot — the framework owns the keyed
-volatility, and the app owns policy — and every one is paid for by giving up an
-easy shortcut.
+The [client half](/surface/the-client-half) rests on a small wire contract: the shape of one entry's membership and status, and of the frames that carry its calls. Every choice in it applies one principle: the framework owns the keyed volatility, and the app owns policy.
 
 ## Why the status is a sum, not a flag
 
-The map publishes each entry's status as `EntryStatus<Failure>`, a sum of exactly
-three arms:
+The [surface map](/surface/glossary) publishes each entry's status as `EntryStatus<Failure>`, a sum of exactly three arms:
 
 <Snippet src="packages/surface/example/snippets/map.ts" region="entrystatus" />
 
-There is no fourth arm for `absent`, and this is the first commitment: **absence
-means absence.** A collection already says "not a member" by not containing the
-key. Adding an `absent` status would be a second way to encode the same fact, and
-two encodings of one fact is two writers waiting to disagree. So membership lives
-in the collection's key set, status lives in its value, and one writer publishes
-both.
+There is no `absent` arm: absence means absence. A collection already says "not a member" by not containing the key, and a second encoding of the same fact is a second writer waiting to disagree. So membership lives in the key set, status in the value, and one writer publishes both.
 
-The three live arms exist because the client needs to tell apart states that
-*look* alike but demand opposite responses. This is a projection contract, not
-vibes:
+The three arms exist because the client must tell apart states that look alike but need opposite responses:
 
-- **warming** — the system is doing something and will resolve on its own. First provision and a transient reconnect-backoff both land here. The right UI is a spinner; the wrong one is an alarm. Because of `unobservable` (below), this arm means what it says: a campaign the publisher is *currently narrating to you*, which is a thing you may legitimately put a clock on.
-- **connected** — live. `clockOffset` is this entry's clock seam (below).
-- **failed** — it will *not* resolve without someone acting: a bounded give-up, or a standing refuse ("another owner holds this host"). The right UI is an actionable card; the wrong one is an eternal spinner.
+- **warming**: the system is doing something and will resolve on its own. First provision and a transient reconnect backoff both land here. The right UI is a spinner, not an alarm. Because of `unobservable` (below), this arm means a campaign the publisher is narrating to you right now, so you may put a clock on it.
+- **connected**: live. `clockOffset` is this entry's [clock seam](#why-the-clock-is-per-entry).
+- **failed**: it will not resolve unless someone acts. It is a bounded give-up, or a standing refusal ("another owner holds this host"). The right UI is an actionable card, not an eternal spinner.
 
-## The fourth arm is about you, not the host
+### Why the connection word and the dot have one source
 
-`entry(key).state()` has one more arm the wire never carries: **unobservable**,
-which the client's liveness floor mints when *your* link to the publisher is dead.
-It means "we cannot see this entry", and it exists because collapsing that into
-`warming` was a real bug with a real cost.
+A map may declare a `connection` schema, and the live arms then carry that fine payload beside the coarse `kind`: a word such as "connecting" beside the dot a fleet view paints from `kind`. Both derive from one projection of one session frame, so a consumer reads the word off the same entry value it reads the dot from (`state().connection`), never from a second subscription.
 
-The floor has always demoted a `connected` entry when your link dies, so nothing
-renders green over a dead transport. Correct — but demoting it to `warming` made
-two facts with opposite consequences into one value: "the publisher says this host
-is coming up" and "we cannot see the publisher at all." A consumer that merely
-**spins** is fine either way. A consumer that **times** the entry — a deadline, an
-escalation, a "failed to start" verdict — can certify a healthy thing dead. Kolu
-did exactly that: a backgrounded tab lost its socket, the local entry demoted to
-`warming`, and a 30-second boot deadline certified a daemon that had been running
-for twelve hours as dead
-([kolu#2129](https://github.com/juspay/kolu/pull/2129)).
+Two reads of one fact latch out of step. Drishti's fleet view once showed a connected dot beside a host stuck on "connecting", because the dot and the word came from different places ([srid/drishti#102](https://github.com/srid/drishti/issues/102)). One payload on one arm leaves the two nothing to disagree about.
 
-So it is an arm, not a warning. A separate arm means every `.exhaustive()` match in
-every consumer has to say what it does while blind, and the compiler asks the
-question — which is the only form in which this kind of rule survives contact with
-the next feature. It was deliberately not spelled as an optional flag on `warming`:
-a field you can ignore is a rule you can forget, which is the shape the prose
-version already had.
+## Why there is a fourth arm on your side
 
-The arm carries `membershipId` (the floor is about liveness, not identity — it is
-still the same member) and `published: "warming" | "connected"` — the last thing
-the publisher actually said, so you can narrate "last seen: connected" without the
-framework pretending the claim still holds. It carries **no** `clockOffset` and
-**no** `connection`, so a frozen in-progress word cannot keep narrating work that
-stopped, and there is nothing green to paint. `failed` is not floored: a
-post-mortem does not go stale the way a live claim does, which is why `published`
-has no `failed` inhabitant.
+`entry(key).state()` has one more arm that the wire never carries: **unobservable**. The client's liveness floor mints it when your own link to the publisher is dead. It means "we cannot see this entry".
 
-For the consumer that only wants a spinner, `isSettling(state)` is one call and
-covers both `warming` and `unobservable` — splitting the arm costs the simple case
-nothing. Anything that puts a *clock* on an entry still has to narrow the union
-itself, which is the entire point.
+### The bug it prevents
 
-The arm has no wire schema, and that is a statement rather than an omission: it is a
-projection of *your* transport, meaningless to anyone else, so `entryStatusSchema`
-has no arm to encode it into and a floored value can never be republished.
+The floor demotes a `connected` entry when your link dies, so nothing renders green over a dead transport. Demoting it to `warming` merged two opposite facts: "the host is coming up" and "we cannot see the publisher at all".
 
-The `failed` arm is a **`FailureRecord`**: the reason, and the output that evidences
-it, as one named value. Neither half is optional, because a card that names a cause
-without showing what the machine actually printed is exactly the card nobody can act
-on — and because a pair spelled out as two correlated fields is a rule you have to
-remember, whereas one value is a rule you cannot forget. That is also why a
-`disconnected` session state carries an optional `refuse: FailureRecord` rather than
-two optional fields: there is no pair left to leave half-filled. The pairing is also
-what survives the client's liveness floor. That floor drops the live `connection`
-payload when the browser's own link to kolu goes quiet — a frozen in-progress word
-would otherwise keep narrating work that is no longer happening — and for a year the
-retained output tail rode that payload, so a slept laptop woke to a reason whose
-evidence had silently vanished. Moving the tail onto the failure record means the floor
-cannot separate them: it drops liveness payloads, and a failure record is not one. The
-`failed` arm carries no `connection` at all now, so the old read isn't merely
-discouraged, it doesn't compile.
+A consumer that only spins is fine either way. A consumer that times the entry can certify a healthy thing dead. kolu did: a backgrounded tab lost its socket, the entry dropped to `warming`, and a 30-second boot deadline declared a daemon that had run for twelve hours dead ([kolu#2129](https://github.com/juspay/kolu/pull/2129)).
 
-The line between `warming` and `failed` is drawn by the session's **domain failure**.
-A *specific* failure — a contract skew, a cross-supervisor refusal — is a standing
-condition, so it projects `failed`. *No* specific failure is a transient drop, so it
-projects `warming`. Collapsing the two would reproduce two real, opposite bugs:
-render a retriable reconnect as a steady red "failed" and a live system looks
-dead; render a standing refuse as `warming` and a permanently-stuck host spins
-forever. The sum is the fix that makes both unrepresentable.
+### Why an arm and not a flag
 
-<Aside type="note" title="The domain owns its failures; the framework owns the discriminant and one co-product">
-  `Failure` is a type parameter (defaulting to `unknown`), inferred from the map's
-  required `failure` schema — not a baked-in list. The generic package cannot know a
-  domain's failure taxonomy, so it carries the discriminant, plus exactly one thing of
-  its own; a domain instantiates `EntryStatus<PadiEntryFailure>` at its own map, where
-  `PadiEntryFailure` is a validated `Schema.Union` of `Schema.Struct`s over a structural `cause`
-  (each arm carrying its human `reason`, the `contract-skew-refused` arm additionally a
-  typed `running`/`expected` version pair). The `failed` arm carries a schema-valid
-  domain value, not a loose object. Domain vocabulary stays in the domain — the
-  dependency arrow points *out*.
+A separate arm makes every `.exhaustive()` match in every consumer say what it does while blind. The compiler asks the question. An optional flag on `warming` would be a field you can ignore, which is a rule you can forget.
 
-  The one thing the framework does own on that arm is `evidence`: a fixed structural
-  type (`readonly { source: "local" | "remote"; line: string }[]`), not a third type
-  parameter. That looks like a hole in the rule and isn't, because evidence is not
-  domain volatility. Every transport that can fail can produce provenance-tagged output
-  lines; there is no taxonomy here for a domain to disagree about, no schema to inject,
-  and nothing to enumerate. `@kolu/surface-remote`'s session log is already structurally
-  exactly this shape, so the producer hands its retained tail straight through. A
-  generic parameter would buy a domain no expressiveness it lacks and cost every map an
-  argument that has one correct answer.
-</Aside>
+### What it carries
+
+- `membershipId`: the floor is about liveness, not identity, so it is still the same member.
+- `published: "warming" | "connected"`: the last thing the publisher said. You can show "last seen: connected" without the framework pretending the claim still holds.
+- No `clockOffset` and no `connection`. A frozen in-progress word cannot keep narrating work that stopped, and there is nothing green to paint.
+
+`failed` is not floored, because a post-mortem does not go stale the way a live claim does. That is why `published` has no `failed` value.
+
+For a consumer that only wants a spinner, `isSettling(state)` covers both `warming` and `unobservable`. Anything that puts a clock on an entry must narrow the union itself, which is the point.
+
+The arm has no wire schema: it is a projection of your own transport. So `entryStatusSchema` cannot encode it, and a floored value can never be republished.
+
+## Why a failure carries its evidence
+
+The `failed` arm is a **`FailureRecord`**: the reason, and the output that evidences it, as one named value. Neither half is optional, because a cause without what the machine printed is a card nobody can act on. One value is a rule you cannot forget, where two correlated fields are a rule to remember. For the same reason, a `disconnected` session state carries an optional `refuse: FailureRecord`.
+
+The pairing also survives the liveness floor. The floor drops the live `connection` payload when the browser's link goes quiet. If the output tail rode that payload, a laptop waking from sleep would see a reason with no evidence. The floor drops liveness payloads, and a failure record is not one. The `failed` arm carries no `connection` at all, so the old read does not compile.
+
+### Where `warming` ends and `failed` begins
+
+The session's domain failure draws the line.
+
+- A specific failure, such as a contract skew or a cross-supervisor refusal, is a standing condition. It projects `failed`.
+- No specific failure means a transient drop. It projects `warming`.
+
+Collapsing the two produces two opposite bugs: a retriable reconnect shown as red "failed" makes a live system look dead, and a standing refusal shown as `warming` spins forever. The sum makes both unrepresentable.
+
+### The domain owns its failures
+
+`Failure` is a type parameter (defaulting to `unknown`), inferred from the map's required `failure` schema. The generic package cannot know a domain's failure taxonomy, so it carries only the discriminant and one thing of its own.
+
+A domain instantiates `EntryStatus<PadiEntryFailure>` at its own map. `PadiEntryFailure` is a validated `Schema.Union` of `Schema.Struct`s over a structural `cause`. Each arm carries its human `reason`, and the `contract-skew-refused` arm also a typed `running`/`expected` version pair. Domain vocabulary stays in the domain, and the dependency arrow points out.
+
+The framework's one field on that arm is `evidence`: `readonly { source: "local" | "remote"; line: string }[]`. It is a fixed type, not a third type parameter, because evidence is not domain volatility. Every transport that can fail produces output lines tagged with their source, and there is nothing for a domain to disagree about. `@kolu/surface-remote`'s session log already has this shape, so the producer hands its tail straight through.
 
 ## Why the fold envelope omits void
 
-Every member's call folds to one wire shape: `{ mapKey, input }`. One envelope for
-any input — an object, a primitive, or none — and because the folded key rides
-*outside* `input`, an entry input that itself has a `mapKey` field can't collide
-with it. Misroute-by-collision isn't unlikely; it is unconstructible.
+Every member's call folds to one wire shape: `{ mapKey, input }`, whatever the input is. The folded key rides outside `input`, so an entry input with its own `mapKey` field cannot collide with it.
 
-The subtle clause is void. A member that takes no input carries **no** `input`
-field at all — `{ mapKey }`, never `{ mapKey, input: undefined }`. The tempting
-version relies on two accidents: that JSON drops an `undefined` value, and that
-the decoder accepts the resulting missing key. Both are quicksand — a schema
-library that tightens "a declared-void field" to *reject* a missing key would
-break every void-input call the moment a lockfile drifted onto it, and one did.
-Omitting the field makes "void = no input key" the one representation on both
-encode and decode, independent of any library's mood. It is a small thing that
-exists so a dependency bump can't silently break the wire — and it survived the
-move from zod to Effect Schema without a byte changing, which is the test it was
-written for.
+A member that takes no input carries no `input` field at all: `{ mapKey }`, never `{ mapKey, input: undefined }`. The tempting version relies on two accidents: that JSON drops an `undefined` value, and that the decoder accepts the missing key. A schema library that rejects a missing declared-void field would break every void-input call the moment a lockfile drifted onto it.
+
+Omitting the field makes "void = no input key" the one representation, so a dependency bump cannot silently break the wire.
+
+## Why a sibling is a whole surface
+
+An entry can carry a [sibling surface](/surface/ref-surface-map#nested-siblings) beside the entry surface: a second daemon on the same host, re-served through the map and addressed per key. The simpler-looking move is to drop that daemon's members into the entry surface and keep one spec.
+
+A sibling is a different program's contract, with its own release cadence and its own version. Folding its members into the entry spec makes that contract part of the entry's: one spec two daemons must agree about, where a version skew in either is a skew the other has to carry. So a sibling is declared as a whole `Surface`, never as a spec fragment, and each program ships on its own schedule.
 
 ## Why keys are codecs, not strings
 
-A `Key` can be anything the schema validates — kolu's `HostKey` is a
-discriminated-sum object, not a string. But every channel name, dedup key, and
-membership entry is keyed on a *string*. `KeyCodec<K>` bridges the two:
+A `Key` can be anything the schema validates: kolu's `HostKey` is a discriminated-sum object, not a string. But every channel name, dedup key and membership entry is keyed on a string. `KeyCodec<K>` bridges the two:
 
 ```ts
 interface KeyCodec<K> { encode(key: K): string; decode(wire: string): K; }
 ```
 
-Keeping the codec explicit keeps two boundaries from merging. Parsing loose human
-input (`localhost`, `127.0.0.1`, `user@host`) is a *separate* function from
-decoding a canonical wire key — so a lax parse can never leak into the wire
-vocabulary. `encode` is a bare, cheap call because it sits on the hottest paths
-(a per-key cache lookup on every `entry(key)`, a fold on every `entries` read);
-`decode` is paired with `keySchema.parse` and need not validate alone, because the
-server re-derives and re-validates the real key on arrival.
+An explicit codec keeps two boundaries apart. Parsing loose human input (`localhost`, `127.0.0.1`, `user@host`) is a separate function from decoding a canonical wire key, so a lax parse never leaks into the wire.
 
-The typed sub end is the same discipline one level up. A call to an absent key is
-not a thrown socket error; it is a **typed rejection** (`MAP_KEY_UNKNOWN`) for a
-procedure, and an **immediate typed end** for a stream. And a key that *leaves*
-membership mid-stream ends its subscriptions with a typed `{ reason: "removed" }`
-**before** the session is torn down — so a consumer sees a clean, expected end,
-never a socket-error frame arriving after a typed end. Absence is always a value
-you handle, never an exception that surprises you.
+`encode` is a bare, cheap call because it sits on the hottest paths: a per-key cache lookup on every `entry(key)`, and a fold on every `entries` read. `decode` is paired with `keySchema.parse` and need not validate alone: the server re-validates the real key on arrival.
+
+The typed end of a subscription follows the same discipline:
+
+- A call to an absent key is not a thrown socket error. It is a typed rejection (`MAP_KEY_UNKNOWN`) for a procedure, and an immediate typed end for a stream.
+- A key that leaves membership mid-stream ends its subscriptions with a typed `{ reason: "removed" }` before the session is torn down. A consumer sees a clean, expected end, never a socket-error frame after a typed end.
+
+Absence is always a value you handle, never an exception that surprises you.
 
 ## Why the clock is per entry
 
-A timestamp stamped on a remote host is meaningless read against the browser's own
-wall clock — the two clocks disagree. So `connected` carries the entry's measured
-`clockOffset`, and the only honest way to read a host-stamped time is through that
-entry's seam: `entry(key).clock.toLocal(remoteMs)`, which is `remoteMs − offset`.
+A timestamp stamped on a remote host means nothing against the browser's wall clock, because the two clocks disagree. So `connected` carries the entry's measured `clockOffset`, and a host-stamped time is read through that entry's seam: `entry(key).clock.toLocal(remoteMs)`, which is `remoteMs − offset`.
 
-The seam's signature is where the honesty lives. It returns `number | null`, and
-it returns **`null`** — never a silent identity — whenever the entry has no offset
-yet (warming, failed, not-a-member). The `null` is deliberately contagious:
-`now − null` is a type error, so a caller *cannot* forget to handle the pending
-case and fall back to the raw remote value. Falling back to the raw value is
-precisely the silent foreign-clock lie the seam exists to prevent, and the type
-makes it uncompilable rather than merely discouraged. This is
-[reactive honesty](/surface/reactive-honesty)'s rule — a caught absence must
-surface, never collapse to a plausible default — pushed into a type.
+The seam returns `number | null`. It returns `null`, never a silent identity, whenever the entry has no offset yet: warming, failed or not a member. The `null` is deliberately contagious, since `now − null` is a type error. A caller cannot fall back to the raw remote value, which is exactly the foreign-clock lie the seam prevents. This is [reactive honesty](/surface/reactive-honesty)'s rule, that a caught absence must surface, pushed into a type.
 
 ## Where it costs you
 
-The through-line is one trade made five times: the map's wire refuses the
-convenient shortcut in exchange for a lie it cannot tell. No `absent` arm, so you
-read status through a total lens instead of a nullable one. A per-entry clock, so
-you thread every host-stamped time through a seam and render a "—" while it warms.
-A typed domain failure on `failed`, so the app must enumerate what its failures *mean*
-instead of showing one red dot. Each is more ceremony than a single-host client
-would need. The bet is that in a fleet — where the set changes underfoot and every
-fact belongs to one host — the ceremony is the only thing that stays true. If a
-future addition ever encodes an opinion about *which* host matters, that is policy
-wearing a framework costume, and it belongs in the app, not here.
+The map's wire makes one trade five times: it refuses a convenient shortcut in exchange for a lie it cannot tell.
+
+| Choice | What you pay |
+| --- | --- |
+| No `absent` arm | You read status through a total lens instead of a nullable one. |
+| A per-entry clock | You thread every host-stamped time through a seam, and render "—" while it warms. |
+| A typed domain failure on `failed` | The app must say what each failure means, instead of showing one red dot. |
+
+Each is more ceremony than a single-host client needs. The bet is that in a fleet, where the set changes underfoot and every fact belongs to one host, the ceremony is the only thing that stays true. If a future addition encodes an opinion about which host matters, that is policy dressed as framework, and it belongs in the app.

@@ -27,7 +27,7 @@ import {
   toggleStickyAlt,
   toggleStickyCtrl,
 } from "./terminal/stickyModifiers";
-import { personInput } from "./conductor/workLock";
+import { personInput } from "./conductor/personInput";
 import { runAction } from "./runAction";
 import { useTerminalStore } from "./terminal/useTerminalStore";
 import { isTouch } from "./useMobile";
