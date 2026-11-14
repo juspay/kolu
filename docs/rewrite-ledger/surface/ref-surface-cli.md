@@ -54,3 +54,12 @@
 ## Dropped code spans
 
 None (`node .waterfall/compare.mjs website/src/content/surface/ref-surface-cli.mdx`: 0 missing).
+
+## Review round 1
+
+- B3, the "Why" link of the reference-entry template, one per entry a Moved row came from:
+  - `The sibling key is the first argv word` → [Why each face spells a name its own way](/surface/why-surfaces#why-each-face-spells-a-name-its-own-way).
+  - `The endpoint seam` → [A face offers only what it can do](/surface/reactive-honesty#a-face-offers-only-what-it-can-do) (the one-step `resolve` row).
+  - `How a surface member becomes a command` → the same heading (the `endpoint.streaming: false` row).
+  - `Reading one item of a collection` → [The same split on the command line](/surface/reactive-honesty#the-same-split-on-the-command-line).
+- Checks: lint passes; `.waterfall/compare.mjs … f50641c6a` 0 missing; `house-style.mjs` reports nothing on this page.
