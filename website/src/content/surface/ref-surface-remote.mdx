@@ -431,77 +431,105 @@ Both unclassified errors are genuine producer defects, so they crash the process
 - The loop catches synchronously, so one member's defect never freezes a sibling's status stream mid-frame.
 - It then rethrows out-of-band on the next microtask, as an uncaught exception, never a swallowed `console.error` that would let the server degrade to a stale-but-healthy status.
 
-## Connection health — the host-map entry's fine payload
+## Connection health
 
-Connection health is state the remote agent cannot report (it can't observe the
-link *to* itself), so the parent authors it. It rides the **host map's entry** as a
-fine `connection` payload — the ONE authority the coarse dot (`EntryStatus.kind`) and
-the fine word both derive from. `serveHostMap` produces the coarse status and the fine
-`connection` from the **same** `SessionState` frame in one `resolve` (its injected
-`connection: { project, isConnected }` — `project` yields the word, and `serveHostMap`
-**asserts** the coarse dot and `isConnected(word)` agree, failing loud before publication on
-disagreement), so a "dot connected, word connecting" split has no construction path.
-A consumer reads the word off the same entry it reads the dot from
-(`map.entry(host).state().connection`) — never a second subscription. (There is no
-per-host `connection` *cell* anymore: it was a second wire channel a browser subscribed
-independently, and the two could latch out of step.) `ConnectionInfo` and its browser-safe
-schema ship from `@kolu/surface-remote/connection`, along with the pure `projectConnection`
-leaf a consumer applies to the entry's frame.
+Connection health is state the remote agent cannot report, since it cannot observe the link to itself, so the parent authors it. It rides the host map's entry as a fine `connection` payload: the one authority the coarse dot (`EntryStatus.kind`) and the fine word both derive from.
 
-`ConnectionInfo` is the discriminated **mirror** of the session's `SessionState`
-sum MINUS one arm (`Exclude<SessionState<SshProv>, { phase: "absent" }>`), keyed on
-`phase`: the up arms (`probing` / `provisioning` — the ssh
-connector's provisioning phases, `probing` being the warm-check window where the
-agent is looked up but nothing is shipped yet — plus `connecting` / `connected`).
-`absent` is excluded because only a connector that can TELL absence from
-unreachability produces it, and a host is dialled over ssh or over the local
-endpoint, neither of which can: carrying it would put a state on the browser's wire
-that every reader must handle and no producer can ever send.
-Every arm carries three fields: a provenance-tagged `log` tail
-(`{ source: "local" | "remote"; line }[]`); `sinceMs`, the server-stamped elapsed
-of the CURRENT episode in milliseconds — a **duration** on the server's single clock
-(never a foreign epoch the browser would subtract), which the browser extends smoothly
-with its own ticker; and `campaignEpoch`, the monotonic campaign generation, so a
-client elapsed timer can re-baseline when the same host starts a fresh campaign that
-reopens at `sinceMs: 0` after a quiet multi-minute stretch. Both `log` and `sinceMs`
-are scoped to the current **campaign** (#1908 D3): they are stamped/reset at CAMPAIGN
-BIRTH — the first (or re-pin) dial, a user `reconnect()`/`recheck()`, and a
-*connected*-link drop — but **NOT** on a backoff retry within an ongoing connect
-campaign. So a wedged provision that retries for ten minutes reads ten minutes (not
-the per-attempt ~1s a per-dial reset showed), and the log survives retry dials
-(capped) so a coming-up card can render the attempt tail. The **`connected`** arm alone additionally carries `clockOffset: number | null`
-— the far-end host's wall-clock offset (ms) vs the serving process, measured off the
-framework-reserved `system.clockNow` at admit (RTT-compensated; see
-`measureSurfaceClockOffset` in `@kolu/surface/clock-now`). It is born `null` and re-stamped
-once the probe lands — `null` means *not yet measured*. Readiness is link-liveness, so
-`serveHostMap` keeps the entry `connected` with a `null` offset (never demoted to `connecting`; a `0` placeholder would be a lie on a skewed host). This is where the
-`clockOffset` a keyed `SurfaceMap` folds into `EntryStatus.connected` originates — it rides
-the session's own state, no longer an injected `offsetOf`. A clock probe that fails is
-never swallowed: it stays `connected` with a `null` offset, re-attempts on a fixed cadence,
-and surfaces the failure on the session's diagnostic logger (`MakeSessionOptions.log`, the
-`@kolu/log` `Logger` shape — four level methods `debug`/`info`/`warn`/`error`, each
-`(obj: Record<string, unknown>, msg: string) => void`; pass a pino child directly) — the session dispatches the
-severity itself via a receiver-bound `log[severity]({ line }, label)` call, classified
-`error` for a genuine failure (the wedged-clock deadline, a transport fault) and `debug`
-for the expected-absent case (an agent dial whose client carries no reserved
-`system.clockNow` — "tool not installed", not a fault). Omit `log` and diagnostic lines
-fall to raw `process.stderr` (the plain-CLI default). Consumers never dispatch severity
-over extracted method references — the unbound-`this` crash class has no spellable form —
-and a throwing logger crashes the session loop deliberately (fail fast). `disconnected` adds `error` +
-`cause` (`"network"` transport-class / `"remote"` reached-and-refused); `failed` is terminal and carries
-`cause: "network" | "remote"` — the HONEST transport class, orthogonal to terminality: a
-`MAX_CONSECUTIVE_FAILURES` remote rejection gives up `"remote"`, but a budget-exhausted silent
-provisioning step (#1908) gives up `"network"` (a wedged transport killed enough times — never
-"reached and rejected"). There is no separate `progressLines` / `remoteProgressLines` — provenance
-is the `source` field.
-
-| Export | Subpath | Role |
+| Export | Subpath | What it is |
 | --- | --- | --- |
-| `projectConnection(s)` | `/connection` | the pure, browser-safe leaf a consumer applies to a `SessionState` frame → `ConnectionInfo`. A near-identity: every arm but one passes through untouched (`ConnectionInfo` **is** `SessionState<SshProv>` minus `absent`), and `absent` folds to `disconnected` carrying the absence's own sentence — FOLDED rather than cast away, because a sum with an unhandled arm is how a future connector's new state reaches a browser as `undefined`. The one named projection both the server (via `sessionConnection`, `serveHostMap`'s `connection.project`) and a client use — never a second server-side subscription |
-| `sessionConnection(raw)` | `/connection` | the total `(raw: SessionState<string> \| undefined) → ConnectionInfo` projection a host map feeds to `serveHostMap`'s `connection.project`: folds the gate-closed pending value for a not-yet-seeded member, validates the erased frame against `ConnectionInfoSchema` (fail-loud on a non-ssh / malformed frame), and returns the frame (reference-stable) otherwise |
-| `ConnectionInfo` / `ConnectionInfoSchema` / `DEFAULT_CONNECTION` | `/connection` | the browser-safe type + wire schema (the host map validates the entry's `connection` payload against it) + the gate-closed pending value |
-| `ConnectPhase` | `/connection` | the up-but-not-yet-connected phase subset a connect/progress UI narrates — `Exclude<ConnectionInfo["phase"], "connected" \| "disconnected" \| "failed">` (i.e. `SshProv \| "connecting"`), the ONE vocabulary a UI's exhaustive `switch`/`Record` keys on so a new provisioning phase fails to compile until handled (never a silent hand-listed copy) |
-| `LogEntry` / `LogEntrySchema` | `/connection` | one `{ source, line }` log-tail entry — aliases of `@kolu/surface-map`'s `EvidenceLine` / `EvidenceLineSchema` (the same concept, so the same type *and* the same validator, taken from the schema-only `@kolu/surface-map/evidence` leaf so this browser-safe module still pulls no group-assembly code) |
+| [`ConnectionInfo` / `ConnectionInfoSchema` / `DEFAULT_CONNECTION`](#connectioninfo--connectioninfoschema--default_connection) | `/connection` | The browser-safe type, its wire schema, and the pending value. |
+| [`projectConnection(s)`](#projectconnections) | `/connection` | The pure leaf that turns a `SessionState` frame into one. |
+| [`sessionConnection(raw)`](#sessionconnectionraw) | `/connection` | The total projection a host map feeds to `serveHostMap`. |
+| [`ConnectPhase`](#connectphase) | `/connection` | The up-but-not-yet-connected phases a progress UI narrates. |
+| [`LogEntry` / `LogEntrySchema`](#logentry--logentryschema) | `/connection` | One `{ source, line }` entry of the log tail. |
+
+### `ConnectionInfo` / `ConnectionInfoSchema` / `DEFAULT_CONNECTION`
+
+The browser-safe connection type, the wire schema the host map validates an entry's `connection` payload against, and `DEFAULT_CONNECTION`, the gate-closed pending value. All three ship from `@kolu/surface-remote/connection`.
+
+`ConnectionInfo` is the discriminated mirror of the session's `SessionState` sum minus one arm (`Exclude<SessionState<SshProv>, { phase: "absent" }>`), keyed on `phase`.
+
+| Arm | What it says |
+| --- | --- |
+| `probing` | The warm-check window: the agent is looked up, and nothing is shipped yet. |
+| `provisioning` | The ssh connector's provisioning phase. |
+| `connecting` | The dial is up but not yet connected. |
+| `connected` | The link is live. It alone carries `clockOffset`. |
+| `disconnected` | Down. It adds `error` and `cause` (`"network"` transport-class, `"remote"` reached-and-refused). |
+| `failed` | Terminal. It carries `cause: "network" \| "remote"`. |
+
+- `absent` is excluded, because only a connector that can tell absence from unreachability produces it. A host is dialled over ssh or over the local endpoint, and neither can tell.
+- The transport class is orthogonal to terminality. A `MAX_CONSECUTIVE_FAILURES` remote rejection gives up `"remote"`, while a budget-exhausted silent provisioning step gives up `"network"`.
+
+#### Fields on every arm
+
+| Field | What it carries |
+| --- | --- |
+| `log` | The provenance-tagged tail: `{ source: "local" \| "remote"; line }[]`. |
+| `sinceMs` | The server-stamped elapsed of the current episode, in milliseconds. |
+| `campaignEpoch` | The monotonic campaign generation. |
+
+- `sinceMs` is a duration on the server's single clock, never a foreign epoch the browser would subtract. The browser extends it smoothly with its own ticker.
+- `campaignEpoch` lets a client's elapsed timer re-baseline when the same host starts a fresh campaign that reopens at `sinceMs: 0` after a quiet multi-minute stretch.
+- There is no separate `progressLines` or `remoteProgressLines`. Provenance is the `source` field.
+
+#### What a campaign scopes
+
+Both `log` and `sinceMs` are scoped to the current campaign. They are stamped and reset at campaign birth: the first (or re-pin) dial, a user `reconnect()` or `recheck()`, and a drop of a connected link.
+
+- They are not reset on a backoff retry within an ongoing connect campaign.
+- So a wedged provision that retries for ten minutes reads ten minutes, not the per-attempt second or so.
+- The log survives the retry dials (capped), so a coming-up card can render the attempt tail.
+
+#### `clockOffset` on the `connected` arm
+
+`clockOffset: number | null` is the far-end host's wall-clock offset in milliseconds against the serving process. It is measured off the framework-reserved `system.clockNow` at admit, round-trip compensated (`measureSurfaceClockOffset` in `@kolu/surface/clock-now`).
+
+- It is born `null` and re-stamped once the probe lands. `null` means not yet measured.
+- Readiness is link-liveness, so `serveHostMap` keeps the entry `connected` with a `null` offset. A `0` placeholder would be a lie on a skewed host.
+- This is where the `clockOffset` a keyed `SurfaceMap` folds into `EntryStatus.connected` originates. It rides the session's own state, not an injected `offsetOf`.
+
+#### When the clock probe fails
+
+A clock probe that fails is never swallowed. The session stays `connected` with a `null` offset, re-attempts on a fixed cadence, and surfaces the failure on its diagnostic logger, `MakeSessionOptions.log`.
+
+- That logger is the `@kolu/log` `Logger` shape: four level methods `debug`/`info`/`warn`/`error`, each `(obj: Record<string, unknown>, msg: string) => void`. Pass a pino child directly.
+- The session dispatches the severity itself, with a receiver-bound `log[severity]({ line }, label)` call. Consumers never dispatch severity over extracted method references, so the unbound-`this` crash class has no spellable form.
+- A genuine failure (the wedged-clock deadline, a transport fault) is classified `error`.
+- The expected-absent case is classified `debug`: an agent dial whose client carries no reserved `system.clockNow`, which means the tool is not installed rather than that something failed.
+- Omit `log` and diagnostic lines fall to raw `process.stderr`, the plain-CLI default.
+- A throwing logger crashes the session loop, deliberately: fail fast.
+
+### `projectConnection(s)`
+
+The pure, browser-safe `projectConnection` leaf a consumer applies to a `SessionState` frame, or to the entry's frame, to get a `ConnectionInfo`. It is the one named projection both the server and a client use.
+
+- It is a near-identity. Every arm but one passes through untouched, since `ConnectionInfo` is `SessionState<SshProv>` minus `absent`.
+- `absent` folds to `disconnected`, carrying the absence's own sentence. It is folded rather than cast away, because a sum with an unhandled arm is how a future connector's new state reaches a browser as `undefined`.
+- The server reaches it through `sessionConnection`, which is `serveHostMap`'s `connection.project`. There is never a second server-side subscription.
+- `serveHostMap` produces the coarse status and the fine `connection` from the same `SessionState` frame in one `resolve`, through its injected `connection: { project, isConnected }`. `project` yields the word.
+- `serveHostMap` asserts that the coarse dot and `isConnected(word)` agree, and fails loud before publication when they do not.
+- A consumer reads the word off the same entry it reads the dot from: `map.entry(host).state().connection`, never a second subscription.
+
+### `sessionConnection(raw)`
+
+The total `(raw: SessionState<string> | undefined) → ConnectionInfo` projection a host map feeds to `serveHostMap`'s `connection.project`.
+
+- For a not-yet-seeded member it folds the gate-closed pending value.
+- It validates the erased frame against `ConnectionInfoSchema`, failing loud on a non-ssh or malformed frame.
+- Otherwise it returns the frame, reference-stable.
+
+### `ConnectPhase`
+
+The up-but-not-yet-connected phase subset a connect or progress UI narrates: `Exclude<ConnectionInfo["phase"], "connected" | "disconnected" | "failed">`, that is `SshProv | "connecting"`.
+
+- It is the one vocabulary a UI's exhaustive `switch` or `Record` keys on, so a new provisioning phase fails to compile until it is handled.
+
+### `LogEntry` / `LogEntrySchema`
+
+One `{ source, line }` entry of the log tail. They are aliases of `@kolu/surface-map`'s `EvidenceLine` and `EvidenceLineSchema`: the same concept, so the same type and the same validator.
+
+- They are taken from the schema-only `@kolu/surface-map/evidence` leaf, so this browser-safe module still pulls in no group-assembly code.
 
 ## A mirror, end to end
 

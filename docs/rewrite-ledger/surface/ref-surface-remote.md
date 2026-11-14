@@ -73,3 +73,29 @@ None. The two short reasons kept (the republish gate, the pinned tail) explain c
 ### Dropped code spans
 
 None.
+
+## Connection health — the host-map entry's fine payload
+
+- Old lines 353–424 at `f50641c6a`. Section words: 967 → 1,022.
+- Heading renamed: "Connection health — the host-map entry's fine payload" → "Connection health" (`#connection-health--the-host-maps-entry-s-fine-payload` → `#connection-health`). No link anywhere in the repo pointed at the old anchor, so nothing needed updating.
+- Five index rows, five `###` entries, with `####` sections under `ConnectionInfo`: Fields on every arm, What a campaign scopes, `clockOffset` on the `connected` arm, When the clock probe fails. The arms and the per-arm fields became tables.
+- Comparison: 0 missing.
+
+### Moved
+
+None.
+
+### Cut
+
+| Fact | Tag |
+| --- | --- |
+| "There is no per-host `connection` cell anymore: it was a second wire channel a browser subscribed independently, and the two could latch out of step." | history |
+| "so a 'dot connected, word connecting' split has no construction path" | rationale |
+| "carrying it would put a state on the browser's wire that every reader must handle and no producer can ever send" | rationale |
+| "(not the per-attempt ~1s a per-dial reset showed)" reworded without the history | history |
+| "never a silent hand-listed copy" | rationale |
+| The issue numbers #1908 D3 and #1908 | history |
+
+### Dropped code spans
+
+None.
