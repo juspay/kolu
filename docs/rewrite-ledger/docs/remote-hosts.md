@@ -71,3 +71,9 @@ From `.waterfall/compare.mjs` against `f50641c6a`.
 | `<host>` | still on the page, inside `` `ssh <host>` `` |
 | `⌘/Super+K` | still on the page, as `<kbd>⌘/Super+K</kbd>` |
 | table entries `Home + hostname`, `user@host`, `green pip`, `amber pip (pulsing)`, `amber pip, "kaval down"`, `red pip + struck label` | the tab/pip table was split: the tab labels are now a sentence, and the pip rows are `green`, `amber, pulsing`, `amber, "kaval down"`, `red, label struck through` |
+
+## Review round 1
+
+- Plain words: "realises it there" → "installs it there"; "the installed generation already holds the closures" → "the build is already installed alongside kolu"; the Nix 2.35 sentence now says what a host needs and what you do (from `packages/surface-remote/src/closureRoute.ts`); "protocol epoch" → "which protocol version it speaks"; "door" defined once where port forwarding starts.
+- "press" → "click" for controls; heading "What a press opens" → "What a click opens" (no inbound links). Closing heading "Related" → "Next".
+- `<kbd>⌘/Super+K</kbd>` and the other glyph keycaps are now one keycap per key.

@@ -16,7 +16,7 @@ import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 import Steps from "../../components/docs/Steps.astro";
 
-Kolu runs terminals on other machines over ssh and puts them on your canvas as ordinary tiles. The canvas shows one host at a time, and a row of host tabs switches between them live. Each host keeps its own arrangement.
+kolu runs terminals on other machines over ssh and puts them on your canvas as ordinary tiles. The canvas shows one host at a time, and a row of host tabs switches between them live. Each host keeps its own arrangement.
 
 <figure class="doc-shot">
   <img src="/shots/remote-host.webp" alt="The canvas switched to a remote host's tab: an opencode agent running in /home/toor on another machine, with that host's own dock group." loading="lazy" />
@@ -43,9 +43,9 @@ To reach the kolu app itself from another device, see [From another device](/rem
 
 <Steps>
 
-1. Press **+ add** on the host row. It needs nothing set up first.
+1. Click **+ add** on the host row. It needs nothing set up first.
 2. Type the target: an `~/.ssh/config` alias such as `zest`, or a destination such as `srid@zest`.
-3. Press <kbd>⏎</kbd>. The host joins the row as a chip and the canvas switches to it.
+3. Press <kbd>Enter</kbd>. The host joins the row as a chip and the canvas switches to it.
 
 </Steps>
 
@@ -55,7 +55,7 @@ Your local machine is the first chip and cannot be removed. Typing `localhost`, 
 
 ### Pre-seed hosts at launch
 
-Use this when you want a host present without pressing anything: a scripted launch, a shared dev box, a fresh profile. Set `KOLU_PADI_HOST` to a comma-separated list of ssh targets:
+Use this when you want a host present without clicking anything: a scripted launch, a shared dev box, a fresh profile. Set `KOLU_PADI_HOST` to a comma-separated list of ssh targets:
 
 ```sh
 KOLU_PADI_HOST=localhost,you@box kolu
@@ -65,14 +65,14 @@ Your local host is first in the pool either way.
 
 ## First connect
 
-The first time you switch to a host that has never run padi, kolu provisions it over ssh: one Nix operation resolves the build it needs, transfers it and realises it there. A cold provision can take minutes.
+The first time you switch to a host that has never run padi, kolu sets it up over ssh: one Nix operation finds the build the host needs, copies it over and installs it there. A first setup can take minutes.
 
 | How kolu runs | Where padi comes from |
 | --- | --- |
-| the home-manager module | the installed generation already holds the closures, so the transfer starts at once and the host never compiles |
+| the home-manager module | the build is already installed alongside kolu, so the copy starts at once and the host never compiles |
 | `nix run` or `nix profile install` | the [binary cache](/deployment#first-run-compiling-enable-the-binary-cache) first, and a build when the cache does not have it |
 
-A Linux host takes padi content-addressed, which its Nix accepts from any user. That form needs Nix 2.17 through 2.34 there; a copy instead needs the host's Nix and kolu's machine on the same side of Nix 2.35. Otherwise the host is treated like a Mac, whose nix-daemon must trust your login.
+A Linux host usually needs no extra setup: its Nix accepts padi from any user when it is Nix 2.17 to 2.34, or when it and kolu's own machine both run Nix 2.35 or newer. Otherwise, and always on a Mac, the host's nix-daemon must trust your login: add your user to `trusted-users` in its Nix configuration.
 
 What lands is padi plus `kaval-tui`, `padi-tui` and `kolu` itself. They are on `$PATH` in every terminal kolu opens there, with `$PADI_SOCKET` set, so an agent can drive its sibling terminals and use the [MCP server](/mcp) at once.
 
@@ -107,19 +107,19 @@ Each host is a tab: local shows a Home icon and this machine's hostname, a remot
 
 A host that answers kolu's watchdog in time keeps its connection however slow it is. One that is powered off or off the network is noticed in about 25 to 30 seconds, and kolu reconnects when it is back.
 
-Press the pip for diagnostics: connection state, terminal and awaiting counts, that machine's agents, padi and kaval detail, and remove-with-confirm.
+Click the pip for diagnostics: connection state, terminal and awaiting counts, that machine's agents, padi and kaval detail, and remove-with-confirm.
 
 ## Switch hosts
 
 | What you do | What happens |
 | --- | --- |
-| press a tab | the canvas switches to that host, live |
-| <kbd>⌘/Super+K</kbd>, then a host name | hosts are root results in the [switcher](/switcher) |
-| <kbd>⌘⇧H</kbd> (<kbd>Ctrl+Shift+H</kbd> off a Mac), or the search icon in the host bar | the scoped host list, with the machine you came from highlighted, so <kbd>⌘⇧H</kbd> then <kbd>⏎</kbd> hops between two machines |
+| click a tab | the canvas switches to that host, live |
+| <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd>, then a host name | hosts are root results in the [switcher](/switcher) |
+| <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>H</kbd> (**Mod** is <kbd>Cmd</kbd> on a Mac, <kbd>Ctrl</kbd> elsewhere), or the search icon in the host bar | the scoped host list, with the machine you came from highlighted, so the chord then <kbd>Enter</kbd> hops between two machines |
 
 Each host owns its canvas: its terminals, splits and focused tile come back as you left them, and its work keeps running while you are away. If the active host leaves the pool, kolu switches you to local.
 
-A tab also carries that host's attention counts, violet for needs-you and amber for unread. Pressing the violet count jumps to the agent that is waiting, and an [installed PWA](/install-pwa) badges the awaiting count across hosts. See [Notifications](/notifications) for what each signal means.
+A tab also carries that host's attention counts, violet for needs-you and amber for unread. Clicking the violet count jumps to the agent that is waiting, and an [installed PWA](/install-pwa) badges the awaiting count across hosts. See [Notifications](/notifications) for what each signal means.
 
 ### Put the tabs in your own order
 
@@ -141,9 +141,9 @@ When the attempt printed anything, the card shows its last lines under the error
 | --- | --- |
 | **Another kolu owns this host** | another kolu supervisor already holds this host's padi |
 | **This host runs an older kolu** | the padi there speaks an older contract and refused to bind |
-| **This host runs a kolu from before the protocol change** | kolu cannot query that padi's protocol epoch. Update that machine's kolu, or stop the padi there |
+| **This host runs a kolu from before the protocol change** | kolu cannot ask that padi which protocol version it speaks. Update that machine's kolu, or stop the padi there |
 | **This host needs passwordless ssh** | the host asked for a password. Set up key-based access (`ssh-copy-id`) |
-| **This host isn't trusted yet** | ssh does not recognise the host's identity key. Run `ssh <host>` once to accept it, or to clear a changed-key warning |
+| **This host isn't trusted yet** | ssh does not recognize the host's identity key. Run `ssh <host>` once to accept it, or to clear a changed-key warning |
 | **This host has no Nix that kolu can run** | the shell could not run `nix-instantiate`: Nix is missing, or off a non-interactive session's PATH |
 | **Connecting to this host kept stalling** | a step went quiet too many times, a stalled download included. The detail names the step |
 | **Kolu couldn't set up this host** | bringing padi up there kept failing. The detail is the error |
@@ -155,11 +155,11 @@ A separate card covers the host's [kaval](/kaval). When its kaval speaks an inco
 
 ## Port forwarding
 
-A dev server on a remote host listens on that machine's loopback, which never leaves the machine it is on: `http://127.0.0.1:5173` in your browser means your own machine. Press the port and kolu opens a door, then opens the tab.
+A dev server on a remote host listens on that machine's loopback, which never leaves the machine it is on: `http://127.0.0.1:5173` in your browser means your own machine. Click the port and kolu forwards it (opens a **door**, a port on the machine running kolu that reaches the server), then opens the tab.
 
 The [Inspector's **Ports** section](/right-panel#ports-the-terminal-is-serving) lists what each terminal is serving, read from the host's socket table.
 
-### What a press opens
+### What a click opens
 
 kolu reads the port's bind address and picks the mechanism. Nothing to configure.
 
@@ -180,11 +180,11 @@ A forwarded port is one row wherever it appears, with a teal `⇄ :<port>` pill 
 
 <Steps>
 
-1. **Open one by pressing it.** Any port row that needs a door offers **forward & open**. Doors open only for ports you press, and close when the scanner sees the listener die.
+1. **Open one by clicking it.** Any port row that needs a door offers **forward & open**. Doors open only for ports you click, and close when the scanner sees the listener die.
 
-2. **Or forward a port kolu never saw.** <kbd>⌘/Super+K</kbd> → **Forward a port…**, then `host:port`, or just a port for the host you are looking at. Use it for a port kolu's scan cannot see.
+2. **Or forward a port kolu never saw.** <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd> → **Forward a port…**, then `host:port`, or just a port for the host you are looking at. Use it for a port kolu's scan cannot see.
 
-3. **Close it when you are done.** Press `⨯` on the row. A forward you asked for by hand stays until you cancel it or its host leaves.
+3. **Close it when you are done.** Click `⨯` on the row. A forward you asked for by hand stays until you cancel it or its host leaves.
 
 </Steps>
 
@@ -194,9 +194,9 @@ Every door dies with the kolu server, guaranteed by the kernel rather than by a 
 
 ### A printed `localhost` URL
 
-Agents print `http://localhost:5173/` and its relatives (`127.*`, `[::1]`, `0.0.0.0`) constantly. In your browser that hostname is your own machine, not the host running the server. Press a loopback URL and a card appears at the cursor: it names what on the host listens on that port and offers **forward & open** and copy, carrying the printed path through the door. When nothing listens there, it says so.
+Agents print `http://localhost:5173/` and its relatives (`127.*`, `[::1]`, `0.0.0.0`) constantly. In your browser that hostname is your own machine, not the host running the server. Click a loopback URL and a card appears at the cursor: it names what on the host listens on that port and offers **forward & open** and copy, carrying the printed path through the door. When nothing listens there, it says so.
 
-<kbd>⌘/Ctrl</kbd>-press opens the raw URL with no card. The card is live: leave it open while a server starts and it upgrades when the listener is real.
+<kbd>Cmd</kbd>/<kbd>Ctrl</kbd>-click opens the raw URL with no card. The card is live: leave it open while a server starts and it upgrades when the listener is real.
 
 <Aside type="caution" title="A forwarded port is unauthenticated">
 The door kolu opens is plain TCP on every interface of the machine running kolu, the same exposure as starting the dev server on `0.0.0.0` yourself. Anyone who can reach that machine can reach the forwarded service. Keep it to a network you trust.
@@ -227,7 +227,7 @@ Host box
 
 kolu then hands your forwarded agent to every terminal it opens on that host, so `git push` and a further `ssh` hop work there. Each reconnect re-points the link it arrives on, so terminals opened under an earlier connection heal. `ssh-add -l` lists the keys a terminal can reach; an empty answer means no agent was forwarded.
 
-## Related
+## Next
 
 <CardGrid>
   <LinkCard title="Padi" href="/padi" description="the per-host daemon kolu binds on each machine" />
