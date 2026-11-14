@@ -371,7 +371,7 @@ so there instead, with padi's words for why under its state.
 
 ## When a delivery fails
 
-No Linux host's Nix settings matter here. A Linux host gets the agents in
+A Linux host's Nix settings rarely matter here. A Linux host gets the agents in
 **content-addressed** form, where each store path is named by the hash of what
 it holds, so Nix takes them from anyone without asking whom it trusts. The
 login kolu connects as needs no place in `trusted-users`, and the host needs
@@ -384,12 +384,23 @@ code signatures macOS checks before it runs a program, so a Mac gets them as
 agent-distro's cache signed them, and its Nix takes them only if it trusts the
 login kolu connects as (`nix.settings.trusted-users`) or the cache's key
 (`nix.settings.trusted-public-keys`). When it trusts neither, the delivery
-fails with Nix's own words and that one-line fix. A profile kolu built is
-signed by no one, so a Mac takes it only when it trusts the login.
+fails with Nix's own words and that one-line fix.
+
+A profile is built on the machine running kolu, so it is signed by no one.
+kolu rewrites it content-addressed for a Linux host when that machine's Nix and
+the host's are on the same side of Nix 2.35 — both before it, or both from it
+on — and the host takes it without trusting anyone. When they are on opposite
+sides (or the machine running kolu disagrees with itself: its `nix` command on
+one side, its Nix daemon on the other), no content-addressed form exists that
+both would take, so kolu sends the profile as built, and the host takes it only
+when its Nix trusts the login kolu connects as. A Mac always gets a profile as
+built, on the same terms. A refusal says which Nix versions disagreed, and the
+one-line fix.
 
 A delivery that fails — agent-distro has not published the agents for that kind
-of machine yet, a profile would not build, the host could not reach the cache,
-the download broke off, a Mac refused —
+of machine yet, a profile would not build, the machine running kolu could not
+prepare a profile for the host, the host could not reach the cache, the
+download broke off, a host refused what it was sent —
 carries kolu's words for the cause, with Nix's own output under it. The host gets no agents (kolu never
 compiles them), and its mark turns to the warning colour. kolu tries again on
 its own at the next scheduled time and whenever the machine reconnects (see

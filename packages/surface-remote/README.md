@@ -29,11 +29,16 @@ unpublished revision just moves on to the next step, narrated. A
 content-addressed path needs no trust setting, but only within the Nix line
 that wrote it — publishers rewrite with Nix 2.34, which hosts on 2.17–2.34
 verify; 2.35+ and macOS (a rewrite breaks Mach-O signatures) get the signed
-path, which needs the host to trust the login or the key. Publishing is
+path, which needs the host to trust the login or the key. The sender's own
+rewrite follows the same table: it rewrites only when its `nix`, its store's
+Nix and the host's store's Nix all handle the same content-addressed form
+and otherwise ships the closure as built. Publishing is
 `.github/actions/publish-closure` ([Publish your daemon content-addressed](https://kolu.dev/surface/publish-content-addressed)), which pushes to the declaration's first substituter — an attic cache by default, or an **[odu](https://github.com/juspay/odu) cache bucket** when the declaration's `pusher` says so (the read side is identical: a Nix binary cache is a Nix binary cache). The
 delivery steps alone — warm check, index step, staging, root, never a build —
 are `deliverClosure`, for a path the caller already holds (kolu ships the
-agent profiles it builds through it).
+agent profiles it builds through it); a closure it could not deliver says
+which seat it stopped at (this machine or the host) and why it was sent as
+built.
 
 By default a dial's ssh gives up on a peer that has not answered a probe for
 ~30s. That is the right answer while someone is watching a host; an unattended

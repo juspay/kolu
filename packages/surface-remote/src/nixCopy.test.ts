@@ -82,6 +82,36 @@ const drvShow = (system: string): CaptureResult =>
 /** `make-content-addressed --json`'s answer: `STORE` rewritten to `CA_STORE`. */
 const rewriteOut = okOut(JSON.stringify({ rewrites: { [STORE]: CA_STORE } }));
 
+/** The three version probes the sender's staging route asks: `nix --version`
+ *  (this machine's `nix`), `nix store info --json` (this machine's store), and
+ *  the same with `--store ssh-ng://…` (the host's store). */
+const isCliVersion = (args: readonly string[]): boolean =>
+  args.includes("--version");
+const isStoreInfo = (args: readonly string[]): boolean =>
+  args.includes("store") && args.includes("info");
+const isTargetStoreInfo = (args: readonly string[]): boolean =>
+  isStoreInfo(args) && args.includes("--store");
+const cliVersionOut = (v: string) => okOut(`nix (Nix) ${v}\n`);
+const storeInfoOut = (v: string) =>
+  okOut(`${JSON.stringify({ url: "daemon", version: v })}\n`);
+
+/** The version probes' answers — every Nix on 2.34.8 unless a case says
+ *  otherwise, so a Linux target keeps the content-addressed route. */
+function versionAnswer(
+  args: readonly string[],
+  over?: {
+    cliVersion?: CaptureResult;
+    senderStore?: CaptureResult;
+    targetStore?: CaptureResult;
+  },
+): CaptureResult | undefined {
+  if (isCliVersion(args)) return over?.cliVersion ?? cliVersionOut("2.34.8");
+  if (isTargetStoreInfo(args))
+    return over?.targetStore ?? storeInfoOut("2.34.8");
+  if (isStoreInfo(args)) return over?.senderStore ?? storeInfoOut("2.34.8");
+  return undefined;
+}
+
 /** Route the mocked `runCapture` by the command it was handed (robust to call
  *  order): the sender-local `-q --outputs`, the ssh `--check-validity`, the
  *  `--realise … --add-root` pin, and the atomic `nix build` provision. */
@@ -97,8 +127,13 @@ function mockNix(over?: {
    *  route is the subject. */
   system?: string;
   rewrite?: CaptureResult;
+  cliVersion?: CaptureResult;
+  senderStore?: CaptureResult;
+  targetStore?: CaptureResult;
 }): void {
   vi.mocked(runCapture).mockImplementation(async (cmd, args) => {
+    const version = versionAnswer(args, over);
+    if (version !== undefined) return version;
     if (isDrvShow(args)) return drvShow(over?.system ?? LINUX);
     // The content-addressed rewrite (a Linux target's step 2) — default MISS,
     // like the prefetch below.
@@ -145,12 +180,12 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true });
 });
 
-/** The sender's root for `STORE`'s content-addressed form. */
-const caRoot = () =>
+/** The sender's root for `STORE`'s content-addressed form, written in `form`. */
+const caRoot = (form = "2.17") =>
   join(
     home,
     ".local/state/kolu/surface-remote/content-addressed/agent",
-    STORE.slice("/nix/store/".length, "/nix/store/".length + 32),
+    `${STORE.slice("/nix/store/".length, "/nix/store/".length + 32)}@${form}`,
   );
 
 /** What a LOCAL `nix-store --realise <p> --add-root <abs link> --indirect`
@@ -245,9 +280,14 @@ describe("provisionAgent GC-root pinning (cold path)", () => {
     // our argv. That includes the cache prefetch: `agentBinaryCache` restricts no
     // substituter scheme, so `ssh://` is a spellable declared cache and a
     // prefetch with no NIX_SSHOPTS would have zero dead-peer detection.
-    // (`nix derivation show` reads the local `.drv` and reaches nothing.)
+    // (`nix derivation show` reads the local `.drv`, and `nix --version` and a
+    // bare `nix store info` ask this machine's own Nix — they reach nothing.)
     const nixCalls = calls.filter(
-      ([command, args]) => command === "nix" && !isDrvShow(args),
+      ([command, args]) =>
+        command === "nix" &&
+        !isDrvShow(args) &&
+        !isCliVersion(args) &&
+        !(isStoreInfo(args) && !isTargetStoreInfo(args)),
     );
     expect(nixCalls.length).toBeGreaterThan(0);
     for (const [, args, o] of nixCalls) {
@@ -1574,7 +1614,7 @@ describe("deliverClosure — the route without a build", () => {
         opts.onProgress?.(nixErrorLine("unable to download 'https://cache'"));
         return failOut;
       }
-      return failOut;
+      return versionAnswer(args) ?? failOut;
     });
     const onProgress = vi.fn();
     const res = await deliver("ci@croissant", LINUX, onProgress);
@@ -1598,12 +1638,27 @@ describe("deliverClosure — the route without a build", () => {
     expect(pinned()).toContain(CA_STORE);
   });
 
-  it("a closure no declared cache holds is not delivered, and nothing is shipped or built", async () => {
+  it("a closure no declared cache holds is not delivered — stopped at this machine — and nothing is shipped or built", async () => {
     mockNix(); // the rewrite misses, nothing held locally
     const res = await deliver("croissant");
-    expect(res).toMatchObject({ ok: false, kind: "not-delivered" });
+    expect(res).toMatchObject({
+      ok: false,
+      kind: "not-delivered",
+      at: "sender",
+      asBuiltBecause: null,
+    });
     expect(argvs().some(isShip)).toBe(false);
     expect(argvs().some(isBuild)).toBe(false);
+  });
+
+  it("a content-addressed closure the host would not take is not delivered — stopped at the host", async () => {
+    mockNix({ rewrite: rewriteOut }); // ship defaults to refused
+    expect(await deliver("croissant")).toMatchObject({
+      ok: false,
+      kind: "not-delivered",
+      at: "target",
+      asBuiltBecause: null,
+    });
   });
 
   it("a darwin host gets the signed closure: copied from the cache, shipped, and rooted as is", async () => {
@@ -1631,6 +1686,8 @@ describe("deliverClosure — the route without a build", () => {
       ok: false,
       kind: "not-delivered",
       reason: expect.stringMatching(/lacks a signature by a trusted key/),
+      at: "target",
+      asBuiltBecause: expect.stringMatching(/code signature/),
     });
     expect(argvs().some(isBuild)).toBe(false);
     expect(argvs().some((a) => a.includes("--add-root"))).toBe(false);
@@ -1649,8 +1706,159 @@ describe("deliverClosure — the route without a build", () => {
       ok: false,
       kind: "not-delivered",
       reason: expect.stringMatching(/lacks a signature/),
+      at: "sender",
     });
     expect(argvs().some(isShip)).toBe(false);
+  });
+
+  describe("a Linux host: content-addressed only when this machine's nix, its store and the host's store handle the same form", () => {
+    const NEW_STORE = storeInfoOut("2.35.6");
+    const isAsked = (store: string) => (args: readonly string[]) =>
+      isTargetStoreInfo(args) && args.includes(`ssh-ng://${store}`);
+
+    it("this machine's nix 2.34.8 and its 2.35.6 daemon (#2368): nothing is rewritten, the closure ships as built and lands, rooted", async () => {
+      mockNix({ senderStore: NEW_STORE, copy: okOut(""), ship: okOut("") });
+      const onProgress = vi.fn();
+      const res = await deliver("ci@naiveintent", LINUX, onProgress);
+      expect(res).toEqual({ ok: true, outPath: STORE });
+      expect(argvs().some(isRewrite)).toBe(false);
+      expect(argvs().find(isShip)).toEqual(
+        expect.arrayContaining(["--no-check-sigs", STORE]),
+      );
+      expect(pinned()).toContain(STORE);
+      expect(onProgress).toHaveBeenCalledWith(
+        "sending the closure as built: this machine's Nix daemon (2.35.6) does not verify the content-addressed form its nix 2.34.8 writes",
+      );
+    });
+
+    it("the host refusing that closure is not delivered at the host, saying why it was sent as built", async () => {
+      mockNix({ senderStore: NEW_STORE, copy: okOut("") }); // ship refused
+      expect(await deliver("ci@naiveintent")).toMatchObject({
+        ok: false,
+        kind: "not-delivered",
+        at: "target",
+        asBuiltBecause:
+          "this machine's Nix daemon (2.35.6) does not verify the content-addressed form its nix 2.34.8 writes",
+      });
+    });
+
+    it("this machine agrees with itself and the host does not: the same route, naming the host's Nix", async () => {
+      mockNix({
+        cliVersion: cliVersionOut("2.35.6"),
+        senderStore: NEW_STORE,
+        targetStore: storeInfoOut("2.34.9"),
+        copy: okOut(""),
+      });
+      const res = await deliver("ci@naiveintent");
+      expect(res).toMatchObject({
+        ok: false,
+        kind: "not-delivered",
+        at: "target",
+        asBuiltBecause:
+          "its Nix 2.34.9 does not verify the content-addressed form this machine's Nix 2.35.6 writes",
+      });
+      expect(argvs().some(isRewrite)).toBe(false);
+      expect(argvs().find(isShip)).toContain("--no-check-sigs");
+      expect(argvs().some(isAsked("ci@naiveintent"))).toBe(true);
+    });
+
+    it("all three on Nix 2.35: rewritten, shipped with no signature asked, and recorded in that form", async () => {
+      mockNix({
+        cliVersion: cliVersionOut("2.35.2"),
+        senderStore: NEW_STORE,
+        targetStore: NEW_STORE,
+        rewrite: rewriteOut,
+        ship: okOut(""),
+      });
+      expect(await deliver("ci@croissant")).toEqual({
+        ok: true,
+        outPath: CA_STORE,
+      });
+      expect(argvs().find(isShip)).not.toContain("--no-check-sigs");
+      expect(readlinkSync(caRoot("2.35"))).toBe(CA_STORE);
+    });
+
+    it("this machine's store not saying its version stops the delivery at this machine: nothing rewritten or shipped", async () => {
+      mockNix({ senderStore: failOut, rewrite: rewriteOut, ship: okOut("") });
+      const res = await deliver("ci@croissant");
+      expect(res).toMatchObject({
+        ok: false,
+        kind: "not-delivered",
+        at: "sender",
+        reason: expect.stringContaining(
+          "could not ask this machine's Nix store its version",
+        ),
+      });
+      expect(argvs().some(isRewrite)).toBe(false);
+      expect(argvs().some(isShip)).toBe(false);
+    });
+
+    it("the host's store not saying its version stops the delivery at the host", async () => {
+      mockNix({ targetStore: failOut, rewrite: rewriteOut, ship: okOut("") });
+      expect(await deliver("ci@croissant")).toMatchObject({
+        ok: false,
+        kind: "not-delivered",
+        at: "target",
+      });
+      expect(argvs().some(isRewrite)).toBe(false);
+    });
+
+    it("a store whose version names no major.minor stops the delivery at its own seat, saying whose Nix it was — nothing rewritten or shipped", async () => {
+      mockNix({
+        senderStore: storeInfoOut("unknown"),
+        rewrite: rewriteOut,
+        ship: okOut(""),
+      });
+      expect(await deliver("ci@croissant")).toMatchObject({
+        ok: false,
+        kind: "not-delivered",
+        at: "sender",
+        reason:
+          'this machine\'s Nix store reported version "unknown", which names no major.minor',
+      });
+      expect(argvs().some(isRewrite)).toBe(false);
+      expect(argvs().some(isShip)).toBe(false);
+    });
+
+    for (const [what, link] of [
+      ["in another form", () => caRoot("2.35")],
+      ["naming no form", () => caRoot().replace(/@2\.17$/, "")],
+    ] as const)
+      it(`a rooted rewrite ${what} is still asked about, but never shipped: the closure is rewritten and the old record let go`, async () => {
+        const OLD_CA = "/nix/store/o1o1o1o1o1o1o1o1o1o1o1o1o1o1o1o1-agent";
+        mkdirSync(dirname(link()), { recursive: true });
+        symlinkSync(OLD_CA, link());
+        mockNix({
+          rewrite: rewriteOut,
+          ship: okOut(""),
+          // This store still holds the old rewrite.
+          localValidity: okOut(""),
+        });
+        expect(await deliver("ci@croissant")).toEqual({
+          ok: true,
+          outPath: CA_STORE,
+        });
+        const hostChecks = vi
+          .mocked(runCapture)
+          .mock.calls.filter(
+            ([cmd, args]) => cmd === "ssh" && args.includes("--check-validity"),
+          );
+        expect(hostChecks[0]?.[1]).toContain(OLD_CA);
+        expect(argvs().filter(isShip).flat()).not.toContain(OLD_CA);
+        expect(argvs().some(isRewrite)).toBe(true);
+        expect(existsSync(link())).toBe(false);
+        expect(readlinkSync(caRoot())).toBe(CA_STORE);
+      });
+
+    it("a local Linux target asks no host store: its store is this machine's", async () => {
+      mockNix({ rewrite: rewriteOut });
+      expect(await deliver("localhost")).toEqual({
+        ok: true,
+        outPath: CA_STORE,
+      });
+      expect(argvs().some(isTargetStoreInfo)).toBe(false);
+      expect(argvs().some(isStoreInfo)).toBe(true);
+    });
   });
 });
 

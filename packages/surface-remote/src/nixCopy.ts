@@ -27,27 +27,41 @@
  *      NEVER substitutes (the old fused `--realise` did — the #1908 wedge). If
  *      GC races the check, restoration belongs to the required step-5 root
  *      commit, narrated as provisioning.
- *   2. Stage the closure in the sender's store, by the target's SYSTEM:
- *      - a Linux target gets the CONTENT-ADDRESSED form: `nix store
- *        make-content-addressed --json [--from <declared cache>] <out>`
- *        rewrites the closure into the sender's store, reading it from the
- *        local store when it is there and straight from each declared cache
- *        otherwise. A content-addressed path's name IS its content's hash, so
- *        every Nix store takes it from anyone — no `trusted-users`, no
- *        signature, no key (the Nix manual: `make-content-addressed`,
- *        `require-sigs`). Neither the sender's Nix nor the target's needs to
- *        trust anything. The rewritten closure is rooted in the sender's store
- *        behind a link per output path ({@link contentAddressedRoot}), which
- *        is also the record of the rewrite: a warm target is asked about the
- *        content-addressed path, and a new one is shipped it, without reading
- *        the cache again — across restarts too;
- *      - a darwin target keeps the SIGNED input-addressed closure: `nix copy
- *        --from <declared cache>` into the sender's store. Rewriting a Mach-O
- *        file invalidates its code signature, and arm64 macOS kills an
- *        executable whose signature does not verify; `make-content-addressed`
- *        does not re-sign (unverified on a Mac when this route was chosen —
- *        no darwin machine was reachable; if a rewritten bundle is shown to
- *        run there, drop this branch and ship content-addressed everywhere).
+ *   2. Stage the closure in the sender's store, by the target's SYSTEM and
+ *      the Nix versions that would handle a rewrite ({@link chooseStaging}):
+ *      - a Linux target whose Nix and this machine's handle the SAME
+ *        content-addressed form — this machine's `nix` (which computes a
+ *        rewrite's hash, `nix --version`), this machine's store (which
+ *        re-verifies it, `nix store info --json`: its daemon's version) and
+ *        the target's store (which verifies the ship, the same over
+ *        `ssh-ng://`), all asked fresh each delivery — gets the
+ *        CONTENT-ADDRESSED form: `nix store make-content-addressed --json
+ *        [--from <declared cache>] <out>` rewrites the closure into the
+ *        sender's store, reading it from the local store when it is there
+ *        and straight from each declared cache otherwise. A content-addressed
+ *        path's name IS its content's hash, so a store on that form takes it
+ *        from anyone — no `trusted-users`, no signature, no key (the Nix
+ *        manual: `make-content-addressed`, `require-sigs`). But only a store
+ *        on that form: Nix 2.35 changed how a self-referencing path is
+ *        hashed, and a Nix on one side of it refuses the other's rewrite
+ *        (`closureRoute.ts`'s `CA_FORMS`) — so no rewrite is made that one of
+ *        the three is known to refuse. The rewritten closure is rooted in the
+ *        sender's store behind a link per output path and form
+ *        ({@link contentAddressedRoot}), which is also the record of the
+ *        rewrite: a warm target is asked about the content-addressed path,
+ *        in whichever form, and a new one is shipped it, only while its form
+ *        is still the route's, without reading the cache again — across
+ *        restarts too;
+ *      - every other target keeps the input-addressed closure AS BUILT (signed
+ *        when a cache signed it, by no one when this machine built it):
+ *        `nix copy --from <declared cache>` into the sender's store. That is
+ *        a darwin target — rewriting a Mach-O file invalidates its code
+ *        signature, and arm64 macOS kills an executable whose signature does
+ *        not verify; `make-content-addressed` does not re-sign (unverified on
+ *        a Mac when this route was chosen — no darwin machine was reachable;
+ *        if a rewritten bundle is shown to run there, drop that branch) — a
+ *        target whose system nobody named, and a Linux target whose Nix and
+ *        this machine's do not handle one form.
  *      The sender-local store is the one seat where the derivation's REQUIRED
  *      `binaryCache` can act (a remote realisation substitutes per the REMOTE
  *      daemon's own nix.conf; client settings never participate). A miss
@@ -56,10 +70,10 @@
  *      the target — step 4's build would NOT (it copies only the .drv
  *      closure; locally-valid outputs are never consulted, verified live).
  *      Lands cross-arch (copying executes nothing). A content-addressed ship
- *      is taken by any daemon. A darwin target's daemon must trust the ssh
- *      user or the NAR signatures — a refusal narrates the real levers and
- *      step 4 realises on the host. Runs only when the closure is provably
- *      valid LOCALLY.
+ *      is taken by any daemon on its form. A target sent the closure as built
+ *      must trust the ssh user or the NAR signatures — a refusal narrates the
+ *      real levers and step 4 realises on the host. Runs only when the
+ *      closure is provably valid LOCALLY.
  *   4. One `nix build --eval-store auto --store ssh-ng://$host` evaluates
  *      locally, transfers the derivation, and realises it remotely. One Nix
  *      process owns the temporary roots across that whole handoff, so a
@@ -75,7 +89,7 @@
  *      This command is the provisioning commit point: any failure is returned,
  *      and no agent path escapes unrooted.
  *      See `agentGcRootPath` for the "latest"-link semantics.
- *   Spawn: the rooted path (the content-addressed one on a Linux target)
+ *   Spawn: the rooted path (the content-addressed one when it travelled so)
  *      becomes `agentPath`; the caller then spawns
  *      `ssh $host $agentPath/bin/<binary> --stdio` via the connector.
  *
@@ -110,10 +124,17 @@ import {
   readPublishedClosure,
 } from "./closureIndex";
 import {
+  asBuiltBecause,
+  type CaForm,
   type ClosureRoute,
   closureRoute,
   isDarwinSystem,
+  MACH_O_BECAUSE,
+  namesNixLine,
+  type StagingNix,
   signedBecause,
+  stagingRoute,
+  UNKNOWN_SYSTEM_BECAUSE,
 } from "./closureRoute";
 import {
   forEachLine,
@@ -702,17 +723,101 @@ export async function checkValidity(
   return "absent";
 }
 
+/** What a Nix version probe answered: the version (`V` — a store may name
+ *  none, `nix --version` always names one), Nix's words for why it could not
+ *  say, or the dial's abort. */
+type NixVersionProbe<V extends string | null> =
+  | { readonly kind: "version"; readonly version: V }
+  | { readonly kind: "failed"; readonly reason: string }
+  | { readonly kind: "aborted" };
+
+/** The version of the Nix that verifies what a store takes — `nix store info
+ *  --json`'s `version`: a daemon store's DAEMON, whichever `nix` asks, and
+ *  over `ssh-ng://` the target's. `remote` names the target store to ask,
+ *  with the dial's ssh policy; `null` asks this machine's own store. */
+async function storeNixVersion(
+  remote: { readonly host: string; readonly keepalive: SshKeepalive } | null,
+  signal: AbortSignal | undefined,
+): Promise<NixVersionProbe<string | null>> {
+  const res = await runNix(
+    "localhost",
+    [
+      "nix",
+      "store",
+      "info",
+      "--json",
+      ...(remote === null ? [] : ["--store", `ssh-ng://${remote.host}`]),
+    ],
+    {
+      policy: probePolicy(),
+      signal,
+      ...(remote === null
+        ? {}
+        : { env: { NIX_SSHOPTS: nixSshOpts(remote.keepalive) } }),
+    },
+  );
+  if (res.kind === "aborted") return { kind: "aborted" };
+  if (!res.ok) return { kind: "failed", reason: describeNixRun(res) };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(res.stdout);
+  } catch {
+    return {
+      kind: "failed",
+      reason: `nix store info answered ${JSON.stringify(res.stdout.trim())}, not JSON`,
+    };
+  }
+  const version =
+    typeof parsed === "object" && parsed !== null && "version" in parsed
+      ? parsed.version
+      : undefined;
+  if (version === undefined || version === null)
+    return { kind: "version", version: null };
+  if (typeof version !== "string")
+    return {
+      kind: "failed",
+      reason: `nix store info named version ${JSON.stringify(version)}, not a string`,
+    };
+  return { kind: "version", version };
+}
+
+/** The version of this machine's own `nix` — the one that computes a
+ *  rewrite's hash: the last word of `nix --version` (`nix (Nix) 2.34.8`). */
+async function cliNixVersion(
+  signal: AbortSignal | undefined,
+): Promise<NixVersionProbe<string>> {
+  const res = await runNix("localhost", ["nix", "--version"], {
+    policy: probePolicy(),
+    signal,
+  });
+  if (res.kind === "aborted") return { kind: "aborted" };
+  if (!res.ok) return { kind: "failed", reason: describeNixRun(res) };
+  const version = res.stdout.trim().split(/\s+/).at(-1);
+  if (version === undefined || version === "")
+    return { kind: "failed", reason: "nix --version printed nothing" };
+  return { kind: "version", version };
+}
+
 /** What staging (steps 2 and 3) concluded: a `ProvisionResult` to BAIL with
  *  (the `pinGcRoot` idiom this file already uses), or the path the target
- *  store now provably HOLDS, or Nix's words for why it holds nothing. */
+ *  store now provably HOLDS, or Nix's words for why it holds nothing — and
+ *  `at` which seat it stopped: this machine (`sender`: the closure never got
+ *  into its store in the form to ship) or the target's store (`target`). */
 type Staged =
   | { bail: ProvisionFailure }
   | { bail: null; onTarget: true; path: string }
-  | { bail: null; onTarget: false; reason: string };
+  | {
+      bail: null;
+      onTarget: false;
+      reason: string;
+      at: "sender" | "target";
+    };
 
-/** Steps 2 and 3 for a darwin target: the SIGNED, input-addressed closure
- *  (see the module header for why darwin does not get the content-addressed
- *  one). Get it into the target store without building it there.
+/** Steps 2 and 3 for a target sent the closure as built: the SIGNED,
+ *  input-addressed closure — a darwin target (see the module header), one
+ *  whose system nobody named, and a Linux target whose Nix and this
+ *  machine's do not handle the same content-addressed form
+ *  (`stagingRoute`). Get it into the target store without building it there.
  *
  *  Order matters and is the cheap-question-first order: ask the LOCAL store
  *  whether it already holds the closure before spending a network `nix copy`
@@ -767,7 +872,7 @@ async function stageInputAddressed(opts: {
     return { bail: null, onTarget: true, path: opts.outPath };
   if (unfetched !== undefined) {
     if (!opts.isLocal) opts.narrate("no local copy of the agent to ship");
-    return { bail: null, onTarget: false, reason: unfetched };
+    return { bail: null, onTarget: false, reason: unfetched, at: "sender" };
   }
   const ship = await shipAgentClosure({
     host: opts.host,
@@ -788,59 +893,75 @@ async function stageInputAddressed(opts: {
     bail: null,
     onTarget: false,
     reason: ship.reason,
+    at: "target",
   };
 }
 
 /** Where the sender roots `outPath`'s content-addressed form: one indirect GC
- *  root per output path, under a directory per output NAME (the path with its
- *  store hash cut off), so the newest output of a name replaces the older ones
- *  ({@link rememberContentAddressed}). The link IS the record of the rewrite —
- *  reading it back answers "what is this output's content-addressed path"
- *  across restarts — and it keeps that closure in the sender's store, so a
- *  later host is shipped it without reading the cache again. `null` when
- *  `$HOME` is unset. */
+ *  root per output path and form, under a directory per output NAME (the path
+ *  with its store hash cut off), so the newest output of a name replaces the
+ *  older ones ({@link rememberContentAddressed}). The link — `<dir>/<output
+ *  hash>@<form>` — IS the record of the rewrite: reading it back answers
+ *  "what is this output's content-addressed path, and in which form" across
+ *  restarts — and it keeps that closure in the sender's store, so a later host
+ *  is shipped it without reading the cache again. The form is in the name
+ *  because this machine's `nix` can change under a running kolu (a Nix
+ *  upgrade): a rewrite in the old form must not be shipped to a host that
+ *  verifies the new one. `null` when `$HOME` is unset. */
 function contentAddressedRoot(outPath: string): {
   readonly dir: string;
-  readonly link: string;
+  readonly hash: string;
 } | null {
   const base = outPath.replace(/^.*\//, "");
   const dir = homeGcRoot(
     true,
     `.local/state/kolu/surface-remote/content-addressed/${base.replace(/^[0-9a-z]{32}-/, "")}`,
   );
-  return dir === null ? null : { dir, link: `${dir}/${base.slice(0, 32)}` };
+  return dir === null ? null : { dir, hash: base.slice(0, 32) };
 }
 
 /** `outPath`'s content-addressed form, when the sender has rooted one and its
- *  store still holds it — read off the root link, never a guess. */
+ *  store still holds it — read off the root link, never a guess: the `path`,
+ *  and the `form` it was written in (`undefined` for a link that names none,
+ *  rooted before the form was recorded). */
 async function rememberedContentAddressed(
   outPath: string,
   signal: AbortSignal | undefined,
-): Promise<string | undefined> {
+): Promise<
+  { readonly path: string; readonly form: string | undefined } | undefined
+> {
   const root = contentAddressedRoot(outPath);
   if (root === null) return undefined;
   let path: string;
+  let form: string | undefined;
   try {
-    path = readlinkSync(root.link);
+    const link = readdirSync(root.dir).find(
+      (entry) => entry === root.hash || entry.startsWith(`${root.hash}@`),
+    );
+    if (link === undefined) return undefined;
+    path = readlinkSync(`${root.dir}/${link}`);
+    form = link === root.hash ? undefined : link.slice(root.hash.length + 1);
   } catch (err) {
-    // No link: never rewritten here (or its root was removed). Anything else
-    // is a broken state directory, and loud.
+    // No directory: never rewritten here (or its roots were removed).
+    // Anything else is a broken state directory, and loud.
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw err;
   }
   return (await checkValidity("localhost", path, { signal })) === "valid"
-    ? path
+    ? { path, form }
     : undefined;
 }
 
-/** Root the content-addressed `path` of `outPath` in the sender's store
- *  (`nix-store --realise --add-root --indirect`, the commit `pinGcRoot` makes
- *  on every target) and drop the roots of older outputs of the same name, so
- *  the sender keeps the newest closure of each and lets the rest go. */
+/** Root the content-addressed `path` of `outPath`, written in `form`, in the
+ *  sender's store (`nix-store --realise --add-root --indirect`, the commit
+ *  `pinGcRoot` makes on every target) and drop every other root of the same
+ *  name — older outputs, and this output in another form — so the sender
+ *  keeps the newest closure of each and lets the rest go. */
 async function rememberContentAddressed(
   host: string,
   outPath: string,
   path: string,
+  form: CaForm,
   opts: {
     readonly keepalive: SshKeepalive;
     readonly narrate: (line: string) => void;
@@ -857,18 +978,18 @@ async function rememberContentAddressed(
       cause: "remote",
     };
   mkdirSync(root.dir, { recursive: true });
+  const keep = `${root.hash}@${form}`;
   const bail = await pinGcRoot(
     "localhost",
     opts.keepalive,
     path,
-    root.link,
+    `${root.dir}/${keep}`,
     opts.narrate,
     opts.onActivity,
     opts.budget,
     opts.signal,
   );
   if (bail !== null) return bail;
-  const keep = root.link.slice(root.dir.length + 1);
   for (const older of readdirSync(root.dir))
     if (older !== keep) rmSync(`${root.dir}/${older}`, { force: true });
   return null;
@@ -966,26 +1087,33 @@ function rewrittenPath(stdout: string, outPath: string): string {
   return to;
 }
 
-/** Steps 2 and 3 for a Linux target: the CONTENT-ADDRESSED closure, which no
- *  store refuses. `remembered` is the content-addressed path the sender has
- *  already rooted for `outPath` (the warm check asked the host about it); a
- *  sender without one rewrites the closure — from the local store when it
- *  holds it, the declared caches otherwise — and roots the result. On the
- *  local arm that rewrite lands it in the target store; a local store already
- *  holding the input-addressed closure needs nothing at all. */
+/** Steps 2 and 3 for a Linux target whose Nix and this machine's handle the
+ *  same content-addressed `form` (`stagingRoute`): the CONTENT-ADDRESSED
+ *  closure, which no store on that form refuses. `remembered` is the
+ *  content-addressed path the sender has already rooted for `outPath` (the
+ *  warm check asked the host about it), reused only when it was written in
+ *  `form`; a sender without one rewrites the closure — from the local store
+ *  when it holds it, the declared caches otherwise — and roots the result,
+ *  replacing a record in another form. On the local arm that rewrite lands it
+ *  in the target store; a local store already holding the input-addressed
+ *  closure needs nothing at all. */
 async function stageContentAddressed(opts: {
   host: string;
   keepalive: SshKeepalive;
   isLocal: boolean;
   outPath: string;
-  remembered: string | undefined;
+  form: CaForm;
+  remembered:
+    | { readonly path: string; readonly form: string | undefined }
+    | undefined;
   binaryCache: AgentBinaryCache;
   narrate: (line: string) => void;
   onActivity: () => void;
   budget: StepBudget;
   signal: AbortSignal | undefined;
 }): Promise<Staged> {
-  let path = opts.remembered;
+  let path =
+    opts.remembered?.form === opts.form ? opts.remembered.path : undefined;
   if (path === undefined) {
     const held = await checkValidity("localhost", opts.outPath, {
       signal: opts.signal,
@@ -1012,15 +1140,22 @@ async function stageContentAddressed(opts: {
         bail: null,
         onTarget: false,
         reason: rewrite.reason,
+        at: "sender",
       };
     path = rewrite.path;
-    const bail = await rememberContentAddressed(opts.host, opts.outPath, path, {
-      keepalive: opts.keepalive,
-      narrate: opts.narrate,
-      onActivity: opts.onActivity,
-      budget: opts.budget,
-      signal: opts.signal,
-    });
+    const bail = await rememberContentAddressed(
+      opts.host,
+      opts.outPath,
+      path,
+      opts.form,
+      {
+        keepalive: opts.keepalive,
+        narrate: opts.narrate,
+        onActivity: opts.onActivity,
+        budget: opts.budget,
+        signal: opts.signal,
+      },
+    );
     if (bail !== null) return { bail };
   }
   if (opts.isLocal) return { bail: null, onTarget: true, path };
@@ -1041,6 +1176,7 @@ async function stageContentAddressed(opts: {
     bail: null,
     onTarget: false,
     reason: ship.reason,
+    at: "target",
   };
 }
 
@@ -1233,10 +1369,12 @@ export interface DeliverClosureOptions {
   host: string;
   /** The target's Nix system (`x86_64-linux`, `aarch64-darwin`) — what
    *  `resolveHostNix` answers for it — or `undefined` when the caller cannot
-   *  say. It decides the form the closure travels in: content-addressed to
-   *  Linux, signed input-addressed to darwin and to a system nobody named
-   *  (the form every store can run). Asked only when the warm check misses,
-   *  so a warm target never pays for it. */
+   *  say. With the Nix versions involved it decides the form the closure
+   *  travels in: content-addressed to Linux when this machine's Nix and the
+   *  target's handle the same form, signed input-addressed otherwise, to
+   *  darwin, and to a system nobody named (the form every store can run).
+   *  Asked only when the warm check misses, so a warm target never pays for
+   *  it. */
   system: () => Promise<string | undefined>;
   /** The exact, already-evaluated output path to deliver. Nothing here
    *  evaluates or builds: the path either arrives from `binaryCache` or does
@@ -1274,12 +1412,18 @@ export interface DeliverClosureOptions {
  *
  *   - `ok` — `outPath` is valid in the target store and rooted at
  *     `rootPath`. It is the path the target holds: the input-addressed output
- *     when the target already had it (or is darwin), else its
+ *     when the target already had it (or was sent it as built), else its
  *     content-addressed form — the path a caller runs from;
  *   - `not-delivered` — the closure is NOT in the target store; `reason` is
- *     what Nix said, verbatim (a cache miss, a network failure, a darwin
- *     target's signature refusal, a failed ship). Nothing was rooted, and
- *     `provisionAgent` builds;
+ *     what Nix said, verbatim (a cache miss, a network failure, a refused
+ *     rewrite, a signature refusal, a failed ship, a Nix that would not say
+ *     its version). `at` is the seat it stopped: `sender` — this machine never
+ *     held the closure in the form to ship (the rewrite, the cache prefetch,
+ *     or asking its own Nix failed); `target` — the ship, or asking the
+ *     target's Nix, failed. `asBuiltBecause` says, in words, why the closure
+ *     was sent as built — `null` when it travelled content-addressed (or the
+ *     route was never decided). Nothing was rooted, and `provisionAgent`
+ *     builds;
  *   - `failed` — an abort, or a required root commit failed: the
  *     `ProvisionResult` failure shape, with its retry class. */
 export type DeliverClosureResult =
@@ -1288,6 +1432,8 @@ export type DeliverClosureResult =
       readonly ok: false;
       readonly kind: "not-delivered";
       readonly reason: string;
+      readonly at: "sender" | "target";
+      readonly asBuiltBecause: string | null;
     }
   | ({ readonly ok: false; readonly kind: "failed" } & Extract<
       ProvisionResult,
@@ -1392,14 +1538,117 @@ async function deliverPublished(opts: {
   return null;
 }
 
+/** How this machine stages a closure for a target: content-addressed in
+ *  `form`, or as built and `because` (in words) — or `stopped`, already
+ *  {@link Staged}: asking the Nixes that decide it was aborted, or one of them
+ *  could not answer at its seat. */
+type StagingChoice =
+  | { readonly kind: "content-addressed"; readonly form: CaForm }
+  | { readonly kind: "as-built"; readonly because: string }
+  | {
+      readonly kind: "stopped";
+      readonly staged: Exclude<Staged, { onTarget: true }>;
+    };
+
+/** Decide how the closure travels to a target on `system` (see
+ *  {@link stagingRoute}): a darwin target, or one whose system nobody named,
+ *  takes it as built; a Linux target takes it content-addressed only when
+ *  this machine's `nix`, this machine's store and the target's store all
+ *  handle the same form — each asked now, never remembered, since a daemon
+ *  upgraded under a running kolu is exactly the case this guards. A local
+ *  target's store IS this machine's. A probe that cannot answer stops the
+ *  delivery at its own seat. */
+async function chooseStaging(opts: {
+  host: string;
+  isLocal: boolean;
+  keepalive: SshKeepalive;
+  system: string | undefined;
+  narrate: (line: string) => void;
+  signal: AbortSignal | undefined;
+}): Promise<StagingChoice> {
+  if (opts.system === undefined)
+    return { kind: "as-built", because: UNKNOWN_SYSTEM_BECAUSE };
+  if (isDarwinSystem(opts.system))
+    return { kind: "as-built", because: MACH_O_BECAUSE };
+  // One probe's answer, or the choice its failure makes. A version that names
+  // no `major.minor` is that Nix's fault, stopped here at its seat — never
+  // thrown out of the route below.
+  const ask = async <V extends string | null>(
+    at: "sender" | "target",
+    what: string,
+    probe: Promise<NixVersionProbe<V>>,
+  ): Promise<
+    | { readonly kind: "version"; readonly version: V }
+    | Extract<StagingChoice, { kind: "stopped" }>
+  > => {
+    const res = await probe;
+    if (res.kind === "aborted")
+      return {
+        kind: "stopped",
+        staged: {
+          bail: abortedDuring(opts.host, `asking ${what} its version`),
+        },
+      };
+    const stop = (reason: string) => {
+      opts.narrate(reason);
+      return {
+        kind: "stopped",
+        staged: { bail: null, onTarget: false, reason, at },
+      } as const;
+    };
+    if (res.kind === "failed")
+      return stop(`could not ask ${what} its version: ${res.reason}`);
+    if (res.version !== null && !namesNixLine(res.version))
+      return stop(
+        `${what} reported version ${JSON.stringify(res.version)}, which names no major.minor`,
+      );
+    return res;
+  };
+  const cli = await ask(
+    "sender",
+    "this machine's nix",
+    cliNixVersion(opts.signal),
+  );
+  if (cli.kind !== "version") return cli;
+  const senderStore = await ask(
+    "sender",
+    "this machine's Nix store",
+    storeNixVersion(null, opts.signal),
+  );
+  if (senderStore.kind !== "version") return senderStore;
+  const targetStore = opts.isLocal
+    ? senderStore
+    : await ask(
+        "target",
+        "the host's Nix store",
+        storeNixVersion(
+          { host: opts.host, keepalive: opts.keepalive },
+          opts.signal,
+        ),
+      );
+  if (targetStore.kind !== "version") return targetStore;
+  const nix: StagingNix = {
+    cli: cli.version,
+    senderStore: senderStore.version,
+    targetStore: targetStore.version,
+  };
+  const route = stagingRoute(nix);
+  if (route.kind === "content-addressed") return route;
+  const because = asBuiltBecause(route.because, nix);
+  opts.narrate(`sending the closure as built: ${because}`);
+  return { kind: "as-built", because };
+}
+
 /** Deliver `outPath`'s closure into `host`'s store and root it there — steps
  *  1–3 and 5 of the module header, and NEVER a build: ask the target whether it
  *  already holds the closure (remote; a pure validity query, about the
  *  content-addressed form the sender has rooted for it first, then the output
- *  itself), else stage the closure in the form the target's system takes
- *  (content-addressed to Linux, signed to darwin) and copy it there, then
- *  commit it behind `rootPath`. A darwin target whose Nix will not take the
- *  copy is `not-delivered`, with Nix's refusal as its `reason`. */
+ *  itself), else stage the closure in the form {@link chooseStaging} picks
+ *  (content-addressed to a Linux target whose Nix and this machine's handle
+ *  the same form, as built otherwise) and copy it there, then commit it behind
+ *  `rootPath`. A target that will not take the copy is `not-delivered`, with
+ *  Nix's refusal as its `reason`, the seat it stopped `at`, and why it was
+ *  sent the closure as built. */
 export async function deliverClosure(
   opts: DeliverClosureOptions,
 ): Promise<DeliverClosureResult> {
@@ -1430,15 +1679,16 @@ export async function deliverClosure(
 
   // 1. Warm fast-path (remote only) — the ASK-ONLY check (#1908 D1a), about
   //    each path the host may hold: the content-addressed form this sender
-  //    rooted for `outPath` (what a Linux host is sent), then `outPath`
-  //    itself (a darwin host, or one that built it). A HIT skips the copies.
+  //    rooted for `outPath` (what a Linux host is sent), in whichever form it
+  //    was written — a host that holds it is done — then `outPath` itself (a
+  //    host sent it as built, or one that built it). A HIT skips the copies.
   //    Localhost's own store is what staging checks first.
   if (!isLocal) {
     // One SYNTHESIZED, truthful line at check start (NOT raw nix stderr).
     opts.onProgress(`checking for a cached agent…`);
     for (const path of remembered === undefined
       ? [outPath]
-      : [remembered, outPath]) {
+      : [remembered.path, outPath]) {
       // A pure store query — it NEVER substitutes (verified:
       // `--check-validity` on an absent path returns non-zero instantly, no
       // fetch).
@@ -1485,35 +1735,52 @@ export async function deliverClosure(
     if (landed !== null) return landed;
   }
 
-  // 2/3. Stage the closure onto the target WITHOUT building it there.
-  const system = await opts.system();
+  // 2/3. Stage the closure onto the target WITHOUT building it there, in the
+  //      form the Nixes involved all handle.
+  const choice = await chooseStaging({
+    host: opts.host,
+    isLocal,
+    keepalive,
+    system: await opts.system(),
+    narrate: opts.onProgress,
+    signal,
+  });
   const staged =
-    system === undefined || isDarwinSystem(system)
-      ? await stageInputAddressed({
-          host: opts.host,
-          keepalive,
-          isLocal,
-          outPath,
-          binaryCache: opts.binaryCache,
-          narrate: opts.onProgress,
-          onActivity: opts.onActivity,
-          signal,
-        })
-      : await stageContentAddressed({
-          host: opts.host,
-          keepalive,
-          isLocal,
-          outPath,
-          remembered,
-          binaryCache: opts.binaryCache,
-          narrate: opts.onProgress,
-          onActivity: opts.onActivity,
-          budget: opts.budget,
-          signal,
-        });
+    choice.kind === "stopped"
+      ? choice.staged
+      : choice.kind === "as-built"
+        ? await stageInputAddressed({
+            host: opts.host,
+            keepalive,
+            isLocal,
+            outPath,
+            binaryCache: opts.binaryCache,
+            narrate: opts.onProgress,
+            onActivity: opts.onActivity,
+            signal,
+          })
+        : await stageContentAddressed({
+            host: opts.host,
+            keepalive,
+            isLocal,
+            outPath,
+            form: choice.form,
+            remembered,
+            binaryCache: opts.binaryCache,
+            narrate: opts.onProgress,
+            onActivity: opts.onActivity,
+            budget: opts.budget,
+            signal,
+          });
   if (staged.bail !== null) return failed(staged.bail);
   if (!staged.onTarget)
-    return { ok: false, kind: "not-delivered", reason: staged.reason };
+    return {
+      ok: false,
+      kind: "not-delivered",
+      reason: staged.reason,
+      at: staged.at,
+      asBuiltBecause: choice.kind === "as-built" ? choice.because : null,
+    };
 
   // 5. Commit the delivered path behind the root — the same required
   //    operation as the warm hit.
