@@ -99,11 +99,13 @@ import {
   ATTACHMENT_BYTE_CAP,
   attachmentGone,
   attachmentTooBig,
+  ConductorStateSchema,
   DEFAULT_CONDUCTOR_STATE,
   type ConductorAttachment,
   type ConductorFrame,
   type ConductorRow,
   type ConductorState,
+  type ConductorWakeEvent,
   PROMPT_ATTACHMENT_BYTE_CAP,
   promptAttachmentsTooBig,
 } from "kolu-common/conductor";
@@ -112,13 +114,29 @@ import {
   ConductorUnavailable,
 } from "kolu-common/conductorErrors";
 import type { CellStore } from "@kolu/surface/server";
+import { Schema } from "effect";
 import type { Logger } from "pino";
+import { type Held, holding } from "./held.ts";
 import {
+  PersistedConductorSchema,
   persistedFrom,
   type PersistedConductor,
   readPersistedConductor,
 } from "./persisted.ts";
 import { teachingLines } from "./teaching.ts";
+import { wakeText } from "./wakeText.ts";
+import {
+  observed,
+  restoredEntry,
+  seenOf,
+  spokenTo,
+  type WatchEntry,
+  type WatchedTerminal,
+  type WatchJoin,
+  type WatchObservation,
+  watchEntry,
+  workOf,
+} from "./watching.ts";
 
 /** What a reader of the transcript stream is handed, in order: one snapshot,
  *  then deltas, for as long as it is subscribed. */
@@ -154,7 +172,74 @@ export interface ConductorHost {
      *  shape with `bytes` and `path` re-read from the file; see
      *  {@link namedAttachments}. */
     attachments: ReadonlyArray<ConductorAttachment>,
+    /** STEER rather than queue: put the words into the turn that is running.
+     *  The harness decides whether that is possible and falls back to an
+     *  ordinary prompt when it is not — this end only carries the ask. */
+    steer: boolean,
   ) => Promise<{ rowId: string }>;
+  /** The terminals kolu wakes this conversation about, as fleet refs in the
+   *  order they were added. Reads the remembered record if nobody has yet; it
+   *  never starts the agent — a list is bookkeeping, not a conversation. */
+  readonly watched: () => ReadonlyArray<string>;
+  /** ... and the same list with what kolu last saw in each one: the name, the
+   *  agent and how it joined ({@link WatchedTerminal}).
+   *
+   *  Beside `watched` rather than replacing it because the two have different
+   *  readers: the published state and the watcher scope by REF and would throw
+   *  the rest away, while the fleet face serves these rows to the Conductor
+   *  itself — which, before it could read them, had no way to answer "what am
+   *  I watching" after a restart except by guessing. Reads the remembered
+   *  record on the same terms `watched` does, and starts nothing. */
+  readonly watchedTerminals: () => ReadonlyArray<WatchedTerminal>;
+  /** Put one on the list, saying HOW it got there — which is what decides
+   *  whether its first reading is news or a baseline, and whether a command
+   *  coming back to the prompt means anything ({@link WatchJoin}).
+   *  Idempotent: a terminal watched twice is watched, and a re-watch keeps
+   *  the entry it already has rather than forgetting what it was told.
+   *
+   *  SPELLED `watchTerminal`, not `watch`: this interface's `watch` is the
+   *  TRANSCRIPT subscription and has been since there was a transcript. Two
+   *  verbs with one name is how a caller subscribes to a conversation when it
+   *  meant to start watching a terminal, so the newer one carries the subject
+   *  in its name — which is also what the Conductor's own tool is called. */
+  readonly watchTerminal: (ref: string, joined: WatchJoin) => void;
+  /** ... and take one off, answering whether it was there. */
+  readonly unwatchTerminal: (ref: string) => boolean;
+  /** THE CONDUCTOR JUST SPOKE TO THE AGENT IN THIS TERMINAL — `agent_say`
+   *  landed its keystrokes.
+   *
+   *  Whatever that terminal was about to say is withdrawn and its entry
+   *  re-baselines at the state it stands in (`./watching.ts`'s `spokenTo`):
+   *  a say answers as soon as the keys are pressed, so without this the
+   *  Conductor is woken about the agent it has just briefed the instant its
+   *  turn ends. A ref that is NOT watched is ignored — the fleet face calls
+   *  this for every say, and most terminals are nobody's watch. */
+  readonly saidTo: (ref: string) => void;
+  /** THE CONDUCTOR JUST CLOSED THIS TERMINAL — `lifecycle_kill` answered.
+   *
+   *  A death it caused is not news to it: the entry leaves the list SILENTLY
+   *  and whatever that terminal was about to say goes with it — `gone`
+   *  included, because padi publishes the removal BEFORE the kill answers, so
+   *  the watcher can have seen the terminal go (dropping the entry and holding
+   *  a `gone` for the turn's end) by the time this is called. That is why it
+   *  withdraws the held news whether or not the entry is still here, and why
+   *  it is a verb of its own rather than `unwatchTerminal`, which answers
+   *  "was it watched" and touches nothing when it was not. A ref nobody
+   *  watched and nothing was held about is ignored. */
+  readonly closedTerminal: (ref: string) => void;
+  /**
+   * WHAT THE WATCHER SAW, for refs on CONNECTED hosts only.
+   *
+   * One call per frame of the world rather than one per terminal, because
+   * what the Conductor is owed is everything that moved at once: several
+   * terminals that rang while a turn was running leave together, in one wake
+   * ({@link ./held.ts}).
+   *
+   * A reading about a ref that is NOT watched is ignored rather than refused —
+   * the watcher re-scopes asynchronously, and a frame in flight across an
+   * unwatch is ordinary.
+   */
+  readonly observe: (seen: ReadonlyArray<WatchObservation>) => void;
   /** ONE CHUNK of a file on its way up, ahead of the prompt that names it.
    *
    *  The first call for an id creates the file, each later one passes back
@@ -259,6 +344,20 @@ export interface ConductorDeps {
    *  and an import of the served ctx would be a cycle (`surface.ts` builds the
    *  cell that seeds itself from this host's first reading). */
   readonly publish: (state: ConductorState) => void;
+  /** THE WATCH LIST MOVED — the one in-process event this host announces, for
+   *  readers that follow the list itself rather than the browser's frame.
+   *  `membership` is true when the SET of watched refs changed (something was
+   *  added or dropped) and false when only what kolu knows about an entry did
+   *  (its name, the agent in it). The two are different jobs: the watcher
+   *  re-scopes its per-host subscriptions on a membership change and must not
+   *  tear them down because a terminal was renamed, while a reader of the
+   *  list's ROWS needs both.
+   *
+   *  An event, pushed where the list is mutated, rather than something a
+   *  consumer recovers by diffing published state: the conversation is the
+   *  one thing that knows, and "did the list move" reconstructed from a
+   *  serialised frame is one more copy of the answer free to be wrong. */
+  readonly watchListMoved: (membership: boolean) => void;
   readonly store: CellStore<PersistedConductor>;
   /** The FILE behind `store`, named in the refusal a corrupt record raises —
    *  the one thing a person holding a bad state-root can act on. */
@@ -366,6 +465,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     fleetMcp,
     proveFleetMcp,
     publish,
+    watchListMoved,
     store,
     storePath,
     stateRoot,
@@ -435,8 +535,88 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
   let resume: string | null = null;
   let chosenModel: string | null = null;
 
-  const publishState = (): void => {
+  /**
+   * THE WATCH LIST, in the order terminals were added — and the news HELD for
+   * the ones that rang while a turn was running.
+   *
+   * Two collections rather than one because they survive differently: the list
+   * is saved with the conversation (a restart looks at each of its terminals
+   * again) and the held news is memory only (what it describes is how
+   * something STOOD, and a restart re-reads the world instead of replaying a
+   * queue about one that has moved on).
+   */
+  const watchList = new Map<string, WatchEntry>();
+  const heldNews: Held<ConductorWakeEvent> = holding();
+  /** AN ENTRY'S SAVED HALF — everything except the two runtime fields, which
+   *  is exactly what the record on disk holds ({@link ./persisted.ts}). Taken
+   *  by subtraction rather than by listing the saved fields, so a field added
+   *  to the entry AND to the record cannot be left out of the comparison that
+   *  decides a write is owed. The file holds facts no frame shows — `told`,
+   *  `spoken`, `ran` — so "the reader saw nothing move" is never the question
+   *  a persist is answered with. */
+  const saved = ({
+    last: _last,
+    baselining: _baselining,
+    ...rest
+  }: WatchEntry): Omit<WatchEntry, "last" | "baselining"> => rest;
+  /** A flush in flight. One at a time, because the whole point of a flush is
+   *  that everything waiting leaves in ONE turn — two of them racing would be
+   *  two wakes for one boundary. */
+  let flushing = false;
+  /** THE FAILURE EPISODE a wake is in, as the sentence that was said about it
+   *  — or `null` when the last wake went. One notice per episode: a flush
+   *  that fails is retried on every edge that could make it work, and a row
+   *  per attempt would bury the conversation under kolu's own apologies. */
+  let wakeFailure: string | null = null;
+  /** Something rang (or a turn ended) while a flush was already running. The
+   *  dropped edge is re-run when that flush ends, so news that landed in the
+   *  window does not wait for an edge that has already passed. */
+  let missedEdge = false;
+
+  /** THE LAST FRAME A READER WAS GIVEN, or `null` before the first one — what
+   *  {@link publishState} compares against to answer "would anybody see
+   *  anything different?". */
+  let published: ConductorState | null = null;
+
+  /** Two frames, and two saved entries, compared by WHAT THEY SAY rather than
+   *  by identity — every publish rebuilds the arrays, so `===` answers "a new
+   *  array was made", which is not the question. Derived from the SCHEMAS the
+   *  values are declared by, so a field either one grows is compared without
+   *  an edit here. */
+  const sameFrame = Schema.toEquivalence(ConductorStateSchema);
+  const sameSaved = Schema.toEquivalence(
+    PersistedConductorSchema.fields.watched.value,
+  );
+
+  /** The state as a READER sees it: whatever the harness last said, plus the
+   *  three fields this server authors and the three the WATCH owns. `seen`,
+   *  `work` and `held` are published from here rather than carried on the
+   *  harness's state for the reason `install` is: each fact has exactly one
+   *  author, and the conversation is not the author of kolu's watch.
+   *
+   *  `work` and `seen` are DERIVED on every publish rather than kept beside
+   *  the list ({@link workOf}, {@link seenOf}): both are folds over the same
+   *  entries, so a second copy could only ever be the stale one — and `work`
+   *  is what the Conductor tab badges, which must not disagree with the panel
+   *  under it.
+   *
+   *  AND THE GATE IS HERE, answering `true` when it published. A caller
+   *  cannot decide "did anything visible move?" for itself without naming
+   *  every field this function folds — which is a second, hand-written copy
+   *  of the projection, and the moment the projection grows a fact (a level,
+   *  an agent) that copy is silently wrong and the panel freezes. The frame
+   *  that is about to go out is compared with the one that did. */
+  const publishState = (): boolean => {
+    state = {
+      ...state,
+      seen: seenOf(watchList.values()),
+      work: workOf(watchList.values()),
+      held: heldNews.refs(),
+    };
+    if (published !== null && sameFrame(published, state)) return false;
+    published = state;
     publish(state);
+    return true;
   };
 
   const remembered = (): void => {
@@ -472,8 +652,19 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       chosenModel = record.model;
       for (const row of record.rows) byId.set(row.id, row);
       rowsCache = null;
+      // ... AND WHAT IT WAS WATCHING, with what it had already been told about
+      // each: the watcher looks at every one of these again in a moment, and
+      // `told` is what stops a terminal that has not moved since the restart
+      // from ringing a second time.
+      for (const entry of record.watched)
+        watchList.set(entry.ref, restoredEntry(entry));
       state = { ...state, sessionId: record.sessionId, fleet: record.fleet };
       publishState();
+      // A RESTORE IS THE LIST MOVING: it went from empty to whatever the file
+      // held, and the watcher has to scope itself to those hosts. It reads
+      // the list itself at boot too, but this edge is also reached by the
+      // first procedure call of a process whose watcher has already looked.
+      if (record.watched.length > 0) watchListMoved(true);
     }
     // ... and the files go with them. This is the one edge where the set of
     // rows can SHRINK — the record was capped at {@link ROW_CAP}, or the home
@@ -701,7 +892,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
   const writeRecord = (): void => {
     persistDue = false;
     persistedAt = Date.now();
-    store.set(persistedFrom(state, rows()));
+    store.set(persistedFrom(state, rows(), [...watchList.values()]));
   };
 
   /** The conversation moved; the file should say so within the window. */
@@ -835,6 +1026,35 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     publishState();
   };
 
+  /** How many notices THIS HOST has written, for the row ids it mints. */
+  let notices = 0;
+
+  /** KOLU'S OWN SENTENCE IN THE TRANSCRIPT — a `notice` row this module
+   *  writes rather than one the agent's harness reported.
+   *
+   *  Minted HERE and not through the harness because the failure that needs
+   *  saying most is the one where there IS no harness: a wake that could not
+   *  go because the conversation would not come up has nobody to mint it. The
+   *  id is this host's own (`kolu:notice:N`) so it cannot collide with the
+   *  harness's (`user:N`, `agent:N`), and the seq follows the last row there
+   *  is — the same fence a replacement harness resumes from. */
+  const sayNotice = (text: string): void => {
+    notices += 1;
+    applyRows({
+      upserts: [
+        {
+          kind: "notice",
+          id: `kolu:notice:${notices}`,
+          seq: (rows().at(-1)?.seq ?? 0) + 1,
+          since: new Date().toISOString(),
+          text,
+        },
+      ],
+      removes: [],
+      appends: [],
+    });
+  };
+
   /** Bring the conversation up, once, and hand back the same promise to every
    *  caller that arrives while it is in flight — so two readers opening at the
    *  same instant cannot spawn two adapters. */
@@ -921,7 +1141,14 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
             // resumed. What the file must hold is the conversation as it stood
             // when the process let go of it.
             if (disposed) return;
-            state = { ...change.state, ...serverAuthored };
+            // The harness answers for the conversation; `seen`, `work` and
+            // `held` are this module's and are folded back on by
+            // `publishState`.
+            state = {
+              ...state,
+              ...change.state,
+              ...serverAuthored,
+            };
             // WHICH CONVERSATION A REPLACEMENT ADAPTER COMES BACK INTO: the
             // one this agent is in NOW, rather than the id the file named at
             // boot. A conversation can move on without anybody restarting —
@@ -936,6 +1163,13 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
             if (state.sessionId !== null) resume = state.sessionId;
             publishState();
             schedulePersist();
+            // THE TURN BOUNDARY, whichever way the turn ended — answered,
+            // refused, cancelled. Everything a watched terminal said while it
+            // was running has been waiting for exactly this moment, and it
+            // leaves as ONE wake. Not on `asking`: a form on screen is a turn
+            // still running, and a wake sent into it would queue behind the
+            // answer a person has not given yet.
+            if (state.phase === "idle") void flush();
             return;
           }
           applyRows(change);
@@ -945,6 +1179,14 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     starting = begun
       .then((started) => {
         harness = started;
+        // AN AGENT THAT CAME UP IS AN EDGE A HELD WAKE WAITS FOR. A flush
+        // that failed because the conversation would not start left its news
+        // on the list ({@link flush}); nothing else here would notice that
+        // the reason is gone, and a conversation that is now up with news
+        // nobody delivered is the indefinite wait this whole feature exists
+        // to remove. Re-entrant by design: a flush that is already running is
+        // the caller of this very bring-up and its own guard drops this one.
+        void flush();
         return started;
       })
       .catch((err: unknown) => {
@@ -974,6 +1216,140 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       }
       throw err;
     }
+  };
+
+  /**
+   * EVERYTHING WAITING, OUT AS ONE TURN — or held a little longer.
+   *
+   * Called from the two edges that can make it possible: a terminal ringing
+   * while nothing is running, and a turn ending. Both arrive asynchronously
+   * and either may find the conversation busy, which is why the decision is
+   * made HERE rather than at the callers — a wake is sent only into an IDLE
+   * conversation, and anything else leaves the news exactly where it was.
+   *
+   * A WAKE MAY START THE AGENT. That is the one place this module brings a
+   * conversation up for something a person did not type, and it is deliberate:
+   * the whole feature is kolu noticing that a watched terminal needs the
+   * Conductor, and a Conductor that is not running is one that will never
+   * notice anything again. What must NOT start it is reading the list, which
+   * is why {@link ConductorHost.watched} does not come through here.
+   *
+   * The slots are TAKEN before the wake is awaited, so a terminal that rings
+   * during the round trip is held for the next flush rather than sent twice;
+   * a wake that then fails puts back the ones nothing newer has replaced.
+   *
+   * ## When a wake cannot go at all
+   *
+   * It is SAID — one `notice` row naming the terminals still waiting and the
+   * sentence behind the failure — and then retried on the next edge that could
+   * make it work. A caught error that only reached the log is the thing
+   * `AGENTS.md` refuses: the held news would sit behind an idle-looking
+   * conversation with nothing on screen to say why.
+   *
+   * THE RETRY IS EVENT-DRIVEN AND HAS NO TIMER, because the whole design has
+   * none. Three edges reach here and each is a real change in the world: the
+   * conversation going idle (which includes a replacement agent finishing its
+   * bring-up, a sign-in landing, and a person's own turn ending), the agent
+   * coming up at all ({@link live}), and the next reading from the watcher.
+   * One notice per FAILURE EPISODE rather than per retry: the news that could
+   * not go is one piece of news, and a row per attempt would be a conversation
+   * full of kolu apologising to itself. The latch lifts the moment a wake
+   * lands.
+   *
+   * AN EDGE THAT ARRIVES WHILE A FLUSH IS RUNNING IS NOT LOST. Only one flush
+   * runs at a time — two would be two wakes for one boundary — so a second
+   * one is dropped, and `missedEdge` remembers that something happened while
+   * the first was on the wire. The dropped edge is re-run when that flush
+   * ends, whichever way it ended: a terminal that rang during a wake that
+   * then failed would otherwise wait for an edge that has already been and
+   * gone. It cannot spin, because the re-run needs a REAL edge to have landed
+   * in the window, and an empty list returns at the top.
+   */
+  const flush = async (): Promise<void> => {
+    if (disposed) return;
+    if (flushing) {
+      missedEdge = true;
+      return;
+    }
+    if (heldNews.waiting().length === 0) return;
+    flushing = true;
+    try {
+      const agent = await live();
+      if (agent.state().phase !== "idle") return;
+      const slots = heldNews.waiting();
+      if (slots.length === 0) return;
+      const events = slots.map((slot) => slot.value);
+      heldNews.took(slots);
+      publishState();
+      try {
+        await agent.wake(wakeText(events), events);
+      } catch (err) {
+        // The words never went. They go back on the list — except for a
+        // terminal that has rung AGAIN since, whose newer news is the truth
+        // and must not be overwritten by this one.
+        for (const slot of slots) {
+          if (!heldNews.has(slot.ref)) heldNews.hold(slot.ref, slot.value);
+        }
+        publishState();
+        throw err;
+      }
+      // DELIVERED, so the episode is over: the next failure is news again.
+      wakeFailure = null;
+      // TOLD is set when the wake was DELIVERED — its turn started — and not a
+      // moment before: news that waited through a turn and then failed to go
+      // is still owed, and a restart must ring about it again.
+      for (const event of events) {
+        const entry = watchList.get(event.ref);
+        if (entry === undefined) continue;
+        watchList.set(event.ref, { ...entry, told: event.level });
+      }
+      schedulePersist();
+    } catch (err) {
+      // A wake nobody could deliver is not thrown — there is no caller to tell,
+      // this runs off a watcher's frame or a turn ending — so it is LOGGED for
+      // the operator and SAID for the person reading the panel.
+      log.warn({ err }, "kolu-server: the conductor could not be woken");
+      const why = sentenceOf(err);
+      if (wakeFailure === null) {
+        wakeFailure = why;
+        const waiting = heldNews.refs();
+        sayNotice(
+          `kolu could not wake this conversation about ${waiting.length === 0 ? "a watched terminal" : waiting.join(", ")} — ${why} — the news is still waiting, and goes out on the next thing that happens: the conversation going idle, the agent coming back up, or the next reading of a watched terminal.`,
+        );
+      }
+    } finally {
+      flushing = false;
+    }
+    // ... and whatever rang while that was on the wire gets its own turn now.
+    if (missedEdge) {
+      missedEdge = false;
+      void flush();
+    }
+  };
+
+  /** One terminal's news, as the event a wake is composed from — held, and
+   *  flushed now if the conversation is idle. ALWAYS held first, which is what
+   *  makes "one slot per terminal, newest only, in the position the first one
+   *  took" true of the busy path and the idle path alike. */
+  const ring = (
+    entry: WatchEntry,
+    seen: WatchObservation,
+    level: ConductorWakeEvent["level"],
+  ): void => {
+    heldNews.hold(seen.ref, {
+      ref: seen.ref,
+      host: seen.host,
+      terminalId: seen.terminalId,
+      hostName: seen.hostName,
+      name: entry.name,
+      // EMPTY is a real answer here, and exactly one level gives it: `ended`
+      // is about a terminal no agent was ever seen in, so there is no name to
+      // put. Every other level is about an agent, and the sticky reading has
+      // one ({@link ./watching.ts}).
+      agent: entry.agent ?? "",
+      level,
+      at: new Date().toISOString(),
+    });
   };
 
   /** Stop a child and carry on. A teardown that threw here would skip the
@@ -1015,7 +1391,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         sinks.delete(sink);
       };
     },
-    prompt: async (text, mentions, attachments) => {
+    prompt: async (text, mentions, attachments, steer) => {
       try {
         const sent = await ask((agent) =>
           agent.prompt(
@@ -1026,6 +1402,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
             // refuses the whole message rather than arriving as a second
             // sentence under a turn that already went out.
             namedAttachments(attachments),
+            steer,
           ),
         );
         // The harness minted the user row before it answered, and that row
@@ -1047,6 +1424,129 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         sweepAttachments();
         throw err;
       }
+    },
+    watched: () => {
+      // The list is on disk before it is in memory, and reading it must not
+      // start an agent: the watcher asks this at boot, and a conversation
+      // spawned to answer "what are you watching" is a subprocess nobody
+      // asked for.
+      remembered();
+      return [...watchList.keys()];
+    },
+    watchedTerminals: () => {
+      // Same read, same restraint as `watched` above — and the fields are
+      // picked rather than the entry spread, so a runtime field added to
+      // `WatchEntry` never reaches a reader outside by accident.
+      remembered();
+      return [...watchList.values()].map(
+        ({ ref, name, agent, joined }): WatchedTerminal => ({
+          ref,
+          name,
+          agent,
+          joined,
+        }),
+      );
+    },
+    watchTerminal: (ref, joined) => {
+      remembered();
+      // A RE-WATCH KEEPS THE ENTRY IT HAS. The join only describes how the
+      // terminal arrived, and the entry already here knows what it was told,
+      // whether anything has been said to it and whether its command ran —
+      // all of which a second `watch` would throw away.
+      if (watchList.has(ref)) return;
+      watchList.set(ref, watchEntry(ref, joined));
+      publishState();
+      schedulePersist();
+      watchListMoved(true);
+    },
+    saidTo: (ref) => {
+      remembered();
+      const entry = watchList.get(ref);
+      // Not watched: the fleet face says this about every `agent_say`, and
+      // most terminals on a fleet are nobody's watch.
+      if (entry === undefined) return;
+      // The news it was about to make is the state the Conductor has just
+      // acted on, so it goes — and the entry re-baselines at that state.
+      heldNews.withdraw(ref);
+      watchList.set(ref, spokenTo(entry));
+      publishState();
+      schedulePersist();
+      // NO `watchListMoved`: the list did not move and neither did any row of
+      // it — `spoken` is this module's own bookkeeping about an entry that is
+      // still the same terminal, with the same name, agent and join.
+    },
+    closedTerminal: (ref) => {
+      remembered();
+      const left = watchList.delete(ref);
+      const withdrew = heldNews.withdraw(ref);
+      if (!left && !withdrew) return;
+      publishState();
+      schedulePersist();
+      if (left) watchListMoved(true);
+    },
+    unwatchTerminal: (ref) => {
+      remembered();
+      if (!watchList.delete(ref)) return false;
+      // ... and whatever it was about to say goes with it. A conversation
+      // that took a terminal off its own list is not owed one last word
+      // about it.
+      heldNews.withdraw(ref);
+      publishState();
+      schedulePersist();
+      watchListMoved(true);
+      return true;
+    },
+    observe: (seen) => {
+      // THREE DIFFERENT QUESTIONS, and none of them is the others. What a
+      // READER sees is {@link publishState}'s to answer, by comparing the
+      // frame it is about to send with the one it sent. What the FILE must
+      // hold is the saved half of an entry, which carries facts no frame
+      // shows (`told`, `spoken`, `ran`). What an in-process FOLLOWER needs is
+      // the list moving, membership apart from rows.
+      let saidSomethingNew = false;
+      let persist = false;
+      let membership = false;
+      let rows = false;
+      for (const one of seen) {
+        const entry = watchList.get(one.ref);
+        // Not watched (any more): the watcher re-scopes asynchronously, so a
+        // frame in flight across an unwatch is ordinary rather than a fault.
+        if (entry === undefined) continue;
+        const read = observed(entry, one);
+        if (read.drop) {
+          watchList.delete(one.ref);
+          persist = true;
+          membership = true;
+        } else {
+          watchList.set(one.ref, read.entry);
+          if (!sameSaved(saved(entry), saved(read.entry))) persist = true;
+          if (
+            read.entry.name !== entry.name ||
+            read.entry.agent !== entry.agent
+          )
+            rows = true;
+        }
+        // BACK TO WORKING WITHDRAWS WHAT IT WAS GOING TO SAY: held news
+        // describes how something STOOD, and this one has stopped standing
+        // that way. A terminal that goes away keeps its news — that it went
+        // away is exactly the thing to say.
+        if (one.level === "working") heldNews.withdraw(one.ref);
+        if (read.ring !== null) {
+          ring(read.entry, one, read.ring);
+          saidSomethingNew = true;
+        }
+      }
+      if (publishState()) saidSomethingNew = true;
+      if (persist) schedulePersist();
+      if (membership || rows) watchListMoved(membership);
+      // Nothing anybody can act on: no new news, nothing a reader would see.
+      // The flush below is what may START A TURN, so it runs on movement
+      // only — a poll that read the same thing again must not wake anybody.
+      if (!saidSomethingNew) return;
+      // Idle right now? Then nothing is waiting for a turn to end, and the
+      // news goes out at once — which is the ordinary case: the Conductor
+      // says what it is watching and ends its turn.
+      void flush();
     },
     // No `live()`: uploading a file must not spawn an agent. The bytes are
     // this server's own bookkeeping, and a person who pastes an image into a
@@ -1076,11 +1576,21 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         // the sweep already states. An upload nobody has sent yet is NOT
         // swept: it belongs to the composer, which still has its chips.
         sweepAttachments();
-        // THE FLEET IS A MEMORY OF THE CONVERSATION THAT IS GONE. Published
-        // here rather than waited for from the agent: the harness clears its
-        // own on the way out, but the strip must not name a terminal from a
-        // conversation this person just deleted for however long that round
-        // trip takes.
+        // THE FLEET AND THE WATCH LIST ARE MEMORIES OF THE CONVERSATION THAT
+        // IS GONE. The wipe deletes what this conversation knew, and the
+        // terminals it was watching are part of that: the agent is about to
+        // have no memory of `fleet`, of why it was watching anything, or of
+        // what it had already been told — so a wake naming those terminals
+        // would arrive in a conversation that has never heard of them. A
+        // `newSession` is different and keeps the list: it resets the agent's
+        // memory on purpose while the work goes on, and a person who presses
+        // it has not said they stopped caring about the terminals.
+        //
+        // Published here rather than waited for from the agent: the strip
+        // must not name a terminal from a conversation this person just
+        // deleted for however long that round trip takes.
+        watchList.clear();
+        heldNews.clear();
         state = { ...state, fleet: [] };
         publishState();
         // NOT on the throttle. A wipe is the one movement whose whole purpose

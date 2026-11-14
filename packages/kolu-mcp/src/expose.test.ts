@@ -70,8 +70,9 @@ describe("KOLU_MCP_EXPOSE — the ratified v1 map", () => {
     expect(mutating.sort()).toEqual(["lifecycle_kill", "watch_close"]);
   });
 
-  it("the bespoke registry carries the eight face-local tools", () => {
+  it("the bespoke registry carries the nine face-local tools", () => {
     expect(Object.keys(KOLU_MCP_TOOLS).sort()).toEqual([
+      "agent_say",
       "lifecycle_create",
       "lifecycle_sendInput",
       "screen_image",
@@ -89,6 +90,9 @@ describe("KOLU_MCP_EXPOSE — the ratified v1 map", () => {
     // of the one call a supervisor makes in a loop.
     expect(KOLU_MCP_TOOLS.lifecycle_create?.mutates).toBe(true);
     expect(KOLU_MCP_TOOLS.lifecycle_sendInput?.mutates).toBe(true);
+    // `agent_say` TYPES into a terminal — the same write `lifecycle_sendInput`
+    // makes, plus the agent's own submit keys.
+    expect(KOLU_MCP_TOOLS.agent_say?.mutates).toBe(true);
     expect(KOLU_MCP_TOOLS.screen_text?.mutates).toBe(false);
     expect(KOLU_MCP_TOOLS.screen_image?.mutates).toBe(false);
     expect(KOLU_MCP_TOOLS.wait_outputSettled?.mutates).toBe(false);
@@ -199,6 +203,7 @@ describe("the served face — default deny at the wire", () => {
     const mcp = await servedFace();
     const { tools } = await mcp.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([
+      "agent_say",
       "fs_listAll",
       "fs_readFile",
       "git_getDiff",

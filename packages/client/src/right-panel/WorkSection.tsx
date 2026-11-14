@@ -49,7 +49,7 @@ import RepoMonogram from "../ui/RepoMonogram";
 import Row from "../ui/Row";
 import Section from "../ui/Section";
 import { activeHost, interpretClientError, padiMap } from "../wire";
-import { usePanelShown } from "./panelShown";
+import { useShown } from "../ui/shown";
 import type { OduLinkAct, OduLinkOutlet } from "./useOduLink";
 
 /** Triage order — the sequence a reader wants: what's broken, what's still
@@ -510,7 +510,7 @@ const WorkSection: Component<{
       },
     };
   });
-  const shown = usePanelShown();
+  const shown = useShown();
   /** This checkout's CI, read from ODU ITSELF: padi carries odu's own surface as
    *  a sibling (`entry(h).odu`), so this is odu's `checkout` stream and not a
    *  fold of it assembled a hop away.

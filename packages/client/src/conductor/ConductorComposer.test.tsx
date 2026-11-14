@@ -25,6 +25,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FleetTerminalRow } from "../palette/fleetTerminals";
 import { setComposerText } from "./drafts";
 import ConductorComposer from "./ConductorComposer";
+import { Shown } from "../ui/shown";
 
 /** The index is the ONE thing this test controls: everything downstream of it
  *  — the per-host key computation, the filter, the resolve — stays real, or
@@ -107,7 +108,14 @@ function mount(text: string): {
   fleet.read = rows;
   root = document.createElement("div");
   document.body.append(root);
-  dispose = render(() => <ConductorComposer state={STATE} />, root);
+  dispose = render(
+    () => (
+      <Shown.Provider value={() => true}>
+        <ConductorComposer state={STATE} />
+      </Shown.Provider>
+    ),
+    root,
+  );
   const box = root.querySelector<HTMLTextAreaElement>(
     '[data-testid="conductor-input"]',
   );

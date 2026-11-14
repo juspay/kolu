@@ -654,6 +654,127 @@ export const replyIn = (
   }
 };
 
+// ── what the adapter says it can do, at the handshake ──────────────────
+//
+// VENDORED FROM OLAI (`packages/plugins/claude/src/leg.ts`, same 0.81.2 pin),
+// which is where this extension was read, measured and argued — the same
+// provenance the patches beside this integration carry
+// (`../../acp/patches/README.md`). kolu steers the Conductor against the
+// adapter olai steers against, so a second reading of the same `_meta` would
+// be the same bet made twice and wrong in one place.
+
+/**
+ * Whether this agent HOLDS a prompt sent while it is busy, out of what it
+ * advertised at `initialize`.
+ *
+ * Core ACP's schema has no such capability — it neither defines nor forbids a
+ * mid-turn `session/prompt` — so what happens to one is a fact about the agent,
+ * and this adapter volunteers it: a `turnQueue` FIFO, in order, said in
+ * `agentCapabilities._meta`. olai verified it on the wire (2026-08-24): a
+ * prompt sent 1.5s into a 35-second `/compact` waited, the compaction
+ * completed, and the message ran after it.
+ *
+ * It gates NOTHING about delivery — every send is a plain prompt — and what it
+ * DOES gate is the one lane an agent that promises no queue needs: such an
+ * agent takes a busy send through steering instead, because a second ordinary
+ * prompt can overwrite its pending turn.
+ *
+ * Read POSITIVELY: an agent that says nothing is one nothing is promised for.
+ */
+export const QUEUES_WHEN_BUSY = (initialized: unknown): boolean =>
+  claudeIn(fieldIn(fieldIn(initialized, "agentCapabilities"), "_meta"))?.[
+    "promptQueueing"
+  ] === true;
+
+// ── steering a turn that is already running ────────────────────────────
+
+/**
+ * The request that puts a message INTO the turn already in flight, rather than
+ * behind it.
+ *
+ * A `session/prompt` sent while a turn runs is not this, and it is the ORDINARY
+ * path: the adapter enqueues it and the agent reaches it when the running turn
+ * is over ({@link QUEUES_WHEN_BUSY}). This one is delivered at the SDK's `now`
+ * priority — it pre-empts the current generation and lands between the turn's
+ * own steps — so what a person typed reaches the model that is working.
+ *
+ * PRE-EMPTING MEANS ABORTING, which is why it is a gesture somebody makes on
+ * purpose rather than what a mid-turn send does: the interrupted cycle is torn
+ * down, and a turn whose work cannot survive that loses it (olai's screenshot
+ * is a `/compact` dying as *Request was aborted* under a message that only
+ * meant to be next in line).
+ *
+ * An EXTENSION, hence the leading underscore, and named for the agreed ACP
+ * steering wire protocol rather than for one adapter — but read here with
+ * everything else that is a bet on the agent, because a bet it is. The losing
+ * direction is the safe one: an agent without this refuses the method, which
+ * reaches a person as the row keeping their words.
+ */
+export const STEER_METHOD = "_session/steering";
+
+/**
+ * Whether this agent SAID it takes one, out of the handshake — in a top-level
+ * `_meta`, beside `agentCapabilities` rather than inside it, which is where the
+ * steering extension's own contract puts it.
+ *
+ * Read to decide whether to OFFER the gesture, never to predict what a request
+ * will do: a control has to be drawn before anybody can press it, and the only
+ * honest input to that is what the agent said about itself. The request is
+ * still the proof — a steer that goes out and is refused comes back as the row
+ * keeping its words.
+ */
+export const STEERING_ADVERTISED = (initialized: unknown): boolean =>
+  (
+    fieldIn(initialized, "_meta")?.["steering"] as
+      | { readonly supported?: unknown }
+      | undefined
+  )?.supported === true;
+
+/**
+ * How a steer that found NOTHING RUNNING should behave, in the request's own
+ * `_meta`.
+ *
+ * The default is for the agent to start a fresh turn of its own, detached —
+ * which would be a turn kolu never asked for, never tracked and could not
+ * cancel, reporting through the transcript from nowhere. `promptRequired`
+ * hands the message BACK instead ("nothing to steer; send it yourself"), which
+ * is the only outcome a client that owns its turns can use. kolu only steers
+ * while it believes a turn is running, so this is the answer to the RACE rather
+ * than the ordinary path: the adapter settled while the send was on its way,
+ * and it says so instead of inventing a turn.
+ */
+export const STEER_WHEN_IDLE = {
+  steering: { idleBehavior: "promptRequired" },
+};
+
+/**
+ * How long a steer may go unanswered before the words go back to the person who
+ * typed them.
+ *
+ * HERE and not beside the harness's other deadlines, because its warrant is a
+ * claim about this EXTENSION rather than about a pipe: the adapter answers a
+ * steer as soon as the message is on the SDK's input, long before the turn does
+ * anything with it — so silence past this is not a slow turn but an agent that
+ * stopped listening. A prompt, by contrast, gets no deadline at all: that one
+ * really is a person waiting on a language model.
+ */
+export const STEER_TIMEOUT = "30 seconds";
+
+/**
+ * Whether the steer went INTO the running turn, out of what the agent answered.
+ *
+ * Read POSITIVELY, and this is the one reading here whose losing direction is
+ * worth spelling out. `injected` is the only outcome that counts as taken;
+ * `promptRequired`, a legacy `startedNewTurn`, and anything a future version of
+ * the extension answers all read as NOT taken, which sends the message again as
+ * an ordinary prompt. The worst case of that is a message the agent hears
+ * twice; the worst case of reading an unknown outcome as taken is a message
+ * nobody has, and between a duplicate and a disappearance there is no contest.
+ */
+export const steerTaken = (answered: unknown): boolean =>
+  (answered as { readonly outcome?: unknown } | null | undefined)?.outcome ===
+  "injected";
+
 // ── the leg ────────────────────────────────────────────────────────────
 
 /**
@@ -693,13 +814,23 @@ export const CLAUDE: Leg = {
   // own default mode stands, and `allowedWithoutAsking` is the backstop that
   // was always underneath it.
   bypassModeRequired: false,
-  // The three questions this panel never asks. They are on `Leg` because
-  // `@kolu/acp` is a SHARED vocabulary — olai's own panel steers, promises a
-  // queue and draws the session list — and the honest nothing is what a leg
-  // owes a question its harness never puts: any answer here would be a 0.81.2
-  // `_meta` spelling re-verified at every adapter bump for no reader at all.
-  steering: null,
-  queues: () => false,
+  // HOW A MESSAGE REACHES THE TURN THAT IS RUNNING, and what this agent
+  // promises about one sent behind it. Both are read for the Conductor's own
+  // composer: Alt+Enter steers, Enter queues, and the second lane only exists
+  // because this adapter says it holds what it is sent.
+  steering: {
+    method: STEER_METHOD,
+    meta: STEER_WHEN_IDLE,
+    timeout: STEER_TIMEOUT,
+    taken: steerTaken,
+    advertised: STEERING_ADVERTISED,
+  },
+  queues: QUEUES_WHEN_BUSY,
+  // The one question this panel still never asks. It is on `Leg` because
+  // `@kolu/acp` is a SHARED vocabulary — olai's own panel draws the stored
+  // session list — and the honest nothing is what a leg owes a question its
+  // harness never puts: an answer here would be a 0.81.2 `_meta` spelling
+  // re-verified at every adapter bump for no reader at all.
   listedIn: () => null,
   rawMessages: {
     openMeta: OPEN_SESSION_META,

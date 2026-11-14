@@ -145,12 +145,27 @@ export class KoluWorld extends World {
    *  presses the tool card's *open tile* can assert the focus landed on THAT
    *  terminal rather than on whichever tile happened to be active. */
   adoptedTerminalId?: string;
+  /** The terminal id the conductor was asked to WATCH, so a wake, the watched
+   *  panel's row and its Look can each be checked against THAT terminal. */
+  watchedTerminalId?: string;
+  /** The terminal a watched SPLIT was cut from, so the watched panel can be
+   *  checked for drawing the split under it rather than beside it. */
+  watchedSplitParentId?: string;
+  /** A terminal's shell pid, read while it still had the keyboard, so an
+   *  agent can be staged in it after the scenario has moved elsewhere. */
+  notedShellPid?: number;
   /** Everything the page's console said from the conductor paste onwards. A
    *  prompt refused before any row exists (an attachment this agent was never
    *  told it could take) leaves nothing in the transcript, so the console is
    *  the only place the refusal's own sentence survives for the failure
    *  message. */
   conductorConsole?: string[];
+  /** A value written onto the conductor pane's DOM NODE (a JS expando, not an
+   *  attribute) before leaving for a host tab. The pane is mounted once and
+   *  retained, so finding the same value on the node afterwards is proof the
+   *  element itself survived the round trip — a rebuilt pane comes back
+   *  without it, however identical it looks. */
+  conductorPaneMarker?: string;
   savedScrollTop?: number;
   /** Maximized-dock width (px) captured before a resize drag, so a follow-up
    *  step can prove the drag widened it and that the width survives a reload. */

@@ -10,12 +10,16 @@
  *
  *  What keeps it from reading as a host is everything a host tab carries that
  *  it does not: no connection dot (there is no connection of its own to
- *  report), no host hue — the accent stands in as its `--host-hue`, so the
- *  host tabs' own resting hover and lit belly paint it in the conductor's
- *  colour — the ◆ mark, and the `alpha` tag. It is not a host anywhere else
- *  either: no host key, no entry in the host map, nothing in the host
- *  switcher's data model, and it is mounted beside the host strip, not inside
- *  it.
+ *  report), the ◆ mark, and the `alpha` tag — and its OWN COLOUR, which no
+ *  host has. `--color-conductor` is a theme token (light and dark, in
+ *  `@kolu/theme`) and it stands in as this tab's `--host-hue`, so the host
+ *  tabs' shared hover and lit belly paint it in the conductor's colour; unlike
+ *  a host, it wears that colour AT REST too, because it is not one of a set
+ *  you are choosing between — it is the one place that reaches all of them,
+ *  and in grey it read as the weakest tab on the row. It is not a host
+ *  anywhere else either: no host key, no entry in the host map, nothing in the
+ *  host switcher's data model, and it is mounted beside the host strip, not
+ *  inside it.
  *
  *  EXACTLY ONE TAB LOOKS CURRENT. While the conversation is on screen this tab
  *  is lit and no host tab is (`useActiveHostSelector` folds the conductor in);
@@ -24,13 +28,21 @@
  *  nothing, as with any tab — a host tab is the way back. `⌘⇧O` still toggles
  *  both ways.
  *
- *  Its badge is the violet needs-you count — the questions the one
- *  conversation is blocked on, across every host it has terminals on. It sits
- *  on the tab's top-right CORNER rather than inline, so the tab's width does
- *  not move when a question arrives; and the tab washes violet while it is not
- *  the current one, the same `data-asking` channel a host tab uses. ABSENT at
- *  zero, never a `0`: a badge that renders its own silence is one every reader
- *  has to parse before ignoring.
+ *  Its badge is an UNREAD COUNT: how many pieces of work the conversation has
+ *  in flight — the terminals it watches, grouped by the top-level terminal
+ *  each one's `child-of` edges end at, so a waterfall's planner and the
+ *  implementor split under it are ONE. It sits on the tab's top-right CORNER
+ *  rather than inline, so the tab's width does not move when the number
+ *  changes. ABSENT at zero, never a `0`: a badge that renders its own silence
+ *  is one every reader has to parse before ignoring.
+ *
+ *  ONE BADGE, and its COLOUR says "look now". While the conversation is
+ *  asking you something the same badge turns the needs-you violet — there is
+ *  no second count beside it, because two numbers on one tab is a sum the
+ *  reader has to do. Asking with nothing in flight still shows the badge, as
+ *  a violet DOT with no number: the ask is never invisible, and a `0` is
+ *  never drawn. The tab itself washes violet while it is not the current one,
+ *  the same `data-asking` channel a host tab uses.
  *
  *  The `alpha` tag is INLINE, and that is the opposite choice for the opposite
  *  reason. The corner is taken, and two things stacked there would overlap on
@@ -43,45 +55,65 @@ import { type Component, Show } from "solid-js";
 import { ACTIONS } from "../input/actions";
 import { formatKeybind } from "../input/keyboard";
 import Tip from "../ui/Tip";
-import { conductorAsksTotal } from "./useConductorFacts";
+import { useConductorBadge } from "./useConductorFacts";
 import { enterConductorMode, conductorMode } from "./useConductorMode";
 
-const ConductorTab: Component = () => (
-  <Tip label={`Conductor (${formatKeybind(ACTIONS.toggleConductor.keybind)})`}>
-    <button
-      type="button"
-      data-testid="conductor-tab"
-      data-active={conductorMode() ? "" : undefined}
-      data-asking={
-        conductorAsksTotal() > 0 && !conductorMode() ? "" : undefined
-      }
-      aria-current={conductorMode() ? "page" : undefined}
-      // The host tabs' own paint, in the accent: `--host-hue` is what
-      // `.host-tab-idle:hover` and `.host-tab-active` mix from.
-      style={{ "--host-hue": "var(--color-accent)" }}
-      class={`host-tab ${conductorMode() ? "host-tab-active" : "host-tab-idle"} pointer-events-auto relative -mb-px flex h-8 shrink-0 items-center gap-1.5 px-2.5 text-xs font-medium cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/50`}
-      onClick={() => enterConductorMode()}
+const ConductorTab: Component = () => {
+  // THE ONE DERIVATION, shared with the phone's entry (`useConductorFacts`):
+  // two memos over primitives, so this tab re-renders when the count of work
+  // or the ask moves and not when a row lands or a terminal somewhere ticks.
+  const badge = useConductorBadge();
+  return (
+    <Tip
+      label={`Conductor (${formatKeybind(ACTIONS.toggleConductor.keybind)})`}
     >
-      <span aria-hidden="true" class="text-accent">
-        ◆
-      </span>
-      Conductor
-      <span
-        data-testid="conductor-alpha"
-        class="rounded-sm bg-fg-3/15 px-1 py-px font-mono text-[0.58rem] font-semibold uppercase tracking-[0.08em] leading-[1.4] text-fg-3"
+      <button
+        type="button"
+        data-testid="conductor-tab"
+        data-active={conductorMode() ? "" : undefined}
+        data-asking={badge.asking() && !conductorMode() ? "" : undefined}
+        aria-current={conductorMode() ? "page" : undefined}
+        // `--host-hue` and the resting ink come from `.conductor-tab`
+        // (index.css), which feeds the host tabs' shared hover / lit-belly
+        // rules with `--color-conductor` — the tab's own theme token, defined
+        // light and dark in `@kolu/theme`. No colour is spelled here: a raw
+        // hex on a tab is a tab that is wrong in one of the two themes.
+        class={`host-tab conductor-tab ${conductorMode() ? "host-tab-active" : "host-tab-idle"} pointer-events-auto relative -mb-px flex h-8 shrink-0 items-center gap-1.5 px-2.5 text-xs font-semibold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-conductor/50`}
+        onClick={() => enterConductorMode()}
       >
-        alpha
-      </span>
-      <Show when={conductorAsksTotal() > 0}>
+        {/* The ◆ inherits the tab's ink (`currentColor`): at rest that is the
+            conductor's own colour, and on the lit tab it is the foreground the
+            shared `.host-tab-active` sets — one mark, never two colour sources
+            to disagree about which state it is in. */}
+        <span aria-hidden="true">◆</span>
+        Conductor
         <span
-          data-testid="conductor-badge"
-          class="absolute -top-1.5 -right-1.5 min-w-4 rounded-full bg-alert px-1 text-center text-[0.6rem] font-semibold leading-4 text-surface-0"
+          data-testid="conductor-alpha"
+          class="rounded-sm bg-fg-3/15 px-1 py-px font-mono text-[0.58rem] font-semibold uppercase tracking-[0.08em] leading-[1.4] text-fg-3"
         >
-          {conductorAsksTotal()}
+          alpha
         </span>
-      </Show>
-    </button>
-  </Tip>
-);
+        <Show when={badge.pieces() > 0 || badge.asking()}>
+          <span
+            data-testid="conductor-badge"
+            // The ask rides a DATA channel rather than a class name: what a
+            // reader (and a test) asks is "is this the needs-you badge", and
+            // reading that off a utility class would pin the paint instead of
+            // the fact.
+            data-asking={badge.asking() ? "" : undefined}
+            data-work={badge.pieces()}
+            // ONE class binding, from those same two facts: violet while it
+            // asks, the conductor's own colour otherwise — and a bare DOT when
+            // there is nothing to count, because an empty pill reads as a
+            // number that failed to render.
+            class={`absolute rounded-full text-center text-[0.6rem] font-semibold leading-4 text-surface-0 ${badge.asking() ? "bg-alert" : "bg-conductor"} ${badge.pieces() > 0 ? "-top-1.5 -right-1.5 min-w-4 px-1" : "-top-0.5 -right-0.5 h-2 w-2"}`}
+          >
+            <Show when={badge.pieces() > 0}>{badge.pieces()}</Show>
+          </span>
+        </Show>
+      </button>
+    </Tip>
+  );
+};
 
 export default ConductorTab;

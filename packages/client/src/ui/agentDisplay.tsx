@@ -11,7 +11,7 @@ import {
   isAgentKind,
   mapAgentVocabs,
 } from "kolu-agents/vocab";
-import type { AgentInfo } from "kolu-common/surface";
+import type { AgentInfo, TaskProgress } from "kolu-common/surface";
 import type { Component } from "solid-js";
 import { MarkIcon } from "./Icons";
 
@@ -25,6 +25,28 @@ export function agentName(kind: AgentInfo["kind"]): string {
  *  chrome and the dock pip. */
 export function agentMark(kind: AgentInfo["kind"]): AgentMark {
   return agentVocab(kind).mark;
+}
+
+/** The display name of the agent whose BINARY a foreground program is — built
+ *  once from the registry itself (`cli.basename`, the same field the host's
+ *  `matchesAgent` compares a PTY's foreground against), never a second list of
+ *  names to keep in step. `undefined` for a program that is not one of kolu's
+ *  agents.
+ *
+ *  WHAT IT IS FOR: a terminal running `omp` with no agent detected in it YET
+ *  is an agent STARTING, not a terminal with no agent in it, and the line that
+ *  says so has only the foreground's basename to go on (a browser cannot ask
+ *  the kernel anything). It answers the narrow question the basename can
+ *  honestly answer — is this one of ours — and nothing about what the agent is
+ *  doing, which only detection knows. */
+const AGENT_NAME_BY_BINARY: ReadonlyMap<string, string> = new Map(
+  Object.values(
+    mapAgentVocabs((vocab) => [vocab.cli.basename, vocab.displayName] as const),
+  ),
+);
+
+export function agentNameForBinary(name: string): string | undefined {
+  return AGENT_NAME_BY_BINARY.get(name);
 }
 
 /** Stable per-kind icon components for the command palette, which carries an
@@ -63,6 +85,24 @@ const tokenFormat = new Intl.NumberFormat("en", {
 });
 export const formatContextTokens = (tokens: number): string =>
   tokenFormat.format(tokens);
+
+/** AN AGENT'S TASK PROGRESS as the fraction every surface prints — `"7/12"`.
+ *
+ *  ONE spelling, because there are four places that print it (the tile's meta
+ *  line, its compact twin, the Inspector's status card and the Conductor's
+ *  status line) and `${completed}/${total}` is small enough that each of them
+ *  would have written its own. A separator or a zero-total rule reconsidered
+ *  in one of them is then a readout that disagrees with itself across one
+ *  window, which is the whole reason the display strings live in this module
+ *  rather than at their render sites. */
+export const formatTaskProgress = (progress: TaskProgress): string =>
+  `${progress.completed}/${progress.total}`;
+
+/** The same fraction as the SENTENCE a tooltip says, for the sites that draw
+ *  the number bare — a bar, or a word-less chip, means nothing until something
+ *  says what it counts. */
+export const taskProgressTitle = (progress: TaskProgress): string =>
+  `${formatTaskProgress(progress)} tasks completed`;
 
 /** Semantic bucket per state — THE shared "which color family" fact, so the
  *  compact header cluster (AgentIndicator) and the Inspector's status card

@@ -11,6 +11,7 @@
  */
 
 import { Effect } from "effect";
+import { agentVocab } from "kolu-agents/vocab";
 import type { HostKey } from "kolu-common/hostKey";
 import type { TerminalId } from "kolu-common/surface";
 import { createSignal } from "solid-js";
@@ -48,9 +49,15 @@ vi.mock("../settings/useTips", () => ({
 }));
 
 import ConductorLook, { LOOK_EVERY_MS, LOOK_LINES } from "./ConductorLook";
+import { Shown } from "../ui/shown";
 
-/** An active terminal whose agent is working and says what on. */
-const working = (): FleetTerminalStanding => ({
+/** An active terminal whose agent is working and says what on. The agent
+ *  record is the WIRE's shape — `taskProgress` is a field every agent
+ *  publishes, `null` for one that keeps no task list — so a case can turn it
+ *  on without the fixture growing a second shape. */
+const working = (
+  agent: Record<string, unknown> = {},
+): FleetTerminalStanding => ({
   kind: "here",
   meta: {
     state: "active",
@@ -59,6 +66,8 @@ const working = (): FleetTerminalStanding => ({
       kind: "claude-code",
       state: "thinking",
       summary: "writing the plan",
+      taskProgress: null,
+      ...agent,
     },
   } as never,
 });
@@ -78,11 +87,20 @@ class StubObserver {
 let dispose: (() => void) | undefined;
 let root: HTMLElement | undefined;
 
+/** Is the conductor pane the shown view? The pane is retained across a tab
+ *  switch, so this is the fact — not the element's geometry — that decides
+ *  whether Look is allowed to read a machine's screen. */
+const [shown, setShown] = createSignal(true);
+
 function mount(rowId = "row-1"): HTMLElement {
   root = document.createElement("div");
   document.body.append(root);
   dispose = render(
-    () => <ConductorLook rowId={rowId} host="remote:srid@zest" id={TERMINAL} />,
+    () => (
+      <Shown.Provider value={shown}>
+        <ConductorLook rowId={rowId} host="remote:srid@zest" id={TERMINAL} />
+      </Shown.Provider>
+    ),
     root,
   );
   return root;
@@ -102,6 +120,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal("IntersectionObserver", StubObserver);
   inView = true;
+  setShown(true);
   seam.reads = [];
   seam.reply = () => Effect.succeed("line one\nline two");
   setStanding(working());
@@ -122,6 +141,28 @@ describe("an agent line", () => {
     ).toBe("Thinking · writing the plan");
     expect(toggle(el)?.textContent).toBe("Look");
     expect(seam.reads).toEqual([]);
+  });
+
+  it("says how far through its own task list the agent is, when it keeps one", async () => {
+    setStanding(working({ taskProgress: { completed: 7, total: 12 } }));
+    const el = mount("progress");
+    await vi.advanceTimersByTimeAsync(0);
+    // Beside the state, ahead of what it is doing — the same fraction the
+    // tile's meta line and the Inspector's card print.
+    expect(
+      el.querySelector('[data-testid="conductor-look-progress"]')?.textContent,
+    ).toBe("7/12");
+    expect(
+      el.querySelector('[data-testid="conductor-look-status"]')?.textContent,
+    ).toBe("Thinking · 7/12 · writing the plan");
+  });
+
+  it("says nothing about tasks for an agent that keeps no list", async () => {
+    const el = mount("no-tasks");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(el.querySelector('[data-testid="conductor-look-progress"]')).toBe(
+      null,
+    );
   });
 
   it("opens to the last lines, read from the terminal's OWN host", async () => {
@@ -173,6 +214,58 @@ describe("an agent line", () => {
     expect(seam.reads).toEqual([]);
   });
 
+  it("says the agent is STARTING when its own binary is in front and nothing is detected yet", async () => {
+    // The row used to read "no agent · running omp", which says both halves
+    // of a contradiction at once. The binary is recognised through the agent
+    // registry (`cli.basename`), and the words it is named by come from the
+    // same registry — this test holds no list of its own.
+    const omp = agentVocab("omp");
+    setStanding({
+      kind: "here",
+      meta: {
+        state: "active",
+        agent: null,
+        foreground: { name: omp.cli.basename, title: null, shell: false },
+      } as never,
+    });
+    const el = mount("starting");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(
+      el.querySelector('[data-testid="conductor-look-status"]')?.textContent,
+    ).toBe(`starting ${omp.displayName}`);
+  });
+
+  it("still says 'no agent' for a program that is none of ours, and for the shell", async () => {
+    setStanding({
+      kind: "here",
+      meta: {
+        state: "active",
+        agent: null,
+        foreground: { name: "vim", title: null, shell: false },
+      } as never,
+    });
+    const el = mount("plain");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(
+      el.querySelector('[data-testid="conductor-look-status"]')?.textContent,
+    ).toBe("no agent · running vim");
+
+    unmount();
+    setStanding({
+      kind: "here",
+      meta: {
+        state: "active",
+        agent: null,
+        foreground: { name: "bash", title: null, shell: true },
+      } as never,
+    });
+    const shell = mount("shell");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(
+      shell.querySelector('[data-testid="conductor-look-status"]')?.textContent,
+    ).toBe("no agent · at the shell");
+  });
+
   it("says 'terminal gone' for a terminal the roster no longer has, and offers nothing", async () => {
     const el = mount("gone-later");
     toggle(el)?.click();
@@ -204,5 +297,63 @@ describe("an agent line", () => {
     const again = mount("kept");
     expect(toggle(again)?.getAttribute("aria-expanded")).toBe("true");
     expect(toggle(again)?.textContent).toBe("Hide");
+  });
+
+  it("reads nothing while the pane is hidden, and picks up when it is shown again", async () => {
+    // THE RETAINED PANE'S CONTRACT. Leaving for a host tab does not unmount
+    // this Look — it stays open, which is the whole point — so the only thing
+    // standing between a conversation somebody left an hour ago and a poll
+    // against a real machine every two seconds is `shown()`.
+    setShown(false);
+    const el = mount("hidden");
+    toggle(el)?.click();
+    await vi.advanceTimersByTimeAsync(LOOK_EVERY_MS * 3);
+    expect(seam.reads).toEqual([]);
+    // Still OPEN while hidden: the toggle was not undone, only the work was.
+    expect(toggle(el)?.textContent).toBe("Hide");
+
+    setShown(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(seam.reads).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(LOOK_EVERY_MS * 2);
+    expect(seam.reads.length).toBeGreaterThanOrEqual(2);
+
+    // And it stops again on the way out, rather than only starting.
+    setShown(false);
+    const whileShown = seam.reads.length;
+    await vi.advanceTimersByTimeAsync(LOOK_EVERY_MS * 3);
+    expect(seam.reads).toHaveLength(whileShown);
+  });
+
+  it("keeps the SAME element across the trip, open tail and all", async () => {
+    // Element identity, the way `/solidjs` asks for it: a marker put on the
+    // node by hand cannot survive a rebuild, so finding it afterwards is proof
+    // that nothing was re-created — and the open tail's own lines are proof
+    // that the view came back as it was left rather than re-fetched.
+    const el = mount("identity");
+    toggle(el)?.click();
+    await vi.advanceTimersByTimeAsync(0);
+    const before = el.querySelector('[data-testid="conductor-look"]');
+    const tailBefore = el.querySelector('[data-testid="conductor-look-tail"]');
+    expect(before).not.toBeNull();
+    expect(tailBefore).not.toBeNull();
+    (before as HTMLElement & { marker?: string }).marker = "same node";
+
+    setShown(false);
+    await vi.advanceTimersByTimeAsync(LOOK_EVERY_MS);
+    setShown(true);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const after = el.querySelector('[data-testid="conductor-look"]');
+    expect(after).toBe(before);
+    expect((after as HTMLElement & { marker?: string }).marker).toBe(
+      "same node",
+    );
+    expect(el.querySelector('[data-testid="conductor-look-tail"]')).toBe(
+      tailBefore,
+    );
+    expect(
+      el.querySelector('[data-testid="conductor-look-lines"]')?.textContent,
+    ).toContain("line two");
   });
 });

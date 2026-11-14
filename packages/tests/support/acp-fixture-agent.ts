@@ -40,6 +40,17 @@
  *   work in flight   — two calls that settle, then a third held RUNNING for a
  *                      few seconds before it settles and the agent speaks:
  *                      the turn the chat folds while it is still working
+ *   watch <id>       — a REAL `watch_terminal` call on the fleet face for
+ *                      `local/<id>`, so the watched list moves because the
+ *                      Conductor's own tool moved it
+ *   work for a while — a turn held open for twelve seconds: long enough for a
+ *                      watched terminal to ring while it runs and be HELD
+ *   work until steered — a turn held open until a STEER arrives
+ *                      (`_session/steering`), which it then answers as
+ *                      `heard: <the steered words>` before ending
+ *   a kolu wake      — any prompt kolu-server STARTED (it opens with
+ *                      `[kolu] I am waking you`) is answered `woke: <refs>`,
+ *                      naming the fleet refs the account carried
  *
  * Turns are served FIFO and one at a time: `queued` is a fact about the agent's
  * own queue, so an adapter that answered out of order could not be used to
@@ -182,9 +193,17 @@ const readResource = async (
  *  fixture answers is scripted; this opens a real session on the real
  *  endpoint and reads the real resources, so a kolu whose fleet face cannot
  *  reach its own hosts answers here with the refusal instead of a roster. */
-const readFleet = async (): Promise<string> => {
+/** One MCP session on the fleet face, opened for `work` and ENDED after it —
+ *  the face holds live subscriptions per session, and a scenario that left one
+ *  open per turn would leave them behind the server for the worker's life. */
+const withFleetSession = async <T>(
+  work: (
+    server: { url: string; headers: Record<string, string> },
+    session: string,
+  ) => Promise<T>,
+): Promise<T> => {
   if (koluServer === null) {
-    return "fleet read failed: this session was handed no kolu MCP server";
+    throw new Error("this session was handed no kolu MCP server");
   }
   const server = koluServer;
   const opened = await mcpCall(server, null, {
@@ -205,27 +224,64 @@ const readFleet = async (): Promise<string> => {
     jsonrpc: "2.0",
     method: "notifications/initialized",
   });
-  const hosts = (await readResource(
-    server,
-    session,
-    "surface://cells/hosts",
-  )) as ReadonlyArray<{ host: string; state: string }>;
-  const terminals = (await readResource(
-    server,
-    session,
-    "surface://collections/terminals",
-  )) as readonly string[];
-  // The agent's own session, ended by the agent — the fleet face behind it
-  // holds live subscriptions, and a scenario that opened one per turn would
-  // leave them behind the server for the rest of the worker's life.
-  await fetch(server.url, {
-    method: "DELETE",
-    headers: { ...server.headers, "mcp-session-id": session },
-  }).then((ended) => ended.body?.cancel());
-  return `fleet hosts: ${hosts
-    .map((one) => `${one.host}=${one.state}`)
-    .join(", ")}; fleet terminals: ${terminals.join(", ")}`;
+  try {
+    return await work(server, session);
+  } finally {
+    await fetch(server.url, {
+      method: "DELETE",
+      headers: { ...server.headers, "mcp-session-id": session },
+    }).then((ended) => ended.body?.cancel());
+  }
 };
+
+/** THE FLEET, READ BY THE AGENT ITSELF — the roster and every host's
+ *  terminals, through the MCP server kolu-server handed this session.
+ *
+ *  This is the one turn that proves the hands work. Everything else this
+ *  fixture answers is scripted; this opens a real session on the real
+ *  endpoint and reads the real resources, so a kolu whose fleet face cannot
+ *  reach its own hosts answers here with the refusal instead of a roster. */
+const readFleet = async (): Promise<string> => {
+  if (koluServer === null) {
+    return "fleet read failed: this session was handed no kolu MCP server";
+  }
+  return withFleetSession(async (server, session) => {
+    const hosts = (await readResource(
+      server,
+      session,
+      "surface://cells/hosts",
+    )) as ReadonlyArray<{ host: string; state: string }>;
+    const terminals = (await readResource(
+      server,
+      session,
+      "surface://collections/terminals",
+    )) as readonly string[];
+    return `fleet hosts: ${hosts
+      .map((one) => `${one.host}=${one.state}`)
+      .join(", ")}; fleet terminals: ${terminals.join(", ")}`;
+  });
+};
+
+/** One TOOL CALL on the fleet face, answered with its text — or the refusal's
+ *  own sentence, because a scenario reading "watching …" must be able to tell
+ *  a call that landed from one the face turned down. */
+const callTool = async (
+  name: string,
+  args: Record<string, unknown>,
+): Promise<string> =>
+  withFleetSession(async (server, session) => {
+    const { frame } = await mcpCall(server, session, {
+      jsonrpc: "2.0",
+      id: nextRequestId++,
+      method: "tools/call",
+      params: { name, arguments: args },
+    });
+    const result = frame?.result as
+      | { isError?: boolean; content?: ReadonlyArray<{ text?: string }> }
+      | undefined;
+    const text = result?.content?.map((one) => one.text ?? "").join("") ?? "";
+    return result?.isError === true ? `refused: ${text}` : text;
+  });
 
 /** The agent's own word for the turn, sent only once the work is done — so a
  *  scenario that waits for prose is waiting on the same thing the panel is. */
@@ -308,8 +364,62 @@ const WIDE_PAYLOAD = ((): string => {
   return `[${body}]`;
 })();
 
-const turn = async (id: unknown, text: string): Promise<void> => {
+/** Prose, as one chunk — what a scenario waiting on an answer reads. */
+const say = (text: string): void => {
+  update({
+    sessionUpdate: "agent_message_chunk",
+    content: { type: "text", text },
+  });
+};
+
+/** The steer the `work until steered` turn is waiting for, while it waits. */
+let awaitingSteer: ((text: string) => void) | null = null;
+
+const turn = async (
+  id: unknown,
+  text: string,
+  whole: string,
+): Promise<void> => {
   reportServers();
+  // A TURN KOLU STARTED. Matched on the account's own opening, which is the
+  // line kolu-server writes to say who is speaking — the rest of the account
+  // names each terminal as a fleet ref, and the answer echoes those refs so a
+  // scenario can tell WHICH terminal woke the conversation.
+  if (whole.includes("[kolu] I am waking you")) {
+    const refs = [...whole.matchAll(/\blocal\/[0-9a-f-]{36}\b/g)].map(
+      (one) => one[0],
+    );
+    say(`woke: ${[...new Set(refs)].join(", ")}`);
+    endTurn(id);
+    return;
+  }
+  if (text.startsWith("watch ")) {
+    const terminalId = text.slice("watch ".length).trim();
+    say(await callTool("watch_terminal", { id: `local/${terminalId}` }));
+    endTurn(id);
+    return;
+  }
+  if (text === "work for a while") {
+    const slept = Promise.withResolvers<void>();
+    setTimeout(slept.resolve, 12_000);
+    await slept.promise;
+    say("worked");
+    endTurn(id);
+    return;
+  }
+  if (text === "work until steered") {
+    const steered = Promise.withResolvers<string>();
+    awaitingSteer = steered.resolve;
+    // Bounded, so a scenario whose steer never arrived ends its turn and
+    // fails on the missing `heard:` rather than wedging every later prompt.
+    const gaveUp = setTimeout(() => steered.resolve("(nothing)"), 30_000);
+    const heard = await steered.promise;
+    clearTimeout(gaveUp);
+    awaitingSteer = null;
+    say(`heard: ${heard}`);
+    endTurn(id);
+    return;
+  }
   if (text === "refuse this") {
     refuse(id, "the model said no");
     return;
@@ -557,12 +667,21 @@ process.stdin.on("data", (chunk: string) => {
         // is minted, so a fixture that stayed silent here made a pasted image
         // vanish with only a toast to say why. This end can take one: the
         // image block rides the prompt and the turn answers as usual.
+        //
+        // ... AND IT TAKES A MESSAGE MID-TURN, both halves the way the pinned
+        // adapter says them: `promptQueueing` in its own corner of
+        // `agentCapabilities._meta` (a prompt sent while busy waits its turn),
+        // and steering beside `agentCapabilities` in the top-level `_meta`
+        // (Alt+Enter puts the words into the turn that is running). Without
+        // these two lines the composer offers no steer at all.
         respond(message.id, {
           protocolVersion: 1,
           agentCapabilities: {
             loadSession: true,
             promptCapabilities: { image: true },
+            _meta: { claudeCode: { promptQueueing: true } },
           },
+          _meta: { steering: { supported: true } },
         });
         continue;
       case "session/new": {
@@ -598,9 +717,26 @@ process.stdin.on("data", (chunk: string) => {
         continue;
       case "session/prompt": {
         const text = lastLine(message);
-        enqueue(() => turn(message.id, text));
+        const whole = (message.params?.prompt ?? [])
+          .map((block) => block.text ?? "")
+          .join("\n");
+        enqueue(() => turn(message.id, text, whole));
         continue;
       }
+      case "_session/steering":
+        // The extension, as the pinned adapter behaves it: words go INTO the
+        // turn that is running, and when nothing is running they come BACK for
+        // the client to send itself (`idleBehavior: "promptRequired"`, which
+        // is what kolu asks for on every steer). `draining` is this fixture's
+        // whole notion of a turn being in flight.
+        respond(message.id, {
+          outcome: draining ? "injected" : "promptRequired",
+        });
+        // ... and the turn that is WAITING for one hears it now, mid-turn,
+        // which is the whole difference from a queued prompt.
+        if (draining && awaitingSteer !== null)
+          awaitingSteer(lastLine(message));
+        continue;
       default:
         if (message.id !== undefined) respond(message.id, {});
         continue;

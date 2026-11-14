@@ -135,5 +135,18 @@ export const ompVocab: AgentVocab<OmpInfo> = {
     // hands kolu that path, so it is always available.
     ref: (info) => info.sessionPath,
   },
+  // Measured: `omp` 18.18.8 in a kolu terminal on 2026-11-13. Idle, text plus
+  // ONE Enter submits — including a multiline bracketed paste, which is the
+  // case the "omp needs a second Enter" folklore came from: an Enter sent in
+  // the same breath as the paste is swallowed by the TUI's paste debounce, so
+  // it is the SETTLE between the two writes that fixes it, never a second key.
+  // WHILE WORKING, the same keys put the line in omp's steering pane
+  // ("Steering · 1"), and the running turn consumed it at its next step — the
+  // answer being written gained what the steer asked for, with no new turn.
+  say: {
+    idle: ["Enter"],
+    working: { keys: ["Enter"], delivery: "steer" },
+    verified: "ran omp 18.18.8 in a kolu terminal, 2026-11-13",
+  },
   infoSchema: OmpInfoSchema,
 };

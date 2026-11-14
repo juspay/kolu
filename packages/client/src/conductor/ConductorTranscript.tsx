@@ -26,7 +26,6 @@
 
 import { formatBytes } from "@kolu/byte-units";
 import type { ConductorRow, ConductorToolRow } from "kolu-common/conductor";
-import { Markdown } from "@kolu/solid-markdown";
 import { Key } from "@solid-primitives/keyed";
 import {
   type Component,
@@ -42,7 +41,9 @@ import {
 } from "solid-js";
 import ScrollToBottom from "../terminal/ScrollToBottom";
 import ConductorAsk from "./ConductorAsk";
+import ConductorProse from "./ConductorProse";
 import ConductorToolCard from "./ConductorToolCard";
+import { useShown } from "../ui/shown";
 import { thumbnailOf } from "./thumbnails";
 import {
   foldFailureRuns,
@@ -58,6 +59,7 @@ import {
   unpinTranscript,
 } from "./transcriptScroll";
 import { useConductor } from "./useConductor";
+import { wakeHeadline, wakeWhen } from "./wake";
 
 const ConductorTranscript: Component<{
   rows: readonly ConductorRow[];
@@ -100,27 +102,41 @@ const ConductorTranscript: Component<{
     return `${rows.length}:${last === undefined || last.kind === "plan" ? 0 : last.text.length}`;
   });
 
+  const shown = useShown();
   createEffect(
     // `on`, so the body's reads of the ELEMENT are not dependencies and the
-    // deps are exactly these two: what was drawn, and whether the reader is
-    // following. The pin is a dep because the pill and a sent message re-pin
-    // with no row arriving, and the view must move then too.
-    on([signature, transcriptPinned], ([drawn, pinned], prev) => {
-      if (!placed) {
-        applyTranscriptScroll(scroller);
-        placed = scroller.scrollHeight > scroller.clientHeight;
-        return;
-      }
-      // NOT `atEnd(scroller)`. The rows are already in the column by now, so
-      // that measurement answers about the chunk that just landed, not about
-      // the reader — which is precisely how the transcript stopped following.
-      if (pinned) {
-        scroller.scrollTop = scroller.scrollHeight;
-        setUnseen(false);
-        return;
-      }
-      if (prev !== undefined && prev[0] !== drawn) setUnseen(true);
-    }),
+    // deps are exactly these three: what was drawn, whether the reader is
+    // following, and whether the conversation is the view being read. The pin
+    // is a dep because the pill and a sent message re-pin with no row
+    // arriving, and the view must move then too.
+    //
+    // SHOWN is a dep rather than a guard that returns early for a reason: a
+    // hidden pane has no layout at all (`content-visibility: hidden` skips the
+    // subtree), so a scroll written there would land on a column of height 0
+    // and clamp to the top — the reader's position, thrown away by the very
+    // mechanism meant to preserve it. Rows that arrive while away leave the
+    // remembered offset alone, and coming back re-runs this with the column
+    // laid out again.
+    on(
+      [signature, transcriptPinned, shown],
+      ([drawn, pinned, visible], prev) => {
+        if (!visible) return;
+        if (!placed) {
+          applyTranscriptScroll(scroller);
+          placed = scroller.scrollHeight > scroller.clientHeight;
+          return;
+        }
+        // NOT `atEnd(scroller)`. The rows are already in the column by now, so
+        // that measurement answers about the chunk that just landed, not about
+        // the reader — which is precisely how the transcript stopped following.
+        if (pinned) {
+          scroller.scrollTop = scroller.scrollHeight;
+          setUnseen(false);
+          return;
+        }
+        if (prev !== undefined && prev[0] !== drawn) setUnseen(true);
+      },
+    ),
   );
 
   return (
@@ -155,7 +171,14 @@ const ConductorTranscript: Component<{
         // the document, as wide as that line. The hidden axis is the backstop:
         // a row that overflows anyway is clipped here instead of reaching the
         // page.
-        class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden flex flex-col gap-2.5 px-4 py-3"
+        //
+        // `gap-2` is the gap INSIDE one turn — a reply, the cards it made and
+        // the plan it wrote belong together. The clear gap BETWEEN turns is
+        // the margin a turn's first row carries (`TranscriptRow`), so the two
+        // distances are a pair rather than one spacing used twice. `px-5` is
+        // the reading column's gutter, shared with the status line and the
+        // composer below.
+        class="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden flex flex-col gap-2 px-5 py-3"
       >
         <Show when={props.error}>
           {(err) => (
@@ -294,8 +317,18 @@ function TranscriptRow(props: { row: ConductorRow; repeat: number }) {
       // A row is a flex item of the column above, so it needs the same floor
       // released — without it the row passes its card's content width straight
       // up and the `min-w-0` above has nothing to do.
+      //
+      // THE GAP BETWEEN TURNS, as a margin on the row that STARTS one: a
+      // person's message, and a wake, are each the top of a new exchange.
+      // Everything else in a turn keeps the column's smaller `gap-2`, so the
+      // page reads as a few blocks rather than one evenly-spaced list — which
+      // is how a reply and the message it answers came to look equally far
+      // apart from everything around them.
       class="min-w-0"
-      classList={{ "self-end max-w-[86%]": props.row.kind === "user" }}
+      classList={{
+        "self-end max-w-[86%]": props.row.kind === "user",
+        "mt-4": props.row.kind === "user" || props.row.kind === "wake",
+      }}
     >
       <Switch>
         <Match when={props.row.kind === "user" && props.row}>
@@ -303,8 +336,8 @@ function TranscriptRow(props: { row: ConductorRow; repeat: number }) {
         </Match>
         <Match when={props.row.kind === "agent" && props.row}>
           {(row) => (
-            <div class="text-fg text-[0.82rem]">
-              <Markdown markdown={row().text} variant="compact" />
+            <div class="text-fg">
+              <ConductorProse rowId={row().id} text={row().text} />
             </div>
           )}
         </Match>
@@ -353,6 +386,9 @@ function TranscriptRow(props: { row: ConductorRow; repeat: number }) {
             </p>
           )}
         </Match>
+        <Match when={props.row.kind === "wake" && props.row}>
+          {(row) => <WakeRow row={row()} />}
+        </Match>
         <Match when={props.row.kind === "divider" && props.row}>
           {(row) => (
             <div class="flex items-center gap-2 text-fg-3 font-mono text-[0.62rem] uppercase tracking-[0.12em]">
@@ -363,6 +399,88 @@ function TranscriptRow(props: { row: ConductorRow; repeat: number }) {
           )}
         </Match>
       </Switch>
+    </div>
+  );
+}
+
+/** THE MACHINE'S LINE — kolu itself starting a turn, because a watched
+ *  terminal stopped, asked, or died.
+ *
+ *  FULL WIDTH ON THE LEFT, never the human's right-hand bubble: a person
+ *  scrolling back must be able to tell at a glance which lines they wrote and
+ *  which kolu did, and the side of the column is the fastest such signal there
+ *  is. For the same reason there is no *send again*: this row is not a message
+ *  that can be re-sent — what it says is how something STOOD when it rang, and
+ *  the thing that rang rings again.
+ *
+ *  ONE LINE, which OPENS. The account handed to the agent is several
+ *  paragraphs about each terminal; the headline is derived from the events
+ *  (`wakeHeadline`) because the account's own first line is the briefing's
+ *  opening, not the news. A plain `<details>`, owned by the DOM like the tool
+ *  fold above — the list is keyed by row id, so an open disclosure survives
+ *  every refinement of the row around it.
+ *
+ *  The `queued` / `delivery` marks are the user row's, minus the retry: a turn
+ *  kolu started can wait behind one, be refused, or go unanswered exactly as a
+ *  typed message can. */
+function WakeRow(props: { row: Extract<ConductorRow, { kind: "wake" }> }) {
+  const mark = (): "queued" | "refused" | "unanswered" | undefined =>
+    props.row.queued === true ? "queued" : props.row.delivery;
+  const when = createMemo(() => wakeWhen(props.row.since));
+
+  return (
+    /* `data-levels` is the row's news as DATA — the levels of its events, in
+       event order — so a test can assert that a `ready` wake was drawn without
+       pinning the wording of the headline above it. */
+    <div
+      data-testid="conductor-wake"
+      data-levels={props.row.events.map((event) => event.level).join(" ")}
+      class="min-w-0"
+    >
+      <details class="min-w-0 rounded-md border border-edge bg-surface-1/60 px-2 py-1">
+        <summary
+          data-testid="conductor-wake-toggle"
+          class="flex min-w-0 cursor-pointer list-none items-baseline gap-1.5 font-mono text-[0.68rem] text-fg-2 marker:content-none [&::-webkit-details-marker]:hidden"
+        >
+          <span aria-hidden="true" class="shrink-0 text-fg-3">
+            ▸
+          </span>
+          <span class="shrink-0 font-semibold text-busy">{props.row.from}</span>
+          <Show when={when()}>
+            {(clock) => (
+              <span class="shrink-0 text-fg-3 tabular-nums">· {clock()}</span>
+            )}
+          </Show>
+          {/* The news gives way first at a phone's width — the speaker and the
+              clock are two short words and the headline is as long as the
+              names of the terminals that rang. */}
+          <span
+            data-testid="conductor-wake-headline"
+            class="min-w-0 flex-1 truncate text-fg"
+          >
+            · {wakeHeadline(props.row.events)}
+          </span>
+        </summary>
+        <p
+          data-testid="conductor-wake-text"
+          class="mt-1 whitespace-pre-wrap break-words text-[0.75rem] text-fg-2"
+        >
+          {props.row.text}
+        </p>
+      </details>
+      <Show when={mark()}>
+        {(what) => (
+          <div class="mt-1 font-mono text-[0.62rem] text-fg-3">
+            <span data-testid="conductor-wake-mark" data-mark={what()}>
+              {what() === "queued"
+                ? "queued"
+                : what() === "refused"
+                  ? "not sent"
+                  : "no answer"}
+            </span>
+          </div>
+        )}
+      </Show>
     </div>
   );
 }
@@ -387,7 +505,12 @@ function UserRow(props: { row: Extract<ConductorRow, { kind: "user" }> }) {
       {/* A pasted image with no words is a whole message — the quote would be
           an empty bubble above it. */}
       <Show when={props.row.text !== ""}>
-        <blockquote class="rounded-[0.75rem_0.75rem_0.2rem_0.75rem] border border-accent/30 bg-accent/15 px-3 py-2 text-[0.82rem] whitespace-pre-wrap m-0">
+        {/* NO SIZE OF ITS OWN — the pane's `text-chat` body size, like the
+            replies it sits among: a bubble a point smaller than the answer to
+            it reads as a footnote to the conversation rather than half of it.
+            It is aligned by `self-end` on the row, which is the READING
+            COLUMN's right edge now, not the window's. */}
+        <blockquote class="rounded-[0.75rem_0.75rem_0.2rem_0.75rem] border border-accent/30 bg-accent/15 px-3 py-2 whitespace-pre-wrap m-0">
           {props.row.text}
         </blockquote>
       </Show>
@@ -452,10 +575,14 @@ function UserRow(props: { row: Extract<ConductorRow, { kind: "user" }> }) {
                   // root, so a row minted a moment ago and one restored after
                   // a restart send the same message. Only the thumbnail is
                   // this browser's, and no wire ever carried it.
+                  // Never a steer: the turn this message was refused by is
+                  // over, and a retry is the message being sent for the first
+                  // time.
                   orch.prompt(
                     props.row.text,
                     props.row.mentions ?? [],
                     attachments(),
+                    false,
                   )
                 }
               >

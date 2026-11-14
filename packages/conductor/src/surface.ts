@@ -76,9 +76,17 @@ export function conductorSurfaceMembers(deps: {
           text: string;
           mentions: Parameters<ConductorHost["prompt"]>[1];
           attachments: Parameters<ConductorHost["prompt"]>[2];
+          steer: boolean;
         };
       }) =>
-        ask(() => host().prompt(input.text, input.mentions, input.attachments)),
+        ask(() =>
+          host().prompt(
+            input.text,
+            input.mentions,
+            input.attachments,
+            input.steer,
+          ),
+        ),
       /** The chunked upload a prompt's attachments arrive on, ahead of the
        *  prompt that names them — the whole reason no base64 rides a `prompt`
        *  frame. Straight through: the host validates the id, the continuation

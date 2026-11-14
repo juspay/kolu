@@ -73,7 +73,7 @@
  * means one contract.
  *
  * AND KOLU'S, not the harness's. The words spell kolu's OWN MCP verbs —
- * `lifecycle_create`, `wait_agentState` — which `packages/kolu-mcp` owns and
+ * `lifecycle_create`, `agent_say` — which `packages/kolu-mcp` owns and
  * renames on its own clock, which is why `conductor.test.ts` checks every verb
  * these words name against that registry: a hand-copy nothing binds goes stale
  * silently, and a stale prompt reads as the agent being wrong.

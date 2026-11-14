@@ -23,7 +23,11 @@ import { prUnavailableSource, type TerminalId } from "kolu-common/surface";
 import { type Component, createMemo, Show } from "solid-js";
 import { IntentMarkdownInline } from "../intent/IntentMarkdown";
 import { annotationLine } from "../intent/text";
-import { agentWorkflow } from "../ui/agentDisplay";
+import {
+  agentWorkflow,
+  formatTaskProgress,
+  taskProgressTitle,
+} from "../ui/agentDisplay";
 import { WorktreeIcon } from "../ui/Icons";
 import RepoMonogram from "../ui/RepoMonogram";
 import Tip from "../ui/Tip";
@@ -351,7 +355,7 @@ const AgentTaskProgress: Component<{ completed: number; total: number }> = (
   <div
     data-testid="agent-task-progress"
     class="ml-auto flex items-center gap-1.5 shrink-0 w-24"
-    title={`${props.completed}/${props.total} tasks completed`}
+    title={taskProgressTitle(props)}
   >
     <div class="flex-1 h-1 rounded-full bg-fg/10 overflow-hidden">
       <div
@@ -362,7 +366,7 @@ const AgentTaskProgress: Component<{ completed: number; total: number }> = (
       />
     </div>
     <span class="text-[0.65rem] text-fg-2 tabular-nums">
-      {props.completed}/{props.total}
+      {formatTaskProgress(props)}
     </span>
   </div>
 );

@@ -44,6 +44,7 @@ export type {
   ConductorState,
   ConductorToolRow,
   ConductorUserRow,
+  ConductorWakeEvent,
 } from "kolu-common/conductor";
 
 export type ConductorArmed = typeof ConductorArmedSchema.Type;

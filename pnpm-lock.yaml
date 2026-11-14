@@ -410,6 +410,9 @@ importers:
       kolu-github:
         specifier: workspace:*
         version: link:../integrations/github
+      kolu-mcp:
+        specifier: workspace:*
+        version: link:../kolu-mcp
       tailwindcss:
         specifier: ^4.1.0
         version: 4.2.2
@@ -501,6 +504,9 @@ importers:
       '@kolu/acp-harness':
         specifier: workspace:*
         version: link:../acp-harness
+      '@kolu/padi-client':
+        specifier: workspace:*
+        version: link:../padi-client
       '@kolu/surface':
         specifier: workspace:*
         version: link:../surface
@@ -513,6 +519,9 @@ importers:
       kolu-common:
         specifier: workspace:*
         version: link:../common
+      kolu-mcp:
+        specifier: workspace:*
+        version: link:../kolu-mcp
       pino:
         specifier: ^10.3.1
         version: 10.3.1
@@ -1234,6 +1243,9 @@ importers:
       effect:
         specifier: 4.1.4
         version: 4.1.4
+      kolu-agents:
+        specifier: workspace:*
+        version: link:../integrations/agents
       kolu-git:
         specifier: workspace:*
         version: link:../integrations/git

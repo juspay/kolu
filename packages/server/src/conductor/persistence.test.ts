@@ -34,7 +34,7 @@ import {
   type ConductorRow,
 } from "kolu-common/conductor";
 import type { Logger } from "pino";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type FleetMcpEndpoint as LiveFleetMcpEndpoint,
   proveFleetMcpEndpoint,
@@ -57,11 +57,19 @@ const HOME = "/home/tester";
  *  which. The record keeps it verbatim. */
 const FLEET_REF = "local/11111111-1111-4111-8111-111111111111";
 
+/** ... and one on another host, for the watch list — which spans the fleet,
+ *  so a record that kept bare ids would name two terminals on a two-host
+ *  one. */
+const OTHER_REF = "remote:prod/22222222-2222-4222-8222-222222222222";
+
 /** The version this file's ladder pin names. A literal, deliberately: a pin
  *  read off the constant it is pinning asserts nothing. The conductor arrived
  *  at 1.44.0 (master took 1.43.0 for `hostOrder` — see the note on the ladder
- *  entry in `state.ts`) and 1.45.0 is the rename of its key. */
-const STATE_SCHEMA_VERSION = "1.45.0";
+ * entry in `state.ts`), 1.45.0 is the rename of its key, and 1.49.0 is the
+ * watch list joining the record (1.46.0, 1.47.0 and 1.48.0 are the numbers
+ * its earlier builds stamped — one rung walks every one of those shapes
+ * through, see that rung). */
+const STATE_SCHEMA_VERSION = "1.49.0";
 
 const log = {
   debug() {},
@@ -77,6 +85,19 @@ const row = (id: string, seq: number, text = id): ConductorRow => ({
   kind: "agent",
   text,
 });
+
+/** The `since` the watch-list rung writes onto an entry that never recorded
+ *  one: the time the rung RAN, which is what the rung's own comment says it
+ *  chose. Asserted as a window between the instant the test handed the file
+ *  over and now — pinning a literal would be pinning this test's clock, and
+ *  reading it off the record would assert nothing at all. */
+function expectStampedAtBoot(stamped: unknown, after: number): void {
+  expect(typeof stamped).toBe("string");
+  const at = Date.parse(String(stamped));
+  expect(Number.isNaN(at)).toBe(false);
+  expect(at).toBeGreaterThanOrEqual(after);
+  expect(at).toBeLessThanOrEqual(Date.now());
+}
 
 /** kolu-server's state root — where `config.json` is, and where the
  *  conductor's attachments go. Taken off the store rather than off the env
@@ -128,9 +149,14 @@ function hostOver(): {
    *  file can carry across a restart. */
   resume: () => string | null | undefined;
   fleet: () => ReadonlyArray<string> | undefined;
+  /** Every wake this conversation was sent — what the watch list's `told` is
+   *  written off, and the only way to know the flush has happened before the
+   *  record is read. */
+  wakes: () => number;
 } {
   let onChange: ((change: HarnessChange) => void) | undefined;
   let options: HarnessOptions | undefined;
+  let wakes = 0;
   const host = startConductorHost({
     log,
     home: HOME,
@@ -138,6 +164,7 @@ function hostOver(): {
     fleetMcp: () => liveEndpoint,
     proveFleetMcp: proveFleetMcpEndpoint,
     publish: () => {},
+    watchListMoved: () => {},
     store: conductorStore,
     storePath: () => store.path,
     stateRoot,
@@ -149,6 +176,10 @@ function hostOver(): {
         rows: () => [],
         alive: () => true,
         prompt: async () => ({ rowId: "sent" }),
+        wake: async () => {
+          wakes += 1;
+          return { rowId: `woke:${wakes}` };
+        },
         cancel: async () => {},
         answer: async () => true,
         signIn: async () => "signed-in",
@@ -182,13 +213,14 @@ function hostOver(): {
     resumedSeq: () => options?.resumedSeq,
     resume: () => options?.resume,
     fleet: () => options?.fleet,
+    wakes: () => wakes,
   };
 }
 
 describe("the conversation survives a restart", () => {
   it("round-trips the transcript, the session and the fleet through kolu-server's own `config.json`", async () => {
     const first = hostOver();
-    await first.host.prompt("hello", [], []);
+    await first.host.prompt("hello", [], [], false);
     // What the open publishes: the conversation this IS, and the terminals it
     // is working with. Both are the agent's to forget and ours to keep.
     first.push()({
@@ -245,13 +277,93 @@ describe("the conversation survives a restart", () => {
     ]);
     // …and the count does not double: the restored rows are the whole of it,
     // and the fence tells the resumed conversation to count from past them.
-    await second.host.prompt("still here?", [], []);
+    await second.host.prompt("still here?", [], [], false);
     expect(second.resumedSeq()).toBe(2);
     // The conversation the next boot comes back INTO, and the terminals it
     // comes back knowing about. Without both it restores a transcript and then
     // opens a stranger underneath it.
     expect(second.resume()).toBe("sess-live");
     expect(second.fleet()).toEqual([FLEET_REF]);
+    await second.host.dispose();
+  });
+
+  it("keeps the WATCH LIST — with what each terminal was told — and never the held news", async () => {
+    const watchedFrom = Date.now();
+    const first = hostOver();
+    first.host.watchTerminal(FLEET_REF, "created");
+    first.host.watchTerminal(OTHER_REF, "created");
+    // The Conductor briefed the first one, so its next idle is a STOP rather
+    // than the `ready` an agent nobody has spoken to rings.
+    first.host.saidTo(FLEET_REF);
+    // One of them rang and the conversation was idle, so it was told at once.
+    first.host.observe([
+      {
+        ref: FLEET_REF,
+        host: "local",
+        terminalId: FLEET_REF.slice(FLEET_REF.indexOf("/") + 1),
+        hostName: "box",
+        name: "fix the parser",
+        agent: "claude-code",
+        level: "stopped",
+        foregroundShell: false,
+        root: { ref: FLEET_REF, name: "fix the parser" },
+      },
+    ]);
+    await vi.waitFor(() => {
+      expect(first.wakes()).toBe(1);
+    });
+    await first.host.dispose();
+
+    const file: unknown = JSON.parse(readFileSync(store.path, "utf8"));
+    if (typeof file !== "object" || file === null || !("conductor" in file))
+      throw new Error("kolu-server's state kept no conductor record");
+    const onDisk = Schema.decodeUnknownSync(PersistedConductorSchema)(
+      file.conductor,
+    );
+    // Per entry, the facts a restart cannot re-derive — and `told` is the one
+    // that makes the restart quiet. The runtime halves of a live entry (the
+    // last reading, and whether the next one baselines) are NOT here: a
+    // restart re-reads the world. `since` is each terminal's own join time,
+    // so it is checked as a window rather than pinned.
+    expect(onDisk.watched.map(({ since: _joined, ...rest }) => rest)).toEqual([
+      {
+        ref: FLEET_REF,
+        name: "fix the parser",
+        agent: "claude-code",
+        told: "stopped",
+        joined: "created",
+        spoken: true,
+        ran: true,
+        root: { ref: FLEET_REF, name: "fix the parser" },
+      },
+      {
+        ref: OTHER_REF,
+        name: "",
+        agent: null,
+        told: null,
+        joined: "created",
+        spoken: false,
+        ran: false,
+        // Never read: the watcher says nothing about a terminal on a host it
+        // has not reached, so which piece of work it is part of is not known
+        // yet — and a record that guessed would be the restart inventing a
+        // group.
+        root: null,
+      },
+    ]);
+    for (const entry of onDisk.watched)
+      expectStampedAtBoot(entry.since, watchedFrom);
+
+    // THE HELD NEWS IS MEMORY ONLY: a restart re-reads the world rather than
+    // replaying a queue about one that has moved on, so there is no such key
+    // on disk to replay from.
+    expect(Object.keys(file.conductor as object)).not.toContain("held");
+
+    // ... and the next boot comes back watching exactly those two, with
+    // nothing waiting.
+    const second = hostOver();
+    expect(second.host.watched()).toEqual([FLEET_REF, OTHER_REF]);
+    expect(second.host.state().held).toEqual([]);
     await second.host.dispose();
   });
 });
@@ -311,12 +423,216 @@ describe("the conductor's rungs", () => {
       __internal__: { migrations: { version: "1.44.0" } },
     };
     const migrated = decodeStateBackup(legacy, "1.44-era");
-    expect(migrated.conductor).toEqual(held);
+    // The conversation itself, carried over whole — plus the empty watch list
+    // the rung ABOVE this one seeds, because a 1.44-era file walks the rest
+    // of the ladder on its way here.
+    expect(migrated.conductor).toEqual({ ...held, watched: [] });
     // And the old key is gone — one conversation, one record, not a stale
     // copy left behind for the next reader to find.
     expect((migrated as unknown as Record<string, unknown>).orchestrator).toBe(
       undefined,
     );
+  });
+
+  it("seed a `watched` key onto a conversation written before the watch existed", () => {
+    // A 1.45-era file: a real conversation — a session a person can resume,
+    // the rows their chat reopens with, the terminals it was working with —
+    // and no watch list, because there was none to write. The record's schema
+    // would refuse that file on read, so the rung owes it the key.
+    const held = {
+      sessionId: "sess-held",
+      cwd: HOME,
+      model: "claude-sonnet-4",
+      rows: [row("a", 1, "one")],
+      fleet: [FLEET_REF],
+    };
+    const legacy: unknown = {
+      preferences: (
+        JSON.parse(readFileSync(store.path, "utf8")) as {
+          preferences: unknown;
+        }
+      ).preferences,
+      hosts: [],
+      viewerMode: "dark",
+      conductor: held,
+      __internal__: { migrations: { version: "1.45.0" } },
+    };
+    const migrated = decodeStateBackup(legacy, "1.45-era");
+    // EMPTY is the truth about a conversation that has never watched
+    // anything, and every other fact carries across untouched: this rung is
+    // an addition, not a reshape.
+    expect(migrated.conductor).toEqual({ ...held, watched: [] });
+  });
+
+  it("complete each entry of a watch list a pre-release build stamped 1.46.0", () => {
+    // A file the watch list's own earlier builds wrote: it HAS a `watched`
+    // key, at the version number those builds bumped to, but its entries
+    // predate `joined`/`spoken`/`ran` and `root`. The schema carries no
+    // defaults for them, so without the rung this file is refused on read —
+    // and with it, each entry gains the reading that claims nothing it did
+    // not see, while a fact the file DID record is kept, never overwritten.
+    const held = {
+      sessionId: "sess-held",
+      cwd: HOME,
+      model: null,
+      rows: [row("a", 1, "one")],
+      fleet: [FLEET_REF],
+      watched: [
+        { ref: FLEET_REF, name: "build", agent: "claude", told: "stopped" },
+        {
+          ref: OTHER_REF,
+          name: "",
+          agent: null,
+          told: null,
+          joined: "created-run",
+          spoken: true,
+          ran: true,
+          root: { ref: FLEET_REF, name: "build" },
+        },
+      ],
+    };
+    const legacy: unknown = {
+      preferences: (
+        JSON.parse(readFileSync(store.path, "utf8")) as {
+          preferences: unknown;
+        }
+      ).preferences,
+      hosts: [],
+      viewerMode: "dark",
+      conductor: held,
+      __internal__: { migrations: { version: "1.46.0" } },
+    };
+    const before = Date.now();
+    const migrated = decodeStateBackup(legacy, "1.46-pre-release");
+    // The `since` the rung stamps is read off its own clock, so it is checked
+    // as a WINDOW below rather than pinned; everything else is exact.
+    expect(
+      migrated.conductor.watched.map(({ since: _stamped, ...rest }) => rest),
+    ).toEqual([
+      {
+        ref: FLEET_REF,
+        name: "build",
+        agent: "claude",
+        told: "stopped",
+        joined: "asked",
+        spoken: false,
+        ran: false,
+        root: null,
+      },
+      held.watched[1],
+    ]);
+    for (const entry of migrated.conductor.watched)
+      expectStampedAtBoot(entry.since, before);
+    expect(migrated.conductor.rows).toEqual(held.rows);
+  });
+
+  it("complete a watch list a 1.47.0 build wrote with no piece of work on it", () => {
+    // The rung's OTHER pre-release number: these entries are complete in
+    // every way the watch list knew about at 1.47.0, and carry no `root` —
+    // the grouping arrived after them. A restart owes them `null` (nothing
+    // has read their hosts yet), and the first reading after the boot says
+    // which piece of work each is part of.
+    const held = {
+      sessionId: "sess-held",
+      cwd: HOME,
+      model: null,
+      rows: [row("a", 1, "one")],
+      fleet: [FLEET_REF],
+      watched: [
+        {
+          ref: FLEET_REF,
+          name: "plan the cutover",
+          agent: "claude",
+          told: "stopped",
+          joined: "created-run",
+          spoken: true,
+          ran: true,
+        },
+      ],
+    };
+    const legacy: unknown = {
+      preferences: (
+        JSON.parse(readFileSync(store.path, "utf8")) as {
+          preferences: unknown;
+        }
+      ).preferences,
+      hosts: [],
+      viewerMode: "dark",
+      conductor: held,
+      __internal__: { migrations: { version: "1.47.0" } },
+    };
+    const before = Date.now();
+    const migrated = decodeStateBackup(legacy, "1.47-pre-release");
+    expect(
+      migrated.conductor.watched.map(({ since: _stamped, ...rest }) => rest),
+    ).toEqual([{ ...held.watched[0], root: null }]);
+    expectStampedAtBoot(migrated.conductor.watched[0]?.since, before);
+    // ... and nothing else moved: the rung is an addition.
+    expect(migrated.conductor.rows).toEqual(held.rows);
+  });
+
+  it("give a watch list a 1.48.0 build wrote the start time it never recorded", () => {
+    // THE NUMBER A RUNNING INSTALL SITS ON. These entries are complete in
+    // every way the watch list knew about at 1.48.0 — they even carry their
+    // piece of work — and they have no `since`, because nothing was counting
+    // a duration then. The rung is numbered above that version precisely so
+    // it runs for this file; were it still 1.48.0, conf would skip it and the
+    // conductor's schema would refuse the record by name on the next boot.
+    const held = {
+      sessionId: "sess-held",
+      cwd: HOME,
+      model: null,
+      rows: [row("a", 1, "one")],
+      fleet: [FLEET_REF],
+      watched: [
+        {
+          ref: FLEET_REF,
+          name: "plan the cutover",
+          agent: "claude",
+          told: "stopped",
+          joined: "created-run",
+          spoken: true,
+          ran: true,
+          root: { ref: FLEET_REF, name: "plan the cutover" },
+        },
+        {
+          ref: OTHER_REF,
+          name: "the implementor",
+          agent: "claude",
+          told: null,
+          joined: "created-run",
+          spoken: true,
+          ran: true,
+          root: { ref: FLEET_REF, name: "plan the cutover" },
+        },
+      ],
+    };
+    const legacy: unknown = {
+      preferences: (
+        JSON.parse(readFileSync(store.path, "utf8")) as {
+          preferences: unknown;
+        }
+      ).preferences,
+      hosts: [],
+      viewerMode: "dark",
+      conductor: held,
+      __internal__: { migrations: { version: "1.48.0" } },
+    };
+    const before = Date.now();
+    const migrated = decodeStateBackup(legacy, "1.48-era");
+    // Every fact the file recorded is kept — the grouping included — and the
+    // one it never had is the boot's own time.
+    expect(
+      migrated.conductor.watched.map(({ since: _stamped, ...rest }) => rest),
+    ).toEqual(held.watched);
+    for (const entry of migrated.conductor.watched)
+      expectStampedAtBoot(entry.since, before);
+    // ONE STAMP FOR THE WHOLE FILE: two terminals watched as one piece of
+    // work must not come back as two ages a millisecond apart.
+    expect(migrated.conductor.watched[1]?.since).toBe(
+      migrated.conductor.watched[0]?.since,
+    );
+    expect(migrated.conductor.rows).toEqual(held.rows);
   });
 
   it("re-point a remembered attachment at the corner its bytes moved to", () => {
@@ -349,6 +665,7 @@ describe("the conductor's rungs", () => {
         },
       ],
       fleet: [],
+      watched: [],
     };
     const after = repointConductorAttachments(
       before,
@@ -388,6 +705,7 @@ describe("a record that parses but is wrong", () => {
         { id: "a", seq: 1, since: "2026-01-01T00:00:00.000Z" },
       ] as unknown as PersistedConductor["rows"],
       fleet: [],
+      watched: [],
     });
 
     const host = hostOver().host;
@@ -419,7 +737,7 @@ describe("an attachment's bytes", () => {
       bytes: written.bytes,
       path: written.path,
     };
-    await first.host.prompt("look at this", [], [chip]);
+    await first.host.prompt("look at this", [], [chip], false);
     // The harness mints the user row; this one stands in for it, carrying the
     // attachment the way a real one does — a name, a size and a path.
     first.push()({

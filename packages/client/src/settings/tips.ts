@@ -79,6 +79,14 @@ export const CONTEXTUAL_TIPS = {
     text: "An agent the Conductor started gets a status line in the chat — press Look on it to read the last lines of its screen right there, refreshed while it stays open",
     doc: "conductor",
   },
+  /** The first time a conversation OFFERS steering — the only moment the
+   *  chord is true, and the moment a person is about to type into a turn that
+   *  is already running. */
+  conductorSteer: {
+    id: "conductor-steer",
+    text: "While the Conductor is working, Alt+Enter (⌥⏎) puts your words INTO the running turn instead of queueing them behind it — it hears you now. Enter still queues, and Alt+Enter where steering is not offered simply sends, so a message is never lost",
+    doc: "conductor",
+  },
 } as const satisfies Record<string, Tip>;
 
 export const AMBIENT_TIPS: readonly Tip[] = [

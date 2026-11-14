@@ -466,6 +466,28 @@ When(
   },
 );
 
+/** The shell pid is read by TYPING into the terminal, which is only possible
+ *  while the terminal has the keyboard. A scenario that must stage an agent
+ *  AFTER it has moved into the Conductor (where the keyboard is the
+ *  composer's) notes the pid first and mocks against the note. */
+When("I note the terminal's shell pid", async function (this: KoluWorld) {
+  this.notedShellPid = await getTerminalPid(this);
+});
+
+When(
+  "a Claude Code session is mocked with state {string} on the noted terminal",
+  async function (this: KoluWorld, state: string) {
+    const pid = this.notedShellPid;
+    if (pid === undefined) throw new Error("no terminal's shell pid was noted");
+    cleanup();
+    writeClaudeMock(
+      pid,
+      `/tmp/claude-test-${pid}-${Date.now()}`,
+      state as MockState,
+    );
+  },
+);
+
 /**
  * Start the fake `claude` binary as the terminal's FOREGROUND process and point
  * a mock session file at ITS pid.

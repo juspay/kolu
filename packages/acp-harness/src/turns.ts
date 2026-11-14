@@ -32,6 +32,17 @@
  */
 export interface Turn {
   readonly key: string;
+  /**
+   * Somebody asked THIS turn to stop.
+   *
+   * It outlives the turn on purpose, because the thing that needs it is a
+   * STEER still on the wire: a message aimed at a turn a person then cancelled
+   * comes back "nothing to steer", which is indistinguishable from the turn
+   * having simply ended — unless the ticket it was aimed at remembers being
+   * stopped. Without it the two answers are one, and the words a person sent
+   * INTO a turn would start a fresh one they had just pressed a button to end.
+   */
+  stopped: boolean;
 }
 
 export class Turns {
@@ -55,9 +66,22 @@ export class Turns {
   }
 
   open(key: string): Turn {
-    const ticket: Turn = { key };
+    const ticket: Turn = { key, stopped: false };
     this.#live.add(ticket);
     return ticket;
+  }
+
+  /**
+   * Every turn running, MARKED stopped — all of them rather than the newest,
+   * because `session/cancel` is the CONVERSATION's and what a person pressed
+   * is about everything they have in flight.
+   *
+   * The marks are what a steer that answered *nothing to steer* is read
+   * against: a turn that ended on its own makes those words an ordinary
+   * prompt, and a turn somebody stopped makes them a refusal.
+   */
+  stopping(): void {
+    for (const ticket of this.#live) ticket.stopped = true;
   }
 
   /** ... and it has ended. Answers whether it was the LAST one, which is what
