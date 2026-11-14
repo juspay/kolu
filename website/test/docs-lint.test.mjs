@@ -22,8 +22,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const fromMdx = createRequire(
   createRequire(import.meta.url).resolve("@astrojs/mdx/package.json"),
 );
-const load = async (name) =>
-  import(pathToFileURL(fromMdx.resolve(name)).href);
+const load = async (name) => import(pathToFileURL(fromMdx.resolve(name)).href);
 const { unified } = await load("unified");
 const { default: remarkParse } = await load("remark-parse");
 const { default: remarkMdx } = await load("remark-mdx");
@@ -52,7 +51,11 @@ function splitFrontmatter(source) {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(source);
   if (!match) throw new Error("page has no frontmatter");
   const offset = match[0].split("\n").length - 1;
-  return { data: YAML.parse(match[1]), body: source.slice(match[0].length), offset };
+  return {
+    data: YAML.parse(match[1]),
+    body: source.slice(match[0].length),
+    offset,
+  };
 }
 
 // Inline code stands in as one neutral token per word, so its words count but
@@ -79,7 +82,8 @@ function plain(node) {
   return node.children.map(plain).join("");
 }
 
-const words = (text) => text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+const words = (text) =>
+  text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
 
 function sentencesOf(text) {
   return [...sentences.segment(text.replace(/\s+/g, " ").trim())]
@@ -90,14 +94,17 @@ function sentencesOf(text) {
 const isSvg = (node) =>
   (node.type === "mdxJsxFlowElement" || node.type === "mdxJsxTextElement") &&
   node.name === "svg";
-const isSteps = (node) => node.type === "mdxJsxFlowElement" && node.name === "Steps";
+const isSteps = (node) =>
+  node.type === "mdxJsxFlowElement" && node.name === "Steps";
 
 /** Every violation on one page, as `line N: message` strings. */
 function lintPage(source, { reference }) {
   const problems = [];
   const { data, body, offset } = splitFrontmatter(source);
-  const at = (node) => (node.position ? node.position.start.line + offset : "?");
-  const report = (node, message) => problems.push(`line ${at(node)}: ${message}`);
+  const at = (node) =>
+    node.position ? node.position.start.line + offset : "?";
+  const report = (node, message) =>
+    problems.push(`line ${at(node)}: ${message}`);
 
   const description = data?.description;
   if (typeof description !== "string" || description.trim() === "") {
@@ -116,20 +123,33 @@ function lintPage(source, { reference }) {
       const n = words(s);
       const excerpt = s.length > 70 ? `${s.slice(0, 70)}…` : s;
       if (n > LIMITS.sentenceWords)
-        report(node, `sentence of ${n} words (limit ${LIMITS.sentenceWords}): "${excerpt}"`);
+        report(
+          node,
+          `sentence of ${n} words (limit ${LIMITS.sentenceWords}): "${excerpt}"`,
+        );
       const dashes = (s.match(/—|--/g) ?? []).length;
       if (dashes > LIMITS.dashesPerSentence)
-        report(node, `sentence with ${dashes} em-dashes (limit ${LIMITS.dashesPerSentence}): "${excerpt}"`);
+        report(
+          node,
+          `sentence with ${dashes} em-dashes (limit ${LIMITS.dashesPerSentence}): "${excerpt}"`,
+        );
       const semis = (s.match(/;/g) ?? []).length;
       if (semis > LIMITS.semicolonsPerSentence)
-        report(node, `sentence with ${semis} semicolons (limit ${LIMITS.semicolonsPerSentence}): "${excerpt}"`);
+        report(
+          node,
+          `sentence with ${semis} semicolons (limit ${LIMITS.semicolonsPerSentence}): "${excerpt}"`,
+        );
     }
   };
 
   let pageWords = 0;
   // The running text under the current heading (any depth). Tables, code and
   // <Steps> do not count toward it.
-  let section = { title: "(opening, before the first heading)", node: null, words: 0 };
+  let section = {
+    title: "(opening, before the first heading)",
+    node: null,
+    words: 0,
+  };
   const closeSection = () => {
     if (section.words > LIMITS.sectionWords)
       problems.push(
@@ -144,7 +164,10 @@ function lintPage(source, { reference }) {
     pageWords += n;
     if (!inSteps) section.words += n;
     if (n > LIMITS.blockWords)
-      report(node, `${node.type === "listItem" ? "list item" : "paragraph"} of ${n} words (limit ${LIMITS.blockWords})`);
+      report(
+        node,
+        `${node.type === "listItem" ? "list item" : "paragraph"} of ${n} words (limit ${LIMITS.blockWords})`,
+      );
     checkSentences(node, text);
   };
 
@@ -161,7 +184,10 @@ function lintPage(source, { reference }) {
       }
       case "paragraph": {
         if (!ctx.inListItem && node.children[0]?.type === "strong")
-          report(node, "paragraph opens with a bold run-in — use a heading, a list or a table");
+          report(
+            node,
+            "paragraph opens with a bold run-in — use a heading, a list or a table",
+          );
         if (!ctx.inListItem) block(node, plain(node), ctx);
         return;
       }
@@ -179,7 +205,10 @@ function lintPage(source, { reference }) {
             const n = words(text);
             pageWords += n;
             if (n > LIMITS.cellWords)
-              report(cell, `table cell of ${n} words (limit ${LIMITS.cellWords})`);
+              report(
+                cell,
+                `table cell of ${n} words (limit ${LIMITS.cellWords})`,
+              );
             checkSentences(cell, text);
           }
         return;
@@ -195,7 +224,9 @@ function lintPage(source, { reference }) {
   closeSection();
 
   if (!reference && pageWords > LIMITS.pageWords)
-    problems.push(`page: ${pageWords} words of running text (limit ${LIMITS.pageWords})`);
+    problems.push(
+      `page: ${pageWords} words of running text (limit ${LIMITS.pageWords})`,
+    );
 
   return problems;
 }
@@ -211,7 +242,8 @@ for (const collection of COLLECTIONS) {
       const source = readFileSync(fileURLToPath(new URL(file, dir)), "utf8");
       const { data } = splitFrontmatter(source);
       const reference =
-        collection === "surface" && /Reference$/.test(String(data?.section ?? ""));
+        collection === "surface" &&
+        /Reference$/.test(String(data?.section ?? ""));
       const problems = lintPage(source, { reference });
       assert.deepEqual(
         problems,
