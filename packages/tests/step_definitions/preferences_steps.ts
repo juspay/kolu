@@ -59,33 +59,53 @@ Then(
   },
 );
 
-/** The grid the remembering step captured, compared by the two steps below.
- *  Module scope is safe: cucumber runs one scenario's steps serially in one
- *  worker process (same reasoning as `canvas_selection_steps.ts`). */
-let rememberedGrid: { cols: number; rows: number } | null = null;
+/** What the remembering step captured: the grid AND the renderer that was
+ *  painting when it was taken. Module scope is safe: cucumber runs one
+ *  scenario's steps serially in one worker process (same reasoning as
+ *  `canvas_selection_steps.ts`). */
+let remembered: { cols: number; rows: number; renderer: string | null } | null =
+  null;
 
-/** The active tile's REAL grid, read off the live xterm through the `__xterm`
- *  e2e bridge. `cols`/`rows` are what the PTY was sized to, so this is the
- *  quantity a renderer swap must not move. */
-function readGrid(world: KoluWorld): Promise<{ cols: number; rows: number }> {
+/** The active tile's REAL grid and the renderer drawing it, read off the live
+ *  xterm through the `__xterm` e2e bridge. `cols`/`rows` are what the PTY was
+ *  sized to, so this is the quantity a renderer change must not move; the
+ *  renderer comes off the SAME element, so the two facts cannot be read from
+ *  different tiles. */
+function readTile(
+  world: KoluWorld,
+): Promise<{ cols: number; rows: number; renderer: string | null }> {
   return world.page.evaluate((sel) => {
     const container = document.querySelector(sel) as
       | (HTMLElement & { __xterm?: { cols: number; rows: number } })
       | null;
     const term = container?.__xterm;
-    if (!term) throw new Error(`no __xterm on ${sel}`);
-    return { cols: term.cols, rows: term.rows };
+    if (!container || !term) throw new Error(`no __xterm on ${sel}`);
+    return {
+      cols: term.cols,
+      rows: term.rows,
+      renderer: container.getAttribute("data-renderer"),
+    };
   }, ACTIVE_TERMINAL);
 }
 
 When("I remember the active terminal's grid", async function (this: KoluWorld) {
-  rememberedGrid = await readGrid(this);
+  remembered = await readTile(this);
   // A grid of the constructor's invented 80×24 would make the comparison
   // vacuous — that is the value an UNMEASURED xterm reports, so a tile that
   // never measured would "keep" it through any renderer change.
-  if (rememberedGrid.cols === 80 && rememberedGrid.rows === 24) {
+  if (remembered.cols === 80 && remembered.rows === 24) {
     throw new Error(
       "the active terminal reports xterm's unmeasured default 80x24 — it has not been fitted to its box, so this scenario would prove nothing",
+    );
+  }
+  // A grid remembered while the DOM renderer was already painting proves
+  // nothing either: the question is whether the WebGL answer and the DOM
+  // answer agree, so the WebGL one has to be the one on screen here. A machine
+  // with no working WebGL context fails HERE, naming the reason, instead of
+  // passing a comparison it never made.
+  if (remembered.renderer !== "webgl") {
+    throw new Error(
+      `the active terminal is drawn by "${remembered.renderer}", not WebGL — this scenario compares the WebGL grid with the DOM one, so it cannot start here`,
     );
   }
 });
@@ -93,18 +113,18 @@ When("I remember the active terminal's grid", async function (this: KoluWorld) {
 Then(
   "the active terminal's grid should stay unchanged",
   async function (this: KoluWorld) {
-    const expected = rememberedGrid;
+    const expected = remembered;
     if (!expected)
       throw new Error("no grid remembered — the When step must run first");
     // Hold the assertion for several frames rather than sampling once: a
-    // re-fit is scheduled on an animation frame, so a swap that DOES resize
+    // re-fit is scheduled on an animation frame, so a change that DOES resize
     // lands a frame or two after the renderer attribute flips. Fail on the
-    // first divergence, quoting both grids.
+    // first divergence, quoting both grids and both renderers.
     for (let frame = 0; frame < 10; frame++) {
-      const grid = await readGrid(this);
-      if (grid.cols !== expected.cols || grid.rows !== expected.rows) {
+      const tile = await readTile(this);
+      if (tile.cols !== expected.cols || tile.rows !== expected.rows) {
         throw new Error(
-          `renderer change resized the terminal: ${expected.cols}x${expected.rows} became ${grid.cols}x${grid.rows}`,
+          `the renderer change resized the terminal: ${expected.cols}x${expected.rows} under "${expected.renderer}" became ${tile.cols}x${tile.rows} under "${tile.renderer}"`,
         );
       }
       await this.waitForFrame();
