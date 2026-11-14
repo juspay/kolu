@@ -191,7 +191,8 @@ Feature: The Conductor
     # The other half is the terminal going away: a terminal no longer in the
     # roster says so, and offers nothing to look at — no toggle, no tail, so
     # nothing is read for it.
-    When I create a terminal
+    When I leave the conductor for the host tab
+    And I create a terminal
     And I run "echo kolu-look-$((6*7))"
     And I ask the conductor to adopt the terminal I am in
     Then the conductor transcript should show a "create" tool card

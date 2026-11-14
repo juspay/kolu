@@ -77,7 +77,8 @@ Feature: The Conductor never blocks
     # ... and the row's NAME is the way to the terminal itself: the same
     # journey the create card's "open tile" makes — leave the conversation,
     # land on that terminal's tile — because it is the same code path.
-    When I create a terminal
+    When I leave the conductor for the host tab
+    And I create a terminal
     And I run "echo kolu-watch-$((6*7))"
     And a Claude Code session is mocked with state "thinking"
     And I ask the conductor to watch the terminal
@@ -149,7 +150,8 @@ Feature: The Conductor never blocks
     #
     # The Look's text is COMPUTED by the shell, so the command line's echo
     # cannot satisfy it: only the terminal's own screen can.
-    When I create a terminal
+    When I leave the conductor for the host tab
+    And I create a terminal
     And I run "echo kolu-watch-$((6*7))"
     And a Claude Code session is mocked with state "thinking"
     And I ask the conductor to watch the terminal

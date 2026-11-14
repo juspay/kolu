@@ -10438,6 +10438,54 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "8676f68582da1d32e1d89945b351843376568bee"
+    },
+    {
+      "revisionId": "revision-15f1fe0a56a50429d7d8",
+      "scenarioKey": "scenario-670522edc71a8d758545",
+      "feature": "features/conductor-layout.feature",
+      "scenario": "A Look stays open across the width where the two columns fold",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "0efc91744c290d16969fe9f7bde9e1da57fbd42f74ff0afd6e6b5b9738569271",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "345b209de281947d054a48d8af4141e698e108f9"
+    },
+    {
+      "revisionId": "revision-35ef00f8db4566644040",
+      "scenarioKey": "scenario-b44cb20d43828674b5ac",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "Leaving the conversation and coming back finds it exactly as it was",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "9627d9e3608459c336c58412cb8afcc36541bb1e89dc39cd4d9244f66a4ac71a",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "345b209de281947d054a48d8af4141e698e108f9"
+    },
+    {
+      "revisionId": "revision-02f124339aac179c9cb0",
+      "scenarioKey": "scenario-c3ea8c9458e5a5443825",
+      "feature": "features/conductor-wakes.feature",
+      "scenario": "The watched terminals are listed, looked at, and pressed to go there",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "fd28edbe284c43a2b1e7868b81e36fb2ec151fa390e87bd713de404ace0f2bf6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "345b209de281947d054a48d8af4141e698e108f9"
+    },
+    {
+      "revisionId": "revision-de532dddb922eee37ac6",
+      "scenarioKey": "scenario-bc167b1613e07ab431b7",
+      "feature": "features/conductor.feature",
+      "scenario": "Look reads the agent's screen from inside the chat",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "12294e41f5c11e9e26ebb7dc0e55cf9b4a344c7ee818fbd87b170795bbac252f",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "345b209de281947d054a48d8af4141e698e108f9"
     }
   ]
 }
