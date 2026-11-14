@@ -41,9 +41,12 @@ export type { XtermCore, XtermLifecycleOptions } from "./xtermLifecycle";
 export { attachWebGL } from "./webgl";
 export type { WebglHandle, WebglLifecycleHooks } from "./webgl";
 
-// The grid value + the one statement of grid equality.
-export { sameGrid } from "./grid";
-export type { TerminalGrid } from "./grid";
+// The grid value, the one statement of grid equality, and the renderer-blind
+// arithmetic that turns a box into a grid (what `@xterm/addon-fit` used to do,
+// minus its dependence on which renderer is painting).
+export { gridForBox, sameGrid } from "./grid";
+export type { GridBox, TerminalGrid } from "./grid";
+export { measureGridBox } from "./measureBox";
 
 // The component: the whole hazard set as one JSX element.
 export { Xterm } from "./Xterm";

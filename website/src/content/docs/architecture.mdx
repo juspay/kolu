@@ -492,7 +492,7 @@ out. The map:
 | `surface-remote` | The ssh mirror, and the closures it lands on a host. | `surface`, `surface-map`, `shell-quote` |
 | `surface-daemon` | The durable-daemon spine: identity, drain, the mixed-version test kit, and the supervisor half beside it. | `surface`, `log` |
 | `port-forward` | Hides ssh forward lifetime and local binding: one dedicated ssh connection per forward, so a forward dies with the process that opened it. | nothing in kolu |
-| `xterm-kit` | Hides xterm.js's hazards (pinned internals, scrollback surgery, write buffering, mirror anchoring) behind a runtime-neutral core and a `/solid` adapter. | `url-shape` |
+| `xterm-kit` | Hides xterm.js's hazards (pinned internals, scrollback surgery, write buffering, mirror anchoring, and the box-to-grid measurement a tile is sized by) behind a runtime-neutral core and a `/solid` adapter. | `url-shape` |
 | `terminal-snapshot` | Turns a screen plus a theme into backend-free drawing instructions, so the browser's copy-screenshot and `kolu screenshot` draw the same picture. | `html-escape` |
 | `acp`, `acp-harness` | The [Agent Client Protocol](https://agentclientprotocol.com) vocabulary and the pure projections over its payloads; the harness is the one package that spawns an ACP subprocess. | `acp-harness` on `acp` |
 | agent and forge leaves | One package per agent (`claude-code`, `codex`, `grok`, `opencode`, `pi`, `xyne`, `omp`), each with its vocabulary and detection adapter. `github` sits behind `anyforge`; `git` covers git itself. | `anyagent`, the agent-agnostic kernel; `kolu-agents` lists them |

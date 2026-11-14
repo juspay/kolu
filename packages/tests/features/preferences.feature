@@ -45,3 +45,20 @@ Feature: Server-side preferences
     When I reload the page and wait for ready
     Then the terminal renderer should be "dom"
     And there should be no page errors
+
+  Scenario: A tile keeps its grid when the renderer changes
+    # The size of a terminal must not depend on how it is drawn. xterm's two
+    # renderers derive different cell widths from one font measurement, so a
+    # tile that swapped renderers used to change column count — and a column
+    # change resizes the PTY, which SIGWINCHes the program inside it.
+    Then the terminal renderer should be "webgl"
+    When I remember the active terminal's grid
+    When I click the settings button
+    Then the settings popover should be visible
+    When I click the "dom" renderer button
+    Then the terminal renderer should be "dom"
+    Then the active terminal's grid should stay unchanged
+    When I click the "webgl" renderer button
+    Then the terminal renderer should be "webgl"
+    Then the active terminal's grid should stay unchanged
+    And there should be no page errors

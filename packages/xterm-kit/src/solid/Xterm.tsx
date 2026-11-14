@@ -13,7 +13,6 @@
 
 import { makeEventListener } from "@solid-primitives/event-listener";
 import { createResizeObserver } from "@solid-primitives/resize-observer";
-import type { FitAddon } from "@xterm/addon-fit";
 import type { SearchAddon } from "@xterm/addon-search";
 import type { SerializeAddon } from "@xterm/addon-serialize";
 import type { ITheme, Terminal as XTerm } from "@xterm/xterm";
@@ -28,8 +27,9 @@ import {
   onCleanup,
   splitProps,
 } from "solid-js";
-import { sameGrid, type TerminalGrid } from "./grid";
-import { clearWriteQueue } from "../internals";
+import { gridForBox, sameGrid, type TerminalGrid } from "./grid";
+import { clearWriteQueue, renderService } from "../internals";
+import { measureGridBox } from "./measureBox";
 import { createOutputCoalesce, type OutputCoalesce } from "./outputCoalesce";
 import { createRenderRecovery, type RenderRecovery } from "./renderRecovery";
 import { createScrollLock } from "./scrollLock";
@@ -50,19 +50,13 @@ export type ScrollLock = ReturnType<typeof createScrollLock>;
 // still reads as the component's own vocabulary at every import site.
 export { sameGrid, type TerminalGrid } from "./grid";
 
-/** `@xterm/addon-fit`'s own clamp floor (`MINIMUM_COLS` / `MINIMUM_ROWS`).
- *  `proposeDimensions()` never returns anything below it, so a proposal AT the
- *  floor carries no information about the box — see `applyFit`. */
-const FIT_ADDON_MIN_COLS = 2;
-const FIT_ADDON_MIN_ROWS = 1;
-
 /** What `<Xterm onReady>` hands the consumer — the live terminal plus every
  *  mechanism it wires policy against, all inside the component's reactive owner. */
 export interface XtermHandle {
   terminal: XTerm;
   /** The mount element (also the consumer's own attribute host). */
   container: HTMLElement;
-  addons: { fit: FitAddon; search: SearchAddon; serialize: SerializeAddon };
+  addons: { search: SearchAddon; serialize: SerializeAddon };
   scrollLock: ScrollLock;
   /** Single write door: unfocused rate-coalesce → scroll-lock → term.write.
    *  `onParsed` fires when the chunk lands in xterm. */
@@ -177,53 +171,45 @@ export const Xterm: Component<
   /** Fit to the container's current box, and record the grid IF one could be
    *  genuinely measured.
    *
-   *  Two ways the addon answers without measuring anything, and BOTH are
-   *  declined here — a fabricated grid is precisely what `grid()` promises never
-   *  to contain, and since the attach now carries the grid and the host performs
-   *  a real resize, publishing a fabrication would SIGWINCH a live PTY to it.
+   *  The measurement is `measureGridBox` + `gridForBox` — kolu's own, computed
+   *  from numbers no renderer touched, which is the point: with
+   *  `@xterm/addon-fit` the grid came out of the ACTIVE renderer's
+   *  `css.cell.width`, and the WebGL and DOM renderers derive different cell
+   *  widths from the same font measurement, so a tile that changed renderer
+   *  (the WebGL budget handing its context to another tile) changed column
+   *  count and SIGWINCHed its PTY. See `./grid`.
+   *
+   *  Two ways the box answers without measuring anything, and BOTH are
+   *  declined — `gridForBox` returns null for each, because a fabricated grid
+   *  is precisely what `grid()` promises never to contain, and since the attach
+   *  carries the grid and the host performs a real resize, publishing a
+   *  fabrication would SIGWINCH a live PTY to it.
    *
    *  ① No box at all. Gated on `clientWidth/clientHeight`, NOT
-   *  `getBoundingClientRect()`: the addon reads the LAYOUT box off
-   *  `getComputedStyle(parentElement)`, which CSS transforms do not scale, while
+   *  `getBoundingClientRect()`: the measurement reads the LAYOUT box off
+   *  `getComputedStyle(container)`, which CSS transforms do not scale, while
    *  the bounding rect is the VISUAL box, which they do. kolu's canvas tiles
    *  render under a transform, so the two are different facts — gating the
-   *  addon's decision on a quantity the addon never reads lets the guard and the
+   *  decision on a quantity the measurement never reads lets the guard and the
    *  measurement disagree.
    *
    *  ② A present-but-degenerate box (a split dragged nearly closed, a panel
-   *  mid-collapse, a tile mid-layout-transition). `proposeDimensions()` returns
-   *  undefined only when there is no renderer/element at all; for a sliver box
-   *  it still returns a grid, because the addon CLAMPS its answer up to its own
-   *  {@link FIT_ADDON_MIN_COLS}×{@link FIT_ADDON_MIN_ROWS} floor. A clamped
-   *  answer is the addon's floor, not a measurement, so it is refused in the
-   *  same class as a 0×0 box.
-   *
-   *  (`fit()` no-ops on an unmeasurable box too; asking separately is what lets
-   *  us tell "measured" from "declined to measure", which `fit()`'s void return
-   *  cannot.) */
+   *  mid-collapse, a tile mid-layout-transition), whose honest answer is at or
+   *  under the old fit addon's own 2×1 clamp floor. Refused in the same class
+   *  as a 0×0 box — see `gridForBox`. */
   const applyFit = () => {
     if (!core) return;
     if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
-    const proposed = core.addons.fit.proposeDimensions();
-    if (
-      !proposed ||
-      !Number.isFinite(proposed.cols) ||
-      !Number.isFinite(proposed.rows) ||
-      proposed.cols <= FIT_ADDON_MIN_COLS ||
-      proposed.rows <= FIT_ADDON_MIN_ROWS
-    )
-      return;
-    // Only call `fit()` when the proposal actually differs from what the
-    // terminal already has: `fit()` re-runs `proposeDimensions()` internally and
-    // then no-ops on unchanged dims, so an unguarded call resolves styles twice
-    // per animation frame per visible pane on the resize / divider-drag hot path
-    // to reach the same outcome.
-    if (
-      proposed.cols !== core.terminal.cols ||
-      proposed.rows !== core.terminal.rows
-    ) {
-      // Push coalesced unfocused bytes into term.write BEFORE fit()/resize
-      // changes cols/rows. Those bytes were generated for the OLD grid;
+    const box = measureGridBox(core.terminal, container);
+    const next = box && gridForBox(box);
+    if (!next) return;
+    // Only resize when the measurement actually differs from what the terminal
+    // already has: `terminal.resize` to the current grid is not free (it
+    // re-measures the char size), and this runs once per animation frame per
+    // visible pane on the resize / divider-drag hot path.
+    if (next.cols !== core.terminal.cols || next.rows !== core.terminal.rows) {
+      // Push coalesced unfocused bytes into term.write BEFORE resize changes
+      // cols/rows. Those bytes were generated for the OLD grid;
       // xterm's resize flushSync-parses its write queue at the *current* cols
       // (CONTRACT PIN in internals.test.ts) so this lands them at the old
       // width. Canvas zoom / divider drag can fire every frame and the
@@ -240,14 +226,17 @@ export const Xterm: Component<
         );
       }
       coalesce.flush();
-      core.addons.fit.fit();
+      // Drop what the renderer thinks is on screen before reflowing it — the
+      // `fit()` call this replaced did the same, for the reason documented on
+      // `RenderInternals.clear`.
+      renderService(core.terminal)?.clear?.();
+      core.terminal.resize(next.cols, next.rows);
     }
-    // Read the grid back off the terminal rather than trusting `proposed`: fit()
-    // is the one authority on what it applied, so the fact we publish is the
-    // grid the terminal actually HAS.
+    // Read the grid back off the terminal rather than trusting `next`: the
+    // terminal is the one authority on what it applied, so the fact we publish
+    // is the grid the terminal actually HAS.
     setGrid({ cols: core.terminal.cols, rows: core.terminal.rows });
   };
-
   const refit = () => {
     cancelAnimationFrame(fitRaf);
     fitRaf = requestAnimationFrame(applyFit);
@@ -273,7 +262,7 @@ export const Xterm: Component<
   let core: XtermCore | null = null;
   let clearAtlas: (() => void) | null = null;
   // Write-door coalesce — same owner as applyFit so a resize can flush old-grid
-  // bytes before fit() mutates cols/rows (see applyFit).
+  // bytes before `terminal.resize` mutates cols/rows (see applyFit).
   let coalesce: OutputCoalesce | null = null;
 
   // This component's OWN retained refs, released synchronously on disposal so no
@@ -281,8 +270,8 @@ export const Xterm: Component<
   // disposes term+addons and attachWebGL releases the GPU context (its own
   // LIFO-earlier onCleanup); here we (1) cancel a pending refit rAF — an external
   // browser root that would otherwise stay parked in a background tab and fire
-  // `fit()` on a disposed terminal — and (2) null `core`/`clearAtlas`, whose
-  // `addons.fit` holds a `_terminal` back-pointer FitAddon.dispose() never
+  // a measurement at a disposed terminal — and (2) null `core`/`clearAtlas`,
+  // whose addons hold `_terminal` back-pointers their own `dispose()` never
   // clears, so a retained `core` alone re-forms the #606 retainer chain.
   onCleanup(() => {
     cancelAnimationFrame(fitRaf);

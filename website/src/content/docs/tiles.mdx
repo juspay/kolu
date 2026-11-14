@@ -60,6 +60,11 @@ only the focused tile and is remembered per terminal.
 
 - **WebGL rendering** with a canvas fallback, kept on your most recently used
   live tiles up to the browser's limit, so switching between them reloads nothing.
+- **The way a tile is drawn never changes its size.** A tile's columns and rows
+  come from the font's own measurement, not from the painter. A terminal that
+  moves between WebGL and the plain renderer keeps the grid it had, so the
+  program inside it is never resized by a change in how it is painted. Letters
+  can still sit a fraction differently within a line.
 - **Clickable URLs**. A long URL that wraps across lines survives a resize and
   opens whole.
 - **Unicode 11** and **inline images** (sixel, iTerm2, kitty).

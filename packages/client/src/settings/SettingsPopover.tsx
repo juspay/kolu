@@ -50,7 +50,9 @@ const RENDERER_OPTIONS: readonly SegmentedControlOption<
 /** Reactive hint table — re-read on every renderer change. "warn" tone flags
  *  the WebGL-every-tile context-thrash trade-off surfaced in #636. */
 const RENDERER_HINT: Record<Preferences["terminalRenderer"], Hint> = {
-  auto: { text: "WebGL on recently-active tiles, DOM elsewhere." },
+  auto: {
+    text: "WebGL on recently-active tiles, DOM elsewhere — same grid either way.",
+  },
   webgl: {
     text: "WebGL on every tile — may thrash past ~16 terminals.",
     tone: "warn",

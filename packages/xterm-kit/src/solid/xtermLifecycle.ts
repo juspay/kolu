@@ -21,7 +21,6 @@
 
 import { WEB_URL_PATTERN } from "@kolu/url-shape";
 import { getOwner, onCleanup, runWithOwner } from "solid-js";
-import { FitAddon } from "@xterm/addon-fit";
 import { ImageAddon } from "@xterm/addon-image";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
@@ -31,11 +30,14 @@ import { type ITerminalOptions, Terminal as XTerm } from "@xterm/xterm";
 import { patchTransformAwareMouseCoords } from "../internals";
 
 /** The live terminal + the addons a consumer reaches back for (SearchBar reads
- *  `search`; an export path reads `serialize`; refit drives `fit`). The other
- *  addons the lifecycle loads (web-links, unicode11, image) are fire-and-forget. */
+ *  `search`; an export path reads `serialize`). The other addons the lifecycle
+ *  loads (web-links, unicode11, image) are fire-and-forget. Sizing is NOT an
+ *  addon: `<Xterm>` measures the box itself (`solid/grid.ts`), because
+ *  `@xterm/addon-fit` divides by the ACTIVE renderer's cell width and the two
+ *  renderers disagree about it. */
 export interface XtermCore {
   terminal: XTerm;
-  addons: { fit: FitAddon; search: SearchAddon; serialize: SerializeAddon };
+  addons: { search: SearchAddon; serialize: SerializeAddon };
 }
 
 /** `terminalOptions` are xterm's own constructor options; `fontFamily` is
@@ -110,8 +112,6 @@ export function createXtermLifecycle(
         });
         terminal = term;
 
-        const fit = new FitAddon();
-        term.loadAddon(fit);
         // Re-read options here (post-await) so a late-bound handler is current.
         // The constructor's first arg is the activate callback; omit it to keep
         // the addon's default `window.open` path.
@@ -135,7 +135,7 @@ export function createXtermLifecycle(
         // _core._mouseCoordsService. Strict no-op for untransformed terminals.
         patchTransformAwareMouseCoords(term);
 
-        onReady({ terminal: term, addons: { fit, search, serialize } });
+        onReady({ terminal: term, addons: { search, serialize } });
       });
     } catch (err) {
       console.error("createXtermLifecycle: setup failed:", err);
