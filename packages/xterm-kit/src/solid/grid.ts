@@ -1,11 +1,22 @@
 /** A terminal grid, what makes two of them the same, and how a BOX becomes one.
  *
+ *  **This module is where kolu's sizing rule is DECIDED**, and the one place
+ *  that explains it; everything else on the path points here. The rule, in a
+ *  sentence: a terminal's size must not depend on which renderer is painting
+ *  it. xterm's WebGL renderer floors the character measurement to whole device
+ *  pixels so glyphs land on an integer grid (`WebglRenderer._updateDimensions`)
+ *  and its DOM renderer does not (`DomRenderer._updateDimensions`), so
+ *  `@xterm/addon-fit` — which divides the box by the ACTIVE renderer's
+ *  `css.cell.width` — answered two different column counts for one box, and a
+ *  tile that changed renderer resized its PTY. {@link gridForBox} therefore
+ *  takes {@link GridBox}: layout plus the font facts both renderers start
+ *  from, and nothing either of them has already rounded.
+ *
  *  Kept in its own JSX-free module beside `<Xterm>`: the component owns the
  *  grid's LIFETIME (measure, publish, compare), while the value, its equality
  *  and the arithmetic that produces it are plain facts both the kit and its
- *  consumers ask about — and facts that can be tested without the component's
- *  DOM. `./measureBox` reads the live terminal and element into the input this
- *  module's {@link gridForBox} consumes. */
+ *  consumers ask about — and facts that can be tested without a DOM.
+ *  `./measureBox` reads a live terminal into the input this module consumes. */
 
 /** A terminal grid — cols × rows. */
 export interface TerminalGrid {
@@ -21,21 +32,10 @@ export function sameGrid(a: TerminalGrid, b: TerminalGrid): boolean {
   return a.cols === b.cols && a.rows === b.rows;
 }
 
-/** Everything a grid is computed FROM. Every field is either a LAYOUT fact
- *  (the box, in CSS pixels) or a FONT fact (how big one cell is) — and not one
- *  of them depends on whether this pane is currently painted by WebGL or by
- *  xterm's DOM renderer. That is the whole point of this module: the same box
- *  must yield the same grid under either renderer, so a tile that swaps
- *  renderers (the WebGL budget hands its context to another tile) never
- *  resizes its PTY. See `measureGridBox` for where each value is read from.
- *
- *  The two renderers disagree about cell WIDTH — xterm's WebGL renderer floors
- *  the character measurement to whole device pixels so glyphs land on an
- *  integer grid (`WebglRenderer._updateDimensions`), the DOM renderer does not
- *  (`DomRenderer._updateDimensions`) — so neither renderer's `css.cell.width`
- *  may be an input here. {@link charWidth} is the measurement they BOTH start
- *  from, and the wider of the two cells (the DOM one) is what the columns are
- *  computed with, so the grid fits under either. */
+/** Everything a grid is computed FROM: layout facts (the box, in CSS pixels)
+ *  and font facts (how big one cell is). Not one of them depends on which
+ *  renderer is painting — see this module's header for why that is the whole
+ *  point. `measureGridBox` says where each value is read from. */
 export interface GridBox {
   /** The mount element's parent's computed layout width, CSS px. */
   parentWidth: number;
@@ -89,42 +89,29 @@ const DEGENERATE_ROWS = 1;
  *  mid-collapse, a tile mid-layout-transition) whose honest answer is at or
  *  below {@link DEGENERATE_COLS}×{@link DEGENERATE_ROWS}. */
 export function gridForBox(box: GridBox): TerminalGrid | null {
-  const {
-    parentWidth,
-    parentHeight,
-    paddingHorizontal,
-    paddingVertical,
-    scrollbarWidth,
-    charWidth,
-    letterSpacing,
-    deviceCellHeight,
-    devicePixelRatio,
-  } = box;
-  if (
-    !Number.isFinite(parentWidth) ||
-    !Number.isFinite(parentHeight) ||
-    !Number.isFinite(paddingHorizontal) ||
-    !Number.isFinite(paddingVertical) ||
-    !Number.isFinite(scrollbarWidth) ||
-    !Number.isFinite(charWidth) ||
-    !Number.isFinite(letterSpacing) ||
-    !Number.isFinite(deviceCellHeight) ||
-    !Number.isFinite(devicePixelRatio)
-  )
-    return null;
-  if (parentWidth <= 0 || parentHeight <= 0) return null;
-  if (charWidth <= 0 || deviceCellHeight <= 0 || devicePixelRatio <= 0)
-    return null;
+  // One rule, not one clause per field: every number must be real. A detached
+  // element's computed style parses to NaN, and a field added later is covered
+  // without anyone remembering to extend a list.
+  for (const value of Object.values(box)) {
+    if (!Number.isFinite(value)) return null;
+  }
+  if (box.parentWidth <= 0 || box.parentHeight <= 0) return null;
+  if (box.charWidth <= 0 || box.deviceCellHeight <= 0) return null;
+  if (box.devicePixelRatio <= 0) return null;
 
   // Both renderers add letterSpacing to the DEVICE char width, rounded; in CSS
   // pixels that is `round(letterSpacing) / dpr`. Added here exactly as they add
   // it, so the cell this divides by IS the DOM renderer's cell.
-  const cellWidth = charWidth + Math.round(letterSpacing) / devicePixelRatio;
-  const cellHeight = deviceCellHeight / devicePixelRatio;
-  if (cellWidth <= 0 || cellHeight <= 0) return null;
+  const cellWidth =
+    box.charWidth + Math.round(box.letterSpacing) / box.devicePixelRatio;
+  const cellHeight = box.deviceCellHeight / box.devicePixelRatio;
+  // A letterSpacing negative enough to cancel the glyph leaves no cell to
+  // divide by — and a negative divisor would answer a positive column count.
+  if (cellWidth <= 0) return null;
 
-  const availableWidth = parentWidth - paddingHorizontal - scrollbarWidth;
-  const availableHeight = parentHeight - paddingVertical;
+  const availableWidth =
+    box.parentWidth - box.paddingHorizontal - box.scrollbarWidth;
+  const availableHeight = box.parentHeight - box.paddingVertical;
   const cols = Math.floor(availableWidth / cellWidth);
   const rows = Math.floor(availableHeight / cellHeight);
   if (cols <= DEGENERATE_COLS || rows <= DEGENERATE_ROWS) return null;

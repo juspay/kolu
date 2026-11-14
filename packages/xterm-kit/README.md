@@ -58,15 +58,13 @@ listeners exist only while that pane holds a pointer gesture.
   owns their reactive lifetime, and hands the consumer a live `XtermHandle` in
   `onReady` (inside the reactive owner) for stream/key/PTY policy. Kolu's
   `Terminal.tsx` is consumer #1.
-- `gridForBox` / `measureGridBox` — how a box becomes cols × rows, and the one
-  reason `@xterm/addon-fit` is not used: the addon divides the box by the
-  ACTIVE renderer's cell width, and xterm's WebGL renderer floors the character
-  measurement to whole device pixels while its DOM renderer does not — so a
-  tile that changed renderer changed column count and resized its PTY.
-  `gridForBox` is pure arithmetic over facts both renderers share (xterm's own
-  unrounded character width, the integer device cell height, the layout box),
-  and returns `null` rather than a fabricated grid for a box that cannot be
-  measured.
+- `gridForBox` / `measureGridBox` — how a box becomes cols × rows, and why
+  `@xterm/addon-fit` is not used: the addon divides the box by the ACTIVE
+  renderer's cell width, and the two renderers round the character measurement
+  differently, so a tile that changed renderer resized its PTY. `gridForBox`
+  is pure arithmetic over facts both renderers share and returns `null` rather
+  than a fabricated grid for a box that cannot be measured; `grid.ts` is where
+  the rule is stated in full.
 - `createXtermLifecycle` — owner-correct async construction + disposal: capture
   the owner before the font `await`, bail on a `disposed` flag, re-enter with
   `runWithOwner`, and dispose term + addons synchronously. The one home for the

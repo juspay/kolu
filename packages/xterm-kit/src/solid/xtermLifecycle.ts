@@ -32,9 +32,7 @@ import { patchTransformAwareMouseCoords } from "../internals";
 /** The live terminal + the addons a consumer reaches back for (SearchBar reads
  *  `search`; an export path reads `serialize`). The other addons the lifecycle
  *  loads (web-links, unicode11, image) are fire-and-forget. Sizing is NOT an
- *  addon: `<Xterm>` measures the box itself (`solid/grid.ts`), because
- *  `@xterm/addon-fit` divides by the ACTIVE renderer's cell width and the two
- *  renderers disagree about it. */
+ *  addon — `<Xterm>` measures the box itself; see `solid/grid.ts`. */
 export interface XtermCore {
   terminal: XTerm;
   addons: { search: SearchAddon; serialize: SerializeAddon };

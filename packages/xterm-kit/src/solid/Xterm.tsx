@@ -169,34 +169,22 @@ export const Xterm: Component<
   });
 
   /** Fit to the container's current box, and record the grid IF one could be
-   *  genuinely measured.
+   *  genuinely measured — `measureGridBox` + `gridForBox`, kolu's own
+   *  measurement rather than the renderer's (`./grid` states why).
    *
-   *  The measurement is `measureGridBox` + `gridForBox` — kolu's own, computed
-   *  from numbers no renderer touched, which is the point: with
-   *  `@xterm/addon-fit` the grid came out of the ACTIVE renderer's
-   *  `css.cell.width`, and the WebGL and DOM renderers derive different cell
-   *  widths from the same font measurement, so a tile that changed renderer
-   *  (the WebGL budget handing its context to another tile) changed column
-   *  count and SIGWINCHed its PTY. See `./grid`.
+   *  `gridForBox` returns null for a box that cannot be measured, and that
+   *  null is honoured rather than patched: a fabricated grid is precisely what
+   *  `grid()` promises never to contain, and since the attach carries the grid
+   *  and the host performs a real resize, publishing one would SIGWINCH a live
+   *  PTY to it.
    *
-   *  Two ways the box answers without measuring anything, and BOTH are
-   *  declined — `gridForBox` returns null for each, because a fabricated grid
-   *  is precisely what `grid()` promises never to contain, and since the attach
-   *  carries the grid and the host performs a real resize, publishing a
-   *  fabrication would SIGWINCH a live PTY to it.
-   *
-   *  ① No box at all. Gated on `clientWidth/clientHeight`, NOT
-   *  `getBoundingClientRect()`: the measurement reads the LAYOUT box off
-   *  `getComputedStyle(container)`, which CSS transforms do not scale, while
-   *  the bounding rect is the VISUAL box, which they do. kolu's canvas tiles
-   *  render under a transform, so the two are different facts — gating the
-   *  decision on a quantity the measurement never reads lets the guard and the
-   *  measurement disagree.
-   *
-   *  ② A present-but-degenerate box (a split dragged nearly closed, a panel
-   *  mid-collapse, a tile mid-layout-transition), whose honest answer is at or
-   *  under the old fit addon's own 2×1 clamp floor. Refused in the same class
-   *  as a 0×0 box — see `gridForBox`. */
+   *  The one thing decided HERE is the no-box gate, and it is
+   *  `clientWidth/clientHeight` rather than `getBoundingClientRect()`: the
+   *  measurement reads the LAYOUT box off `getComputedStyle(container)`, which
+   *  CSS transforms do not scale, while the bounding rect is the VISUAL box,
+   *  which they do. kolu's canvas tiles render under a transform, so gating on
+   *  a quantity the measurement never reads would let the guard and the
+   *  measurement disagree. */
   const applyFit = () => {
     if (!core) return;
     if (container.clientWidth <= 0 || container.clientHeight <= 0) return;

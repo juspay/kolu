@@ -1,15 +1,12 @@
 /** Read a live terminal and its mount element into the {@link GridBox} that
- *  `./grid`'s `gridForBox` turns into cols × rows.
+ *  `./grid`'s `gridForBox` turns into cols × rows — the direct replacement for
+ *  `@xterm/addon-fit`'s `proposeDimensions()`, reading the same layout facts
+ *  the addon read. Why the renderer's own cell size is NOT among them is
+ *  stated once, in `./grid`.
  *
- *  Split from both neighbours on purpose: `grid.ts` is arithmetic with no DOM
- *  and no xterm (so the sizing rule is unit-testable), `<Xterm>` is lifetime
- *  and policy, and THIS module is the only place that knows where each number
- *  is read from. It is the direct replacement for `@xterm/addon-fit`'s
- *  `proposeDimensions()`, and it reads the same LAYOUT facts the addon read —
- *  `getComputedStyle` on the parent, the element's own padding, the viewport's
- *  reserved scrollbar — so retiring the addon changed the box, not the way the
- *  box is measured. What it does NOT read is the active renderer's cell size;
- *  see `GridBox`. */
+ *  Its own module because it is the only place that knows WHERE each number
+ *  comes from (`getComputedStyle`, an xterm option, a private measurement) —
+ *  which keeps `grid.ts` arithmetic testable without a DOM. */
 
 import type { Terminal as XTerm } from "@xterm/xterm";
 import type { GridBox } from "./grid";
@@ -45,9 +42,9 @@ function scrollbarWidth(term: XTerm): number {
 
 /** `style`'s `prop` as a number — `NaN` when it is not a length, which
  *  `gridForBox` refuses as "cannot be measured" (a detached element's computed
- *  style is empty). `parseFloat`, where the addon used `parseInt`: a 1.5× OS
- *  zoom gives fractional computed lengths, and truncating them threw away up
- *  to a pixel of box per side. */
+ *  style is empty). `parseFloat`, not `parseInt`: a 1.5× OS zoom gives
+ *  fractional computed lengths, and truncating each one throws away up to a
+ *  pixel of box per side. */
 function px(style: CSSStyleDeclaration, prop: string): number {
   return Number.parseFloat(style.getPropertyValue(prop));
 }

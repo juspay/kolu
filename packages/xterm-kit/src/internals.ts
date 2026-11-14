@@ -67,14 +67,11 @@ export function renderService(term: XTerm): RenderInternals | null {
  *  `CharSizeService.width`, the width of one 'W' through `measureText` (or an
  *  offsetWidth fallback), divided by nothing.
  *
- *  This is the number kolu sizes terminals with, and it is private because
- *  xterm exposes only what its renderers made of it: `terminal.dimensions`
- *  carries each renderer's OWN cell width, and the two disagree — the WebGL
- *  renderer floors the measurement to whole device pixels, the DOM renderer
- *  does not. Sizing off the active renderer's number is exactly the bug this
- *  reach exists to remove (a tile that swapped renderers resized its PTY), so
- *  the public value is the wrong value here. Its shape is pinned by
- *  `internals.test.ts` against the shipped `@xterm/xterm`.
+ *  Private because xterm exposes only what its renderers MADE of it:
+ *  `terminal.dimensions` carries each renderer's own cell width and the two
+ *  disagree, which is the whole reason kolu measures its own grid — the rule
+ *  is stated in `solid/grid.ts`. Shape pinned by `internals.test.ts` against
+ *  the shipped `@xterm/xterm`.
  *
  *  **Fail-loud**, like `clearWriteQueue` and for the same reason: there is no
  *  honest degraded answer. Returning null would silently leave every pane
