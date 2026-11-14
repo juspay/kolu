@@ -93,3 +93,40 @@ Nothing.
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs`: 0 missing).
+
+## Connecting from the client
+
+- Words: 3,546 → 3,266. Before: four `##`/`###` sections holding 428, 972 and more words of running text, a 9-row members table whose `link` cell ran 110 words, and one `<Aside>`. After: an index table, 11 entries, 10 entry sections, no asides, every block under 80 words.
+- Headings renamed:
+  - `A roster change follows in place — `conn.redial(surfaces)`` → `` `conn.redial(surfaces)` `` (`#a-roster-change-follows-in-place--connredialsurfaces` → `#connredialsurfaces`). The two same-page links are updated. Six inbound links elsewhere still point at the old anchor: `website/src/content/surface/ref-surface-mcp.mdx:113` and `website/src/content/surface/ref-surface.mdx:443,510,757,765,1059` — both pages are assigned to other rewriters in this wave.
+  - `What a roster move does not hide — `conn.connectionEpoch`` → `` `conn.connectionEpoch` `` (`#what-a-roster-move-does-not-hide--connconnectionepoch` → `#connconnectionepoch`). Its one inbound link is on this page and is updated.
+  - `The readout, not a status` → `The readout` (`#the-readout-not-a-status` → `#the-readout`). Its one inbound link is on this page and is updated.
+  - `The stale-tab handshake, and the one option you must spell` → `The stale-tab handshake`. No inbound links.
+  - Kept: `The rooted bundle`, because `ref-surface` links to `#the-rooted-bundle` and the heading is already a plain name.
+- New entries for exports that were only named in prose: `connectSurface(opts)`, `connectSurfaces(opts)`, `createProcessIdEcho()`, `createServerLifecycle({ wire, probe })`, `onClientError`, `createLiveSignal`.
+- The aside "A websocket client requires a watchdog" became the `createLiveSignal` entry.
+- `/surface/ref-surface#a-wire-that-follows-its-generations--followingwire` updated to `/surface/ref-surface#followingwire`, and `…#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces` to `…#implementrootedsurfacescore-base-deps` (anchors supplied by the integrator). The other four links into `ref-surface` are unchanged, confirmed with the integrator.
+
+### Moved
+
+None.
+
+### Cut
+
+| Fact | Tag |
+| --- | --- |
+| "`connectSurfaces` required it until [#2222]…", with its PR link | history |
+| "It used to: `redial` handed back a replacement, and `clients`, `core`, `transport`, `readout` and `health` were all dead the moment it resolved…" (the loss of local state a rebuild cost) | history |
+| "saying it was is the second thing every consumer had to work around" | history |
+| "the seam behaves exactly as it did before the slot existed" | history |
+| "Replaces the transport-only `status` this used to hand back" (the `status` span survives in the readout entry) | history |
+| "The two values a connection used to hand back … shipped a tab that sat on a dead server looking healthy forever"; "The third droppable value was `client.health()`" | history |
+| "it used to ship an `identity.info` beside `buildInfo`" (restated in the present tense: what such a member would cost) | history |
+| "a collection whose keys stream had died rendered as a collection with nothing in it, under a green light" | history |
+| "(was `ws: PartySocket`)" (restated as what `link.wire` is) | history |
+| the olai PR link on `connectionEpoch`, and "the subscriptions are fine and the light is green" | history |
+| "which is the point", "that is the price of one path rather than two", "the honest half of an in-place move" | rationale |
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs`: 0 missing).
