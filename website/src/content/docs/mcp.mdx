@@ -133,17 +133,17 @@ Driving another agent is a loop:
 
 </Steps>
 
-## What the Conductor's face changes
+## How the Conductor's tools differ
 
 [The Conductor](/conductor), the one chat that drives every terminal on every
-host, consumes this same tool table. kolu declares the tools once and projects
-them twice. The per-host face is this page: `kolu mcp` over stdio, serving one
-host's padi, naming terminals by bare id. The fleet face is that table lifted
-over every host, served inside kolu-server over HTTP on a loopback listener.
+host, uses this same tool table. `kolu mcp`, this page, serves one host over
+stdio and names a terminal by its bare id. The Conductor's copy covers every
+host, served inside kolu-server (the process your browser talks to) on a
+loopback HTTP listener.
 
 <div class="doc-scroll">
 
-| | per-host face — `kolu mcp` | fleet face — the Conductor's |
+| | `kolu mcp`, one host | the Conductor's, every host |
 | --- | --- | --- |
 | naming a terminal | `3f29…` | `local/3f29…`, `remote:nix@prod/9a1b…`: the host, then the id, read apart at the last `/` |
 | `lifecycle_create` | opens one here | takes the host to open on, and answers a fleet reference |
@@ -206,7 +206,7 @@ CLI serves it too: `kolu surface agent_say <id> --text '…'`.
 
 | Tool | What it does |
 | --- | --- |
-| `wait_outputSettled` | Block until a terminal's output goes quiet — the turn ended, or it's waiting for input. |
+| `wait_outputSettled` | Block until a terminal's output goes quiet — the turn ended, or it is waiting for input. |
 | `wait_agentState` | Block until the terminal's agent reaches a state you name (`working`, `awaiting`, `waiting`) — a precise done-signal, not a guess from silence. |
 
 Both take two extras that turn a three-call routine into one:
@@ -279,8 +279,8 @@ is handed over until your agent confirms it, and a queue holds the most recent
 
 ### The Conductor's watched list
 
-The fleet face swaps the subscription for a list kolu-server keeps, because the
-Conductor is the thing being woken rather than the thing waiting.
+The Conductor's tools replace the subscription with a list kolu-server keeps,
+because the Conductor is the thing being woken rather than the thing waiting.
 
 | Tool | What it does |
 | --- | --- |
@@ -325,9 +325,9 @@ to wake it or tells you how many are asleep.
 
 | Live view | What it shows |
 | --- | --- |
-| `terminals` | The live roster of your terminals — what's open, what each is running, and each agent's state. |
+| `terminals` | The live roster of your terminals — what is open, what each is running, and each agent's state. |
 | `urgency` | Which terminals need attention now — the ones waiting on a human or an answer. |
-| `daemonStatus` · `status` · `identity` | Whether kolu's background service is live, up to date, and hasn't restarted underneath the agent. |
+| `daemonStatus` · `status` · `identity` | Whether kolu's background service is live, up to date, and has not restarted underneath the agent. |
 
 An agent subscribed to `urgency` hears the moment a terminal starts waiting.
 
@@ -349,7 +349,7 @@ queued or re-sent behind your back.
   and the `wait_*` tools are safe to retry.
 </Aside>
 
-## What an agent can't touch
+## What an agent cannot touch
 
 `kolu mcp` exposes a reviewed allowlist. Reads and terminal control are in:
 creating, driving, killing, and observing terminals. Out: administering the

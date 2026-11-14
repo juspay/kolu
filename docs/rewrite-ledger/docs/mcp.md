@@ -72,3 +72,7 @@ From `.waterfall/compare.mjs` against `f50641c6a`.
 | --- | --- |
 | `PATH=…` | kept as `PATH=` (the span the old page also used in the Steps); the fact is unchanged |
 | `send-text` | cut, duplicate: the rule is step 3 of the driving loop, in plain words (`lifecycle_sendInput` is the tool name) |
+
+## Review round 1
+
+- Heading "What the Conductor's face changes" → "How the Conductor's tools differ"; "face" / "fleet face" replaced by plain words in that section and in "The Conductor's watched list". No inbound links to the old anchor. Heading "What an agent can't touch" → "What an agent cannot touch" (no inbound links).
