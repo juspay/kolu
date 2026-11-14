@@ -250,3 +250,49 @@ The code block's `TYPE` and `NAMESPACE` capitals stay: fenced blocks are copied 
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs --old-lines 1214-1401`: 0 missing).
+
+## Client-side subpaths (old: the nine `@kolu/surface/*` client entries under `Links`)
+
+- Words (counted by `docs-lint`'s rules): 3,871 → 4,139. The growth is the new group index table, four new `####` entry sections and the export table each entry now opens with. Before: nine `###` blocks of running prose with tables buried inside them, eight table cells over 40 words, two sections over the 300-word limit, one `<Aside>`. After: nine entries, every block, cell and heading section inside the lint's limits, no asides.
+- The nine old `###` headings became the entries of a new `## Client-side subpaths` group, opened by one paragraph and an index table (`Entry · Subpath · What it is`) whose first column links to each entry.
+- New `####` sections, so no entry exceeds the 300-word section limit: `The face and its leaves`, `The shapes a projecting face holds`, `Rooted-bundle lookups`, `The retry fence`, `` `label` and `onRetry` `` (under `@kolu/surface/client`); `` `SurfaceUpstreamRefused` ``, `` `messageOf(error)` `` (under `@kolu/surface/errors`); `The bounded item read`, `Telling an empty open from a failure` (under `@kolu/surface/first-frame`); `The Schema to JSON-Schema bridge`, `Names that live on other subpaths` (under `@kolu/surface/verbs`).
+- The one `<Aside>` ("The MCP adapter still exports the old names") became a fact in the `@kolu/surface/verbs` entry: `@kolu/surface-mcp` re-exports `SurfaceVerb` and `SurfaceVerbInputSchema` as `BespokeTool` and `ToolInputSchema`, and new code imports them from `@kolu/surface/verbs`.
+- Every export that was only named in prose now has a row in its entry's export table: `SurfaceClientCallable`, `OwnedSurfaceConnection<Client>`, `SiblingKey`, `disposeQuietly(conn)`, `RootedSurfaceClients`, `clientAt(bundle, sibling)`, `declarationTarget(bundle, sibling)`, `rootedBundleEntries(core, siblings)`, `notABundleDetail(seam)`.
+
+### Headings renamed
+
+| Old anchor | New anchor | Inbound links |
+| --- | --- | --- |
+| `#the-effectcallback-edge-kolusurfacerun-stream` | `#running-a-stream-outside-effect-kolusurfacerun-stream` | None (`.waterfall/anchors.md` and a repo-wide grep). |
+| `#the-bounded-wait-scaffold-kolusurfacewait` | `#bounded-waits-kolusurfacewait` | None. |
+| `#pollonchange-kolusurfacepoll-on-change--the-client-pulse-then-requery-core` | `#pollonchange-kolusurfacepoll-on-change` | None. |
+
+Kept verbatim, because they carry inbound links and are already plain names: "The face and its retry fence (`@kolu/surface/client`)", "Per-subscription liveness (`@kolu/surface/subscriptions`)", "The tagged-error vocabulary (`@kolu/surface/errors`)", "The classified failure ledger (`@kolu/surface/failure-ledger`)", "The projection vocabulary (`@kolu/surface/verbs`)". "One-shot snapshot reads (`@kolu/surface/first-frame`)" is kept too: it is already a plain name.
+
+The two same-page links that read `#per-subscription-liveness` now read `#per-subscription-liveness-kolusurfacesubscriptions`, the anchor that heading actually has.
+
+### Moved
+
+None. What is left of each design argument is a short "because" clause inside its entry, so nothing was queued to an explanation page.
+
+### Cut
+
+| Fact | Tag |
+| --- | --- |
+| "Both faces held their own copy of that argument, in different signatures, until it moved beside the shape it is a property of" (`disposeQuietly`) | history |
+| "`@kolu/surface-cli` did exactly that, and a member's declared refusal came back on the exit code that means 'nothing is serving here' … so one member gave two answers depending on a flag" | history |
+| "a night of unreachable attempts spends the rejection budget, and the give-up line names a count that never happened" (the issue reference and both code spans are kept) | history |
+| "shared by every consumer that hand-rolled it before" (the three named consumers are kept) | history |
+| "so the Solid consumers that already import it there are unchanged" (the re-export from `@kolu/surface/solid` is kept) | history |
+| "shipped from `@kolu/surface-mcp` as …, so existing consumers keep compiling" (the re-export itself is kept) | history |
+| "until then", on the #2297 issue | history |
+| "The empty open is TAGGED, and that is the whole point" (the fact is the entry's heading and its first two sentences) | rationale |
+| "never — terminal by construction" → "Never." | rationale |
+| "That single home is the requirement, not tidiness" → "The single home is the requirement." | rationale |
+| "neither could import the other's without pointing a face at a face" (the reason survives as "so neither projecting face has to import the other's copy") | rationale |
+| "The disease it makes unrepresentable: a bounded budget whose increment predicate differs from its ceiling predicate" → "The increment predicate and the ceiling predicate are one predicate here" | rationale |
+| Capitals for emphasis: `DIRECTLY`, `BOUNDED`, `ITEM`, `UNCERTAIN`, `ONE`, `BOTH`, `RUN`, `EITHER`, `OR`, `CLIENT`, `PULSE`, `SAME`, `EMPTY`, `NOT`, `DATA`, `AFTER`, `UNBOUNDED`, `EVERY`, `SEPARATOR`, `NAMES` | — (style, no fact) |
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs --old-lines 1402-1787`: 0 missing).

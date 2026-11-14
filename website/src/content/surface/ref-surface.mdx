@@ -1937,7 +1937,7 @@ in the module header of
 #### A gated face over a live bundle
 
 On an
-[`implementRootedSurfaces`](#a-rooted-bundle-whose-siblings-move--implementrootedsurfaces)
+[`implementRootedSurfaces`](#implementrootedsurfacescore-base-deps)
 bundle, a mount or a drop changes the served group, so an exposure built for the
 previous roster no longer set-equals it and `restrictHandlers` refuses, loudly.
 The alternative is a face that silently denies a whole sibling.
@@ -2011,239 +2011,322 @@ What happens after the resolve follows from how the transport was chosen:
 - Explicit `transport` (loopback pairs in tests, a socket, any embedded peer):
   the promise resolves the value and the caller owns the process lifetime.
 
+## Client-side subpaths
+
+These subpaths are the client half of the framework: the face a caller holds, the
+fence under every subscription, the error vocabulary all three tiers share, and
+the readers, waits and budgets a consumer builds on.
+
+| Entry | Subpath | What it is |
+| --- | --- | --- |
+| [The face and its retry fence](#the-face-and-its-retry-fence-kolusurfaceclient) | `@kolu/surface/client` | The nested member face over a dispatch, and the per-subscription retry fence. |
+| [Per-subscription liveness](#per-subscription-liveness-kolusurfacesubscriptions) | `@kolu/surface/subscriptions` | What every fenced subscription has received, for a diagnostic to read. |
+| [The tagged-error vocabulary](#the-tagged-error-vocabulary-kolusurfaceerrors) | `@kolu/surface/errors` | The errors that survive a wire hop, their type guards, and `messageOf`. |
+| [One-shot snapshot reads](#one-shot-snapshot-reads-kolusurfacefirst-frame) | `@kolu/surface/first-frame` | Take a member's opening frame, then stop. |
+| [Running a stream outside Effect](#running-a-stream-outside-effect-kolusurfacerun-stream) | `@kolu/surface/run-stream` | Run a `Stream` on its own fiber, behind callbacks. |
+| [Bounded waits](#bounded-waits-kolusurfacewait) | `@kolu/surface/wait` | Block until a condition lands on a stream, or time out. |
+| [`pollOnChange`](#pollonchange-kolusurfacepoll-on-change) | `@kolu/surface/poll-on-change` | Pulse, then requery. |
+| [The classified failure ledger](#the-classified-failure-ledger-kolusurfacefailure-ledger) | `@kolu/surface/failure-ledger` | A retry budget whose classes count separately. |
+| [The projection vocabulary](#the-projection-vocabulary-kolusurfaceverbs) | `@kolu/surface/verbs` | What a projecting face needs that no transport owns. |
+
 ### The face and its retry fence (`@kolu/surface/client`)
 
-`buildSurfaceFace(surface, dispatch)` is the addressing layer every higher client
-stands on: it re-nests the flat tags **once** into `face.surface[member][verb]`,
-reading `surface.tagPrefix` off the value so it never learns whether it faces a
-standalone surface or a composed sibling.
+The addressing layer every higher client stands on, plus the retry fence that
+sits under each subscription.
 
-Both leaf shapes are lazy, and neither takes an `AbortSignal`. A unary leaf is a
-`UnaryEffect<I, O, E>`: a lazy `Effect` that dispatches nothing until it runs, so
-a caller composes it — catches a declared `_tag`, races it, bounds it, lets
-interruption tear it down. A streaming leaf is a `StreamingProcedure<I, O>`
-returning a lazy `Stream` — running it *is* the subscription, and interrupting
-the fiber tears the wire subscription down. In both cases the argument is decoded
-**eagerly**, at the call site, exactly where zod's `.parse`-at-input used to
-throw; only the dispatch is deferred.
-
-Two shapes a *projecting face* holds live here, beside the builder that mints
-them. `SurfaceClientCallable` is the callable-leaved loosening of `SurfaceFace`
-a face holds opaquely — permissive enough that a concrete `SurfaceClientOf<S>`
-assigns without a cast, yet callable at the leaf, which `SurfaceFace`'s
-`unknown` leaves forbid. `OwnedSurfaceConnection<Client>` is that client plus
-the release the face is responsible for (`dispose`, and the transport's optional
-`onClose`) — **one** shape whether the span is one CLI command or an MCP
-subscription's lifetime, so a host can write one connection factory that feeds
-both faces. `@kolu/surface-mcp`'s `PusherConnection` / `OwnedSurfaceConnection`
-and `@kolu/surface-cli`'s `SurfaceCliConnection` are aliases of it.
-
-`SiblingKey` (`string | undefined`) is which surface of a bundle something
-belongs to — `undefined` *is* the bare core, never an omitted value. It lives
-here because each projecting face had declared it for itself: neither could
-import the other's without pointing a face at a face.
-
-`disposeQuietly(conn)` is the one way a face lets go of a connection — it
-defers the call, swallows a rejection *and* a synchronous throw, and returns a
-promise that never rejects. A bare `conn.dispose()` on an async disposer leaves
-an unhandled rejection, which on Node terminates the process at exactly the
-moment the code is being resilient about a transport going away. Both faces held
-their own copy of that argument, in different signatures, until it moved beside
-the shape it is a property of.
-
-`RootedSurfaceClients` is the **client half of a rooted bundle** —
-`{ core?, clients? }`, the shape `connectSurfaces` hands back and the shape both
-projecting faces now dial, so "the client for a bundle" is one shape rather than
-one per face. `clientAt(bundle, sibling)` is the one lookup both faces do:
-`undefined` names the core, a key names that sibling, and a missing leg comes
-back `undefined` so each face can word its own refusal — a refusal is read by
-whoever made the call, and an MCP host and a person at a shell are not the same
-reader.
-
-`declarationTarget(bundle, sibling)` is the other lookup both faces do, and it is
-a *different* one: **a verb receives the client of the thing it is declared on**,
-so a hand-authored verb declared at the bundle root is handed the whole bundle
-and one declared on a sibling is handed that sibling's client. The root arm can
-never come back `undefined` (the bundle *is* the value) — a bundle-root verb that
-wants the core asks `clientAt` for it and refuses there.
-
-The **declaration** half of the same shape has one fold, beside it.
-`rootedBundleEntries(core, siblings)` returns every position of a rooted bundle —
-`{ sibling, value }`, the core first with `sibling: undefined`, then the siblings
-in key order, which is the order a `tools/list`, a `resources/list` and a
-`--help` page are rendered in. It does not refuse: an EMPTY walk *is* the shape
-that is not a bundle, and `notABundleDetail(seam)` is that refusal's one
-sentence, in the calling face's own name — so the predicate and the wording are
-each written once while each face still throws its own error class, the same
-arrangement `notStandaloneRootDetail` makes for the three rooted doors.
-
-The per-subscription **retry fence** lives here too, not in a link: a link that
-retried inside itself could not tell one subscriber's supersession from
-another's. `STREAM_RETRY` retries forever on a failure the fence accepts, spaced
-`STREAM_RETRY_DELAY_MS`, re-running the whole stream — so the next frame a
-consumer sees is the member's fresh snapshot.
-
-The fence retries **failures**, so it only covers what fails. Effect
-broadcasts established-socket failures, including the keep-alive backstop
-([above](#failure-and-re-subscription-across-re-dials)); those failures trigger
-this schedule. Pre-open retries leave calls pending until the first connection.
-
-
-| Export | Purpose |
+| Export | What it is |
 | --- | --- |
-| `buildSurfaceFace(surface, dispatch)` | the nested member face over a dispatch — `face.surface[member][verb]` |
-| `SurfaceFace` · `StreamingProcedure<I,O>` | the face, and its streaming leaf shape — `(encoded input) => Stream<O>` |
-| `UnaryEffect<I,O,E>` | the unary leaf — `(encoded input) => Effect<O, E \| SurfaceCallFailure>`, lazy, interruptible, composable |
-| `SurfaceCallFailure` | what a call can fail with that no spec declared: Effect RPC's `RpcClientError` plus the framework's own `SurfaceError` vocabulary. Defects are deliberately NOT in it — an undeclared throw stays an `Effect.die` |
-| `isTransportError(err)` | positive test for Effect RPC's `RpcClientError` — matched structurally on `_tag`, so it survives a second `effect` copy or a relay hop |
-| `shouldRetryStreamError(err)` | the shared fence: retry a transport error, plus the one retryable relay end; never a declared error, never a dead transport |
-| `STREAM_RETRY` · `STREAM_RETRY_DELAY_MS` | the schedule (spaced 1s, forever, gated on the fence) |
-| `fenceStream(stream, { label?, onRetry? })` | apply the fence to a raw stream |
-| `StreamFenceOptions` | that options bag — `label` (the name the [liveness registry](#per-subscription-liveness-kolusurfacesubscriptions) records) and `onRetry` |
-| `unenrolledStreamCall(procedure, input, { label?, onRetry? })` | call a streaming member with the fence applied and **no** `health()` enrolment |
+| `buildSurfaceFace(surface, dispatch)` | The nested member face over a dispatch: `face.surface[member][verb]`. |
+| `SurfaceFace` · `StreamingProcedure<I,O>` | The face, and its streaming leaf shape: `(encoded input) => Stream<O>`. |
+| `UnaryEffect<I,O,E>` | The unary leaf: `(encoded input) => Effect<O, E \| SurfaceCallFailure>`, lazy, interruptible, composable. |
+| `SurfaceCallFailure` | What a call can fail with that no spec declared. |
+| `isTransportError(err)` | Positive test for Effect RPC's `RpcClientError`. |
+| `shouldRetryStreamError(err)` | The shared fence: which failures a subscription retries. |
+| `STREAM_RETRY` · `STREAM_RETRY_DELAY_MS` | The schedule: spaced 1s, forever, gated on the fence. |
+| `fenceStream(stream, { label?, onRetry? })` | Applies the fence to a raw stream. |
+| `StreamFenceOptions` | That options bag: `label` and `onRetry`. |
+| `unenrolledStreamCall(procedure, input, { label?, onRetry? })` | Calls a streaming member with the fence applied and no `health()` enrolment. |
+| `SurfaceClientCallable` | The callable-leaved client shape a projecting face holds opaquely. |
+| `OwnedSurfaceConnection<Client>` | That client plus the release the face is responsible for. |
+| `SiblingKey` | Which surface of a bundle something belongs to: `string \| undefined`. |
+| `disposeQuietly(conn)` | Lets go of a connection without leaving an unhandled rejection. |
+| `RootedSurfaceClients` | The client half of a rooted bundle: `{ core?, clients? }`. |
+| `clientAt(bundle, sibling)` | The client of one leg of a bundle, or `undefined`. |
+| `declarationTarget(bundle, sibling)` | The client a verb receives: the thing that verb is declared on. |
+| `rootedBundleEntries(core, siblings)` | Every position of a rooted bundle, in render order. |
+| `notABundleDetail(seam)` | The one sentence a face refuses a value that is not a bundle with. |
 
-`onRetry` fires once per retryable failure, between the failed attempt's last
-frame and the next attempt's first — the place to clear a view the fresh snapshot
-will replace.
+#### The face and its leaves
 
-`label` names the subscription in the [liveness registry](#per-subscription-liveness-kolusurfacesubscriptions)
-below. It is optional and additive; an unlabelled subscription still registers,
-as `"(unlabeled)"`, so a gap in coverage shows up in a diagnostic rather than
-hiding a stream from it. Spell it in the `client.health()` vocabulary — a cell or
-stream is its bare key, a collection's keys-stream is `"<key>.keys"`, a per-key
-value sub is `"<key>[<id>]"` — which is what the framework's own enrolment sites
-pass, so the two records name one subscription one way. A raw call site adds
-whatever scope makes it identifiable (kolu appends the host key or the terminal
-id: the same member is legitimately opened once per host and once per pane).
+- `buildSurfaceFace` re-nests the flat tags once into `face.surface[member][verb]`.
+- It reads `surface.tagPrefix` off the value, so it never learns whether it faces
+  a standalone surface or a composed sibling.
+- Both leaf shapes are lazy, and neither takes an `AbortSignal`.
+- A unary leaf is a `UnaryEffect<I, O, E>`: a lazy `Effect` that dispatches
+  nothing until it runs. A caller composes it: catch a declared `_tag`, race it,
+  bound it, let interruption tear it down.
+- A streaming leaf is a `StreamingProcedure<I, O>` returning a lazy `Stream`.
+  Running it is the subscription, and interrupting the fiber tears the wire
+  subscription down.
+- The argument is decoded eagerly, at the call site, exactly where a zod
+  `.parse` at input throws. Only the dispatch is deferred.
+- `SurfaceCallFailure` is Effect RPC's `RpcClientError` plus the framework's own
+  `SurfaceError` vocabulary. Defects are deliberately not in it: an undeclared
+  throw stays an `Effect.die`.
+- `isTransportError(err)` matches structurally on `_tag`, so it survives a second
+  `effect` copy or a relay hop.
 
-A throw from `onRetry` is **contained and logged**, never propagated: the hook
-runs on the fence's own stack, where unwinding would end the stream immediately
-after telling you to clear your view — leaving a cleared view with no stream left
-to refill it (and, through `rawStream`, a `health()` entry stuck `pending`
-forever). Containment is what makes "fired ⇒ a re-subscribe follows" true even
-when the hook is broken. Clean up defensively anyway: the log names your hook,
-not framework code.
+#### The shapes a projecting face holds
+
+- `SurfaceClientCallable` is the callable-leaved loosening of `SurfaceFace`:
+  permissive enough that a concrete `SurfaceClientOf<S>` assigns without a cast,
+  yet callable at the leaf, which `SurfaceFace`'s `unknown` leaves forbid.
+- `OwnedSurfaceConnection<Client>` is that client plus the release the face is
+  responsible for: `dispose`, and the transport's optional `onClose`.
+- It is one shape whether the span is one CLI command or an MCP subscription's
+  lifetime, so a host writes one connection factory that feeds both faces.
+- `@kolu/surface-mcp`'s `PusherConnection` / `OwnedSurfaceConnection` and
+  `@kolu/surface-cli`'s `SurfaceCliConnection` are aliases of it.
+- `SiblingKey` is `string | undefined`, and `undefined` is the bare core, never
+  an omitted value. It lives here so neither projecting face has to import the
+  other's copy.
+- `disposeQuietly(conn)` is the one way a face lets go of a connection. It defers
+  the call, swallows a rejection and a synchronous throw, and returns a promise
+  that never rejects.
+- A bare `conn.dispose()` on an async disposer leaves an unhandled rejection,
+  which on Node ends the process at the moment the code is being resilient about
+  a transport going away.
+
+#### Rooted-bundle lookups
+
+- `RootedSurfaceClients` is `{ core?, clients? }`, the shape `connectSurfaces`
+  hands back and the shape both projecting faces dial.
+- `clientAt(bundle, sibling)` is the one lookup both faces do: `undefined` names
+  the core, a key names that sibling, and a missing leg comes back `undefined`.
+- Each face then words its own refusal, because an MCP host and a person at a
+  shell are not the same reader.
+- `declarationTarget(bundle, sibling)` is a different lookup: a verb receives the
+  client of the thing it is declared on. A verb declared at the bundle root is
+  handed the whole bundle, and one declared on a sibling is handed that sibling's
+  client.
+- The root arm can never come back `undefined`, because the bundle is the value.
+  A bundle-root verb that wants the core asks `clientAt` for it and refuses there.
+- `rootedBundleEntries(core, siblings)` returns `{ sibling, value }` for every
+  position of a rooted bundle: the core first, with `sibling: undefined`, then
+  the siblings in key order.
+- That order is the order a `tools/list`, a `resources/list` and a `--help` page
+  are rendered in.
+- The walk does not refuse. An empty walk is the shape that is not a bundle, and
+  `notABundleDetail(seam)` is that refusal's one sentence, in the calling face's
+  own name.
+- So the predicate and the wording are each written once while each face still
+  throws its own error class, the same arrangement `notStandaloneRootDetail`
+  makes for the three rooted doors.
+
+#### The retry fence
+
+- The fence is per subscription and lives here rather than in a link. A link that
+  retried inside itself could not tell one subscriber's supersession from
+  another's.
+- `STREAM_RETRY` retries forever on a failure the fence accepts, spaced
+  `STREAM_RETRY_DELAY_MS`, re-running the whole stream. The next frame a consumer
+  sees is the member's fresh snapshot.
+- `shouldRetryStreamError(err)` retries a transport error, plus the one retryable
+  relay end. It never retries a declared error, and never a dead transport.
+- The fence retries failures, so it only covers what fails. Effect broadcasts
+  established-socket failures, including the keep-alive backstop
+  ([above](#failure-and-re-subscription-across-re-dials)), and those failures
+  trigger this schedule.
+- Pre-open retries leave calls pending until the first connection.
+- `unenrolledStreamCall(procedure, input, { label?, onRetry? })` applies the
+  fence without enrolling the subscription in `health()`.
+
+#### `label` and `onRetry`
+
+- `onRetry` fires once per retryable failure, between the failed attempt's last
+  frame and the next attempt's first. It is the place to clear a view the fresh
+  snapshot will replace.
+- `label` names the subscription in the [liveness registry](#per-subscription-liveness-kolusurfacesubscriptions)
+  below. It is optional and additive: an unlabelled subscription still registers,
+  as `"(unlabeled)"`, so a gap in coverage shows up in a diagnostic rather than
+  hiding a stream from it.
+- Spell it in the `client.health()` vocabulary. A cell or stream is its bare key,
+  a collection's keys-stream is `"<key>.keys"`, and a per-key value sub is
+  `"<key>[<id>]"`.
+- That is what the framework's own enrolment sites pass, so the two records name
+  one subscription one way.
+- A raw call site adds whatever scope makes it identifiable. kolu appends the
+  host key or the terminal id, because the same member is legitimately opened
+  once per host and once per pane.
+- A throw from `onRetry` is contained and logged, never propagated. The hook runs
+  on the fence's own stack, where unwinding would end the stream immediately
+  after telling you to clear your view.
+- That would leave a cleared view with no stream left to refill it, and, through
+  `rawStream`, a `health()` entry stuck `pending` forever.
+- Containment is what makes "fired means a re-subscribe follows" true even when
+  the hook is broken. Clean up defensively anyway: the log names your hook, not
+  framework code.
 
 ### Per-subscription liveness (`@kolu/surface/subscriptions`)
 
-Every fenced subscription funnels through `fenceStream`, so the fence is also
-where the framework records what each one has actually received. That record is
-the only thing that can tell a **parked** subscription from a healthy one: a
-parked stream is not `pending` (its first frame landed, long ago) and not
-erroring (nothing failed — that is the disease), so `client.health()` reads it as
-perfectly fine. Only a frame timestamp says otherwise.
+Every fenced subscription funnels through `fenceStream`, and that is where the
+framework records what each one has actually received.
 
-| Export | Purpose |
+| Export | What it is |
 | --- | --- |
-| `subscriptionLiveness()` | every subscription this runtime holds, plus the last 20 it finished with, in subscribe order |
-| `resetSubscriptionLiveness()` | drop every record — **tests only** |
-| `SubscriptionLiveness` | one record's shape — what a diagnostic reads |
-| `registerSubscription(label?)` | mint a record and its writer. Framework-internal: `fenceStream` is the only caller, which is what makes registration total — a consumer labels its subscription and never calls this |
-| `SubscriptionProbe` | that writer — `frame()` · `retry(error)` · `finish(exit)` |
-| `UNLABELED_SUBSCRIPTION` · `ENDED_RETENTION` | the `"(unlabeled)"` fallback label, and how many ended records are kept |
+| `subscriptionLiveness()` | Every subscription this runtime holds, plus the last 20 it finished with, in subscribe order. |
+| `resetSubscriptionLiveness()` | Drops every record. Tests only. |
+| `SubscriptionLiveness` | One record's shape, which is what a diagnostic reads. |
+| `registerSubscription(label?)` | Mints a record and its writer. Framework-internal: `fenceStream` is its only caller. |
+| `SubscriptionProbe` | That writer: `frame()` · `retry(error)` · `finish(exit)`. |
+| `UNLABELED_SUBSCRIPTION` · `ENDED_RETENTION` | The `"(unlabeled)"` fallback label, and how many ended records are kept. |
 
-Each record carries `label`, `subscribedAt`, `lastFrameAt?`, `framesReceived`,
-`retries`, `state` (`live` / `ended` / `failed`), `endedAt?` and `lastError?`.
-Timestamps are `Date.now()`, like the dial history's, so the two read side by
-side and beside a server log. The registry is **module-scoped**: the question it
-answers spans every client in a runtime (a root surface, a control plane, one
-keyed-map client per host, plus the deliberately un-enrolled raw streams that
-belong to no client), which is a different scope from the per-client health fact.
-It is bounded — live records are bounded by the subscriptions you hold, ended
-ones by `ENDED_RETENTION`.
-
-A re-subscribe updates the SAME record (`retries` climbs) rather than minting a
-second, and a record is minted when a fenced stream **runs**, never when its lazy
-value is built.
-
-The verdict itself — *is this subscription parked?* — is not stored: it is a
-comparison between a record's `lastFrameAt` and the wire's current open-since
-(`diagnostics.dialHistory()`), both of which move on their own, so a consumer
-computes it at the moment it reports. kolu's Diagnostic Info block is the worked
-example.
+- That record is the only thing that can tell a parked subscription from a
+  healthy one. A parked stream is not `pending`, since its first frame landed
+  long ago, and nothing failed, so `client.health()` reads it as perfectly fine.
+  Only a frame timestamp says otherwise.
+- `fenceStream` being the only caller is what makes registration total: a
+  consumer labels its subscription and never calls `registerSubscription` itself.
+- Each record carries `label`, `subscribedAt`, `lastFrameAt?`, `framesReceived`,
+  `retries`, `state` (`live` / `ended` / `failed`), `endedAt?` and `lastError?`.
+- Timestamps are `Date.now()`, like the dial history's, so the two read side by
+  side and beside a server log.
+- The registry is module-scoped. Its question spans every client in a runtime: a
+  root surface, a control plane, one keyed-map client per host, and the
+  deliberately un-enrolled raw streams that belong to no client.
+- That is a different scope from the per-client health fact.
+- It is bounded. Live records are bounded by the subscriptions you hold, ended
+  ones by `ENDED_RETENTION`.
+- A re-subscribe updates the same record, and `retries` climbs, rather than
+  minting a second one.
+- A record is minted when a fenced stream runs, never when its lazy value is
+  built.
+- The verdict, whether a subscription is parked, is not stored. It is a
+  comparison between a record's `lastFrameAt` and the wire's current open-since
+  (`diagnostics.dialHistory()`), both of which move on their own.
+- So a consumer computes the verdict at the moment it reports. kolu's Diagnostic
+  Info block is the worked example.
 
 ### The tagged-error vocabulary (`@kolu/surface/errors`)
 
-Every error that has to be **recognised on the far side of a wire hop** lives in
-one module all three tiers import, as a `Schema.TaggedError`. That single
-home is the requirement, not tidiness: a re-serving parent decodes an error from
-upstream and re-encodes it downstream, and only a schema both ends were built
-from survives serialize → deserialize → re-serialize with its `_tag` and data
-intact.
+Every error that has to be recognised on the far side of a wire hop lives in one
+module all three tiers import, as a `Schema.TaggedError`.
 
 | Class | Meaning | Retryable |
 | --- | --- | --- |
-| `SurfaceTransportRetired` | the server retired this browser socket (a stale tab, close `4001`). Carries `death: RetiredTransportDeath` — see [the `death` field](#the-stdio-readiness-gate--kolusurfacelinksreadiness) | never — terminal by construction |
-| `SurfaceStdioTransportClosed` | a stdio / unix-socket leg closed; the owner re-dials for a **new** link. Carries `death: StdioTransportDeath` — see [the `death` field](#the-stdio-readiness-gate--kolusurfacelinksreadiness) | never |
-| `SurfaceRelayTransportLost` | a re-serve relay's **middle-hop** upstream drop the parent will heal | **yes** — the one retryable framework error |
-| `MapKeyNonCanonical` · `MapKeyUnknown` · `MapEntryFailed` | the keyed-map rejections (see [`@kolu/surface-map`](/surface/ref-surface-map)) | never |
+| `SurfaceTransportRetired` | The server retired this browser socket (a stale tab, close `4001`). Carries `death: RetiredTransportDeath`, [the `death` field](#the-stdio-readiness-gate--kolusurfacelinksreadiness). | Never. |
+| `SurfaceStdioTransportClosed` | A stdio or unix-socket leg closed, and the owner re-dials for a new link. Carries `death: StdioTransportDeath`. | Never. |
+| `SurfaceRelayTransportLost` | A re-serve relay's middle-hop upstream drop, which the parent will heal. | Yes, the one retryable framework error. |
+| `MapKeyNonCanonical` · `MapKeyUnknown` · `MapEntryFailed` | The keyed-map rejections (see [`@kolu/surface-map`](/surface/ref-surface-map)). | Never. |
 
-`SurfaceErrorSchema` is the closed union of all six — what a relay decodes
-against, rather than a per-call guess — and `SurfaceError` its decoded type. The
-predicates beside them are **type guards**, so a call site narrows instead of
-re-checking `_tag` by hand: `isSurfaceError`, `isDeadTransportError` (the two
-permanently-dead tags), `isSurfaceTransportRetired`,
-`isSurfaceStdioTransportClosed`, `isSurfaceRelayTransportLost`.
+- The single home is the requirement. A re-serving parent decodes an error from
+  upstream and re-encodes it downstream, and only a schema both ends were built
+  from survives serialize, deserialize and re-serialize with its `_tag` and data
+  intact.
+- `SurfaceErrorSchema` is the closed union of all six, which is what a relay
+  decodes against rather than guessing per call. `SurfaceError` is its decoded
+  type.
+- The predicates beside them are type guards, so a call site narrows instead of
+  re-checking `_tag` by hand: `isSurfaceError`, `isDeadTransportError` (the two
+  permanently-dead tags), `isSurfaceTransportRetired`,
+  `isSurfaceStdioTransportClosed` and `isSurfaceRelayTransportLost`.
+- App-declared procedure errors are not in this union. They are declared per
+  procedure on `ProcedureSpec.error` and travel on that procedure's own error
+  channel.
+- A defect is still a defect: an undeclared throw stays an `Effect.die` and is
+  not modelled here.
 
-**`SurfaceUpstreamRefused` is the one framework error that is NOT in that
-union**, because it is raised as a **defect**: the upstream answered and this
-build will not speak to it (a contract skew, a socket owned by a stranger), and
-the member that meets that is a stream minted by `defineSurface`, which declares
-no error channel (`Rpc.make({stream: true})` resolves an undeclared one to
-`Schema.Never`). A typed failure there is encoded against that `Never` and
-reaches the subscriber as a complaint about the encoding; a defect crosses with
-its `reason` intact and is never retried — both of which are what a standing
-refusal wants. Narrow on it in-process with `isSurfaceUpstreamRefused`.
+#### `SurfaceUpstreamRefused`
 
-A map-**folded** stream is the exception: `@kolu/surface-map` gives those a
-declared framework channel (`foldedError`), which is why the transport deaths
-above cross a map hop by `_tag`. Giving `defineSurface`'s own streams the same
-union is [juspay/kolu#2297](https://github.com/juspay/kolu/issues/2297) — until
-then, a relay with a standing condition to report raises a defect rather than
-declaring a channel that is not there.
+The one framework error that is not in that union, because it is raised as a
+defect: the upstream answered, and this build will not speak to it (a contract
+skew, a socket owned by a stranger).
 
-App-declared procedure errors are **not** in this union — they are declared per
-procedure on `ProcedureSpec.error` and travel on that procedure's own error
-channel. And a defect is still a defect: an undeclared throw stays an
-`Effect.die` and is not modelled here.
+- The member that meets that is a stream minted by `defineSurface`, which
+  declares no error channel: `Rpc.make({stream: true})` resolves an undeclared
+  one to `Schema.Never`.
+- A typed failure there is encoded against that `Never` and reaches the
+  subscriber as a complaint about the encoding.
+- A defect crosses with its `reason` intact and is never retried, which is what
+  a standing refusal wants. Narrow on it in-process with
+  `isSurfaceUpstreamRefused`.
+- A map-folded stream is the exception. `@kolu/surface-map` gives those a
+  declared framework channel (`foldedError`), which is why the transport deaths
+  above cross a map hop by `_tag`.
+- Giving `defineSurface`'s own streams the same union is
+  [juspay/kolu#2297](https://github.com/juspay/kolu/issues/2297). A relay with a
+  standing condition to report raises a defect rather than declaring a channel
+  that is not there.
 
-`messageOf(error)` sits at the foot of the same module for that reason: it is
-what a face falls back to when the value it caught is **not** one of the
-declared errors — a defect, a scaffold's throw, a plain object someone failed
-with. One derivation, so every projecting face words one failure the same way,
-and it handles the two shapes `e instanceof Error ? e.message : String(e)` gets
-wrong: a tagged error whose `message` is empty (its identity is in `_tag`), and
-a failure declared as a plain object (`[object Object]`). A value JSON cannot
-render is named by its constructor and its keys, carrying the reason it refused.
+#### `messageOf(error)`
+
+What a face falls back to when the value it caught is not one of the declared
+errors: a defect, a scaffold's throw, a plain object someone failed with.
+
+- One derivation, so every projecting face words one failure the same way.
+- It handles the two shapes `e instanceof Error ? e.message : String(e)` gets
+  wrong: a tagged error whose `message` is empty, its identity being in `_tag`,
+  and a failure declared as a plain object (`[object Object]`).
+- A value JSON cannot render is named by its constructor and its keys, carrying
+  the reason it refused.
 
 ### One-shot snapshot reads (`@kolu/surface/first-frame`)
 
-Every member verb hands back a lazy `Stream`, and a one-shot read is "take the
-opening snapshot frame, then stop". These readers take that `Stream` DIRECTLY
-and consume it with `Stream.runHead`, whose interruption of the rest **is** the
-unsubscribe — so no consumer writes a `toAsyncIterable` bridge, and no consumer
-re-derives the held-open-`get` hazard below.
+Every member verb hands back a lazy `Stream`, and a one-shot read takes the
+opening snapshot frame, then stops.
 
-| Export | Signature | Purpose |
+| Export | Signature | What it is |
 | --- | --- | --- |
-| `firstFrameOrUndefined(stream)` | `(Stream<T>) → Effect<T \| undefined>` | the snapshot frame, or `undefined` when the stream ends empty (a benign "no value yet") |
-| `firstFrameOrThrow(stream, onEmptyMessage)` | `(Stream<T>, string) → Effect<T>` | the snapshot frame; FAILS on an empty stream — a missing snapshot is a dropped link, never a silent `undefined`. A recoverable failure, not a thrown defect, so a caller may `Effect.catch` it without swallowing bugs. The empty open fails as a **tagged `NoSnapshotFrame`**, never a bare `Error` — see below |
-| `firstFrameOfCollectionItem(item, keys, key, onEmptyItem, deadlineMs)` | `(Stream<T>, Stream<unknown> \| null, unknown, string, number) → Effect<CollectionItemFrame<T>>` | the BOUNDED one-shot read of a collection ITEM. A `get` for a not-yet-member key is held open and yields nothing forever (#1681), so this races the item's first frame against BOTH a live `keys`-absence watch and a hard deadline — always both, never one |
-| `CollectionItemFrame<T>` | `{present:true, value:T} \| {present:false, reason:"absent"\|"deadline"}` | a typed sum, so "present with an `undefined` value" and "absent" can never collapse into one nullable hole — and so a caller can log the UNCERTAIN `deadline` case distinctly from a known absence |
-| `NoSnapshotFrame` | `Data.TaggedError("NoSnapshotFrame")<{message}>` | the empty-open failure BOTH readers raise — tagged rather than a bare `Error`, so it can be told from the stream's own error channel |
-| `isNoSnapshotFrame(error)` | `(unknown) → error is NoSnapshotFrame` | the ONE predicate to discriminate on, so no consumer re-derives it from a message or an `instanceof` across a package boundary |
-| `ITEM_READ_DEADLINE_MS` | `5_000` | the deadline a bounded item read uses when its caller has no reason of its own to pick one. Both projecting faces read it rather than spelling the number each |
+| `firstFrameOrUndefined(stream)` | `(Stream<T>) → Effect<T \| undefined>` | The snapshot frame, or `undefined` when the stream ends empty. |
+| `firstFrameOrThrow(stream, onEmptyMessage)` | `(Stream<T>, string) → Effect<T>` | The snapshot frame. Fails on an empty stream. |
+| `firstFrameOfCollectionItem(item, keys, key, onEmptyItem, deadlineMs)` | `(Stream<T>, Stream<unknown> \| null, unknown, string, number) → Effect<CollectionItemFrame<T>>` | The bounded one-shot read of a collection item. |
+| `CollectionItemFrame<T>` | `{present:true, value:T} \| {present:false, reason:"absent"\|"deadline"}` | A typed sum: present with a value, or absent with a reason. |
+| `NoSnapshotFrame` | `Data.TaggedError("NoSnapshotFrame")<{message}>` | The empty-open failure both readers raise. |
+| `isNoSnapshotFrame(error)` | `(unknown) → error is NoSnapshotFrame` | The one predicate to discriminate on. |
+| `ITEM_READ_DEADLINE_MS` | `5_000` | The deadline a bounded item read uses by default. |
 
-**The empty open is TAGGED, and that is the whole point.** Both readers can fail
-two ways — the stream opened and closed without its snapshot, or the *stream's
-own error channel* failed — and those mean opposite things: the first says the
-link went away and nothing answered, the second says the far side answered and
-the answer was no. A reader that catches the whole failure channel and re-words
-it collapses them. `@kolu/surface-cli` did exactly that, and a member's declared
-refusal came back on the exit code that means "nothing is serving here" — while
-the same refusal on the *streaming* path reported correctly, so one member gave
-two answers depending on a flag. So discriminate with `isNoSnapshotFrame` and let
-everything else through:
+- These readers take that `Stream` directly and consume it with `Stream.runHead`,
+  whose interruption of the rest is the unsubscribe. No consumer writes a
+  `toAsyncIterable` bridge, and none re-derives the held-open-`get` hazard below.
+- An empty end from `firstFrameOrUndefined` is a benign "no value yet".
+- For `firstFrameOrThrow`, a missing snapshot is a dropped link, never a silent
+  `undefined`. It is a recoverable failure, not a thrown defect, so a caller may
+  `Effect.catch` it without swallowing bugs.
+- The empty open fails as a tagged `NoSnapshotFrame`, never a bare `Error`, so it
+  can be told from the stream's own error channel.
+- `isNoSnapshotFrame(error)` is the one predicate to discriminate on, so no
+  consumer re-derives it from a message or an `instanceof` across a package
+  boundary.
+- All three readers are Effects, and there is no `signal` to pass, because
+  cancellation already is interruption.
+- A one-shot read is almost always part of something larger: a concurrent fold
+  over a host's terminals, an MCP `resources/read` under the request's own
+  cancellation, a CLI command that must die on Ctrl-C.
+- Staying inside the fiber tree that bounds it is what makes "the caller gave up"
+  reach the read, so it never waits out a wedged-but-retrying link.
+
+#### The bounded item read
+
+A `get` for a not-yet-member key is held open and yields nothing forever
+(#1681). So `firstFrameOfCollectionItem` races the item's first frame against
+both a live `keys`-absence watch and a hard deadline, always both, never one.
+
+- `CollectionItemFrame<T>` is a typed sum so "present with an `undefined` value"
+  and "absent" can never collapse into one nullable hole, and so a caller can log
+  the uncertain `deadline` case distinctly from a known absence.
+- `ITEM_READ_DEADLINE_MS` is `5_000`, the deadline a bounded item read uses when
+  its caller has no reason of its own to pick one. Both projecting faces read it
+  rather than spelling the number each.
+
+#### Telling an empty open from a failure
+
+Both readers can fail two ways: the stream opened and closed without its
+snapshot, or the stream's own error channel failed. Those mean opposite things.
+The first says the link went away and nothing answered. The second says the far
+side answered and the answer was no.
+
+A reader that catches the whole failure channel and re-words it collapses the
+two. Discriminate with `isNoSnapshotFrame` and let everything else through:
 
 ```ts
 Effect.catch(firstFrameOrThrow(stream, "…opened and closed with no snapshot"), (error) =>
@@ -2251,151 +2334,197 @@ Effect.catch(firstFrameOrThrow(stream, "…opened and closed with no snapshot"),
 )
 ```
 
-All three are Effects, and there is no `signal` to pass, because cancellation
-already *is* interruption. That matters because a one-shot read is almost always
-part of something larger — a concurrent fold over a host's terminals, an MCP
-`resources/read` under the request's own cancellation, a CLI command that must
-die on Ctrl-C. Staying inside the fiber tree that bounds it is what makes
-"the caller gave up" reach the read, so it never waits out a
-wedged-but-retrying link.
+### Running a stream outside Effect (`@kolu/surface/run-stream`)
 
-### The Effect→callback edge (`@kolu/surface/run-stream`)
+A member verb hands back a lazy `Stream`, and `runStreamScoped` is where a
+non-Effect consumer runs one, so its frames become signal writes, terminal output
+or a redraw.
 
-A member verb hands back a lazy `Stream`, and somewhere a non-Effect consumer has
-to RUN one so its frames become signal writes, terminal output, or a redraw.
-`runStreamScoped` is that place — one function, not one `Effect.runFork` per
-subscription primitive — and it owns three rules so nobody re-derives them:
-
-- **teardown is a fiber interrupt**, and the returned stopper latches *before*
-  interrupting, so after it runs nothing reports: not a late frame, not the
-  interruption exit, not a failure racing the stop;
-- **an interruption is never a failure** (an unmount must not register as a
-  subscription error in `health()`);
-- **a failure is normalised once** to an `Error`, so a tagged surface error still
-  arrives as itself and a caller can narrow on it.
-
-| Export | Signature | Purpose |
+| Export | Signature | What it is |
 | --- | --- | --- |
-| `runStreamScoped(stream, handlers)` | `(Stream<T>, { onFrame, onEnd, onFailure }) → () => void` | run the stream on its own fiber; returns the idempotent, synchronous stopper |
-| `StreamRunHandlers<T>` | `{ onFrame, onEnd, onFailure }` | the three mutually-exclusive outcomes — frames, then EITHER a typed end OR a failure, or silence if stopped first |
-| `toError(value)` | `(unknown) → Error` | the one failure normalisation (a tagged surface error passes through with its `_tag` intact) |
+| `runStreamScoped(stream, handlers)` | `(Stream<T>, { onFrame, onEnd, onFailure }) → () => void` | Runs the stream on its own fiber, and returns the idempotent, synchronous stopper. |
+| `StreamRunHandlers<T>` | `{ onFrame, onEnd, onFailure }` | The three mutually-exclusive outcomes. |
+| `toError(value)` | `(unknown) → Error` | The one failure normalisation. |
 
-It lives at the package **root**, on its own subpath, because it has nothing to do
-with Solid: `pollOnChange` is deliberately Solid-free and runs its pulse through
-this same edge, and so do consumers outside this repo. It is also re-exported from
-`@kolu/surface/solid`, so the Solid consumers that already import it there are
-unchanged.
+It is one function, not one `Effect.runFork` per subscription primitive, and it
+owns three rules so nobody re-derives them:
 
-### The bounded-wait scaffold (`@kolu/surface/wait`)
+- Teardown is a fiber interrupt, and the returned stopper latches before
+  interrupting. After it runs nothing reports: not a late frame, not the
+  interruption exit, not a failure racing the stop.
+- An interruption is never a failure, so an unmount does not register as a
+  subscription error in `health()`.
+- A failure is normalised once to an `Error`. A tagged surface error passes
+  through with its `_tag` intact, so a caller can narrow on it.
 
-The client-side "block until a condition lands on a stream" discipline, shared
-by every consumer that hand-rolled it before (kaval-tui's output-idle wait,
-padi-tui's agent-state wait, the kolu MCP face's composite `wait_*` tools).
-Zero imports — a stream-consumption leaf beside `first-frame`.
+The handlers see frames, then either a typed end or a failure, or silence if the
+stopper ran first.
 
-| Export | Purpose |
+It lives at the package root, on its own subpath, because it has nothing to do
+with Solid. `pollOnChange` is deliberately Solid-free and runs its pulse through
+this same edge, and so do consumers outside this repo. It is also re-exported
+from `@kolu/surface/solid`, so a Solid consumer may import it from either path.
+
+### Bounded waits (`@kolu/surface/wait`)
+
+The client-side "block until a condition lands on a stream" discipline. Zero
+imports: a stream-consumption leaf beside `first-frame`.
+
+| Export | What it is |
 | --- | --- |
-| `WaitOutcome<Met>` | the one outcome union — `met` (payload spread flat; `Met` must not carry its own `kind`) · `gone` · `timeout` · `interrupted` · `closed` |
-| `runWait(opts, watchers)` | own the race: chain the caller's signal, arm the timeout, first-writer-wins `settle`, resolve the `interrupted`/`closed` fallback |
-| `WaitCtx<Met>` | what watchers receive — `settle` · `signal` (chain every subscription) · `elapsedMs()` · `recordUpstreamError` |
-| `waitOutcomeJson(id, outcome, metJson)` | serialize an outcome to the driver-facing JSON frame — owns the four terminal arms (`timeout`/`gone`/`interrupted`/`closed`) once; the per-face `met` shape is the injected `metJson` callback |
-| `MAX_TIMER_MS` / `isValidTimerMs` | the `setTimeout` 32-bit-ceiling range rule every timeout/idle window flows through |
+| `WaitOutcome<Met>` | The one outcome union: `met` · `gone` · `timeout` · `interrupted` · `closed`. |
+| `runWait(opts, watchers)` | Owns the race: the caller's signal, the timeout, `settle`, and the fallback. |
+| `WaitCtx<Met>` | What watchers receive: `settle` · `signal` · `elapsedMs()` · `recordUpstreamError`. |
+| `waitOutcomeJson(id, outcome, metJson)` | Serializes an outcome to the driver-facing JSON frame. |
+| `MAX_TIMER_MS` / `isValidTimerMs` | The `setTimeout` 32-bit-ceiling range rule. |
 
-A watcher that **rejects** is a bug, not an outcome: the rejection propagates
-out of `runWait` verbatim — `closed` is reserved for the link settling without
-an outcome. The condition *watchers* stay in each consumer (they bind that
-consumer's surface contract); only the outcome union and the race lifecycle
-live here.
+- The `met` arm spreads its payload flat, so `Met` must not carry its own `kind`.
+- `runWait` chains the caller's signal, arms the timeout, settles first-writer-wins,
+  and resolves the `interrupted` or `closed` fallback.
+- A watcher chains every subscription it opens to the `signal` it is handed.
+- `waitOutcomeJson` owns the four terminal arms (`timeout`, `gone`, `interrupted`
+  and `closed`) once. The per-face `met` shape is the injected `metJson` callback.
+- Every timeout and idle window flows through the `MAX_TIMER_MS` and
+  `isValidTimerMs` range rule.
+- A watcher that rejects is a bug, not an outcome. The rejection propagates out
+  of `runWait` verbatim, and `closed` is reserved for the link settling without
+  an outcome.
+- The condition watchers stay in each consumer, because they bind that consumer's
+  surface contract. Only the outcome union and the race lifecycle live here.
+- kaval-tui's output-idle wait, padi-tui's agent-state wait and the kolu MCP
+  face's composite `wait_*` tools share it.
 
-### `pollOnChange` (`@kolu/surface/poll-on-change`) — the client pulse-then-requery core
+### `pollOnChange` (`@kolu/surface/poll-on-change`)
 
-The framework-free CLIENT dual of the server's `pollOnEvent`: subscribe a
-value-bearing `{seq}` PULSE stream (over `unenrolledStreamCall`, so it carries
-`STREAM_RETRY`), re-run a request/response procedure on every frame (initial
-snapshot + each change + each post-reconnect snapshot), abort-supersede a slow
-read, and emit through `onResult` / `onError` / `onComplete`. Zero Solid/kolu
-imports — the loop only. The SolidJS ergonomics (a reconciled store, `.pending()`,
-the #818 selection-stability guard) wrap it in `packages/client`'s
-`createPolledQuery`; a consumer needing the same pattern reaches for the wrapper,
-not this engine directly.
+The framework-free client dual of the server's `pollOnEvent`: pulse, then
+requery.
+
+- It subscribes a value-bearing `{seq}` pulse stream over `unenrolledStreamCall`,
+  so the pulse carries `STREAM_RETRY`.
+- It re-runs a request/response procedure on every frame: the initial snapshot,
+  each change, and each post-reconnect snapshot.
+- A slow read is abort-superseded by the next one.
+- Results reach the caller through `onResult` / `onError` / `onComplete`.
+- It has zero Solid and zero kolu imports: the loop only.
+- The SolidJS ergonomics wrap it in `packages/client`'s `createPolledQuery`: a
+  reconciled store, `.pending()`, and the #818 selection-stability guard.
+- A consumer that needs the same pattern reaches for that wrapper, not this
+  engine directly.
 
 ### The classified failure ledger (`@kolu/surface/failure-ledger`)
 
 A bounded retry budget whose classes cannot count each other's failures. Zero
-imports — a counting leaf beside `wait`. The disease it makes unrepresentable:
-*a bounded budget whose increment predicate differs from its ceiling predicate*
-(`consecutiveFailures += 1` for every cause, `cause === "remote" && count >= 5`
-at the gate — so a night of unreachable attempts spends the rejection budget,
-and the give-up line names a count that never happened; juspay/kolu#2101).
+imports: a counting leaf beside `wait`.
 
-| Export | Purpose |
+| Export | What it is |
 | --- | --- |
-| `makeFailureLedger(spec)` | build the ledger from a `Record<K, FailureClassSpec>`. **Throws at construction** on a `resets` entry naming a class the spec does not declare |
-| `FailureClassSpec` | one class's budget — `ceiling` (`number`, or `null` for UNBOUNDED: that class can never produce an exhausted verdict) and `resets?` (the interleaving rule as DATA: classes whose run a recording of *this* class restarts) |
-| `FailureVerdict` | what a recording says about the class recorded, and only it — `exhausted` · `run` (this class's run AFTER the recording, safe to print) · `ceiling` |
-| `FailureLedger<K>` | `record(cause) → FailureVerdict` · `success()` (clears every run and the attempt count) · `attempts()` |
+| `makeFailureLedger(spec)` | Builds the ledger from a `Record<K, FailureClassSpec>`. |
+| `FailureClassSpec` | One class's budget: `ceiling` and `resets?`. |
+| `FailureVerdict` | What a recording says about the class recorded: `exhausted` · `run` · `ceiling`. |
+| `FailureLedger<K>` | `record(cause) → FailureVerdict` · `success()` · `attempts()`. |
 
-`exhausted` is computed from that class's own run and that class's own ceiling —
-no cross-class read exists in the verdict path, so the two predicates are the
-same predicate by construction and a message built from `verdict.run` can only
-ever name the run that tripped. `attempts()` is the **display/pacing tier**: the
-total across all classes since the last `success()`, exposed for backoff
-exponents and "attempt N" log lines, and read by no ceiling. A **single-class**
-budget does not need this (its one increment and one ceiling already share the
-one predicate); reach for it when a budget has more than one failure class.
-`@kolu/surface-remote`'s session is the consumer:
-`{ network: { ceiling: null, resets: ["remote"] }, remote: { ceiling: 5 } }`.
+- `makeFailureLedger` throws at construction on a `resets` entry naming a class
+  the spec does not declare.
+- `ceiling` is a `number`, or `null` for unbounded, in which case that class can
+  never produce an exhausted verdict.
+- `resets?` is the interleaving rule as data: the classes whose run a recording
+  of this class restarts.
+- A verdict reports the class recorded, and only it. Its `run` is that class's
+  run after the recording, safe to print, beside the `ceiling` it was measured
+  against.
+- `exhausted` is computed from that class's own run and that class's own ceiling.
+  No cross-class read exists in the verdict path, so a message built from
+  `verdict.run` can only name the run that tripped.
+- `success()` clears every run and the attempt count.
+- `attempts()` is the display and pacing tier: the total across all classes since
+  the last `success()`, exposed for backoff exponents and "attempt N" log lines,
+  and read by no ceiling.
+- The increment predicate and the ceiling predicate are one predicate here.
+  Counting `consecutiveFailures += 1` for every cause while gating on
+  `cause === "remote" && count >= 5` spends one class's budget on another's
+  failures (juspay/kolu#2101).
+- A single-class budget does not need this, since its one increment and one
+  ceiling already share the one predicate. Reach for it when a budget has more
+  than one failure class.
+- `@kolu/surface-remote`'s session is the consumer:
+  `{ network: { ceiling: null, resets: ["remote"] }, remote: { ceiling: 5 } }`.
 
 ### The projection vocabulary (`@kolu/surface/verbs`)
 
-A surface is served to more than one kind of caller, and a *projecting face* —
-[`@kolu/surface-mcp`](/surface/ref-surface-mcp) as MCP,
-[`@kolu/surface-cli`](/surface/ref-surface-cli) as argv — needs a handful of
-things that belong to neither transport. They live here so two faces read one
-contract by one grammar, exactly as [`expose`](#per-face-expose-kolusurfaceexpose)
-does for the allowlist.
+What a projecting face needs that belongs to neither transport.
+[`@kolu/surface-mcp`](/surface/ref-surface-mcp) projects a surface as MCP and
+[`@kolu/surface-cli`](/surface/ref-surface-cli) projects it as argv, and both
+read one contract by one grammar, as
+[`expose`](#per-face-expose-kolusurfaceexpose) does for the allowlist.
 
-| Export | Purpose |
+| Export | What it is |
 | --- | --- |
-| `SurfaceVerb<I, O>` | a hand-authored, call-shaped verb — `input?` (an Effect Schema), `handler(args, client, signal)` returning an `Effect`, plus `description?` / `title?` / `mutates?`. The record an app hands to EVERY face verbatim |
-| `SurfaceVerbInputSchema<I>` | the bound on a verb's `input`: `Schema.Codec<I, unknown, never, never>` — context-free, because an argument that arrived as argv or as JSON has no environment to decode in |
-| `toolName(ns, verb)` | the flat name a procedure answers to on a face with no dots to spend — `<ns>_<verb>`. Only the SEPARATOR is rewritten, so `a.b`·`c` mints `a.b_c` and stays reversible to one pair |
-| `toInputSchema(schema?)` | the Effect Schema → JSON-Schema bridge (draft 2020-12), dereferenced, opened, numeric-normalised, top-level object enforced |
-| `inputSchema(schema?)` | → `AdvertisedInput`: the document plus the `wrapped` bit (did a non-object input have to travel under one property?). A **union** on that bit — the wrapped arm carries that value's own `inner` node, handed over so a face never NAMES the wrapper property, and the unwrapped arm has no such field to test for |
-| `unwrapArgs` · `wrapValue` | the two halves of the wrapping rule a face performs; the key a scalar travels under stays private to the module |
-| `decodeTextValue(schema, text)` | land a text token in a declared type — verbatim first, then its JSON reading — answering with BOTH: `decoded` for a face that addresses by value, `encoded` for one that hands a member's own ref something to decode |
-| `admitsNoArgument(schema)` | does this member's declared input admit *no argument at all*? The question every face asks before offering a member that carries none — MCP before publishing a static `surface://` resource, the CLI before letting `get <member>` stand with no `[arg]`. One predicate, because each face turns a `false` into its own refusal and two spellings is how they come to disagree about which members are addressable |
+| `SurfaceVerb<I, O>` | A hand-authored, call-shaped verb. The record an app hands to every face verbatim. |
+| `SurfaceVerbInputSchema<I>` | The bound on a verb's `input`: `Schema.Codec<I, unknown, never, never>`. |
+| `toolName(ns, verb)` | The flat name a procedure answers to on a face with no dots to spend: `<ns>_<verb>`. |
+| `toInputSchema(schema?)` | The Effect Schema to JSON-Schema bridge, draft 2020-12. |
+| `inputSchema(schema?)` | An `AdvertisedInput`: that document plus the `wrapped` bit. |
+| `unwrapArgs` · `wrapValue` | The two halves of the wrapping rule a face performs. |
+| `decodeTextValue(schema, text)` | Lands a text token in a declared type. |
+| `admitsNoArgument(schema)` | Does this member's declared input admit no argument at all? |
 
-`mutates` defaults **conservatively**: absent means mutating, because a
-read-only hint can let an MCP host auto-run a verb unconfirmed. Mark a genuinely
-read-only verb `mutates: false`. For a *procedure*, that default is
-[`exposureMutates(exposure)`](#per-face-expose-kolusurfaceexpose) — one
-derivation both faces read, because a safety default spelled once per face is
-one that can be relaxed on one face.
-
-The Schema → JSON-Schema bridge (`toInputSchema` · `inputSchema` ·
-`unwrapArgs` · `wrapValue`) has a **module of its own** behind this subpath,
-which re-exports it: it is the one piece of this vocabulary with a version seam
-(the converter's option defaults shift between effect betas, with a byte fixture
-standing over them), and a file that holds the volatility says which half moves.
-Nothing about how you import it changes — one concept, one import path.
-
-Two things that a face reads are deliberately **not** here, so nothing has to
-import the projection vocabulary to reach them:
-[`SurfaceClientCallable`](#the-face-and-its-retry-fence-kolusurfaceclient) — the
-callable-leaved client shape a face holds opaquely, and the connection it owns —
-is `@kolu/surface/client`'s, beside the `buildSurfaceFace` that mints one; and
-[`messageOf`](#the-tagged-error-vocabulary-kolusurfaceerrors) is
-`@kolu/surface/errors`'s, because "what did this failure say" is failure
-vocabulary and words a stdin read and a run-edge defect that have nothing to do
-with verbs. There is no re-export of either: one concept, one import path.
-
-<Aside type="note" title="The MCP adapter still exports the old names">
-  `SurfaceVerb` and `SurfaceVerbInputSchema` shipped from `@kolu/surface-mcp` as
-  `BespokeTool` and `ToolInputSchema`, and are re-exported there under those
-  names so existing consumers keep compiling. New code imports them from
+- A `SurfaceVerb<I, O>` carries `input?` (an Effect Schema),
+  `handler(args, client, signal)` returning an `Effect`, plus `description?`,
+  `title?` and `mutates?`.
+- `SurfaceVerbInputSchema<I>` is context-free, because an argument that arrived
+  as argv or as JSON has no environment to decode in.
+- `toolName` rewrites only the separator, so `a.b` and `c` mint `a.b_c` and stay
+  reversible to one pair.
+- `decodeTextValue(schema, text)` reads a token verbatim first, then as its JSON
+  reading, and answers with both: `decoded` for a face that addresses by value,
+  `encoded` for one that hands a member's own ref something to decode.
+- `admitsNoArgument(schema)` is the question every face asks before offering a
+  member that carries none: MCP before publishing a static `surface://` resource,
+  the CLI before letting `get <member>` stand with no `[arg]`.
+- One predicate, because each face turns a `false` into its own refusal, and two
+  spellings is how they come to disagree about which members are addressable.
+- `mutates` defaults conservatively: absent means mutating, because a read-only
+  hint can let an MCP host auto-run a verb unconfirmed. Mark a genuinely
+  read-only verb `mutates: false`.
+- For a procedure, that default is
+  [`exposureMutates(exposure)`](#per-face-expose-kolusurfaceexpose), one
+  derivation both faces read, because a safety default spelled once per face is
+  one that can be relaxed on one face.
+- `@kolu/surface-mcp` re-exports `SurfaceVerb` and `SurfaceVerbInputSchema` under
+  its own names, `BespokeTool` and `ToolInputSchema`. New code imports them from
   `@kolu/surface/verbs`.
-</Aside>
+
+#### The Schema to JSON-Schema bridge
+
+`toInputSchema` · `inputSchema` · `unwrapArgs` · `wrapValue` have a module of
+their own behind this subpath, which re-exports them.
+
+- `toInputSchema`'s document is dereferenced, opened, numeric-normalised, and
+  enforced to a top-level object.
+- The `wrapped` bit of `inputSchema` says whether a non-object input had to
+  travel under one property. It is a union on that bit: the wrapped arm carries
+  that value's own `inner` node, so a face never names the wrapper property, and
+  the unwrapped arm has no such field to test for.
+- The key a scalar travels under stays private to the module, which is what
+  `unwrapArgs` and `wrapValue` perform for a face.
+- They are the one piece of this vocabulary with a version seam: the converter's
+  option defaults shift between effect betas, with a byte fixture standing over
+  them, so the file that holds the volatility says which half moves.
+- Nothing about how you import them changes: one concept, one import path.
+
+#### Names that live on other subpaths
+
+Two things a face reads are deliberately not here, so nothing has to import the
+projection vocabulary to reach them.
+
+- [`SurfaceClientCallable`](#the-face-and-its-retry-fence-kolusurfaceclient), the
+  callable-leaved client shape a face holds opaquely, and the connection it owns,
+  are `@kolu/surface/client`'s, beside the `buildSurfaceFace` that mints one.
+- [`messageOf`](#the-tagged-error-vocabulary-kolusurfaceerrors) is
+  `@kolu/surface/errors`'s, because what a failure said is failure vocabulary,
+  and it words a stdin read and a run-edge defect that have nothing to do with
+  verbs.
+- There is no re-export of either: one concept, one import path.
 
 ## Liveness and health
 
