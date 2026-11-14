@@ -38,6 +38,16 @@ describe("failureWords — reading a failure's text", () => {
       detail: ['  └─ ["set"]', "     └─ Missing key"],
     });
   });
+
+  it("a message that starts with blank lines reads its first non-blank line as the cause", () => {
+    expect(
+      failureWords("\n  \ncannot pull: ssh dropped\n  at line 2\n"),
+    ).toEqual({
+      headline: "cannot pull: ssh dropped",
+      detail: ["  at line 2"],
+    });
+    expect(failureWords("\n \n")).toEqual({ headline: "", detail: [] });
+  });
 });
 
 describe("failureMessage — writing one", () => {
@@ -50,6 +60,13 @@ describe("failureMessage — writing one", () => {
     expect(failureMessage("cannot fetch x:\n   error: gone", "")).toBe(
       "cannot fetch x: error: gone",
     );
+  });
+
+  it("flattens a headline padded with long runs of whitespace", () => {
+    const pad = " \t".repeat(50_000);
+    expect(
+      failureMessage(`cannot fetch x:${pad}\n${pad}error: gone${pad}`, ""),
+    ).toBe("cannot fetch x: error: gone");
   });
 
   it("keeps the LAST lines of long evidence and says how many it cut", () => {
@@ -65,6 +82,13 @@ describe("failureMessage — writing one", () => {
     expect(detail.slice(1)).toHaveLength(FAILURE_DETAIL_LINES);
     expect(detail[1]).toBe("line 3");
     expect(detail.at(-1)).toBe(`line ${FAILURE_DETAIL_LINES + 2}`);
+  });
+
+  it("counts the lines a caller already dropped in the note", () => {
+    const { detail } = failureWords(
+      failureMessage("box: exited with code 1", "line a\nline b", 7),
+    );
+    expect(detail).toEqual(["… 7 earlier lines not shown", "line a", "line b"]);
   });
 
   it("cuts an over-long line, the headline's too, ending in …", () => {

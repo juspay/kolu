@@ -575,7 +575,7 @@ describe("agentMarkOf — the one status → treatment fold", () => {
       hash: "nd11nx5f",
       delivering: false,
       updateFailed: {
-        by: "kolu's delivery",
+        by: "delivery",
         headline: "the juspay profile: cannot build",
         detail: ["error: builder failed"],
       },
@@ -644,7 +644,7 @@ describe("agentMarkLabel", () => {
     ).toEqual([AGENTS_UPDATE_DOWNLOADING]);
   });
 
-  it("ready whose last update failed: one more line, who said what — its first line only", () => {
+  it("ready whose last update failed: more lines, who said what — its first line only", () => {
     const mark = agentMarkOf(ready([]), false, {
       events: [],
       lastRun: {
@@ -655,7 +655,8 @@ describe("agentMarkLabel", () => {
       },
     });
     expect(agentMarkLabel(mark, "box")?.split("\n").slice(1)).toEqual([
-      "The last update on box failed — agent-distro's updater: nix build exit 1 — the agents there keep working, and its host details carry the whole cause.",
+      "The last update on box failed. agent-distro's updater said: nix build exit 1",
+      "The agents there keep working. Its host details have the whole cause.",
     ]);
   });
 
@@ -972,7 +973,7 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
       headline: "box could not pull the agents: ssh dropped",
       detail: [],
     });
-    expect(d?.means).toBe(agentsUpdateFailedMeans("devbox", true));
+    expect(d?.means).toBe(agentsUpdateFailedMeans("devbox", "delivery"));
     expect(d?.means).toContain(AGENTS_DELIVERY_AGAIN);
     expect(d?.canCheck).toBe(true);
   });
@@ -1021,7 +1022,7 @@ describe("agentHostDetail — one machine's agents, in its host details", () => 
       headline: "nix build exit 1",
       detail: [],
     });
-    expect(d?.means).toBe(agentsUpdateFailedMeans("devbox", false));
+    expect(d?.means).toBe(agentsUpdateFailedMeans("devbox", "agent-distro"));
     expect(d?.means).not.toContain(AGENTS_DELIVERY_AGAIN);
   });
 

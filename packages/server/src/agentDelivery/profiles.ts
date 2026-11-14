@@ -59,9 +59,10 @@ export function nixWords(stderr: string, fallback: string): string {
   const text = stderr.trim();
   const at = text.lastIndexOf("error:");
   const words = (at < 0 ? (text.split("\n").at(-1) ?? "") : text.slice(at))
-    .split(/\s*\n\s*/)
-    .join(" ")
-    .trim();
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "")
+    .join(" ");
   return words === "" ? fallback : words;
 }
 
@@ -73,9 +74,9 @@ const NIX_TIMEOUT_MS = 15 * 60_000;
 const NIX_MAX_BUFFER = 64 * 1024 * 1024;
 
 /** A failed Nix run as one failure message: `what` and why — how the process
- *  ended when it was stopped (the timeout, or more output than kolu reads),
- *  else Nix's own words — on the first line, and everything Nix printed after
- *  it as evidence. */
+ *  ended when it was stopped (more output than kolu reads, the timeout, or a
+ *  signal from elsewhere — the OOM killer, say), else Nix's own words — on the
+ *  first line, and everything Nix printed after it as evidence. */
 export function nixFailure(
   what: string,
   run: { readonly stderr: string; readonly error: ExecFileException },
@@ -87,7 +88,9 @@ export function nixFailure(
       ? `${what}: nix printed more than kolu reads`
       : error.killed === true
         ? `${what}: nix did not finish in ${Math.round(timeoutMs / 60_000)} minutes and was stopped`
-        : `${what}: ${nixWords(stderr, error.message)}`;
+        : typeof error.signal === "string"
+          ? `${what}: nix was killed by ${error.signal}`
+          : `${what}: ${nixWords(stderr, error.message)}`;
   return failureMessage(headline, stderr);
 }
 

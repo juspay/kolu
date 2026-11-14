@@ -34,7 +34,9 @@ import {
   AGENTS_OFF_MEANS,
   type AgentHostDetail,
   agentHostDetail,
+  agentMarkOf,
   agentToast,
+  type HostAgentStatus,
   agentUpdateFailedLine,
   agentsChosenLabel,
   agentsResolvedLine,
@@ -639,25 +641,30 @@ Given(
   },
 );
 
-/** This machine's details as the fold words them, from padi's own status and
- *  receipt — once the receipt says the last run failed. */
-async function failedUpdateDetail(): Promise<AgentHostDetail> {
+/** This machine's agent facts, from padi's own status and receipt — once the
+ *  receipt says the last run failed. */
+async function failedUpdateHost(): Promise<HostAgentStatus> {
   const status = await readyWithNoProfiles();
   const receipt = await padiValue<AgentDistroReceipt>(
     "agentDistroReceipt/get",
     (r) => r.lastRun?.outcome === "failed",
     "a receipt whose last run failed",
   );
+  return {
+    label: LOCAL_NAME,
+    status,
+    checking: false,
+    receipt,
+    // The phrase is the client's clock; the fold's words around it are what a
+    // step can pin.
+    ago: () => "",
+  };
+}
+
+/** This machine's details as the fold words them. */
+async function failedUpdateDetail(): Promise<AgentHostDetail> {
   const detail = agentHostDetail({
-    host: {
-      label: LOCAL_NAME,
-      status,
-      checking: false,
-      receipt,
-      // The phrase is the client's clock; the fold's words around it are what
-      // a step can pin.
-      ago: () => "",
-    },
+    host: await failedUpdateHost(),
     setting: { enabled: true, profiles: [] },
   });
   if (detail?.cause === undefined)
@@ -722,15 +729,20 @@ Then(
 Then(
   "the host tab's agents mark should warn that its last update failed",
   async function (this: KoluWorld) {
-    const { cause } = await failedUpdateDetail();
-    assert.ok(cause);
-    const mark = this.page.locator(
+    const host = await failedUpdateHost();
+    const mark = agentMarkOf(host.status, host.checking, host.receipt);
+    assert.ok(
+      mark.kind === "ready" && mark.updateFailed !== undefined,
+      "the fold gives this machine no failed update",
+    );
+    const failure = mark.updateFailed;
+    const tab = this.page.locator(
       `${HOST_AGENTS_MARK}[data-state="ready"][data-update-failed]`,
     );
-    await mark.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await tab.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     assert.ok(
-      (await mark.getAttribute("aria-label"))?.includes(
-        agentUpdateFailedLine(cause, LOCAL_NAME),
+      (await tab.getAttribute("aria-label"))?.includes(
+        agentUpdateFailedLine(failure, LOCAL_NAME),
       ),
       "the mark's words do not say the update failed",
     );

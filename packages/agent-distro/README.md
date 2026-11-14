@@ -110,8 +110,9 @@ The **TypeScript half**, as data and pure functions:
   every failure field above crosses in: one string, its first line the cause,
   any lines after it the evidence (what Nix or the copy printed). The writer
   (`failureMessage`, capped at `FAILURE_DETAIL_LINES` × `FAILURE_LINE_CHARS`)
-  is kolu-server's; the reader (`failureWords`) is `./status`'s. No field of
-  its own, so no schema moves.
+  is kolu-server's; the reader (`failureWords`) is `./status`'s, and
+  kolu-server's delivery reads with it too (a bare cause gets the copy's
+  narration under it). No field of its own, so no schema moves.
 - `./gcRoots` — where kolu roots what it delivered on a host (the package,
   each profile by its reference), which kolu-server writes and padi prunes as
   a stack lands: every root but the package's and the kept stacks'

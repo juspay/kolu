@@ -349,6 +349,13 @@ export interface AgentFailureCause extends FailureWords {
   readonly by?: string;
 }
 
+/** A ready host's failed last update, as its mark holds it: who wrote it —
+ *  the wire's own author, named in words only where words are made — and
+ *  what it said. */
+export interface AgentUpdateFailure extends FailureWords {
+  readonly by: AgentUpdateAuthor;
+}
+
 /** How a host shows its agents: the treatment of its tab's agent-distro mark,
  *  and of its line in Settings.
  *
@@ -387,7 +394,7 @@ export type AgentMark =
       /** The host's last update run failed — who said so and why. Absent
        *  otherwise: before the receipt is heard, and for a receipt that would
        *  not read (that is not an update failure; the host details say it). */
-      readonly updateFailed?: AgentFailureCause;
+      readonly updateFailed?: AgentUpdateFailure;
     }
   | { readonly kind: "downloading" }
   | {
@@ -427,7 +434,7 @@ export function agentMarkOf(
         ...(run?.outcome === "failed"
           ? {
               updateFailed: {
-                by: AUTHOR[run.by],
+                by: run.by,
                 ...failureWords(updateWords(run)),
               },
             }
@@ -460,15 +467,17 @@ export function agentFailureLines(
   ];
 }
 
-/** The mark's line for a ready host whose last update failed: who said what,
- *  that its agents keep working, and where the whole cause is. */
+/** The mark's words for a ready host whose last update failed: what failed
+ *  and who said so, then that its agents keep working and where the whole
+ *  cause is. */
 export function agentUpdateFailedLine(
-  cause: AgentFailureCause,
+  failure: AgentUpdateFailure,
   where: string,
 ): string {
-  const said =
-    cause.by === undefined ? cause.headline : `${cause.by}: ${cause.headline}`;
-  return `The last update on ${where} failed — ${said} — the agents there keep working, and its host details carry the whole cause.`;
+  return [
+    `The last update on ${where} failed. ${AUTHOR[failure.by]} said: ${failure.headline}`,
+    "The agents there keep working. Its host details have the whole cause.",
+  ].join("\n");
 }
 
 /** A ready host's state line, in its host details, while a newer set is
@@ -608,13 +617,24 @@ function quoted(text: string, by: AgentUpdateAuthor, words: string): string {
 }
 
 /** What a failed update means on a ready machine: nothing is lost there — and,
- *  for kolu's own run, when kolu tries again. */
+ *  for kolu's own run (kolu-server's delivery, or a landing padi refused),
+ *  when kolu tries again; agent-distro's updater keeps its own schedule.
+ *  Fenced over the author: a new one must answer whether kolu retries it. */
 export function agentsUpdateFailedMeans(
   where: string,
-  koluTriesAgain: boolean,
+  by: AgentUpdateAuthor,
 ): string {
   const keep = `The agents already on ${where} keep working, and new terminals there still get them.`;
-  return koluTriesAgain ? `${keep} ${AGENTS_DELIVERY_AGAIN}` : keep;
+  switch (by) {
+    case "delivery":
+    case "padi":
+      return `${keep} ${AGENTS_DELIVERY_AGAIN}`;
+    case "agent-distro":
+    case "log":
+      return keep;
+    default:
+      return by satisfies never;
+  }
 }
 
 /** What an update history that would not read means on a machine. */
@@ -919,14 +939,13 @@ export function agentHostDetail(input: {
             }
           : mark.updateFailed !== undefined
             ? {
-                cause: mark.updateFailed,
-                // kolu tries its own run again (kolu-server's delivery, or
-                // the landing padi refused); agent-distro's updater keeps its
-                // own schedule.
+                cause: {
+                  ...mark.updateFailed,
+                  by: AUTHOR[mark.updateFailed.by],
+                },
                 means: agentsUpdateFailedMeans(
                   host.label,
-                  mark.updateFailed.by === AUTHOR.delivery ||
-                    mark.updateFailed.by === AUTHOR.padi,
+                  mark.updateFailed.by,
                 ),
               }
             : {};

@@ -126,6 +126,19 @@ describe("nixFailure — a failed Nix run as one failure message", () => {
     ]);
   });
 
+  it("a kill from elsewhere (the OOM killer) names the signal, with what Nix last printed under it", () => {
+    const { headline, detail } = read(
+      "evaluating derivation 'github:nixos/nixpkgs#legacyPackages.x86_64-linux'",
+      ended({ killed: false, signal: "SIGKILL", code: null }),
+    );
+    expect(headline).toBe(
+      "cannot build x for x86_64-linux: nix was killed by SIGKILL",
+    );
+    expect(detail).toEqual([
+      "evaluating derivation 'github:nixos/nixpkgs#legacyPackages.x86_64-linux'",
+    ]);
+  });
+
   it("more output than kolu reads says so", () => {
     expect(
       read("evaluating…", ended({ code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER" }))

@@ -13,6 +13,8 @@
  * answers Settings already has.
  */
 
+import assert from "node:assert";
+import { FAILURE_DETAIL_LINES, failureWords } from "@kolu/agent-distro/failure";
 import { referencesOf } from "@kolu/agent-distro/landing";
 import type {
   AgentDistroSetting,
@@ -328,6 +330,31 @@ describe("createAgentDelivery — the package", () => {
         "copying path '/nix/store/aaa-agent-distro' to 'ssh://box'",
         "error: cannot add path: disk full",
       ].join("\n"),
+    });
+  });
+
+  it("a long narration arrives as its last lines, counting the rest", async () => {
+    const total = FAILURE_DETAIL_LINES + 25;
+    const nix = fakeOps({
+      result: (onProgress) => {
+        for (let i = 0; i < total; i++) onProgress(`copying path ${i}`);
+        return { ok: false, message: "box: exited with code 1" };
+      },
+    });
+    const box = fakeHost("remote:box", "box");
+    const { delivery } = setup({ ops: nix.ops, hosts: [box.host] });
+    expect(await delivery.run({ trigger: "user" })).toEqual(["failed"]);
+    const last = box.reports.at(-1);
+    assert(last?.kind === "failed");
+    expect(failureWords(last.message)).toEqual({
+      headline: "box: exited with code 1",
+      detail: [
+        "… 25 earlier lines not shown",
+        ...Array.from(
+          { length: FAILURE_DETAIL_LINES },
+          (_, i) => `copying path ${i + 25}`,
+        ),
+      ],
     });
   });
 

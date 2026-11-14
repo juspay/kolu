@@ -33,7 +33,11 @@
 
 import { updateDue } from "@juspay/agent-distro/update/due";
 import type { UpdaterSchedule } from "@kolu/agent-distro/bake";
-import { failureMessage, failureWords } from "@kolu/agent-distro/failure";
+import {
+  FAILURE_DETAIL_LINES,
+  failureMessage,
+  failureWords,
+} from "@kolu/agent-distro/failure";
 import {
   type DeliveredProfile,
   referencesOf,
@@ -401,11 +405,18 @@ export function createAgentDelivery(deps: {
     run: Run,
   ): Promise<HostOutcome> => {
     const at = { host: host.label, agentDistroProfiles: stack };
-    // What the copies narrated — kept so a ship or pull that fails with a bare
-    // reason ("exited with code 1") arrives with what it printed under it.
+    // What the copies narrated — its last FAILURE_DETAIL_LINES lines and a
+    // count of the rest, all a failure can carry — kept so a ship or pull that
+    // fails with a bare reason ("exited with code 1") arrives with what it
+    // printed under it.
     const narrated: string[] = [];
+    let unnarrated = 0;
     const onProgress = (line: string) => {
       narrated.push(line);
+      if (narrated.length > FAILURE_DETAIL_LINES) {
+        narrated.shift();
+        unnarrated++;
+      }
       log.debug({ ...at, line }, "agent-distro delivery");
     };
     const superseded = async (): Promise<HostOutcome> => {
@@ -430,7 +441,7 @@ export function createAgentDelivery(deps: {
       const message =
         failureWords(cause).detail.length > 0
           ? cause
-          : failureMessage(cause, narrated.join("\n"));
+          : failureMessage(cause, narrated.join("\n"), unnarrated);
       log.warn({ ...at, message }, "agent-distro set not delivered");
       await report(host, { kind: "failed", profiles: stack, message }).catch(
         () => {},
