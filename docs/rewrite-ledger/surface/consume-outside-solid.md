@@ -24,3 +24,8 @@ None.
 ## Dropped code spans
 
 None (`.waterfall/compare.mjs`: 0 missing).
+
+## Review round 1
+
+- Opening cut to 50 words (rule 4): 53 → 23. The transport-blind-connection sentence moved into the paragraph under `Hold one connection shape`, which is the section that owns it. No fact was cut.
+- Checks: lint passes; `house-style.mjs` reports nothing on this page.

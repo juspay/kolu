@@ -10,14 +10,15 @@ import Snippet from "../../components/docs/Snippet.astro";
 
 The `.use()` hooks are [SolidJS](https://docs.solidjs.com). A CLI or TUI has no
 reactive runtime, so it reads the [surface](/surface/glossary) directly off the
-typed client. What keeps a CLI small is holding one transport-blind connection,
-so every command is written once, whether it runs against a local unix socket
-or a remote box over ssh.
+typed client.
 
 ## Hold one connection shape
 
-Model the connection as `{ client, dispose }` and dial it once. Local and remote
-differ only in which link you build; the commands downstream never branch.
+What keeps a CLI small is holding one transport-blind connection, so every
+command is written once, whether it runs against a local unix socket or a remote
+box over ssh. Model the connection as `{ client, dispose }` and dial it once.
+Local and remote differ only in which link you build; the commands downstream
+never branch.
 
 <Snippet src="packages/surface/example/snippets/consume-cli.ts" region="connection" />
 
