@@ -1645,7 +1645,7 @@ describe("deliverClosure — the route without a build", () => {
       ok: false,
       kind: "not-delivered",
       at: "sender",
-      signedBecause: null,
+      asBuiltBecause: null,
     });
     expect(argvs().some(isShip)).toBe(false);
     expect(argvs().some(isBuild)).toBe(false);
@@ -1657,7 +1657,7 @@ describe("deliverClosure — the route without a build", () => {
       ok: false,
       kind: "not-delivered",
       at: "target",
-      signedBecause: null,
+      asBuiltBecause: null,
     });
   });
 
@@ -1687,7 +1687,7 @@ describe("deliverClosure — the route without a build", () => {
       kind: "not-delivered",
       reason: expect.stringMatching(/lacks a signature by a trusted key/),
       at: "target",
-      signedBecause: expect.stringMatching(/code signature/),
+      asBuiltBecause: expect.stringMatching(/code signature/),
     });
     expect(argvs().some(isBuild)).toBe(false);
     expect(argvs().some((a) => a.includes("--add-root"))).toBe(false);
@@ -1737,7 +1737,7 @@ describe("deliverClosure — the route without a build", () => {
         ok: false,
         kind: "not-delivered",
         at: "target",
-        signedBecause:
+        asBuiltBecause:
           "this machine's Nix daemon (2.35.6) does not verify the content-addressed form its nix 2.34.8 writes",
       });
     });
@@ -1754,7 +1754,7 @@ describe("deliverClosure — the route without a build", () => {
         ok: false,
         kind: "not-delivered",
         at: "target",
-        signedBecause:
+        asBuiltBecause:
           "its Nix 2.34.9 does not verify the content-addressed form this machine's Nix 2.35.6 writes",
       });
       expect(argvs().some(isRewrite)).toBe(false);

@@ -131,7 +131,7 @@ export function realDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
       const why = `${label} could not take ${path}: ${res.reason}`;
       if (
         res.kind === "failed" ||
-        res.signedBecause === null ||
+        res.asBuiltBecause === null ||
         isLocalHost(ssh)
       )
         return { ok: false, message: why };
@@ -139,7 +139,7 @@ export function realDeliveryOps(bake: AgentDistroDelivery): DeliveryOps {
       // must trust the login.
       return {
         ok: false,
-        message: `${why}. ${label} was sent it as built here, signed by no one — ${res.signedBecause} — and takes it only when its Nix trusts the login kolu connects as: on ${label}, add it to \`nix.settings.trusted-users\`.`,
+        message: `${why}. ${label} was sent it as built here, signed by no one — ${res.asBuiltBecause} — and takes it only when its Nix trusts the login kolu connects as: on ${label}, add it to \`nix.settings.trusted-users\`.`,
       };
     },
     pull: async ({ ssh, label, hostNix, published, onProgress }) => {

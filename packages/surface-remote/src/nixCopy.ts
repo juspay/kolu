@@ -1420,7 +1420,7 @@ export interface DeliverClosureOptions {
  *     its version). `at` is the seat it stopped: `sender` — this machine never
  *     held the closure in the form to ship (the rewrite, the cache prefetch,
  *     or asking its own Nix failed); `target` — the ship, or asking the
- *     target's Nix, failed. `signedBecause` says, in words, why the closure
+ *     target's Nix, failed. `asBuiltBecause` says, in words, why the closure
  *     was sent as built — `null` when it travelled content-addressed (or the
  *     route was never decided). Nothing was rooted, and `provisionAgent`
  *     builds;
@@ -1433,7 +1433,7 @@ export type DeliverClosureResult =
       readonly kind: "not-delivered";
       readonly reason: string;
       readonly at: "sender" | "target";
-      readonly signedBecause: string | null;
+      readonly asBuiltBecause: string | null;
     }
   | ({ readonly ok: false; readonly kind: "failed" } & Extract<
       ProvisionResult,
@@ -1539,17 +1539,16 @@ async function deliverPublished(opts: {
 }
 
 /** How this machine stages a closure for a target: content-addressed in
- *  `form`, or as built and `because` (in words) — or where asking the Nixes
- *  that decide it stopped. */
+ *  `form`, or as built and `because` (in words) — or `stopped`, already
+ *  {@link Staged}: asking the Nixes that decide it was aborted, or one of them
+ *  could not answer at its seat. */
 type StagingChoice =
   | { readonly kind: "content-addressed"; readonly form: CaForm }
   | { readonly kind: "as-built"; readonly because: string }
   | {
-      readonly kind: "unasked";
-      readonly at: "sender" | "target";
-      readonly reason: string;
-    }
-  | { readonly kind: "aborted"; readonly step: string };
+      readonly kind: "stopped";
+      readonly staged: Exclude<Staged, { onTarget: true }>;
+    };
 
 /** Decide how the closure travels to a target on `system` (see
  *  {@link stagingRoute}): a darwin target, or one whose system nobody named,
@@ -1580,14 +1579,22 @@ async function chooseStaging(opts: {
     probe: Promise<NixVersionProbe<V>>,
   ): Promise<
     | { readonly kind: "version"; readonly version: V }
-    | Extract<StagingChoice, { kind: "unasked" | "aborted" }>
+    | Extract<StagingChoice, { kind: "stopped" }>
   > => {
     const res = await probe;
     if (res.kind === "aborted")
-      return { kind: "aborted", step: `asking ${what} its version` };
+      return {
+        kind: "stopped",
+        staged: {
+          bail: abortedDuring(opts.host, `asking ${what} its version`),
+        },
+      };
     const stop = (reason: string) => {
       opts.narrate(reason);
-      return { kind: "unasked", at, reason } as const;
+      return {
+        kind: "stopped",
+        staged: { bail: null, onTarget: false, reason, at },
+      } as const;
     };
     if (res.kind === "failed")
       return stop(`could not ask ${what} its version: ${res.reason}`);
@@ -1738,41 +1745,33 @@ export async function deliverClosure(
     narrate: opts.onProgress,
     signal,
   });
-  if (choice.kind === "aborted")
-    return failed(abortedDuring(opts.host, choice.step));
-  if (choice.kind === "unasked")
-    return {
-      ok: false,
-      kind: "not-delivered",
-      reason: choice.reason,
-      at: choice.at,
-      signedBecause: null,
-    };
   const staged =
-    choice.kind === "as-built"
-      ? await stageInputAddressed({
-          host: opts.host,
-          keepalive,
-          isLocal,
-          outPath,
-          binaryCache: opts.binaryCache,
-          narrate: opts.onProgress,
-          onActivity: opts.onActivity,
-          signal,
-        })
-      : await stageContentAddressed({
-          host: opts.host,
-          keepalive,
-          isLocal,
-          outPath,
-          form: choice.form,
-          remembered,
-          binaryCache: opts.binaryCache,
-          narrate: opts.onProgress,
-          onActivity: opts.onActivity,
-          budget: opts.budget,
-          signal,
-        });
+    choice.kind === "stopped"
+      ? choice.staged
+      : choice.kind === "as-built"
+        ? await stageInputAddressed({
+            host: opts.host,
+            keepalive,
+            isLocal,
+            outPath,
+            binaryCache: opts.binaryCache,
+            narrate: opts.onProgress,
+            onActivity: opts.onActivity,
+            signal,
+          })
+        : await stageContentAddressed({
+            host: opts.host,
+            keepalive,
+            isLocal,
+            outPath,
+            form: choice.form,
+            remembered,
+            binaryCache: opts.binaryCache,
+            narrate: opts.onProgress,
+            onActivity: opts.onActivity,
+            budget: opts.budget,
+            signal,
+          });
   if (staged.bail !== null) return failed(staged.bail);
   if (!staged.onTarget)
     return {
@@ -1780,7 +1779,7 @@ export async function deliverClosure(
       kind: "not-delivered",
       reason: staged.reason,
       at: staged.at,
-      signedBecause: choice.kind === "as-built" ? choice.because : null,
+      asBuiltBecause: choice.kind === "as-built" ? choice.because : null,
     };
 
   // 5. Commit the delivered path behind the root — the same required

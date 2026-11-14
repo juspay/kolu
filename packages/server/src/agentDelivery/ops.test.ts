@@ -212,7 +212,7 @@ describe("realDeliveryOps.ship", () => {
       kind: "not-delivered",
       reason: "nix copy exit 1",
       at: "target",
-      signedBecause: null,
+      asBuiltBecause: null,
     });
     expect(await ship()).toEqual({
       ok: false,
@@ -227,7 +227,7 @@ describe("realDeliveryOps.ship", () => {
       reason:
         "ca hash mismatch importing path '/nix/store/hb9w44irkq2r97yl6q0hghgf8f2lxrvg-python3.14-cyclopts-5.4.0'",
       at: "sender",
-      signedBecause: null,
+      asBuiltBecause: null,
     });
     expect(await ship()).toEqual({
       ok: false,
@@ -243,7 +243,7 @@ describe("realDeliveryOps.ship", () => {
       kind: "not-delivered",
       reason: "lacks a signature by a trusted key",
       at: "target",
-      signedBecause: because,
+      asBuiltBecause: because,
     });
     expect(await ship()).toEqual({
       ok: false,
@@ -257,7 +257,7 @@ describe("realDeliveryOps.ship", () => {
       kind: "not-delivered",
       reason: "lacks a signature by a trusted key",
       at: "target",
-      signedBecause:
+      asBuiltBecause:
         "macOS kills a program whose code signature a content-addressed rewrite broke",
     });
     expect(await ship("aarch64-darwin", "ci@mac")).toEqual({
