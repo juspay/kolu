@@ -14,13 +14,12 @@ import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 import Steps from "../../components/docs/Steps.astro";
 
-This page is the HTTPS half of [From a Mac](/from-a-mac): reach the **running
-kolu app** from a phone or another laptop. It is not how you put a second
-machine's terminals on the canvas — that is [Add another
-machine](/remote-hosts).
+This page is the HTTPS half of [From a Mac](/from-a-mac): reach the running
+kolu app from a phone or another laptop. To put a second machine's terminals on
+the canvas, see [Add another machine](/remote-hosts).
 
 Tailscale Serve gives kolu a private HTTPS URL. That single move lets your phone
-or laptop reach the workspace and also unlocks the secure-context features used
+or laptop reach the workspace. It also unlocks the secure-context features used
 by [install prompts and app badges](/install-pwa), notifications, and service
 workers.
 
@@ -49,8 +48,8 @@ workers.
 
 4. Allow that origin on the kolu host.
 
-   Tailscale presents a browser origin kolu did not start with. Add the
-   **exact** URL (no trailing slash) to the service:
+   Tailscale presents a browser origin kolu did not start with. Add the exact
+   URL (no trailing slash) to the service:
 
    ```nix
    services.kolu.allowedOrigins = [
@@ -81,11 +80,11 @@ workers.
   surface unless you have a deliberate public-access setup.
 </Aside>
 
-One more honesty note: the `...ts.net` hostname is visible in public Certificate
-Transparency logs because that is how public certificates are audited. Do not put
-secrets in machine names.
+The `...ts.net` hostname is visible in public Certificate Transparency logs,
+because that is how public certificates are audited. Do not put secrets in
+machine names.
 
-## Which tunnel?
+## Choose a tunnel
 
 <CardGrid>
   <Card title="Tailscale Serve">
@@ -103,11 +102,13 @@ secrets in machine names.
 
 This page is about reaching the browser app. For shell-level remote terminals
 over ssh, use `kolu --host user@box` (`ls`, `create`, `send`, `snapshot`, …)
-instead. Once you reach kolu, [Add another machine](/remote-hosts) covers putting
-another machine's terminals on your canvas over ssh — how to add hosts, switch
-between them, and the ssh-session limitations (the macOS Keychain, the clipboard).
-A forwarded ssh-agent is **not** one of those limitations: with `ForwardAgent yes`
-for the host, kolu passes the agent through to remote terminals
+instead.
+
+Once you reach kolu, [Add another machine](/remote-hosts) covers putting another
+machine's terminals on your canvas over ssh: how to add hosts, switch between
+them, and the ssh-session limitations (the macOS Keychain, the clipboard). A
+forwarded ssh-agent is not one of those limitations. Set `ForwardAgent yes` for
+the host and kolu passes the agent through to remote terminals
 ([details](/remote-hosts#forwarded-ssh-agent)).
 
 ## Manage the serve
