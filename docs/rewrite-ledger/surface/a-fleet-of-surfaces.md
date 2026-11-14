@@ -29,3 +29,8 @@ None.
 ## Dropped code spans
 
 None (`.waterfall/compare.mjs`: 0 missing).
+
+## Review round 1
+
+- Aside cut to 50 words (rule 12): "entry.procedures is typed — no cast" is now 37 words. The `entry.rpc` sentence it carried, the structural addressing face and its link to `entry-contracts`, moved into the running text under `Render the fleet`. The page's other aside ("Same code as part 3") was already inside the limit at 43 words.
+- Checks: lint passes; `.waterfall/compare.mjs … f50641c6a` 0 missing; `house-style.mjs` reports only the pre-existing Nix `realise` at line 77.

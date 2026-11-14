@@ -55,7 +55,9 @@ object with `members`, `subscribe`, `has`, and `resolve`.
 The client consumes the map through three hooks: `app.entries.use()` for the chip
 strip, `app.entry(host).state()` for each chip's status, and `app.useEntry(host)`
 for the selected host's canvas — which re-keys on switch, disposing the old
-host's subscriptions and populating the new one's.
+host's subscriptions and populating the new one's. `entry.rpc` is the structural
+addressing face (`unknown` per leaf), kept for the escape hatch; see
+[Entry contracts](/surface/entry-contracts).
 
 <Snippet src="packages/surface/example/fleet-top/part-3/src/client/App.tsx" region="mapped" />
 
@@ -63,9 +65,7 @@ host's subscriptions and populating the new one's.
   Declared procedures ride `entry.procedures.<ns>.<verb>(input)`, like the
   `kill` call above, bound and typed straight from the entry spec with no cast.
   The bound `procedures` map is a narrow type, so a declared call is never an
-  untyped edge. `entry.rpc` is the structural addressing face (`unknown` per
-  leaf), kept for the escape hatch; see
-  [Entry contracts](/surface/entry-contracts).
+  untyped edge.
 </Aside>
 
 ## Watch one box drop on its own
