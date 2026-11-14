@@ -115,7 +115,9 @@ itself, such as `odu`'s web daemon or anything under `setsid`, keeps serving.
 
 - A detached server stays listed under the terminal that **printed its URL**,
   marked **detached**. After a reload, a server whose URL scrolled far back
-  moves to the group below until you scroll back to it.
+  moves to the group below until you scroll back to it. So does a server whose
+  URL a [tile that was not live](/tiles#which-tiles-are-live) printed, until you
+  next look at that tile.
 - A folded **elsewhere on this host** group holds everything else with a story
   on that machine: your other servers, another user's socket a terminal printed,
   and any forwarded port whose server has died.
