@@ -50,3 +50,8 @@ No API fact is cut. What went:
 
 None. `.waterfall/compare.mjs` reports 0 missing: every code span, every table
 first-column entry and every rule name of `f50641c6a` is on the page.
+
+## Review round 1
+
+- B3, the "Why" link of the reference-entry template: `Frozen within an epoch` → [What a frozen contract survives, and what it does not](/surface/the-daemon-spine#what-a-frozen-contract-survives-and-what-it-does-not), the one Moved row above.
+- Checks: lint passes; `.waterfall/compare.mjs … f50641c6a` 0 missing; `house-style.mjs` reports nothing on this page.

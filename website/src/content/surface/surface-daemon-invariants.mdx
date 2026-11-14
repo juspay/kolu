@@ -150,6 +150,7 @@ The control-core fragment never versions *inside* a protocol epoch.
 - A peer from a previous epoch is observed as `unspeakable-protocol`, never as
   an incompatible version.
 - `controlCore.ts`'s header is the source of truth for this doctrine.
+- Why: [What a frozen contract survives, and what it does not](/surface/the-daemon-spine#what-a-frozen-contract-survives-and-what-it-does-not).
 
 ### A refusal the wire did not declare is a defect
 
@@ -184,7 +185,7 @@ handshake, so it stays reachable at a skew.
 
 ### One probe assembly authority
 
-`probeDaemonIdentityFrom` turns an already-dialed control-core client plus its
+`probeDaemonIdentityFrom` turns an already-dialled control-core client plus its
 exit oracle into the complete convergence probe.
 
 - The socket-path `probeDaemonIdentity` delegates to it.
