@@ -861,26 +861,59 @@ The app supplies only the look: `FaultLook` is `(text: string) => JSX.Element`, 
 
 ## Build identity
 
-Build identity is an interface. `defineBuildInfo({ schema, default, isStale? })`
-declares it — `schema` is an Effect `WireSchema<T>`, and the minted cell is
-`verbs: ["get"]`, so build identity is **read-only on the wire** and no client
-can fabricate or hide stale-client state (the server still writes it through
-`ctx.cells.buildInfo.set`). `buildInfoServer({ buildInfo? })` and
-`surfaceAppServer({ buildInfo?, equals? })` (`@kolu/surface-app/surface` /
-`/server`) implement it.
+Build identity is an interface: one export declares it, two implement it.
 
-<Aside type="note" title="buildInfo is a server cell">
-  Read it with `app.cells.buildInfo.use({ authority: "server" })`. The local
-  `{ initial }` shape will not typecheck — build identity is authoritative on the
-  server.
-</Aside>
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`defineBuildInfo({ schema, default, isStale? })`](#definebuildinfo-schema-default-isstale-) | `/surface` | Declares the interface, and mints its cell. |
+| [`buildInfoServer({ buildInfo? })`](#buildinfoserver-buildinfo-) | `/server` | Implements it on its own. |
+| [`surfaceAppServer({ buildInfo?, equals? })`](#surfaceappserver-buildinfo-equals-) | `/server` | Implements it as part of the app server. |
+
+### `defineBuildInfo({ schema, default, isStale? })`
+
+Declares build identity. It lives on `@kolu/surface-app/surface`.
+
+- `schema` is an Effect `WireSchema<T>`.
+- The minted cell is `verbs: ["get"]`, so build identity is read-only on the wire and no client can fabricate or hide stale-client state.
+- The server still writes it, through `ctx.cells.buildInfo.set`.
+- Read it with `app.cells.buildInfo.use({ authority: "server" })`. The local `{ initial }` shape will not typecheck, because build identity is authoritative on the server.
+
+### `buildInfoServer({ buildInfo? })`
+
+Implements the interface on its own, for a server that wants build identity and nothing else.
+
+### `surfaceAppServer({ buildInfo?, equals? })`
+
+Implements it as part of the app server. `equals` decides when two build identities count as the same.
 
 ## Service worker stance
 
-- **No caching service worker, ever** — the ban is on a `fetch` handler that intercepts the network. Definitional for this class of app.
-- By default the package ships `SW_SOURCE`, a self-destructing retirement worker at `/sw.js`, plus `retireServiceWorker()` to retire any worker a prior build registered.
-- The one opt-in is a **fetch-less** notification worker (`NOTIFICATION_SW_SOURCE`), registered via `registerOrRetireServiceWorker()`. An app registers (notify) **or** retires (none) — never both.
-- Gate all service-worker logic on `window.isSecureContext`, never `location.protocol === "https:"`.
+No caching service worker, ever. The ban is on a `fetch` handler that intercepts the network, and it is definitional for this class of app.
+
+| Export | Subpath | What it is |
+| --- | --- | --- |
+| [`SW_SOURCE`](#sw_source) | `.` | The self-destructing retirement worker, shipped by default. |
+| [`retireServiceWorker()`](#retireserviceworker) | `/lifecycle` | Retires any worker a prior build registered. |
+| [`NOTIFICATION_SW_SOURCE`](#notification_sw_source) | `.` | The one opt-in: a fetch-less notification worker. |
+| [`registerOrRetireServiceWorker()`](#registerorretireserviceworker) | `/lifecycle` | Registers that worker, or retires. |
+
+Gate all service-worker logic on `window.isSecureContext`, never `location.protocol === "https:"`.
+
+### `SW_SOURCE`
+
+The worker the package ships by default: a self-destructing retirement worker at `/sw.js`.
+
+### `retireServiceWorker()`
+
+Retires any worker a prior build registered.
+
+### `NOTIFICATION_SW_SOURCE`
+
+The one opt-in: a fetch-less notification worker.
+
+### `registerOrRetireServiceWorker()`
+
+Registers the notification worker, or retires. An app registers (notify) or retires (none), never both.
 
 ## OS notifications
 

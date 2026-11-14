@@ -165,3 +165,41 @@ Nothing. The two `LOOK`s are now "look".
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs`: 0 missing).
+
+## Build identity
+
+- Words: 85 → 166. Before: one 43-word sentence with three parentheticals, plus an `<Aside>`. After: an index table and three entries.
+- Headings renamed: none. `Build identity` is kept. No inbound links point into this section.
+- The aside "buildInfo is a server cell" became two facts in the `defineBuildInfo` entry.
+- Subpaths: the old page wrote "(`@kolu/surface-app/surface` / `/server`)" after the two implementing functions. The code puts `defineBuildInfo` in `src/surface.ts` (`/surface`), and `buildInfoServer` and `surfaceAppServer` in `src/server.ts` (`/server`); the index table follows the code.
+- `equals` had no description. Its row is traced to `surfaceAppServer` in `packages/surface-app/src/server.ts`.
+
+### Moved
+
+None.
+
+### Cut
+
+Nothing.
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs`: 0 missing).
+
+## Service worker stance
+
+- Words: 78 → 123. Before: four bullets, three of them opening with a bold run-in and naming four exports in passing. After: the ban as the opening, an index table and four entries.
+- Headings renamed: none. `Service worker stance` is kept. No inbound links point into this section.
+- Subpaths come from the code: `SW_SOURCE` and `NOTIFICATION_SW_SOURCE` are in `src/index.ts` (`.`), `retireServiceWorker` and `registerOrRetireServiceWorker` in `src/lifecycle.ts` (`/lifecycle`).
+
+### Moved
+
+None.
+
+### Cut
+
+Nothing.
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs`: 0 missing).
