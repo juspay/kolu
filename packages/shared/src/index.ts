@@ -1,10 +1,11 @@
 /** Shared, domain-agnostic on-disk-state utilities, as N coherent sockets
  *  rather than one flat bag:
  *
- *   - this entry — WATCHING live external state (`readTailLines`) plus the
+ *   - this entry — WATCHING live external state (`readTailLines` for a recent
+ *     window, `createAppendedLineReader` for every line as it lands) plus the
  *     `Logger` shape the others log through. Used by `kolu-git` (HEAD watcher)
- *     and the agent integrations (Claude Code transcripts, OpenCode/Codex WAL
- *     subscriptions).
+ *     and the agent integrations (Claude Code transcripts, omp's todo list,
+ *     OpenCode/Codex WAL subscriptions).
  *   - `kolu-shared/sqlite` — reading a live SQLite database.
  *   - `kolu-shared/state-backup` — RINGING a persisted conf store (#1658).
  *
@@ -12,4 +13,9 @@
  *  `anyagent`. */
 
 export type { Logger } from "./log.ts";
+export {
+  type AppendedLineConfig,
+  type AppendedLineReader,
+  createAppendedLineReader,
+} from "./appended-lines.ts";
 export { readTailLines, type TailReadConfig } from "./tail-lines.ts";

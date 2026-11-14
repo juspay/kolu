@@ -8,6 +8,9 @@
  *                            breadcrumb-directory watcher)
  *   - `screen-scrape.ts`   — the awaiting-user dialog detector + promote policy
  *   - `session-watcher.ts` — per-session transcript watch → OmpInfo stream
+ *   - `todo.ts`            — the `todo` list's current snapshot → taskProgress
+ *   - `branch.ts`          — omp's active branch (the leaf rule), shared by
+ *                            the todo reader and the transcript export
  *   - `agent-adapter.ts`   — `AgentAdapter` the sensors consume
  *   - `schemas.ts`         — Effect schemas + types (browser-safe)
  *   - `config.ts`          — env-resolved home paths

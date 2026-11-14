@@ -296,6 +296,13 @@ Then(
 );
 
 Then(
+  "the inspector agent card should contain {string}",
+  async function (this: KoluWorld, expected: string) {
+    await waitForInspectorChipText(this, "inspector-agent-card", expected);
+  },
+);
+
+Then(
   "the inspector should show a theme section",
   async function (this: KoluWorld) {
     // Theme section renders a clickable button with the theme name inside the right panel.

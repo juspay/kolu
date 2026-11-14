@@ -2,7 +2,8 @@
 Feature: Oh My Pi status detection
   When the oh-my-pi coding agent (`omp`) is running in a terminal, the canvas
   tile chrome shows its current state (thinking, tool use, awaiting you —
-  the approval / `ask` dialog it paints on screen — and waiting).
+  the approval / `ask` dialog it paints on screen — and waiting), and how far
+  through its todo list it is.
 
   Requires KOLU_OMP_DIR to point at a test-controlled directory and a fake
   `omp` binary (bash copy) so the foreground-basename check passes without a
@@ -22,6 +23,19 @@ Feature: Oh My Pi status detection
     Then the tile chrome should follow the Oh My Pi state change to "tool_use" without nudging
     When the Oh My Pi session state changes to "waiting"
     Then the tile chrome should follow the Oh My Pi state change to "waiting" without nudging
+    And there should be no page errors
+
+  # omp's `todo` result carries the whole list; kolu counts it and the tile
+  # chrome's progress bar and the inspector's agent card draw the count —
+  # the same surfaces Claude Code's tasks reach, with nothing omp-specific.
+  Scenario: Tile chrome and the inspector show how far through its todo list Oh My Pi is
+    When an Oh My Pi session is mocked with state "tool_use"
+    Then the tile chrome should show an Oh My Pi indicator with state "tool_use"
+    When Oh My Pi's todo list has 5 tasks with 3 done
+    Then the tile chrome should show task progress "3/5"
+    When I press the toggle inspector shortcut
+    Then the right panel should be visible
+    And the inspector agent card should contain "3/5 tasks"
     And there should be no page errors
 
   # Real omp writes its breadcrumb at launch — marked `fresh` while the session
