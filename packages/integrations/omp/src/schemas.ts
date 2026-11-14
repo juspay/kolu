@@ -55,11 +55,9 @@ export const OmpInfoSchema = Schema.Struct({
    *  and fabricating one from the first message would invent a name omp itself
    *  does not have. */
   summary: Schema.NullOr(Schema.String),
-  /** Progress through omp's `todo` list: every task across every phase, and
-   *  how many are closed — `completed` or `abandoned`, the count omp's own
-   *  `Overall: N/M done` line prints (a `blocked` task stays open). Read from
-   *  the newest whole-list snapshot in the session (`todo.ts`). Null when the
-   *  session has no list, or omp cleared it. */
+  /** Progress through omp's `todo` list, counted as omp's own
+   *  `Overall: N/M done` line counts it (`countTodo` in `todo.ts`). Null when
+   *  the conversation's live branch has no list, or omp cleared it. */
   taskProgress: Schema.NullOr(TaskProgressSchema),
   /** Running context-window token count from the newest assistant message's
    *  `usage.input + cacheRead + cacheWrite` — the same "full context the model

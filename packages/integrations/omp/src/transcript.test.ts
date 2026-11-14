@@ -193,6 +193,34 @@ describe("parseOmpTranscript", () => {
     ).toEqual(["real answer", "follow-up"]);
   });
 
+  it("keeps the newest turn while a `model_usage` entry is the last line", () => {
+    // Cut from a real session at the moment omp had just appended the title
+    // request's `model_usage`: it hangs off the user prompt (its `parentId`)
+    // and names the real leaf, the third tool result, as `activeLeafId`.
+    // Walking back from the last line instead dropped the whole turn.
+    const events = parseOmpTranscript(
+      fs.readFileSync(
+        path.join(
+          import.meta.dirname,
+          "fixtures",
+          "transcript",
+          "model-usage-tail.jsonl",
+        ),
+        "utf8",
+      ),
+    );
+    expect(events.map((e) => e.kind)).toEqual([
+      "user",
+      "reasoning",
+      "tool_call",
+      "tool_call",
+      "tool_call",
+      "tool_result",
+      "tool_result",
+      "tool_result",
+    ]);
+  });
+
   it("passes entries without ids through unfiltered", () => {
     const events = parseOmpTranscript(
       [

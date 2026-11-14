@@ -3,17 +3,19 @@
  *  around the todo traffic it is about — the `todo` calls and results, and the
  *  `session_exit` / `model_change` / `compaction` / `user_todo_edit` entries
  *  between them — with ids, timestamps and `details` exactly as omp wrote
- *  them. Slimmed: each result's text is cut to omp's own `Overall: N/M done`
- *  line, and other tools' payloads to `…`. `rm` and `resume` come from
- *  sessions in other repositories, so their task and phase names are replaced
- *  with `task N` / `phase N`; everything else is verbatim. */
+ *  them; every kept entry was on its session's active branch. Slimmed: each
+ *  result's text is cut to omp's own `Overall: N/M done` line, other tools'
+ *  payloads to `…`, and each `parentId` re-linked to the previous kept entry so
+ *  the cut stays one unbroken branch. `rm` and `resume` come from sessions in
+ *  other repositories, so their task and phase names are replaced with
+ *  `task N` / `phase N`. */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { TaskProgress } from "anyagent";
 import { afterAll, describe, expect, it } from "vitest";
-import { createTodoProgressReader, todoProgressOfLine } from "./todo.ts";
+import { countTodo, createTodoProgressReader, todoSnapshotOf } from "./todo.ts";
 
 const FIXTURES = path.join(import.meta.dirname, "fixtures", "todo");
 
@@ -23,41 +25,51 @@ const fixtureLines = (name: string): string[] =>
     .split("\n")
     .filter((line) => line.length > 0);
 
-/** The answer after each snapshot line, in file order — what kolu publishes
- *  as omp writes the session. */
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-omp-todo-"));
+let files = 0;
+afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+const isSnapshot = (line: string): boolean =>
+  todoSnapshotOf(JSON.parse(line)) !== undefined;
+
+/** What kolu publishes as omp writes these lines: one reader over a growing
+ *  file, read after each snapshot lands. */
 function progression(lines: string[]): (TaskProgress | null)[] {
+  const file = path.join(tmp, `grow-${files++}.jsonl`);
+  fs.writeFileSync(file, "");
+  const reader = createTodoProgressReader(file);
   const out: (TaskProgress | null)[] = [];
   for (const line of lines) {
-    const snapshot = todoProgressOfLine(line);
-    if (snapshot !== undefined) out.push(snapshot);
+    fs.appendFileSync(file, `${line}\n`);
+    if (isSnapshot(line)) out.push(reader.read());
   }
   return out;
 }
 
-/** The answer a fresh reader gives over exactly these lines. */
+/** The answer a fresh reader gives over exactly these lines — a watcher
+ *  starting on the file, as on a resume. */
 function readerOver(lines: string[]): TaskProgress | null {
-  const file = path.join(tmp, `read-${readerFiles++}.jsonl`);
+  const file = path.join(tmp, `read-${files++}.jsonl`);
   fs.writeFileSync(file, lines.map((line) => `${line}\n`).join(""));
   return createTodoProgressReader(file).read();
 }
-
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "kolu-omp-todo-"));
-let readerFiles = 0;
-afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 const progress = (completed: number, total: number): TaskProgress => ({
   total,
   completed,
 });
 
-describe("todoProgressOfLine — omp's list, counted the way omp counts it", () => {
+describe("countTodo — omp's list, counted the way omp counts it", () => {
   it("agrees with the `Overall: N/M done` line omp printed under every result", () => {
     let checked = 0;
     for (const name of fs.readdirSync(FIXTURES)) {
       for (const line of fixtureLines(name.replace(/\.jsonl$/, ""))) {
         const overall = /"text":"Overall: (\d+)\/(\d+) done/.exec(line);
         if (!overall) continue;
-        expect(todoProgressOfLine(line), `${name}: ${overall[0]}`).toEqual(
+        const phases = todoSnapshotOf(JSON.parse(line));
+        expect(phases, `${name}: ${overall[0]} is a snapshot`).toBeDefined();
+        if (phases === undefined) continue;
+        expect(countTodo(phases), `${name}: ${overall[0]}`).toEqual(
           progress(Number(overall[1]), Number(overall[2])),
         );
         checked++;
@@ -65,7 +77,9 @@ describe("todoProgressOfLine — omp's list, counted the way omp counts it", () 
     }
     expect(checked).toBeGreaterThanOrEqual(15);
   });
+});
 
+describe("createTodoProgressReader — the current list of a session file", () => {
   it("a new init replaces the list: the finished one's count does not carry over", () => {
     // 17 tasks in 4 phases, finished, then a fresh 9-task init in 3 phases.
     expect(progression(fixtureLines("reinit"))).toEqual([
@@ -109,22 +123,6 @@ describe("todoProgressOfLine — omp's list, counted the way omp counts it", () 
     ]);
   });
 
-  it("a cleared list is no list", () => {
-    // What omp writes when it empties the list (a background clone starts
-    // with `user_todo_edit { phases: [] }`); no real session here has one.
-    const cleared = JSON.stringify({
-      type: "custom",
-      customType: "user_todo_edit",
-      data: { phases: [] },
-      id: "c1",
-      parentId: "p1",
-      timestamp: "2026-11-13T00:00:00.000Z",
-    });
-    expect(readerOver([...fixtureLines("drop"), cleared])).toBeNull();
-  });
-});
-
-describe("createTodoProgressReader — the session file", () => {
   it("a resumed session shows the list from before omp exited", () => {
     const lines = fixtureLines("resume");
     // Through the resumed session's first prompt: omp exited, relaunched
@@ -151,40 +149,43 @@ describe("createTodoProgressReader — the session file", () => {
     expect(readerOver(lines)).toEqual(progress(10, 24));
   });
 
-  it("reads what omp appends, and waits for a half-written line's newline", () => {
+  // No real session here jumped back across a todo call, so the jump itself
+  // is written the way omp writes one: the next entry after `/tree` hangs off
+  // the entry the user went back to.
+  const jumpBackTo = (parentId: string) =>
+    JSON.stringify({
+      type: "message",
+      id: "jump0001",
+      parentId,
+      timestamp: "2026-10-07T14:00:00.000Z",
+      message: { role: "user", content: [{ type: "text", text: "…" }] },
+    });
+
+  it("a `/tree` jump back before the newest todo call shows that branch's list", () => {
     const lines = fixtureLines("reinit");
-    const file = path.join(tmp, "append.jsonl");
-    fs.writeFileSync(file, `${lines[0]}\n${lines[1]}\n`);
-    const reader = createTodoProgressReader(file);
-    expect(reader.read()).toEqual(progress(0, 17));
-
-    const next = `${lines[2]}\n${lines[3]}`;
-    const cut = next.length - 200;
-    fs.appendFileSync(file, next.slice(0, cut));
-    expect(reader.read()).toEqual(progress(0, 17));
-
-    fs.appendFileSync(file, `${next.slice(cut)}\n`);
-    expect(reader.read()).toEqual(progress(17, 17));
+    const snapshots = lines.filter(isSnapshot);
+    // Back to the finished 17-task list, before the 9-task init replaced it.
+    const finished = JSON.parse(snapshots[1] ?? "").id as string;
+    expect(readerOver([...lines, jumpBackTo(finished)])).toEqual(
+      progress(17, 17),
+    );
+    // Back to before any list at all.
+    const first = JSON.parse(lines[0] ?? "").id as string;
+    expect(readerOver([...lines, jumpBackTo(first)])).toBeNull();
   });
 
-  it("starts over when omp rewrites the file", () => {
-    const file = path.join(tmp, "rewrite.jsonl");
-    fs.writeFileSync(file, `${fixtureLines("reinit").join("\n")}\n`);
-    const reader = createTodoProgressReader(file);
-    expect(reader.read()).toEqual(progress(9, 9));
-
-    // Rewritten in place, shorter: the old offset is past the end.
-    fs.writeFileSync(file, `${fixtureLines("drop").join("\n")}\n`);
-    expect(reader.read()).toEqual(progress(5, 5));
-
-    // Replaced atomically (a new inode) by a LONGER file: the old offset is
-    // inside it, and reading on from there would land mid-line.
-    const replacement = path.join(tmp, "rewrite.next");
-    fs.writeFileSync(
-      replacement,
-      `${[...fixtureLines("rm"), ...fixtureLines("blocked")].join("\n")}\n`,
-    );
-    fs.renameSync(replacement, file);
-    expect(reader.read()).toEqual(progress(12, 13));
+  it("a cleared list is no list", () => {
+    // What omp writes when it empties the list (a background clone starts
+    // with `user_todo_edit { phases: [] }`); no real session here has one.
+    const lines = fixtureLines("drop");
+    const cleared = JSON.stringify({
+      type: "custom",
+      customType: "user_todo_edit",
+      data: { phases: [] },
+      id: "c1",
+      parentId: JSON.parse(lines.at(-1) ?? "").id,
+      timestamp: "2026-11-13T00:00:00.000Z",
+    });
+    expect(readerOver([...lines, cleared])).toBeNull();
   });
 });

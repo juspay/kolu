@@ -467,14 +467,16 @@ tokens** come from the newest assistant message's usage (`input + cacheRead +
 cacheWrite` — disjoint buckets, so the sum is the full context the model saw).
 The **title** is the session's own title slot: the name you set, or the one omp
 auto-generated after the first turn. **Task progress** is omp's `todo` list —
-every `todo` result carries the whole list, and kolu reads the newest one (or
-the newest edit omp records itself) and counts it the way omp's own
-`Overall: N/M done` line does: every task in every phase, with a **dropped**
-task counted done and a **blocked** one still open, so the tile's bar and omp's
-own count agree. A cleared list, or a session that never made one, shows no
-progress; a resumed or compacted session keeps the list it had. **Transcript
-export** reads the same session JSONL, rendering the active branch of omp's
-entry tree.
+every `todo` result carries the whole list, and kolu reads the newest one on
+the conversation's live branch (or the newest edit omp records itself), the
+same list omp restores when you reopen the session. It is counted the way omp's
+own `Overall: N/M done` line counts: every task in every phase, with a
+**dropped** task counted done and a **blocked** one still open, so the tile's
+progress bar, the inspector's agent card and omp's own count agree. A cleared
+list, or a session that never made one, shows no progress; a resumed or
+compacted session keeps the list it had, and a `/tree` jump back shows the list
+that point in the conversation had. **Transcript export** reads the same
+session JSONL, rendering the live branch of omp's entry tree.
 
 **What it can't detect:**
 
