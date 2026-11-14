@@ -1,6 +1,6 @@
 ---
 title: Inside a Tile
-description: "Each canvas tile is a full terminal: splits and tabs, per-terminal font zoom, WebGL rendering with inline images, clickable URLs, and self-healing output."
+description: "What you can do inside a canvas tile: splits and tabs, restarting in place, font zoom, rendering, and the tip bar under the title bar."
 order: 42
 section: "The Canvas"
 koluHero:
@@ -11,10 +11,8 @@ koluHero:
 import LinkCard from "../../components/docs/LinkCard.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 
-A tile is a full terminal, not a preview — a real xterm.js instance with
-everything you'd expect from a native one. The title bar carries the same
-**repo monogram** and a short colour spine as the dock, so identity agrees
-everywhere you look.
+A tile is a full terminal, not a preview. It carries the same **repo monogram**
+as the dock, so you can see which repository it belongs to.
 
 <figure class="doc-shot">
   <img src="/shots/answer-anywhere.webp" alt="A maximized tile: Claude Code asking permission to create a file, with the dock docked as a sidebar." loading="lazy" />
@@ -23,149 +21,111 @@ everywhere you look.
 
 ## Splits and tabs
 
-**Split** a bottom pane with <kbd>Ctrl</kbd> + <kbd>`</kbd>, add tabs with
-<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>`</kbd>. On the canvas, every
-descendant of a tile — a direct split, or a split of a split created from the
-shell or by an agent (`kolu create --parent <id>`) — shows as a flat
-tab in that tile's bottom strip. Nested depth is allowed in the data; the
-canvas just does not invent a second visual language for it. In the Dock, the
-same terminals keep their true tree: every split sits directly beneath its real
-parent as **the same row a top-level terminal gets** — indicator, annotation,
-status words, model, timestamp — opened by a `└` and stepped in one notch per
-hop, so the tree is visible without a second layout to learn. An
-externally-created split opens the same way — the pane expands
-and the new split is selected, no click needed (unless you're already working
-in another split of that tile, which it won't yank you off).
+Split a bottom pane with <kbd>Ctrl</kbd> + <kbd>`</kbd>, and add tabs with
+<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>`</kbd>. Every terminal opened under a
+tile shows as a tab in that tile's bottom strip, including a split of a split,
+and including one created from the shell with `kolu create --parent <id>`. In
+the [Dock](/dock) the same terminals keep their tree.
 
-In a split, the pane that does **not** have focus recedes slightly, so the one
-your keystrokes are going to always reads as the foreground.
+A split someone else opens, such as an agent, expands the pane and takes the
+focus, so you do not have to click it. If you are already working in another
+split of that tile, you are left where you are.
 
-Splits move too: in the [Dock](/dock), drag a row's grip onto another row to make
-it a split of that one, or onto its repo card's header to give it back its own
-tile.
+To move a split, drag a Dock row's grip onto another row to make it a split of
+that one, or onto its repo card's header to give it its own tile.
 
 ## Restarting a terminal in place
 
-The **↻** button on the title bar — or **Restart terminal** in the command
-palette — gives a terminal a fresh shell **on the same id**: the same tile, the
-same folder and canvas spot, and the split tree intact. Its splits restart with
-it, each on its own id, so a tile comes back whole rather than as a lone shell.
+The **↻** button on the title bar, or **Restart terminal** in the command
+palette, gives a terminal a fresh shell on the same id: the same tile, folder
+and canvas spot, with the split tree intact. Its splits restart with it, each on
+its own id.
 
-What comes back is what a **new** terminal would get now, coding agents
-included, which is the other use for it: a terminal started before you changed
-your agents picks the change up here. The old scrollback is gone with the old
-process — this is a new shell, not a reload of the old one.
+What comes back is what a new terminal would get, coding agents included. The
+old scrollback goes with the old process.
 
-If an agent is **working or waiting for you**, the first click only asks: press
-again within a few seconds to confirm, because the old process ends. A plain
-shell restarts on the first click. The same confirm guards the palette command.
+If an agent is working or waiting for you, the first click only asks. Press
+again within a few seconds to confirm. A plain shell restarts on the first
+click, and the same confirmation guards the palette command.
 
-The agents get their full story on
+For what the restart does to agents, see
 [Restarting a terminal onto the current agents](/agents#restarting-a-terminal-onto-the-current-agents).
 
 ## Font zoom
 
-Zoom the font with <kbd>Cmd/Ctrl</kbd> + <kbd>+</kbd> / <kbd>-</kbd> — it zooms
-only the focused tile and persists per terminal, so two tiles can be aligned to
-the same size.
+Zoom the font with <kbd>Cmd/Ctrl</kbd> + <kbd>+</kbd> / <kbd>-</kbd>. It zooms
+only the focused tile and is remembered per terminal.
 
 ## Rendering
 
-- **WebGL rendering** with a canvas fallback, kept on your whole working set of
-  terminals at once so switching between them never churns GPU contexts.
-- **Clickable URLs** — a long URL that wraps across lines survives resizes and
-  always opens whole.
+- **WebGL rendering** with a canvas fallback, kept on every terminal in your
+  working set at once.
+- **Clickable URLs**. A long URL that wraps across lines survives a resize and
+  opens whole.
 - **Unicode 11** and **inline images** (sixel, iTerm2, kitty).
 
-## Output keeps flowing
+## Output and resizing
 
-The terminal defends itself against the ways live output can silently stall: a
-heartbeat detects a dead connection (a sleeping laptop, a Wi-Fi roam) and
-reconnects on its own; reconnecting re-asks for everything the old connection was
-carrying, so a pane cannot be left waiting on an answer that can no longer come; a
-repaint queued while the window was in the background runs the instant you return;
-and when a flooding terminal outruns its view, it re-attaches and repaints from a
-fresh snapshot rather than freezing — a terminal that reprints megabytes faster
-than your link can carry them costs you one screen, not the whole flood.
-You should never need a keypress or a reload
-to see output that already happened. And a pane whose feed keeps coming back
-**empty** — reopened, but never delivering anything — says so rather than sitting
-there blank: a message names the pane and tells you kolu is still retrying, and
-it keeps retrying at a gentle cadence until output reaches the pane again.
+You never need a keypress or a reload to see output that already happened. A
+dropped connection reconnects on its own, and a repaint queued while the window
+was in the background runs when you come back. A terminal printing faster than
+your link can carry costs you one screen, not the whole flood.
 
-A terminal's screen is drawn for one specific width and height, so a pane waits
-until it has actually been measured before it asks for anything, and asks for the
-screen **at** its own size. That matters most for a **split you open later** — a
-collapsed panel, or a tab that was in the background when the page loaded. It has
-no size on screen to measure yet, so rather than guess one and paint a screen
-drawn for the wrong width, it stays empty until you reveal it and then paints
-once, correctly. You should never have to nudge the divider to fix a split's
-rendering.
+A pane whose feed keeps coming back empty says so instead of sitting blank: a
+message names the pane and tells you kolu is still retrying, and the retries
+continue until output reaches the pane again.
 
-**A pane you can't see isn't attached.** Only the tiles actually on screen hold a
-live feed: on a phone that is the one tile you are looking at, and on the desktop
-a background sub-terminal tab is left alone. A hidden pane also doesn't state its
-size, so opening kolu on a second device no longer reshapes every terminal on the
-host behind it. Bringing a pane back doesn't blank it either — the old screen
-stays up and is replaced the moment the current one arrives — and the activity
-dot is what tells you it changed while you were elsewhere.
+A split you open later, such as a collapsed panel or a background tab, stays
+empty until you reveal it, and then paints once at its real size.
 
-**Resizing costs one repaint, not a replay.** Dragging a divider or opening the
-soft keyboard publishes the new size **once**, after the layout stops moving,
-instead of walking the terminal through every intermediate size. And because
-programs — agents especially — redraw their whole screen when the size changes,
-kolu holds that redraw back for a moment and then decides: a plain shell's
-repaint is tiny, so it is simply handed over and nothing about your view changes;
-an agent reprinting its whole transcript is bigger than a screen, so you get the
-screen instead. Either way you see the end you asked for, not the terminal
-scrolling through its session to get there.
+Only the tiles on screen hold a live feed. On a phone that is the tile you are
+looking at, and on the desktop a background split tab is left alone, so opening
+kolu on a second device does not reshape every terminal on the host. Coming back
+to a pane keeps the old screen up until the current one arrives. The activity
+dot tells you a terminal changed while you were elsewhere.
+
+Dragging a divider or opening the soft keyboard resizes the terminal once, after
+the layout stops moving. Programs redraw their whole screen at a new size, so
+kolu hands you the finished screen instead of the terminal scrolling through the
+session to reach it.
 
 ## A tip under the title bar
 
-In a terminal with [coding agents](/agents), a tile sometimes shows a coloured
-bar between its title bar and the terminal, suggesting what to do next **in that
-terminal**. It reads as a short sentence with buttons in it, and, at the right
-end, where the suggestion comes from.
+In a terminal with [coding agents](/agents), a tile sometimes shows a bar
+between its title bar and the terminal, suggesting what to do next there. The
+bar names where the suggestion comes from.
 
 | When | The tip | The buttons |
 | --- | --- | --- |
-| You are at a shell inside a repository | Launch an agent: **one button for each agent in the terminal's set**, in the set's order (for example `claude` `codex` `opencode` `pi` `omp`) | Click the one you want: it types that agent's name and presses Enter, starting it. If they do not all fit, the last button is **+N**, which opens a menu of the rest |
-| You launch one of your agents and it waits for your first message | Try a skill: **one of kolu's own**, with a line on what it does | Puts `/kolu ` into the agent's input and leaves the cursor after it, so you finish the message and send it yourself |
+| You are at a shell inside a repository | Launch an agent: one button for each agent in the terminal's set, in the set's order (for example `claude` `codex` `opencode` `pi` `omp`) | Click the one you want: it types that agent's name and presses Enter. If they do not all fit, the last button is **+N**, which opens a menu of the rest |
+| You launch one of your agents and it waits for your first message | Try a skill: one of kolu's own, with a line on what it does | Puts `/kolu ` into the agent's input and leaves the cursor after it, so you finish the message and send it yourself |
 
-Only the buttons do anything; the rest of the bar is not clickable, and
-clicking it does not select or move the tile.
+Only the buttons do anything. Clicking the rest of the bar does not select or
+move the tile.
+
+A tip shows only on the active tile, on the desktop layout, on a running
+terminal. The skill tip appears as soon as the agent you launched is running,
+before it has answered anything. The launch tip needs the shell prompt in front,
+so running `ls`, `ssh` or `vim` clears it until the prompt is back.
+
+The bar slides open while its suggestion applies, and folds away when it no
+longer does: you start an agent, send it that first message, or leave it. While
+the bar is open the terminal below has a couple fewer rows.
 
 ### Folding the tip to a tab
 
-If you would rather keep the terminal's full height, click the small arrow at
-the right end of the bar. The bar folds into a **tab** hanging from the bottom
-right of the title bar, over the top of the terminal, showing only the first
-words ("Launch an agent", "Try a skill"). Hover it to read the whole tip; click
-it to open the bar again. You can also run **Toggle tip bar** from the command
-palette.
+To keep the terminal's full height, click the small arrow at the right end of
+the bar. The bar folds into a **tab** hanging from the bottom right of the title
+bar, showing only the first words ("Launch an agent", "Try a skill"). Hover it
+to read the whole tip, and click it to open the bar again. **Toggle tip bar** in
+the command palette does the same.
 
-The choice is one setting for every tile, and kolu remembers it. It only
-changes the tip's size: the tab comes and goes exactly when the bar would.
-
-The tip follows what the terminal is doing: the bar slides open while it
-applies, and folds away when it no longer does — you start an agent, send it
-that first message, or leave it. Nothing is used up: back at the shell in a
-repository, the first tip is there again. While the bar is open the terminal
-below is one bar shorter, so it has a couple fewer rows; they come back when the
-bar folds away, or when you fold it to its tab.
-
-A tip shows only on the **active** tile, on the desktop layout, on a running
-terminal (a sleeping tile has none). The skill tip appears as soon as the agent
-you launched is running — kolu knows it by its command name, before the agent
-has answered anything. The launch tip needs the shell itself in front, so
-running `ls`, `ssh` or `vim` clears it until the prompt is back. With reduced
-motion turned on in your system, the bar and the tab appear and go without
-sliding.
+The choice is one setting for every tile, and kolu remembers it.
 
 ## On touch devices
 
-A **mobile key bar** sends the keys soft keyboards lack — Esc, Tab, arrows,
-Ctrl+C — with two sticky modifiers you tap to arm. The full story is in
+A **mobile key bar** sends the keys soft keyboards lack: Esc, Tab, arrows and
+Ctrl+C, with two sticky modifiers you tap to arm. The full story is in
 [kolu on a Phone](/mobile).
 
 ## Next
