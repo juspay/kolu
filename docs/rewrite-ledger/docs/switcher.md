@@ -57,3 +57,9 @@ From `.waterfall/compare.mjs` against `f50641c6a`.
 | --- | --- |
 | `max(your last visit, that terminal's own activity)` | kept as prose in "What opens at the root" (`max(your last visit, server activity)`); the second, line-wrapped copy in the cut rationale passage is gone |
 | `showsWorkspaceSwitcher` | cut, implementation |
+
+## Review round 1
+
+- Code wins (rule 21): the chord table said <kbd>Mod</kbd> + <kbd>K</kbd> for the root search, with Mod = Ctrl on Linux. `packages/client/src/input/actions.ts:229` binds it to the app modifier: Cmd on a Mac, Super elsewhere. The table and the line under it now say <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd> and why (<kbd>Ctrl</kbd> + <kbd>K</kbd> belongs to the shell). The error was on the old page too.
+- House style: every chord is now keycaps with modifiers as words; no ⌘⇧ glyphs or bare text.
+- "re-keys the canvas" → "switches the canvas to that host".

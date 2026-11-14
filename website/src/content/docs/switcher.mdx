@@ -12,7 +12,7 @@ import Aside from "../../components/docs/Aside.astro";
 import CardGrid from "../../components/docs/CardGrid.astro";
 import LinkCard from "../../components/docs/LinkCard.astro";
 
-The **switcher** is kolu's search box. Press <kbd>Cmd/Super</kbd> +
+The **switcher** is kolu's search box. Press <kbd>Cmd</kbd>/<kbd>Super</kbd> +
 <kbd>K</kbd> and type a branch, a repo, a host or a command, without first
 deciding which drawer to open. Terminals, hosts and commands share one index.
 
@@ -22,13 +22,13 @@ deciding which drawer to open. Terminals, hosts and commands share one index.
 | --- | --- |
 | **Recent** | The three warmest terminals, interleaved across every connected host, minus the tile that is already active. |
 | **Hosts** | Every machine in the pool, when more than local is configured. Quiet when healthy; `active` only for the canvas host. |
-| **Terminals** | The Terminals group (⌘⇧K) and New terminal. |
+| **Terminals** | The Terminals group (<kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd>) and New terminal. |
 | Command sections | Active Terminal, Canvas, UI and Help, listed separately until you type. |
 
 Warmth is `max(your last visit, server activity)`, so a terminal a background
 agent is working in can lead Recent. One seat is always reserved for the
 terminal you were last in, and the highlight lands on it, which makes
-<kbd>Cmd/Super</kbd> + <kbd>K</kbd> then <kbd>Enter</kbd> a toggle between your
+<kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd> then <kbd>Enter</kbd> a toggle between your
 last two terminals, across hosts.
 
 Type to search every kind at once. Every whitespace-separated word must appear
@@ -54,7 +54,7 @@ its own, so it is listed here.
 
 ### Browse every host's terminals
 
-<kbd>⌘⇧K</kbd> opens **Terminals** with every connected host already listed.
+<kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd> opens **Terminals** with every connected host already listed.
 Rows are grouped under host headers (`local · 3 terminals`,
 `zest · 6 terminals`). The active host's group is first, rows inside a group are
 in recency order, and a host with no terminals still gets a header.
@@ -80,9 +80,11 @@ command. There are no prefix sigils (`>` for commands, `@` for hosts).
 
 ## Where the highlight lands
 
-All three switcher scopes (⌘/Super+K, ⌘⇧K, ⌘⇧H) open with the highlight on the
-row you were last on that is not the one you are on now. Press the chord, press
-Enter, and you are back where you just were.
+All three switcher scopes (<kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd>,
+<kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd>, <kbd>Mod</kbd> + <kbd>Shift</kbd> +
+<kbd>H</kbd>) open with the highlight on the row you were last on that is not
+the one you are on now. Press the chord, press <kbd>Enter</kbd>, and you are
+back where you just were.
 
 - "Last on" means your own trail: which tile you activated, which machine you
   switched to. A background agent printing output does not count.
@@ -93,19 +95,22 @@ Enter, and you are back where you just were.
 - A plain command list has no current row, so it opens on its first entry.
 - The moment you type, the highlight moves to the top match.
 - The rule applies to whichever kind leads the list. When Recent is empty,
-  ⌘/Super+K leads with machines, and Enter hops hosts rather than tiles.
+  <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd> leads with machines, and
+  <kbd>Enter</kbd> hops hosts rather than tiles.
 
 ## The chords
 
 | Chord / control | Opens |
 | --- | --- |
-| <kbd>Mod</kbd> + <kbd>K</kbd> | Root — search everything |
+| <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd> | Root — search everything |
 | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd> | **Terminals** — all hosts' terminals under host headers |
 | Dock search icon | **Terminals › active host** — only that machine's terminals |
 | <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>H</kbd> | **Hosts** — same host rows as root (switch canvas host) |
 
 Here **Mod** is <kbd>Cmd</kbd> on macOS and <kbd>Ctrl</kbd> on Linux and
-Windows. The full chord table lives under [Keyboard
+Windows. The root search is <kbd>Cmd</kbd> on macOS and <kbd>Super</kbd>
+elsewhere, because <kbd>Ctrl</kbd> + <kbd>K</kbd> belongs to the shell in your
+terminal. The full chord table lives under [Keyboard
 shortcuts](/keyboard-shortcuts).
 
 ## Scoped views
@@ -115,11 +120,12 @@ Backspace on an empty query pops one level back to root, and Escape closes the
 surface.
 
 Selecting a terminal row switches host if needed, then activates the terminal.
-Selecting a host in the **Hosts** scope re-keys the canvas with no reload, the
+Selecting a host in the **Hosts** scope switches the canvas to that host with no reload, the
 same as the [host strip](/remote-hosts). That scope lists the root's host rows,
 in your host order.
 
-Its highlight opens on the host you switched away from, so ⌘⇧H then Enter hops
+Its highlight opens on the host you switched away from, so <kbd>Mod</kbd> +
+<kbd>Shift</kbd> + <kbd>H</kbd> then <kbd>Enter</kbd> hops
 between the last two machines. Until a tab has switched once there is no such
 machine, and the highlight falls back to the first other row. The trail is per
 browser tab, and survives a reload of that tab but not a new one.
@@ -156,7 +162,8 @@ The switcher only finds terminals that already exist on connected hosts. Sleep,
 restore and session memory live under [Sessions](/sessions).
 
 <Aside type="note" title="Mobile">
-  On a phone the palette still opens from the chrome sheet, but the ⌘⇧K
+  On a phone the palette still opens from the chrome sheet, but the
+  <kbd>Mod</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd>
   Terminals deep link is desktop only. Host switch and root search remain
   available. See [Mobile](/mobile).
 </Aside>
