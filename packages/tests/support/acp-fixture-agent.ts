@@ -64,9 +64,37 @@
  * Turns are served FIFO and one at a time: `queued` is a fact about the agent's
  * own queue, so an adapter that answered out of order could not be used to
  * assert it.
+ *
+ * ITS SESSIONS ARE LAZY, the way the pinned adapter's are: `session/new`
+ * answers a fresh id and writes NOTHING, and only the first prompt puts that
+ * id in the store — so a `session/load` of an id nobody prompted is refused
+ * with the adapter's own `-32002 Resource not found: <id>`, in this process or
+ * the next. Measured against `claude-agent-acp` 0.81.2: an unprompted id has
+ * no file under `~/.claude/projects/` and its load is refused in exactly those
+ * words; a prompted one loads. The store is a directory, named as this
+ * program's one argument, holding one empty file per prompted session — kept
+ * on disk because a restart of kolu-server is a NEW process of this agent.
  */
 
-const SESSION = "kolu-e2e-session";
+import { randomUUID } from "node:crypto";
+import { existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+/** Where this agent remembers the sessions that had a prompt. Required: a
+ *  fixture that silently accepted every id would hide the very defect it is
+ *  here to reproduce. Checked only when this file is the PROGRAM — cucumber's
+ *  `support/**` glob also imports it into the test runner, where it is never
+ *  spoken to and has no argument to read. */
+const STORE = process.argv[2] ?? "";
+if (import.meta.main && !existsSync(STORE)) {
+  throw new Error(
+    `acp-fixture-agent: pass the directory of its session store as the one argument (got ${JSON.stringify(process.argv[2])})`,
+  );
+}
+
+/** The conversation this process is in — minted by `session/new`, or the id a
+ *  `session/load` was allowed to open. */
+let session = "";
 
 const write = (value: unknown): void => {
   process.stdout.write(`${JSON.stringify(value)}\n`);
@@ -84,7 +112,7 @@ const update = (frame: unknown): void => {
   write({
     jsonrpc: "2.0",
     method: "session/update",
-    params: { sessionId: SESSION, update: frame },
+    params: { sessionId: session, update: frame },
   });
 };
 
@@ -104,6 +132,7 @@ interface Incoming {
   readonly result?: unknown;
   readonly error?: unknown;
   readonly params?: {
+    readonly sessionId?: string;
     readonly prompt?: ReadonlyArray<{ readonly text?: string }>;
     /** ACP's own `session/new` field — what kolu-server hands this session.
      *  The fleet face is the ONE entry on it (`type: "http"`, its loopback URL
@@ -121,10 +150,31 @@ interface Incoming {
   };
 }
 
-/** The kolu MCP server this session was handed, remembered from `session/new`.
+/** The kolu MCP server this session was handed, remembered from the open.
  *  `null` until a session is opened, and `null` forever for a kolu that handed
  *  over nothing — which the fleet turn reports rather than papers over. */
 let koluServer: { url: string; headers: Record<string, string> } | null = null;
+
+/** WHAT THE SESSION WAS HANDED, kept — on a `session/new` and on a
+ *  `session/load` alike, because both carry the servers. kolu-server puts
+ *  exactly one MCP server on a session: its own fleet face, at a loopback URL
+ *  with a bearer token minted this boot. A real adapter would connect it here;
+ *  this one keeps the address and dials it when a turn asks for the fleet,
+ *  which is the same proof with less machinery. */
+const takeServers = (message: Incoming): void => {
+  const kolu = (message.params?.mcpServers ?? []).find(
+    (one) => one.name === "kolu" && one.url !== undefined,
+  );
+  koluServer =
+    kolu?.url === undefined
+      ? null
+      : {
+          url: kolu.url,
+          headers: Object.fromEntries(
+            (kolu.headers ?? []).map((h) => [h.name, h.value]),
+          ),
+        };
+};
 
 /** One JSON-RPC call to the fleet's streamable-HTTP door.
  *
@@ -339,7 +389,7 @@ const reportServers = (): void => {
     jsonrpc: "2.0",
     method: "_claude/sdkMessage",
     params: {
-      sessionId: SESSION,
+      sessionId: session,
       message: {
         type: "system",
         subtype: "init",
@@ -597,7 +647,7 @@ const turn = async (
     const answered = Promise.withResolvers<void>();
     askClient(
       {
-        sessionId: SESSION,
+        sessionId: session,
         mode: "form",
         message: "Retention in days for the new bucket?",
         requestedSchema: {
@@ -741,38 +791,40 @@ process.stdin.on("data", (chunk: string) => {
           _meta: { steering: { supported: true } },
         });
         continue;
-      case "session/new": {
-        // WHAT THE SESSION WAS HANDED, kept: kolu-server puts exactly one MCP
-        // server on a new session — its own fleet face, at a loopback URL with
-        // a bearer token minted this boot. A real adapter would connect it
-        // here; this one keeps the address and dials it when a turn asks for
-        // the fleet, which is the same proof with less machinery.
-        const kolu = (message.params?.mcpServers ?? []).find(
-          (one) => one.name === "kolu" && one.url !== undefined,
-        );
-        koluServer =
-          kolu?.url === undefined
-            ? null
-            : {
-                url: kolu.url,
-                headers: Object.fromEntries(
-                  (kolu.headers ?? []).map((h) => [h.name, h.value]),
-                ),
-              };
-        respond(message.id, { sessionId: SESSION });
+      case "session/new":
+        session = randomUUID();
+        takeServers(message);
+        respond(message.id, { sessionId: session });
         continue;
-      }
-      case "session/load":
-        // padi keeps the transcript, so a load has nothing to replay — it only
-        // has to accept the id it minted, which is what resume IS.
+      case "session/load": {
+        // An id is a conversation in this store only once it was prompted —
+        // see the module doc. padi keeps the transcript, so a load that IS
+        // one has nothing to replay.
+        const asked = message.params?.sessionId ?? "";
+        if (!existsSync(join(STORE, asked))) {
+          write({
+            jsonrpc: "2.0",
+            id: message.id,
+            error: {
+              code: -32002,
+              message: `Resource not found: ${asked}`,
+              data: { uri: asked },
+            },
+          });
+          continue;
+        }
+        session = asked;
+        takeServers(message);
         respond(message.id, {});
         continue;
+      }
       case "session/set_config_option":
         respond(message.id, {});
         continue;
       case "session/cancel":
         continue;
       case "session/prompt": {
+        writeFileSync(join(STORE, session), "");
         const text = lastLine(message);
         const whole = (message.params?.prompt ?? [])
           .map((block) => block.text ?? "")
@@ -800,5 +852,3 @@ process.stdin.on("data", (chunk: string) => {
     }
   }
 });
-
-export {};

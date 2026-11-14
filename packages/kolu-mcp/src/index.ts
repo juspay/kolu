@@ -44,11 +44,16 @@ export {
   FLEET_SETTLE_CAP_MS,
   KOLU_FLEET_TOOL_NAMES,
 } from "./fleet/lift.ts";
-// WHERE A RECORD IS READ, as the face itself builds the address — published
-// beside the tool names for the same reason: the Conductor's teaching script
-// states this address in its own words, and its test pins the script against
-// this value rather than a literal, so a renamed collection goes red there.
-export { KOLU_FLEET_RECORD_ADDRESS } from "./fleet/recordRead.ts";
+// WHERE A RECORD IS READ, and every other address this face serves, as the face
+// itself builds them — published beside the tool names for the same reason:
+// the Conductor's teaching script states these addresses in its own words, and
+// its test pins the script against these values rather than literals, so a
+// renamed resource goes red there.
+export {
+  isKoluFleetAddress,
+  KOLU_FLEET_RECORD_ADDRESS,
+  KOLU_FLEET_RESOURCES,
+} from "./fleet/recordRead.ts";
 // FOLLOWING EVERY CONNECTED HOST OVER TIME — the combinator the face's own
 // folds are built on, published because kolu-server's conductor watch needs
 // exactly it and a second hand-rolled follow would drift from this one about

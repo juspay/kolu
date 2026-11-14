@@ -61,6 +61,13 @@
  * conversation that is gone, or — worse — one the agent still has, which is a
  * panel quietly reverting to an older chat.
  *
+ * And an id is only a conversation once something was said in it. The agent
+ * mints the id at `session/new` and writes nothing until the first prompt, so
+ * a session nobody spoke to comes back as a NEW one, silently — no divider, no
+ * notice, because nothing was lost. A session that did have a turn and still
+ * cannot be loaded keeps its divider and its notice: that is a real loss.
+ * Which of the two a session is, is read off our own rows ({@link hadATurn}).
+ *
  * ## Absent is absent
  *
  * The ACP adapter is baked into kolu's closure (`KOLU_ACP_AGENT`), so its
@@ -420,6 +427,48 @@ const sentenceOf = (err: unknown): string => {
     if (typeof why === "string" && why !== "") return why;
   }
   return err instanceof Error ? err.message : String(err);
+};
+
+/** WHETHER THE CONVERSATION WE ARE IN HAS HAD A TURN — read off the rows since
+ *  the last break, because those rows are the record of what kolu sent.
+ *
+ *  An id is not a conversation. The pinned adapter answers `session/new` with
+ *  an id and writes nothing to its store until the first prompt, so a session
+ *  nobody spoke to is one `session/load` cannot find — and asking anyway is a
+ *  "could not be resumed" notice and a divider about a conversation that never
+ *  was, minted again on every restart that comes before the first message.
+ *  Such a session is OPENED AGAIN rather than resumed: nothing is lost, so
+ *  nothing is said.
+ *
+ *  DERIVED rather than saved beside the id, because the rows already are the
+ *  fact and are written in the same record as the id: a second field would be
+ *  a copy that could disagree with the transcript under it, and a rung on the
+ *  ladder to carry a value every existing record already implies.
+ *
+ *  A turn is a prompt that WENT — a person's line or a wake, unless it was
+ *  `refused` (nothing took it) — OR anything only a turn produces: the
+ *  agent's prose, a plan, a tool call, a question. The second half is not
+ *  redundant: the record is capped from the OLD end (`persisted.ts`'s
+ *  `ROW_CAP`), and a
+ *  turn long enough to push its own prompt out must still count as one. */
+const hadATurn = (rows: ReadonlyArray<ConductorRow>): boolean => {
+  for (let at = rows.length - 1; at >= 0; at -= 1) {
+    const row = rows[at];
+    switch (row?.kind) {
+      case "divider":
+        return false;
+      case "user":
+      case "wake":
+        if (row.delivery !== "refused") return true;
+        break;
+      case "agent":
+      case "plan":
+      case "tool":
+      case "ask":
+        return true;
+    }
+  }
+  return false;
 };
 
 /** Where a prompt's files land, under kolu-server's state root.
@@ -1106,7 +1155,11 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
         mcpServers: [kolu],
         teaching: teachingLines(hostName),
         log,
-        resume,
+        // A conversation that never had a turn is opened again, not resumed —
+        // see {@link hadATurn}. Decided at EVERY spawn, not once at boot: a
+        // replacement adapter over a "new session" nobody has spoken into yet
+        // is the same id with nothing behind it.
+        resume: resume !== null && hadATurn(rows()) ? resume : null,
         // THE RESTART FENCE (see the module doc), taken HERE rather than at the
         // restore, because the restore is not the only spawn: a replacement
         // adapter comes up over everything the dead one minted as well as

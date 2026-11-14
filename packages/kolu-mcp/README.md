@@ -203,7 +203,11 @@ wrote. A reference that names nothing — and any address this face does not
 serve — is refused *here*, in a sentence that says what a record address looks
 like. Each row carries its own `host` and its `id` / `parentId` as fleet
 references, so a record you read is one you can act on without remembering the
-key it arrived under.
+key it arrived under. What the face serves and how it routes are published —
+`KOLU_FLEET_RESOURCES` (every static address), `KOLU_FLEET_RECORD_ADDRESS` and
+`isKoluFleetAddress` — so the Conductor's teaching script, which names each of
+these addresses, is tested against the face rather than against literals: a
+renamed resource fails that test instead of teaching a dead address.
 
 `watched` (`surface://cells/watched`) is the Conductor reading the list it is
 being woken by — one row per watched reference, carrying the last name and

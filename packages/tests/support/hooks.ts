@@ -789,6 +789,9 @@ const acpFixtureAgent = path.resolve(
   "acp-fixture-agent.ts",
 );
 
+/** ... and the store it remembers prompted sessions in, per worker. */
+const acpFixtureSessions = mkSubDir("acp-sessions");
+
 async function startServerChild(koluServer: string): Promise<void> {
   // Refuse a destructive ssh-leg bind BEFORE spawning the child — the spawn itself is
   // destructive, so the ack cannot wait until after (P2/F1).
@@ -917,7 +920,11 @@ async function startServerChild(koluServer: string): Promise<void> {
           // `KOLU_MCP_BIN` is GONE with the hosting move: the session's one MCP
           // server is kolu-server's own loopback HTTP face, so there is no
           // `kolu mcp` child to name and no path to forward.
-          KOLU_ACP_AGENT: `${process.execPath} ${acpFixtureAgent}`,
+          //
+          // Its one argument is the directory it keeps PROMPTED sessions in —
+          // a per-worker dir that outlives a server respawn, the way a real
+          // adapter's store outlives kolu-server.
+          KOLU_ACP_AGENT: `${process.execPath} ${acpFixtureAgent} ${acpFixtureSessions}`,
         },
       },
     );

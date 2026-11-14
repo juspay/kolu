@@ -11,7 +11,10 @@
  *
  *  - `sessionId` — the agent's own id for the conversation, replayed with
  *    `session/load`. It means nothing to any other agent, so a stored id is
- *    only ever handed back to the agent that minted it.
+ *    only ever handed back to the agent that minted it — and only when the
+ *    rows say the conversation had a turn: an id nobody spoke into names
+ *    nothing in the agent's store (`conductor.ts`'s `hadATurn`). Whether it
+ *    did is read off `rows`, not saved beside the id.
  *  - `cwd` — the directory the session was opened in. It is what makes a stored
  *    session findable at all (Claude scopes its store by prefix), so a
  *    kolu-server whose `$HOME` moved must open a fresh session rather than ask

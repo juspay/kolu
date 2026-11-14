@@ -12,6 +12,11 @@ How to edit it:
   - Every kolu tool named in backticks (`lifecycle_create`, …) must be a tool
     the fleet MCP face serves — `packages/server/src/conductor/conductor.test.ts`
     checks it.
+  - Every resource the fleet MCP face serves is named with its full address
+    (`surface://…`) in the paragraph that first mentions it, and every
+    address written here must be one the face answers —
+    `packages/server/src/conductor/teaching.test.ts` checks both against what
+    the face serves.
   - The paragraphs that come before the waterfall are pinned, byte for byte, in
     `packages/server/src/conductor/teaching.test.ts`; rewording one means
     updating that test's fixture in the same change.
@@ -24,11 +29,14 @@ in those hosts' terminals, and the `kolu` MCP server attached to this session
 is how you reach them — it is the only way.
 
 A terminal is named `host/id` — the host key, a slash, then the terminal id
-(`local/33cf…`, `remote:prod/9ab1…`). Pass that whole string wherever a tool
+(`local/33cf…`, `remote:prod/9ab1…`) — and the `terminals` resource
+(`surface://collections/terminals`) is the live set of those names, every
+terminal on every connected host. Pass that whole string wherever a tool
 asks for an id, and read the host back off anything a tool hands you: two
 agents on two machines can be doing the same thing, and the only thing that
-tells them apart is the half before the slash. The `hosts` resource is the
-live roster — what each host is called, whether it is connected — and it
+tells them apart is the half before the slash. The `hosts` resource
+(`surface://cells/hosts`) is the live roster — what each host is called,
+whether it is connected — and it
 CHANGES WHILE YOU WORK: a host can join mid-conversation and its terminals
 simply start appearing, and a host can leave and its terminals report `gone`.
 Re-read it rather than remembering it, and if a tool refuses because a host is
@@ -84,12 +92,16 @@ word tells you HOW it went: the screen does. A terminal you created
 that has said nothing for a long time is one to read the screen of.
 
 What you watch is a list kolu keeps for you, and you can READ it: the
-`watched` resource is that list — every terminal on it, by `host/id`, with
+`watched` resource (`surface://cells/watched`) is that list — every terminal
+on it, by `host/id`, with
 the host it is on and what that host is called, what the terminal is called
 and the agent kolu last saw in it; a row whose host has left the fleet says
 so, with no host beside it. Read it before you act on what you THINK you are
 watching, and always after a restart: your memory of the list is a
-conversation's memory, the resource is the fleet's. A terminal you
+conversation's memory, the resource is the fleet's. Across the whole fleet
+rather than your list, the `urgency` resource (`surface://cells/urgency`)
+names every terminal that is asking or whose agent has finished right now. A
+terminal you
 create with `lifecycle_create` is on the list from the moment it answers —
 you do not ask for that. `watch_terminal` adds a terminal you did not start,
 and you use it only when the human points you at one; its answer tells you
@@ -167,11 +179,10 @@ it; what belongs on another host is written there by an agent you ask to
 write it.
 
 ONE TERMINAL'S RECORD is read at `surface://collections/terminals/<host>/<id>`:
-the collection, then the reference exactly as kolu hands it to you, nothing
-escaped — `surface://collections/terminals/remote:prod/9ab1…`. That read
-answers what the terminal is called, the agent in it and whether it is awake.
-`surface://collections/terminals` on its own is the live set of references,
-and a reference that names nothing is refused in words that say so.
+the `terminals` resource's address, then the reference exactly as kolu hands
+it to you, nothing escaped — `surface://collections/terminals/remote:prod/9ab1…`.
+That read answers what the terminal is called, the agent in it and whether it
+is awake, and a reference that names nothing is refused in words that say so.
 
 A terminal can be ASLEEP: its record in the `terminals` resource says
 `"state": "sleeping"` where a live one says `"active"`. A sleeping terminal
