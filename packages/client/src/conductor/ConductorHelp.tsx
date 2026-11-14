@@ -25,23 +25,61 @@
  *  who shut it finds it shut tomorrow. */
 
 import Dialog from "@corvu/dialog";
-import { type Component, createEffect, For, Show } from "solid-js";
+import {
+  type Component,
+  createEffect,
+  createSignal,
+  For,
+  Match,
+  Show,
+  Switch,
+} from "solid-js";
 import DocLink from "../ui/DocLink";
 import ModalDialog from "../ui/ModalDialog";
 import { surface } from "../ui/Surface";
 import { useShown } from "../ui/shown";
-import { helpOpen, helpSections, helpSheet, setHelpOpen } from "./helpContent";
+import Kbd from "../ui/Kbd";
+import {
+  type HelpPart,
+  helpOpen,
+  helpSections,
+  helpSheet,
+  setHelpOpen,
+} from "./helpContent";
+
+/** One piece of a bullet, drawn as what it is: a key as the app's keycap, a
+ *  thing to type as code, a word the screen shows in the foreground's own
+ *  weight, so the eye finds it here and then finds it there. */
+const Part: Component<{ part: HelpPart }> = (props) => (
+  <Switch>
+    <Match when={props.part.kind === "key"}>
+      <Kbd>{props.part.text}</Kbd>
+    </Match>
+    <Match when={props.part.kind === "code"}>
+      <code class="rounded bg-surface-2 px-1 py-0.5 font-mono text-[0.7rem] text-fg [overflow-wrap:anywhere]">
+        {props.part.text}
+      </code>
+    </Match>
+    <Match when={props.part.kind === "screen"}>
+      <span class="font-semibold text-fg">{props.part.text}</span>
+    </Match>
+    <Match when={props.part.kind === "text"}>{props.part.text}</Match>
+  </Switch>
+);
 
 /** The words themselves, the same in both placements. `placement` rides as
  *  data only — nothing here branches on it — so a scenario can say WHICH copy
- *  it is reading without the two copies being able to differ. */
+ *  it is reading without the two copies being able to differ.
+ *
+ *  Spacing GROUPS: sections stand clear of each other, a section's bullets
+ *  sit tight under its heading, and a bullet wraps by itself. */
 const ConductorHelpContent: Component<{ placement: "column" | "sheet" }> = (
   props,
 ) => (
   <div
     data-testid="conductor-help-content"
     data-placement={props.placement}
-    class="flex flex-col gap-3 text-conductor-help"
+    class="flex flex-col gap-4 text-conductor-help"
   >
     <For each={helpSections()}>
       {(section) => (
@@ -50,12 +88,18 @@ const ConductorHelpContent: Component<{ placement: "column" | "sheet" }> = (
           data-section={section.id}
           class="min-w-0"
         >
-          <h3 class="m-0 mb-1 font-mono text-[0.6rem] font-semibold uppercase tracking-[0.1em] text-fg-3">
+          <h3 class="m-0 mb-1 text-[0.8rem] font-semibold text-fg">
             {section.heading}
           </h3>
-          <For each={section.lines}>
-            {(line) => <p class="m-0 text-fg-2">{line}</p>}
-          </For>
+          <ul class="m-0 flex list-disc flex-col gap-1 ps-4 text-fg-2 marker:text-fg-3">
+            <For each={section.items}>
+              {(item) => (
+                <li>
+                  <For each={item}>{(part) => <Part part={part} />}</For>
+                </li>
+              )}
+            </For>
+          </ul>
         </section>
       )}
     </For>
@@ -102,9 +146,7 @@ export const ConductorHelpColumn: Component = () => (
       }
     >
       <div class="flex items-center justify-between gap-2 py-3">
-        <h2 class="m-0 font-mono text-[0.6rem] font-semibold uppercase tracking-[0.12em] text-fg-3">
-          how to use
-        </h2>
+        <h2 class="m-0 text-sm font-semibold text-fg">How to use</h2>
         <button
           type="button"
           data-testid="conductor-help-toggle"
@@ -137,23 +179,34 @@ export const ConductorHelpSheet: Component = () => {
   createEffect(() => {
     if (!shown()) helpSheet.close();
   });
+  // FOCUS LANDS ON THE BODY, not on its first link. The only focusable thing
+  // in the help is `Full docs` at the bottom, and a dialog that focused it
+  // scrolled the sheet to its end on a phone — opening the help with its first
+  // section out of sight. The body takes focus instead, at the top, and is
+  // what the arrow keys then scroll.
+  const [body, setBody] = createSignal<HTMLDivElement>();
   return (
     <ModalDialog
       open={helpSheet.open()}
       onOpenChange={helpSheet.onOpenChange}
       size="sm"
+      initialFocusEl={body()}
     >
       <Dialog.Content
         data-testid="conductor-help-sheet"
         class={`${sheetChrome.class} overflow-hidden`}
         style={sheetChrome.style}
       >
-        <Dialog.Label class="block border-b border-edge px-4 py-3 font-mono text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-fg-2">
-          how to use the conductor
+        <Dialog.Label class="block border-b border-edge px-4 py-3 text-sm font-semibold text-fg">
+          How to use the Conductor
         </Dialog.Label>
         {/* The phone is the narrow case this exists for, so the body scrolls
             inside the sheet rather than growing past the window. */}
-        <div class="max-h-[70vh] overflow-y-auto px-4 py-3">
+        <div
+          ref={setBody}
+          tabIndex={-1}
+          class="max-h-[70vh] overflow-y-auto px-4 py-3 outline-none"
+        >
           <ConductorHelpContent placement="sheet" />
         </div>
       </Dialog.Content>

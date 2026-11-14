@@ -2145,6 +2145,7 @@ const HELP_SECTIONS = [
   "ask",
   "waterfall",
   "while-it-works",
+  "terminals",
   "mid-work",
   "wakes",
   "asks",
