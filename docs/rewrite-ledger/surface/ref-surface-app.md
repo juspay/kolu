@@ -33,3 +33,23 @@ None.
 ### Dropped code spans
 
 None (`.waterfall/compare.mjs`: 0 missing).
+
+## Serving the fresh shell
+
+- Words: 305 → 368. The growth is the index table and the entry headings. Before: one bold run-in paragraph, a 100-word table cell and three `<Aside>`s. After: an index table, four entries, three entry sections, no asides.
+- Headings renamed: none. `Serving the fresh shell` is kept; the new `###`/`####` headings are additions. No inbound links point into this section.
+- The three asides became entry sections: "Own the `http.Server`; don't let `HttpServer.serve` own it" → `Own the `http.Server``; "No `304`s, by design" → `No `304`s`; "The commit rides the shell, never a bundle define" → `The build commit`.
+
+### Moved
+
+None.
+
+### Cut
+
+| Fact | Tag |
+| --- | --- |
+| "which is the bug the whole freshness contract exists to prevent" | rationale (the entry already states the freshness contract) |
+
+### Dropped code spans
+
+None (`.waterfall/compare.mjs`: 0 missing).

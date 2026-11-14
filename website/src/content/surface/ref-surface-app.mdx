@@ -282,27 +282,18 @@ An uncaught throw, printed for a bug report. It normalizes a Safari, V8 or `DOME
 
 ## Serving the fresh shell
 
-`surfaceAppLayer` (`@kolu/surface-app/server`) serves the shell: a `no-store`
-`index.html` that names a content-hashed bundle, `immutable` `/assets/*`, a
-404-on-miss for a stale hash, an SPA fallback, `/sw.js`, and the web manifest.
-Staleness is structurally impossible because the one document that names the
-bundle is always re-fetched.
+These are `HttpRouter` layers (`effect/http`), not framework installers: merge them into your app layer in any order. Routes are ranked by specificity, so your `/rpc/*` route always beats the static `GET /*` catch-all.
 
-These are **`HttpRouter` layers** (`effect/http`), not framework
-installers: merge them into your app layer in any order — routes are ranked by
-specificity, so your `/rpc/*` route always beats the static `GET /*` catch-all.
-`freshStaticLayer` and `surfaceAppLayer` require the platform services that read
-files — `FileSystem`, `Path`, `HttpPlatform` — which on Node come from
-`NodeHttpServer.layerHttpServices`. Both **throw at composition time** if `assetPrefix` is malformed, or would
-capture a shell path (that would put a compressed `index.html` sibling on the
-wire; kolu#1319).
-
-| Export | Subpath | Role |
+| Export | Subpath | What it is |
 | --- | --- | --- |
-| `surfaceAppLayer(opts)` | `/server` | the no-store shell + immutable assets + (optional) manifest, in one layer |
-| `SurfaceAppLayerOptions` | `/server` | that layer's options (optional `clientDist`, `manifest`, `serviceWorker`, the freshness paths) — `ServeSurfaceAppOptions` **extends** it, so the shell half is named once |
-| `freshStaticLayer(opts)` | `/server` | fresh static + optional notification worker |
-| `pwaManifestLayer(manifest, path?)` | `/server` | the web manifest |
+| [`surfaceAppLayer(opts)`](#surfaceapplayeropts) | `/server` | The no-store shell, immutable assets and optional manifest, in one layer. |
+| [`SurfaceAppLayerOptions`](#surfaceapplayeroptions) | `/server` | That layer's options. |
+| [`freshStaticLayer(opts)`](#freshstaticlayeropts) | `/server` | Fresh static files, and an optional notification worker. |
+| [`pwaManifestLayer(manifest, path?)`](#pwamanifestlayermanifest-path) | `/server` | The web manifest. |
+
+### `surfaceAppLayer(opts)`
+
+`surfaceAppLayer` (`@kolu/surface-app/server`) serves the shell: a `no-store` `index.html` that names a content-hashed bundle, `immutable` `/assets/*`, a 404-on-miss for a stale hash, an SPA fallback, `/sw.js`, and the web manifest.
 
 ```ts
 const app = Layer.mergeAll(
@@ -322,26 +313,33 @@ server.on(
 );
 ```
 
-<Aside type="caution" title="Own the `http.Server`; don't let `HttpServer.serve` own it">
-  `NodeHttpServer.makeHandler` on a server you created keeps the `upgrade` event
-  yours. `HttpServer.serve` registers its **own** `upgrade` listener, and Node
-  fans an event out to every listener — so it would also answer a socket
-  `acceptSurfaceSocket` has already upgraded.
-</Aside>
+- Staleness is structurally impossible, because the one document that names the bundle is always re-fetched.
+- It requires the platform services that read files (`FileSystem`, `Path`, `HttpPlatform`), which on Node come from `NodeHttpServer.layerHttpServices`.
+- It throws at composition time if `assetPrefix` is malformed, or would capture a shell path. That would put a compressed `index.html` sibling on the wire (kolu#1319).
 
-<Aside type="note" title="No `304`s, by design">
-  The static layer strips `If-None-Match` / `If-Modified-Since` before the file
-  engine sees them, so every hit is a full `200`. The platform's validator is
-  size+mtime, and in a Nix store every mtime is the epoch — a `304` there could
-  replay a stale same-size shell, which is the bug the whole freshness contract
-  exists to prevent.
-</Aside>
-<Aside type="caution" title="The commit rides the shell, never a bundle define">
-  The build commit is injected as `window.__SURFACE_APP_COMMIT__` onto the
-  `no-store` shell by the `surfaceApp()` plugin — never a bundler define. A
-  define bakes the sha into a content-hashed, `immutable` asset and strands
-  returning browsers. No app writes a sha.
-</Aside>
+#### Own the `http.Server`
+
+`NodeHttpServer.makeHandler` on a server you created keeps the `upgrade` event yours. `HttpServer.serve` registers its own `upgrade` listener, and Node fans an event out to every listener, so it would also answer a socket `acceptSurfaceSocket` has already upgraded.
+
+#### No `304`s
+
+The static layer strips `If-None-Match` and `If-Modified-Since` before the file engine sees them, so every hit is a full `200`. The platform's validator is size and mtime, and in a Nix store every mtime is the epoch, where a `304` could replay a stale same-size shell.
+
+#### The build commit
+
+The build commit is injected as `window.__SURFACE_APP_COMMIT__` onto the `no-store` shell by the `surfaceApp()` plugin, never a bundler define. A define bakes the sha into a content-hashed, `immutable` asset and strands returning browsers. No app writes a sha.
+
+### `SurfaceAppLayerOptions`
+
+That layer's options: an optional `clientDist`, `manifest` and `serviceWorker`, and the freshness paths. `ServeSurfaceAppOptions` extends it, so the shell half is named once.
+
+### `freshStaticLayer(opts)`
+
+`freshStaticLayer` serves fresh static files, plus the optional notification worker. Like `surfaceAppLayer`, it requires `FileSystem`, `Path` and `HttpPlatform`, and throws at composition time on a malformed `assetPrefix` or one that would capture a shell path.
+
+### `pwaManifestLayer(manifest, path?)`
+
+The web manifest, as its own layer. `path?` is where it is served.
 
 ## Building the client dist
 
