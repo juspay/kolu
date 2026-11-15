@@ -48,7 +48,8 @@
  * an `info/exclude` edit changed what git lists with no pulse at all: the two
  * listings described two different moments, a directory un-ignored in between
  * was in neither, and it stayed pruned from the watch. An unchanged set costs
- * nothing — git lists the same files, so there is nothing to re-read.
+ * one `git ls-files` and no pulse: git lists the same files, so there is
+ * nothing to re-read.
  *
  * One DELIBERATE exception to "shown ⇒ watched": the Code tab's "show ignored
  * files" toggle overlays gitignored entries onto the tree WITHOUT widening
@@ -264,13 +265,11 @@ function installSharedWorkingTreeWatcher(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let subscription: AsyncSubscription | null = null;
   let cancelled = false;
-  /** The ignore list the most recent `attach()` derived, recorded whether or
-   *  not its parcel subscribe landed. What `refreshIgnore` compares against:
-   *  only a set that differs from it is evidence the rules changed. */
-  let derivedIgnore: readonly string[] | null = null;
-  /** The `attach()` in flight, if any — `refreshIgnore` waits it out so the
-   *  comparison is against the set it derived. */
-  let attaching: Promise<void> | null = null;
+  /** The ignore list the latest attach derived (or is deriving), recorded
+   *  whether or not its parcel subscribe lands. Set synchronously as each
+   *  attach starts, so awaiting it after a fresh listing compares against the
+   *  newest attach, never one an in-flight attach is about to replace. */
+  let derivedIgnore: Promise<string[]>;
 
   /** Fire all current listeners after a debounce. Both real events and the
    *  post-install reconciliation share this dispatch path. */
@@ -341,46 +340,27 @@ function installSharedWorkingTreeWatcher(
   };
 
   /** Re-derive the ignore set after git's ignore rules may have changed, and
-   *  rebuild only if it differs from the set the last attach derived. Waits
-   *  out any attach in flight first: that attach may have derived its set
-   *  BEFORE the change, so the comparison must be against what it derived, and
-   *  a difference then schedules a rebuild whose attach derives the set after
-   *  the change. A request arriving mid-refresh re-runs it once more rather
-   *  than overlapping it. Unchanged set, no rebuild: the dir watchers' attach
-   *  ticks and the duplicate lines agents append to a shared `info/exclude`
-   *  cost one `git ls-files`, never a parcel resubscribe — and that holds for
-   *  a watcher whose install failed, too. A failed enumeration (the worktree
-   *  was removed, say) is no evidence of a rule change either: `listIgnored`
-   *  has logged it, and the live watch is left alone. */
-  let refreshing = false;
-  let refreshAgain = false;
+   *  rebuild only if it differs from the set the latest attach derived. An
+   *  attach that derived its set BEFORE the change differs, so the rebuild's
+   *  attach derives it after. Unchanged set, no rebuild: the dir watchers'
+   *  attach ticks and the duplicate lines agents append to a shared
+   *  `info/exclude` cost one `git ls-files`, never a parcel resubscribe — and
+   *  that holds for a watcher whose install failed, too. A failed enumeration
+   *  (the worktree was removed, say) is no evidence of a rule change either:
+   *  `listIgnored` has logged it, and the live watch is left alone. Two
+   *  refreshes may overlap harmlessly: each only compares, and a rebuild
+   *  re-derives the set itself. */
   async function refreshIgnore(): Promise<void> {
-    if (refreshing) {
-      refreshAgain = true;
-      return;
-    }
-    refreshing = true;
-    try {
-      do {
-        refreshAgain = false;
-        while (attaching !== null) await attaching;
-        if (cancelled) return;
-        const ignored = await listIgnored(repoRoot, log);
-        if (cancelled) return;
-        if (!ignored.ok) continue;
-        const ignore = ignorePaths(repoRoot, ignored.value);
-        // `git ls-files` output order is stable, so an unchanged rule set
-        // yields an element-wise identical list.
-        const derived = derivedIgnore;
-        const unchanged =
-          derived !== null &&
-          ignore.length === derived.length &&
-          ignore.every((p, i) => p === derived[i]);
-        if (!unchanged) scheduleRebuild("ignore rules changed");
-      } while (refreshAgain);
-    } finally {
-      refreshing = false;
-    }
+    const ignored = await listIgnored(repoRoot, log);
+    if (!ignored.ok) return;
+    const ignore = ignorePaths(repoRoot, ignored.value);
+    const derived = await derivedIgnore;
+    // `git ls-files` output order is stable, so an unchanged rule set
+    // yields an element-wise identical list.
+    const unchanged =
+      ignore.length === derived.length &&
+      ignore.every((p, i) => p === derived[i]);
+    if (!unchanged) scheduleRebuild("ignore rules changed");
   }
 
   /** Debounced entry to `refreshIgnore`, so a burst of rule edits — a
@@ -454,9 +434,10 @@ function installSharedWorkingTreeWatcher(
    *  queued call on the repo's parcel chain, so they can neither overlap each
    *  other nor a sibling entry's calls (see `parcelCallChains`).
    *
-   *  Called once at construction, and again whenever `scheduleRebuild` finds
-   *  parcel blind to a new subtree or `refreshIgnore` finds the ignore set
-   *  changed. The ignore set is re-derived each time.
+   *  Called via `startAttach` once at construction, and again whenever
+   *  `scheduleRebuild` finds parcel blind to a new subtree or `refreshIgnore`
+   *  finds the ignore set changed. `startAttach` re-derives the set each time
+   *  and publishes it as `derivedIgnore` before handing it here.
    *
    *  Filesystem mutations between this call and parcel's resolve are invisible
    *  to parcel — the streaming endpoint already yielded its initial snapshot
@@ -464,10 +445,9 @@ function installSharedWorkingTreeWatcher(
    *  with a stale view that no future event would correct on its own. The
    *  reconciliation tick at the end is what closes that window: consumers
    *  re-read state and converge. */
-  async function attach(): Promise<void> {
-    const ignore = await _computeIgnore(repoRoot, log);
+  async function attach(ignoreSet: Promise<string[]>): Promise<void> {
+    const ignore = await ignoreSet;
     if (cancelled) return;
-    derivedIgnore = ignore;
     await sequenceParcelCall(repoRoot, async () => {
       if (cancelled) return;
       // Retire the outgoing subscription first, in this same queued call —
@@ -530,10 +510,8 @@ function installSharedWorkingTreeWatcher(
   }
 
   function startAttach(): void {
-    const inFlight: Promise<void> = attach().finally(() => {
-      if (attaching === inFlight) attaching = null;
-    });
-    attaching = inFlight;
+    derivedIgnore = _computeIgnore(repoRoot, log);
+    void attach(derivedIgnore);
   }
 
   startAttach();

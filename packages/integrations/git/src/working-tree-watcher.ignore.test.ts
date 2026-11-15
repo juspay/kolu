@@ -39,6 +39,16 @@ async function waitFor(cond: () => boolean, ms = 5000): Promise<boolean> {
   return cond();
 }
 
+/** Wait until `count` has stopped moving for a quiet window longer than any
+ *  debounce in the chain, so the next pulse is caused by what the caller does
+ *  next, not by a reconcile tick still in flight. */
+async function quiesce(count: () => number): Promise<void> {
+  for (let seen = -1; seen !== count(); ) {
+    seen = count();
+    await sleep(500);
+  }
+}
+
 function git(cwd: string, ...args: string[]): void {
   execFileSync("git", args, { cwd, stdio: "pipe" });
 }
@@ -196,7 +206,7 @@ describe.skipIf(SKIP_DARWIN_FSWATCH)(
       // What it must ALSO do is bring `dist/` into the watch.
       writeFile(path.join(repo, ".gitignore"), "");
       await waitFor(() => installs() > before);
-      await sleep(300);
+      await quiesce(pulses.fired);
 
       const pulsed = pulses.fired();
       writeFile(path.join(repo, "dist", "new.js"), "2\n");

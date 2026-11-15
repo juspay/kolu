@@ -21,13 +21,13 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { createDirFilenameWatcher, type DirFilenameWatcher } from "kolu-io";
 import type { Logger } from "kolu-shared";
-import { resolveGitCommonDir, WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
+import {
+  GIT_QUERY_TIMEOUT_MS,
+  resolveGitCommonDir,
+  WATCHER_DEBOUNCE_MS,
+} from "./git-dir.ts";
 
 const execFileAsync = promisify(execFile);
-
-/** Same bound, for the same reason, as `git-dir.ts`'s rev-parse: a wedged git
- *  child is killed rather than left hanging a watcher install. */
-const GIT_CONFIG_TIMEOUT_MS = 5_000;
 
 /** Resolve `dir` to itself when it exists, else null (no watch). */
 async function existingDir(dir: string): Promise<string | null> {
@@ -91,7 +91,8 @@ function defaultGlobalIgnoreFile(): string {
  *  symlink-resolved. A home-manager `~/.config/git/ignore` is a symlink into
  *  the Nix store that activation swaps; the resolved target's directory never
  *  changes, while the link's own directory sees the swap and the dir watcher's
- *  `stat` follows the link to the new content. Null when git cannot answer. */
+ *  `stat` follows the link to the new content. Null when there is no global
+ *  file (`core.excludesFile` set empty) or git cannot answer. */
 async function resolveGlobalIgnoreFile(
   repoRoot: string,
   log?: Logger,
@@ -100,9 +101,11 @@ async function resolveGlobalIgnoreFile(
     const { stdout } = await execFileAsync(
       "git",
       ["config", "--type=path", "--get", "core.excludesFile"],
-      { cwd: repoRoot, encoding: "utf-8", timeout: GIT_CONFIG_TIMEOUT_MS },
+      { cwd: repoRoot, encoding: "utf-8", timeout: GIT_QUERY_TIMEOUT_MS },
     );
-    return path.resolve(repoRoot, stdout.trim());
+    const file = stdout.trim();
+    // Set but empty: git reads no global ignore file at all, not the default.
+    return file === "" ? null : path.resolve(repoRoot, file);
   } catch (e) {
     // Exit 1 is git's "key not set" — the default location applies.
     if (e instanceof Error && "code" in e && e.code === 1) {
