@@ -48,7 +48,11 @@ describe("useSubPanel focus verbs", () => {
   });
 
   it("expands chrome for an external arrival without stealing focus", () => {
-    useSubPanel().expandPanel(PARENT);
+    const panel = useSubPanel();
+    panel.collapsePanelChrome(PARENT);
+    h.setSubPanel.mockClear();
+
+    panel.expandPanel(PARENT);
 
     expect(h.writeFocus).not.toHaveBeenCalled();
     expect(h.setSubPanel).toHaveBeenCalledExactlyOnceWith({
@@ -115,11 +119,10 @@ describe("useSubPanel focus verbs", () => {
       id: SUB,
       tileHint: PARENT,
     });
-    expect(h.setSubPanel).toHaveBeenCalledExactlyOnceWith({
-      id: PARENT,
-      collapsed: false,
-      panelSize: 0.3,
-    });
+    // The split was already open, so the landing SAVES NOTHING. A write of the
+    // state already shown is the loop that broke drag-to-resize
+    // (`splitPanelState.write`).
+    expect(h.setSubPanel).not.toHaveBeenCalled();
   });
 
   it("remembers A's split across a focus move to B and back", () => {

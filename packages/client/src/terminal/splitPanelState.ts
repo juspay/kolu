@@ -244,9 +244,23 @@ export const useSplitPanelState = createSharedRoot((): SplitPanelStore => {
     );
   };
 
+  const state = (id: TerminalId): SplitPanelState =>
+    savedSplitOf(savedOf(id), pending[id]?.value);
+
   return {
-    state: (id) => savedSplitOf(savedOf(id), pending[id]?.value),
+    state,
     write: (id, next) => {
+      // A REPORT OF THE VALUE ALREADY SHOWN IS NOT A CHANGE, and saying so
+      // here is what keeps a drag from eating itself. Corvu re-emits the
+      // controlled `sizes` it was just handed, so a drag's own echo comes back
+      // through `onSizesChange` while the gesture is still in progress. Writing
+      // that echo would touch this store (a fresh entry, one more owed write),
+      // which moves the controlled value, which re-emits — a cycle with no
+      // fixpoint, because an entry is a new object every time even when its
+      // value is not. The copy this module replaced was immune by accident:
+      // it wrote one NUMBER into a store, and solid-js drops a property write
+      // that equals what is there.
+      if (sameSplitPanelState(state(id), next)) return;
       setPending(id, (prev: SplitPending | undefined) => ({
         value: next,
         inFlight: (prev?.inFlight ?? 0) + 1,

@@ -102,6 +102,28 @@ describe("the split's in-flight entry cannot outlive its write", () => {
     expect(split.state(T)).toEqual(FOREIGN);
   });
 
+  it("A WRITE OF THE VALUE ALREADY SHOWN IS NOT A WRITE", () => {
+    const split = useSplitPanelState();
+
+    // The record already says this. Corvu re-emits the controlled sizes it was
+    // handed, so this is what a drag's own echo looks like arriving back here.
+    split.write(T, { ...OPEN_30 });
+    expect(h.setSubPanel).not.toHaveBeenCalled();
+
+    // And once a gesture IS in front, its own echo is inert too — otherwise
+    // every echo owes another write, the entry changes identity, the shown
+    // value moves, and Corvu re-emits again with no fixpoint.
+    split.write(T, DRAG_A);
+    expect(h.setSubPanel).toHaveBeenCalledOnce();
+    split.write(T, { ...DRAG_A });
+    expect(h.setSubPanel).toHaveBeenCalledOnce();
+
+    // A real move still writes.
+    split.write(T, DRAG_B);
+    expect(h.setSubPanel).toHaveBeenCalledTimes(2);
+    expect(split.state(T)).toEqual(DRAG_B);
+  });
+
   it("A FAILED write reverts to the record", async () => {
     const split = useSplitPanelState();
     split.write(T, COLLAPSED);
