@@ -454,11 +454,24 @@ it is the **ordinary** path for two more things, both decided in kaval:
   shell's hundred-byte repaint is simply delivered and an agent's
   multi-megabyte reprint becomes one re-sync instead.
 
-Nothing about the wire changed: no new frame kind, no contract bump, and an
-older peer on either side behaves exactly as it did. What changed is how often
-this lane fires and why — which matters here because padi is where the reset and
-the snapshot are spliced onto one stream, and a consumer that mishandled a
-mid-stream snapshot would now meet one far more often.
+Those two lanes changed no wire shape: no new frame kind, no contract bump, and
+an older peer on either side behaves exactly as it did. What changed is how
+often this lane fires and why — which matters here because padi is where the
+reset and the snapshot are spliced onto one stream, and a consumer that
+mishandled a mid-stream snapshot would now meet one far more often.
+
+A third frame rides the same feed, and padi's whole job with it is **order**.
+kaval publishes `resized` at the point in the byte stream where its mirror
+changed size (kaval contract 9.0), and a viewer resizes its own terminal AT that
+frame — so a frame that overtakes the bytes around it, or arrives late, lays the
+wrong output out at the wrong size, which is the defect the frame exists to
+remove. padi therefore relays it in order on EVERY path a delta can take: the
+plain relay, and the overflow re-attach, where it follows the reset and its
+fresh snapshot rather than racing them. `padiSurface` carries it from 7.5 —
+additive, a MINOR, because padi drains rather than killing its PTYs, so a
+widened emitted union costs a surviving daemon nothing but a drain. A snapshot's
+`grid` is required there too, so a consumer adopts the size a screen was laid
+out at before it paints it.
 
 ## `screen.image` — padi is where the picture gets made
 
@@ -700,7 +713,7 @@ system and the Nix versions involved (`deliverClosure`): content-addressed to a
 Linux host when kolu-server's `nix`, its store's Nix and the host's all handle
 the same form (the same side of Nix 2.35), else as built here — signed by no
 one, so the host takes it only when its Nix trusts the login; to a Mac always
-as built. Two cells, two procedures (`padiSurface` 7.0, `models` since 7.5)
+as built. Two cells, two procedures (`padiSurface` 7.0, `models` since 7.6)
 and one spawn layer carry it; the module is `src/agentDistro/`.
 
 - **`agentDistro` (memory-only, `get`/`set`)** — the Agents setting
@@ -756,7 +769,7 @@ and one spawn layer carry it; the module is `src/agentDistro/`.
   never retries and never runs Nix for agents — kolu-server delivers again on
   upstream's schedule, on every bind, and on the user's check. Binder-only; not
   on the MCP face.
-- **`agentDistro.models` (procedure, `padiSurface` 7.5)** — which models a
+- **`agentDistro.models` (procedure, `padiSurface` 7.6)** — which models a
   harness offers on THIS host, for kolu's setup form, its answer check and the
   command the fleet face starts a planner or implementor with
   (`src/agentDistro/models.ts`). padi runs the serving package's

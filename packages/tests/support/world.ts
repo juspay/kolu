@@ -26,6 +26,20 @@ import "kolu-common/test-hooks";
  *  for this. */
 export const POLL_TIMEOUT = 20_000;
 
+/** How long a pane's grid needs before it CAN have changed.
+ *
+ *  A pane no longer resizes its own xterm when its box moves: it states the
+ *  grid its box can hold, the client publishes that once the measurement has
+ *  held still (`GRID_SETTLE_MS`, 250 ms), and the pane adopts the new grid
+ *  only where the daemon's mirror did — at the resize frame on the attach
+ *  stream. So "the grid did NOT change" is a claim about a round trip, and an
+ *  assertion that reads the grid sooner is only observing that the answer has
+ *  not arrived yet: it would pass against a pane that is about to resize.
+ *  Every such negative hold must outlast THIS. Sized for the settle plus a
+ *  publish and an answer on a loaded runner — well short of `POLL_TIMEOUT`,
+ *  because a hold is paid in full on every passing run. */
+export const GRID_ROUND_TRIP_MS = 3_000;
+
 /** Per-step budget for *hydration* polls — waiting for the app to mount
  *  enough state that interaction is meaningful (server WS up, savedSession
  *  reflected, file-tree populated). The hydration axis is volatile
@@ -207,6 +221,11 @@ export class KoluWorld extends World {
    *  step can assert it reached the terminal. */
   composedDraft?: string;
   snapshotCols?: Record<string, number>;
+  /** The terminal a stand-in full-screen program is drawing in
+   *  (`terminal_lockstep_steps.ts`), so every later step compares the SAME
+   *  terminal's two screens — the pane's and the daemon's — however focus and
+   *  the split have moved since. */
+  paintedTerminalId?: string;
   /** Snapshot of `data-zoom` from `before I zoom the canvas in` so the
    *  follow-up `Then the canvas zoom level should have changed` step can
    *  compare. */

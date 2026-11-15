@@ -67,11 +67,23 @@ stays visible but dimmed, and cannot be clicked.
 
 ### See ignored files
 
-The **eye toggle** beside the filter box brings back what `.gitignore` hides, as
+The **eye toggle** beside the filter box brings back what git ignores, as
 dimmed rows. A fully-ignored directory arrives as one collapsed entry, so
 `node_modules/` is one row rather than forty thousand files. Expand it and kolu
 reads the one level beneath it from disk, a click at a time. The toggle
 remembers itself per browser, and appears only in **All files**.
+
+Git reads its ignore rules from three places:
+
+- `.gitignore` files in the repo.
+- The repo's `.git/info/exclude`. Every worktree of a repo shares this one
+  file, so an edit made for one worktree changes what all of them ignore.
+- Your global ignore file: the one `core.excludesFile` names, else
+  `$XDG_CONFIG_HOME/git/ignore` (normally `~/.config/git/ignore`).
+
+When any of them changes, the tree follows within a second or so, with the eye
+on or off. A directory you stop ignoring shows as ordinary rows, and its files
+update live from then on.
 
 Nothing about an ignored file updates live, because kolu does not watch inside
 ignored directories. Collapse a directory and open it again to re-read what is

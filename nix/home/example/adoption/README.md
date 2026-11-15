@@ -66,13 +66,19 @@ still offered. Post-cutover this is padi's `adoptOrEnsure` recycling its kaval.
 
 There's no env seam for the contract version (a source constant), so the "newer
 kolu" is a **second build** via the test-only **`contractVersionOverride`** arg in
-the root `default.nix`. The test seeds a terminal + saved session on the old
-(contract 5.0) stack, stops the old server, starts the bumped (9.0) server (which
+the root `default.nix`. The test seeds a terminal + saved session on the stack
+this tree actually builds, stops the old server, starts the bumped server (which
 merely ADOPTS the surviving old padi — its `padiSurface` is unchanged), then
-**drains** that padi so kolu-new's own contract-9.0 padi comes up, meets the
+**drains** that padi so kolu-new's own bumped padi comes up, meets the
 surviving kaval, skews, and **recycles** it. Asserts the **kaval** gate pid
 *changed*, the **`pty-host contract skew`** was logged (in padi's own transient
 unit), *and* the session is **preserved**.
+
+The override version is `4242.0`, deliberately beyond any release. It was `9.0`
+until the real constant reached 9.0 in kolu#2378 and the "skew" quietly became
+two identical builds; `default.nix` now **refuses** an override the source
+already speaks, so the next collision fails at build time with a sentence
+instead of here with a missing recycle.
 
 ### `adoption-currency` — a build-behind kaval is adopted + nudged (B3.4)
 

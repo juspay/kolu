@@ -308,8 +308,44 @@ const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
  *  exactly today's behaviour: fewer overflow frames and no window, which is the
  *  status quo, not a lie. A version bump would therefore buy nothing and cost a
  *  forced recycle — killing live PTYs — which is the one price this file keeps
- *  refusing to pay for something that degrades gracefully. */
-export const PTY_HOST_CONTRACT_VERSION = "8.0";
+ *  refusing to pay for something that degrades gracefully.
+ *
+ *  Bumped to 9.0 (BREAKING · major): the attach stream gained a `resized`
+ *  frame, and its `snapshot` frame's `grid` became REQUIRED.
+ *
+ *  The frame says WHERE IN THE BYTE STREAM the mirror changed size. Until now a
+ *  consumer could only learn a resize had happened out of band — it published a
+ *  grid and the host acted on it some time later — so a viewer's own terminal
+ *  and this host's mirror changed size at two different points in one stream of
+ *  bytes. Everything written in that gap was laid out for one grid and parsed at
+ *  the other, and the two screens diverged: a cursor row apart, different lines
+ *  pulled out of scrollback, and a full-screen program's relative repaint
+ *  ("up N, erase below, redraw") then erasing the wrong rows on the viewer's
+ *  side only. With the frame, a viewer resizes AT the frame and the two screens
+ *  cannot disagree about a resize at all (kolu#2362, kolu#2372).
+ *
+ *  A TYPED frame, never an escape sequence inside `delta` bytes: program output
+ *  is untrusted and would be able to forge an in-band marker (`scrollbackBack-
+ *  fill.ts` already has to defend its own seed seam with a per-frame token).
+ *
+ *  Both halves are the `overflow` class at 5.0, which is the file's precedent
+ *  for a MAJOR: a NEW EMITTED VARIANT is the one direction
+ *  `isContractVersionCompatible` waves through (`major equal && reported.minor
+ *  >= expected`), so an 8.x consumer would accept this daemon and then meet a
+ *  frame its schema cannot discriminate. The required `grid` is the same shape
+ *  inverted — an 8.x DAEMON omitting it fails a 9.0 consumer's decode on every
+ *  attach. Only a major rejects both directions. The producer has supplied a
+ *  real grid on every snapshot since 5.4, so nothing here is newly knowable;
+ *  what changes is that a consumer may now RELY on it, which is what lets it
+ *  size its renderer to the bytes instead of guessing.
+ *
+ *  The price is the one this file keeps refusing elsewhere, and it is paid
+ *  deliberately: every surviving kaval is recycled on deploy, so every host's
+ *  terminals park and restore. A cosmetic readout must never cost a terminal —
+ *  but this is not a readout. Without it a pane silently paints a screen the
+ *  program never drew, which is the defect, and no optional field can fix it:
+ *  absence would mean "resize whenever you like", exactly today's behaviour. */
+export const PTY_HOST_CONTRACT_VERSION = "9.0";
 
 /** PTY ids are opaque strings on the wire — the host neither mints nor
  *  interprets them. kolu validates against its own `TerminalIdSchema` at its
@@ -729,31 +765,26 @@ const TerminalDataMsgSchema = Schema.Union([
     // 5.1 daemon that omits it leaves the client fail-open (no epoch → no gate,
     // the historical single-width behavior), no skew refusal.
     reflowEpoch: Schema.optionalKey(NonNegativeInt),
-    // `grid` (contract 5.4 · additive · optional) — the cols×rows this snapshot
-    // was SERIALIZED at. The same kind of fact as `topLine` and `reflowEpoch`,
-    // riding on the same frame as the bytes it describes so it can never drift
-    // from the snapshot a client actually received.
+    // `grid` (contract 5.4 · additive · optional; REQUIRED at 9.0) — the
+    // cols×rows this snapshot was SERIALIZED at. The same kind of fact as
+    // `topLine` and `reflowEpoch`, riding on the same frame as the bytes it
+    // describes so it can never drift from the snapshot a client actually
+    // received.
     //
-    // It exists for the OBSERVE-ONLY consumer: a client that attaches WITHOUT a
-    // `resizeTo` (a monitor, a read-only pane, a CLI dumping the screen) never
-    // asserts a size and so has no idea what size it just received. Without
-    // this it must size its renderer by guess, and a mismatched box wraps the
-    // bytes into garbage. With it, the frame is self-describing.
+    // REQUIRED, because a consumer now SIZES ITSELF TO IT. A snapshot is bytes
+    // already laid out for one cols×rows; a client that paints them into a
+    // terminal of any other size is painting a screen the program never drew.
+    // With the grid on the frame it sets its terminal to this grid and then
+    // paints, so the question "do these bytes fit?" has no second answer — and
+    // an optional field cannot carry that, because absence would mean "size
+    // however you like", which is the defect. The producer has supplied a real
+    // grid here since 5.4; 9.0 only makes consumers entitled to it.
     //
-    // It is also the first honest answer to "is another viewer holding this
-    // terminal at a different size" — comparing it with the grid you ASKED at
-    // detects a foreign last-attach-wins resize, which nothing on this wire
-    // could express before (padi's `surface.ts` names the gap and says no code
-    // should pretend otherwise).
-    //
-    // OPTIONAL and NO BUMP, for the reason this file already gives for
-    // `resizeTo` and the lifetime field: absence degrades to exactly today's
-    // reading in both skew directions (an older daemon omits it and a consumer
-    // sizes as it always did; a newer daemon under an older padi has it
-    // stripped). Bumping would force-recycle a surviving kaval — killing the
-    // user's live PTYs — to buy a graceful improvement, and "a cosmetic readout
-    // must never cost a terminal".
-    grid: Schema.optionalKey(PtyGridSchema),
+    // It is also what an OBSERVE-ONLY consumer has instead of an assertion: one
+    // that attaches WITHOUT a `resizeTo` (a monitor, a read-only pane, a CLI
+    // dumping the screen) names no size, so the frame has to be self-describing
+    // or its bytes wrap into garbage.
+    grid: PtyGridSchema,
   }),
   Schema.Struct({ kind: Schema.Literal("delta"), data: Schema.String }),
   // The host dropped THIS attach subscriber for exceeding its buffered-chunk
@@ -765,6 +796,18 @@ const TerminalDataMsgSchema = Schema.Union([
   // union variant an older client can't discriminate, so a 3.x peer is a clean
   // skew rather than a silent mis-parse — see PTY_HOST_CONTRACT_VERSION.
   Schema.Struct({ kind: Schema.Literal("overflow") }),
+  // The MIRROR JUST CHANGED SIZE, here, at this point in the stream (contract
+  // 9.0 — see PTY_HOST_CONTRACT_VERSION for why this frame exists and why it is
+  // typed rather than an escape inside a `delta`). Published from `resize()`
+  // through the same ordered channel the bytes use, so a subscriber sees: the
+  // bytes parsed before the resize, then this frame, then the bytes parsed
+  // after. That POSITION is the whole of its content.
+  //
+  // A CONTROL frame, like `overflow`: it carries no bytes, it is never withheld
+  // by the resize window (a viewer must learn the new size even while the
+  // repaint is being held), and it costs nothing against the per-subscriber
+  // byte budget. A same-size `resize()` is a no-op and emits nothing.
+  Schema.Struct({ kind: Schema.Literal("resized"), grid: PtyGridSchema }),
 ]);
 
 /** A membership change in the host's live-PTY set — the host-global inventory
