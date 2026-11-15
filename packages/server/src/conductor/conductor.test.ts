@@ -1345,7 +1345,9 @@ describe("a record that parses but is wrong (R8)", () => {
       record: { ...EMPTY_PERSISTED_CONDUCTOR, cwd: HOME },
       rows: [{ id: "a", seq: 1, since: T0 }] as unknown as ConductorRow[],
     });
-    expect(() => r.host.watch(() => {})).toThrow(/does not match schema/);
+    expect(() => r.host.watch(() => {})).toThrow(
+      /kolu could not read the Conductor's saved transcript/,
+    );
     // Without this the cell still said `refusal: null`, and a person holding
     // an unreadable state-root got an idle-looking panel with a live composer
     // under it instead of the name of the file to fix — and the file named is
@@ -1362,8 +1364,13 @@ describe("a record that parses but is wrong (R8)", () => {
     const r = rig({
       works: [{ id: "work:1", title: 7 }] as unknown as PersistedWorks,
     });
-    expect(() => r.host.watch(() => {})).toThrow(/do not match schema/);
+    expect(() => r.host.watch(() => {})).toThrow(
+      /kolu could not read the Conductor's saved works/,
+    );
     expect(r.host.state().refusal).toContain(join("/state", "config.json"));
+    // ...and WHICH record it was, as a value: the panel's two buttons are
+    // drawn off this, because a button cannot be drawn off prose.
+    expect(r.host.state().unreadable?.key).toBe("works");
   });
 });
 

@@ -45,6 +45,7 @@ import { completionOpen } from "./drafts";
 import { Shown, useShown } from "../ui/shown";
 import ConductorComposer from "./ConductorComposer";
 import ConductorHeader from "./ConductorHeader";
+import ConductorRefusal from "./ConductorRefusal";
 import ConductorSignIn from "./ConductorSignIn";
 import ConductorStatus from "./ConductorStatus";
 import ConductorStrip from "./ConductorStrip";
@@ -311,14 +312,16 @@ const ConductorPane: Component<{
                       transcriptEl = el;
                     }}
                   />
-                  {/* A conversation the agent would not OPEN has no composer
-                    under it: there is nothing to say to an agent that is not
-                    there. The one offer is to ask again for exactly what was
-                    refused — and no status line either, because the line
-                    reports on a conversation that is running and this one
-                    never started. */}
+                  {/* A conversation that would not OPEN has no composer under
+                    it: there is nothing to say to an agent that is not there,
+                    and nothing to say at all when the records a restart reads
+                    would not decode. What is offered depends on WHICH of
+                    those happened, which is `ConductorRefusal`'s whole job —
+                    and no status line either way, because the line reports on
+                    a conversation that is running and this one never
+                    started. */}
                   <Show
-                    when={state().refusal}
+                    when={state().refusal !== null}
                     fallback={
                       <>
                         <ConductorStatus state={state()} rows={feed.rows()} />
@@ -326,22 +329,7 @@ const ConductorPane: Component<{
                       </>
                     }
                   >
-                    {(why) => (
-                      <div
-                        data-testid="conductor-refusal"
-                        class="border-t border-edge px-5 py-3 text-xs text-fg-2"
-                      >
-                        <p class="mb-2 whitespace-pre-wrap">{why()}</p>
-                        <button
-                          type="button"
-                          data-testid="conductor-retry"
-                          class="rounded-md border border-edge-bright bg-surface-2 hover:bg-surface-3 px-2.5 py-1 text-fg cursor-pointer"
-                          onClick={() => orch.newSession()}
-                        >
-                          Try again
-                        </button>
-                      </div>
-                    )}
+                    <ConductorRefusal state={state()} />
                   </Show>
                 </div>
               </Shown.Provider>

@@ -775,12 +775,14 @@ describe("the conductor's rungs", () => {
 });
 
 describe("a record that parses but is wrong", () => {
-  it("REFUSES by name rather than restoring a transcript with holes in it", () => {
+  it("REFUSES in plain words rather than restoring a transcript with holes in it", () => {
     // A row with no `kind` — the shape a hand-edit, a half-written file or a
     // rolled-back binary leaves behind. The transcript store casts, so
     // without the re-validation this reaches the panel as a row nothing can
-    // draw. The refusal names the FILE the rows are in, which is the one
-    // thing a person holding a corrupt state root has to act on.
+    // draw. The refusal says what happened and names the FILE the rows are
+    // in; what to DO about it is the two buttons the panel draws off the
+    // state (`conductor/recovery.test.ts`), never an instruction to go and
+    // edit the file.
     transcriptStore.set({
       rows: [
         { id: "a", seq: 1, since: "2026-01-01T00:00:00.000Z" },
@@ -788,8 +790,11 @@ describe("a record that parses but is wrong", () => {
     });
 
     const host = hostOver().host;
-    expect(() => host.watch(() => {})).toThrow(/does not match schema/);
+    expect(() => host.watch(() => {})).toThrow(
+      /kolu could not read the Conductor's saved transcript/,
+    );
     expect(() => host.watch(() => {})).toThrow(transcriptPath);
+    expect(host.state().unreadable?.key).toBe("transcript");
   });
 
   it("REFUSES a transcript file this build's ladder did not stamp", () => {

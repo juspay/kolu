@@ -163,6 +163,33 @@ Feature: A piece of work is a stored thing
     And the work column should list the terminal as a member
     And there should be no page errors
 
+  Scenario: A remembered work this build cannot read is recovered, never hand-edited
+    # THE ACCIDENT: a store written by a build whose shape this one does not
+    # read — an upgrade that skipped a rung, a roll-back, a half-written key.
+    # The Conductor refuses it rather than reading past it, and what it offers
+    # is what kolu can DO: the newest backup that reads, or starting with no
+    # works and the unreadable ones kept aside. What it must never offer again
+    # is the sentence it used to end on — "Fix the `works` key to recover" —
+    # which hands kolu's job to a person holding a JSON file.
+    Given a repo for the work
+    When I ask the conductor to open the work "survive a bad upgrade"
+    Then the work column should show the work
+    # The first restart's boot snapshot catches the store as it is NOW, with
+    # the work in it and readable.
+    When the kolu server is restarted
+    And I enter conductor mode
+    Then the work column should show the work
+    # ...and the second one comes up over a `works` key this build cannot
+    # read. Its own boot snapshot goes into the ring too, so the NEWEST
+    # snapshot carries the corruption: a recovery that took the top of the
+    # ring would hand the same unreadable value back.
+    When the kolu server is restarted over works this build cannot read
+    And I enter conductor mode
+    Then the conductor should say it could not read the saved works
+    When I restore the newest backup that reads
+    Then the work column should show the work
+    And there should be no page errors
+
   @mobile
   Scenario: The work column and its card fit a phone
     # A phone is below the two-column width by definition, so the column is

@@ -249,7 +249,7 @@ export interface HarnessOptions {
 }
 
 /** WHAT A HARNESS CAN ANSWER FOR: padi's whole conductor state minus the
- *  six facts it would only be echoing back. `install` and `agentName` are
+ *  seven facts it would only be echoing back. `install` and `agentName` are
  *  the ENGINE's, settled when kolu was built, and `cwd` is the directory padi
  *  handed in — a harness that published them would be overwriting the caller's
  *  own answer with a copy of it. `seen`, `work` and `held` are the SERVER's in
@@ -257,10 +257,14 @@ export interface HarnessOptions {
  *  watched terminals group into the pieces of work that ARE the membership
  *  list, and whose news is waiting for the turn to end, are facts about
  *  kolu's watch rather than about the conversation — this end only ever
- *  learns of them as a {@link Harness.wake}. */
+ *  learns of them as a {@link Harness.wake}. `unreadable` is the server's
+ *  too, and the furthest from a harness of all of them: it says which
+ *  REMEMBERED RECORD would not decode, which is a fact about a file this end
+ *  has never seen — and about a conversation that could not be started
+ *  BECAUSE of it, so there is no harness to answer for it. */
 export type HarnessState = Omit<
   ConductorState,
-  "install" | "agentName" | "cwd" | "seen" | "work" | "held"
+  "install" | "agentName" | "cwd" | "seen" | "work" | "held" | "unreadable"
 >;
 
 /**

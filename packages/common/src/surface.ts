@@ -96,6 +96,8 @@ import {
   ConductorFrameSchema,
   ConductorPromptInputSchema,
   ConductorPromptOutputSchema,
+  ConductorRecoverInputSchema,
+  ConductorRecoverOutputSchema,
   ConductorSetOptionInputSchema,
   ConductorSignInInputSchema,
   ConductorSignInOutputSchema,
@@ -1381,6 +1383,25 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
        *  say so. Same single error, for the same reason. */
       handBack: {
         input: ConductorTerminalInputSchema,
+        error: Schema.Union([ConductorRefused]),
+      },
+      /** PUT A RECORD KOLU CANNOT READ BACK IN A STATE IT CAN — the two
+       *  buttons under an unreadable-record refusal, and the only two things
+       *  kolu can honestly do about one.
+       *
+       *  `how: "backup"` restores the newest state-backup snapshot whose
+       *  store decodes; `how: "empty"` keeps the unreadable value aside in a
+       *  file of its own and starts that record empty. The running server
+       *  re-reads its records afterwards — no restart — and the answer says
+       *  which snapshot it took or where the value was kept.
+       *
+       *  `ConductorRefused` ALONE: every no here is one a person reads and
+       *  acts on ("no backup reads either", "there is nothing to recover —
+       *  kolu can read its records"), and none of them is the agent being
+       *  down. There is no agent: that is why this screen is up. */
+      recoverStore: {
+        input: ConductorRecoverInputSchema,
+        output: ConductorRecoverOutputSchema,
         error: Schema.Union([ConductorRefused]),
       },
     },

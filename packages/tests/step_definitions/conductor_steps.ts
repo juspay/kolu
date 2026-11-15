@@ -3030,3 +3030,66 @@ When(
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
+
+/** ...AND IT COMES BACK OVER A STORE IT CANNOT READ. The `works` key is
+ *  rewritten while the server is DOWN — the one window in which the file has
+ *  no writer — into the shape a rolled-back binary or a rung that never ran
+ *  leaves behind: a work whose title is a number.
+ *
+ *  This is the accident the whole recovery exists for, and the only way to
+ *  stage it honestly is to put the bytes there before a boot reads them. */
+When(
+  "the kolu server is restarted over works this build cannot read",
+  { timeout: 180_000 },
+  async function (this: KoluWorld) {
+    const url = await restartKoluServer((stateFile) => {
+      const state = JSON.parse(fs.readFileSync(stateFile, "utf8")) as Record<
+        string,
+        unknown
+      >;
+      state.works = [{ id: "work:unreadable", title: 7 }];
+      fs.writeFileSync(stateFile, JSON.stringify(state), { mode: 0o600 });
+    });
+    await this.page.goto(url);
+  },
+);
+
+/** The panel a person actually meets: the sentence, and what is offered under
+ *  it. Both halves are asserted — the plain words, and the ABSENCE of the
+ *  instruction the old sentence ended on. */
+Then(
+  "the conductor should say it could not read the saved works",
+  async function (this: KoluWorld) {
+    const refusal = this.page.locator('[data-testid="conductor-refusal"]');
+    await refusal.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    const said = (await refusal.innerText()).replace(/\s+/g, " ");
+    assert.ok(
+      said.includes("kolu could not read the Conductor's saved works"),
+      `the refusal reads ${JSON.stringify(said)}`,
+    );
+    assert.ok(
+      !/fix the .works. key/i.test(said),
+      `the refusal still asks for a hand-edit: ${JSON.stringify(said)}`,
+    );
+    // There is no composer under a Conductor that never came up.
+    assert.equal(await this.page.locator(INPUT).count(), 0);
+  },
+);
+
+/** The first button: walk the ring newest first and take the newest snapshot
+ *  that decodes. The newest one here is the corrupt store's own boot snapshot,
+ *  so a recovery that merely took the top of the ring would come back with the
+ *  same unreadable value. */
+When(
+  "I restore the newest backup that reads",
+  async function (this: KoluWorld) {
+    const button = this.page.locator(
+      '[data-testid="conductor-recover-backup"]',
+    );
+    await button.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await button.click();
+    await this.page
+      .locator('[data-testid="conductor-refusal"]')
+      .waitFor({ state: "detached", timeout: POLL_TIMEOUT });
+  },
+);

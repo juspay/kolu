@@ -29,6 +29,7 @@ import type {
   ConductorAttachment,
   ConductorMention,
   ConductorState,
+  ConductorStoreKey,
 } from "kolu-common/conductor";
 import { Effect } from "effect";
 import type { Accessor } from "solid-js";
@@ -119,6 +120,15 @@ export interface Conductor {
   /** ... and give it back: the Conductor drives it again, and is woken to
    *  say so. */
   handBack(terminal: string): void;
+  /** PUT A RECORD KOLU COULD NOT READ BACK IN A STATE IT CAN — the two
+   *  buttons under an unreadable-record refusal, which is the one screen
+   *  where the Conductor is down for a reason the AGENT has nothing to do
+   *  with. `how: "backup"` takes the newest state backup that reads;
+   *  `how: "empty"` keeps the unreadable value aside and starts that record
+   *  empty. The server's answer says what it did, which is why this one is
+   *  reported on success as well as on failure: a recovery nobody can see
+   *  the result of is indistinguishable from a button that did nothing. */
+  recoverStore(key: ConductorStoreKey, how: "backup" | "empty"): void;
 }
 
 export const useConductor = createSharedRoot<Conductor>(() => {
@@ -275,5 +285,21 @@ export const useConductor = createSharedRoot<Conductor>(() => {
         "Could not hand it back",
         app.procedures.conductor.handBack({ terminal }),
       ),
+    // THE ONE VERB WHOSE SUCCESS IS ALSO A REPORT. The others move something
+    // on screen — a row, a lock, a session — and the screen is the answer.
+    // This one's whole result is a sentence: which snapshot kolu took, or
+    // where it kept the value it could not read. The panel under it is about
+    // to be replaced by a conversation coming up, so the toast is where that
+    // sentence can live long enough to be read.
+    recoverStore: (key, how) => {
+      pinTranscript();
+      ask(
+        "Could not recover",
+        app.procedures.conductor.recoverStore({ key, how }),
+        (result) => {
+          toast.success(result.said);
+        },
+      );
+    },
   };
 });

@@ -94,7 +94,9 @@ import {
 import { DAEMON_INVENTORY_SAMPLE_INTERVAL_MS } from "./padi/daemonInventory.ts";
 import { FORWARD_REAP_INTERVAL_MS } from "./portForward/forwards.ts";
 import { conductorSurfaceMembers } from "kolu-conductor/surface";
+import type { ConductorStoreKey } from "kolu-common/conductor";
 import { ConductorRefused } from "kolu-common/conductorErrors";
+import { recoverConductorStore } from "./conductorRecovery.ts";
 import { type Work, WorkRefusal } from "kolu-work";
 import {
   liveServerConductor,
@@ -591,6 +593,34 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
           handOver(() => liveServerConductor().takeOver(input.terminal)),
         handBack: ({ input }: { input: { terminal: string } }) =>
           handOver(() => liveServerConductor().handBack(input.terminal)),
+        // PUTTING A RECORD KOLU CANNOT READ BACK IN A STATE IT CAN, bound
+        // here for the third variant of the same reason: it is the one verb
+        // that runs BECAUSE there is no conversation. It reaches no agent —
+        // it writes a conf key and asks the live host to read its records
+        // again — and the store, the backup ring and the state root it works
+        // on are kolu-server's, not the conductor package's. Its refusals are
+        // sentences a person reads under the two buttons ("no backup reads
+        // either"); anything else is a defect and dies loudly.
+        recoverStore: ({
+          input,
+        }: {
+          input: { key: ConductorStoreKey; how: "backup" | "empty" };
+        }) =>
+          Effect.suspend(() => {
+            try {
+              const host = liveServerConductor();
+              return Effect.succeed(
+                recoverConductorStore(input, {
+                  state: () => host.state(),
+                  reload: () => host.reloadRecords(),
+                }),
+              );
+            } catch (err) {
+              return err instanceof ConductorRefused
+                ? Effect.fail(err)
+                : Effect.die(err);
+            }
+          }),
         // ANSWERING ONE OF KOLU'S OWN QUESTIONS is bound here for exactly the
         // same reason, and it is the whole of why asking no longer waits: the
         // question is a DECISION on the work, so answering it is a write to

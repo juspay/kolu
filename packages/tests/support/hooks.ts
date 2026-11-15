@@ -1555,8 +1555,16 @@ After({ tags: "@kaval-restart" }, async function (this: KoluWorld) {
  *  scenarios about records — finished work, its decisions and its kept files.
  *
  *  Refuses when `KOLU_SERVER` is a URL: that mode reuses a server this run
- *  neither owns nor may restart. */
-export async function restartKoluServer(): Promise<string> {
+ *  neither owns nor may restart.
+ *
+ *  `whileDown` runs between the kill and the start, with the state file's path
+ *  — the one window in which a scenario can SEED that file, because the
+ *  running server is its one writer and would overwrite anything written
+ *  under it. That is what lets a scenario put a store this build cannot read
+ *  in front of a boot. */
+export async function restartKoluServer(
+  whileDown?: (stateFile: string) => void,
+): Promise<string> {
   const koluServer = process.env.KOLU_SERVER;
   if (!koluServer || koluServer.startsWith("http")) {
     throw new Error(
@@ -1565,6 +1573,7 @@ export async function restartKoluServer(): Promise<string> {
   }
   console.log(`[worker:${workerId}] restarting the server for a scenario.`);
   killServer();
+  whileDown?.(path.join(koluStateDir, "config.json"));
   await startServerChild(koluServer);
   return baseUrl;
 }

@@ -152,6 +152,27 @@ If a snapshot cannot be taken, because the disk is full or a state directory
 has gone read-only, **Start fresh** refuses rather than discarding a session it
 could not copy first. Fix the disk and try again; the session is still there.
 
+## The Conductor says it cannot read one of its records
+
+[The Conductor](/conductor) keeps four saved records: its pieces of work, what
+it remembers about their terminals, the conversation's own record, and the
+transcript. When one of them will not read, the Conductor's panel says so in
+plain words, shows what the read tripped on, and offers two buttons. You never
+have to edit a file, and kolu comes back without a restart.
+
+| Button | What it does |
+| --- | --- |
+| **Restore the newest backup that reads** | Walks the backup ring newest first and takes the newest snapshot this build can read, naming it. The current state is snapshotted first, so this is undoable. Not offered for the transcript. |
+| **Start with no works** | Starts that record empty. The wording follows the record: no works, no remembered terminals, a fresh conversation, or an empty transcript. It asks you to confirm first. |
+
+A restore writes only the records the message was about, so your preferences
+and host pool stay as they are. The transcript is not in backups, which is why
+only the second button is offered for it.
+
+Nothing is deleted either way. The value kolu could not read is kept aside as
+`<state dir>/conductor/unreadable-<record>-<time>.json`, and the confirm step
+names the file.
+
 ## Something looks stuck, and I want to report it
 
 Open the palette with <kbd>Cmd</kbd>/<kbd>Super</kbd> + <kbd>K</kbd> → **Debug →

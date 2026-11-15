@@ -49,8 +49,12 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     // and `conductor` (kolu's ONE supervising conversation — hosted HERE
     // because its hands reach every host at once, where a padi can only see
     // its own terminals; what it drives is terminals, but the member is a
-    // conversation this process owns). No collections, no events; the one
-    // STREAM is that conversation's transcript.
+    // conversation this process owns). TWO COLLECTIONS ride with it — `works`
+    // and `memberReadings`, the pieces of work that conversation is running
+    // and what kolu has read off each member terminal: facts about a WORK
+    // rather than about a terminal, published per key because a reader of one
+    // has no business re-receiving the others. No events; the one STREAM is
+    // that conversation's transcript.
     expect(Object.keys(spec.cells ?? {}).sort()).toEqual([
       "agentDistroListing",
       "agentProfiles",
@@ -66,7 +70,10 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     expect(spec.cells?.session).toBeUndefined();
     expect(spec.cells?.activityFeed).toBeUndefined();
     expect(spec.cells?.terminalList).toBeUndefined();
-    expect(spec.collections).toBeUndefined();
+    expect(Object.keys(spec.collections ?? {}).sort()).toEqual([
+      "memberReadings",
+      "works",
+    ]);
     expect(spec.events).toBeUndefined();
     const streams = (
       surfaces.kolu.spec as { streams?: Record<string, unknown> }
@@ -96,19 +103,25 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     expect(Object.keys(spec.procedures?.agentDistro ?? {})).toEqual([
       "deliver",
     ]);
-    // The ten verbs that ASK the one conversation for something. The cell
-    // beside them is read-only, which is why every write is here.
+    // The verbs that ASK the one conversation for something. The cell beside
+    // them is read-only, which is why every write is here.
     expect(Object.keys(spec.procedures?.conductor ?? {})).toEqual([
       "prompt",
       "attach",
       "cancel",
       "answer",
+      "answerWork",
       "signIn",
       "signInInput",
       "signInCancel",
       "setOption",
       "newSession",
       "clearSession",
+      "takeOver",
+      "handBack",
+      // ...and the one that runs BECAUSE there is no conversation: putting a
+      // remembered record this build cannot read back in a state it can.
+      "recoverStore",
     ]);
   });
 });

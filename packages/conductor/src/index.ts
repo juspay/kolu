@@ -100,6 +100,7 @@ export {
   readPersistedWorks,
   repointConductorAttachments,
   ROW_CAP,
+  UnreadablePersisted,
 } from "./persisted.ts";
 export { type HostReading, readingsOf, recordName } from "./readings.ts";
 export { type RecordWrites, recordWrites } from "./recordWrites.ts";

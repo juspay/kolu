@@ -59,6 +59,7 @@ import {
   type ConductorRow,
   ConductorRowSchema,
   type ConductorState,
+  type ConductorStoreKey,
 } from "kolu-common/conductor";
 import type { CellStore } from "@kolu/surface/server";
 import { Result, Schema } from "effect";
@@ -156,21 +157,82 @@ export type PersistedMembers = typeof PersistedMembersSchema.Type;
 export const EMPTY_PERSISTED_MEMBERS: PersistedMembers = {};
 
 /** The re-validations, compiled once. `decodeUnknownResult` is a BRANCH rather
- *  than a throw, which is what lets each failure arm name the FILE — the one
- *  thing a person holding a corrupt state file has to act on. */
+ *  than a throw, which is what lets each failure arm name the RECORD — the
+ *  one thing the screen a person is looking at has to be able to act on. */
 const decodePersisted = Schema.decodeUnknownResult(PersistedConductorSchema);
 const decodeTranscript = Schema.decodeUnknownResult(PersistedTranscriptSchema);
 const decodeWorks = Schema.decodeUnknownResult(PersistedWorksSchema);
 const decodeMembers = Schema.decodeUnknownResult(PersistedMembersSchema);
 
-/** Read the remembered conversation out of kolu-server's state, or CRASH naming
- *  the file.
+/** WHAT EACH RECORD IS CALLED IN A SENTENCE A PERSON READS, and the pronoun
+ *  that follows it. Not the key name: `works` is a JSON key, and a person
+ *  whose Conductor will not come up is owed a noun, not a key. */
+const RECORD_WORDS: Record<
+  ConductorStoreKey,
+  { readonly noun: string; readonly them: string }
+> = {
+  conductor: { noun: "the Conductor's saved conversation", them: "it" },
+  works: { noun: "the Conductor's saved works", them: "them" },
+  members: {
+    noun: "what the Conductor remembered about each work's terminals",
+    them: "it",
+  },
+  transcript: { noun: "the Conductor's saved transcript", them: "it" },
+};
+
+/** A REMEMBERED RECORD THIS BUILD CANNOT READ, as a value rather than a
+ *  sentence.
  *
- *  There is no recovery arm on purpose. The two silent alternatives are both
- *  worse than a loud stop: repairing the offending value would hand a person a
- *  record with holes in it and no way to know, and starting empty would throw
- *  away a conversation that is still on disk and still readable by hand.
- *  `conf` itself is fail-fast about an UNPARSEABLE file; this is the
+ *  Its `message` IS the sentence the Conductor's screen shows, and it says
+ *  what happened and nothing else: there is no "fix the `works` key to
+ *  recover" in it, because asking a person to hand-edit JSON is not a
+ *  recovery — it is kolu handing its job back. What kolu can actually do is
+ *  two procedure calls (`conductor.recoverStore`), and the panel draws them
+ *  as two buttons off {@link UnreadablePersisted.key} — which is why this is
+ *  a class carrying the key and the file rather than a thrown string.
+ *
+ *  `detail` is what the decode tripped on, verbatim. It rides along for a bug
+ *  report, drawn small; it is never the sentence. */
+export class UnreadablePersisted extends Error {
+  readonly key: ConductorStoreKey;
+  readonly path: string;
+  readonly detail: string;
+  constructor(args: {
+    key: ConductorStoreKey;
+    /** The file holding the unreadable value. */
+    path: string;
+    /** Why it could not be read, as a clause — "the saved value is in a shape
+     *  this build does not understand", "the file is not valid JSON". */
+    why: string;
+    detail: string;
+  }) {
+    const words = RECORD_WORDS[args.key];
+    super(
+      `kolu could not read ${words.noun} — ${args.why}. Nothing has been changed: ${args.path} still holds ${words.them}.`,
+    );
+    this.name = "UnreadablePersisted";
+    this.key = args.key;
+    this.path = args.path;
+    this.detail = args.detail;
+  }
+}
+
+/** The one clause every schema refusal below is said with — a shape this
+ *  build does not understand, which is the honest whole of what a decode
+ *  failure means to the person reading it. */
+const WRONG_SHAPE =
+  "the saved value is in a shape this build does not understand";
+
+/** Read the remembered conversation out of kolu-server's state, or REFUSE
+ *  naming the record.
+ *
+ *  There is no silent repair on purpose: patching the offending value would
+ *  hand a person a record with holes in it and no way to know, and emptying
+ *  it behind their back would throw away a conversation that is still on
+ *  disk. The two things that ARE offered — the newest backup that reads, or
+ *  starting empty with the unreadable value kept aside in a file of its own —
+ *  are the person's to choose, through `conductor.recoverStore`. `conf`
+ *  itself is fail-fast about an UNPARSEABLE file; this is the
  *  parseable-but-wrong case it cannot see. */
 export function readPersistedConductor(
   store: CellStore<PersistedConductor>,
@@ -178,14 +240,17 @@ export function readPersistedConductor(
 ): PersistedConductor {
   const result = decodePersisted(store.get());
   if (Result.isFailure(result)) {
-    throw new Error(
-      `the remembered conductor in ${path} does not match schema (${String(result.failure)}). Fix the \`conductor\` key to recover.`,
-    );
+    throw new UnreadablePersisted({
+      key: "conductor",
+      path,
+      why: WRONG_SHAPE,
+      detail: String(result.failure),
+    });
   }
   return result.success;
 }
 
-/** Read the transcript file's body, or CRASH naming it — same stance, same
+/** Read the transcript file's body, or REFUSE naming it — same stance, same
  *  reason, and the dividers collapsed on the way out
  *  ({@link oneDividerPerReset}). */
 export function readPersistedTranscript(
@@ -194,14 +259,17 @@ export function readPersistedTranscript(
 ): PersistedTranscript {
   const result = decodeTranscript(store.get());
   if (Result.isFailure(result)) {
-    throw new Error(
-      `the remembered transcript in ${path} does not match schema (${String(result.failure)}). Fix or delete that file to recover.`,
-    );
+    throw new UnreadablePersisted({
+      key: "transcript",
+      path,
+      why: WRONG_SHAPE,
+      detail: String(result.failure),
+    });
   }
   return { rows: oneDividerPerReset(result.success.rows) };
 }
 
-/** Read the remembered works, or CRASH naming the file.
+/** Read the remembered works, or REFUSE naming the record.
  *
  *  Loudest of the three on purpose: a work carries the human's DECISIONS, and
  *  there is no second copy of them anywhere. Reading past a bad value would
@@ -212,15 +280,18 @@ export function readPersistedWorks(
 ): PersistedWorks {
   const result = decodeWorks(store.get());
   if (Result.isFailure(result)) {
-    throw new Error(
-      `the remembered works in ${path} do not match schema (${String(result.failure)}). Fix the \`works\` key to recover.`,
-    );
+    throw new UnreadablePersisted({
+      key: "works",
+      path,
+      why: WRONG_SHAPE,
+      detail: String(result.failure),
+    });
   }
   return result.success;
 }
 
-/** Read what kolu remembered about each member terminal, or CRASH naming the
- *  file — the same stance as the works beside it, for the half of a member
+/** Read what kolu remembered about each member terminal, or REFUSE naming the
+ *  record — the same stance as the works beside it, for the half of a member
  *  that cannot be re-derived: a bad value read past is a restart that rings
  *  the conversation about every member it was already told about. */
 export function readPersistedMembers(
@@ -229,9 +300,12 @@ export function readPersistedMembers(
 ): PersistedMembers {
   const result = decodeMembers(store.get());
   if (Result.isFailure(result)) {
-    throw new Error(
-      `the remembered work members in ${path} do not match schema (${String(result.failure)}). Fix the \`members\` key to recover.`,
-    );
+    throw new UnreadablePersisted({
+      key: "members",
+      path,
+      why: WRONG_SHAPE,
+      detail: String(result.failure),
+    });
   }
   return result.success;
 }

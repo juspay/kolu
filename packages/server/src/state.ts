@@ -1541,6 +1541,14 @@ const CONF_MIGRATIONS = {
   // The next shape change after the release gets a NEW rung beside this one,
   // never a bigger number on this one.
   //
+  // AND "RELEASE" HERE MEANS THE FIRST DEPLOY, NOT THE MERGE — the narrower
+  // reading this licence was always owed, and the one `dev/skills/state`
+  // states as the rule. A branch somebody is running has already stamped its
+  // numbers on their disk, so renumbering a rung on an unmerged branch is the
+  // same mistake as renumbering a shipped one. #2376 paid for the wider
+  // reading with a Conductor that would not load; 1.52.0 is the rung that had
+  // to be written afterwards.
+  //
   // The rung completes each entry with the reading that claims nothing it did
   // not see — `joined: "asked"` (no command kolu typed), `spoken: false`,
   // `ran: false`, and `root: null` (nothing has read the terminal's host, so

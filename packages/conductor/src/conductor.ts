@@ -164,6 +164,7 @@ import {
   readPersistedTranscript,
   readPersistedWorks,
   transcriptFrom,
+  UnreadablePersisted,
 } from "./persisted.ts";
 import { recordWrites } from "./recordWrites.ts";
 import { teachingLines } from "./teaching.ts";
@@ -357,6 +358,24 @@ export interface ConductorHost {
     works: PersistedWorks,
     members: PersistedMembers,
   ) => void;
+  /** READ THE RECORDS AGAIN — the one caller is a recovery that has just put
+   *  readable bytes under a record this build refused
+   *  ({@link UnreadablePersisted}), and the whole point of it is that nobody
+   *  has to restart kolu-server to get their Conductor back.
+   *
+   *  Only reachable while the records have NOT been read: a refusal is
+   *  all-or-nothing (the four reads happen together, and nothing is loaded
+   *  unless all four land), so a reload is always a first read that failed
+   *  being tried again — never a live conversation being re-pointed at a
+   *  file it has already moved past. Reloading a host that HAS read throws,
+   *  because that would be the file winning an argument with the
+   *  conversation.
+   *
+   *  Throws again, and re-says the refusal, if the records still do not
+   *  read; the readers subscribed now are handed a fresh snapshot when they
+   *  do, because the rows they are holding came from a transcript that was
+   *  not readable a moment ago. */
+  readonly reloadRecords: () => void;
   /** THE ONE THING THE CONDUCTOR WRITES ON A TIMELINE that kolu did not
    *  observe: a line of text. Nothing reads a note to decide anything. */
   readonly note: (work: string, text: string) => void;
@@ -1086,7 +1105,22 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
    *  anybody. Publishing it is the difference between a panel that says what
    *  happened and an idle-looking one with a live composer under it. */
   const sayRefusal = (err: unknown): void => {
-    state = { ...state, phase: "offline", refusal: sentenceOf(err) };
+    state = {
+      ...state,
+      phase: "offline",
+      refusal: sentenceOf(err),
+      // ...AND WHAT A PERSON CAN DO ABOUT IT, when the refusal is a record
+      // this build cannot read. The sentence alone would strand them: the
+      // two recoveries kolu has (the newest backup that reads, or starting
+      // empty with the unreadable value kept aside) are procedure calls, and
+      // a button cannot be drawn off prose. Every OTHER refusal — a missing
+      // socket, an agent that said no — carries `null` here and the panel
+      // offers *try again*, which is what those want.
+      unreadable:
+        err instanceof UnreadablePersisted
+          ? { key: err.key, path: err.path, detail: err.detail }
+          : null,
+    };
     publishState();
   };
 
@@ -1631,6 +1665,28 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       // A terminal the snapshot does not have as a member has nothing left to
       // read — and nothing left to say.
       for (const ref of works.restore(restored, watched)) wake.withdraw(ref);
+      publishState();
+    },
+    reloadRecords: () => {
+      if (read) {
+        throw new Error(
+          "the conductor has already read its records — a reload would let the file win an argument with the live conversation",
+        );
+      }
+      // The refusal goes FIRST, so a reload that trips again publishes the
+      // new one rather than leaving the old sentence standing beside it.
+      state = { ...state, refusal: null, unreadable: null };
+      // Throws — and re-says the refusal through `sayRefusal` — if whatever
+      // the recovery wrote still does not read. The caller is a procedure
+      // that must be able to tell a person that, so nothing is swallowed.
+      remembered();
+      // THE READERS SUBSCRIBED NOW ARE HOLDING AN EMPTY TRANSCRIPT: they
+      // subscribed while the records were unreadable, so the rows this read
+      // just brought in have reached nobody. A snapshot is the one frame
+      // that replaces what a reader has rather than amending it.
+      seq += 1;
+      const frame = snapshot();
+      for (const sink of sinks) sink(frame);
       publishState();
     },
     note: (id, text) => {

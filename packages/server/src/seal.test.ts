@@ -232,6 +232,12 @@ const WEB_SHELL_FILES = [
   // remote-safe read the preview route uses. Shell code — it holds no PTY and
   // reads every host the way any other consumer does.
   "conductor/workFiles",
+  // ...and the RECOVERY the Conductor's screen offers when one of those
+  // records will not decode: the backup-ring walk and the keep-aside write
+  // behind `conductor.recoverStore`. Shell code for the same reason the two
+  // above are — it moves conf keys and files under the state root, and holds
+  // no terminal of any kind.
+  "conductorRecovery",
   // ── the fleet MCP face's server side (packages/server/src/fleet/) ──
   // The loopback listener the conductor's agent reaches the fleet through,
   // and kolu-server's implementation of `@kolu/kolu-mcp`'s `FleetHosts` port

@@ -11098,6 +11098,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "1f132c8c38e41a0987864fb6f287fae92faf3931"
+    },
+    {
+      "revisionId": "revision-2ff028af78f598196529",
+      "scenarioKey": "scenario-3df9983dbc52739a8dec",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A remembered work this build cannot read is recovered, never hand-edited",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "1c39e8ac6fb43aea54f21348e2ef3e166a7ed3636a520bd2c97558fbab9289cd",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "1a58154869529cb318184108e95385b92a6a7bf5"
     }
   ]
 }

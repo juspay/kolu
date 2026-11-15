@@ -26,7 +26,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import Conf from "conf";
 import { DEFAULT_PREFERENCES } from "kolu-common/surface";
+import { readPersistedTranscript } from "kolu-conductor";
 import { afterEach, describe, expect, it } from "vitest";
+import {
+  transcriptFilePath,
+  transcriptFileStore,
+  writeTranscriptFile,
+} from "./conductor/transcriptFile.ts";
 // Importing state.ts opens its own throwaway store at the test harness's
 // KOLU_STATE_DIR (set by the `test:unit` script) — unrelated to the fixtures
 // below, which each build their own Conf under a fresh temp dir.
@@ -642,5 +648,213 @@ describe("the 1.52.0 rung — a store this branch wrote before the member bookke
     memberWatchOutOfWorks_1_52_0(conf as never);
     expect(conf.get("works")).toEqual([current]);
     expect(conf.get("members")).toEqual({});
+  });
+});
+
+describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
+  // The rule the state skill now states: a branch somebody has deployed has
+  // released its saved shape onto their disk, so every commit of it that
+  // moved a persisted shape has to be readable by head. These are the two
+  // shapes no fixture above stands for — the store an intermediate commit
+  // wrote (members already moved, decisions not yet carrying a header), and
+  // the transcript FILE, which rides this ladder without a rung of its own.
+  const REF = "remote:host-a/11111111-1111-4111-8111-111111111111";
+  const AT = "2026-02-02T10:00:00.000Z";
+
+  it("decodes a store written AFTER the members moved and BEFORE a decision had a header", () => {
+    // Commits 910515439 … 3c4b46f90^: the member bookkeeping already sits in
+    // the top-level `members` record and the member carries `worktree`, but
+    // `Decision.header` does not exist yet and no check event names a head
+    // commit. Stamped 1.50.0, because 1.51.0 was not written until later.
+    const decoded = decodeStateBackup(
+      {
+        __internal__: { migrations: { version: "1.50.0" } },
+        works: [
+          {
+            id: "w-mid",
+            title: "the docs reading",
+            repo: "odu",
+            branch: "docs-human-reading",
+            members: [
+              {
+                terminal: REF,
+                role: "planner",
+                joinedAt: AT,
+                leftAt: null,
+                worktree: "/home/person/code/odu",
+              },
+            ],
+            events: [
+              {
+                at: AT,
+                by: "kolu",
+                kind: "pr-opened",
+                terminal: REF,
+                detail: "#7 docs",
+              },
+              // Check events in the grammar of the day: the failing names
+              // alone, no head commit. They all key the same, so the 1.51.0
+              // sweep keeps the first of each kind.
+              {
+                at: AT,
+                by: "ci",
+                kind: "checks-running",
+                terminal: REF,
+                detail: "",
+              },
+              {
+                at: AT,
+                by: "ci",
+                kind: "checks-failed",
+                terminal: REF,
+                detail: "build, lint",
+              },
+              {
+                at: AT,
+                by: "ci",
+                kind: "checks-failed",
+                terminal: REF,
+                detail: "build",
+              },
+            ],
+            decisions: [
+              {
+                id: "d-1",
+                ask: "ask-1",
+                at: AT,
+                key: "mode",
+                question: "How should this run?",
+                options: ["full", "trivial"],
+                multiple: false,
+                answer: null,
+              },
+            ],
+            startedAt: AT,
+            endedAt: null,
+            outcome: null,
+            keptFiles: [],
+          },
+        ],
+        members: {
+          [REF]: {
+            name: "Planner: odu docs",
+            agent: "omp",
+            told: "stopped",
+            joined: "created-run",
+            spoken: true,
+            ran: true,
+          },
+        },
+      },
+      "the mid-branch store",
+    );
+    const work = decoded.works[0];
+    // 1.52.0 backfilled the two fields the decision was written without …
+    expect(work?.decisions[0]?.header).toBe("");
+    expect(work?.decisions[0]?.file).toBe("");
+    // … and left everything the commit DID write exactly as it was.
+    expect(work?.decisions[0]?.question).toBe("How should this run?");
+    expect(work?.members[0]?.worktree).toBe("/home/person/code/odu");
+    expect(decoded.members[REF]?.name).toBe("Planner: odu docs");
+    // The 1.51.0 sweep read the old detail grammar as "names no commit", so
+    // the two failures collapse to the first and the running one stands.
+    expect(work?.events.map((one) => one.kind)).toEqual([
+      "pr-opened",
+      "checks-running",
+      "checks-failed",
+    ]);
+    expect(work?.events[2]?.detail).toBe("build, lint");
+  });
+
+  it("reads a transcript file written when the rows first moved into it", () => {
+    // The file is stamped by the ladder, not by a ladder of its own, so a
+    // row-shape change is a rung that rewrites it and moves
+    // TRANSCRIPT_FILE_VERSION. Nothing since 1.50.0 has changed the row shape
+    // — the ask row's `work` is an optional key, a user row's `attachments`
+    // has a decoding default, and the wake levels only grew — so the stamp is
+    // still 1.50.0 and these rows, exactly as that commit wrote them, must
+    // come back through the reader the conversation uses.
+    const root = mkdtempSync(join(tmpdir(), "kolu-transcript-compat-"));
+    dirs.push(root);
+    const path = transcriptFilePath(root);
+    writeTranscriptFile(path, TRANSCRIPT_FILE_VERSION, [
+      { id: "u1", seq: 1, since: AT, kind: "user", text: "plan the cutover" },
+      {
+        id: "t1",
+        seq: 2,
+        since: AT,
+        kind: "tool",
+        text: "watch_terminal",
+        status: "completed",
+        kolu: {
+          kind: "watch",
+          terminalId: "11111111-1111-4111-8111-111111111111",
+          host: "remote:host-a",
+          name: "Planner: odu docs",
+          watching: true,
+        },
+      },
+      {
+        id: "a1",
+        seq: 3,
+        since: AT,
+        kind: "ask",
+        text: "How should this run?",
+        ask: {
+          fields: [
+            {
+              key: "mode",
+              label: null,
+              hint: null,
+              kind: "choice",
+              choices: [{ value: "full", label: "Full", hint: null }],
+              required: true,
+              attachedTo: null,
+            },
+          ],
+          link: null,
+          outcome: null,
+        },
+      },
+      {
+        id: "w1",
+        seq: 4,
+        since: AT,
+        kind: "wake",
+        from: "watch",
+        text: "Planner: odu docs has stopped",
+        events: [
+          {
+            ref: REF,
+            host: "remote:host-a",
+            terminalId: "11111111-1111-4111-8111-111111111111",
+            hostName: "host-a",
+            name: "Planner: odu docs",
+            agent: "omp",
+            level: "stopped",
+            at: AT,
+          },
+        ],
+      },
+    ]);
+
+    const rows = readPersistedTranscript(
+      transcriptFileStore(root, TRANSCRIPT_FILE_VERSION),
+      path,
+    ).rows;
+
+    expect(rows.map((one) => one.kind)).toEqual([
+      "user",
+      "tool",
+      "ask",
+      "wake",
+    ]);
+    const user = rows[0];
+    if (user?.kind !== "user") throw new Error("the user row went missing");
+    // Written without the key; read as "nothing rode along", not refused.
+    expect(user.attachments).toEqual([]);
+    const ask = rows[2];
+    if (ask?.kind !== "ask") throw new Error("the ask row went missing");
+    expect("work" in ask).toBe(false);
   });
 });

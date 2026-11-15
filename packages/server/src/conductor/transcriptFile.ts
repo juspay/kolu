@@ -40,7 +40,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { CellStore } from "@kolu/surface/server";
-import type { PersistedTranscript } from "kolu-conductor";
+import { type PersistedTranscript, UnreadablePersisted } from "kolu-conductor";
 
 /** Where the rows live, under the state root (`<KOLU_STATE_DIR>`) — beside the
  *  conductor's attachments, in the corner the conversation is named after. */
@@ -80,48 +80,64 @@ export function writeTranscriptFile(
   renameSync(temp, path);
 }
 
-/** Read the rows, or CRASH naming the file.
+/** Read the rows, or REFUSE naming the file — as an
+ *  {@link UnreadablePersisted}, the same value the schema readers raise, so
+ *  every way this file can be unreadable reaches the Conductor's screen as
+ *  the same two buttons.
  *
  *  A MISSING file is a conversation that has not said anything yet (a fresh
  *  state root, or one whose ladder wrote no rows) — `{rows: []}`, not an
  *  error. Anything else is refused: unreadable JSON, a body that is not an
  *  object, or — the one this module exists to enforce — a `version` that is
- *  not the one this build writes. */
+ *  not the one this build writes.
+ *
+ *  NONE of the refusals tells anybody to delete the file. The version arm
+ *  used to ("delete it to start the conversation's scrollback over"), which
+ *  is kolu asking a person to do kolu's job with `rm`: *Start with an empty
+ *  transcript* does exactly that, keeps the bytes in a file of its own, and
+ *  says where it put them. */
 export function readTranscriptFile(
   path: string,
   version: string,
 ): { readonly rows: ReadonlyArray<unknown> } {
+  const refuse = (why: string, detail: string): never => {
+    throw new UnreadablePersisted({ key: "transcript", path, why, detail });
+  };
   let text: string;
   try {
     text = readFileSync(path, "utf8");
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return { rows: [] };
-    throw new Error(
-      `kolu-server: the conductor's transcript at ${path} could not be read (${String(err)})`,
-    );
+    return refuse("the file could not be read", String(err));
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch (err) {
-    throw new Error(
-      `kolu-server: the conductor's transcript at ${path} is not valid JSON (${String(err)}) — fix or delete the file`,
-    );
+    return refuse("the file is not valid JSON", String(err));
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error(
-      `kolu-server: the conductor's transcript at ${path} is not an object — fix or delete the file`,
+    return refuse(
+      "the file does not hold what a transcript is written as",
+      "the file's top level is not an object",
     );
   }
   const body = parsed as { version?: unknown; rows?: unknown };
   if (body.version !== version) {
-    throw new Error(
-      `kolu-server: the conductor's transcript at ${path} is stamped ${JSON.stringify(body.version)}, and this build reads ${JSON.stringify(version)}. The transcript file rides kolu-server's one migration ladder (state.ts): a build that changes the row shape rewrites this file in its rung. Nothing here can repair a file that did not come through it — delete it to start the conversation's scrollback over.`,
+    // The one this module exists to enforce. The transcript file rides
+    // kolu-server's one migration ladder (`state.ts`): a build that changes
+    // the row shape rewrites this file in its rung, so a file stamped with
+    // anything else did not come through the ladder and nothing here can
+    // repair it by guessing.
+    return refuse(
+      `it was written by a build that stamped it ${JSON.stringify(body.version)}, and this one reads ${JSON.stringify(version)}`,
+      `transcript file version ${JSON.stringify(body.version)} ≠ ${JSON.stringify(version)}`,
     );
   }
   if (!Array.isArray(body.rows)) {
-    throw new Error(
-      `kolu-server: the conductor's transcript at ${path} has no rows array — fix or delete the file`,
+    return refuse(
+      "the file does not hold what a transcript is written as",
+      "the file has no `rows` array",
     );
   }
   return { rows: body.rows };

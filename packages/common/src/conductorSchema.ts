@@ -811,6 +811,40 @@ export const ConductorSignInSchema = Schema.Struct({
   ),
 });
 
+/** THE FOUR RECORDS A RESTART READS, by name — the `conductor`, `works` and
+ *  `members` keys of kolu-server's `config.json`, and the transcript file
+ *  beside it. The one vocabulary a refusal names a record by and a recovery
+ *  names one back: spelled here, on the wire, so the panel's copy, the
+ *  procedure's input and the server's switch cannot drift into three lists. */
+export const ConductorStoreKeySchema = Schema.Literals([
+  "conductor",
+  "works",
+  "members",
+  "transcript",
+]);
+export type ConductorStoreKey = typeof ConductorStoreKeySchema.Type;
+
+/** A REMEMBERED RECORD THIS BUILD CANNOT READ — what the Conductor's screen
+ *  turns into two buttons.
+ *
+ *  It carries the fact, never an instruction: `key` says which record,
+ *  `path` says which file is holding it (so a person can take a copy before
+ *  anything moves, and so a bug report names the right file), and the
+ *  sentence a person reads is `refusal` beside it. Nothing here ever asks
+ *  anybody to edit JSON — the two things kolu can do about it are
+ *  `conductor.recoverStore`'s two `how`s. */
+export const ConductorUnreadableSchema = Schema.Struct({
+  key: ConductorStoreKeySchema,
+  /** The file the unreadable value is in — `config.json` for the three keys,
+   *  the transcript's own file for the fourth. */
+  path: Schema.String,
+  /** WHAT IT TRIPPED ON, verbatim (a schema path, a version stamp, a JSON
+   *  parse error). Not the sentence a person reads — that is `refusal` — but
+   *  the one line a bug report needs, drawn small under it. */
+  detail: Schema.String,
+});
+export type ConductorUnreadable = typeof ConductorUnreadableSchema.Type;
+
 export const ConductorStateSchema = Schema.Struct({
   install: ConductorInstallSchema,
   phase: ConductorPhaseSchema,
@@ -848,6 +882,17 @@ export const ConductorStateSchema = Schema.Struct({
    *  header draws no account chip at all; a KNOWN logged-out state arrives as
    *  a payload of its own (`kind: "none"`) and the chip says so. */
   identity: Schema.NullOr(AuthStatus),
+  /** WHICH REMEMBERED RECORD kolu could not read, when that is why there is
+   *  no conversation — `null` whenever the records read.
+   *
+   *  A SENTENCE IS NOT ENOUGH HERE, which is why this rides beside
+   *  {@link ConductorStateSchema.refusal} rather than inside it: the two
+   *  things kolu can actually DO about an unreadable record (restore the
+   *  newest backup that reads, or keep the unreadable value aside and start
+   *  with the record empty) are `conductor.recoverStore` calls, and a button
+   *  cannot be drawn off prose. The prose stays in `refusal`, which is what a
+   *  person reads; this is what the two buttons are made of. */
+  unreadable: Schema.NullOr(ConductorUnreadableSchema),
   /** A conversation the agent would not OPEN, in the agent's own words. There
    *  is no composer under this and the panel offers *try again*, which asks
    *  for the same thing that was refused. */
@@ -889,6 +934,7 @@ export const DEFAULT_CONDUCTOR_STATE: ConductorState = {
   signIn: null,
   identity: null,
   refusal: null,
+  unreadable: null,
   steers: false,
   busySince: null,
   held: [],
@@ -1034,6 +1080,26 @@ export const ConductorTextInputSchema = Schema.Struct({
  *  of `conductor.takeOver` / `conductor.handBack`. */
 export const ConductorTerminalInputSchema = Schema.Struct({
   terminal: Schema.String,
+});
+
+/** THE TWO THINGS KOLU CAN DO ABOUT A RECORD IT CANNOT READ, as one input.
+ *
+ *  `backup` walks the state-backup ring newest first and takes the newest
+ *  snapshot whose whole store decodes through the real migration ladder.
+ *  `empty` moves the unreadable value aside into a file of its own beside
+ *  `config.json` and starts that record empty. Neither deletes anything, and
+ *  neither asks a person to open an editor — which is the whole reason this
+ *  procedure exists rather than a sentence telling them to. */
+export const ConductorRecoverInputSchema = Schema.Struct({
+  key: ConductorStoreKeySchema,
+  how: Schema.Literals(["backup", "empty"]),
+});
+
+export const ConductorRecoverOutputSchema = Schema.Struct({
+  /** WHAT KOLU JUST DID, in the same plain words the refusal was in — which
+   *  snapshot it took and what came back, or where the unreadable value is
+   *  now. The panel shows it; nothing parses it. */
+  said: Schema.String,
 });
 
 export const ConductorEmptySchema = Schema.Struct({});
