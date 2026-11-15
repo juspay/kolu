@@ -126,54 +126,85 @@ async function readAll(): Promise<Map<string, Winsize[]>> {
 /** The ids under measurement — what the wire probe is filtered against. */
 const recordedIds = (): string[] => [...recorded.keys()];
 
-/** Did one of the WATCHED programs gain an entry since `before`? Answers the
- *  terminal that did, or `null`. */
-function grewSince(
-  before: Map<string, readonly Winsize[]>,
-  now: Map<string, readonly Winsize[]>,
-  watched: readonly string[],
-): string | null {
-  for (const id of watched) {
-    const length = now.get(id)?.length ?? 0;
-    if (length !== (before.get(id)?.length ?? 0)) return id;
-  }
-  return null;
+/** One size a program was told during a watch, and how far into it. */
+interface Told {
+  id: string;
+  label: string;
+  size: Winsize;
+  atMs: number;
 }
 
-/** Hold for `QUIET_MS`, failing the moment one of the named programs is told
- *  a new size. `only` defaults to every recorded terminal. Returns the
- *  records as they stood at the end of the hold.
+/** Watch the named programs for the whole of `QUIET_MS` and answer every size
+ *  they were told, in the order they were told.
+ *
+ *  The window is watched to its END rather than abandoned at the first size,
+ *  because this phase is a MEASUREMENT: a mount that states the wrong box and
+ *  then corrects itself tells its program two sizes, and "it was told 19 then
+ *  27 then 19 again" is the finding. Stopping at the first would report half
+ *  a bounce.
  *
  *  Every negative in this feature goes through here: a size that arrives at
  *  the far end of a round trip is not refuted by a read taken before it could
  *  have come back. */
+async function watchQuiet(only?: readonly string[]): Promise<Told[]> {
+  const watched = only ?? [...recorded.keys()];
+  const started = Date.now();
+  const seen = new Map(
+    watched.map((id) => [id, (recorded.get(id)?.baseline ?? []).length]),
+  );
+  const told: Told[] = [];
+  for (;;) {
+    const now = await readAll();
+    const atMs = Date.now() - started;
+    for (const id of watched) {
+      const sizes = now.get(id) ?? [];
+      const from = seen.get(id) ?? 0;
+      for (const size of sizes.slice(from)) {
+        told.push({
+          id,
+          label: recorded.get(id)?.label ?? id,
+          size,
+          atMs,
+        });
+      }
+      seen.set(id, sizes.length);
+    }
+    if (atMs >= QUIET_MS) return told;
+    await new Promise((resolve) => setTimeout(resolve, SAMPLE_MS));
+  }
+}
+
+/** What a watch SAW, one line per size, for a report or a failure. */
+const describeTold = (told: readonly Told[]): string =>
+  told
+    .map(
+      (t) =>
+        `    ${t.label} was told ${t.size.cols}x${t.size.rows} (#${t.size.seq}, ${t.atMs}ms into the window)`,
+    )
+    .join("\n");
+
+/** Move every watched program's baseline up to what it has been told now, so
+ *  the NEXT watch reports only its own sizes. */
+async function rebaseline(): Promise<void> {
+  for (const [id, sizes] of await readAll()) {
+    const entry = recorded.get(id);
+    if (entry) entry.baseline = sizes;
+  }
+}
+
+/** Watch, and fail if anything was told — the shape every negative step takes. */
 async function holdQuiet(
   world: KoluWorld,
   what: string,
   only?: readonly string[],
-): Promise<Map<string, Winsize[]>> {
-  const watched = only ?? [...recorded.keys()];
-  const started = Date.now();
-  const baselines = new Map(
-    watched.map((id) => [id, recorded.get(id)?.baseline ?? []]),
+): Promise<void> {
+  const told = await watchQuiet(only);
+  if (told.length === 0) return;
+  throw new Error(
+    `${what}: a program was told a new size with nothing about its box changed.\n` +
+      `${describeTold(told)}\n` +
+      `${await quoteResizeWire(world.page, recordedIds())}`,
   );
-  let last = await readAll();
-  for (;;) {
-    const grown = grewSince(baselines, last, watched);
-    if (grown) {
-      const entry = recorded.get(grown);
-      throw new Error(
-        `${what}: the program in ${entry?.label ?? grown} was told a new size ` +
-          `${Date.now() - started}ms into the hold.\n` +
-          `  was: ${formatWinsizes(baselines.get(grown) ?? [])}\n` +
-          `  now: ${formatWinsizes(last.get(grown) ?? [])}\n` +
-          `${await quoteResizeWire(world.page, recordedIds())}`,
-      );
-    }
-    if (Date.now() - started >= QUIET_MS) return last;
-    await new Promise((resolve) => setTimeout(resolve, SAMPLE_MS));
-    last = await readAll();
-  }
 }
 
 // ── Arrange ──
@@ -214,7 +245,10 @@ Given(
     for (;;) {
       await new Promise((resolve) => setTimeout(resolve, SAMPLE_MS));
       const now = await readAll();
-      if (grewSince(last, now, recordedIds())) stableSince = Date.now();
+      const moved = recordedIds().some(
+        (id) => (now.get(id)?.length ?? 0) !== (last.get(id)?.length ?? 0),
+      );
+      if (moved) stableSince = Date.now();
       last = now;
       if (Date.now() - stableSince >= QUIET_MS) break;
       if (Date.now() > deadline) {
@@ -230,10 +264,7 @@ Given(
         );
       }
     }
-    for (const [id, sizes] of last) {
-      const entry = recorded.get(id);
-      if (entry) entry.baseline = sizes;
-    }
+    await rebaseline();
   },
 );
 
@@ -243,12 +274,34 @@ When(
   "I reload the page {int} times",
   { timeout: 900_000 },
   async function (this: KoluWorld, mounts: number) {
+    // EVERY mount is watched and reported, and the verdict is taken at the
+    // end. A loop that threw at the first bad mount would answer "mount 2"
+    // and leave the question this phase exists to answer — does it happen on
+    // every mount, or once in dozens? — unanswered for mounts 3..15. The
+    // baseline moves up after each mount so each line is that mount's own
+    // story.
+    const perMount: string[] = [];
+    let mountsThatTold = 0;
     for (let mount = 1; mount <= mounts; mount++) {
       await this.page.reload();
       await this.waitForReady();
-      // Checked after EVERY mount, so a failure names the mount that did it —
-      // the event this is hunting was seen once in dozens of host mounts.
-      await holdQuiet(this, `reload ${mount} of ${mounts}`);
+      const told = await watchQuiet();
+      if (told.length > 0) {
+        mountsThatTold++;
+        perMount.push(`  mount ${mount}:\n${describeTold(told)}`);
+      } else {
+        perMount.push(`  mount ${mount}: nothing`);
+      }
+      await rebaseline();
+    }
+    const report = `[mount-size] ${mounts} mounts\n${perMount.join("\n")}`;
+    console.log(report);
+    if (mountsThatTold > 0) {
+      throw new Error(
+        `${mountsThatTold} of ${mounts} mounts told a program a new size with nothing ` +
+          `about its box changed.\n${report}\n` +
+          `${await quoteResizeWire(this.page, recordedIds())}`,
+      );
     }
   },
 );
