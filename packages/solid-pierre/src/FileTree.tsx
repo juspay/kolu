@@ -633,7 +633,10 @@ export const FileTree: Component<FileTreeProps> = (props) => {
   createEffect(
     on(
       [propValue.paths, propValue.expandPaths],
-      asRebuild(([paths, expandPaths]) => {
+      // `expandPaths` is a DEPENDENCY, not an argument: a change to it re-runs
+      // this rebuild, which reads it (with the other expansion sources)
+      // through `desiredExpandedPaths`.
+      asRebuild(([paths]) => {
         // Capture once so closures (pathOps filter) keep a narrowed FileTree
         // handle — mutable `let tree` does not flow into arrow callbacks.
         const t = tree;
