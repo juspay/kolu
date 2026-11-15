@@ -49,7 +49,7 @@ import path from "node:path";
 import { simpleGit } from "simple-git";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SKIP_DARWIN_FSWATCH } from "./fs-watch-delivery.testlib.ts";
-import { watchWorkingTree } from "./working-tree-watcher.ts";
+import { subscribeInstalled } from "./working-tree-watcher.testlib.ts";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -63,31 +63,6 @@ function saturateThreadpool(): void {
   for (let i = 0; i < size; i++) {
     crypto.pbkdf2(`churn-${i}`, "salt", 400_000, 32, "sha512", () => {});
   }
-}
-
-/** Subscribe and resolve once the watcher is genuinely installed. The install
- *  is async (git ignore enumeration, then the parcel subscribe) and fires one
- *  post-install reconciliation tick when it lands — that tick IS the ready
- *  signal, so this waits on the real handle rather than a sleep. */
-async function subscribeInstalled(
-  repo: string,
-  onChange: () => void,
-): Promise<() => void> {
-  let installed!: () => void;
-  const ready = new Promise<void>((resolve) => {
-    installed = resolve;
-  });
-  let seenReconcile = false;
-  const off = watchWorkingTree(repo, () => {
-    if (!seenReconcile) {
-      seenReconcile = true;
-      installed();
-      return;
-    }
-    onChange();
-  });
-  await ready;
-  return off;
 }
 
 describe.skipIf(SKIP_DARWIN_FSWATCH)("watchWorkingTree rebuild", () => {

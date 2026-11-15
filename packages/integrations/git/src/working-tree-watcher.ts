@@ -33,9 +33,22 @@
  * normal repo's **gitignored** `dist/` stays unwatched — the two used to
  * disagree (tree gitignore-aware, watcher hardcoded), which silently broke
  * live-reload for committed build outputs. `.git` is added explicitly (git
- * never lists its own dir; the git-dir watchers cover it). The set is a
- * snapshot at install time — a `.gitignore` edit mid-watch isn't reflected
- * until the next (re)subscribe.
+ * never lists its own dir; the git-dir watchers cover it).
+ *
+ * The set follows git's ignore RULES as they change. Git reads them from three
+ * places, and each is a trigger:
+ *   - a `.gitignore` at any depth — a parcel event on a file of that name;
+ *   - `info/exclude` in the COMMON git dir, which every worktree of the repo
+ *     shares;
+ *   - the global ignore file (`core.excludesFile`, else git's XDG default).
+ * The last two live outside the working tree; `watchGitIgnoreRules` watches
+ * them. Any trigger re-derives the set, and only a DIFFERENT set rebuilds the
+ * parcel subscription — whose reconciliation tick re-pulses every listener, so
+ * the Code tab's tracked and ignored listings re-read together. Without this,
+ * an `info/exclude` edit changed what git lists with no pulse at all: the two
+ * listings described two different moments, a directory un-ignored in between
+ * was in neither, and it stayed pruned from the watch. An unchanged set costs
+ * nothing — git lists the same files, so there is nothing to re-read.
  *
  * One DELIBERATE exception to "shown ⇒ watched": the Code tab's "show ignored
  * files" toggle overlays gitignored entries onto the tree WITHOUT widening
@@ -70,6 +83,7 @@ import {
 import type { Logger } from "kolu-shared";
 import { listIgnored } from "./browse.ts";
 import { WATCHER_DEBOUNCE_MS } from "./git-dir.ts";
+import { watchGitIgnoreRules } from "./ignore-rules-watcher.ts";
 
 /** The one backend we must never hand parcel: `"watchman"` is the leaking one,
  *  and *omitting* the backend re-selects it. Narrowing the pin's type to exclude
@@ -248,6 +262,12 @@ function installSharedWorkingTreeWatcher(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let subscription: AsyncSubscription | null = null;
   let cancelled = false;
+  /** The ignore list the live parcel subscription was built with, or null
+   *  when no subscription is live. What `refreshIgnore` compares against. */
+  let liveIgnore: readonly string[] | null = null;
+  /** The `attach()` in flight, if any — `refreshIgnore` waits it out so the
+   *  comparison is against what actually landed. */
+  let attaching: Promise<void> | null = null;
 
   /** Fire all current listeners after a debounce. Both real events and the
    *  post-install reconciliation share this dispatch path. */
@@ -301,19 +321,70 @@ function installSharedWorkingTreeWatcher(
     }
   };
 
-  /** Rebuild the parcel subscription so its recursive walk re-establishes
-   *  watches over a subtree parcel is blind to (see `scheduleRebuild`).
-   *  Trailing-edge debounced on the same window as the event dispatch, so
-   *  `mkdir -p a/b/c` — or a `git checkout` that lands a whole tree — costs
-   *  ONE rebuild rather than one per directory. */
+  /** Rebuild the parcel subscription: its recursive walk re-establishes
+   *  watches over a subtree parcel is blind to, and `attach` re-derives the
+   *  ignore set. Trailing-edge debounced on the same window as the event
+   *  dispatch, so `mkdir -p a/b/c` — or a `git checkout` that lands a whole
+   *  tree — costs ONE rebuild rather than one per directory. */
   let rebuildTimer: ReturnType<typeof setTimeout> | undefined;
-  const scheduleRebuild = (): void => {
+  const scheduleRebuild = (reason: string): void => {
     if (rebuildTimer) clearTimeout(rebuildTimer);
     rebuildTimer = setTimeout(() => {
       rebuildTimer = undefined;
       if (cancelled) return;
-      log?.info({ repoRoot }, "git: working-tree watcher re-covering new dirs");
-      void attach();
+      log?.info({ repoRoot, reason }, "git: working-tree watcher rebuilding");
+      startAttach();
+    }, WATCHER_DEBOUNCE_MS);
+  };
+
+  /** Re-derive the ignore set after git's ignore rules may have changed, and
+   *  rebuild only if it differs from the live one. Waits out any attach in
+   *  flight first: that attach may have derived its set BEFORE the change, so
+   *  the comparison must be against what it landed, and a difference then
+   *  schedules a rebuild whose attach derives the set after the change. A
+   *  request arriving mid-refresh re-runs it once more rather than overlapping
+   *  it. Unchanged set, no rebuild: the dir watchers' attach ticks and the
+   *  duplicate lines agents append to a shared `info/exclude` cost one
+   *  `git ls-files`, never a parcel resubscribe. */
+  let refreshing = false;
+  let refreshAgain = false;
+  async function refreshIgnore(): Promise<void> {
+    if (refreshing) {
+      refreshAgain = true;
+      return;
+    }
+    refreshing = true;
+    try {
+      do {
+        refreshAgain = false;
+        while (attaching !== null) await attaching;
+        if (cancelled) return;
+        const ignore = await _computeIgnore(repoRoot, log);
+        if (cancelled) return;
+        // `git ls-files` output order is stable, so an unchanged rule set
+        // yields an element-wise identical list.
+        const live = liveIgnore;
+        const unchanged =
+          live !== null &&
+          ignore.length === live.length &&
+          ignore.every((p, i) => p === live[i]);
+        if (!unchanged) scheduleRebuild("ignore rules changed");
+      } while (refreshAgain);
+    } finally {
+      refreshing = false;
+    }
+  }
+
+  /** Debounced entry to `refreshIgnore`, so a burst of rule edits — a
+   *  checkout touching many `.gitignore` files, an editor's write-then-rename —
+   *  is one recompute. */
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  const scheduleIgnoreRefresh = (): void => {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      refreshTimer = undefined;
+      if (cancelled) return;
+      void refreshIgnore();
     }, WATCHER_DEBOUNCE_MS);
   };
 
@@ -336,6 +407,7 @@ function installSharedWorkingTreeWatcher(
     // hit several listeners (different filePaths) or none (all-ignored
     // paths slipped through somehow).
     let sawBlindSubtree = false;
+    let sawIgnoreRuleEdit = false;
     for (const event of events) {
       // Normalize to NFC before comparing: macOS FSEvents reports
       // filenames in the filesystem's native form (often NFD —
@@ -345,6 +417,7 @@ function installSharedWorkingTreeWatcher(
       // the single-file watcher's live-reload. `matchAbs` is already
       // NFC-normalized at creation, so only the event path needs it here.
       const eventPath = event.path.normalize("NFC");
+      if (path.basename(eventPath) === ".gitignore") sawIgnoreRuleEdit = true;
       if (
         !sawBlindSubtree &&
         event.type === "create" &&
@@ -359,7 +432,8 @@ function installSharedWorkingTreeWatcher(
       }
     }
 
-    if (sawBlindSubtree) scheduleRebuild();
+    if (sawBlindSubtree) scheduleRebuild("new subtree parcel cannot see");
+    if (sawIgnoreRuleEdit) scheduleIgnoreRefresh();
     if (pending.size === 0) return;
 
     // Trailing-edge debounce — a burst of events fires the listeners
@@ -373,8 +447,8 @@ function installSharedWorkingTreeWatcher(
    *  other nor a sibling entry's calls (see `parcelCallChains`).
    *
    *  Called once at construction, and again whenever `scheduleRebuild` finds
-   *  parcel blind to a new subtree. The ignore set is re-derived each time, so
-   *  a rebuild also picks up a `.gitignore` written since the last attach.
+   *  parcel blind to a new subtree or `refreshIgnore` finds the ignore set
+   *  changed. The ignore set is re-derived each time.
    *
    *  Filesystem mutations between this call and parcel's resolve are invisible
    *  to parcel — the streaming endpoint already yielded its initial snapshot
@@ -393,6 +467,7 @@ function installSharedWorkingTreeWatcher(
       // leave the replacement holding no watches at all.
       const outgoing = subscription;
       subscription = null;
+      liveIgnore = null;
       if (outgoing) {
         await outgoing.unsubscribe().catch((e: Error) => {
           log?.error(
@@ -424,6 +499,7 @@ function installSharedWorkingTreeWatcher(
           return;
         }
         subscription = sub;
+        liveIgnore = ignore;
         log?.info({ repoRoot }, "git: working-tree watcher installed");
 
         // Reconcile any mutations that landed in the (re)install window —
@@ -446,7 +522,19 @@ function installSharedWorkingTreeWatcher(
     });
   }
 
-  void attach();
+  function startAttach(): void {
+    const inFlight: Promise<void> = attach().finally(() => {
+      if (attaching === inFlight) attaching = null;
+    });
+    attaching = inFlight;
+  }
+
+  startAttach();
+  const stopIgnoreRules = watchGitIgnoreRules(
+    repoRoot,
+    scheduleIgnoreRefresh,
+    log,
+  );
 
   return {
     subscribe(matchAbs, onChange) {
@@ -458,7 +546,9 @@ function installSharedWorkingTreeWatcher(
         if (listeners.size === 0) {
           if (timer) clearTimeout(timer);
           if (rebuildTimer) clearTimeout(rebuildTimer);
+          clearTimeout(refreshTimer);
           cancelled = true;
+          stopIgnoreRules();
           if (subscription) {
             // Queue the teardown BEFORE `onLast()` drops the registry entry:
             // the very next `watchWorkingTree` for this repo builds a fresh
