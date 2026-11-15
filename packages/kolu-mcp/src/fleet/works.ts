@@ -50,8 +50,9 @@ import {
   type Standing,
   type WorkMode,
   WorkModeSchema,
-  type WorkOutcome,
+  type Outcome,
   WorkRefusal,
+  type WorkKey,
   type WorkRefusalKind,
   type WorkRole,
   WorkRoleSchema,
@@ -59,6 +60,7 @@ import {
 import type { FleetHostState, FleetWatchJoinSchema } from "./fleetSurface.ts";
 import { type FleetHosts, requireTerminal } from "./hosts.ts";
 import { FleetTerminalRefSchema } from "./refSchema.ts";
+import { rosterIsEvidence, stillSettling } from "../rosterEvidence.ts";
 
 /** HOW a terminal came to be a member of a work — the fact the server's
  *  watcher needs to decide what its first observation means.
@@ -99,7 +101,7 @@ export interface FleetWorkRow {
   readonly title: string;
   readonly repo: string;
   readonly branch: string;
-  readonly host: string | null;
+  readonly host: string;
   readonly mode: WorkMode | null;
   readonly onGreen: OnGreen | null;
   /** WHERE IT STANDS, as `kolu-work` reads it off the timeline — a TOKEN
@@ -116,7 +118,7 @@ export interface FleetWorkRow {
 export interface FleetFinishedWorkRow {
   readonly id: string;
   readonly title: string;
-  readonly outcome: WorkOutcome | null;
+  readonly outcome: Outcome;
   readonly endedAt: string;
 }
 
@@ -125,11 +127,11 @@ export interface FleetWorksRows {
   readonly finished: ReadonlyArray<FleetFinishedWorkRow>;
 }
 
-/** What `work_open` states: the work, and every setup question in one call. */
+/** What `work_open` states: WHICH WORK (its key — a branch on a machine, or
+ *  the terminal to watch), and every setup question in one call. */
 export interface FleetWorkIntent {
+  readonly key: WorkKey;
   readonly title: string;
-  readonly repo: string;
-  readonly branch: string;
   readonly setup: ReadonlyArray<{
     readonly key: SetupKey;
     readonly question: string;
@@ -144,7 +146,7 @@ export interface FleetWorkIntent {
  *  wake when they answer. */
 export interface FleetWorkOpened {
   readonly work: string;
-  readonly host: string | null;
+  readonly host: string;
   readonly mode: WorkMode | null;
   readonly roles: ReadonlyArray<{
     readonly role: WorkRole;
@@ -158,6 +160,11 @@ export interface FleetWorkOpened {
    *  already given every answer, which is a set of decisions and nobody was
    *  asked anything. */
   readonly asked: boolean;
+  /** `false` when this key already had a piece of work — the SAME one is
+   *  being carried on with, and no second card was made. */
+  readonly created: boolean;
+  /** ... and `true` when it had ended and this call brought it back. */
+  readonly reopened: boolean;
 }
 
 /** A question put, and nothing more: the ask it was put as. */
@@ -197,6 +204,8 @@ export interface FleetWorks {
   /** A terminal joins a work in a role, saying how it got there. Idempotent:
    *  a terminal already in that work keeps the role it was given first. */
   join(ref: string, work: string, role: WorkRole, joined: FleetWatchJoin): void;
+  /** STOP a work — `stopped by the conductor`. */
+  stop(work: string): void;
   /** A member leaves; `false` when it was not one. */
   leave(ref: string): boolean;
   /** The Conductor's one line on a work's timeline. */
@@ -290,14 +299,34 @@ const WorkOpenArgsSchema = Schema.Struct({
     description:
       'What this piece of work IS, in a few words a person would recognise on a card — the thing being built, not the procedure ("rename the dock\'s badge", not "waterfall").',
   }),
-  repo: Schema.String.annotate({
-    description:
-      'The repository\'s absolute path on the host the work runs on, or "" when the work is a plain watch of a terminal somebody else started.',
-  }),
-  branch: Schema.String.annotate({
-    description:
-      'The branch (and worktree name) the work is on, or "" when there is none yet.',
-  }),
+  // A WORK IS ITS KEY: the branch on a machine, or the terminal being
+  // watched. Not a setup question — the machine a work runs on identifies it,
+  // and a thing that identifies a work cannot be a question that may go
+  // unanswered. Opening the same key twice is the SAME work, carried on with.
+  host: Schema.optionalKey(
+    Schema.String.check(Schema.isMinLength(1)).annotate({
+      description:
+        "WHICH MACHINE, as a fleet host ref (`local`, `remote:<target>`) — required unless `watch` is given. If the human's request does not say which machine, ASK THEM IN YOUR REPLY and end your turn; open the work when they answer. Never guess.",
+    }),
+  ),
+  repo: Schema.optionalKey(
+    Schema.String.check(Schema.isMinLength(1)).annotate({
+      description:
+        "The repository's absolute path on that host. Required unless `watch` is given.",
+    }),
+  ),
+  branch: Schema.optionalKey(
+    Schema.String.check(Schema.isMinLength(1)).annotate({
+      description:
+        "The branch (and worktree name) the work is on. Required unless `watch` is given. A work IS its branch: opening this host, repo and branch again returns the piece of work that is already there (reopening it if it had ended) rather than making a second one.",
+    }),
+  ),
+  watch: Schema.optionalKey(
+    Schema.String.check(Schema.isMinLength(1)).annotate({
+      description:
+        "A plain WATCH of one terminal somebody else started, by its `<host>/<id>` ref — instead of host/repo/branch. The work is keyed by that terminal.",
+    }),
+  ),
   // THE TWO QUESTIONS WHOSE ANSWERS ARE READ BACK AS VOCABULARY, typed as
   // that vocabulary. `modeOf` and `onGreenOf` read a decision only when the
   // answer is one of their words, so a `mode` question offering "the full
@@ -398,6 +427,13 @@ type WorkAdoptArgs = typeof WorkAdoptArgsSchema.Type;
 const WorkLeaveArgsSchema = Schema.Struct({ id: FleetTerminalRefSchema });
 type WorkLeaveArgs = typeof WorkLeaveArgsSchema.Type;
 
+const WorkStopArgsSchema = Schema.Struct({
+  work: Schema.String.annotate({
+    description: "The piece of work to end, by its id.",
+  }),
+});
+type WorkStopArgs = typeof WorkStopArgsSchema.Type;
+
 const WorkNoteArgsSchema = Schema.Struct({
   work: Schema.String,
   text: Schema.String.check(Schema.isMinLength(1)).annotate({
@@ -458,11 +494,28 @@ function requireInRoster(
       ): Effect.Effect<{ id: string; padi: PadiSurfaceClient }, ToolFailure> =>
         keys.includes(id)
           ? Effect.succeed({ id, padi })
-          : Effect.fail(
-              new ToolFailure<AdoptRefusal>(
-                `${ref} is not a terminal on that host — nothing by that name is in its roster, so adopting it would mean waiting for news that can never come. Read the terminals resource for the live list.`,
-                { kind: "terminal-not-in-roster", id: ref },
+          : // ABSENT FROM A LIST THAT MAY NOT BE A CENSUS. A padi that has not
+            // finished adopting its terminals serves a roster that says
+            // nothing about what it does not hold yet, so the absence is only
+            // an absence once that roster is ESTABLISHED.
+            Effect.flatMap(
+              Effect.mapError(
+                rosterIsEvidence(padi, ref),
+                (cause) =>
+                  new ToolFailure<AdoptRefusal>(
+                    `could not read the roster standing of the host behind ${ref}: ${String(cause)}`,
+                    { kind: "terminal-not-in-roster", id: ref },
+                  ),
               ),
+              (established) =>
+                Effect.fail(
+                  new ToolFailure<AdoptRefusal>(
+                    established
+                      ? `${ref} is not a terminal on that host — nothing by that name is in its roster, so adopting it would mean waiting for news that can never come. Read the terminals resource for the live list.`
+                      : stillSettling(ref),
+                    { kind: "terminal-not-in-roster", id: ref },
+                  ),
+                ),
             ),
     ),
   );
@@ -512,6 +565,30 @@ function foundState(
 const ASKED_SAID =
   "Asked. The question is in front of the human now and NOTHING is waiting on them: say what you asked, END YOUR TURN, and kolu will wake you with their answer — who answered, from where, and what they said. Never poll the `works` resource for it, and never ask the same question again because no answer came back: it is already on the card, and asking twice puts two forms in front of them.";
 
+/** THE KEY `work_open` NAMES — a branch on a machine, or the terminal to
+ *  watch. Refused here rather than halfway in: a work with no machine is a
+ *  work with no identity, and the Conductor is owed the sentence that says to
+ *  ask the human which one. */
+const workKeyOfArgs = (args: WorkOpenArgs): WorkKey => {
+  if (args.watch !== undefined) return { kind: "watch", terminal: args.watch };
+  if (
+    args.host === undefined ||
+    args.repo === undefined ||
+    args.branch === undefined
+  ) {
+    throw new WorkRefusal(
+      "missing-setup",
+      `«${args.title}» cannot be opened: a piece of work IS a branch on a machine, so \`work_open\` needs \`host\` (a fleet host ref), \`repo\` and \`branch\` — or \`watch\` for a plain watch of one terminal. If the human's request does not say which machine, ask them in your reply and END YOUR TURN; open the work when they answer. Nothing was created.`,
+    );
+  }
+  return {
+    kind: "branch",
+    host: args.host,
+    repo: args.repo,
+    branch: args.branch,
+  };
+};
+
 /** `work_open` — state a piece of work, and ask its setup in one form. */
 export function workOpenTool(works: FleetWorks): BespokeTool {
   return {
@@ -524,7 +601,11 @@ export function workOpenTool(works: FleetWorks): BespokeTool {
       const intent = args as WorkOpenArgs;
       return Effect.try({
         try: () => {
-          const opened = works.open(intent);
+          const opened = works.open({
+            key: workKeyOfArgs(intent),
+            title: intent.title,
+            setup: intent.setup,
+          });
           return opened.asked ? { ...opened, said: ASKED_SAID } : opened;
         },
         catch: (err: unknown) => refusalFailure(err, intent.title),
@@ -613,6 +694,27 @@ export function workLeaveTool(works: FleetWorks): BespokeTool {
           .works.find((one) => one.members.some((two) => two.ref === id));
         return { left: works.leave(id), work: was?.id ?? null };
       }),
+  };
+}
+
+/** `work_stop` — the one ending the Conductor can write. */
+export function workStopTool(works: FleetWorks): BespokeTool {
+  return {
+    input: WorkStopArgsSchema,
+    mutates: true,
+    title: "Stop a piece of work",
+    description:
+      "END a piece of work: it is really over, or the human said to drop it. Its terminals stop being members and its open questions are dropped; its decisions and its whole timeline stay, and the card offers Reopen. This and the forge merging or closing its pull request are the ONLY ways a work ends — a work whose terminals have all gone has NOT ended, and `work_open` on the same host, repo and branch carries it on rather than starting a second one.",
+    handler: (args, _bundle, _signal) => {
+      const { work } = args as WorkStopArgs;
+      return Effect.try({
+        try: () => {
+          works.stop(work);
+          return { work, stopped: true };
+        },
+        catch: (err: unknown) => refusalFailure(err, work),
+      });
+    },
   };
 }
 

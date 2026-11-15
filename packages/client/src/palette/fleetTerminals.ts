@@ -17,7 +17,10 @@
  *  (`rowRecencyAt`). Parked (activity-window) rows are dropped the same way
  *  the Dock drops them. */
 
-import type { TerminalMetadata } from "@kolu/padi-client/surface";
+import {
+  rosterIsEstablished,
+  type TerminalMetadata,
+} from "@kolu/padi-client/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import {
   createReactiveSubscription,
@@ -148,10 +151,15 @@ type PerHostHandle = {
  *   - `here`        — listed, with its record — padi's own, so its time stamps
  *                     are on that host's clock (the switcher's rows reproject
  *                     theirs; nothing reading a standing needs to).
- *   - `gone`        — the host's list arrived and this id is not in it, or its
- *                     record is a parked restore card (the terminal ended).
- *   - `loading`     — the host is warming up, or its list or this record has
- *                     not arrived yet; saying "gone" here would be a guess.
+ *   - `gone`        — the host's list arrived AND the host says that list is a
+ *                     census (its `roster` cell is `established`: padi finished
+ *                     adopting) and this id is not in it — or its record is a
+ *                     parked restore card (the terminal ended).
+ *   - `loading`     — the host is warming up, its list or this record has not
+ *                     arrived yet, or the host says its roster is still
+ *                     SETTLING (booting its kaval, reconciling the session,
+ *                     recycling). Saying "gone" in any of those is a guess, and
+ *                     the one kolu made on every redeploy (#2376).
  *   - `unreachable` — the host is down or not in the pool, so nobody can say.
  */
 export type FleetTerminalStanding =
@@ -213,6 +221,10 @@ const useFleetHosts = createSharedRoot(() => {
         connected() ? (terminalKeys() ?? []) : [],
       );
       const terminals = entry.collections.terminals.use({ keys });
+      // WHETHER THAT LIST IS A CENSUS — padi's own `roster` standing, read per
+      // host beside the list it qualifies. A cheap value cell: one frame when
+      // the host finishes adopting, one more if it recycles.
+      const roster = entry.cells.roster.use();
 
       const rows = createStableFleetRows(() => {
         if (!connected()) return [];
@@ -247,7 +259,16 @@ const useFleetHosts = createSharedRoot(() => {
         }
         const listed = terminalKeys();
         if (listed === undefined) return LOADING;
-        if (!listed.includes(id)) return GONE;
+        if (!listed.includes(id)) {
+          // "Not listed" is only an absence once the HOST says the list is a
+          // census. A padi still adopting (a fresh daemon, a kaval recycle)
+          // serves a list that means nothing yet, and reading it as a death is
+          // what recorded live terminals as gone on every redeploy (#2376).
+          const standing = roster.value();
+          return standing !== undefined && rosterIsEstablished(standing)
+            ? GONE
+            : LOADING;
+        }
         const record = terminals.byKey(id)?.();
         if (record === undefined) return LOADING;
         return isParked(record) ? GONE : { kind: "here", meta: record };

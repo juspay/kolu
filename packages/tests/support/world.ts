@@ -162,6 +162,11 @@ export class KoluWorld extends World {
   /** The title the scenario gave that work, which is what the dock row's mark
    *  and the card's head read out. */
   workTitle?: string;
+  /** The work id the conductor answered with the SECOND time it was asked to
+   *  open the same branch — the idempotent-open claim, read from the agent's
+   *  own answer rather than from the column, so the assertion is about what
+   *  `work_open` returned and not merely about what is drawn. */
+  workIdAgain?: string;
   /** The git repo the work is done in — a scratch worktree this scenario made.
    *  Its `.waterfall/` files, its branch and its stated pull request are what
    *  kolu observes the work through. */

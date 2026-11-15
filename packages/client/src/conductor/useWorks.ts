@@ -1,5 +1,6 @@
 /** THE WORKS MIRROR — ONE subscription to kolu-server's `works` collection,
- *  and the one place every surface reads a piece of work from.
+ *  one to the `workMembers` map beside it, and the one place every surface
+ *  reads a piece of work from.
  *
  *  Their own members rather than a field of `conductor` because a work
  *  OUTLIVES the conversation that opened it: "New session" clears the chat and
@@ -8,13 +9,16 @@
  *  four readers of this one frame — a second subscription would only be a
  *  second frame to disagree with.
  *
- *  COLLECTIONS, keyed: a work that moved sends itself, and a member's level
- *  moving sends that reading. The old single `works` cell re-sent every work
- *  (the twenty finished ones included) on every agent-state event — which is
- *  tens of thousands of whole-list frames a day from one agent that stops every
- *  minute. The ORDER the column draws is therefore derived HERE, from the
- *  records themselves (`inProgress` / `finished`), never from the order keys
- *  happened to arrive in.
+ *  A WORK IS ITS KEY. The collection is keyed by the work's id (the canonical
+ *  encoding of host/repo/branch, or of the terminal a watch is about), so one
+ *  branch has one card BY CONSTRUCTION: there is no way for a second
+ *  `work_open` to arrive as a second entry. The record itself carries no id —
+ *  the key is the id — which is why every reader here passes the two together.
+ *
+ *  MEMBERSHIP IS ITS OWN MAP, keyed by terminal ref: a terminal is in at most
+ *  one piece of work because there is one slot for it. A member of a work that
+ *  has ENDED cannot be written down at all — ending removes its members in the
+ *  same step — so a finished card has nothing to draw terminals from.
  *
  *  `memberReadings` carries the one thing a browser cannot read for itself: how
  *  each member terminal stands by kolu's own watch, which reads hosts no
@@ -23,38 +27,78 @@
  *  never from here. */
 
 import type { MemberReading } from "kolu-common/works";
-import { finished, inProgress, membershipOf, type Membership } from "kolu-work";
-import type { Work } from "kolu-work";
+import {
+  finished,
+  inProgress,
+  membershipOf,
+  type Membership,
+  type Work,
+  type WorkId,
+  type WorkMember,
+  type WorkRow,
+} from "kolu-work";
 import { type Accessor, createMemo } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { app } from "../wire";
 
-/** THE WORKS, mirrored once for the whole app, in the order every reader
- *  draws them: in progress oldest first (a card keeps its place), then the
- *  finished ones most recently ended first.
+/** THE WORKS BY ID, mirrored once for the whole app — the shape membership is
+ *  folded from, and what a reader looking for ONE work (the reader window, a
+ *  chat row's question) asks. */
+export const useWorkMap = createSharedRoot<Accessor<ReadonlyMap<WorkId, Work>>>(
+  () => {
+    // Bare `.use()`: the collection DECLARES its own `onError` policy (a toast
+    // labelled `Works`) on the spec, so the use-site carries none, and its
+    // default keys stream is the server's own — every work, no narrowing.
+    const works = app.collections.works.use();
+    return createMemo(() => {
+      const by = new Map<WorkId, Work>();
+      for (const id of works.keys()) {
+        const one = works.byKey(id)?.();
+        if (one !== undefined) by.set(id, one);
+      }
+      return by;
+    });
+  },
+);
+
+/** THE WORKS, in the order every reader draws them: in progress oldest first
+ *  (a card keeps its place), then the finished ones most recently ended first.
  *
  *  The keys arrive as a SET — arrival order is not a fact about the works — so
  *  the records are sorted by when they started before `inProgress` filters
  *  them, which is what makes "oldest first" true of a browser that joined
  *  mid-run as well as of one that was there from the start. */
-export const useWorks = createSharedRoot<Accessor<ReadonlyArray<Work>>>(() => {
-  // Bare `.use()`: the collection DECLARES its own `onError` policy (a toast
-  // labelled `Works`) on the spec, so the use-site carries none, and its
-  // default keys stream is the server's own — every work, no narrowing.
-  const works = app.collections.works.use();
+export const useWorks = createSharedRoot<Accessor<ReadonlyArray<WorkRow>>>(
+  () => {
+    const map = useWorkMap();
+    return createMemo(() => {
+      const pairs = [...map()].sort(([, a], [, b]) =>
+        a.startedAt < b.startedAt ? -1 : 1,
+      );
+      return [...inProgress(pairs), ...finished(pairs)];
+    });
+  },
+);
+
+/** EVERY TERMINAL THAT IS IN A PIECE OF WORK, by its `<host>/<id>` ref — the
+ *  one map, mirrored once. A ref that is not a key here is in no work; a ref
+ *  that is names exactly one. */
+export const useWorkMembers = createSharedRoot<
+  Accessor<ReadonlyMap<string, WorkMember>>
+>(() => {
+  const members = app.collections.workMembers.use();
   return createMemo(() => {
-    const records: Work[] = [];
-    for (const id of works.keys()) {
-      const one = works.byKey(id)?.();
-      if (one !== undefined) records.push(one);
+    const by = new Map<string, WorkMember>();
+    for (const ref of members.keys()) {
+      const one = members.byKey(ref)?.();
+      if (one !== undefined) by.set(ref, one);
     }
-    records.sort((a, b) => (a.startedAt < b.startedAt ? -1 : 1));
-    return [...inProgress(records), ...finished(records)];
+    return by;
   });
 });
 
-/** THE MEMBERSHIP INDEX, derived once — terminal (`host/id`) to the work in
- *  progress it is an active member of, and WHO DRIVES it.
+/** THE MEMBERSHIP INDEX, derived once — terminal (`host/id`) to the work it is
+ *  a member of, and WHO DRIVES it.
  *
  *  Every mark and every person-input site reads this: the dock row, the tile
  *  title, the column, the lock. One memo in one shared root, so a dock of
@@ -63,8 +107,9 @@ export const useWorks = createSharedRoot<Accessor<ReadonlyArray<Work>>>(() => {
 export const useMembership = createSharedRoot<
   Accessor<ReadonlyMap<string, Membership>>
 >(() => {
-  const works = useWorks();
-  return createMemo(() => membershipOf(works()));
+  const works = useWorkMap();
+  const members = useWorkMembers();
+  return createMemo(() => membershipOf(works(), members()));
 });
 
 /** HOW A MEMBER TERMINAL STANDS, by kolu's watch — ref to the level it was

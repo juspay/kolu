@@ -25,8 +25,9 @@ import { type Component, createSignal, Show } from "solid-js";
 import { Toaster } from "solid-sonner";
 import { useColorScheme } from "../../settings/useColorScheme";
 import { Shown } from "../../ui/shown";
-import { parseReaderHash } from "./useReader";
-import WorkReader, { readerFileName } from "./WorkReader";
+import { workFileName } from "../workFile";
+import { parseReaderHash, readerHash } from "./useReader";
+import WorkReader from "./WorkReader";
 
 const ReaderWindow: Component = () => {
   // The scheme the rest of the app resolves, applied to THIS document: the
@@ -67,8 +68,18 @@ const ReaderWindow: Component = () => {
         >
           {(one) => (
             <>
-              <Title>{readerFileName(one().path)} · kolu</Title>
-              <WorkReader target={one()} placement="window" class="flex-1" />
+              <Title>{workFileName(one().path)} · kolu</Title>
+              <WorkReader
+                target={one()}
+                // THIS WINDOW OWNS ITS ADDRESS: a tab press sets the hash, so
+                // reload, bookmark and the browser's own Back all do what
+                // they say.
+                from="popout"
+                onOpen={(next) => {
+                  location.hash = readerHash(next);
+                }}
+                class="flex-1"
+              />
             </>
           )}
         </Show>

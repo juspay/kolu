@@ -35,6 +35,7 @@ import {
   disposeRpcWire,
   isPadiWarmingUp,
   padiCall,
+  padiFirstFrame,
   RpcCallFailed,
   setRpcBaseUrl,
   surfaceCall,
@@ -802,7 +803,14 @@ const acpFixtureAgent = path.resolve(
 /** ... and the store it remembers prompted sessions in, per worker. */
 const acpFixtureSessions = mkSubDir("acp-sessions");
 
-async function startServerChild(koluServer: string): Promise<void> {
+async function startServerChild(
+  koluServer: string,
+  /** How this start proves padi is live — see {@link waitForPadiLive}. A
+   *  start that precedes a FRESH scenario wipes as it probes; a restart in the
+   *  MIDDLE of one must not, because what the new padi parked from the saved
+   *  session is what that scenario is about. */
+  probe: "killAll" | "read" = "killAll",
+): Promise<void> {
   // Refuse a destructive ssh-leg bind BEFORE spawning the child — the spawn itself is
   // destructive, so the ack cannot wait until after (P2/F1).
   assertRemoteDestructiveAck();
@@ -1014,9 +1022,9 @@ async function startServerChild(koluServer: string): Promise<void> {
   // extend-fail-open-to-local fix — so the server is up before EITHER a local or a
   // remote padi is live). Wait for it here, on EVERY server start (boot AND the
   // mid-run restarts reconnect/session-restore/@kaval-restart trigger), so scenarios
-  // never race the warm-up (a `killAll` against a not-yet-connected binding is the
+  // never race the warm-up (a probe against a not-yet-connected binding is the
   // re-serve's "no live upstream link").
-  await waitForPadiLive();
+  await waitForPadiLive({ probe });
 }
 
 /** Poll a padi procedure until the (async-warming) bound arm — local or, under
@@ -1024,19 +1032,33 @@ async function startServerChild(koluServer: string): Promise<void> {
  *  Local warm-up is normally sub-second (a from-source spawn + connect); the remote
  *  leg's ssh provisioning is what needs the longer startup default. Runs
  *  UNCONDITIONALLY: since neither arm's boot blocks the server's listen anymore, a
- *  scenario racing padi's warm-up is possible on EITHER leg, not just the ssh one. */
+ *  scenario racing padi's warm-up is possible on EITHER leg, not just the ssh one.
+ *
+ *  THE PROBE IS A CHOICE, because "is it up?" and "wipe it" are two questions
+ *  and one helper used to mean both. `killAll` is right where the next thing
+ *  that happens is a fresh scenario (the suite's own boot): it answers the
+ *  liveness question AND clears whatever a previous run left. It is WRONG on a
+ *  mid-scenario restart, where what padi has just parked from its saved session
+ *  is the very thing the scenario is about — the probe killed the restored
+ *  terminal a second after the daemon parked it, and the work's member really
+ *  did go (kolu#2376's redeploy scenario read `gone` honestly about a terminal
+ *  the harness had destroyed). `read` asks the same question of the terminals
+ *  collection and changes nothing. */
 async function waitForPadiLive({
   announce = true,
   timeoutMs = 120_000,
+  probe = "killAll",
 }: {
   announce?: boolean;
   timeoutMs?: number;
+  probe?: "killAll" | "read";
 } = {}): Promise<void> {
   const remotePadiHost = process.env.KOLU_E2E_PADI_HOST;
   // Belt-and-suspenders: the ack was already enforced before the spawn (assertRemoteDestructiveAck
   // in startServerChild); re-assert here so this destructive killAll poll can't run without it
-  // even if a future caller reaches it another way. A no-op on the local leg.
-  assertRemoteDestructiveAck();
+  // even if a future caller reaches it another way. A no-op on the local leg, and
+  // nothing to ask about a read-only probe.
+  if (probe === "killAll") assertRemoteDestructiveAck();
   const deadline = Date.now() + timeoutMs;
   let lastDiagnostic = "no attempt completed";
   while (true) {
@@ -1046,9 +1068,15 @@ async function waitForPadiLive({
       // Bound each attempt so a wedged call (socket up, handler hung mid-boot)
       // can't outlive the caller's deadline. The final attempt gets only the time
       // still available rather than a fresh five-second budget.
-      await padiCall("lifecycle/killAll", undefined, {
-        timeoutMs: Math.min(5_000, remainingBeforeAttempt),
-      });
+      const attempt = { timeoutMs: Math.min(5_000, remainingBeforeAttempt) };
+      if (probe === "killAll") {
+        await padiCall("lifecycle/killAll", undefined, attempt);
+      } else {
+        // The collection's `keys` is a subscription whose opening frame is the
+        // roster padi is serving right now — the same "has the re-serve a live
+        // upstream?" answer the killAll gave, with nothing destroyed.
+        await padiFirstFrame("terminals/keys", undefined, attempt);
+      }
       if (announce)
         console.log(
           remotePadiHost
@@ -1202,6 +1230,26 @@ AfterAll(async () => {
   // left open would keep the process alive past the run.
   await disposeRpcWire();
   killServer();
+  // PADI'S OWN LOGS, kept beside the server's. The daemon writes them inside
+  // its state root, which lives under `testBaseDir` and is about to be
+  // removed — and they are the only account of what the daemon did on BOOT
+  // (what it found in the saved session and parked), which is exactly what a
+  // scenario about a restart has to be read against. Every `.log` in that
+  // root is taken rather than one name: the daemon keeps its own log and its
+  // raw stderr apart, and which of the two holds the line a post-mortem wants
+  // is not this harness's business. `reports/` is gitignored run output, like
+  // `server-w<N>.log`.
+  try {
+    for (const entry of fs.readdirSync(padiStateDir)) {
+      if (!entry.endsWith(".log")) continue;
+      fs.copyFileSync(
+        path.join(padiStateDir, entry),
+        path.join(serverLogDir, `padi-w${workerId}-${entry}`),
+      );
+    }
+  } catch {
+    // Best-effort: a run that never started a padi has no log to keep.
+  }
   // Remove the per-worker base dir created with `mkdtempSync` above. Without
   // this, every `just test` invocation leaks ~100–200MB of JSONL transcripts
   // and session files into /tmp/kolu-test-*, and a long ralph loop or CI
@@ -1574,6 +1622,10 @@ export async function restartKoluServer(
   console.log(`[worker:${workerId}] restarting the server for a scenario.`);
   killServer();
   whileDown?.(path.join(koluStateDir, "config.json"));
-  await startServerChild(koluServer);
+  // READ-ONLY, because this restart happens INSIDE a scenario: the fresh padi
+  // parks what its saved session holds, and the destructive probe would kill
+  // exactly those terminals a second later — which is what a work's member
+  // leaving a redeploy really was.
+  await startServerChild(koluServer, "read");
   return baseUrl;
 }

@@ -24,7 +24,7 @@ import { startHarness } from "@kolu/acp-harness";
 import { confStore } from "@kolu/surface/server";
 import type { ConductorState } from "kolu-common/conductor";
 import type { MemberReading } from "kolu-common/works";
-import type { Work } from "kolu-work";
+import type { Work, WorkMember } from "kolu-work";
 import {
   type ConductorHost,
   type FleetMcpEndpoint,
@@ -54,6 +54,9 @@ let writeCell: ((state: ConductorState) => void) | null = null;
  *  the key is gone (a work that fell off the cap, a terminal that is no longer
  *  read). */
 let writeWork: ((id: string, work: Work | null) => void) | null = null;
+let writeMember:
+  | ((terminal: string, member: WorkMember | null) => void)
+  | null = null;
 let writeReading:
   | ((terminal: string, reading: MemberReading | null) => void)
   | null = null;
@@ -108,9 +111,11 @@ export function setConductorCellWriter(
  *  `surface.ts` makes for the conversation's. */
 export function setWorksCollectionWriters(writers: {
   work: (id: string, work: Work | null) => void;
+  member: (terminal: string, member: WorkMember | null) => void;
   reading: (terminal: string, reading: MemberReading | null) => void;
 }): void {
   writeWork = writers.work;
+  writeMember = writers.member;
   writeReading = writers.reading;
 }
 
@@ -195,6 +200,14 @@ export function liveServerConductor(): ConductorHost {
         );
       }
       writeWork(id, work);
+    },
+    publishMember: (terminal, member) => {
+      if (writeMember === null) {
+        throw new Error(
+          "the conductor published a membership before surface.ts registered the workMembers collection writer — implementKoluSurface must run before the first reader",
+        );
+      }
+      writeMember(terminal, member);
     },
     publishReading: (terminal, reading) => {
       if (writeReading === null) {

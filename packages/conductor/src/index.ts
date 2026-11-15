@@ -85,6 +85,7 @@ export {
 export {
   EMPTY_PERSISTED_CONDUCTOR,
   EMPTY_PERSISTED_MEMBERS,
+  EMPTY_PERSISTED_WORKS,
   EMPTY_PERSISTED_TRANSCRIPT,
   type PersistedConductor,
   PersistedConductorSchema,
@@ -102,7 +103,14 @@ export {
   ROW_CAP,
   UnreadablePersisted,
 } from "./persisted.ts";
-export { type HostReading, readingsOf, recordName } from "./readings.ts";
+export {
+  type HostReady,
+  type HostSettling,
+  type HostUnreachable,
+  type HostView,
+  readingsOf,
+  recordName,
+} from "./readings.ts";
 export { type RecordWrites, recordWrites } from "./recordWrites.ts";
 export { conductorSurfaceMembers } from "./surface.ts";
 export { parseTeaching, teachingLines } from "./teaching.ts";

@@ -183,6 +183,10 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
   );
   const keys = cell<TerminalId[]>([...records.keys()]);
   const urgency = cell<PadiUrgency>(EMPTY_URGENCY);
+  const roster = cell<{ kind: "established"; at: number }>({
+    kind: "established",
+    at: 1000,
+  });
   const pulse = cell<{ seq: number }>({ seq: 0 });
   const queue: PadiWatchEvent[] = [];
   const openedWatches: string[] = [];
@@ -214,6 +218,10 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
       }),
     [at("status", "get")]: () => Stream.make({}),
     [at("urgency", "get")]: () => urgency.stream(),
+    // THE ROSTER STANDING: this fixture's padi has adopted its terminals, so
+    // its key list is a census — which is what lets a reader of it conclude
+    // that a terminal missing from it is really not there.
+    [at("roster", "get")]: () => roster.stream(),
     [at("terminals", "keys")]: () => keys.stream(),
     [at("terminals", "get")]: ({ key }: { key: TerminalId }) => {
       const record = records.get(key);
@@ -516,6 +524,7 @@ function fakeWorks(): FleetWorks & {
       what: "",
       ref: null,
       since: "2026-01-01",
+      outcome: null,
     },
     members: [],
     openQuestions: [],
@@ -526,7 +535,7 @@ function fakeWorks(): FleetWorks & {
       finished: [...ended.entries()].map(([id, title]) => ({
         id,
         title,
-        outcome: "merged" as const,
+        outcome: { kind: "merged" as const, pr: 1 },
         endedAt: "2026-01-02",
       })),
     }),
@@ -555,6 +564,8 @@ function fakeWorks(): FleetWorks & {
         onGreen: "merge" as const,
         ask: `ask:${id}`,
         asked: true,
+        created: true,
+        reopened: false,
       };
     },
     ask: (_work: string, _questions: Parameters<FleetWorks["ask"]>[1]) => ({
@@ -643,6 +654,11 @@ function fakeWorks(): FleetWorks & {
       ended.set(id, work.title);
       works.delete(id);
       moved();
+    },
+    /** STOP — the one ending the Conductor itself can write, which for this
+     *  fixture is the same move as the forge ending one. */
+    stop(id: string) {
+      self.end(id);
     },
     saids,
     closeds,
@@ -1177,7 +1193,6 @@ describe("the conductor's pieces of work", () => {
   }
 
   const SETUP = [
-    { key: "host", question: "Which host?", options: ["local"] },
     { key: "mode", question: "Which mode?", options: ["full", "trivial"] },
     {
       key: "planner.harness",
@@ -1211,6 +1226,7 @@ describe("the conductor's pieces of work", () => {
       name: "work_open",
       arguments: {
         title: "a stored piece of work",
+        host: "local",
         repo: "/repo",
         branch: "work",
         setup: SETUP,
@@ -1777,7 +1793,13 @@ describe("the conductor's pieces of work", () => {
       jsonOf(await mcp.readResource({ uri: "surface://cells/works" })),
     ).toMatchObject({
       works: [],
-      finished: [{ id: "work:1", title: "the merged one", outcome: "merged" }],
+      finished: [
+        {
+          id: "work:1",
+          title: "the merged one",
+          outcome: { kind: "merged", pr: 1 },
+        },
+      ],
     });
   });
 
@@ -1915,6 +1937,7 @@ describe("one expose map, two projections", () => {
         "work_leave",
         "work_note",
         "work_open",
+        "work_stop",
       ]);
       // The removed four, named so a re-addition is a deliberate edit to this
       // list rather than a quiet widening: each is a call with no end, and the
@@ -1957,6 +1980,7 @@ describe("one expose map, two projections", () => {
         "work_leave",
         "work_note",
         "work_open",
+        "work_stop",
       ]);
       for (const name of KOLU_FLEET_TOOL_NAMES) {
         expect(served).toContain(name);

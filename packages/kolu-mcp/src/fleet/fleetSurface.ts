@@ -61,7 +61,7 @@ import {
 import {
   OnGreenSchema,
   WorkModeSchema,
-  WorkOutcomeSchema,
+  OutcomeSchema,
   WorkRoleSchema,
 } from "kolu-work";
 import { FleetHostKeySchema, FleetTerminalRefSchema } from "./refSchema.ts";
@@ -246,7 +246,7 @@ export const FleetWorkSchema = Schema.Struct({
   title: Schema.String,
   repo: Schema.String,
   branch: Schema.String,
-  host: Schema.NullOr(Schema.String),
+  host: Schema.String,
   mode: Schema.NullOr(WorkModeSchema),
   onGreen: Schema.NullOr(OnGreenSchema),
   standing: FleetWorkStandingSchema,
@@ -261,7 +261,7 @@ export type FleetWork = typeof FleetWorkSchema.Type;
 export const FleetFinishedWorkSchema = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
-  outcome: Schema.NullOr(WorkOutcomeSchema),
+  outcome: OutcomeSchema,
   endedAt: Schema.String,
 });
 

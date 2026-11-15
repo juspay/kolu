@@ -44,6 +44,7 @@ export const WORK_REFUSALS = [
   "unknown-work",
   "work-ended",
   "missing-setup",
+  "role-taken",
   "not-driven",
   "already-yours",
   "already-conductors",

@@ -6,50 +6,45 @@
  * (`pr.checks === "pass"`, a reading of `asleep`) and the model's (`kind:
  * "checks-passed"`, `by: "ci"`). Its mirror image — frames to a reading —
  * is a module with its own test (`./readings.ts`), and its sibling — is this
- * worth waking the Conductor — is another (`./members.ts`). This half used to
- * be four closures inside the host, reachable only by standing one up.
+ * worth waking the Conductor — is another (`./members.ts`).
  *
  * ## One pass per reading
  *
  * {@link Observing.observe} walks a frame's readings ONCE, and each reading
  * moves one work value through every arm in turn: the ring event, the PR, the
- * departure, the worktree, the files. Split per event family it would be
- * three writers to one work and "a PR recorded once" would become three
- * derivations of the same answer.
+ * departure, the worktree, the files.
  *
  * ## What is pure, and why it matters
  *
  * {@link ringEvent}, {@link prEvents} and {@link fileEvents} take a work and
  * answer a work. They are the half that revs with the forge and the
  * `.waterfall` convention, and they are exercised by calling them
- * (`./observing.test.ts`). The loop around them is the impure half: a clock, a
- * store, a directory listing on another machine.
+ * (`./observing.test.ts`).
+ *
+ * ## Nothing here ENDS a work for going quiet
+ *
+ * The only ending this module writes is the forge's: a merge or a close, each
+ * carrying the pull request's own number. A terminal that went away LEAVES —
+ * the work stays open with no terminals, and the card says exactly that.
  */
 
 import { Schema } from "effect";
 import {
   CHECK_STEP,
-  checkDetail,
   checkKey,
   checksSeen,
   endWork,
   filesSeen,
   prOf,
   recordEvent,
-  sawWorktree,
+  reopenWork,
   type Work,
   type WorkEvent,
 } from "kolu-work";
 import type { ConductorWakeEvent } from "kolu-common/conductor";
 import type { Logger } from "pino";
-import {
-  MemberWatchSchema,
-  observed,
-  saved,
-  spokenTo,
-  type MemberState,
-} from "./members.ts";
-import type { MemberStore } from "./memberStore.ts";
+import { MemberWatchSchema, observed, saved, spokenTo } from "./members.ts";
+import type { Member, MemberStore } from "./memberStore.ts";
 import type { WatchObservation, WatchPr } from "./observation.ts";
 import type { RecordWrites } from "./recordWrites.ts";
 import type { WorkFiles } from "./workFiles.ts";
@@ -75,23 +70,22 @@ export const ringEvent = (
     case "stopped":
     case "asking":
     case "exited":
-      return { at, by: "agent", kind: level, terminal: ref, detail: "" };
+      return { at, by: "agent", kind: level, terminal: ref, why: "" };
     case "asleep":
       // Nothing an agent did: a person (or kolu) put the terminal away, and
       // the agent in it went with it.
-      return { at, by: "kolu", kind: "asleep", terminal: ref, detail: "" };
+      return { at, by: "kolu", kind: "asleep", terminal: ref, why: "" };
     case "ended":
       // The command ran and gave the prompt back with NO agent ever in the
       // terminal — the agent the Conductor asked for never came up. For a
       // reader of the timeline that is the same ending as an exit, so it is
-      // spelled as one, with the detail saying which kind it was. By kolu,
-      // because there was no agent there to do it.
+      // spelled as one, with the reason saying which kind it was.
       return {
         at,
         by: "kolu",
         kind: "exited",
         terminal: ref,
-        detail: "ended without an agent",
+        why: "ended without an agent",
       };
     case "gone":
       // Not an event of its own: a terminal that went away LEFT the work,
@@ -101,7 +95,6 @@ export const ringEvent = (
     case "handed-back":
       // Not a reading at all: a person took the keys, and the event for
       // that was written where it happened (`./workStore.ts`'s `handover`).
-      // No reading ever produces one of these.
       return null;
   }
 };
@@ -111,29 +104,18 @@ export const ringEvent = (
  *
  *  A WORK HAS ONE PULL REQUEST. The timeline's first `pr-opened` says which,
  *  and a reading carrying any other number is not this work's PR: it moves
- *  nothing. (Two members in two worktrees on two branches can each report a
- *  number; alternating between them would be the same defect as the one
- *  below, told about the PR instead of its checks.)
+ *  nothing.
  *
  *  A CHECK EVENT IS ABOUT A COMMIT, and the timeline holds at most one per
- *  kind per commit (`kolu-work`'s {@link checkKey}). That is what makes two
- *  members who DISAGREE — same worktree, same PR, one polled `gh` thirty
- *  seconds before the other, so one says pending and one says pass — write
- *  two events between them rather than one per frame for as long as they
- *  disagree (juspay/kolu#2376: 429 of one real work's 465 events were that
- *  ping-pong, 327 of them inside one minute). The comparison used to be
- *  against the LAST check event, which is a reading of whoever spoke last and
- *  not a fact about the pull request.
+ *  kind per PR per commit (`kolu-work`'s {@link checkKey}). That is what
+ *  makes two members who DISAGREE write two events between them rather than
+ *  one per frame for as long as they disagree (juspay/kolu#2376: 429 of one
+ *  real work's 465 events were that ping-pong). The event carries the PR, the
+ *  head and the failing gates as FIELDS — the identity used to be regexed
+ *  back out of a sentence.
  *
- *  What it costs: checks re-run on the SAME commit are not news a second
- *  time, and the first red reading of a commit is the failing list the
- *  timeline keeps. Both are deliberate — nothing about the work moved — and
- *  the card's live tally (read off the member's own record, not the timeline)
- *  still shows what the forge says right now. A PUSH is news: a new head's
- *  `checks-running` after the old head's `checks-passed` reads as what it is.
- *
- *  A merge or a close ENDS the work here, because the PR is the one thing
- *  that says a piece of work is finished rather than merely quiet. */
+ *  A merge or a close ENDS the work here, because the forge saying so is one
+ *  of the only two ways a work ends. */
 export const prEvents = (
   work: Work,
   ref: string,
@@ -151,7 +133,8 @@ export const prEvents = (
       by: "agent",
       kind: "pr-opened",
       terminal: ref,
-      detail: `#${pr.number} ${pr.title}`,
+      pr: pr.number,
+      title: pr.title,
     });
   }
   // ONE TABLE for the check correspondence (`kolu-work`'s `CHECK_STEP`): the
@@ -159,13 +142,15 @@ export const prEvents = (
   // the same row, so they cannot disagree about a check.
   if (pr.checks !== null) {
     const step = CHECK_STEP[pr.checks];
-    if (!checksSeen(next).has(checkKey(step.kind, pr.head))) {
+    if (!checksSeen(next).has(checkKey(step.kind, pr.number, pr.head))) {
       next = recordEvent(next, {
         at,
         by: "ci",
         kind: step.kind,
         terminal: ref,
-        detail: checkDetail(pr.head, pr.checks === "fail" ? pr.failing : []),
+        pr: pr.number,
+        head: pr.head,
+        failing: pr.checks === "fail" ? [...pr.failing] : [],
       });
     }
   }
@@ -175,9 +160,9 @@ export const prEvents = (
       by: "kolu",
       kind: "merged",
       terminal: ref,
-      detail: `#${pr.number}`,
+      pr: pr.number,
     });
-    next = endWork(next, { outcome: "merged", at });
+    next = endWork(next, { outcome: { kind: "merged", pr: pr.number }, at });
   }
   if (pr.state === "closed" && prOf(next)?.state !== "closed") {
     next = recordEvent(next, {
@@ -185,9 +170,23 @@ export const prEvents = (
       by: "kolu",
       kind: "pr-closed",
       terminal: ref,
-      detail: `#${pr.number}`,
+      pr: pr.number,
     });
-    next = endWork(next, { outcome: "closed", at });
+    next = endWork(next, { outcome: { kind: "closed", pr: pr.number }, at });
+  }
+  // THE FORGE SAYS IT IS OPEN AGAIN. The other way back from Ended, beside a
+  // person pressing Reopen: a PR that was merged or closed and is open once
+  // more is the same piece of work, decisions and timeline whole. Only an
+  // ending the FORGE wrote is undone this way — a work somebody stopped
+  // stays stopped until they open it again themselves.
+  const ending = next.state;
+  if (
+    pr.state === "open" &&
+    ending.kind === "ended" &&
+    ending.outcome.kind !== "stopped" &&
+    ending.outcome.pr === pr.number
+  ) {
+    next = reopenWork(next, at);
   }
   return next;
 };
@@ -209,7 +208,7 @@ export const fileEvents = (
       by: "agent",
       kind: "file",
       terminal: ref,
-      detail: path,
+      path,
     });
   }
   return next;
@@ -231,7 +230,7 @@ export const observing = (deps: {
   readonly records: RecordWrites<"works" | "members">;
   /** One terminal's news, held and flushed when there is somebody to tell. */
   readonly ring: (
-    member: MemberState,
+    member: Member,
     seen: WatchObservation,
     level: ConductorWakeEvent["level"],
   ) => void;
@@ -255,19 +254,11 @@ export const observing = (deps: {
   const nowIso = (): string => new Date().toISOString();
 
   /** The member terminals whose `.waterfall/` is being listed RIGHT NOW. One
-   *  listing per terminal at a time: a burst of level changes must not pile up
-   *  reads of one directory on a machine that is answering slowly. */
+   *  listing per terminal at a time. */
   const listing = new Set<string>();
 
   /** A MEMBER'S `.waterfall/`, LISTED — and every path kolu has not seen
-   *  before put on the timeline.
-   *
-   *  Off a level change rather than a timer: the moment an agent stops, asks
-   *  or comes up is the moment its files have just changed, and a poll would
-   *  be kolu reading a directory on every host for ever. A listing that FAILS
-   *  is logged and nothing else — the next level change asks again, and a
-   *  timeline that announced "could not list files" every few seconds would
-   *  bury the events a person is reading it for. */
+   *  before put on the timeline. */
   const listFiles = (
     id: string,
     ref: string,
@@ -279,10 +270,10 @@ export const observing = (deps: {
       .list(at)
       .then((paths) => {
         const work = deps.store.get(id);
-        if (work === undefined || work.endedAt !== null) return;
+        if (work === undefined || work.state.kind !== "open") return;
         const next = fileEvents(work, ref, paths, nowIso());
         if (next === work) return;
-        deps.store.save(next);
+        deps.store.save(id, next);
         deps.store.changed();
       })
       .catch((err: unknown) => {
@@ -298,12 +289,7 @@ export const observing = (deps: {
 
   return {
     observe: (seen) => {
-      // FOUR DIFFERENT QUESTIONS, and none of them is the others. What a
-      // READER of the conversation sees is `publishState`'s to answer. What
-      // the WORKS say is published whenever one of them moved. What the
-      // member FILE must hold is the watch's bookkeeping, which carries facts
-      // no frame shows (`told`, `spoken`, `ran`). What an in-process FOLLOWER
-      // needs is the membership moving, apart from the rows.
+      // FOUR DIFFERENT QUESTIONS, and none of them is the others.
       let saidSomethingNew = false;
       let moved = false;
       let membership = false;
@@ -315,14 +301,22 @@ export const observing = (deps: {
         // Not a member (any more): the watcher re-scopes asynchronously, so a
         // frame in flight across a departure is ordinary rather than a fault.
         if (found === undefined) continue;
-        const was = deps.members.at(one.ref);
-        if (was === undefined) continue;
+        const was = found.member;
         const sighting = observed(was, one);
-        deps.members.set(one.ref, sighting.member);
-        // THE LEVEL CHANGED, as THIS PROCESS saw it — which is what the
-        // timeline is written from. `told` can already hold the level (a
-        // restart re-reading the same stop), and that stop is still the first
-        // one this process observed.
+        // WHERE IT IS WORKING, kept on the MEMBER the first time a record
+        // says it: a work's files outlive the terminal that wrote them, and
+        // the member row is where the path belongs now that membership is a
+        // map of its own. The first answer sticks.
+        const worktree = was.worktree ?? one.git?.worktree ?? null;
+        deps.members.set(one.ref, {
+          ...sighting.member,
+          work: was.work,
+          role: was.role,
+          joinedAt: was.joinedAt,
+          worktree,
+        });
+        if (worktree !== was.worktree) watched = true;
+        // THE LEVEL CHANGED, as THIS PROCESS saw it.
         const changed = was.last?.level !== one.level;
         if (changed) read = true;
         const stamp = nowIso();
@@ -332,93 +326,84 @@ export const observing = (deps: {
           sighting.member.agent !== was.agent
         )
           rows = true;
-        // The member's own bookkeeping moved in ways no reader sees — `told`
-        // reset, `ran` recorded, a name refreshed — and the FILE still owes
-        // them: a restart that forgot `told` rings about every member again.
         if (!sameWatch(saved(sighting.member), saved(was))) watched = true;
         // WHAT A PERSON CALLS THIS HOST, remembered for a wake that is not
         // about a reading.
         deps.hostNamed(one.host, one.hostName);
-        // BACK TO WORKING WITHDRAWS WHAT IT WAS GOING TO SAY: held news
-        // describes how something STOOD, and this one has stopped standing
-        // that way. A terminal that goes away keeps its news — that it went
-        // away is exactly the thing to say, and so is a terminal a person has
-        // taken over: that news is about WHO MAY TYPE, which an agent going
-        // back to work does not answer.
+        // BACK TO WORKING WITHDRAWS WHAT IT WAS GOING TO SAY.
         if (one.level === "working" && !deps.handoverHeld(one.ref))
           deps.withdraw(one.ref);
         if (changed && sighting.ring !== null) {
           const event = ringEvent(one.ref, sighting.ring, stamp);
           if (event !== null) work = recordEvent(work, event);
         }
-        // THE PR IS COMPARED WITH THE TIMELINE, not with the last reading —
-        // so two members looking at one PR record it once, and a restart
-        // records nothing twice.
+        // THE PR IS COMPARED WITH THE TIMELINE, not with the last reading.
         if (one.pr !== null) work = prEvents(work, one.ref, one.pr, stamp);
-        // WHERE IT IS WORKING, kept on the member the first time a record
-        // says it: the files of a work outlive the terminal that wrote them.
-        const worktree = one.git?.worktree;
-        if (worktree !== undefined) work = sawWorktree(work, one.ref, worktree);
-        if (sighting.drop) {
-          work = deps.store.leave(work, one.ref, "gone");
-          membership = true;
-        }
         if (work !== found.work) {
-          deps.store.save(work);
+          deps.store.save(found.id, work);
           moved = true;
+        }
+        // A TERMINAL THAT WENT AWAY LEAVES — and the work does not end for
+        // it. `leave` writes the departure, drops the member row and wakes
+        // the Conductor ONCE if that was the last one.
+        if (sighting.drop) {
+          deps.store.leave(one.ref, "gone");
+          membership = true;
         }
         // THE FILES, off a level change: the moment an agent stops, asks or
         // comes up is the moment its `.waterfall/` has just changed, and a
         // member that has gone has no worktree left to read.
-        const where =
-          work.members.find(
-            (member) => member.terminal === one.ref && member.leftAt === null,
-          )?.worktree ?? null;
-        if (changed && !sighting.drop && where !== null)
-          listFiles(work.id, one.ref, { host: one.host, worktree: where });
+        if (changed && !sighting.drop && worktree !== null)
+          listFiles(found.id, one.ref, { host: one.host, worktree });
         if (sighting.ring !== null) {
-          deps.ring(sighting.member, one, sighting.ring);
+          deps.ring(
+            {
+              ...sighting.member,
+              work: was.work,
+              role: was.role,
+              joinedAt: was.joinedAt,
+              worktree,
+            },
+            one,
+            sighting.ring,
+          );
           saidSomethingNew = true;
         }
       }
       if (deps.publishState()) saidSomethingNew = true;
       if (moved) deps.store.changed();
       if (watched) deps.records.schedule("members");
-      // HOW EACH MEMBER STANDS, straight from the loop that moved it: a level
-      // change is not a change to the record, and publishing it through the
-      // works' own path made a reading wait for a work to move.
+      // HOW EACH MEMBER STANDS, straight from the loop that moved it.
       if (read) deps.store.publishReadings();
       if (membership || rows) deps.membersMoved(membership);
-      // Nothing anybody can act on: no new news, nothing a reader would see.
-      // The flush below is what may START A TURN, so it runs on movement
-      // only — a poll that read the same thing again must not wake anybody.
       if (!saidSomethingNew) return;
-      // Idle right now? Then nothing is waiting for a turn to end, and the
-      // news goes out at once — which is the ordinary case: the Conductor
-      // says what it is doing and ends its turn.
       deps.flush();
     },
     saidTo: (ref) => {
-      const member = deps.members.at(ref);
+      const found = deps.store.at(ref);
       // Not a member: the fleet face says this about every `agent_say`, and
       // most terminals on a fleet belong to no work.
-      if (member === undefined || deps.store.at(ref) === undefined) return;
+      if (found === undefined) return;
       // The news it was about to make is the state the Conductor has just
       // acted on, so it goes — and the member re-baselines at that state.
       deps.withdraw(ref);
-      deps.members.set(ref, spokenTo(member));
+      const member = found.member;
+      deps.members.set(ref, {
+        ...spokenTo(member),
+        work: member.work,
+        role: member.role,
+        joinedAt: member.joinedAt,
+        worktree: member.worktree,
+      });
       deps.publishState();
       deps.records.schedule("members");
-      // NO `membersMoved`: nothing moved that a reader outside can act on —
-      // `spoken` is this module's own bookkeeping about a member that is still
-      // the same terminal, in the same work, with the same role.
     },
     closedTerminal: (ref) => {
       const found = deps.store.at(ref);
       const withdrew = deps.withdraw(ref);
       if (found === undefined && !withdrew) return;
       if (found !== undefined) {
-        deps.store.save(deps.store.leave(found.work, ref, "closed"));
+        deps.store.leave(ref, "closed");
         deps.records.schedule("members");
       }
       deps.publishState();

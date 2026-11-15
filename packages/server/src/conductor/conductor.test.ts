@@ -72,6 +72,7 @@ import {
   type ConductorHost,
   EMPTY_PERSISTED_CONDUCTOR,
   type FleetMcpEndpoint,
+  type MemberDetail,
   type MemberWatch,
   type PersistedConductor,
   type PersistedMembers,
@@ -87,12 +88,18 @@ import {
 } from "kolu-conductor";
 import { KOLU_FLEET_EXPOSE, KOLU_FLEET_TOOL_NAMES } from "kolu-mcp";
 import {
+  type DecisionAnswer,
   driverOf,
+  isAnswered,
+  keptOf,
   type KeptFile,
   type SetupKey,
   setupOf,
   type Work,
-  type WorkMember,
+  type WorkId,
+  workDirOf,
+  workIdOf,
+  type WorkKey,
   WorkRefusal,
   type WorkRole,
 } from "kolu-work";
@@ -431,7 +438,7 @@ function rig(over: Remembered = {}): Rig {
   const transcript = countingStore<PersistedTranscript>({
     rows: over.rows ?? [],
   });
-  const works = countingStore<PersistedWorks>(over.works ?? []);
+  const works = countingStore<PersistedWorks>(over.works ?? {});
   const members = countingStore<PersistedMembers>(over.members ?? {});
   const files = fakeFiles();
   const published: ConductorState[] = [];
@@ -461,6 +468,7 @@ function rig(over: Remembered = {}): Rig {
     publishWork: (id, work) => {
       worksPublished.push({ id, work });
     },
+    publishMember: () => {},
     publishReading: (terminal, reading) => {
       readingsPublished.push({ terminal, reading });
     },
@@ -716,16 +724,11 @@ describe("the restart fence (B1)", () => {
     const r = rig({
       record: { ...record, cwd: "/home/somebody-else" },
       rows,
-      works: [
-        storedWork({
-          id: "work:kept",
-          title: "fix the parser",
-          members: [storedMember(A)],
-        }),
-      ],
+      works: storedWorks(storedWork()),
+      members: storedMembers({ [A]: {} }),
     });
     r.host.watch(() => {});
-    expect(r.host.works().map((one) => one.id)).toEqual(["work:kept"]);
+    expect(r.host.works().map(([id]) => id)).toEqual([workIdOf(workKey())]);
     expect(r.host.memberRefs()).toEqual([A]);
   });
 });
@@ -758,7 +761,8 @@ describe("the remembered records are read on the first reader's edge (B3)", () =
     // The watcher asks this at boot. A conversation spawned to answer "what
     // work is in flight" is a subprocess nobody asked for.
     const r = rig({
-      works: [storedWork({ id: "work:1", members: [storedMember(A)] })],
+      works: storedWorks(storedWork()),
+      members: storedMembers({ [A]: {} }),
     });
     expect(r.host.works()).toHaveLength(1);
     expect(r.spawns).toHaveLength(0);
@@ -1199,11 +1203,12 @@ describe("teardown (B2)", () => {
       proveFleetMcp: proveFleetMcpEndpoint,
       publish: () => {},
       publishWork: () => {},
+      publishMember: () => {},
       publishReading: () => {},
       membersMoved: () => {},
       store: countingStore(EMPTY_PERSISTED_CONDUCTOR).store,
       transcript: countingStore<PersistedTranscript>({ rows: [] }).store,
-      works: countingStore<PersistedWorks>([]).store,
+      works: countingStore<PersistedWorks>({}).store,
       members: countingStore<PersistedMembers>({}).store,
       workFiles: fakeFiles().port,
       storePath: () => "/state/config.json",
@@ -1266,11 +1271,12 @@ describe("teardown (B2)", () => {
       proveFleetMcp: proveFleetMcpEndpoint,
       publish: () => {},
       publishWork: () => {},
+      publishMember: () => {},
       publishReading: () => {},
       membersMoved: () => {},
       store: countingStore(EMPTY_PERSISTED_CONDUCTOR).store,
       transcript: countingStore<PersistedTranscript>({ rows: [] }).store,
-      works: countingStore<PersistedWorks>([]).store,
+      works: countingStore<PersistedWorks>({}).store,
       members: countingStore<PersistedMembers>({}).store,
       workFiles: fakeFiles().port,
       storePath: () => "/state/config.json",
@@ -1699,44 +1705,60 @@ const storedWatch = (over: Partial<MemberWatch> = {}): MemberWatch => ({
   ...over,
 });
 
-/** ... and the whole `members` key for a set of refs. */
-const storedMembers = (
-  refs: Readonly<Record<string, Partial<MemberWatch>>>,
-): PersistedMembers =>
-  Object.fromEntries(
-    Object.entries(refs).map(([ref, over]) => [ref, storedWatch(over)]),
-  );
-
-/** One member of a work, as the record keeps it. */
-const storedMember = (
-  terminal: string,
-  over: {
-    role?: WorkRole;
-    leftAt?: string | null;
-    worktree?: string | null;
-  } = {},
-): WorkMember => ({
-  terminal,
-  role: over.role ?? "implementor",
-  joinedAt: T0,
-  leftAt: over.leftAt ?? null,
-  worktree: over.worktree ?? null,
+/** THE KEY A WORK IS — a branch on a machine. The fixtures below open one
+ *  branch unless they say otherwise. */
+const workKey = (branch = "fix-the-parser", host = "local"): WorkKey => ({
+  kind: "branch",
+  host,
+  repo: "/srv/repo",
+  branch,
 });
 
 /** A piece of work as a previous kolu-server left it on disk. */
-const storedWork = (over: Partial<Work> & { id: string }): Work => ({
+const storedWork = (over: Partial<Work> = {}): Work => ({
+  key: workKey(),
   title: "fix the parser",
-  repo: "/srv/repo",
-  branch: "fix-the-parser",
-  members: [],
   events: [],
   decisions: [],
   startedAt: T0,
-  endedAt: null,
-  outcome: null,
-  keptFiles: [],
+  state: { kind: "open" },
   ...over,
 });
+
+/** ... and the whole `works` key for a set of them, keyed by their own ids. */
+const storedWorks = (...all: ReadonlyArray<Work>): PersistedWorks =>
+  Object.fromEntries(all.map((one) => [workIdOf(one.key), one]));
+
+/** ... and the whole `members` key for a set of refs: which work each
+ *  terminal is in and what part it plays, beside what kolu knew of it. */
+const storedMembers = (
+  refs: Readonly<
+    Record<
+      string,
+      Partial<MemberWatch> & {
+        work?: WorkId;
+        role?: WorkRole;
+        worktree?: string | null;
+      }
+    >
+  >,
+  work: WorkId = workIdOf(workKey()),
+): PersistedMembers =>
+  Object.fromEntries(
+    Object.entries(refs).map(([ref, over]) => {
+      const { work: at, role, worktree, ...watch } = over;
+      return [
+        ref,
+        {
+          work: at ?? work,
+          role: role ?? "implementor",
+          joinedAt: T0,
+          worktree: worktree ?? null,
+          watch: storedWatch(watch),
+        },
+      ];
+    }),
+  );
 
 /** One reading of one terminal, as the watcher hands it over. */
 const seeing = (
@@ -1795,20 +1817,18 @@ const idle = (agent: Spawned): void => {
 };
 
 /** A PLAIN WATCH the human asked for, opened the way the Conductor opens one:
- *  the two setup answers the request already carried, so nothing is put to
- *  anybody and the work exists the moment this returns. */
-const watchWork = async (r: Rig, title = "fix the parser"): Promise<string> => {
+ *  the one setup answer the request already carried, so nothing is put to
+ *  anybody and the work exists the moment this returns. The HOST is no
+ *  longer asked: it is half of what the work IS. */
+const watchWork = async (
+  r: Rig,
+  title = "fix the parser",
+  key: WorkKey = workKey(),
+): Promise<WorkId> => {
   const opened = await r.host.openWork({
+    key,
     title,
-    repo: "/srv/repo",
-    branch: "fix-the-parser",
     setup: [
-      {
-        key: "host",
-        question: "Which machine?",
-        options: ["local"],
-        given: "local",
-      },
       {
         key: "mode",
         question: "How should kolu run it?",
@@ -1843,8 +1863,29 @@ const busyWatching = async (r: Rig): Promise<Spawned> => {
 const theWork = (r: Rig): Work => {
   const one = r.host.works()[0];
   if (one === undefined) throw new Error("no piece of work was opened");
-  return one;
+  return one[1];
 };
+
+/** ... and its id, which is its KEY and not a number anybody minted. */
+const theWorkId = (r: Rig): WorkId => {
+  const one = r.host.works()[0];
+  if (one === undefined) throw new Error("no piece of work was opened");
+  return one[0];
+};
+
+/** The answer a setup question came to, or `undefined` while it is still
+ *  being asked — the sum read as the one thing these tests ask about. */
+const answerOf = (work: Work, key: SetupKey): DecisionAnswer | undefined => {
+  const decision = work.decisions.find((one) => one.key === key);
+  return decision !== undefined && isAnswered(decision)
+    ? decision.answer
+    : undefined;
+};
+
+/** The members of one work, by terminal ref — the ONE map, read the way a
+ *  card reads it. */
+const membersOf = (r: Rig, work: WorkId): ReadonlyArray<MemberDetail> =>
+  r.host.membersDetail().filter((one) => one.work === work);
 
 const kindsOf = (work: Work): ReadonlyArray<string> =>
   work.events.map((one) => one.kind);
@@ -1936,16 +1977,15 @@ describe("the wipe (`clearSession`)", () => {
 
     // The work is still in progress, with its member and its decisions.
     const kept = theWork(r);
-    expect(kept.id).toBe(work);
-    expect(kept.endedAt).toBeNull();
+    expect(theWorkId(r)).toBe(work);
+    expect(kept.state.kind).toBe("open");
     expect(r.host.memberRefs()).toEqual([A]);
-    expect(r.works.value()[0]?.id).toBe(work);
-    // ... and the question is STILL OPEN. (The two decisions before it are
-    // the setup the request itself answered.)
+    expect(Object.keys(r.works.value())).toEqual([work]);
+    // ... and the question is STILL OPEN: an `asked` decision is the arm
+    // that has no answer to find.
     expect(
-      kept.decisions.find((one) => one.question === "Approve the plan?")
-        ?.answer,
-    ).toBeNull();
+      kept.decisions.find((one) => one.question === "Approve the plan?")?.kind,
+    ).toBe("asked");
     expect(kindsOf(kept)).not.toContain("question-dropped");
     // The chat's copy of it went with the rows, which is the one thing a wipe
     // does take: the card is where it is answered from now.
@@ -2077,14 +2117,10 @@ describe("the wipe (`clearSession`)", () => {
 
 describe("opening a piece of work", () => {
   /** The setup a full waterfall must carry — every key the mode it offers can
-   *  need, asked in the one call, which is what `work_open` refuses without. */
+   *  need, asked in the one call, which is what `work_open` refuses without.
+   *  The HOST is not among them: a work IS its branch on a machine, so the
+   *  machine is an argument and never a question that may go unanswered. */
   const fullSetup = [
-    {
-      key: "host" as SetupKey,
-      question: "Which machine?",
-      options: ["local", "prod"],
-      given: "local",
-    },
     {
       key: "mode" as SetupKey,
       question: "How much of this?",
@@ -2147,9 +2183,8 @@ describe("opening a piece of work", () => {
     const r = rig();
     const agent = await asked(r);
     const opened = r.host.openWork({
+      key: workKey(),
       title: "fix the parser",
-      repo: "/srv/repo",
-      branch: "fix-the-parser",
       setup: fullSetup,
     });
 
@@ -2158,7 +2193,9 @@ describe("opening a piece of work", () => {
     // it asked, and ends its turn.
     expect(opened.asked).toBe(true);
     expect(opened.ask).toMatch(/^ask:/);
-    // The setup reads as what the REQUEST gave and nothing else: the rest is
+    // It CREATED the work: this key was not one kolu held.
+    expect(opened.created).toBe(true);
+    // The setup reads the HOST off the key and nothing else: the rest is
     // still open, so it is honestly `null` rather than a guess.
     expect(opened.setup).toMatchObject({ host: "local", mode: null });
 
@@ -2170,27 +2207,24 @@ describe("opening a piece of work", () => {
     expect(open.events[0]).toMatchObject({
       kind: "requested",
       by: "you",
-      detail: "fix the parser on prod, please",
+      text: "fix the parser on prod, please",
     });
-    // ... and the chat says it was asked, in a row NAMING the work — which is
-    // what lets the transcript draw the same question the card does. The row
-    // is kolu's own: nothing was put to the AGENT at all.
+    // ... and the chat says it was asked, in a row of the kind that NAMES a
+    // work — which is what lets the transcript draw the same question the
+    // card does. The row is kolu's own: nothing was put to the AGENT at all.
     expect(served(r.host).find((one) => one.id === opened.ask)).toMatchObject({
-      kind: "ask",
-      work: open.id,
+      kind: "work-ask",
+      work: opened.work,
     });
-    // ... and NOTHING is in the agent's own question registry: this is not an
-    // elicitation, so there is no call to hold open and no deadline on it.
-    expect(r.host.state().openAsks).toEqual([]);
+    // ... and THE FRAME A READER IS GIVEN SAYS A QUESTION IS WAITING: kolu's
+    // own question about a work and the agent's own elicitation reach
+    // `openAsks` alike, which is the one list the bell and the OS badge read.
+    expect(r.host.state().openAsks).toEqual([opened.ask]);
     expect(kindsOf(open)).toContain("question");
-    // An answer the REQUEST already gave is a decision, and nobody was asked.
-    expect(
-      open.decisions.find((one) => one.key === "host")?.answer,
-    ).toMatchObject({ how: "answered", picked: ["local"], from: "request" });
 
     expect(
       r.host.answerWork({
-        work: open.id,
+        work: opened.work,
         ask: opened.ask,
         from: "card",
         values: new Map([
@@ -2216,10 +2250,15 @@ describe("opening a piece of work", () => {
     });
     const answered = theWork(r);
     // ... and the record says WHERE the human was looking when they answered.
-    expect(
-      answered.decisions.find((one) => one.key === "mode")?.answer,
-    ).toMatchObject({ how: "answered", picked: ["full"], from: "card" });
+    expect(answerOf(answered, "mode")).toMatchObject({
+      how: "answered",
+      picked: ["full"],
+      from: "card",
+    });
     expect(kindsOf(answered)).toContain("answered");
+    // ... and the frame no longer says anything is waiting: one list, and it
+    // empties when the question is answered.
+    expect(r.host.state().openAsks).toEqual([]);
     // THE ANSWER WAKES THE CONDUCTOR — the only way one ever reaches it now.
     await vi.waitFor(() => {
       expect(agent.wakes()).toHaveLength(1);
@@ -2238,9 +2277,8 @@ describe("opening a piece of work", () => {
     const r = rig();
     await asked(r);
     const opened = r.host.openWork({
+      key: workKey(),
       title: "fix the parser",
-      repo: "/srv/repo",
-      branch: "fix-the-parser",
       setup: fullSetup,
     });
     // Whatever is not one of the question's own options is what they TYPED in
@@ -2263,10 +2301,7 @@ describe("opening a piece of work", () => {
       { role: "implementor", harness: "claude-code", model: "haiku" },
     ]);
     expect(setup.onGreen).toBe("hand-over");
-    expect(
-      theWork(r).decisions.find((one) => one.key === "implementor.model")
-        ?.answer,
-    ).toMatchObject({
+    expect(answerOf(theWork(r), "implementor.model")).toMatchObject({
       how: "answered",
       picked: [],
       text: "haiku",
@@ -2274,13 +2309,12 @@ describe("opening a piece of work", () => {
     });
   });
 
-  it("ends the work ABANDONED when the human declines the setup", async () => {
+  it("REMOVES a work nothing has happened in when the human declines its setup", async () => {
     const r = rig();
     const agent = await asked(r);
     const opened = r.host.openWork({
+      key: workKey(),
       title: "fix the parser",
-      repo: "/srv/repo",
-      branch: "fix-the-parser",
       setup: fullSetup,
     });
     expect(
@@ -2292,14 +2326,38 @@ describe("opening a piece of work", () => {
       }),
     ).toEqual({ settled: true });
 
-    // A setup nobody answered is a work nobody wanted: the card is closed out
-    // rather than left for a waterfall that will never have a member...
-    expect(theWork(r)).toMatchObject({ outcome: "abandoned" });
+    // A setup nobody answered, in a work no terminal ever joined and no PR
+    // was ever seen for, is a card nobody wanted: it GOES. It never becomes
+    // an ending, because nothing ended — there was nothing there.
+    expect(r.host.works()).toEqual([]);
     // ... and the Conductor is TOLD, the same way an answer reaches it.
     await vi.waitFor(() => {
       expect(agent.wakes()).toHaveLength(1);
     });
     expect(agent.wakes()[0]?.text).toContain("DECLINED");
+  });
+
+  it("KEEPS a work something HAS happened in, with the decline recorded", async () => {
+    const r = rig();
+    await asked(r);
+    const opened = r.host.openWork({
+      key: workKey(),
+      title: "fix the parser",
+      setup: fullSetup,
+    });
+    // A terminal joined: this work has a history now, and a history is not
+    // something a declined question may delete.
+    r.host.joinWork(opened.work, A, "implementor", "created");
+    r.host.answerWork({
+      work: opened.work,
+      ask: opened.ask,
+      from: "chat",
+      values: null,
+    });
+    const kept = theWork(r);
+    expect(theWorkId(r)).toBe(opened.work);
+    expect(kept.state.kind).toBe("open");
+    expect(answerOf(kept, "mode")).toMatchObject({ how: "declined" });
   });
 
   it("asks NOBODY ANYTHING when the request already said it all", async () => {
@@ -2309,9 +2367,154 @@ describe("opening a piece of work", () => {
     // The whole point of `given`: the human said where and how in the message
     // that started this, and a form putting it back to them is the "you
     // already told me, say it again" this shape removes.
-    expect(served(r.host).some((one) => one.kind === "ask")).toBe(false);
-    expect(theWork(r).id).toBe(work);
+    expect(
+      served(r.host).some(
+        (one) => one.kind === "ask" || one.kind === "work-ask",
+      ),
+    ).toBe(false);
+    expect(theWorkId(r)).toBe(work);
     expect(kindsOf(theWork(r))).not.toContain("question");
+  });
+
+  it("is IDEMPOTENT: a key kolu holds comes back as it stands", async () => {
+    const r = rig();
+    await asked(r);
+    const first = r.host.openWork({
+      key: workKey(),
+      title: "fix the parser",
+      setup: fullSetup,
+    });
+    r.host.answerWork({
+      work: first.work,
+      ask: first.ask,
+      from: "card",
+      values: new Map([
+        [fieldOf(r, "mode"), ["trivial"]],
+        [fieldOf(r, "implementor.harness"), ["claude-code"]],
+        [fieldOf(r, "implementor.model"), ["sonnet"]],
+        [fieldOf(r, "on-green"), ["merge"]],
+      ]),
+    });
+
+    // THE SAME BRANCH, OPENED AGAIN — by the same caller or another one. A
+    // second card for one branch is not something any caller can make.
+    const again = r.host.openWork({
+      key: workKey(),
+      title: "a different name for the same branch",
+      setup: fullSetup,
+    });
+    expect(again.work).toBe(first.work);
+    expect(again.created).toBe(false);
+    expect(r.host.works()).toHaveLength(1);
+    // A work already set up asks NOTHING: every setup question has an answer.
+    expect(again.asked).toBe(false);
+    expect(again.setup.mode).toBe("trivial");
+  });
+
+  it("asks only the setup questions that have NO answer", async () => {
+    const r = rig();
+    await asked(r);
+    // A trivial waterfall: the mode and the implementor's two, all given.
+    const given = (key: SetupKey, answer: string) => ({
+      key,
+      question: `${key}?`,
+      options: [answer],
+      given: answer,
+    });
+    const first = r.host.openWork({
+      key: workKey(),
+      title: "fix the parser",
+      setup: [
+        given("mode", "trivial"),
+        given("implementor.harness", "claude-code"),
+        given("implementor.model", "sonnet"),
+        given("on-green", "merge"),
+      ],
+    });
+    expect(first.asked).toBe(false);
+
+    // The same key, opened again with a form that ALSO asks the planner's
+    // two — which this work has no answer for.
+    const again = r.host.openWork({
+      key: workKey(),
+      title: "fix the parser",
+      setup: fullSetup,
+    });
+    expect(again.work).toBe(first.work);
+    expect(again.asked).toBe(true);
+    // The questions still waiting are exactly the ones with no answer: the
+    // four the request gave are not put to anybody a second time.
+    const asking = theWork(r).decisions.filter((one) => one.kind === "asked");
+    expect([...asking].map((one) => one.key).sort()).toEqual([
+      "planner.harness",
+      "planner.model",
+    ]);
+  });
+
+  it("STOPS a work, and OPENING IT AGAIN brings it back with everything kept", async () => {
+    const r = rig();
+    await asked(r);
+    const work = await watchWork(r);
+    r.host.joinWork(work, A, "implementor", "created");
+
+    r.host.stopWork(work, "you");
+    const stopped = theWork(r);
+    expect(stopped.state).toMatchObject({
+      kind: "ended",
+      outcome: { kind: "stopped", by: "you" },
+    });
+    // ENDING REMOVES THE MEMBERS in the same step: a finished card has
+    // nowhere to put a terminal.
+    expect(r.host.memberRefs()).toEqual([]);
+    expect(membersOf(r, work)).toEqual([]);
+    const decisions = stopped.decisions.length;
+    const events = stopped.events.length;
+
+    // ... and opening the same key brings THAT work back, whole.
+    const again = await watchWork(r);
+    expect(again).toBe(work);
+    const back = theWork(r);
+    expect(back.state.kind).toBe("open");
+    expect(back.decisions).toHaveLength(decisions);
+    expect(back.events.length).toBeGreaterThan(events);
+    expect(kindsOf(back)).toContain("reopened");
+    expect(r.host.works()).toHaveLength(1);
+  });
+
+  it("REOPENS from the card, which is the same way back", async () => {
+    const r = rig();
+    await asked(r);
+    const work = await watchWork(r);
+    r.host.stopWork(work, "conductor");
+    expect(theWork(r).state).toMatchObject({
+      outcome: { kind: "stopped", by: "conductor" },
+    });
+    r.host.reopenWork(work);
+    expect(theWork(r).state.kind).toBe("open");
+  });
+
+  it("refuses a second terminal in a role the work already has", async () => {
+    const r = rig();
+    await asked(r);
+    const work = await watchWork(r);
+    r.host.joinWork(work, A, "implementor", "created");
+    // ONE implementor, one planner: a second agent on the same part of one
+    // branch is the shape this round removes, so it is REFUSED by name.
+    let refused: unknown;
+    try {
+      r.host.joinWork(work, B, "implementor", "created");
+    } catch (err) {
+      refused = err;
+    }
+    expect(refused).toBeInstanceOf(WorkRefusal);
+    expect((refused as WorkRefusal).kind).toBe("role-taken");
+    expect(membersOf(r, work).map((one) => one.ref)).toEqual([A]);
+    // ... and a DIFFERENT part is not refused.
+    r.host.joinWork(work, B, "planner", "created");
+    expect(membersOf(r, work).map((one) => one.role)).toEqual([
+      "implementor",
+      "planner",
+    ]);
   });
 
   it("a question nobody answers for longer than a tool call may live costs the Conductor NOTHING", async () => {
@@ -2344,13 +2547,15 @@ describe("opening a piece of work", () => {
       expect(ask).toMatch(/^ask:/);
 
       // Ten minutes of a person reading. Nothing fails, because nothing is
-      // waiting: no call, no promise, no row the agent is holding.
+      // waiting ON A CALL: no promise, no row the agent is holding. The
+      // question itself is still open, and the frame says so for the whole
+      // ten minutes.
       vi.setSystemTime(Date.now() + 10 * 60_000);
       await vi.advanceTimersByTimeAsync(10 * 60_000);
       expect(agent.wakes()).toEqual([]);
-      expect(r.host.state().openAsks).toEqual([]);
+      expect(r.host.state().openAsks).toEqual([ask]);
       const waiting = theWork(r).decisions.find((one) => one.ask === ask);
-      expect(waiting?.answer).toBeNull();
+      expect(waiting?.kind).toBe("asked");
       expect(waiting?.file).toBe(".waterfall/plan.md");
 
       // ... and the answer, whenever it comes, is what starts the next turn.
@@ -2394,22 +2599,13 @@ describe("a call about a work that is refused", () => {
     const r = rig();
     const refused = await refusalOf(() =>
       r.host.openWork({
+        key: workKey(),
         title: "fix the parser",
-        repo: "/srv/repo",
-        branch: "fix-the-parser",
         // `full` is on offer, so the planner's two questions belong in this
         // same form: a work half set up is a planner launched on a model
         // nobody chose, and the Conductor cannot fix that with a second form
         // later.
-        setup: [
-          {
-            key: "host",
-            question: "Which machine?",
-            options: ["local"],
-            given: "local",
-          },
-          { key: "mode", question: "How much?", options: ["full"] },
-        ],
+        setup: [{ key: "mode", question: "How much?", options: ["full"] }],
       }),
     );
     expect(refused.kind).toBe("missing-setup");
@@ -2435,9 +2631,15 @@ describe("a call about a work that is refused", () => {
     idle(agent);
     const work = await watchWork(r);
     r.host.joinWork(work, A, "implementor", "created");
-    // Its one member leaves, so nobody is doing it any more.
+    // Its one member leaves — which does NOT end it: losing terminals is not
+    // an ending. Somebody has to say so, and this is them saying it.
     r.host.leaveWork(A);
-    expect(theWork(r)).toMatchObject({ outcome: "abandoned" });
+    expect(theWork(r).state.kind).toBe("open");
+    r.host.stopWork(work, "you");
+    expect(theWork(r).state).toMatchObject({
+      kind: "ended",
+      outcome: { kind: "stopped", by: "you" },
+    });
 
     expect(
       (await refusalOf(() => r.host.joinWork(work, B, "other", "asked"))).kind,
@@ -2545,28 +2747,34 @@ describe("the news a member terminal makes", () => {
       expect(r.host.state().held).toEqual([A]);
     });
     await r.host.dispose();
-    const members = r.works.value()[0]?.members ?? [];
-    expect(members.map((one) => one.terminal)).toEqual([A, B]);
-    // The work says who its members are; the `members` key says what kolu
-    // knows about each of those terminals.
-    expect(r.members.value()).toEqual({
+    // The ONE members map says both: which work each terminal is in and what
+    // part it plays, and what kolu knows about the terminal itself.
+    expect(Object.keys(r.members.value())).toEqual([A, B]);
+    const work = theWorkId(r);
+    expect(r.members.value()).toMatchObject({
       [A]: {
-        name: "fix the parser",
-        agent: "claude-code",
-        told: null,
-        joined: "created",
-        spoken: true,
-        ran: false,
+        work,
+        watch: {
+          name: "fix the parser",
+          agent: "claude-code",
+          told: null,
+          joined: "created",
+          spoken: true,
+          ran: false,
+        },
       },
       [B]: {
+        work,
         // Nothing has read this one's host yet, so kolu knows nothing about
         // the terminal beyond the fact that it is a member.
-        name: "",
-        agent: null,
-        told: null,
-        joined: "created",
-        spoken: true,
-        ran: false,
+        watch: {
+          name: "",
+          agent: null,
+          told: null,
+          joined: "created",
+          spoken: true,
+          ran: false,
+        },
       },
     });
 
@@ -2586,7 +2794,7 @@ describe("the news a member terminal makes", () => {
       expect(live.wakes()).toHaveLength(1);
     });
     await second.host.dispose();
-    expect(second.members.value()[A]?.told).toBe("stopped");
+    expect(second.members.value()[A]?.watch.told).toBe("stopped");
   });
 });
 
@@ -2596,7 +2804,7 @@ describe("the watch across a restart", () => {
     // the conversation was told so before the restart.
     const r = rig({
       record: { ...EMPTY_PERSISTED_CONDUCTOR, cwd: HOME },
-      works: [storedWork({ id: "work:carried", members: [storedMember(A)] })],
+      works: storedWorks(storedWork()),
       members: storedMembers({ [A]: { told: "stopped" } }),
     });
     await r.host.prompt("hello", [], [], false);
@@ -2628,21 +2836,20 @@ describe("the watch across a restart", () => {
     // read the plan overnight comes back to the same button, and answering
     // it wakes the conversation this boot brings up.
     const r = rig({
-      works: [
+      works: storedWorks(
         storedWork({
-          id: "work:carried",
-          members: [storedMember(A)],
           events: [
             {
               at: T0,
               by: "agent",
               kind: "question",
               terminal: null,
-              detail: "kolu:ask:1",
+              ask: "kolu:ask:1",
             },
           ],
           decisions: [
             {
+              kind: "asked",
               id: "d-1",
               ask: "kolu:ask:1",
               at: T0,
@@ -2652,17 +2859,17 @@ describe("the watch across a restart", () => {
               options: ["yes", "no"],
               multiple: false,
               file: "",
-              answer: null,
             },
           ],
         }),
-      ],
+      ),
+      members: storedMembers({ [A]: {} }),
     });
     const carried = theWork(r);
-    expect(carried.decisions[0]?.answer).toBeNull();
+    expect(carried.decisions[0]?.kind).toBe("asked");
     expect(kindsOf(carried)).toEqual(["question"]);
     // The work itself is untouched too.
-    expect(carried.endedAt).toBeNull();
+    expect(carried.state.kind).toBe("open");
   });
 });
 
@@ -2778,7 +2985,7 @@ describe("the timeline a reading writes", () => {
     expect(theWork(second).events.at(-1)).toMatchObject({
       kind: "exited",
       by: "kolu",
-      detail: "ended without an agent",
+      why: "ended without an agent",
     });
   });
 
@@ -2799,7 +3006,7 @@ describe("the timeline a reading writes", () => {
       kind: "file",
       by: "agent",
       terminal: A,
-      detail: ".waterfall/plan.md",
+      path: ".waterfall/plan.md",
     });
     expect(r.files.listed()).toEqual([
       { host: "local", worktree: inRepo.worktree },
@@ -2876,7 +3083,8 @@ describe("the timeline a reading writes", () => {
     });
     expect(theWork(r).events.at(-1)).toMatchObject({
       kind: "pr-opened",
-      detail: "#412 fix the parser",
+      pr: 412,
+      title: "fix the parser",
     });
 
     // Its checks start, and pass — by CI, which is who the time bar colours it
@@ -2902,7 +3110,10 @@ describe("the timeline a reading writes", () => {
       seeing(B, "working", { pr: { ...pr, state: "merged", checks: "pass" } }),
     ]);
     await vi.waitFor(() => {
-      expect(theWork(r).outcome).toBe("merged");
+      expect(theWork(r).state).toMatchObject({
+        kind: "ended",
+        outcome: { kind: "merged", pr: 412 },
+      });
     });
     expect(
       theWork(r).events.filter((one) => one.kind === "merged"),
@@ -2931,22 +3142,38 @@ describe("the timeline a reading writes", () => {
     expect(theWork(r).events.at(-1)).toMatchObject({
       kind: "checks-failed",
       by: "ci",
-      detail: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3 build, unit",
+      pr: 7,
+      head: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
+      failing: ["build", "unit"],
     });
   });
 
-  it("ABANDONS a work every member has left", async () => {
+  it("NEVER ends a work its members have all left, and says so ONCE", async () => {
     const r = rig();
     const agent = await busyWatching(r);
     idle(agent);
-    // Both members go away — nobody is doing this piece of work any more, and
-    // no PR ever said how it ended.
+    const before = theWorkId(r);
+    // Both members go away. Nothing kolu merely stops seeing can end a piece
+    // of work: the card says "no terminals" and the work is still there to
+    // put terminals back into.
     r.host.observe([seeing(A, "gone"), seeing(B, "gone")]);
     await vi.waitFor(() => {
-      expect(theWork(r).outcome).toBe("abandoned");
+      expect(r.host.memberRefs()).toEqual([]);
     });
-    expect(theWork(r).endedAt).not.toBeNull();
-    expect(r.host.memberRefs()).toEqual([]);
+    expect(theWorkId(r)).toBe(before);
+    expect(theWork(r).state.kind).toBe("open");
+    // ... and the Conductor is woken ONCE with exactly that, however many
+    // more frames of an empty world arrive.
+    await vi.waitFor(() => {
+      expect(
+        agent.wakes().filter((one) => one.text.includes("no terminals")),
+      ).toHaveLength(1);
+    });
+    r.host.observe([seeing(A, "gone"), seeing(B, "gone")]);
+    await drained();
+    expect(
+      agent.wakes().filter((one) => one.text.includes("no terminals")),
+    ).toHaveLength(1);
   });
 
   it("takes a NOTE from the Conductor, and nothing else it says", async () => {
@@ -2957,7 +3184,7 @@ describe("the timeline a reading writes", () => {
       kind: "note",
       by: "agent",
       terminal: null,
-      detail: "the planner is re-reading the brief",
+      text: "the planner is re-reading the brief",
     });
   });
 });
@@ -2981,56 +3208,63 @@ describe("a work that has ended", () => {
     });
 
     // A file written while nothing changed level was never observed, and is
-    // still the plan somebody will want to read next month — so the end lists
-    // the directory again and keeps the union.
+    // still the plan somebody will want to read next month — so the ENDING
+    // lists the directory again and keeps the union. The ending is somebody
+    // stopping the work: a member leaving is not one.
     r.files.holds([".waterfall/plan.md", ".waterfall/review.md"]);
-    r.host.leaveWork(A);
+    r.host.stopWork(work, "you");
 
     await vi.waitFor(() => {
       expect(r.files.kept()).toHaveLength(1);
     });
     const kept = r.files.kept()[0];
-    expect(kept?.work).toBe(work);
+    expect(kept?.work).toBe(workDirOf(work));
     expect([...(kept?.paths ?? [])].sort()).toEqual([
       ".waterfall/plan.md",
       ".waterfall/review.md",
     ]);
     await vi.waitFor(() => {
-      expect(theWork(r).keptFiles).toHaveLength(2);
+      expect(keptOf(theWork(r))).toHaveLength(2);
     });
     expect(kindsOf(theWork(r))).toContain("kept");
     // ... and the work is on disk the moment it ends, not a throttle window
     // later.
-    expect(r.works.value()[0]?.keptFiles).toHaveLength(2);
+    expect(keptOf(Object.values(r.works.value())[0] as Work)).toHaveLength(2);
   });
 
   it("drops the OLDEST finished work past the twenty it keeps, files and all", async () => {
     // Twenty finished works already on disk, newest last.
     const r = rig({
-      works: Array.from({ length: 20 }, (_, at) =>
-        storedWork({
-          id: `work:old-${at}`,
-          title: `done ${at}`,
-          endedAt: `2026-01-02T00:${String(at).padStart(2, "0")}:00.000Z`,
-          outcome: "merged",
-          members: [storedMember(`local/old-${at}`, { leftAt: T0 })],
-        }),
+      works: storedWorks(
+        ...Array.from({ length: 20 }, (_, at) =>
+          storedWork({
+            key: workKey(`old-${at}`),
+            title: `done ${at}`,
+            state: {
+              kind: "ended",
+              at: `2026-01-02T00:${String(at).padStart(2, "0")}:00.000Z`,
+              outcome: { kind: "merged", pr: at + 1 },
+              kept: [],
+            },
+          }),
+        ),
       ),
     });
-    const work = await watchWork(r, "the twenty-first");
+    const work = await watchWork(r, "the twenty-first", workKey("twenty-one"));
     r.host.joinWork(work, A, "implementor", "created");
-    r.host.leaveWork(A);
+    r.host.stopWork(work, "you");
 
+    const oldest = workIdOf(workKey("old-0"));
     await vi.waitFor(() => {
-      expect(r.files.swept().at(-1)).not.toContain("work:old-0");
+      expect(r.files.swept().at(-1)).not.toContain(oldest);
     });
-    const remembered = r.host.works().map((one) => one.id);
+    const remembered = r.host.works().map(([id]) => id);
     expect(remembered).toHaveLength(20);
-    expect(remembered).not.toContain("work:old-0");
+    expect(remembered).not.toContain(oldest);
     expect(remembered[0]).toBe(work);
     // The file says the same thing, immediately: a cap's whole point is that
     // what was there is gone.
-    expect(r.works.value().map((one) => one.id)).not.toContain("work:old-0");
+    expect(Object.keys(r.works.value())).not.toContain(oldest);
   });
 
   it("SAYS SO when the copy could not be made", async () => {
@@ -3046,13 +3280,13 @@ describe("a work that has ended", () => {
     });
     // The host stops answering between the last file and the end.
     r.files.listFails("the host is not answering");
-    r.host.leaveWork(A);
+    r.host.stopWork(work, "you");
     await vi.waitFor(() => {
       expect(kindsOf(theWork(r))).toContain("kept");
     });
     // The listing failed, so what is kept is what kolu SAW appear — the files
     // are the half of a work that outlives its worktree.
-    expect(theWork(r).keptFiles).toEqual([
+    expect(keptOf(theWork(r))).toEqual([
       { path: ".waterfall/plan.md", bytes: ".waterfall/plan.md".length },
     ]);
   });
@@ -3257,7 +3491,7 @@ const refused = (run: () => unknown): WorkRefusal => {
  *  asked anything — with one member in it. (A `watch` is the human's own
  *  terminal: the Conductor never types into one, so there is nothing to take
  *  over. That is the refusal below.) */
-const drivenWork = async (r: Rig, member = A): Promise<string> => {
+const drivenWork = async (r: Rig, member = A): Promise<WorkId> => {
   const given = (key: SetupKey, answer: string) => ({
     key,
     question: `${key}?`,
@@ -3265,11 +3499,9 @@ const drivenWork = async (r: Rig, member = A): Promise<string> => {
     given: answer,
   });
   const opened = await r.host.openWork({
+    key: workKey("driven"),
     title: "fix the parser",
-    repo: "/srv/repo",
-    branch: "fix-the-parser",
     setup: [
-      given("host", "local"),
       given("mode", "full"),
       given("planner.harness", "omp"),
       given("planner.model", "Fable 5.2"),
@@ -3282,6 +3514,16 @@ const drivenWork = async (r: Rig, member = A): Promise<string> => {
   return opened.work;
 };
 
+/** The member row the driver reading takes beside the work — the ONE map,
+ *  read by terminal. */
+const memberAt = (
+  r: Rig,
+  ref: string,
+): { readonly work: string; readonly role: WorkRole } | undefined => {
+  const one = r.host.membersDetail().find((member) => member.ref === ref);
+  return one === undefined ? undefined : { work: one.work, role: one.role };
+};
+
 describe("taking a driven terminal over, and handing it back", () => {
   it("writes it on the work, and tells the Conductor to keep its hands off", async () => {
     const r = rig();
@@ -3291,9 +3533,9 @@ describe("taking a driven terminal over, and handing it back", () => {
 
     r.host.takeOver(B);
 
-    const driven = r.host.works().find((one) => one.id === work);
-    expect(kindsOf(driven as Work).at(-1)).toBe("taken-over");
-    expect(driverOf(driven as Work, B)).toBe("you");
+    const driven = r.host.works().find(([id]) => id === work)?.[1] as Work;
+    expect(kindsOf(driven).at(-1)).toBe("taken-over");
+    expect(driverOf(driven, B, memberAt(r, B))).toBe("you");
     await vi.waitFor(() => {
       expect(agent.wakes()).toHaveLength(1);
     });
@@ -3304,9 +3546,9 @@ describe("taking a driven terminal over, and handing it back", () => {
     expect(woke?.text).toContain("TOOK IT OVER");
 
     r.host.handBack(B);
-    const back = r.host.works().find((one) => one.id === work);
-    expect(kindsOf(back as Work).at(-1)).toBe("handed-back");
-    expect(driverOf(back as Work, B)).toBe("conductor");
+    const back = r.host.works().find(([id]) => id === work)?.[1] as Work;
+    expect(kindsOf(back).at(-1)).toBe("handed-back");
+    expect(driverOf(back, B, memberAt(r, B))).toBe("conductor");
     await vi.waitFor(() => {
       expect(agent.wakes()).toHaveLength(2);
     });
@@ -3324,13 +3566,15 @@ describe("taking a driven terminal over, and handing it back", () => {
 
     r.host.takeOver(A);
 
-    expect(driverOf(theWork(r), A)).toBe("you");
+    expect(driverOf(theWork(r), A, memberAt(r, A))).toBe("you");
     await vi.waitFor(() => {
       expect(r.host.state().held).toEqual([A]);
     });
     // ... and it is on disk at once: who may type into a terminal is the one
     // fact a restart must not get wrong.
-    expect(r.works.value()?.[0]?.events.at(-1)?.kind).toBe("taken-over");
+    expect(
+      (Object.values(r.works.value())[0] as Work).events.at(-1)?.kind,
+    ).toBe("taken-over");
   });
 
   it("refuses a terminal nothing drives, and one already in that state", async () => {
@@ -3353,7 +3597,7 @@ describe("taking a driven terminal over, and handing it back", () => {
     r.host.joinWork(work, A, "other", "asked");
 
     expect(refused(() => r.host.takeOver(A)).kind).toBe("not-driven");
-    expect(driverOf(theWork(r), A)).toBeNull();
+    expect(driverOf(theWork(r), A, memberAt(r, A))).toBeNull();
   });
 });
 
@@ -3364,14 +3608,16 @@ describe("a restored backup of the works", () => {
     const moved = r.membersMoved().length;
     const writes = r.works.writes();
 
+    const restored = workKey("carried-over");
+    const id = workIdOf(restored);
     r.host.restoreWorks(
-      [
+      storedWorks(
         storedWork({
-          id: "work:restored",
+          key: restored,
           title: "carried over",
-          members: [storedMember(B)],
           decisions: [
             {
+              kind: "asked",
               id: "d1",
               ask: "ask:gone",
               at: T0,
@@ -3381,34 +3627,30 @@ describe("a restored backup of the works", () => {
               options: ["Approve"],
               multiple: false,
               file: ".waterfall/plan.md",
-              answer: null,
             },
           ],
         }),
-      ],
-      storedMembers({ [B]: {} }),
+      ),
+      storedMembers({ [B]: {} }, id),
     );
 
     // The snapshot's works, and only those.
-    expect(r.host.works().map((one) => one.id)).toEqual(["work:restored"]);
+    expect(r.host.works().map(([one]) => one)).toEqual([id]);
     // THE QUESTION COMES BACK OPEN: the snapshot recorded it unanswered, and
     // that is what the record says. Nothing was holding it, so there is
     // nothing a restore can have broken — the card still offers it.
-    expect(r.host.works()[0]?.decisions[0]?.answer).toBeNull();
+    expect(r.host.works()[0]?.[1].decisions[0]?.kind).toBe("asked");
     // The watcher re-scopes: the membership is now the snapshot's.
     expect(r.membersMoved().slice(moved)).toEqual([true]);
     expect(r.host.memberRefs()).toEqual([B]);
     // ... and the file says so immediately, not within the throttle window: a
     // restore a restart would undo is not a restore.
     expect(r.works.writes()).toBeGreaterThan(writes);
-    expect(r.works.value()?.map((one) => one.id)).toEqual(["work:restored"]);
+    expect(Object.keys(r.works.value())).toEqual([id]);
     // The work that was here is GONE from the wire, and the restored one is
     // on it — each said once, for the one that moved.
     expect(r.worksPublished().slice(-2)).toEqual([
-      {
-        id: "work:restored",
-        work: expect.objectContaining({ id: "work:restored" }),
-      },
+      { id, work: expect.objectContaining({ title: "carried over" }) },
       { id: before, work: null },
     ]);
   });
@@ -3417,12 +3659,17 @@ describe("a restored backup of the works", () => {
     const r = rig();
     await drivenWork(r);
 
-    r.host.restoreWorks([storedWork({ id: "work:restored" })], {});
+    r.host.restoreWorks(
+      storedWorks(storedWork({ key: workKey("carried-over") })),
+      {},
+    );
 
     // ONE rule: keep what the stored works name, delete the rest. A per-work
     // delete would leave the orphans of a snapshot nobody here ever had.
     await vi.waitFor(() => {
-      expect(r.files.swept().at(-1)).toEqual(["work:restored"]);
+      expect(r.files.swept().at(-1)).toEqual([
+        workDirOf(workIdOf(workKey("carried-over"))),
+      ]);
     });
   });
 
@@ -3434,9 +3681,10 @@ describe("a restored backup of the works", () => {
       expect(r.host.readings().get(A)?.level).toBe("working");
     });
 
+    const restored = workKey("carried-over");
     r.host.restoreWorks(
-      [storedWork({ id: "work:restored", members: [storedMember(B)] })],
-      storedMembers({ [B]: {} }),
+      storedWorks(storedWork({ key: restored })),
+      storedMembers({ [B]: {} }, workIdOf(restored)),
     );
 
     // Nothing is left to read about it, and its reading leaves the wire.
@@ -3455,20 +3703,21 @@ describe("a restored backup of the works", () => {
 describe("what the works' readers are told", () => {
   it("publishes ONLY the work that moved, and every stored one once at boot", async () => {
     const r = rig({
-      works: [
-        storedWork({ id: "work:one", members: [storedMember(A)] }),
-        storedWork({ id: "work:two" }),
-      ],
+      works: storedWorks(
+        storedWork({ key: workKey("one"), title: "one" }),
+        storedWork({ key: workKey("two"), title: "two" }),
+      ),
+      members: storedMembers({ [A]: {} }, workIdOf(workKey("one"))),
     });
     // The first read is the boot: every stored work goes out once.
     r.host.works();
     expect(r.worksPublished().map((one) => one.id)).toEqual([
-      "work:one",
-      "work:two",
+      workIdOf(workKey("one")),
+      workIdOf(workKey("two")),
     ]);
 
     const before = r.worksPublished().length;
-    r.host.note("work:one", "a line on the timeline");
+    r.host.note(workIdOf(workKey("one")), "a line on the timeline");
 
     // One work moved, so one work went out. The other is the SAME immutable
     // value and nothing about it was resent.
@@ -3477,6 +3726,6 @@ describe("what the works' readers are told", () => {
         .worksPublished()
         .slice(before)
         .map((one) => one.id),
-    ).toEqual(["work:one"]);
+    ).toEqual([workIdOf(workKey("one"))]);
   });
 });

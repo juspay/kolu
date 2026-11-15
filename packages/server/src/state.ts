@@ -29,6 +29,7 @@ import {
   copyFileSync,
   existsSync,
   mkdtempSync,
+  readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
@@ -54,7 +55,7 @@ import {
   repointConductorAttachments,
 } from "kolu-conductor";
 import { openStateBackupRing } from "kolu-shared/state-backup";
-import { checkHeadOf, checkKey, isCheckKind } from "kolu-work";
+import { type WorkKey, workDirOf, workIdOf } from "kolu-work";
 import {
   transcriptFilePath,
   writeTranscriptFile,
@@ -391,7 +392,7 @@ function readPersistedRecord(
  * Must be valid semver. `conf` runs all migration handlers
  * whose keys are > the last-seen version and ≤ this value.
  */
-const SCHEMA_VERSION = "1.52.0";
+const SCHEMA_VERSION = "1.53.0";
 
 /** THE VERSION STAMPED INTO THE TRANSCRIPT FILE
  *  (`<stateDir>/conductor/transcript.json`), and the one a reader accepts.
@@ -409,7 +410,7 @@ const SCHEMA_VERSION = "1.52.0";
  *  Lives in `state.ts` rather than beside the store that reads it for the
  *  same reason `SCHEMA_VERSION` does: the ladder is the one place that says
  *  what version the state root is at. */
-export const TRANSCRIPT_FILE_VERSION = "1.50.0";
+export const TRANSCRIPT_FILE_VERSION = "1.53.0";
 
 // Callers must pass an explicit directory via KOLU_STATE_DIR. A bare launch
 // with no env would silently clobber whatever happens to live at conf's
@@ -786,6 +787,19 @@ export function migrateConductorToWorks_1_50_0(
   store.set("members", carried.members as unknown as PersistedState["members"]);
 }
 
+/** THE CHECK EVENT KINDS and the head commit their detail named, as 1.51.0
+ *  read them. Frozen history: `kolu-work`'s events carry a typed `head` and a
+ *  PR now and its `checkKey` takes both, while this rung runs against a file
+ *  whose check events are a kind and a prose detail. */
+const CHECK_KINDS_1_51_0: ReadonlySet<string> = new Set([
+  "checks-running",
+  "checks-passed",
+  "checks-failed",
+]);
+
+const checkHead_1_51_0 = (detail: string): string | null =>
+  /^([0-9a-f]{7,40})(?: |$)/.exec(detail)?.[1] ?? null;
+
 /** The 1.51.0 rung's body — THE PING-PONG, SWEPT OUT OF THE SAVED WORKS.
  *
  *  Two members in one worktree both read the SAME pull request, thirty
@@ -828,8 +842,8 @@ export function collapseFlappingChecks_1_51_0(
       if (!("kind" in event) || !("detail" in event)) return true;
       const { kind, detail } = event;
       if (typeof kind !== "string" || typeof detail !== "string") return true;
-      if (!isCheckKind(kind)) return true;
-      const key = checkKey(kind, checkHeadOf({ kind, detail }));
+      if (!CHECK_KINDS_1_51_0.has(kind)) return true;
+      const key = `${kind}@${checkHead_1_51_0(detail) ?? ""}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -932,6 +946,451 @@ export function memberWatchOutOfWorks_1_52_0(
   store.set("members", members as unknown as PersistedState["members"]);
 }
 
+/** ONE WORK as every shape up to 1.52.0 wrote it — the input this rung reads.
+ *  Frozen history: `kolu-work` no longer has a work with an `id`, members
+ *  inside it, a nullable `endedAt`/`outcome` pair or a `detail` string on an
+ *  event, and a rung must keep reading what the build before it wrote. */
+interface Work_1_52_0 {
+  readonly id: string;
+  readonly title: string;
+  readonly repo: string;
+  readonly branch: string;
+  readonly members: ReadonlyArray<Record<string, unknown>>;
+  readonly events: ReadonlyArray<Record<string, unknown>>;
+  readonly decisions: ReadonlyArray<Record<string, unknown>>;
+  readonly startedAt: string;
+  readonly endedAt: string | null;
+  readonly outcome: string | null;
+  readonly keptFiles: ReadonlyArray<Record<string, unknown>>;
+}
+
+const text = (value: unknown): string =>
+  typeof value === "string" ? value : "";
+
+/** THE ANSWER a 1.52.0 decision came to, as one value — the frozen twin of
+ *  `kolu-work`'s `answerValue`, reading the shape where an answer was a
+ *  nullable field rather than an arm of a sum. */
+const answered_1_52_0 = (
+  decisions: ReadonlyArray<Record<string, unknown>>,
+  key: string,
+): string | null => {
+  let value: string | null = null;
+  for (const one of decisions) {
+    if (one.key !== key) continue;
+    const answer = recordOf(one.answer);
+    if (answer === null || answer.how !== "answered") continue;
+    const picked = Array.isArray(answer.picked) ? answer.picked : [];
+    const first = typeof picked[0] === "string" ? picked[0] : null;
+    const typed = typeof answer.text === "string" ? answer.text : null;
+    value = first ?? typed;
+  }
+  return value;
+};
+
+/** The host half of a fleet terminal ref (`<host>/<id>`). */
+const hostOfRef_1_53_0 = (ref: string): string | null => {
+  const cut = ref.indexOf("/");
+  return cut <= 0 ? null : ref.slice(0, cut);
+};
+
+/** WHAT A WORK WRITTEN BEFORE 1.53.0 IS A WORK ABOUT — its key, or nothing.
+ *
+ *  The host comes from the latest answered `host` decision (it was a setup
+ *  question then), and failing that from a member's own terminal ref: a work
+ *  whose setup was declined still RAN on the machine its terminals are on,
+ *  and that is the honest reading. A `watch` is keyed by the terminal it
+ *  watches. Nothing resolvable, nothing to key it by. */
+const keyOf_1_53_0 = (work: Work_1_52_0): WorkKey | null => {
+  const mode = answered_1_52_0(work.decisions, "mode");
+  const terminals = work.members
+    .map((one) => text(one.terminal))
+    .filter((ref) => ref !== "");
+  if (mode === "watch" || (work.repo === "" && work.branch === "")) {
+    const terminal = terminals[0];
+    return terminal === undefined ? null : { kind: "watch", terminal };
+  }
+  const host =
+    answered_1_52_0(work.decisions, "host") ??
+    (terminals[0] === undefined ? null : hostOfRef_1_53_0(terminals[0]));
+  if (host === null || work.repo === "" || work.branch === "") return null;
+  return { kind: "branch", host, repo: work.repo, branch: work.branch };
+};
+
+/** Whether anything ever HAPPENED in this work — a terminal joined it, or a
+ *  pull request was opened for it. The line the decline rule draws, applied
+ *  here to a work whose key cannot be resolved: one that never got past its
+ *  setup is dropped rather than guessed at. */
+const happened_1_53_0 = (work: Work_1_52_0): boolean =>
+  work.events.some((one) => one.kind === "joined" || one.kind === "pr-opened");
+
+/** The pull request a `#<number> …` detail names. */
+const prOf_1_53_0 = (detail: string): number | null => {
+  const number = Number(/^#(\d+)/.exec(detail)?.[1]);
+  return Number.isInteger(number) ? number : null;
+};
+
+/** ONE 1.52.0 EVENT, as the typed event that says the same thing — or
+ *  nothing, for the three lines that cannot be said any more:
+ *
+ *   - a check event whose work has no pull request in its timeline before it
+ *     (the new event carries the PR, and inventing one would be a lie);
+ *   - a `merged`/`pr-closed` whose detail names no number;
+ *   - an `ended abandoned`, because there is no such ending: the work it is
+ *     on becomes Open, and a line saying kolu gave up on it would be the
+ *     screenshot this round exists to delete.
+ *
+ *  `pr` is the number the timeline has reached, threaded by the caller. */
+const eventOf_1_53_0 = (
+  event: Record<string, unknown>,
+  pr: number | null,
+): Record<string, unknown> | null => {
+  const kind = text(event.kind);
+  const detail = text(event.detail);
+  const base = {
+    at: text(event.at),
+    by: text(event.by),
+    terminal: typeof event.terminal === "string" ? event.terminal : null,
+    kind,
+  };
+  switch (kind) {
+    case "requested":
+    case "note":
+      return { ...base, text: detail };
+    case "carried-over":
+    case "taken-over":
+    case "handed-back":
+    case "reopened":
+      return base;
+    case "joined":
+      return {
+        ...base,
+        role: ["planner", "implementor", "other"].includes(detail)
+          ? detail
+          : "other",
+      };
+    case "left":
+      return {
+        ...base,
+        why: ["closed", "released", "gone"].includes(detail) ? detail : "gone",
+      };
+    case "ready":
+    case "stopped":
+    case "asking":
+    case "exited":
+    case "asleep":
+    case "keep-failed":
+      return { ...base, why: detail };
+    case "file":
+      return { ...base, path: detail };
+    case "question":
+    case "answered":
+    case "question-dropped":
+      return { ...base, ask: detail };
+    case "pr-opened": {
+      const number = prOf_1_53_0(detail);
+      return number === null
+        ? null
+        : { ...base, pr: number, title: detail.replace(/^#\d+\s*/, "") };
+    }
+    case "merged":
+    case "pr-closed": {
+      const number = prOf_1_53_0(detail) ?? pr;
+      return number === null ? null : { ...base, pr: number };
+    }
+    case "checks-running":
+    case "checks-passed":
+    case "checks-failed": {
+      if (pr === null) return null;
+      const head = checkHead_1_51_0(detail);
+      const rest =
+        head === null ? detail : detail.slice(head.length).trimStart();
+      return {
+        ...base,
+        pr,
+        head,
+        failing:
+          kind === "checks-failed" && rest !== "" ? rest.split(", ") : [],
+      };
+    }
+    case "kept":
+    case "folded": {
+      const count = Number(detail);
+      return { ...base, count: Number.isInteger(count) ? count : 0 };
+    }
+    default:
+      return null;
+  }
+};
+
+/** The 1.53.0 rung's body — THREE CARDS FOR ONE BRANCH BECOME ONE WORK.
+ *
+ *  A work used to be a minted id, so opening the same branch again made a
+ *  second work with the same repo, the same branch and the same two
+ *  terminals; a work whose members had all gone was ended `abandoned`, which
+ *  is what made the Conductor open the next one. The model now says a work IS
+ *  its branch (`kolu-work`'s {@link WorkKey}), so this rung folds what is on
+ *  disk into that shape:
+ *
+ *  - EVERY WORK IS KEYED ({@link keyOf_1_53_0}): host from the latest answered
+ *    `host` decision, else from a member's own terminal; repo and branch as
+ *    they stand; a `watch` by the terminal it watches. A work with no
+ *    resolvable key that never got past its setup is DROPPED; one that got
+ *    further keeps its members' host.
+ *  - WORKS WITH ONE KEY BECOME ONE. The earliest is the work (its title, its
+ *    `startedAt`); the later ones contribute every decision, and every event
+ *    the first does not already hold (the same kind at the same instant on
+ *    the same terminal with the same detail is the same observation seen
+ *    twice), merged in time order. The decision LOG keeps all of them, so the
+ *    latest answer per setup key is what `setupOf` reads back — which is the
+ *    reading rule, unchanged.
+ *  - `host` DECISIONS ARE DROPPED: the host is the key now, and a question
+ *    whose answer is part of the identity is a second copy of it.
+ *  - `abandoned` DOES NOT EXIST, so such a work becomes OPEN, with its
+ *    `ended` line taken off the timeline. `merged`/`closed` become an Ended
+ *    state carrying the PR number the timeline names.
+ *  - MEMBERS RE-KEY INTO THE ONE MAP, by terminal: the latest row for that
+ *    terminal in the group wins, one that had left stays gone, and the watch
+ *    bookkeeping already under the top-level `members` key rides along in the
+ *    same row. A second terminal in a role the work already has is left out
+ *    rather than written down — `parseStore` would refuse the store, and the
+ *    reader a person is waiting for must come up.
+ *  - EVENTS BECOME TYPED ({@link eventOf_1_53_0}): a check event with no PR in
+ *    its timeline is dropped, and so is a line nothing can say any more.
+ *
+ *  Answers the renames the caller owes the kept files: `<works>/<old id>` →
+ *  `<works>/<workDirOf(new id)>`, for the works that are still Ended.
+ *
+ *  PURE, and exported for `stateMigration.test.ts` and the proof against the
+ *  human's own store: a rung this size has to be runnable without a `Conf`. */
+export function foldWorksByKey_1_53_0(
+  works: ReadonlyArray<unknown>,
+  was: Record<string, unknown>,
+): {
+  readonly works: Record<string, unknown>;
+  readonly members: Record<string, unknown>;
+  readonly renames: ReadonlyArray<readonly [string, string]>;
+} {
+  const groups = new Map<string, Array<Work_1_52_0>>();
+  for (const value of works) {
+    const record = recordOf(value);
+    if (record === null) continue;
+    const work: Work_1_52_0 = {
+      id: text(record.id),
+      title: text(record.title),
+      repo: text(record.repo),
+      branch: text(record.branch),
+      members: (Array.isArray(record.members) ? record.members : [])
+        .map(recordOf)
+        .filter((one): one is Record<string, unknown> => one !== null),
+      events: (Array.isArray(record.events) ? record.events : [])
+        .map(recordOf)
+        .filter((one): one is Record<string, unknown> => one !== null),
+      decisions: (Array.isArray(record.decisions) ? record.decisions : [])
+        .map(recordOf)
+        .filter((one): one is Record<string, unknown> => one !== null),
+      startedAt: text(record.startedAt),
+      endedAt: typeof record.endedAt === "string" ? record.endedAt : null,
+      outcome: typeof record.outcome === "string" ? record.outcome : null,
+      keptFiles: (Array.isArray(record.keptFiles) ? record.keptFiles : [])
+        .map(recordOf)
+        .filter((one): one is Record<string, unknown> => one !== null),
+    };
+    const key = keyOf_1_53_0(work);
+    if (key === null) {
+      if (!happened_1_53_0(work)) continue;
+      continue;
+    }
+    const id = workIdOf(key);
+    const group = groups.get(id) ?? [];
+    group.push(work);
+    groups.set(id, group);
+  }
+  const folded: Record<string, unknown> = {};
+  const members: Record<string, unknown> = {};
+  const renames: Array<readonly [string, string]> = [];
+  for (const [id, group] of groups) {
+    const inOrder = [...group].sort((a, b) =>
+      a.startedAt < b.startedAt ? -1 : a.startedAt > b.startedAt ? 1 : 0,
+    );
+    const first = inOrder[0];
+    if (first === undefined) continue;
+    const key = keyOf_1_53_0(first);
+    if (key === null) continue;
+    const decisions = inOrder
+      .flatMap((one) => one.decisions)
+      .filter((one) => one.key !== "host")
+      .map((one) => {
+        const { answer, ...rest } = one;
+        const given = recordOf(answer);
+        return given === null
+          ? { kind: "asked", ...rest }
+          : { kind: "answered", ...rest, answer: given };
+      });
+    const seen = new Set<string>();
+    const timeline: Array<Record<string, unknown>> = [];
+    for (const one of inOrder) {
+      for (const event of one.events) {
+        const signature = `${text(event.kind)}|${text(event.at)}|${text(event.terminal)}|${text(event.detail)}`;
+        if (seen.has(signature)) continue;
+        seen.add(signature);
+        timeline.push(event);
+      }
+    }
+    timeline.sort((a, b) =>
+      text(a.at) < text(b.at) ? -1 : text(a.at) > text(b.at) ? 1 : 0,
+    );
+    // THE OUTCOME IS WHAT THE FORGE SAID, never what kolu failed to see: an
+    // `abandoned` work (and a group where every member merely went away) is
+    // open again.
+    const ending = inOrder.findLast(
+      (one) => one.outcome === "merged" || one.outcome === "closed",
+    );
+    let pr: number | null = null;
+    const events: Array<Record<string, unknown>> = [];
+    // The observer's own rules, applied to what the folded works observed
+    // SEPARATELY: a pull request is opened once however many works watched it
+    // open, and a check event is news about one PR at one commit. Three works
+    // on one branch each saw #181 open; one timeline says it once.
+    const checks = new Set<string>();
+    for (const event of timeline) {
+      if (text(event.kind) === "ended" && ending === undefined) continue;
+      const typed = eventOf_1_53_0(event, pr);
+      if (typed === null) continue;
+      if (typed.kind === "pr-opened" && typeof typed.pr === "number") {
+        if (typed.pr === pr) continue;
+        pr = typed.pr;
+      }
+      if (
+        typeof typed.kind === "string" &&
+        CHECK_KINDS_1_51_0.has(typed.kind)
+      ) {
+        const key = `${typed.kind}#${String(typed.pr)}@${typed.head ?? ""}`;
+        if (checks.has(key)) continue;
+        checks.add(key);
+      }
+      if (typed.kind === "ended") {
+        if (ending === undefined) continue;
+        typed.outcome = {
+          kind: ending.outcome === "merged" ? "merged" : "closed",
+          pr: pr ?? 0,
+        };
+      }
+      events.push(typed);
+    }
+    const state =
+      ending === undefined
+        ? { kind: "open" }
+        : {
+            kind: "ended",
+            at: ending.endedAt ?? first.startedAt,
+            outcome: {
+              kind: ending.outcome === "merged" ? "merged" : "closed",
+              pr: pr ?? 0,
+            },
+            kept: ending.keptFiles,
+          };
+    folded[id] = {
+      key,
+      title: first.title,
+      startedAt: first.startedAt,
+      decisions,
+      events,
+      state,
+    };
+    if (ending !== undefined) renames.push([ending.id, workDirOf(id)]);
+    if (state.kind !== "open") continue;
+    // The LATEST row per terminal across the group is the membership: a
+    // terminal that left and joined again is in the work it joined last, and
+    // one whose last row says it left is not a member at all.
+    const latest = new Map<string, Record<string, unknown>>();
+    for (const one of inOrder)
+      for (const member of one.members) {
+        const ref = text(member.terminal);
+        if (ref === "") continue;
+        const held = latest.get(ref);
+        if (held === undefined || text(held.joinedAt) <= text(member.joinedAt))
+          latest.set(ref, member);
+      }
+    const roles = new Set<string>();
+    for (const [ref, member] of latest) {
+      if (member.leftAt !== null && member.leftAt !== undefined) continue;
+      const role = text(member.role) === "" ? "other" : text(member.role);
+      if (role !== "other" && roles.has(role)) continue;
+      roles.add(role);
+      members[ref] = {
+        work: id,
+        role,
+        joinedAt: text(member.joinedAt),
+        worktree: typeof member.worktree === "string" ? member.worktree : null,
+        watch: recordOf(was[ref]) ?? {
+          name: "",
+          agent: null,
+          told: null,
+          joined: "asked",
+          spoken: false,
+          ran: false,
+        },
+      };
+    }
+  }
+  return { works: folded, members, renames };
+}
+
+/** The 1.53.0 rung, against the store — the fold above, the kept-file
+ *  directories renamed to the new hashed names, and the transcript file's
+ *  work questions split into their own row kind
+ *  ({@link TRANSCRIPT_FILE_VERSION} moves with it: a row shape change is a
+ *  rung here, by this file's own rule). */
+export function foldWorks_1_53_0(store: Conf<PersistedState>): void {
+  const works: unknown = store.get("works");
+  if (!Array.isArray(works)) return;
+  const folded = foldWorksByKey_1_53_0(
+    works,
+    recordOf(store.get("members")) ?? {},
+  );
+  const root = join(dirname(store.path), "works");
+  for (const [was, now] of folded.renames) {
+    if (was === now) continue;
+    const from = join(root, was);
+    if (!existsSync(from) || existsSync(join(root, now))) continue;
+    renameSync(from, join(root, now));
+  }
+  store.set("works", folded.works as unknown as PersistedState["works"]);
+  store.set("members", folded.members as unknown as PersistedState["members"]);
+  splitWorkAskRows_1_53_0(dirname(store.path));
+}
+
+/** A transcript row that asked a question ABOUT A PIECE OF WORK used to be an
+ *  `ask` row with an optional `work` field — two kinds of thing under one
+ *  tag, which every reader had to re-discriminate. They are their own kind
+ *  now (`work-ask`), so the file is rewritten. */
+export function splitWorkAskRows_1_53_0(stateRoot: string): void {
+  const path = transcriptFilePath(stateRoot);
+  if (!existsSync(path)) return;
+  let held: unknown;
+  try {
+    held = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    // A transcript this build cannot parse is left exactly as it is: the
+    // reader refuses it by name, which is a recovery a person can act on.
+    return;
+  }
+  const record = recordOf(held);
+  const rows = record === null ? null : record.rows;
+  if (!Array.isArray(rows)) return;
+  writeTranscriptFile(
+    path,
+    TRANSCRIPT_FILE_VERSION,
+    rows.map((value: unknown) => {
+      const row = recordOf(value);
+      if (row === null || row.kind !== "ask") return value;
+      return typeof row.work === "string" && row.work !== ""
+        ? { ...row, kind: "work-ask" }
+        : row;
+    }),
+  );
+}
+
 /** The store's `defaults` — hoisted so {@link decodeStateBackup}'s scratch
  *  store merges the same seed the live store does. */
 const CONF_DEFAULTS: PersistedState = {
@@ -954,7 +1413,7 @@ const CONF_DEFAULTS: PersistedState = {
   // NO PIECES OF WORK YET. A fresh install has stored none; the 1.50.0
   // migration seeds this onto an existing file (from the watch list that
   // preceded it) for the same on-disk-shape reason the keys above give.
-  works: [],
+  works: {},
   // ... and nothing known about any member terminal, for the same reason and
   // out of the same rung: `members` is the watch's own memory, keyed by fleet
   // ref, and a fresh install has read no host yet.
@@ -1627,6 +2086,15 @@ const CONF_MIGRATIONS = {
   // order against 1.51.0 and why this is a new number: a rung that has run on
   // somebody's store is never edited.
   "1.52.0": memberWatchOutOfWorks_1_52_0,
+  // THREE CARDS FOR ONE BRANCH BECOME ONE WORK. A work is its branch now
+  // (`kolu-work`'s `WorkKey`), the works key is a record keyed by that
+  // identity, the members are one map keyed by terminal, an event carries a
+  // typed payload and there is no `abandoned` ending — so a store written
+  // before this is folded into that shape by `foldWorksByKey_1_53_0`, which
+  // argues every choice it makes. The transcript file moves in the same rung
+  // (a work question is its own row kind), which is why
+  // TRANSCRIPT_FILE_VERSION reads 1.53.0.
+  "1.53.0": foldWorks_1_53_0,
 };
 
 export const store = new Conf<PersistedState>({

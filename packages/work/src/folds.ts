@@ -14,7 +14,14 @@
  */
 
 import { prOf } from "./readings.ts";
-import type { Decision, Work, WorkEvent, WorkOutcome } from "./schema.ts";
+import {
+  type Decision,
+  endedAt,
+  type Outcome,
+  type Work,
+  type WorkEvent,
+  type WorkId,
+} from "./schema.ts";
 
 /** Who the work is waiting on. `agent` covers the Conductor and the agents it
  *  runs; `ci` is a PR's checks running; `you` is the human. */
@@ -55,11 +62,11 @@ const START: Running = {
 const step = (handOver: boolean, at: Running, event: WorkEvent): Running => {
   switch (event.kind) {
     case "question":
-      return { ...at, openAsks: new Set([...at.openAsks, event.detail]) };
+      return { ...at, openAsks: new Set([...at.openAsks, event.ask]) };
     case "answered":
     case "question-dropped": {
       const open = new Set(at.openAsks);
-      open.delete(event.detail);
+      open.delete(event.ask);
       return { ...at, openAsks: open };
     }
     case "checks-running":
@@ -73,6 +80,8 @@ const step = (handOver: boolean, at: Running, event: WorkEvent): Running => {
       return { ...at, ci: false, greenForYou: false };
     case "ended":
       return { ...at, ended: true };
+    case "reopened":
+      return { ...at, ended: false };
     default:
       return at;
   }
@@ -89,9 +98,14 @@ const waiterOf = (at: Running): Waiter | null =>
 
 /** Who the work is waiting on now, or `null` once it has ended. */
 export const waitingOn = (work: Work, policy: Policy): Waiter | null =>
-  waiterOf(
-    work.events.reduce((at, event) => step(policy.handOver, at, event), START),
-  );
+  work.state.kind === "ended"
+    ? null
+    : waiterOf(
+        work.events.reduce(
+          (at, event) => step(policy.handOver, at, event),
+          START,
+        ),
+      );
 
 /** WHY A WORK IS WHERE IT IS, as a token rather than a sentence.
  *
@@ -101,20 +115,20 @@ export const waitingOn = (work: Work, policy: Policy): Waiter | null =>
  *  - `ci` — the checks are running;
  *  - `watching` — kolu is keeping an eye on a terminal nobody works for;
  *  - `working` — the agents have it;
- *  - a {@link WorkOutcome} or `ended` — the work is finished, and this is how.
+ *  - `merged` · `closed` · `stopped` — the work is finished, and this is how
+ *    ({@link Standing.outcome} carries the whole of it: which PR, or who
+ *    stopped it).
  *
  *  Every reader renders its own words: the card capitalises and adds a live
  *  check tally, the Conductor's `works` resource writes a sentence for an
- *  agent. A phrase answered here would be a phrase one of them has to
- *  rewrite, which is what it used to be. */
+ *  agent. */
 export type StandingWhy =
   | "question"
   | "merge"
   | "ci"
   | "watching"
   | "working"
-  | WorkOutcome
-  | "ended";
+  | Outcome["kind"];
 
 /** Where a work stands, in one reading: who it waits on, why, since when. */
 export interface Standing {
@@ -125,6 +139,8 @@ export interface Standing {
   /** The PR number, for `why: "merge"` once the timeline knows one; `null`
    *  otherwise. */
   readonly ref: number | null;
+  /** HOW IT ENDED, whole — `null` for a work in progress. */
+  readonly outcome: Outcome | null;
   /** ISO time the current wait began (the end, for a finished work). */
   readonly since: string;
 }
@@ -138,7 +154,7 @@ const askedOf = (
   const asked = [...open].at(-1);
   return asked === undefined
     ? undefined
-    : work.decisions.find((one) => one.ask === asked && one.answer === null);
+    : work.decisions.find((one) => one.ask === asked && one.kind === "asked");
 };
 
 const whyOf = (
@@ -162,6 +178,16 @@ const whyOf = (
 };
 
 export const standing = (work: Work, policy: Policy): Standing => {
+  if (work.state.kind === "ended") {
+    return {
+      who: "done",
+      why: work.state.outcome.kind,
+      what: "",
+      ref: null,
+      outcome: work.state.outcome,
+      since: work.state.at,
+    };
+  }
   let at = START;
   let who = waiterOf(at);
   let since = work.startedAt;
@@ -173,15 +199,16 @@ export const standing = (work: Work, policy: Policy): Standing => {
       since = event.at;
     }
   }
-  if (who === null)
-    return {
-      who: "done",
-      why: work.outcome ?? "ended",
-      what: "",
-      ref: null,
-      since: work.endedAt ?? since,
-    };
-  return { who, ...whyOf(work, who, at.openAsks, policy), since };
+  // An OPEN work is waiting on somebody whatever its timeline's last `ended`
+  // event said — a reopened work keeps that event, and the state is the
+  // record's one answer to "is it over".
+  const waiter = who ?? "agent";
+  return {
+    who: waiter,
+    ...whyOf(work, waiter, at.openAsks, policy),
+    outcome: null,
+    since,
+  };
 };
 
 /** One stretch of the time bar. */
@@ -201,7 +228,7 @@ export const timeBar = (
   policy: Policy,
   now: string,
 ): ReadonlyArray<Stretch> => {
-  const end = work.endedAt ?? now;
+  const end = endedAt(work) ?? now;
   const bar: Stretch[] = [];
   const push = (who: Waiter | null, from: string, to: string) => {
     const length = ms(from, to);
@@ -236,7 +263,7 @@ export const timeSpent = (
 
 /** How long the work has run: to its end, or to `now`. */
 export const lifetime = (work: Work, now: string): number =>
-  ms(work.startedAt, work.endedAt ?? now);
+  ms(work.startedAt, endedAt(work) ?? now);
 
 /** HOW LONG EACH STEP TOOK — the timeline's right-hand column: from an event
  *  to the next one; the last event of a work in progress is still running
@@ -248,20 +275,28 @@ export const took = (
   work.events.map((event, index) => {
     const next = work.events[index + 1];
     if (next !== undefined) return { ms: ms(event.at, next.at), open: false };
-    return work.endedAt === null
+    return work.state.kind === "open"
       ? { ms: ms(event.at, now), open: true }
       : { ms: 0, open: false };
   });
 
+/** A work and the id it is filed under — what the ordering folds take, now
+ *  that the id is the map's key rather than a field of the record. */
+export type WorkRow = readonly [WorkId, Work];
+
 /** Works in progress, oldest first — a card keeps its place. */
-export const inProgress = (works: ReadonlyArray<Work>): ReadonlyArray<Work> =>
-  works.filter((one) => one.endedAt === null);
+export const inProgress = (
+  works: ReadonlyArray<WorkRow>,
+): ReadonlyArray<WorkRow> =>
+  works.filter(([, one]) => one.state.kind === "open");
 
 /** Finished works, the most recently ended first. */
-export const finished = (works: ReadonlyArray<Work>): ReadonlyArray<Work> =>
+export const finished = (
+  works: ReadonlyArray<WorkRow>,
+): ReadonlyArray<WorkRow> =>
   works
-    .filter((one) => one.endedAt !== null)
-    .sort((a, b) => ((a.endedAt ?? "") < (b.endedAt ?? "") ? 1 : -1));
+    .filter(([, one]) => one.state.kind === "ended")
+    .sort((a, b) => ((endedAt(a[1]) ?? "") < (endedAt(b[1]) ?? "") ? 1 : -1));
 
 /** THE HISTORY CAP: every work in progress, and the `keep` most recently
  *  finished. `dropped` is what fell off — the caller deletes their kept files.
@@ -272,21 +307,23 @@ export const finished = (works: ReadonlyArray<Work>): ReadonlyArray<Work> =>
  *  files under it), and a number living in the model would be a storage
  *  decision nobody could find. */
 export const capFinished = (
-  works: ReadonlyArray<Work>,
+  works: ReadonlyArray<WorkRow>,
   keep: number,
 ): {
-  readonly kept: ReadonlyArray<Work>;
-  readonly dropped: ReadonlyArray<Work>;
+  readonly kept: ReadonlyArray<WorkRow>;
+  readonly dropped: ReadonlyArray<WorkRow>;
 } => {
   const keepIds = new Set(
     finished(works)
       .slice(0, keep)
-      .map((one) => one.id),
+      .map(([id]) => id),
   );
   return {
-    kept: works.filter((one) => one.endedAt === null || keepIds.has(one.id)),
+    kept: works.filter(
+      ([id, one]) => one.state.kind === "open" || keepIds.has(id),
+    ),
     dropped: works.filter(
-      (one) => one.endedAt !== null && !keepIds.has(one.id),
+      ([id, one]) => one.state.kind === "ended" && !keepIds.has(id),
     ),
   };
 };

@@ -44,6 +44,11 @@ const unreadable = (
 ): ConductorUnreadable => ({
   key: "works",
   path: "/home/me/.config/kolu/config.json",
+  // WHERE IT GOES IS THE SERVER'S ANSWER. The browser quotes this rather
+  // than rebuilding it out of `path` and a file-name grammar of its own —
+  // which is how the confirm came to promise a file that might not exist.
+  keepsAt: "/home/me/.config/kolu/conductor/unreadable-works-2026-01-01.json",
+  inBackups: true,
   detail: 'SchemaError(Missing key at [0]["members"][0]["worktree"])',
   ...over,
 });
@@ -101,18 +106,23 @@ describe("a RECORD kolu could not read", () => {
     const copy = at("conductor-recover-empty-confirm")?.parentElement
       ?.parentElement?.textContent;
     expect(copy).toContain(
-      "/home/me/.config/kolu/conductor/unreadable-works-<time>.json",
+      "/home/me/.config/kolu/conductor/unreadable-works-2026-01-01.json",
     );
     expect(copy).toContain("nothing is deleted");
     at("conductor-recover-empty-confirm")?.click();
     expect(verbs.recoverStore).toHaveBeenCalledWith("works", "empty");
   });
 
-  it("offers NO backup for the transcript, which no backup holds", () => {
+  it("offers NO backup for a record no backup holds — the refusal says so", () => {
     const { at } = mount({
       unreadable: unreadable({
         key: "transcript",
         path: "/home/me/.config/kolu/conductor/transcript.json",
+        keepsAt:
+          "/home/me/.config/kolu/conductor/unreadable-transcript-2026-01-01.json",
+        // WHETHER THE RING HOLDS IT is the host's fact, carried on the
+        // refusal — never inferred in the browser from the record's name.
+        inBackups: false,
       }),
     });
     // A button promising a snapshot of a file the ring never takes is a lie a

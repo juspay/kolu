@@ -58,7 +58,8 @@ import { exitConductorMode } from "./useConductorMode";
 import { createConductorTranscript } from "./useConductorTranscript";
 import { revealTranscriptRow } from "./transcriptScroll";
 import WorkReader from "./reader/WorkReader";
-import { readerFilled, readerTarget } from "./reader/useReader";
+import ReaderChrome from "./reader/ReaderChrome";
+import { openReader, readerFilled, readerTarget } from "./reader/useReader";
 
 const ConductorPane: Component<{
   class?: string;
@@ -342,7 +343,12 @@ const ConductorPane: Component<{
                 {(target) => (
                   <WorkReader
                     target={target()}
-                    placement="pane"
+                    // THE PANE OWNS THE ADDRESS: which file is open is a fact
+                    // about this pane, kept in its module signal — the
+                    // workspace's own hash is not the reader's to write.
+                    from="reader"
+                    onOpen={openReader}
+                    chrome={<ReaderChrome target={target()} />}
                     class="border-s border-edge"
                   />
                 )}

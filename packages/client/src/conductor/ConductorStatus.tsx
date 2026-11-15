@@ -31,6 +31,7 @@
  *  not a second place to act on the turn. */
 
 import type { ConductorRow, ConductorState } from "kolu-common/conductor";
+import { isOpen } from "kolu-work";
 import { type Component, createMemo, createSignal, Show } from "solid-js";
 import { formatKeybind } from "../input/keyboard";
 import Tip from "../ui/Tip";
@@ -99,12 +100,17 @@ const ConductorStatus: Component<{
    *  into two counts of one fact — and a part that would read `0` is simply
    *  not there. */
   const works = useWorks();
+  /** The RECORDS alone — every reading below is about what a work IS, not
+   *  about which id it is filed under. */
+  const records = createMemo(() => works().map(([, work]) => work));
   const pieces = createMemo(
-    () => works().filter((one) => one.endedAt === null).length,
+    () => records().filter((one) => isOpen(one)).length,
   );
-  const waiting = createMemo(() => waitingCount(works(), props.state.openAsks));
+  const waiting = createMemo(() =>
+    waitingCount(records(), props.state.openAsks),
+  );
   const words = createMemo(() =>
-    worksStatusWords(works(), props.state.openAsks),
+    worksStatusWords(records(), props.state.openAsks),
   );
   const held = () => props.state.held.length;
   /** The column is OPENED from here only below the breakpoint. On a wide

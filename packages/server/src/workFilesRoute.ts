@@ -3,8 +3,12 @@
  * bytes a browser can render.
  *
  * When a work ends, kolu copies its `.waterfall/` files under
- * `<stateRoot>/works/<workId>/` (`conductor/workFiles.ts`), so a plan outlives
- * the worktree a merge deletes. The card renders them through the Code tab's
+ * `<stateRoot>/works/<workDirOf(workId)>/` (`conductor/workFiles.ts`), so a
+ * plan outlives the worktree a merge deletes. The URL carries the WORK ID —
+ * the browser has no business knowing the disk layout — and `workDirOf` is
+ * the one helper that turns it into a directory name, the same one the
+ * writer and the sweep use.
+ * The card renders them through the Code tab's
  * own viewer stack, which renders a URL — this is that URL.
  *
  * It is `@kolu/serve-dir` over one rooted directory, which is the whole route:
@@ -30,6 +34,7 @@ import {
   HttpServerRequest,
   type HttpServerResponse,
 } from "effect/http";
+import { workDirOf } from "kolu-work";
 import { workFilesDir } from "./conductor/workFiles.ts";
 import { serveResultResponse } from "./iframePreviewRoute.ts";
 
@@ -80,10 +85,11 @@ export const workFileRouteHandler = (options: {
     }
     let root: string;
     try {
-      root = workFilesDir(options.stateRoot, workId);
+      root = workFilesDir(options.stateRoot, workDirOf(workId));
     } catch {
-      // A work id that is not a directory name under the works corner (`..`,
-      // a separator): a 400 answer, never a read.
+      // Unreachable for a hashed name (16 hex characters), and stated anyway
+      // so the route is total: a directory that escapes the works corner is a
+      // 400 answer, never a read.
       return serveResultResponse(refusal("invalid work id", 400));
     }
     return serveResultResponse(

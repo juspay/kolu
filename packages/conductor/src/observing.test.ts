@@ -10,9 +10,11 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  checkFailingOf,
+  endWork,
   joinWork,
   openWork,
+  outcomeOf,
+  endedAt,
   prOf,
   recordEvent,
   type Work,
@@ -30,10 +32,13 @@ const work = (): Work =>
   joinWork(
     joinWork(
       openWork({
-        id: "w1",
+        key: {
+          kind: "branch",
+          host: "local",
+          repo: "/srv/repo",
+          branch: "fix-the-parser",
+        },
         title: "fix the parser",
-        repo: "/srv/repo",
-        branch: "fix-the-parser",
         at: AT,
         request: "fix it",
       }),
@@ -67,7 +72,7 @@ describe("what a ring puts on the timeline", () => {
         by: "agent",
         kind: level,
         terminal: A,
-        detail: "",
+        why: "",
       });
     }
   });
@@ -86,7 +91,7 @@ describe("what a ring puts on the timeline", () => {
     expect(ringEvent(A, "ended", AT)).toMatchObject({
       by: "kolu",
       kind: "exited",
-      detail: "ended without an agent",
+      why: "ended without an agent",
     });
   });
 
@@ -123,9 +128,10 @@ describe("the PR a reading carries", () => {
     expect(one.events.at(-1)).toMatchObject({
       kind: "checks-failed",
       by: "ci",
-      detail: `${HEAD} build, lint`,
+      pr: 7,
+      head: HEAD,
+      failing: ["build", "lint"],
     });
-    expect(checkFailingOf(one.events.at(-1)!)).toEqual(["build", "lint"]);
     one = prEvents(one, A, pr({ checks: "pass" }), AT);
     expect(prOf(one)?.checks).toBe("passed");
   });
@@ -156,7 +162,7 @@ describe("the PR a reading carries", () => {
       "checks-passed",
       "checks-running",
     ]);
-    expect(one.events.at(-1)?.detail).toBe(PUSHED);
+    expect(one.events.at(-1)).toMatchObject({ head: PUSHED, pr: 7 });
     // ... and the new commit's checks running is still recorded once, however
     // many members see it.
     expect(prEvents(one, B, pr({ checks: "pending", head: PUSHED }), AT)).toBe(
@@ -178,11 +184,32 @@ describe("the PR a reading carries", () => {
   it("ENDS the work when the PR merges, and when it closes", () => {
     const merged = prEvents(work(), A, pr({ state: "merged" }), AT);
     expect(kinds(merged)).toContain("merged");
-    expect(merged.outcome).toBe("merged");
-    expect(merged.endedAt).toBe(AT);
+    expect(outcomeOf(merged)).toEqual({ kind: "merged", pr: 7 });
+    expect(endedAt(merged)).toBe(AT);
 
     const closed = prEvents(work(), A, pr({ state: "closed" }), AT);
-    expect(closed.outcome).toBe("closed");
+    expect(outcomeOf(closed)).toEqual({ kind: "closed", pr: 7 });
+  });
+
+  it("REOPENS the work when the forge says the PR is open again", () => {
+    const closed = prEvents(work(), A, pr({ state: "closed" }), AT);
+    const again = prEvents(closed, A, pr({ state: "open" }), AT);
+    expect(again.state.kind).toBe("open");
+    expect(kinds(again)).toContain("reopened");
+    // Decisions and timeline whole: this is the same work, and every event
+    // the ended one had is still there.
+    expect(again.events.length).toBeGreaterThan(closed.events.length);
+    // ... and the same reading again is not news: the work is the very value
+    // that went in.
+    expect(prEvents(again, B, pr({ state: "open" }), AT)).toBe(again);
+  });
+
+  it("leaves a work somebody STOPPED stopped, PR open or not", () => {
+    const stopped = endWork(prEvents(work(), A, pr(), AT), {
+      outcome: { kind: "stopped", by: "you" },
+      at: AT,
+    });
+    expect(prEvents(stopped, A, pr({ state: "open" }), AT)).toBe(stopped);
   });
 
   it("is about ONE pull request: another number moves nothing", () => {
@@ -236,7 +263,7 @@ describe("the files a listing found", () => {
       kind: "file",
       by: "agent",
       terminal: A,
-      detail: ".waterfall/plan.md",
+      path: ".waterfall/plan.md",
     });
     // Listed again — the same file is not news a second time, and the work is
     // the very value that went in.
@@ -260,7 +287,7 @@ describe("the files a listing found", () => {
       by: "agent",
       kind: "file",
       terminal: B,
-      detail: ".waterfall/plan.md",
+      path: ".waterfall/plan.md",
     });
     expect(fileEvents(restarted, A, [".waterfall/plan.md"], AT)).toBe(
       restarted,

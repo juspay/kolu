@@ -13,12 +13,8 @@ import { encodeHostKey } from "kolu-common/hostKey";
 import { DEFAULT_PREFERENCES } from "kolu-common/surface";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PersistedMembers, PersistedWorks } from "kolu-conductor";
-import {
-  decodeStateBackup,
-  stateBackupRing,
-  store,
-  worksFromWatched_1_50_0,
-} from "./state.ts";
+import { workIdOf } from "kolu-work";
+import { decodeStateBackup, stateBackupRing, store } from "./state.ts";
 import {
   listServerStateBackups,
   type RestoreServerStateBackupDeps,
@@ -34,6 +30,7 @@ const STALE = remote("zest-stale");
 const GONE = remote("zest-gone");
 const HOST_A = remote("zest-a");
 const HOST_B = remote("zest-b");
+const AT = "2026-01-01T00:00:00.000Z";
 
 // The module-level `store` is a process-wide singleton shared with
 // `state.test.ts` (the suites run serially in one process) — put back every
@@ -42,7 +39,8 @@ afterEach(() => {
   store.set("preferences", DEFAULT_PREFERENCES);
   store.set("hosts", []);
   store.set("viewerMode", "dark");
-  store.set("works", []);
+  store.set("works", {});
+  store.set("members", {});
 });
 
 /** Snapshot the CURRENT live store into the ring and hand back the file name. */
@@ -91,34 +89,59 @@ function recordingDeps(
   return { calls, deps };
 }
 
-/** A stored work, built through the ladder's own carry-over shape so these
- *  fixtures cannot drift from what an upgraded file actually holds. */
-function storedWork(id: string, name: string): PersistedWorks {
-  return carriedOver(id, name).works as unknown as PersistedWorks;
+/** A stored work in today's shape, keyed by its own id — one branch work with
+ *  one member terminal, which is what a restore has to carry across whole. */
+function storedWork(branch: string, name: string): PersistedWorks {
+  const key = {
+    kind: "branch",
+    host: "local",
+    repo: "/srv/repo",
+    branch,
+  } as const;
+  return {
+    [workIdOf(key)]: {
+      key,
+      title: name,
+      startedAt: AT,
+      decisions: [],
+      events: [
+        { at: AT, by: "you", kind: "requested", terminal: null, text: name },
+        {
+          at: AT,
+          by: "kolu",
+          kind: "joined",
+          terminal: "local/t1",
+          role: "implementor",
+        },
+      ],
+      state: { kind: "open" },
+    },
+  };
 }
 
-/** ... and what kolu knew about its member terminal, out of the same rung. */
-function storedMembers(id: string, name: string): PersistedMembers {
-  return carriedOver(id, name).members as unknown as PersistedMembers;
-}
-
-function carriedOver(id: string, name: string) {
-  return worksFromWatched_1_50_0(
-    [
-      {
-        ref: "local/t1",
+/** ... and what kolu knew about its member terminal, in the one members map. */
+function storedMembers(branch: string, name: string): PersistedMembers {
+  return {
+    "local/t1": {
+      work: workIdOf({
+        kind: "branch",
+        host: "local",
+        repo: "/srv/repo",
+        branch,
+      }),
+      role: "implementor",
+      joinedAt: AT,
+      worktree: null,
+      watch: {
         name,
         agent: null,
         told: null,
         joined: "created",
         spoken: false,
         ran: false,
-        since: "2026-01-01T00:00:00.000Z",
-        root: null,
       },
-    ],
-    () => id,
-  );
+    },
+  };
 }
 
 describe("listServerStateBackups", () => {
@@ -212,7 +235,9 @@ describe("restoreServerStateBackup", () => {
     const { calls, deps } = recordingDeps([]);
     await restoreServerStateBackup({ file }, deps);
     expect(calls.works).toHaveLength(1);
-    expect(calls.works[0]?.map((one) => one.id)).toEqual(["work-from-backup"]);
+    expect(Object.keys(calls.works[0] ?? {})).toEqual(
+      Object.keys(storedWork("work-from-backup", "last week's work")),
+    );
     expect(calls.works[0]).toEqual(
       storedWork("work-from-backup", "last week's work"),
     );

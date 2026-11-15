@@ -56,21 +56,8 @@ export function conductorOpenAsks(): readonly string[] | undefined {
   return useConductorCell()()?.openAsks;
 }
 
-/** The conversation, as a plain read — for the readers that are not holding
- *  the accessor themselves (the chrome-bar entry's badge, the attention arm). */
-export function conductorState(): ConductorState {
-  return useConductorFacts()();
-}
-
-/** Σ open asks — the violet needs-you count the chrome-bar entry wears and the
- *  app badge's conductor contribution. One conversation reaches every host,
- *  so this single number already IS the count across the fleet. */
-export function conductorAsksTotal(): number {
-  return conductorState().openAsks.length;
-}
-
-/** THE TAB'S ONE BADGE, derived once for every place that wears it — the
- *  desktop tab and the phone's Conductor entry.
+/** THE ONE COUNT OF WHAT IS WAITING ON YOU, derived once for every place that
+ *  wears it — the desktop tab, the phone's Conductor entry and the OS badge.
  *
  *  ONE NUMBER, and it is HOW MANY THINGS ARE WAITING ON YOU: every piece of
  *  work whose standing is "waiting on you" (one per work however many
@@ -92,7 +79,13 @@ export const useConductorBadge = createSharedRoot(() => {
   const facts = useConductorFacts();
   const works = useWorks();
   return {
-    /** How many things are waiting on the human. */
-    waiting: createMemo(() => waitingCount(works(), facts().openAsks)),
+    /** How many things are waiting on the human. The RECORDS alone: which id
+     *  a work is filed under is not part of the count. */
+    waiting: createMemo(() =>
+      waitingCount(
+        works().map(([, work]) => work),
+        facts().openAsks,
+      ),
+    ),
   };
 });

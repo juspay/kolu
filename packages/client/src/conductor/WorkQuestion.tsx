@@ -23,10 +23,18 @@
  *  every face, because they are one question.
  */
 
-import type { Decision, Work } from "kolu-work";
+import {
+  type AnsweredFromFace,
+  type Decision,
+  isAnswered,
+  isAsked,
+  type Work,
+  type WorkId,
+} from "kolu-work";
 import { type Component, For, Show, batch, createMemo } from "solid-js";
 import { askDraft, forgetAskDraft, setAskDraft } from "./drafts";
 import { answerWords } from "./workReadings";
+import { workFileName } from "./workFile";
 import { openReader } from "./reader/useReader";
 import { useConductor } from "./useConductor";
 
@@ -40,19 +48,23 @@ const typedKey = (decision: string): string => `${decision}~typed`;
 
 /** WHAT TO CALL THE BUTTON THAT OPENS THE FILE. The plan is the file this
  *  exists for, so it is named rather than described; anything else is read by
- *  its own basename, which is what a person would call it. */
+ *  the name every face of a work says it by ({@link workFileName}). */
 const readWords = (path: string): string => {
-  const name = path.slice(path.lastIndexOf("/") + 1);
+  const name = workFileName(path);
   return name === "plan.md" ? "Read the plan" : `Read ${name}`;
 };
 
 const WorkQuestion: Component<{
   work: Work;
+  /** The id the work is filed under — what answering it names. */
+  id: WorkId;
   /** The ask to draw — one form, however many questions it carries. */
   ask: string;
-  /** WHICH FACE this copy is. The decision records it, which is the only
-   *  thing that tells the four apart afterwards. */
-  from: "card" | "chat" | "reader" | "popout";
+  /** WHICH FACE this copy is. The vocabulary is the record's own
+   *  ({@link AnsweredFromFace}): `request` is not a face a browser may claim,
+   *  and the decision records which of the four it was, which is the only
+   *  thing that tells them apart afterwards. */
+  from: AnsweredFromFace;
   /** What the reader has to send WITH the answer: the comments a person left
    *  on the file. Appended to whatever they typed, and counted on screen so
    *  nothing travels invisibly. */
@@ -63,12 +75,12 @@ const WorkQuestion: Component<{
    *  REQUEST answered is not drawn: nobody is asked what they already said. */
   const questions = createMemo(() =>
     props.work.decisions.filter(
-      (one) => one.ask === props.ask && one.answer?.from !== "request",
+      (one) =>
+        one.ask === props.ask &&
+        !(isAnswered(one) && one.answer.from === "request"),
     ),
   );
-  const open = createMemo(() =>
-    questions().filter((one) => one.answer === null),
-  );
+  const open = createMemo(() => questions().filter((one) => isAsked(one)));
   const settled = () => open().length === 0;
 
   const picked = (decision: string, value: string): boolean =>
@@ -121,7 +133,7 @@ const WorkQuestion: Component<{
   };
 
   const send = (values: Record<string, ReadonlyArray<string>> | null): void => {
-    orch.answerWork(props.work.id, props.ask, values, props.from);
+    orch.answerWork(props.id, props.ask, values, props.from);
     forgetAskDraft(props.ask);
   };
 
@@ -231,7 +243,7 @@ const WorkQuestion: Component<{
                   data-path={decision.file}
                   class="mt-1.5 rounded-md border border-edge-bright px-2.5 py-1 text-fg-2 hover:text-fg cursor-pointer"
                   onClick={() =>
-                    openReader({ work: props.work.id, path: decision.file })
+                    openReader({ work: props.id, path: decision.file })
                   }
                 >
                   {readWords(decision.file)}

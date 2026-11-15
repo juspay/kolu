@@ -5,10 +5,19 @@
  *  The thin bar under those lines is where the time has actually gone.
  *
  *  OPEN, it is the whole of what kolu knows, in the order a person asks for
- *  it: the question waiting on you (the SAME form as in the chat — answering
+ *  it: the questions waiting on you (the SAME form as in the chat — answering
  *  either settles the one question); what you have decided so far; the
  *  timeline of everything observed; the terminals by the part they play; the
- *  files, opened in place; the setup; the pull request.
+ *  files, opened in place; the pull request; and **Stop**, which is one of the
+ *  two ways a piece of work can be ended on purpose.
+ *
+ *  A CARD IS DRAWN FROM THE STATE SUM, and the two faces are built from
+ *  different values ({@link CardFace}). An ENDED work says how it ended, what
+ *  was kept and where the time went, and offers **Reopen** — and it has no
+ *  terminals, no lock and no open question anywhere on it, because the ended
+ *  half of the sum has nowhere to put them and this component has nothing to
+ *  read them from. That is the whole of the rule: it is not enforced here, it
+ *  is unspellable.
  *
  *  NOTHING HERE IS STORED TWICE. The card reads `kolu-work`'s folds over the
  *  record (`standing`, `timeBar`, `took`) and the three live facts a browser
@@ -22,14 +31,13 @@ import { decodeHostKey, isEncodedHostKey } from "kolu-common/hostKey";
 import { DASH } from "kolu-common/surface";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import {
-  type Decision,
+  hostOf,
   lifetime,
-  oneLine,
+  openAsks,
   prOf,
-  setupOf,
   took,
   type Work,
-  type WorkRole,
+  type WorkId,
 } from "kolu-work";
 import { type Component, createMemo, createSignal, For, Show } from "solid-js";
 import { hostLabel } from "../host/hostChipTone";
@@ -39,6 +47,7 @@ import {
 } from "../palette/fleetTerminals";
 import { elapsedSince } from "../time/duration";
 import { agentName } from "../ui/agentDisplay";
+import InlineConfirmButton from "../ui/InlineConfirmButton";
 import { useShownClock } from "../ui/shown";
 import Tip from "../ui/Tip";
 import ConductorLook from "./ConductorLook";
@@ -47,19 +56,23 @@ import { splitMemberRef } from "./memberRef";
 import { fleetMentionCandidates } from "./mentionCandidates";
 import { useConductor } from "./useConductor";
 import { useOpenTile } from "./useOpenTile";
-import { useMembership, useSeen } from "./useWorks";
+import { useMembership, useSeen, useWorkMembers } from "./useWorks";
 import WorkBar from "./WorkBar";
 import WorkFiles from "./WorkFiles";
 import { LEVEL_WORD } from "./wake";
-import { type WorkPlace, workPlaceOf } from "./workFile";
+import { workFileSource } from "./workFile";
 import {
   answerSource,
+  answeredWhen,
   answerWords,
   checksBreakdown,
   checksTally,
   decisionRows,
   EVENT_INK,
-  eventWords,
+  eventReader,
+  membersIn,
+  oneLine,
+  outcomeWords,
   ROLE_WORD,
   standingLine,
   timeSpentWords,
@@ -72,6 +85,12 @@ import {
 const MEMBER_CONTROL =
   "shrink-0 cursor-pointer rounded-sm px-1.5 py-[0.1rem] font-mono text-[0.56rem] font-semibold uppercase tracking-[0.06em] transition-colors";
 
+/** What **Stop** warns about before it acts — the whole of what a person
+ *  gives up, and what they do not: the record stays, and Reopen is right
+ *  there on the card afterwards. */
+const STOP_COPY =
+  "The work is marked stopped and its terminals are released. Nothing is deleted — its decisions and its timeline stay, and you can open it again.";
+
 /** The hour and minute an event or a decision carries, as the timeline draws
  *  it — the one clock format the card speaks. */
 const clockOf = (at: string): string =>
@@ -80,13 +99,6 @@ const clockOf = (at: string): string =>
     minute: "2-digit",
     hourCycle: "h23",
   });
-
-/** WHEN A DECISION SETTLED, for the detail behind a row's press — the
- *  answer's own time, or when it was put for one still open. */
-const answeredWhen = (decision: Decision): string =>
-  decision.answer === null
-    ? `asked ${clockOf(decision.at)}`
-    : `answered ${clockOf(decision.answer.at)}`;
 
 /** WHICH CARDS ARE OPEN — module state, keyed by the work's id.
  *
@@ -106,7 +118,19 @@ function toggleCard(id: string): void {
   });
 }
 
+/** THE TWO FACES, each built from the arm of the state sum it belongs to —
+ *  {@link live} for a work in progress (its members, its open questions) and
+ *  {@link ended} for one that is over (how, when, what was kept).
+ *
+ *  A value a face must not show is simply not in the other arm: an ended
+ *  work's face has no members and no asks, so the terminals section, the lock
+ *  and the question cannot be reached from it at all. */
+
 const WorkCard: Component<{
+  /** The id the work is filed under — its key, canonical. The record carries
+   *  no id of its own, so every act about this work (answering it, stopping
+   *  it, opening a file of it) names this. */
+  id: WorkId;
   work: Work;
 }> = (props) => {
   // The column's clock, stopped while nobody is looking at the pane: every
@@ -115,6 +139,7 @@ const WorkCard: Component<{
   const seen = useSeen();
   const openTileAt = useOpenTile();
   const membership = useMembership();
+  const allMembers = useWorkMembers();
   const conductor = useConductor();
 
   /** WHICH ROWS INSIDE THIS CARD ARE OPEN — a decision's full question, or
@@ -130,29 +155,42 @@ const WorkCard: Component<{
       return next;
     });
   };
-  const isOpen = () => openCards().has(props.work.id);
+  const isOpen = () => openCards().has(props.id);
+
+  /** HOW IT ENDED, or `undefined` while it is in flight. The state's own arm,
+   *  narrowed — not a copy of it. */
+  const ended = createMemo(() => {
+    const state = props.work.state;
+    return state.kind === "ended" ? state : undefined;
+  });
+
+  /** WHAT IS RUNNING AND WHAT IS BEING ASKED, or `undefined` for a work that
+   *  is over. EVERY open ask: a Conductor that asks about a failing check
+   *  while a plan approval is still open has put two things to the human, and
+   *  a face that draws one of them makes the second answerable nowhere. */
+  const live = createMemo(() =>
+    props.work.state.kind === "open"
+      ? {
+          members: membersIn(allMembers(), props.id),
+          asks: openAsks(props.work),
+        }
+      : undefined,
+  );
 
   /** The members, in the order a waterfall runs them, each with its live
    *  standing read ONCE. Three readers want that standing — the agent's name,
    *  the clock, whether there is anywhere to go — and reading it per reader is
    *  how one terminal came to be looked up three times a frame. */
-  const members = createMemo(() => {
-    const order: Record<WorkRole, number> = {
-      planner: 0,
-      implementor: 1,
-      other: 2,
-    };
-    return [...props.work.members]
-      .sort((a, b) => order[a.role] - order[b.role])
-      .map((member) => {
-        const split = splitMemberRef(member.terminal);
-        const standing =
-          split === null
-            ? undefined
-            : fleetTerminalStanding(split.host, split.id);
-        return { member, split, standing };
-      });
-  });
+  const members = createMemo(() =>
+    (live()?.members ?? []).map((row) => {
+      const split = splitMemberRef(row.terminal);
+      const standing =
+        split === null
+          ? undefined
+          : fleetTerminalStanding(split.host, split.id);
+      return { ...row, split, standing };
+    }),
+  );
 
   /** WHAT EACH MEMBER IS CALLED — the name the `@` menu would offer for that
    *  terminal, so the words a person reads here are the words they would type
@@ -187,11 +225,12 @@ const WorkCard: Component<{
   });
   const checks = createMemo(() => checksTally(livePr()));
 
-  /** WHERE THE LIVE FILES ARE — the one derivation, shared with the reader a
-   *  file row opens (`workFile.ts`): the card's list and the document it
-   *  opens must be reading the same worktree, and two spellings of "the
-   *  first member with one" is how they come to disagree. */
-  const place = createMemo((): WorkPlace | null => workPlaceOf(props.work));
+  /** WHERE THE FILES COME FROM — the one derivation, shared with the reader a
+   *  file row opens (`workFile.ts`): the live worktree while a member reports
+   *  one, kolu's kept copy otherwise. The card never asks which it got. */
+  const source = createMemo(() =>
+    workFileSource(props.id, props.work, members()),
+  );
 
   const at = createMemo(() => standingLine(props.work, checks()));
   /** How long the current wait has run — or, once the work has ended, how
@@ -209,29 +248,24 @@ const WorkCard: Component<{
     const who = at().who;
     return who === "done" ? "text-fg-2" : WAITER_INK[who].text;
   };
-  /** The host, as a person says it. The setup decision holds whatever the
-   *  human answered: an encoded host key when they picked one of kolu's
-   *  (`remote:ssh://box`), and their own words when they typed instead —
-   *  which is already what a person would say. */
+  /** The host, as a person says it — read off the work's KEY, which is where
+   *  the machine a work runs on lives now: it identifies the work, so it was
+   *  never a question that could go unanswered. */
   const host = createMemo(() => {
-    const given = setupOf(props.work).host;
-    if (given === null) return null;
+    const given = hostOf(props.work);
+    if (given === "") return null;
     return isEncodedHostKey(given) ? hostLabel(decodeHostKey(given)) : given;
   });
 
   /** EVERY DECISION AS ONE ROW — the setup under its keys' names first, then
-   *  the rest. The host reads by the name its tab carries, which is why the
-   *  rows are built here rather than off the record alone. */
-  const decided = createMemo(() => decisionRows(props.work, host()));
+   *  the rest. */
+  const decided = createMemo(() => decisionRows(props.work));
 
-  /** THE OPEN QUESTION — the ask of this work's oldest decision that nobody
-   *  has answered. Read off the RECORD and nothing else: a question is a
-   *  decision with no answer yet, so the card can offer it after a restart,
-   *  after "New session", and while the conversation is down. */
-  const question = createMemo(
-    (): string | undefined =>
-      props.work.decisions.find((one) => one.answer === null)?.ask,
-  );
+  /** THE TIMELINE'S WORDS, built once per move of the record rather than per
+   *  row: the two facts a row needs about the WHOLE timeline (which commits
+   *  its check events name, which decision an ask points at) are computed
+   *  once by the reader this returns. */
+  const words = createMemo(() => eventReader(props.work));
 
   const steps = createMemo(() =>
     took(props.work, new Date(now()).toISOString()),
@@ -240,10 +274,15 @@ const WorkCard: Component<{
   return (
     <article
       data-testid="work-card"
-      data-work={props.work.id}
+      data-work={props.id}
       data-who={at().who}
       data-open={isOpen() ? "" : undefined}
-      data-outcome={props.work.outcome ?? undefined}
+      data-state={props.work.state.kind}
+      data-outcome={
+        props.work.state.kind === "ended"
+          ? props.work.state.outcome.kind
+          : undefined
+      }
       // The needs-you edge is the one piece of colour a shut card carries: a
       // column of five works must say which one is on you without being read.
       class={`min-w-0 overflow-hidden rounded-xl border bg-surface-0 ${
@@ -255,7 +294,7 @@ const WorkCard: Component<{
         data-testid="work-card-head"
         aria-expanded={isOpen()}
         class="block w-full cursor-pointer px-2.5 py-2 text-start"
-        onClick={() => toggleCard(props.work.id)}
+        onClick={() => toggleCard(props.id)}
       >
         <div class="flex min-w-0 items-baseline gap-2">
           <span class="min-w-0 flex-1 truncate text-[0.78rem] font-semibold text-fg">
@@ -293,164 +332,222 @@ const WorkCard: Component<{
             of one line each so the whole of an ordinary work fits a laptop
             screen without scrolling. */}
         <div class="border-t border-edge px-2.5 py-2">
-          {/* THE QUESTION, FIRST — a person who opened this card while it was
-              violet opened it to answer something. */}
-          <Show when={question()}>
-            {(ask) => (
-              <div class="mb-2.5">
-                <WorkQuestion work={props.work} ask={ask()} from="card" />
-              </div>
+          <Show when={live()}>
+            {(asking) => (
+              <>
+                {/* THE QUESTIONS, FIRST — a person who opened this card while
+                    it was violet opened it to answer something. EVERY open
+                    ask, not the oldest: a Conductor that asks about a failing
+                    check while a plan approval is still open has put two
+                    things to the human, and a face that draws one of them
+                    makes the second answerable nowhere. */}
+                <For each={asking().asks}>
+                  {(ask) => (
+                    <div class="mb-2.5">
+                      <WorkQuestion
+                        work={props.work}
+                        id={props.id}
+                        ask={ask}
+                        from="card"
+                      />
+                    </div>
+                  )}
+                </For>
+
+                <Show
+                  when={members().length > 0}
+                  fallback={
+                    // AN OPEN WORK WITH NOTHING RUNNING IN IT. Losing a
+                    // terminal never ends a work, so this is an ordinary
+                    // state and says so plainly — the Conductor is woken once
+                    // with exactly this, and can join terminals back to it.
+                    <p
+                      data-testid="work-no-terminals"
+                      class="m-0 mb-2.5 font-mono text-[0.62rem] text-fg-3"
+                    >
+                      No terminals — nothing is running in this work.
+                    </p>
+                  }
+                >
+                  <section data-testid="work-terminals" class="mb-2.5">
+                    <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
+                      Terminals
+                    </h4>
+                    <ul class="m-0 mt-1 flex list-none flex-col gap-1.5 p-0">
+                      <For each={members()}>
+                        {(one) => {
+                          const meta = () =>
+                            one.standing?.kind === "here"
+                              ? one.standing.meta
+                              : undefined;
+                          const agent = () => {
+                            const here = meta();
+                            const kind =
+                              here === undefined
+                                ? undefined
+                                : activeArm(here)?.agent?.kind;
+                            return kind === undefined ? null : agentName(kind);
+                          };
+                          const reading = () => seen().get(one.terminal);
+                          /** WHO IS DRIVING THIS MEMBER, from the one
+                           *  membership index the tile's own frame reads —
+                           *  `null` for a terminal nothing drives, which has
+                           *  no control here. */
+                          const driver = () =>
+                            membership().get(one.terminal)?.driver ?? null;
+                          return (
+                            <li
+                              data-testid="work-member"
+                              data-role={one.member.role}
+                              data-ref={one.terminal}
+                              class="min-w-0 text-[0.7rem]"
+                            >
+                              <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+                                <span class="shrink-0 rounded-sm bg-conductor/15 px-1 font-mono text-[0.56rem] font-semibold uppercase tracking-[0.08em] text-conductor">
+                                  {ROLE_WORD[one.member.role]}
+                                </span>
+                                {/* THE NAME IS THE WAY THERE — the same words
+                                    the `@` menu would offer for that terminal,
+                                    and the same navigation a `create` card's
+                                    "open tile" takes. A member this browser
+                                    cannot reach (its host is away) keeps its
+                                    name and loses the press: offering a tile
+                                    that may not exist is worse than offering
+                                    it a moment later. */}
+                                <Show
+                                  when={
+                                    one.standing?.kind === "here"
+                                      ? one.split
+                                      : null
+                                  }
+                                  fallback={
+                                    <span
+                                      data-testid="work-member-name"
+                                      class="min-w-0 max-w-full truncate font-semibold text-fg-3"
+                                    >
+                                      {name(one.terminal)}
+                                    </span>
+                                  }
+                                >
+                                  {(target) => (
+                                    <button
+                                      type="button"
+                                      data-testid="work-member-name"
+                                      data-opens-tile="true"
+                                      aria-label={`Go to ${name(one.terminal)}`}
+                                      class="min-w-0 max-w-full cursor-pointer truncate rounded-sm font-semibold text-fg underline-offset-2 hover:text-accent hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
+                                      onClick={() => openTileAt(target())}
+                                    >
+                                      {name(one.terminal)}
+                                    </button>
+                                  )}
+                                </Show>
+                                <Show when={agent()}>
+                                  {(which) => (
+                                    <span class="shrink-0 font-mono text-[0.6rem] text-fg-2">
+                                      {which()}
+                                    </span>
+                                  )}
+                                </Show>
+                                {/* THE KEYS, WITHOUT TYPING FIRST. The same
+                                    two calls the terminal's own control makes
+                                    — so a person who wants the keyboard of a
+                                    driven terminal can take it from the
+                                    card. */}
+                                <Show when={driver()}>
+                                  {(who) => (
+                                    <Show
+                                      when={who() === "conductor"}
+                                      fallback={
+                                        <button
+                                          type="button"
+                                          data-testid="work-member-hand-back"
+                                          class={`${MEMBER_CONTROL} bg-alert/20 text-alert hover:bg-alert/30`}
+                                          onClick={() =>
+                                            conductor.handBack(one.terminal)
+                                          }
+                                        >
+                                          Hand back
+                                        </button>
+                                      }
+                                    >
+                                      <button
+                                        type="button"
+                                        data-testid="work-member-take-over"
+                                        class={`${MEMBER_CONTROL} bg-conductor/20 text-conductor hover:bg-conductor/30`}
+                                        onClick={() =>
+                                          conductor.takeOver(one.terminal)
+                                        }
+                                      >
+                                        Take over
+                                      </button>
+                                    </Show>
+                                  )}
+                                </Show>
+                              </div>
+                              <Show when={one.split}>
+                                {(split) => (
+                                  <div class="mt-0.5">
+                                    <ConductorLook
+                                      rowId={`work:${one.terminal}`}
+                                      host={split().host}
+                                      id={split().id}
+                                      toggleTestId="work-member-look"
+                                      clock={
+                                        <Show when={reading()}>
+                                          {(read) => (
+                                            <span
+                                              data-testid="work-member-since"
+                                              class="shrink-0 font-mono text-[0.6rem] tabular-nums text-fg-3"
+                                            >
+                                              {LEVEL_WORD[read().level]}{" "}
+                                              {elapsedSince(
+                                                read().since,
+                                                now(),
+                                              )}
+                                            </span>
+                                          )}
+                                        </Show>
+                                      }
+                                    />
+                                  </div>
+                                )}
+                              </Show>
+                            </li>
+                          );
+                        }}
+                      </For>
+                    </ul>
+                  </section>
+                </Show>
+              </>
             )}
           </Show>
 
-          <Show when={members().length > 0}>
-            <section data-testid="work-terminals" class="mb-2.5">
-              <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
-                Terminals
-              </h4>
-              <ul class="m-0 mt-1 flex list-none flex-col gap-1.5 p-0">
-                <For each={members()}>
-                  {(one) => {
-                    const meta = () =>
-                      one.standing?.kind === "here"
-                        ? one.standing.meta
-                        : undefined;
-                    const agent = () => {
-                      const here = meta();
-                      const kind =
-                        here === undefined
-                          ? undefined
-                          : activeArm(here)?.agent?.kind;
-                      return kind === undefined ? null : agentName(kind);
-                    };
-                    const reading = () => seen().get(one.member.terminal);
-                    /** WHO IS DRIVING THIS MEMBER, from the one membership
-                     *  index the tile's own frame reads — `null` for a
-                     *  terminal nothing drives, which has no control here. */
-                    const driver = () =>
-                      membership().get(one.member.terminal)?.driver ?? null;
-                    return (
-                      <li
-                        data-testid="work-member"
-                        data-role={one.member.role}
-                        data-ref={one.member.terminal}
-                        data-left={one.member.leftAt === null ? undefined : ""}
-                        class="min-w-0 text-[0.7rem]"
-                      >
-                        <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-                          <span class="shrink-0 rounded-sm bg-conductor/15 px-1 font-mono text-[0.56rem] font-semibold uppercase tracking-[0.08em] text-conductor">
-                            {ROLE_WORD[one.member.role]}
-                          </span>
-                          {/* THE NAME IS THE WAY THERE — the same words the
-                              `@` menu would offer for that terminal, and the
-                              same navigation a `create` card's "open tile"
-                              takes. A member this browser cannot reach (its
-                              host is away, or it has left the work) keeps its
-                              name and loses the press: offering a tile that
-                              may not exist is worse than offering it a moment
-                              later. */}
-                          <Show
-                            when={
-                              one.standing?.kind === "here" ? one.split : null
-                            }
-                            fallback={
-                              <span
-                                data-testid="work-member-name"
-                                class="min-w-0 max-w-full truncate font-semibold text-fg-3"
-                              >
-                                {name(one.member.terminal)}
-                              </span>
-                            }
-                          >
-                            {(target) => (
-                              <button
-                                type="button"
-                                data-testid="work-member-name"
-                                data-opens-tile="true"
-                                aria-label={`Go to ${name(one.member.terminal)}`}
-                                class="min-w-0 max-w-full cursor-pointer truncate rounded-sm font-semibold text-fg underline-offset-2 hover:text-accent hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent"
-                                onClick={() => openTileAt(target())}
-                              >
-                                {name(one.member.terminal)}
-                              </button>
-                            )}
-                          </Show>
-                          <Show when={agent()}>
-                            {(which) => (
-                              <span class="shrink-0 font-mono text-[0.6rem] text-fg-2">
-                                {which()}
-                              </span>
-                            )}
-                          </Show>
-                          {/* THE KEYS, WITHOUT TYPING FIRST. The same two
-                              calls the terminal's own control makes — so a
-                              person who wants the keyboard of a driven
-                              terminal can take it from the card. */}
-                          <Show when={driver()}>
-                            {(who) => (
-                              <Show
-                                when={who() === "conductor"}
-                                fallback={
-                                  <button
-                                    type="button"
-                                    data-testid="work-member-hand-back"
-                                    class={`${MEMBER_CONTROL} bg-alert/20 text-alert hover:bg-alert/30`}
-                                    onClick={() =>
-                                      conductor.handBack(one.member.terminal)
-                                    }
-                                  >
-                                    Hand back
-                                  </button>
-                                }
-                              >
-                                <button
-                                  type="button"
-                                  data-testid="work-member-take-over"
-                                  class={`${MEMBER_CONTROL} bg-conductor/20 text-conductor hover:bg-conductor/30`}
-                                  onClick={() =>
-                                    conductor.takeOver(one.member.terminal)
-                                  }
-                                >
-                                  Take over
-                                </button>
-                              </Show>
-                            )}
-                          </Show>
-                        </div>
-                        <Show when={one.split}>
-                          {(split) => (
-                            <div class="mt-0.5">
-                              <ConductorLook
-                                rowId={`work:${one.member.terminal}`}
-                                host={split().host}
-                                id={split().id}
-                                toggleTestId="work-member-look"
-                                clock={
-                                  <Show when={reading()}>
-                                    {(read) => (
-                                      <span
-                                        data-testid="work-member-since"
-                                        class="shrink-0 font-mono text-[0.6rem] tabular-nums text-fg-3"
-                                      >
-                                        {LEVEL_WORD[read().level]}{" "}
-                                        {elapsedSince(read().since, now())}
-                                      </span>
-                                    )}
-                                  </Show>
-                                }
-                              />
-                            </div>
-                          )}
-                        </Show>
-                      </li>
-                    );
-                  }}
-                </For>
-              </ul>
-            </section>
+          {/* HOW IT ENDED, on the card of a work that is over: the outcome in
+              the words there are only three of. */}
+          <Show when={ended()}>
+            {(done) => (
+              <section data-testid="work-outcome" class="mb-2.5">
+                <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
+                  Outcome
+                </h4>
+                <p class="m-0 mt-1 text-[0.7rem] text-fg">
+                  {outcomeWords(done().outcome)}
+                  <span class="font-mono text-[0.62rem] text-fg-3">
+                    {" · "}
+                    {clockOf(done().at)}
+                  </span>
+                </p>
+              </section>
+            )}
           </Show>
 
-          <WorkFiles work={props.work} place={place()} />
+          <WorkFiles
+            id={props.id}
+            source={source()}
+            kept={ended() !== undefined}
+          />
 
           <Show when={prOf(props.work)}>
             {(pr) => (
@@ -485,7 +582,9 @@ const WorkCard: Component<{
           {/* THE DECISIONS — the setup's answers first, under their keys'
               own names, then every other question. One line each: the full
               question, when it was answered and where from are behind the
-              press, never on the card's face. */}
+              press, never on the card's face. They outlive the end: a work
+              that was stopped and opened again still says what was decided
+              about it. */}
           <Show when={decided().length > 0}>
             <section data-testid="work-decisions" class="mt-2.5">
               <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
@@ -529,7 +628,7 @@ const WorkCard: Component<{
                                 {decision.question}
                                 <span class="font-mono text-[0.6rem] text-fg-3">
                                   {" · "}
-                                  {answeredWhen(decision)}
+                                  {answeredWhen(decision, clockOf)}
                                   <Show when={answerSource(decision)}>
                                     {(from) => <> · {from()}</>}
                                   </Show>
@@ -553,7 +652,7 @@ const WorkCard: Component<{
             <ul class="m-0 mt-1 flex list-none flex-col gap-0.5 p-0">
               <For each={props.work.events}>
                 {(event, index) => {
-                  const whole = () => eventWords(props.work, event);
+                  const whole = () => words()(event);
                   const cut = () => oneLine(whole());
                   const key = `e:${index()}`;
                   return (
@@ -613,7 +712,7 @@ const WorkCard: Component<{
 
           {/* WHERE THE TIME WENT, for a work that is over: the bar above says
               it in colour, this says it in figures. */}
-          <Show when={props.work.endedAt !== null}>
+          <Show when={ended() !== undefined}>
             <section class="mt-2.5">
               <h4 class="m-0 font-mono text-[0.58rem] uppercase tracking-[0.1em] text-fg-3">
                 Where the time went
@@ -626,6 +725,36 @@ const WorkCard: Component<{
               </p>
             </section>
           </Show>
+
+          {/* THE ONE CONTROL AT THE FOOT, and which one it is IS the state.
+              Stopping is one of the only two ways a work ends on purpose (the
+              Conductor's `work_stop` is the other); reopening is how an ended
+              one comes back with everything it decided still on it. */}
+          <div class="mt-3 border-t border-edge pt-2">
+            <Show
+              when={live() !== undefined}
+              fallback={
+                <button
+                  type="button"
+                  data-testid="work-reopen"
+                  class="w-full cursor-pointer rounded-md border border-edge-bright px-2 py-1 text-[0.7rem] font-semibold text-fg-2 hover:text-fg"
+                  onClick={() => conductor.reopenWork(props.id)}
+                >
+                  Reopen
+                </button>
+              }
+            >
+              <InlineConfirmButton
+                label="Stop"
+                inFlightLabel="Stop"
+                confirmCopy={STOP_COPY}
+                tone="danger"
+                inFlight={false}
+                testid="work-stop"
+                onConfirm={() => conductor.stopWork(props.id)}
+              />
+            </Show>
+          </div>
         </div>
       </Show>
     </article>

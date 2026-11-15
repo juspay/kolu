@@ -20,7 +20,7 @@ import {
 } from "@kolu/padi-client/vocab";
 import { type AgentPresence, agentPresence } from "kolu-agents/vocab";
 import { describe, expect, it } from "vitest";
-import { type HostReading, readingsOf, recordName } from "./readings.ts";
+import { type HostView, readingsOf, recordName } from "./readings.ts";
 
 const HOST = "local";
 const PLANNER = "11111111-1111-4111-8111-111111111111";
@@ -96,20 +96,22 @@ const QUIET: PadiUrgency = {
   lingerIds: [],
 };
 
-/** One host's last word, as a leg accumulates it: the watched ids, padi's
+/** One READY host's last word, as a leg accumulates it: the watched ids, padi's
  *  fold, the roster (every watched id, unless the case says otherwise) and the
- *  records read on the leg. */
+ *  records read on the leg. Ready because padi said its roster is a census —
+ *  the arm the two cases below prove is the only one a level comes from. */
 const reading = (over: {
   watched: readonly string[];
   urgency?: Partial<PadiUrgency>;
   roster?: readonly string[];
   records?: Record<string, Over>;
-}): HostReading => ({
+}): HostView => ({
+  kind: "ready",
   host: HOST,
   hostName: "this machine",
   watched: over.watched,
   urgency: { ...QUIET, ...over.urgency },
-  keys: new Set(over.roster ?? over.watched),
+  roster: new Set(over.roster ?? over.watched),
   records: records(over.records ?? {}),
 });
 
@@ -134,6 +136,32 @@ describe("what a host's frames say about each watched terminal", () => {
     expect(seen.map((one) => one.level)).toEqual(["gone"]);
     expect(seen[0]?.ref).toBe(`${HOST}/${SPLIT}`);
     expect(seen[0]?.hostName).toBe("this machine");
+  });
+
+  it("says NOTHING about a host whose roster has not been established", () => {
+    // #2376, as a type rather than a rule: a padi that has not finished
+    // adopting has no roster on its arm, so there is no empty list to read an
+    // absence off. Every member of every work on that host used to be recorded
+    // `gone` on the one information-free frame a fresh padi serves.
+    expect(
+      readingsOf({
+        kind: "settling",
+        host: HOST,
+        hostName: "this machine",
+        watched: [SPLIT, PLANNER],
+      }),
+    ).toEqual([]);
+  });
+
+  it("says NOTHING about a host that is not answering", () => {
+    expect(
+      readingsOf({
+        kind: "unreachable",
+        host: HOST,
+        hostName: "this machine",
+        watched: [SPLIT, PLANNER],
+      }),
+    ).toEqual([]);
   });
 
   it("is ASLEEP for a terminal padi still lists with its PTY released", () => {

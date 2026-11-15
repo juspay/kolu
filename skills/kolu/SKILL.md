@@ -236,9 +236,13 @@ watch_close { name: "campaign" }                                 // when the cam
 - Restarting the CLI in place: send its quit command (`/exit`) with `agent_say`
   (or the three-step submit if nothing is detected in there), confirm the shell
   prompt, relaunch.
-- **Terminal ids are not stable across a kaval restart** — a cached id can go
-  stale mid-run. Re-find the terminal via the `terminals` resource by its
-  stable `intent` label (set it at create for exactly this).
+- **A terminal id is stable — what changes is its state.** A kaval restart kills
+  the shells, not the ids: the terminal stays in the `terminals` resource and
+  comes back under the SAME id (parked while kaval is down, live again after the
+  restore). A padi or kolu-server restart keeps the shells too. So a cached id
+  does not go stale on a restart — but it can name a terminal that is parked
+  rather than running, so READ THE STATE before you drive it, and set `intent`
+  at create anyway: it is how a human (and you, later) tells the terminals apart.
 
 ## Fallback — the `kolu` CLI
 

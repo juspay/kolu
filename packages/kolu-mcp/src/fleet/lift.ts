@@ -69,6 +69,7 @@ import {
   workCheckFailure,
   workLeaveTool,
   workNoteTool,
+  workStopTool,
   workOpenTool,
 } from "./works.ts";
 
@@ -514,7 +515,7 @@ function lifted(
   };
 }
 
-/** The five fleet-ONLY tool names — the ones that are not a lift of anything
+/** The six fleet-ONLY tool names — the ones that are not a lift of anything
  *  the stdio face serves, because the pieces of work they move are kolu's
  *  record and exist nowhere else. Named beside the lift table so
  *  {@link KOLU_FLEET_TOOL_NAMES} can be read without building a face. */
@@ -524,6 +525,7 @@ const FLEET_ONLY_TOOLS = [
   "work_adopt",
   "work_leave",
   "work_note",
+  "work_stop",
 ] as const;
 
 /** EVERY bespoke tool name the fleet face serves, as a static value.
@@ -565,5 +567,6 @@ export function koluFleetTools(
   table.work_adopt = workAdoptTool(hosts, works);
   table.work_leave = workLeaveTool(works);
   table.work_note = workNoteTool(works);
+  table.work_stop = workStopTool(works);
   return table;
 }

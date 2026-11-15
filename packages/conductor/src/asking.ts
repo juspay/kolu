@@ -28,12 +28,12 @@ import {
   answerAsk,
   type AnswerFrom,
   askQuestions,
-  dropAsk,
   hasOpenAsk,
-  openAsks,
   type Question,
   type Work,
+  type WorkId,
 } from "kolu-work";
+import { askNews, askOutcome, stillOpen } from "./askNews.ts";
 import type { AnsweredNews } from "./wakeText.ts";
 import type { WorkStore } from "./workStore.ts";
 
@@ -72,69 +72,6 @@ export const askFields = (
     };
   });
 
-/** THE DECISIONS THIS ANSWER SETTLED — the ones that were still open when it
- *  arrived, in the order they were asked. Read BEFORE the record moves,
- *  because afterwards nothing distinguishes them from the answers the request
- *  itself gave in the same ask (a `work_open` whose setup was half `given`
- *  carries both under one id). */
-const stillOpen = (work: Work, ask: string): ReadonlyArray<string> =>
-  work.decisions
-    .filter((one) => one.ask === ask && one.answer === null)
-    .map((one) => one.id);
-
-/** What a settled ask's row says happened. `dropped` is the row's
- *  `withdrawn`: the question went away with nobody answering it, which is the
- *  one ending the transcript already spells. */
-const outcomeOf = (
-  work: Work,
-  settled: ReadonlyArray<string>,
-  how: "answered" | "declined" | "dropped",
-): { how: "answered" | "declined" | "withdrawn"; answers: AskAnswer[] } => ({
-  how: how === "dropped" ? "withdrawn" : how,
-  answers: work.decisions
-    .filter((one) => settled.includes(one.id))
-    .map((one) => {
-      const answer = one.answer;
-      return {
-        key: one.id,
-        // What was picked, plus what was typed — the values the question was
-        // answered with, under the question's own key.
-        values:
-          answer === null || answer.text === null
-            ? (answer?.picked ?? [])
-            : [...answer.picked, answer.text],
-      };
-    }),
-});
-
-/** The news one settled ask makes, for the wake that carries it. Built off
- *  the record after it moved, so what the Conductor is told is what the card
- *  shows — and off the questions THIS answer settled, so a setup the request
- *  half-answered does not read back its own `given` values as news. */
-const newsOf = (
-  work: Work,
-  ask: string,
-  settled: ReadonlyArray<string>,
-  how: "answered" | "declined" | "dropped",
-  from: AnswerFrom | null,
-  at: string,
-): AnsweredNews => ({
-  work: work.id,
-  title: work.title,
-  ask,
-  from,
-  how,
-  at,
-  answers: work.decisions
-    .filter((one) => settled.includes(one.id))
-    .map((one) => ({
-      question: one.header === "" ? one.question : one.header,
-      picked: one.answer?.picked ?? [],
-      text: one.answer?.text ?? null,
-      file: one.file,
-    })),
-});
-
 export interface Asking {
   /** Put kolu's own questions to the human as ONE ask the work knows about —
    *  and ANSWER AT ONCE. `asked` is false when the request had already given
@@ -145,21 +82,21 @@ export interface Asking {
     questions: ReadonlyArray<Question>,
   ) => { readonly ask: string; readonly asked: boolean };
   /** The human's answer to one ask, from wherever they gave it — `null`
-   *  values DECLINE the whole ask. Answers the news for the wake, or `null`
-   *  when that ask had nothing open (somebody else got there first). */
+   *  values DECLINE the whole ask. Answers HOW the ask was settled, or
+   *  `null` when it had nothing open (somebody else got there first). What
+   *  the Conductor is told about it goes to {@link AskingDeps.news}: holding
+   *  news and flushing it is one rule in one place, not a thing each caller
+   *  remembers.  */
   readonly answer: (answered: {
+    readonly id: WorkId;
     readonly work: Work;
     readonly ask: string;
     readonly from: AnswerFrom;
     readonly values: ReadonlyMap<string, ReadonlyArray<string>> | null;
-  }) => AnsweredNews | null;
-  /** EVERY QUESTION A WORK STILL HAS OPEN, DROPPED — the work ended under
-   *  them, so nobody will ever answer them. The news is the Conductor's: it
-   *  asked, and it is owed the ending whichever ending it was. */
-  readonly drop: (work: Work) => ReadonlyArray<AnsweredNews>;
+  }) => "answered" | "declined" | null;
 }
 
-export const asking = (deps: {
+export interface AskingDeps {
   readonly store: WorkStore;
   /** KOLU'S QUESTION, SAID in the conversation — one row, minted under the
    *  ask's own id. */
@@ -177,7 +114,12 @@ export const asking = (deps: {
       answers: AskAnswer[];
     },
   ) => void;
-}): Asking => {
+  /** The human's answer as NEWS — held and flushed by the one module that
+   *  owns waking the Conductor. */
+  readonly news: (news: AnsweredNews) => void;
+}
+
+export const asking = (deps: AskingDeps): Asking => {
   const nowIso = (): string => new Date().toISOString();
 
   return {
@@ -194,7 +136,7 @@ export const asking = (deps: {
       // WRITTEN BEFORE ANYTHING CAN ANSWER IT. A person pressing the card the
       // moment it appears must not land an answer on a work that does not
       // know it was asked.
-      deps.store.save(askQuestions(work, { ask, at, questions }));
+      deps.store.save(id, askQuestions(work, { ask, at, questions }));
       deps.store.changed();
       if (asked) {
         deps.said(
@@ -207,37 +149,17 @@ export const asking = (deps: {
       return { ask, asked };
     },
 
-    answer: ({ work, ask, from, values }) => {
+    answer: ({ id, work, ask, from, values }) => {
       if (!hasOpenAsk(work, ask)) return null;
       const at = nowIso();
       const settled = stillOpen(work, ask);
       const how = values === null ? "declined" : "answered";
       const answered = answerAsk(work, { ask, at, from, values });
-      deps.store.save(answered);
+      deps.store.save(id, answered);
       deps.store.changed();
-      deps.settled(ask, outcomeOf(answered, settled, how));
-      return newsOf(answered, ask, settled, how, from, at);
-    },
-
-    drop: (work) => {
-      const open = openAsks(work);
-      if (open.length === 0) return [];
-      const at = nowIso();
-      const settled = new Map(
-        open.map((ask) => [ask, stillOpen(work, ask)] as const),
-      );
-      const dropped = open.reduce((one, ask) => dropAsk(one, ask, at), work);
-      deps.store.save(dropped);
-      deps.store.changed();
-      for (const ask of open) {
-        deps.settled(
-          ask,
-          outcomeOf(dropped, settled.get(ask) ?? [], "dropped"),
-        );
-      }
-      return open.map((ask) =>
-        newsOf(dropped, ask, settled.get(ask) ?? [], "dropped", null, at),
-      );
+      deps.settled(ask, askOutcome(answered, settled, how));
+      deps.news(askNews(id, answered, ask, settled, how, from, at));
+      return how;
     },
   };
 };

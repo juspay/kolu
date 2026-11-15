@@ -22,6 +22,7 @@
  *  store), so the two are the same reader in two windows, not a copy. */
 
 import { type Accessor, batch, createSignal } from "solid-js";
+import { hashSegments } from "../../hashPath";
 import { toast } from "solid-sonner";
 
 /** The file the reader is on: a piece of work, and one worktree-relative path
@@ -75,26 +76,20 @@ export function readerHash(of: ReaderTarget): string {
 }
 
 /** Read a window's hash as a reader target, or `null` for every other hash —
- *  which is what tells `index.tsx` that this document is the workspace. Total:
- *  a malformed escape or a missing segment is `null`, never a half-target. */
+ *  which is what tells `index.tsx` that this document is the workspace.
+ *
+ *  The MECHANICS are the shared leaf's (`hashPath.ts`), which every kolu
+ *  address is read through; the GRAMMAR is this module's, and stays separate
+ *  from the deep links' on purpose — those are commands onto the one
+ *  workspace view, and a reader window has no workspace to command. Total: a
+ *  malformed escape or a missing segment is `null`, never a half-target. */
 export function parseReaderHash(hash: string): ReaderTarget | null {
-  const raw = hash.startsWith("#") ? hash.slice(1) : hash;
-  const query = raw.indexOf("?");
-  const path = query === -1 ? raw : raw.slice(0, query);
-  const segments = path.split("/");
-  if (segments[0] === "") segments.shift();
-  const [family, work, file] = segments;
-  if (segments.length !== 3 || family !== "reader") return null;
-  if (work === undefined || file === undefined) return null;
-  try {
-    const decoded = {
-      work: decodeURIComponent(work),
-      path: decodeURIComponent(file),
-    };
-    return decoded.work === "" || decoded.path === "" ? null : decoded;
-  } catch {
+  const read = hashSegments(hash);
+  if (read.kind !== "path" || read.segments.length !== 3) return null;
+  const [family, work, path] = read.segments;
+  if (family !== "reader" || work === undefined || path === undefined)
     return null;
-  }
+  return work === "" || path === "" ? null : { work, path };
 }
 
 /** The pixels a popped-out reader opens at: the reading column and its gutters

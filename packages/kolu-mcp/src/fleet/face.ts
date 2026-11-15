@@ -43,7 +43,11 @@
  */
 
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
-import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
+import {
+  type PadiTerminal,
+  type PadiUrgency,
+  rosterIsEstablished,
+} from "@kolu/padi-client/surface";
 import type { SurfaceClientCallable } from "@kolu/surface/client";
 import {
   resolveCellVerbs,
@@ -131,13 +135,30 @@ function foldHosts<T, F>(
 }
 
 /** Every terminal on every connected host, host-qualified, in roster order
- *  (local first) and each host's own order within it. */
+ *  (local first) and each host's own order within it.
+ *
+ *  A host whose roster is SETTLING contributes NOTHING YET rather than an
+ *  empty list: padi serves a roster from the moment it starts, before it has
+ *  adopted the terminals it supervises, and a reader of this list takes "not
+ *  in it" for "not there" (juspay/kolu#2376). So the fold waits for that
+ *  host's roster to be established, which is the same rule the watcher and
+ *  the browser read. */
 function fleetTerminalKeys(
   hosts: FleetHosts,
 ): Stream.Stream<string[], unknown> {
   return foldHosts<readonly TerminalId[], string[]>(
     hosts,
-    (padi) => padi.surface.terminals.keys(undefined),
+    (padi) =>
+      Stream.map(
+        Stream.filter(
+          Stream.zipLatest(
+            padi.surface.roster.get(undefined),
+            padi.surface.terminals.keys(undefined),
+          ),
+          ([standing]) => rosterIsEstablished(standing),
+        ),
+        ([, keys]) => keys,
+      ),
     (seen, live) =>
       live.flatMap((host) =>
         (seen.get(host) ?? []).map((id) => fleetTerminalRef(host, id)),

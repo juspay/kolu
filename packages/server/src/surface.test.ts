@@ -72,6 +72,7 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
     expect(spec.cells?.terminalList).toBeUndefined();
     expect(Object.keys(spec.collections ?? {}).sort()).toEqual([
       "memberReadings",
+      "workMembers",
       "works",
     ]);
     expect(spec.events).toBeUndefined();
@@ -119,6 +120,10 @@ describe("surfaces map — two siblings (the W1 padi seam)", () => {
       "clearSession",
       "takeOver",
       "handBack",
+      // The two endings nobody observed, and the way back from one: a work is
+      // stopped and reopened from its card.
+      "stopWork",
+      "reopenWork",
       // ...and the one that runs BECAUSE there is no conversation: putting a
       // remembered record this build cannot read back in a state it can.
       "recoverStore",

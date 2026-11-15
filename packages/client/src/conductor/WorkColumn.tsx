@@ -73,7 +73,9 @@ const WorkColumn: Component<{
       >
         <Heading words="In progress" />
         <div class="flex flex-col gap-2">
-          <For each={live()}>{(work) => <WorkCard work={work} />}</For>
+          <For each={live()}>
+            {([id, work]) => <WorkCard id={id} work={work} />}
+          </For>
         </div>
       </Show>
       <Show when={done().length > 0}>
@@ -92,7 +94,9 @@ const WorkColumn: Component<{
           </button>
           <Show when={showFinished()}>
             <div class="flex flex-col gap-2">
-              <For each={done()}>{(work) => <WorkCard work={work} />}</For>
+              <For each={done()}>
+                {([id, work]) => <WorkCard id={id} work={work} />}
+              </For>
             </div>
           </Show>
         </section>

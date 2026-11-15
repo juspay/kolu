@@ -38,49 +38,49 @@ export interface RecoveryOffer {
   readonly emptyCopy: string;
 }
 
-/** Each record's two offers. `conductor` is the conversation's own record —
+/** Each record's two offers — the BUTTON LABELS, which are the browser's own
+ *  English, and nothing else. `conductor` is the conversation's own record —
  *  the session id and the fleet it remembered — which is why its empty arm
  *  says "a fresh conversation": the rows are the transcript's, and they stay
- *  where they are. */
+ *  where they are.
+ *
+ *  Whether a record is IN THE BACKUPS is the host's fact, not a label: a
+ *  `backupLabel` is offered only where the refusal says there is one to
+ *  restore. */
 const OFFERS: Record<
   ConductorStoreKey,
-  { backupLabel: string | null; emptyLabel: string; kept: string }
+  { backupLabel: string; emptyLabel: string }
 > = {
   works: {
     backupLabel: "Restore the newest backup that reads",
     emptyLabel: "Start with no works",
-    kept: "unreadable-works-<time>.json",
   },
   members: {
     backupLabel: "Restore the newest backup that reads",
     emptyLabel: "Start with no remembered terminals",
-    kept: "unreadable-members-<time>.json",
   },
   conductor: {
     backupLabel: "Restore the newest backup that reads",
     emptyLabel: "Start a fresh conversation",
-    kept: "unreadable-conductor-<time>.json",
   },
   transcript: {
-    backupLabel: null,
+    backupLabel: "Restore the newest backup that reads",
     emptyLabel: "Start with an empty transcript",
-    kept: "unreadable-transcript-<time>.json",
   },
 };
 
 /** The offer for the record kolu could not read. */
 export function recoveryOffer(unreadable: ConductorUnreadable): RecoveryOffer {
   const offer = OFFERS[unreadable.key];
-  // The state directory, taken off the file the server named rather than
-  // spelled here: it is `<stateDir>/config.json` for the three keys and
-  // `<stateDir>/conductor/transcript.json` for the fourth, and the kept file
-  // goes under `<stateDir>/conductor/` either way.
-  const slash = unreadable.path.lastIndexOf("/");
-  const dir = slash === -1 ? "" : unreadable.path.slice(0, slash);
-  const under = unreadable.key === "transcript" ? dir : `${dir}/conductor`;
   return {
-    backupLabel: offer.backupLabel,
+    // A record the host keeps no backup of has no backup to offer, and the
+    // refusal is what knows that — the browser never infers it from the key.
+    backupLabel: unreadable.inBackups ? offer.backupLabel : null,
     emptyLabel: offer.emptyLabel,
-    emptyCopy: `kolu keeps what it could not read in ${under}/${offer.kept} — nothing is deleted — and the Conductor comes up with that record empty.`,
+    // WHERE IT GOES IS THE SERVER'S ANSWER, quoted. The path depends on the
+    // host's state root and on a stamp only the writer mints, so a browser
+    // that rebuilt it by string surgery was making a promise about a file
+    // that might not exist (#2376 review).
+    emptyCopy: `kolu keeps what it could not read in ${unreadable.keepsAt} — nothing is deleted — and the Conductor comes up with that record empty.`,
   };
 }

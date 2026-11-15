@@ -27,6 +27,7 @@ import {
 import { type PrFixture, statePullRequest } from "../support/fake-gh.ts";
 import { restartKoluServer } from "../support/hooks.ts";
 import { pollFor } from "../support/poll.ts";
+import { surfaceCall, surfaceFirstFrame } from "../support/rpcWire.ts";
 import { type KoluWorld, MOD_KEY, POLL_TIMEOUT } from "../support/world.ts";
 
 /** How long a scenario leaves a landed wake alone before claiming it rang ONCE.
@@ -220,23 +221,27 @@ async function pressNewSession(world: KoluWorld): Promise<void> {
 const WIPE_SETTLE_MS = 5_000;
 
 async function newConductorSession(world: KoluWorld): Promise<void> {
-  // TWICE, IF THE FIRST ONE IS LANDED ON. A wipe ends the turn that was in
+  // AGAIN, IF THE FIRST ONE IS LANDED ON. A wipe ends the turn that was in
   // flight, and an agent whose call was cancelled says so — a row that
   // arrives AFTER the transcript was emptied, which is the conversation
-  // behaving correctly and an arrangement that is no longer fresh. The second
-  // gesture clears what the first one's ending wrote; a scenario that still
-  // cannot get an empty transcript fails on the full wait below, saying what
-  // the transcript holds.
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  // behaving correctly and an arrangement that is no longer fresh. kolu's own
+  // news does the same: a work stopped a moment ago wakes the conversation,
+  // and that wake can land on the fresh session rather than the old one —
+  // which is a transcript with a row in it and a phase of `working`. So the
+  // settle is BOTH facts, and a gesture that is landed on is simply made
+  // again; a conversation that still cannot be left quiet fails on the full
+  // wait below, saying what the transcript holds.
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
     await pressNewSession(world);
-    const empty = await pollFor({
-      observe: () => world.page.locator(`${TRANSCRIPT} ${ROW}`).count(),
-      isDone: (rows) => rows === 0,
+    const quiet = await pollFor({
+      observe: async () =>
+        (await world.page.locator(`${TRANSCRIPT} ${ROW}`).count()) === 0 &&
+        (await world.page.locator(PANE).getAttribute("data-phase")) === "idle",
+      isDone: (still) => still,
       timeoutMs: WIPE_SETTLE_MS,
-      onTimeout: (rows) =>
-        new Error(`the transcript still holds ${rows ?? "?"} rows`),
-    }).catch(() => -1);
-    if (empty === 0) break;
+      onTimeout: () => new Error("the conversation is not quiet yet"),
+    }).catch(() => false);
+    if (quiet) break;
   }
   await waitForCount(world, `${TRANSCRIPT} ${ROW}`, 0);
   await waitForValue(
@@ -265,9 +270,80 @@ When(
   },
 );
 
+/** THE WORKS A PREVIOUS SCENARIO LEFT OPEN, stopped over the real wire.
+ *
+ *  A work no longer ends when its terminals go: only the forge and Stop end
+ *  one, which is the product's whole point — so the worker's kolu, which one
+ *  server serves to every scenario in turn, would otherwise carry every work
+ *  the file has opened so far, and "1 piece of work" would read 7. The
+ *  conversation is already reset per scenario; the record needs the same, and
+ *  `conductor.stopWork` is the person's own way to end one (it never goes
+ *  through the agent, so it works with the conversation down).
+ *
+ *  Each pass stops what it found and the next pass re-reads, so the loop ends
+ *  only on a record with nothing open — the stop is a write, and the claim is
+ *  about what the next scenario will see. ENDED works are left where they are:
+ *  they are what the Finished section is for, nothing counts them as in
+ *  progress, and no verb on the wire deletes a record. */
+async function stopEveryOpenWork(): Promise<void> {
+  await pollFor({
+    observe: async () => {
+      const ids = (await surfaceFirstFrame(
+        "surface/kolu/works/keys",
+      )) as readonly string[];
+      let open = 0;
+      for (const id of ids) {
+        const work = (await surfaceFirstFrame("surface/kolu/works/get", {
+          key: id,
+        })) as { state: { kind: string } };
+        if (work.state.kind !== "open") continue;
+        open += 1;
+        await surfaceCall("surface/kolu/conductor/stopWork", { work: id });
+      }
+      return open;
+    },
+    isDone: (open) => open === 0,
+    timeoutMs: POLL_TIMEOUT,
+    onTimeout: (open, ms) =>
+      new Error(
+        `${open ?? "?"} piece(s) of work were still open after ${ms}ms of stopping them — this scenario would have counted another one's work`,
+      ),
+  });
+}
+
+/** How long the transcript must hold still before the news a stop queued
+ *  counts as landed, and how long that is waited for at most. */
+const NEWS_SETTLE_MS = 1_500;
+const NEWS_DRAIN_MS = 10_000;
+
 Given(
   "the conductor is on a fresh conversation",
   async function (this: KoluWorld) {
+    // THE RECORD FIRST, THEN THE CHAT. Stopping a work is news, and kolu wakes
+    // the conversation with it — so the stop is made, the news is let LAND (a
+    // turn that arrives after the wipe is a row in a transcript this step
+    // promised was empty), and only then is the conversation wiped.
+    //
+    // Landing is read off the TRANSCRIPT alone: a conversation answering wakes
+    // passes through phases of its own, and what this needs to know is only
+    // whether rows are still arriving. Best-effort by design — if news is
+    // still coming after the drain, the wipe below simply repeats, and it is
+    // ITS assertions (an empty transcript, an idle phase) that decide whether
+    // this scenario may start.
+    await stopEveryOpenWork();
+    // The conversation has to be ON SCREEN to be read — the wipe below opens
+    // it anyway, and this step is where a scenario asks for it.
+    await enterConductor(this);
+    const rows = async (): Promise<number> =>
+      this.page.locator(`${TRANSCRIPT} ${ROW}`).count();
+    let last = await rows();
+    const deadline = Date.now() + NEWS_DRAIN_MS;
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, NEWS_SETTLE_MS));
+      const now = await rows();
+      if (now === last) break;
+      last = now;
+    }
     await newConductorSession(this);
   },
 );
@@ -1966,6 +2042,35 @@ Then(
   "the work column should list the terminal as a member",
   async function (this: KoluWorld) {
     await openWorkCard(this);
+    const id = watchedId(this);
+    // WHAT THE CARD ACTUALLY HOLDS when it does not hold this terminal: the
+    // refs it does list and its last events. A member leaves by being
+    // REMOVED, so its absence and the `left` that explains it are two halves
+    // of one reading — a failure that quoted neither would send the reader to
+    // the column's rendering when the record is what moved.
+    let held = "(not observed)";
+    await pollFor({
+      observe: () => memberRow(this).count(),
+      isDone: (rows) => rows > 0,
+      timeoutMs: POLL_TIMEOUT,
+      onTick: async () => {
+        const refs = await this.page
+          .locator(`${WORK_COLUMN} ${WORK_MEMBER}`)
+          .evaluateAll((all) =>
+            all.map((row) => row.getAttribute("data-ref") ?? "?"),
+          );
+        // AND WHICH TERMINALS ARE EVEN THERE. A member can be missing because
+        // the record dropped it, or because the terminal came back under a
+        // different id — two different stories, and only the second one is
+        // about identity.
+        const terminals = await this.terminalIds();
+        held = `${refs.length === 0 ? "no members" : refs.join(", ")}; terminals on screen ${terminals.length === 0 ? "none" : terminals.join(", ")}; timeline ${await timelineInventory(this)}`;
+      },
+      onTimeout: (_last, ms) =>
+        new Error(
+          `the card never listed ${id} as a member after ${ms}ms; it holds ${held}`,
+        ),
+    });
     await memberRow(this).waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
@@ -2729,7 +2834,7 @@ async function waitForTimelineEvent(
 }
 
 Then(
-  "the work's timeline should show a {string} event",
+  "the work's timeline should show a/an {string} event",
   async function (this: KoluWorld, kind: string) {
     await waitForTimelineEvent(this, kind, "");
   },
@@ -2839,6 +2944,203 @@ Then(
         return (await card.getAttribute("data-outcome")) ?? "no outcome";
       },
       outcome,
+    );
+  },
+);
+
+/** IN PROGRESS — the other half of the state, and the one a restart must not
+ *  change. Read off the card's own `data-state`, which is the client's
+ *  reading of the record's state sum, and from WHERE the card is: a work in
+ *  progress is above the line, not inside the collapsed `Finished` list. */
+Then("the work should be in progress", async function (this: KoluWorld) {
+  const id = this.workId;
+  assert.ok(id, "this scenario never opened a work");
+  await showWorkColumn(this);
+  await waitForValue(
+    "the work's state",
+    async () => {
+      const card = this.page.locator(
+        `${WORK_COLUMN} ${WORK_CARD}[data-work="${id}"]`,
+      );
+      if ((await card.count()) === 0) return "no card at all";
+      return (await card.getAttribute("data-state")) ?? "no state";
+    },
+    "open",
+  );
+  assert.equal(
+    await this.page
+      .locator(
+        `${WORK_COLUMN} [data-testid="work-finished"] ${WORK_CARD}[data-work="${id}"]`,
+      )
+      .count(),
+    0,
+    "the work in progress is drawn below the Finished line",
+  );
+});
+
+/** STOP, WITH THE CONFIRM IN FRONT OF IT — the repo's one inline-confirm
+ *  shell, so the first press opens the step and the second acts. */
+When("I stop the work from the card", async function (this: KoluWorld) {
+  await openWorkCard(this);
+  const card = workCard(this);
+  await card.locator('[data-testid="work-stop"]').click();
+  const confirm = card.locator('[data-testid="work-stop-confirm"]');
+  await confirm.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+  await confirm.click();
+});
+
+Then(
+  "the work card should say it was stopped by you",
+  async function (this: KoluWorld) {
+    await openWorkCard(this);
+    await waitForValue(
+      "the stopped card's outcome",
+      async () =>
+        (
+          (await workCard(this)
+            .locator('[data-testid="work-outcome"]')
+            .textContent({ timeout: 1_000 })
+            .catch(() => null)) ?? "(no outcome on the card)"
+        )
+          .replace(/\s+/g, " ")
+          .includes("Stopped by you")
+          ? "stopped by you"
+          : "something else",
+      "stopped by you",
+    );
+  },
+);
+
+/** A FINISHED CARD HAS NOWHERE TO PUT TERMINALS — ending removes a work's
+ *  members in the same step, and the ended arm of the state carries none, so
+ *  the card says "no terminals" rather than drawing a Hand back control on a
+ *  work that is over (#2376: the human's screenshot had exactly that). */
+Then(
+  "the work card should show no terminals",
+  async function (this: KoluWorld) {
+    await openWorkCard(this);
+    const card = workCard(this);
+    await waitForValue(
+      "the terminals section of a finished card",
+      async () =>
+        (await card.locator('[data-testid="work-terminals"]').count()) === 0
+          ? "none"
+          : "a terminals section",
+      "none",
+    );
+    assert.equal(
+      await card.locator('[data-testid="work-question"]').count(),
+      0,
+      "a finished card is drawing an open question",
+    );
+  },
+);
+
+When("I reopen the work from the card", async function (this: KoluWorld) {
+  await openWorkCard(this);
+  await workCard(this).locator('[data-testid="work-reopen"]').click();
+});
+
+/** ASK FOR THE SAME WORK AGAIN. The fixture's `open <title>` is a real
+ *  `work_open` whose branch is the title's own slug, so the second call names
+ *  the SAME key — which is the whole claim: opening is idempotent, and the id
+ *  it answers with is the id it answered the first time. */
+When(
+  "I ask the conductor to open the work {string} again",
+  async function (this: KoluWorld, title: string) {
+    const opened = (): Promise<string[]> =>
+      this.page
+        .locator(`${TRANSCRIPT} ${ROW}[data-row-kind="agent"]`)
+        .evaluateAll((rows) =>
+          rows
+            .map((row) => /opened:\s*(\S+)/.exec(row.textContent ?? "")?.[1])
+            .filter((one): one is string => one !== undefined),
+        );
+    const before = (await opened()).length;
+    await enterConductor(this);
+    await sendPrompt(this, `open ${title}`);
+    const said = await pollFor({
+      observe: opened,
+      isDone: (all) => all.length > before,
+      timeoutMs: POLL_TIMEOUT,
+      onTimeout: (all, ms) =>
+        new Error(
+          `the conductor never said what the second open answered after ${ms}ms; it has said ${JSON.stringify(all)}`,
+        ),
+    });
+    this.workIdAgain = said.at(-1);
+  },
+);
+
+Then(
+  "the conductor should have answered with the same work",
+  function (this: KoluWorld) {
+    assert.ok(this.workId, "this scenario never opened a work");
+    assert.equal(
+      this.workIdAgain,
+      this.workId,
+      "opening the same branch twice answered two different works",
+    );
+  },
+);
+
+/** ONE CARD PER BRANCH, counted on screen: the id is the key, so a second
+ *  work for one branch would be a second card — which is what the human saw
+ *  three of. */
+Then(
+  "the work column should hold exactly one card for the work",
+  async function (this: KoluWorld) {
+    const id = this.workId;
+    assert.ok(id, "this scenario never opened a work");
+    await showWorkColumn(this);
+    await waitForValue(
+      "how many cards the column holds for this work",
+      async () =>
+        String(
+          await this.page
+            .locator(`${WORK_COLUMN} ${WORK_CARD}[data-work="${id}"]`)
+            .count(),
+        ),
+      "1",
+    );
+    const title = this.workTitle;
+    if (title !== undefined)
+      assert.equal(
+        await this.page
+          .locator(`${WORK_COLUMN} ${WORK_CARD}`)
+          .filter({ hasText: title })
+          .count(),
+        1,
+        "the column holds a second card titled like this work",
+      );
+  },
+);
+
+/** "I'D RATHER NOT SAY" to the setup, on the card — the decline the record
+ *  keeps, which for a work nothing has happened in is a decision not to start
+ *  it at all. */
+When(
+  "I decline the work's question on the card",
+  async function (this: KoluWorld) {
+    await openWorkCard(this);
+    const ask = workCard(this).locator('[data-testid="work-question"]');
+    await ask.waitFor({ state: "visible", timeout: POLL_TIMEOUT });
+    await ask.locator('[data-testid="conductor-ask-dismiss"]').click();
+  },
+);
+
+/** ...AND THE WORK IS GONE. Not finished, not "Abandoned · 1m": a work that
+ *  never had a member and never had a pull request leaves no card behind. */
+Then(
+  "the work column should not show the work",
+  async function (this: KoluWorld) {
+    const id = this.workId;
+    assert.ok(id, "this scenario never opened a work");
+    await showWorkColumn(this);
+    await waitForCount(
+      this,
+      `${WORK_COLUMN} ${WORK_CARD}[data-work="${id}"]`,
+      0,
     );
   },
 );

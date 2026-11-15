@@ -28,9 +28,9 @@
 
 import { formatBytes } from "@kolu/byte-units";
 import type {
-  ConductorAskRow,
   ConductorRow,
   ConductorToolRow,
+  ConductorWorkAskRow,
 } from "kolu-common/conductor";
 import { Key } from "@solid-primitives/keyed";
 import {
@@ -66,7 +66,7 @@ import {
 } from "./transcriptScroll";
 import { useConductor } from "./useConductor";
 import { wakeHeadline, wakeWhen } from "./wake";
-import { useWorks } from "./useWorks";
+import { useWorkMap } from "./useWorks";
 import WorkQuestion from "./WorkQuestion";
 
 /** A QUESTION KOLU ASKED ABOUT A PIECE OF WORK, where it was asked.
@@ -76,15 +76,19 @@ import WorkQuestion from "./WorkQuestion";
  *  itself to the one component every face draws. A work this browser has not
  *  got (it ended and was swept, or the frame has not arrived) draws nothing
  *  rather than an empty form: the row above it still says what was asked. */
-const ChatWorkQuestion: Component<{ row: ConductorAskRow }> = (props) => {
-  const works = useWorks();
-  const work = createMemo(() => {
-    const id = props.row.work;
-    return id === undefined ? undefined : works().find((one) => one.id === id);
-  });
+const ChatWorkQuestion: Component<{ row: ConductorWorkAskRow }> = (props) => {
+  const works = useWorkMap();
+  const work = createMemo(() => works().get(props.row.work));
   return (
     <Show when={work()}>
-      {(one) => <WorkQuestion work={one()} ask={props.row.id} from="chat" />}
+      {(one) => (
+        <WorkQuestion
+          work={one()}
+          id={props.row.work}
+          ask={props.row.id}
+          from="chat"
+        />
+      )}
     </Show>
   );
 };
@@ -398,13 +402,7 @@ function TranscriptRow(props: { row: ConductorRow; repeat: number }) {
             this row: the row says it was asked here (and goes when the chat
             goes), while the decision behind it is the thing a person
             answers — here, on the card, or in the reader. */}
-        <Match
-          when={
-            props.row.kind === "ask" &&
-            props.row.work !== undefined &&
-            props.row
-          }
-        >
+        <Match when={props.row.kind === "work-ask" && props.row}>
           {(row) => <ChatWorkQuestion row={row()} />}
         </Match>
         <Match when={props.row.kind === "ask" && props.row}>

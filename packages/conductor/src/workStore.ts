@@ -2,30 +2,40 @@
  * THE PIECES OF WORK KOLU HOLDS — the map, every rule for moving one, and what
  * a reader is told about them.
  *
- * One module for what used to be four concerns braided through the
- * conversation's closure: the map itself, the end-of-work consequences (keep
- * the files, cap the history, sweep what fell off), the DRIVER lock, and the
- * publish diff. They are one concern wearing four hats — "how kolu holds and
- * announces a set of works" — and they move on one clock.
+ * ## A work is its key, and the map is keyed by it
+ *
+ * `works` is a map from {@link WorkId} (the string encoding of a
+ * {@link WorkKey}) to the record. So a second card for one branch is not
+ * something a caller can create: {@link WorkStore.openFor} of a key that
+ * exists answers THAT work, reopening it if it had ended. That is the whole
+ * of the defect this round was opened for — three cards, one branch — and it
+ * is closed by the shape rather than by a check.
+ *
+ * ## Members are a map of their own, and ending takes them with it
+ *
+ * Membership lives in `./memberStore.ts`, keyed by terminal, so a terminal is
+ * in at most one work. A work that ENDS drops its members in the same step,
+ * in this one writer — which is why a finished card has nowhere to draw a
+ * terminal, a lock or an open question.
+ *
+ * ## Losing terminals never ends a work
+ *
+ * A work whose members have all gone is an OPEN work with no terminals: the
+ * card says so, and the Conductor is woken ONCE with exactly that
+ * ({@link WorkStoreDeps.noTerminals}). The only endings are the forge's two
+ * and a Stop.
  *
  * ## Insertion order IS the contract
  *
- * A work sits where it was opened, so a card keeps its place for as long as it
- * is in progress.
- *
- * ## What this module does NOT hold
- *
- * The member's own bookkeeping (`./memberStore.ts`), what an observation MEANS
- * (`./observing.ts`), when news reaches the conversation (`./wakes.ts`). Its
- * one edge to the wake lane is `told`, which reaches it as a port on the
- * member store rather than as an import.
+ * A work sits where it was opened, so a card keeps its place for as long as
+ * it is in progress.
  */
 
 import { Schema } from "effect";
 import { type MemberReading, MemberReadingSchema } from "kolu-common/works";
 import {
   capFinished,
-  deserted,
+  type Driver,
   driverOf,
   endWork,
   filesSeen,
@@ -36,17 +46,29 @@ import {
   keepFailed,
   keepFiles,
   leaveWork,
+  type Outcome,
+  openAsks,
+  openWork,
+  reopenWork,
   takeOver as takeOverRecord,
-  type Driver,
   type Work,
+  type WorkId,
+  type WorkKey,
   type WorkMember,
   type WorkRole,
   WorkRefusal,
+  workDirOf,
+  workIdOf,
 } from "kolu-work";
 import type { Logger } from "pino";
 import { splitFleetTerminalRef } from "kolu-mcp/fleetRef";
-import { joinedMember, type WatchJoin } from "./members.ts";
-import type { MemberStore } from "./memberStore.ts";
+import { dropOpenAsks, type SettledAsk } from "./askNews.ts";
+import type { WatchJoin } from "./members.ts";
+import {
+  joined as joinedMember,
+  type Member,
+  type MemberStore,
+} from "./memberStore.ts";
 import type { PersistedMembers, PersistedWorks } from "./persisted.ts";
 import type { RecordWrites } from "./recordWrites.ts";
 import type { WorkFiles } from "./workFiles.ts";
@@ -59,69 +81,95 @@ import type { WorkFiles } from "./workFiles.ts";
  *  a work IS would be a storage decision no reader could find. */
 export const FINISHED_KEPT = 20;
 
-/** One member, as a reader outside this package is told about it: the record's
- *  own fields plus what kolu has SEEN in that terminal. */
+/** One member, as a reader outside this package is told about it. */
 export interface MemberDetail {
   readonly ref: string;
-  readonly work: string;
+  readonly work: WorkId;
   readonly role: WorkRole;
   readonly name: string;
   readonly agent: string | null;
   readonly joined: WatchJoin;
 }
 
-/** The work a terminal is an ACTIVE member of, and that member. */
+/** The work a terminal is a member of, and that member. */
 export interface MemberAt {
+  readonly id: WorkId;
   readonly work: Work;
-  readonly member: WorkMember;
+  readonly member: Member;
+}
+
+/** What opening a key answered: the work, and whether this call is what
+ *  created it. A caller asking for a key that already exists is told so, and
+ *  asks only the setup questions that have no answer. */
+export interface Opened {
+  readonly id: WorkId;
+  readonly work: Work;
+  readonly created: boolean;
+  /** Whether this call brought an ended work back. */
+  readonly reopened: boolean;
 }
 
 export interface WorkStore {
-  /** The boot read: the remembered works (every question they had open
-   *  dropped — the conversation that asked it is gone) and the member
-   *  bookkeeping that goes with their active members. */
-  readonly load: (kept: PersistedWorks, was: PersistedMembers) => void;
-  /** Every work, in the order they were opened. */
-  readonly all: () => ReadonlyArray<Work>;
+  /** The boot read: the remembered works and the members that go with them. */
+  readonly load: (kept: PersistedWorks, members: PersistedMembers) => void;
+  /** Every work with its id, in the order they were opened. */
+  readonly all: () => ReadonlyArray<readonly [WorkId, Work]>;
   /** The works a READER is given: in progress oldest first, then the finished
    *  ones newest first. */
-  readonly read: () => ReadonlyArray<Work>;
-  readonly get: (id: string) => Work | undefined;
+  readonly read: () => ReadonlyArray<readonly [WorkId, Work]>;
+  /** EVERY QUESTION STILL WAITING ON A PERSON, across the works in progress —
+   *  ask ids, oldest work first. Derived from the decisions like every other
+   *  reading of "what is open", so no second list can disagree with the
+   *  cards: it is what the bell, the OS badge and the panel's count all read,
+   *  through the published frame. */
+  readonly openAsks: () => ReadonlyArray<string>;
+  readonly get: (id: WorkId) => Work | undefined;
   readonly at: (ref: string) => MemberAt | undefined;
   /** A work that exists and has not ended, or the refusal that says which of
    *  the two it failed. */
-  readonly openAt: (id: string) => Work;
-  /** Mint a work and put it in the map. */
-  readonly open: (work: Work) => void;
-  /** Write a work back — and close it out when this is the change that ended
-   *  it. */
-  readonly save: (work: Work) => void;
-  /** A member leaves; the work with the departure recorded. */
-  readonly leave: (
-    work: Work,
-    ref: string,
-    why: "closed" | "released" | "gone",
-  ) => Work;
-  /** A terminal joins a work in a role, leaving whatever else it was doing. */
+  readonly openAt: (id: WorkId) => Work;
+  /** OPEN THE WORK FOR THIS KEY — idempotent. A key kolu already holds
+   *  answers that work (brought back to Open if it had ended); a key it does
+   *  not holds a new one. */
+  readonly openFor: (opened: {
+    readonly key: WorkKey;
+    readonly title: string;
+    readonly request: string;
+  }) => Opened;
+  /** Write a work back. */
+  readonly save: (id: WorkId, work: Work) => void;
+  /** STOP a work — the one ending nobody observed. */
+  readonly stop: (id: WorkId, by: "you" | "conductor") => Work;
+  /** ... and bring one back. */
+  readonly reopen: (id: WorkId) => Work;
+  /** THE FORGE SAID SO: merged, or closed. */
+  readonly endWith: (id: WorkId, outcome: Outcome) => void;
+  /** A member leaves. The work stays as it is — losing terminals is not an
+   *  ending — and the Conductor is woken once when the last one goes. */
+  readonly leave: (ref: string, why: "closed" | "released" | "gone") => void;
+  /** A terminal joins a work in a role, leaving whatever else it was doing.
+   *  Refuses a role this work already has (one planner, one implementor). */
   readonly join: (
-    id: string,
+    id: WorkId,
     ref: string,
     role: WorkRole,
     joined: WatchJoin,
   ) => void;
+  /** THE WORK NOTHING HAS HAPPENED IN, DECLINED — removed rather than ended.
+   *  Answers whether it went. */
+  readonly declined: (id: WorkId) => boolean;
   /** A MEMBER TERMINAL THE CONDUCTOR DRIVES, and who is driving it — or the
    *  refusal that says it is none. */
   readonly driven: (ref: string) => MemberAt & { readonly driver: Driver };
   /** The keys changed hands: the act, on the work's timeline. */
   readonly handover: (ref: string, what: "taken-over" | "handed-back") => void;
   /** EVERY WORK, REPLACED — a restored backup. Answers the refs that are no
-   *  longer members of anything, so the caller can drop what it was holding
-   *  about them. */
+   *  longer members of anything. */
   readonly restore: (
     kept: PersistedWorks,
-    was: PersistedMembers,
+    members: PersistedMembers,
   ) => ReadonlyArray<string>;
-  /** THE WATCHER'S SCOPE — the active members of every work in progress. */
+  /** THE WATCHER'S SCOPE — every member terminal of a work in progress. */
   readonly memberRefs: () => ReadonlyArray<string>;
   /** ... and the same members with what kolu knows about each. */
   readonly membersDetail: () => ReadonlyArray<MemberDetail>;
@@ -129,13 +177,11 @@ export interface WorkStore {
   readonly changed: () => void;
   /** Just the readers — for the edges that write the file themselves. */
   readonly publishWorks: () => void;
-  /** ... and the same for how the member terminals stand, on its own clock: a
-   *  level change is not a change to the record. */
+  /** ... and the same for how the member terminals stand, on its own clock. */
   readonly publishReadings: () => void;
   /** What the `works` key holds. */
   readonly persisted: () => PersistedWorks;
-  /** THE KEPT FILES, RECONCILED TO THE WORKS — one rule, run wherever the set
-   *  of works can shrink. */
+  /** THE KEPT FILES, RECONCILED TO THE WORKS. */
   readonly sweepFiles: () => void;
 }
 
@@ -153,14 +199,6 @@ const sentenceOf = (err: unknown): string => {
 /**
  * WHAT MOVED, PUBLISHED — one helper, parameterised by what "moved" means for
  * the thing in it.
- *
- * Two collections, one rule: a key whose value is not what was last sent goes
- * out, a key that has gone is removed, and everything else is silence. The
- * equivalence is the argument because the two values answer it differently and
- * both answers are right — a work is an IMMUTABLE value, so identity is the
- * cheap correct test, while a reading is a fresh pair every observation and is
- * compared by what it says (through its own schema, so a field added to it is
- * compared without an edit here).
  */
 const publishMoved = <K, T>(
   published: Map<K, T>,
@@ -181,31 +219,40 @@ const publishMoved = <K, T>(
   }
 };
 
-export const workStore = (deps: {
+export interface WorkStoreDeps {
   readonly workFiles: WorkFiles;
-  readonly publishWork: (id: string, work: Work | null) => void;
+  readonly publishWork: (id: WorkId, work: Work | null) => void;
+  readonly publishMember: (terminal: string, member: WorkMember | null) => void;
   readonly publishReading: (
     terminal: string,
     reading: MemberReading | null,
   ) => void;
   readonly membersMoved: (membership: boolean) => void;
-  /** THIS SAVE ENDED THE WORK — called once, with the ended record, before
-   *  its files are kept. The one thing that has to happen here and nowhere
-   *  else is the questions it was still holding: nobody can answer a question
-   *  about a work that is over, so they are dropped and the Conductor is told
-   *  (it asked them, and it is owed the ending whichever ending it was). */
-  readonly ended: (work: Work) => void;
+  /** THIS CHANGE ENDED THE WORK, and these are the questions that went with
+   *  it — recorded as dropped by this writer in the same step as the ending,
+   *  because nobody can answer a question about a work that is over. Each one
+   *  arrives settled: what its transcript row now says, and what the
+   *  Conductor is woken with. A work with no open question does not call it.
+   */
+  readonly ended: (settled: ReadonlyArray<SettledAsk>) => void;
+  /** THE LAST TERMINAL WENT. Called ONCE per emptying, with the work that is
+   *  still open and now has nobody doing it — which is the whole of what the
+   *  Conductor is told (never "gone, so I ended it"). */
+  readonly noTerminals: (id: WorkId, work: Work) => void;
   readonly records: RecordWrites<"works" | "members">;
   readonly members: MemberStore;
   readonly log: Logger;
-}): WorkStore => {
-  const works = new Map<string, Work>();
-  const publishedWorks = new Map<string, Work>();
+}
+
+export const workStore = (deps: WorkStoreDeps): WorkStore => {
+  const works = new Map<WorkId, Work>();
+  const publishedWorks = new Map<WorkId, Work>();
+  const publishedMembers = new Map<string, WorkMember>();
   const publishedReadings = new Map<string, MemberReading>();
   const sameReading = Schema.toEquivalence(MemberReadingSchema);
   const nowIso = (): string => new Date().toISOString();
 
-  const everyWork = (): ReadonlyArray<Work> => [...works.values()];
+  const everyWork = (): ReadonlyArray<readonly [WorkId, Work]> => [...works];
 
   const publishWorks = (): void => {
     publishMoved(
@@ -213,6 +260,26 @@ export const workStore = (deps: {
       works,
       (was, now) => was === now,
       deps.publishWork,
+    );
+    publishMoved(
+      publishedMembers,
+      new Map(
+        [...deps.members.all()].map(([ref, one]) => [
+          ref,
+          {
+            work: one.work,
+            role: one.role,
+            joinedAt: one.joinedAt,
+            worktree: one.worktree,
+          },
+        ]),
+      ),
+      (was, now) =>
+        was.work === now.work &&
+        was.role === now.role &&
+        was.joinedAt === now.joinedAt &&
+        was.worktree === now.worktree,
+      deps.publishMember,
     );
   };
   const publishReadings = (): void => {
@@ -229,50 +296,36 @@ export const workStore = (deps: {
   };
 
   const sweepFiles = (): void => {
-    void deps.workFiles.sweep([...works.keys()]).catch((err: unknown) => {
-      deps.log.warn(
-        { err },
-        "kolu-server: the conductor could not delete the files of works it no longer keeps",
-      );
-    });
+    void deps.workFiles
+      .sweep([...works.keys()].map(workDirOf))
+      .catch((err: unknown) => {
+        deps.log.warn(
+          { err },
+          "kolu-server: the conductor could not delete the files of works it no longer keeps",
+        );
+      });
   };
 
   /** WHERE A WORK'S FILES ARE — the first member whose record named a
-   *  worktree, host and all.
-   *
-   *  Any member will do and the first is as good as the last: a work's members
-   *  share a worktree by construction (the planner opens it, the implementor
-   *  is a split in the same one), and a member whose terminal is long gone
-   *  still remembers the path — which is the case this is written for, because
-   *  a work usually ends after its terminals have. */
+   *  worktree, host and all. Read before the members are dropped. */
   const worktreeOf = (
-    work: Work,
+    id: WorkId,
   ): { host: string; worktree: string } | null => {
-    for (const member of work.members) {
-      const host = splitFleetTerminalRef(member.terminal)?.host;
+    for (const [ref, member] of deps.members.ofWork(id)) {
+      const host = splitFleetTerminalRef(ref)?.host;
       if (member.worktree !== null && host !== undefined)
         return { host, worktree: member.worktree };
     }
     return null;
   };
 
-  /** THE WORK IS OVER — keep its files, then cap the history.
-   *
-   *  The files are gathered from both ends: what kolu SAW appear
-   *  (`filesSeen`) and what is in `.waterfall/` right now, because a file
-   *  written while nothing changed level was never observed and is still the
-   *  plan somebody will want to read next month. A copy that fails is SAID on
-   *  the timeline rather than swallowed — the files are the half of a work
-   *  that outlives its worktree, and a person has to know they did not.
-   *
-   *  Then the cap: the {@link FINISHED_KEPT} most recently finished works are
-   *  kept and the rest are forgotten, kept files and all. Written immediately
-   *  rather than on the throttle — an end and a cap are the two movements
-   *  whose whole point is that what was there is gone. */
-  const closeOut = async (id: string): Promise<void> => {
+  /** THE WORK IS OVER — keep its files, then cap the history. */
+  const closeOut = async (
+    id: WorkId,
+    at: { host: string; worktree: string } | null,
+  ): Promise<void> => {
     const ending = works.get(id);
-    if (ending === undefined || ending.endedAt === null) return;
-    const at = worktreeOf(ending);
+    if (ending === undefined || ending.state.kind !== "ended") return;
     const paths = new Set(filesSeen(ending));
     if (at !== null) {
       try {
@@ -289,7 +342,7 @@ export const workStore = (deps: {
       try {
         const kept = await deps.workFiles.keep({
           ...at,
-          work: id,
+          work: workDirOf(id),
           paths: [...paths],
         });
         works.set(id, keepFiles(ended, { files: kept, at: nowIso() }));
@@ -297,88 +350,93 @@ export const workStore = (deps: {
         works.set(id, keepFailed(ended, sentenceOf(err), nowIso()));
       }
     }
-    for (const dropped of capFinished(everyWork(), FINISHED_KEPT).dropped)
-      works.delete(dropped.id);
+    for (const [dropped] of capFinished(everyWork(), FINISHED_KEPT).dropped)
+      works.delete(dropped);
     sweepFiles();
     changed();
     deps.records.now("works");
   };
 
   /** WRITE A WORK BACK — and close it out when this is the change that ended
-   *  it.
-   *
-   *  Two endings are decided here rather than at each call site, because both
-   *  are consequences of a change rather than things anybody asks for: a work
-   *  whose every member has gone is ABANDONED, and a work that has just ended
-   *  (however it ended) owes its files a copy and the history a cap. */
-  const save = (work: Work): void => {
-    const before = works.get(work.id);
-    const ended =
-      work.endedAt === null && deserted(work)
-        ? endWork(work, { outcome: "abandoned", at: nowIso() })
-        : work;
-    works.set(ended.id, ended);
-    if (
-      before !== undefined &&
-      before.endedAt === null &&
-      ended.endedAt !== null
-    ) {
-      // THE QUESTIONS GO WITH IT — the one edge where a question stops being
-      // answerable, because the work it is about is over. Before the files,
-      // so what is written down about the end is complete.
-      deps.ended(ended);
-      void closeOut(ended.id);
+   *  it. The members go WITH the ending, in this one step: that is what makes
+   *  "a finished work has no terminals" true rather than checked. */
+  const save = (id: WorkId, work: Work): void => {
+    const before = works.get(id);
+    works.set(id, work);
+    if (before === undefined || before.state.kind !== "open") return;
+    if (work.state.kind !== "ended") return;
+    const at = worktreeOf(id);
+    const dropped = deps.members.dropWork(id);
+    // THE QUESTIONS GO WITH IT — the one edge where a question stops being
+    // answerable, because the work it is about is over. Recorded HERE rather
+    // than handed back to the module that asks: the ending and the dropping
+    // are one write by the one writer, so nothing re-enters this function
+    // while the work is half-ended.
+    const asks = dropOpenAsks(id, work, nowIso());
+    if (asks.settled.length > 0) {
+      works.set(id, asks.work);
+      changed();
+      deps.ended(asks.settled);
     }
+    if (dropped.length > 0) {
+      deps.records.schedule("members");
+      deps.membersMoved(true);
+    }
+    void closeOut(id, at);
   };
 
-  /** The work a terminal is an ACTIVE member of, if it is one — and only ever
-   *  a work IN PROGRESS. A finished work's members are history, and a reading
-   *  that arrived late must not re-open one. */
+  /** The work a terminal is a member of, if it is one. */
   const at = (ref: string): MemberAt | undefined => {
-    for (const work of works.values()) {
-      if (work.endedAt !== null) continue;
-      const member = work.members.find(
-        (one) => one.terminal === ref && one.leftAt === null,
-      );
-      if (member !== undefined) return { work, member };
-    }
-    return undefined;
+    const member = deps.members.at(ref);
+    if (member === undefined) return undefined;
+    const work = works.get(member.work);
+    if (work === undefined || work.state.kind !== "open") return undefined;
+    return { id: member.work, work, member };
   };
 
-  const leave = (
-    work: Work,
-    ref: string,
-    why: "closed" | "released" | "gone",
-  ): Work => {
-    deps.members.forget(ref);
-    return leaveWork(work, { terminal: ref, at: nowIso(), why });
-  };
-
-  const openAt = (id: string): Work => {
+  const openAt = (id: WorkId): Work => {
     const work = works.get(id);
     if (work === undefined) {
       throw new WorkRefusal(
         "unknown-work",
-        `There is no piece of work called ${JSON.stringify(id)} — read the \`works\` resource for the ones kolu is keeping, and open one with \`work_open\` if this is new.`,
+        `There is no piece of work called ${JSON.stringify(id)} — read the \`works\` resource for the ones kolu is keeping, and open one with \`work_open\` (host, repo and branch) if this is new.`,
       );
     }
-    if (work.endedAt !== null) {
+    if (work.state.kind !== "open") {
       throw new WorkRefusal(
         "work-ended",
-        `«${work.title}» has ended (${work.outcome ?? "ended"}), so nothing more joins it, is asked about it or is noted on it. Open a new piece of work for what comes next.`,
+        `«${work.title}» has ended (${work.state.outcome.kind}), so nothing joins it or is noted on it until it is opened again — \`work_open\` on the same host, repo and branch brings it back as it stands.`,
       );
     }
     return work;
   };
 
   const activeRefs = (): ReadonlyArray<string> =>
-    everyWork().flatMap((work) =>
-      work.endedAt !== null
-        ? []
-        : work.members
-            .filter((one) => one.leftAt === null)
-            .map((one) => one.terminal),
-    );
+    [...deps.members.all()]
+      .filter(([, one]) => works.get(one.work)?.state.kind === "open")
+      .map(([ref]) => ref);
+
+  /** THE LAST TERMINAL WENT — said once, and never as an ending. */
+  const emptied = (id: WorkId): void => {
+    const work = works.get(id);
+    if (work === undefined || work.state.kind !== "open") return;
+    if (deps.members.ofWork(id).length > 0) return;
+    deps.noTerminals(id, work);
+  };
+
+  const leave = (ref: string, why: "closed" | "released" | "gone"): void => {
+    const found = at(ref);
+    deps.members.forget(ref);
+    deps.records.schedule("members");
+    deps.membersMoved(true);
+    if (found === undefined) {
+      changed();
+      return;
+    }
+    save(found.id, leaveWork(found.work, { terminal: ref, why, at: nowIso() }));
+    changed();
+    emptied(found.id);
+  };
 
   return {
     all: everyWork,
@@ -392,29 +450,79 @@ export const workStore = (deps: {
     publishReadings,
     sweepFiles,
     memberRefs: activeRefs,
-    persisted: everyWork,
+    persisted: () => Object.fromEntries(works),
     read: () => [...inProgress(everyWork()), ...finished(everyWork())],
-    open: (work) => {
-      save(work);
+    openAsks: () =>
+      inProgress(everyWork()).flatMap(([, work]) => openAsks(work)),
+    openFor: ({ key, title, request }) => {
+      const id = workIdOf(key);
+      const held = works.get(id);
+      if (held !== undefined) {
+        // THE SAME WORK, AS IT STANDS. An ended one comes back open, decisions
+        // and timeline whole; an open one is handed back untouched, and the
+        // caller asks only the setup questions that have no answer.
+        if (held.state.kind === "open")
+          return { id, work: held, created: false, reopened: false };
+        const again = reopenWork(held, nowIso());
+        works.set(id, again);
+        changed();
+        return { id, work: again, created: false, reopened: true };
+      }
+      const work = openWork({ key, title, at: nowIso(), request });
+      works.set(id, work);
+      changed();
+      return { id, work, created: true, reopened: false };
     },
-    // THE QUESTIONS COME BACK OPEN. A question is a decision with no answer
-    // yet and nothing holds a promise behind it, so a restart finds exactly
-    // what it left: the card still offers it, and answering it wakes the
-    // conversation this boot brings up. Dropping them here is what used to
-    // make a plan approval disappear overnight.
-    load: (kept, was) => {
-      for (const work of kept) works.set(work.id, work);
-      deps.members.reseed(activeRefs(), was);
+    stop: (id, by) => {
+      const work = openAt(id);
+      const stopped = endWork(work, {
+        outcome: { kind: "stopped", by },
+        at: nowIso(),
+      });
+      save(id, stopped);
+      changed();
+      return stopped;
     },
-    restore: (kept, was) => {
-      const before = Object.keys(deps.members.saved());
+    reopen: (id) => {
+      const work = works.get(id);
+      if (work === undefined) return openAt(id);
+      const again = reopenWork(work, nowIso());
+      works.set(id, again);
+      changed();
+      return again;
+    },
+    endWith: (id, outcome) => {
+      const work = works.get(id);
+      if (work === undefined || work.state.kind !== "open") return;
+      save(id, endWork(work, { outcome, at: nowIso() }));
+      changed();
+    },
+    declined: (id) => {
+      const work = works.get(id);
+      if (work === undefined) return false;
+      // NOTHING HAS HAPPENED IN IT: no terminal ever joined, and no pull
+      // request was ever seen. A work like that is not an ENDING anybody
+      // wants to read about — it is a card that should never have been drawn.
+      const happened = work.events.some(
+        (one) => one.kind === "joined" || one.kind === "pr-opened",
+      );
+      if (happened) return false;
+      works.delete(id);
+      deps.members.dropWork(id);
+      changed();
+      sweepFiles();
+      deps.records.now("works");
+      return true;
+    },
+    load: (kept, members) => {
+      for (const [id, work] of Object.entries(kept)) works.set(id, work);
+      deps.members.load(members);
+    },
+    restore: (kept, members) => {
+      const before = [...deps.members.all().keys()];
       works.clear();
-      // The SNAPSHOT'S OWN questions, as it recorded them: a backup taken
-      // while something was open is restored with it open, because that is
-      // what the record says.
-      for (const work of kept) works.set(work.id, work);
-      const refs = activeRefs();
-      deps.members.reseed(refs, was);
+      for (const [id, work] of Object.entries(kept)) works.set(id, work);
+      deps.members.load(members);
       publishWorks();
       publishReadings();
       // The kept files of works this snapshot never had are unreachable from
@@ -426,49 +534,46 @@ export const workStore = (deps: {
       deps.records.now("works");
       deps.records.now("members");
       deps.membersMoved(true);
-      // A terminal the snapshot does not have as a member has nothing left to
-      // read — and nothing left to say about it either, which is the caller's
-      // to act on.
-      const still = new Set(refs);
+      const still = new Set(activeRefs());
       return before.filter((ref) => !still.has(ref));
     },
     membersDetail: () =>
-      everyWork().flatMap((work) =>
-        work.endedAt !== null
-          ? []
-          : work.members
-              .filter((one) => one.leftAt === null)
-              .map((one) => {
-                const member = deps.members.at(one.terminal);
-                return {
-                  ref: one.terminal,
-                  work: work.id,
-                  role: one.role,
-                  name: member?.name ?? "",
-                  agent: member?.agent ?? null,
-                  joined: member?.joined ?? "asked",
-                };
-              }),
-      ),
-    join: (id, ref, role, joined) => {
+      [...deps.members.all()]
+        .filter(([, one]) => works.get(one.work)?.state.kind === "open")
+        .map(([ref, one]) => ({
+          ref,
+          work: one.work,
+          role: one.role,
+          name: one.name,
+          agent: one.agent,
+          joined: one.joined,
+        })),
+    join: (id, ref, role, how) => {
       const work = openAt(id);
-      const already = at(ref);
+      const already = deps.members.at(ref);
       // A TERMINAL ALREADY IN THIS WORK KEEPS THE ROLE IT WAS GIVEN FIRST, and
-      // keeps what kolu already knows about it — what it was told, whether
-      // anything has been said to it, whether its command ran.
-      if (already?.work.id === id) return;
+      // keeps what kolu already knows about it.
+      if (already?.work === id) return;
+      // ONE PLANNER, ONE IMPLEMENTOR. Refused rather than written: a store
+      // with two is one `parseStore` would not read back, and the caller is
+      // owed the sentence that says which terminal already has the part.
+      const taken = deps.members.inRole(id, role);
+      if (taken !== undefined && role !== "other") {
+        throw new WorkRefusal(
+          "role-taken",
+          `«${work.title}» already has ${taken} as its ${role} — a piece of work has one planner and one implementor. Give this terminal the other role, or open a piece of work of its own for it.`,
+        );
+      }
       // ... and one doing something ELSE leaves that first: a terminal does
       // one piece of work at a time, and a member of two works is two cards
       // claiming the same agent.
-      if (already !== undefined) save(leave(already.work, ref, "released"));
-      save(
-        joinWork(works.get(id) ?? work, {
-          terminal: ref,
-          role,
-          at: nowIso(),
-        }),
+      if (already !== undefined) leave(ref, "released");
+      const at = nowIso();
+      save(id, joinWork(works.get(id) ?? work, { terminal: ref, role, at }));
+      deps.members.set(
+        ref,
+        joinedMember({ work: id, role, joinedAt: at, worktree: null }, how),
       );
-      deps.members.set(ref, joinedMember(joined));
       changed();
       deps.records.schedule("members");
       deps.membersMoved(true);
@@ -479,11 +584,12 @@ export const workStore = (deps: {
      *  no mode decided yet. */
     driven: (ref) => {
       const found = at(ref);
-      const driver = found === undefined ? null : driverOf(found.work, ref);
+      const driver =
+        found === undefined ? null : driverOf(found.work, ref, found.member);
       if (found === undefined || driver === null) {
         throw new WorkRefusal(
           "not-driven",
-          `kolu's Conductor is not driving ${ref}, so there is nothing to take over or hand back — only an active member of a piece of work in progress that kolu runs (mode full or trivial) is driven.`,
+          `kolu's Conductor is not driving ${ref}, so there is nothing to take over or hand back — only a member of a piece of work in progress that kolu runs (mode full or trivial) is driven.`,
         );
       }
       return { ...found, driver };
@@ -493,10 +599,12 @@ export const workStore = (deps: {
       if (found === undefined) return;
       const stamp = nowIso();
       save(
+        found.id,
         what === "taken-over"
           ? takeOverRecord(found.work, ref, stamp)
           : handBackRecord(found.work, ref, stamp),
       );
+      changed();
     },
   };
 };

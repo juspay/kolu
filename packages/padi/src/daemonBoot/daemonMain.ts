@@ -117,6 +117,7 @@ import {
 import { resolveTerminalEndpoint } from "../terminalEndpoint/resolve.ts";
 import { snapshotSession } from "../terminals.ts";
 import { publishAgentDistroAtBoot } from "../agentDistro/agentDistro.ts";
+import { markRosterEstablished } from "../attention/fleetGate.ts";
 import { currentPadiBuildIdentity } from "./buildId.ts";
 import { buildControlCoreDeps } from "./controlCore.ts";
 
@@ -513,7 +514,15 @@ function bootLocalEndpoint(params: {
   stateRoot: string;
   log: Logger;
 }): Effect.Effect<{ booted: true }> {
-  return Effect.as(
+  // THE ROSTER BECOMES EVIDENCE when this resolves — the endpoint is up and the
+  // saved session has been reconciled (adopted, healed, or parked), so what the
+  // registry lists is what this host HAS, empty or not. Said on the wire
+  // (`padiSurface`'s `roster` cell): until this moment padi serves an
+  // information-free registry, and a reader that took it as a census recorded
+  // every member terminal of every work as `gone` on each redeploy (#2376).
+  // Here, not in `onBootSettled` — that fires on the endpoint's FIRST STATUS,
+  // which precedes the adopt/park this effect's completion proves.
+  return Effect.map(
     ensureLocalEndpoint({
       home: params.kavalHome,
       // The W2.2 upgrade bridge: adopt a surviving pre-W2.2 port-keyed kaval (if the
@@ -563,7 +572,10 @@ function bootLocalEndpoint(params: {
         signal.addEventListener("abort", stopSupervision, { once: true });
       },
     }),
-    { booted: true } as const,
+    () => {
+      markRosterEstablished();
+      return { booted: true } as const;
+    },
   );
 }
 

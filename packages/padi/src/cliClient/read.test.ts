@@ -33,7 +33,7 @@
  */
 
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
-import type { PadiTerminal } from "@kolu/padi-client/surface";
+import type { PadiRoster, PadiTerminal } from "@kolu/padi-client/surface";
 import { awaitAgentState } from "@kolu/padi-client/watch";
 import type { AgentInfo, TerminalId } from "@kolu/terminal-vocab/schema";
 import { Effect, Stream } from "effect";
@@ -121,12 +121,22 @@ function fakeClient(streams: {
   keys: FakeSource<readonly TerminalId[]>;
   activity: FakeSource<readonly TerminalId[]>;
   get: (key: TerminalId) => FakeSource<PadiTerminal>;
+  /** The host's ROSTER STANDING — `established` unless a case overrides it,
+   *  which is what lets a missing id read as an absence at all (a padi that has
+   *  not finished adopting answers `settling`, and a wait must not call that
+   *  terminal gone — #2376). */
+  roster?: () => Stream.Stream<PadiRoster, unknown>;
 }): PadiSurfaceClient {
   return {
     surface: {
       terminals: {
         keys: () => streams.keys.stream(),
         get: (input: { key: TerminalId }) => streams.get(input.key).stream(),
+      },
+      roster: {
+        get: () =>
+          streams.roster?.() ??
+          Stream.make({ kind: "established", at: 1 } as PadiRoster),
       },
       activity: { get: () => streams.activity.stream() },
     },

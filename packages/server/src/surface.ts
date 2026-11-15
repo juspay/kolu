@@ -97,7 +97,7 @@ import { conductorSurfaceMembers } from "kolu-conductor/surface";
 import type { ConductorStoreKey } from "kolu-common/conductor";
 import { ConductorRefused } from "kolu-common/conductorErrors";
 import { recoverConductorStore } from "./conductorRecovery.ts";
-import { type Work, WorkRefusal } from "kolu-work";
+import { type Work, type WorkMember, WorkRefusal } from "kolu-work";
 import {
   liveServerConductor,
   setConductorCellWriter,
@@ -543,6 +543,7 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
     // collections, where the registry is the authority and both are no-ops).
     collections: {
       works: inMemoryCollection<string, Work>(),
+      workMembers: inMemoryCollection<string, WorkMember>(),
       memberReadings: inMemoryCollection<string, MemberReading>(),
     },
     streams: {
@@ -593,6 +594,13 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
           handOver(() => liveServerConductor().takeOver(input.terminal)),
         handBack: ({ input }: { input: { terminal: string } }) =>
           handOver(() => liveServerConductor().handBack(input.terminal)),
+        // STOP and REOPEN, bound beside the hand-over verbs and for the same
+        // reason: they move the WORK and ask the agent nothing, so a person
+        // can end (or resume) a piece of work while the conversation is down.
+        stopWork: ({ input }: { input: { work: string } }) =>
+          handOver(() => liveServerConductor().stopWork(input.work, "you")),
+        reopenWork: ({ input }: { input: { work: string } }) =>
+          handOver(() => liveServerConductor().reopenWork(input.work)),
         // PUTTING A RECORD KOLU CANNOT READ BACK IN A STATE IT CAN, bound
         // here for the third variant of the same reason: it is the one verb
         // that runs BECAUSE there is no conversation. It reaches no agent —
@@ -763,6 +771,12 @@ export function implementKoluSurface(deps: KoluSurfaceDeps) {
     work: (id, work) => {
       if (work === null) koluSurfaces.ctx.kolu.collections.works.remove(id);
       else koluSurfaces.ctx.kolu.collections.works.upsert(id, work);
+    },
+    member: (terminal, member) => {
+      if (member === null)
+        koluSurfaces.ctx.kolu.collections.workMembers.remove(terminal);
+      else
+        koluSurfaces.ctx.kolu.collections.workMembers.upsert(terminal, member);
     },
     reading: (terminal, reading) => {
       if (reading === null)

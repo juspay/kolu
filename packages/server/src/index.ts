@@ -50,7 +50,9 @@ import {
 import { type FleetWorks, serveKoluFleetMcp } from "kolu-mcp";
 import {
   driverOf,
+  branchOf,
   hostOf,
+  repoOf,
   modeOf,
   onGreenOf,
   policyOf,
@@ -689,18 +691,18 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
       const detail = liveServerConductor().membersDetail();
       return {
         works: stored
-          .filter((work) => work.endedAt === null)
-          .map((work) => ({
-            id: work.id,
+          .filter(([, work]) => work.state.kind === "open")
+          .map(([id, work]) => ({
+            id,
             title: work.title,
-            repo: work.repo,
-            branch: work.branch,
+            repo: repoOf(work),
+            branch: branchOf(work),
             host: hostOf(work),
             mode: modeOf(work),
             onGreen: onGreenOf(work),
             standing: standing(work, policyOf(work)),
             members: detail
-              .filter((one) => one.work === work.id)
+              .filter((one) => one.work === id)
               .map((one) => ({
                 ref: one.ref,
                 role: one.role,
@@ -710,28 +712,28 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
                 name: one.name === "" ? null : one.name,
                 agent: one.agent,
                 joined: one.joined,
-                // WHOSE KEYBOARD IT IS — a reading of the work's own timeline,
-                // so an agent reading this resource after a restart sees the
-                // hand-over that happened while it was away. `you` means the
-                // person took it over: the agent must not send it input until
-                // it is handed back (a wake says when).
-                driver: driverOf(work, one.ref),
+                // WHOSE KEYBOARD IT IS — a reading of the work's own timeline.
+                driver: driverOf(work, one.ref, one),
               })),
             // The questions still standing, in the words they were put in: an
             // agent reading its own work must see what the human has not
             // answered yet without guessing at an ask id.
             openQuestions: work.decisions
-              .filter((one) => one.answer === null)
+              .filter((one) => one.kind === "asked")
               .map((one) => one.question),
           })),
-        finished: stored
-          .filter((work) => work.endedAt !== null)
-          .map((work) => ({
-            id: work.id,
-            title: work.title,
-            outcome: work.outcome,
-            endedAt: work.endedAt ?? "",
-          })),
+        finished: stored.flatMap(([id, work]) =>
+          work.state.kind === "ended"
+            ? [
+                {
+                  id,
+                  title: work.title,
+                  outcome: work.state.outcome,
+                  endedAt: work.state.at,
+                },
+              ]
+            : [],
+        ),
       };
     },
     subscribe: (cb) => {
@@ -746,9 +748,12 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     // the agent is told what it asked for without a second shape in between.
     // NOTHING WAITS: the human's answers arrive later, as a wake.
     open: (intent) => {
-      const { work, setup, ask, asked } =
+      const { work, setup, ask, asked, created, reopened } =
         liveServerConductor().openWork(intent);
-      return { work, ...setup, ask, asked };
+      return { work, ...setup, ask, asked, created, reopened };
+    },
+    stop: (work) => {
+      liveServerConductor().stopWork(work, "conductor");
     },
     ask: (work, questions) =>
       liveServerConductor().askAboutWork(work, questions),
@@ -772,9 +777,9 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     check: (work) => {
       const found = liveServerConductor()
         .works()
-        .find((one) => one.id === work);
+        .find(([id]) => id === work)?.[1];
       if (found === undefined) return "unknown-work";
-      return found.endedAt !== null ? "work-ended" : null;
+      return found.state.kind === "ended" ? "work-ended" : null;
     },
   };
   const fleetMcp = await startFleetMcpEndpoint({

@@ -604,25 +604,32 @@ describe("useSessionRestore — the restored active tile does NOT ride the sessi
   // goes through padi's Conf (a synchronous DISK write) before the `session`
   // snapshot is published. On a loaded box that disk write can outlast the
   // client's per-terminal metadata round-trips, so the hydration effect sees the
-  // full restored set while still holding the blob it CONSUMED — whose
-  // `activeTerminalId` names a PRE-restore id that no longer exists. The
-  // membership check then silently falls back to `topIds[0]` and `markSeeded()`
-  // latches the wrong tile for the rest of the session: a lost write, not a slow
-  // one, which is why the step failed for the full 20 s on every attempt.
+  // restored set while still holding the blob it CONSUMED. Reading the active tile
+  // off that blob instead of off the call's answer fell back to `topIds[0]` and
+  // `markSeeded()` latched the wrong tile for the rest of the session: a lost
+  // write, not a slow one, which is why the step failed for the full 20 s on every
+  // attempt.
   //
   // The fix makes the ordering STRUCTURAL: `session.restore` ANSWERS with the
   // active terminal the host settled on, the hook pins that answer on the host's
   // latch, and the seed waits for the call to answer instead of racing the blob.
-  // This test drives the adverse ordering directly — restored terminals arrive
-  // while the session cell still holds the consumed blob — and is red without it.
+  //
+  // A restore now re-spawns every terminal under its OWN id (padi's `restoreSpawn`
+  // takes the saved id), so the consumed blob and the answer AGREE on which tile is
+  // active — the old "the blob names a pre-restore id that no longer exists" arm is
+  // gone from the host, and the ordering that is still observable (the answered
+  // tile's row arriving after the answer) lives in the sibling describe below. What
+  // this one pins is the seed itself: exactly ONE activation, on the tile the host
+  // named rather than the first-listed one, and a later session push re-seeding
+  // nothing.
   const activeMeta = (): TerminalMetadata =>
     ({ state: "active", parentId: undefined }) as unknown as TerminalMetadata;
 
-  /** The blob the user clicked Restore on: pre-restore ids, and an
-   *  `activeTerminalId` naming the SECOND of them. */
+  /** The blob the user clicked Restore on — the same ids the restore brings back,
+   *  with `activeTerminalId` naming the SECOND of them. */
   const consumedBlob = {
     terminals: [],
-    activeTerminalId: "old-1",
+    activeTerminalId: "t-1",
     savedAt: 1,
     resumableIds: [],
   };
@@ -631,10 +638,10 @@ describe("useSessionRestore — the restored active tile does NOT ride the sessi
     h.listPending = false;
     h.sessionPending = false;
     h.savedSession = consumedBlob;
-    // The host maps the saved active through old→new and answers with the id it
-    // made active — the FRESH id of the second tile.
+    // The host answers with the id it made active — the saved marker, which is
+    // the SECOND tile and comes back under that same id.
     rpc.restore.mockImplementationOnce(() =>
-      Effect.succeed({ activeTerminalId: "new-1" }),
+      Effect.succeed({ activeTerminalId: "t-1" }),
     );
 
     await new Promise<void>((resolve, reject) => {
@@ -663,24 +670,24 @@ describe("useSessionRestore — the restored active tile does NOT ride the sessi
             await new Promise((r) => setTimeout(r, 0));
             expect(session.savedSession()).toEqual(consumedBlob);
 
-            // The user restores. The host spawns both tiles under FRESH ids and
-            // publishes them; its `session` snapshot is still in flight behind
-            // the disk write, so the cell keeps serving the CONSUMED blob.
+            // The user restores. The host re-spawns both tiles under their own
+            // ids and publishes them; its `session` snapshot is still in flight
+            // behind the disk write, so the cell keeps serving the CONSUMED blob.
             await Effect.runPromise(session.handleRestoreSession({}));
-            setMeta({ "new-0": activeMeta(), "new-1": activeMeta() });
-            setList([{ id: "new-0" }, { id: "new-1" }] as TerminalInfo[]);
+            setMeta({ "t-0": activeMeta(), "t-1": activeMeta() });
+            setList([{ id: "t-0" }, { id: "t-1" }] as TerminalInfo[]);
             await new Promise((r) => setTimeout(r, 0));
 
-            // The SECOND tile is active — the host said so. Reading the consumed
-            // blob here would pick `new-0` (its "old-1" is in no live set).
-            expect(setActiveSilently).toHaveBeenCalledWith("new-1");
-            expect(setActiveSilently).not.toHaveBeenCalledWith("new-0");
+            // The SECOND tile is active — the host said so. The `topIds[0]`
+            // fallback (what the lost-write path took) would pick `t-0`.
+            expect(setActiveSilently).toHaveBeenCalledWith("t-1");
+            expect(setActiveSilently).not.toHaveBeenCalledWith("t-0");
 
             // The late session push is a no-op: the view is already seeded.
             setActiveSilently.mockClear();
             h.pushSavedSession({
               terminals: [],
-              activeTerminalId: "new-1",
+              activeTerminalId: "t-1",
               savedAt: 2,
               resumableIds: [],
             });
@@ -709,7 +716,7 @@ describe("useSessionRestore — the seed WAITS for the answered tile to reach th
   // `hydrateFromTerminals`, fell back to `topIds[0]` and `markSeeded()` the wrong
   // tile permanently — the 20 s e2e timeout on "the active canvas tile should
   // match the saved-session second tile". Red when reverted: the seed runs on the
-  // partial list and activates `new-0`.
+  // partial list and activates `t-0`.
   const activeMeta = (): TerminalMetadata =>
     ({ state: "active", parentId: undefined }) as unknown as TerminalMetadata;
 
@@ -718,14 +725,14 @@ describe("useSessionRestore — the seed WAITS for the answered tile to reach th
     h.sessionPending = false;
     h.savedSession = {
       terminals: [],
-      activeTerminalId: "old-1",
+      activeTerminalId: "t-1",
       savedAt: 1,
       resumableIds: [],
     };
-    // The host answers with the SECOND tile's fresh id — the delta carrying it
-    // has not been applied on this client yet.
+    // The host answers with the SECOND tile — restored under its own saved id,
+    // whose collection delta has not been applied on this client yet.
     rpc.restore.mockImplementationOnce(() =>
-      Effect.succeed({ activeTerminalId: "new-1" }),
+      Effect.succeed({ activeTerminalId: "t-1" }),
     );
 
     await new Promise<void>((resolve, reject) => {
@@ -758,24 +765,24 @@ describe("useSessionRestore — the seed WAITS for the answered tile to reach th
             // (1) Only the FIRST restored tile's row + record have been applied.
             // The answered id is not in the list, so the seed must NOT run — and
             // must NOT consume the answer.
-            setMeta({ "new-0": activeMeta() });
-            setList([{ id: "new-0" }] as TerminalInfo[]);
+            setMeta({ "t-0": activeMeta() });
+            setList([{ id: "t-0" }] as TerminalInfo[]);
             await new Promise((r) => setTimeout(r, 0));
             expect(setActiveSilently).not.toHaveBeenCalled();
 
             // (2) The second tile's delta lands. The seed runs ONCE, on the tile
             // the host named.
-            setMeta({ "new-0": activeMeta(), "new-1": activeMeta() });
-            setList([{ id: "new-0" }, { id: "new-1" }] as TerminalInfo[]);
+            setMeta({ "t-0": activeMeta(), "t-1": activeMeta() });
+            setList([{ id: "t-0" }, { id: "t-1" }] as TerminalInfo[]);
             await new Promise((r) => setTimeout(r, 0));
             expect(setActiveSilently).toHaveBeenCalledTimes(1);
-            expect(setActiveSilently).toHaveBeenCalledWith("new-1");
+            expect(setActiveSilently).toHaveBeenCalledWith("t-1");
 
             // Seeded is latched: a later session push re-seeds nothing.
             setActiveSilently.mockClear();
             h.pushSavedSession({
               terminals: [],
-              activeTerminalId: "new-0",
+              activeTerminalId: "t-0",
               savedAt: 2,
               resumableIds: [],
             });
@@ -825,11 +832,14 @@ describe("useSessionRestore — that wait is BOUNDED (the answered tile never ar
     return { store, deliver, setActiveSilently };
   }
 
-  /** The saved blob the restore consumed — its `activeTerminalId` names a
-   *  PRE-restore id, so the fallback path can only land on `topIds[0]`. */
+  /** The saved blob the restore consumed. The answered tile is the one record
+   *  whose respawn FAILED and was re-parked, so it never reaches the list — and
+   *  the blob names that same id (a restore keeps every id, so the two agree even
+   *  when the terminal did not come back), which leaves the fallback path nothing
+   *  live to name and lands it on `topIds[0]`. */
   const consumedBlob = {
     terminals: [],
-    activeTerminalId: "old-1",
+    activeTerminalId: "t-1",
     savedAt: 1,
     resumableIds: [],
   };
@@ -841,7 +851,7 @@ describe("useSessionRestore — that wait is BOUNDED (the answered tile never ar
     h.savedSession = consumedBlob;
     // The host answers with a tile whose collection row this client must wait for.
     rpc.restore.mockImplementationOnce(() =>
-      Effect.succeed({ activeTerminalId: "new-1" }),
+      Effect.succeed({ activeTerminalId: "t-1" }),
     );
   });
 
@@ -859,9 +869,9 @@ describe("useSessionRestore — that wait is BOUNDED (the answered tile never ar
             await Effect.runPromise(session.handleRestoreSession({}));
             vi.useFakeTimers();
 
-            // Only the FIRST restored tile ever lands. `new-1` is stale: the host
+            // Only the FIRST restored tile ever lands. `t-1` is stale: the host
             // that answered no longer holds it.
-            deliver("new-0");
+            deliver("t-0");
             await vi.advanceTimersByTimeAsync(0);
             expect(setActiveSilently).not.toHaveBeenCalled();
 
@@ -872,16 +882,16 @@ describe("useSessionRestore — that wait is BOUNDED (the answered tile never ar
             expect(toastSpy.error).not.toHaveBeenCalled();
 
             // The deadline fires: EXACTLY one seed, down the blob-fallback path —
-            // the consumed blob's `old-1` is in no live set, so `topIds[0]`.
+            // the consumed blob's `t-1` is in no live set either, so `topIds[0]`.
             await vi.advanceTimersByTimeAsync(1);
             expect(setActiveSilently).toHaveBeenCalledTimes(1);
-            expect(setActiveSilently).toHaveBeenCalledWith("new-0");
+            expect(setActiveSilently).toHaveBeenCalledWith("t-0");
             expect(toastSpy.error).toHaveBeenCalledTimes(1);
-            expect(toastSpy.error.mock.calls[0]?.[0]).toContain("new-1");
+            expect(toastSpy.error.mock.calls[0]?.[0]).toContain("t-1");
 
             // Seeded is latched: a late arrival of the answered id changes nothing
             // (the box was consumed, so it cannot gate or seed a second time).
-            deliver("new-0", "new-1");
+            deliver("t-0", "t-1");
             await vi.advanceTimersByTimeAsync(ANSWERED_TILE_DEADLINE_MS);
             expect(setActiveSilently).toHaveBeenCalledTimes(1);
             expect(toastSpy.error).toHaveBeenCalledTimes(1);
@@ -911,15 +921,15 @@ describe("useSessionRestore — that wait is BOUNDED (the answered tile never ar
             await Effect.runPromise(session.handleRestoreSession({}));
             vi.useFakeTimers();
 
-            deliver("new-0");
+            deliver("t-0");
             await vi.advanceTimersByTimeAsync(ANSWERED_TILE_DEADLINE_MS - 1);
             expect(setActiveSilently).not.toHaveBeenCalled();
 
             // The delta lands with one millisecond to spare — the ordinary path.
-            deliver("new-0", "new-1");
+            deliver("t-0", "t-1");
             await vi.advanceTimersByTimeAsync(0);
             expect(setActiveSilently).toHaveBeenCalledTimes(1);
-            expect(setActiveSilently).toHaveBeenCalledWith("new-1");
+            expect(setActiveSilently).toHaveBeenCalledWith("t-1");
             expect(toastSpy.error).not.toHaveBeenCalled();
 
             // No LATE fire: the seed disarmed the timer, so the deadline's instant
@@ -944,14 +954,16 @@ describe("useSessionRestore — that wait is BOUNDED (the answered tile never ar
 
 describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSeeded reset)", () => {
   // FIX 2: `viewSeeded` latches true on the first live load so a reconnect doesn't
-  // re-pan/re-seed. But an in-session `recycleKaval` restore (no page reload)
-  // re-spawns every terminal under FRESH ids and IS a re-seed event. Without the
-  // reset in `handleRestoreSession`, the hydration effect short-circuits on the
-  // stale latch, so a restored parent's active sub-tab is never set and its split
-  // comes back HIDDEN. This drives the real sequence — live load (latch) → drain
-  // (empty, restore card) → restore click (reset) → restored terminals arrive —
-  // and asserts the restored parent's sub-tab IS seeded on the second hydration.
-  // Red-when-reverted: without the reset, the final `setActiveSubTab(P1, S1)` never
+  // re-pan/re-seed. But an in-session `recycleKaval` restore (no page reload) tears
+  // every tile off the canvas and spawns it a new shell, and IS a re-seed event:
+  // the parent comes back under its own id but with nothing seeded for it on this
+  // client, because the drain took its sub-panel state with it. Without the reset
+  // in `handleRestoreSession`, the hydration effect short-circuits on the stale
+  // latch, so a restored parent's active sub-tab is never set and its split comes
+  // back HIDDEN. This drives the real sequence — live load (latch) → drain (empty,
+  // restore card) → restore click (reset) → restored terminals arrive — and asserts
+  // the restored parent's sub-tab IS seeded on the second hydration.
+  // Red-when-reverted: without the reset, the second `setActiveSubTab(P, S)` never
   // fires.
   function reactiveStore() {
     const [list, setList] = createSignal<TerminalInfo[] | undefined>(undefined);
@@ -1015,15 +1027,17 @@ describe("useSessionRestore — an in-session restore RE-SEEDS the view (viewSee
             // 3) The user clicks Restore — `handleRestoreSession` resets the latch.
             await Effect.runPromise(session.handleRestoreSession({}));
 
-            // 4) The restored terminals arrive under FRESH ids. With the latch
-            // reset, the hydration effect re-seeds the restored parent's sub-tab.
-            setMeta({ P1: splitMeta(), S1: splitMeta("P1") });
-            setList([{ id: "P1" }, { id: "S1" }] as TerminalInfo[]);
+            // 4) The restored terminals arrive — the SAME ids they were saved
+            // under (padi's restore re-spawns each terminal on its own id). With
+            // the latch reset, the hydration effect re-seeds the parent's sub-tab;
+            // without it, this second pass never runs.
+            setMeta({ P0: splitMeta(), S0: splitMeta("P0") });
+            setList([{ id: "P0" }, { id: "S0" }] as TerminalInfo[]);
             await new Promise((r) => setTimeout(r, 0));
 
             expect(subPanelSpy.setActiveSubTab).toHaveBeenCalledWith(
-              "P1" as TerminalId,
-              "S1" as TerminalId,
+              "P0" as TerminalId,
+              "S0" as TerminalId,
             );
 
             dispose();

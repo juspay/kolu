@@ -11110,6 +11110,54 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "1a58154869529cb318184108e95385b92a6a7bf5"
+    },
+    {
+      "revisionId": "revision-c52a680e9715898e19b0",
+      "scenarioKey": "scenario-a3d9bcee8e2d7830b8d2",
+      "feature": "features/conductor-work.feature",
+      "scenario": "A kolu-server restart leaves the work open, with its terminals",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "0b9c132e788dd442e67523868a7eff4fb8397beba82c08fc6b025b5696370915",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5507ab5da778a67bd2807efac6484969293c6b71"
+    },
+    {
+      "revisionId": "revision-a1a7ff805c111719c24c",
+      "scenarioKey": "scenario-08c61896fb846b746957",
+      "feature": "features/conductor-work.feature",
+      "scenario": "Declining the setup of a work nothing has happened in removes it",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "061a6ba63342fec2a750461047f546f04f74623a17eaef8fa766511a2ff1ab4e",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5507ab5da778a67bd2807efac6484969293c6b71"
+    },
+    {
+      "revisionId": "revision-c1fc22348fdbdb88170b",
+      "scenarioKey": "scenario-cd60040d137b763e42c8",
+      "feature": "features/conductor-work.feature",
+      "scenario": "Opening the same branch twice is one piece of work",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "b1f1e519b45915c5647e40e5484ad5527abf080f2d4e605508ee481dde5ed4b4",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5507ab5da778a67bd2807efac6484969293c6b71"
+    },
+    {
+      "revisionId": "revision-f4b1714fe6ad5bc40980",
+      "scenarioKey": "scenario-b5e06d824bbb1d772920",
+      "feature": "features/conductor-work.feature",
+      "scenario": "Stopped from the card, and opened again, with everything it decided",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "41ced772d952245290b7d98e66fb42f5d68c4c9a77936ec7fdffe57065b464d3",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5507ab5da778a67bd2807efac6484969293c6b71"
     }
   ]
 }

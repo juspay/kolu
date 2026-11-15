@@ -58,8 +58,8 @@ import { match } from "ts-pattern";
 import { notify } from "../attentionNotify";
 import { hostLabel } from "../host/hostChipTone";
 import {
-  conductorAsksTotal,
   conductorOpenAsks,
+  useConductorBadge,
   useConductorFacts,
 } from "../conductor/useConductorFacts";
 import {
@@ -250,6 +250,10 @@ export function useAttention(deps: AttentionDeps): {
   // …and the CONDUCTOR mirror, for the same reason: a conversation blocked
   // on a host nobody is looking at is exactly the one that has to reach you.
   useConductorFacts();
+  // …and the one count of "what is waiting on you", shared with the tab that
+  // wears it: the OS badge is a second READER of that number, never a second
+  // derivation of it.
+  const conductorWaiting = useConductorBadge();
 
   // Feed every host's attention frame to the engine, off the marks store. One
   // owner per marked host (so a host leaving the pool disposes its engine state
@@ -316,10 +320,12 @@ export function useAttention(deps: AttentionDeps): {
       paintBadge(0);
       return;
     }
-    // Σ asking over LIVE hosts, PLUS the conversations waiting on a question.
-    // One number on the icon, because there is one OS slot and a person
-    // counting two badges has to add them anyway.
-    paintBadge(liveAskingTotal() + conductorAsksTotal());
+    // Σ asking over LIVE hosts, PLUS what the conversation is waiting on —
+    // the SAME number the Conductor tab wears, so the icon and the tab cannot
+    // disagree about how many things need you. One number on the icon,
+    // because there is one OS slot and a person counting two badges has to
+    // add them anyway.
+    paintBadge(liveAskingTotal() + conductorWaiting.waiting());
   });
 
   // The violet-capsule JUMP verb (see `attentionNav`): switch to the host, then

@@ -479,7 +479,7 @@ const setupFor = (
     answer: string,
   ) => ({ key, question, options, given: answer });
   const setup: Array<Record<string, unknown>> = [
-    given("host", "Which host?", [over.host ?? "local"], over.host ?? "local"),
+    // The HOST is no longer a setup question: it is part of the work's key.
     given("mode", "Which mode?", [mode], mode),
   ];
   if (mode === "watch") return setup;
@@ -511,15 +511,34 @@ const setupFor = (
 /** Open a piece of work and remember it. Answers the work's id — the call
  *  comes back AT ONCE, whether or not a setup question went to the human:
  *  what they say arrives later, as a wake. */
+const slug = (title: string): string =>
+  title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
 const openWork = async (
   title: string,
   mode: "full" | "trivial" | "watch",
-  over: { host?: string; repo?: string; askOnGreen?: boolean } = {},
+  over: {
+    host?: string;
+    repo?: string;
+    askOnGreen?: boolean;
+    watch?: string;
+  } = {},
 ): Promise<string | null> => {
+  // A WORK IS ITS KEY. Each title gets a branch of its own, so two scenarios
+  // in one worker are two pieces of work — and opening the SAME title twice
+  // is the idempotent case: the same key, the same work, no second card.
   const answer = await callTool("work_open", {
     title,
-    repo: over.repo ?? "",
-    branch: "",
+    ...(over.watch === undefined
+      ? {
+          host: over.host ?? "local",
+          repo: over.repo ?? "/tmp/kolu-e2e",
+          branch: slug(title),
+        }
+      : { watch: over.watch }),
     setup: setupFor(mode, over),
   });
   const work = /"work"\s*:\s*"([^"]+)"/.exec(answer)?.[1] ?? null;
@@ -663,7 +682,7 @@ const turn = async (
     // then the terminal they pointed at adopted into it as `other`.
     const terminalId = text.slice("watch ".length).trim();
     const work = await openWork(`watch ${terminalId}`, "watch", {
-      host: "local",
+      watch: `local/${terminalId}`,
     });
     if (work === null) {
       say("nothing opened");

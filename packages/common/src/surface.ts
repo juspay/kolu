@@ -74,7 +74,7 @@ import { match } from "ts-pattern";
 // `Work`, imported rather than re-declared: a browser reads the stored record,
 // and a second wire shape beside it would be a second answer to what a piece
 // of work IS.
-import { WorkSchema } from "kolu-work";
+import { WorkMemberSchema, WorkSchema } from "kolu-work";
 // The host key, from its own padi-LESS module — the forward vocabulary below is
 // keyed by it, so a row can be filtered to a terminal's host without parsing an
 // ssh string. `./hostKey.ts` imports nothing of padi, so this keeps the seal.
@@ -89,6 +89,7 @@ import {
   ConductorAnswerInputSchema,
   ConductorAnswerOutputSchema,
   ConductorAnswerWorkInputSchema,
+  ConductorWorkInputSchema,
   ConductorAnswerWorkOutputSchema,
   ConductorAttachInputSchema,
   ConductorAttachOutputSchema,
@@ -1210,6 +1211,21 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
       verbs: ["keys", "get"],
       client: { onError: { kind: "toast", label: "Works" } },
     },
+    /** WHICH WORK EACH MEMBER TERMINAL IS IN — one entry per member, keyed by
+     *  its `<host>/<id>` ref, holding the work it belongs to, its role, when
+     *  it joined and where it is working.
+     *
+     *  ITS OWN COLLECTION, and that is what makes "a terminal is in at most
+     *  one piece of work" true rather than checked: membership is one row
+     *  under one key, so a terminal cannot be listed inside two works. A
+     *  terminal with no row is a terminal no work has — and an open work with
+     *  no rows pointing at it is the "no terminals" card. */
+    workMembers: {
+      keySchema: Schema.String,
+      schema: WorkMemberSchema,
+      verbs: ["keys", "get"],
+      client: { onError: { kind: "toast", label: "Works" } },
+    },
     /** HOW EACH MEMBER TERMINAL STANDS — one entry per terminal the watch has
      *  read in THIS process, keyed by its `<host>/<id>` ref. Runtime only and
      *  never stored: an absent key is "not read yet", never "0s".
@@ -1383,6 +1399,25 @@ export const koluSurface = defineSurfaceWithPolicy<ToastOnlyPolicy>()({
        *  say so. Same single error, for the same reason. */
       handBack: {
         input: ConductorTerminalInputSchema,
+        error: Schema.Union([ConductorRefused]),
+      },
+      /** STOP A PIECE OF WORK — the card's button, behind its confirm. The
+       *  work ends `stopped by you`, its members leave with it and its open
+       *  questions are dropped. The ONLY endings are this, the Conductor's
+       *  own `work_stop`, and the forge saying merged or closed: nothing kolu
+       *  merely fails to SEE ends a work.
+       *
+       *  `ConductorRefused` alone, as the hand-over verbs are: stopping work
+       *  must not wait on a conversation being up. */
+      stopWork: {
+        input: ConductorWorkInputSchema,
+        error: Schema.Union([ConductorRefused]),
+      },
+      /** ... and bring one back: Ended → Open, every decision and the whole
+       *  timeline kept, a `reopened` line on it. The same work — never a
+       *  second card for the same branch. */
+      reopenWork: {
+        input: ConductorWorkInputSchema,
         error: Schema.Union([ConductorRefused]),
       },
       /** PUT A RECORD KOLU CANNOT READ BACK IN A STATE IT CAN — the two

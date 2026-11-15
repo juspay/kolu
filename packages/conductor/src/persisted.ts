@@ -63,7 +63,14 @@ import {
 } from "kolu-common/conductor";
 import type { CellStore } from "@kolu/surface/server";
 import { Result, Schema } from "effect";
-import { WorkSchema } from "kolu-work";
+import {
+  InvalidWorkStore,
+  memberSchemaWith,
+  parseStore,
+  type Work,
+  type WorkId,
+  WorkSchema,
+} from "kolu-work";
 import { MemberWatchSchema } from "./members.ts";
 
 /** The conversation's SHAPE, as a schema rather than as an interface alone.
@@ -119,41 +126,39 @@ export type PersistedTranscript = typeof PersistedTranscriptSchema.Type;
 /** A state dir with no transcript file yet. */
 export const EMPTY_PERSISTED_TRANSCRIPT: PersistedTranscript = { rows: [] };
 
-/** EVERY WORK KOLU REMEMBERS — in progress first, in the order they were
- *  opened, then the finished ones it still keeps (the host's own retention
- *  number). The `works` key of `config.json`.
+/** EVERY WORK KOLU REMEMBERS — the `works` key of `config.json`, a JSON
+ *  OBJECT keyed by the work's own id (`workIdOf` of its key).
  *
- *  The record itself, unadorned: `kolu-work`'s `Work` and nothing bolted onto
- *  it. What the HOST additionally knows about a member terminal is its own
- *  key ({@link PersistedMembersSchema}) — a watch field inside the record cost
- *  five hand-held invariants and a cast per transition, and made a work's
- *  published value move every time a terminal was renamed. */
-export const PersistedWorksSchema = Schema.Array(WorkSchema);
+ *  An object rather than an array, and that is the whole of what makes "one
+ *  work per branch" true: two works with one key cannot both be in it. The
+ *  value is `kolu-work`'s `Work`, unadorned. What the HOST additionally knows
+ *  about a member terminal rides in the `members` key
+ *  ({@link PersistedMembersSchema}), where the membership itself now lives. */
+export const PersistedWorksSchema = Schema.Record(Schema.String, WorkSchema);
 export type PersistedWorks = typeof PersistedWorksSchema.Type;
 
-/** WHAT KOLU KNOWS ABOUT EACH MEMBER TERMINAL, by fleet ref — the `members`
- *  key of `config.json`.
+/** EVERY MEMBER TERMINAL, by fleet ref — the `members` key of `config.json`.
  *
- *  Its own key, beside the works rather than inside them, because it is a
- *  different thing moving on a different clock: a work is what the Conductor
- *  stated and the human decided, while this is the watch's own memory of a
- *  terminal (what it is called, what the conversation was told, whether
- *  anything has been said to it). A reader of the record is never handed it,
- *  and nothing outside this package can act on one.
+ *  ONE MAP, holding both halves of a member: what the model says it is (which
+ *  work, which role, since when, where it is working — `kolu-work`'s
+ *  `WorkMemberSchema`) and the WATCH'S own memory of that terminal (what it
+ *  is called, what the conversation was told, whether anything has been said
+ *  to it). They are one row because they are one thing, and because a
+ *  terminal with one row is a terminal in one work.
  *
- *  Keyed by ref, so the member of a work and the terminal the watcher reads
- *  are the same key; an entry whose ref is no longer an active member is
- *  dropped where the membership moves, not reconciled later.
- *
- *  The VALUE is `./members.ts`'s {@link MemberWatchSchema} — the member minus
- *  its two runtime fields, taken by subtraction at the write. */
+ *  There is no `leftAt`: a member is in this map or it is not, and that it
+ *  left is an event on the work's timeline. */
+export const PersistedMemberSchema = memberSchemaWith(MemberWatchSchema);
+export type PersistedMember = typeof PersistedMemberSchema.Type;
+
 export const PersistedMembersSchema = Schema.Record(
   Schema.String,
-  MemberWatchSchema,
+  PersistedMemberSchema,
 );
 export type PersistedMembers = typeof PersistedMembersSchema.Type;
 
-/** A state dir that has never had a member. */
+/** A state dir that has never had a piece of work, or a member. */
+export const EMPTY_PERSISTED_WORKS: PersistedWorks = {};
 export const EMPTY_PERSISTED_MEMBERS: PersistedMembers = {};
 
 /** The re-validations, compiled once. `decodeUnknownResult` is a BRANCH rather
@@ -164,21 +169,62 @@ const decodeTranscript = Schema.decodeUnknownResult(PersistedTranscriptSchema);
 const decodeWorks = Schema.decodeUnknownResult(PersistedWorksSchema);
 const decodeMembers = Schema.decodeUnknownResult(PersistedMembersSchema);
 
-/** WHAT EACH RECORD IS CALLED IN A SENTENCE A PERSON READS, and the pronoun
- *  that follows it. Not the key name: `works` is a JSON key, and a person
- *  whose Conductor will not come up is owed a noun, not a key. */
-const RECORD_WORDS: Record<
+/** EVERY REMEMBERED RECORD'S IDENTITY, IN ONE TABLE keyed by its store key:
+ *  what it is CALLED in a sentence a person reads (not the JSON key — `works`
+ *  is a key, and a person whose Conductor will not come up is owed a noun),
+ *  the pronoun that follows it, whether the state-backup ring covers it at
+ *  all, and the file its unreadable value is kept aside in.
+ *
+ *  One table rather than four facts spread across three packages: the screen
+ *  offers "restore the newest backup" only where there IS one, and quotes the
+ *  kept-aside path rather than describing it. */
+export const RECORD_FACTS: Record<
   ConductorStoreKey,
-  { readonly noun: string; readonly them: string }
+  {
+    readonly noun: string;
+    readonly them: string;
+    /** Whether the state-backup ring snapshots this record. The transcript is
+     *  deliberately outside it (it is most of the conversation's bytes and
+     *  moves on every keystroke), so there is no backup to offer for it. */
+    readonly inBackups: boolean;
+    /** The file `recoverStore { how: "empty" }` keeps the unreadable value
+     *  in, under `<stateRoot>/conductor/`. Stable, so the confirm can quote
+     *  the exact path before anything is written. */
+    readonly keptFile: string;
+  }
 > = {
-  conductor: { noun: "the Conductor's saved conversation", them: "it" },
-  works: { noun: "the Conductor's saved works", them: "them" },
+  conductor: {
+    noun: "the Conductor's saved conversation",
+    them: "it",
+    inBackups: true,
+    keptFile: "unreadable-conductor.json",
+  },
+  works: {
+    noun: "the Conductor's saved works",
+    them: "them",
+    inBackups: true,
+    keptFile: "unreadable-works.json",
+  },
   members: {
     noun: "what the Conductor remembered about each work's terminals",
     them: "it",
+    inBackups: true,
+    keptFile: "unreadable-members.json",
   },
-  transcript: { noun: "the Conductor's saved transcript", them: "it" },
+  transcript: {
+    noun: "the Conductor's saved transcript",
+    them: "it",
+    inBackups: false,
+    keptFile: "unreadable-transcript.json",
+  },
 };
+
+/** WHERE A RECORD'S UNREADABLE VALUE WOULD BE KEPT — the one spelling, read
+ *  by the refusal a person sees and by the recovery that writes it. */
+export const keptAsidePath = (
+  stateRoot: string,
+  key: ConductorStoreKey,
+): string => `${stateRoot}/conductor/${RECORD_FACTS[key].keptFile}`;
 
 /** A REMEMBERED RECORD THIS BUILD CANNOT READ, as a value rather than a
  *  sentence.
@@ -196,23 +242,32 @@ const RECORD_WORDS: Record<
 export class UnreadablePersisted extends Error {
   readonly key: ConductorStoreKey;
   readonly path: string;
+  /** Where `recoverStore { how: "empty" }` would keep the unreadable value —
+   *  quoted verbatim in the confirm, so nobody has to guess. */
+  readonly keepsAt: string;
+  /** Whether there is a backup to offer at all ({@link RECORD_FACTS}). */
+  readonly inBackups: boolean;
   readonly detail: string;
   constructor(args: {
     key: ConductorStoreKey;
     /** The file holding the unreadable value. */
     path: string;
+    /** The state root, for the kept-aside path. */
+    stateRoot: string;
     /** Why it could not be read, as a clause — "the saved value is in a shape
      *  this build does not understand", "the file is not valid JSON". */
     why: string;
     detail: string;
   }) {
-    const words = RECORD_WORDS[args.key];
+    const facts = RECORD_FACTS[args.key];
     super(
-      `kolu could not read ${words.noun} — ${args.why}. Nothing has been changed: ${args.path} still holds ${words.them}.`,
+      `kolu could not read ${facts.noun} — ${args.why}. Nothing has been changed: ${args.path} still holds ${facts.them}.`,
     );
     this.name = "UnreadablePersisted";
     this.key = args.key;
     this.path = args.path;
+    this.keepsAt = keptAsidePath(args.stateRoot, args.key);
+    this.inBackups = facts.inBackups;
     this.detail = args.detail;
   }
 }
@@ -237,12 +292,14 @@ const WRONG_SHAPE =
 export function readPersistedConductor(
   store: CellStore<PersistedConductor>,
   path: string,
+  stateRoot: string,
 ): PersistedConductor {
   const result = decodePersisted(store.get());
   if (Result.isFailure(result)) {
     throw new UnreadablePersisted({
       key: "conductor",
       path,
+      stateRoot,
       why: WRONG_SHAPE,
       detail: String(result.failure),
     });
@@ -256,12 +313,14 @@ export function readPersistedConductor(
 export function readPersistedTranscript(
   store: CellStore<PersistedTranscript>,
   path: string,
+  stateRoot: string,
 ): PersistedTranscript {
   const result = decodeTranscript(store.get());
   if (Result.isFailure(result)) {
     throw new UnreadablePersisted({
       key: "transcript",
       path,
+      stateRoot,
       why: WRONG_SHAPE,
       detail: String(result.failure),
     });
@@ -277,12 +336,14 @@ export function readPersistedTranscript(
 export function readPersistedWorks(
   store: CellStore<PersistedWorks>,
   path: string,
+  stateRoot: string,
 ): PersistedWorks {
   const result = decodeWorks(store.get());
   if (Result.isFailure(result)) {
     throw new UnreadablePersisted({
       key: "works",
       path,
+      stateRoot,
       why: WRONG_SHAPE,
       detail: String(result.failure),
     });
@@ -297,12 +358,14 @@ export function readPersistedWorks(
 export function readPersistedMembers(
   store: CellStore<PersistedMembers>,
   path: string,
+  stateRoot: string,
 ): PersistedMembers {
   const result = decodeMembers(store.get());
   if (Result.isFailure(result)) {
     throw new UnreadablePersisted({
       key: "members",
       path,
+      stateRoot,
       why: WRONG_SHAPE,
       detail: String(result.failure),
     });
@@ -310,6 +373,40 @@ export function readPersistedMembers(
   return result.success;
 }
 
+/** THE TWO RECORDS, READ TOGETHER AND PARSED AS ONE — the decoder going
+ *  through `kolu-work`'s one smart constructor.
+ *
+ *  Neither record means anything without the other: a member names a work,
+ *  and a work's being open is what makes that membership legal. So the rules
+ *  JSON cannot state (the key is the work's own identity, every member's work
+ *  exists and is open, one planner and one implementor) are checked HERE, at
+ *  the only place a store arrives from disk — and a store that breaks one is
+ *  refused by name, with the sentence that says which, exactly as a shape
+ *  this build cannot read is. The recovery screen offers the same two ways
+ *  back. */
+export function parsePersistedStore(
+  works: PersistedWorks,
+  members: PersistedMembers,
+  path: string,
+  stateRoot: string,
+): {
+  readonly works: ReadonlyMap<WorkId, Work>;
+  readonly members: PersistedMembers;
+} {
+  try {
+    const parsed = parseStore(works, members);
+    return { works: parsed.works, members };
+  } catch (err) {
+    if (!(err instanceof InvalidWorkStore)) throw err;
+    throw new UnreadablePersisted({
+      key: "works",
+      path,
+      stateRoot,
+      why: `the saved works and their terminals break a rule the model holds (${err.why})`,
+      detail: err.why,
+    });
+  }
+}
 /** Collapse every RUN of consecutive dividers to the first of them.
  *
  *  A divider means one thing — the agent's memory was reset — so a run of

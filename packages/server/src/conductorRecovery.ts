@@ -43,6 +43,7 @@ import { ConductorRefused } from "kolu-common/conductorErrors";
 import {
   EMPTY_PERSISTED_CONDUCTOR,
   EMPTY_PERSISTED_MEMBERS,
+  EMPTY_PERSISTED_WORKS,
 } from "kolu-conductor";
 import { transcriptFilePath } from "./conductor/transcriptFile.ts";
 import { log } from "./log.ts";
@@ -148,7 +149,7 @@ function keepAsideAndEmpty(key: ConductorStoreKey): string {
   // which means it has read nothing and is writing nothing — there is no
   // second writer to fork here, and there will not be one until the reload
   // below hands it the records it can finally read.
-  if (key === "works") store.set("works", []);
+  if (key === "works") store.set("works", EMPTY_PERSISTED_WORKS);
   if (key === "members") store.set("members", EMPTY_PERSISTED_MEMBERS);
   if (key === "conductor") store.set("conductor", EMPTY_PERSISTED_CONDUCTOR);
   return path;
@@ -171,7 +172,7 @@ function writeFromBackup(
   }
   store.set("works", decoded.works);
   store.set("members", decoded.members);
-  const works = decoded.works.length;
+  const works = Object.keys(decoded.works).length;
   const members = Object.keys(decoded.members).length;
   return `${works} piece${works === 1 ? "" : "s"} of work came back, with what kolu knew about ${members} terminal${members === 1 ? "" : "s"}`;
 }

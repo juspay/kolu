@@ -157,7 +157,10 @@ describe("padiSurface contract", () => {
     // an agent seen in the foreground with no session yet (`starting` /
     // `fresh`) — and adds those two buckets to the wait/watch vocabulary: a
     // widened emitted union a 7.2 decoder refuses, the same 5.3 minor.
-    expect(PADI_SURFACE_VERSION).toBe("7.3");
+    // 7.4 ADDS the `roster` cell — whether padi has finished adopting, so a
+    // reader may tell an empty roster apart from one that has not been
+    // established. A new member an older consumer never asks for: a minor.
+    expect(PADI_SURFACE_VERSION).toBe("7.4");
     expect(DEFAULT_PADI_VERSION.contractVersion).toBe(PADI_SURFACE_VERSION);
     expect(
       Schema.decodeUnknownSync(PadiVersionSchema)(DEFAULT_PADI_VERSION),
@@ -212,6 +215,7 @@ describe("padiSurface contract", () => {
     expect(Object.keys(spec.cells ?? {})).toEqual([
       "version",
       "identity",
+      "roster",
       "urgency",
       "status",
       "newTerminalPolicy",
@@ -430,6 +434,11 @@ describe("padiSurface contract", () => {
     // The 5.7 host-listeners cell is value for the same reason: a rebind replays
     // the current reading, and each reading stands alone.
     expect(PADI_FORWARDING_POLICY.hostListeners).toBe("value");
+    // The 7.4 roster cell is value: a binder that rebinds mid-settle must be
+    // replayed the CURRENT standing — a hold-open that handed it nothing would
+    // leave it on the `settling` default while padi had long since adopted, or
+    // (worse) on a stale `established` through a recycle.
+    expect(PADI_FORWARDING_POLICY.roster).toBe("value");
   });
 
   it("the terminals value carries the active | sleeping | parked union", () => {

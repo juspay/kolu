@@ -1,15 +1,15 @@
 /**
  * HOW A WORK CHANGES — every transition, as a pure function of the record.
  *
- * The record only grows — with ONE bound, stated here and nowhere else: a work
- * whose agent stops and starts for days would otherwise carry thousands of
- * agent-state events, in `config.json` and on every browser's wire. Past
- * {@link AGENT_STATES_KEPT} of them the oldest is dropped and COUNTED into one
- * `folded` event sitting where it sat, so the timeline still says the time
- * passed and what happened in it is no longer claimed to be remembered.
- * Everything else — questions, answers, files, the PR, membership, who is
- * driving, the end — is never folded, which is what lets a reader trust the
- * timeline it is drawn from.
+ * Each takes a work and answers the work it becomes: nothing here reads a
+ * clock, a filesystem or a host, and nothing mutates what it was given. The
+ * timeline is append-only and BOUNDED here, in the one `append` below, so a
+ * transition added later cannot forget the bound.
+ *
+ * MEMBERSHIP IS NOT HERE any more. A member is a row in the one map keyed by
+ * terminal (`./store.ts`), so joining and leaving are a map movement plus the
+ * event this module appends — and a work can no longer carry a member of its
+ * own that disagrees with that map.
  */
 
 import type {
@@ -17,10 +17,10 @@ import type {
   Decision,
   EventKind,
   KeptFile,
+  Outcome,
   SetupKey,
   Work,
   WorkEvent,
-  WorkOutcome,
   WorkRole,
 } from "./schema.ts";
 
@@ -46,25 +46,24 @@ export const AGENT_STATES_KEPT = 30;
  *  timeline's order still says when the folded stretch happened. Mutates the
  *  array the append above has already copied. */
 const foldOldest = (events: Array<WorkEvent>): void => {
-  const oldest = events.findIndex((one) => AGENT_STATE.has(one.kind));
-  const removed = events[oldest];
-  if (removed === undefined) return;
-  events.splice(oldest, 1);
+  const at = events.findIndex((one) => AGENT_STATE.has(one.kind));
+  if (at < 0) return;
+  const dropped = events[at];
+  if (dropped === undefined) return;
+  events.splice(at, 1);
   const folded = events.findIndex((one) => one.kind === "folded");
-  const standing = events[folded];
-  if (standing !== undefined) {
-    events[folded] = {
-      ...standing,
-      detail: String(Number(standing.detail) + 1),
-    };
+  if (folded >= 0) {
+    const was = events[folded];
+    if (was !== undefined && was.kind === "folded")
+      events[folded] = { ...was, count: was.count + 1 };
     return;
   }
-  events.splice(oldest, 0, {
-    at: removed.at,
+  events.splice(at, 0, {
+    at: dropped.at,
     by: "kolu",
     kind: "folded",
     terminal: null,
-    detail: "1",
+    count: 1,
   });
 };
 
@@ -73,47 +72,40 @@ const foldOldest = (events: Array<WorkEvent>): void => {
 const append = (work: Work, event: WorkEvent): Work => {
   const events = [...work.events, event];
   if (AGENT_STATE.has(event.kind)) {
-    let kept = 0;
-    for (const one of events) if (AGENT_STATE.has(one.kind)) kept += 1;
-    // A loop rather than an `if`: a record restored from a file written by an
-    // older kolu can be over the bound by more than one.
-    while (kept > AGENT_STATES_KEPT) {
+    let states = events.filter((one) => AGENT_STATE.has(one.kind)).length;
+    while (states > AGENT_STATES_KEPT) {
       foldOldest(events);
-      kept -= 1;
+      states -= 1;
     }
   }
   return { ...work, events };
 };
 
 /** A new work, opened on the human's request. `request` is the words kolu
- *  saw the human send ("" when the work was opened off something else). */
+ *  saw the human send ("" when the work was opened off something else).
+ *
+ *  It is OPEN: there is no arm of {@link Work.state} a newly opened work
+ *  could be in that is not. */
 export const openWork = (opened: {
-  readonly id: string;
+  readonly key: Work["key"];
   readonly title: string;
-  readonly repo: string;
-  readonly branch: string;
   readonly at: string;
   readonly request: string;
 }): Work => ({
-  id: opened.id,
+  key: opened.key,
   title: opened.title,
-  repo: opened.repo,
-  branch: opened.branch,
-  members: [],
+  startedAt: opened.at,
+  decisions: [],
   events: [
     {
       at: opened.at,
       by: "you",
       kind: "requested",
       terminal: null,
-      detail: opened.request,
+      text: opened.request,
     },
   ],
-  decisions: [],
-  startedAt: opened.at,
-  endedAt: null,
-  outcome: null,
-  keptFiles: [],
+  state: { kind: "open" },
 });
 
 /** One question as the Conductor asks it. `given` is an answer the human's
@@ -122,16 +114,11 @@ export const openWork = (opened: {
 export interface Question {
   readonly id: string;
   readonly key: SetupKey | null;
-  /** The question's short header — the label the decision is drawn under.
-   *  `""` for a setup question (its key names it) and for an asker that gave
-   *  none. */
   readonly header: string;
   readonly question: string;
   readonly options: ReadonlyArray<string>;
   readonly multiple: boolean;
-  /** The worktree-relative file this question is about (`.waterfall/plan.md`
-   *  for a plan approval), or absent for a question about no file. */
-  readonly file?: string | undefined;
+  readonly file: string;
   readonly given?: string | undefined;
 }
 
@@ -142,44 +129,51 @@ export const askQuestions = (
   work: Work,
   asked: {
     readonly ask: string;
-    readonly at: string;
     readonly questions: ReadonlyArray<Question>;
+    readonly at: string;
   },
 ): Work => {
-  const decisions: Decision[] = asked.questions.map((one) => ({
-    id: one.id,
-    ask: asked.ask,
-    at: asked.at,
-    key: one.key,
-    header: one.header,
-    question: one.question,
-    options: [...one.options],
-    multiple: one.multiple,
-    file: one.file ?? "",
-    answer:
-      one.given === undefined
-        ? null
-        : {
-            at: asked.at,
-            how: "answered",
-            picked: one.options.includes(one.given) ? [one.given] : [],
-            text: one.options.includes(one.given) ? null : one.given,
-            from: "request",
-          },
-  }));
-  const withDecisions: Work = {
-    ...work,
-    decisions: [...work.decisions, ...decisions],
-  };
-  return decisions.some((one) => one.answer === null)
-    ? append(withDecisions, {
+  const decisions: Decision[] = [...work.decisions];
+  let open = false;
+  for (const one of asked.questions) {
+    const common = {
+      id: one.id,
+      ask: asked.ask,
+      at: asked.at,
+      key: one.key,
+      header: one.header,
+      question: one.question,
+      options: [...one.options],
+      multiple: one.multiple,
+      file: one.file,
+    };
+    if (one.given === undefined) {
+      open = true;
+      decisions.push({ kind: "asked", ...common });
+      continue;
+    }
+    decisions.push({
+      kind: "answered",
+      ...common,
+      answer: {
+        at: asked.at,
+        how: "answered",
+        picked: one.options.includes(one.given) ? [one.given] : [],
+        text: one.options.includes(one.given) ? null : one.given,
+        from: "request",
+      },
+    });
+  }
+  const asking = { ...work, decisions };
+  return open
+    ? append(asking, {
         at: asked.at,
         by: "agent",
         kind: "question",
         terminal: null,
-        detail: asked.ask,
+        ask: asked.ask,
       })
-    : withDecisions;
+    : asking;
 };
 
 /** The human's answer to one ask, per question id. A value among the
@@ -197,10 +191,11 @@ export const answerAsk = (
 ): Work => {
   if (!hasOpenAsk(work, answered.ask)) return work;
   const decisions = work.decisions.map((one): Decision => {
-    if (one.ask !== answered.ask || one.answer !== null) return one;
+    if (one.ask !== answered.ask || one.kind === "answered") return one;
     if (answered.values === null)
       return {
         ...one,
+        kind: "answered",
         answer: {
           at: answered.at,
           how: "declined",
@@ -217,6 +212,7 @@ export const answerAsk = (
       .trim();
     return {
       ...one,
+      kind: "answered",
       answer: {
         at: answered.at,
         how: "answered",
@@ -233,7 +229,7 @@ export const answerAsk = (
       by: "you",
       kind: "answered",
       terminal: null,
-      detail: answered.ask,
+      ask: answered.ask,
     },
   );
 };
@@ -241,42 +237,39 @@ export const answerAsk = (
 /** An ask that went away unanswered: the conversation that asked it is gone
  *  (a restart, a cleared conversation, a cancelled turn). */
 export const dropAsk = (work: Work, ask: string, at: string): Work => {
-  if (!hasOpenAsk(work, ask)) return work;
+  let dropped = false;
+  const decisions = work.decisions.map((one): Decision => {
+    if (one.ask !== ask || one.kind === "answered") return one;
+    dropped = true;
+    return {
+      ...one,
+      kind: "answered",
+      answer: { at, how: "dropped", picked: [], text: null, from: null },
+    };
+  });
+  if (!dropped) return work;
   return append(
-    {
-      ...work,
-      decisions: work.decisions.map((one) =>
-        one.ask === ask && one.answer === null
-          ? {
-              ...one,
-              answer: {
-                at,
-                how: "dropped",
-                picked: [],
-                text: null,
-                from: null,
-              },
-            }
-          : one,
-      ),
-    },
-    { at, by: "kolu", kind: "question-dropped", terminal: null, detail: ask },
+    { ...work, decisions },
+    { at, by: "kolu", kind: "question-dropped", terminal: null, ask },
   );
 };
 
 /** Whether this ask has a question still waiting on the human. */
 export const hasOpenAsk = (work: Work, ask: string): boolean =>
-  work.decisions.some((one) => one.ask === ask && one.answer === null);
+  work.decisions.some((one) => one.ask === ask && one.kind === "asked");
 
-/** The asks still waiting on the human, in the order they were asked. */
+/** THE ASKS STILL WAITING ON THE HUMAN, in the order they were asked —
+ *  derived from the decisions and stored nowhere, which is why a second list
+ *  of open asks cannot disagree with them. */
 export const openAsks = (work: Work): ReadonlyArray<string> => [
   ...new Set(
-    work.decisions.filter((one) => one.answer === null).map((one) => one.ask),
+    work.decisions.filter((one) => one.kind === "asked").map((one) => one.ask),
   ),
 ];
 
-/** A terminal joins the work in a role. A terminal already an ACTIVE member
- *  is left as it is: the role it was given first is the role it has. */
+/** A terminal joined the work in a role — the EVENT. The member row itself is
+ *  the store's (`./store.ts`), which is what makes "this terminal is in one
+ *  work" structural. */
 export const joinWork = (
   work: Work,
   joined: {
@@ -284,150 +277,104 @@ export const joinWork = (
     readonly role: WorkRole;
     readonly at: string;
   },
-): Work => {
-  if (activeMember(work, joined.terminal) !== undefined) return work;
-  return append(
-    {
-      ...work,
-      members: [
-        ...work.members,
-        {
-          terminal: joined.terminal,
-          role: joined.role,
-          joinedAt: joined.at,
-          leftAt: null,
-          worktree: null,
-        },
-      ],
-    },
-    {
-      at: joined.at,
-      by: "kolu",
-      kind: "joined",
-      terminal: joined.terminal,
-      detail: joined.role,
-    },
-  );
-};
+): Work =>
+  append(work, {
+    at: joined.at,
+    by: "kolu",
+    kind: "joined",
+    terminal: joined.terminal,
+    role: joined.role,
+  });
 
-/** WHERE A MEMBER IS WORKING, as the first reading that said it. Nothing is
- *  appended to the timeline — a worktree is not something that HAPPENED, it is
- *  where everything else did — and the first answer sticks: a terminal is in
- *  one worktree for the life of its membership, and the path has to outlive
- *  the terminal for the work's files to be found when it ends. */
-export const sawWorktree = (
-  work: Work,
-  terminal: string,
-  worktree: string,
-): Work => {
-  const member = activeMember(work, terminal);
-  if (member === undefined || member.worktree !== null) return work;
-  return {
-    ...work,
-    members: work.members.map((one) =>
-      one.terminal === terminal && one.leftAt === null
-        ? { ...one, worktree }
-        : one,
-    ),
-  };
-};
-
-/** A member leaves: its terminal was closed, released, or went away. */
+/** A member left: its terminal was closed, released, or went away. The row is
+ *  removed by the store; this is the line on the timeline. */
 export const leaveWork = (
   work: Work,
   left: {
     readonly terminal: string;
-    readonly at: string;
     readonly why: "closed" | "released" | "gone";
+    readonly at: string;
   },
-): Work => {
-  if (activeMember(work, left.terminal) === undefined) return work;
-  return append(
-    {
-      ...work,
-      members: work.members.map((one) =>
-        one.terminal === left.terminal && one.leftAt === null
-          ? { ...one, leftAt: left.at }
-          : one,
-      ),
-    },
-    {
-      at: left.at,
-      by: "kolu",
-      kind: "left",
-      terminal: left.terminal,
-      detail: left.why,
-    },
-  );
-};
-
-/** The member a terminal is right now, if it is one. */
-export const activeMember = (work: Work, terminal: string) =>
-  work.members.find((one) => one.terminal === terminal && one.leftAt === null);
-
-/** Whether every member that ever joined has left — the work has nobody
- *  doing it. A work nobody has joined yet is NOT deserted: it is starting. */
-export const deserted = (work: Work): boolean =>
-  work.members.length > 0 && work.members.every((one) => one.leftAt !== null);
+): Work =>
+  append(work, {
+    at: left.at,
+    by: "kolu",
+    kind: "left",
+    terminal: left.terminal,
+    why: left.why,
+  });
 
 /** Append one observation. */
 export const recordEvent = (work: Work, event: WorkEvent): Work =>
   append(work, event);
 
 /** THE PERSON TOOK THE KEYS to a member terminal: from here on it is theirs
- *  to type into and the Conductor keeps its hands off, until
- *  {@link handBack}. Stated as an event rather than a flag so it is read the
- *  way everything else about a work is ({@link driverOf}), survives a restart
- *  with the record, and ends by itself when the member leaves or the work
- *  does. The caller refuses the cases this cannot see (not a driven member,
- *  already in that state).  */
+ *  to type into and the Conductor keeps its hands off, until they hand it
+ *  back. */
 export const takeOver = (work: Work, terminal: string, at: string): Work =>
-  append(work, { at, by: "you", kind: "taken-over", terminal, detail: "" });
+  append(work, { at, by: "you", kind: "taken-over", terminal });
 
 /** ... and gave them back. */
 export const handBack = (work: Work, terminal: string, at: string): Work =>
-  append(work, { at, by: "you", kind: "handed-back", terminal, detail: "" });
+  append(work, { at, by: "you", kind: "handed-back", terminal });
 
-/** The work ends. Ending an ended work changes nothing. */
+/** THE WORK ENDS — the forge said its PR merged or closed, or somebody
+ *  stopped it. Ending an ended work changes nothing.
+ *
+ *  The caller removes its members in the same step: there is no arm of this
+ *  function that leaves a finished work with terminals, because there is
+ *  nowhere in the record for them to be. */
 export const endWork = (
   work: Work,
-  ended: { readonly outcome: WorkOutcome; readonly at: string },
+  ended: { readonly outcome: Outcome; readonly at: string },
 ): Work => {
-  if (work.endedAt !== null) return work;
+  if (work.state.kind === "ended") return work;
   return append(
-    { ...work, endedAt: ended.at, outcome: ended.outcome },
+    {
+      ...work,
+      state: { kind: "ended", at: ended.at, outcome: ended.outcome, kept: [] },
+    },
     {
       at: ended.at,
       by: "kolu",
       kind: "ended",
       terminal: null,
-      detail: ended.outcome,
+      outcome: ended.outcome,
     },
   );
 };
 
-/** The files copied when the work ended. */
+/** THE WORK IS BEING DONE AGAIN — it was opened again, or the forge says its
+ *  PR is open after all. Decisions and timeline are kept whole: this is the
+ *  same work, and the only thing that moves is the state. Reopening an open
+ *  work changes nothing. */
+export const reopenWork = (work: Work, at: string): Work => {
+  if (work.state.kind === "open") return work;
+  return append(
+    { ...work, state: { kind: "open" } },
+    { at, by: "kolu", kind: "reopened", terminal: null },
+  );
+};
+
+/** The files copied when the work ended. Only an ENDED work has anywhere to
+ *  put them, so an open one is returned untouched. */
 export const keepFiles = (
   work: Work,
   kept: { readonly files: ReadonlyArray<KeptFile>; readonly at: string },
-): Work =>
-  append(
-    { ...work, keptFiles: [...kept.files] },
+): Work => {
+  if (work.state.kind !== "ended") return work;
+  return append(
+    { ...work, state: { ...work.state, kept: [...kept.files] } },
     {
       at: kept.at,
       by: "kolu",
       kind: "kept",
       terminal: null,
-      detail: String(kept.files.length),
+      count: kept.files.length,
     },
   );
+};
 
 /** Copying the files failed — said on the timeline rather than swallowed. */
 export const keepFailed = (work: Work, why: string, at: string): Work =>
-  append(work, {
-    at,
-    by: "kolu",
-    kind: "keep-failed",
-    terminal: null,
-    detail: why,
-  });
+  append(work, { at, by: "kolu", kind: "keep-failed", terminal: null, why });

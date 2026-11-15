@@ -99,9 +99,16 @@ export function writeTranscriptFile(
 export function readTranscriptFile(
   path: string,
   version: string,
+  stateRoot: string,
 ): { readonly rows: ReadonlyArray<unknown> } {
   const refuse = (why: string, detail: string): never => {
-    throw new UnreadablePersisted({ key: "transcript", path, why, detail });
+    throw new UnreadablePersisted({
+      key: "transcript",
+      path,
+      stateRoot,
+      why,
+      detail,
+    });
   };
   let text: string;
   try {
@@ -156,7 +163,8 @@ export function transcriptFileStore(
 ): CellStore<PersistedTranscript> {
   const path = transcriptFilePath(stateRoot);
   return {
-    get: () => readTranscriptFile(path, version) as PersistedTranscript,
+    get: () =>
+      readTranscriptFile(path, version, stateRoot) as PersistedTranscript,
     set: (value) => {
       writeTranscriptFile(path, version, value.rows);
     },

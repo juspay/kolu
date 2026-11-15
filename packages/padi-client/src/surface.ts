@@ -676,8 +676,28 @@ export * from "./transcriptSchema.ts";
  *  code change: the folds decide all three states (`starting`/`fresh` quiet for
  *  attention, idle for urgency, buckets of their own; `prompted` is work). One
  *  that narrows an `AgentInfo` to one kind's info must now rule a presence out
- *  first (`isAgentPresence`). */
-export const PADI_SURFACE_VERSION = "7.3";
+ *  first (`isAgentPresence`).
+ *
+ *  7.4 (additive · minor) — THE ROSTER IS A FACT, not an absence. A new
+ *  read-only `roster` cell ({@link PadiRosterSchema}) says whether padi has
+ *  FINISHED ADOPTING the terminals it supervises: `settling` while the kaval
+ *  endpoint is being booted-and-reconciled (or recycled), `established` once it
+ *  has, with the epoch it was. padi knew this already — the serve-time empty
+ *  seed its `urgency` fold gates on (`attention/fleetGate.ts`) — and kept it to
+ *  itself, so every consumer of the `terminals` collection had to guess whether
+ *  an empty roster meant "nothing is running" or "nothing has been adopted
+ *  YET". The Conductor's watch guessed wrong: a redeploy's fresh padi served one
+ *  information-free frame and every member terminal of every work was recorded
+ *  `gone` (#2376).
+ *
+ *  A NEW MEMBER, so the 6.0 class in reverse: a 7.4 binder subscribing `roster`
+ *  against a surviving 7.3 padi meets a tag nobody serves. The minor rule is
+ *  what keeps it from ever meeting one (a newer binder against a 7.3 padi drains
+ *  it before consuming its surface; an older binder against a 7.4 padi is
+ *  build-mismatched and drains it first), and a 7.3 CONSUMER is unaffected: it
+ *  never asks. A member ADDED is a minor; only a member removed or reshaped —
+ *  which breaks a consumer that already reads it — forces the major. */
+export const PADI_SURFACE_VERSION = "7.4";
 
 /** The `version` cell payload — padi's self-declared surface contract version. */
 export const PadiVersionSchema = Schema.Struct({
@@ -761,6 +781,45 @@ export type PadiStatus = typeof PadiStatusSchema.Type;
 /** The value a fresh `status` subscriber sees before padi seeds it — no expected
  *  kaval known yet. */
 export const DEFAULT_PADI_STATUS: PadiStatus = {};
+
+// ── Roster (has this padi finished adopting its terminals?) ───────────────
+
+/** The `roster` cell payload — WHETHER THE TERMINALS COLLECTION IS EVIDENCE.
+ *
+ *  Not the rows (those are the `terminals` collection): the standing of the
+ *  list itself. padi serves its surface BEFORE it boots the kaval endpoint and
+ *  reconciles the saved session, so its first frame is an information-free
+ *  empty registry, and a kaval recycle empties the registry again between the
+ *  drain and the re-park. In both windows "that id is not listed" means NOTHING
+ *  HAS BEEN ADOPTED YET, not "that terminal is dead" — a distinction padi
+ *  already draws for its own attention folds (`attention/fleetGate.ts`) and now
+ *  states out loud, because every consumer of an absence needs it:
+ *  kolu-server's Conductor watch (`gone` requires a Ready host), the client's
+ *  per-terminal standing, the deep-link gone-verdict.
+ *
+ *  A SUM, not a boolean: `established` carries WHEN the roster became
+ *  authoritative, which is the one thing a reader debugging a false absence
+ *  wants (and what distinguishes "established at boot" from "re-established
+ *  after a recycle" in a log). There is nowhere to put a timestamp on a
+ *  `settling` roster, because there isn't one. */
+export const PadiRosterSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("settling") }),
+  Schema.Struct({ kind: Schema.Literal("established"), at: Schema.Number }),
+]);
+export type PadiRoster = typeof PadiRosterSchema.Type;
+
+/** The honest pre-adopt value, and the cell's default: a padi that has not said
+ *  otherwise has not finished adopting. A fresh subscriber therefore learns
+ *  "settling" rather than an empty roster it would read as an absence — the
+ *  whole point of the member. */
+export const DEFAULT_PADI_ROSTER: PadiRoster = { kind: "settling" };
+
+/** Is this roster EVIDENCE — may a reader conclude that a terminal missing from
+ *  the `terminals` collection is really gone? The one fold both sides read, so
+ *  the browser's standing and kolu-server's watch cannot answer it differently.
+ */
+export const rosterIsEstablished = (roster: PadiRoster): boolean =>
+  roster.kind === "established";
 
 // ── Host-daemon inventory rows (the "Running daemons" leak diagnostic) ─────
 //
@@ -2134,6 +2193,21 @@ export const padiSurface = defineSurfaceWithPolicy<ClientErrorPolicy>()({
       verbs: ["get"],
       client: { onError: { kind: "toast", label: "Padi identity" } },
     },
+    /** Whether the `terminals` collection is EVIDENCE yet — `settling` until
+     *  this padi has finished adopting (boot: the kaval endpoint up and the
+     *  saved session reconciled; a recycle: the fresh kaval connected and the
+     *  captured session re-parked), `established` after, with the epoch.
+     *  Read-only on the client; padi's own roster gate
+     *  (`attention/fleetGate.ts`) is the sole writer, and it is the SAME fact
+     *  the attention folds gate their serve-time empty seed on, so the wire and
+     *  padi's own consumers cannot hold two opinions. Every reader of an
+     *  ABSENCE goes through it. */
+    roster: {
+      schema: PadiRosterSchema,
+      default: DEFAULT_PADI_ROSTER,
+      verbs: ["get"],
+      client: { onError: { kind: "hostToast", label: "Terminal roster" } },
+    },
     /** The recency-free urgency projection — read-only on the client; a DERIVED
      *  member (dual-edged on terminals + finish-quiet generation in
      *  `servePadi.ts`), so the graph is its one writer: it recomputes whenever the
@@ -2716,6 +2790,9 @@ export const PADI_FORWARDING_POLICY = {
   // cells
   version: "value",
   identity: "value",
+  // A rebind replays the current roster standing — a binder that reconnects
+  // mid-settle must learn it is still settling, not inherit a stale frame.
+  roster: "value",
   urgency: "value",
   status: "value",
   newTerminalPolicy: "value",

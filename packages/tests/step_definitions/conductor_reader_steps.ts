@@ -127,7 +127,9 @@ Then(
   "the reader should be open on {string}",
   async function (this: KoluWorld, file: string) {
     await this.page
-      .locator(`${READER}[data-path="${file}"][data-placement="pane"]`)
+      // THE FACE, which is the fact the record keeps about an answer given
+      // here — the pane's reader is `reader`, the pop-out is `popout`.
+      .locator(`${READER}[data-path="${file}"][data-from="reader"]`)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
   },
 );
@@ -358,7 +360,7 @@ Then(
     // The window is the reader and nothing else: no workspace behind it.
     const page = poppedOut();
     await page
-      .locator(`${READER}[data-path="${_file}"][data-placement="window"]`)
+      .locator(`${READER}[data-path="${_file}"][data-from="popout"]`)
       .waitFor({ state: "visible", timeout: POLL_TIMEOUT });
     assert.strictEqual(
       await page.locator('[data-testid="conductor-pane"]').count(),

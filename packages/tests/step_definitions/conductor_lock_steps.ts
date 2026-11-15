@@ -358,9 +358,14 @@ Then(
 /** READING IS UNTOUCHED. A drag across the terminal selects, exactly as it
  *  does on any other terminal — the lock is about input alone, and a tile a
  *  person cannot even copy out of would be a different (and worse) product.
- *  The card is up while this runs, and the drag starts in a corner it does
- *  not cover: a card centred over the terminal must not be in the way of
- *  reading it either. */
+ *  The card is up while this runs, so this is also the claim that a card
+ *  centred over the terminal is not in the way of reading it.
+ *
+ *  THE ROW IS FOUND, NEVER GUESSED: a drag along a blank row selects nothing
+ *  on any terminal, locked or not, and would fail here as if the lock had
+ *  reached reading. So the first row with text on it is read off the buffer
+ *  and the pointer is put on THAT row — a real drag, over something there is
+ *  to select. */
 Then(
   "selecting text in the member terminal should still work",
   async function (this: KoluWorld) {
@@ -369,11 +374,41 @@ Then(
       .first();
     const box = await screen.boundingBox();
     assert.ok(box, "the member terminal has no box on screen to select in");
-    await this.page.mouse.move(box.x + 4, box.y + 4);
+    const written = await this.page.evaluate((sel) => {
+      const node = document.querySelector(sel) as
+        | (HTMLElement & {
+            __xterm?: {
+              rows: number;
+              buffer: {
+                active: {
+                  viewportY: number;
+                  getLine(
+                    at: number,
+                  ): { translateToString(t: boolean): string } | undefined;
+                };
+              };
+            };
+          })
+        | null;
+      const term = node?.__xterm;
+      if (!term) return null;
+      const buffer = term.buffer.active;
+      for (let row = 0; row < term.rows; row += 1) {
+        const line = buffer.getLine(buffer.viewportY + row);
+        if ((line?.translateToString(true) ?? "").trim() !== "")
+          return { row, rows: term.rows };
+      }
+      return null;
+    }, memberTerminal(this));
+    assert.ok(
+      written,
+      "the member terminal's screen holds no text to select — nothing here could tell a blocked drag from an empty one",
+    );
+    const rowHeight = box.height / written.rows;
+    const y = box.y + (written.row + 0.5) * rowHeight;
+    await this.page.mouse.move(box.x + 4, y);
     await this.page.mouse.down();
-    await this.page.mouse.move(box.x + box.width - 8, box.y + 12, {
-      steps: 12,
-    });
+    await this.page.mouse.move(box.x + box.width - 8, y, { steps: 12 });
     await this.page.mouse.up();
     const selection = await this.page.evaluate((sel) => {
       const node = document.querySelector(sel) as

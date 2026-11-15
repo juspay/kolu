@@ -21,6 +21,7 @@ import type { MemberState } from "./members.ts";
 import type { WatchObservation } from "./observation.ts";
 import {
   type AnsweredNews,
+  type NoTerminalsNews,
   type WakeMembership,
   wakeText,
 } from "./wakeText.ts";
@@ -59,6 +60,9 @@ export interface Wakes {
    *  overwriting the other — an ask settles once, so no slot is ever
    *  replaced. */
   readonly answered: (news: AnsweredNews) => void;
+  /** A PIECE OF WORK LOST ITS LAST TERMINAL. Held by the work, so it is said
+   *  ONCE per emptying — and it is never an ending. */
+  readonly noTerminals: (news: NoTerminalsNews) => void;
   readonly withdraw: (ref: string) => boolean;
   readonly refs: () => ReadonlyArray<string>;
   /** Whether what is waiting about a terminal is a HAND-OVER rather than an
@@ -92,6 +96,11 @@ export const wakes = (deps: {
    *  replaced by its newer news, while two answers are two answers. They are
    *  flushed TOGETHER, into one turn. */
   const answers: Held<AnsweredNews> = holding();
+  /** PIECES OF WORK THAT LOST THEIR LAST TERMINAL — keyed by the work, so a
+   *  work that empties twice while a turn runs is said once. Its own queue
+   *  beside the other two for the same reason they are two: a different key,
+   *  and a different way of coalescing. */
+  const emptied: Held<NoTerminalsNews> = holding();
   /** A flush in flight. One at a time, because the whole point of a flush is
    *  that everything waiting leaves in ONE turn — two of them racing would be
    *  two wakes for one boundary. */
@@ -170,15 +179,18 @@ export const wakes = (deps: {
     if (!conversation.idle) return;
     const slots = held.waiting();
     const said = answers.waiting();
-    if (slots.length === 0 && said.length === 0) return;
+    const empty = emptied.waiting();
+    if (slots.length === 0 && said.length === 0 && empty.length === 0) return;
     const events = slots.map((slot) => slot.value);
     const answered = said.map((slot) => slot.value);
+    const noTerminals = empty.map((slot) => slot.value);
     held.took(slots);
     answers.took(said);
+    emptied.took(empty);
     deps.changed();
     try {
       await conversation.wake(
-        wakeText(events, deps.membership, answered),
+        wakeText(events, deps.membership, answered, noTerminals),
         events,
       );
     } catch (err) {
@@ -192,6 +204,10 @@ export const wakes = (deps: {
       // answer that could not be delivered goes back exactly as it was.
       for (const slot of said) {
         if (!answers.has(slot.ref)) answers.hold(slot.ref, slot.value);
+      }
+      // ... and a work empties once per emptying, for the same reason.
+      for (const slot of empty) {
+        if (!emptied.has(slot.ref)) emptied.hold(slot.ref, slot.value);
       }
       deps.changed();
       throw err;
@@ -218,7 +234,12 @@ export const wakes = (deps: {
       missedEdge = true;
       return;
     }
-    if (held.waiting().length === 0 && answers.waiting().length === 0) return;
+    if (
+      held.waiting().length === 0 &&
+      answers.waiting().length === 0 &&
+      emptied.waiting().length === 0
+    )
+      return;
     flushing = true;
     try {
       await deliver();
@@ -252,6 +273,9 @@ export const wakes = (deps: {
     },
     answered: (news) => {
       answers.hold(news.ask, news);
+    },
+    noTerminals: (news) => {
+      emptied.hold(news.work, news);
     },
     withdraw: (ref) => held.withdraw(ref),
     refs: () => held.refs(),

@@ -183,10 +183,12 @@ When(
 Then(
   "a restored terminal should replay the agent resume invocation {string}",
   async function (this: KoluWorld, resumeInvocation: string) {
-    // After session.restore every terminal has a FRESH id, so we cannot scope
-    // by a pre-restart id. Scan every live xterm buffer for the resume form
-    // the host typed into the PTY — proof a split's agent actually resumed
-    // (a bare shell would show nothing of the kind).
+    // The scenario never noted which terminal the split was, so this scans
+    // every live xterm buffer for the resume form the host typed into the PTY
+    // — proof a split's agent actually resumed (a bare shell would show
+    // nothing of the kind). Not an id question: `session.restore` brings each
+    // terminal back under its OWN id, and scanning them all is a superset of
+    // scoping to one.
     try {
       await this.page.waitForFunction(
         (exp) => {

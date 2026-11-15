@@ -163,6 +163,79 @@ Feature: A piece of work is a stored thing
     And the work column should list the terminal as a member
     And there should be no page errors
 
+  Scenario: A kolu-server restart leaves the work open, with its terminals
+    # THE DEFECT THIS GUARDS (#2376, the human's three cards): a redeploy made
+    # every host serve one information-free frame before it had adopted its
+    # terminals, kolu read "not in the list yet" as `gone`, and a work whose
+    # members had all left was ENDED as abandoned — with both terminals alive
+    # under it. Now: nothing kolu merely fails to SEE ends a piece of work,
+    # and a roster that has not been established is not an empty roster. The
+    # server process is replaced on a fresh port over the same state
+    # directory, which is the redeploy, and the work is still in progress with
+    # the same terminal in it.
+    Given a repo for the work
+    When I ask the conductor to open the work "survive the redeploy"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    Then the work column should list the terminal as a member
+    When the kolu server is restarted
+    And I enter conductor mode
+    Then the work should be in progress
+    And the work column should list the terminal as a member
+    And the work's timeline should show no "left" event
+    And the work's timeline should show no "ended" event
+    And there should be no page errors
+
+  Scenario: Stopped from the card, and opened again, with everything it decided
+    # THE ONLY TWO WAYS A WORK ENDS ON PURPOSE are the forge saying merged or
+    # closed and somebody stopping it — and stopping is not deleting. A
+    # stopped card says who stopped it, has no terminals, no lock and no
+    # question on it (the ended half of the state has nowhere to put them),
+    # and offers Reopen; what comes back is the same work, with its decisions
+    # and its whole timeline.
+    Given a repo for the work
+    When I ask the conductor to open the work "stop and think again"
+    And I answer the work's question with "merge" in the chat
+    And I ask the conductor to run the implementor in the work's repo
+    Then the work column should list the terminal as a member
+    When I stop the work from the card
+    Then the work should be finished as "stopped"
+    And the work card should say it was stopped by you
+    And the work card should show no terminals
+    And the work's timeline should show an "ended" event
+    When I reopen the work from the card
+    Then the work should be in progress
+    And the work's timeline should show a "reopened" event
+    And the work's decisions should include "merge" answered from the chat
+    And there should be no page errors
+
+  Scenario: Opening the same branch twice is one piece of work
+    # A WORK IS ITS BRANCH. `work_open` for a key that already exists returns
+    # that work as it stands — it asks only what has no answer — so a second
+    # call cannot make a second card however many times the Conductor is woken
+    # into trying. (The human got three cards for one waterfall that way.)
+    Given a repo for the work
+    When I ask the conductor to open the work "one card only"
+    And I answer the work's question with "hand-over" in the chat
+    And I ask the conductor to open the work "one card only" again
+    Then the conductor should have answered with the same work
+    And the work column should hold exactly one card for the work
+    And the work should have no open question
+    And there should be no page errors
+
+  Scenario: Declining the setup of a work nothing has happened in removes it
+    # "I'd rather not say" to the setup of a work with no member and no pull
+    # request is a decision not to start: the work goes, rather than becoming
+    # a finished card nobody asked for. (The human's second entry was exactly
+    # this — an "Abandoned · 1m" card made by declining a question about a
+    # work that had never run.)
+    Given a repo for the work
+    When I ask the conductor to open the work "never mind this one"
+    Then the work column should show the work
+    When I decline the work's question on the card
+    Then the work column should not show the work
+    And there should be no page errors
+
   Scenario: A remembered work this build cannot read is recovered, never hand-edited
     # THE ACCIDENT: a store written by a build whose shape this one does not
     # read — an upgrade that skipped a rung, a roll-back, a half-written key.

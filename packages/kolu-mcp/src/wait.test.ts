@@ -70,6 +70,13 @@ function fakeClient(
   },
   screenText?: string,
   asked: unknown[] = [],
+  /** THE HOST'S ROSTER STANDING — a padi that has not finished adopting its
+   *  terminals is `settling`, and an id missing from a settling roster is no
+   *  evidence of anything. Established unless a case says otherwise. */
+  roster: { kind: "settling" } | { kind: "established"; at: number } = {
+    kind: "established",
+    at: 0,
+  },
 ): PadiSurfaceClient {
   return {
     surface: {
@@ -83,6 +90,7 @@ function fakeClient(
         // record says `active`.
         get: () => Stream.make({ state: "active" }),
       },
+      roster: { get: () => Stream.make(roster) },
       screen: {
         text: (input: unknown) => {
           asked.push(input);
@@ -162,7 +170,7 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
     expect(outcome).toMatchObject({ kind: "gone" });
   });
 
-  it("a feed end with the id ABSENT from the roster is gone", async () => {
+  it("a feed end with the id ABSENT from an ESTABLISHED roster is gone", async () => {
     const s = streams();
     s.attach.push(snapshot);
     s.keys.push([]); // the roster no longer carries t1
@@ -173,6 +181,25 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
       idleMs: 60_000,
     });
     expect(outcome).toMatchObject({ kind: "gone" });
+  });
+
+  it("a feed end with the id absent from a SETTLING roster is closed", async () => {
+    // A padi that has not finished adopting its terminals serves a roster
+    // that is not a census: "not in the list" is "no answer yet", and the
+    // outcome whose whole meaning is "retry, conclude nothing" is `closed`.
+    const s = streams();
+    s.attach.push(snapshot);
+    s.keys.push([]);
+    s.attach.end();
+    s.exit.end();
+    const outcome = await awaitOutputSettled(
+      fakeClient(s, undefined, [], { kind: "settling" }),
+      { id: ID, idleMs: 60_000 },
+    );
+    expect(outcome).toMatchObject({ kind: "closed" });
+    if (outcome.kind === "closed") {
+      expect(outcome.error).toMatch(/has not finished adopting/);
+    }
   });
 
   it("a feed end with the id STILL live is closed — loud, never a false met", async () => {

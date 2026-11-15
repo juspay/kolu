@@ -1,3 +1,4 @@
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   AGENT_STATE_KINDS,
@@ -5,28 +6,28 @@ import {
   answerAsk,
   askQuestions,
   capFinished,
-  type Decision,
-  decisionLabel,
-  deserted,
   driverOf,
   dropAsk,
   endWork,
   handBack,
+  InvalidWorkStore,
+  isAnswered,
+  isAsked,
   joinWork,
-  LINE_LIMIT,
+  keepFiles,
   leaveWork,
   membershipOf,
   missingSetup,
-  oneLine,
   openAsks,
   openWork,
+  parseStore,
   policyOf,
   prOf,
   recordEvent,
+  reopenWork,
+  roleRank,
   SETUP_KEYS,
-  SETUP_ROWS,
   type SetupAsk,
-  type SetupKey,
   setupOf,
   standing,
   takeOver,
@@ -34,32 +35,38 @@ import {
   timeSpent,
   took,
   type Work,
+  type WorkId,
+  type WorkKey,
+  type WorkMember,
+  WorkSchema,
   waitingOn,
   waitingOnYou,
+  waterfallFileName,
+  workDirOf,
+  workIdOf,
+  workKeyOf,
 } from "./index.ts";
 
 const T = (minute: number): string =>
   new Date(Date.UTC(2026, 10, 14, 10, minute)).toISOString();
 
-const opened = (id = "w1"): Work =>
+const KEY: WorkKey = {
+  kind: "branch",
+  host: "remote:naiveintent",
+  repo: "/home/me/code/kolu",
+  branch: "agent-distro-update-errors",
+};
+const ID = workIdOf(KEY);
+
+const opened = (key: WorkKey = KEY): Work =>
   openWork({
-    id,
+    key,
     title: "Show agent-distro update errors",
-    repo: "/home/me/code/kolu",
-    branch: "agent-distro-update-errors",
     at: T(0),
     request: "waterfall ~/code/kolu — show the error",
   });
 
 const SETUP = [
-  {
-    id: "q-host",
-    key: "host",
-    header: "",
-    question: "Which host?",
-    options: ["naiveintent", "pureintent"],
-    multiple: false,
-  },
   {
     id: "q-mode",
     key: "mode",
@@ -67,38 +74,43 @@ const SETUP = [
     question: "Which mode?",
     options: ["full", "trivial"],
     multiple: false,
+    file: "",
   },
   {
     id: "q-ph",
     key: "planner.harness",
     header: "",
     question: "Planner harness?",
-    options: ["omp"],
+    options: ["omp", "claude"],
     multiple: false,
+    file: "",
   },
   {
     id: "q-pm",
     key: "planner.model",
     header: "",
     question: "Planner model?",
-    options: ["Fable 5.2"],
+    options: ["fable", "opus"],
     multiple: false,
+    file: "",
   },
   {
     id: "q-ih",
     key: "implementor.harness",
     header: "",
     question: "Implementor harness?",
-    options: ["omp"],
+    options: ["omp", "claude"],
     multiple: false,
+    file: "",
   },
   {
     id: "q-im",
     key: "implementor.model",
     header: "",
     question: "Implementor model?",
-    options: ["Opus 5.5"],
+    options: ["fable", "opus"],
     multiple: false,
+    file: "",
   },
   {
     id: "q-green",
@@ -107,614 +119,454 @@ const SETUP = [
     question: "On green?",
     options: ["merge", "hand-over"],
     multiple: false,
+    file: "",
   },
 ] as const;
 
-const setUp = (work: Work, onGreen: "merge" | "hand-over" = "merge"): Work =>
-  answerAsk(askQuestions(work, { ask: "setup", at: T(0), questions: SETUP }), {
-    ask: "setup",
-    at: T(1),
-    from: "card",
+const setUp = (work: Work): Work =>
+  answerAsk(askQuestions(work, { ask: "ask-1", questions: SETUP, at: T(1) }), {
+    ask: "ask-1",
     values: new Map([
-      ["q-host", ["naiveintent"]],
       ["q-mode", ["full"]],
       ["q-ph", ["omp"]],
-      ["q-pm", ["Fable 5.2"]],
+      ["q-pm", ["fable"]],
       ["q-ih", ["omp"]],
-      ["q-im", ["Opus 5.5"]],
-      ["q-green", [onGreen]],
+      ["q-im", ["opus"]],
+      ["q-green", ["merge"]],
     ]),
+    from: "card",
+    at: T(2),
   });
 
-describe("what a setup must carry, before any work exists", () => {
-  const ask = (
-    key: SetupKey,
-    options: ReadonlyArray<string>,
-    given?: string,
-  ): SetupAsk => ({
-    key,
-    question: `${key}?`,
-    options,
-    ...(given === undefined ? {} : { given }),
-  });
-
-  it("needs exactly the given mode's keys when the request already said the mode", () => {
-    // "Trivial, implementor claude on claude-sonnet-5-5, hand it over on
-    // green": nobody will be asked which mode, so a trivial waterfall's
-    // planner questions are questions about a role it does not run.
-    expect(
-      missingSetup([
-        ask("host", ["naiveintent"], "naiveintent"),
-        ask("mode", ["trivial", "full"], "trivial"),
-        ask("implementor.harness", ["claude"], "claude"),
-        ask("implementor.model", ["claude-sonnet-5-5"], "claude-sonnet-5-5"),
-        ask("on-green", ["hand-over"], "hand-over"),
-      ]),
-    ).toEqual([]);
-  });
-
-  it("needs every offered mode's keys while the mode is still a question", () => {
-    expect(
-      missingSetup([
-        ask("host", ["naiveintent"]),
-        ask("mode", ["full", "trivial"]),
-        ask("implementor.harness", ["claude"]),
-        ask("implementor.model", ["claude-sonnet-5-5"]),
-        ask("on-green", ["hand-over"]),
-      ]),
-    ).toEqual(["planner.harness", "planner.model"]);
-  });
+const member = (over: Partial<WorkMember> = {}): WorkMember => ({
+  work: ID,
+  role: "planner",
+  joinedAt: T(3),
+  worktree: null,
+  ...over,
 });
 
-describe("the setup is a reading of the decisions", () => {
-  it("reads host, mode, roles and on-green off the answers, with no second copy", () => {
-    const setup = setupOf(setUp(opened()));
-    expect(setup).toEqual({
-      host: "naiveintent",
-      mode: "full",
-      roles: [
-        { role: "planner", harness: "omp", model: "Fable 5.2" },
-        { role: "implementor", harness: "omp", model: "Opus 5.5" },
-      ],
-      onGreen: "merge",
-    });
-  });
-
-  it("knows nothing until the human answers", () => {
-    const asked = askQuestions(opened(), {
-      ask: "setup",
-      at: T(0),
-      questions: SETUP,
-    });
-    expect(setupOf(asked).host).toBeNull();
-    expect(waitingOn(asked, policyOf(asked))).toBe("you");
-    expect(standing(asked, policyOf(asked)).what).toBe("Which host?");
-  });
-
-  it("records a given answer as decided by the request, and asks nothing", () => {
-    const work = askQuestions(opened(), {
-      ask: "setup",
-      at: T(0),
-      questions: [{ ...SETUP[1], given: "trivial" }],
-    });
-    expect(work.decisions[0]?.answer).toMatchObject({
-      from: "request",
-      picked: ["trivial"],
-    });
-    expect(work.events.map((one) => one.kind)).toEqual(["requested"]);
-    expect(setupOf(work).roles.map((one) => one.role)).toEqual(["implementor"]);
-  });
-
-  it("keeps typed words apart from the options picked", () => {
-    const work = answerAsk(
-      askQuestions(opened(), { ask: "a", at: T(0), questions: [SETUP[0]] }),
-      {
-        ask: "a",
-        at: T(1),
-        from: "chat",
-        values: new Map([["q-host", ["gossamer"]]]),
-      },
+describe("a work IS its key", () => {
+  it("encodes and decodes a branch key, separators and all", () => {
+    expect(ID).toBe(
+      "branch:remote%3Anaiveintent/%2Fhome%2Fme%2Fcode%2Fkolu/agent-distro-update-errors",
     );
-    expect(work.decisions[0]?.answer).toMatchObject({
-      picked: [],
-      text: "gossamer",
-      from: "chat",
-    });
-    expect(setupOf(work).host).toBe("gossamer");
+    expect(workKeyOf(ID)).toEqual(KEY);
   });
 
-  it("drops an unanswered ask once, and answers nothing twice", () => {
+  it("is injective — two keys never share an id", () => {
+    const sneaky: WorkKey = {
+      kind: "branch",
+      host: "remote:naiveintent",
+      repo: "/home/me/code",
+      branch: "kolu/agent-distro-update-errors",
+    };
+    expect(workIdOf(sneaky)).not.toBe(ID);
+    expect(workKeyOf(workIdOf(sneaky))).toEqual(sneaky);
+  });
+
+  it("encodes and decodes a watch key", () => {
+    const key: WorkKey = { kind: "watch", terminal: "local/abc-123" };
+    expect(workKeyOf(workIdOf(key))).toEqual(key);
+  });
+
+  it("answers nothing for a string that is no work id", () => {
+    expect(workKeyOf("w1")).toBeNull();
+    expect(workKeyOf("branch:host//branch")).toBeNull();
+  });
+
+  it("names a kept-file directory that is filesystem-safe", () => {
+    expect(workDirOf(ID)).toMatch(/^[0-9a-f]{16}$/);
+    expect(workDirOf(ID)).toBe(workDirOf(ID));
+    expect(workDirOf(ID)).not.toBe(workDirOf(`${ID}x`));
+  });
+
+  it("reads the host off the key, with no decision involved", () => {
+    expect(setupOf(opened()).host).toBe("remote:naiveintent");
+    expect(SETUP_KEYS).not.toContain("host");
+    expect(
+      missingSetup([
+        { key: "mode", question: "?", options: ["full"] },
+      ] as ReadonlyArray<SetupAsk>),
+    ).not.toContain("host");
+  });
+});
+
+describe("parseStore — what the types cannot say", () => {
+  const openWorks = (): Record<WorkId, Work> => ({ [ID]: opened() });
+
+  it("takes a store whose every rule holds", () => {
+    const store = parseStore(openWorks(), {
+      "local/a": member(),
+      "local/b": member({ role: "implementor" }),
+      "local/c": member({ role: "other" }),
+      "local/d": member({ role: "other" }),
+    });
+    expect([...store.works.keys()]).toEqual([ID]);
+    expect(store.members.size).toBe(4);
+  });
+
+  it("refuses a work filed under a key that is not its own identity", () => {
+    expect(() => parseStore({ "work:random": opened() }, {})).toThrow(
+      /stored under "work:random" but says it is/,
+    );
+  });
+
+  it("refuses a member of a work that does not exist", () => {
+    expect(() =>
+      parseStore(openWorks(), { "local/a": member({ work: "branch:x/y/z" }) }),
+    ).toThrow(/there is no such piece of work/);
+  });
+
+  it("refuses a member of a work that has ended", () => {
+    const ended = endWork(opened(), {
+      outcome: { kind: "merged", pr: 181 },
+      at: T(9),
+    });
+    expect(() => parseStore({ [ID]: ended }, { "local/a": member() })).toThrow(
+      /which has ended/,
+    );
+  });
+
+  it("refuses two terminals in one role", () => {
+    expect(() =>
+      parseStore(openWorks(), {
+        "local/a": member(),
+        "local/b": member(),
+      }),
+    ).toThrow(/two terminals in the planner role/);
+  });
+
+  it("throws a value a face can act on", () => {
+    try {
+      parseStore({ "work:random": opened() }, {});
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(InvalidWorkStore);
+      expect((err as InvalidWorkStore).why).toMatch(/identified by its branch/);
+    }
+  });
+});
+
+describe("the states that cannot be written down", () => {
+  it("has no `abandoned` outcome to decode", () => {
+    const decode = Schema.decodeUnknownResult(WorkSchema);
+    const work = {
+      ...opened(),
+      state: {
+        kind: "ended",
+        at: T(9),
+        outcome: { kind: "abandoned" },
+        kept: [],
+      },
+    };
+    expect(decode(work)._tag).toBe("Failure");
+  });
+
+  it("has nowhere to put kept files on a work in progress", () => {
+    const open = opened();
+    expect(
+      keepFiles(open, { files: [{ path: "a.md", bytes: 1 }], at: T(4) }),
+    ).toBe(open);
+    expect(open.state.kind).toBe("open");
+  });
+
+  it("keeps files on the ended arm, where the end's own time is", () => {
+    const ended = keepFiles(
+      endWork(opened(), { outcome: { kind: "stopped", by: "you" }, at: T(9) }),
+      { files: [{ path: ".waterfall/plan.md", bytes: 12 }], at: T(9) },
+    );
+    expect(ended.state).toMatchObject({
+      kind: "ended",
+      outcome: { kind: "stopped", by: "you" },
+      kept: [{ path: ".waterfall/plan.md", bytes: 12 }],
+    });
+  });
+
+  it("refuses a check event with no pull request", () => {
+    const decode = Schema.decodeUnknownResult(WorkSchema);
+    const work = {
+      ...opened(),
+      events: [
+        {
+          at: T(5),
+          by: "ci",
+          kind: "checks-passed",
+          terminal: null,
+          head: "abc",
+          failing: [],
+        },
+      ],
+    };
+    expect(decode(work)._tag).toBe("Failure");
+  });
+
+  it("is a question OR an answer, never answered-with-null", () => {
     const asked = askQuestions(opened(), {
-      ask: "a",
-      at: T(0),
+      ask: "ask-1",
       questions: [SETUP[0]],
+      at: T(1),
     });
-    const dropped = dropAsk(asked, "a", T(2));
-    expect(openAsks(dropped)).toEqual([]);
-    expect(dropAsk(dropped, "a", T(3))).toBe(dropped);
-    expect(
-      answerAsk(dropped, { ask: "a", at: T(3), from: "card", values: null }),
-    ).toBe(dropped);
-  });
-});
-
-describe("who a work is waiting on, and since when", () => {
-  it("is the agents after setup, you while a question is open, CI while checks run", () => {
-    let work = setUp(opened());
-    expect(waitingOn(work, policyOf(work))).toBe("agent");
-    work = askQuestions(work, {
-      ask: "plan",
-      at: T(14),
-      questions: [
-        {
-          id: "q-plan",
-          key: null,
-          header: "Plan approval",
-          question: "Approve the plan?",
-          options: ["Approve", "Change it"],
-          multiple: false,
-        },
-      ],
-    });
-    expect(standing(work, policyOf(work))).toEqual({
-      who: "you",
-      why: "question",
-      what: "Approve the plan?",
-      ref: null,
-      since: T(14),
-    });
-    work = answerAsk(work, {
-      ask: "plan",
-      at: T(18),
+    expect(asked.decisions.every(isAsked)).toBe(true);
+    const answered = answerAsk(asked, {
+      ask: "ask-1",
+      values: new Map([["q-mode", ["full"]]]),
       from: "card",
-      values: new Map([["q-plan", ["Approve"]]]),
+      at: T(2),
     });
-    expect(standing(work, policyOf(work))).toMatchObject({
-      who: "agent",
-      since: T(18),
-    });
-    work = recordEvent(work, {
-      at: T(40),
-      by: "agent",
-      kind: "pr-opened",
-      terminal: "local/i",
-      detail: "#178 Slim the README",
-    });
-    work = recordEvent(work, {
-      at: T(41),
-      by: "ci",
-      kind: "checks-running",
-      terminal: null,
-      detail: "",
-    });
-    expect(standing(work, policyOf(work))).toEqual({
-      who: "ci",
-      why: "ci",
-      what: "",
-      ref: null,
-      since: T(41),
-    });
-    expect(prOf(work)).toEqual({
-      number: 178,
-      state: "open",
-      checks: "running",
-    });
-  });
-
-  it("hands a green PR to you when the decision says hand it over", () => {
-    let work = setUp(opened(), "hand-over");
-    work = recordEvent(work, {
-      at: T(40),
-      by: "agent",
-      kind: "pr-opened",
-      terminal: null,
-      detail: "#9 x",
-    });
-    work = recordEvent(work, {
-      at: T(41),
-      by: "ci",
-      kind: "checks-running",
-      terminal: null,
-      detail: "",
-    });
-    work = recordEvent(work, {
-      at: T(50),
-      by: "ci",
-      kind: "checks-passed",
-      terminal: null,
-      detail: "",
-    });
-    expect(standing(work, policyOf(work))).toEqual({
-      who: "you",
-      why: "merge",
-      what: "",
-      ref: 9,
-      since: T(50),
-    });
-    expect(
-      waitingOn(setUp(opened(), "merge"), policyOf(setUp(opened(), "merge"))),
-    ).toBe("agent");
-  });
-
-  it("is done once ended", () => {
-    const work = endWork(setUp(opened()), { outcome: "merged", at: T(60) });
-    expect(standing(work, policyOf(work))).toEqual({
-      who: "done",
-      why: "merged",
-      what: "",
-      ref: null,
-      since: T(60),
-    });
-    expect(endWork(work, { outcome: "closed", at: T(61) })).toBe(work);
+    const one = answered.decisions[0];
+    expect(one !== undefined && isAnswered(one) && one.answer.how).toBe(
+      "answered",
+    );
   });
 });
 
-describe("where the time went", () => {
-  const story = (): Work => {
-    let work = setUp(opened()); // you 0→1
-    work = askQuestions(work, {
-      ask: "plan",
-      at: T(14),
-      questions: [
-        {
-          id: "q",
-          key: null,
-          header: "Plan approval",
-          question: "Approve?",
-          options: ["Approve"],
-          multiple: false,
-        },
-      ],
+describe("opening, ending, reopening", () => {
+  it("opens with a `requested` event carrying the words", () => {
+    const work = opened();
+    expect(work.state).toEqual({ kind: "open" });
+    expect(work.events).toEqual([
+      {
+        at: T(0),
+        by: "you",
+        kind: "requested",
+        terminal: null,
+        text: "waterfall ~/code/kolu — show the error",
+      },
+    ]);
+  });
+
+  it("ends once, with the outcome on the timeline", () => {
+    const ended = endWork(setUp(opened()), {
+      outcome: { kind: "merged", pr: 181 },
+      at: T(9),
     });
-    work = answerAsk(work, {
-      ask: "plan",
-      at: T(18),
-      from: "chat",
-      values: new Map([["q", ["Approve"]]]),
+    expect(ended.state).toMatchObject({ kind: "ended" });
+    expect(ended.events.at(-1)).toMatchObject({
+      kind: "ended",
+      outcome: { kind: "merged", pr: 181 },
+    });
+    expect(
+      endWork(ended, { outcome: { kind: "stopped", by: "you" }, at: T(10) }),
+    ).toBe(ended);
+  });
+
+  it("reopens, keeping every decision and the whole timeline", () => {
+    const ended = endWork(setUp(opened()), {
+      outcome: { kind: "stopped", by: "conductor" },
+      at: T(9),
+    });
+    const again = reopenWork(ended, T(10));
+    expect(again.state).toEqual({ kind: "open" });
+    expect(again.decisions).toEqual(ended.decisions);
+    expect(again.events.slice(0, ended.events.length)).toEqual(ended.events);
+    expect(again.events.at(-1)?.kind).toBe("reopened");
+    expect(reopenWork(again, T(11))).toBe(again);
+    expect(standing(again, policyOf(again)).who).not.toBe("done");
+  });
+});
+
+describe("the readings", () => {
+  const worked = (): Work => {
+    let work = setUp(opened());
+    work = joinWork(work, { terminal: "local/a", role: "planner", at: T(3) });
+    work = recordEvent(work, {
+      at: T(4),
+      by: "agent",
+      kind: "pr-opened",
+      terminal: "local/a",
+      pr: 181,
+      title: "The docs are 24 pages",
     });
     work = recordEvent(work, {
-      at: T(30),
+      at: T(5),
       by: "ci",
       kind: "checks-running",
       terminal: null,
-      detail: "",
+      pr: 181,
+      head: "abc1234",
+      failing: [],
     });
-    work = recordEvent(work, {
-      at: T(36),
+    return recordEvent(work, {
+      at: T(6),
       by: "ci",
       kind: "checks-passed",
       terminal: null,
-      detail: "",
+      pr: 181,
+      head: "abc1234",
+      failing: [],
     });
-    return endWork(work, { outcome: "merged", at: T(40) });
   };
 
-  it("cuts the life into stretches by who it waited on, merging neighbours", () => {
-    const minute = 60_000;
-    expect(timeBar(story(), policyOf(story()), T(99))).toEqual([
-      { who: "you", ms: 1 * minute },
-      { who: "agent", ms: 13 * minute },
-      { who: "you", ms: 4 * minute },
-      { who: "agent", ms: 12 * minute },
-      { who: "ci", ms: 6 * minute },
-      { who: "agent", ms: 4 * minute },
-    ]);
-    expect(timeSpent(story(), policyOf(story()), T(99))).toEqual({
-      agent: 29 * minute,
-      you: 5 * minute,
-      ci: 6 * minute,
+  it("reads the PR off typed events rather than prose", () => {
+    expect(prOf(worked())).toEqual({
+      number: 181,
+      state: "open",
+      checks: "passed",
     });
   });
 
-  it("runs a work in progress to now, and its last step stays open", () => {
-    const work = setUp(opened());
-    expect(timeSpent(work, policyOf(work), T(10)).agent).toBe(9 * 60_000);
-    expect(took(work, T(10)).at(-1)).toEqual({ ms: 9 * 60_000, open: true });
+  it("reads the setup off the decisions and the host off the key", () => {
+    const setup = setupOf(setUp(opened()));
+    expect(setup.mode).toBe("full");
+    expect(setup.onGreen).toBe("merge");
+    expect(setup.host).toBe("remote:naiveintent");
+    expect(setup.roles.map((one) => one.role)).toEqual([
+      "planner",
+      "implementor",
+    ]);
+  });
+
+  it("keeps MANY open asks, in the order they were asked", () => {
+    let work = askQuestions(opened(), {
+      ask: "ask-1",
+      questions: [SETUP[0]],
+      at: T(1),
+    });
+    work = askQuestions(work, {
+      ask: "ask-2",
+      questions: [{ ...SETUP[1], id: "q-plan" }],
+      at: T(2),
+    });
+    expect(openAsks(work)).toEqual(["ask-1", "ask-2"]);
+    work = dropAsk(work, "ask-1", T(3));
+    expect(openAsks(work)).toEqual(["ask-2"]);
+  });
+
+  it("waits on the human while an ask is open and on the agent after", () => {
+    const asked = askQuestions(setUp(opened()), {
+      ask: "ask-2",
+      questions: [{ ...SETUP[0], id: "q-plan", key: null }],
+      at: T(4),
+    });
+    expect(waitingOn(asked, policyOf(asked))).toBe("you");
+    expect(standing(asked, policyOf(asked)).why).toBe("question");
+    expect(waitingOnYou([asked])).toBe(1);
+    const answered = answerAsk(asked, {
+      ask: "ask-2",
+      values: new Map([["q-plan", ["full"]]]),
+      from: "card",
+      at: T(5),
+    });
+    expect(waitingOn(answered, policyOf(answered))).toBe("agent");
+  });
+
+  it("says how a finished work finished, whole", () => {
+    const ended = endWork(worked(), {
+      outcome: { kind: "stopped", by: "conductor" },
+      at: T(9),
+    });
+    const where = standing(ended, policyOf(ended));
+    expect(where).toMatchObject({
+      who: "done",
+      why: "stopped",
+      outcome: { kind: "stopped", by: "conductor" },
+      since: T(9),
+    });
+  });
+
+  it("bounds the agent-state events and counts what it folded", () => {
+    let work = opened();
+    for (let at = 0; at < AGENT_STATES_KEPT + 5; at += 1) {
+      work = recordEvent(work, {
+        at: T(at),
+        by: "agent",
+        kind: AGENT_STATE_KINDS[0],
+        terminal: "local/a",
+        why: "",
+      });
+    }
+    const states = work.events.filter(
+      (one) => one.kind === AGENT_STATE_KINDS[0],
+    );
+    expect(states.length).toBe(AGENT_STATES_KEPT);
+    const folded = work.events.find((one) => one.kind === "folded");
+    expect(folded).toMatchObject({ kind: "folded", count: 5 });
+  });
+
+  it("measures the time bar and what each step took", () => {
+    const work = worked();
+    const bar = timeBar(work, policyOf(work), T(10));
+    expect(bar.reduce((sum, one) => sum + one.ms, 0)).toBe(10 * 60_000);
+    expect(timeSpent(work, policyOf(work), T(10)).ci).toBeGreaterThan(0);
+    expect(took(work, T(10)).at(-1)?.open).toBe(true);
   });
 });
 
 describe("membership", () => {
-  it("indexes the active members of work in progress, and leaving ends a deserted work's claim", () => {
-    let work = joinWork(setUp(opened()), {
-      terminal: "local/p",
-      role: "planner",
-      at: T(2),
+  it("indexes the one members map against the open works", () => {
+    const work = setUp(opened());
+    const index = membershipOf(
+      new Map([[ID, work]]),
+      new Map([
+        ["local/a", member()],
+        ["local/b", member({ role: "implementor" })],
+      ]),
+    );
+    expect(index.get("local/a")).toMatchObject({ work: ID, role: "planner" });
+    expect(index.get("local/b")?.driver).toBe("conductor");
+  });
+
+  it("drops a member whose work has ended", () => {
+    const ended = endWork(setUp(opened()), {
+      outcome: { kind: "merged", pr: 1 },
+      at: T(9),
     });
-    work = joinWork(work, {
-      terminal: "local/p",
-      role: "implementor",
+    expect(
+      membershipOf(new Map([[ID, ended]]), new Map([["local/a", member()]]))
+        .size,
+    ).toBe(0);
+  });
+
+  it("hands the keys over and back, per terminal", () => {
+    let work = joinWork(setUp(opened()), {
+      terminal: "local/a",
+      role: "planner",
       at: T(3),
     });
-    expect(work.members).toHaveLength(1);
-    expect(membershipOf([work]).get("local/p")).toEqual({
-      work: "w1",
-      title: work.title,
-      role: "planner",
-      driver: "conductor",
-    });
-    work = leaveWork(work, { terminal: "local/p", at: T(5), why: "closed" });
-    expect(deserted(work)).toBe(true);
-    expect(membershipOf([work]).size).toBe(0);
-  });
-});
-
-describe("the history", () => {
-  it("keeps every work in progress and the 20 most recently finished", () => {
-    const works: Work[] = [opened("live")];
-    for (let i = 0; i < 23; i++)
-      works.push(endWork(opened(`f${i}`), { outcome: "merged", at: T(i + 1) }));
-    const { kept, dropped } = capFinished(works, 20);
-    expect(kept).toHaveLength(21);
-    expect(kept[0]?.id).toBe("live");
-    expect(dropped.map((one) => one.id)).toEqual(["f0", "f1", "f2"]);
-    expect(waitingOnYou(kept)).toBe(0);
-  });
-});
-
-describe("who drives a member terminal", () => {
-  const driven = (): Work =>
-    joinWork(setUp(opened()), {
-      terminal: "local/p",
-      role: "planner",
-      at: T(2),
-    });
-
-  it("is the Conductor from the moment a member joins a work it runs", () => {
-    expect(driverOf(driven(), "local/p")).toBe("conductor");
+    work = takeOver(work, "local/a", T(4));
+    expect(driverOf(work, "local/a", member())).toBe("you");
+    work = handBack(work, "local/a", T(5));
+    expect(driverOf(work, "local/a", member())).toBe("conductor");
+    expect(driverOf(work, "local/a", undefined)).toBeNull();
   });
 
-  it("is you once you take it over, and the Conductor again once you hand it back", () => {
-    const mine = takeOver(driven(), "local/p", T(4));
-    expect(driverOf(mine, "local/p")).toBe("you");
-    expect(membershipOf([mine]).get("local/p")?.driver).toBe("you");
-    expect(driverOf(handBack(mine, "local/p", T(6)), "local/p")).toBe(
-      "conductor",
-    );
-  });
-
-  it("ends by itself when the member leaves, and a terminal that rejoins is the Conductor's again", () => {
-    const left = leaveWork(takeOver(driven(), "local/p", T(4)), {
-      terminal: "local/p",
-      at: T(5),
-      why: "released",
-    });
-    expect(driverOf(left, "local/p")).toBeNull();
-    const again = joinWork(left, {
-      terminal: "local/p",
-      role: "planner",
+  it("says a member left without ending anything", () => {
+    const left = leaveWork(setUp(opened()), {
+      terminal: "local/a",
+      why: "gone",
       at: T(6),
     });
-    expect(driverOf(again, "local/p")).toBe("conductor");
+    expect(left.state).toEqual({ kind: "open" });
+    expect(left.events.at(-1)).toMatchObject({ kind: "left", why: "gone" });
   });
 
-  it("nobody drives a terminal that is no member, a watch, or a work that has ended", () => {
-    const work = driven();
-    expect(driverOf(work, "local/elsewhere")).toBeNull();
-    expect(
-      driverOf(endWork(work, { outcome: "merged", at: T(9) }), "local/p"),
-    ).toBeNull();
-    // A `watch` is the human's own terminal: kolu keeps an eye on it and
-    // never types into it, so there is nothing to take over.
-    const watched = joinWork(
-      askQuestions(opened("w-watch"), {
-        ask: "setup",
-        at: T(0),
-        questions: [
-          {
-            id: "q-host",
-            key: "host",
-            header: "",
-            question: "Which host?",
-            options: ["naiveintent"],
-            multiple: false,
-            given: "naiveintent",
-          },
-          {
-            id: "q-mode",
-            key: "mode",
-            header: "",
-            question: "Which mode?",
-            options: ["watch"],
-            multiple: false,
-            given: "watch",
-          },
-        ],
-      }),
-      { terminal: "local/w", role: "other", at: T(1) },
-    );
-    expect(driverOf(watched, "local/w")).toBeNull();
-    expect(membershipOf([watched]).get("local/w")?.driver).toBeNull();
+  it("orders the roles without spelling any words", () => {
+    expect(roleRank("planner")).toBeLessThan(roleRank("implementor"));
+    expect(roleRank("implementor")).toBeLessThan(roleRank("other"));
+  });
+
+  it("names a waterfall file without a regex at the call site", () => {
+    expect(waterfallFileName(".waterfall/plan.md")).toBe("plan.md");
+    expect(waterfallFileName("README.md")).toBe("README.md");
   });
 });
 
-describe("the agent-state bound", () => {
-  /** The agent stopping and coming up again, for as long as you like. */
-  const stopping = (work: Work, times: number): Work => {
-    let next = work;
-    for (let i = 0; i < times; i += 1) {
-      next = recordEvent(next, {
-        at: T(20 + i),
-        by: "agent",
-        kind: i % 2 === 0 ? "stopped" : "ready",
-        terminal: "local/p",
-        detail: "",
-      });
-    }
-    return next;
-  };
-
-  it("keeps the most recent 30 agent-state events and counts the rest into one folded event", () => {
-    const work = stopping(
-      joinWork(setUp(opened()), {
-        terminal: "local/p",
-        role: "planner",
-        at: T(2),
-      }),
-      1_000,
-    );
-    const states = work.events.filter((one) =>
-      (AGENT_STATE_KINDS as ReadonlyArray<string>).includes(one.kind),
-    );
-    expect(states).toHaveLength(AGENT_STATES_KEPT);
-    expect(states).toHaveLength(30);
-    const folded = work.events.filter((one) => one.kind === "folded");
-    expect(folded).toHaveLength(1);
-    expect(folded[0]).toMatchObject({
-      by: "kolu",
-      terminal: null,
-      detail: String(1_000 - 30),
-    });
-    // It sits where the oldest event it stands for sat: before every state
-    // event that survived, and after the membership it happened under.
-    const at = work.events.indexOf(folded[0] as (typeof work.events)[number]);
-    expect(work.events.slice(0, at).map((one) => one.kind)).toEqual([
-      "requested",
-      "question",
-      "answered",
-      "joined",
+describe("the history cap", () => {
+  it("keeps every open work and the newest finished ones", () => {
+    const rows = [0, 1, 2].map((at): readonly [WorkId, Work] => [
+      `branch:local/%2Frepo/b${at}`,
+      endWork(opened(), { outcome: { kind: "merged", pr: at }, at: T(at + 5) }),
     ]);
-    // Nothing else is ever folded.
-    expect(work.events.filter((one) => one.kind === "joined")).toHaveLength(1);
-  });
-
-  it("leaves the folds alone: the same work unbounded says the same thing", () => {
-    let base = joinWork(setUp(opened()), {
-      terminal: "local/p",
-      role: "planner",
-      at: T(2),
-    });
-    base = askQuestions(base, {
-      ask: "plan",
-      at: T(14),
-      questions: [
-        {
-          id: "q-plan",
-          key: null,
-          header: "Plan approval",
-          question: "Approve the plan?",
-          options: ["Approve"],
-          multiple: false,
-        },
-      ],
-    });
-    base = answerAsk(base, {
-      ask: "plan",
-      at: T(16),
-      from: "card",
-      values: new Map([["q-plan", ["Approve"]]]),
-    });
-    const bounded = recordEvent(stopping(base, 400), {
-      at: T(900),
-      by: "ci",
-      kind: "checks-running",
-      terminal: "local/p",
-      detail: "",
-    });
-    // The SAME events, with nothing dropped — the bound is the only
-    // difference, and the folds must not be able to tell.
-    const unbounded: Work = {
-      ...bounded,
-      events: [
-        ...base.events,
-        ...Array.from({ length: 400 }, (_at, i) => ({
-          at: T(20 + i),
-          by: "agent" as const,
-          kind: (i % 2 === 0 ? "stopped" : "ready") as "stopped" | "ready",
-          terminal: "local/p",
-          detail: "",
-        })),
-        {
-          at: T(900),
-          by: "ci",
-          kind: "checks-running",
-          terminal: "local/p",
-          detail: "",
-        },
-      ],
-    };
-    expect(unbounded.events.length).toBeGreaterThan(bounded.events.length);
-    expect(waitingOn(bounded, policyOf(bounded))).toEqual(
-      waitingOn(unbounded, policyOf(unbounded)),
-    );
-    expect(standing(bounded, policyOf(bounded))).toEqual(
-      standing(unbounded, policyOf(unbounded)),
-    );
-    expect(timeBar(bounded, policyOf(bounded), T(1_000))).toEqual(
-      timeBar(unbounded, policyOf(unbounded), T(1_000)),
-    );
-  });
-});
-
-describe("what a decision is CALLED, and how long a drawn line may be", () => {
-  const asked = (over: Partial<Decision> = {}): Decision => ({
-    id: "d",
-    ask: "a",
-    at: T(0),
-    key: null,
-    header: "",
-    file: "",
-    question: "Approve the plan?",
-    options: ["Approve"],
-    multiple: false,
-    answer: null,
-    ...over,
-  });
-
-  it("labels a setup decision by its key's own name, one label per role", () => {
-    expect(decisionLabel(asked({ key: "host" }))).toBe("Host");
-    expect(decisionLabel(asked({ key: "mode" }))).toBe("Mode");
-    expect(decisionLabel(asked({ key: "on-green" }))).toBe("On green");
-    // A role is ONE row: its harness and its model answer under one label.
-    expect(decisionLabel(asked({ key: "planner.harness" }))).toBe("Planner");
-    expect(decisionLabel(asked({ key: "planner.model" }))).toBe("Planner");
-    expect(decisionLabel(asked({ key: "implementor.harness" }))).toBe(
-      "Implementor",
-    );
-    expect(decisionLabel(asked({ key: "implementor.model" }))).toBe(
-      "Implementor",
-    );
-    // Every key has a row, and no key has two.
-    expect([...SETUP_ROWS].flat().sort()).toEqual([...SETUP_KEYS].sort());
-  });
-
-  it("labels any other decision by its header", () => {
-    expect(decisionLabel(asked({ header: "Plan approval" }))).toBe(
-      "Plan approval",
-    );
-  });
-
-  it("falls back to a few words of the question when there is no header", () => {
-    expect(decisionLabel(asked())).toBe("Approve the plan?");
-    // THE DEFECT THIS GUARDS: a Conductor that reasons inside its question
-    // had that whole paragraph drawn as the row's label.
-    expect(
-      decisionLabel(
-        asked({
-          question:
-            "Full or trivial? I'd pick full: a docs rewrite has choices of scope and voice worth seeing in a plan.",
-        }),
-      ),
-    ).toBe("Full or trivial? I'd pick full: a…");
-  });
-
-  it("cuts a line at a word, says there is more, and leaves a short one alone", () => {
-    expect(oneLine("Checks passed")).toEqual({
-      line: "Checks passed",
-      rest: false,
-    });
-    const whole =
-      "Which host should this run on? ~/code/odu is a different checkout on each machine, so it matters";
-    const long = oneLine(whole);
-    expect(long.rest).toBe(true);
-    expect(long.line.endsWith("…")).toBe(true);
-    expect(long.line.length).toBeLessThanOrEqual(LINE_LIMIT + 1);
-    expect(whole.startsWith(long.line.slice(0, -1))).toBe(true);
-  });
-
-  it("flattens line breaks into the one line, and says the rest is behind it", () => {
-    expect(oneLine("Opened #7\nRewrite the parser")).toEqual({
-      line: "Opened #7 Rewrite the parser",
-      rest: true,
-    });
+    const open: readonly [WorkId, Work] = [ID, opened()];
+    const capped = capFinished([open, ...rows], 2);
+    expect(capped.kept.map(([id]) => id)).toEqual([
+      ID,
+      "branch:local/%2Frepo/b1",
+      "branch:local/%2Frepo/b2",
+    ]);
+    expect(capped.dropped.map(([id]) => id)).toEqual([
+      "branch:local/%2Frepo/b0",
+    ]);
   });
 });

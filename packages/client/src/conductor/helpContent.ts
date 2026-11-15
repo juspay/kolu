@@ -128,9 +128,15 @@ export function helpSections(
       id: "the-card",
       heading: "A piece of work",
       items: [
-        [text("One card each: where it stands, and for how long")],
+        [text("One card per branch: opening it again is the same work")],
         [text("The bar under it: agents, you, CI")],
         [text("Open it for the timeline, decisions and the PR")],
+        [
+          screen("Stop"),
+          text(" ends it, "),
+          screen("Reopen"),
+          text(" brings it back with what it decided"),
+        ],
       ],
     },
     {
@@ -140,6 +146,7 @@ export function helpSections(
         [text("Each one by the part it plays: planner, implementor")],
         [text("A name takes you to that terminal")],
         [screen("Look"), text(" peeks at its screen")],
+        [text("Losing them says “no terminals”; the work is still there")],
       ],
     },
     {

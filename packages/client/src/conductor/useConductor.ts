@@ -31,6 +31,7 @@ import type {
   ConductorState,
   ConductorStoreKey,
 } from "kolu-common/conductor";
+import type { AnsweredFromFace, WorkId } from "kolu-work";
 import { Effect } from "effect";
 import type { Accessor } from "solid-js";
 import { toast } from "solid-sonner";
@@ -89,11 +90,22 @@ export interface Conductor {
    *  with what was said. That is also why it works while the conversation is
    *  down — the only failure it can raise is the work's own refusal. */
   answerWork(
-    work: string,
+    work: WorkId,
     ask: string,
     answers: Readonly<Record<string, readonly string[]>> | null,
-    from: "card" | "chat" | "reader" | "popout",
+    from: AnsweredFromFace,
   ): void;
+  /** END A PIECE OF WORK ON PURPOSE — the card's **Stop**, behind its
+   *  confirm. One of only two ways a work ends that is not the forge saying
+   *  merged or closed (the Conductor's own `work_stop` is the other): kolu
+   *  failing to SEE a terminal is not one of them. The record stays, its
+   *  members are released in the same step, and the card then offers
+   *  {@link Conductor.reopenWork}. */
+  stopWork(work: WorkId): void;
+  /** ... AND BACK. An ended work opens again with its decisions and its
+   *  timeline intact — the same thing `work_open` on its key does, which is
+   *  why this never asks anything a second time. */
+  reopenWork(work: WorkId): void;
   signIn(method: string): void;
   signInInput(text: string): void;
   signInCancel(): void;
@@ -252,6 +264,21 @@ export const useConductor = createSharedRoot<Conductor>(() => {
       ask(
         "The agent kept its setting",
         app.procedures.conductor.setOption({ id, value }),
+      ),
+    // STOP and REOPEN — requests of the RECORD, like the two hand-over verbs
+    // beside them: a person must be able to put a piece of work down (and
+    // pick it back up) while the conversation is down. The card has already
+    // asked before Stop gets here; the refusal, if any, is the work's own
+    // sentence.
+    stopWork: (work) =>
+      ask(
+        "Could not stop the work",
+        app.procedures.conductor.stopWork({ work }),
+      ),
+    reopenWork: (work) =>
+      ask(
+        "Could not open it again",
+        app.procedures.conductor.reopenWork({ work }),
       ),
     newSession: () => {
       // The transcript this offset described is about to be replaced

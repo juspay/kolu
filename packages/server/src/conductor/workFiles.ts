@@ -62,26 +62,30 @@ import {
  *  prefix, so a card's "Files" list reads the way the agent wrote it. */
 const WATERFALL_DIR = ".waterfall";
 
-/** `<stateRoot>/works/<work>`, with the work id checked for containment — the
- *  ONE place that turns a work id into a directory on this machine's disk.
+/** `<stateRoot>/works/<dir>`, with the name checked for containment — the ONE
+ *  place a work's directory name becomes a directory on this machine's disk.
  *
- *  A work id is minted by kolu, so this guard is about what COULD arrive, not
- *  what does: an id carrying a separator or a `..` would address a directory
- *  outside the works corner, and the callers write, DELETE and SERVE under
- *  what it returns (`workFilesRoute.ts` is the serving one — a work id off a
- *  URL is the untrusted case this exists for).
+ *  THE NAME, NEVER THE WORK ID: a work id is `branch:<host>/<repo>/<branch>`
+ *  and carries separators, so what every caller passes is `workDirOf(id)`
+ *  (kolu-work's hash) — the writer, the sweep (which reads these names back
+ *  off the directory) and the route that serves them all spell the layout
+ *  that one way.
+ *
+ *  The guard is about what COULD arrive rather than what does: the callers
+ *  write, DELETE and SERVE under what this returns, and `workFilesRoute.ts`
+ *  reaches it from a URL.
  *
  *  Throws rather than answering null: every caller has already decided it is
  *  acting on this work, and there is no sensible directory to fall back to. */
-export function workFilesDir(stateRoot: string, work: string): string {
+export function workFilesDir(stateRoot: string, dir: string): string {
   const root = join(stateRoot, "works");
-  const dir = resolve(root, work);
-  if (dir !== join(root, work) || !dir.startsWith(root + sep)) {
+  const full = resolve(root, dir);
+  if (full !== join(root, dir) || !full.startsWith(root + sep)) {
     throw new Error(
-      `kolu-server: ${JSON.stringify(work)} is not a work id this server can keep files for — it escapes ${root}`,
+      `kolu-server: ${JSON.stringify(dir)} is not a directory name this server can keep a work's files under — it escapes ${root}`,
     );
   }
-  return dir;
+  return full;
 }
 
 /** Where ONE kept file goes, with the same containment check against the

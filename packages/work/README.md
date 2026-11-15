@@ -8,34 +8,64 @@ or the browser: a terminal is a string (`host/id`), a question is its words and
 its options.
 
 ```ts
+WorkKey = { kind: "branch", host, repo, branch }   // a work IS its branch…
+        | { kind: "watch",  terminal }             // …or the terminal you asked kolu to watch
+WorkId  = workIdOf(key)                            // "branch:<host>/<repo>/<branch>" | "watch:<terminal>"
+
+works   : Record<WorkId, Work>          // one work per key, by construction
+members : Record<TerminalRef, Member>   // a terminal is in at most one work, by construction
+
 Work {
-  id, title, repo, branch          // stated by the Conductor when it opens the work
-  members:   Member[]              // terminal, role, joinedAt, leftAt, worktree — role stated at create/adopt
-  events:    WorkEvent[]           // append-only: what kolu observed (and the Conductor's notes)
-  decisions: Decision[]            // every question put to the human about this work, and the answer
-  startedAt, endedAt, outcome      // null | merged | closed | abandoned
-  keptFiles                        // .waterfall/ files copied into kolu when the work ended
+  key, title, startedAt
+  decisions: Decision[]   // Asked | Answered — every question put to the human, and the answer
+  events:    WorkEvent[]  // append-only, each kind with its own typed payload
+  state:     { kind: "open" }
+           | { kind: "ended", at, outcome, kept: KeptFile[] }
 }
+
+Outcome = { kind: "merged", pr } | { kind: "closed", pr }
+        | { kind: "stopped", by: "you" | "conductor" }
+
+Member { work: WorkId, role, joinedAt, worktree }  // leaving is removal plus a `left` event
 ```
 
+**The illegal states are unwritable.** A work has no id of its own, so no
+caller can open a second one for a branch. There is no `abandoned` outcome:
+nothing kolu merely fails to see ends a work, and an open work with no members
+is an open work with no terminals. A finished work has nowhere to put a
+terminal, a lock or an open question — one `state` sum, and the members go
+with the ending. `workIdOf` is injective and `workKeyOf` reads the key back,
+so the host, repo and branch are read off the key (`hostOf`, `repoOf`,
+`branchOf`) rather than stored twice.
+
 **One rule decides who writes what.** The Conductor states intent once — the
-title, repo and branch when it opens the work, a member's role in the same call
+key and the title when it opens the work, a member's role in the same call
 that creates or adopts the terminal — and may add a plain `note`. The human
-decides: each answer is a `Decision`, and the setup (host, mode, harness and
-model per role, what to do on green) is **read** off those decisions
-(`setupOf`, `onGreenOf`), never stored beside them. kolu records everything
-else it observes as events.
+decides: each answer is a `Decision`, and the setup (mode, harness and model
+per role, what to do on green) is **read** off those decisions (`setupOf`,
+`onGreenOf`), never stored beside them. kolu records everything else it
+observes as events.
 
 ## What is here
 
 | module | what |
 | --- | --- |
-| `schema.ts` | the record, the event kinds and what each one's `detail` carries, and the waterfall's WORDS (`WORK_ROLES`, `WORK_MODES`, `ON_GREEN`, `SETUP_KEYS`) — declared here because the record's schema embeds them |
-| `record.ts` | the transitions: `openWork`, `askQuestions`, `answerAsk`, `dropAsk`, `joinWork`, `leaveWork`, `recordEvent`, `takeOver`/`handBack`, `endWork`, `keepFiles` — the record only grows, bounded by `AGENT_STATES_KEPT` |
-| `readings.ts` | the MECHANISM of a reading: what a decision came to (`answerValue`), the decisions of one ask, the PR as the timeline last said it (`prOf`) with the one check table (`CHECK_STEP`), the grammar of a check event's detail (`checkDetail` / `checkHeadOf` / `checkFailingOf`) and the key a timeline holds at most one of (`checkKey`, `checksSeen` — one per kind per head commit), the files seen |
-| `folds.ts` | `waitingOn`, `standing`, `timeBar`, `timeSpent`, `took`, `capFinished` — each taking a `Policy` (what the waterfall's words mean for this work) rather than reading the setup itself |
-| `waterfall.ts` | the WORDS and every rule over them: `MODE_RUNS` (what each mode runs, needs and drives), `rolesOf`, `setupKeyOf`, `modeOf`/`hostOf`/`onGreenOf`/`setupOf`, `missingSetup` + `foreignSetupWords`, `driverOf`, `membershipOf`, `waitingOnYou`, `policyOf` |
+| `schema.ts` | the KEY (`WorkKey`, `workIdOf`, `workKeyOf`, `workDirOf`), the record, the `state`/`outcome` sums and their readings (`isOpen`, `endedAt`, `outcomeOf`, `keptOf`), the `Asked \| Answered` decision sum, the event union typed by kind, and the waterfall's WORDS (`WORK_ROLES`, `WORK_MODES`, `ON_GREEN`, `SETUP_KEYS`) — declared here because the record's schema embeds them |
+| `store.ts` | the ONE smart constructor over works + members: `parseStore` (what the decoder and the single writer both go through), `storeFault` and the `InvalidWorkStore` whose `why` names the rule that broke |
+| `record.ts` | the transitions: `openWork`, `askQuestions`, `answerAsk`, `dropAsk`, `joinWork`, `leaveWork`, `recordEvent`, `takeOver`/`handBack`, `endWork`, `reopenWork`, `keepFiles`/`keepFailed` — the record only grows, bounded by `AGENT_STATES_KEPT`; `openAsks`/`hasOpenAsk` derive what is still waiting on a person |
+| `readings.ts` | the MECHANISM of a reading: what a decision came to (`answerValue`), the decisions of one ask, the PR as the timeline last said it (`prOf`) with the one check table (`CHECK_STEP`), the key a timeline holds at most one of (`checkKey`, `checksSeen` — one per kind per head commit, off the event's own `pr` and `head` fields), the files seen |
+| `folds.ts` | `waitingOn`, `standing`, `timeBar`, `timeSpent`, `took`, `lifetime`, `inProgress`/`finished` over `WorkRow`, `capFinished` — each taking a `Policy` (what the waterfall's words mean for this work) rather than reading the setup itself |
+| `waterfall.ts` | the WORDS and every rule over them: `MODE_RUNS` (what each mode runs, needs and drives), `rolesOf`, `setupKeyOf`, `roleRank`, `modeOf`/`onGreenOf`/`setupOf`, `missingSetup` + `foreignSetupWords`, `driverOf`, `membershipOf`, `waitingOnYou`, `policyOf`, and where a work's files live (`WATERFALL_DIR`, `waterfallFileName`) |
 | `refusal.ts` | why a call about a work is refused — `WORK_REFUSALS` and the `WorkRefusal` every face `instanceof`s |
+
+**Four rules JSON cannot state, in one constructor.** Everything else is the
+types' job, so `parseStore(works, members)` is left with exactly four
+sentences: the record's key is the work's own id; every member's work exists;
+that work is open (so an ended work has no members); and a work holds at most
+one `planner` and at most one `implementor`. Parse, do not validate — the
+decoder goes through it, so a store on disk that breaks one fails to decode
+with the sentence naming it, and the single writer goes through it too, so a
+transition that would break one cannot be saved.
 
 **The mechanism does not read the vocabulary.** `schema.ts`, `record.ts`,
 `folds.ts` and `readings.ts` import nothing from `waterfall.ts`; the rules that
@@ -91,9 +121,12 @@ Different volatilities, different homes:
 - **Storage** is kolu-server's (`packages/server/src/state.ts`): the `works`
   key of `config.json` (with the `members` key beside it, which is
   `kolu-conductor`'s own memory of each member terminal), carried by the one
-  migration ladder, and kept files under `<state dir>/works/<id>/`. How many
-  finished works are kept is the host's number too (`FINISHED_KEPT`, beside
-  the cap it applies); `capFinished(works, keep)` takes it.
+  migration ladder — rung `1.53.0` folds every pre-key store into this model,
+  one work per key — and kept files under `<state dir>/works/`, in the
+  directory `workDirOf(id)` names (a hash, because a work id holds a
+  repository's absolute path). How many finished works are kept is the host's
+  number too (`FINISHED_KEPT`, beside the cap it applies);
+  `capFinished(works, keep)` takes it.
 - **Observation** is split where its sources are. What a host's frames *mean*
   for a member — a level change, a PR transition, a file that appeared — is
   decided in `kolu-conductor` (pure readings over padi records); the

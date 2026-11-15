@@ -50,6 +50,29 @@ describe("the standing prompt", () => {
   });
 });
 
+describe("a piece of work is its branch", () => {
+  const SCRIPT = teachingLines("zest").join("\n");
+
+  it("says to OPEN existing work rather than start a second one", () => {
+    // THE DEFECT THIS GUARDS: one branch drawn as three cards, because a
+    // Conductor woken with "gone" opened a new piece of work each time.
+    expect(SCRIPT).toContain("A PIECE OF WORK IS ITS BRANCH ON ITS MACHINE");
+    expect(SCRIPT).toContain("NEVER start a second piece of work for a branch");
+  });
+
+  it("says `gone` is about the terminal, never about the work", () => {
+    expect(SCRIPT).toContain(
+      "`gone` means THAT TERMINAL is\nreally gone".replace("\n", " "),
+    );
+    expect(SCRIPT).toContain("NO TERMINALS");
+    expect(SCRIPT).toContain("work_stop");
+  });
+
+  it("asks which machine rather than guessing one", () => {
+    expect(SCRIPT).toContain("ask them in your reply and END YOUR TURN");
+  });
+});
+
 describe("the waterfall's two modes", () => {
   const SCRIPT = teachingLines("zest").join("\n");
 

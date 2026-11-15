@@ -127,6 +127,22 @@ const answerLine = (news: AnsweredNews): string => {
   ].join("\n");
 };
 
+/** A PIECE OF WORK WITH NOBODY DOING IT — every member terminal is gone, and
+ *  the work is still OPEN, because kolu failing to see a terminal is not an
+ *  ending. Said ONCE per emptying.
+ *
+ *  Its own news rather than a terminal's: the terminals it would name are the
+ *  ones that are no longer there, and what the Conductor has to act on is the
+ *  WORK — adopt terminals back into it, or stop it. */
+export interface NoTerminalsNews {
+  readonly work: string;
+  readonly title: string;
+  readonly at: string;
+}
+
+const noTerminalsLine = (news: NoTerminalsNews): string =>
+  `- «${news.title}» (${news.work}) — NO TERMINALS: every terminal that was working on it is gone (${news.at}). The work is still open and everything it decided is still on it.`;
+
 /** One terminal's line. The ref comes first because it is what every tool
  *  takes; the prose after it is what a person would say about the same thing.
  *  An EMPTY agent is the `ended` case — no agent was ever in it — and the line
@@ -168,6 +184,7 @@ export const wakeText = (
   events: ReadonlyArray<ConductorWakeEvent>,
   about: (ref: string) => WakeMembership | null,
   answered: ReadonlyArray<AnsweredNews> = [],
+  emptied: ReadonlyArray<NoTerminalsNews> = [],
 ): string => {
   const subjects: string[] = [];
   if (events.length > 0) {
@@ -184,11 +201,24 @@ export const wakeText = (
         : `the human answered ${answered.length} questions you asked`,
     );
   }
+  if (emptied.length > 0) {
+    subjects.push(
+      emptied.length === 1
+        ? "a piece of work has no terminals left"
+        : `${emptied.length} pieces of work have no terminals left`,
+    );
+  }
   const parts: string[] = [
     `[kolu] I am waking you: ${subjects.join(", and ")}. You did not ask for this turn — kolu started it.`,
   ];
   if (answered.length > 0) {
     parts.push(answered.map(answerLine).join("\n"));
+  }
+  if (emptied.length > 0) {
+    parts.push(emptied.map(noTerminalsLine).join("\n"));
+    parts.push(
+      "Nothing ended: kolu failing to see a terminal is not a work finishing. Bring terminals back to it with `work_adopt` (the work is named above — do NOT open a second one for the same branch), or `work_stop` it if it is really over.",
+    );
   }
   if (events.length > 0) {
     parts.push(

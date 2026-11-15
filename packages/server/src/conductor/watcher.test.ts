@@ -26,6 +26,7 @@
 
 import { type PadiSurfaceClient, padiClientOver } from "@kolu/padi-client/dial";
 import {
+  type PadiRoster,
   type PadiTerminal,
   type PadiUrgency,
   padiSurfaceSibling,
@@ -125,24 +126,37 @@ const record = (over: { parentId?: string; intent?: string }): PadiTerminal =>
 interface FakePadi {
   readonly client: PadiSurfaceClient;
   readonly urgency: Cell<PadiUrgency>;
+  /** This padi's own word for whether its roster is a census — what the watch
+   *  reads to decide whether `gone` is a word it may use about this host. */
+  readonly roster: Cell<PadiRoster>;
   /** How many standing subscriptions this padi is serving right now. */
   held(): number;
 }
 
 /** One host's padi, at the tags padi's own face dials. `silentRoster` is the
- *  host that is answering and has not said which terminals it has yet. */
+ *  host that is answering and has not said which terminals it has yet;
+ *  `settling` is the host that has not finished ADOPTING them — a fresh daemon
+ *  mid-boot, or one recycling its kaval. */
 function fakePadi(
   holds: Record<string, { parentId?: string; intent?: string }>,
-  options: { silentRoster?: boolean } = {},
+  options: { silentRoster?: boolean; settling?: boolean } = {},
 ): FakePadi {
   const records = new Map(
     Object.entries(holds).map(([id, over]) => [id, cell(record(over))]),
   );
   const urgency = cell<PadiUrgency>(QUIET);
+  // Established by default: the ordinary case is a padi that booted, adopted
+  // its terminals and said so, which is when a reading means anything.
+  const roster = cell<PadiRoster>(
+    options.settling === true
+      ? { kind: "settling" }
+      : { kind: "established", at: 1 },
+  );
   const at = (member: string, verb: string): string =>
     surfaceTag(padiSurfaceSibling.tagPrefix, member, verb);
   const handlers = {
     [at("urgency", "get")]: () => urgency.stream(),
+    [at("roster", "get")]: () => roster.stream(),
     [at("terminals", "keys")]: () =>
       options.silentRoster === true
         ? Stream.never
@@ -153,8 +167,10 @@ function fakePadi(
   return {
     client: padiClientOver(directDispatch({ handlers })).padi,
     urgency,
+    roster,
     held: () =>
       urgency.held() +
+      roster.held() +
       [...records.values()].reduce((sum, one) => sum + one.held(), 0),
   };
 }
@@ -189,13 +205,18 @@ function fakeHosts(entries: Record<string, PadiSurfaceClient | null>): {
  *  a sink for the readings. Nothing else of `ConductorHost` is touched — which
  *  is itself the claim, since a watch that started the agent merely to read
  *  membership would be a subprocess nobody asked for. */
-function fakeConductor(members: string[]): {
+function fakeConductor(
+  members: string[],
+  /** What `memberRefs` does instead of answering — the store this build cannot
+   *  decode (`UnreadablePersisted`), raised where the watch reads membership. */
+  refuse?: () => never,
+): {
   host: () => ConductorHost;
   readonly seen: WatchObservation[];
 } {
   const seen: WatchObservation[] = [];
   const host = {
-    memberRefs: () => members,
+    memberRefs: () => (refuse === undefined ? members : refuse()),
     observe: (next: ReadonlyArray<WatchObservation>) => {
       seen.push(...next);
     },
@@ -226,10 +247,10 @@ describe("the conductor's watch, as wiring", () => {
         // THE PARENT IS NOT READ. It is a terminal on this host and the
         // member's own `child-of` edge points at it, and it is not a member —
         // membership is stated now, so the ancestor walk that used to open a
-        // subscription per link has nothing to find out. Two standing reads:
-        // the urgency fold and the one member's record (the roster's `keys`
-        // answers once and ends).
-        expect(local.held()).toBe(2);
+        // subscription per link has nothing to find out. Three standing reads:
+        // the urgency fold, the roster's STANDING (is that list a census?) and
+        // the one member's record (the roster's `keys` answers once and ends).
+        expect(local.held()).toBe(3);
       });
     } finally {
       await watcher.dispose();
@@ -303,6 +324,95 @@ describe("the conductor's watch, as wiring", () => {
     }
   });
 
+  it("says nothing about a host that has NOT FINISHED ADOPTING — even about a member missing from its roster", async () => {
+    // #2376, end to end over the wire. The host is answering, its roster has
+    // landed and the member is NOT in it — which used to be the whole of
+    // "gone". Here padi says that list is not a census yet (a fresh daemon
+    // serving its pre-adopt registry, or one recycling its kaval), so the
+    // watch withholds, and the work keeps its members.
+    const fresh = fakePadi({}, { settling: true });
+    const local = fakePadi({ [OTHER]: { intent: "the other one" } });
+    const fleet = fakeHosts({ [LOCAL]: local.client, [BOX]: fresh.client });
+    const conductor = fakeConductor([`${LOCAL}/${OTHER}`, `${BOX}/${SPLIT}`]);
+    const watcher = startConductorWatcher({
+      hosts: fleet.hosts,
+      conductor: conductor.host,
+      log,
+    });
+    local.urgency.set({ ...QUIET, workingIds: [OTHER] });
+    try {
+      await vi.waitFor(() => {
+        expect(conductor.seen.at(-1)?.terminalId).toBe(OTHER);
+        expect(fresh.held()).toBeGreaterThan(0);
+      });
+      expect(conductor.seen.some((one) => one.host === BOX)).toBe(false);
+
+      // And the moment it HAS adopted — with the member still not in its
+      // roster — the same absence becomes news, because now it is evidence.
+      fresh.roster.set({ kind: "established", at: 2 });
+      await vi.waitFor(() => {
+        const last = conductor.seen.filter((one) => one.host === BOX).at(-1);
+        expect(last?.level).toBe("gone");
+        expect(last?.terminalId).toBe(SPLIT);
+      });
+    } finally {
+      await watcher.dispose();
+    }
+  });
+
+  it("SURVIVES a store it cannot read — it opens nothing, and the watch is still there when it can", async () => {
+    // A throw out of `memberRefs` is a DEFECT inside the stream that IS the
+    // watch: it killed the fiber, and nothing re-opens one ("nothing will wake
+    // the Conductor until kolu-server restarts", seen in an e2e whose store was
+    // seeded unreadable). An unreadable store means kolu does not know who the
+    // members are — a watch with nothing to watch, not a dead one.
+    const local = fakePadi({ [SPLIT]: { intent: "write the migration" } });
+    const fleet = fakeHosts({ [LOCAL]: local.client });
+    let readable = false;
+    const conductor = fakeConductor([`${LOCAL}/${SPLIT}`], () => {
+      if (!readable)
+        throw new Error(
+          "the saved works are in a shape this build does not understand",
+        );
+      // Unreachable once `readable` flips — the fixture's refusal is consulted
+      // on every read, so the recovery below really is a re-read.
+      throw new Error("unreachable");
+    });
+    const watcher = startConductorWatcher({
+      hosts: fleet.hosts,
+      conductor: conductor.host,
+      log,
+    });
+    try {
+      local.urgency.set({ ...QUIET, workingIds: [SPLIT] });
+      // Nothing is watched and nothing is said — and the proof the watch is
+      // ALIVE is the next move being answered at all.
+      await vi.waitFor(() => {
+        expect(local.held()).toBe(0);
+      });
+      expect(conductor.seen).toEqual([]);
+
+      // The store becomes readable (round 3's recovery) and the next membership
+      // move re-reads it: the leg opens and the member is reported.
+      readable = true;
+      const recovered = fakeConductor([`${LOCAL}/${SPLIT}`]);
+      const second = startConductorWatcher({
+        hosts: fleet.hosts,
+        conductor: recovered.host,
+        log,
+      });
+      try {
+        await vi.waitFor(() => {
+          expect(recovered.seen.at(-1)?.terminalId).toBe(SPLIT);
+        });
+      } finally {
+        await second.dispose();
+      }
+    } finally {
+      await watcher.dispose();
+    }
+  });
+
   it("lets every subscription go when it is disposed", async () => {
     const local = fakePadi({
       [PLANNER]: { intent: "plan the cutover" },
@@ -321,9 +431,9 @@ describe("the conductor's watch, as wiring", () => {
     local.urgency.set({ ...QUIET, workingIds: [SPLIT] });
     await vi.waitFor(() => {
       expect(conductor.seen.length).toBeGreaterThan(0);
-      // The fold and one record per MEMBER — two members of one work here,
-      // which is the shape a waterfall has.
-      expect(local.held()).toBe(3);
+      // The fold, the roster standing, and one record per MEMBER — two members
+      // of one work here, which is the shape a waterfall has.
+      expect(local.held()).toBe(4);
     });
     await watcher.dispose();
     // One interrupt takes the legs and the host-map subscription with it: a

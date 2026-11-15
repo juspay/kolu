@@ -21,7 +21,7 @@
  */
 
 import type { Component } from "solid-js";
-import { Show } from "solid-js";
+import { createMemo, Show } from "solid-js";
 import type { ConductorState } from "kolu-common/conductor";
 import InlineConfirmButton from "../ui/InlineConfirmButton";
 import { recoveryOffer } from "./recovery";
@@ -48,50 +48,57 @@ const ConductorRefusal: Component<{ state: ConductorState }> = (props) => {
           </button>
         }
       >
-        {(unreadable) => (
-          <>
-            {/* What the decode tripped on, small: the one line a bug report
+        {(unreadable) => {
+          // ONE offer per refusal: the same three strings were rebuilt four
+          // times in one render (#2376 review).
+          const offer = createMemo(() => recoveryOffer(unreadable()));
+          return (
+            <>
+              {/* What the decode tripped on, small: the one line a bug report
                 needs, and the one line nobody has to understand to use the
                 two buttons under it. */}
-            <p
-              data-testid="conductor-refusal-detail"
-              class="mb-3 whitespace-pre-wrap break-words text-[11px] text-fg-3"
-            >
-              {unreadable().detail}
-            </p>
-            <div class="flex max-w-lg flex-col gap-2 sm:flex-row">
-              <Show when={recoveryOffer(unreadable()).backupLabel}>
-                {(label) => (
-                  <button
-                    type="button"
-                    data-testid="conductor-recover-backup"
-                    class="flex-1 cursor-pointer rounded-lg border border-warning/50 bg-warning/20 px-3 py-2 text-xs font-medium text-fg transition-colors hover:bg-warning/30"
-                    onClick={() =>
-                      orch.recoverStore(unreadable().key, "backup")
-                    }
-                  >
-                    {label()}
-                  </button>
-                )}
-              </Show>
-              {/* The destructive-looking half, behind the repo's one confirm
+              <p
+                data-testid="conductor-refusal-detail"
+                class="mb-3 whitespace-pre-wrap break-words text-[11px] text-fg-3"
+              >
+                {unreadable().detail}
+              </p>
+              <div class="flex max-w-lg flex-col gap-2 sm:flex-row">
+                <Show when={offer().backupLabel}>
+                  {(label) => (
+                    <button
+                      type="button"
+                      data-testid="conductor-recover-backup"
+                      class="flex-1 cursor-pointer rounded-lg border border-warning/50 bg-warning/20 px-3 py-2 text-xs font-medium text-fg transition-colors hover:bg-warning/30"
+                      onClick={() =>
+                        orch.recoverStore(unreadable().key, "backup")
+                      }
+                    >
+                      {label()}
+                    </button>
+                  )}
+                </Show>
+                {/* The destructive-looking half, behind the repo's one confirm
                   shell — and the confirm NAMES the file the unreadable value
                   is kept in, because "nothing is deleted" is a promise and a
-                  path is a fact. */}
-              <div class="flex-1">
-                <InlineConfirmButton
-                  label={recoveryOffer(unreadable()).emptyLabel}
-                  inFlightLabel={recoveryOffer(unreadable()).emptyLabel}
-                  confirmCopy={recoveryOffer(unreadable()).emptyCopy}
-                  tone="danger"
-                  inFlight={false}
-                  testid="conductor-recover-empty"
-                  onConfirm={() => orch.recoverStore(unreadable().key, "empty")}
-                />
+                  path is a fact. The path is the SERVER'S answer, quoted. */}
+                <div class="flex-1">
+                  <InlineConfirmButton
+                    label={offer().emptyLabel}
+                    inFlightLabel={offer().emptyLabel}
+                    confirmCopy={offer().emptyCopy}
+                    tone="danger"
+                    inFlight={false}
+                    testid="conductor-recover-empty"
+                    onConfirm={() =>
+                      orch.recoverStore(unreadable().key, "empty")
+                    }
+                  />
+                </div>
               </div>
-            </div>
-          </>
-        )}
+            </>
+          );
+        }}
       </Show>
     </div>
   );

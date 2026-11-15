@@ -39,11 +39,13 @@ import {
   TerminalNotActive,
 } from "./errors.ts";
 import {
+  type PadiRoster,
   type PadiStateEvent,
   type PadiTerminal,
   type PadiWatchEvent,
   type PadiWatchStatesInput,
   padiSurface,
+  rosterIsEstablished,
   ScreenTextTailSchema,
 } from "./surface.ts";
 import { activeAgent } from "./terminalVocab.ts";
@@ -483,9 +485,28 @@ async function watchAttachFeed(
         );
       }
       if (!keys.includes(opts.id as (typeof keys)[number])) {
-        fire("onTerminalGone", opts.onTerminalGone);
-        ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
-        return;
+        // ABSENT FROM A LIST THAT MAY NOT BE A CENSUS. padi serves its roster
+        // from the moment it starts, before it has adopted the terminals it
+        // supervises (and again across a kaval recycle), so "not in the keys"
+        // means "nothing has been adopted yet" in exactly the windows a wait is
+        // most likely to meet one: the daemon it was talking to was just
+        // replaced. Its own `roster` standing tells the two apart; while it is
+        // SETTLING this falls through to `closed`, which is the outcome whose
+        // whole meaning is "retry — conclude nothing about the agent".
+        let standing: PadiRoster | undefined;
+        for await (const frame of iterateUntilAborted(
+          client.surface.roster.get(undefined),
+          ctx.signal,
+        )) {
+          standing = frame;
+          break;
+        }
+        if (standing !== undefined && rosterIsEstablished(standing)) {
+          fire("onTerminalGone", opts.onTerminalGone);
+          ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
+          return;
+        }
+        feedError ??= `the host has not finished adopting its terminals, so its list cannot say whether ${opts.id} is gone — ${opts.retryAdvice}.`;
       }
     } catch (err) {
       // A DEAD transport is not a healthy feed-end — it poisons the shared
@@ -1090,11 +1111,34 @@ function conditionForm(
               // The terminal we're waiting on left the collection — its PTY
               // exited, so no future frame can carry the target bucket. Resolve
               // gone rather than hanging. Removals of OTHERS are noise.
+              //
+              // UNLESS the host is not a census yet: a padi that was just
+              // replaced (or is recycling its kaval) serves a registry it has
+              // not finished adopting, and this mirror reports every terminal
+              // in it as removed. Asked of the host's own `roster` standing —
+              // once, on the absent path — so a daemon restart under a wait
+              // reads as what it is. A settling host settles nothing: the
+              // mirror re-seeds when it comes back, and the wait's own deadline
+              // bounds the case where it does not.
               onRemove: (removed) => {
                 if (removed !== engine.id) return;
-                engine.ctx.settle({
-                  kind: "gone",
-                  elapsedMs: engine.ctx.elapsedMs(),
+                void (async () => {
+                  for await (const standing of iterateUntilAborted(
+                    engine.client.surface.roster.get(undefined),
+                    engine.ctx.signal,
+                  )) {
+                    if (rosterIsEstablished(standing)) {
+                      engine.ctx.settle({
+                        kind: "gone",
+                        elapsedMs: engine.ctx.elapsedMs(),
+                      });
+                    }
+                    return;
+                  }
+                })().catch((err: unknown) => {
+                  engine.ctx.recordUpstreamError(
+                    `reading the host's roster standing failed: ${messageOf(err)}`,
+                  );
                 });
               },
             },

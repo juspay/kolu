@@ -21,6 +21,7 @@ import {
   type DaemonStatus,
   encodeHostLocation,
   LOCAL_LOCATION,
+  rosterIsEstablished,
 } from "@kolu/padi-client/surface";
 import type { EntryState } from "@kolu/surface-map";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
@@ -406,47 +407,27 @@ export function daemonConnected(): boolean {
  *  `useActiveReconcile`'s promote-on-departure eviction (a departure seen while
  *  the list isn't authoritative is the server's doing, not a user close).
  *
- *  Today it IS `daemonConnected()`, but the NAME states the meaning and this
- *  docstring — not the callers — carries the ordering argument, so the honest
- *  scope of the fact lives in one place:
+ *  IT IS PADI'S OWN ANSWER NOW (`padiSurface` 7.4's `roster` cell), which is the
+ *  #1902 marker this used to approximate with `daemonConnected()` and a
+ *  paragraph of ordering argument. The host says `established` once it has
+ *  finished adopting — the kaval endpoint booted and the saved session
+ *  reconciled at boot, the captured session re-parked after a recycle — and
+ *  `settling` before and during. The windows the old approximation could not
+ *  cover close with it: a kaval that hung at a padi restart and recovered, a
+ *  mid-session link heal, out-of-band (`kaval-tui`-created) terminals arriving
+ *  through the inventory reconciler. None of those can make an unreconciled
+ *  list look like a census, because the host — not the browser — decides.
  *
- *  - The daemon reports `connected` BEFORE boot adoption/reconcile runs
- *    (`ptyHost/index.ts` maps the converge outcome to `adopted` only after the
- *    endpoint is up; `reattach.ts` — "By the time adoption runs the endpoint has
- *    already reported connected"; `daemonStatus.ts` folds the adopted count on
- *    AFTER connect). So `connected` alone does NOT prove the list reconciled.
- *  - What makes it authoritative on the MAIN paths anyway: at BOOT, padi's serve
- *    socket starts listening only after `bootLocalEndpoint` (which adopts)
- *    completes (`daemonMain.ts`), so a browser never observes a pre-adoption
- *    `connected`; and on a SUPERVISED restart, `holdRestarting` masks
- *    capture→reattach as one `restarting` (`surface-daemon-supervisor/restart.ts`),
- *    so the client sees `connected` only once reattach finished.
- *  - A THIRD path exists since juspay/kolu#2182 and neither argument above covers
- *    it: a mid-session link heal. `converge` emits `connected` from inside itself
- *    and the heal's hook runs after, with padi already listening and no
- *    `holdRestarting` in play — so the client CAN observe `connected` over a
- *    registry whose sensors have not been re-wired yet. What keeps that benign is
- *    what the heal does NOT do: it never empties or re-registers the list (it
- *    re-wires taps on entries that were there throughout), so the window is one
- *    of stale per-terminal detail, never of a list that looks authoritative while
- *    it is empty. The residual below is the one to widen if that ever changes.
- *  - RESIDUAL (not covered here — needs a padi-side registry-reconciled marker,
- *    tracked as follow-up #1902; the heal above is the first path that gives it a
- *    production trigger rather than a theoretical one): a kaval that HUNG at a
- *    padi restart so `converge`
- *    threw (its catch only logs — `ptyHost/index.ts`), then recovered, flips
- *    `connected` before the 2s inventory-reconcile loop re-adopts; and
- *    out-of-band (`kaval-tui`-created) terminals appear the same way. In those
- *    windows this fact reads `true` over a still-stale list, so an absent id reads
- *    authoritative-but-gone and the deep-link gone-verdict fires IMMEDIATELY — a
- *    false gone the 8s backstop does NOT catch (the backstop bounds only the OTHER
- *    case, where this fact stays `false` and the route waits). #1900's primary
- *    boot-gate fix already removes the dominant trigger; closing this last window
- *    honestly needs the #1902 marker.
+ *  Still CONJOINED with `daemonConnected()`: a standing that arrived over a link
+ *  that has since dropped is a remembered fact, not a current one, and a list
+ *  nobody is feeding must not be read as a census of what is running now.
  *
  *  A reactive accessor; read it inside a tracking scope. */
 export function listIsAuthoritative(): boolean {
-  return daemonConnected();
+  const standing = activeScope()?.wire.roster.value();
+  return (
+    daemonConnected() && standing !== undefined && rosterIsEstablished(standing)
+  );
 }
 
 /** The single warming-refusal gate for terminal creation: if the daemon is

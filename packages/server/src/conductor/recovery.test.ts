@@ -44,7 +44,7 @@ import {
   type PersistedWorks,
   startConductorHost,
 } from "kolu-conductor";
-import type { Work } from "kolu-work";
+import { type Work, workIdOf } from "kolu-work";
 import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { recoverConductorStore } from "../conductorRecovery.ts";
@@ -72,19 +72,18 @@ const membersStore = confStore<PersistedMembers>(store, "members");
 
 /** A piece of work in today's shape — no members, because what these tests
  *  are about is the KEY, not what is inside it. */
-const work = (id: string, title: string): Work => ({
-  id,
+const work = (branch: string, title: string): Work => ({
+  key: { kind: "branch", host: "local", repo: "/srv/repo", branch },
   title,
-  repo: "/srv/repo",
-  branch: "fix-the-parser",
-  members: [],
   events: [],
   decisions: [],
   startedAt: T0,
-  endedAt: null,
-  outcome: null,
-  keptFiles: [],
+  state: { kind: "open" },
 });
+
+/** The same, as the one-entry record the store holds. */
+const works = (...all: ReadonlyArray<Work>): PersistedWorks =>
+  Object.fromEntries(all.map((one) => [workIdOf(one.key), one]));
 
 /** A host over the REAL conf store and the REAL transcript file, with the
  *  conversation itself absent: every one of these scenarios is a bring-up
@@ -98,6 +97,7 @@ function hostOver(): ConductorHost {
     proveFleetMcp: async () => null,
     publish: () => {},
     publishWork: () => {},
+    publishMember: () => {},
     publishReading: () => {},
     membersMoved: () => {},
     store: conductorStore,
@@ -141,9 +141,9 @@ function snapshot(): string {
 
 /** The value a corrupt `works` key holds: a work whose title is a number —
  *  the shape a rolled-back binary or a half-written rung leaves behind. */
-const CORRUPT_WORKS = [
-  { id: "work:bad", title: 7 },
-] as unknown as PersistedWorks;
+const CORRUPT_WORKS = {
+  "branch:local/%2Fsrv%2Frepo/bad": { ...work("bad", "the bad one"), title: 7 },
+} as unknown as PersistedWorks;
 
 /** Make the first reader trip, and hand back what the panel is now showing. */
 function refuse(host: ConductorHost): {
@@ -169,7 +169,7 @@ const keptAside = (): string[] =>
 
 beforeEach(() => {
   conductorStore.set({ ...EMPTY_PERSISTED_CONDUCTOR, cwd: HOME });
-  worksStore.set([]);
+  worksStore.set({});
   membersStore.set({});
   rmSync(join(stateRoot, "conductor"), { recursive: true, force: true });
   rmSync(stateBackupRing.dir, { recursive: true, force: true });
@@ -177,7 +177,7 @@ beforeEach(() => {
 
 afterEach(() => {
   conductorStore.set(EMPTY_PERSISTED_CONDUCTOR);
-  worksStore.set([]);
+  worksStore.set({});
   membersStore.set({});
   rmSync(join(stateRoot, "conductor"), { recursive: true, force: true });
   rmSync(stateBackupRing.dir, { recursive: true, force: true });
@@ -216,12 +216,9 @@ describe("restore the newest backup that reads", () => {
     // Three snapshots: one work, then two, then the corruption — which is the
     // ordinary shape of this accident, because the newest snapshots were taken
     // after whatever broke the store.
-    worksStore.set([work("work:one", "the first")]);
+    worksStore.set(works(work("one", "the first")));
     snapshot();
-    worksStore.set([
-      work("work:one", "the first"),
-      work("work:two", "the second"),
-    ]);
+    worksStore.set(works(work("one", "the first"), work("two", "the second")));
     const good = snapshot();
     worksStore.set(CORRUPT_WORKS);
     snapshot();
@@ -239,7 +236,10 @@ describe("restore the newest backup that reads", () => {
     // it publishes carries no refusal, and the works are the snapshot's.
     expect(host.state().refusal).toBeNull();
     expect(host.state().unreadable).toBeNull();
-    expect(host.works().map((one) => one.id)).toEqual(["work:one", "work:two"]);
+    expect(host.works().map(([, one]) => one.title)).toEqual([
+      "the first",
+      "the second",
+    ]);
     // The store that could not be read is STILL IN THE RING, so the recovery
     // is itself undoable: the ring takes its own undo snapshot before `apply`
     // runs, and skips it only when it would be byte-identical to the newest
@@ -251,7 +251,7 @@ describe("restore the newest backup that reads", () => {
   it("says so, plainly, when no backup reads either", () => {
     worksStore.set(CORRUPT_WORKS);
     snapshot();
-    worksStore.set([{ id: "work:worse" }] as unknown as PersistedWorks);
+    worksStore.set({ "work:worse": { title: 1 } } as unknown as PersistedWorks);
     snapshot();
 
     const host = hostOver();
@@ -268,7 +268,7 @@ describe("restore the newest backup that reads", () => {
     // The refusal points at the other button rather than at a text editor.
     expect(why).toContain("keeps the unreadable one in a file of its own");
     // Nothing was written: the record is still exactly what it was.
-    expect(store.get("works")).toEqual([{ id: "work:worse" }]);
+    expect(store.get("works")).toEqual({ "work:worse": { title: 1 } });
   });
 
   it("refuses for the TRANSCRIPT, which no backup holds", () => {
@@ -304,7 +304,7 @@ describe("start with the record empty", () => {
       JSON.parse(readFileSync(join(stateRoot, "conductor", name), "utf8")),
     ).toEqual(CORRUPT_WORKS);
     // ...the key is empty, and the Conductor is up in this process.
-    expect(store.get("works")).toEqual([]);
+    expect(store.get("works")).toEqual({});
     expect(host.state().refusal).toBeNull();
     expect(host.works()).toEqual([]);
   });

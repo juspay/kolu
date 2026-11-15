@@ -37,17 +37,20 @@ import { type Policy, type Waiter, waitingOn } from "./folds.ts";
 import { answerValue } from "./readings.ts";
 import {
   type Decision,
+  hostOf,
   ON_GREEN,
   type OnGreen,
   SETUP_KEYS,
   type SetupKey,
   WORK_MODES,
+  WORK_ROLES,
   type Work,
   type WorkMode,
   type WorkRole,
 } from "./schema.ts";
 
 export {
+  hostOf,
   ON_GREEN,
   type OnGreen,
   SETUP_KEYS,
@@ -71,7 +74,8 @@ export {
  *  - `roles` — the parts the mode runs, in the order they come in. A `watch`
  *    runs none: the terminal it adopts is already doing whatever it does.
  *  - `needs` — the setup keys this mode cannot be opened without, BEYOND the
- *    two every work needs (`host` and `mode`). A waterfall mode needs the
+ *    ONE every work needs (`mode`; the host is the work's identity, not a
+ *    question). A waterfall mode needs the
  *    implementor's harness and model and what to do when CI is green; `full`
  *    needs the planner's two as well.
  *  - `driven` — whether kolu types into its member terminals. A `watch` is the
@@ -127,77 +131,29 @@ export const setupKeyOf = (
   return SETUP_KEYS.find((key) => key === spelled) ?? null;
 };
 
-/** THE LABEL A SETUP DECISION IS DRAWN UNDER — the key's own name, in the
- *  words a person says. The two keys of one role share a label because a role
- *  is ONE row on the card: "Implementor — omp · claude-opus-5". */
-export const SETUP_LABEL: Record<SetupKey, string> = {
-  host: "Host",
-  mode: "Mode",
-  "planner.harness": "Planner",
-  "planner.model": "Planner",
-  "implementor.harness": "Implementor",
-  "implementor.model": "Implementor",
-  "on-green": "On green",
-};
+/** THE ORDER THE ROLES COME IN, as a number — the planner plans, the
+ *  implementor implements, anything else follows. A token, not words: every
+ *  face sorts by it and spells its own labels. */
+export const roleRank = (role: WorkRole): number =>
+  WORK_ROLES.indexOf(role) < 0 ? WORK_ROLES.length : WORK_ROLES.indexOf(role);
 
-/** THE SETUP, GROUPED INTO ROWS, in the order they are drawn — one row per
- *  label, so a role's harness and its model are one line and never two. Every
- *  surface that lists the setup reads this order rather than inventing one. */
-export const SETUP_ROWS: ReadonlyArray<ReadonlyArray<SetupKey>> = [
-  ["host"],
-  ["mode"],
-  ["planner.harness", "planner.model"],
-  ["implementor.harness", "implementor.model"],
-  ["on-green"],
-];
+/** WHERE A WATERFALL'S FILES LIVE, worktree-relative — the one spelling of
+ *  the directory every `file` event's path starts with. */
+export const WATERFALL_DIR = ".waterfall/";
 
-/** HOW LONG A DRAWN LINE MAY BE. The card's rows are one line each: a
- *  decision, a timeline event. Past this the line is cut and the rest sits
- *  behind a press — never wrapped into a paragraph, which is how the same
- *  seven facts came to fill a screen three times over. */
-export const LINE_LIMIT = 72;
-
-/** ... and how long a LABEL may be: a few words, not a sentence. */
-export const LABEL_LIMIT = 34;
-
-/** One line of text, and whether anything was left behind it. */
-export interface OneLine {
-  readonly line: string;
-  /** `true` when the line is not the whole of what was given — it was cut, or
-   *  it had line breaks the one line flattened. What a press reveals. */
-  readonly rest: boolean;
-}
-
-/** THE ONE-LINE RULE, in one place. Whitespace (line breaks included) becomes
- *  single spaces, and anything past `limit` is cut at the last word boundary
- *  with an ellipsis. */
-export const oneLine = (text: string, limit: number = LINE_LIMIT): OneLine => {
-  const whole = text.trim();
-  const flat = whole.replace(/\s+/g, " ");
-  if (flat.length <= limit) return { line: flat, rest: flat !== whole };
-  const cut = flat.slice(0, limit);
-  const space = cut.lastIndexOf(" ");
-  const kept = space > limit / 2 ? cut.slice(0, space) : cut;
-  return { line: `${kept.replace(/[\s,.;:—-]+$/, "")}…`, rest: true };
-};
-
-/** WHAT A DECISION IS CALLED on a card: the setup key's own name, else the
- *  header the asker gave it, else the first few words of the question. The
- *  question itself is never the label — a Conductor that reasons inside its
- *  question ("Full or trivial? I'd pick full: …") would otherwise have its
- *  prose drawn as a heading. */
-export const decisionLabel = (decision: Decision): string => {
-  if (decision.key !== null) return SETUP_LABEL[decision.key];
-  const header = decision.header.trim();
-  return oneLine(header === "" ? decision.question : header, LABEL_LIMIT).line;
-};
+/** A waterfall file's own name, for a face that draws one: the path with the
+ *  directory taken off, or the path itself when it is somewhere else. */
+export const waterfallFileName = (path: string): string =>
+  path.startsWith(WATERFALL_DIR) ? path.slice(WATERFALL_DIR.length) : path;
 
 /** The latest ANSWERED decision for a setup key. */
 const setupDecision = (work: Work, key: SetupKey): Decision | undefined =>
   work.decisions.findLast(
-    (one) => one.key === key && one.answer?.how === "answered",
+    (one) =>
+      one.key === key &&
+      one.kind === "answered" &&
+      one.answer.how === "answered",
   );
-
 const among = <T extends string>(
   value: string | null,
   vocabulary: ReadonlyArray<T>,
@@ -206,9 +162,10 @@ const among = <T extends string>(
     ? (value as T)
     : null;
 
-/** The host the work runs on, or `null` until the human has said. */
-export const hostOf = (work: Work): string | null =>
-  answerValue(setupDecision(work, "host"));
+/** THE HOST is part of a work's identity now ({@link hostOf} in
+ *  `./schema.ts`, read off the key), not a question the human may leave
+ *  unanswered. Re-exported here so a reader of the waterfall's readings
+ *  finds it where the others are. */
 
 /** The mode, or `null` until answered (or answered with words that are no
  *  mode). */
@@ -242,16 +199,15 @@ export type Driver = "conductor" | "you";
  *  joined. So the lock ends by itself when the member leaves or the work ends,
  *  it survives a restart (it is in the stored record), and every reader —
  *  browser, MCP, the host's own refusals — reads one answer. */
-export const driverOf = (work: Work, terminal: string): Driver | null => {
-  if (work.endedAt !== null) return null;
+export const driverOf = (
+  work: Work,
+  terminal: string,
+  member: { readonly work: string; readonly role: WorkRole } | undefined,
+): Driver | null => {
+  if (work.state.kind !== "open") return null;
   const mode = modeOf(work);
   if (mode === null || !MODE_RUNS[mode].driven) return null;
-  if (
-    !work.members.some(
-      (one) => one.terminal === terminal && one.leftAt === null,
-    )
-  )
-    return null;
+  if (member === undefined) return null;
   for (let at = work.events.length - 1; at >= 0; at -= 1) {
     const event = work.events[at];
     if (event === undefined || event.terminal !== terminal) continue;
@@ -266,7 +222,7 @@ export const driverOf = (work: Work, terminal: string): Driver | null => {
 };
 
 export interface SetupReading {
-  readonly host: string | null;
+  readonly host: string;
   readonly mode: WorkMode | null;
   readonly roles: ReadonlyArray<{
     readonly role: WorkRole;
@@ -348,7 +304,7 @@ export const missingSetup = (
       if (one.key !== "mode") continue;
       for (const option of one.options) modes.add(option);
     }
-  const needed: SetupKey[] = ["host", "mode"];
+  const needed: SetupKey[] = ["mode"];
   for (const mode of WORK_MODES) {
     if (!modes.has(mode)) continue;
     for (const key of MODE_RUNS[mode].needs)
@@ -406,20 +362,23 @@ export interface Membership {
  *  an active member of. The ONE derivation every mark reads: the dock row,
  *  the tile, the card. */
 export const membershipOf = (
-  works: ReadonlyArray<Work>,
+  works: ReadonlyMap<string, Work> | ReadonlyArray<readonly [string, Work]>,
+  members: ReadonlyMap<
+    string,
+    { readonly work: string; readonly role: WorkRole }
+  >,
 ): ReadonlyMap<string, Membership> => {
+  const byId = works instanceof Map ? works : new Map(works);
   const index = new Map<string, Membership>();
-  for (const work of works) {
-    if (work.endedAt !== null) continue;
-    for (const member of work.members) {
-      if (member.leftAt !== null) continue;
-      index.set(member.terminal, {
-        work: work.id,
-        title: work.title,
-        role: member.role,
-        driver: driverOf(work, member.terminal),
-      });
-    }
+  for (const [terminal, member] of members) {
+    const work = byId.get(member.work);
+    if (work === undefined || work.state.kind !== "open") continue;
+    index.set(terminal, {
+      work: member.work,
+      title: work.title,
+      role: member.role,
+      driver: driverOf(work, terminal, member),
+    });
   }
   return index;
 };

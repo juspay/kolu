@@ -1,14 +1,14 @@
 /**
- * WHAT KOLU KNOWS ABOUT EACH MEMBER TERMINAL — ONE location, keyed by fleet
- * ref.
+ * EVERY MEMBER TERMINAL — ONE map, keyed by fleet ref, holding the whole of
+ * what kolu knows about it: which work it is doing, in what role, since when,
+ * where it is working, and the watch's own memory of the terminal.
  *
- * One map rather than a watch field inside the work record plus a parallel
- * runtime map beside it. The domain says a member's state is one thing
- * (`./members.ts` declares it as one interface), and holding it in two places
- * cost five invariants nothing enforced — every transition had to hand its
- * members back by reference, `joinWork` had to be patched at its one call
- * site, nothing carrying a watch could reach a reader — plus a work whose
- * published value moved every time a terminal was renamed.
+ * ONE map rather than a members array inside each work plus a parallel
+ * bookkeeping record beside them. Holding it in two places cost five
+ * invariants nothing enforced; holding membership inside the work cost the
+ * biggest one of all — a terminal could be a member of two works at once, and
+ * that is a card claiming an agent another card is also claiming. Here, a
+ * terminal is in AT MOST ONE WORK by construction: it has one row.
  *
  * The SAVED half is taken by subtraction at the write (`./members.ts`'s
  * `saved`), so a field added to the member arrives in the file with no edit
@@ -17,6 +17,7 @@
  */
 
 import type { MemberReading } from "kolu-common/works";
+import type { WorkId, WorkMember, WorkRole } from "kolu-work";
 import {
   type MemberState,
   type MemberWatch,
@@ -24,33 +25,60 @@ import {
   restoredMember,
   saved,
 } from "./members.ts";
-import type { PersistedMembers } from "./persisted.ts";
+import type { PersistedMember, PersistedMembers } from "./persisted.ts";
+
+/** ONE MEMBER as this process holds it: what the model says a member is, plus
+ *  the watch's own state for that terminal. */
+export interface Member extends WorkMember, MemberState {}
 
 export interface MemberStore {
-  readonly at: (ref: string) => MemberState | undefined;
-  readonly set: (ref: string, member: MemberState) => void;
+  readonly at: (ref: string) => Member | undefined;
+  readonly set: (ref: string, member: Member) => void;
   /** A member that left has nothing left to read. */
   readonly forget: (ref: string) => void;
-  /** THE MEMBERSHIP IS THE TRUTH — every ref that is an active member of a
-   *  work in progress and nothing else. Refs this store does not hold are
-   *  seeded from what was written down (or, for one the file never had, from
-   *  an empty watch); refs it holds that are not members are dropped.
-   *
-   *  One rule rather than "add these, remove those", because the two edges
-   *  that reach it — the boot read and a restored backup — both REPLACE the
-   *  membership wholesale. */
-  readonly reseed: (refs: ReadonlyArray<string>, was: PersistedMembers) => void;
+  /** Every member, in the order they joined this process's map. */
+  readonly all: () => ReadonlyMap<string, Member>;
+  /** The members of one work. */
+  readonly ofWork: (work: WorkId) => ReadonlyArray<readonly [string, Member]>;
+  /** The terminal already in this role of this work, if any — what the role
+   *  uniqueness refusal names. */
+  readonly inRole: (work: WorkId, role: WorkRole) => string | undefined;
+  /** EVERY MEMBER, REPLACED — the boot read and a restored backup both hand
+   *  the whole map over at once. */
+  readonly load: (members: PersistedMembers) => void;
+  /** Every member of this work, dropped — what ending a work does in the same
+   *  step as ending it. Answers the refs that went. */
+  readonly dropWork: (work: WorkId) => ReadonlyArray<string>;
   /** How each member terminal stands, as a reader is told it. A terminal
-   *  nothing has read yet is ABSENT rather than carried at zero — "nobody has
-   *  looked at its host" and "it has stood this way for no time" are different
-   *  facts. */
+   *  nothing has read yet is ABSENT rather than carried at zero. */
   readonly readings: () => ReadonlyMap<string, MemberReading>;
   /** What the `members` key holds after this movement. */
   readonly saved: () => PersistedMembers;
 }
 
+/** The member a restart restores: the model's four fields as the file holds
+ *  them, and the watch's half with its two runtime fields empty. */
+export const restored = (member: PersistedMember): Member => ({
+  work: member.work,
+  role: member.role,
+  joinedAt: member.joinedAt,
+  worktree: member.worktree,
+  ...restoredMember(member.watch),
+});
+
+/** A member as it joins: the model's four fields, and a watch that knows
+ *  nothing about the terminal yet. */
+export const joined = (
+  member: WorkMember,
+  how: MemberWatch["joined"],
+): Member => ({
+  ...member,
+  ...restoredMember(joinedWatch(how)),
+  baselining: how === "asked",
+});
+
 export const memberStore = (): MemberStore => {
-  const members = new Map<string, MemberState>();
+  const members = new Map<string, Member>();
   return {
     at: (ref) => members.get(ref),
     set: (ref, member) => {
@@ -59,17 +87,23 @@ export const memberStore = (): MemberStore => {
     forget: (ref) => {
       members.delete(ref);
     },
-    reseed: (refs, was) => {
-      const wanted = new Set(refs);
-      for (const ref of [...members.keys()])
-        if (!wanted.has(ref)) members.delete(ref);
-      for (const ref of wanted) {
-        if (members.has(ref)) continue;
-        // A ref the file never wrote down is a member whose watch is unknown
-        // — an empty one, read as `asked` so its first sighting is taken at
-        // face value rather than as news about a state nobody chose.
-        members.set(ref, restoredMember(was[ref] ?? joinedWatch("asked")));
-      }
+    all: () => members,
+    ofWork: (work) => [...members].filter(([, one]) => one.work === work),
+    inRole: (work, role) =>
+      [...members].find(
+        ([, one]) => one.work === work && one.role === role,
+      )?.[0],
+    load: (held) => {
+      members.clear();
+      for (const [ref, member] of Object.entries(held))
+        members.set(ref, restored(member));
+    },
+    dropWork: (work) => {
+      const gone = [...members]
+        .filter(([, one]) => one.work === work)
+        .map(([ref]) => ref);
+      for (const ref of gone) members.delete(ref);
+      return gone;
     },
     readings: () => {
       const seen = new Map<string, MemberReading>();
@@ -80,8 +114,15 @@ export const memberStore = (): MemberStore => {
       return seen;
     },
     saved: () => {
-      const written: Record<string, MemberWatch> = {};
-      for (const [ref, member] of members) written[ref] = saved(member);
+      const written: Record<string, PersistedMember> = {};
+      for (const [ref, member] of members)
+        written[ref] = {
+          work: member.work,
+          role: member.role,
+          joinedAt: member.joinedAt,
+          worktree: member.worktree,
+          watch: saved(member),
+        };
       return written;
     },
   };

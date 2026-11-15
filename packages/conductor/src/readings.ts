@@ -22,7 +22,10 @@
  * A terminal is left OUT of the answer when nothing honest can be said about it
  * — its agent is in none of padi's four lists and its record has not arrived to
  * say whether there is an agent in it at all. Silence is the one answer that
- * never misleads: the next frame says more.
+ * never misleads: the next frame says more. A whole HOST can be in that
+ * position too, which is what {@link HostView} is: `gone` is a word only a host
+ * that has finished adopting its terminals has earned, and the roster it is
+ * decided against exists on no other arm of that type.
  */
 
 import { frameByClass, frameClassOf } from "@kolu/padi-client/attention";
@@ -41,14 +44,36 @@ import type { WatchGit, WatchObservation, WatchPr } from "./observation.ts";
  *  padi-client leaves it declares and no third edge. */
 type PadiTerminalId = PadiUrgency["awaitingIds"][number];
 
-/** ONE HOST'S LAST WORD, as the watcher's leg accumulated it.
+/** ONE HOST, AS THE WATCHER'S LEG FOUND IT — and the reason `gone` cannot be
+ *  written down about a host that has not said its roster is a census.
  *
- *  Complete by construction: a leg says nothing until padi's urgency fold AND
- *  the host's roster have both landed, because `gone` is only decidable against
- *  a roster that was actually read and "in none of the four lists" means
- *  nothing before the first fold. So there are no nullable frames here to guard
- *  against — the wiring withholds, this module interprets. */
-export interface HostReading {
+ *  Three states, and only one of them has a roster in it at all:
+ *
+ *   - **unreachable** — the host is not answering (no leg, or the leg died).
+ *     Nothing can be said about its terminals: a machine kolu cannot reach is
+ *     not a machine whose terminals are dead.
+ *   - **settling** — padi is answering and says its roster is NOT ESTABLISHED
+ *     yet (`padiSurface`'s `roster` cell): it is still booting its kaval and
+ *     reconciling the saved session, or recycling it. A roster that has not been
+ *     established is not an empty roster. This is the state the old shape could
+ *     not express — a freshly started padi served ONE information-free frame,
+ *     the watcher read "not in the keys" as `gone`, and every member of every
+ *     work was recorded as having left on each redeploy (#2376).
+ *   - **ready** — padi has finished adopting. NOW the three things a reading is
+ *     folded from exist: the roster (what the host has), padi's urgency fold
+ *     (what its agents are doing) and the member records. They live on THIS ARM
+ *     ONLY, so {@link readingsOf} can reach them — and therefore say `gone` —
+ *     nowhere else.
+ *
+ *  Complete by construction, as the old shape was: a leg says nothing until
+ *  padi's urgency fold, the roster and its standing have all landed, because
+ *  "in none of the four lists" means nothing before the first fold. The wiring
+ *  withholds, this module interprets. */
+export type HostView = HostUnreachable | HostSettling | HostReady;
+
+/** What every arm carries: WHICH host, and WHICH of its terminals this watch is
+ *  about. True of a host that is not answering as much as of one that is. */
+interface HostLeg {
   /** The encoded fleet host key the leg was opened over. */
   readonly host: string;
   /** What a person calls that host. */
@@ -57,13 +82,26 @@ export interface HostReading {
    *  them — the works' membership, split by the watcher that already holds both
    *  halves of every ref. */
   readonly watched: readonly string[];
+}
+
+export interface HostUnreachable extends HostLeg {
+  readonly kind: "unreachable";
+}
+
+export interface HostSettling extends HostLeg {
+  readonly kind: "settling";
+}
+
+export interface HostReady extends HostLeg {
+  readonly kind: "ready";
+  /** Which terminals that host still has — what makes `gone` decidable, and
+   *  why it is on this arm and no other. */
+  readonly roster: ReadonlySet<string>;
   /** padi's own fold over its terminals — who is awaiting a person, who just
    *  finished, who is working. Read rather than re-derived: it is computed once
    *  on the host (`packages/padi/src/activity/urgency.ts`), so a second
    *  derivation here could disagree with the dock. */
   readonly urgency: PadiUrgency;
-  /** Which terminals that host still has — what makes `gone` decidable. */
-  readonly keys: ReadonlySet<string>;
   /** The record of each member terminal on this host. One record per id the
    *  leg was opened for: what a terminal is called, the repository it is in and
    *  the PR it carries are all read off it. */
@@ -129,11 +167,19 @@ const prOfRecord = (record: PadiTerminal | undefined): WatchPr | null => {
 /**
  * ONE HOST'S FRAMES, as the conversation is told about them.
  *
- * Every watched terminal on the host gets at most one reading, in the order the
- * watch list named them. The levels, in the order they are decided:
+ * A host that is UNREACHABLE or still SETTLING yields nothing at all, and that
+ * is the point of the type rather than a rule remembered here: the roster, the
+ * urgency fold and the records live on the `ready` arm, so there is nothing to
+ * read off the other two — no level can be constructed from them, `gone` least
+ * of all. Silence is the one answer that never misleads: the next frame says
+ * more.
  *
- *  - **gone** — off the host's roster. Decidable only because the roster was
- *    read; a host that is not answering never reaches this module at all.
+ * Every watched terminal on a READY host gets at most one reading, in the order
+ * the watch list named them. The levels, in the order they are decided:
+ *
+ *  - **gone** — off the host's roster, where the roster is a CENSUS: padi has
+ *    finished adopting its terminals and said so. "Not listed yet" is a
+ *    settling host, and never reaches this fold.
  *  - **asleep** — on the roster with its PTY and its agent released. padi
  *    keeps a slept (or boot-parked) terminal listed, so it reads as a terminal
  *    with no agent in it; its agent is dead and whatever it was doing stopped
@@ -161,17 +207,20 @@ const prOfRecord = (record: PadiTerminal | undefined): WatchPr | null => {
  *    state that padi lists nowhere still yields nothing: about that one there
  *    is honestly nothing to say.
  */
-export const readingsOf = (
-  reading: HostReading,
-): ReadonlyArray<WatchObservation> => {
-  const { host, hostName, urgency, keys, records } = reading;
+export const readingsOf = (view: HostView): ReadonlyArray<WatchObservation> => {
+  // THE ONE GATE, and it is the type's: a host whose roster is not a census
+  // has no roster, no fold and no records to read, so nothing is said about
+  // its terminals. Not a guard that could be forgotten at a second call site —
+  // the fields simply are not there to reach.
+  if (view.kind !== "ready") return [];
+  const { host, hostName, urgency, roster, records } = view;
   // padi's urgency cell, as the CLASSES `@kolu/padi-client/attention` names —
   // the one translation from `awaitingIds`/`finishedIds`/… to what those lists
   // mean. `liveIds` is kaval's byte-motion feed, which a watcher leg does not
   // take and no level below asks about.
   const frame = { byClass: frameByClass(urgency), liveIds: [] };
   const seen: Array<WatchObservation> = [];
-  for (const id of reading.watched) {
+  for (const id of view.watched) {
     const record = records.get(id);
     const live = record?.state === "active" ? record : undefined;
     const base = {
@@ -196,7 +245,7 @@ export const readingsOf = (
       // record padi has not sampled a foreground for yet.
       foregroundShell: live?.foreground?.shell ?? null,
     };
-    if (!keys.has(id)) {
+    if (!roster.has(id)) {
       seen.push({ ...base, level: "gone" });
       continue;
     }

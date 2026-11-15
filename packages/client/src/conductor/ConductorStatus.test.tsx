@@ -16,7 +16,7 @@ import {
   type ConductorRow,
   type ConductorState,
 } from "kolu-common/conductor";
-import type { Work } from "kolu-work";
+import type { WorkRow } from "kolu-work";
 import { render } from "solid-js/web";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -26,7 +26,7 @@ vi.mock("./WorkColumn", () => ({
 
 /** The works the line counts, swapped per test — the mirror itself is a wire
  *  collection, and what this file is about is the sentence over it. */
-let works: Work[] = [];
+let works: WorkRow[] = [];
 vi.mock("./useWorks", () => ({
   useWorks: () => () => works,
 }));
@@ -37,20 +37,20 @@ import { Shown } from "../ui/shown";
 const SINCE = "2026-01-01T00:00:00.000Z";
 
 /** A piece of work with nothing observed about it yet: in progress, waiting
- *  on its agents. Enough to be counted, which is all this line does. */
-const work = (id: string, title: string): Work => ({
-  id,
-  title,
-  repo: "/code/kolu",
-  branch: title,
-  members: [],
-  events: [],
-  decisions: [],
-  startedAt: "2026-01-01T09:00:00.000Z",
-  endedAt: null,
-  outcome: null,
-  keptFiles: [],
-});
+ *  on its agents. Enough to be counted, which is all this line does — and it
+ *  arrives as the PAIR every reader holds, because the record carries no id
+ *  of its own: the key it is filed under is the id. */
+const work = (branch: string, title: string): WorkRow => [
+  `branch:local/%2Fcode%2Fkolu/${branch}`,
+  {
+    key: { kind: "branch", host: "local", repo: "/code/kolu", branch },
+    title,
+    events: [],
+    decisions: [],
+    startedAt: "2026-01-01T09:00:00.000Z",
+    state: { kind: "open" },
+  },
+];
 
 const agentRow = (text: string): ConductorRow => ({
   id: "a",

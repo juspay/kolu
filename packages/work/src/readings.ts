@@ -11,14 +11,14 @@
  * grows.
  */
 
-import type { Decision, EventKind, Work, WorkEvent } from "./schema.ts";
+import type { Decision, EventKind, Work } from "./schema.ts";
 
 /** What a decision came to as ONE value: the option picked, else the words
  *  typed, else `null`. */
 export const answerValue = (decision: Decision | undefined): string | null => {
-  const answer = decision?.answer;
-  if (answer === null || answer === undefined || answer.how !== "answered")
-    return null;
+  if (decision === undefined || decision.kind !== "answered") return null;
+  const { answer } = decision;
+  if (answer.how !== "answered") return null;
   return answer.picked[0] ?? answer.text;
 };
 
@@ -42,13 +42,11 @@ export interface PrReading {
  *
  *  One row rather than two tables and a third in the reverse direction, so
  *  "which event" and "what a reader of the record would then read back" cannot
- *  disagree — composing the two halves of a row is true by construction, and a
- *  fourth rollup word is one row here instead of edits in two packages.
+ *  disagree.
  *
  *  The KEY is a forge's vocabulary and not the record's: `pending|pass|fail` is
  *  what a host's record reports, which is an INPUT to a work and never part of
- *  one. So it is a plain string union local to this table — the observer
- *  (`kolu-conductor`) indexes it, and nothing stores it. */
+ *  one. */
 export const CHECK_STEP = {
   pending: { kind: "checks-running", checks: "running" },
   pass: { kind: "checks-passed", checks: "passed" },
@@ -76,56 +74,8 @@ const CHECK_KINDS: ReadonlySet<string> = new Set(
 export const isCheckKind = (kind: string): kind is CheckKind =>
   CHECK_KINDS.has(kind);
 
-/** THE GRAMMAR OF A CHECK EVENT'S DETAIL: the head commit the checks are
- *  about, then the gates that are red.
- *
- *  `<oid> name, name` — the commit first because it is the part that is
- *  always there when the forge reported one, and a failing name never
- *  contains a space. A reading with NO head (a host whose padi predates the
- *  field) writes the names alone, which is exactly what every check event
- *  written before this looked like: the reverse reading below answers `null`
- *  for both, so an old record and an old daemon read the same way without a
- *  migration having to guess a commit nobody recorded.
- *
- *  Written and read in one place because the detail is BOTH what a person
- *  sees on the card and the key the observer dedups on: a writer and a reader
- *  that spelled it differently would append an event per frame again. */
-export const checkDetail = (
-  head: string | null,
-  failing: ReadonlyArray<string>,
-): string =>
-  [...(head === null ? [] : [head]), failing.join(", ")]
-    .filter((part) => part !== "")
-    .join(" ");
-
-/** A check event's head commit, or `null` when it names none — which is both
- *  "a reading from a host that reports no head" and every check event
- *  written before the commit was recorded at all.
- *
- *  Takes the two fields it reads rather than a whole {@link WorkEvent}, so a
- *  migration walking rows off disk asks the same reader the card does. */
-export const checkHeadOf = (event: {
-  readonly kind: string;
-  readonly detail: string;
-}): string | null => {
-  if (!isCheckKind(event.kind)) return null;
-  const head = /^([0-9a-f]{7,40})(?: |$)/.exec(event.detail)?.[1];
-  return head ?? null;
-};
-
-/** The gates a `checks-failed` event names — the detail with its head commit
- *  taken off. */
-export const checkFailingOf = (event: {
-  readonly kind: string;
-  readonly detail: string;
-}): ReadonlyArray<string> => {
-  const head = checkHeadOf(event);
-  const rest =
-    head === null ? event.detail : event.detail.slice(head.length).trimStart();
-  return rest === "" ? [] : rest.split(", ");
-};
-
-/** WHAT A CHECK EVENT IS ABOUT, as one key: its kind and the commit it names.
+/** WHAT A CHECK EVENT IS ABOUT, as one key: its kind, the PR and the commit
+ *  it names.
  *
  *  The thing a work's timeline holds at most one of. A check event is news
  *  about ONE PULL REQUEST AT ONE COMMIT, and the work hears about it from
@@ -133,43 +83,63 @@ export const checkFailingOf = (event: {
  *  produce, and the second member to say it adds nothing. Checks RE-RUN on
  *  the same commit are not news either: nothing about the work moved. A push
  *  is, and it carries a different commit. */
-export const checkKey = (kind: CheckKind, head: string | null): string =>
-  `${kind}@${head ?? ""}`;
+export const checkKey = (
+  kind: CheckKind,
+  pr: number,
+  head: string | null,
+): string => `${kind}#${pr}@${head ?? ""}`;
 
-/** Every check event the timeline already holds, keyed by {@link checkKey}. */
 export const checksSeen = (work: Work): ReadonlySet<string> => {
   const keys = new Set<string>();
   for (const one of work.events)
-    if (isCheckKind(one.kind)) keys.add(checkKey(one.kind, checkHeadOf(one)));
+    if (
+      one.kind === "checks-running" ||
+      one.kind === "checks-passed" ||
+      one.kind === "checks-failed"
+    )
+      keys.add(checkKey(one.kind, one.pr, one.head));
   return keys;
 };
 
-/** How each event MOVES the PR reading — the three check rows derived from
- *  {@link CHECK_STEP} rather than re-listed, plus the two that end it. */
-const PR_STEP: Partial<
-  Record<WorkEvent["kind"], Partial<Pick<PrReading, "state" | "checks">>>
-> = {
-  ...Object.fromEntries(
-    Object.values(CHECK_STEP).map((step) => [
-      step.kind,
-      { checks: step.checks },
-    ]),
-  ),
-  merged: { state: "merged" },
-  "pr-closed": { state: "closed" },
-};
-
+/** THE PR, as the timeline last said it. The reading moves on five kinds and
+ *  nothing else — and every one of them carries its own PR number, so there
+ *  is no parsing and no event that is about a pull request nobody named. */
 export const prOf = (work: Work): PrReading | null => {
   let pr = null as PrReading | null;
   for (const event of work.events) {
-    if (event.kind === "pr-opened") {
-      const number = Number(/^#(\d+)/.exec(event.detail)?.[1]);
-      if (Number.isInteger(number))
-        pr = { number, state: "open", checks: null };
-      continue;
+    switch (event.kind) {
+      case "pr-opened":
+        pr = { number: event.pr, state: "open", checks: null };
+        break;
+      case "checks-running":
+      case "checks-passed":
+      case "checks-failed":
+        if (pr !== null)
+          pr = {
+            ...pr,
+            checks:
+              event.kind === "checks-running"
+                ? "running"
+                : event.kind === "checks-passed"
+                  ? "passed"
+                  : "failed",
+          };
+        break;
+      case "merged":
+        if (pr !== null) pr = { ...pr, state: "merged", checks: null };
+        break;
+      case "pr-closed":
+        if (pr !== null) pr = { ...pr, state: "closed", checks: null };
+        break;
+      // The forge saying the PR is open after all, or a person pressing
+      // Reopen: the reading goes back to open, so the next frame of the same
+      // reading is not news again.
+      case "reopened":
+        if (pr !== null) pr = { ...pr, state: "open" };
+        break;
+      default:
+        break;
     }
-    const moved = PR_STEP[event.kind];
-    if (pr !== null && moved !== undefined) pr = { ...pr, ...moved };
   }
   return pr;
 };
@@ -177,5 +147,5 @@ export const prOf = (work: Work): PrReading | null => {
 /** The worktree-relative paths of every file kolu has seen appear. */
 export const filesSeen = (work: Work): ReadonlySet<string> =>
   new Set(
-    work.events.filter((one) => one.kind === "file").map((one) => one.detail),
+    work.events.filter((one) => one.kind === "file").map((one) => one.path),
   );

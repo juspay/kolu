@@ -45,6 +45,7 @@ import {
 } from "@kolu/acp/wire";
 import { formatBytes, MIB } from "@kolu/byte-units";
 import { TerminalIdSchema } from "@kolu/terminal-vocab/schema";
+import { AnsweredFromFaceSchema } from "kolu-work";
 import { Effect, Schema } from "effect";
 
 /** `YES_NO` is a VALUE, not a schema, and it is the one piece of this
@@ -415,11 +416,28 @@ export const ConductorAskRowSchema = Schema.Struct({
   text: Schema.String,
   ask: ConductorAskSchema,
   parent: Schema.optionalKey(Schema.String),
+});
+
+/** KOLU asking a person something ABOUT A PIECE OF WORK — its own row kind,
+ *  not an `ask` row with a work field bolted on.
+ *
+ *  Two different things were living under one tag: an ELICITATION the agent
+ *  is holding a call open for, and a DECISION on a work that nothing waits
+ *  on. Every reader had to re-discriminate them on the presence of an
+ *  optional field, and the two are answered through different procedures
+ *  (`conductor.answer` and `conductor.answerWork`). `work` is required here,
+ *  because a work question about no work is not a thing. */
+export const ConductorWorkAskRowSchema = Schema.Struct({
+  ...rowHead,
+  kind: Schema.Literal("work-ask"),
+  text: Schema.String,
+  ask: ConductorAskSchema,
+  parent: Schema.optionalKey(Schema.String),
   /** THE WORK this question is about — stated when it was asked (kolu's own
-   *  `work_ask` / `work_open` put it), never inferred from timing. Absent for a
-   *  question about no work, which is the conversation's alone. The work's card
-   *  draws this same row, so answering either face answers the one question. */
-  work: Schema.optionalKey(Schema.String),
+   *  `work_ask` / `work_open` put it), never inferred from timing. The work's
+   *  card draws the same decision, so answering either face answers the one
+   *  question. */
+  work: Schema.String,
 });
 
 /** The conversation reporting on itself: the agent died, a turn was cancelled,
@@ -589,6 +607,7 @@ export const ConductorRowSchema = Schema.Union([
   ConductorPlanRowSchema,
   ConductorToolRowSchema,
   ConductorAskRowSchema,
+  ConductorWorkAskRowSchema,
   ConductorNoticeRowSchema,
   ConductorDividerRowSchema,
   ConductorWakeRowSchema,
@@ -597,6 +616,7 @@ export type ConductorRow = typeof ConductorRowSchema.Type;
 export type ConductorToolRow = typeof ConductorToolRowSchema.Type;
 export type ConductorUserRow = typeof ConductorUserRowSchema.Type;
 export type ConductorAskRow = typeof ConductorAskRowSchema.Type;
+export type ConductorWorkAskRow = typeof ConductorWorkAskRowSchema.Type;
 
 /** A PIECE of streaming prose appended to a row — never the text so far, so a
  *  turn that runs for a minute does not re-send its own paragraph per tick. */
@@ -838,6 +858,15 @@ export const ConductorUnreadableSchema = Schema.Struct({
   /** The file the unreadable value is in — `config.json` for the three keys,
    *  the transcript's own file for the fourth. */
   path: Schema.String,
+  /** WHERE THE UNREADABLE VALUE WOULD BE KEPT if a person chooses to start
+   *  that record empty — the exact path `recoverStore { how: "empty" }`
+   *  writes, so the confirm quotes it instead of guessing at it. */
+  keepsAt: Schema.String,
+  /** Whether the state-backup ring covers this record at all. The transcript
+   *  is NOT in it (it is most of the conversation's bytes and moves on every
+   *  keystroke), so the "restore the newest backup" button has nothing to
+   *  offer for that key — a fact the screen reads here rather than knowing. */
+  inBackups: Schema.Boolean,
   /** WHAT IT TRIPPED ON, verbatim (a schema path, a version stamp, a JSON
    *  parse error). Not the sentence a person reads — that is `refusal` — but
    *  the one line a bug report needs, drawn small under it. */
@@ -863,9 +892,12 @@ export const ConductorStateSchema = Schema.Struct({
   commands: Schema.Array(ConductorCommandSchema),
   servers: Schema.Array(ConductorServerSchema),
   watching: Schema.Array(ConductorWatchingSchema),
-  /** The ids of the ask rows still waiting on a human. The violet badge is
-   *  this list's length — no separate count on the wire, because a count that
-   *  can disagree is a second source of truth. */
+  /** EVERY QUESTION STILL WAITING ON A HUMAN, as ask ids: the conversation's
+   *  own elicitations and the questions kolu put about a piece of work, in
+   *  one list composed by the server. One fact with one author, because a
+   *  bell that reads one half and a badge that reads the other is two
+   *  answers to "how many questions do I have". A work's questions are
+   *  derived from its decisions, so nothing stores them twice. */
   openAsks: Schema.Array(Schema.String),
   /** Every terminal this conductor has created or sent input to, as FLEET
    *  REFS (`<encodedHostKey>/<terminalId>`) — one conversation spans every
@@ -1050,7 +1082,7 @@ export const ConductorAnswerWorkInputSchema = Schema.Struct({
    *  reader a file is open in, or that reader popped out into a window of its
    *  own. One decision whichever face answered it, and the decision records
    *  which — which is the only thing that tells them apart afterwards. */
-  from: Schema.Literals(["card", "chat", "reader", "popout"]),
+  from: AnsweredFromFaceSchema,
 });
 
 export const ConductorAnswerWorkOutputSchema = Schema.Struct({
@@ -1080,6 +1112,12 @@ export const ConductorTextInputSchema = Schema.Struct({
  *  of `conductor.takeOver` / `conductor.handBack`. */
 export const ConductorTerminalInputSchema = Schema.Struct({
   terminal: Schema.String,
+});
+
+/** ONE PIECE OF WORK, by its id — the input of `conductor.stopWork` /
+ *  `conductor.reopenWork`. */
+export const ConductorWorkInputSchema = Schema.Struct({
+  work: Schema.String,
 });
 
 /** THE TWO THINGS KOLU CAN DO ABOUT A RECORD IT CANNOT READ, as one input.

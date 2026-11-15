@@ -28,7 +28,7 @@ thing that does it.
 | module | what moves it |
 | --- | --- |
 | `conductor.ts` | the CONVERSATION — the ACP child, the transcript, the restart fence, `publishState`, and the facade that returns `ConductorHost` |
-| `workStore.ts` | the works map, open/join/leave/save (end → keep files → cap at `FINISHED_KEPT` → sweep), the driver lock, restore, and publish-what-moved (one helper, an equivalence per collection) |
+| `workStore.ts` | the works map KEYED BY `WorkId`, the single writer: idempotent `openFor` (an ended work reopens), join/leave/save, `stop`/`reopen`, ending (drop the members and the open questions in the same write → keep files → cap at `FINISHED_KEPT` → sweep), the driver lock, restore, and publish-what-moved (one helper, an equivalence per collection) |
 | `memberStore.ts` | what kolu knows about each member terminal, by fleet ref — ONE location, saved by subtraction |
 | `members.ts` | pure: what a reading MEANS for a member (`MemberWatchSchema`, `observed`, `spokenTo`) |
 | `observation.ts` | the observation vocabulary alone (`WatchObservation`, `WatchGit`, `WatchPr`) — a leaf both rule modules read |
@@ -36,11 +36,12 @@ thing that does it.
 | `observing.ts` | pure `ringEvent` / `prEvents` / `fileEvents` + the ONE pass per reading that applies them |
 | `wakes.ts` | when news reaches a turn: the held queue, the one-flight flush, the failure episode, the `told` write-back |
 | `held.ts` | the slot discipline under it (ported from olai's `deliveries.ts`) |
-| `asking.ts` | kolu's own questions: the elicitation form, and recording the decisions before anything can answer |
+| `asking.ts` | kolu's own questions: minted, recorded on the work and SAID in the transcript, answered later from any face — nothing waits on a person, and the answer leaves as news through one sink |
+| `askNews.ts` | what a settled ask says — to its transcript row and to the Conductor — and the drop that an ending performs, read by `asking` and by the writer alike |
 | `attachments.ts` | a prompt's files on their way up, and the rule that reaps them |
 | `recordWrites.ts` | how often any of it hits disk — one leading-edge timer, one flag per record |
 | `workFiles.ts` | the port kolu-server implements over padi |
-| `persisted.ts` | the four records a restart reads, and the re-validation that refuses a file with holes in it |
+| `persisted.ts` | the four records a restart reads, decoded through `kolu-work`'s `parseStore` so a store that breaks an invariant fails with the sentence naming it, and the re-validation that refuses a file with holes in it |
 | `wakeText.ts` · `teaching.ts` · `surface.ts` · `transcriptStream.ts` | what the agent reads, what it is taught, and what a browser subscribes to |
 
 ## The works, the watch, the hold and the wake
@@ -51,11 +52,19 @@ putting its questions to the human, watching its member terminals, and
 appending what it observes.
 
 - **The works** (`works` / `openWork` / `askAboutWork` / `joinWork` /
-  `leaveWork` / `note`) — kept in memory in the order they were opened and
-  saved under `config.json`'s `works` key — `kolu-work`'s `Work`, unadorned.
-  A work OUTLIVES the conversation that opened it: `clearSession` wipes the
-  chat and keeps every work, dropping only the questions that chat was
-  holding.
+  `leaveWork` / `stopWork` / `reopenWork` / `note`) — kept in memory in the
+  order they were opened, keyed by `WorkId`, and saved under `config.json`'s
+  `works` key — `kolu-work`'s `Work`, unadorned. Opening is IDEMPOTENT: a key
+  kolu already holds answers that work as it stands (an ended one comes back
+  open, its decisions and timeline whole) and asks only the setup questions
+  with no answer, so no caller can make a second card for one branch. A work
+  OUTLIVES the conversation that opened it: `clearSession` wipes the chat and
+  keeps every work, dropping only the questions that chat was holding.
+- **Membership is a map of its own**, keyed by terminal, so a terminal is in
+  at most one work and a work that ends drops its members in the same write.
+  Losing terminals never ends a work: an open work with no members says "no
+  terminals" on its card and the Conductor is woken ONCE with exactly that,
+  and `work_adopt` re-joins existing terminals with a role.
 - **What kolu knows about each member TERMINAL** is its own key beside them,
   `members` (ref → `MemberWatch`, `./members.ts`): the name kolu last saw,
   whether an agent was ever seen in it, the level the conversation has already
@@ -66,14 +75,24 @@ appending what it observes.
   time a host is read, and a reader of the record is never handed it. WHERE a
   member worked is the exception and lives on the record (`WorkMember.worktree`):
   a work's files have to be findable after its terminals are gone.
-- **The setup is DECISIONS.** `work_open` carries the questions; they go to
-  the human as ONE ask row linked to the work (`@kolu/acp-harness`'s
-  `askPerson`, the same machinery an agent's elicitation rides), every answer
-  is recorded as a decision, and the host, the mode, the harness and model per
-  role and what to do on green are READINGS of them (`kolu-work`'s `setupOf`).
-  A setup that does not ask what its mode needs — or offers words
+- **The setup is DECISIONS.** `work_open` carries the questions; they are
+  recorded on the work and said in the transcript as ONE row that NAMES it,
+  and nothing waits on the answer — the Conductor's turn ends, and whoever
+  answers (card, chat, reader, pop-out) wakes it with what they said. The
+  mode, the harness and model per role and what to do on green are READINGS
+  of those decisions (`kolu-work`'s `setupOf`); the HOST is part of the work's
+  key rather than a decision, and `work_open` takes it beside the repo and the
+  branch. A setup that does not ask what its mode needs — or offers words
   `modeOf`/`onGreenOf` cannot read — is refused with `WorkRefusal` before the
-  work exists.
+  work exists. Declining the setup of a work nothing has happened in REMOVES
+  it; a decline on one a terminal joined is recorded, and the work stays open.
+- **What is waiting on you is ONE list.** `publishState` composes the frame a
+  browser reads: the conversation's own open elicitations, plus every question
+  still open on a work in progress, together in `ConductorState.openAsks`. So
+  the bell, the OS badge and the panel's count read one fact and cannot
+  disagree about how many questions a person has. The composition is published
+  and never written back, and nothing stores a second list of open asks — they
+  are derived from the works' decisions.
 - **The reading** (`./readings.ts`, pure) — what ONE host's frames mean:
   padi's urgency fold, that host's roster and the records read on it become
   one observation per member terminal (its level, its name, the agent in it,
@@ -110,12 +129,15 @@ appending what it observes.
   of per kind per HEAD COMMIT. So two members looking at one PR record it
   once even when they disagree (their polls of `gh` are thirty seconds out of
   step), a restart records nothing twice, and a push — a new head — records a
-  run of its own. A merge or a close ends the work; so does the last member
-  leaving (`abandoned`).
-- **The end** — on the way out the work's files are listed and copied into
-  kolu (`WorkFiles`, implemented by kolu-server), so the plan outlives the
-  worktree, and the history is capped at the twenty most recently finished;
-  what falls off has its kept files deleted.
+  run of its own. THE ONLY ENDINGS are the forge's two — merged or closed,
+  and the forge seeing that PR open again reopens the work — and a **Stop**
+  (the card's button, the Conductor's `work_stop`), which is the one a person
+  or the Conductor chooses. Nothing kolu merely fails to see ends anything.
+- **The end** — the work's open questions are recorded as dropped and its
+  members removed in the same write as the ending; then its files are listed
+  and copied into kolu (`WorkFiles`, implemented by kolu-server), so the plan
+  outlives the worktree, and the history is capped at the twenty most recently
+  finished; what falls off has its kept files deleted.
 - **The baselines** — a state the Conductor itself caused is never news.
   `saidTo(ref)`, which the fleet face calls when `agent_say` lands its keys,
   withdraws that terminal's held slot and re-baselines `told` at the level it
@@ -179,9 +201,11 @@ past this package's published doors.
 - **The wire schema** stays in `kolu-common` — the browser reads it too, and a
   browser must not import a package that spawns subprocesses.
 - **The migration rung** and the `PersistedStateSchema` key stay in
-  `packages/server/src/state.ts`: kolu has one ladder and it has one home. The
-  record's own schema is this package's export, which is the half that describes
-  the data rather than the file.
+  `packages/server/src/state.ts`: kolu has one ladder and it has one home —
+  rung `1.53.0` is where every pre-key store is folded into this model (works
+  grouped by key become one, members re-keyed into the one map, `abandoned`
+  becomes open again). The record's own schema is this package's export, which
+  is the half that describes the data rather than the file.
 - **The UI** is `packages/client/src/conductor/`.
 - **No test lane of its own.** The Conductor's suites are composition tests — the
   host against the real fleet MCP door and the real tool registry — so they run

@@ -1,6 +1,7 @@
 /**
  * Pins the serve-time empty seed — the guard that used to live three times, once
- * per attention consumer, and now lives once at the producer.
+ * per attention consumer, and now lives once at the producer — and the fact it
+ * PUBLISHES, since the consumer it cost most was across a wire (#2376).
  *
  * The second pin is the one an inlined boolean loses: this is not "ignore empty
  * frames". Once a real fleet has been seen, an empty map means every terminal
@@ -48,5 +49,46 @@ describe("createFleetGate", () => {
 
   it("admits a first frame that is already populated — a daemon that adopted before serving", () => {
     expect(createFleetGate().admit(frame(3))).toBe(true);
+  });
+
+  it("ESTABLISHES an empty roster when the boot says adoption finished", () => {
+    // The case a frame can never open: a host whose session really is empty.
+    // Until the boot said so, "nothing listed" was not evidence; after it, an
+    // empty roster is a complete census and a member missing from it is gone.
+    const gate = createFleetGate();
+    expect(gate.admit(frame(0))).toBe(false);
+    gate.establish();
+    expect(gate.admit(frame(0))).toBe(true);
+  });
+
+  it("CLOSES again for a recycle's drain window, and re-opens at the re-park", () => {
+    const gate = createFleetGate();
+    expect(gate.admit(frame(2))).toBe(true);
+    // `killAllTerminals` empties the registry on purpose; nothing missing from
+    // it is a terminal that died.
+    gate.settling();
+    expect(gate.admit(frame(0))).toBe(false);
+    gate.establish();
+    expect(gate.admit(frame(0))).toBe(true);
+  });
+
+  it("publishes each CHANGE of the standing, with the epoch it was established", () => {
+    const seen: unknown[] = [];
+    const gate = createFleetGate({
+      publish: (roster) => seen.push(roster),
+      now: () => 1_700_000_000_000,
+    });
+    expect(gate.roster()).toEqual({ kind: "settling" });
+    gate.admit(frame(0));
+    gate.admit(frame(1));
+    // Idempotent: a second establish (the boot landing after a frame already
+    // opened the gate) republishes nothing.
+    gate.establish();
+    gate.settling();
+    expect(seen).toEqual([
+      { kind: "established", at: 1_700_000_000_000 },
+      { kind: "settling" },
+    ]);
+    expect(gate.roster()).toEqual({ kind: "settling" });
   });
 });

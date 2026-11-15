@@ -27,6 +27,7 @@ import { dirname, join } from "node:path";
 import Conf from "conf";
 import { DEFAULT_PREFERENCES } from "kolu-common/surface";
 import { readPersistedTranscript } from "kolu-conductor";
+import { workIdOf } from "kolu-work";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   transcriptFilePath,
@@ -39,8 +40,10 @@ import {
 import {
   collapseFlappingChecks_1_51_0,
   decodeStateBackup,
+  foldWorksByKey_1_53_0,
   memberWatchOutOfWorks_1_52_0,
   migrateConductorToWorks_1_50_0,
+  splitWorkAskRows_1_53_0,
   stripLegacyStateKeys_1_31_0,
   TRANSCRIPT_FILE_VERSION,
   worksFromWatched_1_50_0,
@@ -528,11 +531,18 @@ describe("the 1.52.0 rung — a store this branch wrote before the member bookke
     // full persisted schema — works, members, conductor, preferences, hosts,
     // viewerMode — decoded, throwing on any key that fails.
     const decoded = decodeStateBackup(DEPLOYED, "the deployed store");
-    const work = decoded.works[0];
+    // ONE work, keyed by its branch (1.53.0), still Open.
+    const work = Object.values(decoded.works)[0];
     expect(work).toBeDefined();
-    // The members kept where they worked …
+    expect(work?.state.kind).toBe("open");
+    // The members are the ONE map now, each row carrying where it worked AND
+    // the bookkeeping that used to sit beside it.
     expect(
-      work?.members.map((one) => [one.terminal, one.role, one.worktree]),
+      Object.entries(decoded.members).map(([ref, one]) => [
+        ref,
+        one.role,
+        one.worktree,
+      ]),
     ).toEqual([
       [
         PLANNER,
@@ -545,8 +555,7 @@ describe("the 1.52.0 rung — a store this branch wrote before the member bookke
         "/home/person/code/odu/.worktrees/docs-human-reading",
       ],
     ]);
-    // … and the bookkeeping moved to `members`, field for field.
-    expect(decoded.members[PLANNER]).toEqual({
+    expect(decoded.members[PLANNER]?.watch).toEqual({
       name: "Planner: odu docs for human reading",
       agent: "omp",
       told: "stopped",
@@ -560,18 +569,18 @@ describe("the 1.52.0 rung — a store this branch wrote before the member bookke
     ).find((one) => one.terminal === IMPL);
     const { worktree: _worktree, ...implWatch } = (implMember?.watch ??
       {}) as Record<string, unknown>;
-    expect(decoded.members[IMPL]).toEqual(implWatch);
-    // The 1.51.0 sweep ran on the same store: 429 flapping check events down
-    // to the first of each kind; every other event kept.
+    expect(decoded.members[IMPL]?.watch).toEqual(implWatch);
+    // The 1.51.0 sweep ran on the same store: the flapping check events are
+    // one per kind per commit, and every other event is kept.
     const kinds = work?.events.map((one) => one.kind) ?? [];
     expect(kinds.filter((kind) => kind === "checks-running")).toHaveLength(1);
     expect(kinds.filter((kind) => kind === "checks-passed")).toHaveLength(1);
-    expect(kinds).toHaveLength(465 - 213 - 214);
-    // Decisions got the header and file they were written without.
+    // Decisions: every one of them an arm of the sum, and the `host` ones
+    // dropped — the host is the key now.
     expect(
-      work?.decisions.every((one) => one.header === "" && one.file === ""),
+      work?.decisions.every((one) => (one.key as string | null) !== "host"),
     ).toBe(true);
-    expect(work?.decisions).toHaveLength(8);
+    expect(work?.decisions.length).toBeGreaterThanOrEqual(7);
   });
 
   it("keeps a members entry that is already there — the newer writer's word wins", () => {
@@ -748,14 +757,18 @@ describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
       },
       "the mid-branch store",
     );
-    const work = decoded.works[0];
+    // The 1.53.0 rung re-keyed the works by their branch, so there is one
+    // value rather than one row.
+    const work = Object.values(decoded.works)[0];
     // 1.52.0 backfilled the two fields the decision was written without …
     expect(work?.decisions[0]?.header).toBe("");
     expect(work?.decisions[0]?.file).toBe("");
     // … and left everything the commit DID write exactly as it was.
     expect(work?.decisions[0]?.question).toBe("How should this run?");
-    expect(work?.members[0]?.worktree).toBe("/home/person/code/odu");
-    expect(decoded.members[REF]?.name).toBe("Planner: odu docs");
+    // … and 1.53.0 moved the membership into the one map, where the watch
+    // bookkeeping already was.
+    expect(decoded.members[REF]?.worktree).toBe("/home/person/code/odu");
+    expect(decoded.members[REF]?.watch.name).toBe("Planner: odu docs");
     // The 1.51.0 sweep read the old detail grammar as "names no commit", so
     // the two failures collapse to the first and the running one stands.
     expect(work?.events.map((one) => one.kind)).toEqual([
@@ -763,21 +776,27 @@ describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
       "checks-running",
       "checks-failed",
     ]);
-    expect(work?.events[2]?.detail).toBe("build, lint");
+    // The detail string became typed fields: the gates that are red are a
+    // list, and the event carries the pull request it is about.
+    const failed = work?.events[2];
+    expect(failed?.kind === "checks-failed" && failed.failing).toEqual([
+      "build",
+      "lint",
+    ]);
   });
 
   it("reads a transcript file written when the rows first moved into it", () => {
     // The file is stamped by the ladder, not by a ladder of its own, so a
     // row-shape change is a rung that rewrites it and moves
-    // TRANSCRIPT_FILE_VERSION. Nothing since 1.50.0 has changed the row shape
-    // — the ask row's `work` is an optional key, a user row's `attachments`
-    // has a decoding default, and the wake levels only grew — so the stamp is
-    // still 1.50.0 and these rows, exactly as that commit wrote them, must
-    // come back through the reader the conversation uses.
+    // TRANSCRIPT_FILE_VERSION — which 1.53.0 did, splitting the work-carrying
+    // ask row off into its own kind. The rows a 1.50.0 file holds that did
+    // NOT move (a user row with no `attachments`, a tool row, an ask about no
+    // work, a wake) must still come back whole through the reader the
+    // conversation uses, once the rung has restamped the file.
     const root = mkdtempSync(join(tmpdir(), "kolu-transcript-compat-"));
     dirs.push(root);
     const path = transcriptFilePath(root);
-    writeTranscriptFile(path, TRANSCRIPT_FILE_VERSION, [
+    writeTranscriptFile(path, "1.50.0", [
       { id: "u1", seq: 1, since: AT, kind: "user", text: "plan the cutover" },
       {
         id: "t1",
@@ -817,6 +836,29 @@ describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
         },
       },
       {
+        id: "a2",
+        seq: 4,
+        since: AT,
+        kind: "ask",
+        text: "Which plan should the implementor take?",
+        work: "work:abc123",
+        ask: {
+          fields: [
+            {
+              key: "plan",
+              label: null,
+              hint: null,
+              kind: "choice",
+              choices: [{ value: "a", label: "A", hint: null }],
+              required: true,
+              attachedTo: null,
+            },
+          ],
+          link: null,
+          outcome: null,
+        },
+      },
+      {
         id: "w1",
         seq: 4,
         since: AT,
@@ -838,23 +880,161 @@ describe("what an EARLIER COMMIT of this branch wrote, read by head", () => {
       },
     ]);
 
+    // THE RUNG: the work-carrying ask row becomes its own kind and the stamp
+    // moves, so the reader of today accepts the file it leaves behind.
+    splitWorkAskRows_1_53_0(root);
+    expect(
+      JSON.parse(readFileSync(path, "utf8")) as { version: string },
+    ).toMatchObject({ version: TRANSCRIPT_FILE_VERSION });
     const rows = readPersistedTranscript(
       transcriptFileStore(root, TRANSCRIPT_FILE_VERSION),
       path,
+      root,
     ).rows;
 
     expect(rows.map((one) => one.kind)).toEqual([
       "user",
       "tool",
       "ask",
+      "work-ask",
       "wake",
     ]);
     const user = rows[0];
     if (user?.kind !== "user") throw new Error("the user row went missing");
     // Written without the key; read as "nothing rode along", not refused.
     expect(user.attachments).toEqual([]);
+    // The ask about NO work stayed an `ask` — and has nowhere to put a work.
     const ask = rows[2];
     if (ask?.kind !== "ask") throw new Error("the ask row went missing");
     expect("work" in ask).toBe(false);
+    // ... and the one that named a work is the kind that carries one.
+    const workAsk = rows[3];
+    if (workAsk?.kind !== "work-ask")
+      throw new Error("the work-ask row went missing");
+    expect(workAsk.work).toBe("work:abc123");
+    expect(workAsk.text).toBe("Which plan should the implementor take?");
   });
 });
+
+describe("the 1.53.0 rung — three cards for one branch become one piece of work", () => {
+  /** The human's REAL store at 1.52.0, as their deployed build left it after
+   *  the false "gone" (juspay/kolu#2376, round 4): ONE waterfall — odu's docs
+   *  on `docs-human-reading`, PR #181 — written down three times, two of them
+   *  ended `abandoned`. Host names and home paths are replaced; nothing else
+   *  is touched. */
+  const THREE = JSON.parse(
+    readFileSync(
+      new URL("./fixtures/deployed-1.52.0-three-works.json", import.meta.url),
+      "utf8",
+    ),
+  ) as { works: unknown[]; members: Record<string, unknown> };
+
+  const folded = () => foldWorksByKey_1_53_0(THREE.works, THREE.members);
+
+  it("folds the three into ONE work, keyed by its branch, and OPEN", () => {
+    const { works } = folded();
+    const ids = Object.keys(works);
+    expect(ids).toHaveLength(1);
+    const id = ids[0] ?? "";
+    expect(id).toBe(
+      workIdOf({
+        kind: "branch",
+        host: "remote:host-d",
+        repo: "/home/person/code/odu",
+        branch: "docs-human-reading",
+      }),
+    );
+    const work = works[id] as Record<string, unknown>;
+    // `abandoned` does not exist: nothing kolu merely failed to SEE ends a
+    // piece of work, so the human's real waterfall is in progress again.
+    expect(work.state).toEqual({ kind: "open" });
+    expect(work.title).toBe(
+      "Rewrite odu's docs for human reading (like kolu PR #2375)",
+    );
+  });
+
+  it("keeps every decision, drops the `host` ones, and keeps the timeline", () => {
+    const { works } = folded();
+    const work = Object.values(works)[0] as {
+      decisions: ReadonlyArray<Record<string, unknown>>;
+      events: ReadonlyArray<Record<string, unknown>>;
+    };
+    expect(work.decisions.length).toBeGreaterThanOrEqual(8);
+    expect(work.decisions.some((one) => one.key === "host")).toBe(false);
+    // Every decision is one arm of the sum or the other, never "answered with
+    // null".
+    expect(
+      work.decisions.every(
+        (one) => one.kind === "asked" || one.kind === "answered",
+      ),
+    ).toBe(true);
+    // ONE pull request, said once, however many of the three works saw it
+    // open — and every check event carries it.
+    const prs = work.events.filter((one) => one.kind === "pr-opened");
+    expect(prs).toHaveLength(1);
+    expect(prs[0]?.pr).toBe(181);
+    expect(
+      work.events
+        .filter((one) => String(one.kind).startsWith("checks-"))
+        .every((one) => one.pr === 181),
+    ).toBe(true);
+    // The full timeline: what the three recorded between them, in time order,
+    // with nothing kolu cannot say any more.
+    expect(work.events.length).toBeGreaterThan(40);
+    expect(work.events.some((one) => one.kind === "ended")).toBe(false);
+  });
+
+  it("re-keys the members into the one map, one per role", () => {
+    const { works, members } = folded();
+    const id = Object.keys(works)[0] ?? "";
+    const rows = Object.values(members) as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(2);
+    expect(rows.every((one) => one.work === id)).toBe(true);
+    expect(rows.map((one) => one.role).sort()).toEqual([
+      "implementor",
+      "planner",
+    ]);
+    // The watch bookkeeping rides in the same row — one member, one place.
+    expect(rows.every((one) => recordLike(one.watch))).toBe(true);
+    expect(
+      rows.every(
+        (one) =>
+          one.worktree ===
+          "/home/person/code/odu/.worktrees/docs-human-reading",
+      ),
+    ).toBe(true);
+  });
+
+  it("drops a work that never got past its setup and has no twin", () => {
+    const { works } = foldWorksByKey_1_53_0(
+      [
+        {
+          id: "w",
+          title: "nothing happened here",
+          repo: "",
+          branch: "",
+          members: [],
+          events: [
+            {
+              at: "t",
+              by: "you",
+              kind: "requested",
+              terminal: null,
+              detail: "",
+            },
+          ],
+          decisions: [],
+          startedAt: "t",
+          endedAt: null,
+          outcome: null,
+          keptFiles: [],
+        },
+      ],
+      {},
+    );
+    expect(Object.keys(works)).toHaveLength(0);
+  });
+});
+
+const recordLike = (value: unknown): boolean =>
+  typeof value === "object" && value !== null;
