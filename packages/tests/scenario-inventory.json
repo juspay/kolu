@@ -11194,6 +11194,18 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "a7433de1ab48324674140beaf46371a5d1febe3a"
+    },
+    {
+      "revisionId": "revision-5ad4b08c8c6847cf04c4",
+      "scenarioKey": "scenario-4cc54c52f22a98e8bad1",
+      "feature": "features/terminal-lockstep.feature",
+      "scenario": "A pane keeps the program's screen while its box moves",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "909eed1552927b80c8b8b79cd543e8c2a4e5e2167d000d8b842f74316fd7e100",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "3002c3b3df99589b79d21396280b5fae01fa059b"
     }
   ]
 }

@@ -478,18 +478,32 @@ export const Xterm: Component<
     ),
   );
 
-  // The mount box and the terminal inside it are now two different sizes for a
+  // The mount box and the terminal inside it are now two different HEIGHTS for a
   // settle window plus a round trip after any box change (see
   // `XtermHandle.wantedGrid`), so the kit has to say where the terminal sits in
-  // the gap. BOTTOM-LEFT, at natural size, clipped by the box — never scaled,
+  // the gap. At the BOTTOM, at natural size, clipped by the box — never scaled,
   // which would blur every glyph for a quarter of a second on every divider
-  // drag.
+  // drag. Bottom because that is where the prompt and the newest output are: a
+  // box that just grew shows a blank band at the TOP until the resize lands, and
+  // a box that just shrank clips rows off the top the program is about to reflow
+  // away anyway.
   //
-  // Bottom because that is where the prompt and the newest output are: a box
-  // that just grew shows a blank band at the TOP until the resize lands, and a
-  // box that just shrank clips rows off the top the program is about to reflow
-  // away anyway. Left because a terminal's left edge is its column 0, and
-  // centring it would make a mid-drag cursor land on the wrong cell.
+  // A COLUMN, and the `align-items` default (`stretch`) left alone, because the
+  // horizontal layout must not move at all. `.xterm` is `position: relative`
+  // with no width of its own and its only in-flow child (`.xterm-screen`) has an
+  // explicit pixel width, so as a ROW flex item it would shrink to the text's
+  // width — taking the scrollbar with it, since `.xterm-viewport` is absolutely
+  // positioned to `.xterm`'s own right edge. The last columns' worth of pixels
+  // that `./grid` deliberately keeps free for that scrollbar would then sit
+  // outside it. A column stretches the cross axis instead, which is the block
+  // behaviour this replaces, and `justify-content: flex-end` anchors the one
+  // axis that is meant to move.
+  //
+  // The leftover strip — a box that is not a whole number of rows high — moves
+  // to the TOP and stays there, which is a change from the block layout that
+  // left it below the last row. One anchor for both states: the last row's
+  // bottom edge is the box's bottom edge whether or not the grids agree, so a
+  // resize landing never jumps the text vertically.
   //
   // After the spread, deliberately: this is the kit's own invariant about the
   // relationship between the box and the terminal, not a default a consumer's
@@ -500,8 +514,8 @@ export const Xterm: Component<
       {...rest}
       style={{
         display: "flex",
-        "justify-content": "flex-start",
-        "align-items": "flex-end",
+        "flex-direction": "column",
+        "justify-content": "flex-end",
         overflow: "hidden",
       }}
     />

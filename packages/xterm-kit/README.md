@@ -63,9 +63,21 @@ That is what keeps a pane's buffer identical to the daemon's mirror, which
 resizes at the same point in the same sequence of events; a terminal that
 resized when its box moved diverged for as long as the publish took, and the
 program's next relative repaint erased the wrong rows in the pane only. While
-the two grids differ, the consumer draws the terminal at ITS grid, at natural
-size, aligned to the pane's bottom-left and clipped by it — no scaling, because
-the bottom is where the prompt is.
+the two grids differ, the terminal is drawn at ITS grid, at natural size,
+clipped by the pane — no scaling. The mount box is a flex COLUMN whose item is
+left to stretch: only the VERTICAL anchor moves, so the terminal keeps the
+pane's full width and the scrollbar stays on the pane's edge, where
+`gridForBox` reserves the pixels for it. Vertically the last row's bottom is
+the pane's floor whether or not the grids agree — one anchor, so a resize
+landing never jumps the text — and a box that is not a whole number of rows
+tall leaves its leftover strip at the TOP.
+
+**`@kolu/xterm-kit/write-door`** is that door on its own: the coalescer and the
+scroll lock, without the component, the renderer or a DOM. It exists because
+the door is the thing with the ORDERING CONTRACT, and a consumer that wants to
+hold that contract to account should not have to load JSX to do it — kaval's
+`lockstepMirror.test.ts` replays one real PTY attachment through it and compares
+the result with the daemon's own mirror.
 
 - `<Xterm>` — the whole hazard set as one JSX element: it composes lifecycle,
   WebGL, scroll-lock, render-recovery, write coalesce (via `fullRate`), and touch,

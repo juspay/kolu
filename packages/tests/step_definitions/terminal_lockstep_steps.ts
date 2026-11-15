@@ -447,3 +447,65 @@ Then(
     });
   },
 );
+
+Then(
+  "the terminal fills its pane horizontally, with its last row on the pane's floor",
+  async function (this: KoluWorld) {
+    // The one automated check the kit's own layout gets. `<Xterm>`'s mount box
+    // is a flex COLUMN so the terminal can sit at the bottom while the two
+    // grids differ — and the hazard of saying that in CSS is that the
+    // HORIZONTAL layout moves with it. `.xterm` has no width of its own and its
+    // only in-flow child has an explicit pixel width, so one wrong axis shrinks
+    // it to the text and drags `.xterm-viewport`'s scrollbar — absolutely
+    // positioned to `.xterm`'s right edge — inward, off the strip of pixels the
+    // grid arithmetic reserves for it. Nothing else in this suite would notice:
+    // the text is all still there and all still correct.
+    const id = paintedTerminalId(this);
+    const box = await this.page.evaluate((sel) => {
+      const pane = document.querySelector(sel);
+      const term = pane?.querySelector(".xterm");
+      const viewport = term?.querySelector(".xterm-viewport");
+      const screen = term?.querySelector(".xterm-screen");
+      if (!pane || !term || !viewport || !screen) return null;
+      const p = pane.getBoundingClientRect();
+      const t = term.getBoundingClientRect();
+      const v = viewport.getBoundingClientRect();
+      const s = screen.getBoundingClientRect();
+      return {
+        paneLeft: p.left,
+        paneRight: p.right,
+        paneTop: p.top,
+        paneBottom: p.bottom,
+        termLeft: t.left,
+        termRight: t.right,
+        viewportRight: v.right,
+        screenBottom: s.bottom,
+        screenTop: s.top,
+      };
+    }, paneSelector(id));
+    assert.ok(box, "the pane has no .xterm to measure");
+    // Sub-pixel: every edge here is a layout result, not an integer.
+    const near = (a: number, b: number) => Math.abs(a - b) < 1;
+    assert.ok(
+      near(box.termLeft, box.paneLeft) && near(box.termRight, box.paneRight),
+      `the terminal is ${box.termRight - box.termLeft}px wide inside a ${box.paneRight - box.paneLeft}px pane — ` +
+        "it must span the pane's full width, or the columns the grid reserves for the scrollbar end up outside it",
+    );
+    assert.ok(
+      near(box.viewportRight, box.paneRight),
+      `the scrollbar's right edge is ${box.paneRight - box.viewportRight}px inside the pane's — it must be at the pane's edge`,
+    );
+    // The vertical anchor, decided: the last row's bottom is the pane's floor,
+    // and a box that is not a whole number of rows tall leaves its strip at the
+    // TOP. One anchor whether or not the two grids agree, so a resize landing
+    // never jumps the text.
+    assert.ok(
+      near(box.screenBottom, box.paneBottom),
+      `the last row's bottom edge is ${box.paneBottom - box.screenBottom}px above the pane's floor — the terminal must sit on it`,
+    );
+    assert.ok(
+      box.screenTop >= box.paneTop - 1,
+      `the terminal starts ${box.paneTop - box.screenTop}px above the pane — the leftover strip belongs at the top, not off it`,
+    );
+  },
+);

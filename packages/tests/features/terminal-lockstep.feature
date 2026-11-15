@@ -23,6 +23,11 @@ Feature: What the terminal shows is what the program drew
     # write ever goes back to repair it.
     Given a repainting program is running in the terminal
     Then the terminal shows exactly what the program drew
+    # At rest the terminal fills the pane's width and sits on its floor. Said
+    # here because the text being correct says nothing about where it is drawn,
+    # and the pane's scrollbar is a pixel's width away from being the only
+    # casualty nobody notices.
+    And the terminal fills its pane horizontally, with its last row on the pane's floor
     When the program begins a burst of output
     And I create a sub-terminal via command palette
     Then the terminal takes its new size and shows exactly what the program drew
@@ -37,4 +42,5 @@ Feature: What the terminal shows is what the program drew
     And I zoom in 1 time
     Then the font size should be larger than before
     And the terminal takes its new size and shows exactly what the program drew
+    And the terminal fills its pane horizontally, with its last row on the pane's floor
     And there should be no page errors
