@@ -91,7 +91,7 @@ describe("runAgentModels", () => {
     const repo = join(bundle, "repo");
     mkdirSync(repo);
     picker(
-      `d=$(pwd); printf '{"harness":"omp","launch":{"kind":"flag","flag":"--model"},"models":{"kind":"listed","ids":["%s"]}}\\n' "\${d##*/}"`,
+      `d=$(pwd); printf '{"launch":{"kind":"flag","flag":"--model"},"models":{"kind":"listed","ids":["%s"]}}\\n' "\${d##*/}"`,
     );
     expect((await run("omp", repo)).models).toEqual({
       kind: "listed",
