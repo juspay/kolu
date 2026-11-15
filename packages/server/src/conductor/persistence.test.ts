@@ -86,12 +86,9 @@ import {
   proveFleetMcpEndpoint,
   startFleetMcpEndpoint,
 } from "../fleet/mcpEndpoint.ts";
-import {
-  decodeStateBackup,
-  foldWorksByKey_1_53_0,
-  store,
-  TRANSCRIPT_FILE_VERSION,
-} from "../state.ts";
+import { decodeStateBackup, store } from "../state.ts";
+import { foldWorksByKey_1_53_0 } from "../stateLadder.ts";
+import { TRANSCRIPT_FILE_VERSION } from "../stateShape.ts";
 import { transcriptFilePath, transcriptFileStore } from "./transcriptFile.ts";
 
 const HOME = "/home/tester";
@@ -196,7 +193,8 @@ const recordDeps = () => ({
   publishWork: () => {},
   publishMember: () => {},
   publishReading: () => {},
-  membersMoved: () => {},
+  worksMoved: () => {},
+  watchScopeMoved: () => {},
   workFiles: {
     list: async () => [],
     keep: async () => [],

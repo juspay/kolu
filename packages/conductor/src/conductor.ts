@@ -153,7 +153,7 @@ import { asking } from "./asking.ts";
 import { attachments } from "./attachments.ts";
 import { memberStore } from "./memberStore.ts";
 import type { WatchJoin } from "./members.ts";
-import type { WatchObservation } from "./observation.ts";
+import type { PrWatch, WatchObservation } from "./observation.ts";
 import { observing } from "./observing.ts";
 import {
   type PersistedConductor,
@@ -173,7 +173,7 @@ import { recordWrites } from "./recordWrites.ts";
 import { teachingLines } from "./teaching.ts";
 import { wakes } from "./wakes.ts";
 import type { WorkFiles } from "./workFiles.ts";
-import { type MemberDetail, type PrWatch, workStore } from "./workStore.ts";
+import { type MemberDetail, workStore } from "./workStore.ts";
 
 /** What a reader of the transcript stream is handed, in order: one snapshot,
  *  then deltas, for as long as it is subscribed. */
@@ -583,20 +583,21 @@ export interface ConductorDeps {
     terminal: string,
     reading: MemberReading | null,
   ) => void;
-  /** THE MEMBERSHIP MOVED — the one in-process event this host announces, for
-   *  readers that follow the works themselves rather than the browser's
-   *  frame. `membership` is true when the SET of member refs changed (a
-   *  terminal joined, left or went away) and false when only what kolu knows
-   *  about a member did (its name, the agent in it). The two are different
-   *  jobs: the watcher re-scopes its per-host subscriptions on a membership
-   *  change and must not tear them down because a terminal was renamed, while
-   *  a reader of the ROWS needs both.
+  /** SOMETHING A `works` READER WOULD SEE MOVED — a work, a member row or a
+   *  reading. The in-process event for readers that follow the works
+   *  themselves rather than the browser's frame.
    *
-   *  An event, pushed where the works are mutated, rather than something a
-   *  consumer recovers by diffing published state: this host is the one thing
-   *  that knows, and "did the membership move" reconstructed from a
-   *  serialised frame is one more copy of the answer free to be wrong. */
-  readonly membersMoved: (membership: boolean) => void;
+   *  Pushed where the works are mutated rather than recovered by diffing
+   *  published state: this host is the one thing that knows, and an answer
+   *  reconstructed from a serialised frame is one more copy of it free to be
+   *  wrong. */
+  readonly worksMoved: () => void;
+  /** THE WATCH'S SCOPE MAY HAVE MOVED — the set of member refs, or the set of
+   *  branches with work in flight. Its own sink beside {@link worksMoved}
+   *  because the two are different jobs: the watcher re-opens its per-host
+   *  subscriptions on this one and must not tear them down because a terminal
+   *  was renamed, while a reader of the ROWS needs every move. */
+  readonly watchScopeMoved: () => void;
   /** The conversation's own record — `config.json`'s `conductor` key. */
   readonly store: CellStore<PersistedConductor>;
   /** THE TRANSCRIPT, in its own file. Separate from `store` because the rows
@@ -733,7 +734,8 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     publishWork,
     publishReading,
     publishMember,
-    membersMoved,
+    worksMoved,
+    watchScopeMoved,
     store,
     transcript: transcriptStore,
     works: worksStore,
@@ -894,7 +896,8 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     publishWork,
     publishMember,
     publishReading,
-    membersMoved,
+    worksMoved,
+    watchScopeMoved,
     // A WORK THAT ENDED TOOK ITS QUESTIONS WITH IT — the store recorded them
     // as dropped in the same write as the ending, and each arrives settled.
     // All that is left here is to say so on the row it was asked in and to
@@ -985,7 +988,8 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       hostNames.set(host, name);
     },
     publishState,
-    membersMoved,
+    worksMoved,
+    watchScopeMoved,
     flush: () => {
       void wake.flush();
     },
@@ -1060,7 +1064,8 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
       // reads the membership itself at boot too, but this edge is also reached
       // by the first procedure call of a process whose watcher has already
       // looked.
-      membersMoved(true);
+      worksMoved();
+      watchScopeMoved();
     }
     // A state-root whose `$HOME` moved cannot resume: a stored session id is
     // scoped to the directory it was opened in, and asking the agent for one

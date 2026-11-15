@@ -1,6 +1,6 @@
 /**
  * THE ONE SMART CONSTRUCTOR — the works and their members, together, or a
- * sentence saying which rule the two of them break.
+ * value naming which rule the two of them break and the rows that break it.
  *
  * Most of what "a legal store" means is already the TYPES' job and needs no
  * check at all: one work per branch (a map keyed by {@link workIdOf}), a
@@ -18,10 +18,12 @@
  *  4. a work holds at most one `planner` and at most one `implementor`.
  *
  * PARSE, DO NOT VALIDATE: the DECODER goes through here, so a store on disk
- * that breaks one of the four fails to decode with the sentence that names it
- * (and the Conductor's recovery screen offers the way back), and the single
- * writer goes through here too, so a transition that would break one cannot
- * be saved. There is no third path that "already knows" its values are good.
+ * that breaks one of the four fails to decode with the fault that names it —
+ * a VALUE, because the SENTENCE belongs to whichever face shows it — the same
+ * rule a refusal follows (`./refusal.ts`) — and the recovery screen offers
+ * the way back. The single writer goes through here too, so a
+ * transition that would break one cannot be saved. There is no third path
+ * that "already knows" its values are good.
  */
 
 import {
@@ -29,17 +31,48 @@ import {
   type Work,
   type WorkId,
   type WorkMember,
+  type WorkRole,
   workIdOf,
 } from "./schema.ts";
 
-/** A store that breaks one of the four rules, as a value — `why` is the
- *  whole sentence, naming the rule and the rows that break it. */
+/** WHICH OF THE FOUR RULES A STORE BREAKS, and the rows that break it.
+ *
+ *  A value, not a sentence: this package holds no English a person reads
+ *  ({@link WorkRefusal}'s doc states the rule), so the one face that shows a
+ *  fault composes the words from these fields. */
+export type StoreFault =
+  | {
+      readonly kind: "key-mismatch";
+      readonly filedAs: WorkId;
+      readonly says: WorkId;
+    }
+  | {
+      readonly kind: "no-such-work";
+      readonly terminal: string;
+      readonly work: WorkId;
+    }
+  | {
+      readonly kind: "work-ended";
+      readonly terminal: string;
+      readonly title: string;
+    }
+  | {
+      readonly kind: "role-taken";
+      readonly title: string;
+      readonly role: WorkRole;
+      readonly held: string;
+      readonly second: string;
+    };
+
+/** A store that breaks one of the four rules — the {@link StoreFault} saying
+ *  which, thrown. The `message` is the kind, for a stack trace and nothing
+ *  else; what a person is shown is the face's. */
 export class InvalidWorkStore extends Error {
-  readonly why: string;
-  constructor(why: string) {
-    super(why);
+  readonly fault: StoreFault;
+  constructor(fault: StoreFault) {
+    super(fault.kind);
     this.name = "InvalidWorkStore";
-    this.why = why;
+    this.fault = fault;
   }
 }
 
@@ -51,37 +84,40 @@ export interface WorkStoreValue<M extends WorkMember> {
   readonly members: ReadonlyMap<string, M>;
 }
 
-/** THE CHECK, as a sentence or nothing — the half {@link parseStore} throws
- *  with, exported for a caller that wants to ask before it writes. */
+/** THE CHECK, as a {@link StoreFault} or nothing — the half {@link parseStore}
+ *  throws with, exported for a caller that wants to ask before it writes. */
 export const storeFault = <M extends WorkMember>(
   works: Readonly<Record<WorkId, Work>> | ReadonlyMap<WorkId, Work>,
   members: Readonly<Record<string, M>> | ReadonlyMap<string, M>,
-): string | null => {
+): StoreFault | null => {
   const workRows = works instanceof Map ? [...works] : Object.entries(works);
   const memberRows =
     members instanceof Map ? [...members] : Object.entries(members);
   for (const [id, work] of workRows) {
     const own = workIdOf(work.key);
-    if (own !== id) {
-      return `A piece of work is stored under ${JSON.stringify(id)} but says it is ${JSON.stringify(own)} — a work is identified by its branch, and the key it is filed under has to be that same identity.`;
-    }
+    if (own !== id) return { kind: "key-mismatch", filedAs: id, says: own };
   }
+  const byId = new Map(workRows);
   const byWork = new Map<WorkId, Map<string, string>>();
   for (const [terminal, member] of memberRows) {
-    const work = workRows.find(([id]) => id === member.work)?.[1];
-    if (work === undefined) {
-      return `The terminal ${JSON.stringify(terminal)} is recorded as a member of ${JSON.stringify(member.work)}, and there is no such piece of work — a member belongs to a work kolu holds.`;
-    }
-    if (work.state.kind !== "open") {
-      return `The terminal ${JSON.stringify(terminal)} is recorded as a member of «${work.title}», which has ended — a work that ends takes its members with it, so a finished work has no terminals.`;
-    }
+    const work = byId.get(member.work);
+    if (work === undefined)
+      return { kind: "no-such-work", terminal, work: member.work };
+    if (work.state.kind !== "open")
+      return { kind: "work-ended", terminal, title: work.title };
     const roles = byWork.get(member.work) ?? new Map<string, string>();
     const taken = roles.get(member.role);
     if (
       taken !== undefined &&
       (UNIQUE_ROLES as ReadonlyArray<string>).includes(member.role)
     ) {
-      return `«${work.title}» has two terminals in the ${member.role} role (${JSON.stringify(taken)} and ${JSON.stringify(terminal)}) — a piece of work has one planner and one implementor.`;
+      return {
+        kind: "role-taken",
+        title: work.title,
+        role: member.role,
+        held: taken,
+        second: terminal,
+      };
     }
     roles.set(member.role, terminal);
     byWork.set(member.work, roles);
@@ -90,7 +126,7 @@ export const storeFault = <M extends WorkMember>(
 };
 
 /** The works and their members, as a value nothing can have built wrong — or
- *  an {@link InvalidWorkStore} carrying the sentence. */
+ *  an {@link InvalidWorkStore} carrying the {@link StoreFault}. */
 export const parseStore = <M extends WorkMember>(
   works: Readonly<Record<WorkId, Work>> | ReadonlyMap<WorkId, Work>,
   members: Readonly<Record<string, M>> | ReadonlyMap<string, M>,

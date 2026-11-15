@@ -30,6 +30,7 @@ import {
   type SetupAsk,
   setupOf,
   standing,
+  type StoreFault,
   takeOver,
   timeBar,
   timeSpent,
@@ -42,7 +43,6 @@ import {
   waitingOn,
   waitingOnYou,
   waterfallFileName,
-  workDirOf,
   workIdOf,
   workKeyOf,
 } from "./index.ts";
@@ -175,12 +175,6 @@ describe("a work IS its key", () => {
     expect(workKeyOf("branch:host//branch")).toBeNull();
   });
 
-  it("names a kept-file directory that is filesystem-safe", () => {
-    expect(workDirOf(ID)).toMatch(/^[0-9a-f]{16}$/);
-    expect(workDirOf(ID)).toBe(workDirOf(ID));
-    expect(workDirOf(ID)).not.toBe(workDirOf(`${ID}x`));
-  });
-
   it("reads the host off the key, with no decision involved", () => {
     expect(setupOf(opened()).host).toBe("remote:naiveintent");
     expect(SETUP_KEYS).not.toContain("host");
@@ -206,16 +200,39 @@ describe("parseStore — what the types cannot say", () => {
     expect(store.members.size).toBe(4);
   });
 
+  /** The fault a parse refused with — the VALUE, because the SENTENCE is the
+   *  showing face's (`kolu-conductor`'s `faultClause`) and this package holds
+   *  no English a person reads. */
+  const faultOf = (parse: () => unknown): StoreFault => {
+    try {
+      parse();
+    } catch (err) {
+      if (err instanceof InvalidWorkStore) return err.fault;
+      throw err;
+    }
+    throw new Error("the parse did not refuse");
+  };
+
   it("refuses a work filed under a key that is not its own identity", () => {
-    expect(() => parseStore({ "work:random": opened() }, {})).toThrow(
-      /stored under "work:random" but says it is/,
-    );
+    expect(faultOf(() => parseStore({ "work:random": opened() }, {}))).toEqual({
+      kind: "key-mismatch",
+      filedAs: "work:random",
+      says: ID,
+    });
   });
 
   it("refuses a member of a work that does not exist", () => {
-    expect(() =>
-      parseStore(openWorks(), { "local/a": member({ work: "branch:x/y/z" }) }),
-    ).toThrow(/there is no such piece of work/);
+    expect(
+      faultOf(() =>
+        parseStore(openWorks(), {
+          "local/a": member({ work: "branch:x/y/z" }),
+        }),
+      ),
+    ).toEqual({
+      kind: "no-such-work",
+      terminal: "local/a",
+      work: "branch:x/y/z",
+    });
   });
 
   it("refuses a member of a work that has ended", () => {
@@ -223,18 +240,30 @@ describe("parseStore — what the types cannot say", () => {
       outcome: { kind: "merged", pr: 181 },
       at: T(9),
     });
-    expect(() => parseStore({ [ID]: ended }, { "local/a": member() })).toThrow(
-      /which has ended/,
-    );
+    expect(
+      faultOf(() => parseStore({ [ID]: ended }, { "local/a": member() })),
+    ).toEqual({
+      kind: "work-ended",
+      terminal: "local/a",
+      title: "Show agent-distro update errors",
+    });
   });
 
   it("refuses two terminals in one role", () => {
-    expect(() =>
-      parseStore(openWorks(), {
-        "local/a": member(),
-        "local/b": member(),
-      }),
-    ).toThrow(/two terminals in the planner role/);
+    expect(
+      faultOf(() =>
+        parseStore(openWorks(), {
+          "local/a": member(),
+          "local/b": member(),
+        }),
+      ),
+    ).toEqual({
+      kind: "role-taken",
+      title: "Show agent-distro update errors",
+      role: "planner",
+      held: "local/a",
+      second: "local/b",
+    });
   });
 
   it("throws a value a face can act on", () => {
@@ -243,7 +272,9 @@ describe("parseStore — what the types cannot say", () => {
       expect.unreachable();
     } catch (err) {
       expect(err).toBeInstanceOf(InvalidWorkStore);
-      expect((err as InvalidWorkStore).why).toMatch(/identified by its branch/);
+      // NO SENTENCE on the class: the kind is what a face branches on, and
+      // the words it shows are its own.
+      expect((err as InvalidWorkStore).fault.kind).toBe("key-mismatch");
     }
   });
 });

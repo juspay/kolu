@@ -854,8 +854,13 @@ export const DEFAULT_PADI_ROSTER: PadiRoster = { kind: "settling" };
 /** Is this roster EVIDENCE — may a reader conclude that a terminal missing from
  *  it is really gone? The one fold both sides read, so the browser's standing
  *  and kolu-server's watch cannot answer it differently.
+ *
+ *  A PREDICATE, so a caller that goes on to read the census does not have to
+ *  re-spell the arm test to get at it.
  */
-export const rosterIsEstablished = (roster: PadiRoster): boolean =>
+export const rosterIsEstablished = (
+  roster: PadiRoster,
+): roster is Extract<PadiRoster, { readonly kind: "established" }> =>
   roster.kind === "established";
 
 /** Does this host hold that terminal? `null` when the roster is settling — the

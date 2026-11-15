@@ -41,24 +41,38 @@ import { type Accessor, createMemo } from "solid-js";
 import { createSharedRoot } from "../createSharedRoot";
 import { app } from "../wire";
 
+/** ONE BOUND COLLECTION, AS A MAP — the three mirrors below are the same eight
+ *  lines over three collections: walk the keys, read each row's accessor, drop
+ *  the ones that have not folded yet. Said once here, module-locally: the
+ *  pattern also appears in client modules that mirror quite different things,
+ *  and a shared primitive would claim a kinship those do not have.
+ *
+ *  A row is `undefined` twice over — no accessor for that key yet, or an
+ *  accessor whose frame has not landed — and the map carries neither, so `V`
+ *  is inferred as the ROW's type rather than the row-or-nothing the binding
+ *  hands out. */
+const mapOf = <K extends string, V>(bound: {
+  keys: () => Iterable<K>;
+  byKey: (key: K) => Accessor<V | undefined> | undefined;
+}): Accessor<ReadonlyMap<K, V>> =>
+  createMemo(() => {
+    const by = new Map<K, V>();
+    for (const key of bound.keys()) {
+      const one = bound.byKey(key)?.();
+      if (one !== undefined) by.set(key, one);
+    }
+    return by;
+  });
+
 /** THE WORKS BY ID, mirrored once for the whole app — the shape membership is
  *  folded from, and what a reader looking for ONE work (the reader window, a
  *  chat row's question) asks. */
 export const useWorkMap = createSharedRoot<Accessor<ReadonlyMap<WorkId, Work>>>(
-  () => {
+  () =>
     // Bare `.use()`: the collection DECLARES its own `onError` policy (a toast
     // labelled `Works`) on the spec, so the use-site carries none, and its
     // default keys stream is the server's own — every work, no narrowing.
-    const works = app.collections.works.use();
-    return createMemo(() => {
-      const by = new Map<WorkId, Work>();
-      for (const id of works.keys()) {
-        const one = works.byKey(id)?.();
-        if (one !== undefined) by.set(id, one);
-      }
-      return by;
-    });
-  },
+    mapOf(app.collections.works.use()),
 );
 
 /** THE WORKS, in the order every reader draws them: in progress oldest first
@@ -85,17 +99,7 @@ export const useWorks = createSharedRoot<Accessor<ReadonlyArray<WorkRow>>>(
  *  that is names exactly one. */
 export const useWorkMembers = createSharedRoot<
   Accessor<ReadonlyMap<string, WorkMember>>
->(() => {
-  const members = app.collections.workMembers.use();
-  return createMemo(() => {
-    const by = new Map<string, WorkMember>();
-    for (const ref of members.keys()) {
-      const one = members.byKey(ref)?.();
-      if (one !== undefined) by.set(ref, one);
-    }
-    return by;
-  });
-});
+>(() => mapOf(app.collections.workMembers.use()));
 
 /** THE MEMBERSHIP INDEX, derived once — terminal (`host/id`) to the work it is
  *  a member of, and WHO DRIVES it.
@@ -117,14 +121,4 @@ export const useMembership = createSharedRoot<
  *  read in this process, which is a different thing from "0s ago". */
 export const useSeen = createSharedRoot<
   Accessor<ReadonlyMap<string, MemberReading>>
->(() => {
-  const readings = app.collections.memberReadings.use();
-  return createMemo(() => {
-    const byRef = new Map<string, MemberReading>();
-    for (const ref of readings.keys()) {
-      const one = readings.byKey(ref)?.();
-      if (one !== undefined) byRef.set(ref, one);
-    }
-    return byRef;
-  });
-});
+>(() => mapOf(app.collections.memberReadings.use()));

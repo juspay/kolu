@@ -21,6 +21,7 @@ import {
   type DaemonStatus,
   encodeHostLocation,
   LOCAL_LOCATION,
+  rosterIsEstablished,
 } from "@kolu/padi-client/surface";
 import type { EntryState } from "@kolu/surface-map";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
@@ -436,7 +437,7 @@ export function listIsAuthoritative(): boolean {
   const scope = activeScope();
   if (scope === undefined || !daemonConnected()) return false;
   const standing = scope.wire.roster.value();
-  if (standing === undefined || standing.kind !== "established") return false;
+  if (standing === undefined || !rosterIsEstablished(standing)) return false;
   const listed = scope.wire.terminalKeys();
   if (listed === undefined) return false;
   return standing.ids.every((id) => listed.includes(id));

@@ -12,15 +12,15 @@
  * ## It is part of the ONE ladder
  *
  * This file does NOT get a migration ladder of its own. It carries the version
- * `kolu-server`'s `state.ts` hands it ({@link TRANSCRIPT_FILE_VERSION}, passed
- * in rather than imported so the ladder stays the only place that says what
- * number the state root is at), and the rule is one sentence: A FUTURE CHANGE
- * TO THE ROW SHAPE IS A RUNG IN `state.ts` THAT REWRITES THIS FILE, and that
- * rung's number becomes the new `TRANSCRIPT_FILE_VERSION`. A file stamped with
- * anything else is REFUSED BY NAME — never read as a guess, never re-shaped on
- * the fly. That is the same fail-fast the conf store gives the rest of the
- * state root (`dev/skills/state/SKILL.md`), spelled for a file conf does not
- * own.
+ * `kolu-server`'s `stateShape.ts` holds ({@link TRANSCRIPT_FILE_VERSION},
+ * passed in rather than imported so the state root stays the only place that
+ * says what number it is at), and the rule is one sentence: A FUTURE CHANGE
+ * TO THE ROW SHAPE IS A RUNG IN `stateLadder.ts` THAT REWRITES THIS FILE, and
+ * that rung's number becomes the new `TRANSCRIPT_FILE_VERSION`. A file
+ * stamped with anything else is REFUSED BY NAME — never read as a guess,
+ * never re-shaped on the fly. That is the same fail-fast the conf store
+ * gives the rest of the state root (`dev/skills/state/SKILL.md`), spelled for
+ * a file conf does not own.
  *
  * ## Why a plain file rather than a second `Conf`
  *
@@ -132,10 +132,10 @@ export function readTranscriptFile(
   const body = parsed as { version?: unknown; rows?: unknown };
   if (body.version !== version) {
     // The one this module exists to enforce. The transcript file rides
-    // kolu-server's one migration ladder (`state.ts`): a build that changes
-    // the row shape rewrites this file in its rung, so a file stamped with
-    // anything else did not come through the ladder and nothing here can
-    // repair it by guessing.
+    // kolu-server's one migration ladder (`stateLadder.ts`): a build that
+    // changes the row shape rewrites this file in its rung, so a file
+    // stamped with anything else did not come through the ladder and nothing
+    // here can repair it by guessing.
     return refuse(
       `it was written by a build that stamped it ${JSON.stringify(body.version)}, and this one reads ${JSON.stringify(version)}`,
       `transcript file version ${JSON.stringify(body.version)} ≠ ${JSON.stringify(version)}`,

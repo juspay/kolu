@@ -38,7 +38,6 @@ import {
   filesSeen,
   prOf,
   recordEvent,
-  reopenWork,
   type Work,
   type WorkEvent,
   type WorkId,
@@ -127,7 +126,13 @@ export const ringEvent = (
  *  A merge or a close ENDS the work here, because the forge saying so is one
  *  of the only two ways a work ends — whenever kolu next looks, including the
  *  first look after a restart, and whatever its members are doing (they LEAVE
- *  the work with the ending; nothing is killed). */
+ *  the work with the ending; nothing is killed).
+ *
+ *  IT NEVER BRINGS ONE BACK. A reading moves a work IN PROGRESS, which is the
+ *  whole of what is watched (`./workStore.ts`'s `prWatches` states the scope):
+ *  once a work has ended, kolu stops asking its branch, so a PR that is open
+ *  again on the forge says nothing here. Reopen on the card, or `work_open`
+ *  on the same key, is the way back. */
 export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
   let next = work;
   const known = prOf(next);
@@ -180,20 +185,6 @@ export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
       pr: pr.number,
     });
     next = endWork(next, { outcome: { kind: "closed", pr: pr.number }, at });
-  }
-  // THE FORGE SAYS IT IS OPEN AGAIN. The other way back from Ended, beside a
-  // person pressing Reopen: a PR that was merged or closed and is open once
-  // more is the same piece of work, decisions and timeline whole. Only an
-  // ending the FORGE wrote is undone this way — a work somebody stopped
-  // stays stopped until they open it again themselves.
-  const ending = next.state;
-  if (
-    pr.state === "open" &&
-    ending.kind === "ended" &&
-    ending.outcome.kind !== "stopped" &&
-    ending.outcome.pr === pr.number
-  ) {
-    next = reopenWork(next, at);
   }
   return next;
 };
@@ -258,7 +249,12 @@ export const observing = (deps: {
   /** Publish the conversation's own frame; answers whether anybody would see
    *  something different. */
   readonly publishState: () => boolean;
-  readonly membersMoved: (membership: boolean) => void;
+  /** A work, a member row or a reading moved — every reader of the `works`
+   *  resource is owed a redraw. */
+  readonly worksMoved: () => void;
+  /** The watch's SCOPE may have moved — the member set or the branches with
+   *  work in flight. */
+  readonly watchScopeMoved: () => void;
   /** Everything waiting, out as one turn — if there is a turn to put it in. */
   readonly flush: () => void;
   readonly log: Logger;
@@ -314,19 +310,19 @@ export const observing = (deps: {
         // frame in flight across a departure is ordinary rather than a fault.
         if (found === undefined) continue;
         const was = found.member;
-        const sighting = observed(was, one);
         // WHERE IT IS WORKING, kept on the MEMBER the first time a record
         // says it: a work's files outlive the terminal that wrote them, and
         // the member row is where the path belongs now that membership is a
         // map of its own. The first answer sticks.
         const worktree = was.worktree ?? one.git?.worktree ?? null;
-        deps.members.set(one.ref, {
-          ...sighting.member,
-          work: was.work,
-          role: was.role,
-          joinedAt: was.joinedAt,
-          worktree,
-        });
+        // ONE ROW IN, ONE ROW OUT — `observed` carries the whole member, so
+        // the model's half is never re-attached by hand here (a field added
+        // to it would have been silently dropped on the next host read).
+        const sighting = observed(
+          worktree === was.worktree ? was : { ...was, worktree },
+          one,
+        );
+        deps.members.set(one.ref, sighting.member);
         if (worktree !== was.worktree) watched = true;
         // THE LEVEL CHANGED, as THIS PROCESS saw it.
         const changed = was.last?.level !== one.level;
@@ -369,17 +365,7 @@ export const observing = (deps: {
         if (changed && !sighting.drop && worktree !== null)
           listFiles(found.id, one.ref, { host: one.host, worktree });
         if (sighting.ring !== null) {
-          deps.ring(
-            {
-              ...sighting.member,
-              work: was.work,
-              role: was.role,
-              joinedAt: was.joinedAt,
-              worktree,
-            },
-            one,
-            sighting.ring,
-          );
+          deps.ring(sighting.member, one, sighting.ring);
           saidSomethingNew = true;
         }
       }
@@ -388,7 +374,12 @@ export const observing = (deps: {
       if (watched) deps.records.schedule("members");
       // HOW EACH MEMBER STANDS, straight from the loop that moved it.
       if (read) deps.store.publishReadings();
-      if (membership || rows) deps.membersMoved(membership);
+      // TWO FACTS, TWO SINKS. Every reader of the rows is owed a redraw when
+      // anything about a member moved; the watch re-scopes only when the SET
+      // of members did — a rename or an agent appearing must not tear down
+      // every host's standing reads.
+      if (membership || rows) deps.worksMoved();
+      if (membership) deps.watchScopeMoved();
       if (!saidSomethingNew) return;
       deps.flush();
     },
@@ -401,11 +392,12 @@ export const observing = (deps: {
       if (pr === null) return;
       const work = deps.store.get(id);
       if (work === undefined) return;
-      // THE WORKS A READING MOVES: one in progress, or one the FORGE ended —
-      // the second is how a PR that is open again brings its work back. A work
-      // somebody STOPPED stays stopped until they open it again themselves.
-      const state = work.state;
-      if (state.kind === "ended" && state.outcome.kind === "stopped") return;
+      // A READING MOVES A WORK IN PROGRESS, and nothing else. A finished
+      // work's branch is not watched at all (`./workStore.ts`'s `prWatches`
+      // is the one statement of that scope), so the only reading that reaches
+      // here for one is a frame already in flight when it ended — and the
+      // forge is never the way back: Reopen on the card is.
+      if (work.state.kind !== "open") return;
       const next = prEvents(work, pr, nowIso());
       // IDEMPOTENT BY CONSTRUCTION: the reading is compared with the TIMELINE,
       // so the same reading twice — the next poll, the first look after a
@@ -427,13 +419,7 @@ export const observing = (deps: {
       // acted on, so it goes — and the member re-baselines at that state.
       deps.withdraw(ref);
       const member = found.member;
-      deps.members.set(ref, {
-        ...spokenTo(member),
-        work: member.work,
-        role: member.role,
-        joinedAt: member.joinedAt,
-        worktree: member.worktree,
-      });
+      deps.members.set(ref, spokenTo(member));
       deps.publishState();
       deps.records.schedule("members");
     },
@@ -447,7 +433,10 @@ export const observing = (deps: {
       }
       deps.publishState();
       deps.store.changed();
-      if (found !== undefined) deps.membersMoved(true);
+      if (found !== undefined) {
+        deps.worksMoved();
+        deps.watchScopeMoved();
+      }
     },
   };
 };

@@ -48,7 +48,8 @@ import { type Work, workIdOf } from "kolu-work";
 import type { Logger } from "pino";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { recoverConductorStore } from "../conductorRecovery.ts";
-import { stateBackupRing, store, TRANSCRIPT_FILE_VERSION } from "../state.ts";
+import { stateBackupRing, store } from "../state.ts";
+import { TRANSCRIPT_FILE_VERSION } from "../stateShape.ts";
 import {
   transcriptFilePath,
   transcriptFileStore,
@@ -99,7 +100,8 @@ function hostOver(): ConductorHost {
     publishWork: () => {},
     publishMember: () => {},
     publishReading: () => {},
-    membersMoved: () => {},
+    worksMoved: () => {},
+    watchScopeMoved: () => {},
     store: conductorStore,
     works: worksStore,
     members: membersStore,

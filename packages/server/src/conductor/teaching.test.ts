@@ -154,14 +154,21 @@ describe("the waterfall's setup questions", () => {
     // The defect this guards: `waterfall ~/code/odu …` was asked mode,
     // harness, model and on-green, then opened its planner on the machine the
     // Conductor runs on — where the harness was not even installed — and the
-    // human had to type where it should have gone.
-    expect(SCRIPT).toContain("which HOST the work runs on");
-    expect(SCRIPT).toContain("unless the request names the host");
+    // human had to type where it should have gone. The host is part of the
+    // work's key, so it is asked in the reply, never in `work_open`'s form.
+    expect(SCRIPT).toContain(
+      "the HOST is not one of them: it is part of the work",
+    );
+    expect(SCRIPT).toContain(
+      "you ask it in your reply when the request does not name it",
+    );
     expect(SCRIPT).toContain("a path does not: the same path exists on");
     expect(SCRIPT).toContain(
       "NOTHING IS CREATED BEFORE THE WORK IS OPEN AND THE HOST IS KNOWN.",
     );
-    expect(SCRIPT).toContain("the host question offers the hosts connected");
+    expect(SCRIPT).toContain(
+      "when you ask which host, offer the hosts connected",
+    );
     // ... and outside a waterfall too: any terminal it is about to open.
     expect(SCRIPT).toContain("never default to zest");
   });

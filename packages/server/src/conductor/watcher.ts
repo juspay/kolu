@@ -53,9 +53,10 @@
  * so a re-subscribe is a fresh reading rather than a replay — which is what
  * makes re-opening the honest recovery here rather than a resync protocol. The
  * host map moved, and the whole generation is re-opened against the clients
- * that are current (`overConnectedHosts`); membership moved
- * ({@link ConductorWatcher.membersMoved}), and the legs it chooses are
- * re-chosen; or the stream ENDED on its own — the far end went away without the
+ * that are current (`overConnectedHosts`); the watch's SCOPE moved
+ * ({@link ConductorWatcher.scopeMoved}) — a member joined or left, or a branch
+ * gained or lost work in flight — and the legs it chooses are re-chosen; or
+ * the stream ENDED on its own — the far end went away without the
  * host map noticing — and that host's leg alone re-opens after
  * {@link REOPEN_DELAY_MS}, its siblings undisturbed. Bounded by the delay
  * rather than an attempt count: a host that is down is retried forever,
@@ -70,10 +71,11 @@
  */
 
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
-import type {
-  PadiRoster,
-  PadiTerminal,
-  PadiUrgency,
+import {
+  type PadiRoster,
+  type PadiTerminal,
+  type PadiUrgency,
+  rosterIsEstablished,
 } from "@kolu/padi-client/surface";
 import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Cause, Effect, Fiber, Queue, Schedule, Stream } from "effect";
@@ -98,10 +100,12 @@ import type { Logger } from "pino";
 const REOPEN_DELAY_MS = 3_000;
 
 export interface ConductorWatcher {
-  /** Membership moved — re-read it and re-open the legs it now names. Cheap
-   *  enough to call on every move: a leg is a subscription that opens with a
-   *  snapshot, and the first frame after it is a full reading. */
-  readonly membersMoved: () => void;
+  /** THE SCOPE MOVED — the member refs or the branches with work in flight.
+   *  Re-read it and re-open the legs it now names. Cheap enough to call on
+   *  every move: the scope is compared before anything is torn down, and a
+   *  leg is a subscription that opens with a snapshot, so the first frame
+   *  after one is a full reading. */
+  readonly scopeMoved: () => void;
   /** Stop watching everything, for the shutdown. */
   readonly dispose: () => Promise<void>;
 }
@@ -109,7 +113,7 @@ export interface ConductorWatcher {
 /** One frame off one leg, before it is folded into a view. */
 type Frame =
   | { readonly kind: "urgency"; readonly urgency: PadiUrgency }
-  | { readonly kind: "standing"; readonly standing: PadiRoster }
+  | { readonly kind: "roster"; readonly roster: PadiRoster }
   | {
       readonly kind: "record";
       readonly id: string;
@@ -132,7 +136,7 @@ type WatchFrame =
  *  until their first frame being exactly why nothing is reported before then. */
 interface Accumulated {
   urgency: PadiUrgency | null;
-  standing: PadiRoster | null;
+  roster: PadiRoster | null;
   readonly records: Map<string, PadiTerminal>;
 }
 
@@ -183,7 +187,7 @@ const hostViews = (
     ),
     Stream.map(
       padi.surface.roster.get(undefined),
-      (standing): Frame => ({ kind: "standing", standing }),
+      (roster): Frame => ({ kind: "roster", roster }),
     ),
     ...watched.map((id) =>
       Stream.map(
@@ -196,31 +200,31 @@ const hostViews = (
     Stream.mergeAll(members, { concurrency: "unbounded" }),
     (): Accumulated => ({
       urgency: null,
-      standing: null,
+      roster: null,
       records: new Map(),
     }),
     (at, frame) => {
       if (frame.kind === "urgency") at.urgency = frame.urgency;
-      else if (frame.kind === "standing") at.standing = frame.standing;
+      else if (frame.kind === "roster") at.roster = frame.roster;
       else at.records.set(frame.id, frame.record);
-      const { urgency, standing } = at;
-      if (urgency === null || standing === null) return [at, []] as const;
+      const { urgency, roster } = at;
+      if (urgency === null || roster === null) return [at, []] as const;
       // The ARM, and the only place one is chosen: padi's own word for whether
-      // its roster is a census. A settling host is emitted — it is a real thing
-      // this leg has learned — and says nothing about any terminal, because the
-      // fold it would be read by has nothing on that arm to read.
-      const view: HostView =
-        standing.kind === "established"
-          ? {
-              kind: "ready",
-              host,
-              hostName,
-              watched,
-              roster: new Set(standing.ids),
-              urgency,
-              records: at.records,
-            }
-          : { kind: "settling", host, hostName, watched };
+      // its roster is a census, read through the one fold both sides share. A
+      // settling host is emitted — it is a real thing this leg has learned —
+      // and says nothing about any terminal, because the fold it would be read
+      // by has nothing on that arm to read.
+      const view: HostView = rosterIsEstablished(roster)
+        ? {
+            kind: "ready",
+            host,
+            hostName,
+            watched,
+            roster: new Set(roster.ids),
+            urgency,
+            records: at.records,
+          }
+        : { kind: "settling", host, hostName, watched };
       return [at, [view]] as const;
     },
   );
@@ -243,7 +247,7 @@ export function startConductorWatcher(deps: {
   let moved: (() => void) | null = null;
   const moves = Stream.callback<void>((queue) =>
     Effect.gen(function* () {
-      // The current membership goes out BEFORE the trigger is armed, for the
+      // The current scope goes out BEFORE the trigger is armed, for the
       // reason the roster's own stream states: a stream that only spoke on
       // CHANGE would never open a leg at boot.
       Queue.offerUnsafe(queue, undefined);
@@ -469,7 +473,7 @@ export function startConductorWatcher(deps: {
   );
 
   return {
-    membersMoved: () => moved?.(),
+    scopeMoved: () => moved?.(),
     dispose: async () => {
       // One interrupt for the whole watch: every leg and the host-map
       // subscription under them are this fiber's scope. It is AWAITED

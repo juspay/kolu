@@ -50,8 +50,8 @@ observes as events.
 
 | module | what |
 | --- | --- |
-| `schema.ts` | the KEY (`WorkKey`, `workIdOf`, `workKeyOf`, `workDirOf`), the record, the `state`/`outcome` sums and their readings (`isOpen`, `endedAt`, `outcomeOf`, `keptOf`), the `Asked \| Answered` decision sum, the event union typed by kind, and the waterfall's WORDS (`WORK_ROLES`, `WORK_MODES`, `ON_GREEN`, `SETUP_KEYS`) — declared here because the record's schema embeds them |
-| `store.ts` | the ONE smart constructor over works + members: `parseStore` (what the decoder and the single writer both go through), `storeFault` and the `InvalidWorkStore` whose `why` names the rule that broke |
+| `schema.ts` | the KEY (`WorkKey`, `workIdOf`, `workKeyOf`), the record, the `state`/`outcome` sums and their readings (`isOpen`, `endedAt`, `outcomeOf`, `keptOf`), the `Asked \| Answered` decision sum, the event union typed by kind, and the waterfall's WORDS (`WORK_ROLES`, `WORK_MODES`, `ON_GREEN`, `SETUP_KEYS`) — declared here because the record's schema embeds them |
+| `store.ts` | the ONE smart constructor over works + members: `parseStore` (what the decoder and the single writer both go through), `storeFault` and the `InvalidWorkStore` carrying the `StoreFault` that names the rule that broke and the rows that break it — a VALUE, because the sentence belongs to the face that shows it |
 | `record.ts` | the transitions: `openWork`, `askQuestions`, `answerAsk`, `dropAsk`, `joinWork`, `leaveWork`, `recordEvent`, `takeOver`/`handBack`, `endWork`, `reopenWork`, `keepFiles`/`keepFailed` — the record only grows, bounded by `AGENT_STATES_KEPT`; `openAsks`/`hasOpenAsk` derive what is still waiting on a person |
 | `readings.ts` | the MECHANISM of a reading: what a decision came to (`answerValue`), the decisions of one ask, the PR as the timeline last said it (`prOf`) with the one check table (`CHECK_STEP`), the key a timeline holds at most one of (`checkKey`, `checksSeen` — one per kind per head commit, off the event's own `pr` and `head` fields), the files seen |
 | `folds.ts` | `waitingOn`, `standing`, `timeBar`, `timeSpent`, `took`, `lifetime`, `inProgress`/`finished` over `WorkRow`, `capFinished` — each taking a `Policy` (what the waterfall's words mean for this work) rather than reading the setup itself |
@@ -122,9 +122,11 @@ Different volatilities, different homes:
   key of `config.json` (with the `members` key beside it, which is
   `kolu-conductor`'s own memory of each member terminal), carried by the one
   migration ladder — rung `1.53.0` folds every pre-key store into this model,
-  one work per key — and kept files under `<state dir>/works/`, in the
-  directory `workDirOf(id)` names (a hash, because a work id holds a
-  repository's absolute path). How many finished works are kept is the host's
+  one work per key — and kept files under `<state dir>/works/`, in a
+  directory `kolu-conductor` names from the id (a hash, beside the files
+  port: a work id holds a repository's absolute path, and a
+  directory-naming scheme is kolu's disk layout rather than part of what a
+  work IS). How many finished works are kept is the host's
   number too (`FINISHED_KEPT`, beside the cap it applies);
   `capFinished(works, keep)` takes it.
 - **Observation** is split where its sources are. What a host's frames *mean*

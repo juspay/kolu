@@ -570,7 +570,7 @@ export const ActivityFeedSchema = Schema.Struct({
  * `state` — session save emits one list and sleeping terminals join it. The
  * discriminant means a legacy record with no `state` key is rejected on read,
  * which `backfillTerminalState` repairs (`state: "active"`) — run by both the
- * `state.ts` 1.27.0 migration (persisted state) and the client import hatch
+ * `stateLadder.ts` 1.27.0 migration (persisted state) and the client import hatch
  * (`backfillSavedSession`, for an exported `kolu-session.json`).
  *
  * Within-group ordering is the array index; the server writes terminals
@@ -1019,7 +1019,7 @@ export function activePr(
 // current `SavedTerminalSchema`, one per schema bump that added a now-required
 // field. They live HERE, beside the schema they restore, because TWO callers
 // run them on the SAME blob: the server's versioned migration ladder
-// (`state.ts`, keyed per `SCHEMA_VERSION` step) AND the client's diagnostic
+// (`stateLadder.ts`, keyed per `SCHEMA_VERSION` step) AND the client's diagnostic
 // "Import session" hatch (`sessionTransfer.ts`), which ingests an exported
 // `kolu-session.json` that may predate any of these fields. A second hand-rolled
 // backfill on the import side would be a parallel source of truth — the bug

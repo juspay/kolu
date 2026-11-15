@@ -212,17 +212,19 @@ describe("the PR the work's own watch reads", () => {
     expect(kinds(ended)).toContain("pr-opened");
   });
 
-  it("REOPENS the work when the forge says the PR is open again", () => {
+  it("NEVER brings a work back: the forge can end one, not reopen it", () => {
+    // The scope of PR observation is the works IN PROGRESS
+    // (`workStore.prWatches`), so a finished work's branch is not asked about
+    // at all. Even handed the reading directly, nothing here undoes an
+    // ending — Reopen on the card, or `work_open` on the same key, is the one
+    // way back.
     const closed = prEvents(work(), pr({ state: "closed" }), AT);
+    expect(closed.state.kind).toBe("ended");
     const again = prEvents(closed, pr({ state: "open" }), AT);
-    expect(again.state.kind).toBe("open");
-    expect(kinds(again)).toContain("reopened");
-    // Decisions and timeline whole: this is the same work, and every event
-    // the ended one had is still there.
-    expect(again.events.length).toBeGreaterThan(closed.events.length);
-    // ... and the same reading again is not news: the work is the very value
-    // that went in.
-    expect(prEvents(again, pr({ state: "open" }), AT)).toBe(again);
+    expect(again.state.kind).toBe("ended");
+    expect(kinds(again)).not.toContain("reopened");
+    // ... and it is the very value that went in: nothing was written.
+    expect(again).toBe(closed);
   });
 
   it("leaves a work somebody STOPPED stopped, PR open or not", () => {

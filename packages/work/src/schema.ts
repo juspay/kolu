@@ -136,25 +136,6 @@ export const workKeyOf = (id: WorkId): WorkKey | null => {
   return terminal === "" ? null : { kind: "watch", terminal };
 };
 
-/** THE DIRECTORY A WORK'S KEPT FILES SIT IN, under `<stateRoot>/works/`.
- *
- *  A work id holds a repository's absolute path: it is not a file name. So
- *  the directory is a hash of it — short, stable, and filesystem-safe on
- *  every platform. FNV-1a over the id's code units, twice (two 32-bit rounds
- *  seeded differently) for a 64-bit name: a pure function with no `node:`
- *  import, because this package is also bundled into a browser. */
-export const workDirOf = (id: WorkId): string => {
-  const fnv = (seed: number): string => {
-    let hash = seed;
-    for (let at = 0; at < id.length; at += 1) {
-      hash ^= id.charCodeAt(at);
-      hash = Math.imul(hash, 0x01000193) >>> 0;
-    }
-    return hash.toString(16).padStart(8, "0");
-  };
-  return `${fnv(0x811c9dc5)}${fnv(0x7fffffff)}`;
-};
-
 /** Who an event is BY: the human, an agent (the Conductor or one of the
  *  agents it runs), CI, or kolu itself (membership, the end, files kept). */
 export const EVENT_BY = ["you", "agent", "ci", "kolu"] as const;

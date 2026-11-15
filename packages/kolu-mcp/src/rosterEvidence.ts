@@ -23,7 +23,7 @@
 
 import { firstFrameOrThrow } from "@kolu/surface/first-frame";
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
-import { type PadiRoster, rosterHolds } from "@kolu/padi-client/surface";
+import { rosterHolds } from "@kolu/padi-client/surface";
 import { Effect } from "effect";
 
 /** The sentence a caller is given instead of an absence, when the host has not
@@ -51,7 +51,7 @@ export const rosterStandingOf = (
       `the host behind ${what} answered no roster standing — link or protocol failure.`,
     ),
     (standing) => {
-      const held = rosterHolds(standing as PadiRoster, id);
+      const held = rosterHolds(standing, id);
       return held === null ? "settling" : held ? "held" : "absent";
     },
   );

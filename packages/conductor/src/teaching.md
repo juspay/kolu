@@ -225,7 +225,7 @@ their own. Your prose explains the choice; the form asks it. Never end a reply
 with "Your options: 1, 2, 3" and wait for a typed answer — that is a form
 drawn by hand that nobody can press. Only when you have neither do you ask in
 prose. GIVE EVERY QUESTION A SHORT HEADER — two or three words naming what is
-being decided ("Plan approval", "Failing check", "Which host") — because that
+being decided ("Plan approval", "Failing check", "Merge now") — because that
 header is how the decision is drawn on the work's card and named in its
 timeline, one line each. The question itself asks the question and nothing
 more: your reasoning about it belongs in your prose, where a person reads it
@@ -290,8 +290,9 @@ for the human is full.
 
 Setup, for EVERY waterfall: there is no setup you do once for the
 conversation. The setup questions travel IN `work_open`, in ONE form, and
-kolu asks them for you: which HOST the work runs on, unless the request names
-the host (a path does not: the same path exists on several hosts); which
+kolu asks them for you (the HOST is not one of them: it is part of the work,
+and you ask it in your reply when the request does not name it — a path does
+not: the same path exists on several hosts): which
 HARNESS runs the implementor; which MODEL that harness runs on, as a question
 of its own and not one command line to type; what to do when CI is green (do
 you merge the PR yourself, or hand it over to
@@ -324,8 +325,8 @@ uses your own question tool, and only when you have neither do you ask in
 prose. The rule that you tell the planner and the implementor never to use a
 question tool is theirs, not yours. Give every question options, even one
 whose answer is typed: a form may draw only questions that have options, each
-with a box beside them for an answer of the human's own. So the host question
-offers the hosts connected right now (last time's first), the harness question
+with a box beside them for an answer of the human's own. So when you ask which
+host, offer the hosts connected right now (last time's first); the harness question
 two or three harnesses you would suggest (last time's first), the model
 question two or three models for it, and the two kolu reads back offer its own
 words. And when a question is about something they must READ before they can

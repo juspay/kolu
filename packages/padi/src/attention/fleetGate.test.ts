@@ -14,7 +14,7 @@
  * surface does, and what made a redeploy's live terminals `gone`.
  */
 
-import type { PadiTerminal } from "@kolu/padi-client/surface";
+import type { PadiRoster, PadiTerminal } from "@kolu/padi-client/surface";
 import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import { createFleetGate } from "./fleetGate.ts";
@@ -77,6 +77,50 @@ describe("createFleetGate", () => {
     expect(gate.admit(frame(0))).toBe(false);
     gate.establish();
     expect(gate.admit(frame(0))).toBe(true);
+  });
+
+  it("STAYS closed through the drain's PARTIAL frames — the two-terminal recycle", () => {
+    // The drain's real shape, which an empty-frame-only pin never reaches:
+    // `drainTerminals` snapshots and CLEARS the registry (so the census port
+    // already answers `[]`), then drops the snapshots ONE AT A TIME. Each
+    // removal is its own unbatched write, so the urgency fold re-runs on a
+    // frame of the terminals not yet dropped — non-empty, and under the old
+    // rule evidence enough to publish `established` with the cleared
+    // registry's empty census. That frame then stood for the whole recycle,
+    // and every reader of an absence read `false` instead of `null`: the
+    // Conductor's watch recorded both of a work's live terminals `gone`
+    // (#2376). `settling()` is a statement, so it LATCHES.
+    const seen: PadiRoster[] = [];
+    const registry: TerminalId[] = ["t0" as TerminalId, "t1" as TerminalId];
+    const gate = createFleetGate({
+      publish: (roster) => seen.push(roster),
+      census: () => registry,
+      now: () => 7,
+    });
+    expect(gate.admit(frame(2))).toBe(true);
+    gate.settling();
+    // `drainTerminals`: snapshot-and-clear, synchronously.
+    registry.length = 0;
+    // `dropSnapshot(t0)` — the collection still holds t1.
+    expect(gate.admit(frame(1))).toBe(false);
+    expect(gate.roster()).toEqual({ kind: "settling" });
+    // `dropSnapshot(t1)`.
+    expect(gate.admit(frame(0))).toBe(false);
+    expect(gate.roster()).toEqual({ kind: "settling" });
+    // The re-park: the registry is a complete census again.
+    registry.push("t0" as TerminalId, "t1" as TerminalId);
+    gate.establish();
+    expect(gate.roster()).toEqual({
+      kind: "established",
+      at: 7,
+      ids: ["t0", "t1"],
+    });
+    // Nothing established-and-empty was ever published during the window.
+    expect(seen).toEqual([
+      { kind: "established", at: 7, ids: ["t0", "t1"] },
+      { kind: "settling" },
+      { kind: "established", at: 7, ids: ["t0", "t1"] },
+    ]);
   });
 
   it("publishes each CHANGE of the standing, with the epoch and the ids", () => {

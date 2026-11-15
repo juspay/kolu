@@ -67,6 +67,7 @@ import {
   InvalidWorkStore,
   memberSchemaWith,
   parseStore,
+  type StoreFault,
   type Work,
   type WorkId,
   WorkSchema,
@@ -110,9 +111,10 @@ export const EMPTY_PERSISTED_CONDUCTOR: PersistedConductor = {
  *  COST where they were: a streaming answer is one row and six hundred frames,
  *  and the state file holds the host map and the preferences beside them, so
  *  every one of those frames rewrote the whole of kolu's state. The file is
- *  still part of kolu's ONE ladder — `kolu-server`'s `state.ts` stamps and
- *  rewrites it, and a version it does not recognise is refused by name — so a
- *  future change to the row shape is a rung there, never a second ladder here.
+ *  still part of kolu's ONE ladder — `kolu-server`'s `stateLadder.ts` stamps
+ *  and rewrites it, and a version it does not recognise is refused by name —
+ *  so a future change to the row shape is a rung there, never a second ladder
+ *  here.
  *
  *  `rows` is the WIRE row on the `koluSurface` ladder, read back off a file on
  *  the kolu-server `SCHEMA_VERSION` one — so the first NON-ADDITIVE change to
@@ -373,6 +375,26 @@ export function readPersistedMembers(
   return result.success;
 }
 
+/** THE SENTENCE FOR A BROKEN STORE — the one place `kolu-work`'s
+ *  {@link StoreFault} becomes English, because this is the face that shows
+ *  it. The model package names the rule and the rows; the words that reach
+ *  the recovery screen are this file's, like every other clause it raises.
+ *
+ *  A CLAUSE, not a sentence: {@link UnreadablePersisted} frames it ("kolu
+ *  could not read … — <this>. Nothing has been changed: …"). */
+const faultClause = (fault: StoreFault): string => {
+  switch (fault.kind) {
+    case "key-mismatch":
+      return `a piece of work is stored under ${JSON.stringify(fault.filedAs)} but says it is ${JSON.stringify(fault.says)} — a work is identified by its branch, and the key it is filed under has to be that same identity`;
+    case "no-such-work":
+      return `the terminal ${JSON.stringify(fault.terminal)} is recorded as a member of ${JSON.stringify(fault.work)}, and there is no such piece of work — a member belongs to a work kolu holds`;
+    case "work-ended":
+      return `the terminal ${JSON.stringify(fault.terminal)} is recorded as a member of «${fault.title}», which has ended — a work that ends takes its members with it, so a finished work has no terminals`;
+    case "role-taken":
+      return `«${fault.title}» has two terminals in the ${fault.role} role (${JSON.stringify(fault.held)} and ${JSON.stringify(fault.second)}) — a piece of work has one planner and one implementor`;
+  }
+};
+
 /** THE TWO RECORDS, READ TOGETHER AND PARSED AS ONE — the decoder going
  *  through `kolu-work`'s one smart constructor.
  *
@@ -381,7 +403,8 @@ export function readPersistedMembers(
  *  JSON cannot state (the key is the work's own identity, every member's work
  *  exists and is open, one planner and one implementor) are checked HERE, at
  *  the only place a store arrives from disk — and a store that breaks one is
- *  refused by name, with the sentence that says which, exactly as a shape
+ *  refused by name — the model answers WHICH rule and which rows, and
+ *  {@link faultClause} is where that becomes the sentence, exactly as a shape
  *  this build cannot read is. The recovery screen offers the same two ways
  *  back. */
 export function parsePersistedStore(
@@ -402,8 +425,8 @@ export function parsePersistedStore(
       key: "works",
       path,
       stateRoot,
-      why: `the saved works and their terminals break a rule the model holds (${err.why})`,
-      detail: err.why,
+      why: faultClause(err.fault),
+      detail: JSON.stringify(err.fault),
     });
   }
 }

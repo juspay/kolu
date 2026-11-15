@@ -70,6 +70,7 @@ export {
   type WatchJoin,
 } from "./members.ts";
 export type {
+  PrWatch,
   WatchGit,
   WatchLevel,
   WatchObservation,
@@ -118,12 +119,11 @@ export { parseTeaching, teachingLines } from "./teaching.ts";
 export { conductorTranscriptSource } from "./transcriptStream.ts";
 export { type WakeMembership, wakeText } from "./wakeText.ts";
 export { type Wakes, type WakeTurn, wakes } from "./wakes.ts";
-export type { WorkFiles } from "./workFiles.ts";
+export { type WorkFiles, workDirOf } from "./workFiles.ts";
 export {
   FINISHED_KEPT,
   type MemberAt,
   type MemberDetail,
-  type PrWatch,
   type WorkStore,
   workStore,
 } from "./workStore.ts";

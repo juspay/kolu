@@ -46,7 +46,7 @@ import {
   migratePreferences_1_40_0,
   migratePreferences_1_41_0,
   migratePreferences_1_43_0,
-} from "./state.ts";
+} from "./stateLadder.ts";
 import {
   EMPTY_PERSISTED_CONDUCTOR,
   PersistedConductorSchema,

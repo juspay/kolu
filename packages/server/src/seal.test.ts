@@ -194,6 +194,11 @@ const WEB_SHELL_FILES = [
   // The state-backup ring's server face (#1658) — web-shell store management,
   // not terminal domain (the generic ring mechanics live in `kolu-shared`).
   "stateBackups",
+  // The saved shape and its version (`stateShape`), and the ladder's frozen
+  // rungs with their table (`stateLadder`) — `state.ts` split by clock; both
+  // pure, no terminal domain.
+  "stateLadder",
+  "stateShape",
   "surface",
   "tls",
   // `kolu-rpc` — the harness CLIENT of this shell's own wire: one call by wire tag
@@ -223,7 +228,7 @@ const WEB_SHELL_FILES = [
   // domain; it subscribes to padi like any other consumer.
   "conductor/watcher",
   // ...the TRANSCRIPT FILE the conversation's rows live in, and the ladder
-  // rule that governs it (`state.ts`'s rung writes it; this file refuses a
+  // rule that governs it (`stateLadder.ts`'s rungs write it; this file refuses a
   // stamp that ladder did not write). A file beside `config.json`: shell
   // storage, no terminal domain.
   "conductor/transcriptFile",

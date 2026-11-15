@@ -85,6 +85,7 @@ import {
   type WatchLevel,
   type WatchObservation,
   type WorkFiles,
+  workDirOf,
 } from "kolu-conductor";
 import { KOLU_FLEET_EXPOSE, KOLU_FLEET_TOOL_NAMES } from "kolu-mcp";
 import {
@@ -97,7 +98,6 @@ import {
   setupOf,
   type Work,
   type WorkId,
-  workDirOf,
   workIdOf,
   type WorkKey,
   WorkRefusal,
@@ -424,9 +424,12 @@ interface Rig {
     terminal: string;
     reading: { level: ConductorReadingLevel; since: string } | null;
   }>;
-  /** Every "the membership moved" the host announced — `true` when the SET of
-   *  member refs changed, `false` when only what kolu knows about one did. */
-  membersMoved: () => boolean[];
+  /** How many times the host said a `works` reader is owed a redraw — a
+   *  work, a member row or a reading moved. */
+  worksMoved: () => number;
+  /** ... and how many times it said THE WATCH'S SCOPE may have moved: the
+   *  member set, or the branches with work in flight. */
+  watchScopeMoved: () => number;
 }
 
 function rig(over: Remembered = {}): Rig {
@@ -442,7 +445,8 @@ function rig(over: Remembered = {}): Rig {
   const members = countingStore<PersistedMembers>(over.members ?? {});
   const files = fakeFiles();
   const published: ConductorState[] = [];
-  const membersMoved: boolean[] = [];
+  let worksMoved = 0;
+  let watchScopeMoved = 0;
   const worksPublished: Array<{ id: string; work: Work | null }> = [];
   const readingsPublished: Array<{
     terminal: string;
@@ -472,8 +476,11 @@ function rig(over: Remembered = {}): Rig {
     publishReading: (terminal, reading) => {
       readingsPublished.push({ terminal, reading });
     },
-    membersMoved: (membership) => {
-      membersMoved.push(membership);
+    worksMoved: () => {
+      worksMoved += 1;
+    },
+    watchScopeMoved: () => {
+      watchScopeMoved += 1;
     },
     store: record.store,
     transcript: transcript.store,
@@ -496,7 +503,8 @@ function rig(over: Remembered = {}): Rig {
     published: () => published,
     worksPublished: () => worksPublished,
     readingsPublished: () => readingsPublished,
-    membersMoved: () => membersMoved,
+    worksMoved: () => worksMoved,
+    watchScopeMoved: () => watchScopeMoved,
   };
 }
 
@@ -1205,7 +1213,8 @@ describe("teardown (B2)", () => {
       publishWork: () => {},
       publishMember: () => {},
       publishReading: () => {},
-      membersMoved: () => {},
+      worksMoved: () => {},
+      watchScopeMoved: () => {},
       store: countingStore(EMPTY_PERSISTED_CONDUCTOR).store,
       transcript: countingStore<PersistedTranscript>({ rows: [] }).store,
       works: countingStore<PersistedWorks>({}).store,
@@ -1273,7 +1282,8 @@ describe("teardown (B2)", () => {
       publishWork: () => {},
       publishMember: () => {},
       publishReading: () => {},
-      membersMoved: () => {},
+      worksMoved: () => {},
+      watchScopeMoved: () => {},
       store: countingStore(EMPTY_PERSISTED_CONDUCTOR).store,
       transcript: countingStore<PersistedTranscript>({ rows: [] }).store,
       works: countingStore<PersistedWorks>({}).store,
@@ -2520,6 +2530,40 @@ describe("opening a piece of work", () => {
     expect(theWork(r).state.kind).toBe("open");
   });
 
+  it("tells the WATCH its scope moved when a work comes back with no members", async () => {
+    // #2376's hole. Ending a work drops its members in the same step, so a
+    // Reopen moves no MEMBERSHIP at all — and the watcher still has to open a
+    // `pullRequest` leg for the branch, because the forge's merge or close is
+    // the one fact that can end it again and nothing else is left to notice
+    // it. That is why the scope has a sink of its own.
+    const r = rig();
+    await asked(r);
+    const work = await watchWork(r);
+    r.host.stopWork(work, "you");
+    expect(r.host.memberRefs()).toEqual([]);
+    expect(r.host.prWatches()).toEqual([]);
+    const scopes = r.watchScopeMoved();
+
+    r.host.reopenWork(work);
+
+    expect(theWork(r).state.kind).toBe("open");
+    expect(r.watchScopeMoved()).toBeGreaterThan(scopes);
+    // ... and what the watch would re-scope TO is this work's branch.
+    expect(r.host.prWatches().map((one) => one.work)).toEqual([work]);
+  });
+
+  it("... and when a work is OPENED, before any terminal has joined it", async () => {
+    const r = rig();
+    await asked(r);
+    const scopes = r.watchScopeMoved();
+
+    const work = await watchWork(r);
+
+    expect(r.host.memberRefs()).toEqual([]);
+    expect(r.watchScopeMoved()).toBeGreaterThan(scopes);
+    expect(r.host.prWatches().map((one) => one.work)).toEqual([work]);
+  });
+
   it("refuses a second terminal in a role the work already has", async () => {
     const r = rig();
     await asked(r);
@@ -2935,18 +2979,20 @@ describe("what a reading publishes", () => {
 
   it("tells the works' readers when a reading first DETECTS the agent", async () => {
     // The agent is not in the conversation's cell — it is what kolu knows
-    // about a member — so what has to move here is the membership event, with
-    // `membership: false`: the set of member refs is the same one, and a
-    // watcher that re-scoped for this would tear down its subscriptions over
-    // a terminal that never left.
+    // about a member — so what has to move here is the WORKS, and only the
+    // works: the set of member refs is the same one, and a watcher that
+    // re-scoped for this would tear down its subscriptions over a terminal
+    // that never left.
     const r = rig();
     await oneMember(r, "created");
     r.host.observe([seeing(A, "working", { agent: null })]);
-    const before = r.membersMoved().length;
+    const redraws = r.worksMoved();
+    const scopes = r.watchScopeMoved();
 
     r.host.observe([seeing(A, "working", { agent: "claude-code" })]);
 
-    expect(r.membersMoved().slice(before)).toEqual([false]);
+    expect(r.worksMoved()).toBeGreaterThan(redraws);
+    expect(r.watchScopeMoved()).toBe(scopes);
     expect(r.host.membersDetail()[0]?.agent).toBe("claude-code");
   });
 
@@ -2955,7 +3001,8 @@ describe("what a reading publishes", () => {
     await oneMember(r, "created");
     r.host.observe([seeing(A, "working")]);
     const published = r.worksPublished().length;
-    const moved = r.membersMoved().length;
+    const redraws = r.worksMoved();
+    const scopes = r.watchScopeMoved();
 
     r.host.observe([seeing(A, "working")]);
 
@@ -2964,7 +3011,8 @@ describe("what a reading publishes", () => {
     // than four minutes of polling — and a poll that read the same thing
     // again is not a frame, not a write and not an event.
     expect(r.worksPublished().length).toBe(published);
-    expect(r.membersMoved().length).toBe(moved);
+    expect(r.worksMoved()).toBe(redraws);
+    expect(r.watchScopeMoved()).toBe(scopes);
   });
 });
 
@@ -3643,7 +3691,7 @@ describe("a restored backup of the works", () => {
   it("replaces them, keeps their open questions, re-scopes and writes NOW", async () => {
     const r = rig();
     const before = await drivenWork(r);
-    const moved = r.membersMoved().length;
+    const scopes = r.watchScopeMoved();
     const writes = r.works.writes();
 
     const restored = workKey("carried-over");
@@ -3679,7 +3727,7 @@ describe("a restored backup of the works", () => {
     // nothing a restore can have broken — the card still offers it.
     expect(r.host.works()[0]?.[1].decisions[0]?.kind).toBe("asked");
     // The watcher re-scopes: the membership is now the snapshot's.
-    expect(r.membersMoved().slice(moved)).toEqual([true]);
+    expect(r.watchScopeMoved()).toBeGreaterThan(scopes);
     expect(r.host.memberRefs()).toEqual([B]);
     // ... and the file says so immediately, not within the throttle window: a
     // restore a restart would undo is not a restore.

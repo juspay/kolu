@@ -29,8 +29,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import Conf from "conf";
 import { DEFAULT_PREFERENCES } from "kolu-common/surface";
-import { readPersistedTranscript } from "kolu-conductor";
-import { workDirOf, workIdOf } from "kolu-work";
+import { readPersistedTranscript, workDirOf } from "kolu-conductor";
+import { workIdOf } from "kolu-work";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   transcriptFilePath,
@@ -39,19 +39,20 @@ import {
 } from "./conductor/transcriptFile.ts";
 // Importing state.ts opens its own throwaway store at the test harness's
 // KOLU_STATE_DIR (set by the `test:unit` script) — unrelated to the fixtures
-// below, which each build their own Conf under a fresh temp dir.
+// below, which each build their own Conf under a fresh temp dir. The rungs
+// themselves come from `stateLadder.ts`, which opens nothing.
+import { decodeStateBackup } from "./state.ts";
 import {
   collapseFlappingChecks_1_51_0,
-  decodeStateBackup,
   foldWorksByKey_1_53_0,
   memberWatchOutOfWorks_1_52_0,
   migrateConductorToWorks_1_50_0,
   moveKeptFiles_1_53_0,
   splitWorkAskRows_1_53_0,
   stripLegacyStateKeys_1_31_0,
-  TRANSCRIPT_FILE_VERSION,
   worksFromWatched_1_50_0,
-} from "./state.ts";
+} from "./stateLadder.ts";
+import { TRANSCRIPT_FILE_VERSION } from "./stateShape.ts";
 
 const dirs: string[] = [];
 

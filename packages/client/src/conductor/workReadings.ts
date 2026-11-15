@@ -30,6 +30,7 @@ import {
   type Decision,
   type EventBy,
   isAnswered,
+  isCheckEvent,
   isOpen,
   type Membership,
   ON_GREEN,
@@ -478,11 +479,7 @@ export function answeredWhen(
 /** The head commit a check event is about, or `null` for every other kind —
  *  the one reader of that field, so the switch below stays about words. */
 function headOf(event: WorkEvent): string | null {
-  return event.kind === "checks-running" ||
-    event.kind === "checks-passed" ||
-    event.kind === "checks-failed"
-    ? event.head
-    : null;
+  return isCheckEvent(event) ? event.head : null;
 }
 
 /** THE COMMIT A CHECK EVENT NAMES, as a person reads it — ` · 4f21a9c`, and

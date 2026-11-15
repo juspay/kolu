@@ -29,9 +29,9 @@ thing that does it.
 | --- | --- |
 | `conductor.ts` | the CONVERSATION — the ACP child, the transcript, the restart fence, `publishState`, and the facade that returns `ConductorHost` |
 | `workStore.ts` | the works map KEYED BY `WorkId`, the single writer: idempotent `openFor` (an ended work reopens), join/leave/save, `stop`/`reopen`, ending (drop the members and the open questions in the same write → keep files → cap at `FINISHED_KEPT` → sweep), the driver lock, restore, and publish-what-moved (one helper, an equivalence per collection) |
-| `memberStore.ts` | what kolu knows about each member terminal, by fleet ref — ONE location, saved by subtraction |
+| `memberStore.ts` | what kolu knows about each member terminal, by fleet ref — ONE location; the watch's six fields are listed at the write (`members.ts`'s `saved`), because the row carries the model's half too |
 | `members.ts` | pure: what a reading MEANS for a member (`MemberWatchSchema`, `observed`, `spokenTo`) |
-| `observation.ts` | the observation vocabulary alone (`WatchObservation`, `WatchGit`, `WatchPr`) — a leaf both rule modules read |
+| `observation.ts` | the observation vocabulary alone (`WatchObservation`, `WatchGit`, `WatchPr`, `PrWatch`) — a leaf both rule modules read |
 | `readings.ts` | pure: a host's frames → one `WatchObservation` per member terminal |
 | `observing.ts` | pure `ringEvent` / `prEvents` / `fileEvents` + the ONE pass per reading that applies them |
 | `wakes.ts` | when news reaches a turn: the held queue, the one-flight flush, the failure episode, the `told` write-back |
@@ -134,10 +134,12 @@ appending what it observes.
   head — records a run of its own. A work with NO terminals is still watched,
   which is what makes a Conductor-merged work end: the script merges and
   closes its terminals seconds later (#2376). THE ONLY ENDINGS are the forge's
-  two — merged or closed, and the forge seeing that PR open again reopens the
-  work — and a **Stop** (the card's button, the Conductor's `work_stop`),
-  which is the one a person or the Conductor chooses. Nothing kolu merely
-  fails to see ends anything.
+  two — merged or closed — and a **Stop** (the card's button, the Conductor's
+  `work_stop`), which is the one a person or the Conductor chooses. Nothing
+  kolu merely fails to see ends anything, and nothing the forge says brings a
+  work back: a finished work's branch is not watched at all (`prWatches` is
+  the one statement of that scope), so **Reopen** on the card — or `work_open`
+  on the same key — is the way back.
 - **The end** — the work's open questions are recorded as dropped and its
   members removed in the same write as the ending; then its files are listed
   and copied into kolu (`WorkFiles`, implemented by kolu-server), so the plan
@@ -206,11 +208,12 @@ past this package's published doors.
 - **The wire schema** stays in `kolu-common` — the browser reads it too, and a
   browser must not import a package that spawns subprocesses.
 - **The migration rung** and the `PersistedStateSchema` key stay in
-  `packages/server/src/state.ts`: kolu has one ladder and it has one home —
-  rung `1.53.0` is where every pre-key store is folded into this model (works
-  grouped by key become one, members re-keyed into the one map, `abandoned`
-  becomes open again). The record's own schema is this package's export, which
-  is the half that describes the data rather than the file.
+  `packages/server/src/stateLadder.ts` and `stateShape.ts`: kolu has one
+  ladder and it has one home — rung `1.53.0` is where every pre-key store is
+  folded into this model (works grouped by key become one, members re-keyed
+  into the one map, `abandoned` becomes open again). The record's own schema
+  is this package's export, which is the half that describes the data rather
+  than the file.
 - **The UI** is `packages/client/src/conductor/`.
 - **No test lane of its own.** The Conductor's suites are composition tests — the
   host against the real fleet MCP door and the real tool registry — so they run

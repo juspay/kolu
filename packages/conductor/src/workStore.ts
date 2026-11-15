@@ -57,7 +57,6 @@ import {
   type WorkMember,
   type WorkRole,
   WorkRefusal,
-  workDirOf,
   workIdOf,
   workKeyOf,
 } from "kolu-work";
@@ -70,9 +69,10 @@ import {
   type Member,
   type MemberStore,
 } from "./memberStore.ts";
+import type { PrWatch } from "./observation.ts";
 import type { PersistedMembers, PersistedWorks } from "./persisted.ts";
 import type { RecordWrites } from "./recordWrites.ts";
-import type { WorkFiles } from "./workFiles.ts";
+import { type WorkFiles, workDirOf } from "./workFiles.ts";
 
 /** HOW MANY FINISHED WORKS KOLU KEEPS — with their files.
  *
@@ -97,18 +97,6 @@ export interface MemberAt {
   readonly id: WorkId;
   readonly work: Work;
   readonly member: Member;
-}
-
-/** A BRANCH WHOSE PULL REQUEST KOLU WATCHES — one per piece of work in
- *  progress that is keyed by a branch. The watch asks the host for the PR of
- *  that branch in that repository; no terminal is involved, so a work with no
- *  members is watched exactly like one with two. */
-export interface PrWatch {
-  readonly work: WorkId;
-  /** The fleet host ref the repository is on. */
-  readonly host: string;
-  readonly repo: string;
-  readonly branch: string;
 }
 
 /** What opening a key answered: the work, and whether this call is what
@@ -244,7 +232,14 @@ export interface WorkStoreDeps {
     terminal: string,
     reading: MemberReading | null,
   ) => void;
-  readonly membersMoved: (membership: boolean) => void;
+  /** A WORK, A MEMBER ROW OR A READING MOVED — every reader of the `works`
+   *  resource is owed a redraw. */
+  readonly worksMoved: () => void;
+  /** THE WATCH'S SCOPE MAY HAVE MOVED — a member joined or left, or a branch
+   *  gained or lost work in flight. Two lists, one sink, because the watcher
+   *  re-chooses both from one read; it compares the scope itself, so saying
+   *  this when nothing moved costs one comparison. */
+  readonly watchScopeMoved: () => void;
   /** THIS CHANGE ENDED THE WORK, and these are the questions that went with
    *  it — recorded as dropped by this writer in the same step as the ending,
    *  because nobody can answer a question about a work that is over. Each one
@@ -396,15 +391,13 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       deps.ended(asks.settled);
     }
     // THE WATCH'S SCOPE MOVED — this work is no longer in progress, so its
-    // branch's pull request is no longer watched. Said on the SAME event the
-    // membership rides, because the watcher re-chooses both of its lists from
-    // one signal; `true` when terminals left with the ending, `false` when
-    // there were none to lose (which is the work this round exists for: a work
-    // whose PR was merged after its terminals were already closed).
-    if (dropped.length > 0) {
-      deps.records.schedule("members");
-      deps.membersMoved(true);
-    } else deps.membersMoved(false);
+    // branch's pull request is no longer watched, and any terminals it had
+    // left with the ending. Said whether or not there were any to lose:
+    // a work whose PR was merged after its terminals were already closed is
+    // the case this round exists for, and the scope moved all the same.
+    if (dropped.length > 0) deps.records.schedule("members");
+    deps.worksMoved();
+    deps.watchScopeMoved();
     void closeOut(id, at);
   };
 
@@ -439,10 +432,20 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       .filter(([, one]) => works.get(one.work)?.state.kind === "open")
       .map(([ref]) => ref);
 
-  /** The branches whose pull requests are watched: every work in progress
-   *  whose key is a branch on a machine. The key IS the answer — it carries
-   *  the host, the repository and the branch — so nothing here re-derives a
-   *  work's identity from a member's record. */
+  /** THE SCOPE OF PR OBSERVATION, and the only statement of it: the branches
+   *  whose pull requests are watched are the works IN PROGRESS whose key is a
+   *  branch on a machine, and nothing else.
+   *
+   *  A FINISHED WORK IS NOT WATCHED. The forge can end a work (a merge, a
+   *  close) but it cannot bring one back: once a work is over, kolu stops
+   *  asking about its branch, and the only ways back are a person pressing
+   *  Reopen on the card and `work_open` on the same key. The alternative —
+   *  a leg per finished branch, polling a forge every 30 s for twenty works
+   *  nobody is doing — buys a transition nobody asked for.
+   *
+   *  The key IS the answer — it carries the host, the repository and the
+   *  branch — so nothing here re-derives a work's identity from a member's
+   *  record. */
   const prWatches = (): ReadonlyArray<PrWatch> => {
     const watches: PrWatch[] = [];
     for (const [id, work] of works) {
@@ -471,7 +474,8 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     const found = at(ref);
     deps.members.forget(ref);
     deps.records.schedule("members");
-    deps.membersMoved(true);
+    deps.worksMoved();
+    deps.watchScopeMoved();
     if (found === undefined) {
       changed();
       return;
@@ -510,9 +514,11 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
         const again = reopenWork(held, nowIso());
         works.set(id, again);
         changed();
-        // A WORK IN PROGRESS AGAIN: its branch's pull request is watched from
-        // now on, so the watch re-chooses its legs.
-        deps.membersMoved(false);
+        // A WORK IN PROGRESS AGAIN: it has no members (the ending took them),
+        // and its branch's pull request is watched from now on — so the watch
+        // re-chooses its legs off a move nothing else would announce.
+        deps.worksMoved();
+        deps.watchScopeMoved();
         return { id, work: again, created: false, reopened: true };
       }
       const work = openWork({ key, title, at: nowIso(), request });
@@ -520,7 +526,8 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       changed();
       // ... and the same for a work that has just come into being: it has no
       // members yet, and its PR is watched before it ever gets one.
-      deps.membersMoved(false);
+      deps.worksMoved();
+      deps.watchScopeMoved();
       return { id, work, created: true, reopened: false };
     },
     stop: (id, by) => {
@@ -539,7 +546,8 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       const again = reopenWork(work, nowIso());
       works.set(id, again);
       changed();
-      deps.membersMoved(false);
+      deps.worksMoved();
+      deps.watchScopeMoved();
       return again;
     },
     endWith: (id, outcome) => {
@@ -564,7 +572,8 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       sweepFiles();
       deps.records.now("works");
       // The card never existed, and neither does its watch.
-      deps.membersMoved(false);
+      deps.worksMoved();
+      deps.watchScopeMoved();
       return true;
     },
     load: (kept, members) => {
@@ -586,7 +595,8 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       // next boot undoes the restore.
       deps.records.now("works");
       deps.records.now("members");
-      deps.membersMoved(true);
+      deps.worksMoved();
+      deps.watchScopeMoved();
       const still = new Set(activeRefs());
       return before.filter((ref) => !still.has(ref));
     },
@@ -629,7 +639,8 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       );
       changed();
       deps.records.schedule("members");
-      deps.membersMoved(true);
+      deps.worksMoved();
+      deps.watchScopeMoved();
     },
     /** One sentence for every way a take over can be about the wrong terminal:
      *  it belongs to no work in progress, it has left, or its work is a

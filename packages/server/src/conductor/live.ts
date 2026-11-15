@@ -36,7 +36,8 @@ import {
 import type { FleetHosts } from "kolu-mcp";
 import { proveFleetMcpEndpoint } from "../fleet/mcpEndpoint.ts";
 import { log } from "../log.ts";
-import { TRANSCRIPT_FILE_VERSION, store } from "../state.ts";
+import { store } from "../state.ts";
+import { TRANSCRIPT_FILE_VERSION } from "../stateShape.ts";
 import { transcriptFilePath, transcriptFileStore } from "./transcriptFile.ts";
 import { workFilesOverHosts } from "./workFiles.ts";
 
@@ -60,16 +61,19 @@ let writeMember:
 let writeReading:
   | ((terminal: string, reading: MemberReading | null) => void)
   | null = null;
-/** Who follows MEMBERSHIP, or `null` until the boot wires it — the watcher,
- *  which re-scopes its per-host subscriptions when the set of member refs
- *  changes, and the `works` resource's subscribers, which want every change
- *  to a row as well. Registered rather than imported for the same reason the
- *  cell writers are: this module is reached by three callers that hold no
- *  handle on each other.
+/** Who is owed a redraw of the `works` resource, or `null` until the boot
+ *  wires it — the resource's subscribers, which want every change to a row.
+ *  Registered rather than imported for the same reason the cell writers are:
+ *  this module is reached by three callers that hold no handle on each other.
+ */
+let onWorks: (() => void) | null = null;
+/** ... and who re-chooses THE WATCH'S SCOPE: the watcher, which re-opens its
+ *  per-host subscriptions when the member set or the set of branches with
+ *  work in flight moves.
  *
- *  `null` is ordinary at boot — the watcher reads the membership itself when
- *  it starts, so an event before it is wired has nothing to tell. */
-let onMembers: ((membership: boolean) => void) | null = null;
+ *  `null` is ordinary at boot — the watcher reads the scope itself when it
+ *  starts, so an event before it is wired has nothing to tell. */
+let onWatchScope: (() => void) | null = null;
 /** The fleet, for the one dependency that needs a padi client rather than a
  *  cell: reading and copying a work's `.waterfall/` files. `null` until the
  *  boot has built the host map — which is BEFORE anything can ask for the
@@ -119,13 +123,18 @@ export function setWorksCollectionWriters(writers: {
   writeReading = writers.reading;
 }
 
-/** ... and register who follows MEMBERSHIP ({@link onMembers}). The
- *  conversation announces that event where it moves a member, so what arrives
- *  here is the fact itself rather than a frame a consumer has to diff. */
-export function setMembersListener(
-  listen: (membership: boolean) => void,
-): void {
-  onMembers = listen;
+/** ... and register who is owed a redraw of the WORKS ({@link onWorks}), and
+ *  who re-chooses the WATCH'S SCOPE ({@link onWatchScope}). Two sinks, because
+ *  they are two different jobs: a terminal being renamed moves every row an
+ *  agent reads and moves no subscription at all. The conversation announces
+ *  each where it happens, so what arrives here is the fact itself rather than
+ *  a frame a consumer has to diff. */
+export function setWorksListener(listen: () => void): void {
+  onWorks = listen;
+}
+
+export function setWatchScopeListener(listen: () => void): void {
+  onWatchScope = listen;
 }
 
 /** ... and hand over the fleet, which `index.ts` builds before anything can
@@ -217,10 +226,11 @@ export function liveServerConductor(): ConductorHost {
       }
       writeReading(terminal, reading);
     },
-    // Membership moved, said by the one thing that knows. Unguarded: this is
-    // not riding a browser's frame any more, so a listener that throws is a
+    // What moved, said by the one thing that knows. Unguarded: this is not
+    // riding a browser's frame any more, so a listener that throws is a
     // boot-wiring fault to see rather than a frame to protect.
-    membersMoved: (membership) => onMembers?.(membership),
+    worksMoved: () => onWorks?.(),
+    watchScopeMoved: () => onWatchScope?.(),
     // THE FOUR RECORDS, each where its volatility says it belongs. The
     // conversation, the works and what kolu knows about their member
     // terminals are keys of the one conf store (one schema, one ladder —

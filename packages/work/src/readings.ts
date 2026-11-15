@@ -11,7 +11,13 @@
  * grows.
  */
 
-import type { Decision, EventKind, Work } from "./schema.ts";
+import type {
+  Decision,
+  EventKind,
+  EventOf,
+  Work,
+  WorkEvent,
+} from "./schema.ts";
 
 /** What a decision came to as ONE value: the option picked, else the words
  *  typed, else `null`. */
@@ -69,10 +75,18 @@ const CHECK_KINDS: ReadonlySet<string> = new Set(
   Object.values(CHECK_STEP).map((step) => step.kind),
 );
 
-/** Whether a kind — a string off a record this build may be older than — is
- *  one of the three. */
-export const isCheckKind = (kind: string): kind is CheckKind =>
-  CHECK_KINDS.has(kind);
+/** WHAT THE TIMELINE READS BACK for each check event kind — the same rows as
+ *  {@link CHECK_STEP}, read the other way, so the two directions cannot
+ *  disagree. A fourth rollup word is one row in the table rather than a row
+ *  and an arm of a ternary sixty lines below it. */
+export const CHECKS_READ_BACK = Object.fromEntries(
+  Object.values(CHECK_STEP).map((step) => [step.kind, step.checks]),
+) as Readonly<Record<CheckKind, NonNullable<PrReading["checks"]>>>;
+
+/** Whether this event is one of the three — narrowing the EVENT, which is
+ *  what every reader of its `pr`, `head` and `failing` needs. */
+export const isCheckEvent = (event: WorkEvent): event is EventOf<CheckKind> =>
+  CHECK_KINDS.has(event.kind);
 
 /** WHAT A CHECK EVENT IS ABOUT, as one key: its kind, the PR and the commit
  *  it names.
@@ -92,12 +106,7 @@ export const checkKey = (
 export const checksSeen = (work: Work): ReadonlySet<string> => {
   const keys = new Set<string>();
   for (const one of work.events)
-    if (
-      one.kind === "checks-running" ||
-      one.kind === "checks-passed" ||
-      one.kind === "checks-failed"
-    )
-      keys.add(checkKey(one.kind, one.pr, one.head));
+    if (isCheckEvent(one)) keys.add(checkKey(one.kind, one.pr, one.head));
   return keys;
 };
 
@@ -107,23 +116,13 @@ export const checksSeen = (work: Work): ReadonlySet<string> => {
 export const prOf = (work: Work): PrReading | null => {
   let pr = null as PrReading | null;
   for (const event of work.events) {
+    if (isCheckEvent(event)) {
+      if (pr !== null) pr = { ...pr, checks: CHECKS_READ_BACK[event.kind] };
+      continue;
+    }
     switch (event.kind) {
       case "pr-opened":
         pr = { number: event.pr, state: "open", checks: null };
-        break;
-      case "checks-running":
-      case "checks-passed":
-      case "checks-failed":
-        if (pr !== null)
-          pr = {
-            ...pr,
-            checks:
-              event.kind === "checks-running"
-                ? "running"
-                : event.kind === "checks-passed"
-                  ? "passed"
-                  : "failed",
-          };
         break;
       case "merged":
         if (pr !== null) pr = { ...pr, state: "merged", checks: null };
@@ -131,9 +130,9 @@ export const prOf = (work: Work): PrReading | null => {
       case "pr-closed":
         if (pr !== null) pr = { ...pr, state: "closed", checks: null };
         break;
-      // The forge saying the PR is open after all, or a person pressing
-      // Reopen: the reading goes back to open, so the next frame of the same
-      // reading is not news again.
+      // A person pressing Reopen, or `work_open` on the same key: the reading
+      // goes back to open, so the next frame of the same reading is not news
+      // again.
       case "reopened":
         if (pr !== null) pr = { ...pr, state: "open" };
         break;

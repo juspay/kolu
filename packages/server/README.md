@@ -143,7 +143,8 @@ THREE places, each where its volatility says it belongs.
 
 - The session id, the directory, the model a person chose and the fleet it
   touched are the `conductor` key of kolu-server's state store
-  (`src/state.ts`), under its own migration rung.
+  (`src/state.ts`, its shape in `src/stateShape.ts`), under its own migration
+  rung (`src/stateLadder.ts`).
 - Every piece of work — what the Conductor stated, what the human decided,
   what kolu observed, and each member's per-terminal wake bookkeeping — is the
   `works` key of the same store, on the same ladder. A work outlives the
@@ -153,9 +154,9 @@ THREE places, each where its volatility says it belongs.
   ladder's version stamped in it (`src/conductor/transcriptFile.ts`). They were
   most of `config.json`'s bytes and `conf` rewrites the whole file on every
   `set`. The file rides THE SAME ladder: a change to the row shape is a rung in
-  `state.ts` that rewrites it, and a file stamped with anything else is refused
-  by name. It is not in the state-backup ring, which snapshots `config.json`
-  alone.
+  `stateLadder.ts` that rewrites it, and a file stamped with anything else is
+  refused by name. It is not in the state-backup ring, which snapshots
+  `config.json` alone.
 
 Attachments are files under `<state dir>/conductor/attachments/<id>`, and the
 bytes never ride a prompt frame. The files a work keeps when it ends are copied

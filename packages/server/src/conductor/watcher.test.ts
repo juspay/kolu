@@ -253,15 +253,20 @@ function fakeConductor(
   refuse?: () => never,
   /** The works in progress whose branches are watched — the PR watch's scope,
    *  which is NOT derived from the members: a work with none is watched. */
-  watches: ReadonlyArray<PrWatch> = [],
+  initial: ReadonlyArray<PrWatch> = [],
 ): {
   host: () => ConductorHost;
   readonly seen: WatchObservation[];
   /** Every work-level pull-request reading the watch handed over. */
   readonly readings: Array<{ work: WorkId; pr: PrResult }>;
+  /** Move the scope, the way a work opening or coming back does. The watch is
+   *  told separately (`scopeMoved`), because it RE-READS the scope rather
+   *  than being handed the new list. */
+  setWatches(next: ReadonlyArray<PrWatch>): void;
 } {
   const seen: WatchObservation[] = [];
   const readings: Array<{ work: WorkId; pr: PrResult }> = [];
+  let watches = initial;
   const host = {
     memberRefs: () => (refuse === undefined ? members : refuse()),
     prWatches: () => (refuse === undefined ? watches : refuse()),
@@ -272,7 +277,14 @@ function fakeConductor(
       readings.push({ work, pr });
     },
   } as unknown as ConductorHost;
-  return { host: () => host, seen, readings };
+  return {
+    host: () => host,
+    seen,
+    readings,
+    setWatches: (next) => {
+      watches = next;
+    },
+  };
 }
 
 describe("the conductor's watch, as wiring", () => {
@@ -623,6 +635,52 @@ describe("the conductor's watch, as wiring", () => {
           { repoPath: "/srv/repo", branch: "away" },
         ]);
       });
+    } finally {
+      await watcher.dispose();
+    }
+  });
+
+  it("opens a work's PR leg when the SCOPE moves, with no member anywhere", async () => {
+    // THE REOPEN HOLE (#2376). A work that ends drops its members in the same
+    // step, so bringing one back — the card's Reopen, or `work_open` on the
+    // same key — moves no membership at all. If the only signal the watch
+    // listened to were a membership one, this leg would never open and the
+    // forge's merge or close would have nobody watching for it.
+    const local = fakePadi({});
+    const fleet = fakeHosts({ [LOCAL]: local.client });
+    const conductor = fakeConductor([]);
+    const watcher = startConductorWatcher({
+      hosts: fleet.hosts,
+      conductor: conductor.host,
+      log,
+    });
+    const back: PrWatch = {
+      work: "branch:local/%2Fsrv%2Frepo/fix-the-parser" as WorkId,
+      host: LOCAL,
+      repo: "/srv/repo",
+      branch: "fix-the-parser",
+    };
+    try {
+      // Nothing in flight, nobody on the host: no leg, which is what makes
+      // the one below attributable to the scope move alone.
+      expect(local.prAsked()).toEqual([]);
+
+      conductor.setWatches([back]);
+      watcher.scopeMoved();
+
+      await vi.waitFor(() => {
+        expect(local.prAsked()).toEqual([
+          { repoPath: "/srv/repo", branch: "fix-the-parser" },
+        ]);
+      });
+      local.pr.set({ kind: "pending" });
+      await vi.waitFor(() => {
+        expect(conductor.readings.at(-1)).toEqual({
+          work: back.work,
+          pr: { kind: "pending" },
+        });
+      });
+      expect(conductor.seen).toEqual([]);
     } finally {
       await watcher.dispose();
     }

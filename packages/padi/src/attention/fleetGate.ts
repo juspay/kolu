@@ -61,13 +61,17 @@ export interface FleetGate {
   /** Should this frame reach the attention consumers? `false` only while the
    *  roster is settling — an empty registry before anything was adopted, or the
    *  drain window of a recycle. A non-empty frame ESTABLISHES the roster (and
-   *  publishes that). */
+   *  publishes that) — except inside a drain window, which only
+   *  {@link establish} may close. */
   admit(terminals: ReadonlyMap<TerminalId, PadiTerminal>): boolean;
   /** padi has finished adopting: the roster is evidence even if it is EMPTY.
-   *  Idempotent — a second call re-publishes nothing. */
+   *  Idempotent — a second call re-publishes nothing. The one thing that
+   *  re-opens a gate {@link settling} closed. */
   establish(): void;
   /** The roster is being rebuilt (a kaval recycle's capture → drain → re-park):
-   *  nothing it lists, or fails to list, is evidence until {@link establish}. */
+   *  nothing it lists, or fails to list, is evidence until {@link establish}.
+   *  LATCHES — a frame arriving mid-drain is a partial census, never the news
+   *  that the rebuild finished. */
   settling(): void;
   /** THE CENSUS MOVED — a terminal was registered or dropped. Re-publishes the
    *  standing with the new ids when the roster is established; a no-op while it
@@ -98,6 +102,17 @@ export function createFleetGate(
 ): FleetGate {
   const now = opts.now ?? Date.now;
   let roster: PadiRoster = { kind: "settling" };
+  /** SAID, not merely not-yet-seen: {@link FleetGate.settling} closed the gate
+   *  for a recycle's drain, and no frame may re-open it — only
+   *  {@link FleetGate.establish} may. The drain clears the registry and then
+   *  drops the snapshots one at a time, each its own unbatched write, so the
+   *  urgency fold re-runs mid-drain on a frame of the terminals not yet
+   *  dropped: non-empty, and therefore evidence of a roster under the old
+   *  rule, while the census port already answers `[]`. That published an
+   *  ESTABLISHED EMPTY roster for the whole recycle — exactly the absence the
+   *  Conductor's watch reads as `gone` (#2376). A partial census is not a
+   *  census. */
+  let closed = false;
   const move = (next: PadiRoster): void => {
     if (next.kind === roster.kind) {
       // Same ARM, so only a census can have moved — and an unchanged census is
@@ -133,14 +148,16 @@ export function createFleetGate(
         move({ kind: "established", at: roster.at, ids: ids(terminals) });
         return true;
       }
-      if (terminals.size === 0) return false;
+      if (closed || terminals.size === 0) return false;
       move({ kind: "established", at: now(), ids: ids(terminals) });
       return true;
     },
     establish() {
+      closed = false;
       move({ kind: "established", at: now(), ids: ids() });
     },
     settling() {
+      closed = true;
       move({ kind: "settling" });
     },
     censusMoved() {

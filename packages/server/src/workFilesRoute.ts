@@ -5,11 +5,11 @@
  * When a work ends, kolu copies its `.waterfall/` files under
  * `<stateRoot>/works/<workDirOf(workId)>/` (`conductor/workFiles.ts`), so a
  * plan outlives the worktree a merge deletes. The URL carries the WORK ID —
- * the browser has no business knowing the disk layout — and `workDirOf` is
- * the one helper that turns it into a directory name, the same one the
- * writer and the sweep use.
- * The card renders them through the Code tab's
- * own viewer stack, which renders a URL — this is that URL.
+ * the browser has no business knowing the disk layout — and `workDirOf`
+ * (`kolu-conductor`, beside the files port that owns the layout) is the one
+ * helper that turns it into a directory name, the same one the writer and the
+ * sweep use. The card renders them through the Code tab's own viewer stack,
+ * which renders a URL — this is that URL.
  *
  * It is `@kolu/serve-dir` over one rooted directory, which is the whole route:
  * the `..`/`%2f` segment guard, the mime, the range support a `<video>` needs
@@ -34,7 +34,7 @@ import {
   HttpServerRequest,
   type HttpServerResponse,
 } from "effect/http";
-import { workDirOf } from "kolu-work";
+import { workDirOf } from "kolu-conductor";
 import { workFilesDir } from "./conductor/workFiles.ts";
 import { serveResultResponse } from "./iframePreviewRoute.ts";
 

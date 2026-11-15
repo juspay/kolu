@@ -67,9 +67,9 @@ const WATERFALL_DIR = ".waterfall";
  *
  *  THE NAME, NEVER THE WORK ID: a work id is `branch:<host>/<repo>/<branch>`
  *  and carries separators, so what every caller passes is `workDirOf(id)`
- *  (kolu-work's hash) — the writer, the sweep (which reads these names back
- *  off the directory) and the route that serves them all spell the layout
- *  that one way.
+ *  (`kolu-conductor`'s hash, beside the port this implements) — the writer,
+ *  the sweep (which reads these names back off the directory) and the route
+ *  that serves them all spell the layout that one way.
  *
  *  The guard is about what COULD arrive rather than what does: the callers
  *  write, DELETE and SERVE under what this returns, and `workFilesRoute.ts`

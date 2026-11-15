@@ -67,7 +67,8 @@ import {
   liveServerConductor,
   setConductorFleetHosts,
   setFleetMcpEndpoint,
-  setMembersListener,
+  setWatchScopeListener,
+  setWorksListener,
 } from "./conductor/live.ts";
 import {
   type ConductorWatcher,
@@ -677,8 +678,8 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
   // `rows` is the READ — the `works` resource the Conductor reads its own work
   // from — and `subscribe` is how that resource hears the record move without
   // the Conductor calling anything. The subscribers are fired from the
-  // conversation's own "membership moved" event below, which is also what
-  // re-scopes the watcher.
+  // conversation's own "the works moved" event below — its own sink, beside
+  // the one that re-scopes the watcher.
   //
   // Every ROW here is a READING of the stored record (`kolu-work`'s
   // `hostOf`/`modeOf`/`onGreenOf`/`standing`), never a second copy of it: the
@@ -1179,20 +1180,21 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
     conductor: liveServerConductor,
     log,
   });
-  // MEMBERSHIP MOVED, as the conversation itself says it. A member joining or
-  // leaving — a terminal created for a work, one the Conductor adopted or
-  // released, one that went away — is what the WATCHER acts on: it re-scopes
-  // its per-host subscriptions, which is work worth doing only when the set of
-  // refs is different.
+  // WHAT MOVED, as the conversation itself says it — two facts, two sinks.
+  //
+  // The WATCH'S SCOPE is the member refs and the branches with work in
+  // flight: a terminal created for a work, one the Conductor adopted or
+  // released, one that went away, a work opened, reopened or ended. The
+  // watcher re-chooses its legs off it, and compares the scope itself, so
+  // saying it when nothing moved costs one comparison.
   //
   // The `works` RESOURCE moves for one more reason than the scope does: a
   // reading that renames a terminal, finds an agent in it or appends an event
-  // leaves membership alone and still changes every row an agent reads. So it
-  // hears every event, and the watcher hears the membership ones.
-  setMembersListener((membership) => {
-    if (membership) conductorWatcher?.membersMoved();
+  // leaves the scope alone and still changes every row an agent reads.
+  setWorksListener(() => {
     for (const tell of worksReaders) tell();
   });
+  setWatchScopeListener(() => conductorWatcher?.scopeMoved());
 
   // The ROOT procedures — kolu-server's own seven, bound as the third served
   // fragment. There is no router SPLICE any more: the wire namespace is flat, so the

@@ -12,10 +12,11 @@
  *
  * What the face DOES own is the vocabulary:
  *
- *  - `work_open` names a piece of work (title, repo, branch) AND carries its
- *    setup questions, which kolu puts to the human as ONE form; the answers
- *    become decisions on the work, and the host, the mode, the harness and
- *    model per role and what to do on green are READINGS of them.
+ *  - `work_open` names a piece of work (title, and the host, repo and branch
+ *    that ARE it) AND carries its setup questions, which kolu puts to the
+ *    human as ONE form; the answers become decisions on the work, and the
+ *    mode, the harness and model per role and what to do on green are
+ *    READINGS of them.
  *  - `work_adopt` brings a terminal that already exists into a work, in a
  *    role — the roster check and the found-state answer `watch_terminal` had,
  *    plus the two facts that make a member a member.
@@ -360,7 +361,7 @@ const WorkOpenArgsSchema = Schema.Struct({
       Schema.Struct({
         key: SetupKeySchema.annotate({
           description:
-            "Which setup question this is. `host` and `mode` are always required; a mode that could be `full` or `trivial` also requires `implementor.harness`, `implementor.model` and `on-green`, and `full` requires `planner.harness` and `planner.model`.",
+            "Which setup question this is. `mode` is always required; a mode that could be `full` or `trivial` also requires `implementor.harness`, `implementor.model` and `on-green`, and `full` requires `planner.harness` and `planner.model`. The host is not a question: it is part of what the work is, given as `host`.",
         }),
         question: Schema.String.check(Schema.isMinLength(1)).annotate({
           description: "The question, in the words the human will read.",
@@ -588,7 +589,7 @@ export function workOpenTool(works: FleetWorks): BespokeTool {
     mutates: true,
     title: "Open a piece of work",
     description:
-      "Open a piece of work and ask the human its setup — in ONE form, the whole of it: which host, which mode, which harness and model per role, and what to do when CI is green. kolu puts the questions to the human, records every one as a DECISION on this work, and ANSWERS YOU AT ONCE: nothing in kolu's tools ever waits for a person. The answer carries the work's id, the setup as kolu reads it back RIGHT NOW (`host`, `mode`, `roles` — harness and model each — `onGreen`; each one `null` while its question is still open), and `asked: true` when a form went to them. Use `given` for anything the human's request already said — it is recorded as their answer without asking, and reads back immediately. Refused, with nothing created, when the setup does not carry a question the mode needs. When `asked` is true, say what you asked and END YOUR TURN: kolu wakes you with every answer, and a setup they decline ends the work as abandoned and tells you the same way. Everything after this names the work it answers with: `lifecycle_create`, `work_adopt`, `work_ask`, `work_note`.",
+      "Open a piece of work — a branch on a machine (`host`, `repo`, `branch`), or `watch` for one terminal — and ask the human its setup in ONE form, the whole of it: which mode, which harness and model per role, and what to do when CI is green. Opening a host, repo and branch that already has a work returns THAT work (reopening it if it had ended) and asks only what is still unanswered. kolu puts the questions to the human, records every one as a DECISION on this work, and ANSWERS YOU AT ONCE: nothing in kolu's tools ever waits for a person. The answer carries the work's id, the setup as kolu reads it back RIGHT NOW (`host`, `mode`, `roles` — harness and model each — `onGreen`; each one but `host` is `null` while its question is still open), and `asked: true` when a form went to them. Use `given` for anything the human's request already said — it is recorded as their answer without asking, and reads back immediately. Refused, with nothing created, when the setup does not carry a question the mode needs. When `asked` is true, say what you asked and END YOUR TURN: kolu wakes you with every answer. A setup they decline for a work nothing has happened in removes the work, and you are told the same way. Everything after this names the work it answers with: `lifecycle_create`, `work_adopt`, `work_ask`, `work_note`, `work_stop`.",
     handler: (args, _bundle, _signal) => {
       const intent = args as WorkOpenArgs;
       return Effect.try({

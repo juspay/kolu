@@ -15,6 +15,7 @@
  */
 
 import type { ConductorReadingLevel } from "kolu-common/conductor";
+import type { WorkId } from "kolu-work";
 
 /** What a terminal is doing, as the watcher reads it off its host.
  *
@@ -66,6 +67,22 @@ export interface WatchPr {
    *  then the work hears about that PR's checks once per kind, ever, which is
    *  the honest reading of a source that cannot say which commit it meant. */
   readonly head: string | null;
+}
+
+/** A BRANCH WHOSE PULL REQUEST KOLU WATCHES — one per piece of work in
+ *  progress that is keyed by a branch. The watch asks the host for the PR of
+ *  that branch in that repository; no terminal is involved, so a work with no
+ *  members is watched exactly like one with two.
+ *
+ *  The WORD lives here with the other three watch words; the LIST is derived
+ *  off the works' own keys by `./workStore.ts`'s `prWatches`, whose doc is
+ *  the one statement of which branches are in it. */
+export interface PrWatch {
+  readonly work: WorkId;
+  /** The fleet host ref the repository is on. */
+  readonly host: string;
+  readonly repo: string;
+  readonly branch: string;
 }
 
 /** One reading of one member terminal, for refs on CONNECTED hosts only — a

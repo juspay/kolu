@@ -112,9 +112,9 @@ export type WatchJoin = (typeof FLEET_WATCH_JOINS)[number];
  *  (`kolu-work`'s `WorkMemberSchema`) because the files outlive the terminal.
  *
  *  NO DECODING DEFAULTS, here or on any key: the schema says what the file
- *  holds, and making an older file hold it is the ladder's job (`kolu-server`'s
- *  `state.ts`). A file the ladder did not bring here is refused by name, never
- *  read as a guess. */
+ *  holds, and making an older file hold it is the ladder's job
+ *  (`kolu-server`'s `stateLadder.ts`). A file the ladder did not bring here
+ *  is refused by name, never read as a guess. */
 export const MemberWatchSchema = Schema.Struct({
   /** What kolu last saw the terminal called — so a wake can name it even when
    *  the host it is on has stopped answering. */
@@ -184,18 +184,25 @@ export interface MemberState extends MemberWatch {
   readonly baselining: boolean;
 }
 
-/** A MEMBER'S SAVED HALF — everything except the two runtime fields.
+/** A MEMBER'S SAVED HALF — the watch's own six fields, and nothing else.
  *
- *  By subtraction rather than by listing what is kept: this is the one place
- *  the written half is derived, and a field added to the member arrives in the
- *  file without an edit here. Read at the persist boundary
- *  (`./memberStore.ts`) and wherever a rule builds the next watch out of this
- *  one. */
-export const saved = ({
-  last: _last,
-  baselining: _baselining,
-  ...watch
-}: MemberState): MemberWatch => watch;
+ *  LISTED rather than subtracted. The row a member is held in now carries the
+ *  MODEL'S half too (`kolu-work`'s `work`, `role`, `joinedAt`, `worktree`), and
+ *  a rest-spread cannot tell a watch field from a membership one — so taking
+ *  "everything but the two runtime fields" wrote the model's four a second
+ *  time inside `watch`, in every member row, on every host read. The schema is
+ *  what catches a field this misses: `MemberWatchSchema` is what the file is
+ *  decoded by, and `sameWatch` compares exactly its members. Read at the
+ *  persist boundary (`./memberStore.ts`) and wherever a rule builds the next
+ *  watch out of this one. */
+export const saved = (member: MemberState): MemberWatch => ({
+  name: member.name,
+  agent: member.agent,
+  told: member.told,
+  joined: member.joined,
+  spoken: member.spoken,
+  ran: member.ran,
+});
 
 /** A member's written half, as it stands the moment it joins: nothing is known
  *  about its terminal until the watcher reads its host. */
@@ -232,9 +239,13 @@ export const restoredMember = (watch: MemberWatch): MemberState => ({
 
 /** What one reading did to one member. `ring` is the wake level this is worth
  *  waking the Conductor about, or `null`; `drop` is a terminal that is not
- *  there any more and has nothing left to watch. */
-export interface Watched {
-  readonly member: MemberState;
+ *  there any more and has nothing left to watch.
+ *
+ *  Generic over the WHOLE ROW: the caller holds a member with the model's
+ *  half on it as well, and what comes back is that same row with the watch's
+ *  half moved — not a watch its caller has to splice the rest back onto. */
+export interface Watched<M extends MemberState> {
+  readonly member: M;
   readonly ring: ConductorWakeLevel | null;
   readonly drop: boolean;
 }
@@ -304,15 +315,18 @@ const standsAs = (
  * The member carries forward what the reading does not say: a name is kept when
  * a reading has none, an agent is kept for good once one has been seen, and
  * `ran` is kept once a command has been seen in front of the shell. Where the
- * terminal is WORKING is not here: the worktree is a fact of the member on the
- * record (`kolu-work`'s `sawWorktree`), written by the observation loop off the
- * same reading, because a work's files have to outlive the terminal that wrote
- * them.
+ * terminal is WORKING is not here: the worktree is a fact of the MODEL'S half
+ * of the row, written by the observation loop off the same reading, because a
+ * work's files have to outlive the terminal that wrote them.
+ *
+ * The row goes through WHOLE — whatever else the caller holds on a member
+ * comes back on it, so a field the model grows is not quietly dropped on the
+ * next host read.
  */
-export const observed = (
-  member: MemberState,
+export const observed = <M extends MemberState>(
+  member: M,
   seen: WatchObservation,
-): Watched => {
+): Watched<M> => {
   const named = seen.name === "" ? member.name : seen.name;
   // STICKY: `null` from a reading means "no agent in it right now", which for
   // a terminal that had one is the agent having exited — the thing its death
@@ -348,6 +362,7 @@ export const observed = (
     const based: MemberWatch = { ...moved, spoken: agent !== null };
     return {
       member: {
+        ...member,
         ...based,
         told: standsAs(based, last),
         last,
@@ -360,7 +375,7 @@ export const observed = (
   if (seen.level === "working") {
     // It will stop again, and that stop is news.
     return {
-      member: { ...moved, told: null, last, baselining: false },
+      member: { ...member, ...moved, told: null, last, baselining: false },
       ring: null,
       drop: false,
     };
@@ -369,7 +384,7 @@ export const observed = (
   // `told` is left exactly as it was — it is set when a wake is DELIVERED —
   // and a level equal to it is the same news twice.
   return {
-    member: { ...moved, last, baselining: false },
+    member: { ...member, ...moved, last, baselining: false },
     ring: stands === null || stands === member.told ? null : stands,
     drop,
   };
@@ -394,9 +409,10 @@ export const observed = (
  * only what the MEMBER becomes. A later `working` resets `told` as it always
  * did, so the next real stop is news again.
  */
-export const spokenTo = (member: MemberState): MemberState => {
+export const spokenTo = <M extends MemberState>(member: M): M => {
   const spoken: MemberWatch = { ...saved(member), spoken: true };
   return {
+    ...member,
     ...spoken,
     told: standsAs(spoken, member.last) ?? spoken.told,
     last: member.last,

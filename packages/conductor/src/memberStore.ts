@@ -10,10 +10,11 @@
  * that is a card claiming an agent another card is also claiming. Here, a
  * terminal is in AT MOST ONE WORK by construction: it has one row.
  *
- * The SAVED half is taken by subtraction at the write (`./members.ts`'s
- * `saved`), so a field added to the member arrives in the file with no edit
- * here, and the two runtime fields — the last reading and whether the next one
- * baselines — cannot be written by accident.
+ * The SAVED half is the watch's own six fields, listed at the write
+ * (`./members.ts`'s `saved`): the row holds the model's four as well, so a
+ * rest-spread would write them a second time inside `watch`. The two runtime
+ * fields — the last reading and whether the next one baselines — are not in
+ * that list, so they cannot be written by accident.
  */
 
 import type { MemberReading } from "kolu-common/works";

@@ -26,6 +26,9 @@
  * - `missing-setup` — `work_open` did not carry a setup question the mode it
  *   is about to run needs. Refused BEFORE the work exists, so a half-set-up
  *   work is never created.
+ * - `role-taken` — the work already has a terminal in the `planner` or
+ *   `implementor` part, and a work has one of each. Refused rather than
+ *   written: a store with two is one `./store.ts` would not read back.
  * - `not-driven` — a hand-over was asked for a terminal the Conductor does not
  *   drive: it is not an active member of a work in progress, or that work is a
  *   `watch` (the person's own terminal) or has no mode decided yet.
