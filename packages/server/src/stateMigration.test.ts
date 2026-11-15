@@ -36,7 +36,7 @@ import {
   workDirOf,
 } from "kolu-conductor";
 import { workIdOf } from "kolu-work";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   transcriptFilePath,
   transcriptFileStore,
@@ -50,6 +50,7 @@ import { decodeStateBackup } from "./state.ts";
 import {
   collapseFlappingChecks_1_51_0,
   CONF_MIGRATIONS,
+  dropKoluChoiceOptions_1_54_0,
   foldWorksByKey_1_53_0,
   memberWatchOutOfWorks_1_52_0,
   migrateConductorToWorks_1_50_0,
@@ -1222,6 +1223,123 @@ describe("the 1.54.0 rung — a role's harness and model are kolu's options", ()
           multiple: false,
           file: "",
         },
+        // (c) a LEGACY TYPED answer: the value lived in `text`.
+        {
+          kind: "answered",
+          id: "d-typed",
+          ask: "ask-1",
+          at: AT_54,
+          key: "planner.harness",
+          header: "",
+          question: "Which harness plans?",
+          options: ["claude", "omp"],
+          multiple: true,
+          file: "",
+          answer: {
+            at: AT_54,
+            how: "answered",
+            picked: [],
+            text: "omp",
+            from: "card",
+          },
+        },
+        // (d) a legacy MULTIPLE answer, with a typed value beside it: the
+        // reading took `picked[0]`, so that is the one value kept.
+        {
+          kind: "answered",
+          id: "d-many",
+          ask: "ask-1",
+          at: AT_54,
+          key: "implementor.model",
+          header: "",
+          question: "Which model implements?",
+          options: ["opus", "sonnet"],
+          multiple: true,
+          file: "",
+          answer: {
+            at: AT_54,
+            how: "answered",
+            picked: ["omp", "claude"],
+            text: "codex",
+            from: "card",
+          },
+        },
+        // (e) a typed value kolu will refuse at start — kept VERBATIM here.
+        {
+          kind: "answered",
+          id: "d-fable",
+          ask: "ask-2",
+          at: AT_54,
+          key: "planner.model",
+          header: "",
+          question: "Which model plans?",
+          file: "",
+          answer: {
+            at: AT_54,
+            how: "answered",
+            picked: [],
+            text: "fable 5.2",
+            from: "card",
+          },
+        },
+        // (f) a DECLINED kolu-choice answer: no value at all.
+        {
+          kind: "answered",
+          id: "d-declined",
+          ask: "ask-2",
+          at: AT_54,
+          key: "implementor.harness",
+          header: "",
+          question: "Which harness implements?",
+          file: "",
+          answer: {
+            at: AT_54,
+            how: "declined",
+            picked: [],
+            text: "never mind",
+            from: "card",
+          },
+        },
+        // (g) an ANSWERED `mode` question, typed: not kolu's to narrow.
+        {
+          kind: "answered",
+          id: "d-mode-answered",
+          ask: "ask-2",
+          at: AT_54,
+          key: "on-green",
+          header: "",
+          question: "What on green?",
+          options: ["merge", "stop"],
+          multiple: true,
+          file: "",
+          answer: {
+            at: AT_54,
+            how: "answered",
+            picked: ["merge", "stop"],
+            text: "and tell me",
+            from: "card",
+          },
+        },
+        // (h) a KEYLESS answered question: nothing here names it.
+        {
+          kind: "answered",
+          id: "d-keyless",
+          ask: "ask-2",
+          at: AT_54,
+          key: null,
+          header: "",
+          question: "Anything else?",
+          options: ["yes", "no"],
+          multiple: true,
+          file: "",
+          answer: {
+            at: AT_54,
+            how: "answered",
+            picked: [],
+            text: "carry on",
+            from: "card",
+          },
+        },
       ],
       events: [],
       state: { kind: "open" },
@@ -1262,6 +1380,78 @@ describe("the 1.54.0 rung — a role's harness and model are kolu's options", ()
     // A question whose options are the asker's keeps them.
     expect(after["d-mode"]?.options).toEqual(["full", "trivial"]);
     expect(after["d-mode"]?.multiple).toBe(false);
+  });
+
+  it("narrows every kolu-choice answer to the one value the reading took", () => {
+    const after = decisionsOf(walk(structuredClone(WORKS)));
+
+    // A legacy TYPED answer: the value moves out of `text` into `picked`.
+    expect(after["d-typed"]?.answer).toEqual({
+      at: AT_54,
+      how: "answered",
+      picked: ["omp"],
+      text: null,
+      from: "card",
+    });
+    // A legacy MULTIPLE answer keeps the first pick — what was read before —
+    // and the typed text beside it goes.
+    expect(after["d-many"]?.answer).toEqual({
+      at: AT_54,
+      how: "answered",
+      picked: ["omp"],
+      text: null,
+      from: "card",
+    });
+    // A typed value kolu cannot offer is kept VERBATIM: refusing it is the
+    // start's job, not the rung's.
+    expect(after["d-fable"]?.answer).toEqual({
+      at: AT_54,
+      how: "answered",
+      picked: ["fable 5.2"],
+      text: null,
+      from: "card",
+    });
+    // Declined: no value, and the text that came with it goes too.
+    expect(after["d-declined"]?.answer).toEqual({
+      at: AT_54,
+      how: "declined",
+      picked: [],
+      text: null,
+      from: "card",
+    });
+  });
+
+  it("leaves an answer kolu does not draw the options for alone", () => {
+    const after = decisionsOf(walk(structuredClone(WORKS)));
+
+    expect(after["d-mode-answered"]).toEqual(
+      (WORKS[ID].decisions as Array<Record<string, unknown>>).find(
+        (one) => one.id === "d-mode-answered",
+      ),
+    );
+    expect(after["d-keyless"]?.answer).toEqual({
+      at: AT_54,
+      how: "answered",
+      picked: [],
+      text: "carry on",
+      from: "card",
+    });
+  });
+
+  it("writes nothing when every decision is already in the new shape", () => {
+    const once = walk(structuredClone(WORKS));
+    const dir = mkdtempSync(join(tmpdir(), "kolu-kolu-choice-again-"));
+    dirs.push(dir);
+    const store = new Conf<Record<string, unknown>>({
+      cwd: dir,
+      projectVersion: SCHEMA_VERSION,
+      defaults: CONF_DEFAULTS as unknown as Record<string, unknown>,
+    });
+    store.set("works", once);
+    const set = vi.spyOn(store, "set");
+    dropKoluChoiceOptions_1_54_0(store as never);
+    expect(set).not.toHaveBeenCalled();
+    expect(store.get("works")).toEqual(once);
   });
 
   it("decodes through the live works schema, and runs again as a no-op", () => {

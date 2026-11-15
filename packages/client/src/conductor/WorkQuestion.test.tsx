@@ -313,6 +313,42 @@ describe("a harness that cannot list its models", () => {
     press(el, "conductor-ask-submit");
     expect(sent()).toEqual({ "ask-model": ["opus-4.9"] });
   });
+
+  it("says why typed words are not a model, and never offers saved ones back", async () => {
+    // The human's own store: a planner model saved as WORDS, before kolu drew
+    // these options. A launch would refuse it, so it is neither offered nor
+    // put back under their hands.
+    setWorks(earlier("fable 5.2"));
+    host.reply = (harness: string) =>
+      Effect.succeed({
+        harness,
+        launch: { kind: "flag", flag: "--model" },
+        models: { kind: "unlisted" },
+      });
+    const el = mount(
+      workOf("now", [
+        koluAnswered("now-harness", "planner.harness", "claude"),
+        koluAsked("ask-model", "planner.model"),
+      ]),
+    );
+    await settle();
+    expect(options(el, "ask-model")).toEqual([]);
+    const box = el.querySelector(
+      '[data-testid="conductor-ask-other"][data-field="ask-model"]',
+    ) as HTMLInputElement;
+    expect(box.value).toBe("");
+
+    const why = () =>
+      el.querySelector(
+        '[data-testid="conductor-ask-invalid"][data-field="ask-model"]',
+      )?.textContent ?? null;
+    typeInto(box, "fable 5.2");
+    expect(why()).toBe(
+      '"fable 5.2" is not a model id — a model id is one word, with no spaces.',
+    );
+    typeInto(box, "claude-fable-5-2");
+    expect(why()).toBeNull();
+  });
 });
 
 describe("the answers from last time", () => {

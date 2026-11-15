@@ -53,6 +53,7 @@ export {
   type FleetMcpEndpoint,
   type KoluOffer,
   startConductorHost,
+  type WaterfallStart,
 } from "./conductor.ts";
 export { type Held, type HeldSlot, holding } from "./held.ts";
 export { type MemberStore, memberStore } from "./memberStore.ts";

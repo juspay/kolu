@@ -294,17 +294,16 @@ describe("the options kolu draws", () => {
       models: { omp: OMP_MODELS, claude: CLAUDE_MODELS },
     });
     const { offer } = offerOver(padi);
+    // The host's WHOLE answer — the list and how the harness takes a model,
+    // which a start reads its launch off.
     expect(
       await offer.models({ host: "build-box", repo: REPO, harness: "omp" }),
-    ).toEqual({
-      kind: "listed",
-      ids: ["anthropic/claude-fable-5-2", "litellm/open-large"],
-    });
+    ).toEqual(OMP_MODELS);
     // A harness with no way to list its models says so — and that is an
-    // ANSWER: whatever the person names is then the model.
+    // ANSWER: whatever model id the person names is then the model.
     expect(
       await offer.models({ host: "build-box", repo: REPO, harness: "claude" }),
-    ).toEqual({ kind: "unlisted" });
+    ).toEqual(CLAUDE_MODELS);
     // Both asked of the host, about the work's own repository.
     expect(padi.modelCalls()).toEqual([`omp@${REPO}`, `claude@${REPO}`]);
   });

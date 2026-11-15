@@ -36,7 +36,6 @@
 
 import { type PadiSurfaceClient, padiClientOver } from "@kolu/padi-client/dial";
 import {
-  AgentModelsUnavailable,
   type PadiTerminal,
   type PadiUrgency,
   type PadiWatchEvent,
@@ -45,7 +44,7 @@ import {
   TerminalNotActive,
   WatchSubscriptionNotFound,
 } from "@kolu/padi-client/surface";
-import type { AgentModels } from "@kolu/agent-distro/models";
+import type { AgentModelLaunch } from "@kolu/agent-distro/models";
 import { surfaceTag } from "@kolu/surface/define";
 import { directDispatch } from "@kolu/surface/links/direct";
 import type { SurfaceHandlers } from "@kolu/surface/server";
@@ -171,9 +170,6 @@ interface FakePadi {
    *  that RESTARTED under a mirror that never dropped, so nothing upstream
    *  observed a disconnect and the next drain finds no such queue. */
   forgetWatches(): void;
-  /** What `agentDistro.models` answers for a harness on this host — a
-   *  `string` is the words its list command failed with. */
-  answerModels(harness: string, answer: AgentModels | string): void;
   readonly openedWatches: string[];
   readonly closedWatches: string[];
 }
@@ -202,41 +198,6 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
   const queue: PadiWatchEvent[] = [];
   const openedWatches: string[] = [];
   const closedWatches: string[] = [];
-  /** The host's word on each harness's models: omp lists and takes a flag,
-   *  opencode takes its model in a config layer, claude cannot list. */
-  const models = new Map<string, AgentModels | string>([
-    [
-      "omp",
-      {
-        harness: "omp",
-        launch: { kind: "flag", flag: "--model" },
-        models: {
-          kind: "listed",
-          ids: ["anthropic/claude-fable-5-2", "litellm/claude-fable-5-2"],
-        },
-      },
-    ],
-    [
-      "opencode",
-      {
-        harness: "opencode",
-        launch: {
-          kind: "config",
-          variable: "OPENCODE_CONFIG_CONTENT",
-          key: "model",
-        },
-        models: { kind: "listed", ids: ["litellm/open-large"] },
-      },
-    ],
-    [
-      "claude",
-      {
-        harness: "claude",
-        launch: { kind: "flag", flag: "--model" },
-        models: { kind: "unlisted" },
-      },
-    ],
-  ]);
   /** Open subscription names → the watermark each has acknowledged. */
   const open = new Map<string, number>();
   let seq = 0;
@@ -382,19 +343,6 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
     // spending its whole cap.
     [at("terminalAttach", "get")]: () =>
       Stream.make({ kind: "snapshot", data: `screen of ${host}` }),
-    [at("agentDistro", "models")]: (input: { harness: string; cwd: string }) =>
-      Effect.suspend(() => {
-        calls.push(`agentDistro.models:${input.harness}@${input.cwd}`);
-        const answer = models.get(input.harness);
-        if (answer === undefined || typeof answer === "string")
-          return Effect.fail(
-            new AgentModelsUnavailable({
-              harness: input.harness,
-              why: answer ?? `${input.harness} is not a harness here`,
-            }),
-          );
-        return Effect.succeed(answer);
-      }),
     [at("watchPulse", "get")]: () => pulse.stream(),
   } as unknown as SurfaceHandlers;
 
@@ -466,9 +414,6 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
       queue.length = 0;
       seq = 0;
     },
-    answerModels(harness, answer) {
-      models.set(harness, answer);
-    },
   };
 }
 
@@ -534,6 +479,17 @@ const jsonOf = (result: {
   readonly contents: readonly Record<string, unknown>[];
 }): unknown => JSON.parse(String(result.contents[0]?.text));
 
+/** A waterfall role's start, as kolu-server answers it for a setup it still
+ *  offers: the saved harness and model, and the host's launch. */
+interface SetUpStart {
+  readonly harness: string;
+  readonly model: string;
+  readonly launch: AgentModelLaunch;
+}
+
+/** omp's launch, as its adapter answers it: a flag before its arguments. */
+const MODEL_FLAG: AgentModelLaunch = { kind: "flag", flag: "--model" };
+
 /** kolu's pieces of work, as a test holds them: one work opened per
  *  `work_open`, add-ordered members, in memory, recording HOW each joined,
  *  every terminal the conductor has spoken to, and what the server's watcher
@@ -561,12 +517,13 @@ function fakeWorks(): FleetWorks & {
   /** Every `work_open` that reached the port, and every note. */
   readonly opened: { title: string; setup: readonly string[] }[];
   readonly notes: { work: string; text: string }[];
-  /** What a waterfall role of a seeded work was set up to run — what
-   *  `startOf` reads, as the server reads the work's decisions. */
+  /** What a waterfall role of a seeded work starts on — what `startOf`
+   *  answers once kolu-server has judged the saved setup against its offer
+   *  and read the host's launch — or the refusal it answers instead. */
   setUp(
     work: string,
     role: "planner" | "implementor",
-    start: { harness: string; model: string },
+    start: SetUpStart | WorkRefusal,
   ): void;
 } {
   const works = new Map<string, FleetWorkRow>();
@@ -576,7 +533,7 @@ function fakeWorks(): FleetWorks & {
   const closeds: string[] = [];
   const opened: { title: string; setup: readonly string[] }[] = [];
   const notes: { work: string; text: string }[] = [];
-  const starts = new Map<string, { harness: string; model: string }>();
+  const starts = new Map<string, SetUpStart | WorkRefusal>();
   const moved = (): void => {
     for (const one of listeners) one();
   };
@@ -638,9 +595,10 @@ function fakeWorks(): FleetWorks & {
         reopened: false,
       };
     },
-    startOf: (work: string, role: "planner" | "implementor") => {
+    startOf: async (work: string, role: "planner" | "implementor") => {
       const one = works.get(work);
       const start = starts.get(`${work}#${role}`);
+      if (start instanceof WorkRefusal) throw start;
       if (one === undefined || start === undefined)
         throw new WorkRefusal(
           "missing-setup",
@@ -651,7 +609,7 @@ function fakeWorks(): FleetWorks & {
     setUp(
       work: string,
       role: "planner" | "implementor",
-      start: { harness: string; model: string },
+      start: SetUpStart | WorkRefusal,
     ) {
       starts.set(`${work}#${role}`, start);
     },
@@ -1365,10 +1323,16 @@ describe("the conductor's pieces of work", () => {
     works.setUp("work:1", "planner", {
       harness: "omp",
       model: "anthropic/claude-fable-5-2",
+      launch: MODEL_FLAG,
     });
     works.setUp("work:1", "implementor", {
       harness: "opencode",
       model: "litellm/open-large",
+      launch: {
+        kind: "config",
+        variable: "OPENCODE_CONFIG_CONTENT",
+        key: "model",
+      },
     });
     const mcp = await servedFleet(fleet.hosts, works);
 
@@ -1384,12 +1348,10 @@ describe("the conductor's pieces of work", () => {
     expect(planner.isError ?? false, JSON.stringify(planner.content)).toBe(
       false,
     );
-    // What was typed IS the saved setup, in the flag omp's adapter names —
-    // asked of the work's host, in the work's repository.
+    // What was typed IS the saved setup, in the flag omp's adapter names.
     expect(planner.structuredContent).toMatchObject({
       ran: "omp --model anthropic/claude-fable-5-2",
     });
-    expect(alpha.calls).toContain("agentDistro.models:omp@/repo");
     expect(
       alpha.calls.filter((one) => one.startsWith("lifecycle.sendInput")),
     ).toEqual([
@@ -1422,6 +1384,7 @@ describe("the conductor's pieces of work", () => {
     works.setUp("work:1", "planner", {
       harness: "omp",
       model: "anthropic/claude-fable-5-2",
+      launch: MODEL_FLAG,
     });
     const mcp = await servedFleet(fleet.hosts, works);
 
@@ -1443,21 +1406,23 @@ describe("the conductor's pieces of work", () => {
     expect(works.refs()).toEqual([]);
   });
 
-  it("a planner whose harness cannot be asked for its models is refused with the host's words, NOTHING created", async () => {
+  it("a planner whose saved setup kolu no longer offers is refused in kolu's words, NOTHING created", async () => {
     const alpha = fakePadi("local", [ALPHA_1]);
-    alpha.answerModels(
-      "omp",
-      "agent-distro omp: error: cannot list its models: omp models --json exited 1",
-    );
     const fleet = fakeFleet([
       { key: "local", display: "this machine", padi: alpha },
     ]);
     const works = fakeWorks();
     works.seed("work:1");
-    works.setUp("work:1", "planner", {
-      harness: "omp",
-      model: "anthropic/claude-fable-5-2",
-    });
+    // What kolu-server answers for a planner model saved as words: the
+    // answer, and why — `startOf` judged it, and the face passes it on.
+    works.setUp(
+      "work:1",
+      "planner",
+      new WorkRefusal(
+        "not-offered",
+        'The planner of «work:1» cannot start on its saved setup: planner.model: "fable 5.2" is not a model id — a model id is one word, with no spaces. Call `work_open` for this work again — kolu asks the human again for every answer it no longer offers. Nothing was created.',
+      ),
+    );
     const mcp = await servedFleet(fleet.hosts, works);
 
     const res = await mcp.callTool({
@@ -1470,9 +1435,17 @@ describe("the conductor's pieces of work", () => {
       },
     });
     expect(res.isError).toBe(true);
-    expect(JSON.stringify(res.content)).toContain("omp models --json exited 1");
+    expect(res.structuredContent).toMatchObject({ kind: "not-offered" });
+    expect(JSON.stringify(res.content)).toContain(
+      '\\"fable 5.2\\" is not a model id',
+    );
+    // Nothing reached the host: no terminal, and nothing typed.
     expect(
-      alpha.calls.filter((one) => one.startsWith("lifecycle.create")),
+      alpha.calls.filter(
+        (one) =>
+          one.startsWith("lifecycle.create") ||
+          one.startsWith("lifecycle.sendInput"),
+      ),
     ).toEqual([]);
   });
 

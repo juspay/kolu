@@ -33,6 +33,7 @@
  * waiting — and the reader spells it.
  */
 
+import { isAgentModelId } from "@kolu/agent-distro/models";
 import { type Policy, type Waiter, waitingOn } from "./folds.ts";
 import { answerValue } from "./readings.ts";
 import {
@@ -41,6 +42,7 @@ import {
   isAnswered,
   isAsked,
   isKoluChoice,
+  isKoluChoiceKey,
   type KoluChoiceKey,
   ON_GREEN,
   type OfferedSetupKey,
@@ -394,20 +396,66 @@ export const harnessForModel = (
   return roleAnswer(work, named.role, "harness");
 };
 
+/** WHAT ONE HARNESS OFFERS for a model question on a host: the ids it listed,
+ *  or `unlisted` for a harness that has no way to list its models (any model
+ *  id the person names is then the answer). */
+export type ModelChoices =
+  | { readonly kind: "listed"; readonly ids: ReadonlyArray<string> }
+  | { readonly kind: "unlisted" };
+
 /** WHAT KOLU CAN OFFER for its own setup questions on a work's host, read
- *  live by whoever records an answer: the harnesses this kolu carries, and —
- *  for each harness a model is being answered for — what the host listed, or
- *  `unlisted` for a harness that has no way to list its models (any model the
- *  person names is then the answer). A listing that FAILED is not in here: it
- *  is the recorder's refusal, never an empty list. */
+ *  live by whoever records or starts an answer: the harnesses this kolu
+ *  carries, and — for each harness a model is being judged for — what the
+ *  host said it offers. A listing that FAILED is not in here: it is the
+ *  caller's refusal, never an empty list. */
 export interface KoluChoices {
   readonly harnesses: ReadonlyArray<string>;
-  readonly models: ReadonlyMap<
-    string,
-    | { readonly kind: "listed"; readonly ids: ReadonlyArray<string> }
-    | { readonly kind: "unlisted" }
-  >;
+  readonly models: ReadonlyMap<string, ModelChoices>;
 }
+
+/** WHY A MODEL IS NOT ONE ITS HARNESS OFFERS, or `null` when it is: not in
+ *  the list a harness gave, or — for a harness that cannot list — not a
+ *  model id at all (upstream's rule: one word, no whitespace), which no launch
+ *  takes. The form reads it as the person types, so it says why before the
+ *  answer is sent. */
+export const modelNotOffered = (
+  value: string,
+  offered: ModelChoices,
+): "not-listed" | "not-a-model-id" | null =>
+  offered.kind === "listed"
+    ? offered.ids.includes(value)
+      ? null
+      : "not-listed"
+    : isAgentModelId(value)
+      ? null
+      : "not-a-model-id";
+
+/** THE ONE RULE for an answer to one of kolu's questions — the same where an
+ *  answer is recorded, where a saved one is started, and where `work_open`
+ *  decides whether a saved one stands. `harness` is the role's harness, for a
+ *  model (`null` when nobody has said). */
+const judgeAnswer = (
+  key: KoluChoiceKey,
+  value: string,
+  harness: string | null,
+  choices: KoluChoices,
+): UnofferedAnswer | null => {
+  if (roleOfKey(key)?.what === "harness")
+    return choices.harnesses.includes(value)
+      ? null
+      : { key, value, why: "not-installed" };
+  // A model of no harness — none answered, or one this kolu does not carry
+  // (which its own answer is refused for) — is not a model of anything.
+  if (harness === null || !choices.harnesses.includes(harness))
+    return { key, value, why: "no-harness" };
+  const offered = choices.models.get(harness);
+  if (offered === undefined)
+    throw new Error(
+      `judgeAnswer: no model list for ${harness} — the caller must ask the host for every installed harness a model is judged against`,
+    );
+  const why = modelNotOffered(value, offered);
+  return why === null ? null : { key, value, why, harness };
+};
 
 /** The harnesses this answer needs kolu's model list for — one per model
  *  question it answers — so the recorder asks the host for exactly those. */
@@ -433,7 +481,7 @@ export const modelHarnessesOf = (
  *
  *  - A harness must be one this kolu carries.
  *  - A model must be one the host listed for its harness, when that harness
- *    can list; any words at all when it cannot.
+ *    can list; a model id (one word, no spaces) when it cannot.
  *  - A model whose harness nobody has named is not a model of anything.
  *  - One answer each: a role does not run on two harnesses.
  *
@@ -456,37 +504,115 @@ export const unofferedAnswers = (
       bad.push({ key: one.key, value, why: "several" });
       continue;
     }
-    if (roleOfKey(one.key)?.what === "harness") {
-      if (!choices.harnesses.includes(value))
-        bad.push({ key: one.key, value, why: "not-installed" });
-      continue;
-    }
-    const harness = harnessForModel(work, ask, one.key, values);
-    // A model of no harness — none answered, or one this kolu does not carry
-    // (which its own answer is refused for) — is not a model of anything.
-    if (harness === null || !choices.harnesses.includes(harness)) {
-      bad.push({ key: one.key, value, why: "no-harness" });
-      continue;
-    }
-    const listed = choices.models.get(harness);
-    if (listed === undefined)
-      throw new Error(
-        `unofferedAnswers: no model list for ${harness} — the recorder must ask the host for every installed harness modelHarnessesOf names`,
-      );
-    if (listed.kind === "listed" && !listed.ids.includes(value))
-      bad.push({ key: one.key, value, why: "not-listed", harness });
+    const judged = judgeAnswer(
+      one.key,
+      value,
+      harnessForModel(work, ask, one.key, values),
+      choices,
+    );
+    if (judged !== null) bad.push(judged);
   }
   return bad;
 };
 
-/** One answer {@link unofferedAnswers} found that is not kolu's to record. */
+/** One answer kolu's rule found that is not kolu's to record or start. */
 export interface UnofferedAnswer {
   readonly key: KoluChoiceKey;
   readonly value: string;
-  readonly why: "several" | "not-installed" | "no-harness" | "not-listed";
-  /** The harness whose list it is not in (`not-listed` only). */
+  readonly why:
+    | "several"
+    | "not-installed"
+    | "no-harness"
+    | "not-listed"
+    | "not-a-model-id";
+  /** The harness the model was judged against (`not-listed`,
+   *  `not-a-model-id`). */
   readonly harness?: string;
 }
+
+/** WHY, in words — the clause after the value: «"fable 5.2" is not a model
+ *  id …». One spelling for the refusal where an answer is recorded, the
+ *  refusal at start, the question `work_open` asks again and the form. */
+export const unofferedWhy = (
+  bad: UnofferedAnswer,
+  harnesses: ReadonlyArray<string>,
+  host: string,
+): string => {
+  switch (bad.why) {
+    case "several":
+      return "is one of several answers, and a role runs on one";
+    case "not-installed":
+      return `is not a harness this kolu carries (${harnesses.join(", ") || "it carries none"})`;
+    case "no-harness":
+      return "is a model of no harness this kolu carries — the role's harness has no answer, or is not installed";
+    case "not-listed":
+      return `is not a model ${bad.harness ?? "its harness"} offers on ${host}`;
+    case "not-a-model-id":
+      return "is not a model id — a model id is one word, with no spaces";
+    default:
+      return bad.why satisfies never;
+  }
+};
+
+/** ... and the whole fact, naming the question: «planner.model: "fable 5.2"
+ *  is not a model id …». */
+export const unofferedWords = (
+  bad: UnofferedAnswer,
+  harnesses: ReadonlyArray<string>,
+  host: string,
+): string =>
+  `${bad.key}: ${JSON.stringify(bad.value)} ${unofferedWhy(bad, harnesses, host)}`;
+
+/** The installed harnesses whose model lists the SAVED answers to `keys`
+ *  need — so the caller asks the host for exactly those. */
+export const savedModelHarnessesOf = (
+  work: Work,
+  keys: ReadonlyArray<KoluChoiceKey>,
+  installed: ReadonlyArray<string>,
+): ReadonlyArray<string> => {
+  const harnesses = new Set<string>();
+  for (const key of keys) {
+    const named = roleOfKey(key);
+    if (named?.what !== "model") continue;
+    if (answerValue(setupDecision(work, key)) === null) continue;
+    const harness = roleAnswer(work, named.role, "harness");
+    if (harness !== null && installed.includes(harness)) harnesses.add(harness);
+  }
+  return [...harnesses];
+};
+
+/**
+ * EVERY SAVED ANSWER TO `keys` THAT KOLU NO LONGER OFFERS — by the same rule
+ * an answer is recorded by, read again later: when a planner or implementor
+ * is started, and when `work_open` decides what to ask. An answer saved
+ * before kolu drew these options (words typed as a model), a model that left
+ * its harness's list, a harness this kolu stopped carrying: each is named here
+ * rather than typed into a terminal. A key with no answer is not judged.
+ */
+export const unofferedSaved = (
+  work: Work,
+  keys: ReadonlyArray<KoluChoiceKey>,
+  choices: KoluChoices,
+): ReadonlyArray<UnofferedAnswer> =>
+  keys.flatMap((key) => {
+    const value = answerValue(setupDecision(work, key));
+    const named = roleOfKey(key);
+    if (value === null || named === null) return [];
+    const judged = judgeAnswer(
+      key,
+      value,
+      named.what === "model" ? roleAnswer(work, named.role, "harness") : null,
+      choices,
+    );
+    return judged === null ? [] : [judged];
+  });
+
+/** A waterfall role's two kolu questions — what starting it rests on. */
+export const koluKeysOf = (role: WorkRole): ReadonlyArray<KoluChoiceKey> =>
+  (["harness", "model"] as const).flatMap((what) => {
+    const key = setupKeyOf(role, what);
+    return key !== null && isKoluChoiceKey(key) ? [key] : [];
+  });
 
 /**
  * WHAT A PERSON CHOSE LAST TIME, read off the saved works — never off a
@@ -494,8 +620,10 @@ export interface UnofferedAnswer {
  * offer the same thing first.
  *
  *  - {@link SetupMemory.last}: the most recent answer to a setup question on
- *    this host; for a model, the most recent model run with `harness` (in any
- *    role, since a model is a model of its harness, not of a part).
+ *    this host. For a model, the most recent model THAT ROLE ran with
+ *    `harness` — a person who plans on one model and implements on another
+ *    gets each back — and only when the role has none, the most recent model
+ *    any role ran with it (a model is a model of its harness).
  *  - {@link SetupMemory.modelsUsed}: every model a person ran `harness` on,
  *    on any host, most recent first — what a harness that cannot list its own
  *    models is offered.
@@ -533,22 +661,24 @@ export const setupMemory = (
     .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
   return {
     last: (key, harness) => {
-      const isModel = roleOfKey(key)?.what === "model";
+      const here = answers.filter((one) => one.host === host);
+      if (roleOfKey(key)?.what !== "model")
+        return here.find((one) => one.key === key)?.value ?? null;
       return (
-        answers.find((one) =>
-          one.host !== host
-            ? false
-            : isModel
-              ? one.model && one.harness === harness
-              : one.key === key,
+        (
+          here.find((one) => one.key === key && one.harness === harness) ??
+          here.find((one) => one.model && one.harness === harness)
         )?.value ?? null
       );
     },
+    // Only what a launch would take: words saved as a model before kolu drew
+    // these options are not offered back.
     modelsUsed: (harness) => [
       ...new Set(
         answers
           .filter((one) => one.model && one.harness === harness)
-          .map((one) => one.value),
+          .map((one) => one.value)
+          .filter(isAgentModelId),
       ),
     ],
   };

@@ -211,6 +211,11 @@ const WEB_SHELL_FILES = [
   "wireCall",
   "wireCallMain",
   // ── the conductor's MOUNT (packages/server/src/conductor/) ──
+  // WHAT KOLU OFFERS for the setup's harness and model questions: this kolu's
+  // agent-distro listing, and a host's own `agentDistro.models` answer asked
+  // over its padi client — plus the readiness gate in front of them. Shell
+  // code: it holds no PTY and reads every host over the wire.
+  "conductor/koluOffer",
   // kolu's ONE supervising conversation lives in `kolu-conductor` now — the
   // host, the record, the standing prompt and the surface members are that
   // package's, and the dependency arrow points out of this one. What stays

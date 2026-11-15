@@ -17,11 +17,18 @@
  */
 
 import {
+  isModelId,
   launchWords,
   type ModelLaunch,
   parseModels,
 } from "@juspay/agent-distro/models";
 import { Schema } from "effect";
+
+/** WHAT A MODEL ID IS — upstream's own rule (one word, no whitespace), the
+ *  one every launch takes. A model typed for a harness that cannot list its
+ *  models is checked by it where it is answered, so a launch never meets one
+ *  it would refuse. */
+export const isAgentModelId = (value: string): boolean => isModelId(value);
 
 /** How a launch is given a model — upstream's `ModelLaunch`, as a wire
  *  schema: a flag before the harness's own arguments, or a config layer in

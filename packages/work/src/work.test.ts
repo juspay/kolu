@@ -6,10 +6,13 @@ import {
   KOLU_CHOICE_KEYS,
   type KoluChoiceKey,
   type KoluChoices,
+  koluKeysOf,
   modelHarnessesOf,
   type Question,
+  savedModelHarnessesOf,
   setupMemory,
   unofferedAnswers,
+  unofferedSaved,
 } from "./index.ts";
 import {
   AGENT_STATE_KINDS,
@@ -366,6 +369,64 @@ describe("kolu's own setup questions — the harness and the model", () => {
     ]);
   });
 
+  it("takes only a model id for a harness that cannot list — one word, no spaces", () => {
+    const work = asked();
+    const values = new Map<string, ReadonlyArray<string>>([
+      ["q-ih", ["claude"]],
+      ["q-im", ["fable 5.2"]],
+    ]);
+    expect(unofferedAnswers(work, "ask-1", values, CHOICES)).toEqual([
+      {
+        key: "implementor.model",
+        value: "fable 5.2",
+        why: "not-a-model-id",
+        harness: "claude",
+      },
+    ]);
+  });
+
+  it("judges SAVED answers by the same rule — what a start and `work_open` read", () => {
+    // The human's store: a model typed as words before kolu drew these
+    // options, and one the harness no longer lists.
+    const saved = answerAsk(asked(), {
+      ask: "ask-1",
+      at: T(2),
+      from: "card",
+      values: new Map([
+        ["q-ph", ["claude"]],
+        ["q-pm", ["fable 5.2"]],
+        ["q-ih", ["omp"]],
+        ["q-im", ["claude-opus-5-5"]],
+      ]),
+    });
+    expect(
+      savedModelHarnessesOf(saved, KOLU_CHOICE_KEYS, CHOICES.harnesses),
+    ).toEqual(["claude", "omp"]);
+    expect(unofferedSaved(saved, koluKeysOf("planner"), CHOICES)).toEqual([
+      {
+        key: "planner.model",
+        value: "fable 5.2",
+        why: "not-a-model-id",
+        harness: "claude",
+      },
+    ]);
+    expect(unofferedSaved(saved, koluKeysOf("implementor"), CHOICES)).toEqual([
+      {
+        key: "implementor.model",
+        value: "claude-opus-5-5",
+        why: "not-listed",
+        harness: "omp",
+      },
+    ]);
+    // A harness this kolu stopped carrying takes its model down with it.
+    expect(
+      unofferedSaved(saved, koluKeysOf("planner"), {
+        harnesses: ["omp"],
+        models: CHOICES.models,
+      }).map((one) => one.why),
+    ).toEqual(["not-installed", "no-harness"]);
+  });
+
   it("records an answer to one of them as the one value picked", () => {
     const work = answerAsk(asked(), {
       ask: "ask-1",
@@ -428,6 +489,43 @@ describe("kolu's own setup questions — the harness and the model", () => {
       "claude-opus-4-5",
     ]);
   });
+
+  it("gives each ROLE its own last model on a harness both run", () => {
+    // Plans on one model, implements on another, one harness: each role gets
+    // its own back, so pressing Answer unchanged repeats the setup.
+    const work = answerAsk(asked(), {
+      ask: "ask-1",
+      at: T(2),
+      from: "card",
+      values: new Map([
+        ["q-ph", ["omp"]],
+        ["q-pm", ["anthropic/claude-fable-5-2"]],
+        ["q-ih", ["omp"]],
+        ["q-im", ["litellm/claude-fable-5-2"]],
+      ]),
+    });
+    const memory = setupMemory([work], KEY.host);
+    expect(memory.last("planner.model", "omp")).toBe(
+      "anthropic/claude-fable-5-2",
+    );
+    expect(memory.last("implementor.model", "omp")).toBe(
+      "litellm/claude-fable-5-2",
+    );
+    // A role that never ran that harness falls back to the model another
+    // role ran it on.
+    const plannerOnly = answerAsk(asked(), {
+      ask: "ask-1",
+      at: T(2),
+      from: "card",
+      values: new Map([
+        ["q-ph", ["omp"]],
+        ["q-pm", ["anthropic/claude-fable-5-2"]],
+      ]),
+    });
+    expect(
+      setupMemory([plannerOnly], KEY.host).last("implementor.model", "omp"),
+    ).toBe("anthropic/claude-fable-5-2");
+  });
 });
 
 describe("the states that cannot be written down", () => {
@@ -443,6 +541,41 @@ describe("the states that cannot be written down", () => {
       },
     };
     expect(decode(work)._tag).toBe("Failure");
+  });
+
+  it("has no second answer for a question kolu draws the options for", () => {
+    const decode = Schema.decodeUnknownResult(WorkSchema);
+    const answer = { at: T(2), how: "answered", from: "card" };
+    const harness = (over: object) => ({
+      ...opened(),
+      decisions: [
+        {
+          kind: "answered",
+          id: "q-ph",
+          ask: "ask-1",
+          at: T(1),
+          key: "planner.harness",
+          header: "",
+          question: "Which harness?",
+          file: "",
+          answer: { ...answer, ...over },
+        },
+      ],
+    });
+    // A role run on two harnesses, or one picked with words beside it, is
+    // not a value — whoever wrote it.
+    expect(
+      decode(harness({ picked: ["omp", "claude"], text: null }))._tag,
+    ).toBe("Failure");
+    expect(decode(harness({ picked: ["omp"], text: "codex" }))._tag).toBe(
+      "Failure",
+    );
+    expect(decode(harness({ picked: [], text: "omp" }))._tag).toBe("Failure");
+    // One value, or none, is.
+    expect(decode(harness({ picked: ["omp"], text: null }))._tag).toBe(
+      "Success",
+    );
+    expect(decode(harness({ picked: [], text: null }))._tag).toBe("Success");
   });
 
   it("has nowhere to put kept files on a work in progress", () => {

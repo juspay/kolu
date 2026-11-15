@@ -73,10 +73,9 @@ export function koluOfferOver(deps: {
           throw new Error(
             "a watch has no repository, so there is nowhere to ask a harness for its models",
           );
-        const answer = await settled(
+        return await settled(
           padiOf(host).surface.agentDistro.models({ harness, cwd: repo }),
         );
-        return answer.models;
       },
     },
     requireAgentsReady: async (host) => {

@@ -87,7 +87,10 @@ import {
   startFleetMcpEndpoint,
 } from "../fleet/mcpEndpoint.ts";
 import { decodeStateBackup, store } from "../state.ts";
-import { foldWorksByKey_1_53_0 } from "../stateLadder.ts";
+import {
+  dropKoluChoiceOptions_1_54_0,
+  foldWorksByKey_1_53_0,
+} from "../stateLadder.ts";
 import { TRANSCRIPT_FILE_VERSION } from "../stateShape.ts";
 import { transcriptFilePath, transcriptFileStore } from "./transcriptFile.ts";
 
@@ -1156,9 +1159,10 @@ describe("the human's real store, one observation later", () => {
    *  Conductor closed both terminals fourteen seconds after merging and the
    *  only observers of that pull request went with them.
    *
-   *  Through the REAL ladder rung (`foldWorksByKey_1_53_0`) the three become
-   *  ONE work, open, keyed by its branch. What this test is about is the
-   *  NEXT thing kolu does: look. */
+   *  Through the REAL ladder rungs (`foldWorksByKey_1_53_0`, then
+   *  `dropKoluChoiceOptions_1_54_0`, which leaves its harness and model
+   *  answers one value each) the three become ONE work, open, keyed by its
+   *  branch. What this test is about is the NEXT thing kolu does: look. */
   const DEPLOYED = JSON.parse(
     readFileSync(
       new URL("../fixtures/deployed-1.52.0-all-ended.json", import.meta.url),
@@ -1169,6 +1173,7 @@ describe("the human's real store, one observation later", () => {
   it("ends the human's work as Merged 181 on the first look after start-up", async () => {
     const folded = foldWorksByKey_1_53_0(DEPLOYED.works, DEPLOYED.members);
     worksStore.set(folded.works as unknown as PersistedWorks);
+    dropKoluChoiceOptions_1_54_0(store);
     membersStore.set(folded.members as unknown as PersistedMembers);
     const id = Object.keys(folded.works)[0] ?? "";
 

@@ -297,7 +297,10 @@ not: the same path exists on several hosts): the implementor's harness and
 model; what to do when CI is green (do you merge the PR yourself, or hand it
 over to them?); and the mode. In a full waterfall the planner's harness and
 model too, in that same call. The harness and model questions are kolu's:
-name their keys and kolu offers what is installed on that host.
+name their keys and kolu offers what is installed on that host. If kolu
+refuses to start a planner or implementor because a saved answer is no longer
+one it offers, call `work_open` for that work again: kolu asks the human that
+question again, and you start the agent once they have answered.
 NOTHING IS CREATED BEFORE THE WORK IS OPEN AND THE HOST IS KNOWN.
 
 Two of those answers are kolu's OWN WORDS, because kolu reads them back: the

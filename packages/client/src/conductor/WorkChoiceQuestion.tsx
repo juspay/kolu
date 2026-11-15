@@ -33,9 +33,11 @@ import {
   harnessForModel,
   hostOf,
   type KoluChoice,
+  modelNotOffered,
   repoOf,
   roleOfKey,
   type SetupMemory,
+  unofferedWhy,
   type Work,
 } from "kolu-work";
 import {
@@ -210,16 +212,35 @@ const WorkChoiceQuestion: Component<{
   };
 
   /** What this person answered last, if it is still something they can answer
-   *  here: an option that is drawn, or any word at all for a harness that
-   *  takes words. */
+   *  here: an option that is drawn, or — for a harness that takes a typed
+   *  model — a model id kolu would record (words saved as a model before kolu
+   *  drew these options are not put back under their hands). */
   const standing = (): string | null => {
     const now = choices();
     if (now === null) return null;
     const want = props.memory.last(props.decision.key, harness());
     if (want === null) return null;
-    return now.free || now.options.some((one) => one.value === want)
+    return now.options.some((one) => one.value === want) ||
+      (now.free && modelNotOffered(want, { kind: "unlisted" }) === null)
       ? want
       : null;
+  };
+
+  /** WHY THE MODEL TYPED IN THE BOX IS NOT ONE KOLU WOULD RECORD — the rule
+   *  the answer is checked by where it is recorded, said as it is typed, so a
+   *  refusal is never the first a person hears of it. `null` while the box is
+   *  empty or holds a model id. */
+  const typedWhy = (): string | null => {
+    const typed = askDraft(props.ask, typedKey(props.decision.id))[0] ?? "";
+    if (typed === "") return null;
+    const why = modelNotOffered(typed, { kind: "unlisted" });
+    return why === null
+      ? null
+      : `${JSON.stringify(typed)} ${unofferedWhy(
+          { key: props.decision.key, value: typed, why },
+          [],
+          hostOf(props.work),
+        )}.`;
   };
 
   /** The options as they are drawn — the default first. A memo because the
@@ -308,6 +329,17 @@ const WorkChoiceQuestion: Component<{
                   )
                 }
               />
+              <Show when={typedWhy()}>
+                {(why) => (
+                  <p
+                    data-testid="conductor-ask-invalid"
+                    data-field={props.decision.id}
+                    class="mt-1.5 m-0 text-alert"
+                  >
+                    {why()}
+                  </p>
+                )}
+              </Show>
             </Show>
           </>
         )}

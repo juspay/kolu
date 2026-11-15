@@ -182,11 +182,11 @@ interface FleetLift {
   ) => ToolFailure | null;
   /** WHAT THE CALL IS GIVEN THAT THE AGENT DID NOT WRITE — after the
    *  precheck, before the route. One tool needs it: a planner's or an
-   *  implementor's `run` is kolu's, built from the work's saved setup and the
-   *  host's word on how its harness takes a model ({@link waterfallRun}), so
-   *  the command a waterfall agent starts with has one source. */
+   *  implementor's `run` is kolu's, built from the work's saved setup, judged
+   *  again, and the host's word on how its harness takes a model
+   *  ({@link waterfallRun}), so the command a waterfall agent starts with has
+   *  one source. */
   readonly prepare?: (
-    hosts: FleetHosts,
     works: FleetWorks,
     args: Record<string, unknown>,
   ) => Effect.Effect<Record<string, unknown>, ToolFailure>;
@@ -237,12 +237,12 @@ const FLEET_LIFTS: Readonly<Record<string, FleetLift>> = {
         );
       return null;
     },
-    prepare: (hosts, works, args) => {
+    prepare: (works, args) => {
       const role = args.role;
       if (!isWorkRole(role) || !isWaterfallRole(role))
         return Effect.succeed(args);
       return Effect.map(
-        waterfallRun(hosts, works, {
+        waterfallRun(works, {
           work: typeof args.work === "string" ? args.work : "",
           role,
           host: String(args.host ?? ""),
@@ -528,7 +528,7 @@ function lifted(
       if (refused !== undefined && refused !== null)
         return Effect.fail(refused);
       const prepared =
-        lift.prepare?.(hosts, works, args as Record<string, unknown>) ??
+        lift.prepare?.(works, args as Record<string, unknown>) ??
         Effect.succeed(args as Record<string, unknown>);
       return Effect.flatMap(prepared, (given) =>
         Effect.flatMap(route(hosts, lift, given), (call) =>

@@ -285,13 +285,16 @@ fleet face `lifecycle_create` REQUIRES `work` and `role`, and an unknown or
 ended work is refused *before* anything is created, so a member whose part
 nobody stated cannot exist. **A planner or implementor runs kolu's command,
 not the caller's**: `run` is refused for those two roles, and the face's
-`prepare` step (`src/fleet/start.ts`) builds it from the work's saved harness
-and model (`FleetWorks.startOf`) and the host's word on how that harness takes
-a model (padi's `agentDistro.models`, through `@kolu/agent-distro/models`'
-`modelLaunchWords`) — `omp --model anthropic/claude-fable-5-2`, or
-`OPENCODE_CONFIG_CONTENT='{"model":…}' opencode` — and answers it as `ran`.
-A setup not answered yet, a work on another host, or a host that cannot say
-refuses with nothing created. `other` keeps `run`.
+`prepare` step (`src/fleet/start.ts`) builds it from what `FleetWorks.startOf`
+answers — the work's saved harness and model, judged again by kolu-server
+against what that host offers now, and the host's word on how that harness
+takes a model (padi's `agentDistro.models`) — through
+`@kolu/agent-distro/models`' `modelLaunchWords`: `omp --model
+anthropic/claude-fable-5-2`, or `OPENCODE_CONFIG_CONTENT='{"model":…}'
+opencode`, answered as `ran`. A setup not answered yet, a saved answer kolu no
+longer offers (`not-offered`, naming which and why — `work_open` asks it
+again), a work on another host, or a host that cannot say refuses with nothing
+created. `other` keeps `run`.
 
 Every member says HOW it joined (`FleetWatchJoin`): `created` for a bare shell
 this face opened, `created-run` when a command was typed at that shell (only

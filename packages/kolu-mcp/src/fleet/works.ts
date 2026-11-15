@@ -35,6 +35,7 @@
  * refusal costs one turn, the silence costs the run.
  */
 
+import type { AgentModelLaunch } from "@kolu/agent-distro/models";
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
 import type { PadiTerminal } from "@kolu/padi-client/surface";
 import { activeAgent } from "@kolu/padi-client/terminalVocab";
@@ -191,20 +192,23 @@ export interface FleetWorks {
    *  offers — a {@link WorkRefusal} either way. */
   open(intent: FleetWorkIntent): Promise<FleetWorkOpened>;
   /** WHAT A PLANNER OR IMPLEMENTOR OF THIS WORK STARTS — the harness and model
-   *  its setup recorded, on the work's host and in its repository. The one
-   *  source of a waterfall agent's command: `lifecycle_create` builds it from
-   *  this and the host's word on how the harness takes a model. Throws a
-   *  {@link WorkRefusal} for an unknown or ended work, a watch, or a role
-   *  whose harness or model has no answer yet. */
+   *  its setup recorded, on the work's host and in its repository, judged
+   *  again against what kolu offers there now, and how that host's harness
+   *  takes a model. The one source of a waterfall agent's command:
+   *  `lifecycle_create` builds it from this. Rejects with a
+   *  {@link WorkRefusal} for an unknown or ended work, a watch, a role whose
+   *  harness or model has no answer yet, or a saved answer kolu no longer
+   *  offers (naming which and why). */
   startOf(
     work: string,
     role: WaterfallRole,
-  ): {
+  ): Promise<{
     readonly host: string;
     readonly repo: string;
     readonly harness: string;
     readonly model: string;
-  };
+    readonly launch: AgentModelLaunch;
+  }>;
   /** Ask the human something about a work — and answer at once, with the ask
    *  it was put as. The answer comes back as a wake. */
   ask(
@@ -611,7 +615,7 @@ export function workOpenTool(works: FleetWorks): BespokeTool {
     mutates: true,
     title: "Open a piece of work",
     description:
-      "Open a piece of work — a branch on a machine (`host`, `repo`, `branch`), or `watch` for one terminal — and ask the human its setup in ONE form, the whole of it: which mode, which harness and model per role, and what to do when CI is green. kolu OFFERS the harness and model questions itself — the harnesses installed, the models the chosen harness offers on that host, the human's last answers already selected — so you name those four keys and offer nothing for them. Opening a host, repo and branch that already has a work returns THAT work (reopening it if it had ended) and asks only what is still unanswered. kolu puts the questions to the human, records every one as a DECISION on this work, and ANSWERS YOU AT ONCE: nothing in kolu's tools ever waits for a person. The answer carries the work's id, the setup as kolu reads it back RIGHT NOW (`host`, `mode`, `roles` — harness and model each — `onGreen`; each one but `host` is `null` while its question is still open), and `asked: true` when a form went to them. Use `given` for anything the human's request already said — it is recorded as their answer without asking, and reads back immediately. Refused, with nothing created, when the setup does not carry a question the mode needs, when the host's coding agents are not ready (the refusal says why and what the human must do — tell them, and end your turn), or when a `given` harness or model is not one kolu offers. When `asked` is true, say what you asked and END YOUR TURN: kolu wakes you with every answer. A setup they decline for a work nothing has happened in removes the work, and you are told the same way. Everything after this names the work it answers with: `lifecycle_create`, `work_adopt`, `work_ask`, `work_note`, `work_stop`.",
+      "Open a piece of work — a branch on a machine (`host`, `repo`, `branch`), or `watch` for one terminal — and ask the human its setup in ONE form, the whole of it: which mode, which harness and model per role, and what to do when CI is green. kolu OFFERS the harness and model questions itself — the harnesses installed, the models the chosen harness offers on that host, the human's last answers already selected — so you name those four keys and offer nothing for them. Opening a host, repo and branch that already has a work returns THAT work (reopening it if it had ended) and asks only what is still unanswered — and again any saved harness or model kolu no longer offers, which is the way out when `lifecycle_create` refuses to start a planner or implementor on one. kolu puts the questions to the human, records every one as a DECISION on this work, and ANSWERS YOU AT ONCE: nothing in kolu's tools ever waits for a person. The answer carries the work's id, the setup as kolu reads it back RIGHT NOW (`host`, `mode`, `roles` — harness and model each — `onGreen`; each one but `host` is `null` while its question is still open), and `asked: true` when a form went to them. Use `given` for anything the human's request already said — it is recorded as their answer without asking, and reads back immediately. Refused, with nothing created, when the setup does not carry a question the mode needs, when the host's coding agents are not ready (the refusal says why and what the human must do — tell them, and end your turn), or when a `given` harness or model is not one kolu offers. When `asked` is true, say what you asked and END YOUR TURN: kolu wakes you with every answer. A setup they decline for a work nothing has happened in removes the work, and you are told the same way. Everything after this names the work it answers with: `lifecycle_create`, `work_adopt`, `work_ask`, `work_note`, `work_stop`.",
     handler: (args, _bundle, _signal) => {
       const intent = args as WorkOpenArgs;
       return Effect.tryPromise({

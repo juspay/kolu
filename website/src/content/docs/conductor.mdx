@@ -61,7 +61,7 @@ The message box never locks. While a turn is running:
 - <kbd>Enter</kbd> queues your message at the agent: it shows as _queued_ and runs when the turn is over. **Stop** cancels the turn, and queued messages still run.
 - <kbd>Alt</kbd> + <kbd>Enter</kbd> steers: your words go into the running turn and the Conductor reads them now. The status line shows **↯ Alt+⏎ steers** when you can.
 
-Steering is offered only when the agent supports it; a steer it cannot take is queued instead, so your words are never lost.
+Steering is offered only when the agent supports it; a steer it cannot take is queued instead, so your words are never lost. A message with attachments is always queued, and after one queued message so is every later one.
 
 ## The status line
 
@@ -110,7 +110,7 @@ A **piece of work is a branch**: one machine, one repository, one branch, or a t
 
 Every terminal joins with a **role**: planner, implementor, or other. It is in one work at a time, and the Conductor can adopt one you point it at, re-join one that left, or drop one whose part is done. The tools are on [the MCP page](/mcp#the-conductors-pieces-of-work).
 
-Losing terminals never ends a work: the card says **no terminals** and the Conductor is told once. A merge or a close still ends it with no terminal left, and an unreachable host concludes nothing.
+Losing terminals never ends a work: the card says **no terminals** and the Conductor is told once. kolu asks the work's host for the pull request on its branch whether or not a terminal is left, so a merge or a close still ends it, and an unreachable host concludes nothing. The `works` resource reads every work back for a fresh conversation.
 
 ### What a work holds
 
@@ -146,7 +146,7 @@ Press the head and it opens:
 
 ### How a work ends
 
-A work ends two ways: the forge merges or closes its pull request, or **Stop** on the card ends it after a confirmation. An ended card offers **Reopen**. Declining the setup of a work nothing has happened in removes it.
+A work ends two ways: the forge merges or closes its pull request, or **Stop** on the card ends it after a confirmation. An ended card shows how it ended, where the time went, the kept files, the decisions and the timeline. It never shows terminals, a lock or a question, and it offers **Reopen**. Declining the setup of a work nothing has happened in removes it.
 
 Finished works stand collapsed below the open ones. A conversation with no work shows no count, and the column reads **Nothing in progress.**
 
@@ -185,7 +185,7 @@ Paste an image into the message box, or drop a file onto the chat. A chip shows 
 | a text file | its text |
 | anything else | a link to where kolu saved it |
 
-Limits: 10 MiB per file and 20 MiB per message, said before anything is sent.
+There are two limits: 10 MiB per file and 20 MiB per message. The message box says so before anything is sent, and an agent that does not accept a kind of file is refused out loud.
 
 ## Sign in
 
@@ -204,7 +204,7 @@ A **waterfall** takes a change from request to merged PR. Ask for one, or ask th
 
 <Steps>
 
-1. **Setup.** Every time, it asks which host, the mode, what to do when CI goes green, and which agent CLI (the harness) and model run each agent, skipping what your request already says. The questions arrive as one form.
+1. **Setup.** Every waterfall asks its own, as one form: the host, the mode, what to do on green, and the harness and model per agent.
 2. **Plan** (full only). A planner opens in a fresh worktree, writes `.waterfall/plan.md`, and stops.
 3. **Approve** (full only). The Conductor shows you a summary. You approve, or say what to change.
 4. **Implement.** The implementor opens with the brief in `.waterfall/brief.md` (full), or with your request (trivial), and stops when its PR is open. A doubt it stops on is answered from the plan, the request or the planner; only a decision that is yours comes to you.
@@ -215,14 +215,7 @@ A **waterfall** takes a change from request to merged PR. Ask for one, or ask th
 
 </Steps>
 
-A path does not choose a host: `~/code/odu` can exist on several machines. So the Conductor asks which host in its reply, and opens the work when you answer.
-
-kolu, not the Conductor, offers the harness and model, and starts each agent on exactly what you chose:
-
-- **Harness.** The harnesses this kolu installs.
-- **Model.** What that harness offers on the host, searchable when long. Claude Code and Codex cannot list theirs, so you get the ones you used before and a box to type one.
-- **Last time first.** Your last answers come selected: one press of **Answer** repeats a setup.
-- **No agents.** A host whose agents are off, still arriving or failed to land is named with what to do instead.
+A path does not choose a host, so the Conductor asks which one and opens the work when you answer. kolu, not the Conductor, offers the harness and the model, and starts each agent on exactly what you chose: see [the setup form](/conductor-setup).
 
 The Conductor never implements anything itself, never starts an agent or opens a PR without your approval, and never closes an implementor before its PR is merged or closed. Its standing instructions are at the top of every new session's transcript.
 

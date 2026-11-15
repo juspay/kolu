@@ -154,12 +154,9 @@ export const askQuestions = (
       continue;
     }
     decisions.push(
-      answeredWith(asking, {
-        at: asked.at,
-        how: "answered",
-        ...answerOf(asking, [one.given]),
-        from: "request",
-      }),
+      answeredWith(asking, { at: asked.at, how: "answered", from: "request" }, [
+        one.given,
+      ]),
     );
   }
   const asking = { ...work, decisions };
@@ -191,19 +188,16 @@ export const answerAsk = (
   const decisions = work.decisions.map((one): Decision => {
     if (one.ask !== answered.ask || one.kind === "answered") return one;
     if (answered.values === null)
-      return answeredWith(one, {
-        at: answered.at,
-        how: "declined",
-        picked: [],
-        text: null,
-        from: answered.from,
-      });
-    return answeredWith(one, {
-      at: answered.at,
-      how: "answered",
-      ...answerOf(one, answered.values.get(one.id) ?? []),
-      from: answered.from,
-    });
+      return answeredWith(
+        one,
+        { at: answered.at, how: "declined", from: answered.from },
+        [],
+      );
+    return answeredWith(
+      one,
+      { at: answered.at, how: "answered", from: answered.from },
+      answered.values.get(one.id) ?? [],
+    );
   });
   return append(
     { ...work, decisions },
@@ -239,27 +233,43 @@ const askedOf = (one: Question, ask: string, at: string): Asked => {
     : { kind: "asked", ...common, key: one.key };
 };
 
-/** An asked decision, now answered — the same shape, the other arm. */
-const answeredWith = (one: Asked, answer: DecisionAnswer): Answered =>
-  isKoluChoice(one)
-    ? { ...one, kind: "answered", answer }
-    : { ...one, kind: "answered", answer };
+/** How an asked decision was settled — when, how and from where — before the
+ *  values sent for it are read. */
+type Settled = Pick<DecisionAnswer, "at" | "how" | "from">;
 
-/** WHAT THE VALUES SENT FOR ONE QUESTION COME TO. A value among the asker's
- *  options is a PICK; anything else is text they typed. A question kolu drew
- *  the options for has one answer, already checked against those options
- *  where it arrived (`unofferedAnswers`), and it is recorded as picked. */
-const answerOf = (
-  one: Decision,
+/** AN ASKED DECISION, NOW ANSWERED WITH `values` — the same shape, the other
+ *  arm, and the values read by the rule that arm takes. A question kolu drew
+ *  the options for has ONE answer, already checked where it arrived
+ *  (`unofferedAnswers`), and it is recorded as picked. For the asker's
+ *  questions a value among the options is a PICK; anything else is text they
+ *  typed. */
+const answeredWith = (
+  one: Asked,
+  settled: Settled,
   values: ReadonlyArray<string>,
-): { picked: string[]; text: string | null } => {
-  if (isKoluChoice(one)) return { picked: values.slice(0, 1), text: null };
+): Answered => {
+  if (isKoluChoice(one)) {
+    const [value] = values;
+    return {
+      ...one,
+      kind: "answered",
+      answer: {
+        ...settled,
+        picked: value === undefined ? [] : [value],
+        text: null,
+      },
+    };
+  }
   const picked = values.filter((value) => one.options.includes(value));
   const typed = values
     .filter((value) => !one.options.includes(value))
     .join("\n")
     .trim();
-  return { picked, text: typed === "" ? null : typed };
+  return {
+    ...one,
+    kind: "answered",
+    answer: { ...settled, picked, text: typed === "" ? null : typed },
+  };
 };
 
 /** An ask that went away unanswered: the conversation that asked it is gone
@@ -269,11 +279,7 @@ export const dropAsk = (work: Work, ask: string, at: string): Work => {
   const decisions = work.decisions.map((one): Decision => {
     if (one.ask !== ask || one.kind === "answered") return one;
     dropped = true;
-    return {
-      ...one,
-      kind: "answered",
-      answer: { at, how: "dropped", picked: [], text: null, from: null },
-    };
+    return answeredWith(one, { at, how: "dropped", from: null }, []);
   });
   if (!dropped) return work;
   return append(

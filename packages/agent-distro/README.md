@@ -71,11 +71,13 @@ The **TypeScript half**, as data and pure functions:
   with upstream's `parseModels` (`parseAgentModels`) into
   `AgentModelsSchema` — `listed` ids (exactly what the launch takes, so one
   model under two providers is two ids), `unlisted` (the harness has no list
-  command), and `launch`, a flag or a config layer — and the start of a launch
-  for a model, upstream's `launchWords` (`modelLaunchWords`). Each harness says
-  all of it in its own adapter upstream; kolu holds no table of list commands,
-  model flags or model names. padi runs it (`agentDistro.models`); a failure is
-  the runner's error, never an empty list.
+  command), and `launch`, a flag or a config layer — the start of a launch
+  for a model, upstream's `launchWords` (`modelLaunchWords`), and what a model
+  id is, upstream's `isModelId` (`isAgentModelId`: one word, no whitespace),
+  which `kolu-work` checks a typed model by so it never records one a launch
+  would refuse. Each harness says all of it in its own adapter upstream; kolu
+  holds no table of list commands, model flags or model names. padi runs it
+  (`agentDistro.models`); a failure is the runner's error, never an empty list.
 - `./profileFile` — a BUILT profile's `share/agent-distro/profile.json` (its
   name and description; the fields a launch reads are upstream's) and its
   parser. kolu-server reads it off each profile it builds.

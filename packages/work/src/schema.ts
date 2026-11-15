@@ -359,6 +359,17 @@ export const DecisionAnswerSchema = Schema.Struct({
 });
 export type DecisionAnswer = typeof DecisionAnswerSchema.Type;
 
+/** AN ANSWER TO ONE OF KOLU'S OWN QUESTIONS — one value or none, never words
+ *  beside it: the value is one of kolu's options (or, for a harness that
+ *  cannot list its models, the one model id typed), so it is `picked`, and
+ *  there is no `text` for a second answer to hide in. */
+export const KoluChoiceAnswerSchema = Schema.Struct({
+  ...DecisionAnswerSchema.fields,
+  picked: Schema.Union([Schema.Tuple([]), Schema.Tuple([Schema.String])]),
+  text: Schema.Null,
+});
+export type KoluChoiceAnswer = typeof KoluChoiceAnswerSchema.Type;
+
 /** What every decision carries, asked or answered. One ask (a form) can hold
  *  several questions — the setup is one form — so `ask` is the form's id and
  *  `id` is this question's own. */
@@ -404,7 +415,9 @@ const offeredFields = {
 
 /** A question whose options are KOLU'S ({@link KOLU_CHOICE_KEYS}): no options
  *  and no `multiple` — there is nowhere to write either, so a stored copy of
- *  a model list, or a role run on two harnesses, is not a value. */
+ *  a model list is not a value — and its answer is one value
+ *  ({@link KoluChoiceAnswerSchema}), so neither is a role run on two
+ *  harnesses. */
 const koluChoiceFields = {
   ...questionFields,
   key: KoluChoiceKeySchema,
@@ -435,7 +448,7 @@ export const AnsweredSchema = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("answered"),
     ...koluChoiceFields,
-    answer: DecisionAnswerSchema,
+    answer: KoluChoiceAnswerSchema,
   }),
 ]);
 export type Answered = typeof AnsweredSchema.Type;

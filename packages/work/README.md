@@ -49,13 +49,18 @@ observes as events.
 **Two kinds of question, by who offers the options.** A decision whose key is
 one of `KOLU_CHOICE_KEYS` — a role's harness or model — is one kolu draws the
 options for, live: the harnesses this kolu carries, and what that harness
-offers on the work's host. Its decision has no `options` and no `multiple`, so
-a stored model list (one that goes stale the day the host's agents update) or
-a role run on two harnesses is not a value. Every other decision keeps the
-asker's `options`. An answer to a kolu question is checked where it is recorded
-(`unofferedAnswers`, against the `KoluChoices` the recorder read live), and the
-last answers a form preselects are read off the saved works (`setupMemory`),
-never off a conversation.
+offers on the work's host. Its decision has no `options` and no `multiple`, and
+its answer is ONE value (`picked` holds at most one, `text` is always `null`),
+so a stored model list (one that goes stale the day the host's agents update)
+or a role run on two harnesses is not a value. Every other decision keeps the
+asker's `options`. ONE RULE judges a kolu answer (`judgeAnswer`): a harness this
+kolu carries; a model its harness listed, or — for a harness that cannot list —
+a model id, upstream agent-distro's own rule (`modelNotOffered`). It runs where
+an answer is recorded (`unofferedAnswers`), and again on a SAVED answer when its
+agent starts and when `work_open` decides what to ask (`unofferedSaved`); the
+words are `unofferedWhy` / `unofferedWords`. The last answers a form preselects
+are read off the saved works (`setupMemory`), never off a conversation — a
+model is that role's own last one with that harness first.
 
 ## What is here
 
@@ -66,7 +71,7 @@ never off a conversation.
 | `record.ts` | the transitions: `openWork`, `askQuestions`, `answerAsk`, `dropAsk`, `joinWork`, `leaveWork`, `recordEvent`, `takeOver`/`handBack`, `endWork`, `reopenWork`, `keepFiles`/`keepFailed` — the record only grows, bounded by `AGENT_STATES_KEPT`; `openAsks`/`hasOpenAsk` derive what is still waiting on a person |
 | `readings.ts` | the MECHANISM of a reading: what a decision came to (`answerValue`), the decisions of one ask, the PR as the timeline last said it (`prOf`) with the one check table (`CHECK_STEP`), the key a timeline holds at most one of (`checkKey`, `checksSeen` — one per kind per head commit, off the event's own `pr` and `head` fields), the files seen |
 | `folds.ts` | `waitingOn`, `standing`, `timeBar`, `timeSpent`, `took`, `lifetime`, `inProgress`/`finished` over `WorkRow`, `capFinished` — each taking a `Policy` (what the waterfall's words mean for this work) rather than reading the setup itself |
-| `waterfall.ts` | the WORDS and every rule over them: `MODE_RUNS` (what each mode runs, needs and drives), `rolesOf`, `setupKeyOf`, `roleOfKey`, `roleRank`, `modeOf`/`onGreenOf`/`setupOf`, `missingSetup` + `foreignSetupWords`, the kolu-choice rules (`harnessForModel`, `modelHarnessesOf`, `unofferedAnswers`, `setupMemory`), `driverOf`, `membershipOf`, `waitingOnYou`, `policyOf`, and where a work's files live (`WATERFALL_DIR`, `waterfallFileName`) |
+| `waterfall.ts` | the WORDS and every rule over them: `MODE_RUNS` (what each mode runs, needs and drives), `rolesOf`, `setupKeyOf`, `roleOfKey`, `roleRank`, `modeOf`/`onGreenOf`/`setupOf`, `missingSetup` + `foreignSetupWords`, the kolu-choice rules (`harnessForModel`, `modelHarnessesOf`, `modelNotOffered`, `unofferedAnswers`, `savedModelHarnessesOf`, `unofferedSaved`, `koluKeysOf`, `unofferedWhy`/`unofferedWords`, `setupMemory`), `driverOf`, `membershipOf`, `waitingOnYou`, `policyOf`, and where a work's files live (`WATERFALL_DIR`, `waterfallFileName`) |
 | `refusal.ts` | why a call about a work is refused — `WORK_REFUSALS` and the `WorkRefusal` every face `instanceof`s |
 
 **Four rules JSON cannot state, in one constructor.** Everything else is the
@@ -119,7 +124,9 @@ be cleared and the work in flight is picked up by the next one.
 It also changes on its own clock (Löwy): the vocabulary of a piece of work —
 its events, its decisions, its outcomes — moves when the *process* moves, not
 when ACP, the MCP SDK, padi's frames or the browser's layout do. Every one of
-those depends on this package; it depends on none of them.
+those depends on this package; it depends on none of them. The one rule it
+reads from outside is what a model id is, upstream agent-distro's
+(`@kolu/agent-distro/models`), so a model kolu records is one a launch takes.
 
 It is **not** an `@kolu/*` receptacle: it knows PRs, CI and the waterfall's
 roles, so it fails the electricity doc's domain-agnostic test on purpose. It is

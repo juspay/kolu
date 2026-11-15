@@ -57,9 +57,7 @@ import {
   onGreenOf,
   policyOf,
   roleOfKey,
-  setupOf,
   standing,
-  WorkRefusal,
 } from "kolu-work";
 import { dirname } from "node:path";
 import type { KoluBootFlags } from "./bootFlags.ts";
@@ -772,42 +770,11 @@ export async function bootKoluWeb(flags: KoluBootFlags): Promise<void> {
         await liveServerConductor().openWork(intent, offer);
       return { work, ...setup, ask, asked, created, reopened };
     },
-    // WHAT A PLANNER OR IMPLEMENTOR STARTS, read off the work's own answers —
-    // the face builds the command from this and the host's word on how the
-    // harness takes a model, so there is one source for it.
-    startOf: (work, role) => {
-      const found = liveServerConductor()
-        .works()
-        .find(([id]) => id === work)?.[1];
-      if (found === undefined)
-        throw new WorkRefusal(
-          "unknown-work",
-          `There is no piece of work called ${JSON.stringify(work)} — open it with \`work_open\` first. Nothing was created.`,
-        );
-      if (found.state.kind === "ended")
-        throw new WorkRefusal(
-          "work-ended",
-          `The piece of work ${JSON.stringify(work)} has ended, so nothing more is started for it. Nothing was created.`,
-        );
-      const setup = setupOf(found);
-      const part = setup.roles.find((one) => one.role === role);
-      if (
-        found.key.kind !== "branch" ||
-        part === undefined ||
-        part.harness === null ||
-        part.model === null
-      )
-        throw new WorkRefusal(
-          "missing-setup",
-          `The ${role} of «${found.title}» has no harness and model answered yet, so kolu has nothing to start it with. Wait for the human's answer — kolu wakes you with it. Nothing was created.`,
-        );
-      return {
-        host: found.key.host,
-        repo: found.key.repo,
-        harness: part.harness,
-        model: part.model,
-      };
-    },
+    // WHAT A PLANNER OR IMPLEMENTOR STARTS, read off the work's own answers
+    // and judged again against kolu's offer — the face builds the command
+    // from this, so there is one source for it.
+    startOf: (work, role) =>
+      liveServerConductor().startOf(work, role, koluOffer().offer),
     stop: (work) => {
       liveServerConductor().stopWork(work, "conductor");
     },

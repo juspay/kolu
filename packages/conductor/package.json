@@ -19,6 +19,7 @@
   "dependencies": {
     "@kolu/acp": "workspace:*",
     "@kolu/acp-harness": "workspace:*",
+    "@kolu/agent-distro": "workspace:*",
     "@kolu/padi-client": "workspace:*",
     "@kolu/surface": "workspace:*",
     "@kolu/terminal-vocab": "workspace:*",

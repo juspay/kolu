@@ -90,6 +90,7 @@ import {
 } from "kolu-conductor";
 import { KOLU_FLEET_EXPOSE, KOLU_FLEET_TOOL_NAMES } from "kolu-mcp";
 import {
+  type Decision,
   type DecisionAnswer,
   driverOf,
   isAnswered,
@@ -439,6 +440,10 @@ interface TestOffer {
   readonly modelAsks: () => ReadonlyArray<string>;
 }
 
+/** How every harness of this test offer takes a model — the host's word, the
+ *  part a start reads its launch off. */
+const MODEL_FLAG = { kind: "flag", flag: "--model" } as const;
+
 const koluOffers = (): TestOffer => {
   const modelAsks: string[] = [];
   return {
@@ -447,8 +452,13 @@ const koluOffers = (): TestOffer => {
       models: async ({ host, repo, harness }) => {
         modelAsks.push(`${harness}@${host}:${repo}`);
         if (harness === OMP)
-          return { kind: "listed", ids: OMP_MODELS } as const;
-        if (harness === UNLISTING) return { kind: "unlisted" } as const;
+          return {
+            harness,
+            launch: MODEL_FLAG,
+            models: { kind: "listed", ids: OMP_MODELS },
+          };
+        if (harness === UNLISTING)
+          return { harness, launch: MODEL_FLAG, models: { kind: "unlisted" } };
         if (harness === BRITTLE) throw new Error(BRITTLE_WORDS);
         throw new Error(`${host} has no harness called ${harness}`);
       },
@@ -2990,6 +3000,177 @@ describe("opening a piece of work", () => {
       expect(setupOf(theWork(r)).roles).toEqual([
         { role: "implementor", harness: OMP, model: OMP_MODELS[1] },
       ]);
+    });
+
+    it("refuses a typed model that is not a model id, and says why", async () => {
+      const r = rig();
+      await asked(r);
+      const { work, ask } = await opening(r);
+      // ANY MODEL for a harness that cannot list — but a model id, which is
+      // one word: words with a space in them are no launch's argument, so
+      // they are refused here rather than at the terminal.
+      const refusal = r.host.answerWork(
+        {
+          work,
+          ask,
+          from: "card",
+          values: new Map([
+            [fieldOf(r, "mode"), ["trivial"]],
+            [fieldOf(r, "implementor.harness"), [UNLISTING]],
+            [fieldOf(r, "implementor.model"), ["fable 5.2"]],
+            [fieldOf(r, "on-green"), ["merge"]],
+          ]),
+        },
+        r.offer,
+      );
+      await expect(refusal).rejects.toMatchObject({ kind: "not-offered" });
+      await expect(refusal).rejects.toThrow(
+        /implementor\.model: "fable 5\.2" is not a model id — a model id is one word, with no spaces/,
+      );
+      expect(stillAsked(r)).toHaveLength(6);
+    });
+  });
+
+  describe("a saved setup kolu no longer offers", () => {
+    /** One setup answer as a store written before kolu drew these options
+     *  holds it, once the ladder has made it one value. */
+    const saved = (key: SetupKey, value: string): Decision =>
+      isKoluChoiceKey(key)
+        ? {
+            kind: "answered",
+            id: `old-${key}`,
+            ask: "old-setup",
+            at: T0,
+            key,
+            header: "",
+            question: `${key}?`,
+            file: "",
+            answer: {
+              at: T0,
+              how: "answered",
+              picked: [value],
+              text: null,
+              from: "card",
+            },
+          }
+        : {
+            kind: "answered",
+            id: `old-${key}`,
+            ask: "old-setup",
+            at: T0,
+            key,
+            header: "",
+            question: `${key}?`,
+            file: "",
+            options: [value],
+            multiple: false,
+            answer: {
+              at: T0,
+              how: "answered",
+              picked: [value],
+              text: null,
+              from: "card",
+            },
+          };
+
+    /** THE HUMAN'S OWN OPEN WORK, as their store holds it: a planner model
+     *  they TYPED as words (`fable 5.2`), and an implementor model in the
+     *  spelling it had before the harness listed it with its provider. */
+    const legacy = (): Work =>
+      storedWork({
+        decisions: [
+          saved("mode", "full"),
+          saved("planner.harness", UNLISTING),
+          saved("planner.model", "fable 5.2"),
+          saved("implementor.harness", OMP),
+          saved("implementor.model", "claude-opus-5-5"),
+          saved("on-green", "hand-over"),
+        ],
+      });
+
+    /** The field a question still waiting on the human is answered under —
+     *  the NEW ask, beside the old answer it replaces. */
+    const openField = (r: Rig, key: SetupKey): string => {
+      const decision = theWork(r).decisions.find(
+        (one) => one.key === key && one.kind === "asked",
+      );
+      if (decision === undefined) throw new Error(`${key} is not being asked`);
+      return decision.id;
+    };
+
+    it("is refused at start, asked again by `work_open`, and starts once answered", async () => {
+      const r = rig({ works: storedWorks(legacy()) });
+      await asked(r);
+      const id = theWorkId(r);
+
+      // REFUSED AT START, in words: which answer, and why — never a command
+      // typed into a terminal, never a defect.
+      const planner = r.host.startOf(id, "planner", r.offer);
+      await expect(planner).rejects.toBeInstanceOf(WorkRefusal);
+      await expect(planner).rejects.toMatchObject({ kind: "not-offered" });
+      await expect(planner).rejects.toThrow(
+        /planner\.model: "fable 5\.2" is not a model id/,
+      );
+      await expect(planner).rejects.toThrow(/Call `work_open`/);
+      await expect(r.host.startOf(id, "implementor", r.offer)).rejects.toThrow(
+        new RegExp(
+          `implementor\\.model: "claude-opus-5-5" is not a model ${OMP} offers on local`,
+        ),
+      );
+
+      // ASKED AGAIN — only the two that no longer stand, each with what it
+      // was and why. The harnesses and the mode are still answers.
+      const opened = await r.host.openWork(
+        { key: workKey(), title: "fix the parser", setup: fullSetup },
+        r.offer,
+      );
+      expect(opened.created).toBe(false);
+      expect(opened.asked).toBe(true);
+      const reasked = theWork(r).decisions.filter(
+        (one) => one.kind === "asked",
+      );
+      expect(reasked.map((one) => one.key)).toEqual([
+        "planner.model",
+        "implementor.model",
+      ]);
+      expect(reasked[0]?.question).toBe(
+        'Which model does the planner run on? It was "fable 5.2", which is not a model id — a model id is one word, with no spaces.',
+      );
+      expect(reasked[1]?.question).toBe(
+        `Which model does the implementor run on? It was "claude-opus-5-5", which is not a model ${OMP} offers on local.`,
+      );
+
+      await r.host.answerWork(
+        {
+          work: opened.work,
+          ask: opened.ask,
+          from: "card",
+          values: new Map([
+            [openField(r, "planner.model"), ["claude-fable-5-2"]],
+            [openField(r, "implementor.model"), [OMP_MODELS[0]]],
+          ]),
+        },
+        r.offer,
+      );
+
+      // ... and STARTS, on the new answer and the host's launch.
+      await expect(r.host.startOf(id, "planner", r.offer)).resolves.toEqual({
+        host: "local",
+        repo: "/srv/repo",
+        harness: UNLISTING,
+        model: "claude-fable-5-2",
+        launch: MODEL_FLAG,
+      });
+      await expect(
+        r.host.startOf(id, "implementor", r.offer),
+      ).resolves.toMatchObject({ harness: OMP, model: OMP_MODELS[0] });
+
+      // A work whose answers all stand asks nothing more.
+      const again = await r.host.openWork(
+        { key: workKey(), title: "fix the parser", setup: fullSetup },
+        r.offer,
+      );
+      expect(again.asked).toBe(false);
     });
   });
 });

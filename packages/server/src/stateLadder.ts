@@ -1348,31 +1348,35 @@ const KOLU_CHOICE_KEYS_1_54_0: ReadonlySet<string> = new Set([
 ]);
 
 /** The 1.54.0 rung — THE CONDUCTOR NO LONGER OFFERS OPTIONS FOR A ROLE'S
- *  HARNESS OR ITS MODEL, so the decisions that stored them lose the copy.
+ *  HARNESS OR ITS MODEL, and an answer to one of those questions is now ONE
+ *  VALUE. Two rewrites, same rung: it has not shipped.
  *
  *  A decision whose `key` is one of {@link KOLU_CHOICE_KEYS_1_54_0} has no
  *  `options` and no `multiple` any more: the harnesses are the agent-distro
  *  listing this kolu carries, and the models are what the work's HOST answers
  *  for the chosen harness, asked for when the form is drawn and never saved
- *  (a saved model list goes stale the day that host's agents update). So the
- *  stored `works` record is rewritten: for every decision with one of those
- *  keys, ASKED OR ANSWERED, both fields are deleted. Everything else — every
- *  other decision, the events, the state, the members — is untouched, and a
- *  `mode` or `on-green` decision keeps the options its asker gave.
+ *  (a saved model list goes stale the day that host's agents update). So for
+ *  every decision with one of those keys, ASKED OR ANSWERED, both fields are
+ *  deleted. That is what keeps an OPEN form answerable: a question still
+ *  carrying the Conductor's own options becomes one kolu draws the options
+ *  for, which is the only shape the form can now be answered in.
  *
- *  THIS IS WHAT KEEPS AN OPEN FORM ANSWERABLE. A work opened before this
- *  change may have an OPEN setup question still carrying the Conductor's own
- *  options; dropping them turns it into a question kolu draws the options for,
- *  which is the only shape the form can now be answered in. An ANSWERED
- *  decision keeps its `answer.picked` verbatim — that is what the readings
- *  read to say which harness and which model a role runs on, and nothing here
- *  touches it.
+ *  AN ANSWERED one is also normalized, because the kolu-choice answer schema
+ *  now admits at most one `picked` and `text: null`. The value kept is the
+ *  one the 1.53.0 reading took — `answer.picked[0]` if there was one, else
+ *  `answer.text` — written back as `picked: [value]`, `text: null`; a
+ *  declined or dropped answer becomes `picked: [], text: null`. The value is
+ *  kept VERBATIM, neither trimmed nor checked: a typed `"fable 5.2"` stays
+ *  what it was, and kolu refuses it by name when the role starts and asks
+ *  again. `at`, `how` and `from` are untouched, as is every other decision —
+ *  a `mode` or `on-green` decision keeps its options and its typed text.
  *
- *  IDEMPOTENT: a decision with neither field is left exactly as it is, and a
- *  store with no such decision is not written back at all. The works record
- *  is a keyed object at 1.53.0 (`{ [workId]: Work }`) and is read as untyped
- *  JSON, like every rung before it. The transcript file's row shape does not
- *  change, so `TRANSCRIPT_FILE_VERSION` stays at 1.53.0.
+ *  IDEMPOTENT: a decision already in that shape — no `options`, no
+ *  `multiple`, at most one `picked`, `text` null — is returned as the same
+ *  object, and a store with nothing to change is not written back at all. The
+ *  works record is a keyed object at 1.53.0 (`{ [workId]: Work }`) and is read
+ *  as untyped JSON, like every rung before it. The transcript file's row shape
+ *  does not change, so `TRANSCRIPT_FILE_VERSION` stays at 1.53.0.
  *
  *  Exported for `stateMigration.test.ts`. */
 export function dropKoluChoiceOptions_1_54_0(
@@ -1394,10 +1398,14 @@ export function dropKoluChoiceOptions_1_54_0(
       if (decision === null) return one;
       if (typeof decision.key !== "string") return one;
       if (!KOLU_CHOICE_KEYS_1_54_0.has(decision.key)) return one;
-      if (!("options" in decision) && !("multiple" in decision)) return one;
+      const answer =
+        decision.kind === "answered" ? recordOf(decision.answer) : null;
+      const normalized = answer === null ? null : normalizeChoiceAnswer(answer);
+      const strip = "options" in decision || "multiple" in decision;
+      if (!strip && normalized === null) return one;
       touched = true;
       const { options: _options, multiple: _multiple, ...rest } = decision;
-      return rest;
+      return normalized === null ? rest : { ...rest, answer: normalized };
     });
     if (!touched) {
       next[id] = value;
@@ -1408,6 +1416,30 @@ export function dropKoluChoiceOptions_1_54_0(
   }
   if (!changed) return;
   store.set("works", next as unknown as PersistedState["works"]);
+}
+
+/** The one-value rewrite of a stored kolu-choice answer, or `null` when it
+ *  already is one. Untyped JSON: anything that is not the shape this reads is
+ *  left to the schema to refuse. */
+function normalizeChoiceAnswer(
+  answer: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const picked = Array.isArray(answer.picked) ? answer.picked : [];
+  const value =
+    answer.how === "answered"
+      ? picked.length > 0
+        ? picked[0]
+        : (answer.text ?? null)
+      : null;
+  const nextPicked = value === null ? [] : [value];
+  if (
+    answer.text === null &&
+    picked.length === nextPicked.length &&
+    picked[0] === nextPicked[0]
+  ) {
+    return null;
+  }
+  return { ...answer, picked: nextPicked, text: null };
 }
 
 /** The migration ladder — hoisted so {@link decodeStateBackup}'s scratch

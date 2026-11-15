@@ -2,24 +2,25 @@
  * THE COMMAND A PLANNER OR IMPLEMENTOR STARTS WITH — built by kolu from the
  * work's saved setup, never written by the Conductor.
  *
- * The harness and the model are the human's answers on the work
- * ({@link FleetWorks.startOf}); how that harness takes a model is the host's
- * own word, upstream's adapter answering `agent-distro --models` through padi
- * (`agentDistro.models`). So the one place a model flag is spelled is the
- * harness's adapter in agent-distro, and the one source of a waterfall agent's
- * command is this module: a planner started with a command that disagrees
- * with its setup is not something `lifecycle_create` can be asked for.
+ * The harness and the model are the human's answers on the work, judged
+ * again against what kolu offers on the work's host, and how that harness
+ * takes a model is the host's own word — upstream's adapter answering
+ * `agent-distro --models` through padi ({@link FleetWorks.startOf}). So the
+ * one place a model flag is spelled is the harness's adapter in agent-distro,
+ * and the one source of a waterfall agent's command is this module: a planner
+ * started with a command that disagrees with its setup, or on a saved answer
+ * kolu no longer offers, is not something `lifecycle_create` can be asked
+ * for.
  */
 
 import {
-  modelLaunchWords,
   type AgentModelLaunch,
+  modelLaunchWords,
 } from "@kolu/agent-distro/models";
 import { shellJoin, shellQuoteArg } from "@kolu/shell-quote";
 import { ToolFailure } from "@kolu/surface-mcp/tools";
 import { Effect } from "effect";
 import { type WaterfallRole, WorkRefusal } from "kolu-work";
-import { type FleetHosts, requireHost } from "./hosts.ts";
 import type { FleetWorks } from "./works.ts";
 
 /** The shell line that starts `harness` on `model`: the environment the
@@ -39,9 +40,8 @@ export function startCommand(
 }
 
 /** The `run` a planner or implementor of `work` is created with, on `host` —
- *  or the refusal that says why there is none yet. */
+ *  or the refusal that says why there is none. */
 export function waterfallRun(
-  hosts: FleetHosts,
   works: FleetWorks,
   call: {
     readonly work: string;
@@ -50,7 +50,7 @@ export function waterfallRun(
   },
 ): Effect.Effect<string, ToolFailure> {
   return Effect.gen(function* () {
-    const start = yield* Effect.try({
+    const start = yield* Effect.tryPromise({
       try: () => works.startOf(call.work, call.role),
       catch: (err: unknown) =>
         err instanceof WorkRefusal
@@ -73,22 +73,6 @@ export function waterfallRun(
         ),
       );
     }
-    const padi = yield* requireHost(hosts, start.host);
-    const models = yield* Effect.mapError(
-      padi.surface.agentDistro.models({
-        harness: start.harness,
-        cwd: start.repo,
-      }),
-      (err: unknown) =>
-        new ToolFailure(
-          `kolu cannot start the ${call.role} on ${start.harness}: ${err instanceof Error ? err.message : String(err)}`,
-          {
-            kind: "models-unavailable",
-            work: call.work,
-            harness: start.harness,
-          },
-        ),
-    );
-    return startCommand(start.harness, models.launch, start.model);
+    return startCommand(start.harness, start.launch, start.model);
   });
 }

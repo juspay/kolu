@@ -511,6 +511,9 @@ importers:
       '@kolu/acp-harness':
         specifier: workspace:*
         version: link:../acp-harness
+      '@kolu/agent-distro':
+        specifier: workspace:*
+        version: link:../agent-distro
       '@kolu/padi-client':
         specifier: workspace:*
         version: link:../padi-client
@@ -2862,6 +2865,9 @@ importers:
 
   packages/work:
     dependencies:
+      '@kolu/agent-distro':
+        specifier: workspace:*
+        version: link:../agent-distro
       effect:
         specifier: 4.1.4
         version: 4.1.4

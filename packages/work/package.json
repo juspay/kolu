@@ -15,6 +15,7 @@
     "test:unit": "vitest run"
   },
   "dependencies": {
+    "@kolu/agent-distro": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

@@ -13,7 +13,7 @@ import {
   type Answered,
   type Asked,
   type Decision,
-  type DecisionAnswer,
+  type KoluChoiceAnswer,
   handBack,
   membershipOf,
   SETUP_KEYS,
@@ -61,14 +61,17 @@ const asked = (over: Partial<Asked> = {}): Asked => ({
   ...over,
 });
 
-function answered(pick: string): DecisionAnswer {
+/** One picked value and no words beside it — the answer shape BOTH arms
+ *  take, so one fixture serves a setup key kolu draws the options for and any
+ *  other question. */
+function answered(pick: string): KoluChoiceAnswer {
   return { at: AT, how: "answered", picked: [pick], text: null, from: "chat" };
 }
 
 /** An answered decision — the other arm of the sum, which is the only way to
  *  carry an answer at all. */
 const settled = (
-  answer: DecisionAnswer,
+  answer: KoluChoiceAnswer,
   over: Partial<Asked> = {},
 ): Answered => ({ ...asked(over), kind: "answered", answer });
 

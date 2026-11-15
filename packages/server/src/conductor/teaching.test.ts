@@ -135,19 +135,25 @@ describe("the waterfall's setup questions", () => {
     );
   });
 
-  it("asks the harness and the model as two questions, not one command line", () => {
-    expect(SCRIPT).toContain("which HARNESS runs the implementor");
-    expect(SCRIPT).toContain("which MODEL that harness runs on");
-    expect(SCRIPT).toContain("as a question of its own");
-    // …and the command line is the Conductor's to assemble from the two.
+  it("leaves the harness and the model to kolu, and never writes the command", () => {
+    // The defect this guards: a Conductor suggesting harnesses and models of
+    // its own, and typing flags it guessed — kolu offers what that host has
+    // installed and starts the agent on what the human chose.
+    expect(SCRIPT).toContain("The harness and model questions are kolu's");
+    expect(SCRIPT).toContain("kolu offers what is installed on that host");
+    expect(SCRIPT).not.toContain("you write the flags");
     expect(SCRIPT).toContain(
-      "YOU build the command line out of the harness and the model",
+      "kolu starts the harness and model the human chose",
+    );
+    // ... and a saved answer kolu will not start has one way out.
+    expect(SCRIPT).toContain(
+      "call `work_open` for that work again: kolu asks the human that question again",
     );
   });
 
-  it("offers the previous answers first and still asks", () => {
-    expect(SCRIPT).toContain("OFFER IT FIRST");
-    expect(SCRIPT).toContain("never skip the asking because you asked before");
+  it("still asks every waterfall, with last time's answers offered first by kolu", () => {
+    expect(SCRIPT).toContain("Never skip the asking because you asked before");
+    expect(SCRIPT).toContain("kolu offers last time's answers first");
   });
 
   it("asks WHICH HOST, and never lets a path or its own machine answer that", () => {
