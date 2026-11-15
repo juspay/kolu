@@ -365,8 +365,11 @@ it revise the plan, and ask again. Nothing is built before the human approves.
 
 The implementor. In a full waterfall this comes only after approval: have the
 planner write the brief to `.waterfall/brief.md` — the plan, the repo's own
-rules, no question tool, open a PR whose title and body are interesting to
-read, and stop when the PR is open — and then open the implementor as a split
+rules, no question tool, open a PR with an interesting title and a short body
+a reader finishes (what changes for a person using it, and why, in a few
+lines, not every decision, file and test; a decision it made on its own goes
+in a comment on the PR instead), and stop when the PR is open — and then open
+the implementor as a split
 of the planner, in the same worktree: `lifecycle_create` with `placement`
 `{"kind":"child-of","parentId":"<the planner's host/id>"}`, `cwd` set to the
 worktree, and this work's id with
@@ -381,7 +384,10 @@ chose in setup — `lifecycle_create` with
 `implementor` — and when it wakes
 you as `ready`, SAY the brief with
 `agent_say`: the human's request in full, the repo's own rules, no question
-tool, open a PR whose title and body are interesting to read, stop when the
+tool, open a PR with an interesting title and a short body a reader finishes
+(what changes for a person using it, and why, in a few lines, not every
+decision, file and test; a decision it made on its own goes in a comment on
+the PR instead), stop when the
 PR is open, make one final refactor pass before that, and run CI once the way
 the repo's own instructions say.
 
