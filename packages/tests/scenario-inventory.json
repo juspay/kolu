@@ -11446,6 +11446,42 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "5f9232e9b50c60034f4efa5d3e7d8ae722cabc3a"
+    },
+    {
+      "revisionId": "revision-ae95fa9d26f4124b1286",
+      "scenarioKey": "scenario-d6587d3210a2ef288e02",
+      "feature": "features/canvas.feature",
+      "scenario": "Covered tiles stay hidden in maximized mode",
+      "kind": "scenario",
+      "tags": [],
+      "bodyHash": "2bf878242f19b7c9f31124bca79856b010af9cd313f8aa58669f904d4c5e0268",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b219d3ca1039fc64e1e983af840884d035b542cc"
+    },
+    {
+      "revisionId": "revision-077fcdc67984b3d4beb2",
+      "scenarioKey": "scenario-8889456d5b8e0895a9d2",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "Maximizing, switching which tile is maximized, and restoring",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "bd52880b447d167746532163273abff11d2f6752350910477217ff5449660cff",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b219d3ca1039fc64e1e983af840884d035b542cc"
+    },
+    {
+      "revisionId": "revision-32d8b3cd0aef592e3477",
+      "scenarioKey": "scenario-2f755196006e935128dc",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "One tile is maximized over another and restored",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "9afa9f4e1bef6bbacd5b1526725fddf85be61a5d7587a9923919dbd1a4bc45e6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "b219d3ca1039fc64e1e983af840884d035b542cc"
     }
   ]
 }

@@ -151,16 +151,25 @@ const TerminalContent: Component<{
   const sizes = controlledSizes(fractions);
 
   function handleSizesChange(sizes: number[]) {
-    // ONLY A GESTURE PERSISTS. Corvu reports sizes for its own reasons too —
-    // a panel registering on mount, a re-emit of the current value, the
-    // programmatic transition a tile performs when it learns it has a split —
-    // and persisting those is how a MOUNT came to write the split's state
-    // (kolu#2362). The same intent latch its two siblings below have always
-    // used, for the reason stated above them.
-    if (!resizeIntent) return;
-    // `> 0.02` ignores the tiny `[1, 0]` values Corvu fires during
-    // programmatic transitions (e.g. expand from collapsed), which would
-    // immediately re-collapse the panel.
+    // THE LATCH IS NOT THE INSTRUMENT HERE, and using it was a regression. A
+    // drag is many reports, and the latch can only say that A gesture is in
+    // progress — in a real browser it was being cleared partway through one
+    // (the handle is a focusable button that loses focus, loses its pointer
+    // capture, or is blurred mid-drag), after which every later report of the
+    // same drag was dropped and the divider stopped moving (kolu#2362).
+    //
+    // What makes a report safe to persist is the VALUE, and that is now
+    // decidable because the record is the one source. A mount can no longer
+    // report a stale default — `fractions()` is derived from the record, so
+    // Corvu is handed, and echoes back, exactly what is already saved, and
+    // `SplitPanelStore.write` drops a write of the value already shown. Only a
+    // report that genuinely differs — a drag, a keyboard nudge, a clamp of a
+    // saved value this tile cannot realise — reaches the server.
+    //
+    // `> 0.02` still ignores the tiny `[1, 0]` values Corvu fires during a
+    // programmatic transition (expand from collapsed), which would otherwise
+    // persist a collapse as a zero-height divider. The collapse ITSELF is
+    // still latched, below: that is one report, not a stream of them.
     const s = realSizes(sizes);
     if (s && s[1] > 0.02) {
       subPanel.setPanelSize(props.terminalId, s[1]);

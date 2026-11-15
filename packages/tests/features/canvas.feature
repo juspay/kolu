@@ -559,13 +559,17 @@ Feature: Canvas workspace
     # a covered tile that only carries inert/aria-hidden paints at its canvas
     # coords — the whole freeform canvas flashing for a frame (#989 dropped
     # the pre-#988 visibility:hidden). This asserts the intrinsic-hide
-    # invariant that prevents the flash.
+    # invariant that prevents the flash — and, since kolu#2362, that a covered
+    # tile is HELD at its own rect rather than stretched to the maximized
+    # tile's box, which is what keeps its program from being resized for a
+    # screen nobody is looking at.
     Given I create a terminal
     Then there should be 2 canvas tiles
-    When I double-click the title bar of canvas tile 1
+    When I note every canvas tile's box
+    And I double-click the title bar of canvas tile 1
     Then canvas tile 1 should be maximized
     Then every non-maximized canvas tile should be hidden
-    And every covered canvas tile should occupy the maximized tile's box
+    And every covered canvas tile should keep the box it had
     And there should be no page errors
 
   Scenario: A tile parked off the canvas stops taking output until you look again

@@ -231,6 +231,18 @@ describe("dragging the split divider", () => {
     expect(h.setSubPanel).not.toHaveBeenCalled();
   });
 
+  it("mounts a COLLAPSED split without writing it open", () => {
+    // kolu#2362's second defect: the first mount after a collapse used to
+    // persist the sizes its own programmatic transition produced, and the
+    // collapse was gone for good. Nothing here is latched — the record is the
+    // source, so Corvu is handed the collapse and echoes it straight back.
+    record.setValue({ subPanel: { collapsed: true, panelSize: 0.3 } });
+    mountContent();
+
+    expect(paneFractions()).toEqual([1, 0]);
+    expect(h.setSubPanel).not.toHaveBeenCalled();
+  });
+
   it("never saves a zero divider from a drag to the bottom", () => {
     mountContent();
 

@@ -107,9 +107,12 @@ interface MarkedPane {
 
 let marked: MarkedPane[] = [];
 
+let coveredBefore: { id: string; label: string } | undefined;
+
 After(() => {
   recorded.clear();
   marked = [];
+  coveredBefore = undefined;
   removeRecorderScript();
 });
 
@@ -695,6 +698,92 @@ Then(
   { timeout: 120_000 },
   async function (this: KoluWorld) {
     await holdQuiet(this, "the main pane", [await recordedMainPaneId(this)]);
+  },
+);
+
+/** A tile BY ROLE, not by position.
+ *
+ *  Maximizing re-points which tile is which: the roles are what the posture
+ *  scenarios actually claim about ("the one you are looking at", "the one
+ *  behind it"), and a claim addressed by DOM position silently moves to the
+ *  other tile the moment the posture changes. */
+async function tileByRole(
+  world: KoluWorld,
+  role: "maximized" | "covered",
+): Promise<string> {
+  const id = await world.page.evaluate(
+    ({ sel, role }) => {
+      const tiles = [...document.querySelectorAll(sel)];
+      const maximized = tiles.find(
+        (t) => t.getAttribute("data-maximized") === "true",
+      );
+      if (!maximized) return null;
+      if (role === "maximized")
+        return maximized.getAttribute("data-terminal-id");
+      const covered = tiles.filter((t) => t !== maximized);
+      return covered.length === 1
+        ? covered[0]?.getAttribute("data-terminal-id")
+        : null;
+    },
+    { sel: CANVAS_TILE_SELECTOR, role },
+  );
+  assert.ok(id, `there is no single ${role} tile on screen`);
+  assert.ok(recorded.has(id), `the ${role} tile (${id}) is not being recorded`);
+  return id;
+}
+
+Then(
+  "the maximized tile's program was told exactly {int} new size",
+  { timeout: 120_000 },
+  async function (this: KoluWorld, count: number) {
+    const id = await tileByRole(this, "maximized");
+    await expectTold(this, "the maximized tile", [id], count);
+  },
+);
+
+Then(
+  "the covered tile's program was told no new size",
+  { timeout: 120_000 },
+  async function (this: KoluWorld) {
+    const id = await tileByRole(this, "covered");
+    coveredBefore = { id, label: recorded.get(id)?.label ?? id };
+    await holdQuiet(this, "the covered tile", [id]);
+  },
+);
+
+Then(
+  "the tile that was covered was told no new size",
+  { timeout: 120_000 },
+  async function (this: KoluWorld) {
+    assert.ok(coveredBefore, "no tile has been covered in this scenario yet");
+    await holdQuiet(this, `${coveredBefore.label} (covered earlier)`, [
+      coveredBefore.id,
+    ]);
+  },
+);
+
+Then(
+  "every recorded program was told exactly {int} new size",
+  { timeout: 120_000 },
+  async function (this: KoluWorld, count: number) {
+    assert.ok(recorded.size > 0, "no terminal is being recorded");
+    const ids = recordedIds();
+    const told = await watchQuiet(ids);
+    const wrong = ids
+      .map((id) => ({ id, n: told.filter((t) => t.id === id).length }))
+      .filter((row) => row.n !== count)
+      .map(
+        (row) =>
+          `  ${recorded.get(row.id)?.label ?? row.id}: ${row.n}, not ${count}`,
+      );
+    assert.deepStrictEqual(
+      wrong,
+      [],
+      `every recorded program owed exactly ${count} new size:\n${wrong.join("\n")}\n` +
+        `${describeTold(told)}\n` +
+        `${await quoteResizeWire(this.page, ids)}`,
+    );
+    await rebaseline(ids);
   },
 );
 

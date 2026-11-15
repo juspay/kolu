@@ -1550,39 +1550,70 @@ Then(
   },
 );
 
-// The load-bearing invariant of #988/#989: a covered tile's border-box is
-// byte-identical to the maximized tile's, so an active-id switch in maximized
-// posture is a pure visibility/z-index swap and `Terminal`'s ResizeObserver
-// never fires `fit()`. Pin it here so a future edit that drifts the
-// maximized/covered geometry apart (e.g. giving one a border or rounded corner
-// the other lacks) re-introduces the per-switch reflow with a RED test instead
-// of silently. Match each axis within 1px using the same idiom as line 267.
+// A COVERED TILE IS LEFT WHERE IT WAS. Until kolu#2362 its box was the
+// maximized tile's, which made switching which tile is maximized free and made
+// ENTERING the posture cost one resize per covered tile — and another on the
+// way out, for a screen nobody saw. Now the canvas holds a covered tile at its
+// own rect and its panes measure nothing while it holds, so the trip costs the
+// tiles behind it nothing at all. Pin the rect ACROSS the posture change: a
+// future edit that stretches a covered tile again re-introduces that cost with
+// a RED test rather than silently.
+const notedTileBoxes = new Map<
+  string,
+  { left: number; top: number; width: number; height: number }
+>();
+
+When("I note every canvas tile's box", async function (this: KoluWorld) {
+  const boxes = await this.page.evaluate(
+    (sel: string) =>
+      [...document.querySelectorAll(sel)].map((t) => {
+        const r = (t as HTMLElement).getBoundingClientRect();
+        return {
+          id: t.getAttribute("data-terminal-id") ?? "",
+          left: r.left,
+          top: r.top,
+          width: r.width,
+          height: r.height,
+        };
+      }),
+    CANVAS_TILE_SELECTOR,
+  );
+  notedTileBoxes.clear();
+  for (const { id, ...rect } of boxes) notedTileBoxes.set(id, rect);
+  assert.ok(notedTileBoxes.size > 0, "no canvas tiles to note");
+});
+
 Then(
-  "every covered canvas tile should occupy the maximized tile's box",
+  "every covered canvas tile should keep the box it had",
   async function (this: KoluWorld) {
+    const noted = [...notedTileBoxes.entries()].map(([id, rect]) => ({
+      id,
+      ...rect,
+    }));
     await this.page.waitForFunction(
-      (sel: string) => {
+      ({ sel, noted }) => {
         const tiles = [...document.querySelectorAll(sel)] as HTMLElement[];
         const maximized = tiles.find(
           (t) => t.getAttribute("data-maximized") === "true",
         );
         if (!maximized) return false;
-        const m = maximized.getBoundingClientRect();
         const covered = tiles.filter((t) => t !== maximized);
-        return (
-          covered.length > 0 &&
-          covered.every((t) => {
-            const r = t.getBoundingClientRect();
-            return (
-              Math.abs(r.left - m.left) <= 1 &&
-              Math.abs(r.top - m.top) <= 1 &&
-              Math.abs(r.width - m.width) <= 1 &&
-              Math.abs(r.height - m.height) <= 1
-            );
-          })
-        );
+        if (covered.length === 0) return false;
+        return covered.every((t) => {
+          const was = noted.find(
+            (n) => n.id === t.getAttribute("data-terminal-id"),
+          );
+          if (!was) return false;
+          const r = t.getBoundingClientRect();
+          return (
+            Math.abs(r.left - was.left) <= 1 &&
+            Math.abs(r.top - was.top) <= 1 &&
+            Math.abs(r.width - was.width) <= 1 &&
+            Math.abs(r.height - was.height) <= 1
+          );
+        });
       },
-      CANVAS_TILE_SELECTOR,
+      { sel: CANVAS_TILE_SELECTOR, noted },
       { timeout: POLL_TIMEOUT },
     );
   },

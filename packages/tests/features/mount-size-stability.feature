@@ -207,11 +207,12 @@ Feature: A program is told a new size only when its box moved
     When every recorded program has settled
     And I mark every recorded pane
     And I double-click the title bar of canvas tile 1
-    Then canvas tile 1 should be maximized
+    Then some canvas tile should be maximized
+    And the covered tile's program was told no new size
     When I wait out the settle window
-    And I double-click the title bar of canvas tile 1
+    And I click the chrome-bar maximize toggle
     Then no canvas tile should be maximized
-    And the program in canvas tile 2 was told no new size
+    And the tile that was covered was told no new size
     # A covered tile is HELD, not rebuilt: the trip is a repaint, so the reader
     # comes back to the place they were reading.
     And every marked pane should be the same element, with no second attach
@@ -232,16 +233,15 @@ Feature: A program is told a new size only when its box moved
     When every recorded program has settled
     And I mark every recorded pane
     And I double-click the title bar of canvas tile 1
-    Then canvas tile 1 should be maximized
-    And the program in canvas tile 1 was told exactly 1 new size
-    And the program in canvas tile 2 was told exactly 0 new size
+    Then some canvas tile should be maximized
+    And the maximized tile's program was told exactly 1 new size
+    And the covered tile's program was told no new size
     When I click dock row 2
-    Then the program in canvas tile 2 was told exactly 1 new size
-    And the program in canvas tile 1 was told exactly 0 new size
+    Then the maximized tile's program was told exactly 1 new size
+    And the covered tile's program was told no new size
     When I click the chrome-bar maximize toggle
     Then no canvas tile should be maximized
-    And the program in canvas tile 1 was told exactly 1 new size
-    And the program in canvas tile 2 was told exactly 1 new size
+    And every recorded program was told exactly 1 new size
     # Every tile was resized, and NO tile was rebuilt: a posture is a change of
     # box, never a change of element.
     And every marked pane should be the same element, with no second attach

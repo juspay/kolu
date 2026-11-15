@@ -4543,7 +4543,7 @@ retirements:
     defectSurface: [terminal-resize, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-9208ff19e72e7b226800]
+    survivorRevisionIds: [revision-32d8b3cd0aef592e3477]
     sameCodePathEvidence:
       file: packages/tests/features/mount-size-stability.feature
       symbol: "Scenario: One tile is maximized over another and restored"
@@ -4595,8 +4595,47 @@ retirements:
     defectSurface: [terminal-resize, user-journey]
     destinationLayer: L5
     replacements: []
-    survivorRevisionIds: [revision-74f20e287b23844f9c0f]
+    survivorRevisionIds: [revision-077fcdc67984b3d4beb2]
     sameCodePathEvidence:
       file: packages/tests/features/mount-size-stability.feature
       symbol: "Scenario: Maximizing, switching which tile is maximized, and restoring"
       test: The revised scenario adds the element-identity and no-second-attach assertions — a posture is a change of box, never a change of element.
+  - id: revise-9208ff19e72e7b226800
+    revisionId: revision-9208ff19e72e7b226800
+    action: revised
+    status: landed
+    promise: Maximizing one tile over another leaves the covered tile's program alone
+    defectSurface: [terminal-resize, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-32d8b3cd0aef592e3477]
+    sameCodePathEvidence:
+      file: packages/tests/features/mount-size-stability.feature
+      symbol: "Scenario: One tile is maximized over another and restored"
+      test: The revised scenario addresses the tiles by ROLE (maximized / covered) rather than by DOM position, which the posture change re-points.
+  - id: revise-74f20e287b23844f9c0f
+    revisionId: revision-74f20e287b23844f9c0f
+    action: revised
+    status: landed
+    promise: A posture trip tells each program exactly the sizes the posture changed
+    defectSurface: [terminal-resize, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-077fcdc67984b3d4beb2]
+    sameCodePathEvidence:
+      file: packages/tests/features/mount-size-stability.feature
+      symbol: "Scenario: Maximizing, switching which tile is maximized, and restoring"
+      test: The revised scenario addresses the tiles by ROLE (maximized / covered) rather than by DOM position, which the posture change re-points.
+  - id: revise-42753bf17ebff862f316
+    revisionId: revision-42753bf17ebff862f316
+    action: revised
+    status: landed
+    promise: A covered tile hides itself and is left at its own box
+    defectSurface: [terminal-resize, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-ae95fa9d26f4124b1286]
+    sameCodePathEvidence:
+      file: packages/tests/features/canvas.feature
+      symbol: "Scenario: Covered tiles stay hidden in maximized mode"
+      test: The revised scenario asserts a covered tile KEEPS the box it had, the inverse of the retired stretch-to-maximized invariant (kolu#2362).
