@@ -282,6 +282,11 @@ When(
     // story.
     const perMount: string[] = [];
     let mountsThatTold = 0;
+    // The wire from the FIRST mount that told a size. Each reload is a new
+    // document, so the probe's stash is that mount's own and no other's — and
+    // the first offender is the decisive one: it is the only mount whose
+    // writes can still be acting on the state the arrange left behind.
+    let firstWire: string | null = null;
     for (let mount = 1; mount <= mounts; mount++) {
       await this.page.reload();
       await this.waitForReady();
@@ -289,18 +294,25 @@ When(
       if (told.length > 0) {
         mountsThatTold++;
         perMount.push(`  mount ${mount}:\n${describeTold(told)}`);
+        if (!firstWire) {
+          firstWire = `  the wire at mount ${mount}:\n${await quoteResizeWire(
+            this.page,
+            recordedIds(),
+          )}`;
+        }
       } else {
         perMount.push(`  mount ${mount}: nothing`);
       }
       await rebaseline();
     }
-    const report = `[mount-size] ${mounts} mounts\n${perMount.join("\n")}`;
+    const report = `[mount-size] ${mounts} mounts\n${perMount.join("\n")}${
+      firstWire ? `\n${firstWire}` : ""
+    }`;
     console.log(report);
     if (mountsThatTold > 0) {
       throw new Error(
         `${mountsThatTold} of ${mounts} mounts told a program a new size with nothing ` +
-          `about its box changed.\n${report}\n` +
-          `${await quoteResizeWire(this.page, recordedIds())}`,
+          `about its box changed.\n${report}`,
       );
     }
   },

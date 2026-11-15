@@ -39,8 +39,11 @@ import type { Page } from "playwright";
 const FRAME_CAP = 400;
 
 /** How much of one frame is kept. A snapshot frame is megabytes and says
- *  nothing this probe is for; the head carries the tag and the ids. */
-const FRAME_HEAD = 300;
+ *  nothing this probe is for; this is enough for the tag, the ids and a small
+ *  payload — a `chrome.setSubPanel` write carries its whole state in that
+ *  much, which is what makes a panel-state write readable beside the resize
+ *  it rode in with. */
+const FRAME_HEAD = 600;
 
 /** Where INCOMING frames land. `__wsSent` is a declared test hook; its
  *  inbound sibling is not, and this file must not reach into the product's
@@ -92,12 +95,15 @@ export async function installResizeWireProbe(page: Page): Promise<void> {
   await page.evaluate(PROBE_SOURCE);
 }
 
-/** What the probe saw, filtered to the frames that move a grid.
+/** What the probe saw, filtered to the frames that decide a pane's box.
  *
- *  Sent: anything naming `resizeTo` (an attach, which IS a write) or the
- *  `resize` procedure (a settled publish). Received: anything naming the
- *  terminal whose size moved — a record arrival is the candidate late input
- *  these scenarios are hunting. */
+ *  Sent: anything naming `resizeTo` (an attach, which IS a write), the
+ *  `resize` procedure (a settled publish), or `setSubPanel` (the panel state
+ *  a mount can write BACK — a split's share of the tile is half of what its
+ *  main pane measures, so a write to it belongs on the same timeline as the
+ *  resize it caused). Received: anything naming the terminal whose size
+ *  moved, or carrying panel state — a record arrival is the candidate late
+ *  input these scenarios are hunting. */
 export async function readResizeWire(
   page: Page,
   terminalIds: readonly string[],
@@ -110,10 +116,14 @@ export async function readResizeWire(
       const probed = window as unknown as Record<string, string[] | undefined>;
       return {
         sent: (window.__wsSent ?? []).filter(
-          (frame) => frame.includes("resizeTo") || frame.includes("resize"),
+          (frame) =>
+            frame.includes("resizeTo") ||
+            frame.includes("resize") ||
+            frame.includes("setSubPanel"),
         ),
-        received: (probed[key] ?? []).filter((frame) =>
-          ids.some((id) => frame.includes(id)),
+        received: (probed[key] ?? []).filter(
+          (frame) =>
+            frame.includes("subPanel") || ids.some((id) => frame.includes(id)),
         ),
       };
     },
