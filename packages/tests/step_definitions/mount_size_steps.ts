@@ -282,11 +282,17 @@ When(
     // story.
     const perMount: string[] = [];
     let mountsThatTold = 0;
-    // The wire from the FIRST mount that told a size. Each reload is a new
-    // document, so the probe's stash is that mount's own and no other's — and
-    // the first offender is the decisive one: it is the only mount whose
-    // writes can still be acting on the state the arrange left behind.
-    let firstWire: string | null = null;
+    // Two mounts' wires are kept, and each reload is a new document so a
+    // probe's stash is that mount's own and no other's:
+    //
+    //  · the FIRST mount, because it is the only one that still meets the
+    //    state the arrange left behind — a mount that writes chrome back
+    //    changes what every later mount restores, and that write is only
+    //    visible here;
+    //  · the first mount that TOLD a size, because that is the one the
+    //    verdict is about.
+    const wires: string[] = [];
+    let toldWire = false;
     for (let mount = 1; mount <= mounts; mount++) {
       await this.page.reload();
       await this.waitForReady();
@@ -294,20 +300,21 @@ When(
       if (told.length > 0) {
         mountsThatTold++;
         perMount.push(`  mount ${mount}:\n${describeTold(told)}`);
-        if (!firstWire) {
-          firstWire = `  the wire at mount ${mount}:\n${await quoteResizeWire(
-            this.page,
-            recordedIds(),
-          )}`;
-        }
       } else {
         perMount.push(`  mount ${mount}: nothing`);
       }
+      if (mount === 1 || (told.length > 0 && !toldWire)) {
+        if (told.length > 0) toldWire = true;
+        wires.push(
+          `  the wire at mount ${mount}:\n${await quoteResizeWire(
+            this.page,
+            recordedIds(),
+          )}`,
+        );
+      }
       await rebaseline();
     }
-    const report = `[mount-size] ${mounts} mounts\n${perMount.join("\n")}${
-      firstWire ? `\n${firstWire}` : ""
-    }`;
+    const report = `[mount-size] ${mounts} mounts\n${perMount.join("\n")}\n${wires.join("\n")}`;
     console.log(report);
     if (mountsThatTold > 0) {
       throw new Error(
