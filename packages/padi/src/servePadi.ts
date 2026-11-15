@@ -75,6 +75,7 @@ import { createStateWatchHub } from "./attention/stateWatch.ts";
 import { stateWatchSource } from "./attention/stateWatchStream.ts";
 import { createWatchRegistry } from "./attention/watchRegistry.ts";
 import { specOf, watchFilterOf, watchSpecOf } from "./attention/watchSpec.ts";
+import { branchPrStream } from "./branchPr.ts";
 import type {
   EndpointGrid,
   TerminalAttachFrame,
@@ -126,6 +127,7 @@ import {
   requireActiveTerminal,
   requireMutableTerminal,
   snapshotFor,
+  terminalIds,
   terminalNotFound,
 } from "./terminal-registry.ts";
 import {
@@ -350,19 +352,23 @@ export function buildPadiSurfaceDeps(deps: {
   // knowable only from the frame that still had it — so it is remembered once,
   // by the producer below, and read by both.
   const watchEdges = createEdgeMemory();
-  // HAS THIS PADI FINISHED ADOPTING? The serve-time empty seed is gated on it,
-  // once, in the `urgency` cell below — see `fleetGate.ts` for what the frame
-  // would otherwise cost each consumer — and the same fact rides the `roster`
-  // cell, because the consumer it cost most was across a wire (the Conductor's
-  // watch, reading "not listed" as "dead"; #2376). Per-serve rather than
-  // module-scoped, so a servePadi rebuild in tests starts unseeded exactly as a
-  // fresh daemon does; REGISTERED as the serving gate so the two moments that
-  // establish a roster for real — the boot's endpoint reconcile and the recycle
-  // routine — can reach it from the modules they live in.
+  // HAS THIS PADI FINISHED ADOPTING, AND WHO IS HERE? The serve-time empty seed
+  // is gated on the first half, once, in the `urgency` cell below — see
+  // `fleetGate.ts` for what the frame would otherwise cost each consumer — and
+  // both halves ride the `roster` cell as ONE value, because the consumer they
+  // cost most was across a wire (the Conductor's watch, reading "not listed" as
+  // "dead"; #2376) and a projection delivers two members apart. The census is
+  // read from the REGISTRY at publish time, which is the authority for which
+  // terminals exist. Per-serve rather than module-scoped, so a servePadi
+  // rebuild in tests starts unseeded exactly as a fresh daemon does; REGISTERED
+  // as the serving gate so the moments that move a roster for real — the boot's
+  // endpoint reconcile, the recycle routine, and each terminal registered or
+  // dropped — can reach it from the modules they live in.
   const fleetGate = createFleetGate({
     publish: (roster) => {
       padiSurfaceCtx.cells.roster.set(roster);
     },
+    census: terminalIds,
   });
   setServingFleetGate(fleetGate);
   const settleEvents = createSettleEvents({
@@ -723,6 +729,14 @@ export function buildPadiSurfaceDeps(deps: {
         },
       },
       ...fsGit.streams,
+      // THE PULL REQUEST OF A BRANCH (7.4) — the same `subscribePr` watcher the
+      // per-terminal PR sensor runs, asked about a repository and a branch
+      // instead of about a terminal. One implementation, two callers: see
+      // `./branchPr.ts` for why a branch needs a door of its own.
+      pullRequest: {
+        source: ({ repoPath, branch }) =>
+          branchPrStream({ repoPath, branch }, log),
+      },
       // The per-subscriber terminal byte stream — snapshot-first frame, then
       // live output, with the shipped overflow re-attach (#1591) riding on
       // through `reattachingDeltas`. Routed by the terminal's OWN location so a

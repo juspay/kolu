@@ -579,10 +579,18 @@ const turn = async (
     // on-green question for the human, so the card has something to answer —
     // and the call ANSWERS AT ONCE: nothing here waits on a person, and the
     // answer reaches this fixture as a wake.
-    const title = text.slice("open ".length).trim();
+    // A WORK IS A BRANCH IN A REPOSITORY, and kolu asks THAT repository about
+    // the branch's pull request — so when the scenario made a repo of its own
+    // it says which (`open <title> in <dir>`), and the work is keyed by it.
+    // A title with no `in` keeps the placeholder path: those scenarios are
+    // about cards and questions, not about a forge.
+    const said = text.slice("open ".length).trim();
+    const at = said.lastIndexOf(" in /");
+    const title = at === -1 ? said : said.slice(0, at).trim();
+    const repo = at === -1 ? "/tmp/kolu-e2e" : said.slice(at + 4).trim();
     say(`opening: ${title}`);
     const work = await openWork(title, "full", {
-      repo: "/tmp/kolu-e2e",
+      repo,
       askOnGreen: true,
     });
     say(work === null ? "nothing opened" : `opened: ${work}`);

@@ -66,17 +66,18 @@ function fakeClient(
   streams: {
     attach: FakeStream<AttachFrame>;
     exit: FakeStream<{ exitCode: number }>;
+    /** THE HOST'S CENSUS, as padi states it — the ids the `roster` cell
+     *  carries. Pushing `[]` is the terminal leaving it. */
     keys: FakeStream<string[]>;
   },
   screenText?: string,
   asked: unknown[] = [],
   /** THE HOST'S ROSTER STANDING — a padi that has not finished adopting its
    *  terminals is `settling`, and an id missing from a settling roster is no
-   *  evidence of anything. Established unless a case says otherwise. */
-  roster: { kind: "settling" } | { kind: "established"; at: number } = {
-    kind: "established",
-    at: 0,
-  },
+   *  evidence of anything. The census rides the SAME frame as the standing
+   *  (#2376), so a lost feed's membership read asks that one member.
+   *  Established unless a case says otherwise. */
+  standing: "established" | "settling" = "established",
 ): PadiSurfaceClient {
   return {
     surface: {
@@ -90,7 +91,14 @@ function fakeClient(
         // record says `active`.
         get: () => Stream.make({ state: "active" }),
       },
-      roster: { get: () => Stream.make(roster) },
+      roster: {
+        get: () =>
+          Stream.map(streams.keys.stream(), (ids) =>
+            standing === "settling"
+              ? { kind: "settling" }
+              : { kind: "established", at: 0, ids },
+          ),
+      },
       screen: {
         text: (input: unknown) => {
           asked.push(input);
@@ -193,7 +201,7 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
     s.attach.end();
     s.exit.end();
     const outcome = await awaitOutputSettled(
-      fakeClient(s, undefined, [], { kind: "settling" }),
+      fakeClient(s, undefined, [], "settling"),
       { id: ID, idleMs: 60_000 },
     );
     expect(outcome).toMatchObject({ kind: "closed" });
@@ -218,19 +226,19 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
     }
   });
 
-  it("PIN: the lost-feed membership read is BOUNDED — a silent keys stream never outlives the wait", async () => {
-    // settleOnLostFeed's `terminals.keys` rides the SAME retry-mounted client as
+  it("PIN: the lost-feed membership read is BOUNDED — a silent roster never outlives the wait", async () => {
+    // settleOnLostFeed's roster read rides the SAME retry-mounted client as
     // the attach feed, so a wedged-but-alive link retries the snapshot forever.
     // Under oRPC the bound was an AbortSignal threaded into the read; a member
     // verb has no signal any more (D10/#18), so the bound is `ctx.signal`
     // INTERRUPTING the subscription. Same hazard, restated on the Effect axis:
-    // the feed ends, `keys` never yields a snapshot, and the wait must still
-    // settle on its timeout AND release the keys subscription.
+    // the feed ends, the roster never yields a snapshot, and the wait must
+    // still settle on its timeout AND release that subscription.
     const s = streams();
     s.attach.push(snapshot);
     s.attach.end();
     s.exit.end();
-    // `keys` is deliberately never pushed and never ended — the wedged read.
+    // The census is deliberately never pushed and never ended — the wedged read.
     const outcome = await awaitOutputSettled(fakeClient(s), {
       id: ID,
       idleMs: 60_000,
@@ -251,12 +259,14 @@ describe("awaitOutputSettled — the idle done-signal over padiSurface", () => {
       surface: {
         terminalAttach: { get: () => Stream.fail(dead) },
         terminalExit: { get: () => Stream.fail(dead) },
-        // Dead on EVERY member the wait touches, the record read included:
-        // the point of this case is that the transport failure propagates.
+        // Dead on EVERY member the wait touches, the record read and the
+        // roster included: the point of this case is that the transport
+        // failure propagates.
         terminals: {
           keys: () => Stream.fail(dead),
           get: () => Stream.fail(dead),
         },
+        roster: { get: () => Stream.fail(dead) },
       },
     } as unknown as PadiSurfaceClient;
     await expect(
@@ -401,6 +411,13 @@ describe("waitAgentStateTool — the modifiers reach padi", () => {
         terminals: {
           keys: () => Stream.concat(Stream.make([ID]), Stream.never),
           get: () => Stream.concat(Stream.make(record), Stream.never),
+        },
+        roster: {
+          get: () =>
+            Stream.concat(
+              Stream.make({ kind: "established", at: 0, ids: [ID] }),
+              Stream.never,
+            ),
         },
         screen: {
           text: () => Effect.fail(new Error("screen.text must not be read")),

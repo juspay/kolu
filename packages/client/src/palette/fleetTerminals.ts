@@ -17,10 +17,7 @@
  *  (`rowRecencyAt`). Parked (activity-window) rows are dropped the same way
  *  the Dock drops them. */
 
-import {
-  rosterIsEstablished,
-  type TerminalMetadata,
-} from "@kolu/padi-client/surface";
+import { rosterHolds, type TerminalMetadata } from "@kolu/padi-client/surface";
 import { unenrolledStreamCall } from "@kolu/surface/client";
 import {
   createReactiveSubscription,
@@ -257,18 +254,19 @@ const useFleetHosts = createSharedRoot(() => {
         if (!connected()) {
           return entry.state().kind === "warming" ? LOADING : UNREACHABLE;
         }
-        const listed = terminalKeys();
-        if (listed === undefined) return LOADING;
-        if (!listed.includes(id)) {
-          // "Not listed" is only an absence once the HOST says the list is a
-          // census. A padi still adopting (a fresh daemon, a kaval recycle)
-          // serves a list that means nothing yet, and reading it as a death is
-          // what recorded live terminals as gone on every redeploy (#2376).
-          const standing = roster.value();
-          return standing !== undefined && rosterIsEstablished(standing)
-            ? GONE
-            : LOADING;
-        }
+        // IS IT THERE? asked of the host's own CENSUS, which rides the same
+        // frame as the standing that says whether there is one. A padi still
+        // adopting (a fresh daemon, a kaval recycle) has no census, and
+        // reading its silence as a death is what recorded live terminals as
+        // gone on every redeploy (#2376) — as was reading the `terminals`
+        // collection beside the standing, since the two are separate members
+        // and this browser reads them through kolu-server's per-host mirror,
+        // which can have folded one and not the other.
+        const census = roster.value();
+        if (census === undefined) return LOADING;
+        const held = rosterHolds(census, id);
+        if (held === null) return LOADING;
+        if (!held) return GONE;
         const record = terminals.byKey(id)?.();
         if (record === undefined) return LOADING;
         return isParked(record) ? GONE : { kind: "here", meta: record };

@@ -26,6 +26,10 @@ where you left it, so parking work costs you nothing.
 | A kaval release that changes how kolu's daemons talk to each other | The old daemon cannot be adopted, so it is restarted and live shells end. The session is restored from disk and agents resume. The [changelog](/changelog) says when a release does this. |
 | An unclean crash of the terminal daemon | Every saved terminal, with each agent resumed on its exact prior conversation rather than as a bare shell. Agents in a **split** come back too. |
 
+A restored terminal keeps its own id, so a link to it, and [the
+Conductor](/conductor)'s pieces of work, still name the same terminal after a
+kaval restart.
+
 ## The restore card
 
 The **Restore session** card appears after a genuine restart, never as a flash on

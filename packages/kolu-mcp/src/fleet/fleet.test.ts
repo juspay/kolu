@@ -183,9 +183,14 @@ function fakePadi(host: string, seeded: readonly TerminalId[]): FakePadi {
   );
   const keys = cell<TerminalId[]>([...records.keys()]);
   const urgency = cell<PadiUrgency>(EMPTY_URGENCY);
-  const roster = cell<{ kind: "established"; at: number }>({
+  const roster = cell<{
+    kind: "established";
+    at: number;
+    ids: readonly TerminalId[];
+  }>({
     kind: "established",
     at: 1000,
+    ids: [...records.keys()],
   });
   const pulse = cell<{ seq: number }>({ seq: 0 });
   const queue: PadiWatchEvent[] = [];

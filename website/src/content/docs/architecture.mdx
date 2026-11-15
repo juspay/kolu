@@ -284,9 +284,9 @@ a separate app built on the same `@kolu/surface`.
 ## How a daemon is identified
 
 A daemon is its data folder. padi's identity is its _state-root_, a durable
-directory on the host that holds its session, its memory, and its activity feed.
-The socket it listens on is named by a digest of that folder and lives in a
-scratch directory that is wiped on every boot.
+directory on the host holding its session, its memory and its activity feed.
+The socket it listens on is named by a digest of that folder, in a scratch
+directory wiped on every boot.
 
 <div class="doc-term">
   <span class="note">// identity: durable, the daemon itself</span>
@@ -430,31 +430,30 @@ about 4 KB of screen state instead of a replayed buffer.
 
 Each connection carries every terminal's stream at once. When one attach stream
 stops being read, only that stream waits, and it picks up where it left off. A
-reader that falls far enough behind is re-attached with a fresh snapshot rather
-than fed the backlog.
+reader far enough behind is re-attached with a fresh snapshot rather than fed
+the backlog.
 
 A resize is handled the same way: kaval holds the program's redraw back for a
 moment, then either delivers it or drops the viewers onto the settled screen.
 Both arrive as the attach stream's `overflow` control frame.
 
 A connection's keep-alive ping ends a hop that has carried nothing for a full
-minute. Where a watchdog guards a hop it decides first. The browser's counts
-any arriving data as progress, the one to a local padi checks that padi's
-process is still running, and a remote hop is probed over ssh. There is no
-watchdog between padi and kaval.
+minute. Where a watchdog guards a hop it decides first: the browser's counts
+arriving data as progress, the one to a local padi checks that padi is still
+running, and a remote hop is probed over ssh. There is no watchdog between padi
+and kaval.
 
 ### Metadata
 
 Every per-terminal sensor lives in padi. A working-directory change (OSC 7)
 wakes the git sensor (branch, remote), which wakes the PR sensor (open PR and
 CI checks). Agent detection tails each agent's session store. padi folds those
-observations into each terminal's record and serves it on one collection the
-client reads directly. See [Agent detection](/agent-detection) for the agent
-half.
+observations into each terminal's record and serves them on one collection the
+client reads directly. See [Agent detection](/agent-detection).
 
 Live output activity comes from a layer down. [kaval](/kaval) sees every PTY
 byte and every resize, so it emits a host-global meaningful-output edge, with
-resizes excluded, which padi folds into a short live-dot window.
+resizes excluded, which padi folds into a live-dot window.
 
 ### The conductor loop
 
@@ -464,11 +463,14 @@ kolu's own [MCP tools](/mcp) back over the loopback endpoint, and kolu-server
 answers them out of its host map, so `lifecycle_create` on `prod` lands a
 terminal in that host's padi. A terminal is named `host/id` on that wire.
 
-kolu-server also starts turns itself. It watches the same host records the dock
-is drawn from. When a work's member stops, asks or leaves, or you answer that
-work's question, it mints a wake and runs a turn as your prompt does. Works and
-their member terminals are stored beside the conversation, in two keys restored
-together, and reach the browser as the collections `works` and
+kolu-server also starts turns itself, watching the same host records the dock
+is drawn from. A work's member stopping, asking or leaving, and your answer to
+its question, each mint a wake that runs a turn as your prompt does. A host
+without an established roster is read as settling, so no wake says a terminal
+is gone until a host can say so.
+
+The works are keyed by branch and their members by terminal, in two keys
+restored together, and reach the browser as the collections `works` and
 `memberReadings`. See [the Conductor](/conductor).
 
 ## The packages
@@ -515,10 +517,10 @@ the Odu CI coordinator each have an independent subflake, so none of them enters
 `nix run .`'s evaluation graph. Remote provisioning uses a separate exact-source
 flake that exposes only the packages kolu's agent manifest names.
 
-A dial lands the daemon plus the client CLIs a terminal there must be able to
-run (`kaval-tui`, `padi-tui`, `kolu`). So an agent working on a remote machine
-can drive its sibling terminals and reach the [MCP server](/mcp) with nothing
-installed there. Tool and daemon arrive together, as one build.
+A dial lands the daemon plus the client CLIs a terminal there must run
+(`kaval-tui`, `padi-tui`, `kolu`). So an agent on a remote machine can drive
+its sibling terminals and reach the [MCP server](/mcp) with nothing installed
+there.
 
 <LinkCard title="The repo — juspay/kolu" href="https://github.com/juspay/kolu" description="every package, with its full README, in one tree" />
 

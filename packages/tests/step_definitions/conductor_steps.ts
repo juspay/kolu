@@ -2477,6 +2477,16 @@ function workRepo(world: KoluWorld): string {
   return dir;
 }
 
+/** WHAT THE PERSON TYPES TO OPEN A WORK — and the repository it is in, when
+ *  the scenario made one. A work is a branch in a repository and kolu asks
+ *  THAT repository about the branch's pull request, so a scenario with a forge
+ *  must key its work by the repo it wrote the PR into; one without says only
+ *  the title and keeps the fixture agent's placeholder path. */
+function openWords(world: KoluWorld, title: string): string {
+  const dir = world.workRepoDir;
+  return dir === undefined ? `open ${title}` : `open ${title} in ${dir}`;
+}
+
 function run(command: string, args: string[], cwd: string): void {
   execFileSync(command, args, { cwd, stdio: "ignore" });
 }
@@ -2519,7 +2529,7 @@ When(
   async function (this: KoluWorld, title: string) {
     await enterConductor(this);
     this.workTitle = title;
-    await sendPrompt(this, `open ${title}`);
+    await sendPrompt(this, openWords(this, title));
     await showWorkColumn(this);
     let inventoryAtTimeout = "(not observed)";
     const id = await pollFor({
@@ -3058,7 +3068,7 @@ When(
         );
     const before = (await opened()).length;
     await enterConductor(this);
-    await sendPrompt(this, `open ${title}`);
+    await sendPrompt(this, openWords(this, title));
     const said = await pollFor({
       observe: opened,
       isDone: (all) => all.length > before,

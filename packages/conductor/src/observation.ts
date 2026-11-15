@@ -39,13 +39,15 @@ export interface WatchGit {
   readonly repo: string;
 }
 
-/** THE PULL REQUEST a member terminal's record carries, as padi reports it —
- *  the one live fact about a work that kolu cannot see from a terminal's screen
- *  and does not have to ask GitHub for.
+/** THE PULL REQUEST OF A PIECE OF WORK, as the forge reports it — the one live
+ *  fact about a work that kolu cannot see from a terminal's screen.
  *
- *  What becomes an EVENT is decided against the work's own timeline
- *  (`kolu-work`'s `prOf`, `checksSeen`), never against the last reading: two
- *  members looking at one PR must record it once, and a restart must record
+ *  Read from the WORK, not from a member: a work is a branch on a machine, so
+ *  kolu asks that host for the pull request of that branch in that repository
+ *  for as long as the work is open, whether or not any terminal is left
+ *  (`readings.ts`'s {@link prReading} folds padi's reading into this). What
+ *  becomes an EVENT is decided against the work's own timeline (`kolu-work`'s
+ *  `prOf`, `checksSeen`), never against the last reading: a restart must record
  *  nothing twice. */
 export interface WatchPr {
   readonly number: number;
@@ -58,12 +60,11 @@ export interface WatchPr {
   /** The names of the checks that are failing, when any are. */
   readonly failing: ReadonlyArray<string>;
   /** THE COMMIT the two fields above are about — the PR's head, off the same
-   *  record. What makes two members' readings of one pull request comparable:
-   *  a check event is news about ONE commit, so the second member to see that
-   *  commit's checks adds nothing and a PUSH adds an event. `null` when the
-   *  reading carries no head (a host whose padi predates the field); then the
-   *  work hears about that PR's checks once per kind, ever, which is the
-   *  honest reading of a source that cannot say which commit it meant. */
+   *  reading. A check event is news about ONE commit, so a reading of a commit
+   *  the timeline already holds adds nothing and a PUSH adds an event. `null`
+   *  when the reading carries no head (a host whose padi predates the field);
+   *  then the work hears about that PR's checks once per kind, ever, which is
+   *  the honest reading of a source that cannot say which commit it meant. */
   readonly head: string | null;
 }
 
@@ -95,8 +96,8 @@ export interface WatchObservation {
    *  prompt", which is two readings of this one fact and not a state padi has
    *  a word for. */
   readonly foregroundShell: boolean | null;
-  /** The repository this terminal is in, off the same record. */
+  /** The repository this terminal is in, off the same record. The PR is NOT
+   *  here: a pull request belongs to the WORK (its branch), and is observed
+   *  once for the work rather than once per member that can see it. */
   readonly git: WatchGit | null;
-  /** The PR that record carries, if it carries one. */
-  readonly pr: WatchPr | null;
 }

@@ -68,6 +68,7 @@ import {
   DEFAULT_CONDUCTOR_STATE,
   PROMPT_ATTACHMENT_BYTE_CAP,
 } from "kolu-common/conductor";
+import type { PrResult } from "@kolu/terminal-vocab/schema";
 import {
   type ConductorHost,
   EMPTY_PERSISTED_CONDUCTOR,
@@ -83,7 +84,6 @@ import {
   type WatchGit,
   type WatchLevel,
   type WatchObservation,
-  type WatchPr,
   type WorkFiles,
 } from "kolu-conductor";
 import { KOLU_FLEET_EXPOSE, KOLU_FLEET_TOOL_NAMES } from "kolu-mcp";
@@ -1771,8 +1771,6 @@ const seeing = (
     /** The repository the terminal is in — where a work's files are listed
      *  from. Absent by default: a terminal nothing has read a record for. */
     git?: WatchGit | null;
-    /** The PR its record carries, if it carries one. */
-    pr?: WatchPr | null;
   } = {},
 ): WatchObservation => ({
   ref,
@@ -1784,8 +1782,37 @@ const seeing = (
   level,
   foregroundShell: over.foregroundShell ?? null,
   git: over.git ?? null,
-  pr: over.pr ?? null,
 });
+
+/** WHAT THE FORGE SAYS about the work's branch, as padi's `pullRequest` stream
+ *  carries it — the `ok` arm of a `PrResult`, which is the only one a timeline
+ *  learns anything from. */
+const forgeSays = (over: {
+  number?: number;
+  state?: "open" | "closed" | "merged";
+  checks?: "pending" | "pass" | "fail" | null;
+  failing?: ReadonlyArray<string>;
+  head?: string | null;
+}): PrResult => ({
+  kind: "ok",
+  value: {
+    number: over.number ?? 412,
+    title: "fix the parser",
+    url: "https://forge.example/pr/412",
+    state: over.state ?? "open",
+    checks: over.checks ?? null,
+    checkRuns: (over.failing ?? []).map((name) => ({
+      name,
+      outcome: "fail" as const,
+    })),
+    reviewDecision: null,
+    mergeStateStatus: "UNKNOWN",
+    headSha: over.head === undefined ? HEAD : over.head,
+  },
+});
+
+/** The commit a check reading is about. */
+const HEAD = "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3";
 
 /** The worktree a member's record names, as a reading carries it. */
 const inRepo: WatchGit = {
@@ -3055,27 +3082,16 @@ describe("the timeline a reading writes", () => {
     });
   });
 
-  it("records ONE PR for two members, and ends the work when it merges", async () => {
+  it("records the work's ONE PR, and ends the work when it merges", async () => {
     const r = rig();
     const { work } = await running(r);
     r.host.joinWork(work, B, "planner", "created");
     r.host.saidTo(B);
-    const pr: WatchPr = {
-      number: 412,
-      title: "fix the parser",
-      state: "open",
-      checks: null,
-      failing: [],
-      head: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
-    };
 
-    // BOTH members see the same PR, in one frame of the world. The comparison
-    // is against the TIMELINE, not against the last reading, so it is recorded
-    // once.
-    r.host.observe([
-      seeing(A, "working", { pr }),
-      seeing(B, "working", { pr }),
-    ]);
+    // ONE READING, for the WORK — not one per member that can see it. The
+    // comparison is against the TIMELINE, so the next poll records nothing.
+    r.host.observedPr(work, forgeSays({}));
+    r.host.observedPr(work, forgeSays({}));
     await vi.waitFor(() => {
       expect(
         theWork(r).events.filter((one) => one.kind === "pr-opened"),
@@ -3085,17 +3101,14 @@ describe("the timeline a reading writes", () => {
       kind: "pr-opened",
       pr: 412,
       title: "fix the parser",
+      terminal: null,
     });
 
     // Its checks start, and pass — by CI, which is who the time bar colours it
-    // for.
-    r.host.observe([
-      seeing(A, "stopped", { pr: { ...pr, checks: "pending" } }),
-    ]);
-    r.host.observe([
-      seeing(A, "working", { pr: { ...pr, checks: "pending" } }),
-    ]);
-    r.host.observe([seeing(A, "stopped", { pr: { ...pr, checks: "pass" } })]);
+    // for. The polls in between say the same thing and write nothing.
+    r.host.observedPr(work, forgeSays({ checks: "pending" }));
+    r.host.observedPr(work, forgeSays({ checks: "pending" }));
+    r.host.observedPr(work, forgeSays({ checks: "pass" }));
     await vi.waitFor(() => {
       expect(kindsOf(theWork(r))).toContain("checks-passed");
     });
@@ -3104,11 +3117,8 @@ describe("the timeline a reading writes", () => {
     ).toHaveLength(1);
 
     // ... and the merge is what says a piece of work is finished rather than
-    // merely quiet.
-    r.host.observe([
-      seeing(A, "working", { pr: { ...pr, state: "merged", checks: "pass" } }),
-      seeing(B, "working", { pr: { ...pr, state: "merged", checks: "pass" } }),
-    ]);
+    // merely quiet. Its members LEAVE with the ending; nothing was killed.
+    r.host.observedPr(work, forgeSays({ state: "merged", checks: "pass" }));
     await vi.waitFor(() => {
       expect(theWork(r).state).toMatchObject({
         kind: "ended",
@@ -3121,31 +3131,59 @@ describe("the timeline a reading writes", () => {
     expect(r.host.memberRefs()).toEqual([]);
   });
 
-  it("records failing checks by name", async () => {
+  it("ends a work whose terminals were closed the moment it merged", async () => {
+    // THE REAL SEQUENCE (#2376): the human said "merge it", the Conductor
+    // merged the PR and — as its script tells it — closed both terminals
+    // fourteen seconds later, with no poll in between. Under the old model
+    // the only observers of that pull request went with the terminals and the
+    // work stayed open for ever. The WORK is the observer now.
     const r = rig();
-    await running(r);
-    r.host.observe([
-      seeing(A, "stopped", {
-        pr: {
-          number: 7,
-          title: "fix the parser",
-          state: "open",
-          checks: "fail",
-          failing: ["build", "unit"],
-          head: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
-        },
-      }),
+    const { work } = await running(r);
+    r.host.joinWork(work, B, "planner", "created");
+    r.host.closedTerminal(A);
+    r.host.closedTerminal(B);
+    await vi.waitFor(() => {
+      expect(r.host.memberRefs()).toEqual([]);
+    });
+    // A work with no members is still watched: its branch is what kolu asks
+    // about.
+    expect(r.host.prWatches()).toEqual([
+      { work, host: "local", repo: "/srv/repo", branch: "fix-the-parser" },
     ]);
+
+    r.host.observedPr(work, forgeSays({ number: 181, state: "merged" }));
+    await vi.waitFor(() => {
+      expect(theWork(r).state).toMatchObject({
+        kind: "ended",
+        outcome: { kind: "merged", pr: 181 },
+      });
+    });
+    // ... and an ended work is no longer asked about.
+    expect(r.host.prWatches()).toEqual([]);
+  });
+
+  it("tracks the checks of a work that has no terminals at all", async () => {
+    const r = rig();
+    const { work } = await running(r);
+    r.host.closedTerminal(A);
+    r.host.observedPr(
+      work,
+      forgeSays({ number: 7, checks: "fail", failing: ["build", "unit"] }),
+    );
     await vi.waitFor(() => {
       expect(kindsOf(theWork(r))).toContain("checks-failed");
     });
     expect(theWork(r).events.at(-1)).toMatchObject({
       kind: "checks-failed",
       by: "ci",
+      terminal: null,
       pr: 7,
-      head: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
+      head: HEAD,
       failing: ["build", "unit"],
     });
+    // The work is still in progress: a pull request's checks going red is not
+    // an ending.
+    expect(theWork(r).state.kind).toBe("open");
   });
 
   it("NEVER ends a work its members have all left, and says so ONCE", async () => {

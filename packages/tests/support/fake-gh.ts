@@ -105,13 +105,16 @@ function source(nodeBin: string): string {
   return `#!${nodeBin}
 "use strict";
 // The fake \`gh\` (see support/fake-gh.ts). Answers ONE invocation —
-// \`pr view --json <fields>\` — and refuses anything else loudly rather than
-// pretending: a sensor that started asking gh a different question must not
-// read as "no PR".
+// \`pr view [<branch>] --json <fields>\` — and refuses anything else loudly
+// rather than pretending: a sensor that started asking gh a different question
+// must not read as "no PR". The BRANCH is optional because kolu names it (a
+// work asks about its own branch in a repository checked out on another one);
+// this stand-in answers from the repo it is run in either way.
 const fs = require("node:fs");
 const path = require("node:path");
 const argv = process.argv.slice(2);
-if (argv[0] !== "pr" || argv[1] !== "view" || argv[2] !== "--json") {
+const json = argv.indexOf("--json");
+if (argv[0] !== "pr" || argv[1] !== "view" || json < 2 || json > 3) {
   process.stderr.write("kolu-e2e fake gh: unexpected call: " + argv.join(" ") + "\\n");
   process.exit(2);
 }

@@ -60,7 +60,7 @@ import {
 import type { FleetHostState, FleetWatchJoinSchema } from "./fleetSurface.ts";
 import { type FleetHosts, requireTerminal } from "./hosts.ts";
 import { FleetTerminalRefSchema } from "./refSchema.ts";
-import { rosterIsEvidence, stillSettling } from "../rosterEvidence.ts";
+import { rosterStandingOf, stillSettling } from "../rosterEvidence.ts";
 
 /** HOW a terminal came to be a member of a work — the fact the server's
  *  watcher needs to decide what its first observation means.
@@ -467,11 +467,18 @@ export type WorkMemberFound =
 /** Refuse unless the host's roster actually holds this terminal RIGHT NOW.
  *
  *  The roster, not a record read: a `get` on an unknown key is a declared
- *  per-member error whose shape differs by arm, while "is it in the key set" is
+ *  per-member error whose shape differs by arm, while "is it in the census" is
  *  the exact question — does this host have a terminal by that name — and it is
  *  one frame. A dormant terminal PASSES: a sleeping worker is a thing a
  *  conductor legitimately adopts (it wakes when the human wakes it), and this
- *  tool writes nothing into the terminal, so there is no live PTY to need. */
+ *  tool writes nothing into the terminal, so there is no live PTY to need.
+ *
+ *  ONE frame, off ONE member: the census rides the roster's own standing
+ *  (`padiSurface` 7.4), so "it is not there" and "that list is not a census
+ *  yet" are read from the same value and can never be mixed from two that
+ *  arrived apart — which is what reading the `terminals` collection beside the
+ *  standing allowed, through any projection that folds them separately
+ *  (#2376). */
 function requireInRoster(
   hosts: FleetHosts,
   ref: string,
@@ -479,10 +486,7 @@ function requireInRoster(
   return Effect.flatMap(requireTerminal(hosts, ref), ({ id, padi }) =>
     Effect.flatMap(
       Effect.mapError(
-        firstFrameOrThrow(
-          padi.surface.terminals.keys(undefined),
-          `the host behind ${ref} answered no roster — it is connected but said nothing, so whether that terminal exists is unknown.`,
-        ),
+        rosterStandingOf(padi, id, ref),
         (cause) =>
           new ToolFailure<AdoptRefusal>(
             `could not read the roster of the host behind ${ref}: ${String(cause)}`,
@@ -490,32 +494,20 @@ function requireInRoster(
           ),
       ),
       (
-        keys,
+        standing,
       ): Effect.Effect<{ id: string; padi: PadiSurfaceClient }, ToolFailure> =>
-        keys.includes(id)
+        standing === "held"
           ? Effect.succeed({ id, padi })
           : // ABSENT FROM A LIST THAT MAY NOT BE A CENSUS. A padi that has not
-            // finished adopting its terminals serves a roster that says
-            // nothing about what it does not hold yet, so the absence is only
-            // an absence once that roster is ESTABLISHED.
-            Effect.flatMap(
-              Effect.mapError(
-                rosterIsEvidence(padi, ref),
-                (cause) =>
-                  new ToolFailure<AdoptRefusal>(
-                    `could not read the roster standing of the host behind ${ref}: ${String(cause)}`,
-                    { kind: "terminal-not-in-roster", id: ref },
-                  ),
+            // finished adopting its terminals has no census to be absent from,
+            // so an absence is only an absence once the roster is ESTABLISHED.
+            Effect.fail(
+              new ToolFailure<AdoptRefusal>(
+                standing === "absent"
+                  ? `${ref} is not a terminal on that host — nothing by that name is in its roster, so adopting it would mean waiting for news that can never come. Read the terminals resource for the live list.`
+                  : stillSettling(ref),
+                { kind: "terminal-not-in-roster", id: ref },
               ),
-              (established) =>
-                Effect.fail(
-                  new ToolFailure<AdoptRefusal>(
-                    established
-                      ? `${ref} is not a terminal on that host — nothing by that name is in its roster, so adopting it would mean waiting for news that can never come. Read the terminals resource for the live list.`
-                      : stillSettling(ref),
-                    { kind: "terminal-not-in-roster", id: ref },
-                  ),
-                ),
             ),
     ),
   );

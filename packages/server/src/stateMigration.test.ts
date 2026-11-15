@@ -17,17 +17,20 @@
 
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import Conf from "conf";
 import { DEFAULT_PREFERENCES } from "kolu-common/surface";
 import { readPersistedTranscript } from "kolu-conductor";
-import { workIdOf } from "kolu-work";
+import { workDirOf, workIdOf } from "kolu-work";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   transcriptFilePath,
@@ -43,6 +46,7 @@ import {
   foldWorksByKey_1_53_0,
   memberWatchOutOfWorks_1_52_0,
   migrateConductorToWorks_1_50_0,
+  moveKeptFiles_1_53_0,
   splitWorkAskRows_1_53_0,
   stripLegacyStateKeys_1_31_0,
   TRANSCRIPT_FILE_VERSION,
@@ -1033,6 +1037,93 @@ describe("the 1.53.0 rung — three cards for one branch become one piece of wor
       {},
     );
     expect(Object.keys(works)).toHaveLength(0);
+  });
+});
+
+describe("the 1.53.0 rung — the human's store as it stands, and its kept files", () => {
+  /** The SAME waterfall, a round later: the human's live 1.52.0 store after
+   *  the Conductor merged PR #181 and closed both terminals, so all THREE
+   *  works are ended `abandoned` and each kept the twenty-odd documents of
+   *  the one `.waterfall/` (juspay/kolu#2376, round 5). Sanitized exactly as
+   *  its sibling fixture is. */
+  const ALL_ENDED = JSON.parse(
+    readFileSync(
+      new URL("./fixtures/deployed-1.52.0-all-ended.json", import.meta.url),
+      "utf8",
+    ),
+  ) as {
+    works: Array<{ id: string; endedAt: string }>;
+    members: Record<string, unknown>;
+  };
+
+  const folded = () =>
+    foldWorksByKey_1_53_0(ALL_ENDED.works, ALL_ENDED.members);
+
+  it("says each file ONCE, and says nothing about kept files", () => {
+    const { works } = folded();
+    expect(Object.keys(works)).toHaveLength(1);
+    const work = Object.values(works)[0] as {
+      state: { kind: string };
+      events: Array<Record<string, unknown>>;
+    };
+    // Nothing the forge said ended these: `abandoned` is kolu losing sight of
+    // its own terminals, so the work is in progress.
+    expect(work.state.kind).toBe("open");
+    const files = work.events.filter((one) => one.kind === "file");
+    // Three cards watched one worktree fill up, so the naive union listed
+    // every document three times over.
+    expect(files.length).toBeGreaterThan(20);
+    expect(new Set(files.map((one) => one.path)).size).toBe(files.length);
+    // Kept files are what an ENDED work left behind; this one is open, and
+    // its files are still in its worktree.
+    expect(work.events.some((one) => one.kind === "kept")).toBe(false);
+    // What a person ASKED FOR is not a repetition — three requests were three
+    // things said, and all three stay.
+    expect(work.events.filter((one) => one.kind === "requested")).toHaveLength(
+      3,
+    );
+  });
+
+  it("moves every old work's kept files into the one new directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "kolu-kept-"));
+    dirs.push(root);
+    const [one, two, three] = ALL_ENDED.works;
+    if (one === undefined || two === undefined || three === undefined)
+      throw new Error("the fixture lost a work");
+    // Three REAL directories, named by the ids the works are about to lose,
+    // with a file only one of them has and a file all three kept.
+    for (const [work, body] of [
+      [one, "oldest"],
+      [two, "middle"],
+      [three, "newest"],
+    ] as const) {
+      mkdirSync(join(root, work.id, ".waterfall"), { recursive: true });
+      writeFileSync(join(root, work.id, ".waterfall/plan.md"), body);
+      writeFileSync(join(root, work.id, ".waterfall", `${body}.md`), body);
+    }
+    const { works, moves } = folded();
+    const id = Object.keys(works)[0] ?? "";
+    moveKeptFiles_1_53_0(root, moves);
+
+    const dir = join(root, workDirOf(id));
+    expect(readdirSync(root)).toEqual([workDirOf(id)]);
+    expect(readdirSync(join(dir, ".waterfall")).sort()).toEqual([
+      "middle.md",
+      "newest.md",
+      "oldest.md",
+      "plan.md",
+    ]);
+    // The same path from three works: the copy of the one that ended LAST is
+    // the one a person reads.
+    expect(readFileSync(join(dir, ".waterfall/plan.md"), "utf8")).toBe(
+      "newest",
+    );
+    expect(readFileSync(join(dir, ".waterfall/oldest.md"), "utf8")).toBe(
+      "oldest",
+    );
+    // No orphan left behind for the sweep to find.
+    for (const work of [one, two, three])
+      expect(existsSync(join(root, work.id))).toBe(false);
   });
 });
 

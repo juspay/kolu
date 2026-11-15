@@ -34,6 +34,7 @@ import type { PadiTerminal, PadiUrgency } from "@kolu/padi-client/surface";
 // dock and every wait read, so the two presence readings below are padi's word
 // for them and not this module's.
 import { agentBucket } from "@kolu/terminal-vocab/agentProjection";
+import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { fleetTerminalRef } from "kolu-mcp/fleetRef";
 import type { WatchGit, WatchObservation, WatchPr } from "./observation.ts";
 
@@ -139,28 +140,33 @@ const gitOf = (record: PadiTerminal | undefined): WatchGit | null => {
   };
 };
 
-/** THE PULL REQUEST that record carries, as this watch reads it.
+/** THE PULL REQUEST OF A BRANCH, as the work's own watch reads it.
  *
+ *  Takes padi's reading — the value its `pullRequest` stream carries for the
+ *  work's `(repo, branch)`, which is the same `PrResult` a terminal's record
+ *  carries in its `pr` field — and answers what a timeline can learn from it.
  *  Only the RESOLVED arm says anything: `pending`, `absent`, `unsupported` and
  *  `unavailable` are all "kolu does not know", and a work's timeline must not
  *  learn a PR closed because the forge stopped answering. The failing check
  *  NAMES come off the same per-check breakdown the rollup is folded from, so
  *  the `checks-failed` event says which gates are red rather than that some
- *  are — and the head commit comes off the same record, so a check reading
- *  says WHICH push it is about. */
-const prOfRecord = (record: PadiTerminal | undefined): WatchPr | null => {
-  const live = record?.state === "active" ? record : undefined;
-  if (live?.pr.kind !== "ok") return null;
-  const pr = live.pr.value;
+ *  are — and the head commit comes off the same reading, so a check says WHICH
+ *  push it is about.
+ *
+ *  Pure, and the ONE translation: the watcher subscribes, this says what the
+ *  frame means, and `./observing.ts` decides what the work learns from it. */
+export const prReading = (pr: PrResult): WatchPr | null => {
+  if (pr.kind !== "ok") return null;
+  const value = pr.value;
   return {
-    number: pr.number,
-    title: pr.title,
-    state: pr.state,
-    checks: pr.checks,
-    failing: pr.checkRuns
+    number: value.number,
+    title: value.title,
+    state: value.state,
+    checks: value.checks,
+    failing: value.checkRuns
       .filter((one) => one.outcome === "fail")
       .map((one) => one.name),
-    head: pr.headSha,
+    head: value.headSha,
   };
 };
 
@@ -233,12 +239,12 @@ export const readingsOf = (view: HostView): ReadonlyArray<WatchObservation> => {
       // remembered ({@link MemberWatch.name}).
       name: recordName(record),
       agent: live?.agent?.kind ?? null,
-      // WHERE IT IS WORKING and WHAT PR IT CARRIES — both off the record this
-      // leg has already read, because the watcher is the one reader of every
-      // host: a work whose members are on a machine nobody has a browser on
-      // still gets its files listed and its PR recorded.
+      // WHERE IT IS WORKING, off the record this leg has already read, because
+      // the watcher is the one reader of every host: a work whose members are
+      // on a machine nobody has a browser on still gets its files listed. The
+      // PULL REQUEST is not here — it belongs to the work's branch, and the
+      // same watcher reads it once for the work ({@link prReading}).
       git: gitOf(record),
-      pr: prOfRecord(record),
       // PADI'S OWN ANSWER about what is in front of the prompt — `shell: true`
       // is an idle prompt with nothing running on it. `null` for a reading with
       // no live arm to ask (a sleeping terminal has released its PTY) or a

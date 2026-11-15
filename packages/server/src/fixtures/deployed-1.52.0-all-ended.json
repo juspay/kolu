@@ -1,0 +1,1656 @@
+{
+  "preferences": {
+    "seenTips": [
+      "host-rearrange",
+      "agents",
+      "dock-rearrange",
+      "dock-rehome",
+      "conductor-steer",
+      "conductor-look"
+    ],
+    "startupTips": true,
+    "newTerminalTheme": "shuffle",
+    "newTerminalCollapsed": false,
+    "shuffleBehavior": "colourful",
+    "scrollLock": true,
+    "attentionAlerts": true,
+    "colorScheme": "light",
+    "terminalRenderer": "auto",
+    "rightPanel": {
+      "size": 0.403329,
+      "codeTabTreeSize": 0.299404
+    },
+    "agentDistro": {
+      "enabled": true,
+      "profiles": ["github:juspay/skills"]
+    },
+    "tipBarCollapsed": false,
+    "agentProfilesRecent": [],
+    "hostOrder": [
+      "remote:ci@host-a",
+      "remote:host-b",
+      "remote:host-c",
+      "remote:host-d"
+    ]
+  },
+  "hosts": [
+    "remote:ci@host-a",
+    "remote:host-b",
+    "remote:host-d",
+    "remote:host-c"
+  ],
+  "viewerMode": "light",
+  "conductor": {
+    "sessionId": "7830c7f1-9c80-4dee-81d2-209c86f2d29d",
+    "cwd": "/home/person",
+    "model": "claude-fable-5-2",
+    "fleet": [
+      "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+      "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b"
+    ]
+  },
+  "works": [
+    {
+      "id": "work:5866f063-b723-4643-8d9f-575000068f9d",
+      "title": "Rewrite odu's docs for human reading (like kolu PR #2375)",
+      "repo": "/home/person/code/odu",
+      "branch": "docs-human-reading",
+      "members": [
+        {
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "role": "planner",
+          "joinedAt": "2026-11-14T21:06:42.122Z",
+          "leftAt": "2026-11-15T00:54:09.710Z",
+          "worktree": "/home/person/code/odu/.worktrees/docs-human-reading"
+        },
+        {
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "role": "implementor",
+          "joinedAt": "2026-11-14T21:41:58.977Z",
+          "leftAt": "2026-11-15T00:54:09.710Z",
+          "worktree": "/home/person/code/odu/.worktrees/docs-human-reading"
+        }
+      ],
+      "events": [
+        {
+          "at": "2026-11-14T21:06:05.856Z",
+          "by": "you",
+          "kind": "requested",
+          "terminal": null,
+          "detail": "waterfall ~/code/odu docs improvement just like how we made it for human reading in https://github.com/juspay/kolu/pull/2375"
+        },
+        {
+          "at": "2026-11-14T21:06:05.857Z",
+          "by": "agent",
+          "kind": "question",
+          "terminal": null,
+          "detail": "ask:29b0f9d8-a6d0-4e76-bd36-894fbbdd4684:1"
+        },
+        {
+          "at": "2026-11-14T21:06:35.635Z",
+          "by": "you",
+          "kind": "answered",
+          "terminal": null,
+          "detail": "ask:29b0f9d8-a6d0-4e76-bd36-894fbbdd4684:1"
+        },
+        {
+          "at": "2026-11-14T21:06:42.122Z",
+          "by": "kolu",
+          "kind": "joined",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": "planner"
+        },
+        {
+          "at": "2026-11-14T21:06:51.400Z",
+          "by": "agent",
+          "kind": "ready",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ""
+        },
+        {
+          "at": "2026-11-14T21:20:11.015Z",
+          "by": "agent",
+          "kind": "stopped",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ""
+        },
+        {
+          "at": "2026-11-14T21:20:11.026Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/baseline.mjs"
+        },
+        {
+          "at": "2026-11-14T21:20:11.026Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/old-anchors-cache.txt"
+        },
+        {
+          "at": "2026-11-14T21:20:11.026Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/old-anchors-docs.txt"
+        },
+        {
+          "at": "2026-11-14T21:20:11.026Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/plan.md"
+        },
+        {
+          "at": "2026-11-14T21:20:24.713Z",
+          "by": "agent",
+          "kind": "question",
+          "terminal": null,
+          "detail": "ask:29b0f9d8-a6d0-4e76-bd36-894fbbdd4684:2"
+        },
+        {
+          "at": "2026-11-14T21:32:51.200Z",
+          "by": "you",
+          "kind": "answered",
+          "terminal": null,
+          "detail": "ask:29b0f9d8-a6d0-4e76-bd36-894fbbdd4684:2"
+        },
+        {
+          "at": "2026-11-14T21:40:47.074Z",
+          "by": "agent",
+          "kind": "note",
+          "terminal": null,
+          "detail": "Plan approved by the human in chat, as written, with all section 8 defaults accepted. Planner is writing the implementor's brief."
+        },
+        {
+          "at": "2026-11-14T21:41:51.063Z",
+          "by": "agent",
+          "kind": "stopped",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ""
+        },
+        {
+          "at": "2026-11-14T21:41:51.130Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/brief.md"
+        },
+        {
+          "at": "2026-11-14T21:41:58.977Z",
+          "by": "kolu",
+          "kind": "joined",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": "implementor"
+        },
+        {
+          "at": "2026-11-14T21:42:07.695Z",
+          "by": "agent",
+          "kind": "ready",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": ""
+        },
+        {
+          "at": "2026-11-14T22:18:59.851Z",
+          "by": "agent",
+          "kind": "pr-opened",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": "#181 The docs are 24 pages, each for one reader, held to a written standard that CI checks"
+        },
+        {
+          "at": "2026-11-14T22:18:59.851Z",
+          "by": "ci",
+          "kind": "checks-running",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": ""
+        },
+        {
+          "at": "2026-11-14T22:19:18.786Z",
+          "by": "agent",
+          "kind": "stopped",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": ""
+        },
+        {
+          "at": "2026-11-14T22:19:18.797Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": ".waterfall/docs-human-reading-after.png"
+        },
+        {
+          "at": "2026-11-14T22:19:18.797Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": ".waterfall/docs-human-reading-before.png"
+        },
+        {
+          "at": "2026-11-14T22:19:18.797Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": ".waterfall/odu-docs-after.png"
+        },
+        {
+          "at": "2026-11-14T22:19:18.797Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": ".waterfall/odu-docs-before.png"
+        },
+        {
+          "at": "2026-11-14T22:19:18.797Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": ".waterfall/pr-body.md"
+        },
+        {
+          "at": "2026-11-14T22:30:42.907Z",
+          "by": "ci",
+          "kind": "checks-passed",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ""
+        },
+        {
+          "at": "2026-11-14T22:30:51.609Z",
+          "by": "agent",
+          "kind": "stopped",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ""
+        },
+        {
+          "at": "2026-11-14T22:30:51.621Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/pr181-body.md"
+        },
+        {
+          "at": "2026-11-14T22:30:51.621Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/reading-questions.json"
+        },
+        {
+          "at": "2026-11-14T22:30:51.621Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/review-round-1.md"
+        },
+        {
+          "at": "2026-11-14T22:30:51.621Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/round1-checks.log"
+        },
+        {
+          "at": "2026-11-14T22:36:05.839Z",
+          "by": "agent",
+          "kind": "stopped",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": ""
+        },
+        {
+          "at": "2026-11-14T22:36:05.848Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": ".waterfall/reply-round-1.md"
+        },
+        {
+          "at": "2026-11-14T22:39:32.278Z",
+          "by": "agent",
+          "kind": "stopped",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ""
+        },
+        {
+          "at": "2026-11-14T22:39:32.288Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/pr181-body-r2.md"
+        },
+        {
+          "at": "2026-11-14T22:39:32.288Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/pr181-comments.md"
+        },
+        {
+          "at": "2026-11-14T22:39:32.288Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/review-round-2.md"
+        },
+        {
+          "at": "2026-11-14T22:39:32.288Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/round2-checks.log"
+        },
+        {
+          "at": "2026-11-15T00:54:09.710Z",
+          "by": "kolu",
+          "kind": "left",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": "gone"
+        },
+        {
+          "at": "2026-11-15T00:54:09.710Z",
+          "by": "kolu",
+          "kind": "left",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": "gone"
+        },
+        {
+          "at": "2026-11-15T00:54:09.710Z",
+          "by": "kolu",
+          "kind": "ended",
+          "terminal": null,
+          "detail": "abandoned"
+        },
+        {
+          "at": "2026-11-15T00:54:10.137Z",
+          "by": "kolu",
+          "kind": "kept",
+          "terminal": null,
+          "detail": "20"
+        }
+      ],
+      "decisions": [
+        {
+          "id": "9f3221dd-4086-4835-9c7b-3bfe0bdb3559",
+          "ask": "ask:29b0f9d8-a6d0-4e76-bd36-894fbbdd4684:1",
+          "at": "2026-11-14T21:06:05.857Z",
+          "key": "host",
+          "header": "",
+          "question": "Which host should this run on? (~/code/odu is a different checkout on each machine)",
+          "options": [
+            "remote:host-d",
+            "remote:host-c",
+            "remote:ci@host-a",
+            "local"
+          ],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-14T21:06:35.635Z",
+            "how": "answered",
+            "picked": ["remote:host-d"],
+            "text": null,
+            "from": "chat"
+          }
+        },
+        {
+          "id": "f4ab079b-96f6-4a58-aa9b-7902648a42fd",
+          "ask": "ask:29b0f9d8-a6d0-4e76-bd36-894fbbdd4684:1",
+          "at": "2026-11-14T21:06:05.857Z",
+          "key": "mode",
+          "header": "",
+          "question": "Full or trivial? I'd pick full: a docs rewrite has choices of scope and voice worth seeing in a plan before anything is written.",
+          "options": ["full", "trivial"],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-14T21:06:35.635Z",
+            "how": "answered",
+            "picked": ["full"],
+            "text": null,
+            "from": "chat"
+          }
+        },
+        {
+          "id": "ae1c0a3e-536a-43b8-b6a3-93941dd9473b",
+          "ask": "ask:29b0f9d8-a6d0-4e76-bd36-894fbbdd4684:1",
+          "at": "2026-11-14T21:06:05.857Z",
+          "key": "planner.harness",
+          "header": "",
+          "question": "Which harness runs the planner?",
+          "options": ["claude", "codex", "opencode"],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-14T21:06:35.635Z",
+            "how": "answered",
+            "picked": [],
+            "text": "omp",
+            "from": "chat"
+          }
+        },
+        {
+          "id": "bb4268dd-be8b-4252-b52b-a59f9ecab502",
+          "ask": "ask:29b0f9d8-a6d0-4e76-bd36-894fbbdd4684:1",
+          "at": "2026-11-14T21:06:05.857Z",
+          "key": "planner.model",
+          "header": "",
+          "question": "Which model does the planner run on?",
+          "options": [
+            "claude-fable-5-1",
+            "claude-opus-5-5",
+            "claude-sonnet-5-5"
+          ],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-14T21:06:35.635Z",
+            "how": "answered",
+            "picked": [],
+            "text": "fable 5.2",
+            "from": "chat"
+          }
+        },
+        {
+          "id": "56bbba77-ce7c-46f0-8c42-c4c6a022d37e",
+          "ask": "ask:29b0f9d8-a6d0-4e76-bd36-894fbbdd4684:1",
+          "at": "2026-11-14T21:06:05.857Z",
+          "key": "implementor.harness",
+          "header": "",
+          "question": "Which harness runs the implementor?",
+          "options": ["claude", "codex", "opencode"],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-14T21:06:35.635Z",
+            "how": "answered",
+            "picked": [],
+            "text": "omp",
+            "from": "chat"
+          }
+        },
+        {
+          "id": "153ff83b-a1e4-4ee5-a677-9a66f5b84a10",
+          "ask": "ask:29b0f9d8-a6d0-4e76-bd36-894fbbdd4684:1",
+          "at": "2026-11-14T21:06:05.857Z",
+          "key": "implementor.model",
+          "header": "",
+          "question": "Which model does the implementor run on?",
+          "options": [
+            "claude-opus-5-5",
+            "claude-fable-5-1",
+            "claude-sonnet-5-5"
+          ],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-14T21:06:35.635Z",
+            "how": "answered",
+            "picked": ["claude-opus-5-5"],
+            "text": null,
+            "from": "chat"
+          }
+        },
+        {
+          "id": "262dd7ff-cba9-4318-93ea-a2e860f1cd04",
+          "ask": "ask:29b0f9d8-a6d0-4e76-bd36-894fbbdd4684:1",
+          "at": "2026-11-14T21:06:05.857Z",
+          "key": "on-green",
+          "header": "",
+          "question": "When CI is green, do I merge the PR or hand it over to you?",
+          "options": ["hand-over", "merge"],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-14T21:06:35.635Z",
+            "how": "answered",
+            "picked": ["merge"],
+            "text": null,
+            "from": "chat"
+          }
+        },
+        {
+          "id": "272d549a-b113-484e-b4e8-ad63a3f4c1fb",
+          "ask": "ask:29b0f9d8-a6d0-4e76-bd36-894fbbdd4684:2",
+          "at": "2026-11-14T21:20:24.713Z",
+          "key": null,
+          "header": "",
+          "question": "Approve the plan for odu's docs (split 2 pages into 24, port kolu's writing standard + lint + link check, add a ci::website node, British -ize spelling), or what should change?",
+          "options": ["Approve", "Change it"],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-14T21:32:51.200Z",
+            "how": "answered",
+            "picked": ["Approve"],
+            "text": null,
+            "from": "chat"
+          }
+        }
+      ],
+      "startedAt": "2026-11-14T21:06:05.856Z",
+      "endedAt": "2026-11-15T00:54:09.710Z",
+      "outcome": "abandoned",
+      "keptFiles": [
+        {
+          "path": ".waterfall/baseline.mjs",
+          "bytes": 4278
+        },
+        {
+          "path": ".waterfall/old-anchors-cache.txt",
+          "bytes": 615
+        },
+        {
+          "path": ".waterfall/old-anchors-docs.txt",
+          "bytes": 892
+        },
+        {
+          "path": ".waterfall/plan.md",
+          "bytes": 46079
+        },
+        {
+          "path": ".waterfall/brief.md",
+          "bytes": 6910
+        },
+        {
+          "path": ".waterfall/docs-human-reading-after.png",
+          "bytes": 153935
+        },
+        {
+          "path": ".waterfall/docs-human-reading-before.png",
+          "bytes": 159459
+        },
+        {
+          "path": ".waterfall/odu-docs-after.png",
+          "bytes": 153935
+        },
+        {
+          "path": ".waterfall/odu-docs-before.png",
+          "bytes": 159459
+        },
+        {
+          "path": ".waterfall/pr-body.md",
+          "bytes": 19285
+        },
+        {
+          "path": ".waterfall/pr181-body.md",
+          "bytes": 18683
+        },
+        {
+          "path": ".waterfall/reading-questions.json",
+          "bytes": 79339
+        },
+        {
+          "path": ".waterfall/review-round-1.md",
+          "bytes": 10537
+        },
+        {
+          "path": ".waterfall/round1-checks.log",
+          "bytes": 2407
+        },
+        {
+          "path": ".waterfall/reply-round-1.md",
+          "bytes": 5421
+        },
+        {
+          "path": ".waterfall/pr181-body-r2.md",
+          "bytes": 19064
+        },
+        {
+          "path": ".waterfall/pr181-comments.md",
+          "bytes": 5466
+        },
+        {
+          "path": ".waterfall/review-round-2.md",
+          "bytes": 5391
+        },
+        {
+          "path": ".waterfall/round2-checks.log",
+          "bytes": 846
+        },
+        {
+          "path": ".waterfall/reply-round-2.md",
+          "bytes": 2230
+        }
+      ]
+    },
+    {
+      "id": "work:cf1a945e-99f3-4b5f-8587-517f9e9358d4",
+      "title": "Rewrite odu's docs",
+      "repo": "/home/person/code/odu",
+      "branch": "docs-human-reading",
+      "members": [
+        {
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "role": "planner",
+          "joinedAt": "2026-11-15T01:13:38.026Z",
+          "leftAt": null,
+          "worktree": "/home/person/code/odu/.worktrees/docs-human-reading"
+        },
+        {
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "role": "implementor",
+          "joinedAt": "2026-11-15T01:13:39.281Z",
+          "leftAt": null,
+          "worktree": "/home/person/code/odu/.worktrees/docs-human-reading"
+        }
+      ],
+      "events": [
+        {
+          "at": "2026-11-15T01:12:33.121Z",
+          "by": "you",
+          "kind": "requested",
+          "terminal": null,
+          "detail": "approved"
+        },
+        {
+          "at": "2026-11-15T01:12:33.121Z",
+          "by": "agent",
+          "kind": "question",
+          "terminal": null,
+          "detail": "ask:f5ef31db-18a1-4b47-87eb-96cd841a87ac"
+        },
+        {
+          "at": "2026-11-15T01:13:38.026Z",
+          "by": "kolu",
+          "kind": "joined",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": "planner"
+        },
+        {
+          "at": "2026-11-15T01:13:38.029Z",
+          "by": "agent",
+          "kind": "pr-opened",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": "#181 The docs are 24 pages, each for one reader, held to a written standard that CI checks"
+        },
+        {
+          "at": "2026-11-15T01:13:38.029Z",
+          "by": "ci",
+          "kind": "checks-passed",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": "17aef85637a2ed037b30c7a763d6313bede20bff"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/baseline.mjs"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/brief.md"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/docs-human-reading-after.png"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/docs-human-reading-before.png"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/odu-docs-after.png"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/odu-docs-before.png"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/old-anchors-cache.txt"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/old-anchors-docs.txt"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/plan.md"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/pr-body.md"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/pr181-body-r2.md"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/pr181-body.md"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/pr181-comments.md"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/reading-questions.json"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/reply-round-1.md"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/reply-round-2.md"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/review-round-1.md"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/review-round-2.md"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/round1-checks.log"
+        },
+        {
+          "at": "2026-11-15T01:13:38.032Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/round2-checks.log"
+        },
+        {
+          "at": "2026-11-15T01:13:39.281Z",
+          "by": "kolu",
+          "kind": "joined",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": "implementor"
+        },
+        {
+          "at": "2026-11-15T01:13:43.147Z",
+          "by": "you",
+          "kind": "answered",
+          "terminal": null,
+          "detail": "ask:f5ef31db-18a1-4b47-87eb-96cd841a87ac"
+        },
+        {
+          "at": "2026-11-15T01:13:43.147Z",
+          "by": "kolu",
+          "kind": "ended",
+          "terminal": null,
+          "detail": "abandoned"
+        },
+        {
+          "at": "2026-11-15T01:13:43.233Z",
+          "by": "kolu",
+          "kind": "kept",
+          "terminal": null,
+          "detail": "20"
+        }
+      ],
+      "decisions": [
+        {
+          "id": "5f1cf18a-5fb0-4026-835f-91248da92bb0",
+          "ask": "ask:f5ef31db-18a1-4b47-87eb-96cd841a87ac",
+          "at": "2026-11-15T01:12:33.121Z",
+          "key": "host",
+          "header": "",
+          "question": "Which host should the resumed work run on?",
+          "options": [
+            "remote:host-d",
+            "remote:host-c",
+            "remote:ci@host-a",
+            "local"
+          ],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-15T01:13:43.147Z",
+            "how": "declined",
+            "picked": [],
+            "text": null,
+            "from": "chat"
+          }
+        },
+        {
+          "id": "9ba38caf-0482-4227-bfb2-647b970c9659",
+          "ask": "ask:f5ef31db-18a1-4b47-87eb-96cd841a87ac",
+          "at": "2026-11-15T01:12:33.121Z",
+          "key": "mode",
+          "header": "",
+          "question": "Which mode?",
+          "options": ["full"],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-15T01:12:33.121Z",
+            "how": "answered",
+            "picked": ["full"],
+            "text": null,
+            "from": "request"
+          }
+        },
+        {
+          "id": "99c662e2-f144-43d7-b8ac-12731c447e08",
+          "ask": "ask:f5ef31db-18a1-4b47-87eb-96cd841a87ac",
+          "at": "2026-11-15T01:12:33.121Z",
+          "key": "planner.harness",
+          "header": "",
+          "question": "Which harness runs the planner?",
+          "options": ["omp", "claude", "codex"],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-15T01:13:43.147Z",
+            "how": "declined",
+            "picked": [],
+            "text": null,
+            "from": "chat"
+          }
+        },
+        {
+          "id": "546c1e71-88dc-4dc0-b1c5-fcabb1653338",
+          "ask": "ask:f5ef31db-18a1-4b47-87eb-96cd841a87ac",
+          "at": "2026-11-15T01:12:33.121Z",
+          "key": "planner.model",
+          "header": "",
+          "question": "Which model does the planner run on?",
+          "options": ["fable 5.2", "claude-opus-5-5", "claude-sonnet-5-5"],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-15T01:13:43.147Z",
+            "how": "declined",
+            "picked": [],
+            "text": null,
+            "from": "chat"
+          }
+        },
+        {
+          "id": "0be62802-f7d3-4566-afd2-d40bbc2239df",
+          "ask": "ask:f5ef31db-18a1-4b47-87eb-96cd841a87ac",
+          "at": "2026-11-15T01:12:33.121Z",
+          "key": "implementor.harness",
+          "header": "",
+          "question": "Which harness runs the implementor?",
+          "options": ["omp", "claude", "codex"],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-15T01:13:43.147Z",
+            "how": "declined",
+            "picked": [],
+            "text": null,
+            "from": "chat"
+          }
+        },
+        {
+          "id": "57cee514-b71b-444b-b521-165967bd7ca9",
+          "ask": "ask:f5ef31db-18a1-4b47-87eb-96cd841a87ac",
+          "at": "2026-11-15T01:12:33.121Z",
+          "key": "implementor.model",
+          "header": "",
+          "question": "Which model does the implementor run on?",
+          "options": ["claude-opus-5-5", "fable 5.2", "claude-sonnet-5-5"],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-15T01:13:43.147Z",
+            "how": "declined",
+            "picked": [],
+            "text": null,
+            "from": "chat"
+          }
+        },
+        {
+          "id": "2bf40295-ae70-443a-991b-6a77cc4db051",
+          "ask": "ask:f5ef31db-18a1-4b47-87eb-96cd841a87ac",
+          "at": "2026-11-15T01:12:33.121Z",
+          "key": "on-green",
+          "header": "",
+          "question": "When CI is green, merge the PR or hand it over?",
+          "options": ["merge", "hand-over"],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-15T01:13:43.147Z",
+            "how": "declined",
+            "picked": [],
+            "text": null,
+            "from": "chat"
+          }
+        }
+      ],
+      "startedAt": "2026-11-15T01:12:33.121Z",
+      "endedAt": "2026-11-15T01:13:43.147Z",
+      "outcome": "abandoned",
+      "keptFiles": [
+        {
+          "path": ".waterfall/baseline.mjs",
+          "bytes": 4278
+        },
+        {
+          "path": ".waterfall/brief.md",
+          "bytes": 6910
+        },
+        {
+          "path": ".waterfall/docs-human-reading-after.png",
+          "bytes": 153935
+        },
+        {
+          "path": ".waterfall/docs-human-reading-before.png",
+          "bytes": 159459
+        },
+        {
+          "path": ".waterfall/odu-docs-after.png",
+          "bytes": 153935
+        },
+        {
+          "path": ".waterfall/odu-docs-before.png",
+          "bytes": 159459
+        },
+        {
+          "path": ".waterfall/old-anchors-cache.txt",
+          "bytes": 615
+        },
+        {
+          "path": ".waterfall/old-anchors-docs.txt",
+          "bytes": 892
+        },
+        {
+          "path": ".waterfall/plan.md",
+          "bytes": 46079
+        },
+        {
+          "path": ".waterfall/pr-body.md",
+          "bytes": 19285
+        },
+        {
+          "path": ".waterfall/pr181-body-r2.md",
+          "bytes": 19064
+        },
+        {
+          "path": ".waterfall/pr181-body.md",
+          "bytes": 18683
+        },
+        {
+          "path": ".waterfall/pr181-comments.md",
+          "bytes": 5466
+        },
+        {
+          "path": ".waterfall/reading-questions.json",
+          "bytes": 79339
+        },
+        {
+          "path": ".waterfall/reply-round-1.md",
+          "bytes": 5421
+        },
+        {
+          "path": ".waterfall/reply-round-2.md",
+          "bytes": 2230
+        },
+        {
+          "path": ".waterfall/review-round-1.md",
+          "bytes": 10537
+        },
+        {
+          "path": ".waterfall/review-round-2.md",
+          "bytes": 5391
+        },
+        {
+          "path": ".waterfall/round1-checks.log",
+          "bytes": 2407
+        },
+        {
+          "path": ".waterfall/round2-checks.log",
+          "bytes": 846
+        }
+      ]
+    },
+    {
+      "id": "work:5daebdfa-4c6a-4792-a873-466d3485bc78",
+      "title": "Rewrite odu's docs",
+      "repo": "/home/person/code/odu",
+      "branch": "docs-human-reading",
+      "members": [
+        {
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "role": "planner",
+          "joinedAt": "2026-11-15T01:14:10.518Z",
+          "leftAt": "2026-11-15T01:36:31.269Z",
+          "worktree": "/home/person/code/odu/.worktrees/docs-human-reading"
+        },
+        {
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "role": "implementor",
+          "joinedAt": "2026-11-15T01:14:11.832Z",
+          "leftAt": "2026-11-15T01:36:30.861Z",
+          "worktree": "/home/person/code/odu/.worktrees/docs-human-reading"
+        }
+      ],
+      "events": [
+        {
+          "at": "2026-11-15T01:14:07.394Z",
+          "by": "you",
+          "kind": "requested",
+          "terminal": null,
+          "detail": "Why are you creating new terminals instead of using existing ones? Also whya re there duplicate works (one in progress and anothr 'finished/abandoned'?"
+        },
+        {
+          "at": "2026-11-15T01:14:10.518Z",
+          "by": "kolu",
+          "kind": "joined",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": "planner"
+        },
+        {
+          "at": "2026-11-15T01:14:10.520Z",
+          "by": "agent",
+          "kind": "pr-opened",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": "#181 The docs are 24 pages, each for one reader, held to a written standard that CI checks"
+        },
+        {
+          "at": "2026-11-15T01:14:10.520Z",
+          "by": "ci",
+          "kind": "checks-passed",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": "17aef85637a2ed037b30c7a763d6313bede20bff"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/baseline.mjs"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/brief.md"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/docs-human-reading-after.png"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/docs-human-reading-before.png"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/odu-docs-after.png"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/odu-docs-before.png"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/old-anchors-cache.txt"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/old-anchors-docs.txt"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/plan.md"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/pr-body.md"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/pr181-body-r2.md"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/pr181-body.md"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/pr181-comments.md"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/reading-questions.json"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/reply-round-1.md"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/reply-round-2.md"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/review-round-1.md"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/review-round-2.md"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/round1-checks.log"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/round2-checks.log"
+        },
+        {
+          "at": "2026-11-15T01:14:10.522Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/round3-checks.log"
+        },
+        {
+          "at": "2026-11-15T01:14:11.832Z",
+          "by": "kolu",
+          "kind": "joined",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": "implementor"
+        },
+        {
+          "at": "2026-11-15T01:14:13.228Z",
+          "by": "agent",
+          "kind": "note",
+          "terminal": null,
+          "detail": "Continuation of the original odu docs waterfall (PR #181) after a kolu restart ended it; setup carried over from the human's original answers (host-d, omp/fable 5.2 planner, omp/opus 5.5 implementor, merge on green). Plan was approved in the first work. Planner is on review round 3."
+        },
+        {
+          "at": "2026-11-15T01:15:00.532Z",
+          "by": "agent",
+          "kind": "stopped",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ""
+        },
+        {
+          "at": "2026-11-15T01:15:00.540Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/pr181-body-r3.md"
+        },
+        {
+          "at": "2026-11-15T01:15:00.540Z",
+          "by": "agent",
+          "kind": "file",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ".waterfall/review-round-3.md"
+        },
+        {
+          "at": "2026-11-15T01:16:17.779Z",
+          "by": "you",
+          "kind": "taken-over",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ""
+        },
+        {
+          "at": "2026-11-15T01:16:27.734Z",
+          "by": "you",
+          "kind": "taken-over",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": ""
+        },
+        {
+          "at": "2026-11-15T01:16:52.171Z",
+          "by": "you",
+          "kind": "handed-back",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": ""
+        },
+        {
+          "at": "2026-11-15T01:16:53.535Z",
+          "by": "you",
+          "kind": "handed-back",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": ""
+        },
+        {
+          "at": "2026-11-15T01:18:08.530Z",
+          "by": "ci",
+          "kind": "checks-running",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": "7c708dab6530e3d54b7b87008526ad72dd9606d5"
+        },
+        {
+          "at": "2026-11-15T01:18:38.638Z",
+          "by": "ci",
+          "kind": "checks-failed",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": "7c708dab6530e3d54b7b87008526ad72dd9606d5 _ci-setup@aarch64-darwin, ci::_prefetch-crates@x86_64-linux, ci::nix@x86_64-linux, ci::nixos-module@x86_64-linux, ci::typecheck@x86_64-linux, ci::unit@x86_64-linux, ci::website@x86_64-linux"
+        },
+        {
+          "at": "2026-11-15T01:27:11.087Z",
+          "by": "agent",
+          "kind": "stopped",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": ""
+        },
+        {
+          "at": "2026-11-15T01:27:27.793Z",
+          "by": "agent",
+          "kind": "question",
+          "terminal": null,
+          "detail": "ask:8b0270a4-bd97-45f3-851c-807ae8819061"
+        },
+        {
+          "at": "2026-11-15T01:36:07.554Z",
+          "by": "you",
+          "kind": "answered",
+          "terminal": null,
+          "detail": "ask:8b0270a4-bd97-45f3-851c-807ae8819061"
+        },
+        {
+          "at": "2026-11-15T01:36:30.861Z",
+          "by": "kolu",
+          "kind": "left",
+          "terminal": "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b",
+          "detail": "gone"
+        },
+        {
+          "at": "2026-11-15T01:36:31.269Z",
+          "by": "kolu",
+          "kind": "left",
+          "terminal": "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407",
+          "detail": "gone"
+        },
+        {
+          "at": "2026-11-15T01:36:31.269Z",
+          "by": "kolu",
+          "kind": "ended",
+          "terminal": null,
+          "detail": "abandoned"
+        },
+        {
+          "at": "2026-11-15T01:36:31.367Z",
+          "by": "kolu",
+          "kind": "kept",
+          "terminal": null,
+          "detail": "23"
+        }
+      ],
+      "decisions": [
+        {
+          "id": "f99fa93d-cdf9-4486-88a6-726930639f94",
+          "ask": "given:work:5daebdfa-4c6a-4792-a873-466d3485bc78",
+          "at": "2026-11-15T01:14:07.394Z",
+          "key": "host",
+          "header": "",
+          "question": "Which host?",
+          "options": ["remote:host-d"],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-15T01:14:07.394Z",
+            "how": "answered",
+            "picked": ["remote:host-d"],
+            "text": null,
+            "from": "request"
+          }
+        },
+        {
+          "id": "3d8ac9fe-3f54-4940-a422-8f340da1156c",
+          "ask": "given:work:5daebdfa-4c6a-4792-a873-466d3485bc78",
+          "at": "2026-11-15T01:14:07.394Z",
+          "key": "mode",
+          "header": "",
+          "question": "Which mode?",
+          "options": ["full"],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-15T01:14:07.394Z",
+            "how": "answered",
+            "picked": ["full"],
+            "text": null,
+            "from": "request"
+          }
+        },
+        {
+          "id": "65edc89d-66e9-4448-a397-1560c6cd20a0",
+          "ask": "given:work:5daebdfa-4c6a-4792-a873-466d3485bc78",
+          "at": "2026-11-15T01:14:07.394Z",
+          "key": "planner.harness",
+          "header": "",
+          "question": "Planner harness?",
+          "options": ["omp"],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-15T01:14:07.394Z",
+            "how": "answered",
+            "picked": ["omp"],
+            "text": null,
+            "from": "request"
+          }
+        },
+        {
+          "id": "063f177b-f7b1-4a03-937e-519c106fd067",
+          "ask": "given:work:5daebdfa-4c6a-4792-a873-466d3485bc78",
+          "at": "2026-11-15T01:14:07.394Z",
+          "key": "planner.model",
+          "header": "",
+          "question": "Planner model?",
+          "options": ["fable 5.2"],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-15T01:14:07.394Z",
+            "how": "answered",
+            "picked": ["fable 5.2"],
+            "text": null,
+            "from": "request"
+          }
+        },
+        {
+          "id": "f84179e2-26a6-4646-bce6-c62dcd48772c",
+          "ask": "given:work:5daebdfa-4c6a-4792-a873-466d3485bc78",
+          "at": "2026-11-15T01:14:07.394Z",
+          "key": "implementor.harness",
+          "header": "",
+          "question": "Implementor harness?",
+          "options": ["omp"],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-15T01:14:07.394Z",
+            "how": "answered",
+            "picked": ["omp"],
+            "text": null,
+            "from": "request"
+          }
+        },
+        {
+          "id": "b2543295-9184-43ff-82e2-d4a2bf5e6015",
+          "ask": "given:work:5daebdfa-4c6a-4792-a873-466d3485bc78",
+          "at": "2026-11-15T01:14:07.394Z",
+          "key": "implementor.model",
+          "header": "",
+          "question": "Implementor model?",
+          "options": ["claude-opus-5-5"],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-15T01:14:07.394Z",
+            "how": "answered",
+            "picked": ["claude-opus-5-5"],
+            "text": null,
+            "from": "request"
+          }
+        },
+        {
+          "id": "edc5ead5-e244-44ac-b319-9e9b638e821a",
+          "ask": "given:work:5daebdfa-4c6a-4792-a873-466d3485bc78",
+          "at": "2026-11-15T01:14:07.394Z",
+          "key": "on-green",
+          "header": "",
+          "question": "On green?",
+          "options": ["merge"],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-15T01:14:07.394Z",
+            "how": "answered",
+            "picked": ["merge"],
+            "text": null,
+            "from": "request"
+          }
+        },
+        {
+          "id": "4a6ac0d3-2ca6-4177-8ed3-19d565e4e1ab",
+          "ask": "ask:8b0270a4-bd97-45f3-851c-807ae8819061",
+          "at": "2026-11-15T01:27:27.793Z",
+          "key": null,
+          "header": "Darwin CI missing",
+          "question": "PR #181's CI is green on x86_64-linux but the aarch64-darwin lane could not run because host-b is offline. Merge now, or wait for the Mac?",
+          "options": [
+            "Wait for host-b, then rerun darwin and merge",
+            "Merge now on Linux-only green",
+            "Hand the PR over to me"
+          ],
+          "multiple": false,
+          "file": "",
+          "answer": {
+            "at": "2026-11-15T01:36:07.554Z",
+            "how": "answered",
+            "picked": ["Merge now on Linux-only green"],
+            "text": null,
+            "from": "chat"
+          }
+        }
+      ],
+      "startedAt": "2026-11-15T01:14:07.394Z",
+      "endedAt": "2026-11-15T01:36:31.269Z",
+      "outcome": "abandoned",
+      "keptFiles": [
+        {
+          "path": ".waterfall/baseline.mjs",
+          "bytes": 4278
+        },
+        {
+          "path": ".waterfall/brief.md",
+          "bytes": 6910
+        },
+        {
+          "path": ".waterfall/docs-human-reading-after.png",
+          "bytes": 153935
+        },
+        {
+          "path": ".waterfall/docs-human-reading-before.png",
+          "bytes": 159459
+        },
+        {
+          "path": ".waterfall/odu-docs-after.png",
+          "bytes": 153935
+        },
+        {
+          "path": ".waterfall/odu-docs-before.png",
+          "bytes": 159459
+        },
+        {
+          "path": ".waterfall/old-anchors-cache.txt",
+          "bytes": 615
+        },
+        {
+          "path": ".waterfall/old-anchors-docs.txt",
+          "bytes": 892
+        },
+        {
+          "path": ".waterfall/plan.md",
+          "bytes": 46079
+        },
+        {
+          "path": ".waterfall/pr-body.md",
+          "bytes": 17451
+        },
+        {
+          "path": ".waterfall/pr181-body-r2.md",
+          "bytes": 19064
+        },
+        {
+          "path": ".waterfall/pr181-body.md",
+          "bytes": 18683
+        },
+        {
+          "path": ".waterfall/pr181-comments.md",
+          "bytes": 5466
+        },
+        {
+          "path": ".waterfall/reading-questions.json",
+          "bytes": 79339
+        },
+        {
+          "path": ".waterfall/reply-round-1.md",
+          "bytes": 5421
+        },
+        {
+          "path": ".waterfall/reply-round-2.md",
+          "bytes": 2230
+        },
+        {
+          "path": ".waterfall/review-round-1.md",
+          "bytes": 10537
+        },
+        {
+          "path": ".waterfall/review-round-2.md",
+          "bytes": 5391
+        },
+        {
+          "path": ".waterfall/round1-checks.log",
+          "bytes": 2407
+        },
+        {
+          "path": ".waterfall/round2-checks.log",
+          "bytes": 846
+        },
+        {
+          "path": ".waterfall/round3-checks.log",
+          "bytes": 506
+        },
+        {
+          "path": ".waterfall/pr181-body-r3.md",
+          "bytes": 19286
+        },
+        {
+          "path": ".waterfall/review-round-3.md",
+          "bytes": 2541
+        }
+      ]
+    }
+  ],
+  "members": {
+    "remote:host-d/b05bbccd-4e62-408c-a590-5c5906ce7407": {
+      "name": "Planner: odu docs for human reading",
+      "agent": "omp",
+      "told": "stopped",
+      "joined": "asked",
+      "spoken": true,
+      "ran": true
+    },
+    "remote:host-d/415ebfc7-4a42-4561-a54b-c47f9d62284b": {
+      "name": "Implementor: odu docs for human reading",
+      "agent": "omp",
+      "told": "stopped",
+      "joined": "asked",
+      "spoken": true,
+      "ran": true
+    }
+  },
+  "__internal__": {
+    "migrations": {
+      "version": "1.52.0"
+    }
+  }
+}

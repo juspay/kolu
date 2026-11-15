@@ -557,13 +557,22 @@ function httpGet(url: string): Promise<{ ok: boolean }> {
  *  detached daemons the cutover chains BELOW it — padi (the server's child) and
  *  padi's kaval (padi's child) — both of which outlive the server. Order matters:
  *  server → padi → kaval, so a still-live parent can't race a respawn of a child
- *  we just reaped (kill padi before its kaval, and the server before padi). */
-function killServer() {
+ *  we just reaped (kill padi before its kaval, and the server before padi).
+ *
+ *  `kaval: "keep"` stops one level short, and is THE REDEPLOY (see
+ *  {@link restartKoluServer}): a new build replaces kolu-server and the padi
+ *  under it, while the kaval holding the PTYs keeps running — so the fresh padi
+ *  converges on a survivor and ADOPTS its terminals under the ids they already
+ *  had, which is what a person's terminals do when kolu is redeployed under
+ *  them. The runtime dir is left alone too: kaval's socket and gate live there,
+ *  so removing it would strand the daemon we deliberately kept. */
+function killServer(kaval: "reap" | "keep" = "reap") {
   if (serverProcess) {
     serverProcess.kill("SIGTERM");
     serverProcess = undefined;
   }
   killPadiDaemon();
+  if (kaval === "keep") return;
   killKavalDaemon();
   // The per-worker runtime dir lives outside `testBaseDir` (short path, see its
   // comment), so the run's recursive remove won't catch it — reap it here.
@@ -573,7 +582,9 @@ function killServer() {
     // Best-effort: already gone / never created.
   }
 }
-process.on("exit", killServer);
+// `exit` hands its listener the exit CODE; take none, so the reap is never
+// read as a mode.
+process.on("exit", () => killServer());
 
 const ciArgs = [
   "--no-sandbox",
@@ -1590,17 +1601,25 @@ After({ tags: "@kaval-restart" }, async function (this: KoluWorld) {
   await startServerChild(koluServer);
 });
 
-/** REBOOT THE WORKER'S SERVER MID-SCENARIO, by the same mechanism the
- *  `@kaval-restart` hook above uses once a scenario has ended: the child is
- *  killed with the daemons below it and a fresh one is started on a fresh
- *  port. The new port is answered so the caller can navigate the page at it —
- *  a page left on the old URL would be talking to a corpse.
+/** REDEPLOY THE WORKER'S SERVER MID-SCENARIO — what a person's machine lives
+ *  through when a new kolu build lands under them: the server child is killed
+ *  along with the padi it spawned, and a fresh one is started on a fresh port.
+ *  The new port is answered so the caller can navigate the page at it — a page
+ *  left on the old URL would be talking to a corpse.
  *
- *  What survives is what was WRITTEN: the state dir is the worker's and does
- *  not move, so a restart is the honest test of "is this remembered?" rather
- *  than of a signal that happened to stay in a browser tab. The terminals do
- *  NOT survive (padi and its kaval are reaped with the server), so this is for
- *  scenarios about records — finished work, its decisions and its kept files.
+ *  THE KAVAL IS KEPT, because that is what actually happens (kolu#2376): a
+ *  redeploy replaces kolu-server and drain-replaces its padi, while the daemon
+ *  holding the PTYs keeps running — so the fresh padi converges on a survivor
+ *  and adopts its terminals, under the SAME ids. A restart that reaped kaval
+ *  too would ask the suite a question nobody has: it would destroy the
+ *  terminals and then observe that they were destroyed. Reaping it belongs to
+ *  the worker's teardown, not to a scenario (see {@link killServer}).
+ *
+ *  What survives is therefore of two kinds, and both are honest: what was
+ *  WRITTEN (the state dir is the worker's and does not move, so a restart is
+ *  the real test of "is this remembered?" rather than of a signal that happened
+ *  to stay in a browser tab), and what was never killed (the terminals, adopted
+ *  by the new padi).
  *
  *  Refuses when `KOLU_SERVER` is a URL: that mode reuses a server this run
  *  neither owns nor may restart.
@@ -1619,11 +1638,12 @@ export async function restartKoluServer(
       "a scenario asked for a server restart, but KOLU_SERVER is a reused URL this run does not own",
     );
   }
-  console.log(`[worker:${workerId}] restarting the server for a scenario.`);
-  killServer();
+  console.log(`[worker:${workerId}] redeploying the server for a scenario.`);
+  killServer("keep");
   whileDown?.(path.join(koluStateDir, "config.json"));
   // READ-ONLY, because this restart happens INSIDE a scenario: the fresh padi
-  // parks what its saved session holds, and the destructive probe would kill
+  // adopts the surviving kaval's terminals (and parks whatever its saved
+  // session holds that is not live), and the destructive probe would kill
   // exactly those terminals a second later — which is what a work's member
   // leaving a redeploy really was.
   await startServerChild(koluServer, "read");

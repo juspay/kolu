@@ -63,7 +63,8 @@ Read the full [Philosophy](https://kolu.dev/philosophy).
 - **[Agent attention](https://kolu.dev/agent-detection)** — see which agents are
   working, finished, or waiting for you.
 - **[The Conductor](https://kolu.dev/conductor)** — one chat that drives
-  every terminal on every host: it opens a **piece of work** kolu stores — its
+  every terminal on every host: it opens a **piece of work** kolu stores — a
+  branch on a machine, with its
   title, its terminals and their roles, the timeline of what kolu observed, the
   decisions you made and the files it kept — and is woken when an agent stops
   or asks, never sitting in a wait, so it brings you only the decisions that

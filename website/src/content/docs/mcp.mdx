@@ -237,11 +237,11 @@ watches many, between your agent's calls:
 | `watch_next` | Block until a watched terminal needs you, then hand over everything since your last call. |
 | `watch_close` | Stop watching and discard the queue. |
 
-Anything that happens while your agent is not asking is kept for it, in kolu's
-background service, so reopening with the same name picks up where you left off.
-Each event says which terminal and why: it is asking for input, it finished its
-turn, or it is gone. Leaving `ids` off is the better default: a subscription
-scoped to the lanes you remembered goes blind to the one you did not.
+Anything that happens while your agent is not asking is kept for it, so
+reopening with the same name picks up where you left off. Each event says which
+terminal and why: it is asking for input, it finished its turn, or it is gone.
+Leaving `ids` off is the better default: a subscription scoped to the lanes you
+remembered goes blind to the one you did not.
 
 #### Report a terminal until you deal with it
 
@@ -289,15 +289,16 @@ kolu-server stores: it is woken rather than waiting.
 
 | Tool | What it does |
 | --- | --- |
-| `work_open` | Open a work: its title, repo and branch, with the setup questions it must ask. The unanswered ones reach you as one form. It answers at once; your answers arrive later as a wake. Refused when a question is missing. |
+| `work_open` | Open a work by its host, repo and branch, or by the terminal to watch, with its title and setup questions. Opening one that exists returns it as it stands, and reopens it if it had ended. |
 | `work_ask` | Ask you about a work, under a two-or-three-word header, with options, a box of your own, and the `file` to read. It answers at once; kolu wakes the Conductor with your answer. |
-| `work_adopt` | Add a terminal the Conductor did not create, by its `host/id`, with its role in that work. Answers the state it was found in, a baseline rather than news. Refused for a bad reference or a finished work. |
-| `work_leave` | Take a terminal out of its work. One that closes leaves by itself, and one the Conductor creates joins without asking. |
+| `work_adopt` | Bring a terminal into a work by its `host/id` and role, including one that left. Answers the state it was found in, a baseline rather than news. Refused for a role another holds. |
+| `work_leave` | Take a terminal out of its work. One that closes leaves by itself. |
+| `work_stop` | End a work: its terminals stop being members and its open questions go. The record stays, and the card offers **Reopen**. |
 | `work_note` | Put a line of plain text on a work's timeline. |
 
 A member terminal starts a new Conductor turn when its agent comes up, stops,
-asks, goes or sleeps, and so does an answer of yours. No timer wakes it. [The
-Conductor](/conductor) has the rest.
+asks, goes or sleeps, and so does an answer of yours and a work losing its last
+terminal. [The Conductor](/conductor) has the rest.
 
 ### Read the screen and the code
 

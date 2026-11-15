@@ -27,8 +27,11 @@ import { randomUUID } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
+  cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -1156,9 +1159,17 @@ const eventOf_1_53_0 = (
  *    reader a person is waiting for must come up.
  *  - EVENTS BECOME TYPED ({@link eventOf_1_53_0}): a check event with no PR in
  *    its timeline is dropped, and so is a line nothing can say any more.
+ *  - THE TIMELINE SAYS EACH THING ONCE. Three works on one branch each watched
+ *    the same `.waterfall/` fill up, so the naive union lists every document
+ *    twenty-odd times; a `file` event is news that a path EXISTS, so only the
+ *    first one for a path is kept. `kept` events are dropped from a work that
+ *    comes out OPEN: kept files are what an ENDED work left behind, and this
+ *    work is in progress — its files are still in its worktree.
  *
- *  Answers the renames the caller owes the kept files: `<works>/<old id>` →
- *  `<works>/<workDirOf(new id)>`, for the works that are still Ended.
+ *  Answers the MOVES the caller owes the kept files: every folded work's old
+ *  directory (`<works>/<old id>`) into the one new `<works>/<workDirOf(id)>`,
+ *  oldest-ending first, so where two old works kept the same path the newest
+ *  copy is the one that survives the merge.
  *
  *  PURE, and exported for `stateMigration.test.ts` and the proof against the
  *  human's own store: a rung this size has to be runnable without a `Conf`. */
@@ -1168,7 +1179,7 @@ export function foldWorksByKey_1_53_0(
 ): {
   readonly works: Record<string, unknown>;
   readonly members: Record<string, unknown>;
-  readonly renames: ReadonlyArray<readonly [string, string]>;
+  readonly moves: ReadonlyArray<{ readonly from: string; readonly to: string }>;
 } {
   const groups = new Map<string, Array<Work_1_52_0>>();
   for (const value of works) {
@@ -1207,7 +1218,7 @@ export function foldWorksByKey_1_53_0(
   }
   const folded: Record<string, unknown> = {};
   const members: Record<string, unknown> = {};
-  const renames: Array<readonly [string, string]> = [];
+  const moves: Array<{ from: string; to: string }> = [];
   for (const [id, group] of groups) {
     const inOrder = [...group].sort((a, b) =>
       a.startedAt < b.startedAt ? -1 : a.startedAt > b.startedAt ? 1 : 0,
@@ -1252,10 +1263,25 @@ export function foldWorksByKey_1_53_0(
     // open, and a check event is news about one PR at one commit. Three works
     // on one branch each saw #181 open; one timeline says it once.
     const checks = new Set<string>();
+    // ONE LINE PER PATH. A `file` event says a document EXISTS in the work's
+    // `.waterfall/`; three works watching one worktree each said it as they
+    // found it, so the union repeats every plan and note once per card. The
+    // first sighting is the true one — it is when the file appeared.
+    const paths = new Set<string>();
     for (const event of timeline) {
       if (text(event.kind) === "ended" && ending === undefined) continue;
       const typed = eventOf_1_53_0(event, pr);
       if (typed === null) continue;
+      // KEPT FILES BELONG TO AN ENDED WORK. This group's `kept` lines were
+      // written by the `abandoned` endings this rung takes back, so a work
+      // that comes out OPEN would carry a "kolu kept 20 files" line about
+      // files that are still sitting in its worktree.
+      if (typed.kind === "kept" && ending === undefined) continue;
+      if (typed.kind === "file") {
+        const path = text(typed.path);
+        if (paths.has(path)) continue;
+        paths.add(path);
+      }
       if (typed.kind === "pr-opened" && typeof typed.pr === "number") {
         if (typed.pr === pr) continue;
         pr = typed.pr;
@@ -1297,7 +1323,14 @@ export function foldWorksByKey_1_53_0(
       events,
       state,
     };
-    if (ending !== undefined) renames.push([ending.id, workDirOf(id)]);
+    // THE KEPT FILES FOLLOW THE WORK. Every old work in the group had its own
+    // directory under `works/`, named by the id it no longer has; all of them
+    // merge into the one the folded work names. Oldest ENDING first, so where
+    // two of them kept the same path the newest copy is what is left.
+    for (const one of [...inOrder].sort((a, b) =>
+      (a.endedAt ?? a.startedAt) < (b.endedAt ?? b.startedAt) ? -1 : 1,
+    ))
+      moves.push({ from: one.id, to: workDirOf(id) });
     if (state.kind !== "open") continue;
     // The LATEST row per terminal across the group is the membership: a
     // terminal that left and joined again is in the work it joined last, and
@@ -1333,14 +1366,62 @@ export function foldWorksByKey_1_53_0(
       };
     }
   }
-  return { works: folded, members, renames };
+  return { works: folded, members, moves };
 }
 
-/** The 1.53.0 rung, against the store — the fold above, the kept-file
- *  directories renamed to the new hashed names, and the transcript file's
- *  work questions split into their own row kind
- *  ({@link TRANSCRIPT_FILE_VERSION} moves with it: a row shape change is a
- *  rung here, by this file's own rule). */
+/** THE KEPT-FILE DIRECTORIES, MOVED — `<root>/<old work id>` into
+ *  `<root>/<workDirOf(new id)>`, in the order the fold gives them (oldest
+ *  ending first), merging rather than refusing: where two of the folded works
+ *  kept the same path the later move overwrites it, so the copy that survives
+ *  is the newest one, and each such collision is logged with the path and the
+ *  work it came from. The old directory is removed once its contents are in
+ *  the new one — leaving it would be an orphan the sweep deletes anyway.
+ *
+ *  Exported for the migration test, which drives it against real directories
+ *  under a temp state root. */
+export function moveKeptFiles_1_53_0(
+  root: string,
+  moves: ReadonlyArray<{ readonly from: string; readonly to: string }>,
+): void {
+  for (const { from, to } of moves) {
+    if (from === to) continue;
+    const source = join(root, from);
+    const target = join(root, to);
+    if (!existsSync(source)) continue;
+    if (!existsSync(target)) {
+      mkdirSync(target, { recursive: true, mode: 0o700 });
+    } else {
+      for (const path of keptPathsUnder_1_53_0(source, ""))
+        if (existsSync(join(target, path)))
+          log.info(
+            { work: from, path },
+            "state: two folded works kept the same file — keeping the newer copy",
+          );
+    }
+    cpSync(source, target, { recursive: true, force: true });
+    rmSync(source, { recursive: true, force: true });
+  }
+}
+
+/** Every FILE under a kept-files directory, as paths relative to it. */
+const keptPathsUnder_1_53_0 = (dir: string, prefix: string): string[] =>
+  readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+    entry.isDirectory()
+      ? keptPathsUnder_1_53_0(join(dir, entry.name), `${prefix}${entry.name}/`)
+      : [`${prefix}${entry.name}`],
+  );
+
+/** The 1.53.0 rung, against the store — the fold above, the kept files moved
+ *  into the folded works' directories, and the transcript file's work
+ *  questions split into their own row kind ({@link TRANSCRIPT_FILE_VERSION}
+ *  moves with it: a row shape change is a rung here, by this file's own rule).
+ *
+ *  THIS RUNG IS WHERE THE REPAIRS GO, and the reason is dates: the human's
+ *  live store is still at 1.52.0 (the copy this round was proven on,
+ *  `config-3-works-all-ended.json`, is stamped 1.52.0), so 1.53.0 has run on
+ *  no person's store yet — only on copies. It is also the ONLY rung that
+ *  still knows the works' old ids, which is what the kept-file move needs:
+ *  after it, those directory names mean nothing to anybody. */
 export function foldWorks_1_53_0(store: Conf<PersistedState>): void {
   const works: unknown = store.get("works");
   if (!Array.isArray(works)) return;
@@ -1348,13 +1429,7 @@ export function foldWorks_1_53_0(store: Conf<PersistedState>): void {
     works,
     recordOf(store.get("members")) ?? {},
   );
-  const root = join(dirname(store.path), "works");
-  for (const [was, now] of folded.renames) {
-    if (was === now) continue;
-    const from = join(root, was);
-    if (!existsSync(from) || existsSync(join(root, now))) continue;
-    renameSync(from, join(root, now));
-  }
+  moveKeptFiles_1_53_0(join(dirname(store.path), "works"), folded.moves);
   store.set("works", folded.works as unknown as PersistedState["works"]);
   store.set("members", folded.members as unknown as PersistedState["members"]);
   splitWorkAskRows_1_53_0(dirname(store.path));

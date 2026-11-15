@@ -108,6 +108,7 @@ export {
   type HostSettling,
   type HostUnreachable,
   type HostView,
+  prReading,
   readingsOf,
   recordName,
 } from "./readings.ts";
@@ -122,6 +123,7 @@ export {
   FINISHED_KEPT,
   type MemberAt,
   type MemberDetail,
+  type PrWatch,
   type WorkStore,
   workStore,
 } from "./workStore.ts";

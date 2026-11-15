@@ -92,6 +92,14 @@ While a host's kaval is down, [that host's dot is amber, not green](/remote-host
 
 kaval only knows terminals. padi is where terminal observations become a workspace: repo-aware, agent-aware, resumable, and readable from more than one face.
 
+A padi that has just started says it is still **settling** until it has adopted
+kaval's terminals, and only then publishes an established roster — which NAMES
+the terminals it holds, in the same breath. So a restart or a redeploy is never
+read a layer up as every terminal dying: nothing above padi calls a terminal
+gone until the roster that would have held it is real, and nothing can pair
+"the roster is real" with a list that has not arrived yet, because they are one
+answer.
+
 <CardGrid>
   <Card title="terminal registry">
     which terminals exist, where they belong, and how to re-open them after the

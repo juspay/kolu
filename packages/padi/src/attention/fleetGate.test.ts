@@ -6,6 +6,12 @@
  * The second pin is the one an inlined boolean loses: this is not "ignore empty
  * frames". Once a real fleet has been seen, an empty map means every terminal
  * exited, and every consumer must be told.
+ *
+ * The third is the CENSUS: an established standing names the ids the registry
+ * holds, in the same value, because a consumer that reads the standing from one
+ * wire member and the list from another can be handed an established standing
+ * beside a list that has not arrived — which is what a projection of this
+ * surface does, and what made a redeploy's live terminals `gone`.
  */
 
 import type { PadiTerminal } from "@kolu/padi-client/surface";
@@ -13,8 +19,9 @@ import type { TerminalId } from "@kolu/terminal-vocab/schema";
 import { describe, expect, it } from "vitest";
 import { createFleetGate } from "./fleetGate.ts";
 
-/** A frame of N terminals — the gate reads only the SIZE, so the records need
- *  not be real ones. */
+/** A frame of N terminals, with the ids a registry would hold — the gate reads
+ *  the SIZE to decide the arm and the KEYS to state the census, so the records
+ *  need not be real ones. */
 const frame = (n: number): ReadonlyMap<TerminalId, PadiTerminal> =>
   new Map(
     Array.from({ length: n }, (_, i) => [
@@ -72,7 +79,7 @@ describe("createFleetGate", () => {
     expect(gate.admit(frame(0))).toBe(true);
   });
 
-  it("publishes each CHANGE of the standing, with the epoch it was established", () => {
+  it("publishes each CHANGE of the standing, with the epoch and the ids", () => {
     const seen: unknown[] = [];
     const gate = createFleetGate({
       publish: (roster) => seen.push(roster),
@@ -82,13 +89,46 @@ describe("createFleetGate", () => {
     gate.admit(frame(0));
     gate.admit(frame(1));
     // Idempotent: a second establish (the boot landing after a frame already
-    // opened the gate) republishes nothing.
+    // opened the gate) republishes nothing — same arm, same census.
     gate.establish();
     gate.settling();
     expect(seen).toEqual([
-      { kind: "established", at: 1_700_000_000_000 },
+      { kind: "established", at: 1_700_000_000_000, ids: ["t0"] },
       { kind: "settling" },
     ]);
     expect(gate.roster()).toEqual({ kind: "settling" });
+  });
+
+  it("states the REGISTRY's ids, and re-states them when membership moves", () => {
+    // The census is read at publish time through the port, never copied — a
+    // terminal registered or dropped moves what this says without the frame
+    // that would otherwise have to arrive first.
+    let live: TerminalId[] = [];
+    const seen: unknown[] = [];
+    const gate = createFleetGate({
+      publish: (roster) => seen.push(roster),
+      now: () => 7,
+      census: () => live,
+    });
+    // Nothing yet, and the boot has not finished: no census to amend.
+    gate.censusMoved();
+    expect(seen).toEqual([]);
+
+    live = ["a" as TerminalId];
+    gate.establish();
+    live = ["a" as TerminalId, "b" as TerminalId];
+    gate.censusMoved();
+    // An unchanged census is not news, however often it is re-stated.
+    gate.censusMoved();
+    live = ["a" as TerminalId];
+    gate.censusMoved();
+    expect(seen).toEqual([
+      { kind: "established", at: 7, ids: ["a"] },
+      { kind: "established", at: 7, ids: ["a", "b"] },
+      { kind: "established", at: 7, ids: ["a"] },
+    ]);
+    // The epoch is when the roster was ESTABLISHED, not when it last moved —
+    // what a reader debugging a false absence is after.
+    expect(gate.roster()).toEqual({ kind: "established", at: 7, ids: ["a"] });
   });
 });

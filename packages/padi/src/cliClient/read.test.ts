@@ -121,10 +121,11 @@ function fakeClient(streams: {
   keys: FakeSource<readonly TerminalId[]>;
   activity: FakeSource<readonly TerminalId[]>;
   get: (key: TerminalId) => FakeSource<PadiTerminal>;
-  /** The host's ROSTER STANDING — `established` unless a case overrides it,
-   *  which is what lets a missing id read as an absence at all (a padi that has
-   *  not finished adopting answers `settling`, and a wait must not call that
-   *  terminal gone — #2376). */
+  /** The host's ROSTER — the standing AND the census, one frame
+   *  (`padiSurface` 7.4). `established` with an EMPTY census unless a case
+   *  overrides it, which is what lets a missing id read as an absence at all
+   *  (a padi that has not finished adopting answers `settling`, and a wait
+   *  must not call that terminal gone — #2376). */
   roster?: () => Stream.Stream<PadiRoster, unknown>;
 }): PadiSurfaceClient {
   return {
@@ -136,7 +137,7 @@ function fakeClient(streams: {
       roster: {
         get: () =>
           streams.roster?.() ??
-          Stream.make({ kind: "established", at: 1 } as PadiRoster),
+          Stream.make({ kind: "established", at: 1, ids: [] } as PadiRoster),
       },
       activity: { get: () => streams.activity.stream() },
     },

@@ -238,6 +238,8 @@ describe("padiSurface contract", () => {
       "watchPulse",
       "subscribeRepoChange",
       "subscribeFileChange",
+      // 7.4: the pull request of a BRANCH, for the work that is that branch.
+      "pullRequest",
       "terminalAttach",
     ]);
     expect(Object.keys(spec.events ?? {})).toEqual(["terminalExit"]);
@@ -439,6 +441,10 @@ describe("padiSurface contract", () => {
     // leave it on the `settling` default while padi had long since adopted, or
     // (worse) on a stale `established` through a recycle.
     expect(PADI_FORWARDING_POLICY.roster).toBe("value");
+    // The 7.4 `pullRequest` stream is value for the same reason as the roster:
+    // every frame is the WHOLE current reading of one branch's pull request, so
+    // a rebind that replays the last one is telling the truth.
+    expect(PADI_FORWARDING_POLICY.pullRequest).toBe("value");
   });
 
   it("the terminals value carries the active | sleeping | parked union", () => {

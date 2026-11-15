@@ -96,8 +96,10 @@ appending what it observes.
 - **The reading** (`./readings.ts`, pure) — what ONE host's frames mean:
   padi's urgency fold, that host's roster and the records read on it become
   one observation per member terminal (its level, its name, the agent in it,
-  padi's foreground answer, the git fact and the PR the record carries).
-  kolu-server owns the subscriptions; this owns what they SAY.
+  padi's foreground answer and the git fact). The PULL REQUEST is not among
+  them: it belongs to the work's branch, and `prReading` (same module) folds
+  padi's `pullRequest` reading for that branch instead. kolu-server owns the
+  subscriptions; this owns what they SAY.
 - **The decision** (`./members.ts`, pure) — one reading of one member becomes
   a wake level or nothing:
   - `working` forgets what we were told, so the next stop is news again;
@@ -123,16 +125,19 @@ appending what it observes.
   (`ready` · `stopped` · `asking` · `exited` · `asleep`); every path in a
   member's `.waterfall/` that `filesSeen` does not already hold becomes a
   `file` event, listed off a level change rather than a timer; and the PR —
-  ONE per work, the number the timeline learned — is compared with the
-  TIMELINE and never with the last reading: `prOf(work)` for the number and
-  its state, `checksSeen(work)` for the checks, which the timeline holds one
-  of per kind per HEAD COMMIT. So two members looking at one PR record it
-  once even when they disagree (their polls of `gh` are thirty seconds out of
-  step), a restart records nothing twice, and a push — a new head — records a
-  run of its own. THE ONLY ENDINGS are the forge's two — merged or closed,
-  and the forge seeing that PR open again reopens the work — and a **Stop**
-  (the card's button, the Conductor's `work_stop`), which is the one a person
-  or the Conductor chooses. Nothing kolu merely fails to see ends anything.
+  ONE per work, read ONCE from the work's own branch (`observedPr`, fed by
+  kolu-server's per-work leg over padi's `pullRequest` stream) — is compared
+  with the TIMELINE and never with the last reading: `prOf(work)` for the
+  number and its state, `checksSeen(work)` for the checks, which the timeline
+  holds one of per kind per HEAD COMMIT. So a poll that says what kolu already
+  knows records nothing, a restart records nothing twice, and a push — a new
+  head — records a run of its own. A work with NO terminals is still watched,
+  which is what makes a Conductor-merged work end: the script merges and
+  closes its terminals seconds later (#2376). THE ONLY ENDINGS are the forge's
+  two — merged or closed, and the forge seeing that PR open again reopens the
+  work — and a **Stop** (the card's button, the Conductor's `work_stop`),
+  which is the one a person or the Conductor chooses. Nothing kolu merely
+  fails to see ends anything.
 - **The end** — the work's open questions are recorded as dropped and its
   members removed in the same write as the ending; then its files are listed
   and copied into kolu (`WorkFiles`, implemented by kolu-server), so the plan

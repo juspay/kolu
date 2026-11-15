@@ -28,6 +28,7 @@
  * the work stays open with no terminals, and the card says exactly that.
  */
 
+import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Schema } from "effect";
 import {
   CHECK_STEP,
@@ -40,12 +41,14 @@ import {
   reopenWork,
   type Work,
   type WorkEvent,
+  type WorkId,
 } from "kolu-work";
 import type { ConductorWakeEvent } from "kolu-common/conductor";
 import type { Logger } from "pino";
 import { MemberWatchSchema, observed, saved, spokenTo } from "./members.ts";
 import type { Member, MemberStore } from "./memberStore.ts";
 import type { WatchObservation, WatchPr } from "./observation.ts";
+import { prReading } from "./readings.ts";
 import type { RecordWrites } from "./recordWrites.ts";
 import type { WorkFiles } from "./workFiles.ts";
 import type { WorkStore } from "./workStore.ts";
@@ -99,40 +102,44 @@ export const ringEvent = (
   }
 };
 
-/** THE PR, as the timeline learns it — ONE pull request, observed once,
- *  however many members can see it.
+/** THE PR, as the timeline learns it — ONE pull request, observed ONCE, by the
+ *  WORK.
  *
- *  A WORK HAS ONE PULL REQUEST. The timeline's first `pr-opened` says which,
- *  and a reading carrying any other number is not this work's PR: it moves
- *  nothing.
+ *  A WORK HAS ONE PULL REQUEST, and kolu reads it where it lives: the branch.
+ *  The reading comes from the work's own watch (`readings.ts`'s `prReading`
+ *  over padi's `pullRequest` stream for `(repo, branch)`), so there is one
+ *  reader, no member has to exist for the work to learn that its PR was
+ *  merged, and the ping-pong two out-of-phase terminal sensors wrote between
+ *  them (juspay/kolu#2376: 429 of one real work's 465 events) has no source
+ *  left.
  *
  *  A CHECK EVENT IS ABOUT A COMMIT, and the timeline holds at most one per
- *  kind per PR per commit (`kolu-work`'s {@link checkKey}). That is what
- *  makes two members who DISAGREE write two events between them rather than
- *  one per frame for as long as they disagree (juspay/kolu#2376: 429 of one
- *  real work's 465 events were that ping-pong). The event carries the PR, the
- *  head and the failing gates as FIELDS — the identity used to be regexed
- *  back out of a sentence.
+ *  kind per PR per commit (`kolu-work`'s {@link checkKey}). That is what makes
+ *  a reading kolu has already recorded — the same reading after a restart, the
+ *  same checks re-run on the same commit — add nothing, while a PUSH adds an
+ *  event: a new head's `checks-running` after the old head's `checks-passed`
+ *  reads as what it is. The event carries the PR, the head and the failing
+ *  gates as FIELDS.
+ *
+ *  The events are BY kolu / BY ci and name no terminal (`terminal: null`):
+ *  nobody's terminal said this, the forge did.
  *
  *  A merge or a close ENDS the work here, because the forge saying so is one
- *  of the only two ways a work ends. */
-export const prEvents = (
-  work: Work,
-  ref: string,
-  pr: WatchPr,
-  at: string,
-): Work => {
+ *  of the only two ways a work ends — whenever kolu next looks, including the
+ *  first look after a restart, and whatever its members are doing (they LEAVE
+ *  the work with the ending; nothing is killed). */
+export const prEvents = (work: Work, pr: WatchPr, at: string): Work => {
   let next = work;
   const known = prOf(next);
-  // NOT THIS WORK'S PULL REQUEST. Said plainly rather than recorded: the work
-  // the timeline is about already has one.
-  if (known !== null && known.number !== pr.number) return work;
-  if (known === null) {
+  // THE FORGE'S ANSWER FOR THIS BRANCH IS THIS WORK'S PULL REQUEST. A number
+  // the timeline has not got yet is a PR opening — the first one, or the next
+  // one on a branch whose last was closed while kolu was not looking.
+  if (known === null || known.number !== pr.number) {
     next = recordEvent(next, {
       at,
-      by: "agent",
+      by: "kolu",
       kind: "pr-opened",
-      terminal: ref,
+      terminal: null,
       pr: pr.number,
       title: pr.title,
     });
@@ -147,7 +154,7 @@ export const prEvents = (
         at,
         by: "ci",
         kind: step.kind,
-        terminal: ref,
+        terminal: null,
         pr: pr.number,
         head: pr.head,
         failing: pr.checks === "fail" ? [...pr.failing] : [],
@@ -159,7 +166,7 @@ export const prEvents = (
       at,
       by: "kolu",
       kind: "merged",
-      terminal: ref,
+      terminal: null,
       pr: pr.number,
     });
     next = endWork(next, { outcome: { kind: "merged", pr: pr.number }, at });
@@ -169,7 +176,7 @@ export const prEvents = (
       at,
       by: "kolu",
       kind: "pr-closed",
-      terminal: ref,
+      terminal: null,
       pr: pr.number,
     });
     next = endWork(next, { outcome: { kind: "closed", pr: pr.number }, at });
@@ -217,6 +224,11 @@ export const fileEvents = (
 export interface Observing {
   /** WHAT THE WATCHER SAW, for refs on CONNECTED hosts only. */
   readonly observe: (seen: ReadonlyArray<WatchObservation>) => void;
+  /** WHAT THE WORK'S OWN PULL-REQUEST WATCH READ — one reading of the branch's
+   *  PR, from the host the work is on. Not a reading of any terminal: it
+   *  arrives for works with no members at all, and it is what ends a work the
+   *  Conductor merged seconds before closing its terminals. */
+  readonly observedPr: (work: WorkId, pr: PrResult) => void;
   /** The Conductor just spoke to the agent in this terminal. */
   readonly saidTo: (ref: string) => void;
   /** ... and just closed it. */
@@ -337,8 +349,9 @@ export const observing = (deps: {
           const event = ringEvent(one.ref, sighting.ring, stamp);
           if (event !== null) work = recordEvent(work, event);
         }
-        // THE PR IS COMPARED WITH THE TIMELINE, not with the last reading.
-        if (one.pr !== null) work = prEvents(work, one.ref, one.pr, stamp);
+        // THE PULL REQUEST IS NOT READ HERE. It belongs to the work's branch
+        // and the work's own watch reads it ({@link Observing.observedPr}) —
+        // a member terminal's record is no longer a door onto the timeline.
         if (work !== found.work) {
           deps.store.save(found.id, work);
           moved = true;
@@ -378,6 +391,32 @@ export const observing = (deps: {
       if (membership || rows) deps.membersMoved(membership);
       if (!saidSomethingNew) return;
       deps.flush();
+    },
+    observedPr: (id, reading) => {
+      // WHAT THE FORGE SAID, or nothing. Every arm but `ok` is "kolu does not
+      // know" — a resolve in flight, a remote no adapter serves, a `gh` that
+      // would not answer — and a work must never learn its PR closed because
+      // the forge stopped answering.
+      const pr = prReading(reading);
+      if (pr === null) return;
+      const work = deps.store.get(id);
+      if (work === undefined) return;
+      // THE WORKS A READING MOVES: one in progress, or one the FORGE ended —
+      // the second is how a PR that is open again brings its work back. A work
+      // somebody STOPPED stays stopped until they open it again themselves.
+      const state = work.state;
+      if (state.kind === "ended" && state.outcome.kind === "stopped") return;
+      const next = prEvents(work, pr, nowIso());
+      // IDEMPOTENT BY CONSTRUCTION: the reading is compared with the TIMELINE,
+      // so the same reading twice — the next poll, the first look after a
+      // restart — is the same work value back and nothing is written.
+      if (next === work) return;
+      // `save` is what ends it: the members go with the ending in that one
+      // write (they LEAVE the work; no terminal is killed), the open questions
+      // are dropped, and the files are kept.
+      deps.store.save(id, next);
+      deps.store.changed();
+      if (deps.publishState()) deps.flush();
     },
     saidTo: (ref) => {
       const found = deps.store.at(ref);

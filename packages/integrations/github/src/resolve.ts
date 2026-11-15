@@ -39,13 +39,21 @@ function getGhBin(): string {
   return v;
 }
 
-/** Look up the GitHub PR for the current branch.
+/** Look up the GitHub PR for a BRANCH in a repository.
  *
- *  Uses `gh pr view` which resolves via git remote tracking — it finds the
- *  PR opened from this repo (or fork) for the current branch, unlike
+ *  Uses `gh pr view <branch>`, which resolves via git remote tracking — it
+ *  finds the PR opened from this repo (or fork) for that branch, unlike
  *  `gh pr list --head <name>` which matches by branch name alone and picks
- *  up unrelated fork PRs. (That is also why only `git.repoRoot` is read
- *  from the context: gh derives branch + remote from the repo itself.)
+ *  up unrelated fork PRs.
+ *
+ *  The branch is NAMED rather than left to gh's "whatever is checked out
+ *  here": the context carries it, and the two callers do not agree about what
+ *  is checked out in `repoRoot`. A terminal's sensor asks about the worktree
+ *  it is sitting in, where that branch IS the current one and the answer is
+ *  unchanged; a WORK asks about its own branch in the repository it belongs to
+ *  (`(host, repo, branch)`), which is usually a main checkout sitting on
+ *  master — and gh asked there without a branch answers about master
+ *  (juspay/kolu#2376).
  *
  *  Logs failures at the appropriate level when a logger is passed:
  *  absent→debug (expected), unknown→error (actual bug), other→warn
@@ -57,7 +65,9 @@ export async function resolveGitHubPr(
   try {
     const { stdout } = await execFileAsync(
       getGhBin(),
-      ["pr", "view", "--json", GH_PR_VIEW_JSON_FIELDS],
+      git.branch === ""
+        ? ["pr", "view", "--json", GH_PR_VIEW_JSON_FIELDS]
+        : ["pr", "view", git.branch, "--json", GH_PR_VIEW_JSON_FIELDS],
       { cwd: git.repoRoot, timeout: GH_TIMEOUT_MS },
     );
     const data = JSON.parse(stdout) as GhPrViewJson;

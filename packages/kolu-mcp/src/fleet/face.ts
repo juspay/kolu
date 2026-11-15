@@ -43,10 +43,10 @@
  */
 
 import type { PadiSurfaceClient } from "@kolu/padi-client/dial";
-import {
-  type PadiTerminal,
-  type PadiUrgency,
-  rosterIsEstablished,
+import type {
+  PadiRoster,
+  PadiTerminal,
+  PadiUrgency,
 } from "@kolu/padi-client/surface";
 import type { SurfaceClientCallable } from "@kolu/surface/client";
 import {
@@ -138,10 +138,13 @@ function foldHosts<T, F>(
  *  (local first) and each host's own order within it.
  *
  *  A host whose roster is SETTLING contributes NOTHING YET rather than an
- *  empty list: padi serves a roster from the moment it starts, before it has
+ *  empty list: padi serves a surface from the moment it starts, before it has
  *  adopted the terminals it supervises, and a reader of this list takes "not
- *  in it" for "not there" (juspay/kolu#2376). So the fold waits for that
- *  host's roster to be established, which is the same rule the watcher and
+ *  in it" for "not there" (juspay/kolu#2376). The ids are therefore taken off
+ *  the host's `roster` cell, which carries the census and the standing in ONE
+ *  frame — a list read from the `terminals` collection beside that standing
+ *  can be the empty seed of a projection that folded the cell first, which is
+ *  the same defect one layer down. Same rule, same member, as the watcher and
  *  the browser read. */
 function fleetTerminalKeys(
   hosts: FleetHosts,
@@ -151,13 +154,10 @@ function fleetTerminalKeys(
     (padi) =>
       Stream.map(
         Stream.filter(
-          Stream.zipLatest(
-            padi.surface.roster.get(undefined),
-            padi.surface.terminals.keys(undefined),
-          ),
-          ([standing]) => rosterIsEstablished(standing),
+          padi.surface.roster.get(undefined),
+          (standing: PadiRoster) => standing.kind === "established",
         ),
-        ([, keys]) => keys,
+        (standing) => (standing.kind === "established" ? standing.ids : []),
       ),
     (seen, live) =>
       live.flatMap((host) =>

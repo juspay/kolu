@@ -59,6 +59,7 @@ import {
   WorkRefusal,
   workDirOf,
   workIdOf,
+  workKeyOf,
 } from "kolu-work";
 import type { Logger } from "pino";
 import { splitFleetTerminalRef } from "kolu-mcp/fleetRef";
@@ -96,6 +97,18 @@ export interface MemberAt {
   readonly id: WorkId;
   readonly work: Work;
   readonly member: Member;
+}
+
+/** A BRANCH WHOSE PULL REQUEST KOLU WATCHES — one per piece of work in
+ *  progress that is keyed by a branch. The watch asks the host for the PR of
+ *  that branch in that repository; no terminal is involved, so a work with no
+ *  members is watched exactly like one with two. */
+export interface PrWatch {
+  readonly work: WorkId;
+  /** The fleet host ref the repository is on. */
+  readonly host: string;
+  readonly repo: string;
+  readonly branch: string;
 }
 
 /** What opening a key answered: the work, and whether this call is what
@@ -183,6 +196,10 @@ export interface WorkStore {
   readonly persisted: () => PersistedWorks;
   /** THE KEPT FILES, RECONCILED TO THE WORKS. */
   readonly sweepFiles: () => void;
+  /** THE PULL-REQUEST WATCH'S SCOPE — every work IN PROGRESS that is a branch
+   *  on a machine. Read off the works' own keys, so there is no second list
+   *  that can disagree with the cards. */
+  readonly prWatches: () => ReadonlyArray<PrWatch>;
 }
 
 /** The sentence behind a thrown thing — the harness's refusals and the wire
@@ -378,10 +395,16 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       changed();
       deps.ended(asks.settled);
     }
+    // THE WATCH'S SCOPE MOVED — this work is no longer in progress, so its
+    // branch's pull request is no longer watched. Said on the SAME event the
+    // membership rides, because the watcher re-chooses both of its lists from
+    // one signal; `true` when terminals left with the ending, `false` when
+    // there were none to lose (which is the work this round exists for: a work
+    // whose PR was merged after its terminals were already closed).
     if (dropped.length > 0) {
       deps.records.schedule("members");
       deps.membersMoved(true);
-    }
+    } else deps.membersMoved(false);
     void closeOut(id, at);
   };
 
@@ -415,6 +438,26 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     [...deps.members.all()]
       .filter(([, one]) => works.get(one.work)?.state.kind === "open")
       .map(([ref]) => ref);
+
+  /** The branches whose pull requests are watched: every work in progress
+   *  whose key is a branch on a machine. The key IS the answer — it carries
+   *  the host, the repository and the branch — so nothing here re-derives a
+   *  work's identity from a member's record. */
+  const prWatches = (): ReadonlyArray<PrWatch> => {
+    const watches: PrWatch[] = [];
+    for (const [id, work] of works) {
+      if (work.state.kind !== "open") continue;
+      const key = workKeyOf(id);
+      if (key === null || key.kind !== "branch") continue;
+      watches.push({
+        work: id,
+        host: key.host,
+        repo: key.repo,
+        branch: key.branch,
+      });
+    }
+    return watches;
+  };
 
   /** THE LAST TERMINAL WENT — said once, and never as an ending. */
   const emptied = (id: WorkId): void => {
@@ -450,6 +493,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
     publishReadings,
     sweepFiles,
     memberRefs: activeRefs,
+    prWatches,
     persisted: () => Object.fromEntries(works),
     read: () => [...inProgress(everyWork()), ...finished(everyWork())],
     openAsks: () =>
@@ -466,11 +510,17 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
         const again = reopenWork(held, nowIso());
         works.set(id, again);
         changed();
+        // A WORK IN PROGRESS AGAIN: its branch's pull request is watched from
+        // now on, so the watch re-chooses its legs.
+        deps.membersMoved(false);
         return { id, work: again, created: false, reopened: true };
       }
       const work = openWork({ key, title, at: nowIso(), request });
       works.set(id, work);
       changed();
+      // ... and the same for a work that has just come into being: it has no
+      // members yet, and its PR is watched before it ever gets one.
+      deps.membersMoved(false);
       return { id, work, created: true, reopened: false };
     },
     stop: (id, by) => {
@@ -489,6 +539,7 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       const again = reopenWork(work, nowIso());
       works.set(id, again);
       changed();
+      deps.membersMoved(false);
       return again;
     },
     endWith: (id, outcome) => {
@@ -512,6 +563,8 @@ export const workStore = (deps: WorkStoreDeps): WorkStore => {
       changed();
       sweepFiles();
       deps.records.now("works");
+      // The card never existed, and neither does its watch.
+      deps.membersMoved(false);
       return true;
     },
     load: (kept, members) => {

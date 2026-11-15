@@ -280,10 +280,11 @@ describe("what a host's frames say about each watched terminal", () => {
         hostName: "this machine",
         name: "write the migration",
         agent: "claude-code",
-        // No git fact and no PR on this record: both are said as `null`
-        // rather than invented, so the timeline records nothing about either.
+        // No git fact on this record: it is said as `null` rather than
+        // invented, so the timeline records nothing about where it works. The
+        // PULL REQUEST is not on a reading at all — it belongs to the work's
+        // branch, and the watch reads it once for the work.
         git: null,
-        pr: null,
         foregroundShell: null,
         level: "asking",
       },

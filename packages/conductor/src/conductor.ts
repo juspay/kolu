@@ -107,6 +107,7 @@ import {
   type HttpServer,
 } from "@kolu/acp-harness";
 import type { CellStore } from "@kolu/surface/server";
+import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Schema } from "effect";
 import {
   conductorConfigDir,
@@ -172,7 +173,7 @@ import { recordWrites } from "./recordWrites.ts";
 import { teachingLines } from "./teaching.ts";
 import { wakes } from "./wakes.ts";
 import type { WorkFiles } from "./workFiles.ts";
-import { type MemberDetail, workStore } from "./workStore.ts";
+import { type MemberDetail, type PrWatch, workStore } from "./workStore.ts";
 
 /** What a reader of the transcript stream is handed, in order: one snapshot,
  *  then deltas, for as long as it is subscribed. */
@@ -426,6 +427,24 @@ export interface ConductorHost {
    * departure is ordinary.
    */
   readonly observe: (seen: ReadonlyArray<WatchObservation>) => void;
+  /** THE PULL-REQUEST WATCH'S SCOPE — every piece of work in progress that is
+   *  a BRANCH on a machine, with the host, repository and branch kolu asks
+   *  that host about. Beside {@link ConductorHost.memberRefs} and not folded
+   *  into it: a work's pull request is watched whether or not a terminal is
+   *  left, which is the whole of why a work the Conductor merged and then
+   *  closed the terminals of now ends ({@link ConductorHost.observedPr}). */
+  readonly prWatches: () => ReadonlyArray<PrWatch>;
+  /**
+   * WHAT THE WORK'S OWN PULL-REQUEST WATCH READ — one reading of one work's
+   * branch, off the host it is on.
+   *
+   * ONE reader, for one pull request: what becomes an event is decided
+   * against the work's timeline, so the same reading twice (the next poll,
+   * the first look after a restart) writes nothing, and a merge or a close
+   * ENDS the work whenever kolu next looks. A host that is not answering
+   * calls this not at all — nothing is concluded from silence.
+   */
+  readonly observedPr: (work: WorkId, pr: PrResult) => void;
   /** ONE CHUNK of a file on its way up, ahead of the prompt that names it.
    *
    *  The first call for an id creates the file, each later one passes back
@@ -1503,6 +1522,7 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     // questions out would ring nothing until the next movement.
     state: frameNow,
     observe: observer.observe,
+    observedPr: observer.observedPr,
     watch: (sink) => {
       // Opening the transcript IS looking at the conversation: it is the edge
       // that reads the remembered record AND the edge that brings the agent
@@ -1571,6 +1591,13 @@ export function startConductorHost(deps: ConductorDeps): ConductorHost {
     memberRefs: () => {
       remembered();
       return works.memberRefs();
+    },
+    prWatches: () => {
+      // The same boot read `memberRefs` makes, and for the same reason: the
+      // watch asks at boot, and a conversation spawned to answer "which
+      // branches have work in flight" is a subprocess nobody asked for.
+      remembered();
+      return works.prWatches();
     },
     membersDetail: () => {
       remembered();

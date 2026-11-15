@@ -104,68 +104,68 @@ describe("what a ring puts on the timeline", () => {
   });
 });
 
-describe("the PR a reading carries", () => {
-  it("records one PR ONCE however many members see it", () => {
-    const opened = prEvents(work(), A, pr(), AT);
+describe("the PR the work's own watch reads", () => {
+  it("records the pull request ONCE, and says so with no terminal", () => {
+    const opened = prEvents(work(), pr(), AT);
     expect(kinds(opened)).toContain("pr-opened");
-    // The comparison is against the TIMELINE, not against the last reading —
-    // so the second member looking at the same PR records nothing.
-    expect(prEvents(opened, B, pr(), AT)).toBe(opened);
+    expect(opened.events.at(-1)).toMatchObject({
+      kind: "pr-opened",
+      by: "kolu",
+      terminal: null,
+      pr: 7,
+    });
+    // The comparison is against the TIMELINE, so the next poll — and the
+    // first look after a restart — records nothing.
+    expect(prEvents(opened, pr(), AT)).toBe(opened);
   });
 
   it("steps the checks through the ONE table, and names the failures", () => {
-    let one = prEvents(work(), A, pr({ checks: "pending" }), AT);
+    let one = prEvents(work(), pr({ checks: "pending" }), AT);
     expect(prOf(one)?.checks).toBe("running");
     // The same rollup again is the same reading: nothing is written.
-    expect(prEvents(one, A, pr({ checks: "pending" }), AT)).toBe(one);
-    one = prEvents(
-      one,
-      A,
-      pr({ checks: "fail", failing: ["build", "lint"] }),
-      AT,
-    );
+    expect(prEvents(one, pr({ checks: "pending" }), AT)).toBe(one);
+    one = prEvents(one, pr({ checks: "fail", failing: ["build", "lint"] }), AT);
     expect(prOf(one)?.checks).toBe("failed");
     expect(one.events.at(-1)).toMatchObject({
       kind: "checks-failed",
       by: "ci",
+      terminal: null,
       pr: 7,
       head: HEAD,
       failing: ["build", "lint"],
     });
-    one = prEvents(one, A, pr({ checks: "pass" }), AT);
+    one = prEvents(one, pr({ checks: "pass" }), AT);
     expect(prOf(one)?.checks).toBe("passed");
   });
 
-  // THE DEFECT THIS GUARDS (juspay/kolu#2376): two members in one worktree,
-  // thirty seconds out of step with each other, so one record says the checks
-  // are running while the other says they passed — and the observer ran on
-  // every frame of the host. The human's real work carried 429 of these.
-  it("writes a HANDFUL of events when two members disagree for a long time", () => {
-    let one = prEvents(work(), A, pr({ checks: "pending" }), AT);
-    for (let frame = 0; frame < 500; frame += 1) {
-      // The implementor's record still says pending; the planner's already
-      // says pass. Both are read on every frame, as the watch reads them.
-      one = prEvents(one, A, pr({ checks: "pending" }), AT);
-      one = prEvents(one, B, pr({ checks: "pass" }), AT);
+  // THE DEFECT THIS GUARDS (juspay/kolu#2376): the work used to learn its PR
+  // from every member's record, so two terminals in one worktree thirty
+  // seconds out of step wrote a check event each, every frame, for as long as
+  // they disagreed — 429 of the human's real work's 465 events. There is ONE
+  // reader now, and the poll is what repeats.
+  it("writes a HANDFUL of events for five hundred polls of one PR", () => {
+    let one = prEvents(work(), pr({ checks: "pending" }), AT);
+    for (let poll = 0; poll < 500; poll += 1) {
+      one = prEvents(one, pr({ checks: "pending" }), AT);
+      one = prEvents(one, pr({ checks: "pass" }), AT);
     }
     expect(one.events.filter((event) => event.by === "ci")).toHaveLength(2);
     expect(kinds(one).filter((kind) => kind === "pr-opened")).toHaveLength(1);
   });
 
   it("says WHICH COMMIT a check event is about, so a push reads as one", () => {
-    let one = prEvents(work(), A, pr({ checks: "pending" }), AT);
-    one = prEvents(one, A, pr({ checks: "pass" }), AT);
+    let one = prEvents(work(), pr({ checks: "pending" }), AT);
+    one = prEvents(one, pr({ checks: "pass" }), AT);
     // A push: the same rollup word about a different commit is news.
-    one = prEvents(one, A, pr({ checks: "pending", head: PUSHED }), AT);
+    one = prEvents(one, pr({ checks: "pending", head: PUSHED }), AT);
     expect(kinds(one).filter((kind) => kind.startsWith("checks-"))).toEqual([
       "checks-running",
       "checks-passed",
       "checks-running",
     ]);
     expect(one.events.at(-1)).toMatchObject({ head: PUSHED, pr: 7 });
-    // ... and the new commit's checks running is still recorded once, however
-    // many members see it.
-    expect(prEvents(one, B, pr({ checks: "pending", head: PUSHED }), AT)).toBe(
+    // ... and the new commit's checks running is still recorded once.
+    expect(prEvents(one, pr({ checks: "pending", head: PUSHED }), AT)).toBe(
       one,
     );
   });
@@ -173,27 +173,48 @@ describe("the PR a reading carries", () => {
   it("hears a reading with NO head once per kind, ever", () => {
     // A host whose padi predates the field says nothing about commits, so
     // there is nothing to tell two readings apart with — and the honest
-    // reading of that is one event per kind, not one per frame.
-    let one = prEvents(work(), A, pr({ checks: "pending", head: null }), AT);
-    one = prEvents(one, B, pr({ checks: "pass", head: null }), AT);
-    one = prEvents(one, A, pr({ checks: "pending", head: null }), AT);
-    one = prEvents(one, B, pr({ checks: "pass", head: null }), AT);
+    // reading of that is one event per kind, not one per poll.
+    let one = prEvents(work(), pr({ checks: "pending", head: null }), AT);
+    one = prEvents(one, pr({ checks: "pass", head: null }), AT);
+    one = prEvents(one, pr({ checks: "pending", head: null }), AT);
+    one = prEvents(one, pr({ checks: "pass", head: null }), AT);
     expect(one.events.filter((event) => event.by === "ci")).toHaveLength(2);
   });
 
   it("ENDS the work when the PR merges, and when it closes", () => {
-    const merged = prEvents(work(), A, pr({ state: "merged" }), AT);
+    const merged = prEvents(work(), pr({ state: "merged" }), AT);
     expect(kinds(merged)).toContain("merged");
     expect(outcomeOf(merged)).toEqual({ kind: "merged", pr: 7 });
     expect(endedAt(merged)).toBe(AT);
 
-    const closed = prEvents(work(), A, pr({ state: "closed" }), AT);
+    const closed = prEvents(work(), pr({ state: "closed" }), AT);
     expect(outcomeOf(closed)).toEqual({ kind: "closed", pr: 7 });
   });
 
+  it("ends a MERGED work whose members are all gone, on the first look", () => {
+    // The real sequence (#2376): the Conductor merged #181 and closed both
+    // terminals fourteen seconds later, with no poll in between. The work is
+    // open, has no members, and the next look is what ends it.
+    const abandoned = recordEvent(
+      recordEvent(work(), {
+        at: AT,
+        by: "kolu",
+        kind: "left",
+        terminal: A,
+        why: "closed",
+      }),
+      { at: AT, by: "kolu", kind: "left", terminal: B, why: "closed" },
+    );
+    const ended = prEvents(abandoned, pr({ number: 181, state: "merged" }), AT);
+    expect(outcomeOf(ended)).toEqual({ kind: "merged", pr: 181 });
+    // The pull request is on the timeline too: kolu never saw it opened, and
+    // a merge of a PR nobody recorded is still this work's merge.
+    expect(kinds(ended)).toContain("pr-opened");
+  });
+
   it("REOPENS the work when the forge says the PR is open again", () => {
-    const closed = prEvents(work(), A, pr({ state: "closed" }), AT);
-    const again = prEvents(closed, A, pr({ state: "open" }), AT);
+    const closed = prEvents(work(), pr({ state: "closed" }), AT);
+    const again = prEvents(closed, pr({ state: "open" }), AT);
     expect(again.state.kind).toBe("open");
     expect(kinds(again)).toContain("reopened");
     // Decisions and timeline whole: this is the same work, and every event
@@ -201,57 +222,47 @@ describe("the PR a reading carries", () => {
     expect(again.events.length).toBeGreaterThan(closed.events.length);
     // ... and the same reading again is not news: the work is the very value
     // that went in.
-    expect(prEvents(again, B, pr({ state: "open" }), AT)).toBe(again);
+    expect(prEvents(again, pr({ state: "open" }), AT)).toBe(again);
   });
 
   it("leaves a work somebody STOPPED stopped, PR open or not", () => {
-    const stopped = endWork(prEvents(work(), A, pr(), AT), {
+    const stopped = endWork(prEvents(work(), pr(), AT), {
       outcome: { kind: "stopped", by: "you" },
       at: AT,
     });
-    expect(prEvents(stopped, A, pr({ state: "open" }), AT)).toBe(stopped);
+    expect(prEvents(stopped, pr({ state: "open" }), AT)).toBe(stopped);
   });
 
-  it("is about ONE pull request: another number moves nothing", () => {
-    // Two members in two worktrees can each report a number. A work has one
-    // PR — the one its timeline learned — and alternating between two would
-    // be the check ping-pong told about the PR instead of its checks.
-    const first = prEvents(work(), A, pr(), AT);
-    expect(prEvents(first, B, pr({ number: 9, title: "Other" }), AT)).toBe(
-      first,
-    );
-    expect(prOf(first)?.number).toBe(7);
+  it("follows the branch: a number the timeline has not got is an opening", () => {
+    // One reader, asking the forge about THIS branch — so a different number
+    // is not a second opinion, it is the next pull request on the branch.
+    const first = prEvents(work(), pr(), AT);
+    const next = prEvents(first, pr({ number: 9, title: "Other" }), AT);
+    expect(prOf(next)?.number).toBe(9);
+    expect(kinds(next).filter((kind) => kind === "pr-opened")).toHaveLength(2);
+    expect(prEvents(next, pr({ number: 9, title: "Other" }), AT)).toBe(next);
   });
 
   // THE PROPERTY: an observation is a question about what the timeline
   // already says, so replaying every reading a work ever had adds nothing.
   // A deterministic sweep rather than a random one — the repo has no
-  // fast-check — over every reading two members can make about one PR.
+  // fast-check — over every reading the watch can make about one PR.
   it("appends NOTHING when the same readings are fed again", () => {
     const checks = ["pending", "pass", "fail", null] as const;
     const heads = [HEAD, PUSHED, null];
     const readings = checks.flatMap((check) =>
-      heads.flatMap((head) =>
-        [A, B].map((ref) => ({
-          ref,
-          pr: pr({
-            checks: check,
-            head,
-            failing: check === "fail" ? ["ci"] : [],
-          }),
-        })),
+      heads.map((head) =>
+        pr({ checks: check, head, failing: check === "fail" ? ["ci"] : [] }),
       ),
     );
     let settled = work();
-    for (const one of readings)
-      settled = prEvents(settled, one.ref, one.pr, AT);
+    for (const one of readings) settled = prEvents(settled, one, AT);
     const events = settled.events.length;
     // Every reading again, twice, in a different order — the work is the very
     // value that went in.
     for (const one of [...readings].reverse())
-      settled = prEvents(settled, one.ref, one.pr, AT);
-    for (const one of readings)
-      settled = prEvents(settled, one.ref, one.pr, AT);
+      settled = prEvents(settled, one, AT);
+    for (const one of readings) settled = prEvents(settled, one, AT);
     expect(settled.events).toHaveLength(events);
   });
 });

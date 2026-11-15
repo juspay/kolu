@@ -21,7 +21,6 @@ import {
   type DaemonStatus,
   encodeHostLocation,
   LOCAL_LOCATION,
-  rosterIsEstablished,
 } from "@kolu/padi-client/surface";
 import type { EntryState } from "@kolu/surface-map";
 import { encodeHostKey, type HostKey } from "kolu-common/hostKey";
@@ -422,12 +421,25 @@ export function daemonConnected(): boolean {
  *  that has since dropped is a remembered fact, not a current one, and a list
  *  nobody is feeding must not be read as a census of what is running now.
  *
+ *  AND WITH THE LIST ITSELF HAVING CAUGHT UP. The standing and the ids ride ONE
+ *  frame (7.4's `roster` carries the census), but the `terminals` collection
+ *  this browser reads is a SEPARATE member, mirrored by kolu-server per host —
+ *  and that mirror marks a host connected on its first folded CELL frame, so a
+ *  reader can hold an `established` standing beside a list that folded nothing.
+ *  Taking that pair for a census is how a redeploy's live terminals read as
+ *  gone (#2376). So the list is authoritative only while it holds every id the
+ *  host says it has; an id the census names and the list has not delivered is a
+ *  list still arriving, not a terminal that died.
+ *
  *  A reactive accessor; read it inside a tracking scope. */
 export function listIsAuthoritative(): boolean {
-  const standing = activeScope()?.wire.roster.value();
-  return (
-    daemonConnected() && standing !== undefined && rosterIsEstablished(standing)
-  );
+  const scope = activeScope();
+  if (scope === undefined || !daemonConnected()) return false;
+  const standing = scope.wire.roster.value();
+  if (standing === undefined || standing.kind !== "established") return false;
+  const listed = scope.wire.terminalKeys();
+  if (listed === undefined) return false;
+  return standing.ids.every((id) => listed.includes(id));
 }
 
 /** The single warming-refusal gate for terminal creation: if the daemon is

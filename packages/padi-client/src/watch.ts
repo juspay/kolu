@@ -45,7 +45,7 @@ import {
   type PadiWatchEvent,
   type PadiWatchStatesInput,
   padiSurface,
-  rosterIsEstablished,
+  rosterHolds,
   ScreenTextTailSchema,
 } from "./surface.ts";
 import { activeAgent } from "./terminalVocab.ts";
@@ -471,41 +471,38 @@ async function watchAttachFeed(
       // an `Effect` now and takes no signal, and `runWait` — the non-Effect
       // scaffold this whole wait is driven by — has no fiber to compose it
       // into. Same contract, same message: a first frame or a loud failure.
-      let keys: readonly string[] | undefined;
+      let standing: PadiRoster | undefined;
       for await (const frame of iterateUntilAborted(
-        client.surface.terminals.keys(undefined),
+        client.surface.roster.get(undefined),
         ctx.signal,
       )) {
-        keys = frame;
+        standing = frame;
         break;
       }
-      if (keys === undefined) {
+      if (standing === undefined) {
         throw new Error(
-          "padi terminals keys yielded no snapshot frame — link or protocol failure.",
+          "padi roster yielded no snapshot frame — link or protocol failure.",
         );
       }
-      if (!keys.includes(opts.id as (typeof keys)[number])) {
-        // ABSENT FROM A LIST THAT MAY NOT BE A CENSUS. padi serves its roster
-        // from the moment it starts, before it has adopted the terminals it
-        // supervises (and again across a kaval recycle), so "not in the keys"
-        // means "nothing has been adopted yet" in exactly the windows a wait is
-        // most likely to meet one: the daemon it was talking to was just
-        // replaced. Its own `roster` standing tells the two apart; while it is
-        // SETTLING this falls through to `closed`, which is the outcome whose
-        // whole meaning is "retry — conclude nothing about the agent".
-        let standing: PadiRoster | undefined;
-        for await (const frame of iterateUntilAborted(
-          client.surface.roster.get(undefined),
-          ctx.signal,
-        )) {
-          standing = frame;
-          break;
-        }
-        if (standing !== undefined && rosterIsEstablished(standing)) {
-          fire("onTerminalGone", opts.onTerminalGone);
-          ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
-          return;
-        }
+      // ABSENT FROM A LIST THAT MAY NOT BE A CENSUS — so the list is read off
+      // the one member that only carries one when there IS one. padi serves
+      // its surface from the moment it starts, before it has adopted the
+      // terminals it supervises (and again across a kaval recycle), so "not
+      // listed" means "nothing has been adopted yet" in exactly the windows a
+      // wait is most likely to meet one: the daemon it was talking to was just
+      // replaced. Its `roster` standing tells the two apart AND carries the
+      // ids, in the same frame — a standing read beside a separately-fetched
+      // key set can be delivered established-but-empty by any projection
+      // between here and the daemon (#2376). While it is SETTLING this falls
+      // through to `closed`, which is the outcome whose whole meaning is
+      // "retry — conclude nothing about the agent".
+      const held = rosterHolds(standing, opts.id);
+      if (held === false) {
+        fire("onTerminalGone", opts.onTerminalGone);
+        ctx.settle({ kind: "gone", elapsedMs: ctx.elapsedMs() });
+        return;
+      }
+      if (held === null) {
         feedError ??= `the host has not finished adopting its terminals, so its list cannot say whether ${opts.id} is gone — ${opts.retryAdvice}.`;
       }
     } catch (err) {
@@ -1127,7 +1124,7 @@ function conditionForm(
                     engine.client.surface.roster.get(undefined),
                     engine.ctx.signal,
                   )) {
-                    if (rosterIsEstablished(standing)) {
+                    if (rosterHolds(standing, engine.id) === false) {
                       engine.ctx.settle({
                         kind: "gone",
                         elapsedMs: engine.ctx.elapsedMs(),

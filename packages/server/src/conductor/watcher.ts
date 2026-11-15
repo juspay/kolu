@@ -23,13 +23,23 @@
  *
  * ## What a leg subscribes
  *
- * Per host that holds at least one member, over that host's padi: its
- * `urgency` fold, its `terminals` keys, and each member terminal's own record.
- * What each of them is WORTH is stated where they are read
- * (`kolu-conductor`'s `HostReading`). Nothing else: a screen is read by the
- * Conductor when it decides to look, and a wake carries how something STANDS
- * rather than what it printed — and the record carries the git and PR facts a
- * work's timeline is written from.
+ * Per host that holds at least one member OR one work's branch, over that
+ * host's padi: its `urgency` fold, its `roster` (the standing AND the census
+ * of ids, one cell), each member terminal's own record, and — per piece of
+ * work in progress whose branch is on this host — padi's `pullRequest` stream
+ * for that `(repo, branch)`. What
+ * each of them is WORTH is stated where they are read (`kolu-conductor`'s
+ * `HostReading`, and its `prReading` for the forge). Nothing else: a screen is
+ * read by the Conductor when it decides to look, and a wake carries how
+ * something STANDS rather than what it printed.
+ *
+ * THE PULL REQUEST IS THE WORK'S, not a terminal's. It used to arrive on each
+ * member's record, which meant the one fact that ENDS a work — the merge — had
+ * no observer from the moment its terminals were closed, and a Conductor-run
+ * waterfall closes them seconds after merging (#2376). A work is a branch on a
+ * machine, so kolu asks that machine about that branch for as long as the work
+ * is open, whether or not a terminal is left; a host that is not answering
+ * yields no frame, and nothing is concluded from that.
  *
  * The ANCESTOR WALK is gone with the watch list that needed it. A piece of
  * work used to be guessed from which watched terminals shared a top-level
@@ -65,9 +75,15 @@ import type {
   PadiTerminal,
   PadiUrgency,
 } from "@kolu/padi-client/surface";
-import { rosterIsEstablished } from "@kolu/padi-client/surface";
+import type { PrResult } from "@kolu/terminal-vocab/schema";
 import { Cause, Effect, Fiber, Queue, Schedule, Stream } from "effect";
-import { type ConductorHost, type HostView, readingsOf } from "kolu-conductor";
+import {
+  type ConductorHost,
+  type HostView,
+  type PrWatch,
+  readingsOf,
+} from "kolu-conductor";
+import type { WorkId } from "kolu-work";
 import { type FleetHosts, overConnectedHosts } from "kolu-mcp";
 import { splitFleetTerminalRef } from "kolu-mcp/fleetRef";
 import type { Logger } from "pino";
@@ -93,7 +109,6 @@ export interface ConductorWatcher {
 /** One frame off one leg, before it is folded into a view. */
 type Frame =
   | { readonly kind: "urgency"; readonly urgency: PadiUrgency }
-  | { readonly kind: "roster"; readonly keys: ReadonlySet<string> }
   | { readonly kind: "standing"; readonly standing: PadiRoster }
   | {
       readonly kind: "record";
@@ -101,33 +116,54 @@ type Frame =
       readonly record: PadiTerminal;
     };
 
-/** Everything the fold needs, as the frames arrive — the three that are `null`
+/** EVERYTHING ONE LEG CARRIES — a host's own reading of its member terminals,
+ *  or the forge's reading of one work's branch on that host. Two questions
+ *  asked of one padi over one subscription generation, so they arrive as one
+ *  stream and are told apart here rather than by two consumers. */
+type WatchFrame =
+  | { readonly kind: "view"; readonly view: HostView }
+  | {
+      readonly kind: "pr";
+      readonly work: WorkId;
+      readonly pr: PrResult;
+    };
+
+/** Everything the fold needs, as the frames arrive — the two that are `null`
  *  until their first frame being exactly why nothing is reported before then. */
 interface Accumulated {
   urgency: PadiUrgency | null;
-  keys: ReadonlySet<string> | null;
   standing: PadiRoster | null;
   readonly records: Map<string, PadiTerminal>;
 }
 
 /**
  * EVERYTHING ONE HOST SAYS about the member terminals on it, as one stream of
- * {@link HostView}s. Nothing is emitted until padi's fold, the roster AND the
- * roster's STANDING have all landed: "in none of the four lists" means nothing
- * before the first fold, and the list itself means nothing before padi says it
- * has finished adopting.
+ * {@link HostView}s. Nothing is emitted until padi's fold AND its roster have
+ * both landed: "in none of the four lists" means nothing before the first fold,
+ * and a list means nothing before padi says it has finished adopting.
  *
- * That standing is padi's own (`padiSurface`'s `roster` cell, 7.4) — the fact
- * its attention folds already gated their serve-time empty seed on, now served
- * as data. It is what decides which ARM this leg emits, and therefore whether
- * `gone` is a word anybody may say about this host's terminals: a padi that has
- * not finished adopting is `settling`, not ready with an empty roster. Reading
- * it wrong is what ended a work as abandoned on a redeploy (#2376).
+ * That roster is padi's own (`padiSurface`'s `roster` cell, 7.4) — the fact its
+ * attention folds already gated their serve-time empty seed on, now served as
+ * data, WITH THE CENSUS ON THE SAME FRAME. It decides which ARM this leg emits,
+ * and therefore whether `gone` is a word anybody may say about this host's
+ * terminals: a padi that has not finished adopting is `settling`, not ready
+ * with an empty roster. Reading it wrong is what ended a work as abandoned on a
+ * redeploy (#2376).
+ *
+ * THE IDS COME OFF THAT CELL, not off `terminals.keys` beside it, and the
+ * second half of #2376 is why. This leg does not read padi directly: it reads
+ * kolu-server's per-host MIRROR, which marks its session connected on the first
+ * folded CELL frame — so a leg opened then was told `established` by the cell
+ * and an EMPTY LIST by a collection that had not folded yet, and said `gone`
+ * about a terminal adopted and alive half a second earlier. A standing and a
+ * list on two members can be delivered apart by any projection between here and
+ * the daemon; one member cannot.
  *
  * One record per MEMBER and nothing above it: which piece of work a terminal
  * belongs to is STATED when it joins, so the ancestor walk this used to run
  * (re-deriving a grouping off `child-of` edges, a subscription per link) has
- * nothing left to answer.
+ * nothing left to answer. A record is for the member's NAME, agent and git —
+ * never for whether it is there, which the census answers.
  *
  * The emitted view SHARES the accumulator's record map rather than copying
  * it — the consumer below hands it straight to a pure function and keeps
@@ -146,10 +182,6 @@ const hostViews = (
       (urgency): Frame => ({ kind: "urgency", urgency }),
     ),
     Stream.map(
-      padi.surface.terminals.keys(undefined),
-      (keys): Frame => ({ kind: "roster", keys: new Set(keys) }),
-    ),
-    Stream.map(
       padi.surface.roster.get(undefined),
       (standing): Frame => ({ kind: "standing", standing }),
     ),
@@ -164,33 +196,31 @@ const hostViews = (
     Stream.mergeAll(members, { concurrency: "unbounded" }),
     (): Accumulated => ({
       urgency: null,
-      keys: null,
       standing: null,
       records: new Map(),
     }),
     (at, frame) => {
       if (frame.kind === "urgency") at.urgency = frame.urgency;
-      else if (frame.kind === "roster") at.keys = frame.keys;
       else if (frame.kind === "standing") at.standing = frame.standing;
       else at.records.set(frame.id, frame.record);
-      const { urgency, keys, standing } = at;
-      if (urgency === null || keys === null || standing === null)
-        return [at, []] as const;
+      const { urgency, standing } = at;
+      if (urgency === null || standing === null) return [at, []] as const;
       // The ARM, and the only place one is chosen: padi's own word for whether
       // its roster is a census. A settling host is emitted — it is a real thing
       // this leg has learned — and says nothing about any terminal, because the
       // fold it would be read by has nothing on that arm to read.
-      const view: HostView = rosterIsEstablished(standing)
-        ? {
-            kind: "ready",
-            host,
-            hostName,
-            watched,
-            roster: keys,
-            urgency,
-            records: at.records,
-          }
-        : { kind: "settling", host, hostName, watched };
+      const view: HostView =
+        standing.kind === "established"
+          ? {
+              kind: "ready",
+              host,
+              hostName,
+              watched,
+              roster: new Set(standing.ids),
+              urgency,
+              records: at.records,
+            }
+          : { kind: "settling", host, hostName, watched };
       return [at, [view]] as const;
     },
   );
@@ -207,11 +237,11 @@ export function startConductorWatcher(deps: {
 }): ConductorWatcher {
   const { hosts, conductor, log } = deps;
 
-  /** Pushes a membership move into the stream below — `null` until the stream
-   *  is running. A move that lands in that gap is not lost: the stream's first
-   *  act is to READ the membership, so it opens on whatever it says by then. */
+  /** Pushes a scope move into the stream below — `null` until the stream is
+   *  running. A move that lands in that gap is not lost: the stream's first
+   *  act is to READ the scope, so it opens on whatever it says by then. */
   let moved: (() => void) | null = null;
-  const membershipMoves = Stream.callback<void>((queue) =>
+  const moves = Stream.callback<void>((queue) =>
     Effect.gen(function* () {
       // The current membership goes out BEFORE the trigger is armed, for the
       // reason the roster's own stream states: a stream that only spoke on
@@ -253,6 +283,46 @@ export function startConductorWatcher(deps: {
     }
   };
 
+  /** THE BRANCHES WHOSE PULL REQUESTS ARE WATCHED, or nothing — never a throw,
+   *  for the reason stated just above: this is read inside the stream that IS
+   *  the watch. A store kolu cannot decode means kolu does not know which
+   *  branches have work in flight, which is a watch with nothing to ask about
+   *  and nothing concluded about anybody's pull request. */
+  const prWatches = (): ReadonlyArray<PrWatch> => {
+    try {
+      return conductor().prWatches();
+    } catch {
+      // Said once, above, by the read that runs beside this one in the same
+      // generation — a second sentence about one unreadable store is noise.
+      return [];
+    }
+  };
+
+  /** THE SCOPE, AS ONE STRING — every member ref and every watched branch.
+   *
+   *  What the legs are chosen from, so what a re-open has to be justified by.
+   *  The conversation announces a move wherever it moves a work or a member,
+   *  and most of those moves change no subscription at all (a terminal was
+   *  renamed, a work recorded an event); re-opening on each of them would tear
+   *  down every host's standing reads several times a minute and ask every
+   *  branch's forge again with them. */
+  const scopeOf = (): string =>
+    JSON.stringify([
+      memberRefs(),
+      prWatches().map((one) => [one.host, one.repo, one.branch]),
+    ]);
+
+  /** The moves that are actually a different watch. The FIRST one always
+   *  passes — nothing has been opened yet, and `moves` leads with the current
+   *  scope so a boot opens its legs. */
+  let openedScope: string | null = null;
+  const scopeMoves = Stream.filter(moves, () => {
+    const now = scopeOf();
+    if (now === openedScope) return false;
+    openedScope = now;
+    return true;
+  });
+
   /** The ids to watch on one host — the ACTIVE members of the works in
    *  progress (`ConductorHost.memberRefs`), which is the whole of what a
    *  terminal being watched means now. A ref whose host is not a member of
@@ -268,19 +338,22 @@ export function startConductorWatcher(deps: {
     return ids;
   };
 
-  /** The hosts that hold a member terminal and are NOT answering, as views —
-   *  one per generation of the host map, in the same `[host, view]` shape a
-   *  leg's frames arrive in.
+  /** The hosts that hold a member terminal and are NOT answering, as frames —
+   *  one per generation of the host map, in the same `[host, frame]` shape a
+   *  leg's own frames arrive in.
    *
    *  The watcher knows this and nothing else did: `overConnectedHosts` opens a
    *  leg only over a host that is connected, so an unreachable one used to be
    *  an absence of frames. Stating it is what makes {@link HostView} total —
    *  every host a work's membership names is in exactly one of its three
-   *  states — and it says nothing about any terminal, by construction. */
-  const unreachableViews = (
+   *  states — and it says nothing about any terminal, by construction. A work
+   *  whose BRANCH is on such a host gets no frame at all, which is the same
+   *  answer said the other way: nothing is concluded about a pull request kolu
+   *  could not ask about.  */
+  const unreachableFrames = (
     live: readonly string[],
-  ): ReadonlyArray<readonly [string, HostView]> => {
-    const out: Array<readonly [string, HostView]> = [];
+  ): ReadonlyArray<readonly [string, WatchFrame]> => {
+    const out: Array<readonly [string, WatchFrame]> = [];
     for (const ref of memberRefs()) {
       const split = splitFleetTerminalRef(ref);
       if (split === null || live.includes(split.host)) continue;
@@ -288,25 +361,50 @@ export function startConductorWatcher(deps: {
       out.push([
         split.host,
         {
-          kind: "unreachable",
-          host: split.host,
-          hostName: hosts.display(split.host),
-          watched: membersOn(split.host),
+          kind: "view",
+          view: {
+            kind: "unreachable",
+            host: split.host,
+            hostName: hosts.display(split.host),
+            watched: membersOn(split.host),
+          },
         },
       ]);
     }
     return out;
   };
 
-  const legs = Stream.switchMap(membershipMoves, () =>
+  const legs = Stream.switchMap(scopeMoves, () =>
     overConnectedHosts(
       hosts,
       (host, padi) => {
         const watched = membersOn(host);
-        // A connected host with no member on it gets no leg at all.
-        if (watched.length === 0) return null;
-        const views = Stream.tapError(
+        const branches = prWatches().filter((one) => one.host === host);
+        // A connected host with neither a member nor a work's branch on it
+        // gets no leg at all.
+        if (watched.length === 0 && branches.length === 0) return null;
+        // TWO THINGS THIS HOST IS ASKED, on ONE leg: how its member terminals
+        // stand, and what the forge says about each work's branch. They are
+        // merged rather than opened separately because they share a fate — the
+        // same host map, the same re-open delay, the same generation — and a
+        // work with NO members is exactly the case the second one exists for.
+        const views = Stream.map(
           hostViews(host, hosts.display(host), padi, watched),
+          (view): WatchFrame => ({ kind: "view", view }),
+        );
+        const branchPrs = branches.map((one) =>
+          Stream.map(
+            padi.surface.pullRequest.get({
+              repoPath: one.repo,
+              branch: one.branch,
+            }),
+            (pr): WatchFrame => ({ kind: "pr", work: one.work, pr }),
+          ),
+        );
+        const leg = Stream.tapError(
+          Stream.mergeAll([views, ...branchPrs], {
+            concurrency: "unbounded",
+          }),
           (err) =>
             Effect.sync(() => {
               log.warn(
@@ -319,7 +417,7 @@ export function startConductorWatcher(deps: {
         // wait the same few seconds. Per host, inside the generation, so one
         // machine coming back does not disturb the others' subscriptions.
         return Stream.retry(
-          Stream.repeat(views, Schedule.spaced(REOPEN_DELAY_MS)),
+          Stream.repeat(leg, Schedule.spaced(REOPEN_DELAY_MS)),
           Schedule.spaced(REOPEN_DELAY_MS),
         );
       },
@@ -328,16 +426,19 @@ export function startConductorWatcher(deps: {
       // than being a silence the fold below could mistake for a quiet host. It
       // yields no reading (there is nothing on that arm to read), which is the
       // whole point: a machine kolu cannot reach is not a machine whose
-      // terminals died.
+      // terminals died — and nothing at all is concluded about the pull
+      // request of a work whose branch is on it.
       (live, frames) =>
-        Stream.concat(Stream.fromIterable(unreachableViews(live)), frames),
+        Stream.concat(Stream.fromIterable(unreachableFrames(live)), frames),
     ),
   );
 
-  // Every frame is a reading of a whole host, and what is NEWS about it is the
-  // conversation's own to decide (`kolu-conductor`'s per-member wake rules). A
-  // reading about a ref that has just left its work is ordinary — the legs
-  // re-open asynchronously — and the conversation drops it.
+  // Every frame is either a reading of a whole host or the forge's reading of
+  // one work's branch, and what is NEWS about either is the conversation's own
+  // to decide (`kolu-conductor`'s per-member wake rules; its timeline for a
+  // pull request). A reading about a ref that has just left its work — or
+  // about a work that has just ended — is ordinary: the legs re-open
+  // asynchronously, and the conversation drops it.
   //
   // A leg's own failure is retried above, so the only way this fiber ends on
   // its own is a DEFECT — a throw out of `observe` or the fold. Nothing re-opens
@@ -345,9 +446,13 @@ export function startConductorWatcher(deps: {
   // it is said at `error` with its cause rather than ending in silence.
   const fiber = Effect.runFork(
     Effect.onExit(
-      Stream.runForEach(legs, ([, view]) =>
+      Stream.runForEach(legs, ([, frame]) =>
         Effect.sync(() => {
-          const seen = readingsOf(view);
+          if (frame.kind === "pr") {
+            conductor().observedPr(frame.work, frame.pr);
+            return;
+          }
+          const seen = readingsOf(frame.view);
           if (seen.length > 0) conductor().observe(seen);
         }),
       ),

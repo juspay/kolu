@@ -86,7 +86,12 @@ import {
   proveFleetMcpEndpoint,
   startFleetMcpEndpoint,
 } from "../fleet/mcpEndpoint.ts";
-import { decodeStateBackup, store, TRANSCRIPT_FILE_VERSION } from "../state.ts";
+import {
+  decodeStateBackup,
+  foldWorksByKey_1_53_0,
+  store,
+  TRANSCRIPT_FILE_VERSION,
+} from "../state.ts";
 import { transcriptFilePath, transcriptFileStore } from "./transcriptFile.ts";
 
 const HOME = "/home/tester";
@@ -1142,4 +1147,70 @@ describe("a session nobody spoke into, across a restart", () => {
       `the previous conversation could not be resumed, so this is a new one: \`session/load\` failed: Resource not found: ${spoken}`,
     ]);
   }, 60_000);
+});
+
+describe("the human's real store, one observation later", () => {
+  /** THE STORE AS IT STANDS (juspay/kolu#2376, round 5): their live 1.52.0
+   *  `config.json`, sanitized — three works all ended `abandoned`, with PR
+   *  #181 merged on the forge and no `merged` event anywhere, because the
+   *  Conductor closed both terminals fourteen seconds after merging and the
+   *  only observers of that pull request went with them.
+   *
+   *  Through the REAL ladder rung (`foldWorksByKey_1_53_0`) the three become
+   *  ONE work, open, keyed by its branch. What this test is about is the
+   *  NEXT thing kolu does: look. */
+  const DEPLOYED = JSON.parse(
+    readFileSync(
+      new URL("../fixtures/deployed-1.52.0-all-ended.json", import.meta.url),
+      "utf8",
+    ),
+  ) as { works: ReadonlyArray<unknown>; members: Record<string, unknown> };
+
+  it("ends the human's work as Merged 181 on the first look after start-up", async () => {
+    const folded = foldWorksByKey_1_53_0(DEPLOYED.works, DEPLOYED.members);
+    worksStore.set(folded.works as unknown as PersistedWorks);
+    membersStore.set(folded.members as unknown as PersistedMembers);
+    const id = Object.keys(folded.works)[0] ?? "";
+
+    const over = hostOver();
+    try {
+      // What a restart read back: one work, in progress, with no terminals —
+      // the card that said "in progress · no terminals" for ever.
+      const [[, work] = []] = over.host.works();
+      expect(work?.state.kind).toBe("open");
+      expect(over.host.memberRefs()).toEqual([]);
+      // It is WATCHED all the same: the work is a branch on a machine, and
+      // that is what kolu asks about.
+      expect(over.host.prWatches()).toHaveLength(1);
+      expect(over.host.prWatches()[0]?.work).toBe(id);
+
+      // ONE observation, with a forge that says what the real one says.
+      over.host.observedPr(id, {
+        kind: "ok",
+        value: {
+          number: 181,
+          title: "the Conductor runs the waterfall",
+          url: "https://github.com/juspay/kolu/pull/181",
+          state: "merged",
+          checks: "pass",
+          checkRuns: [],
+          reviewDecision: null,
+          mergeStateStatus: "UNKNOWN",
+          headSha: "4f21a9c0d3e5b7a9c1d3e5f7a9b1c3d5e7f9a1b3",
+        },
+      });
+
+      await vi.waitFor(() => {
+        const [[, ended] = []] = over.host.works();
+        expect(ended?.state).toMatchObject({
+          kind: "ended",
+          outcome: { kind: "merged", pr: 181 },
+        });
+      });
+      // ... and it is no longer asked about.
+      expect(over.host.prWatches()).toEqual([]);
+    } finally {
+      await over.host.dispose();
+    }
+  });
 });

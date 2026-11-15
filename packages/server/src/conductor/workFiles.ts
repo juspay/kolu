@@ -39,21 +39,21 @@
  * delete them.
  */
 
-import { FileGone } from "@kolu/padi-client/surface";
-import { Effect, Result } from "effect";
-import type { WorkFiles } from "kolu-conductor";
-import { encodePreviewPath } from "kolu-common/preview";
-import type { FleetHosts } from "kolu-mcp";
-import type { KeptFile } from "kolu-work";
 import type { Dirent } from "node:fs";
 import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, join, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
+import { FileGone } from "@kolu/padi-client/surface";
+import { Effect, Result } from "effect";
+import { encodePreviewPath } from "kolu-common/preview";
+import type { WorkFiles } from "kolu-conductor";
+import type { FleetHosts } from "kolu-mcp";
+import type { KeptFile } from "kolu-work";
 import type { Logger } from "pino";
 import {
-  REMOTE_PREVIEW_CHUNK_BYTES,
   assembleRemotePreview,
+  REMOTE_PREVIEW_CHUNK_BYTES,
   remotePreviewReader,
 } from "../iframePreviewRoute.ts";
 
@@ -155,7 +155,7 @@ export function workFilesOverHosts(deps: {
     keep: async ({ host, worktree, work, paths }) => {
       const padi = clientOf(host);
       const dir = workFilesDir(stateRoot, work);
-      const kept: KeptFile[] = [];
+
       for (const path of paths) {
         const dest = keptPath(dir, path);
         const served = await Effect.runPromise(
@@ -203,16 +203,40 @@ export function workFilesOverHosts(deps: {
           Readable.fromWeb(served.body as unknown as WebReadableStream),
           { mode: 0o600 },
         );
-        kept.push({ path, bytes: (await stat(dest)).size });
       }
-      return kept;
+      // WHAT THE DIRECTORY HOLDS, not what this call copied. A work that
+      // ended, was reopened and ended again keeps what its earlier ending
+      // left here (the sweep spares every stored work's directory, Open or
+      // Ended), so the list a card shows is the directory itself — read back
+      // after the copy, which is the only reading that cannot disagree with
+      // the disk. Nothing there at all — nothing was ever kept for this work
+      // and nothing landed now — is an empty list, not a failure.
+      let present: Dirent[];
+      try {
+        present = await readdir(dir, { withFileTypes: true, recursive: true });
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+        throw err;
+      }
+      const kept: KeptFile[] = [];
+      for (const entry of present) {
+        if (!entry.isFile()) continue;
+        const at = join(entry.parentPath, entry.name);
+        kept.push({ path: relative(dir, at), bytes: (await stat(at)).size });
+      }
+      return kept.sort((a, b) =>
+        a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+      );
     },
 
     sweep: async (keep) => {
       // ONE RULE, run after any cap and after a restore: a kept-files
-      // directory no stored work names is nobody's, so it goes. Stating it as
-      // "delete what is not named" rather than "delete this id" is what makes a
-      // RESTORE safe — the snapshot's works are a different set, not a
+      // directory no stored work names is nobody's, so it goes. EVERY stored
+      // work names one, Open or Ended: a work that ended, kept its files and
+      // was reopened still owns what it left here, and deleting it the moment
+      // the card said "in progress" would lose a merged branch's plan. Stating
+      // it as "delete what is not named" rather than "delete this id" is what
+      // makes a RESTORE safe — the snapshot's works are a different set, not a
       // difference anyone computed — and it is also the only reason kolu is
       // allowed to delete these files at all.
       const wanted = new Set(keep);
