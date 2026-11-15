@@ -194,7 +194,7 @@ Feature: A program is told a new size only when its box moved
     And there should be no page errors
 
   # F — maximize covers the other tiles. A covered tile is held attached for
-  # five minutes (kolu#2374) so a trip away and back keeps the reader's place;
+  # an hour (kolu#2374) so a trip away and back keeps the reader's place;
   # that is a different fact from "may state a size", and this is where they
   # used to be one.
   @retina

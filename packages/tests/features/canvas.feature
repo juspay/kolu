@@ -576,10 +576,10 @@ Feature: Canvas workspace
     # can see it again, it just wasn't carried across the wire while nobody
     # was looking.
     #
-    # The GRACE comes first: a detach costs you your place in the output, so
-    # a tile that has just left keeps its feed for five minutes and a short
-    # trip away costs nothing at all. The page's clock is taken over to jump
-    # past that, because the scenario cannot wait five real minutes and
+    # The GRACE comes first: a detach costs you your place in the output and
+    # makes the return slow, so a tile that has just left keeps its feed for
+    # an HOUR and a trip away costs nothing at all. The page's clock is taken
+    # over to jump past that, because the scenario cannot wait an hour and
     # shortening the grace for tests would be the knob this feature refuses
     # to have.
     #

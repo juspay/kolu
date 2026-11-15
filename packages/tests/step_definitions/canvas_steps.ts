@@ -1766,13 +1766,16 @@ When("I take over the page clock", async function (this: KoluWorld) {
   await this.page.clock.install();
 });
 
+/** The client's `tileSeen.ts` hold, restated: the test package does not depend
+ *  on `kolu-client`, so the number cannot be imported. Stated WITH its source
+ *  so a change there is visibly a change here too. */
+const SEEN_HOLD_MS = 60 * 60_000;
+
 When("the grace period passes", async function (this: KoluWorld) {
-  // Past `tileSeen.ts`'s SEEN_HOLD_MS, which is five minutes — stated here
-  // as its own literal because the test package cannot import the client's
-  // source; what matters is only that it is LONGER. `fastForward` is the
+  // Past the hold above, with a minute to spare. `fastForward` is the
   // laptop-lid jump: a due timer fires at most once, so a one-second
   // interval does not fire three hundred times on the way.
-  await this.page.clock.fastForward("06:00");
+  await this.page.clock.fastForward(SEEN_HOLD_MS + 60_000);
 });
 
 When(
