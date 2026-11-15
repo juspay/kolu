@@ -23,6 +23,7 @@ import { paneSelector } from "../support/daemonScreen.ts";
 import {
   installResizeWireProbe,
   quoteResizeWire,
+  readAttachCounts,
   readPanelWrites,
 } from "../support/resizeWire.ts";
 import { pollFor } from "../support/poll.ts";
@@ -91,8 +92,24 @@ interface Recorded {
  *  worker process (the same reasoning as `terminal_lockstep_steps.ts`). */
 const recorded = new Map<string, Recorded>();
 
+/** A pane this scenario has TAGGED, so a later step can say whether the very
+ *  same element is still there — and how many attaches it had opened at the
+ *  time. A remount is invisible to every other assertion here: a rebuilt pane
+ *  comes back at the size it already had, tells its program nothing, and has
+ *  thrown away the reader's scroll position, selection and focus on the way. */
+interface MarkedPane {
+  id: string;
+  label: string;
+  /** Minted at run time, so nothing the page's own source could set matches. */
+  marker: string;
+  attaches: number;
+}
+
+let marked: MarkedPane[] = [];
+
 After(() => {
   recorded.clear();
+  marked = [];
   removeRecorderScript();
 });
 
@@ -229,6 +246,41 @@ Given(
       MAIN_PANE,
     );
     if (main) this.paintedTerminalId = main;
+  },
+);
+
+Given(
+  "I mark every recorded pane",
+  { timeout: 120_000 },
+  async function (this: KoluWorld) {
+    assert.ok(recorded.size > 0, "no terminal is being recorded");
+    const attaches = await readAttachCounts(this.page, recordedIds());
+    marked = [];
+    for (const [id, entry] of recorded) {
+      // A JS EXPANDO, not a `data-` attribute: an attribute is markup, and a
+      // pane rebuilt from the same JSX comes back wearing it. A property set
+      // on the node by hand exists only on THAT object, so finding it again is
+      // proof the element itself survived (the same technique
+      // `conductor_steps.ts` uses for the retained conversation pane).
+      const marker = `kolu-pane-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const tagged = await this.page.evaluate(
+        ({ sel, value }) => {
+          const el = document.querySelector(sel);
+          if (!el) return false;
+          (el as HTMLElement & { koluPaneMarker?: string }).koluPaneMarker =
+            value;
+          return true;
+        },
+        { sel: paneSelector(id), value: marker },
+      );
+      assert.ok(tagged, `no mounted pane to mark for ${entry.label}`);
+      marked.push({
+        id,
+        label: entry.label,
+        marker,
+        attaches: attaches[id] ?? 0,
+      });
+    }
   },
 );
 
@@ -532,6 +584,49 @@ Then(
 );
 
 // ── Assert ──
+
+Then(
+  "every marked pane should be the same element, with no second attach",
+  { timeout: 120_000 },
+  async function (this: KoluWorld) {
+    assert.ok(marked.length > 0, "no pane was marked");
+    const attaches = await readAttachCounts(this.page, recordedIds());
+    const rebuilt: string[] = [];
+    const reattached: string[] = [];
+    for (const pane of marked) {
+      const found = await this.page.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        return (
+          (el as HTMLElement & { koluPaneMarker?: string }).koluPaneMarker ??
+          "(none)"
+        );
+      }, paneSelector(pane.id));
+      if (found === null) {
+        rebuilt.push(`  ${pane.label}: its pane is no longer mounted at all`);
+      } else if (found !== pane.marker) {
+        rebuilt.push(
+          `  ${pane.label}: came back as a NEW element (carries ${found})`,
+        );
+      }
+      const now = attaches[pane.id] ?? 0;
+      if (now > pane.attaches) {
+        reattached.push(
+          `  ${pane.label}: opened ${now - pane.attaches} more attach stream(s) (${pane.attaches} → ${now})`,
+        );
+      }
+    }
+    const faults = [...rebuilt, ...reattached];
+    assert.deepStrictEqual(
+      faults,
+      [],
+      "a pane nobody touched was rebuilt, which throws away the reader's scroll " +
+        "position, selection and focus and costs a fresh snapshot — and no size " +
+        "assertion here would have noticed, because a rebuilt pane comes back at " +
+        `the size it already had:\n${faults.join("\n")}`,
+    );
+  },
+);
 
 Then(
   "no recorded program was told a new size",

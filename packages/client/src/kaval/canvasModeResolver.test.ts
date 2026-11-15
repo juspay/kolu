@@ -303,29 +303,52 @@ describe("resolveCanvasMode connected-arm precedence (#1034)", () => {
     });
   });
 
-  it("holds `connecting` even with tiles already composed — a tile cannot size itself mid-census", () => {
-    // AHEAD of `terminalCount` (#2381). A tile may not state a size until it
-    // knows whether it has a split, and that is not known until every listed
-    // terminal's record has arrived — so painting the workspace here would
-    // paint tiles that measure nothing and attach nothing.
-    expect(mode(connected({ terminalCount: 3, recordsAwaited: 1 }))).toEqual({
-      kind: "connecting",
-    });
+  it("keeps the WORKSPACE mounted while the census catches up — a creation must not unmount it", () => {
+    // `recordsAwaited > 0` with tiles composed is every terminal creation: the
+    // key list carries the new id a beat before its record does. `App.tsx`
+    // mounts the terminal bodies only under `workspace`, so any other surface
+    // here disposes every xterm on the host and re-attaches it when the record
+    // lands — scroll position, selection and focus thrown away because
+    // somebody opened a tile. The incomplete census is a CLOCK, not a surface.
+    const mid = connected({ terminalCount: 3, recordsAwaited: 1 });
+    expect(mode(mid)).toEqual({ kind: "workspace" });
+    // …and not an immediate escape either: the ceiling has not elapsed.
+    expect(mode(mid, false)).toEqual({ kind: "workspace" });
   });
 
-  it("a record that never composes escapes to the boot-stalled card rather than holding a blank canvas forever", () => {
+  it("a record that never composes escapes to the boot-stalled card rather than wedging the canvas silently", () => {
     // The hazard `useTerminalMetadata.ts` names: a per-key record stream can
     // wedge without erroring, leaving `awaited` above zero on a channel that
-    // reads as healthy. It used to cost the one tile; since the census gates
-    // every tile's measurement it holds the whole canvas, so it must be
-    // reported rather than waited in. Same ceiling, same Retry as every other
-    // stalled leg.
+    // reads as healthy. Since every tile's measurement waits on the census
+    // (`TerminalContent`'s `boxDecided`), that is a canvas of terminals that
+    // can never size themselves — so it is reported, at the same ceiling and
+    // with the same Retry as every other stalled leg.
     const wedged = connected({ terminalCount: 3, recordsAwaited: 1 });
     expect(tag(wedged)).toMatchObject({ accrual: "accrue", leg: "session" });
     expect(mode(wedged, true)).toEqual({
       kind: "boot-stalled",
       recovery: { via: "client", leg: "session" },
     });
+  });
+
+  it("a census over a DEAD channel is unchanged from master — retained, never certified", () => {
+    // A stall we cannot watch is not one we may certify (#1568 SHAPE A): the
+    // transport overlay owns the screen, and the clock does not run.
+    const blind = connected({
+      terminalCount: 0,
+      recordsAwaited: 7,
+      channelLive: false,
+    });
+    expect(tag(blind)).toEqual({ accrual: "retain" });
+    expect(mode(blind, true)).toEqual({ kind: "connecting" });
+
+    const blindWithTiles = connected({
+      terminalCount: 3,
+      recordsAwaited: 1,
+      channelLive: false,
+    });
+    expect(tag(blindWithTiles)).toEqual({ accrual: "clear" });
+    expect(mode(blindWithTiles, true)).toEqual({ kind: "workspace" });
   });
 
   it("reboot: records all settled (parked) with zero tiles resolves to `empty`/restore", () => {

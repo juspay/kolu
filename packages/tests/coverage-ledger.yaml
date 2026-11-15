@@ -4522,3 +4522,81 @@ retirements:
       file: packages/tests/features/mount-size-stability.feature
       symbol: "Scenario: A tile whose split was collapsed is remounted fifteen times"
       test: The revised scenario adds the collapse-survived assertion — the defect the fix closes — and the mount-wrote-no-panel-state check.
+  - id: revise-7a71891135bb9e8c2398
+    revisionId: revision-7a71891135bb9e8c2398
+    action: revised
+    status: landed
+    promise: A second terminal appearing beside a settled one resizes neither
+    defectSurface: [terminal-resize, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-b4c8ad7e35f38ff88453]
+    sameCodePathEvidence:
+      file: packages/tests/features/mount-size-stability.feature
+      symbol: "Scenario: A second terminal appears beside a settled one"
+      test: The revised scenario marks each pane's element before the creation and asserts the same element with no second attach, a remount no size assertion can see.
+  - id: revise-9ba4cbdb81917e7bc4ff
+    revisionId: revision-9ba4cbdb81917e7bc4ff
+    action: revised
+    status: landed
+    promise: Maximizing one tile over another leaves the covered tile's program alone
+    defectSurface: [terminal-resize, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-9208ff19e72e7b226800]
+    sameCodePathEvidence:
+      file: packages/tests/features/mount-size-stability.feature
+      symbol: "Scenario: One tile is maximized over another and restored"
+      test: The revised scenario adds the element-identity and no-second-attach assertions — a covered tile is HELD, never rebuilt.
+  - id: revise-d3decb1b9bba04037261
+    revisionId: revision-d3decb1b9bba04037261
+    action: revised
+    status: landed
+    promise: A second terminal created while maximized resizes nothing already running
+    defectSurface: [terminal-resize, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-365e8cf668c388a2861a]
+    sameCodePathEvidence:
+      file: packages/tests/features/mount-size-stability.feature
+      symbol: "Scenario: A second terminal is created while the canvas is maximized"
+      test: The revised scenario adds the element-identity and no-second-attach assertions for the terminals already on screen.
+  - id: revise-5e75044cf574fac64417
+    revisionId: revision-5e75044cf574fac64417
+    action: revised
+    status: landed
+    promise: A second terminal created with the inspector open resizes nothing already running
+    defectSurface: [terminal-resize, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-32d61d235d593d2a84c5]
+    sameCodePathEvidence:
+      file: packages/tests/features/mount-size-stability.feature
+      symbol: "Scenario: A second terminal is created with the inspector open and the dock railed"
+      test: The revised scenario adds the element-identity and no-second-attach assertions for the terminals already on screen.
+  - id: revise-f42d044e1bb77a06ad88
+    revisionId: revision-f42d044e1bb77a06ad88
+    action: revised
+    status: landed
+    promise: A second terminal created from a resized tile resizes nothing already running
+    defectSurface: [terminal-resize, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-e4bcd07fea191b679a04]
+    sameCodePathEvidence:
+      file: packages/tests/features/mount-size-stability.feature
+      symbol: "Scenario: A second terminal is created with the keyboard from a resized tile"
+      test: The revised scenario adds the element-identity and no-second-attach assertions for the terminals already on screen.
+  - id: revise-f4f5f5e42026480e39c4
+    revisionId: revision-f4f5f5e42026480e39c4
+    action: revised
+    status: landed
+    promise: A posture trip tells each program exactly the sizes the posture changed
+    defectSurface: [terminal-resize, user-journey]
+    destinationLayer: L5
+    replacements: []
+    survivorRevisionIds: [revision-74f20e287b23844f9c0f]
+    sameCodePathEvidence:
+      file: packages/tests/features/mount-size-stability.feature
+      symbol: "Scenario: Maximizing, switching which tile is maximized, and restoring"
+      test: The revised scenario adds the element-identity and no-second-attach assertions — a posture is a change of box, never a change of element.

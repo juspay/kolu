@@ -145,6 +145,32 @@ export async function readPanelWrites(page: Page): Promise<string[]> {
   );
 }
 
+/** How many attach streams this document has opened per terminal.
+ *
+ *  A pane opens one when it becomes shown, and again after it is REBUILT — so a
+ *  count that grows while nothing was hidden is a remount, which costs the
+ *  reader a fresh snapshot and their place in the output. Counted off the
+ *  probe's own stash, which is per-document, so a reload is not mistaken for
+ *  one. */
+export async function readAttachCounts(
+  page: Page,
+  terminalIds: readonly string[],
+): Promise<Record<string, number>> {
+  return page.evaluate(
+    (ids) => {
+      const sent = window.__wsSent ?? [];
+      const counts: Record<string, number> = {};
+      for (const id of ids) {
+        counts[id] = sent.filter(
+          (frame) => frame.includes("terminalAttach") && frame.includes(id),
+        ).length;
+      }
+      return counts;
+    },
+    [...terminalIds],
+  );
+}
+
 /** The probe's reading as a quoted block for a failure message. */
 export async function quoteResizeWire(
   page: Page,

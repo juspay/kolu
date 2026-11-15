@@ -124,9 +124,14 @@ Feature: A program is told a new size only when its box moved
     And I narrow every recorded tile by 120 pixels
     Then every recorded program was told a new size
     When every recorded program has settled
+    And I mark every recorded pane
     And I create another terminal and start a size recorder in it
     And I wait out the settle window
     Then every program that was already running was told no new size
+    # A REMOUNT is invisible to every size assertion above: a rebuilt pane comes
+    # back at the size it already had and tells its program nothing, having
+    # thrown away the reader's scroll position, selection and focus on the way.
+    And every marked pane should be the same element, with no second attach
     And the new terminal's program was told at most one new size, ending at its pane's grid
     And the size record should be reported as "E: a second terminal appears"
     And there should be no page errors
@@ -144,9 +149,11 @@ Feature: A program is told a new size only when its box moved
     And I narrow every recorded tile by 120 pixels
     Then every recorded program was told a new size
     When every recorded program has settled
+    And I mark every recorded pane
     And I create another terminal with the keyboard and start a size recorder in it
     And I wait out the settle window
     Then every program that was already running was told no new size
+    And every marked pane should be the same element, with no second attach
     And the new terminal's program was told at most one new size, ending at its pane's grid
     And the size record should be reported as "E2: keyboard create, inherited size"
     And there should be no page errors
@@ -160,9 +167,11 @@ Feature: A program is told a new size only when its box moved
     And I click the chrome-bar maximize toggle
     Then canvas tile 1 should be maximized
     When every recorded program has settled
+    And I mark every recorded pane
     And I create another terminal with the keyboard and start a size recorder in it
     And I wait out the settle window
     Then every program that was already running was told no new size
+    And every marked pane should be the same element, with no second attach
     And the size record should be reported as "E3: created while maximized"
     And there should be no page errors
 
@@ -175,9 +184,11 @@ Feature: A program is told a new size only when its box moved
     And I collapse the dock to rail
     And a size recorder is running in every pane on screen
     And every recorded program has settled
+    And I mark every recorded pane
     And I create another terminal with the keyboard and start a size recorder in it
     And I wait out the settle window
     Then every program that was already running was told no new size
+    And every marked pane should be the same element, with no second attach
     And the new terminal's program was told at most one new size, ending at its pane's grid
     And the size record should be reported as "E4: inspector open, dock railed"
     And there should be no page errors
@@ -194,12 +205,16 @@ Feature: A program is told a new size only when its box moved
     And I narrow every recorded tile by 120 pixels
     Then every recorded program was told a new size
     When every recorded program has settled
+    And I mark every recorded pane
     And I double-click the title bar of canvas tile 1
     Then canvas tile 1 should be maximized
     When I wait out the settle window
     And I double-click the title bar of canvas tile 1
     Then no canvas tile should be maximized
     And the program in canvas tile 2 was told no new size
+    # A covered tile is HELD, not rebuilt: the trip is a repaint, so the reader
+    # comes back to the place they were reading.
+    And every marked pane should be the same element, with no second attach
     And the size record should be reported as "F: maximize over a sibling"
     And there should be no page errors
 
@@ -215,6 +230,7 @@ Feature: A program is told a new size only when its box moved
     And I narrow every recorded tile by 120 pixels
     Then every recorded program was told a new size
     When every recorded program has settled
+    And I mark every recorded pane
     And I double-click the title bar of canvas tile 1
     Then canvas tile 1 should be maximized
     And the program in canvas tile 1 was told exactly 1 new size
@@ -226,6 +242,9 @@ Feature: A program is told a new size only when its box moved
     Then no canvas tile should be maximized
     And the program in canvas tile 1 was told exactly 1 new size
     And the program in canvas tile 2 was told exactly 1 new size
+    # Every tile was resized, and NO tile was rebuilt: a posture is a change of
+    # box, never a change of element.
+    And every marked pane should be the same element, with no second attach
     And the size record should be reported as "G: maximize, switch, restore"
     And there should be no page errors
 

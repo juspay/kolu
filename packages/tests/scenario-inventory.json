@@ -11374,6 +11374,78 @@
       "exampleRows": [],
       "executions": 1,
       "firstSeenSha": "d216483cd42d20da2a0ae293ba333346b2b18878"
+    },
+    {
+      "revisionId": "revision-b4c8ad7e35f38ff88453",
+      "scenarioKey": "scenario-85f68725fb02e7f53071",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "A second terminal appears beside a settled one",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "5e31fa69491008327b85f3e27d0d303d7b407cf621fd6e70a8880fead8b3e8b6",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5f9232e9b50c60034f4efa5d3e7d8ae722cabc3a"
+    },
+    {
+      "revisionId": "revision-365e8cf668c388a2861a",
+      "scenarioKey": "scenario-a7c81f4752ebf77bdf84",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "A second terminal is created while the canvas is maximized",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "22ed04dcafe95c14a6157015e8cc5e354497252e7f5d65af73802aa5ac6ab047",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5f9232e9b50c60034f4efa5d3e7d8ae722cabc3a"
+    },
+    {
+      "revisionId": "revision-32d61d235d593d2a84c5",
+      "scenarioKey": "scenario-2e4cf8e8fe3843582b50",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "A second terminal is created with the inspector open and the dock railed",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "99c118a5f9e8618a2ca9216d86e9ed803d5fd9150399726152efe4eb7cabb531",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5f9232e9b50c60034f4efa5d3e7d8ae722cabc3a"
+    },
+    {
+      "revisionId": "revision-e4bcd07fea191b679a04",
+      "scenarioKey": "scenario-10e46056e1e88f7dd558",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "A second terminal is created with the keyboard from a resized tile",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "e300bd6d8d5425b05eb7e8caa4dfbab4c721b8d67735549d1449efd918cf1be1",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5f9232e9b50c60034f4efa5d3e7d8ae722cabc3a"
+    },
+    {
+      "revisionId": "revision-74f20e287b23844f9c0f",
+      "scenarioKey": "scenario-8889456d5b8e0895a9d2",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "Maximizing, switching which tile is maximized, and restoring",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "fb5fedf1a53f1f870cb047a81942950b2e6dc22c2e3f4a720a3d286b06531aa3",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5f9232e9b50c60034f4efa5d3e7d8ae722cabc3a"
+    },
+    {
+      "revisionId": "revision-9208ff19e72e7b226800",
+      "scenarioKey": "scenario-2f755196006e935128dc",
+      "feature": "features/mount-size-stability.feature",
+      "scenario": "One tile is maximized over another and restored",
+      "kind": "scenario",
+      "tags": ["@retina"],
+      "bodyHash": "44dd0280239922bc5d8972ae66308b6ad0be20f5ddc8ae765d4ee3af0db9e934",
+      "exampleRows": [],
+      "executions": 1,
+      "firstSeenSha": "5f9232e9b50c60034f4efa5d3e7d8ae722cabc3a"
     }
   ]
 }

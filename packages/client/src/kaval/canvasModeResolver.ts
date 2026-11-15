@@ -543,48 +543,62 @@ function resolvePrecedence(facts: CanvasFacts): Precedence {
         if (f.down) return clear({ kind: "down", down: f.down });
         if (f.warming)
           return retain({ kind: "warming", daemonState: f.daemonState });
-        // THE CENSUS COMES FIRST, and ahead of `terminalCount` — which is a change
-        // (#2381). A tile may not state a size until its tile knows its own shape, and a
-        // tile cannot know whether it has a SPLIT until every listed terminal's record has
-        // arrived (`TerminalContent`'s `boxDecided`). So while records are still in flight
-        // the workspace would paint tiles that can measure nothing and therefore attach
-        // nothing: a canvas of blank terminals. Holding `connecting` until the census is
-        // complete says the true thing, and the tiles then arrive able to measure at once.
+        // AN INCOMPLETE CENSUS IS A CLOCK, NEVER A SURFACE SWAP (#2381 review R2).
         //
-        // ACCRUING, not retaining, and that is the other change. A per-key record stream
-        // can wedge without erroring — `useTerminalMetadata.ts` names the hazard — and an
-        // `awaited` that never falls to zero used to cost the one tile whose record it was;
-        // now it holds the whole canvas. A live channel with a never-composing record is a
-        // bug to surface, not a state to wait in, so this leg accrues against the SAME boot
-        // ceiling every other stalled leg does and escapes to the boot-stalled card with its
-        // Retry. Only over a LIVE channel: a stall we cannot watch is not one we may certify
-        // (the sibling floor below, and #1568 SHAPE A).
+        // `recordsAwaited > 0` means the key list named a terminal whose composed record
+        // has not arrived. That happens on every terminal CREATION, mid-session: the list
+        // carries the new id a beat before its record composes. The surface must not move
+        // for it — `App.tsx` mounts `WorkspaceTerminals` only under `workspace`, so a
+        // `connecting` frame here would unmount every terminal body on the host, dispose
+        // its xterm, end its attach, and rebuild it when the record lands: every visible
+        // terminal re-attaching for a fresh snapshot and losing its scroll position, its
+        // selection and its focus, because somebody opened a new tile.
         //
-        // A genuine reboot's records arrive PARKED — `awaited` hits 0 with no live tile — so
-        // it falls through to `empty` as it always did, and the restore card still cannot
-        // flash ahead of a reload's terminals.
-        if (f.recordsAwaited > 0) {
-          if (!f.channelLive) return retain({ kind: "connecting" });
-          return {
-            mode: { kind: "connecting" },
-            tag: {
-              accrual: "accrue",
-              // The per-terminal record rides the host's session/list leg, and a fresh boot
-              // is what re-runs it — the same recovery the loading gate above hands a
-              // session that never produced its first value.
-              leg: "session",
-              ceiling: ceilingFor(f.isLocalHost, undefined),
-              phase: undefined,
-              log: NO_LOG_LINES,
-              logAbsence: undefined,
-              quiet: undefined,
-            },
-          };
+        // Nothing needed that. A tile that cannot yet measure is harmless — `boxDecided`
+        // makes it so (a pane that has measured keeps its grid; one that has not simply
+        // waits) — which is what lets the SURFACE stay settled while the CLOCK runs.
+        //
+        // So the census rides the tag, not the mode: `accrue` while it is incomplete over a
+        // live channel, against the SAME boot ceiling every other stalled leg uses. A census
+        // that completes in the normal window costs a user nothing at all (the anchor is
+        // armed and released, and no frame differs); one that never completes — the per-key
+        // record stream wedging without erroring, the hazard `useTerminalMetadata.ts`
+        // names — escapes to the boot-stalled card with its Retry instead of leaving a
+        // canvas of terminals that can never size themselves, silently. `resolveCanvasMode`
+        // is what escapes it, off the tag alone, so the mode below is free to be the honest
+        // one for the tiles that ARE composed.
+        const census: AccruingBootTag | undefined =
+          f.recordsAwaited > 0 && f.channelLive
+            ? {
+                accrual: "accrue",
+                // The per-terminal record rides the host's session/list leg, and a fresh
+                // boot is what re-runs it — the same recovery the loading gate above hands
+                // a session that never produced its first value.
+                leg: "session",
+                ceiling: ceilingFor(f.isLocalHost, undefined),
+                phase: undefined,
+                log: NO_LOG_LINES,
+                logAbsence: undefined,
+                quiet: undefined,
+              }
+            : undefined;
+        // Terminals on screen → show them. SETTLED unless the census is still running, in
+        // which case the same surface carries the clock (above).
+        if (f.terminalCount > 0) {
+          return census
+            ? { mode: { kind: "workspace" }, tag: census }
+            : clear({ kind: "workspace" });
         }
-        // Terminals on screen → show them (a settled surface → CLEAR). Otherwise "no terminals"
-        // is unconfirmable over a dead channel: show `empty` only when the CHANNEL is LIVE, else
-        // neutral connecting.
-        if (f.terminalCount > 0) return clear({ kind: "workspace" });
+        // No tile composed yet and records still arriving → hold `connecting` rather than
+        // flashing `empty`'s restore card. Same clock when the channel is live; over a dead
+        // one it stays the RETAIN it has always been — a stall we cannot watch is not one we
+        // may certify (#1568 SHAPE A). A genuine reboot's records arrive PARKED (`awaited`
+        // hits 0 with no live tile), so it falls through to `empty` as it should.
+        if (f.recordsAwaited > 0) {
+          return census
+            ? { mode: { kind: "connecting" }, tag: census }
+            : retain({ kind: "connecting" });
+        }
         // `empty` is a settled surface → CLEAR. A dead-channel connecting is owned by the
         // post-grace TRANSPORT overlay, not the boot deadline: a non-boot overlay → RETAIN.
         return f.channelLive
