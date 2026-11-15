@@ -1926,17 +1926,21 @@ export function createPtyHost(opts: PtyHostOptions): PtyHost {
     // WITHHOLDS and decides at close, by the same budget the per-subscriber
     // bound already uses. See {@link ResizeWindow}.
     //
-    // ORDER MATTERS, and it is not the obvious one. `headless.resize()`
-    // flush-parses the mirror's queued writes synchronously before it reflows
-    // (the same xterm behaviour kolu pins in `@kolu/xterm-kit`'s
-    // `internals.test.ts`), and each of those chunks fires the write callback
-    // that publishes it. Those bytes were produced BEFORE this grid change:
-    // they are ordinary output, not the repaint. Flushing them while the
-    // window is open withholds them, and anything withheld that is also in a
-    // snapshot forces `claimWithheldOverlap` to re-sync EVERY viewer — which
-    // is what an `@xterm/headless` bump turned from rare into routine
-    // (kolu#2377: the older build's `writeSync` walked the queue from index 0
-    // and so left genuinely pending chunks unparsed here).
+    // ORDER MATTERS, and it is not the obvious one. `headless.resize()` now
+    // drains the mirror's queued writes SYNCHRONOUSLY before it reflows —
+    // `CoreTerminal.resize()` calls `WriteBuffer.flushSync()` first, so an
+    // async write cannot be parsed at a width it was not written for — and
+    // each drained chunk fires the write callback that publishes it. Those
+    // bytes were produced BEFORE this grid change: they are ordinary output,
+    // not the repaint. Draining them while the window is open withholds them,
+    // and anything withheld that is ALSO in a snapshot forces
+    // `claimWithheldOverlap` to re-sync EVERY viewer of this PTY.
+    //
+    // That drain is new in the `@xterm/headless` this repo pins (kolu#2377):
+    // 6.0.0's `resize()` went straight to `_bufferService.resize()` and had no
+    // `flushSync` at all, so a chunk still queued when a resize arrived was
+    // parsed afterwards, at the NEW width. The old ordering here was resting
+    // on that — which is why it only started re-syncing on the bump.
     //
     // So: drain and reflow the mirror FIRST, open the window SECOND, and
     // SIGWINCH the child LAST. Nothing can interleave — all three are
