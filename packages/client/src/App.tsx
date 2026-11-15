@@ -308,10 +308,15 @@ const App: Component = () => {
   // (`WorkspaceTerminals`). App does not re-derive it: the old
   // `visible={isDesktop() || …}` called every desktop tile visible, so one
   // mount attached every terminal of the host (kolu#2362).
-  const renderTerminalBody = (id: TerminalId, seen: () => boolean) => (
+  const renderTerminalBody = (
+    id: TerminalId,
+    seen: () => boolean,
+    boxDecided: () => boolean,
+  ) => (
     <TerminalContent
       terminalId={id}
       visible={seen()}
+      boxDecided={boxDecided()}
       focused={tileStore.isActiveTile(id)}
       theme={getTerminalTheme(id)}
       onCloseTerminal={closeTerminal}

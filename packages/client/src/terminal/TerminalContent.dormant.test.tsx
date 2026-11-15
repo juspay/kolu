@@ -57,9 +57,8 @@ vi.mock("./useTerminalStore", () => ({
 
 vi.mock("./useSubPanel", () => ({
   useSubPanel: () => ({
-    peekSubPanel: () => ({
-      collapsed: false,
-      panelSize: 0.3,
+    savedSplit: () => ({ collapsed: false, panelSize: 0.3 }),
+    paneChrome: () => ({
       activeSubTab: SUB,
       refocusNonce: 0,
     }),
@@ -115,6 +114,7 @@ function mount(): void {
       <TerminalContent
         terminalId={MAIN}
         visible
+        boxDecided
         focused
         theme={{} as ITheme}
         onCloseTerminal={() => {}}

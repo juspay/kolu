@@ -16,6 +16,9 @@ vi.mock("../hostScope/hostScopes", () => ({
       focusedTerminalId: () => h.focused,
       writeFocus: h.writeFocus,
     },
+    // No terminals collection in these tests: every tile's record is absent,
+    // so the split state reads its one default (`splitPanelState.ts`).
+    wire: { terminals: undefined },
   }),
 }));
 
@@ -83,7 +86,7 @@ describe("terminal focus provenance DOM boundary", () => {
     textarea.focus();
 
     expect(h.focused).toBe(SUB);
-    expect(panel.peekSubPanel(PARENT).rememberedPane).toBe("sub");
+    expect(panel.paneChrome(PARENT).rememberedPane).toBe("sub");
     expect(h.writeFocus).not.toHaveBeenCalled();
 
     textarea.blur();
@@ -91,7 +94,7 @@ describe("terminal focus provenance DOM boundary", () => {
     textarea.focus();
 
     expect(h.focused).toBe(PARENT);
-    expect(panel.peekSubPanel(PARENT).rememberedPane).toBe("main");
+    expect(panel.paneChrome(PARENT).rememberedPane).toBe("main");
     expect(h.writeFocus).toHaveBeenCalledExactlyOnceWith({
       id: PARENT,
       tileHint: PARENT,

@@ -33,15 +33,14 @@ vi.mock("./useTerminalStore", () => ({
 
 vi.mock("./useSubPanel", () => ({
   useSubPanel: () => ({
-    peekSubPanel: () => {
+    savedSplit: () => {
       reads.splitState++;
-      return {
-        collapsed: false,
-        panelSize: 0.3,
-        activeSubTab: SUB,
-        refocusNonce: 0,
-      };
+      return { collapsed: false, panelSize: 0.3 };
     },
+    paneChrome: () => ({
+      activeSubTab: SUB,
+      refocusNonce: 0,
+    }),
     setPanelSize: vi.fn(),
     expandPanel: vi.fn(),
     expandAndFocusPanel: vi.fn(),
@@ -80,6 +79,7 @@ it("tears down without reading the host's split state", () => {
         <TerminalContent
           terminalId={MAIN}
           visible
+          boxDecided
           focused
           theme={{} as ITheme}
           onCloseTerminal={vi.fn()}

@@ -102,11 +102,17 @@ const TerminalCanvas: Component<{
   /** Optional bar between the title bar and the body — the tile tip. */
   renderTileBar?: (id: TileId) => JSX.Element;
   /** Render a tile's body, told whether a user can SEE this tile — the fact
-   *  the pane turns into "attach / stop attaching" (`tileSeen.ts`). An
-   *  accessor, not a value, so the subtree doesn't remount when the answer
+   *  the pane turns into "attach / stop attaching" (`tileSeen.ts`) — and
+   *  whether its box is one this canvas DECIDED, which is the separate fact
+   *  the pane turns into "may I state a size" (`CanvasTile`'s `boxDecided`).
+   *  Accessors, not values, so the subtree doesn't remount when an answer
    *  changes: reads happen inside the returned JSX's props (fine-grained
    *  reactivity), not around the render-prop call. */
-  renderTileBody: (id: TileId, seen: () => boolean) => JSX.Element;
+  renderTileBody: (
+    id: TileId,
+    seen: () => boolean,
+    boxDecided: () => boolean,
+  ) => JSX.Element;
 }> = (props) => {
   // Asked ONCE here and handed to each tile, so the tile shell keeps knowing
   // nothing about what sits on top of the canvas (`ui/shown.ts`).
@@ -458,7 +464,9 @@ const TerminalCanvas: Component<{
                 : undefined
             }
             renderBar={() => props.renderTileBar?.(tileId)}
-            renderBody={(seen) => props.renderTileBody(tileId, seen)}
+            renderBody={(seen, boxDecided) =>
+              props.renderTileBody(tileId, seen, boxDecided)
+            }
             getLayout={layoutOf}
             startResize={startResize}
             panX={viewport.panX}

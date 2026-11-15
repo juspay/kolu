@@ -126,6 +126,24 @@ interface XtermOwnProps {
    *  disagrees with the layout (a `true` pane under a `display:none` ancestor)
    *  can no longer decide it. */
   visible: boolean;
+  /** Is the box this pane sits in the one its owner's LAYOUT DECIDED?
+   *
+   *  A fact the OWNER states — never something this component infers from
+   *  timing or from the DOM settling. A pane mounts inside a tile that may not
+   *  yet know its own shape (a split whose second pane's record has not
+   *  arrived; a tile parked behind a maximized sibling), and the box it has in
+   *  the meantime is a stand-in. Measuring it is not harmless: the measurement
+   *  is what the consumer states to the host, and the host resizes a live PTY
+   *  to it.
+   *
+   *  So this gates {@link applyFit} itself rather than gating a consumer's use
+   *  of the result. While it is false the pane MEASURES NOTHING — `wantedGrid`
+   *  keeps whatever it last held (null before the first decided measurement) —
+   *  and the wrong size is not merely unpublished, it is never computed. When
+   *  it turns true the pane measures once, synchronously in that same update,
+   *  so the first reading a consumer can act on is a reading of the decided
+   *  box. */
+  boxDecided: boolean;
   /** Renderer gate — an accessor, never a snapshot: WHICH panes hold a GPU
    *  context is the consumer's budget policy. */
   webgl: Accessor<boolean>;
@@ -162,6 +180,7 @@ const OWN_KEYS = [
   "theme",
   "fontSize",
   "visible",
+  "boxDecided",
   "webgl",
   "scrollLockEnabled",
   "fullRate",
@@ -237,6 +256,10 @@ export const Xterm: Component<
    *  measurement disagree. */
   const applyFit = () => {
     if (!core) return;
+    // The OWNER's gate, read first: a box its layout has not decided is a
+    // stand-in, and a measurement of it is a size this pane would go on to
+    // state. See {@link XtermOwnProps.boxDecided}.
+    if (!own.boxDecided) return;
     if (container.clientWidth <= 0 || container.clientHeight <= 0) return;
     const box = measureGridBox(core.terminal, container);
     const next = box && gridForBox(box);
@@ -474,6 +497,28 @@ export const Xterm: Component<
       (visible) => {
         if (!visible || !core) return;
         refit();
+      },
+      { defer: true },
+    ),
+  );
+  // The box became DECIDED: measure it NOW, in this update, rather than on the
+  // next animation frame `refit` would wait for.
+  //
+  // This is what makes the gate's promise hold. The owner flips the fact in the
+  // same flush that put the decided geometry on the DOM — Solid applies a style
+  // binding in a render effect, which runs BEFORE user effects — and
+  // `measureGridBox` reads `getComputedStyle`, which forces layout. So the
+  // reading taken here is of the decided box, and the FIRST value `wantedGrid`
+  // can ever hold is that reading. A debounced re-fit would instead leave a
+  // frame in which the gate is open and the measurement is still the stand-in's
+  // — exactly the window this gate exists to close.
+  createEffect(
+    on(
+      () => own.boxDecided,
+      (decided) => {
+        if (!decided || !core) return;
+        cancelAnimationFrame(fitRaf);
+        applyFit();
       },
       { defer: true },
     ),

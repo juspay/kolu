@@ -110,7 +110,7 @@ const TileTitleActions: Component<{
   const themeName = () => getTerminalThemeName(props.id);
   const subCount = () => store.getDisplayInfo(props.id)?.subCount ?? 0;
   const splitExpanded = () =>
-    subCount() > 0 && !subPanel.peekSubPanel(props.id).collapsed;
+    subCount() > 0 && !subPanel.savedSplit(props.id).collapsed;
   // The ↻ Restart's arm, owned by the shared root so the palette's "Restart
   // terminal" arms and confirms the very same guard (`crud.requestRestart`).
   const restartArmed = () => crud.restartArmed(props.id);

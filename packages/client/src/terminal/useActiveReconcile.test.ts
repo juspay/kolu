@@ -72,7 +72,7 @@ function makePorts(over: {
     subPanel: {
       collapsePanel: calls.collapsePanel,
       collapsePanelChrome: calls.collapsePanelChrome,
-      peekSubPanel: (id) => ({
+      paneChrome: (id: TerminalId) => ({
         activeSubTab: (over.activeSubTab ?? (() => null))(id),
       }),
       setActiveSubTab: calls.setActiveSubTab,
