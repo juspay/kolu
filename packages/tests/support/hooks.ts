@@ -262,10 +262,12 @@ process.env.KOLU_FAKE_NODE_BIN = fakeBins.node;
 /** The `gh` the PR sensor runs (see `support/fake-gh.ts`). Staged per worker
  *  beside the other fake binaries and handed to the server child explicitly —
  *  `KOLU_GH_BIN` is a which-binary var outside the shared spawn allowlist, the
- *  same class as `KOLU_KAVAL_BIN`, so it can only reach the server (and the
- *  padi it spawns, which inherits the from-source server's env) by being named
- *  there. Without it the devshell's REAL `gh` would answer the suite's
- *  repositories — a network call, a token, and an answer no scenario stated. */
+ *  same class as `KOLU_KAVAL_BIN`, so it can only reach the server by being
+ *  named there; the server forwards it to the padi it spawns (`daemonEnv`),
+ *  and both nix wrappers bake it with `--set-default`, so the nix-built lane
+ *  (`just test`, CI) gets the fake too. Without it the REAL `gh` would answer
+ *  the suite's repositories — a network call, a token, and an answer no
+ *  scenario stated. */
 const fakeGhBin = stageFakeGh(fakeBinDir, process.execPath);
 
 /** Per-worker ephemeral state dir for the kolu server under test. Routing
@@ -954,10 +956,10 @@ async function startServerChild(
           // a per-worker dir that outlives a server respawn, the way a real
           // adapter's store outlives kolu-server.
           KOLU_ACP_AGENT: `${process.execPath} ${acpFixtureAgent} ${acpFixtureSessions}`,
-          // THE PR SENSOR'S `gh`. It runs inside padi (the server spawns it
-          // from source here, so padi inherits this env), and the suite's
-          // answer must be the one a scenario wrote into its own repo rather
-          // than whatever the devshell's real `gh` can reach.
+          // THE PR SENSOR'S `gh`. It runs inside padi; the server forwards it
+          // there (`daemonEnv`), and the suite's answer must be the one a
+          // scenario wrote into its own repo rather than whatever the real
+          // `gh` can reach.
           KOLU_GH_BIN: fakeGhBin,
         },
       },

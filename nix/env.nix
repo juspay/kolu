@@ -30,10 +30,11 @@ in
   # Official Rhai TextMate grammar, pinned through npins and exposed as a file
   # so Vite can lazy-load it without vendoring an upstream snapshot.
   KOLU_RHAI_GRAMMAR = rhaiGrammar;
-  # Pinned gh binary — the server's GitHub provider consumes this directly.
-  # Required, not optional: github.ts throws at startup if unset. Set here so
-  # both the packaged wrapper (default.nix) and the dev shell (shell.nix)
-  # pick it up via `koluEnv`.
+  # Pinned gh binary — padi's PR sensor consumes this directly. Required, not
+  # optional: the GitHub provider throws if unset. Set here so both the
+  # packaged wrappers (default.nix) and the dev shell (shell.nix) pick it up
+  # via `koluEnv`. The wrappers bake it with `--set-default` so the e2e lane's
+  # scripted `gh` reaches padi through kolu-server (see `daemonEnv`).
   KOLU_GH_BIN = "${pkgs.gh}/bin/gh";
   # osfacts — the single OS process/socket fact sampler padi's port scan spawns
   # (OSF2). Same footing as `KOLU_GH_BIN`: a required absolute path baked by Nix,

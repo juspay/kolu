@@ -130,8 +130,8 @@ process.stdout.write(fs.readFileSync(fixture, "utf8"));
 }
 
 /** Stage the fake `gh` in `dir` and answer its absolute path — what the
- *  harness puts in the server child's `KOLU_GH_BIN` (padi inherits it from
- *  the server, which is where the PR sensor runs). */
+ *  harness puts in the server child's `KOLU_GH_BIN` (the server forwards it to
+ *  padi, which is where the PR sensor runs). */
 export function stageFakeGh(dir: string, nodeBin: string): string {
   fs.mkdirSync(dir, { recursive: true });
   const bin = path.join(dir, "gh");
